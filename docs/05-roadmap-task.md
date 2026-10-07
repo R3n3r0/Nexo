@@ -6,6 +6,11 @@ Regola generale di "Done" per ogni task: codice + test (unit e, dove indicato, i
 
 Stime indicative in giorni-persona (gp) per 1 sviluppatore full-stack.
 
+**Vincoli trasversali validi per ogni milestone**
+- Ogni funzionalità deve funzionare **sia in singolo nodo sia in cluster** (vedi [08](08-modalita-deploy.md)); la CI esegue le suite in matrice di modalità appena disponibile la modalità corrispondente.
+- Ogni milestone produce un **binario** e un'**immagine Docker** funzionanti (artefatti CI) e aggiorna i file `deploy/docker/compose.*.yml`.
+- Ogni funzionalità utente è raggiungibile da **API, CLI e dashboard** (salvo funzioni puramente S3).
+
 ## Panoramica milestone
 
 | Milestone | Obiettivo | Stima |
@@ -40,7 +45,8 @@ M3/M4 (UI e CLI) e M5 (storage) possono procedere in parallelo grazie all'interf
 | T-0.3 | `go:embed` della dashboard con build tag `embedui`, fallback SPA, header di cache, CSP | T-0.1, T-0.2 | `GET /` serve index, `GET /buckets/x` → index, asset con cache immutable |
 | T-0.4 | CI GitHub Actions: lint, unit Go (con `-race`), unit web, build, upload artefatti | T-0.1, T-0.2 | Pipeline verde su PR |
 | T-0.5 | Config loader (flag/env/file) con `cobra`, logging `slog`, graceful shutdown | T-0.1 | `nexo server --help`, SIGTERM chiude in < 10 s |
-| T-0.6 | Dockerfile multi-stage (node → go → distroless), `docker-compose.yml` dev | T-0.3 | `docker run` avvia server + console |
+| T-0.6 | Dockerfile multi-stage (node → go → distroless) per `nexo` e `nexoctl`, sottocomando `nexo healthcheck`, `*_FILE` secrets, `compose.single.yml` | T-0.3 | `docker run` avvia server + console, container `healthy` |
+| T-0.8 | Goreleaser: binari multi-OS/arch, immagini multi-arch, build snapshot su ogni PR | T-0.6 | Artefatti scaricabili dalla CI |
 | T-0.7 | `internal/testutil`: avvio server in-process su porta casuale con directory temporanee | T-0.5 | Usato dai test di integrazione |
 
 ## M1 — S3 core single-drive
@@ -48,6 +54,7 @@ M3/M4 (UI e CLI) e M5 (storage) possono procedere in parallelo grazie all'interf
 | ID | Task | Dipende | DoD |
 |----|------|---------|-----|
 | T-1.1 | Definizione interfacce `ObjectLayer` e `StorageAPI` + tipi (ObjectInfo, BucketInfo, opzioni) | T-0.1 | Interfacce documentate, mock generato (`mockery`) |
+| T-1.0 | Rilevamento modalità da argomenti (SNSD / SNMD / cluster), `mode` in `format.json`, `nexo server --dry-run` | T-0.5 | Test TM-03, TM-12 |
 | T-1.2 | `xlStorage`: layout su disco, `format.json`, scrittura atomica tmp+rename+fsync, pulizia tmp all'avvio | T-1.1 | Test crash-consistency (kill durante scrittura) |
 | T-1.3 | Formato `xl.meta` con msgpack (versioni, inline data), codegen `msgp`, fuzz test di decodifica | T-1.2 | Round-trip + fuzz 10 min senza panic |
 | T-1.4 | Router S3: path-style e virtual-host, parsing query/header, mapping errori XML | T-0.5 | Tabella errori completa testata |
@@ -63,13 +70,17 @@ M3/M4 (UI e CLI) e M5 (storage) possono procedere in parallelo grazie all'interf
 | ID | Task | Dipende | DoD |
 |----|------|---------|-----|
 | T-2.1 | SigV4: header, presigned query, `UNSIGNED-PAYLOAD`, streaming `aws-chunked` con firma per chunk e trailer (S-IAM-02) | T-1.4 | Vettori di test ufficiali AWS SigV4 test suite verdi |
-| T-2.2 | POST policy (form upload) (S-OBJ-08) | T-2.1 | Test con form generato da SDK |
+| T-2.2 | POST policy (form upload) con tutte le condizioni, redirect, verifica dimensione in streaming (S-OBJ-08b) | T-2.1 | Test TPS-12, TPS-13 |
+| T-2.2b | URL presigned completi: GET/PUT/HEAD/DELETE, multipart, `versionId`, override `response-*`, limiti di scadenza, STS token, verifica permessi al momento dell'uso (S-OBJ-08) | T-2.1, T-2.5 | Test TPS-01..11 |
 | T-2.3 | Policy engine: parsing JSON AWS, Effect/Action/Resource/Condition (StringEquals, StringLike, IpAddress, Bool, DateGreaterThan…), variabili, deny esplicito prevale | — | Test table-driven > 150 casi + fuzz parser |
 | T-2.4 | IAM store su `.nexo.sys/config/iam` cifrato (chiave derivata da root), cache in memoria | T-1.2, T-2.3 | Riavvio preserva utenti/policy |
 | T-2.5 | Utenti, policy predefinite e custom, attach (S-IAM-01, 03, 04) | T-2.4 | Utente `readonly` riceve 403 su PUT |
 | T-2.6 | Bucket policy + accesso anonimo (S-BKT-03) | T-2.3 | GET anonimo su bucket pubblico 200, privato 403 |
 | T-2.7 | Gruppi, service account con policy inline e scadenza (S-IAM-05, 06) | T-2.5 | Policy effettiva = intersezione parent ∩ inline |
 | T-2.8 | STS AssumeRole (S-IAM-07) | T-2.7 | Credenziali temporanee scadono correttamente |
+| T-2.9 | Share link gestiti e revocabili tramite service account dedicati, elenco/revoca via Admin API (S-OBJ-08c) | T-2.2b, T-2.7 | Test TPS-14 |
+| T-2.10 | Accesso anonimo per prefix (private/download/upload/public) generato come bucket policy | T-2.6 | Test TPS-16 |
+| T-2.11 | Simulatore di policy + permessi effettivi (S-IAM-04b) | T-2.3 | Test TPS-18 |
 
 ## M3 — Admin API + Dashboard MVP
 
@@ -89,6 +100,9 @@ M3/M4 (UI e CLI) e M5 (storage) possono procedere in parallelo grazie all'interf
 | T-3.12 | Utenti e Policy con editor Monaco + validazione server (D-IAM-01, 03) | T-3.2 | E2E crea utente, assegna policy, login con nuovo utente |
 | T-3.13 | UI permission-aware tramite `/me/permissions` (D-UX-02) | T-3.12 | Utente readonly non vede pulsanti di scrittura |
 | T-3.14 | Pagina Info (D-CFG-02) | T-3.2 | — |
+| T-3.15 | Dialog Condividi, pagina Condivisioni con revoca (D-SHR-01, 03) | T-2.9, T-3.8 | Test TD-P-01, 02 |
+| T-3.16 | Tab Accesso del bucket: anonimo per prefix + editor bucket policy (D-POL-01) | T-2.10 | Test TD-P-04 |
+| T-3.17 | Generatore upload (PUT/POST policy) e simulatore policy (D-SHR-02, D-POL-03) | T-2.11 | Test TD-P-03, 06 |
 
 ## M4 — CLI `nexoctl`
 
@@ -98,7 +112,8 @@ M3/M4 (UI e CLI) e M5 (storage) possono procedere in parallelo grazie all'interf
 | T-4.2 | Client S3 (aws-sdk-go-v2) e client admin `pkg/nexoadmin` | T-3.2 | — |
 | T-4.3 | `ls`, `mb`, `rb`, `stat`, `cat`, `pipe`, `head` | T-4.2 | testscript e2e |
 | T-4.4 | `cp`, `mv`, `rm` con ricorsione, multipart parallelo, progress bar, glob | T-4.3 | Copia 1000 file + 1 file da 2 GiB |
-| T-4.5 | `share`, autocompletamento shell | T-4.3 | — |
+| T-4.5 | `share download/upload/--post/list/revoke`, `presign`, `anonymous`, autocompletamento shell | T-4.3, T-2.9 | Test TCL-P-01..06 |
+| T-4.8 | Immagine Docker `nexoctl` e pacchetti binari della CLI | T-0.8 | `docker run nexoctl ls` funziona |
 | T-4.6 | `admin info`, `admin user`, `admin policy` | T-4.2 | testscript e2e |
 | T-4.7 | `mirror` (+ `--watch` con fsnotify), `find`, `du`, `tree`, `diff` | T-4.4 | Mirror idempotente |
 
@@ -110,6 +125,7 @@ M3/M4 (UI e CLI) e M5 (storage) possono procedere in parallelo grazie all'interf
 | T-5.2 | `erasure`: encode/decode streaming a blocchi con `reedsolomon`, bitrot HighwayHash per blocco | T-1.1 | Ricostruzione con P shard mancanti |
 | T-5.3 | `ErasureObjects`: put/get/delete con quorum, scelta metadati coerenti (`pickValidFileInfo`) | T-5.2 | Test con dischi "naughty" (fault injection) |
 | T-5.4 | `ErasureSets` + `ServerPools`, hash di placement | T-5.3 | Distribuzione uniforme (chi-quadro) |
+| T-5.9 | CI in matrice SNSD/SNMD per tutte le suite di integrazione, `compose.snmd.yml` | T-5.5 | TM-01 parziale verde |
 | T-5.5 | Listing merge da più dischi con quorum | T-5.4 | Listing coerente con 1 disco offline |
 | T-5.6 | Heal-on-read + MRF + heal oggetto/bucket | T-5.3 | Disco svuotato → ripopolato |
 | T-5.7 | Disk monitor, sostituzione disco, `healing.bin` con ripresa | T-5.6 | Healing riprende dopo restart |
@@ -128,6 +144,9 @@ M3/M4 (UI e CLI) e M5 (storage) possono procedere in parallelo grazie all'interf
 | T-6.7 | Espansione con nuovi pool + selezione pool pesata | T-5.4 | Nuovi oggetti vanno nel pool vuoto |
 | T-6.8 | Ambiente `test/cluster` docker-compose 4×4 + toxiproxy, suite chaos | T-6.4 | Suite chaos verde in CI notturna |
 | T-6.9 | Dashboard pagina Cluster e Healing (D-CLU-01, 02), CLI `admin heal` (C-ADM-07) | T-6.5 | E2E su cluster docker |
+| T-6.10 | `compose.cluster.yml` + nginx, `compose.cluster-tls.yml`, URL pubblico (`NEXO_SERVER_URL`) per presigned dietro proxy | T-6.4 | TM-06, TM-09, TPS-19 |
+| T-6.11 | CI in matrice completa SNSD/SNMD/Cluster (integrazione, CLI, Playwright) | T-6.10 | TM-01, TM-02 verdi |
+| T-6.12 | `admin cluster export/import` per migrazione tra modalità (S-OPS-15) | T-6.5 | TM-04 |
 
 ## M7 — Funzionalità avanzate
 
@@ -163,7 +182,7 @@ M3/M4 (UI e CLI) e M5 (storage) possono procedere in parallelo grazie all'interf
 | T-9.2 | Benchmark con `warp` e profiling (pprof), ottimizzazioni (pool di buffer, O_DIRECT, zero-copy) | M6 | Report prestazioni in `docs/bench/` |
 | T-9.3 | Security review: threat model, `gosec`, `govulncheck`, `npm audit`, fuzzing esteso, pen test console | M8 | Nessuna vulnerabilità High aperta |
 | T-9.4 | TLS hot reload, SNI multipli (S-OPS-02) | M1 | — |
-| T-9.5 | Packaging: binari multi-arch (goreleaser), immagini Docker firmate (cosign), SBOM, Helm chart, unit systemd | M8 | Release candidata pubblicata |
+| T-9.5 | Packaging finale: binari multi-arch, deb/rpm/Homebrew, immagini Docker firmate (cosign), SBOM, Helm chart (`standalone`/`distributed`), unit systemd, stack Swarm | M8 | Release candidata pubblicata, TM-10, TM-11 |
 | T-9.6 | Documentazione utente: quickstart, guida cluster, guida operativa, reference CLI generata da cobra | — | Sito docs |
 | T-9.7 | Accessibilità e i18n completi dashboard (D-UX-01) | M8 | axe senza violazioni serious/critical |
 | T-9.8 | Test di upgrade (v1.0-rc → v1.0) con dati esistenti, rolling restart | T-9.5 | Nessuna perdita dati |

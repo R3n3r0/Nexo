@@ -217,7 +217,23 @@ Setup: global setup avvia `nexo server` su directory temporanea (e, per la suite
 | TP-05 | Benchmark Go (`erasure`, `sigv4`, `xl.meta`) con confronto vs baseline (`benchstat`) | Nessuna regressione > 10% |
 | TP-06 | Memoria a regime sotto carico | Stabile, nessun leak in 24 h |
 
-## 6.7 Matrice di tracciabilità
+## 6.7 Test di modalità, rilascio e presigned
+
+I test specifici sono definiti nei documenti dedicati e fanno parte della pipeline:
+- **Modalità e rilascio** (singolo nodo vs cluster, binario, Docker, Compose, migrazione): [08 §8.6](08-modalita-deploy.md#86-test-specifici-di-modalità-e-rilascio) — TM-01…TM-12.
+- **URL presigned, POST policy, policy di accesso, share link** su server, CLI e dashboard: [09 §9.6](09-presigned-policy-condivisione.md#96-test) — TPS-*, TCL-P-*, TD-P-*.
+
+Matrice CI:
+
+| Suite | SNSD | SNMD (4 dischi) | Cluster (4×2, Docker) |
+|-------|------|-----------------|------------------------|
+| Integrazione S3/IAM/presigned | ogni PR | ogni PR | merge su `main` + notturna |
+| CLI testscript | ogni PR | merge | notturna |
+| Playwright dashboard | ogni PR (smoke) / merge (completa) | — | notturna |
+| s3-tests / mint | notturna | notturna | notturna |
+| Smoke immagine Docker e binari | ogni PR | — | ogni PR (compose up + test base) |
+
+## 6.8 Matrice di tracciabilità
 
 Ogni funzionalità del [catalogo](02-funzionalita.md) deve avere almeno un test associato. La matrice viene
 mantenuta in `test/TRACEABILITY.md` (generata da tag nei test, es. `// covers: S-OBJ-06`) e controllata in CI:

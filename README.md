@@ -18,6 +18,8 @@ servita direttamente dal binario Go. È progettato per girare sia su un singolo 
 | 5 | [Roadmap e task](docs/05-roadmap-task.md) | Milestone, task con ID, dipendenze e criteri di accettazione |
 | 6 | [Piano di test](docs/06-piano-test.md) | Strategia e casi di test per server, CLI, dashboard e cluster |
 | 7 | [Sicurezza e operatività](docs/07-sicurezza-operativita.md) | Threat model, TLS, KMS, osservabilità, deploy |
+| 8 | [Modalità e rilascio](docs/08-modalita-deploy.md) | Singolo nodo (SNSD/SNMD) e cluster, binario e Docker/Compose |
+| 9 | [Presigned, policy e condivisione](docs/09-presigned-policy-condivisione.md) | URL presigned, POST policy, bucket/IAM policy, share link revocabili |
 
 ## In breve
 
@@ -30,6 +32,9 @@ servita direttamente dal binario Go. È progettato per girare sia su un singolo 
             └────────────────────────── Internode RPC (mTLS) ◀──────────────────────┘
 ```
 
-- **Un solo binario** `nexo` (server + console embedded) e un binario `nexoctl` (CLI).
+- **Due modalità, stesso binario**: singolo nodo (1 disco o più dischi con erasure coding) e cluster multi-nodo.
+- **Rilascio** come binario statico (Linux/macOS/Windows, amd64/arm64) **e** come immagine Docker (+ Compose per singolo nodo e cluster).
+- **Tre interfacce**: API S3, CLI `nexoctl` e dashboard web React servita dal binario Go.
+- **URL presigned, POST policy, policy IAM/bucket, accesso anonimo, share link revocabili** da API, CLI e dashboard.
 - **Compatibilità S3**: SigV4, bucket, oggetti, multipart, versioning, policy, lifecycle, object lock, SSE.
 - **Cluster**: pool di server, erasure set Reed-Solomon, nessun database di metadati centrale.
