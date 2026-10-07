@@ -1,0 +1,35 @@
+# Nexo
+
+**Nexo** è un object storage compatibile con l'API **Amazon S3**, scritto in **Go**, ispirato a MinIO.
+Include un server S3, una CLI di amministrazione (`nexoctl`) e una dashboard web in **React**
+servita direttamente dal binario Go. È progettato per girare sia su un singolo nodo sia in
+**cluster distribuito** con erasure coding.
+
+> Stato: **fase di progettazione**. Questo repository contiene per ora solo i documenti di progetto.
+
+## Documenti di progetto
+
+| # | Documento | Contenuto |
+|---|-----------|-----------|
+| 1 | [Architettura](docs/01-architettura.md) | Componenti, layout del repository, stack, scelte tecniche |
+| 2 | [Funzionalità](docs/02-funzionalita.md) | Catalogo completo delle funzionalità di server, dashboard e CLI con priorità |
+| 3 | [Cluster](docs/03-cluster.md) | Topologia, erasure coding, quorum, lock distribuiti, healing, espansione |
+| 4 | [API](docs/04-api.md) | API S3 supportate, Admin API, Internode RPC |
+| 5 | [Roadmap e task](docs/05-roadmap-task.md) | Milestone, task con ID, dipendenze e criteri di accettazione |
+| 6 | [Piano di test](docs/06-piano-test.md) | Strategia e casi di test per server, CLI, dashboard e cluster |
+| 7 | [Sicurezza e operatività](docs/07-sicurezza-operativita.md) | Threat model, TLS, KMS, osservabilità, deploy |
+
+## In breve
+
+```
+            ┌───────────────────────────── nexo server ─────────────────────────────┐
+ S3 SDK ───▶│ :9000  S3 API (SigV4) ─┐                                              │
+ nexoctl ──▶│ :9001  Admin API ──────┼──▶ IAM ─▶ ObjectLayer ─▶ Pools ─▶ ErasureSets │
+ Browser ──▶│ :9001  Console React ──┘            (embed.FS)            │           │
+            │                                                     Drive locali/remoti│
+            └────────────────────────── Internode RPC (mTLS) ◀──────────────────────┘
+```
+
+- **Un solo binario** `nexo` (server + console embedded) e un binario `nexoctl` (CLI).
+- **Compatibilità S3**: SigV4, bucket, oggetti, multipart, versioning, policy, lifecycle, object lock, SSE.
+- **Cluster**: pool di server, erasure set Reed-Solomon, nessun database di metadati centrale.
