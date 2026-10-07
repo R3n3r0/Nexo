@@ -24,6 +24,7 @@ Stime indicative in giorni-persona (gp) per 1 sviluppatore full-stack.
 | **M6** | Cluster distribuito (RPC, dsync, bootstrap, pool) | 30 gp |
 | **M7** | Funzionalità avanzate (versioning, lifecycle, object lock, SSE, eventi, quota) | 30 gp |
 | **M7b** | Regole di accesso regex, domini multipli e distribuzioni (vedi [10](10-domini-accessi-distribuzioni.md)) | 25 gp |
+| **M7c** | Cache per dominio (vedi [11](11-cache-domini.md)) | 18 gp |
 | **M8** | Osservabilità (metriche, log, audit, trace) + pagine dashboard | 12 gp |
 | **M9** | Hardening, prestazioni, compatibilità, packaging → **v1.0** | 15 gp |
 | **M10** | P2: replica, site replication, decommission/rebalance, OIDC/LDAP, tiering | 40+ gp |
@@ -184,7 +185,25 @@ M3/M4 (UI e CLI) e M5 (storage) possono procedere in parallelo grazie all'interf
 | T-7b.13 | Dashboard: distribuzioni, wizard, behavior con tester, key group, certificati, origin secret (D-DST-01..07) | T-7b.11 | TD-D-01..05 |
 | T-7b.14 | CLI `access` e `dist` | T-7b.11 | TCL-A-*, TCL-D-* |
 | T-7b.15 | `deploy/proxy/` (nginx, Caddy, Traefik, HAProxy, Cloudflare) + compose con 2 proxy | T-7b.8 | TCD-01..03 |
-| T-7b.16 | Metriche/access log per distribuzione; invalidazione con webhook (D-DST-08) | T-8.1 | TDS-11 |
+| T-7b.16 | Metriche/access log per distribuzione (D-DST-08); la cache è in M7c | T-8.1 | — |
+
+## M7c — Cache per dominio
+
+| ID | Task | Dipende | DoD |
+|----|------|---------|-----|
+| T-7c.1 | Modello cache policy + ereditarietà globale/distribuzione/dominio/behavior | T-7b.5 | TCC-01, 02 |
+| T-7c.2 | Calcolo chiave di cache (query, header, cookie, host, normalizzazione) | T-7c.1 | TCC-03 |
+| T-7c.3 | Cache L1 memoria (W-TinyLFU) + L2 disco con indice, quote globali/distribuzione/dominio | T-7c.1 | TCC-13, 14, 16 |
+| T-7c.4 | Middleware cache: TTL, stale-while-revalidate/if-error, negative caching, bypass, request collapsing, varianti compresse, header `X-Cache`/`Age` | T-7c.2, T-7c.3 | TCC-04, 07, 08, 10, 11 |
+| T-7c.5 | Range caching a blocchi | T-7c.4 | TCC-09 |
+| T-7c.6 | Invalidazione automatica dagli eventi di scrittura + manuale (path/glob/regex/tag/dominio/soft), propagazione con numero di sequenza | T-7c.4, T-6.5 | TCC-05, 06, 12, TCC-C-03, 04 |
+| T-7c.7 | Modalità cluster `shared` con rendezvous hashing via RPC | T-7c.4, T-6.1 | TCC-C-01, 02 |
+| T-7c.8 | Webhook di purge esterni con coda persistente | T-7c.6 | TCC-15 |
+| T-7c.9 | Warm-up (prefetch, warmOnWrite) | T-7c.4 | TCL-C-04 |
+| T-7c.10 | Ispettore URL, metriche per dominio | T-7c.4, T-8.1 | TCL-C-03 |
+| T-7c.11 | Admin API + OpenAPI, CLI `cache` e `dist cache` | T-7c.6 | TCL-C-* |
+| T-7c.12 | Dashboard D-CCH-01..08 | T-7c.11 | TD-C-* |
+| T-7c.13 | Volume `/cache` nei Compose, flag `--cache-dir/--cache-size`, test compose 2 proxy | T-7c.3 | TCC-C-05 |
 
 ## M8 — Osservabilità
 

@@ -236,6 +236,8 @@ Matrice CI:
 Test di **regole di accesso, domini e distribuzioni** (server, CLI, dashboard, cluster con più proxy):
 [10 §10.6](10-domini-accessi-distribuzioni.md#106-test) — TAR-*, TDS-*, TCL-A-*, TCL-D-*, TD-A-*, TD-D-*, TCD-*.
 
+Test di **cache per dominio** (server, cluster, CLI, dashboard): [11 §11.12](11-cache-domini.md#1112-test) — TCC-*, TCC-C-*, TCL-C-*, TD-C-*.
+
 ## 6.8 Matrice di tracciabilità
 
 Ogni funzionalità del [catalogo](02-funzionalita.md) deve avere almeno un test associato. La matrice viene

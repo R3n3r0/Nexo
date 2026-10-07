@@ -184,10 +184,7 @@ Per ogni richiesta, l'header `Host` (o `X-Forwarded-Host` se il proxy è fidato)
 - Selezione via **SNI**; scadenza visibile in dashboard con alert a 21 giorni.
 
 ### Cache e invalidazione
-- Nexo emette sempre `ETag`, `Last-Modified`, `Cache-Control` per behavior → i proxy/CDN davanti possono fare caching corretto.
-- **Cache interna opzionale** (P2): LRU in memoria + disco per distribuzione, con `stale-while-revalidate`.
-- **Invalidazione** per path/glob (API, CLI, dashboard): svuota la cache interna e invia webhook di purge configurabili
-  verso proxy/CDN esterni (es. Cloudflare, nginx cache purge, Varnish BAN).
+Gestione completa della cache **per distribuzione, per dominio e per percorso**: vedi [11 — Cache per dominio](11-cache-domini.md).
 
 ### Osservabilità per distribuzione
 Metriche `nexo_distribution_requests_total{distribution,host,status}`, byte serviti, cache hit ratio, latenza;
@@ -278,7 +275,7 @@ Azioni di policy: `admin:ManageAccessRules`, `admin:ManageDistributions`, `admin
 | TDS-08 | PROXY protocol v1/v2 e `Forwarded`/`X-Forwarded-*` solo da `NEXO_TRUSTED_PROXIES` | IP reale corretto, spoofing ignorato |
 | TDS-09 | `pathPrefix` di origine: impossibile uscire dal prefix (`/../`, encoded) | 403/404 |
 | TDS-10 | TLS: SNI con più certificati, ACME contro Pebble (ACME di test) inclusa la renewal, cluster con leader che rinnova | Certificato servito da tutti i nodi |
-| TDS-11 | Invalidazione: cache interna svuotata, webhook di purge inviato | — |
+| TDS-11 | Cache e invalidazione: vedi test TCC-* in [11](11-cache-domini.md#1112-test) | — |
 | TDS-12 | Range, conditional GET, HEAD, `Content-Type` corretti via distribuzione | Conforme |
 | TDS-13 | Rate limit per IP (P2) | 429 oltre soglia |
 | TDS-14 | Fuzzing di Host header, path e parametri di firma | Nessun panic/bypass |
