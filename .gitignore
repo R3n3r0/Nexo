@@ -1,0 +1,14 @@
+/bin/
+/dist/
+/web/node_modules/
+/web/dist/
+/web/coverage/
+/web/playwright-report/
+/web/test-results/
+*.test
+*.out
+coverage*.txt
+.DS_Store
+/.cache/
+/data/
+/tmp/
