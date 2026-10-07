@@ -1,0 +1,52 @@
+// Package lock defines the namespace locking used to serialize access to
+// buckets and objects. The local implementation serves single-node modes;
+// the distributed one (dsync) arrives with the cluster mode.
+//
+//go:generate mockery --name Locker --output ./mock --outpkg mock --with-expecter
+//go:generate mockery --name NSLock --output ./mock --outpkg mock --with-expecter
+package lock
+
+import (
+	"context"
+	"time"
+)
+
+// Locker acquires read/write locks on named resources. Locks are not
+// reentrant. Lock and RLock return domain.ErrLockTimeout when the lock
+// cannot be acquired within timeout, or ctx.Err() when ctx ends first.
+type Locker interface {
+	Lock(ctx context.Context, resource string, timeout time.Duration) error
+	Unlock(ctx context.Context, resource string) error
+	RLock(ctx context.Context, resource string, timeout time.Duration) error
+	RUnlock(ctx context.Context, resource string) error
+
+	// NewNSLock returns a lock handle for the given volume/path, the
+	// preferred way to lock objects.
+	NewNSLock(volume, path string) NSLock
+}
+
+// NSLock is a lock handle on one namespace entry (volume + path).
+type NSLock interface {
+	// GetLock acquires the write lock and returns a context that is
+	// cancelled if the lock is lost, plus the handle to release it.
+	GetLock(ctx context.Context, timeout time.Duration) (LockContext, error)
+	// GetRLock acquires the read lock.
+	GetRLock(ctx context.Context, timeout time.Duration) (LockContext, error)
+}
+
+// LockContext is a held lock.
+type LockContext interface {
+	// Context is derived from the caller's context and is cancelled when
+	// the lock is released or lost.
+	Context() context.Context
+	// Unlock releases the lock. It is idempotent.
+	Unlock()
+}
+
+// Resource builds the canonical resource name for a volume and path.
+func Resource(volume, path string) string {
+	if path == "" {
+		return volume
+	}
+	return volume + "/" + path
+}
