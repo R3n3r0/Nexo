@@ -21,6 +21,7 @@ servita direttamente dal binario Go. È progettato per girare sia su un singolo 
 | 8 | [Modalità e rilascio](docs/08-modalita-deploy.md) | Singolo nodo (SNSD/SNMD) e cluster, binario e Docker/Compose |
 | 9 | [Presigned, policy e condivisione](docs/09-presigned-policy-condivisione.md) | URL presigned, POST policy, bucket/IAM policy, share link revocabili |
 | 10 | [Accessi, domini e distribuzioni](docs/10-domini-accessi-distribuzioni.md) | Regole di accesso con glob/regex, bucket pubblici, più domini per bucket, distribuzioni stile CloudFront dietro proxy |
+| 11 | [Cache per dominio](docs/11-cache-domini.md) | Cache integrata memoria/disco, policy per distribuzione/dominio/percorso, invalidazione automatica e manuale, cache condivisa in cluster |
 
 ## In breve
 
@@ -38,5 +39,6 @@ servita direttamente dal binario Go. È progettato per girare sia su un singolo 
 - **Tre interfacce**: API S3, CLI `nexoctl` e dashboard web React servita dal binario Go.
 - **URL presigned, POST policy, policy IAM/bucket, accesso anonimo, share link revocabili** da API, CLI e dashboard.
 - **Regole di accesso con glob e regex**, bucket o prefix pubblici, **più domini per bucket** e **distribuzioni stile CloudFront** (behavior per path, URL firmati, TLS/ACME, origin secret per proxy), configurabili da dashboard e CLI.
+- **Cache per dominio**: policy di cache per distribuzione, dominio e percorso, invalidazione automatica alla scrittura, purge per path/tag/dominio, cache condivisa nel cluster.
 - **Compatibilità S3**: SigV4, bucket, oggetti, multipart, versioning, policy, lifecycle, object lock, SSE.
 - **Cluster**: pool di server, erasure set Reed-Solomon, nessun database di metadati centrale.

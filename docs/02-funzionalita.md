@@ -57,7 +57,9 @@ Ogni funzionalità ha un codice (es. `S-OBJ-01`) richiamato nella [roadmap](05-r
 | S-DST-04 | URL e cookie firmati di distribuzione con key group e rotazione | P1 |
 | S-DST-05 | Proxy fidati, PROXY protocol, origin secret per proxy, restrizioni IP | P0 |
 | S-DST-06 | TLS per dominio: upload e ACME automatico (HTTP-01/TLS-ALPN-01; DNS-01 P2) | P1 |
-| S-DST-07 | Invalidazione con webhook di purge; cache interna opzionale | P2 |
+| S-DST-07 | Cache integrata (memoria + disco) con policy per distribuzione / **dominio** / percorso, quote per dominio (vedi [11](11-cache-domini.md)) | P1 |
+| S-DST-07b | Invalidazione automatica alla scrittura, purge per path/glob/regex/tag/dominio, soft purge, webhook verso CDN/proxy esterni | P1 |
+| S-DST-07c | Cache condivisa in cluster (consistent hashing), stale-while-revalidate/if-error, request collapsing, range caching, warm-up | P1 / P2 |
 | S-DST-08 | Rate limit per distribuzione; metriche e access log per distribuzione | P2 / P1 |
 
 ### Autenticazione e IAM
@@ -137,6 +139,7 @@ Ogni funzionalità ha un codice (es. `S-OBJ-01`) richiamato nella [roadmap](05-r
 | D-POL-01 | Accesso bucket | Private/public/custom, regole anonime per prefix, editor bucket policy | P0 |
 | D-POL-03 | Simulatore policy e permessi effettivi utente | | P1 |
 | D-ACC-01..04 | Regole di accesso | Editor regole glob/regex con priorità drag&drop, tester di pattern, preset pubblico, block public access | P0 |
+| D-CCH-01..08 | Cache | Pagina cache globale, tab cache per distribuzione con override per dominio, editor policy, invalidazione con stato per nodo, ispettore URL, warm-up, webhook, grafici per dominio | P1 |
 | D-DST-01..08 | Distribuzioni | Elenco, wizard domini+DNS, editor behavior con tester URL, error page/redirect/header, key group e URL firmati, origin secret, certificati, invalidazione e metriche | P0/P1 |
 | D-IAM-04 | Access key | Crea service account con policy inline e scadenza, mostra segreto una sola volta, download credenziali | P1 |
 | D-MON-01 | Metriche | Grafici per richieste, errori, latenze, banda, uso disco; intervallo temporale | P1 |
@@ -173,6 +176,7 @@ Sintassi: `nexoctl <gruppo> <comando> [ALIAS/BUCKET/PREFIX] [flag]`. Output `--j
 | C-ADM-04 | `admin policy create/remove/list/info/attach/detach/entities/simulate` | Policy | P0 |
 | C-ACC-01 | `access rule add/ls/info/rm/move`, `access test`, `access public`, `access block-public`, `access export/import` | Regole di accesso | P0 |
 | C-DST-01 | `dist create/ls/info/edit/rm`, `dist domain`, `dist behavior`, `dist keygroup`, `dist sign-url`, `dist cert`, `dist origin-secret`, `dist test`, `dist invalidate` | Distribuzioni | P0 |
+| C-CCH-01 | `cache policy ...`, `dist cache set [--domain] [--behavior]`, `cache purge/inspect/warm/stats/webhook` | Cache per dominio | P1 |
 | C-ADM-13 | `admin cluster export/import` | Backup/migrazione IAM, config, metadati bucket | P1 |
 | C-ADM-05 | `admin accesskey create/list/remove/edit` | Service account | P1 |
 | C-ADM-06 | `admin config get/set/reset/export/import` | Configurazione | P1 |
