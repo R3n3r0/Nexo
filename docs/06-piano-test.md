@@ -233,6 +233,9 @@ Matrice CI:
 | s3-tests / mint | notturna | notturna | notturna |
 | Smoke immagine Docker e binari | ogni PR | — | ogni PR (compose up + test base) |
 
+Test di **regole di accesso, domini e distribuzioni** (server, CLI, dashboard, cluster con più proxy):
+[10 §10.6](10-domini-accessi-distribuzioni.md#106-test) — TAR-*, TDS-*, TCL-A-*, TCL-D-*, TD-A-*, TD-D-*, TCD-*.
+
 ## 6.8 Matrice di tracciabilità
 
 Ogni funzionalità del [catalogo](02-funzionalita.md) deve avere almeno un test associato. La matrice viene

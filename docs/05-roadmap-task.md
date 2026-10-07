@@ -23,6 +23,7 @@ Stime indicative in giorni-persona (gp) per 1 sviluppatore full-stack.
 | **M5** | Erasure coding multi-drive su singolo nodo, bitrot, healing locale | 20 gp |
 | **M6** | Cluster distribuito (RPC, dsync, bootstrap, pool) | 30 gp |
 | **M7** | Funzionalità avanzate (versioning, lifecycle, object lock, SSE, eventi, quota) | 30 gp |
+| **M7b** | Regole di accesso regex, domini multipli e distribuzioni (vedi [10](10-domini-accessi-distribuzioni.md)) | 25 gp |
 | **M8** | Osservabilità (metriche, log, audit, trace) + pagine dashboard | 12 gp |
 | **M9** | Hardening, prestazioni, compatibilità, packaging → **v1.0** | 15 gp |
 | **M10** | P2: replica, site replication, decommission/rebalance, OIDC/LDAP, tiering | 40+ gp |
@@ -31,6 +32,7 @@ Stime indicative in giorni-persona (gp) per 1 sviluppatore full-stack.
 M0 ─▶ M1 ─▶ M2 ─┬─▶ M3 ─┐
                 ├─▶ M4 ─┼─▶ M7 ─▶ M8 ─▶ M9 (v1.0) ─▶ M10
                 └─▶ M5 ─▶ M6 ─┘
+(M7b parte dopo M2 per le access rules e dopo M6 per la propagazione in cluster; precede M8)
 ```
 M3/M4 (UI e CLI) e M5 (storage) possono procedere in parallelo grazie all'interfaccia `ObjectLayer`.
 
@@ -162,6 +164,27 @@ M3/M4 (UI e CLI) e M5 (storage) possono procedere in parallelo grazie all'interf
 | T-7.8 | Checksum S3 aggiuntivi (S-OBJ-09) | T-1.6 | — |
 | T-7.9 | Dashboard: impostazioni bucket, lifecycle, eventi, dettaglio oggetto/versioni, anteprima, gruppi, access key (D-BKT-02..04, D-OBJ-05..06, D-IAM-02, 04) | T-7.1..T-7.7 | E2E per ogni pagina |
 | T-7.10 | CLI: `version`, `tag`, `retention`, `legalhold`, `ilm`, `event`, `quota`, `encrypt`, `anonymous`, `admin group`, `admin accesskey`, `admin config` | T-7.1..T-7.7 | testscript per ogni comando |
+
+## M7b — Accessi, domini e distribuzioni
+
+| ID | Task | Dipende | DoD |
+|----|------|---------|-----|
+| T-7b.1 | Matcher prefix/glob/regex (RE2) con normalizzazione chiave, limiti, cache compilata | T-2.3 | TAR-01..04, TAR-10 |
+| T-7b.2 | Access rules nel policy engine (priorità, condizioni, gruppi nominati), storage in metadati bucket, propagazione peer | T-7b.1, T-6.5 | TAR-05..09 |
+| T-7b.3 | Preset pubblici e block public access | T-7b.2 | TAR-08 |
+| T-7b.4 | Proxy fidati, `Forwarded`/`X-Forwarded-*`, PROXY protocol, IP reale nelle condizioni | T-0.5 | TDS-08 |
+| T-7b.5 | Modello distribuzioni + tabella di routing per Host (esatti, wildcard) aggiornata a caldo | T-6.5 | TDS-01, 02 |
+| T-7b.6 | Modalità `website`: index, error page, SPA fallback, redirect, header, CORS, behavior per path | T-7b.5 | TDS-03, 05, 09, 12 |
+| T-7b.7 | Modalità `s3` su dominio custom (SigV4/presigned con host pubblico) | T-7b.5 | TDS-04 |
+| T-7b.8 | Origin secret per proxy con rotazione, restrizioni IP | T-7b.4 | TDS-07 |
+| T-7b.9 | Key group, URL e cookie firmati di distribuzione | T-7b.6 | TDS-06 |
+| T-7b.10 | TLS per dominio: SNI, upload, ACME con rinnovo dal leader in cluster; listener `--web-address`/`--web-tls-address` | T-6.6 | TDS-10 |
+| T-7b.11 | Admin API + OpenAPI per regole/distribuzioni/certificati/routing resolve | T-7b.2, T-7b.5 | Test di contratto |
+| T-7b.12 | Dashboard: regole di accesso con tester, preset, block public (D-ACC-01..04) | T-7b.11 | TD-A-01..03 |
+| T-7b.13 | Dashboard: distribuzioni, wizard, behavior con tester, key group, certificati, origin secret (D-DST-01..07) | T-7b.11 | TD-D-01..05 |
+| T-7b.14 | CLI `access` e `dist` | T-7b.11 | TCL-A-*, TCL-D-* |
+| T-7b.15 | `deploy/proxy/` (nginx, Caddy, Traefik, HAProxy, Cloudflare) + compose con 2 proxy | T-7b.8 | TCD-01..03 |
+| T-7b.16 | Metriche/access log per distribuzione; invalidazione con webhook (D-DST-08) | T-8.1 | TDS-11 |
 
 ## M8 — Osservabilità
 

@@ -44,6 +44,22 @@ Ogni funzionalità ha un codice (es. `S-OBJ-01`) richiamato nella [roadmap](05-r
 | S-OBJ-15 | GetObjectAttributes | P2 |
 | S-OBJ-16 | SelectObjectContent (CSV/JSON/Parquet) | P2 |
 
+### Regole di accesso, domini e distribuzioni (vedi [10](10-domini-accessi-distribuzioni.md))
+| Codice | Funzionalità | Priorità |
+|--------|--------------|----------|
+| S-ACC-01 | Access rules per bucket con pattern prefix / glob / **regex RE2**, principali, azioni, priorità, allow/deny | P0 |
+| S-ACC-02 | Condizioni: IP/CIDR, referer, host, HTTPS, finestra temporale, header, gruppi regex vs `${aws:username}` | P1 |
+| S-ACC-03 | Preset pubblico (public-read, public-prefix…) e block public access cluster/bucket | P0 |
+| S-ACC-04 | Tester/simulatore di regole | P0 |
+| S-DST-01 | Distribuzioni: più domini (anche wildcard) per bucket/prefix, routing per Host aggiornato a caldo in cluster | P0 |
+| S-DST-02 | Modalità `website` (index, error page, SPA fallback, redirect) e `s3` (endpoint S3 su dominio custom) | P0 |
+| S-DST-03 | Behavior per path (prefix/glob/regex): metodi, accesso, cache-control, header, CORS | P0 |
+| S-DST-04 | URL e cookie firmati di distribuzione con key group e rotazione | P1 |
+| S-DST-05 | Proxy fidati, PROXY protocol, origin secret per proxy, restrizioni IP | P0 |
+| S-DST-06 | TLS per dominio: upload e ACME automatico (HTTP-01/TLS-ALPN-01; DNS-01 P2) | P1 |
+| S-DST-07 | Invalidazione con webhook di purge; cache interna opzionale | P2 |
+| S-DST-08 | Rate limit per distribuzione; metriche e access log per distribuzione | P2 / P1 |
+
 ### Autenticazione e IAM
 | Codice | Funzionalità | Priorità |
 |--------|--------------|----------|
@@ -120,6 +136,8 @@ Ogni funzionalità ha un codice (es. `S-OBJ-01`) richiamato nella [roadmap](05-r
 | D-SHR-03 | Condivisioni | Elenco link attivi, revoca singola/multipla | P0 |
 | D-POL-01 | Accesso bucket | Private/public/custom, regole anonime per prefix, editor bucket policy | P0 |
 | D-POL-03 | Simulatore policy e permessi effettivi utente | | P1 |
+| D-ACC-01..04 | Regole di accesso | Editor regole glob/regex con priorità drag&drop, tester di pattern, preset pubblico, block public access | P0 |
+| D-DST-01..08 | Distribuzioni | Elenco, wizard domini+DNS, editor behavior con tester URL, error page/redirect/header, key group e URL firmati, origin secret, certificati, invalidazione e metriche | P0/P1 |
 | D-IAM-04 | Access key | Crea service account con policy inline e scadenza, mostra segreto una sola volta, download credenziali | P1 |
 | D-MON-01 | Metriche | Grafici per richieste, errori, latenze, banda, uso disco; intervallo temporale | P1 |
 | D-MON-02 | Log e trace live | Stream con filtri (nodo, API, status), pausa | P1 |
@@ -153,6 +171,8 @@ Sintassi: `nexoctl <gruppo> <comando> [ALIAS/BUCKET/PREFIX] [flag]`. Output `--j
 | C-ADM-02 | `admin user add/remove/enable/disable/list/info` | Utenti | P0 |
 | C-ADM-03 | `admin group ...` | Gruppi | P1 |
 | C-ADM-04 | `admin policy create/remove/list/info/attach/detach/entities/simulate` | Policy | P0 |
+| C-ACC-01 | `access rule add/ls/info/rm/move`, `access test`, `access public`, `access block-public`, `access export/import` | Regole di accesso | P0 |
+| C-DST-01 | `dist create/ls/info/edit/rm`, `dist domain`, `dist behavior`, `dist keygroup`, `dist sign-url`, `dist cert`, `dist origin-secret`, `dist test`, `dist invalidate` | Distribuzioni | P0 |
 | C-ADM-13 | `admin cluster export/import` | Backup/migrazione IAM, config, metadati bucket | P1 |
 | C-ADM-05 | `admin accesskey create/list/remove/edit` | Service account | P1 |
 | C-ADM-06 | `admin config get/set/reset/export/import` | Configurazione | P1 |

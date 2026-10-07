@@ -63,6 +63,8 @@ JSON, versionata, documentata con **OpenAPI 3.1** (`api/openapi.yaml`) da cui si
 
 Errori in formato `application/problem+json` (RFC 9457) con `code` stabile.
 
+Endpoint per regole di accesso, distribuzioni, key group e certificati: vedi [10 §10.5](10-domini-accessi-distribuzioni.md#105-admin-api).
+
 ## 4.4 Autorizzazione Admin API
 
 Ogni endpoint mappa su un'azione di policy `admin:*` (es. `admin:CreateUser`, `admin:ServerInfo`,

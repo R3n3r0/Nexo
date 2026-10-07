@@ -20,6 +20,7 @@ servita direttamente dal binario Go. È progettato per girare sia su un singolo 
 | 7 | [Sicurezza e operatività](docs/07-sicurezza-operativita.md) | Threat model, TLS, KMS, osservabilità, deploy |
 | 8 | [Modalità e rilascio](docs/08-modalita-deploy.md) | Singolo nodo (SNSD/SNMD) e cluster, binario e Docker/Compose |
 | 9 | [Presigned, policy e condivisione](docs/09-presigned-policy-condivisione.md) | URL presigned, POST policy, bucket/IAM policy, share link revocabili |
+| 10 | [Accessi, domini e distribuzioni](docs/10-domini-accessi-distribuzioni.md) | Regole di accesso con glob/regex, bucket pubblici, più domini per bucket, distribuzioni stile CloudFront dietro proxy |
 
 ## In breve
 
@@ -36,5 +37,6 @@ servita direttamente dal binario Go. È progettato per girare sia su un singolo 
 - **Rilascio** come binario statico (Linux/macOS/Windows, amd64/arm64) **e** come immagine Docker (+ Compose per singolo nodo e cluster).
 - **Tre interfacce**: API S3, CLI `nexoctl` e dashboard web React servita dal binario Go.
 - **URL presigned, POST policy, policy IAM/bucket, accesso anonimo, share link revocabili** da API, CLI e dashboard.
+- **Regole di accesso con glob e regex**, bucket o prefix pubblici, **più domini per bucket** e **distribuzioni stile CloudFront** (behavior per path, URL firmati, TLS/ACME, origin secret per proxy), configurabili da dashboard e CLI.
 - **Compatibilità S3**: SigV4, bucket, oggetti, multipart, versioning, policy, lifecycle, object lock, SSE.
 - **Cluster**: pool di server, erasure set Reed-Solomon, nessun database di metadati centrale.
