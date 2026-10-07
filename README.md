@@ -22,6 +22,7 @@ servita direttamente dal binario Go. È progettato per girare sia su un singolo 
 | 9 | [Presigned, policy e condivisione](docs/09-presigned-policy-condivisione.md) | URL presigned, POST policy, bucket/IAM policy, share link revocabili |
 | 10 | [Accessi, domini e distribuzioni](docs/10-domini-accessi-distribuzioni.md) | Regole di accesso con glob/regex, bucket pubblici, più domini per bucket, distribuzioni stile CloudFront dietro proxy |
 | 11 | [Cache per dominio](docs/11-cache-domini.md) | Cache integrata memoria/disco, policy per distribuzione/dominio/percorso, invalidazione automatica e manuale, cache condivisa in cluster |
+| 12 | [Architettura a servizi](docs/12-architettura-servizi.md) | Convenzione vincolante: ogni servizio e ogni gruppo di rotte ha interfaccia + implementazione, composizione in `internal/app` |
 
 ## In breve
 

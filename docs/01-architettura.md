@@ -127,6 +127,8 @@ var Dist embed.FS
 
 ## 1.4 Layout del repository
 
+> Il layout definitivo e la convenzione **interfaccia + implementazione per ogni servizio e per ogni gruppo di rotte** sono in [12 — Architettura a servizi](12-architettura-servizi.md), che prevale su questo schema.
+
 ```
 nexo/
 ├── cmd/
