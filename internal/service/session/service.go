@@ -1,8 +1,6 @@
 // Package session manages console sessions: login with access/secret key
 // yields a signed token stored by the transport in an HttpOnly cookie, plus
 // a CSRF token the browser sends back in a header (double submit).
-//
-//go:generate mockery --name Service --output ./mock --outpkg mock --with-expecter
 package session
 
 import (

@@ -67,7 +67,7 @@ func NewDispatcher(deps Deps, opts ...Option) Dispatcher {
 		deps.Logger = slog.Default()
 	}
 	if deps.Factory == nil {
-		deps.Factory = NewWebhookFactory(nil)
+		deps.Factory = NewWebhookFactory(WebhookDeps{Logger: deps.Logger})
 	}
 	d := &dispatcher{deps: deps, queueSize: 10000, sendTimeout: 10 * time.Second, targets: make(map[string]*targetEntry)}
 	for _, o := range opts {
@@ -114,7 +114,7 @@ func (d *dispatcher) Stop(ctx context.Context) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	for id, t := range d.targets {
-		if cerr := t.target.Close(); cerr != nil {
+		if cerr := t.target.Close(ctx); cerr != nil {
 			err = errors.Join(err, fmt.Errorf("event: close target %s: %w", id, cerr))
 		}
 	}
@@ -139,18 +139,18 @@ func (d *dispatcher) Publish(_ context.Context, e Event) error {
 }
 
 // SetTarget implements Service.
-func (d *dispatcher) SetTarget(_ context.Context, cfg TargetConfig) error {
+func (d *dispatcher) SetTarget(ctx context.Context, cfg TargetConfig) error {
 	if cfg.ID == "" {
 		return fmt.Errorf("%w: target id is required", domain.ErrInvalidArgument)
 	}
-	t, err := d.deps.Factory.New(cfg)
+	t, err := d.deps.Factory.New(ctx, cfg)
 	if err != nil {
 		return fmt.Errorf("event: build target %s: %w", cfg.ID, err)
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if old, ok := d.targets[cfg.ID]; ok {
-		if cerr := old.target.Close(); cerr != nil {
+		if cerr := old.target.Close(ctx); cerr != nil {
 			d.deps.Logger.Warn("event: close replaced target", "id", cfg.ID, "err", cerr)
 		}
 	}
@@ -182,7 +182,7 @@ func (d *dispatcher) ListTargets(context.Context) ([]TargetConfig, error) {
 }
 
 // RemoveTarget implements Service.
-func (d *dispatcher) RemoveTarget(_ context.Context, id string) error {
+func (d *dispatcher) RemoveTarget(ctx context.Context, id string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	t, ok := d.targets[id]
@@ -190,7 +190,7 @@ func (d *dispatcher) RemoveTarget(_ context.Context, id string) error {
 		return fmt.Errorf("%w: event target %q", domain.ErrPolicyNotFound, id)
 	}
 	delete(d.targets, id)
-	if err := t.target.Close(); err != nil {
+	if err := t.target.Close(ctx); err != nil {
 		return fmt.Errorf("event: close target %s: %w", id, err)
 	}
 	return nil

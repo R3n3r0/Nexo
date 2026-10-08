@@ -16,6 +16,7 @@
     "lint:fix": "eslint . --fix && prettier --write .",
     "format": "prettier --write .",
     "typecheck": "tsc -b",
+    "gen:api": "openapi-typescript ../api/openapi.yaml -o src/services/http/schema.d.ts",
     "test": "vitest",
     "test:coverage": "vitest run --coverage"
   },
@@ -52,6 +53,7 @@
     "globals": "16.5.0",
     "jsdom": "26.1.0",
     "msw": "2.15.0",
+    "openapi-typescript": "7.13.0",
     "postcss": "8.5.29",
     "postcss-preset-mantine": "1.18.0",
     "postcss-simple-vars": "7.0.1",

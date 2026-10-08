@@ -95,15 +95,15 @@ func New(deps Deps, opts ...Option) Service { ... }
 Regole:
 | # | Regola |
 |---|--------|
-| 1 | Il file `service.go` contiene **solo** l'interfaccia, i tipi di input/output e la documentazione. |
+| 1 | Il file `service.go` contiene **solo** l'interfaccia, i tipi di input/output e la documentazione. Unica forma di metodo ammessa: l'adattatore di un tipo funzione (es. `ActionHandlerFunc.Handle`, come `http.HandlerFunc`). |
 | 2 | L'implementazione è un tipo **non esportato**; si crea solo tramite `New(deps, opts...)`. |
 | 3 | Le dipendenze sono **interfacce** passate nel costruttore (`Deps`); mai variabili di package. |
-| 4 | Ogni metodo riceve `context.Context` come primo parametro. |
-| 5 | Gli errori sono sentinel in `domain` (`domain.ErrBucketNotFound`), arricchiti con `fmt.Errorf("...: %w", err)`; i transport li mappano in codici S3/HTTP. |
+| 4 | Ogni metodo riceve `context.Context` come primo parametro. Eccezione documentata: gli **accessori puri** che non fanno I/O né bloccano (es. `StorageAPI.Endpoint()`, `IsOnline()`, `Healing()`, `Target.ID()`, `Registry.Gatherer()`), indicati come tali nel commento. |
+| 5 | Gli errori sono sentinel in `domain` (`domain.ErrBucketNotFound`), arricchiti con `fmt.Errorf("...: %w", err)`; i transport li mappano in codici S3/HTTP. Un package può definire sentinel più specifici purché **avvolgano** quelli di `domain` (es. `topology.ErrFormatMismatch` wrappa `domain.ErrFormatMismatch`), così `errors.Is` sul sentinel di dominio continua a funzionare. |
 | 6 | Più implementazioni della stessa interfaccia convivono (es. `object.NewFS` e `object.NewErasure`), scelte in `app`. |
 | 7 | Servizi con goroutine implementano anche `lifecycle.Runner` (`Start(ctx) error`, `Stop(ctx) error`). |
-| 8 | Ogni interfaccia ha un mock in `mock/` (mockery, `//go:generate`); i test unitari usano i mock, i test di integrazione le implementazioni reali. |
-| 9 | Decoratori per responsabilità trasversali (metriche, tracing, audit, cache) implementano la stessa interfaccia e avvolgono il servizio: `metrics.WrapBucket(svc)`. |
+| 8 | Ogni interfaccia ha un mock in `mock/` generato da mockery (configurazione unica `.mockery.yaml` alla radice, `//go:generate` in `internal/service/doc.go`, `with-expecter`); i test unitari usano i mock (package esterno `*_test` per evitare cicli), i test di integrazione le implementazioni reali. Niente fake scritti a mano per interfacce che hanno un mock. |
+| 9 | Decoratori per responsabilità trasversali (metriche, tracing, audit, cache) implementano la stessa interfaccia e avvolgono il servizio: `metrics.WrapBucket(svc)`. Le librerie esterne non escono mai dal package che le usa: `metrics.Registry` è un'interfaccia e il tipo non esportato `registry` incapsula `*prometheus.Registry`. |
 | 10 | Nessun import da `transport` verso `app` e da `service` verso `transport`. Dipendenze solo verso il basso: `transport → service → domain`. |
 
 ## 12.3 Le rotte sono servizi
@@ -148,37 +148,65 @@ func (h *bucketRoutes) Register(r chi.Router) {
 ## 12.4 Composizione (`internal/app`)
 
 ```go
-func Build(ctx context.Context, cfg config.Static) (*App, error) {
-    store   := storage.NewLocalSet(cfg.Endpoints...)           // o remoto in cluster
-    locks   := lock.NewLocal()                                  // o lock.NewDistributed(peers)
+func Build(ctx context.Context, cfg config.Static, opts ...Option) (*App, error) {
+    layout, _  := topo.Parse(ctx, cfg.Endpoints)                       // modalità e layout dei dischi
+    drives, _  := openDrives(storage.Deps{...}, layout)                 // storage.NewLocal per ogni disco locale
+    depID, _   := storage.NewFormatter(...).EnsureFormats(ctx, layout, drives) // format.json
+    store, _   := bucket.NewStore(bucket.StoreDeps{Drives: drives})
     var objects object.Service
-    switch cfg.Mode {
-    case domain.ModeSNSD:    objects = object.NewFS(object.Deps{Store: store, Locks: locks, ...})
-    default:                 objects = object.NewErasure(object.Deps{Pools: pools, Locks: locks, ...})
+    switch layout.Mode {
+    case domain.ModeSNSD: objects, _ = object.NewFS(object.Deps{Store: drives[0], Buckets: store, Locks: locks, ...})
+    case domain.ModeSNMD: objects, _ = object.NewErasure(object.Deps{Sets: sets, Parity: pool.Parity, DeploymentID: depID, ...})
+    default:              return nil, fmt.Errorf("%w", domain.ErrNotImplemented) // cluster: M6
     }
-    objects  = metrics.WrapObject(objects, reg)
-    buckets  := bucket.New(bucket.Deps{Objects: objects, ...})
-    ...
-    s3Routes := []s3.Routes{ s3.NewBucketRoutes(...), s3.NewObjectRoutes(...), ... }
-    srv := server.New(server.Deps{Routes: ..., Middlewares: ..., Resolver: dist})
-    return &App{runners: []lifecycle.Runner{srv, scanner, healer, ...}}, nil
+    buckets, _ := bucket.New(bucket.Deps{Objects: objects, Store: store, ...})
+    policies   := policy.New(policy.Deps{...})
+    verifier,_ := auth.NewVerifier(auth.Deps{Creds: identities, ...}, auth.WithRegion(cfg.Region))
+    sessions,_ := session.New(session.Deps{IAM: identities, ...}, session.WithSigningKey(session.DeriveKey(root, secret)))
+    s3API      := s3.NewAPI(codec, s3.NewBucketRoutes(s3.BucketDeps{Buckets: buckets, Objects: objects, Policy: policies, Enc: codec}), ...)
+    adminAPI   := adminhttp.NewAPI(adminhttp.APIDeps{Enc: codec, Auth: sessionAuth}, adminhttp.NewSessionRoutes(...), ...)
+    group.Add("drives", lifecycle.Funcs{OnStop: closeDrives}).Add("events", events).Add("s3", s3Srv).Add("console", consSrv)
+    return &App{group: group, ...}, nil
 }
 ```
 
 - Un solo punto di wiring, leggibile, senza framework DI; la modalità (SNSD/SNMD/cluster) decide le implementazioni.
-- `App.Run(ctx)` avvia i `Runner` in ordine, attende il segnale di stop e li ferma in ordine inverso.
+- `Build` **prepara i dischi** (crea le directory di sistema, scrive o verifica `format.json`) ma non apre socket:
+  i listener partono in `Start`. In caso di errore di composizione i dischi già aperti vengono chiusi.
+- `App.Run(ctx)` avvia i `Runner` in ordine, attende il segnale di stop e li ferma in ordine inverso (i dischi per ultimi).
+- I `cmd/` non importano mai i package `service` o `transport`: `cmd/nexo` passa a `app.Build` solo opzioni
+  (`app.WithAssetsFS(fs.FS)`), `cmd/nexoctl` riceve le dipendenze in `cmdDeps` (`lookupEnv`, factory di
+  `cli.AliasService`) e i test le sostituiscono con i mock generati.
 
 ## 12.5 Frontend e CLI
 
 - **Dashboard**: stessa separazione in `web/src/services/`: `interfaces.ts` (es. `BucketService`) + `http/` (impl
-  su client OpenAPI) + `mock/` (impl in memoria usata nei test e in modalità demo). I componenti ricevono i servizi
-  da un `ServicesProvider` (context), mai importano `fetch` direttamente.
+  sul client JSON) + `mock/` (impl in memoria usata nei test e in modalità demo). I componenti ricevono i servizi
+  da un `ServicesProvider` (context), mai importano `fetch` direttamente. I tipi di trasporto (`types.ts`) derivano
+  dal contratto OpenAPI `api/openapi.yaml` tramite `http/schema.d.ts`, generato con `npm run gen:api`
+  (`openapi-typescript`): il Go (`internal/transport/http/admin`) è l'implementazione di riferimento e un
+  cambio di contratto rompe il typecheck della console.
 - **CLI**: `internal/cli/` con `S3Client` e `AdminClient` come interfacce; i comandi cobra ricevono le interfacce
   e vengono testati con implementazioni finte.
 
 ## 12.6 Verifica in CI
 - Lint custom (`go vet` + regola `depguard` di golangci-lint) che vieta import "verso l'alto" e import di
   `transport` dentro `service`.
-- Test che per ogni package `internal/service/*` esista un `service.go` con un'interfaccia esportata e un
-  `var _ Service = (*…)(nil)`.
-- Copertura dei mock: `go generate ./...` deve essere idempotente (diff vuoto in CI).
+- `internal/service/convention_test.go`: per ogni package `internal/service/*` verifica che esista `service.go`
+  con almeno un'interfaccia esportata e nessuna funzione (salvo gli adattatori di tipo funzione), che
+  l'implementazione sia non esportata e dichiari `var _ <Interfaccia> = (*impl)(nil)`, e che ogni interfaccia
+  abbia il mock generato in `mock/`.
+- Copertura dei mock: `go generate ./...` deve essere idempotente (`git diff --exit-code` in CI).
+- Contratto Admin API: `npm run gen:api` deve essere idempotente (`git diff --exit-code` su
+  `web/src/services/http/schema.d.ts`).
+
+## 12.7 Autenticazione e autorizzazione dei transport
+- **S3** (`:9000`): il middleware `auth` (SigV4 header, presigned, chunked, POST policy) mette l'identità nel
+  contesto; ogni handler chiede al `policy.Service` l'azione `s3:*` corrispondente con le condizioni della
+  richiesta (`aws:SourceIp`, `s3:prefix`, …) e la bucket policy; il middleware `audit` registra l'operazione
+  (nome impostato dal dispatcher con `httpx.SetOperationName`).
+- **Admin API** (`:9001/api/v1`): il middleware `sessionauth` valida il cookie di sessione e il CSRF sulle
+  richieste mutanti; la sessione viene **ri-risolta in IAM a ogni richiesta** (gruppi, policy, stato), così
+  revoche e disabilitazioni hanno effetto immediato. Solo `POST /auth/login` è pubblico (`PublicRoutes`).
+  Ogni endpoint mappa su un'azione `admin:*` (costanti `policy.ActionAdmin*`) valutata dallo stesso motore;
+  gli errori sono `problem+json` con `code` stabile (`unauthenticated`, `invalid_csrf_token`, `access_denied`).

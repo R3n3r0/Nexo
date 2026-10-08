@@ -15,101 +15,161 @@ type S3Code struct {
 	HTTPStatus  int
 }
 
-// S3 error codes used by the transport.
-var (
-	CodeNoSuchBucket          = S3Code{"NoSuchBucket", "The specified bucket does not exist", http.StatusNotFound}
-	CodeNoSuchKey             = S3Code{"NoSuchKey", "The specified key does not exist.", http.StatusNotFound}
-	CodeNoSuchVersion         = S3Code{"NoSuchVersion", "The specified version does not exist.", http.StatusNotFound}
-	CodeBucketAlreadyExists   = S3Code{"BucketAlreadyOwnedByYou", "Your previous request to create the named bucket succeeded and you already own it.", http.StatusConflict}
-	CodeBucketNotEmpty        = S3Code{"BucketNotEmpty", "The bucket you tried to delete is not empty", http.StatusConflict}
-	CodeAccessDenied          = S3Code{"AccessDenied", "Access Denied.", http.StatusForbidden}
-	CodeInvalidAccessKeyID    = S3Code{"InvalidAccessKeyId", "The Access Key Id you provided does not exist in our records.", http.StatusForbidden}
-	CodeSignatureDoesNotMatch = S3Code{"SignatureDoesNotMatch", "The request signature we calculated does not match the signature you provided. Check your key and signing method.", http.StatusForbidden}
-	CodeRequestTimeTooSkewed  = S3Code{"RequestTimeTooSkewed", "The difference between the request time and the server's time is too large.", http.StatusForbidden}
-	CodeInvalidBucketName     = S3Code{"InvalidBucketName", "The specified bucket is not valid.", http.StatusBadRequest}
-	CodeInvalidObjectName     = S3Code{"XNexoInvalidObjectName", "Object name contains unsupported characters.", http.StatusBadRequest}
-	CodeInvalidArgument       = S3Code{"InvalidArgument", "Invalid Argument", http.StatusBadRequest}
-	CodeMalformedXML          = S3Code{"MalformedXML", "The XML you provided was not well-formed or did not validate against our published schema.", http.StatusBadRequest}
-	CodeNoSuchUpload          = S3Code{"NoSuchUpload", "The specified multipart upload does not exist. The upload ID may be invalid, or the upload may have been aborted or completed.", http.StatusNotFound}
-	CodeInvalidPart           = S3Code{"InvalidPart", "One or more of the specified parts could not be found. The part may not have been uploaded, or the specified entity tag may not match the part's entity tag.", http.StatusBadRequest}
-	CodeInvalidPartOrder      = S3Code{"InvalidPartOrder", "The list of parts was not in ascending order. The parts list must be specified in order by part number.", http.StatusBadRequest}
-	CodeEntityTooSmall        = S3Code{"EntityTooSmall", "Your proposed upload is smaller than the minimum allowed object size.", http.StatusBadRequest}
-	CodeEntityTooLarge        = S3Code{"EntityTooLarge", "Your proposed upload exceeds the maximum allowed object size.", http.StatusBadRequest}
-	CodePreconditionFailed    = S3Code{"PreconditionFailed", "At least one of the pre-conditions you specified did not hold", http.StatusPreconditionFailed}
-	CodeNotModified           = S3Code{"NotModified", "Not Modified", http.StatusNotModified}
-	CodeInvalidRange          = S3Code{"InvalidRange", "The requested range is not satisfiable", http.StatusRequestedRangeNotSatisfiable}
-	CodeNotImplemented        = S3Code{"NotImplemented", "A header you provided implies functionality that is not implemented", http.StatusNotImplemented}
-	CodeSlowDown              = S3Code{"SlowDown", "Resource requested is unreadable, please reduce your request rate", http.StatusServiceUnavailable}
-	CodeQuotaExceeded         = S3Code{"XNexoQuotaExceeded", "Bucket quota exceeded", http.StatusInsufficientStorage}
-	CodeObjectLocked          = S3Code{"XNexoObjectLocked", "Object is WORM protected and cannot be overwritten or deleted", http.StatusForbidden}
-	CodeStorageFull           = S3Code{"XNexoStorageFull", "Storage backend has reached its minimum free drive threshold. Please delete a few objects to proceed.", http.StatusInsufficientStorage}
-	CodeInternalError         = S3Code{"InternalError", "We encountered an internal error, please try again.", http.StatusInternalServerError}
-	CodeMethodNotAllowed      = S3Code{"MethodNotAllowed", "The specified method is not allowed against this resource.", http.StatusMethodNotAllowed}
-	CodeNoSuchUser            = S3Code{"XNexoAdminNoSuchUser", "The specified user does not exist.", http.StatusNotFound}
-	CodeUserAlreadyExists     = S3Code{"XNexoAdminUserAlreadyExists", "The specified user already exists.", http.StatusConflict}
-	CodeNoSuchPolicy          = S3Code{"XNexoAdminNoSuchPolicy", "The specified policy does not exist.", http.StatusNotFound}
-	CodeNoSuchGroup           = S3Code{"XNexoAdminNoSuchGroup", "The specified group does not exist.", http.StatusNotFound}
-	CodeRequestTimeout        = S3Code{"RequestTimeout", "Your socket connection to the server was not read from or written to within the timeout period.", http.StatusRequestTimeout}
-	CodeConflict              = S3Code{"XNexoConflict", "The request conflicts with the current state of the resource.", http.StatusConflict}
-)
-
-// errorMapping maps a sentinel to its S3 code. The order matters only for
-// readability: sentinels are distinct, so at most one entry matches.
-type errorMapping struct {
-	err  error
-	code S3Code
+// S3Codes is the table of S3 error codes used by the transport. It is
+// returned by value (DefaultS3Codes) and owned by each codec, so that no
+// package-level state can be mutated by importers.
+type S3Codes struct {
+	NoSuchBucket          S3Code
+	NoSuchKey             S3Code
+	NoSuchVersion         S3Code
+	BucketAlreadyExists   S3Code
+	BucketNotEmpty        S3Code
+	AccessDenied          S3Code
+	InvalidAccessKeyID    S3Code
+	SignatureDoesNotMatch S3Code
+	RequestTimeTooSkewed  S3Code
+	InvalidBucketName     S3Code
+	InvalidObjectName     S3Code
+	InvalidArgument       S3Code
+	MalformedXML          S3Code
+	NoSuchUpload          S3Code
+	InvalidPart           S3Code
+	InvalidPartOrder      S3Code
+	EntityTooSmall        S3Code
+	EntityTooLarge        S3Code
+	PreconditionFailed    S3Code
+	NotModified           S3Code
+	InvalidRange          S3Code
+	NotImplemented        S3Code
+	SlowDown              S3Code
+	QuotaExceeded         S3Code
+	ObjectLocked          S3Code
+	StorageFull           S3Code
+	InternalError         S3Code
+	MethodNotAllowed      S3Code
+	NoSuchUser            S3Code
+	UserAlreadyExists     S3Code
+	NoSuchPolicy          S3Code
+	NoSuchGroup           S3Code
+	RequestTimeout        S3Code
+	Conflict              S3Code
+	BadDigest             S3Code
+	InvalidFormat         S3Code
 }
 
-var errorMappings = []errorMapping{
-	{domain.ErrBucketNotFound, CodeNoSuchBucket},
-	{domain.ErrBucketAlreadyExists, CodeBucketAlreadyExists},
-	{domain.ErrBucketNotEmpty, CodeBucketNotEmpty},
-	{domain.ErrInvalidBucketName, CodeInvalidBucketName},
-	{domain.ErrObjectNotFound, CodeNoSuchKey},
-	{domain.ErrInvalidObjectName, CodeInvalidObjectName},
-	{domain.ErrNoSuchVersion, CodeNoSuchVersion},
-	{domain.ErrNoSuchUpload, CodeNoSuchUpload},
-	{domain.ErrInvalidPart, CodeInvalidPart},
-	{domain.ErrInvalidPartOrder, CodeInvalidPartOrder},
-	{domain.ErrEntityTooSmall, CodeEntityTooSmall},
-	{domain.ErrEntityTooLarge, CodeEntityTooLarge},
-	{domain.ErrPreconditionFailed, CodePreconditionFailed},
-	{domain.ErrNotModified, CodeNotModified},
-	{domain.ErrInvalidRange, CodeInvalidRange},
-	{domain.ErrAccessDenied, CodeAccessDenied},
-	{domain.ErrInvalidAccessKey, CodeInvalidAccessKeyID},
-	{domain.ErrSignatureMismatch, CodeSignatureDoesNotMatch},
-	{domain.ErrRequestExpired, CodeRequestTimeTooSkewed},
-	{domain.ErrUserNotFound, CodeNoSuchUser},
-	{domain.ErrUserAlreadyExists, CodeUserAlreadyExists},
-	{domain.ErrPolicyNotFound, CodeNoSuchPolicy},
-	{domain.ErrGroupNotFound, CodeNoSuchGroup},
-	{domain.ErrNotImplemented, CodeNotImplemented},
-	{domain.ErrStorageFull, CodeStorageFull},
-	{domain.ErrDiskNotFound, CodeSlowDown},
-	{domain.ErrFaultyDisk, CodeSlowDown},
-	{domain.ErrReadQuorum, CodeSlowDown},
-	{domain.ErrWriteQuorum, CodeSlowDown},
-	{domain.ErrLockTimeout, CodeSlowDown},
-	{domain.ErrQuotaExceeded, CodeQuotaExceeded},
-	{domain.ErrObjectLocked, CodeObjectLocked},
-	{domain.ErrInvalidArgument, CodeInvalidArgument},
-	{domain.ErrMalformedXML, CodeMalformedXML},
-	{domain.ErrConflict, CodeConflict},
-	{context.DeadlineExceeded, CodeRequestTimeout},
-}
-
-// MapS3Error maps an error to its S3 code and the message to send. A
-// *domain.S3Error with an explicit Code overrides the sentinel mapping; its
-// Message, when set, replaces the default description. Unknown errors map
-// to InternalError and never leak their text.
-func MapS3Error(err error) (S3Code, string) {
-	if err == nil {
-		return CodeInternalError, CodeInternalError.Description
+// DefaultS3Codes returns a fresh copy of the standard code table.
+func DefaultS3Codes() S3Codes {
+	return S3Codes{
+		NoSuchBucket:          S3Code{"NoSuchBucket", "The specified bucket does not exist", http.StatusNotFound},
+		NoSuchKey:             S3Code{"NoSuchKey", "The specified key does not exist.", http.StatusNotFound},
+		NoSuchVersion:         S3Code{"NoSuchVersion", "The specified version does not exist.", http.StatusNotFound},
+		BucketAlreadyExists:   S3Code{"BucketAlreadyOwnedByYou", "Your previous request to create the named bucket succeeded and you already own it.", http.StatusConflict},
+		BucketNotEmpty:        S3Code{"BucketNotEmpty", "The bucket you tried to delete is not empty", http.StatusConflict},
+		AccessDenied:          S3Code{"AccessDenied", "Access Denied.", http.StatusForbidden},
+		InvalidAccessKeyID:    S3Code{"InvalidAccessKeyId", "The Access Key Id you provided does not exist in our records.", http.StatusForbidden},
+		SignatureDoesNotMatch: S3Code{"SignatureDoesNotMatch", "The request signature we calculated does not match the signature you provided. Check your key and signing method.", http.StatusForbidden},
+		RequestTimeTooSkewed:  S3Code{"RequestTimeTooSkewed", "The difference between the request time and the server's time is too large.", http.StatusForbidden},
+		InvalidBucketName:     S3Code{"InvalidBucketName", "The specified bucket is not valid.", http.StatusBadRequest},
+		InvalidObjectName:     S3Code{"XNexoInvalidObjectName", "Object name contains unsupported characters.", http.StatusBadRequest},
+		InvalidArgument:       S3Code{"InvalidArgument", "Invalid Argument", http.StatusBadRequest},
+		MalformedXML:          S3Code{"MalformedXML", "The XML you provided was not well-formed or did not validate against our published schema.", http.StatusBadRequest},
+		NoSuchUpload:          S3Code{"NoSuchUpload", "The specified multipart upload does not exist. The upload ID may be invalid, or the upload may have been aborted or completed.", http.StatusNotFound},
+		InvalidPart:           S3Code{"InvalidPart", "One or more of the specified parts could not be found. The part may not have been uploaded, or the specified entity tag may not match the part's entity tag.", http.StatusBadRequest},
+		InvalidPartOrder:      S3Code{"InvalidPartOrder", "The list of parts was not in ascending order. The parts list must be specified in order by part number.", http.StatusBadRequest},
+		EntityTooSmall:        S3Code{"EntityTooSmall", "Your proposed upload is smaller than the minimum allowed object size.", http.StatusBadRequest},
+		EntityTooLarge:        S3Code{"EntityTooLarge", "Your proposed upload exceeds the maximum allowed object size.", http.StatusBadRequest},
+		PreconditionFailed:    S3Code{"PreconditionFailed", "At least one of the pre-conditions you specified did not hold", http.StatusPreconditionFailed},
+		NotModified:           S3Code{"NotModified", "Not Modified", http.StatusNotModified},
+		InvalidRange:          S3Code{"InvalidRange", "The requested range is not satisfiable", http.StatusRequestedRangeNotSatisfiable},
+		NotImplemented:        S3Code{"NotImplemented", "A header you provided implies functionality that is not implemented", http.StatusNotImplemented},
+		SlowDown:              S3Code{"SlowDown", "Resource requested is unreadable, please reduce your request rate", http.StatusServiceUnavailable},
+		QuotaExceeded:         S3Code{"XNexoQuotaExceeded", "Bucket quota exceeded", http.StatusInsufficientStorage},
+		ObjectLocked:          S3Code{"XNexoObjectLocked", "Object is WORM protected and cannot be overwritten or deleted", http.StatusForbidden},
+		StorageFull:           S3Code{"XNexoStorageFull", "Storage backend has reached its minimum free drive threshold. Please delete a few objects to proceed.", http.StatusInsufficientStorage},
+		InternalError:         S3Code{"InternalError", "We encountered an internal error, please try again.", http.StatusInternalServerError},
+		MethodNotAllowed:      S3Code{"MethodNotAllowed", "The specified method is not allowed against this resource.", http.StatusMethodNotAllowed},
+		NoSuchUser:            S3Code{"XNexoAdminNoSuchUser", "The specified user does not exist.", http.StatusNotFound},
+		UserAlreadyExists:     S3Code{"XNexoAdminUserAlreadyExists", "The specified user already exists.", http.StatusConflict},
+		NoSuchPolicy:          S3Code{"XNexoAdminNoSuchPolicy", "The specified policy does not exist.", http.StatusNotFound},
+		NoSuchGroup:           S3Code{"XNexoAdminNoSuchGroup", "The specified group does not exist.", http.StatusNotFound},
+		RequestTimeout:        S3Code{"RequestTimeout", "Your socket connection to the server was not read from or written to within the timeout period.", http.StatusRequestTimeout},
+		Conflict:              S3Code{"XNexoConflict", "The request conflicts with the current state of the resource.", http.StatusConflict},
+		BadDigest:             S3Code{"BadDigest", "The Content-MD5 or checksum you specified did not match what we received.", http.StatusBadRequest},
+		InvalidFormat:         S3Code{"XNexoInvalidFormat", "The on-disk format is invalid or inconsistent.", http.StatusInternalServerError},
 	}
-	code := CodeInternalError
+}
+
+// errorMapping maps a sentinel to its S3 code and problem+json equivalent.
+type errorMapping struct {
+	err     error
+	code    S3Code
+	status  int
+	problem string
+}
+
+// mappings builds the sentinel table from a code table. Sentinels are
+// distinct, so at most one entry matches an error.
+func mappings(c S3Codes) []errorMapping {
+	return []errorMapping{
+		{domain.ErrBucketNotFound, c.NoSuchBucket, http.StatusNotFound, "bucket_not_found"},
+		{domain.ErrBucketAlreadyExists, c.BucketAlreadyExists, http.StatusConflict, "bucket_already_exists"},
+		{domain.ErrBucketNotEmpty, c.BucketNotEmpty, http.StatusConflict, "bucket_not_empty"},
+		{domain.ErrInvalidBucketName, c.InvalidBucketName, http.StatusBadRequest, "invalid_bucket_name"},
+		{domain.ErrObjectNotFound, c.NoSuchKey, http.StatusNotFound, "object_not_found"},
+		{domain.ErrInvalidObjectName, c.InvalidObjectName, http.StatusBadRequest, "invalid_object_name"},
+		{domain.ErrNoSuchVersion, c.NoSuchVersion, http.StatusNotFound, "version_not_found"},
+		{domain.ErrNoSuchUpload, c.NoSuchUpload, http.StatusNotFound, "upload_not_found"},
+		{domain.ErrInvalidPart, c.InvalidPart, http.StatusBadRequest, "invalid_part"},
+		{domain.ErrInvalidPartOrder, c.InvalidPartOrder, http.StatusBadRequest, "invalid_part_order"},
+		{domain.ErrEntityTooSmall, c.EntityTooSmall, http.StatusBadRequest, "entity_too_small"},
+		{domain.ErrEntityTooLarge, c.EntityTooLarge, http.StatusRequestEntityTooLarge, "entity_too_large"},
+		{domain.ErrPreconditionFailed, c.PreconditionFailed, http.StatusPreconditionFailed, "precondition_failed"},
+		{domain.ErrNotModified, c.NotModified, http.StatusNotModified, "not_modified"},
+		{domain.ErrInvalidRange, c.InvalidRange, http.StatusRequestedRangeNotSatisfiable, "invalid_range"},
+		{domain.ErrAccessDenied, c.AccessDenied, http.StatusForbidden, "access_denied"},
+		{domain.ErrUnauthenticated, c.AccessDenied, http.StatusUnauthorized, "unauthenticated"},
+		{domain.ErrInvalidAccessKey, c.InvalidAccessKeyID, http.StatusUnauthorized, "invalid_access_key"},
+		{domain.ErrSignatureMismatch, c.SignatureDoesNotMatch, http.StatusUnauthorized, "signature_mismatch"},
+		{domain.ErrRequestExpired, c.RequestTimeTooSkewed, http.StatusUnauthorized, "request_expired"},
+		{domain.ErrUserNotFound, c.NoSuchUser, http.StatusNotFound, "user_not_found"},
+		{domain.ErrUserAlreadyExists, c.UserAlreadyExists, http.StatusConflict, "user_already_exists"},
+		{domain.ErrPolicyNotFound, c.NoSuchPolicy, http.StatusNotFound, "policy_not_found"},
+		{domain.ErrGroupNotFound, c.NoSuchGroup, http.StatusNotFound, "group_not_found"},
+		{domain.ErrNotImplemented, c.NotImplemented, http.StatusNotImplemented, "not_implemented"},
+		{domain.ErrStorageFull, c.StorageFull, http.StatusInsufficientStorage, "storage_full"},
+		{domain.ErrDiskNotFound, c.SlowDown, http.StatusServiceUnavailable, "disk_not_found"},
+		{domain.ErrFaultyDisk, c.SlowDown, http.StatusServiceUnavailable, "faulty_disk"},
+		{domain.ErrReadQuorum, c.SlowDown, http.StatusServiceUnavailable, "read_quorum"},
+		{domain.ErrWriteQuorum, c.SlowDown, http.StatusServiceUnavailable, "write_quorum"},
+		{domain.ErrLockTimeout, c.SlowDown, http.StatusServiceUnavailable, "lock_timeout"},
+		{domain.ErrQuotaExceeded, c.QuotaExceeded, http.StatusInsufficientStorage, "quota_exceeded"},
+		{domain.ErrObjectLocked, c.ObjectLocked, http.StatusForbidden, "object_locked"},
+		{domain.ErrInvalidFormat, c.InvalidFormat, http.StatusInternalServerError, "invalid_format"},
+		{domain.ErrFormatMismatch, c.InvalidFormat, http.StatusInternalServerError, "format_mismatch"},
+		{domain.ErrInvalidLayout, c.InvalidFormat, http.StatusInternalServerError, "invalid_layout"},
+		{domain.ErrInvalidArgument, c.InvalidArgument, http.StatusBadRequest, "invalid_argument"},
+		{domain.ErrMalformedXML, c.MalformedXML, http.StatusBadRequest, "malformed_xml"},
+		{domain.ErrConflict, c.Conflict, http.StatusConflict, "conflict"},
+		{domain.ErrMethodNotAllowed, c.MethodNotAllowed, http.StatusMethodNotAllowed, "method_not_allowed"},
+		{domain.ErrChecksumMismatch, c.BadDigest, http.StatusBadRequest, "checksum_mismatch"},
+		{context.DeadlineExceeded, c.RequestTimeout, http.StatusRequestTimeout, "request_timeout"},
+	}
+}
+
+// Codes returns a copy of the code table of the codec.
+func (c *codec) Codes() S3Codes { return c.codes }
+
+// MapS3Error implements Encoder. A *domain.S3Error with an explicit Code
+// overrides the sentinel mapping; its Message, when set, replaces the
+// default description. Unknown errors map to InternalError and never leak
+// their text.
+func (c *codec) MapS3Error(err error) (S3Code, string) {
+	if err == nil {
+		return c.codes.InternalError, c.codes.InternalError.Description
+	}
+	code := c.codes.InternalError
 	matched := false
-	for _, m := range errorMappings {
+	for _, m := range c.mappings {
 		if errors.Is(err, m.err) {
 			code, matched = m.code, true
 			break
@@ -152,57 +212,12 @@ type Problem struct {
 	RequestID string `json:"requestId,omitempty"`
 }
 
-// problemMapping maps a sentinel to a problem status and code.
-type problemMapping struct {
-	err    error
-	status int
-	code   string
-}
-
-var problemMappings = []problemMapping{
-	{domain.ErrBucketNotFound, http.StatusNotFound, "bucket_not_found"},
-	{domain.ErrBucketAlreadyExists, http.StatusConflict, "bucket_already_exists"},
-	{domain.ErrBucketNotEmpty, http.StatusConflict, "bucket_not_empty"},
-	{domain.ErrInvalidBucketName, http.StatusBadRequest, "invalid_bucket_name"},
-	{domain.ErrObjectNotFound, http.StatusNotFound, "object_not_found"},
-	{domain.ErrInvalidObjectName, http.StatusBadRequest, "invalid_object_name"},
-	{domain.ErrNoSuchVersion, http.StatusNotFound, "version_not_found"},
-	{domain.ErrNoSuchUpload, http.StatusNotFound, "upload_not_found"},
-	{domain.ErrInvalidPart, http.StatusBadRequest, "invalid_part"},
-	{domain.ErrInvalidPartOrder, http.StatusBadRequest, "invalid_part_order"},
-	{domain.ErrEntityTooSmall, http.StatusBadRequest, "entity_too_small"},
-	{domain.ErrPreconditionFailed, http.StatusPreconditionFailed, "precondition_failed"},
-	{domain.ErrNotModified, http.StatusNotModified, "not_modified"},
-	{domain.ErrAccessDenied, http.StatusForbidden, "access_denied"},
-	{domain.ErrInvalidAccessKey, http.StatusUnauthorized, "invalid_access_key"},
-	{domain.ErrSignatureMismatch, http.StatusUnauthorized, "signature_mismatch"},
-	{domain.ErrRequestExpired, http.StatusUnauthorized, "request_expired"},
-	{domain.ErrUserNotFound, http.StatusNotFound, "user_not_found"},
-	{domain.ErrUserAlreadyExists, http.StatusConflict, "user_already_exists"},
-	{domain.ErrPolicyNotFound, http.StatusNotFound, "policy_not_found"},
-	{domain.ErrGroupNotFound, http.StatusNotFound, "group_not_found"},
-	{domain.ErrNotImplemented, http.StatusNotImplemented, "not_implemented"},
-	{domain.ErrStorageFull, http.StatusInsufficientStorage, "storage_full"},
-	{domain.ErrDiskNotFound, http.StatusServiceUnavailable, "disk_not_found"},
-	{domain.ErrFaultyDisk, http.StatusServiceUnavailable, "faulty_disk"},
-	{domain.ErrReadQuorum, http.StatusServiceUnavailable, "read_quorum"},
-	{domain.ErrWriteQuorum, http.StatusServiceUnavailable, "write_quorum"},
-	{domain.ErrLockTimeout, http.StatusServiceUnavailable, "lock_timeout"},
-	{domain.ErrQuotaExceeded, http.StatusInsufficientStorage, "quota_exceeded"},
-	{domain.ErrObjectLocked, http.StatusForbidden, "object_locked"},
-	{domain.ErrInvalidArgument, http.StatusBadRequest, "invalid_argument"},
-	{domain.ErrMalformedXML, http.StatusBadRequest, "malformed_xml"},
-	{domain.ErrConflict, http.StatusConflict, "conflict"},
-	{domain.ErrEntityTooLarge, http.StatusRequestEntityTooLarge, "entity_too_large"},
-	{domain.ErrInvalidRange, http.StatusRequestedRangeNotSatisfiable, "invalid_range"},
-}
-
-// ProblemFromError maps an error to a Problem. Unknown errors become a
-// generic 500 without leaking the error text.
-func ProblemFromError(err error) Problem {
-	for _, m := range problemMappings {
+// ProblemFromError implements Encoder. Unknown errors become a generic 500
+// without leaking the error text.
+func (c *codec) ProblemFromError(err error) Problem {
+	for _, m := range c.mappings {
 		if errors.Is(err, m.err) {
-			return Problem{Title: http.StatusText(m.status), Status: m.status, Code: m.code, Detail: err.Error()}
+			return Problem{Title: http.StatusText(m.status), Status: m.status, Code: m.problem, Detail: err.Error()}
 		}
 	}
 	return Problem{Title: http.StatusText(http.StatusInternalServerError), Status: http.StatusInternalServerError, Code: "internal_error"}

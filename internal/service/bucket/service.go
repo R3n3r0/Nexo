@@ -1,16 +1,55 @@
 // Package bucket manages bucket metadata: versioning, policy, lifecycle,
 // object lock, encryption, quota, tags, CORS and notification configuration.
-// Bucket creation, deletion and listing delegate to the object layer.
-//
-//go:generate mockery --name Service --output ./mock --outpkg mock --with-expecter
+// Bucket creation, deletion and listing delegate to the object layer; the
+// metadata documents are persisted by a MetadataStore, which also serves the
+// object layer as its BucketConfigSource.
 package bucket
 
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
+	"time"
 
+	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/object"
 )
+
+// Deps are the dependencies of the bucket service.
+type Deps struct {
+	Objects object.Service
+	Store   MetadataStore
+	Clock   clock.Clock
+	Logger  *slog.Logger
+}
+
+// Metadata is the persisted configuration of a bucket
+// (.nexo.sys/buckets/<bucket>/metadata.json).
+type Metadata struct {
+	Name         string            `json:"name"`
+	Created      time.Time         `json:"created"`
+	Region       string            `json:"region,omitempty"`
+	Versioning   domain.Versioning `json:"versioning"`
+	ObjectLock   ObjectLockConfig  `json:"objectLock"`
+	Policy       json.RawMessage   `json:"policy,omitempty"`
+	Lifecycle    []byte            `json:"lifecycle,omitempty"`
+	Encryption   EncryptionConfig  `json:"encryption"`
+	Quota        Quota             `json:"quota"`
+	Tags         map[string]string `json:"tags,omitempty"`
+	CORS         []byte            `json:"cors,omitempty"`
+	Notification []byte            `json:"notification,omitempty"`
+	UpdatedAt    time.Time         `json:"updatedAt"`
+}
+
+// MetadataStore persists the bucket metadata documents. A bucket without a
+// document yields the zero Metadata (unversioned, no configuration).
+type MetadataStore interface {
+	object.BucketConfigSource
+	Load(ctx context.Context, bucket string) (*Metadata, error)
+	Save(ctx context.Context, bucket string, m *Metadata) error
+	Delete(ctx context.Context, bucket string) error
+}
 
 // Service manages buckets and their metadata.
 type Service interface {

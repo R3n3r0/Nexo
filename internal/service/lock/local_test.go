@@ -161,7 +161,7 @@ func TestLocalReadersAndWritersMixed(t *testing.T) {
 func TestNSLock(t *testing.T) {
 	l := NewLocal(Deps{})
 	ctx := context.Background()
-	ns := l.NewNSLock("bucket", "object")
+	ns := l.NewNSLock(ctx, "bucket", "object")
 
 	lc, err := ns.GetLock(ctx, time.Second)
 	require.NoError(t, err)

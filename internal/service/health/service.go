@@ -1,6 +1,4 @@
 // Package health exposes liveness, readiness and cluster health checks.
-//
-//go:generate mockery --name Service --output ./mock --outpkg mock --with-expecter
 package health
 
 import "context"

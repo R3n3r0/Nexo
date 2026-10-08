@@ -9,6 +9,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/object"
+	"github.com/r3n3r0/nexo/internal/service/storage"
 )
 
 // BuildInfo is the version information shown in ServerInfo.
@@ -25,14 +26,14 @@ type Deps struct {
 	Build  BuildInfo
 	Mode   domain.Mode
 	Region string
-	// DeploymentID identifies the deployment (format.json); may be empty
-	// until the storage layer is initialized.
+	// DeploymentID identifies the deployment (format.json).
 	DeploymentID string
-	// Endpoints are the local drives, reported as disks of the local node.
-	Endpoints []domain.Endpoint
+	// Drives are the local drives, reported as disks of the local node
+	// with their usage.
+	Drives []storage.StorageAPI
 	// Pools summarizes the erasure pools of the deployment layout.
 	Pools []domain.PoolInfo
-	// Objects provides bucket statistics; optional (TODO M1).
+	// Objects provides bucket statistics; optional.
 	Objects object.Service
 	// Actions performs restart/stop; optional.
 	Actions ActionHandler
@@ -77,17 +78,9 @@ func (s *service) ServerInfo(ctx context.Context) (*domain.ServerInfo, error) {
 		Pools:        append([]domain.PoolInfo(nil), s.deps.Pools...),
 	}
 	info.Uptime = now.Sub(info.StartedAt)
-	disks := make([]domain.DiskInfo, 0, len(s.deps.Endpoints))
-	for _, ep := range s.deps.Endpoints {
-		disks = append(disks, domain.DiskInfo{
-			Endpoint: ep.String(),
-			Path:     ep.Path,
-			PoolIdx:  ep.PoolIdx,
-			SetIdx:   ep.SetIdx,
-			DiskIdx:  ep.DiskIdx,
-			// TODO(M1): query storage.StorageAPI.DiskInfo for usage and state.
-			State: domain.StateUnknown,
-		})
+	disks := make([]domain.DiskInfo, 0, len(s.deps.Drives))
+	for _, d := range s.deps.Drives {
+		disks = append(disks, s.diskInfo(ctx, d))
 	}
 	info.Nodes = []domain.NodeInfo{{
 		Endpoint: "local",
@@ -110,6 +103,40 @@ func (s *service) ServerInfo(ctx context.Context) (*domain.ServerInfo, error) {
 		}
 	}
 	return info, nil
+}
+
+// diskInfo queries one drive, reporting an unreachable drive as offline
+// instead of failing the whole server information.
+func (s *service) diskInfo(ctx context.Context, d storage.StorageAPI) domain.DiskInfo {
+	ep := d.Endpoint()
+	info, err := d.DiskInfo(ctx, storage.DiskInfoOptions{})
+	if err != nil {
+		s.deps.Logger.Warn("admin: disk info", "drive", ep.String(), "err", err)
+		if info.State == "" {
+			info.State = domain.StateOffline
+		}
+		if info.Error == "" {
+			info.Error = err.Error()
+		}
+	}
+	if info.Endpoint == "" {
+		info.Endpoint = ep.String()
+	}
+	if info.Path == "" {
+		info.Path = ep.Path
+	}
+	info.PoolIdx, info.SetIdx, info.DiskIdx = ep.PoolIdx, ep.SetIdx, ep.DiskIdx
+	if info.State == "" {
+		info.State = domain.StateOnline
+		if !d.IsOnline() {
+			info.State = domain.StateOffline
+		}
+	}
+	if h := d.Healing(); h != nil && !h.Finished {
+		info.Healing = true
+		info.State = domain.StateHealing
+	}
+	return info
 }
 
 // DataUsage implements Service.

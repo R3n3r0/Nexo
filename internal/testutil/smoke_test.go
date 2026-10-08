@@ -34,15 +34,15 @@ func TestSmokeHealthS3AndConsoleLogin(t *testing.T) {
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
-	// S3 root answers S3 XML.
+	// S3 root answers S3 XML: anonymous ListBuckets is denied.
 	resp, err = srv.Client.Get(srv.S3URL + "/")
 	require.NoError(t, err)
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	assert.Equal(t, http.StatusNotImplemented, resp.StatusCode)
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 	var s3err httpx.S3ErrorResponse
 	require.NoError(t, xml.Unmarshal(body, &s3err))
-	assert.Equal(t, "NotImplemented", s3err.Code)
+	assert.Equal(t, "AccessDenied", s3err.Code)
 	assert.NotEmpty(t, s3err.RequestID)
 
 	// Console login → session → info.

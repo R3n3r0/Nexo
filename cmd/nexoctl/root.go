@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -11,22 +12,30 @@ import (
 	"github.com/r3n3r0/nexo/internal/version"
 )
 
-// cmdDeps are the process-level dependencies of the commands.
+// cmdDeps are the process-level dependencies of the commands, injected so
+// that the commands can be tested without touching the real environment.
 type cmdDeps struct {
 	stdout io.Writer
 	stderr io.Writer
-	// configPath overrides the configuration file (tests); empty uses
+	// lookupEnv reads the environment (nil: the process environment).
+	lookupEnv cli.LookupEnv
+	// aliases builds the alias service; nil uses the JSON file store at
 	// cli.DefaultConfigPath.
-	configPath string
+	aliases func() (cli.AliasService, error)
 }
 
-func (d cmdDeps) aliases() (cli.AliasService, error) {
-	path := d.configPath
-	if path == "" {
-		var err error
-		if path, err = cli.DefaultConfigPath(); err != nil {
-			return nil, err
-		}
+// aliasService returns the alias service of the process.
+func (d cmdDeps) aliasService() (cli.AliasService, error) {
+	if d.aliases != nil {
+		return d.aliases()
+	}
+	lookup := d.lookupEnv
+	if lookup == nil {
+		lookup = os.LookupEnv
+	}
+	path, err := cli.DefaultConfigPath(lookup)
+	if err != nil {
+		return nil, err
 	}
 	return cli.NewAliasService(cli.AliasDeps{Store: cli.NewFileStore(path)}), nil
 }

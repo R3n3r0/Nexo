@@ -1,18 +1,65 @@
 // Package object defines the object layer: the logical S3 API over buckets,
 // objects, versions and multipart uploads. Two implementations share the
-// contract: the single-drive filesystem layer (SNSD) and the erasure-coded
-// layer (SNMD / distributed).
-//
-//go:generate mockery --name Service --output ./mock --outpkg mock --with-expecter
+// contract: the single-drive filesystem layer (NewFS, SNSD) and the
+// erasure-coded layer (NewErasure, SNMD / distributed), both selected by the
+// composition root from the deployment mode.
 package object
 
 import (
 	"context"
 	"io"
+	"log/slog"
 	"time"
 
+	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/event"
+	"github.com/r3n3r0/nexo/internal/service/lock"
+	"github.com/r3n3r0/nexo/internal/service/storage"
+	"github.com/r3n3r0/nexo/internal/service/topology"
 )
+
+// Deps are the dependencies of the object layer implementations. Store is
+// used by NewFS, Sets/Parity/DeploymentID by NewErasure; the other fields are
+// shared and optional (nil values are replaced by defaults).
+type Deps struct {
+	// Store is the single local drive of the filesystem layer.
+	Store storage.StorageAPI
+	// Sets lists the drives of every erasure set of the pool, in set and
+	// disk order (topology.Pool.Sets()).
+	Sets [][]storage.StorageAPI
+	// Parity is the number of parity shards per erasure set.
+	Parity int
+	// DeploymentID seeds the hash that assigns objects to erasure sets.
+	DeploymentID string
+	// Buckets provides the bucket settings the layer enforces (versioning,
+	// object lock). Nil means every bucket is unversioned.
+	Buckets BucketConfigSource
+	// Locks serializes access to buckets and objects (default: local locker).
+	Locks lock.Locker
+	// Events receives bucket notifications; nil disables them.
+	Events event.Service
+	// IDs generates version, data directory and upload identifiers
+	// (default: UUID v4).
+	IDs    topology.IDGenerator
+	Clock  clock.Clock
+	Logger *slog.Logger
+}
+
+// BucketConfig is the subset of bucket settings the object layer enforces.
+type BucketConfig struct {
+	Versioning domain.Versioning
+	// ObjectLock reports that the bucket has object locking enabled.
+	ObjectLock bool
+	// QuotaBytes is the hard quota in bytes, 0 when unset.
+	QuotaBytes uint64
+}
+
+// BucketConfigSource provides the bucket settings. The bucket service's
+// metadata store implements it; a missing bucket yields the zero config.
+type BucketConfigSource interface {
+	BucketConfig(ctx context.Context, bucket string) (BucketConfig, error)
+}
 
 // Service is the object layer.
 type Service interface {

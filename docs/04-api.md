@@ -36,7 +36,8 @@ Formato XML S3 standard (`<Error><Code/><Message/><Resource/><RequestId/></Error
 ## 4.3 Admin API (`/api/v1`)
 
 JSON, versionata, documentata con **OpenAPI 3.1** (`api/openapi.yaml`) da cui si generano:
-- client TypeScript per la dashboard (`openapi-typescript` + `openapi-fetch`);
+- i tipi TypeScript della dashboard (`openapi-typescript` → `web/src/services/http/schema.d.ts`, `npm run gen:api`),
+  da cui derivano i DTO di `web/src/services/types.ts`; il client HTTP è `web/src/services/http/client.ts`;
 - validazione delle risposte nei test di contratto.
 
 | Metodo | Path | Descrizione |

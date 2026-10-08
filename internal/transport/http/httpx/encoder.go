@@ -32,6 +32,12 @@ type Encoder interface {
 	// WriteS3Error maps err to an S3 error document (XML) with the request
 	// ids. NotModified and HEAD requests get an empty body.
 	WriteS3Error(w http.ResponseWriter, r *http.Request, err error)
+	// MapS3Error maps an error to its S3 code and message.
+	MapS3Error(err error) (S3Code, string)
+	// ProblemFromError maps an error to a problem+json document.
+	ProblemFromError(err error) Problem
+	// Codes returns the S3 error code table of the codec.
+	Codes() S3Codes
 }
 
 // Decoder reads request bodies.
@@ -59,17 +65,20 @@ func WithIndent() Option {
 }
 
 type codec struct {
-	indent bool
+	indent   bool
+	codes    S3Codes
+	mappings []errorMapping
 }
 
 var _ Codec = (*codec)(nil)
 
-// New returns the default codec.
+// New returns the default codec with its own copy of the error tables.
 func New(opts ...Option) Codec {
-	c := &codec{}
+	c := &codec{codes: DefaultS3Codes()}
 	for _, o := range opts {
 		o(c)
 	}
+	c.mappings = mappings(c.codes)
 	return c
 }
 
@@ -148,12 +157,12 @@ func (c *codec) WriteProblem(w http.ResponseWriter, r *http.Request, p Problem) 
 
 // WriteProblemError implements Encoder.
 func (c *codec) WriteProblemError(w http.ResponseWriter, r *http.Request, err error) {
-	c.WriteProblem(w, r, ProblemFromError(err))
+	c.WriteProblem(w, r, c.ProblemFromError(err))
 }
 
 // WriteS3Error implements Encoder.
 func (c *codec) WriteS3Error(w http.ResponseWriter, r *http.Request, err error) {
-	code, message := MapS3Error(err)
+	code, message := c.MapS3Error(err)
 	var requestID, hostID, resource string
 	if r != nil {
 		requestID = RequestIDFrom(r.Context())

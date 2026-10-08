@@ -65,15 +65,21 @@ func (d *dispatcher) Register(r chi.Router) {
 		d.enc.WriteS3Error(w, r, fmt.Errorf("%w: no such resource", domain.ErrInvalidArgument))
 	})
 	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
-		d.enc.WriteS3Error(w, r, domain.NewS3Error(domain.ErrInvalidArgument, httpx.CodeMethodNotAllowed.Code, httpx.CodeMethodNotAllowed.Description))
+		d.enc.WriteS3Error(w, r, fmt.Errorf("%w: %s", domain.ErrMethodNotAllowed, r.Method))
 	})
+}
+
+// dispatch records the operation for the audit middleware and runs the handler.
+func (d *dispatcher) dispatch(w http.ResponseWriter, r *http.Request, e *opEntry) {
+	httpx.SetOperationName(r.Context(), e.op.Name)
+	e.h(w, r.WithContext(withOperation(r.Context(), e.op)))
 }
 
 func (d *dispatcher) serve(scope Scope) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		entries := d.ops[opKey{method: r.Method, scope: scope}]
 		if len(entries) == 0 {
-			d.enc.WriteS3Error(w, r, domain.NewS3Error(domain.ErrInvalidArgument, httpx.CodeMethodNotAllowed.Code, httpx.CodeMethodNotAllowed.Description))
+			d.enc.WriteS3Error(w, r, fmt.Errorf("%w: %s", domain.ErrMethodNotAllowed, r.Method))
 			return
 		}
 		query := r.URL.Query()
@@ -93,11 +99,11 @@ func (d *dispatcher) serve(scope Scope) http.HandlerFunc {
 			if e.op.QueryValue != "" && (len(values) == 0 || values[0] != e.op.QueryValue) {
 				continue
 			}
-			e.h(w, r.WithContext(withOperation(r.Context(), e.op)))
+			d.dispatch(w, r, e)
 			return
 		}
 		if fallback != nil {
-			fallback.h(w, r.WithContext(withOperation(r.Context(), fallback.op)))
+			d.dispatch(w, r, fallback)
 			return
 		}
 		d.enc.WriteS3Error(w, r, fmt.Errorf("%w: unsupported operation", domain.ErrNotImplemented))

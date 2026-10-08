@@ -1,20 +1,28 @@
 // Package auth defines request authentication: AWS Signature V4 for headers,
 // presigned query strings, streaming chunked payloads and POST policies, plus
-// the signer that produces presigned URLs.
-//
-//go:generate mockery --name Verifier --output ./mock --outpkg mock --with-expecter
-//go:generate mockery --name Signer --output ./mock --outpkg mock --with-expecter
-//go:generate mockery --name CredentialLookup --output ./mock --outpkg mock --with-expecter
+// the signer that produces presigned URLs. NewVerifier and NewSigner are the
+// SigV4 implementations.
 package auth
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
 
+	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
 )
+
+// Deps are the dependencies of the SigV4 verifier and signer. Creds is
+// required by the verifier; Clock and Logger default to the wall clock and
+// slog.Default().
+type Deps struct {
+	Creds  CredentialLookup
+	Clock  clock.Clock
+	Logger *slog.Logger
+}
 
 // Verifier authenticates incoming requests. Every method returns the
 // identity of the caller or one of domain.ErrAccessDenied,

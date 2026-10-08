@@ -1,13 +1,14 @@
 package middleware
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
 )
 
@@ -16,16 +17,30 @@ type httpMetrics struct {
 	duration *prometheus.HistogramVec
 	inflight prometheus.Gauge
 	server   string
+	clock    clock.Clock
 }
 
 var _ Middleware = (*httpMetrics)(nil)
 
+// MetricsOption configures the metrics middleware.
+type MetricsOption func(*httpMetrics)
+
+// WithMetricsClock sets the clock used to measure latencies (tests).
+func WithMetricsClock(c clock.Clock) MetricsOption {
+	return func(m *httpMetrics) {
+		if c != nil {
+			m.clock = c
+		}
+	}
+}
+
 // NewMetrics returns a middleware recording request count, duration and
 // in-flight requests in reg. server labels the listener ("s3", "console").
 // Labels are low-cardinality on purpose: no path label.
-func NewMetrics(reg metrics.Registry, server string) (Middleware, error) {
+func NewMetrics(reg metrics.Registry, server string, opts ...MetricsOption) (Middleware, error) {
 	m := &httpMetrics{
 		server: server,
+		clock:  clock.NewReal(),
 		requests: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: metrics.Namespace, Subsystem: "http", Name: "requests_total",
 			Help: "Total HTTP requests by server, method and status.",
@@ -41,10 +56,13 @@ func NewMetrics(reg metrics.Registry, server string) (Middleware, error) {
 			ConstLabels: prometheus.Labels{"server": server},
 		}),
 	}
+	for _, o := range opts {
+		o(m)
+	}
 	for _, c := range []prometheus.Collector{m.requests, m.duration, m.inflight} {
 		if err := reg.Register(c); err != nil {
 			var already prometheus.AlreadyRegisteredError
-			if !asAlreadyRegistered(err, &already) {
+			if !errors.As(err, &already) {
 				return nil, fmt.Errorf("metrics middleware: register: %w", err)
 			}
 		}
@@ -52,20 +70,12 @@ func NewMetrics(reg metrics.Registry, server string) (Middleware, error) {
 	return m, nil
 }
 
-func asAlreadyRegistered(err error, target *prometheus.AlreadyRegisteredError) bool {
-	are, ok := err.(prometheus.AlreadyRegisteredError)
-	if ok {
-		*target = are
-	}
-	return ok
-}
-
 // Wrap implements Middleware.
 func (m *httpMetrics) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		m.inflight.Inc()
 		defer m.inflight.Dec()
-		start := time.Now()
+		start := m.clock.Now()
 		rw := wrapWriter(w)
 		next.ServeHTTP(rw, r)
 		method := r.Method
@@ -73,7 +83,7 @@ func (m *httpMetrics) Wrap(next http.Handler) http.Handler {
 			method = "OTHER"
 		}
 		m.requests.WithLabelValues(m.server, method, strconv.Itoa(rw.Status())).Inc()
-		m.duration.WithLabelValues(m.server, method).Observe(time.Since(start).Seconds())
+		m.duration.WithLabelValues(m.server, method).Observe(m.clock.Now().Sub(start).Seconds())
 	})
 }
 

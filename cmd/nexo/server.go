@@ -10,7 +10,6 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/app"
 	"github.com/r3n3r0/nexo/internal/config"
-	"github.com/r3n3r0/nexo/internal/transport/http/console"
 	"github.com/r3n3r0/nexo/web"
 )
 
@@ -44,11 +43,11 @@ NEXO_CONSOLE_ADDRESS). Precedence: flags > environment > --config file.`,
 				return err
 			}
 			logger := newLogger(deps, cfg)
-			var consoleAssets console.Assets
+			opts := []app.Option{app.WithLogger(logger)}
 			if fsys, ok := assets(); ok {
-				consoleAssets = console.NewAssets(fsys)
+				opts = append(opts, app.WithAssetsFS(fsys))
 			}
-			application, err := app.Build(ctx, cfg, app.WithLogger(logger), app.WithAssets(consoleAssets))
+			application, err := app.Build(ctx, cfg, opts...)
 			if err != nil {
 				return err
 			}
