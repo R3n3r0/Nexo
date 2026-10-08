@@ -1,4 +1,4 @@
-package audit
+package audit_test
 
 import (
 	"io"

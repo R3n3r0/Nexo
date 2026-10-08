@@ -22,9 +22,9 @@ func (_m *HostResolver) EXPECT() *HostResolver_Expecter {
 	return &HostResolver_Expecter{mock: &_m.Mock}
 }
 
-// Hostname provides a mock function with no fields
-func (_m *HostResolver) Hostname() (string, error) {
-	ret := _m.Called()
+// Hostname provides a mock function with given fields: ctx
+func (_m *HostResolver) Hostname(ctx context.Context) (string, error) {
+	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Hostname")
@@ -32,17 +32,17 @@ func (_m *HostResolver) Hostname() (string, error) {
 
 	var r0 string
 	var r1 error
-	if rf, ok := ret.Get(0).(func() (string, error)); ok {
-		return rf()
+	if rf, ok := ret.Get(0).(func(context.Context) (string, error)); ok {
+		return rf(ctx)
 	}
-	if rf, ok := ret.Get(0).(func() string); ok {
-		r0 = rf()
+	if rf, ok := ret.Get(0).(func(context.Context) string); ok {
+		r0 = rf(ctx)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
 
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -56,13 +56,14 @@ type HostResolver_Hostname_Call struct {
 }
 
 // Hostname is a helper method to define mock.On call
-func (_e *HostResolver_Expecter) Hostname() *HostResolver_Hostname_Call {
-	return &HostResolver_Hostname_Call{Call: _e.mock.On("Hostname")}
+//   - ctx context.Context
+func (_e *HostResolver_Expecter) Hostname(ctx interface{}) *HostResolver_Hostname_Call {
+	return &HostResolver_Hostname_Call{Call: _e.mock.On("Hostname", ctx)}
 }
 
-func (_c *HostResolver_Hostname_Call) Run(run func()) *HostResolver_Hostname_Call {
+func (_c *HostResolver_Hostname_Call) Run(run func(ctx context.Context)) *HostResolver_Hostname_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(context.Context))
 	})
 	return _c
 }
@@ -72,14 +73,14 @@ func (_c *HostResolver_Hostname_Call) Return(_a0 string, _a1 error) *HostResolve
 	return _c
 }
 
-func (_c *HostResolver_Hostname_Call) RunAndReturn(run func() (string, error)) *HostResolver_Hostname_Call {
+func (_c *HostResolver_Hostname_Call) RunAndReturn(run func(context.Context) (string, error)) *HostResolver_Hostname_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// InterfaceAddrs provides a mock function with no fields
-func (_m *HostResolver) InterfaceAddrs() ([]net.Addr, error) {
-	ret := _m.Called()
+// InterfaceAddrs provides a mock function with given fields: ctx
+func (_m *HostResolver) InterfaceAddrs(ctx context.Context) ([]net.Addr, error) {
+	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for InterfaceAddrs")
@@ -87,19 +88,19 @@ func (_m *HostResolver) InterfaceAddrs() ([]net.Addr, error) {
 
 	var r0 []net.Addr
 	var r1 error
-	if rf, ok := ret.Get(0).(func() ([]net.Addr, error)); ok {
-		return rf()
+	if rf, ok := ret.Get(0).(func(context.Context) ([]net.Addr, error)); ok {
+		return rf(ctx)
 	}
-	if rf, ok := ret.Get(0).(func() []net.Addr); ok {
-		r0 = rf()
+	if rf, ok := ret.Get(0).(func(context.Context) []net.Addr); ok {
+		r0 = rf(ctx)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]net.Addr)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -113,13 +114,14 @@ type HostResolver_InterfaceAddrs_Call struct {
 }
 
 // InterfaceAddrs is a helper method to define mock.On call
-func (_e *HostResolver_Expecter) InterfaceAddrs() *HostResolver_InterfaceAddrs_Call {
-	return &HostResolver_InterfaceAddrs_Call{Call: _e.mock.On("InterfaceAddrs")}
+//   - ctx context.Context
+func (_e *HostResolver_Expecter) InterfaceAddrs(ctx interface{}) *HostResolver_InterfaceAddrs_Call {
+	return &HostResolver_InterfaceAddrs_Call{Call: _e.mock.On("InterfaceAddrs", ctx)}
 }
 
-func (_c *HostResolver_InterfaceAddrs_Call) Run(run func()) *HostResolver_InterfaceAddrs_Call {
+func (_c *HostResolver_InterfaceAddrs_Call) Run(run func(ctx context.Context)) *HostResolver_InterfaceAddrs_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(context.Context))
 	})
 	return _c
 }
@@ -129,7 +131,7 @@ func (_c *HostResolver_InterfaceAddrs_Call) Return(_a0 []net.Addr, _a1 error) *H
 	return _c
 }
 
-func (_c *HostResolver_InterfaceAddrs_Call) RunAndReturn(run func() ([]net.Addr, error)) *HostResolver_InterfaceAddrs_Call {
+func (_c *HostResolver_InterfaceAddrs_Call) RunAndReturn(run func(context.Context) ([]net.Addr, error)) *HostResolver_InterfaceAddrs_Call {
 	_c.Call.Return(run)
 	return _c
 }

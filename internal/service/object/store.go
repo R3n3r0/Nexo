@@ -31,7 +31,9 @@ type store interface {
 	ErasureInfo() storage.ErasureInfo
 	// CommitData moves the system directory tmpDir into place as the data
 	// directory fi.DataDir of volume/path and records fi. It returns the
-	// data directory of the replaced version, if any.
+	// data directory of the replaced version, if any. On failure tmpDir is
+	// left where it is (wherever the move did not happen): the caller
+	// removes it or, for a multipart completion, restores its parts.
 	CommitData(ctx context.Context, tmpDir string, fi storage.FileInfo, volume, path string) (string, error)
 	// ReadData streams [offset, offset+length) of the logical content of
 	// part of the version fi.
@@ -63,12 +65,14 @@ func parallel(n int, fn func(i int) error) []error {
 	return errs
 }
 
-// knownSentinels are the errors drives may legitimately agree on.
-var knownSentinels = []error{
-	domain.ErrBucketNotFound, domain.ErrBucketAlreadyExists, domain.ErrBucketNotEmpty, domain.ErrInvalidBucketName,
-	domain.ErrObjectNotFound, domain.ErrInvalidObjectName, domain.ErrNoSuchVersion, domain.ErrInvalidRange,
-	domain.ErrStorageFull, domain.ErrDiskNotFound, domain.ErrFaultyDisk, domain.ErrInvalidArgument,
-	domain.ErrInvalidFormat, context.Canceled, context.DeadlineExceeded,
+// knownSentinels returns the errors drives may legitimately agree on.
+func knownSentinels() []error {
+	return []error{
+		domain.ErrBucketNotFound, domain.ErrBucketAlreadyExists, domain.ErrBucketNotEmpty, domain.ErrInvalidBucketName,
+		domain.ErrObjectNotFound, domain.ErrInvalidObjectName, domain.ErrNoSuchVersion, domain.ErrInvalidRange,
+		domain.ErrStorageFull, domain.ErrDiskNotFound, domain.ErrFaultyDisk, domain.ErrInvalidArgument,
+		domain.ErrInvalidFormat, context.Canceled, context.DeadlineExceeded,
+	}
 }
 
 // reduceErrs returns nil when at least quorum calls succeeded, the error at
@@ -76,6 +80,7 @@ var knownSentinels = []error{
 // agreement. Agreement is by domain sentinel so that wrapped errors match.
 func reduceErrs(errs []error, quorum int, fallback error) error {
 	ok := 0
+	sentinels := knownSentinels()
 	counts := make(map[error]int)
 	first := make(map[error]error)
 	for _, err := range errs {
@@ -84,7 +89,7 @@ func reduceErrs(errs []error, quorum int, fallback error) error {
 			continue
 		}
 		key := err
-		for _, s := range knownSentinels {
+		for _, s := range sentinels {
 			if errors.Is(err, s) {
 				key = s
 				break

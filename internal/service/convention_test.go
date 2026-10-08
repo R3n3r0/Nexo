@@ -112,6 +112,128 @@ func checkPackage(t *testing.T, dir string) {
 	}
 }
 
+// TestMockCoverage extends rule 8 beyond the services: every exported
+// interface of the transport, config and cli packages has its generated
+// mock in <package>/mock (.mockery.yaml).
+func TestMockCoverage(t *testing.T) {
+	dirs := []string{
+		"../config",
+		"../cli",
+		"../transport/http/httpx",
+		"../transport/http/middleware",
+		"../transport/http/server",
+		"../transport/http/console",
+		"../transport/http/s3",
+		"../transport/http/admin",
+	}
+	for _, dir := range dirs {
+		t.Run(filepath.Base(dir), func(t *testing.T) {
+			names := exportedInterfaces(t, dir)
+			require.NotEmpty(t, names, "%s declares no interface: drop it from the list", dir)
+			for _, n := range names {
+				_, err := os.Stat(filepath.Join(dir, "mock", snakeCase(n)+".go"))
+				assert.NoError(t, err, "interface %s of %s has no generated mock: add it to .mockery.yaml and run go generate ./...", n, dir)
+			}
+		})
+	}
+}
+
+// TestNoMutableGlobals enforces "no global variables" (docs/12): outside
+// the tests and the generated mocks, a package-level var may only be a
+// compile-time assertion (`var _ I = ...`) or an error sentinel built with
+// errors.New / fmt.Errorf. internal/version is the exception: its
+// variables are set at link time (-ldflags -X).
+func TestNoMutableGlobals(t *testing.T) {
+	for _, root := range []string{"..", "../../cmd"} {
+		err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				if d.Name() == "mock" || d.Name() == "testdata" || filepath.ToSlash(path) == "../version" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+			if err != nil {
+				return err
+			}
+			for _, decl := range f.Decls {
+				gd, ok := decl.(*ast.GenDecl)
+				if !ok || gd.Tok != token.VAR {
+					continue
+				}
+				for _, spec := range gd.Specs {
+					vs := spec.(*ast.ValueSpec)
+					for i, name := range vs.Names {
+						if name.Name == "_" || (i < len(vs.Values) && isErrorSentinel(vs.Values[i])) {
+							continue
+						}
+						t.Errorf("%s: package-level variable %s: use a function, a constant or a field of the implementation", path, name.Name)
+					}
+				}
+			}
+			return nil
+		})
+		require.NoError(t, err)
+	}
+}
+
+// isErrorSentinel recognizes errors.New(...) and fmt.Errorf(...).
+func isErrorSentinel(e ast.Expr) bool {
+	call, ok := e.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	return (pkg.Name == "errors" && sel.Sel.Name == "New") || (pkg.Name == "fmt" && sel.Sel.Name == "Errorf")
+}
+
+// exportedInterfaces lists the exported interface types (not aliases)
+// declared by the non-test files of dir.
+func exportedInterfaces(t *testing.T, dir string) []string {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join(dir, "*.go"))
+	require.NoError(t, err)
+	fset := token.NewFileSet()
+	var names []string
+	for _, path := range files {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, path, nil, 0)
+		require.NoError(t, err)
+		for _, decl := range f.Decls {
+			gd, ok := decl.(*ast.GenDecl)
+			if !ok {
+				continue
+			}
+			for _, spec := range gd.Specs {
+				ts, ok := spec.(*ast.TypeSpec)
+				if !ok || ts.Assign != 0 || !ts.Name.IsExported() {
+					continue
+				}
+				if _, isIface := ts.Type.(*ast.InterfaceType); isIface {
+					names = append(names, ts.Name.Name)
+				}
+			}
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
 // assertion recognizes `var _ Iface = (*impl)(nil)` and returns the
 // interface and implementation names.
 func assertion(s *ast.ValueSpec) (iface, impl string, ok bool) {

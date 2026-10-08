@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -11,8 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/r3n3r0/nexo/internal/domain"
 )
 
 // SigV4 constants.
@@ -29,28 +28,36 @@ const (
 	amzDateFormat            = "20060102T150405Z"
 	scopeDateFormat          = "20060102"
 	maxPresignExpiry         = 7 * 24 * time.Hour
+	signatureHexLength       = 64
 )
 
-// Header and query names.
+// Header, query and form field names.
 const (
-	headerAuthorization  = "Authorization"
-	headerAmzDate        = "X-Amz-Date"
-	headerDate           = "Date"
-	headerContentSHA256  = "X-Amz-Content-Sha256"
-	headerSecurityToken  = "X-Amz-Security-Token"
-	headerDecodedLength  = "X-Amz-Decoded-Content-Length"
-	queryAlgorithm       = "X-Amz-Algorithm"
-	queryCredential      = "X-Amz-Credential"
-	queryDate            = "X-Amz-Date"
-	queryExpires         = "X-Amz-Expires"
-	querySignedHeaders   = "X-Amz-SignedHeaders"
-	querySignature       = "X-Amz-Signature"
-	querySecurityToken   = "X-Amz-Security-Token"
-	queryContentSHA256   = "X-Amz-Content-Sha256"
-	serviceS3            = "s3"
-	serviceSTS           = "sts"
-	credentialSeparator  = "/"
-	signedHeaderSepartor = ";"
+	headerAuthorization   = "Authorization"
+	headerAmzDate         = "X-Amz-Date"
+	headerDate            = "Date"
+	headerContentSHA256   = "X-Amz-Content-Sha256"
+	headerSecurityToken   = "X-Amz-Security-Token"
+	headerDecodedLength   = "X-Amz-Decoded-Content-Length"
+	headerTrailer         = "X-Amz-Trailer"
+	headerContentEncoding = "Content-Encoding"
+	queryAlgorithm        = "X-Amz-Algorithm"
+	queryCredential       = "X-Amz-Credential"
+	queryDate             = "X-Amz-Date"
+	queryExpires          = "X-Amz-Expires"
+	querySignedHeaders    = "X-Amz-SignedHeaders"
+	querySignature        = "X-Amz-Signature"
+	querySecurityToken    = "X-Amz-Security-Token"
+	queryContentSHA256    = "X-Amz-Content-Sha256"
+	queryV2AccessKey      = "AWSAccessKeyId"
+	queryV2Signature      = "Signature"
+	credentialSeparator   = "/"
+	signedHeaderSeparator = ";"
+	awsChunkedEncoding    = "aws-chunked"
+	amzHeaderPrefix       = "x-amz-"
+	lowerAmzDate          = "x-amz-date"
+	lowerContentSHA256    = "x-amz-content-sha256"
+	lowerSecurityToken    = "x-amz-security-token"
 )
 
 // credentialScope is the "<access key>/<date>/<region>/<service>/aws4_request"
@@ -64,7 +71,7 @@ type credentialScope struct {
 
 // scope returns the scope part ("date/region/service/aws4_request").
 func (c credentialScope) scope() string {
-	return strings.Join([]string{c.date, c.region, c.service, requestSuffix}, credentialSeparator)
+	return c.date + credentialSeparator + c.region + credentialSeparator + c.service + credentialSeparator + requestSuffix
 }
 
 func (c credentialScope) String() string {
@@ -72,13 +79,14 @@ func (c credentialScope) String() string {
 }
 
 // parseCredential parses a credential string. Access keys may themselves
-// contain slashes (STS style), so the scope is taken from the end.
+// contain slashes, so the scope is taken from the end. The error is a
+// plain detail: callers wrap it in the S3 error of their mechanism.
 func parseCredential(s string) (credentialScope, error) {
 	parts := strings.Split(s, credentialSeparator)
-	if len(parts) < 5 || parts[len(parts)-1] != requestSuffix {
-		return credentialScope{}, malformed("Credential", "expected <access key>/<date>/<region>/<service>/aws4_request")
-	}
 	n := len(parts)
+	if n < 5 || parts[n-1] != requestSuffix {
+		return credentialScope{}, errors.New("expected <access key>/<date>/<region>/<service>/aws4_request")
+	}
 	c := credentialScope{
 		accessKey: strings.Join(parts[:n-4], credentialSeparator),
 		date:      parts[n-4],
@@ -86,20 +94,18 @@ func parseCredential(s string) (credentialScope, error) {
 		service:   parts[n-2],
 	}
 	if c.accessKey == "" {
-		return credentialScope{}, malformed("Credential", "empty access key")
+		return credentialScope{}, errors.New("the access key is empty")
 	}
-	if _, err := time.Parse(scopeDateFormat, c.date); err != nil {
-		return credentialScope{}, malformed("Credential", "invalid date "+c.date)
+	if _, err := time.Parse(scopeDateFormat, c.date); err != nil || len(c.date) != len(scopeDateFormat) {
+		return credentialScope{}, fmt.Errorf("invalid credential date %q", c.date)
 	}
-	if c.service != serviceS3 && c.service != serviceSTS {
-		return credentialScope{}, malformed("Credential", "unsupported service "+c.service)
+	if c.region == "" {
+		return credentialScope{}, errors.New("the region is empty")
+	}
+	if c.service != ServiceS3 && c.service != ServiceSTS {
+		return credentialScope{}, fmt.Errorf("unsupported service %q", c.service)
 	}
 	return c, nil
-}
-
-// malformed builds the AuthorizationHeaderMalformed error.
-func malformed(what, detail string) error {
-	return domain.NewS3Error(domain.ErrSignatureMismatch, "AuthorizationHeaderMalformed", fmt.Sprintf("The authorization header is malformed; %s: %s.", what, detail))
 }
 
 // authorization is a parsed Authorization header.
@@ -109,117 +115,232 @@ type authorization struct {
 	signature     string
 }
 
-// parseAuthorization parses "AWS4-HMAC-SHA256 Credential=..., SignedHeaders=..., Signature=...".
+// parseAuthorization parses
+// "AWS4-HMAC-SHA256 Credential=..., SignedHeaders=..., Signature=...".
+// The fields may be separated by "," or ", " and appear in any order;
+// each must appear exactly once.
 func parseAuthorization(h string) (authorization, error) {
-	if !strings.HasPrefix(h, algorithm+" ") {
-		return authorization{}, malformed("algorithm", "unsupported algorithm")
+	rest, ok := strings.CutPrefix(h, algorithm)
+	if !ok || rest == "" || (rest[0] != ' ' && rest[0] != '\t') {
+		return authorization{}, errors.New("unsupported algorithm, expected AWS4-HMAC-SHA256")
 	}
 	var out authorization
-	seen := map[string]bool{}
-	for _, field := range strings.Split(strings.TrimPrefix(h, algorithm+" "), ",") {
+	var seenCredential, seenHeaders, seenSignature bool
+	for _, field := range strings.Split(rest, ",") {
 		field = strings.TrimSpace(field)
 		name, value, ok := strings.Cut(field, "=")
 		if !ok {
-			return authorization{}, malformed("field", field)
+			return authorization{}, fmt.Errorf("the field %q is not a key=value pair", field)
 		}
-		if seen[name] {
-			return authorization{}, malformed(name, "duplicate field")
-		}
-		seen[name] = true
 		switch name {
 		case "Credential":
+			if seenCredential {
+				return authorization{}, errors.New("duplicate Credential")
+			}
+			seenCredential = true
 			scope, err := parseCredential(value)
 			if err != nil {
-				return authorization{}, err
+				return authorization{}, fmt.Errorf("invalid Credential: %w", err)
 			}
 			out.scope = scope
 		case "SignedHeaders":
-			if value == "" {
-				return authorization{}, malformed("SignedHeaders", "empty")
+			if seenHeaders {
+				return authorization{}, errors.New("duplicate SignedHeaders")
 			}
-			out.signedHeaders = strings.Split(value, signedHeaderSepartor)
+			seenHeaders = true
+			signed, err := parseSignedHeaders(value)
+			if err != nil {
+				return authorization{}, err
+			}
+			out.signedHeaders = signed
 		case "Signature":
-			if len(value) != 64 || !isHex(value) {
-				return authorization{}, malformed("Signature", "expected 64 hex characters")
+			if seenSignature {
+				return authorization{}, errors.New("duplicate Signature")
+			}
+			seenSignature = true
+			if !isSignature(value) {
+				return authorization{}, errors.New("the Signature must be 64 hex characters")
 			}
 			out.signature = value
 		default:
-			return authorization{}, malformed(name, "unknown field")
+			return authorization{}, fmt.Errorf("unknown field %q", name)
 		}
 	}
-	if !seen["Credential"] || !seen["SignedHeaders"] || !seen["Signature"] {
-		return authorization{}, malformed("header", "missing Credential, SignedHeaders or Signature")
-	}
-	hasHost := false
-	for _, name := range out.signedHeaders {
-		if name == "host" {
-			hasHost = true
-		}
-	}
-	if !hasHost {
-		return authorization{}, malformed("SignedHeaders", "host must be signed")
+	if !seenCredential || !seenHeaders || !seenSignature {
+		return authorization{}, errors.New("the Credential, SignedHeaders and Signature fields are required")
 	}
 	return out, nil
 }
 
-func isHex(s string) bool {
-	_, err := hex.DecodeString(s)
-	return err == nil && len(s)%2 == 0
-}
-
-// encodePath URI-encodes a path the way S3 expects in canonical requests:
-// every byte except unreserved characters and "/" becomes %XX (upper case).
-func encodePath(p string) string {
-	if p == "" {
-		return "/"
+// parseSignedHeaders parses a ";"-separated list of header names. The
+// names are lowercased, sorted and deduplicated, as in the canonical
+// request; host is mandatory.
+func parseSignedHeaders(s string) ([]string, error) {
+	if s == "" {
+		return nil, errors.New("SignedHeaders is empty")
 	}
-	var sb strings.Builder
-	sb.Grow(len(p) + 16)
-	for i := 0; i < len(p); i++ {
-		c := p[i]
-		if c == '/' || isUnreserved(c) {
-			sb.WriteByte(c)
-			continue
+	parts := strings.Split(s, signedHeaderSeparator)
+	names := make([]string, 0, len(parts))
+	hasHost := false
+	for _, p := range parts {
+		name := strings.ToLower(strings.TrimSpace(p))
+		if name == "" || !isToken(name) {
+			return nil, fmt.Errorf("invalid signed header name %q", p)
 		}
-		fmt.Fprintf(&sb, "%%%02X", c)
+		if name == "host" {
+			hasHost = true
+		}
+		names = append(names, name)
 	}
-	return sb.String()
+	if !hasHost {
+		return nil, errors.New("the host header must be signed")
+	}
+	sort.Strings(names)
+	out := names[:1]
+	for _, n := range names[1:] {
+		if n != out[len(out)-1] {
+			out = append(out, n)
+		}
+	}
+	return out, nil
 }
 
-// encodeQueryComponent encodes a query key or value (strict, "/" included).
-func encodeQueryComponent(s string) string {
-	var sb strings.Builder
-	sb.Grow(len(s) + 16)
+// isToken reports whether s is a valid HTTP header field name.
+func isToken(s string) bool {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		if isUnreserved(c) {
-			sb.WriteByte(c)
-			continue
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case strings.IndexByte("!#$%&'*+-.^_`|~", c) >= 0:
+		default:
+			return false
 		}
-		fmt.Fprintf(&sb, "%%%02X", c)
 	}
-	return sb.String()
+	return s != ""
 }
 
+// isSignature reports whether s is a 64-character hex string.
+func isSignature(s string) bool {
+	return len(s) == signatureHexLength && isHex(s)
+}
+
+func isHex(s string) bool {
+	if len(s)%2 != 0 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') && (c < 'A' || c > 'F') {
+			return false
+		}
+	}
+	return true
+}
+
+// isUnreserved reports the RFC 3986 unreserved characters, which SigV4
+// never encodes.
 func isUnreserved(c byte) bool {
 	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~'
 }
 
+const upperHex = "0123456789ABCDEF"
+
+// uriEncode percent-encodes every byte but the unreserved characters (and
+// "/" when keepSlash), with upper-case hex digits.
+func uriEncode(s string, keepSlash bool) string {
+	n := 0
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; !isUnreserved(c) && (c != '/' || !keepSlash) {
+			n++
+		}
+	}
+	if n == 0 {
+		return s
+	}
+	var sb strings.Builder
+	sb.Grow(len(s) + 2*n)
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if isUnreserved(c) || (c == '/' && keepSlash) {
+			sb.WriteByte(c)
+			continue
+		}
+		sb.WriteByte('%')
+		sb.WriteByte(upperHex[c>>4])
+		sb.WriteByte(upperHex[c&15])
+	}
+	return sb.String()
+}
+
+// encodePath URI-encodes a decoded path the way S3 expects in canonical
+// requests: every byte but the unreserved characters and "/" becomes %XX.
+// S3 does not normalize the path nor encode it twice.
+func encodePath(p string) string {
+	if p == "" {
+		return "/"
+	}
+	return uriEncode(p, true)
+}
+
+// canonicalURIs returns the canonical URI candidates of a request: the
+// S3-style encoding of the decoded path and, when it differs, the path as
+// escaped on the wire (clients that encode reserved characters such as
+// "/" inside keys differently). Both describe the same decoded path, so
+// accepting either does not widen what a signature authorizes.
+func canonicalURIs(u *url.URL) []string {
+	primary := encodePath(u.Path)
+	if u.Opaque != "" {
+		return []string{primary}
+	}
+	// For server requests EscapedPath is the path as sent on the wire.
+	if raw := u.EscapedPath(); raw != "" && raw != primary {
+		return []string{primary, raw}
+	}
+	return []string{primary}
+}
+
+// parseQuery decodes a raw query string. Unlike url.ParseQuery it accepts
+// ";" inside values and fails on invalid percent-encoding instead of
+// silently dropping the pair, so that the canonical query covers exactly
+// what the client sent. "+" decodes to a space, as in AWS SDKs.
+func parseQuery(raw string) (url.Values, error) {
+	q := url.Values{}
+	for raw != "" {
+		var pair string
+		pair, raw, _ = strings.Cut(raw, "&")
+		if pair == "" {
+			continue
+		}
+		k, v, _ := strings.Cut(pair, "=")
+		key, err := url.QueryUnescape(k)
+		if err != nil {
+			return nil, fmt.Errorf("invalid query parameter name %q: %w", k, err)
+		}
+		value, err := url.QueryUnescape(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid value of query parameter %q: %w", key, err)
+		}
+		q[key] = append(q[key], value)
+	}
+	return q, nil
+}
+
 // canonicalQuery renders the sorted, encoded query string without the
-// excluded parameter (X-Amz-Signature for presigned requests).
+// excluded parameter (X-Amz-Signature for presigned requests; "" excludes
+// nothing).
 func canonicalQuery(q url.Values, exclude string) string {
 	type kv struct{ k, v string }
 	pairs := make([]kv, 0, len(q))
 	for k, vs := range q {
-		if k == exclude {
+		if exclude != "" && k == exclude {
 			continue
 		}
-		ek := encodeQueryComponent(k)
+		ek := uriEncode(k, false)
 		if len(vs) == 0 {
 			pairs = append(pairs, kv{ek, ""})
 		}
 		for _, v := range vs {
-			pairs = append(pairs, kv{ek, encodeQueryComponent(v)})
+			pairs = append(pairs, kv{ek, uriEncode(v, false)})
 		}
 	}
 	sort.Slice(pairs, func(i, j int) bool {
@@ -241,71 +362,113 @@ func canonicalQuery(q url.Values, exclude string) string {
 }
 
 // headerValues returns the values of a signed header from the request. The
-// host and content-length pseudo headers come from the request fields.
+// host, content-length and transfer-encoding headers come from the request
+// fields, where net/http moves them.
 func headerValues(r *http.Request, name string) ([]string, bool) {
 	switch name {
 	case "host":
-		return []string{r.Host}, r.Host != ""
+		host := r.Host
+		if host == "" && r.URL != nil {
+			host = r.URL.Host
+		}
+		return []string{host}, host != ""
 	case "content-length":
+		if vs := r.Header.Values("Content-Length"); len(vs) > 0 {
+			return vs, true
+		}
 		if r.ContentLength >= 0 {
-			if vs := r.Header.Values("Content-Length"); len(vs) > 0 {
-				return vs, true
-			}
 			return []string{strconv.FormatInt(r.ContentLength, 10)}, true
 		}
+		return nil, false
 	case "transfer-encoding":
 		if len(r.TransferEncoding) > 0 {
 			return []string{strings.Join(r.TransferEncoding, ",")}, true
 		}
 	case "expect":
+		// Proxies may strip "Expect: 100-continue"; clients sign it with
+		// that value.
 		if vs := r.Header.Values("Expect"); len(vs) > 0 {
 			return vs, true
 		}
 		return []string{"100-continue"}, true
 	}
-	vs := r.Header.Values(http.CanonicalHeaderKey(name))
+	vs := r.Header.Values(name)
 	return vs, len(vs) > 0
 }
 
-// canonicalHeaders renders the "name:value\n" lines of the signed headers.
-// A signed header missing from the request is an error.
-func canonicalHeaders(r *http.Request, signed []string) (string, error) {
+// trimHeaderValue applies the SigV4 "trimall": leading and trailing
+// whitespace removed, runs of spaces collapsed into one.
+func trimHeaderValue(v string) string {
+	v = strings.TrimSpace(v)
+	if !strings.Contains(v, "  ") {
+		return v
+	}
+	var sb strings.Builder
+	sb.Grow(len(v))
+	space := false
+	for i := 0; i < len(v); i++ {
+		c := v[i]
+		if c == ' ' {
+			if space {
+				continue
+			}
+			space = true
+		} else {
+			space = false
+		}
+		sb.WriteByte(c)
+	}
+	return sb.String()
+}
+
+// canonicalHeaders renders the "name:value\n" lines of the signed headers
+// (already lowercase and sorted). It returns the name of the first signed
+// header missing from the request.
+func canonicalHeaders(r *http.Request, signed []string) (string, string) {
 	var sb strings.Builder
 	for _, name := range signed {
-		name = strings.ToLower(name)
 		vs, ok := headerValues(r, name)
 		if !ok {
-			return "", domain.NewS3Error(domain.ErrSignatureMismatch, "SignatureDoesNotMatch",
-				"The request signature we calculated does not match the signature you provided: signed header "+name+" is missing.")
-		}
-		trimmed := make([]string, 0, len(vs))
-		for _, v := range vs {
-			trimmed = append(trimmed, strings.Join(strings.Fields(v), " "))
+			return "", name
 		}
 		sb.WriteString(name)
 		sb.WriteByte(':')
-		sb.WriteString(strings.Join(trimmed, ","))
+		for i, v := range vs {
+			if i > 0 {
+				sb.WriteByte(',')
+			}
+			sb.WriteString(trimHeaderValue(v))
+		}
 		sb.WriteByte('\n')
 	}
-	return sb.String(), nil
+	return sb.String(), ""
 }
 
 // canonicalRequest assembles the canonical request string.
-func canonicalRequest(method, path, query, headers string, signed []string, payloadHash string) string {
-	names := make([]string, len(signed))
-	for i, n := range signed {
-		names[i] = strings.ToLower(n)
-	}
-	return strings.Join([]string{method, path, query, headers, strings.Join(names, signedHeaderSepartor), payloadHash}, "\n")
+func canonicalRequest(method, uri, query, headers string, signed []string, payloadHash string) string {
+	var sb strings.Builder
+	sb.Grow(len(method) + len(uri) + len(query) + len(headers) + 64*2)
+	sb.WriteString(method)
+	sb.WriteByte('\n')
+	sb.WriteString(uri)
+	sb.WriteByte('\n')
+	sb.WriteString(query)
+	sb.WriteByte('\n')
+	sb.WriteString(headers)
+	sb.WriteByte('\n')
+	sb.WriteString(strings.Join(signed, signedHeaderSeparator))
+	sb.WriteByte('\n')
+	sb.WriteString(payloadHash)
+	return sb.String()
 }
 
 // stringToSign assembles the string to sign of a request.
 func stringToSign(amzDate string, scope credentialScope, canonical string) string {
-	return strings.Join([]string{algorithm, amzDate, scope.scope(), sha256Hex([]byte(canonical))}, "\n")
+	return algorithm + "\n" + amzDate + "\n" + scope.scope() + "\n" + sha256Hex([]byte(canonical))
 }
 
-// signingKey derives the per-day signing key.
-func signingKey(secret string, scope credentialScope) []byte {
+// deriveSigningKey derives the per-day signing key.
+func deriveSigningKey(secret string, scope credentialScope) []byte {
 	k := hmacSHA256([]byte("AWS4"+secret), []byte(scope.date))
 	k = hmacSHA256(k, []byte(scope.region))
 	k = hmacSHA256(k, []byte(scope.service))
@@ -328,15 +491,18 @@ func signatureHex(key []byte, s string) string {
 }
 
 // equalSignatures compares two hex signatures in constant time.
-func equalSignatures(a, b string) bool {
-	return hmac.Equal([]byte(strings.ToLower(a)), []byte(strings.ToLower(b)))
+func equalSignatures(expected, provided string) bool {
+	return hmac.Equal([]byte(expected), []byte(strings.ToLower(provided)))
 }
 
 // parseAmzDate parses an ISO 8601 basic timestamp (20130524T000000Z).
 func parseAmzDate(s string) (time.Time, error) {
+	if len(s) != len(amzDateFormat) {
+		return time.Time{}, fmt.Errorf("invalid ISO 8601 basic timestamp %q", s)
+	}
 	t, err := time.Parse(amzDateFormat, s)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("invalid X-Amz-Date %q", s)
+		return time.Time{}, fmt.Errorf("invalid ISO 8601 basic timestamp %q", s)
 	}
 	return t, nil
 }

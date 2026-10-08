@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/health"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
@@ -21,13 +22,6 @@ type healthRoutes struct {
 
 var _ HealthRoutes = (*healthRoutes)(nil)
 
-// Health endpoint paths.
-const (
-	PathHealthLive    = "/nexo/health/live"
-	PathHealthReady   = "/nexo/health/ready"
-	PathHealthCluster = "/nexo/health/cluster"
-)
-
 // NewHealthRoutes returns the health route group.
 func NewHealthRoutes(deps HealthDeps) HealthRoutes {
 	if deps.Enc == nil {
@@ -38,12 +32,12 @@ func NewHealthRoutes(deps HealthDeps) HealthRoutes {
 
 // Register implements Routes.
 func (h *healthRoutes) Register(r chi.Router) {
-	r.Get(PathHealthLive, h.live)
-	r.Head(PathHealthLive, h.live)
-	r.Get(PathHealthReady, h.ready)
-	r.Head(PathHealthReady, h.ready)
-	r.Get(PathHealthCluster, h.cluster)
-	r.Head(PathHealthCluster, h.cluster)
+	r.Get(domain.HealthLivePath, h.live)
+	r.Head(domain.HealthLivePath, h.live)
+	r.Get(domain.HealthReadyPath, h.ready)
+	r.Head(domain.HealthReadyPath, h.ready)
+	r.Get(domain.HealthClusterPath, h.cluster)
+	r.Head(domain.HealthClusterPath, h.cluster)
 }
 
 func (h *healthRoutes) live(w http.ResponseWriter, r *http.Request) {

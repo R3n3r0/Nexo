@@ -1,4 +1,4 @@
-package object
+package object_test
 
 import (
 	"bytes"
@@ -14,10 +14,13 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/event"
+	"github.com/r3n3r0/nexo/internal/service/object"
+	objectmock "github.com/r3n3r0/nexo/internal/service/object/mock"
 	"github.com/r3n3r0/nexo/internal/service/storage"
 )
 
@@ -33,7 +36,7 @@ func TestListObjects(t *testing.T) {
 	forEachImpl(t, func(t *testing.T, fx *fixture) {
 		ctx := context.Background()
 		svc := fx.svc
-		require.NoError(t, svc.MakeBucket(ctx, "bkt", MakeBucketOptions{}))
+		require.NoError(t, svc.MakeBucket(ctx, "bkt", object.MakeBucketOptions{}))
 		for _, k := range []string{"a-b", "a.txt", "a/x", "a/y/z", "b.txt", "photos/", "photos/1.jpg", "photos/2024/a.jpg", "photos/2024/b.jpg", "zeta"} {
 			put(t, svc, "bkt", k, []byte(k))
 		}
@@ -108,7 +111,11 @@ func TestListObjects(t *testing.T) {
 		res, err = svc.ListObjects(ctx, domain.ListObjectsInput{Bucket: "bkt", Marker: "photos/1.jpg", Delimiter: "/"})
 		require.NoError(t, err)
 		assert.Equal(t, []string{"zeta"}, keysOf(res))
-		assert.Empty(t, res.CommonPrefixes, "common prefixes before the marker are not repeated")
+		assert.Equal(t, []string{"photos/"}, res.CommonPrefixes, "photos/2024/... follows the marker inside photos/, as in AWS")
+		res, err = svc.ListObjects(ctx, domain.ListObjectsInput{Bucket: "bkt", Marker: "photos/", Delimiter: "/"})
+		require.NoError(t, err)
+		assert.Equal(t, []string{"zeta"}, keysOf(res))
+		assert.Empty(t, res.CommonPrefixes, "a common prefix used as marker is not repeated")
 
 		// Errors.
 		_, err = svc.ListObjects(ctx, domain.ListObjectsInput{Bucket: "bkt", ContinuationToken: "%%%"})
@@ -127,8 +134,8 @@ func TestListObjectVersionsPagination(t *testing.T) {
 	forEachImpl(t, func(t *testing.T, fx *fixture) {
 		ctx := context.Background()
 		svc := fx.svc
-		require.NoError(t, svc.MakeBucket(ctx, "ver", MakeBucketOptions{}))
-		fx.buckets.set("ver", BucketConfig{Versioning: domain.VersioningEnabled})
+		require.NoError(t, svc.MakeBucket(ctx, "ver", object.MakeBucketOptions{}))
+		fx.setBucketConfig("ver", object.BucketConfig{Versioning: domain.VersioningEnabled})
 		for i := 0; i < 3; i++ {
 			put(t, svc, "ver", "k1", []byte(fmt.Sprint("a", i)))
 			put(t, svc, "ver", "k2", []byte(fmt.Sprint("b", i)))
@@ -166,25 +173,25 @@ func TestCopyObject(t *testing.T) {
 	forEachImpl(t, func(t *testing.T, fx *fixture) {
 		ctx := context.Background()
 		svc := fx.svc
-		require.NoError(t, svc.MakeBucket(ctx, "src", MakeBucketOptions{}))
-		require.NoError(t, svc.MakeBucket(ctx, "dst", MakeBucketOptions{}))
+		require.NoError(t, svc.MakeBucket(ctx, "src", object.MakeBucketOptions{}))
+		require.NoError(t, svc.MakeBucket(ctx, "dst", object.MakeBucketOptions{}))
 		data := payload(3 * testBlockSize)
-		put(t, svc, "src", "k", data, func(in *PutObjectInput) {
+		put(t, svc, "src", "k", data, func(in *object.PutObjectInput) {
 			in.UserMetadata = map[string]string{"owner": "alice", "content-encoding": "identity"}
 			in.Tags = map[string]string{"t": "1"}
 		})
 
-		info, err := svc.CopyObject(ctx, CopyObjectInput{SrcBucket: "src", SrcKey: "k", DstBucket: "dst", DstKey: "copy"})
+		info, err := svc.CopyObject(ctx, object.CopyObjectInput{SrcBucket: "src", SrcKey: "k", DstBucket: "dst", DstKey: "copy"})
 		require.NoError(t, err)
 		assert.Equal(t, md5hex(data), info.ETag)
 		assert.Equal(t, "alice", info.UserMetadata["owner"])
 		assert.Equal(t, "identity", info.ContentEncoding)
 		assert.Equal(t, map[string]string{"t": "1"}, info.Tags)
-		got, _ := get(t, svc, "dst", "copy", GetObjectOptions{})
+		got, _ := get(t, svc, "dst", "copy", object.GetObjectOptions{})
 		assert.Equal(t, data, got)
 
 		// Replace metadata and tags.
-		info, err = svc.CopyObject(ctx, CopyObjectInput{SrcBucket: "src", SrcKey: "k", DstBucket: "dst", DstKey: "copy2",
+		info, err = svc.CopyObject(ctx, object.CopyObjectInput{SrcBucket: "src", SrcKey: "k", DstBucket: "dst", DstKey: "copy2",
 			ReplaceMetadata: true, ContentType: "image/png", UserMetadata: map[string]string{"x": "y"}, ReplaceTags: true, Tags: map[string]string{}})
 		require.NoError(t, err)
 		assert.Equal(t, "image/png", info.ContentType)
@@ -193,22 +200,22 @@ func TestCopyObject(t *testing.T) {
 		assert.Empty(t, info.ContentEncoding)
 
 		// Self-copy only with a metadata change.
-		_, err = svc.CopyObject(ctx, CopyObjectInput{SrcBucket: "src", SrcKey: "k", DstBucket: "src", DstKey: "k"})
+		_, err = svc.CopyObject(ctx, object.CopyObjectInput{SrcBucket: "src", SrcKey: "k", DstBucket: "src", DstKey: "k"})
 		assert.ErrorIs(t, err, domain.ErrInvalidArgument)
-		info, err = svc.CopyObject(ctx, CopyObjectInput{SrcBucket: "src", SrcKey: "k", DstBucket: "src", DstKey: "k", ReplaceMetadata: true, ContentType: "text/csv"})
+		info, err = svc.CopyObject(ctx, object.CopyObjectInput{SrcBucket: "src", SrcKey: "k", DstBucket: "src", DstKey: "k", ReplaceMetadata: true, ContentType: "text/csv"})
 		require.NoError(t, err)
 		assert.Equal(t, "text/csv", info.ContentType)
-		got, _ = get(t, svc, "src", "k", GetObjectOptions{})
+		got, _ = get(t, svc, "src", "k", object.GetObjectOptions{})
 		assert.Equal(t, data, got)
 
 		// Errors.
-		_, err = svc.CopyObject(ctx, CopyObjectInput{SrcBucket: "src", SrcKey: "missing", DstBucket: "dst", DstKey: "x"})
+		_, err = svc.CopyObject(ctx, object.CopyObjectInput{SrcBucket: "src", SrcKey: "missing", DstBucket: "dst", DstKey: "x"})
 		assert.ErrorIs(t, err, domain.ErrObjectNotFound)
-		_, err = svc.CopyObject(ctx, CopyObjectInput{SrcBucket: "src", SrcKey: "k", DstBucket: "nobucket", DstKey: "x"})
+		_, err = svc.CopyObject(ctx, object.CopyObjectInput{SrcBucket: "src", SrcKey: "k", DstBucket: "nobucket", DstKey: "x"})
 		assert.ErrorIs(t, err, domain.ErrBucketNotFound)
-		_, err = svc.CopyObject(ctx, CopyObjectInput{SrcBucket: "src", SrcKey: "k", DstBucket: "dst", DstKey: "x", SrcConditions: domain.Conditions{IfMatch: "nope"}})
+		_, err = svc.CopyObject(ctx, object.CopyObjectInput{SrcBucket: "src", SrcKey: "k", DstBucket: "dst", DstKey: "x", SrcConditions: domain.Conditions{IfMatch: "nope"}})
 		assert.ErrorIs(t, err, domain.ErrPreconditionFailed)
-		assert.Contains(t, fx.events.names(), event.ObjectCreatedCopy)
+		assert.Contains(t, fx.eventNames(), event.ObjectCreatedCopy)
 	})
 }
 
@@ -216,11 +223,11 @@ func TestMultipart(t *testing.T) {
 	forEachImpl(t, func(t *testing.T, fx *fixture) {
 		ctx := context.Background()
 		svc := fx.svc
-		require.NoError(t, svc.MakeBucket(ctx, "bkt", MakeBucketOptions{}))
+		require.NoError(t, svc.MakeBucket(ctx, "bkt", object.MakeBucketOptions{}))
 
-		_, err := svc.NewMultipartUpload(ctx, NewMultipartInput{Bucket: "nobucket", Key: "k"})
+		_, err := svc.NewMultipartUpload(ctx, object.NewMultipartInput{Bucket: "nobucket", Key: "k"})
 		assert.ErrorIs(t, err, domain.ErrBucketNotFound)
-		up, err := svc.NewMultipartUpload(ctx, NewMultipartInput{Bucket: "bkt", Key: "big/file.bin", ContentType: "video/mp4",
+		up, err := svc.NewMultipartUpload(ctx, object.NewMultipartInput{Bucket: "bkt", Key: "big/file.bin", ContentType: "video/mp4",
 			UserMetadata: map[string]string{"owner": "bob"}, Tags: map[string]string{"k": "v"}})
 		require.NoError(t, err)
 		require.NotEmpty(t, up.UploadID)
@@ -230,25 +237,25 @@ func TestMultipart(t *testing.T) {
 		part1 := payload(2*testBlockSize + 17)
 		part2 := payload(testBlockSize)
 		part3 := []byte("tail")
-		p1, err := svc.PutObjectPart(ctx, PutObjectPartInput{Bucket: "bkt", Key: "big/file.bin", UploadID: up.UploadID, PartNumber: 1, Reader: bytes.NewReader(part1), Size: int64(len(part1))})
+		p1, err := svc.PutObjectPart(ctx, object.PutObjectPartInput{Bucket: "bkt", Key: "big/file.bin", UploadID: up.UploadID, PartNumber: 1, Reader: bytes.NewReader(part1), Size: int64(len(part1))})
 		require.NoError(t, err)
 		assert.Equal(t, md5hex(part1), p1.ETag)
 		assert.Equal(t, int64(len(part1)), p1.Size)
 		// Re-uploading a part replaces it.
-		p2, err := svc.PutObjectPart(ctx, PutObjectPartInput{Bucket: "bkt", Key: "big/file.bin", UploadID: up.UploadID, PartNumber: 2, Reader: bytes.NewReader([]byte("old")), Size: 3})
+		p2, err := svc.PutObjectPart(ctx, object.PutObjectPartInput{Bucket: "bkt", Key: "big/file.bin", UploadID: up.UploadID, PartNumber: 2, Reader: bytes.NewReader([]byte("old")), Size: 3})
 		require.NoError(t, err)
-		p2, err = svc.PutObjectPart(ctx, PutObjectPartInput{Bucket: "bkt", Key: "big/file.bin", UploadID: up.UploadID, PartNumber: 2, Reader: bytes.NewReader(part2), Size: -1})
+		p2, err = svc.PutObjectPart(ctx, object.PutObjectPartInput{Bucket: "bkt", Key: "big/file.bin", UploadID: up.UploadID, PartNumber: 2, Reader: bytes.NewReader(part2), Size: -1})
 		require.NoError(t, err)
 		assert.Equal(t, md5hex(part2), p2.ETag)
-		p3, err := svc.PutObjectPart(ctx, PutObjectPartInput{Bucket: "bkt", Key: "big/file.bin", UploadID: up.UploadID, PartNumber: 3, Reader: bytes.NewReader(part3), Size: 4, MD5Hex: md5hex(part3)})
+		p3, err := svc.PutObjectPart(ctx, object.PutObjectPartInput{Bucket: "bkt", Key: "big/file.bin", UploadID: up.UploadID, PartNumber: 3, Reader: bytes.NewReader(part3), Size: 4, MD5Hex: md5hex(part3)})
 		require.NoError(t, err)
-		_, err = svc.PutObjectPart(ctx, PutObjectPartInput{Bucket: "bkt", Key: "big/file.bin", UploadID: up.UploadID, PartNumber: 4, Reader: bytes.NewReader(part3), Size: 4, MD5Hex: "00"})
+		_, err = svc.PutObjectPart(ctx, object.PutObjectPartInput{Bucket: "bkt", Key: "big/file.bin", UploadID: up.UploadID, PartNumber: 4, Reader: bytes.NewReader(part3), Size: 4, MD5Hex: "00"})
 		assert.ErrorIs(t, err, domain.ErrChecksumMismatch)
-		_, err = svc.PutObjectPart(ctx, PutObjectPartInput{Bucket: "bkt", Key: "big/file.bin", UploadID: up.UploadID, PartNumber: 0, Reader: bytes.NewReader(part3), Size: 4})
+		_, err = svc.PutObjectPart(ctx, object.PutObjectPartInput{Bucket: "bkt", Key: "big/file.bin", UploadID: up.UploadID, PartNumber: 0, Reader: bytes.NewReader(part3), Size: 4})
 		assert.ErrorIs(t, err, domain.ErrInvalidArgument)
-		_, err = svc.PutObjectPart(ctx, PutObjectPartInput{Bucket: "bkt", Key: "big/file.bin", UploadID: "nope", PartNumber: 1, Reader: bytes.NewReader(part3), Size: 4})
+		_, err = svc.PutObjectPart(ctx, object.PutObjectPartInput{Bucket: "bkt", Key: "big/file.bin", UploadID: "nope", PartNumber: 1, Reader: bytes.NewReader(part3), Size: 4})
 		assert.ErrorIs(t, err, domain.ErrNoSuchUpload)
-		_, err = svc.PutObjectPart(ctx, PutObjectPartInput{Bucket: "bkt", Key: "other", UploadID: up.UploadID, PartNumber: 1, Reader: bytes.NewReader(part3), Size: 4})
+		_, err = svc.PutObjectPart(ctx, object.PutObjectPartInput{Bucket: "bkt", Key: "other", UploadID: up.UploadID, PartNumber: 1, Reader: bytes.NewReader(part3), Size: 4})
 		assert.ErrorIs(t, err, domain.ErrNoSuchUpload, "an upload id belongs to one key")
 
 		parts, err := svc.ListObjectParts(ctx, domain.ListPartsInput{Bucket: "bkt", Key: "big/file.bin", UploadID: up.UploadID})
@@ -276,7 +283,7 @@ func TestMultipart(t *testing.T) {
 
 		// Completion errors.
 		complete := func(parts ...domain.CompletePart) (domain.ObjectInfo, error) {
-			return svc.CompleteMultipartUpload(ctx, CompleteMultipartInput{Bucket: "bkt", Key: "big/file.bin", UploadID: up.UploadID, Parts: parts})
+			return svc.CompleteMultipartUpload(ctx, object.CompleteMultipartInput{Bucket: "bkt", Key: "big/file.bin", UploadID: up.UploadID, Parts: parts})
 		}
 		_, err = complete()
 		assert.ErrorIs(t, err, domain.ErrMalformedXML)
@@ -289,7 +296,7 @@ func TestMultipart(t *testing.T) {
 		_, err = complete(domain.CompletePart{Number: 3, ETag: p3.ETag}, domain.CompletePart{Number: 3, ETag: p3.ETag})
 		assert.ErrorIs(t, err, domain.ErrInvalidPartOrder)
 		// Part 3 (4 bytes) is below the minimum when it is not the last one.
-		_, err = svc.PutObjectPart(ctx, PutObjectPartInput{Bucket: "bkt", Key: "big/file.bin", UploadID: up.UploadID, PartNumber: 5, Reader: bytes.NewReader(part2), Size: int64(len(part2))})
+		_, err = svc.PutObjectPart(ctx, object.PutObjectPartInput{Bucket: "bkt", Key: "big/file.bin", UploadID: up.UploadID, PartNumber: 5, Reader: bytes.NewReader(part2), Size: int64(len(part2))})
 		require.NoError(t, err)
 		_, err = complete(domain.CompletePart{Number: 3, ETag: p3.ETag}, domain.CompletePart{Number: 5, ETag: md5hex(part2)})
 		assert.ErrorIs(t, err, domain.ErrEntityTooSmall)
@@ -311,14 +318,14 @@ func TestMultipart(t *testing.T) {
 		assert.Equal(t, "bob", info.UserMetadata["owner"])
 		assert.Equal(t, map[string]string{"k": "v"}, info.Tags)
 
-		got, _ := get(t, svc, "bkt", "big/file.bin", GetObjectOptions{})
+		got, _ := get(t, svc, "bkt", "big/file.bin", object.GetObjectOptions{})
 		assert.Equal(t, want, got)
 		rg, _ := domain.ParseRange(fmt.Sprintf("bytes=%d-%d", len(part1)-5, len(part1)+10))
-		got, _ = get(t, svc, "bkt", "big/file.bin", GetObjectOptions{Range: rg})
+		got, _ = get(t, svc, "bkt", "big/file.bin", object.GetObjectOptions{Range: rg})
 		assert.Equal(t, want[len(part1)-5:len(part1)+11], got, "ranges span part boundaries")
-		got, _ = get(t, svc, "bkt", "big/file.bin", GetObjectOptions{PartNumber: 2})
+		got, _ = get(t, svc, "bkt", "big/file.bin", object.GetObjectOptions{PartNumber: 2})
 		assert.Equal(t, part2, got)
-		got, _ = get(t, svc, "bkt", "big/file.bin", GetObjectOptions{PartNumber: 3})
+		got, _ = get(t, svc, "bkt", "big/file.bin", object.GetObjectOptions{PartNumber: 3})
 		assert.Equal(t, part3, got)
 
 		// The upload is gone, its bookkeeping removed.
@@ -330,9 +337,9 @@ func TestMultipart(t *testing.T) {
 		assert.Empty(t, tmp)
 
 		// Abort.
-		up2, err := svc.NewMultipartUpload(ctx, NewMultipartInput{Bucket: "bkt", Key: "aborted"})
+		up2, err := svc.NewMultipartUpload(ctx, object.NewMultipartInput{Bucket: "bkt", Key: "aborted"})
 		require.NoError(t, err)
-		_, err = svc.PutObjectPart(ctx, PutObjectPartInput{Bucket: "bkt", Key: "aborted", UploadID: up2.UploadID, PartNumber: 1, Reader: bytes.NewReader(part3), Size: 4})
+		_, err = svc.PutObjectPart(ctx, object.PutObjectPartInput{Bucket: "bkt", Key: "aborted", UploadID: up2.UploadID, PartNumber: 1, Reader: bytes.NewReader(part3), Size: 4})
 		require.NoError(t, err)
 		require.NoError(t, svc.AbortMultipartUpload(ctx, "bkt", "aborted", up2.UploadID))
 		assert.ErrorIs(t, svc.AbortMultipartUpload(ctx, "bkt", "aborted", up2.UploadID), domain.ErrNoSuchUpload)
@@ -341,23 +348,23 @@ func TestMultipart(t *testing.T) {
 		assert.Empty(t, uploads.Uploads)
 
 		// Copy part from an existing object with a range.
-		up3, err := svc.NewMultipartUpload(ctx, NewMultipartInput{Bucket: "bkt", Key: "copied"})
+		up3, err := svc.NewMultipartUpload(ctx, object.NewMultipartInput{Bucket: "bkt", Key: "copied"})
 		require.NoError(t, err)
 		rg, _ = domain.ParseRange("bytes=0-99")
-		cp, err := svc.CopyObjectPart(ctx, CopyObjectPartInput{SrcBucket: "bkt", SrcKey: "big/file.bin", SrcRange: rg, DstBucket: "bkt", DstKey: "copied", UploadID: up3.UploadID, PartNumber: 1})
+		cp, err := svc.CopyObjectPart(ctx, object.CopyObjectPartInput{SrcBucket: "bkt", SrcKey: "big/file.bin", SrcRange: rg, DstBucket: "bkt", DstKey: "copied", UploadID: up3.UploadID, PartNumber: 1})
 		require.NoError(t, err)
 		assert.Equal(t, int64(100), cp.Size)
 		assert.Equal(t, md5hex(want[:100]), cp.ETag)
-		info, err = svc.CompleteMultipartUpload(ctx, CompleteMultipartInput{Bucket: "bkt", Key: "copied", UploadID: up3.UploadID, Parts: []domain.CompletePart{{Number: 1, ETag: cp.ETag}}})
+		info, err = svc.CompleteMultipartUpload(ctx, object.CompleteMultipartInput{Bucket: "bkt", Key: "copied", UploadID: up3.UploadID, Parts: []domain.CompletePart{{Number: 1, ETag: cp.ETag}}})
 		require.NoError(t, err)
-		got, _ = get(t, svc, "bkt", "copied", GetObjectOptions{})
+		got, _ = get(t, svc, "bkt", "copied", object.GetObjectOptions{})
 		assert.Equal(t, want[:100], got)
 
 		// Versioned completion yields a version id; pagination of uploads.
-		fx.buckets.set("bkt", BucketConfig{Versioning: domain.VersioningEnabled})
+		fx.setBucketConfig("bkt", object.BucketConfig{Versioning: domain.VersioningEnabled})
 		var ids []string
 		for i := 0; i < 3; i++ {
-			u, err := svc.NewMultipartUpload(ctx, NewMultipartInput{Bucket: "bkt", Key: fmt.Sprintf("multi/%d", i)})
+			u, err := svc.NewMultipartUpload(ctx, object.NewMultipartInput{Bucket: "bkt", Key: fmt.Sprintf("multi/%d", i)})
 			require.NoError(t, err)
 			ids = append(ids, u.UploadID)
 			fx.clk.Advance(time.Second)
@@ -370,12 +377,12 @@ func TestMultipart(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, page.Uploads, 1)
 		assert.Equal(t, ids[2], page.Uploads[0].UploadID)
-		pp, err := svc.PutObjectPart(ctx, PutObjectPartInput{Bucket: "bkt", Key: "multi/0", UploadID: ids[0], PartNumber: 1, Reader: bytes.NewReader(part3), Size: 4})
+		pp, err := svc.PutObjectPart(ctx, object.PutObjectPartInput{Bucket: "bkt", Key: "multi/0", UploadID: ids[0], PartNumber: 1, Reader: bytes.NewReader(part3), Size: 4})
 		require.NoError(t, err)
-		info, err = svc.CompleteMultipartUpload(ctx, CompleteMultipartInput{Bucket: "bkt", Key: "multi/0", UploadID: ids[0], Parts: []domain.CompletePart{{Number: 1, ETag: pp.ETag}}})
+		info, err = svc.CompleteMultipartUpload(ctx, object.CompleteMultipartInput{Bucket: "bkt", Key: "multi/0", UploadID: ids[0], Parts: []domain.CompletePart{{Number: 1, ETag: pp.ETag}}})
 		require.NoError(t, err)
 		assert.NotEmpty(t, info.VersionID)
-		assert.Contains(t, fx.events.names(), event.ObjectCreatedCompleteMultipartUpload)
+		assert.Contains(t, fx.eventNames(), event.ObjectCreatedCompleteMultipartUpload)
 	})
 }
 
@@ -383,35 +390,35 @@ func TestObjectTags(t *testing.T) {
 	forEachImpl(t, func(t *testing.T, fx *fixture) {
 		ctx := context.Background()
 		svc := fx.svc
-		require.NoError(t, svc.MakeBucket(ctx, "bkt", MakeBucketOptions{}))
+		require.NoError(t, svc.MakeBucket(ctx, "bkt", object.MakeBucketOptions{}))
 		put(t, svc, "bkt", "k", []byte("x"))
 
-		tags, err := svc.GetObjectTags(ctx, "bkt", "k", TagOptions{})
+		tags, err := svc.GetObjectTags(ctx, "bkt", "k", object.TagOptions{})
 		require.NoError(t, err)
 		assert.Empty(t, tags)
-		info, err := svc.PutObjectTags(ctx, "bkt", "k", map[string]string{"a": "1", "b": "two words"}, TagOptions{})
+		info, err := svc.PutObjectTags(ctx, "bkt", "k", map[string]string{"a": "1", "b": "two words"}, object.TagOptions{})
 		require.NoError(t, err)
 		assert.Equal(t, map[string]string{"a": "1", "b": "two words"}, info.Tags)
-		tags, err = svc.GetObjectTags(ctx, "bkt", "k", TagOptions{})
+		tags, err = svc.GetObjectTags(ctx, "bkt", "k", object.TagOptions{})
 		require.NoError(t, err)
 		assert.Equal(t, map[string]string{"a": "1", "b": "two words"}, tags)
-		_, r := get(t, svc, "bkt", "k", GetObjectOptions{})
+		_, r := get(t, svc, "bkt", "k", object.GetObjectOptions{})
 		assert.Equal(t, "x", string(payload(0))+"x")
 		assert.Equal(t, map[string]string{"a": "1", "b": "two words"}, r.Info.Tags)
 
-		_, err = svc.PutObjectTags(ctx, "bkt", "k", map[string]string{strings.Repeat("k", 129): "v"}, TagOptions{})
+		_, err = svc.PutObjectTags(ctx, "bkt", "k", map[string]string{strings.Repeat("k", 129): "v"}, object.TagOptions{})
 		assert.ErrorIs(t, err, domain.ErrInvalidArgument)
-		_, err = svc.PutObjectTags(ctx, "bkt", "missing", map[string]string{"a": "1"}, TagOptions{})
+		_, err = svc.PutObjectTags(ctx, "bkt", "missing", map[string]string{"a": "1"}, object.TagOptions{})
 		assert.ErrorIs(t, err, domain.ErrObjectNotFound)
 
-		info, err = svc.DeleteObjectTags(ctx, "bkt", "k", TagOptions{})
+		info, err = svc.DeleteObjectTags(ctx, "bkt", "k", object.TagOptions{})
 		require.NoError(t, err)
 		assert.Empty(t, info.Tags)
-		tags, err = svc.GetObjectTags(ctx, "bkt", "k", TagOptions{})
+		tags, err = svc.GetObjectTags(ctx, "bkt", "k", object.TagOptions{})
 		require.NoError(t, err)
 		assert.Empty(t, tags)
-		assert.Contains(t, fx.events.names(), event.ObjectCreatedPutTagging)
-		assert.Contains(t, fx.events.names(), event.ObjectCreatedDeleteTagging)
+		assert.Contains(t, fx.eventNames(), event.ObjectCreatedPutTagging)
+		assert.Contains(t, fx.eventNames(), event.ObjectCreatedDeleteTagging)
 	})
 }
 
@@ -420,12 +427,12 @@ func TestHealthAndFaultTolerance(t *testing.T) {
 
 	t.Run("fs", func(t *testing.T) {
 		fx := newFixture(t, "fs")
-		h := fx.svc.Health(ctx, HealthOptions{})
+		h := fx.svc.Health(ctx, object.HealthOptions{})
 		assert.True(t, h.Healthy)
 		assert.Equal(t, 1, h.WriteQuorum)
-		assert.False(t, fx.svc.Health(ctx, HealthOptions{Maintenance: true}).Healthy)
+		assert.False(t, fx.svc.Health(ctx, object.HealthOptions{Maintenance: true}).Healthy)
 		require.NoError(t, fx.drives[0].Close(ctx))
-		h = fx.svc.Health(ctx, HealthOptions{})
+		h = fx.svc.Health(ctx, object.HealthOptions{})
 		assert.False(t, h.Healthy)
 		assert.Contains(t, h.Message, "offline")
 	})
@@ -433,16 +440,16 @@ func TestHealthAndFaultTolerance(t *testing.T) {
 	t.Run("erasure", func(t *testing.T) {
 		fx := newFixture(t, "erasure")
 		svc := fx.svc
-		require.NoError(t, svc.MakeBucket(ctx, "bkt", MakeBucketOptions{}))
+		require.NoError(t, svc.MakeBucket(ctx, "bkt", object.MakeBucketOptions{}))
 		data := payload(5*testBlockSize + 7)
 		put(t, svc, "bkt", "k", data)
 		put(t, svc, "bkt", "small", []byte("inline"))
 
-		h := svc.Health(ctx, HealthOptions{})
+		h := svc.Health(ctx, object.HealthOptions{})
 		assert.True(t, h.Healthy)
 		assert.Equal(t, 3, h.WriteQuorum, "data == parity → data+1")
 		assert.Equal(t, 2, h.ReadQuorum)
-		assert.True(t, svc.Health(ctx, HealthOptions{Maintenance: true}).Healthy, "4 drives with write quorum 3 tolerate one loss")
+		assert.True(t, svc.Health(ctx, object.HealthOptions{Maintenance: true}).Healthy, "4 drives with write quorum 3 tolerate one loss")
 
 		// Shard files carry the per-block bitrot hashes.
 		files, err := filepath.Glob(filepath.Join(fx.roots[0], "bkt", "k", "*", "part.1"))
@@ -450,29 +457,33 @@ func TestHealthAndFaultTolerance(t *testing.T) {
 		require.Len(t, files, 1)
 		st, err := os.Stat(files[0])
 		require.NoError(t, err)
+		// On-disk format: every block of a shard is prefixed by its
+		// HighwayHash-256 (32 bytes); a shard holds ceil(block/data) bytes.
+		const hashSize = 32
+		shard := func(blockLen, data int64) int64 { return (blockLen + data - 1) / data }
 		blocks := int64(6)
-		assert.Equal(t, blocks*bitrotHashSize+5*shardSize(testBlockSize, 2)+shardSize(7, 2), st.Size())
+		assert.Equal(t, blocks*hashSize+5*shard(testBlockSize, 2)+shard(7, 2), st.Size())
 
 		// Corrupt one shard: reads still succeed through reconstruction.
 		raw, err := os.ReadFile(files[0])
 		require.NoError(t, err)
-		raw[bitrotHashSize+10] ^= 0xff
+		raw[hashSize+10] ^= 0xff
 		require.NoError(t, os.WriteFile(files[0], raw, 0o600))
-		got, _ := get(t, svc, "bkt", "k", GetObjectOptions{})
+		got, _ := get(t, svc, "bkt", "k", object.GetObjectOptions{})
 		assert.Equal(t, data, got)
 
 		// One drive offline (parity 2): everything keeps working.
 		require.NoError(t, fx.drives[1].Close(ctx))
-		got, _ = get(t, svc, "bkt", "k", GetObjectOptions{})
+		got, _ = get(t, svc, "bkt", "k", object.GetObjectOptions{})
 		assert.Equal(t, data, got)
-		got, _ = get(t, svc, "bkt", "small", GetObjectOptions{})
+		got, _ = get(t, svc, "bkt", "small", object.GetObjectOptions{})
 		assert.Equal(t, "inline", string(got))
 		put(t, svc, "bkt", "degraded", data)
-		got, _ = get(t, svc, "bkt", "degraded", GetObjectOptions{})
+		got, _ = get(t, svc, "bkt", "degraded", object.GetObjectOptions{})
 		assert.Equal(t, data, got)
-		h = svc.Health(ctx, HealthOptions{})
+		h = svc.Health(ctx, object.HealthOptions{})
 		assert.True(t, h.Healthy)
-		assert.False(t, svc.Health(ctx, HealthOptions{Maintenance: true}).Healthy)
+		assert.False(t, svc.Health(ctx, object.HealthOptions{Maintenance: true}).Healthy)
 		list, err := svc.ListObjects(ctx, domain.ListObjectsInput{Bucket: "bkt"})
 		require.NoError(t, err)
 		assert.Equal(t, []string{"degraded", "k", "small"}, keysOf(list))
@@ -480,22 +491,22 @@ func TestHealthAndFaultTolerance(t *testing.T) {
 		// Two drives offline: reads of the corrupted shard object lose quorum,
 		// writes are refused, the deployment is unhealthy.
 		require.NoError(t, fx.drives[2].Close(ctx))
-		h = svc.Health(ctx, HealthOptions{})
+		h = svc.Health(ctx, object.HealthOptions{})
 		assert.False(t, h.Healthy)
 		assert.Contains(t, h.Message, "online")
-		_, err = svc.PutObject(ctx, PutObjectInput{Bucket: "bkt", Key: "refused", Reader: bytes.NewReader(data), Size: int64(len(data))})
+		_, err = svc.PutObject(ctx, object.PutObjectInput{Bucket: "bkt", Key: "refused", Reader: bytes.NewReader(data), Size: int64(len(data))})
 		assert.ErrorIs(t, err, domain.ErrWriteQuorum)
-		r, err := svc.GetObject(ctx, "bkt", "k", GetObjectOptions{})
+		r, err := svc.GetObject(ctx, "bkt", "k", object.GetObjectOptions{})
 		require.NoError(t, err, "metadata is still readable from two drives")
 		_, err = io.ReadAll(r)
 		assert.ErrorIs(t, err, domain.ErrReadQuorum, "one shard corrupted, two drives offline")
 		_ = r.Close()
-		got, _ = get(t, svc, "bkt", "degraded", GetObjectOptions{})
+		got, _ = get(t, svc, "bkt", "degraded", object.GetObjectOptions{})
 		assert.Equal(t, data, got, "two healthy shards suffice to decode")
 
 		// Three drives offline: nothing is readable.
 		require.NoError(t, fx.drives[3].Close(ctx))
-		_, err = svc.GetObjectInfo(ctx, "bkt", "k", GetObjectOptions{})
+		_, err = svc.GetObjectInfo(ctx, "bkt", "k", object.GetObjectOptions{})
 		assert.Error(t, err)
 		_, err = svc.ListBuckets(ctx)
 		require.NoError(t, err, "one drive still answers listings")
@@ -506,9 +517,9 @@ func TestErasureSetSelectionIsStable(t *testing.T) {
 	ctx := context.Background()
 	drives, _ := newDrives(t, 4)
 	sets := [][]storage.StorageAPI{drives[:2], drives[2:]}
-	svc, err := NewErasure(Deps{Sets: sets, Parity: 1, DeploymentID: "dep", Logger: nil}, WithInlineLimit(0), WithBlockSize(testBlockSize))
+	svc, err := object.NewErasure(object.Deps{Sets: sets, Parity: 1, DeploymentID: "dep", Logger: nil}, object.WithInlineLimit(0), object.WithBlockSize(testBlockSize))
 	require.NoError(t, err)
-	require.NoError(t, svc.MakeBucket(ctx, "bkt", MakeBucketOptions{}))
+	require.NoError(t, svc.MakeBucket(ctx, "bkt", object.MakeBucketOptions{}))
 	keys := []string{"alpha", "beta", "gamma", "delta", "epsilon", "zeta/1", "zeta/2", "eta"}
 	for _, k := range keys {
 		put(t, svc, "bkt", k, []byte(k+k))
@@ -535,61 +546,93 @@ func TestErasureSetSelectionIsStable(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"zeta/"}, res.CommonPrefixes)
 	for _, k := range keys {
-		got, _ := get(t, svc, "bkt", k, GetObjectOptions{})
+		got, _ := get(t, svc, "bkt", k, object.GetObjectOptions{})
 		assert.Equal(t, k+k, string(got))
 	}
 	// Multipart bookkeeping follows the key's set.
-	up, err := svc.NewMultipartUpload(ctx, NewMultipartInput{Bucket: "bkt", Key: "zeta/3"})
+	up, err := svc.NewMultipartUpload(ctx, object.NewMultipartInput{Bucket: "bkt", Key: "zeta/3"})
 	require.NoError(t, err)
 	uploads, err := svc.ListMultipartUploads(ctx, domain.ListMultipartUploadsInput{Bucket: "bkt"})
 	require.NoError(t, err)
 	require.Len(t, uploads.Uploads, 1)
 	assert.Equal(t, up.UploadID, uploads.Uploads[0].UploadID)
-	require.NoError(t, svc.DeleteBucket(ctx, "bkt", DeleteBucketOptions{Force: true}))
+	require.NoError(t, svc.DeleteBucket(ctx, "bkt", object.DeleteBucketOptions{Force: true}))
 }
 
-func TestHelpers(t *testing.T) {
-	assert.True(t, etagMatches("*", "x"))
-	assert.True(t, etagMatches(`"abc", "def"`, "def"))
-	assert.True(t, etagMatches(`W/"abc"`, "abc"))
-	assert.False(t, etagMatches(`"abc"`, "abd"))
-	assert.Equal(t, "a=1&b=two+words", encodeTags(map[string]string{"b": "two words", "a": "1"}))
-	assert.Equal(t, map[string]string{"a": "1"}, decodeTags("a=1"))
-	assert.Nil(t, decodeTags("%zz"))
-	base, filter := splitPrefix("a/b/c")
-	assert.Equal(t, "a/b", base)
-	assert.Equal(t, "a/b/c", filter)
-	base, filter = splitPrefix("abc")
-	assert.Empty(t, base)
-	assert.Equal(t, "abc", filter)
-	assert.Equal(t, 1000, clampMaxKeys(0))
-	assert.Equal(t, 1000, clampMaxKeys(5000))
-	assert.Equal(t, 7, clampMaxKeys(7))
-	assert.True(t, validUploadID("abc-DEF_123"))
-	assert.False(t, validUploadID("a/b"))
-	assert.False(t, validUploadID(""))
-	assert.Equal(t, int64(3), shardSize(5, 2))
-	assert.Equal(t, int64(2048), shardSize(4096, 2))
+func TestPutLengthRange(t *testing.T) {
+	forEachImpl(t, func(t *testing.T, fx *fixture) {
+		ctx := context.Background()
+		svc := fx.svc
+		require.NoError(t, svc.MakeBucket(ctx, "bkt", object.MakeBucketOptions{}))
+		bounds := &object.LengthRange{Min: 10, Max: 3000}
+		tests := []struct {
+			name    string
+			size    int
+			stream  bool
+			wantErr error
+		}{
+			{name: "declared within range", size: 100},
+			{name: "declared at the maximum", size: 3000},
+			{name: "declared too small", size: 9, wantErr: domain.ErrEntityTooSmall},
+			{name: "declared too large", size: 3001, wantErr: domain.ErrEntityTooLarge},
+			{name: "streamed within range", size: 2048, stream: true},
+			{name: "streamed too small", size: 3, stream: true, wantErr: domain.ErrEntityTooSmall},
+			{name: "streamed too large", size: 2 * testBlockSize, stream: true, wantErr: domain.ErrEntityTooLarge},
+		}
+		for i, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				key := fmt.Sprintf("obj-%d", i)
+				data := payload(tt.size)
+				in := object.PutObjectInput{Bucket: "bkt", Key: key, Reader: bytes.NewReader(data), Size: int64(len(data)), LengthRange: bounds}
+				if tt.stream {
+					in.Size = -1
+				}
+				info, err := svc.PutObject(ctx, in)
+				if tt.wantErr != nil {
+					assert.ErrorIs(t, err, tt.wantErr)
+					_, err = svc.GetObjectInfo(ctx, "bkt", key, object.GetObjectOptions{})
+					assert.ErrorIs(t, err, domain.ErrObjectNotFound, "nothing is committed")
+					return
+				}
+				require.NoError(t, err)
+				assert.Equal(t, int64(tt.size), info.Size)
+				got, _ := get(t, svc, "bkt", key, object.GetObjectOptions{})
+				assert.Equal(t, data, got)
+			})
+		}
+	})
+}
 
-	errs := []error{nil, nil, domain.ErrObjectNotFound}
-	assert.NoError(t, reduceErrs(errs, 2, domain.ErrWriteQuorum))
-	assert.ErrorIs(t, reduceErrs(errs, 3, domain.ErrWriteQuorum), domain.ErrWriteQuorum)
-	errs = []error{fmt.Errorf("a: %w", domain.ErrObjectNotFound), fmt.Errorf("b: %w", domain.ErrObjectNotFound), nil}
-	assert.ErrorIs(t, reduceErrs(errs, 2, domain.ErrReadQuorum), domain.ErrObjectNotFound)
-	errs = []error{domain.ErrObjectNotFound, domain.ErrFaultyDisk, nil}
-	assert.ErrorIs(t, reduceErrs(errs, 2, domain.ErrReadQuorum), domain.ErrReadQuorum)
-	assert.Error(t, reduceErrs(errs, 2, nil))
+func TestReadinessCheck(t *testing.T) {
+	tests := []struct {
+		name    string
+		health  object.HealthResult
+		wantErr string
+	}{
+		{name: "healthy", health: object.HealthResult{Healthy: true}},
+		{name: "unhealthy", health: object.HealthResult{Message: "set 1 has 1/4 drives online"}, wantErr: "set 1 has 1/4 drives online"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := objectmock.NewService(t)
+			svc.EXPECT().Health(mock.Anything, object.HealthOptions{}).Return(tt.health).Once()
+			err := object.ReadinessCheck(svc)(context.Background())
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			assert.EqualError(t, err, tt.wantErr)
+		})
+	}
+}
 
-	info := objectInfo("b", "k", storage.FileInfo{Size: 3, Metadata: map[string]string{
-		metaContentType: "text/plain", metaETag: "e", metaExpires: "Wed, 21 Oct 2026 07:28:00 GMT",
-		metaUserPrefix + "a": "1", metaChecksumPrefix + "crc32": "AAAA", metaTagging: "x=y", metaStorageClass: "GLACIER",
-	}, Parts: []storage.PartInfo{{Number: 1}, {Number: 2}}})
-	assert.Equal(t, "text/plain", info.ContentType)
-	assert.Equal(t, 2026, info.Expires.Year())
-	assert.Equal(t, "1", info.UserMetadata["a"])
-	assert.Equal(t, domain.ChecksumCRC32, info.Checksum.Algorithm)
-	assert.Equal(t, map[string]string{"x": "y"}, info.Tags)
-	assert.Equal(t, "GLACIER", info.StorageClass)
-	assert.Equal(t, 2, info.Parts)
-	assert.True(t, info.Inlined)
+func TestRegionOption(t *testing.T) {
+	ctx := context.Background()
+	drives, _ := newDrives(t, 1)
+	svc, err := object.NewFS(object.Deps{Store: drives[0]}, object.WithRegion("eu-south-1"))
+	require.NoError(t, err)
+	require.NoError(t, svc.MakeBucket(ctx, "bkt", object.MakeBucketOptions{}))
+	info, err := svc.GetBucketInfo(ctx, "bkt")
+	require.NoError(t, err)
+	assert.Equal(t, "eu-south-1", info.Region)
 }

@@ -338,7 +338,8 @@ func TestUserRoutes(t *testing.T) {
 	assert.NotNil(t, users[0].PolicyNames)
 	assert.NotNil(t, users[0].Groups)
 
-	f.iam.EXPECT().CreateUser(mock.Anything, iam.CreateUserInput{AccessKey: "carol", SecretKey: "carolsecret", Status: domain.StatusEnabled, PolicyNames: []string{"readonly"}}).
+	// The default status is the IAM service's business: the handler passes none.
+	f.iam.EXPECT().CreateUser(mock.Anything, iam.CreateUserInput{AccessKey: "carol", SecretKey: "carolsecret", PolicyNames: []string{"readonly"}}).
 		Return(&iam.User{AccessKey: "carol", Status: domain.StatusEnabled, PolicyNames: []string{"readonly"}, CreatedAt: now}, nil).Once()
 	rec = c.do(http.MethodPost, "/users", `{"accessKey":"carol","secretKey":"carolsecret","policyNames":["readonly"]}`)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
@@ -390,9 +391,13 @@ func TestUserRoutes(t *testing.T) {
 	rec = c.do(http.MethodDelete, "/groups/dev", "")
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 
-	// Access keys: root creates a key for bob and sees the secret once.
+	// Access keys: root creates a key for bob and sees the secret once. The
+	// handlers pass the caller; the IAM service enforces the ownership.
 	exp := now.Add(24 * time.Hour)
-	f.iam.EXPECT().CreateAccessKey(mock.Anything, iam.CreateAccessKeyInput{ParentUser: "bob", Name: "ci", Expiration: exp}).
+	root := callerIs("admin")
+	f.iam.EXPECT().CreateAccessKey(mock.Anything, mock.MatchedBy(func(in iam.CreateAccessKeyInput) bool {
+		return in.Caller.AccessKey == "admin" && in.Caller.IsRoot && in.ParentUser == "bob" && in.Name == "ci" && in.Expiration.Equal(exp)
+	})).
 		Return(&iam.AccessKey{AccessKey: "AKIACI", SecretKey: "s3cr3t", ParentUser: "bob", Name: "ci", Status: domain.StatusEnabled, Expiration: exp, CreatedAt: now}, nil).Once()
 	rec = c.do(http.MethodPost, "/access-keys", `{"parentUser":"bob","name":"ci","expiration":"`+exp.Format(time.RFC3339)+`"}`)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
@@ -401,7 +406,7 @@ func TestUserRoutes(t *testing.T) {
 	require.NotNil(t, created.Expiration)
 	assert.True(t, created.Expiration.Equal(exp))
 
-	f.iam.EXPECT().ListAccessKeys(mock.Anything, "bob").Return([]iam.AccessKey{{AccessKey: "AKIACI", SecretKey: "s3cr3t", ParentUser: "bob"}}, nil).Once()
+	f.iam.EXPECT().ListAccessKeys(mock.Anything, root, "bob").Return([]iam.AccessKey{{AccessKey: "AKIACI", SecretKey: "s3cr3t", ParentUser: "bob"}}, nil).Once()
 	rec = c.do(http.MethodGet, "/access-keys?parent=bob", "")
 	require.Equal(t, http.StatusOK, rec.Code)
 	keys := decode[[]admin.AccessKeyResponse](t, rec)
@@ -409,13 +414,34 @@ func TestUserRoutes(t *testing.T) {
 	assert.Empty(t, keys[0].SecretKey, "the secret is never listed")
 	assert.Nil(t, keys[0].Expiration)
 
-	f.iam.EXPECT().GetAccessKey(mock.Anything, "AKIACI").Return(&iam.AccessKey{AccessKey: "AKIACI", ParentUser: "bob"}, nil).Once()
-	f.iam.EXPECT().DeleteAccessKey(mock.Anything, "AKIACI").Return(nil).Once()
+	f.iam.EXPECT().GetAccessKey(mock.Anything, root, "AKIACI").Return(&iam.AccessKey{AccessKey: "AKIACI", ParentUser: "bob", Status: domain.StatusEnabled}, nil).Once()
+	rec = c.do(http.MethodGet, "/access-keys/AKIACI", "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, "bob", decode[admin.AccessKeyResponse](t, rec).ParentUser)
+
+	disabled := domain.StatusDisabled
+	f.iam.EXPECT().UpdateAccessKey(mock.Anything, root, "AKIACI", iam.UpdateAccessKeyInput{Status: &disabled}).
+		Return(&iam.AccessKey{AccessKey: "AKIACI", ParentUser: "bob", Status: domain.StatusDisabled}, nil).Once()
+	rec = c.do(http.MethodPut, "/access-keys/AKIACI", `{"status":"disabled"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, "disabled", decode[admin.AccessKeyResponse](t, rec).Status)
+	rec = c.do(http.MethodPut, "/access-keys/AKIACI", `{"status":"paused"}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	f.iam.EXPECT().DeleteAccessKey(mock.Anything, root, "AKIACI").Return(nil).Once()
 	rec = c.do(http.MethodDelete, "/access-keys/AKIACI", "")
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 }
 
-func TestAccessKeysOfOtherUsersAreRootOnly(t *testing.T) {
+// callerIs matches the identity the handlers pass to the IAM service.
+func callerIs(accessKey string) any {
+	return mock.MatchedBy(func(id domain.Identity) bool { return id.AccessKey == accessKey })
+}
+
+// TestAccessKeysOwnershipIsEnforcedByIAM checks that the handlers forward
+// the caller and map the IAM ownership decision (domain.ErrAccessDenied)
+// to 403: the rule itself lives in the iam package.
+func TestAccessKeysOwnershipIsEnforcedByIAM(t *testing.T) {
 	f := newFixture(t)
 	// bob may manage service accounts (consoleAdmin would do, readwrite
 	// does not): give him an explicit policy.
@@ -431,19 +457,26 @@ func TestAccessKeysOfOtherUsersAreRootOnly(t *testing.T) {
 			domain.Identity{AccessKey: "bob", PolicyNames: []string{"keys"}}, nil).Maybe()
 	bob := f.client(t, "bob", "bobsecret")
 
+	denied := fmt.Errorf("%w: iam: only root may manage the access keys of other users", domain.ErrAccessDenied)
+	asBob := callerIs("bob")
+
+	f.iam.EXPECT().CreateAccessKey(mock.Anything, iam.CreateAccessKeyInput{Caller: domain.Identity{AccessKey: "bob", PolicyNames: []string{"keys"}}, ParentUser: "alice"}).
+		Return(nil, denied).Once()
 	rec := bob.do(http.MethodPost, "/access-keys", `{"parentUser":"alice"}`)
 	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Equal(t, "access_denied", problem(t, rec).Code)
 
-	f.iam.EXPECT().CreateAccessKey(mock.Anything, iam.CreateAccessKeyInput{ParentUser: "bob"}).
-		Return(&iam.AccessKey{AccessKey: "AK1", SecretKey: "s", ParentUser: "bob"}, nil).Once()
+	f.iam.EXPECT().CreateAccessKey(mock.Anything, mock.MatchedBy(func(in iam.CreateAccessKeyInput) bool {
+		return in.Caller.AccessKey == "bob" && in.ParentUser == ""
+	})).Return(&iam.AccessKey{AccessKey: "AK1", SecretKey: "s", ParentUser: "bob"}, nil).Once()
 	rec = bob.do(http.MethodPost, "/access-keys", `{}`)
 	assert.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
-	f.iam.EXPECT().ListAccessKeys(mock.Anything, "bob").Return(nil, nil).Once()
+	f.iam.EXPECT().ListAccessKeys(mock.Anything, asBob, "").Return(nil, nil).Once()
 	rec = bob.do(http.MethodGet, "/access-keys", "")
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	f.iam.EXPECT().GetAccessKey(mock.Anything, "AK9").Return(&iam.AccessKey{AccessKey: "AK9", ParentUser: "alice"}, nil).Once()
+	f.iam.EXPECT().DeleteAccessKey(mock.Anything, asBob, "AK9").Return(denied).Once()
 	rec = bob.do(http.MethodDelete, "/access-keys/AK9", "")
 	assert.Equal(t, http.StatusForbidden, rec.Code, "bob cannot delete alice's key")
 }
@@ -560,10 +593,15 @@ func TestBucketRoutes(t *testing.T) {
 	rec = c.do(http.MethodPut, "/buckets/photos/policy", doc)
 	assert.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
 
-	f.buckets.EXPECT().SetQuota(mock.Anything, "photos", bucket.Quota{Type: bucket.QuotaHard, Size: 2048}).Return(nil).Once()
+	// The handler forwards the quota as given; the service applies the
+	// default type and the response encodes what it stored.
+	f.buckets.EXPECT().SetQuota(mock.Anything, "photos", bucket.Quota{Size: 2048}).Return(bucket.Quota{Type: bucket.QuotaHard, Size: 2048}, nil).Once()
 	rec = c.do(http.MethodPut, "/buckets/photos/quota", `{"size":2048}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.Equal(t, "hard", decode[admin.QuotaResponse](t, rec).Type)
+	f.buckets.EXPECT().SetQuota(mock.Anything, "photos", bucket.Quota{Type: "soft", Size: 1}).Return(bucket.Quota{}, fmt.Errorf("%w: unsupported quota type", domain.ErrInvalidArgument)).Once()
+	rec = c.do(http.MethodPut, "/buckets/photos/quota", `{"type":"soft","size":1}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
 	f.buckets.EXPECT().SetTags(mock.Anything, "photos", map[string]string{"team": "media"}).Return(nil).Once()
 	rec = c.do(http.MethodPut, "/buckets/photos/tags", `{"tags":{"team":"media"}}`)

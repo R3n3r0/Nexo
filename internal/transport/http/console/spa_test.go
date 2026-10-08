@@ -1,4 +1,4 @@
-package console
+package console_test
 
 import (
 	"net/http"
@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/r3n3r0/nexo/internal/transport/http/console"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
 
@@ -29,11 +30,11 @@ func newSPA(t *testing.T, fsys fstest.MapFS) http.Handler {
 	r := chi.NewRouter()
 	// An API route registered before the SPA keeps precedence.
 	r.Get("/api/v1/info", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) })
-	var assets Assets
+	var assets console.Assets
 	if fsys != nil {
-		assets = NewAssets(fsys)
+		assets = console.NewAssets(console.AssetsDeps{FS: fsys})
 	}
-	NewSPARoutes(SPADeps{Assets: assets}).Register(r)
+	console.NewSPARoutes(console.SPADeps{Assets: assets}).Register(r)
 	return r
 }
 
@@ -54,7 +55,7 @@ func TestSPAFallbackAndIndex(t *testing.T) {
 		assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"), p)
 		assert.Equal(t, "DENY", rec.Header().Get("X-Frame-Options"), p)
 		assert.Equal(t, "strict-origin-when-cross-origin", rec.Header().Get("Referrer-Policy"), p)
-		assert.Equal(t, DefaultCSP, rec.Header().Get("Content-Security-Policy"), p)
+		assert.Equal(t, console.DefaultCSP, rec.Header().Get("Content-Security-Policy"), p)
 	}
 	rec := get(h, http.MethodHead, "/buckets")
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -118,16 +119,16 @@ func TestSPAWithoutEmbeddedAssets(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "console not included")
 
-	_, ok := NewAssets(nil).FS()
+	_, ok := console.NewAssets(console.AssetsDeps{}).FS()
 	assert.False(t, ok)
-	fsys, ok := NewAssets(testFS()).FS()
+	fsys, ok := console.NewAssets(console.AssetsDeps{FS: testFS()}).FS()
 	require.True(t, ok)
 	assert.NotNil(t, fsys)
 }
 
 func TestSPAOptions(t *testing.T) {
 	r := chi.NewRouter()
-	NewSPARoutes(SPADeps{Assets: NewAssets(testFS())}, WithCSP("default-src 'none'"), WithAPIPrefixes("/rpc/")).Register(r)
+	console.NewSPARoutes(console.SPADeps{Assets: console.NewAssets(console.AssetsDeps{FS: testFS()})}, console.WithCSP("default-src 'none'"), console.WithAPIPrefixes("/rpc/")).Register(r)
 	rec := get(r, http.MethodGet, "/api/v1/x")
 	assert.Equal(t, http.StatusOK, rec.Code, "custom prefixes replace the defaults")
 	assert.Equal(t, "default-src 'none'", rec.Header().Get("Content-Security-Policy"))

@@ -144,7 +144,9 @@ func (s *service) DataUsage(ctx context.Context) (*DataUsage, error) {
 	if s.deps.Objects == nil {
 		return nil, fmt.Errorf("admin: data usage: %w", domain.ErrNotImplemented)
 	}
-	buckets, err := s.deps.Objects.ListBuckets(ctx)
+	// DataUsage walks every bucket (ListBuckets leaves the counters at
+	// zero). TODO(M8): serve the scanner's cached usage instead.
+	buckets, err := s.deps.Objects.DataUsage(ctx, "")
 	if err != nil {
 		return nil, fmt.Errorf("admin: data usage: %w", err)
 	}

@@ -46,6 +46,28 @@ var (
 	ErrUserAlreadyExists = errors.New("user already exists")
 	ErrPolicyNotFound    = errors.New("policy not found")
 	ErrGroupNotFound     = errors.New("group not found")
+	// ErrMalformedPolicy reports a policy document that is not valid JSON
+	// or violates the policy grammar (S3 MalformedPolicy). It wraps
+	// ErrInvalidArgument so that generic mappings keep answering 400.
+	ErrMalformedPolicy = fmt.Errorf("malformed policy: %w", ErrInvalidArgument)
+	// ErrPolicyTooLarge reports a policy document over the size limit
+	// (S3 PolicyTooLarge). It wraps ErrInvalidArgument.
+	ErrPolicyTooLarge = fmt.Errorf("policy too large: %w", ErrInvalidArgument)
+	// ErrGroupAlreadyExists reports a group name already in use. It wraps
+	// ErrConflict.
+	ErrGroupAlreadyExists = fmt.Errorf("group already exists: %w", ErrConflict)
+	// ErrAccessKeyNotFound reports an unknown service account (access key).
+	// It wraps ErrUserNotFound: an access key is a principal.
+	ErrAccessKeyNotFound = fmt.Errorf("access key not found: %w", ErrUserNotFound)
+	// ErrAccessKeyAlreadyExists reports an access key already used by root,
+	// a user, a service account or STS credentials. It wraps
+	// ErrUserAlreadyExists.
+	ErrAccessKeyAlreadyExists = fmt.Errorf("access key already exists: %w", ErrUserAlreadyExists)
+
+	// Shares.
+	// ErrShareNotFound reports an unknown managed share link, or one the
+	// caller may not see.
+	ErrShareNotFound = errors.New("share not found")
 
 	// Server and storage.
 	ErrNotImplemented = errors.New("not implemented")
@@ -74,6 +96,10 @@ var (
 	// the checksum declared by the client (Content-MD5, x-amz-content-sha256,
 	// x-amz-checksum-*).
 	ErrChecksumMismatch = errors.New("checksum mismatch")
+	// ErrBadDigest is the checksum mismatch of a declared content digest
+	// (Content-MD5, x-amz-checksum-*): S3 BadDigest. It wraps
+	// ErrChecksumMismatch so that errors.Is matches both.
+	ErrBadDigest = fmt.Errorf("bad digest: %w", ErrChecksumMismatch)
 )
 
 // S3Error decorates a sentinel error with an explicit S3 error code, a

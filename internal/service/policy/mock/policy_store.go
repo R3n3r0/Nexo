@@ -22,24 +22,187 @@ func (_m *PolicyStore) EXPECT() *PolicyStore_Expecter {
 	return &PolicyStore_Expecter{mock: &_m.Mock}
 }
 
-// Load provides a mock function with given fields: ctx
-func (_m *PolicyStore) Load(ctx context.Context) (*policy.Snapshot, error) {
+// Attached provides a mock function with given fields: ctx, e
+func (_m *PolicyStore) Attached(ctx context.Context, e policy.Entity) ([]string, error) {
+	ret := _m.Called(ctx, e)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Attached")
+	}
+
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, policy.Entity) ([]string, error)); ok {
+		return rf(ctx, e)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, policy.Entity) []string); ok {
+		r0 = rf(ctx, e)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, policy.Entity) error); ok {
+		r1 = rf(ctx, e)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// PolicyStore_Attached_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Attached'
+type PolicyStore_Attached_Call struct {
+	*mock.Call
+}
+
+// Attached is a helper method to define mock.On call
+//   - ctx context.Context
+//   - e policy.Entity
+func (_e *PolicyStore_Expecter) Attached(ctx interface{}, e interface{}) *PolicyStore_Attached_Call {
+	return &PolicyStore_Attached_Call{Call: _e.mock.On("Attached", ctx, e)}
+}
+
+func (_c *PolicyStore_Attached_Call) Run(run func(ctx context.Context, e policy.Entity)) *PolicyStore_Attached_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(policy.Entity))
+	})
+	return _c
+}
+
+func (_c *PolicyStore_Attached_Call) Return(_a0 []string, _a1 error) *PolicyStore_Attached_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *PolicyStore_Attached_Call) RunAndReturn(run func(context.Context, policy.Entity) ([]string, error)) *PolicyStore_Attached_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Delete provides a mock function with given fields: ctx, name
+func (_m *PolicyStore) Delete(ctx context.Context, name string) error {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Delete")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, name)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// PolicyStore_Delete_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Delete'
+type PolicyStore_Delete_Call struct {
+	*mock.Call
+}
+
+// Delete is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+func (_e *PolicyStore_Expecter) Delete(ctx interface{}, name interface{}) *PolicyStore_Delete_Call {
+	return &PolicyStore_Delete_Call{Call: _e.mock.On("Delete", ctx, name)}
+}
+
+func (_c *PolicyStore_Delete_Call) Run(run func(ctx context.Context, name string)) *PolicyStore_Delete_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *PolicyStore_Delete_Call) Return(_a0 error) *PolicyStore_Delete_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *PolicyStore_Delete_Call) RunAndReturn(run func(context.Context, string) error) *PolicyStore_Delete_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Get provides a mock function with given fields: ctx, name
+func (_m *PolicyStore) Get(ctx context.Context, name string) (policy.Named, error) {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Get")
+	}
+
+	var r0 policy.Named
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (policy.Named, error)); ok {
+		return rf(ctx, name)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) policy.Named); ok {
+		r0 = rf(ctx, name)
+	} else {
+		r0 = ret.Get(0).(policy.Named)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, name)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// PolicyStore_Get_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Get'
+type PolicyStore_Get_Call struct {
+	*mock.Call
+}
+
+// Get is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+func (_e *PolicyStore_Expecter) Get(ctx interface{}, name interface{}) *PolicyStore_Get_Call {
+	return &PolicyStore_Get_Call{Call: _e.mock.On("Get", ctx, name)}
+}
+
+func (_c *PolicyStore_Get_Call) Run(run func(ctx context.Context, name string)) *PolicyStore_Get_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *PolicyStore_Get_Call) Return(_a0 policy.Named, _a1 error) *PolicyStore_Get_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *PolicyStore_Get_Call) RunAndReturn(run func(context.Context, string) (policy.Named, error)) *PolicyStore_Get_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// List provides a mock function with given fields: ctx
+func (_m *PolicyStore) List(ctx context.Context) ([]policy.Named, error) {
 	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
-		panic("no return value specified for Load")
+		panic("no return value specified for List")
 	}
 
-	var r0 *policy.Snapshot
+	var r0 []policy.Named
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context) (*policy.Snapshot, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context) ([]policy.Named, error)); ok {
 		return rf(ctx)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context) *policy.Snapshot); ok {
+	if rf, ok := ret.Get(0).(func(context.Context) []policy.Named); ok {
 		r0 = rf(ctx)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*policy.Snapshot)
+			r0 = ret.Get(0).([]policy.Named)
 		}
 	}
 
@@ -52,45 +215,104 @@ func (_m *PolicyStore) Load(ctx context.Context) (*policy.Snapshot, error) {
 	return r0, r1
 }
 
-// PolicyStore_Load_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Load'
-type PolicyStore_Load_Call struct {
+// PolicyStore_List_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'List'
+type PolicyStore_List_Call struct {
 	*mock.Call
 }
 
-// Load is a helper method to define mock.On call
+// List is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *PolicyStore_Expecter) Load(ctx interface{}) *PolicyStore_Load_Call {
-	return &PolicyStore_Load_Call{Call: _e.mock.On("Load", ctx)}
+func (_e *PolicyStore_Expecter) List(ctx interface{}) *PolicyStore_List_Call {
+	return &PolicyStore_List_Call{Call: _e.mock.On("List", ctx)}
 }
 
-func (_c *PolicyStore_Load_Call) Run(run func(ctx context.Context)) *PolicyStore_Load_Call {
+func (_c *PolicyStore_List_Call) Run(run func(ctx context.Context)) *PolicyStore_List_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context))
 	})
 	return _c
 }
 
-func (_c *PolicyStore_Load_Call) Return(_a0 *policy.Snapshot, _a1 error) *PolicyStore_Load_Call {
+func (_c *PolicyStore_List_Call) Return(_a0 []policy.Named, _a1 error) *PolicyStore_List_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *PolicyStore_Load_Call) RunAndReturn(run func(context.Context) (*policy.Snapshot, error)) *PolicyStore_Load_Call {
+func (_c *PolicyStore_List_Call) RunAndReturn(run func(context.Context) ([]policy.Named, error)) *PolicyStore_List_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// Save provides a mock function with given fields: ctx, s
-func (_m *PolicyStore) Save(ctx context.Context, s *policy.Snapshot) error {
-	ret := _m.Called(ctx, s)
+// ListAttached provides a mock function with given fields: ctx, kind
+func (_m *PolicyStore) ListAttached(ctx context.Context, kind policy.EntityKind) (map[string][]string, error) {
+	ret := _m.Called(ctx, kind)
 
 	if len(ret) == 0 {
-		panic("no return value specified for Save")
+		panic("no return value specified for ListAttached")
+	}
+
+	var r0 map[string][]string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, policy.EntityKind) (map[string][]string, error)); ok {
+		return rf(ctx, kind)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, policy.EntityKind) map[string][]string); ok {
+		r0 = rf(ctx, kind)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string][]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, policy.EntityKind) error); ok {
+		r1 = rf(ctx, kind)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// PolicyStore_ListAttached_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListAttached'
+type PolicyStore_ListAttached_Call struct {
+	*mock.Call
+}
+
+// ListAttached is a helper method to define mock.On call
+//   - ctx context.Context
+//   - kind policy.EntityKind
+func (_e *PolicyStore_Expecter) ListAttached(ctx interface{}, kind interface{}) *PolicyStore_ListAttached_Call {
+	return &PolicyStore_ListAttached_Call{Call: _e.mock.On("ListAttached", ctx, kind)}
+}
+
+func (_c *PolicyStore_ListAttached_Call) Run(run func(ctx context.Context, kind policy.EntityKind)) *PolicyStore_ListAttached_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(policy.EntityKind))
+	})
+	return _c
+}
+
+func (_c *PolicyStore_ListAttached_Call) Return(_a0 map[string][]string, _a1 error) *PolicyStore_ListAttached_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *PolicyStore_ListAttached_Call) RunAndReturn(run func(context.Context, policy.EntityKind) (map[string][]string, error)) *PolicyStore_ListAttached_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Set provides a mock function with given fields: ctx, p
+func (_m *PolicyStore) Set(ctx context.Context, p policy.Named) error {
+	ret := _m.Called(ctx, p)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Set")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, *policy.Snapshot) error); ok {
-		r0 = rf(ctx, s)
+	if rf, ok := ret.Get(0).(func(context.Context, policy.Named) error); ok {
+		r0 = rf(ctx, p)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -98,31 +320,79 @@ func (_m *PolicyStore) Save(ctx context.Context, s *policy.Snapshot) error {
 	return r0
 }
 
-// PolicyStore_Save_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Save'
-type PolicyStore_Save_Call struct {
+// PolicyStore_Set_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Set'
+type PolicyStore_Set_Call struct {
 	*mock.Call
 }
 
-// Save is a helper method to define mock.On call
+// Set is a helper method to define mock.On call
 //   - ctx context.Context
-//   - s *policy.Snapshot
-func (_e *PolicyStore_Expecter) Save(ctx interface{}, s interface{}) *PolicyStore_Save_Call {
-	return &PolicyStore_Save_Call{Call: _e.mock.On("Save", ctx, s)}
+//   - p policy.Named
+func (_e *PolicyStore_Expecter) Set(ctx interface{}, p interface{}) *PolicyStore_Set_Call {
+	return &PolicyStore_Set_Call{Call: _e.mock.On("Set", ctx, p)}
 }
 
-func (_c *PolicyStore_Save_Call) Run(run func(ctx context.Context, s *policy.Snapshot)) *PolicyStore_Save_Call {
+func (_c *PolicyStore_Set_Call) Run(run func(ctx context.Context, p policy.Named)) *PolicyStore_Set_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*policy.Snapshot))
+		run(args[0].(context.Context), args[1].(policy.Named))
 	})
 	return _c
 }
 
-func (_c *PolicyStore_Save_Call) Return(_a0 error) *PolicyStore_Save_Call {
+func (_c *PolicyStore_Set_Call) Return(_a0 error) *PolicyStore_Set_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *PolicyStore_Save_Call) RunAndReturn(run func(context.Context, *policy.Snapshot) error) *PolicyStore_Save_Call {
+func (_c *PolicyStore_Set_Call) RunAndReturn(run func(context.Context, policy.Named) error) *PolicyStore_Set_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetAttached provides a mock function with given fields: ctx, e, names
+func (_m *PolicyStore) SetAttached(ctx context.Context, e policy.Entity, names []string) error {
+	ret := _m.Called(ctx, e, names)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetAttached")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, policy.Entity, []string) error); ok {
+		r0 = rf(ctx, e, names)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// PolicyStore_SetAttached_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetAttached'
+type PolicyStore_SetAttached_Call struct {
+	*mock.Call
+}
+
+// SetAttached is a helper method to define mock.On call
+//   - ctx context.Context
+//   - e policy.Entity
+//   - names []string
+func (_e *PolicyStore_Expecter) SetAttached(ctx interface{}, e interface{}, names interface{}) *PolicyStore_SetAttached_Call {
+	return &PolicyStore_SetAttached_Call{Call: _e.mock.On("SetAttached", ctx, e, names)}
+}
+
+func (_c *PolicyStore_SetAttached_Call) Run(run func(ctx context.Context, e policy.Entity, names []string)) *PolicyStore_SetAttached_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(policy.Entity), args[2].([]string))
+	})
+	return _c
+}
+
+func (_c *PolicyStore_SetAttached_Call) Return(_a0 error) *PolicyStore_SetAttached_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *PolicyStore_SetAttached_Call) RunAndReturn(run func(context.Context, policy.Entity, []string) error) *PolicyStore_SetAttached_Call {
 	_c.Call.Return(run)
 	return _c
 }

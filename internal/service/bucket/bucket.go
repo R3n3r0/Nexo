@@ -13,37 +13,9 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/lock"
 	"github.com/r3n3r0/nexo/internal/service/object"
 )
-
-// Option configures the bucket service.
-type Option func(*options)
-
-type options struct {
-	// region is the default region of new buckets.
-	region string
-	// maxDocumentSize bounds the stored XML/JSON documents.
-	maxDocumentSize int
-}
-
-// WithRegion sets the default region of new buckets (default us-east-1).
-func WithRegion(region string) Option {
-	return func(o *options) {
-		if region != "" {
-			o.region = region
-		}
-	}
-}
-
-// WithMaxDocumentSize bounds policy and XML configuration documents
-// (default 1 MiB).
-func WithMaxDocumentSize(n int) Option {
-	return func(o *options) {
-		if n > 0 {
-			o.maxDocumentSize = n
-		}
-	}
-}
 
 // Limits of the bucket configuration documents.
 const (
@@ -61,7 +33,7 @@ type service struct {
 
 var _ Service = (*service)(nil)
 
-// New returns the bucket service. Objects and Store are required.
+// New returns the bucket service. Objects, Store and Policy are required.
 func New(deps Deps, opts ...Option) (Service, error) {
 	if deps.Objects == nil {
 		return nil, fmt.Errorf("%w: bucket: Objects dependency is required", domain.ErrInvalidArgument)
@@ -69,17 +41,19 @@ func New(deps Deps, opts ...Option) (Service, error) {
 	if deps.Store == nil {
 		return nil, fmt.Errorf("%w: bucket: Store dependency is required", domain.ErrInvalidArgument)
 	}
+	if deps.Policy == nil {
+		return nil, fmt.Errorf("%w: bucket: Policy dependency is required", domain.ErrInvalidArgument)
+	}
+	if deps.Locks == nil {
+		deps.Locks = lock.NewLocal(lock.Deps{})
+	}
 	if deps.Clock == nil {
 		deps.Clock = clock.NewReal()
 	}
 	if deps.Logger == nil {
 		deps.Logger = slog.Default()
 	}
-	o := options{region: "us-east-1", maxDocumentSize: 1 << 20}
-	for _, opt := range opts {
-		opt(&o)
-	}
-	return &service{deps: deps, opts: o}, nil
+	return &service{deps: deps, opts: newOptions(opts)}, nil
 }
 
 // noConfig builds the S3 "no such configuration" error of a sub-resource.
@@ -92,6 +66,9 @@ func (s *service) Create(ctx context.Context, in CreateInput) (*domain.Bucket, e
 	if err := domain.ValidateBucketName(in.Name); err != nil {
 		return nil, err
 	}
+	if domain.IsReservedBucket(in.Name) {
+		return nil, fmt.Errorf("%w: %q is reserved", domain.ErrInvalidBucketName, in.Name)
+	}
 	region := in.Region
 	if region == "" {
 		region = s.opts.region
@@ -103,19 +80,28 @@ func (s *service) Create(ctx context.Context, in CreateInput) (*domain.Bucket, e
 	if err := s.deps.Objects.MakeBucket(ctx, in.Name, object.MakeBucketOptions{Region: region, LockEnabled: in.ObjectLock, Versioning: versioning}); err != nil {
 		return nil, fmt.Errorf("bucket: create %s: %w", in.Name, err)
 	}
-	now := s.deps.Clock.Now().UTC()
+	created := s.deps.Clock.Now().UTC()
+	if info, err := s.deps.Objects.GetBucketInfo(ctx, in.Name); err == nil && !info.Created.IsZero() {
+		created = info.Created
+	}
 	m := &Metadata{
 		Name:       in.Name,
-		Created:    now,
+		Created:    created,
 		Region:     region,
 		Versioning: versioning,
 		ObjectLock: ObjectLockConfig{Enabled: in.ObjectLock},
-		UpdatedAt:  now,
+		UpdatedAt:  s.deps.Clock.Now().UTC(),
 	}
 	if err := s.deps.Store.Save(ctx, in.Name, m); err != nil {
+		// Without its configuration the bucket would silently lose the
+		// requested object lock: undo the creation, even when the client
+		// went away (the cause of many failed saves).
+		if derr := s.deps.Objects.DeleteBucket(context.WithoutCancel(ctx), in.Name, object.DeleteBucketOptions{}); derr != nil {
+			s.deps.Logger.WarnContext(ctx, "bucket: cannot roll back creation", "bucket", in.Name, "err", derr)
+		}
 		return nil, fmt.Errorf("bucket: create %s: %w", in.Name, err)
 	}
-	return &domain.Bucket{Name: in.Name, Created: now, Region: region}, nil
+	return &domain.Bucket{Name: in.Name, Created: created, Region: region}, nil
 }
 
 // Get implements Service.
@@ -134,7 +120,15 @@ func (s *service) Get(ctx context.Context, name string) (*domain.BucketInfo, err
 
 // List implements Service.
 func (s *service) List(ctx context.Context, in ListInput) ([]domain.BucketInfo, error) {
-	infos, err := s.deps.Objects.ListBuckets(ctx)
+	var (
+		infos []domain.BucketInfo
+		err   error
+	)
+	if in.WithUsage {
+		infos, err = s.deps.Objects.DataUsage(ctx, "")
+	} else {
+		infos, err = s.deps.Objects.ListBuckets(ctx)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("bucket: list: %w", err)
 	}
@@ -200,8 +194,18 @@ func (s *service) load(ctx context.Context, name string) (*Metadata, error) {
 	return m, nil
 }
 
-// update loads, mutates and saves the metadata of an existing bucket.
+// update loads, mutates and saves the metadata of an existing bucket under
+// the bucket's configuration lock, so that concurrent changes of different
+// settings never overwrite each other.
 func (s *service) update(ctx context.Context, name string, mutate func(m *Metadata) error) error {
+	if err := domain.ValidateBucketName(name); err != nil {
+		return err
+	}
+	lc, err := s.deps.Locks.NewNSLock(ctx, domain.SystemBucket, metadataPath(name)).GetLock(ctx, s.opts.lockTimeout)
+	if err != nil {
+		return fmt.Errorf("bucket: %s: %w", name, err)
+	}
+	defer lc.Unlock(ctx)
 	m, err := s.load(ctx, name)
 	if err != nil {
 		return err
@@ -214,6 +218,14 @@ func (s *service) update(ctx context.Context, name string, mutate func(m *Metada
 		return fmt.Errorf("bucket: %s: %w", name, err)
 	}
 	return nil
+}
+
+// isNotFound reports a missing document.
+func isNotFound(err error) bool { return errors.Is(err, domain.ErrObjectNotFound) }
+
+// Invalidate implements Service.
+func (s *service) Invalidate(ctx context.Context, name string) {
+	s.deps.Store.Invalidate(ctx, name)
 }
 
 // GetVersioning implements Service.
@@ -256,14 +268,26 @@ func (s *service) SetPolicy(ctx context.Context, name string, policy json.RawMes
 	if len(policy) == 0 || len(policy) > s.opts.maxDocumentSize || !json.Valid(policy) {
 		return domain.NewS3Error(domain.ErrInvalidArgument, "MalformedPolicy", "Policies must be valid JSON and the first byte must be '{'")
 	}
-	var doc domain.Policy
-	if err := json.Unmarshal(policy, &doc); err != nil || doc.Version != domain.PolicyVersion || len(doc.Statement) == 0 {
-		return domain.NewS3Error(domain.ErrInvalidArgument, "MalformedPolicy", "Policy has invalid version or no statements")
+	if _, err := s.deps.Policy.ParseBucketPolicy(ctx, name, policy); err != nil {
+		return fmt.Errorf("bucket: policy of %s: %w", name, err)
 	}
 	return s.update(ctx, name, func(m *Metadata) error {
 		m.Policy = append(json.RawMessage(nil), policy...)
 		return nil
 	})
+}
+
+// IsPublic implements Service.
+func (s *service) IsPublic(ctx context.Context, name string) (bool, error) {
+	raw, err := s.GetPolicy(ctx, name)
+	if err != nil {
+		return false, err
+	}
+	doc, err := s.deps.Policy.Parse(ctx, raw)
+	if err != nil {
+		return false, fmt.Errorf("bucket: stored policy of %s: %w", name, err)
+	}
+	return s.deps.Policy.IsPublic(ctx, doc), nil
 }
 
 // DeletePolicy implements Service.
@@ -422,20 +446,24 @@ func (s *service) GetQuota(ctx context.Context, name string) (Quota, error) {
 }
 
 // SetQuota implements Service.
-func (s *service) SetQuota(ctx context.Context, name string, q Quota) error {
+func (s *service) SetQuota(ctx context.Context, name string, q Quota) (Quota, error) {
 	if q.Size > 0 && q.Type == "" {
 		q.Type = QuotaHard
 	}
 	if q.Type != "" && q.Type != QuotaHard {
-		return fmt.Errorf("%w: unsupported quota type %q", domain.ErrInvalidArgument, q.Type)
+		return Quota{}, fmt.Errorf("%w: unsupported quota type %q", domain.ErrInvalidArgument, q.Type)
 	}
 	if q.Size == 0 {
 		q = Quota{}
 	}
-	return s.update(ctx, name, func(m *Metadata) error {
+	err := s.update(ctx, name, func(m *Metadata) error {
 		m.Quota = q
 		return nil
 	})
+	if err != nil {
+		return Quota{}, err
+	}
+	return q, nil
 }
 
 // GetTags implements Service.

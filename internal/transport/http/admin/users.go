@@ -123,12 +123,16 @@ func (h *userRoutes) createUser(w http.ResponseWriter, r *http.Request) {
 		h.deps.Enc.WriteProblemError(w, r, err)
 		return
 	}
-	status, err := parseStatus(in.Status, domain.StatusEnabled)
-	if err != nil {
-		h.deps.Enc.WriteProblemError(w, r, err)
-		return
+	input := iam.CreateUserInput{AccessKey: in.AccessKey, SecretKey: in.SecretKey, PolicyNames: in.PolicyNames}
+	if in.Status != "" {
+		status, err := domain.ParseCredentialStatus(in.Status)
+		if err != nil {
+			h.deps.Enc.WriteProblemError(w, r, err)
+			return
+		}
+		input.Status = status
 	}
-	u, err := h.deps.IAM.CreateUser(r.Context(), iam.CreateUserInput{AccessKey: in.AccessKey, SecretKey: in.SecretKey, Status: status, PolicyNames: in.PolicyNames})
+	u, err := h.deps.IAM.CreateUser(r.Context(), input)
 	if err != nil {
 		h.deps.Enc.WriteProblemError(w, r, err)
 		return
@@ -166,7 +170,7 @@ func (h *userRoutes) updateUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if in.Status != nil {
-		status, err := parseStatus(*in.Status, "")
+		status, err := domain.ParseCredentialStatus(*in.Status)
 		if err != nil {
 			h.deps.Enc.WriteProblemError(w, r, err)
 			return
@@ -293,7 +297,7 @@ func (h *userRoutes) updateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	if in.Status != nil {
-		status, err := parseStatus(*in.Status, "")
+		status, err := domain.ParseCredentialStatus(*in.Status)
 		if err != nil {
 			h.deps.Enc.WriteProblemError(w, r, err)
 			return
@@ -377,7 +381,7 @@ func newAccessKeyResponse(k *iam.AccessKey, withSecret bool) AccessKeyResponse {
 // CreateAccessKeyRequest is the JSON body of POST /access-keys.
 type CreateAccessKeyRequest struct {
 	// ParentUser owns the key; it defaults to the caller and only root may
-	// name another user.
+	// name another user (enforced by the IAM service).
 	ParentUser string `json:"parentUser,omitempty"`
 	// AccessKey and SecretKey are generated when empty.
 	AccessKey   string         `json:"accessKey,omitempty"`
@@ -405,11 +409,7 @@ func (h *userRoutes) listAccessKeys(w http.ResponseWriter, r *http.Request) {
 	if !h.authz.authorize(w, r, policy.ActionAdminListAccessKeys, "") {
 		return
 	}
-	parent, ok := h.parentUser(w, r, r.URL.Query().Get("parent"))
-	if !ok {
-		return
-	}
-	keys, err := h.deps.IAM.ListAccessKeys(r.Context(), parent)
+	keys, err := h.deps.IAM.ListAccessKeys(r.Context(), *caller(r), r.URL.Query().Get("parent"))
 	if err != nil {
 		h.deps.Enc.WriteProblemError(w, r, err)
 		return
@@ -430,15 +430,9 @@ func (h *userRoutes) createAccessKey(w http.ResponseWriter, r *http.Request) {
 		h.deps.Enc.WriteProblemError(w, r, err)
 		return
 	}
-	parent, ok := h.parentUser(w, r, in.ParentUser)
-	if !ok {
-		return
-	}
-	if parent == "" {
-		parent = caller(r).AccessKey
-	}
 	input := iam.CreateAccessKeyInput{
-		ParentUser:  parent,
+		Caller:      *caller(r),
+		ParentUser:  in.ParentUser,
 		AccessKey:   in.AccessKey,
 		SecretKey:   in.SecretKey,
 		Name:        in.Name,
@@ -460,12 +454,9 @@ func (h *userRoutes) getAccessKey(w http.ResponseWriter, r *http.Request) {
 	if !h.authz.authorize(w, r, policy.ActionAdminGetAccessKey, "") {
 		return
 	}
-	k, err := h.deps.IAM.GetAccessKey(r.Context(), chi.URLParam(r, "key"))
+	k, err := h.deps.IAM.GetAccessKey(r.Context(), *caller(r), chi.URLParam(r, "key"))
 	if err != nil {
 		h.deps.Enc.WriteProblemError(w, r, err)
-		return
-	}
-	if !h.ownsKey(w, r, k) {
 		return
 	}
 	h.deps.Enc.WriteJSON(w, http.StatusOK, newAccessKeyResponse(k, false))
@@ -481,14 +472,6 @@ func (h *userRoutes) updateAccessKey(w http.ResponseWriter, r *http.Request) {
 		h.deps.Enc.WriteProblemError(w, r, err)
 		return
 	}
-	current, err := h.deps.IAM.GetAccessKey(r.Context(), accessKey)
-	if err != nil {
-		h.deps.Enc.WriteProblemError(w, r, err)
-		return
-	}
-	if !h.ownsKey(w, r, current) {
-		return
-	}
 	input := iam.UpdateAccessKeyInput{
 		SecretKey:   in.SecretKey,
 		Name:        in.Name,
@@ -498,14 +481,14 @@ func (h *userRoutes) updateAccessKey(w http.ResponseWriter, r *http.Request) {
 		ClearPolicy: in.ClearPolicy,
 	}
 	if in.Status != nil {
-		status, err := parseStatus(*in.Status, "")
+		status, err := domain.ParseCredentialStatus(*in.Status)
 		if err != nil {
 			h.deps.Enc.WriteProblemError(w, r, err)
 			return
 		}
 		input.Status = &status
 	}
-	k, err := h.deps.IAM.UpdateAccessKey(r.Context(), accessKey, input)
+	k, err := h.deps.IAM.UpdateAccessKey(r.Context(), *caller(r), accessKey, input)
 	if err != nil {
 		h.deps.Enc.WriteProblemError(w, r, err)
 		return
@@ -517,56 +500,9 @@ func (h *userRoutes) deleteAccessKey(w http.ResponseWriter, r *http.Request) {
 	if !h.authz.authorize(w, r, policy.ActionAdminDeleteAccessKey, "") {
 		return
 	}
-	accessKey := chi.URLParam(r, "key")
-	current, err := h.deps.IAM.GetAccessKey(r.Context(), accessKey)
-	if err != nil {
-		h.deps.Enc.WriteProblemError(w, r, err)
-		return
-	}
-	if !h.ownsKey(w, r, current) {
-		return
-	}
-	if err := h.deps.IAM.DeleteAccessKey(r.Context(), accessKey); err != nil {
+	if err := h.deps.IAM.DeleteAccessKey(r.Context(), *caller(r), chi.URLParam(r, "key")); err != nil {
 		h.deps.Enc.WriteProblemError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// parentUser resolves the parent user of an access-key request: root may
-// name any user (empty lists every key), other callers only themselves.
-func (h *userRoutes) parentUser(w http.ResponseWriter, r *http.Request, requested string) (string, bool) {
-	id := caller(r)
-	if id.IsRoot {
-		return requested, true
-	}
-	if requested != "" && requested != id.AccessKey {
-		h.deps.Enc.WriteProblem(w, r, httpx.Problem{Status: http.StatusForbidden, Code: "access_denied", Detail: "only root may manage the access keys of other users"})
-		return "", false
-	}
-	return id.AccessKey, true
-}
-
-// ownsKey checks that a non-root caller only touches its own access keys.
-func (h *userRoutes) ownsKey(w http.ResponseWriter, r *http.Request, k *iam.AccessKey) bool {
-	id := caller(r)
-	if id.IsRoot || k.ParentUser == id.AccessKey {
-		return true
-	}
-	h.deps.Enc.WriteProblem(w, r, httpx.Problem{Status: http.StatusForbidden, Code: "access_denied", Detail: "only root may manage the access keys of other users"})
-	return false
-}
-
-// parseStatus parses a credential status; an empty value yields def, or an
-// error when def is empty.
-func parseStatus(s string, def domain.CredentialStatus) (domain.CredentialStatus, error) {
-	switch domain.CredentialStatus(s) {
-	case domain.StatusEnabled, domain.StatusDisabled:
-		return domain.CredentialStatus(s), nil
-	case "":
-		if def != "" {
-			return def, nil
-		}
-	}
-	return "", fmt.Errorf("%w: status must be %q or %q", domain.ErrInvalidArgument, domain.StatusEnabled, domain.StatusDisabled)
 }

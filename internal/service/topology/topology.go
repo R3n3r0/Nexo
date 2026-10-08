@@ -325,13 +325,13 @@ type localityChecker struct {
 func (s *service) newLocalityChecker(ctx context.Context) *localityChecker {
 	c := &localityChecker{svc: s, localIPs: make(map[string]struct{}), lookups: make(map[string]bool)}
 
-	hostname, err := s.deps.Hosts.Hostname()
+	hostname, err := s.deps.Hosts.Hostname(ctx)
 	if err != nil {
 		s.deps.Logger.LogAttrs(ctx, slog.LevelWarn, "cannot determine local hostname", slog.Any("error", err))
 	}
 	c.hostname = strings.ToLower(hostname)
 
-	addrs, err := s.deps.Hosts.InterfaceAddrs()
+	addrs, err := s.deps.Hosts.InterfaceAddrs(ctx)
 	if err != nil {
 		s.deps.Logger.LogAttrs(ctx, slog.LevelWarn, "cannot list local interface addresses", slog.Any("error", err))
 	}

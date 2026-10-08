@@ -88,7 +88,7 @@ func TestDataUsageAndNotImplemented(t *testing.T) {
 	assert.ErrorIs(t, svc.ServiceAction(ctx, "dance"), domain.ErrInvalidArgument)
 
 	objects := objectmock.NewService(t)
-	objects.EXPECT().ListBuckets(mock.Anything).
+	objects.EXPECT().DataUsage(mock.Anything, "").
 		Return([]domain.BucketInfo{{Bucket: domain.Bucket{Name: "a"}, Objects: 1, Size: 10, Versions: 2}}, nil).Once()
 	withObjects := admin.New(admin.Deps{Objects: objects})
 	du, err := withObjects.DataUsage(ctx)
@@ -97,7 +97,7 @@ func TestDataUsageAndNotImplemented(t *testing.T) {
 	assert.Equal(t, uint64(10), du.TotalSize)
 	assert.Equal(t, uint64(2), du.Buckets["a"].VersionsCount)
 
-	objects.EXPECT().ListBuckets(mock.Anything).Return(nil, errors.New("down")).Once()
+	objects.EXPECT().DataUsage(mock.Anything, "").Return(nil, errors.New("down")).Once()
 	_, err = withObjects.DataUsage(ctx)
 	assert.Error(t, err)
 

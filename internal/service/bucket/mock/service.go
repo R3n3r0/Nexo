@@ -951,6 +951,97 @@ func (_c *Service_GetVersioning_Call) RunAndReturn(run func(context.Context, str
 	return _c
 }
 
+// Invalidate provides a mock function with given fields: ctx, name
+func (_m *Service) Invalidate(ctx context.Context, name string) {
+	_m.Called(ctx, name)
+}
+
+// Service_Invalidate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Invalidate'
+type Service_Invalidate_Call struct {
+	*mock.Call
+}
+
+// Invalidate is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+func (_e *Service_Expecter) Invalidate(ctx interface{}, name interface{}) *Service_Invalidate_Call {
+	return &Service_Invalidate_Call{Call: _e.mock.On("Invalidate", ctx, name)}
+}
+
+func (_c *Service_Invalidate_Call) Run(run func(ctx context.Context, name string)) *Service_Invalidate_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *Service_Invalidate_Call) Return() *Service_Invalidate_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *Service_Invalidate_Call) RunAndReturn(run func(context.Context, string)) *Service_Invalidate_Call {
+	_c.Run(run)
+	return _c
+}
+
+// IsPublic provides a mock function with given fields: ctx, name
+func (_m *Service) IsPublic(ctx context.Context, name string) (bool, error) {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for IsPublic")
+	}
+
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (bool, error)); ok {
+		return rf(ctx, name)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) bool); ok {
+		r0 = rf(ctx, name)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, name)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_IsPublic_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IsPublic'
+type Service_IsPublic_Call struct {
+	*mock.Call
+}
+
+// IsPublic is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+func (_e *Service_Expecter) IsPublic(ctx interface{}, name interface{}) *Service_IsPublic_Call {
+	return &Service_IsPublic_Call{Call: _e.mock.On("IsPublic", ctx, name)}
+}
+
+func (_c *Service_IsPublic_Call) Run(run func(ctx context.Context, name string)) *Service_IsPublic_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *Service_IsPublic_Call) Return(_a0 bool, _a1 error) *Service_IsPublic_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_IsPublic_Call) RunAndReturn(run func(context.Context, string) (bool, error)) *Service_IsPublic_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // List provides a mock function with given fields: ctx, in
 func (_m *Service) List(ctx context.Context, in bucket.ListInput) ([]domain.BucketInfo, error) {
 	ret := _m.Called(ctx, in)
@@ -1299,21 +1390,31 @@ func (_c *Service_SetPolicy_Call) RunAndReturn(run func(context.Context, string,
 }
 
 // SetQuota provides a mock function with given fields: ctx, name, q
-func (_m *Service) SetQuota(ctx context.Context, name string, q bucket.Quota) error {
+func (_m *Service) SetQuota(ctx context.Context, name string, q bucket.Quota) (bucket.Quota, error) {
 	ret := _m.Called(ctx, name, q)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SetQuota")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, bucket.Quota) error); ok {
+	var r0 bucket.Quota
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, bucket.Quota) (bucket.Quota, error)); ok {
+		return rf(ctx, name, q)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, bucket.Quota) bucket.Quota); ok {
 		r0 = rf(ctx, name, q)
 	} else {
-		r0 = ret.Error(0)
+		r0 = ret.Get(0).(bucket.Quota)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context, string, bucket.Quota) error); ok {
+		r1 = rf(ctx, name, q)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // Service_SetQuota_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetQuota'
@@ -1336,12 +1437,12 @@ func (_c *Service_SetQuota_Call) Run(run func(ctx context.Context, name string, 
 	return _c
 }
 
-func (_c *Service_SetQuota_Call) Return(_a0 error) *Service_SetQuota_Call {
-	_c.Call.Return(_a0)
+func (_c *Service_SetQuota_Call) Return(_a0 bucket.Quota, _a1 error) *Service_SetQuota_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *Service_SetQuota_Call) RunAndReturn(run func(context.Context, string, bucket.Quota) error) *Service_SetQuota_Call {
+func (_c *Service_SetQuota_Call) RunAndReturn(run func(context.Context, string, bucket.Quota) (bucket.Quota, error)) *Service_SetQuota_Call {
 	_c.Call.Return(run)
 	return _c
 }

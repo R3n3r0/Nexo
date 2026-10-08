@@ -14,7 +14,9 @@ const (
 	HeaderAmzID2       = "x-amz-id-2"
 )
 
-// IDGenerator produces request identifiers.
+// IDGenerator produces request identifiers. Its methods are pure accessors
+// (no I/O beyond the random source, never block): the documented exception
+// to the context rule.
 type IDGenerator interface {
 	// NewRequestID returns a short unique id for x-amz-request-id.
 	NewRequestID() string

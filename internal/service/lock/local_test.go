@@ -169,20 +169,133 @@ func TestNSLock(t *testing.T) {
 	_, err = ns.GetRLock(ctx, 10*time.Millisecond)
 	assert.ErrorIs(t, err, domain.ErrLockTimeout)
 
-	lc.Unlock()
-	lc.Unlock() // idempotent
+	lc.Unlock(ctx)
+	lc.Unlock(ctx) // idempotent
 	assert.ErrorIs(t, lc.Context().Err(), context.Canceled)
 
 	r1, err := ns.GetRLock(ctx, time.Second)
 	require.NoError(t, err)
 	r2, err := ns.GetRLock(ctx, time.Second)
 	require.NoError(t, err)
-	r1.Unlock()
-	r2.Unlock()
+	r1.Unlock(ctx)
+	r2.Unlock(ctx)
 	lc, err = ns.GetLock(ctx, time.Second)
 	require.NoError(t, err)
-	lc.Unlock()
+	lc.Unlock(ctx)
 
 	assert.Equal(t, "bucket/object", Resource("bucket", "object"))
 	assert.Equal(t, "bucket", Resource("bucket", ""))
+}
+
+// A waiting writer holds back new readers, so that a stream of readers
+// cannot starve it; the readers proceed once the writer is done.
+func TestLocalWriterPreferredOverNewReaders(t *testing.T) {
+	l := NewLocal(Deps{})
+	ctx := context.Background()
+	require.NoError(t, l.RLock(ctx, "p", time.Second))
+
+	writer := make(chan error, 1)
+	go func() { writer <- l.Lock(ctx, "p", 2*time.Second) }()
+	require.Eventually(t, func() bool {
+		lc := l.(*local)
+		lc.mu.Lock()
+		defer lc.mu.Unlock()
+		e, ok := lc.resources["p"]
+		return ok && e.writersWaiting == 1
+	}, time.Second, time.Millisecond)
+
+	// A new reader waits behind the writer, the first reader leaves.
+	reader := make(chan error, 1)
+	go func() { reader <- l.RLock(ctx, "p", 2*time.Second) }()
+	select {
+	case err := <-reader:
+		t.Fatalf("a reader overtook the waiting writer: %v", err)
+	case <-time.After(30 * time.Millisecond):
+	}
+	require.NoError(t, l.RUnlock(ctx, "p"))
+	require.NoError(t, <-writer)
+	select {
+	case err := <-reader:
+		t.Fatalf("a reader entered while the writer holds the lock: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	require.NoError(t, l.Unlock(ctx, "p"))
+	require.NoError(t, <-reader)
+	require.NoError(t, l.RUnlock(ctx, "p"))
+	assert.Empty(t, l.(*local).resources, "no entry is leaked")
+}
+
+// A writer that gives up (timeout or cancellation) lets the readers it
+// held back in at once.
+func TestLocalGivingUpWriterReleasesReaders(t *testing.T) {
+	for name, giveUp := range map[string]func(ctx context.Context, l Locker) error{
+		"timeout": func(ctx context.Context, l Locker) error { return l.Lock(ctx, "g", 50*time.Millisecond) },
+		"cancel": func(ctx context.Context, l Locker) error {
+			ctx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+			defer cancel()
+			return l.Lock(ctx, "g", time.Minute)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			l := NewLocal(Deps{})
+			ctx := context.Background()
+			require.NoError(t, l.RLock(ctx, "g", time.Second))
+			writer := make(chan error, 1)
+			go func() { writer <- giveUp(ctx, l) }()
+			time.Sleep(10 * time.Millisecond)
+			reader := make(chan error, 1)
+			start := time.Now()
+			go func() { reader <- l.RLock(ctx, "g", 5*time.Second) }()
+			require.Error(t, <-writer)
+			require.NoError(t, <-reader)
+			assert.Less(t, time.Since(start), 2*time.Second, "the reader was woken when the writer gave up")
+			require.NoError(t, l.RUnlock(ctx, "g"))
+			require.NoError(t, l.RUnlock(ctx, "g"))
+			assert.Empty(t, l.(*local).resources)
+		})
+	}
+}
+
+// Readers and writers hammering one resource all get through: the writers
+// are not starved by overlapping readers.
+func TestLocalNoWriterStarvation(t *testing.T) {
+	l := NewLocal(Deps{})
+	ctx := context.Background()
+	stop := make(chan struct{})
+	var readers sync.WaitGroup
+	for range 8 {
+		readers.Add(1)
+		go func() {
+			defer readers.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				if err := l.RLock(ctx, "s", time.Second); err == nil {
+					time.Sleep(time.Millisecond)
+					_ = l.RUnlock(ctx, "s")
+				}
+			}
+		}()
+	}
+	var writes atomic.Int32
+	var writers sync.WaitGroup
+	for range 4 {
+		writers.Add(1)
+		go func() {
+			defer writers.Done()
+			for range 10 {
+				if assert.NoError(t, l.Lock(ctx, "s", 2*time.Second)) {
+					writes.Add(1)
+					_ = l.Unlock(ctx, "s")
+				}
+			}
+		}()
+	}
+	writers.Wait()
+	close(stop)
+	readers.Wait()
+	assert.Equal(t, int32(40), writes.Load())
 }

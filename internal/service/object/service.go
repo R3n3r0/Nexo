@@ -39,8 +39,9 @@ type Deps struct {
 	Locks lock.Locker
 	// Events receives bucket notifications; nil disables them.
 	Events event.Service
-	// IDs generates version, data directory and upload identifiers
-	// (default: UUID v4).
+	// IDs generates version identifiers and temporary directory names
+	// (default: time-ordered UUID v7). Upload ids embed one of its ids when
+	// it is a UUID.
 	IDs    topology.IDGenerator
 	Clock  clock.Clock
 	Logger *slog.Logger
@@ -61,25 +62,37 @@ type BucketConfigSource interface {
 	BucketConfig(ctx context.Context, bucket string) (BucketConfig, error)
 }
 
-// Service is the object layer.
+// Service is the object layer. ETags are returned unquoted (transports
+// quote them): the hex MD5 of the content, or "<md5 of the part md5s>-N"
+// for an object assembled from N parts. Writes are atomic: a reader sees
+// the previous version or the new one, never a partial object.
 type Service interface {
-	// Buckets.
+	// Buckets. Names follow the S3 (DNS) rules; the system volume
+	// (domain.SystemBucket) is reserved. Buckets are listed by name, with
+	// the creation time recorded at MakeBucket.
 	MakeBucket(ctx context.Context, bucket string, opts MakeBucketOptions) error
 	GetBucketInfo(ctx context.Context, bucket string) (domain.BucketInfo, error)
 	ListBuckets(ctx context.Context) ([]domain.BucketInfo, error)
 	DeleteBucket(ctx context.Context, bucket string, opts DeleteBucketOptions) error
 
-	// Objects.
+	// Objects. Reads evaluate opts.Conditions with the RFC 9110 (7232)
+	// precedence and fail with domain.ErrPreconditionFailed or
+	// domain.ErrNotModified; GetObjectInfo then also returns the object
+	// description, so that a 304 can carry its ETag and Last-Modified.
 	PutObject(ctx context.Context, in PutObjectInput) (domain.ObjectInfo, error)
 	GetObject(ctx context.Context, bucket, key string, opts GetObjectOptions) (*Reader, error)
 	GetObjectInfo(ctx context.Context, bucket, key string, opts GetObjectOptions) (domain.ObjectInfo, error)
 	DeleteObject(ctx context.Context, bucket, key string, opts DeleteObjectOptions) (DeletedObject, error)
 	DeleteObjects(ctx context.Context, in DeleteObjectsInput) (DeleteObjectsResult, error)
 	CopyObject(ctx context.Context, in CopyObjectInput) (domain.ObjectInfo, error)
+	// ListObjects serves v1 (Marker/NextMarker) and v2 (opaque
+	// ContinuationToken, StartAfter) listings; encoding-type is applied by
+	// the transports.
 	ListObjects(ctx context.Context, in domain.ListObjectsInput) (domain.ListObjectsResult, error)
 	ListObjectVersions(ctx context.Context, in domain.ListObjectsInput) (domain.ListObjectsResult, error)
 
-	// Multipart.
+	// Multipart. Upload ids are URL-safe; parts are numbered 1-10000 and
+	// every part but the last must reach the minimum part size (5 MiB).
 	NewMultipartUpload(ctx context.Context, in NewMultipartInput) (domain.MultipartUpload, error)
 	PutObjectPart(ctx context.Context, in PutObjectPartInput) (domain.Part, error)
 	CopyObjectPart(ctx context.Context, in CopyObjectPartInput) (domain.Part, error)
@@ -92,6 +105,19 @@ type Service interface {
 	PutObjectTags(ctx context.Context, bucket, key string, tags map[string]string, opts TagOptions) (domain.ObjectInfo, error)
 	GetObjectTags(ctx context.Context, bucket, key string, opts TagOptions) (map[string]string, error)
 	DeleteObjectTags(ctx context.Context, bucket, key string, opts TagOptions) (domain.ObjectInfo, error)
+
+	// CleanupStaleUploads aborts the multipart uploads of bucket (every
+	// bucket when empty) initiated more than olderThan ago, and removes the
+	// orphaned upload directories of the same age. It returns the number of
+	// uploads removed. Scheduling belongs to the caller (scanner, ILM).
+	CleanupStaleUploads(ctx context.Context, bucket string, olderThan time.Duration) (int, error)
+
+	// DataUsage walks the buckets and returns them with their usage
+	// counters (Objects, Versions, DeleteMarkers, Size) filled in, sorted by
+	// name. An empty bucket selects every bucket; otherwise the result holds
+	// that bucket only, or fails with domain.ErrBucketNotFound. The walk is
+	// proportional to the number of objects: callers cache the result.
+	DataUsage(ctx context.Context, bucket string) ([]domain.BucketInfo, error)
 
 	// Health reports the storage health (quorum, online drives).
 	Health(ctx context.Context, opts HealthOptions) HealthResult
@@ -125,9 +151,24 @@ type PutObjectInput struct {
 	MD5Hex    string
 	SHA256Hex string
 	Checksum  domain.Checksum
-	// ContentType and UserMetadata are stored with the object.
-	ContentType  string
+	// ContentType defaults to application/octet-stream.
+	ContentType string
+	// ContentEncoding, ContentDisposition, ContentLanguage, CacheControl
+	// and Expires (the raw header value) are the standard headers stored
+	// with the object and returned on reads.
+	ContentEncoding    string
+	ContentDisposition string
+	ContentLanguage    string
+	CacheControl       string
+	Expires            string
+	// UserMetadata holds the x-amz-meta-* headers. Keys are
+	// case-insensitive: they are stored lowercase, without the
+	// x-amz-meta- prefix (stripped when present). For compatibility the
+	// keys cache-control, content-disposition, content-encoding,
+	// content-language and expires are stored as the standard header of
+	// the same name unless the corresponding field above is set.
 	UserMetadata map[string]string
+	// Tags are validated as S3 object tags (at most 10).
 	Tags         map[string]string
 	StorageClass string
 	// Conditions are the write preconditions (If-None-Match: * etc.).
@@ -136,6 +177,17 @@ type PutObjectInput struct {
 	VersionID string
 	// ModTime forces the modification time; zero means now.
 	ModTime time.Time
+	// LengthRange, when set, bounds the content length (the
+	// content-length-range of a POST policy): a body outside [Min, Max]
+	// fails with domain.ErrEntityTooSmall or domain.ErrEntityTooLarge and
+	// nothing is committed.
+	LengthRange *LengthRange
+}
+
+// LengthRange is an inclusive range of content lengths, in bytes.
+type LengthRange struct {
+	Min int64
+	Max int64
 }
 
 // GetObjectOptions tunes GetObject and GetObjectInfo.
@@ -174,11 +226,13 @@ type ObjectToDelete struct {
 	VersionID string
 }
 
-// DeleteObjectsInput are the parameters of DeleteObjects.
+// DeleteObjectsInput are the parameters of DeleteObjects (at most 1000
+// objects).
 type DeleteObjectsInput struct {
 	Bucket  string
 	Objects []ObjectToDelete
-	// Quiet suppresses successful entries in the response.
+	// Quiet leaves the successful deletions out of the result: only the
+	// errors are reported (S3 quiet mode).
 	Quiet            bool
 	BypassGovernance bool
 }
@@ -199,40 +253,56 @@ type DeleteError struct {
 	Err       error
 }
 
-// DeleteObjectsResult is the result of DeleteObjects.
+// DeleteObjectsResult is the result of DeleteObjects: one entry per
+// requested object, in request order, in either Deleted or Errors.
 type DeleteObjectsResult struct {
 	Deleted []DeletedObject
 	Errors  []DeleteError
 }
 
-// CopyObjectInput are the parameters of CopyObject.
+// CopyObjectInput are the parameters of CopyObject. A source larger than
+// 5 GiB is refused (InvalidRequest): such objects are copied part by part.
 type CopyObjectInput struct {
 	SrcBucket    string
 	SrcKey       string
 	SrcVersionID string
-	// SrcConditions apply to the source (x-amz-copy-source-if-*).
+	// SrcConditions apply to the source (x-amz-copy-source-if-*); every
+	// failure is domain.ErrPreconditionFailed, never ErrNotModified.
 	SrcConditions domain.Conditions
 	DstBucket     string
 	DstKey        string
-	// ReplaceMetadata uses UserMetadata/ContentType instead of copying them.
-	ReplaceMetadata bool
-	ContentType     string
-	UserMetadata    map[string]string
+	// ReplaceMetadata (metadata directive REPLACE) stores ContentType, the
+	// standard headers and UserMetadata (same rules as PutObjectInput)
+	// instead of copying those of the source.
+	ReplaceMetadata    bool
+	ContentType        string
+	ContentEncoding    string
+	ContentDisposition string
+	ContentLanguage    string
+	CacheControl       string
+	Expires            string
+	UserMetadata       map[string]string
 	// ReplaceTags uses Tags instead of copying them.
 	ReplaceTags  bool
 	Tags         map[string]string
 	StorageClass string
 }
 
-// NewMultipartInput are the parameters of NewMultipartUpload.
+// NewMultipartInput are the parameters of NewMultipartUpload. The metadata
+// fields follow the rules of PutObjectInput.
 type NewMultipartInput struct {
-	Bucket       string
-	Key          string
-	ContentType  string
-	UserMetadata map[string]string
-	Tags         map[string]string
-	StorageClass string
-	Checksum     domain.ChecksumAlgorithm
+	Bucket             string
+	Key                string
+	ContentType        string
+	ContentEncoding    string
+	ContentDisposition string
+	ContentLanguage    string
+	CacheControl       string
+	Expires            string
+	UserMetadata       map[string]string
+	Tags               map[string]string
+	StorageClass       string
+	Checksum           domain.ChecksumAlgorithm
 }
 
 // PutObjectPartInput are the parameters of PutObjectPart.
@@ -250,9 +320,11 @@ type PutObjectPartInput struct {
 
 // CopyObjectPartInput are the parameters of CopyObjectPart.
 type CopyObjectPartInput struct {
-	SrcBucket     string
-	SrcKey        string
-	SrcVersionID  string
+	SrcBucket    string
+	SrcKey       string
+	SrcVersionID string
+	// SrcRange (x-amz-copy-source-range) must lie within the source: a
+	// range ending beyond it fails with domain.ErrInvalidRange.
 	SrcRange      *domain.Range
 	SrcConditions domain.Conditions
 	DstBucket     string

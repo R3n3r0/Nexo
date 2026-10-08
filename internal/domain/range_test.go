@@ -74,6 +74,17 @@ func TestRangeResolve(t *testing.T) {
 		})
 	}
 
+	// Regression: no range of an empty resource is satisfiable, suffix
+	// ranges included (a 206 cannot describe zero bytes).
+	for _, spec := range []string{"bytes=0-", "bytes=0-0", "bytes=-1", "bytes=-100"} {
+		r, err := ParseRange(spec)
+		require.NoError(t, err)
+		_, _, err = r.Resolve(0)
+		assert.ErrorIs(t, err, ErrInvalidRange, spec)
+	}
+	_, _, err := (&Range{IsSuffix: true}).Resolve(size)
+	assert.ErrorIs(t, err, ErrInvalidRange, "an empty suffix serves nothing")
+
 	var nilRange *Range
 	off, n, err := nilRange.Resolve(size)
 	require.NoError(t, err)

@@ -1,4 +1,4 @@
-package topology
+package topology_test
 
 import (
 	"context"
@@ -9,14 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/topology"
 )
-
-func parseLayout(t *testing.T, args ...string) *Layout {
-	t.Helper()
-	layout, err := newTestService().Parse(context.Background(), args)
-	require.NoError(t, err)
-	return layout
-}
 
 func TestLayout_HashStable(t *testing.T) {
 	t.Parallel()
@@ -28,7 +22,7 @@ func TestLayout_HashStable(t *testing.T) {
 	assert.Len(t, h, 64)
 	assert.Equal(t, h, parseLayout(t, "http://node{1...4}:9000/data{1...4}").Hash())
 	if h != goldenHash {
-		t.Logf("canonical form:\n%s", layout.canonical())
+		t.Logf("canonical form:\n%s", topology.Canonical(layout))
 		t.Logf("hash %s (update goldenHash if the canonical form changed on purpose)", h)
 	}
 	assert.Equal(t, goldenHash, h)
@@ -38,9 +32,9 @@ func TestLayout_HashIndependentOfLocalNode(t *testing.T) {
 	t.Parallel()
 	args := []string{"http://node{1...4}:9000/data{1...4}"}
 	ctx := context.Background()
-	a, err := newTestService().Parse(ctx, args)
+	a, err := newTestService(t).Parse(ctx, args)
 	require.NoError(t, err)
-	b, err := New(Deps{Hosts: newFakeResolverFor(3), Logger: quietLogger()}).Parse(ctx, args)
+	b, err := topology.New(topology.Deps{Hosts: newResolver(t, nodeHost(3)), Logger: quietLogger()}).Parse(ctx, args)
 	require.NoError(t, err)
 	assert.Equal(t, a.Hash(), b.Hash())
 	assert.NotEqual(t, a.LocalEndpoints(), b.LocalEndpoints())
@@ -54,7 +48,7 @@ func TestLayout_HashChanges(t *testing.T) {
 	assert.NotEqual(t, base, parseLayout(t, "/data").Hash(), "mode")
 	assert.NotEqual(t, base, parseLayout(t, "http://node{1...4}:9000/data").Hash(), "distributed")
 	assert.NotEqual(t, base, parseLayout(t, "/data{1...2}", "/data{3...4}").Hash(), "pools")
-	forced, err := newTestService(WithParity(1)).Parse(context.Background(), []string{"/data{1...4}"})
+	forced, err := newTestService(t, topology.WithParity(1)).Parse(context.Background(), []string{"/data{1...4}"})
 	require.NoError(t, err)
 	assert.NotEqual(t, base, forced.Hash(), "parity")
 	assert.Equal(t, parseLayout(t, "/d1", "/d2", "/d3", "/d4").Hash(), parseLayout(t, "/d{1...4}").Hash(), "same drives, same hash")
@@ -95,61 +89,15 @@ func TestLayout_Helpers(t *testing.T) {
 	assert.Len(t, p.Sets(), 1)
 	assert.Equal(t, 12, p.DataShards())
 	assert.Equal(t, 16, p.DriveCount())
-	assert.Nil(t, Pool{}.Set(0))
-	assert.Nil(t, Pool{SetCount: 2, SetDriveCount: 4, Endpoints: make([]domain.Endpoint, 4)}.Set(1))
+	assert.Nil(t, topology.Pool{}.Set(0))
+	assert.Nil(t, topology.Pool{SetCount: 2, SetDriveCount: 4, Endpoints: make([]domain.Endpoint, 4)}.Set(1))
 
-	var empty Layout
+	var empty topology.Layout
 	assert.Equal(t, 0, empty.DriveCount())
 	assert.Empty(t, empty.Endpoints())
 	assert.Empty(t, empty.LocalEndpoints())
 	_, ok := empty.LocalNode()
 	assert.False(t, ok)
-}
-
-func TestEndpointHelpers(t *testing.T) {
-	t.Parallel()
-	local := domain.Endpoint{Path: "/data"}
-	assert.False(t, local.IsURL())
-	assert.Equal(t, "", nodeKey(local))
-	assert.Equal(t, "", endpointHostname(local))
-	assert.Equal(t, 0, endpointPort(local))
-	assert.Equal(t, "/data", local.String())
-
-	remote := newURLEndpoint("HTTPS", "Node1", 9000, "/data")
-	assert.True(t, remote.IsURL())
-	assert.Equal(t, "https", remote.Scheme)
-	assert.Equal(t, "node1:9000", remote.Host)
-	assert.Equal(t, "node1:9000", nodeKey(remote))
-	assert.Equal(t, "node1", endpointHostname(remote))
-	assert.Equal(t, 9000, endpointPort(remote))
-	assert.Equal(t, "https://node1:9000/data", remote.String())
-
-	v6 := newURLEndpoint("http", "::1", 9000, "/data")
-	assert.Equal(t, "http://[::1]:9000/data", v6.String())
-	assert.Equal(t, "::1", endpointHostname(v6))
-	assert.Equal(t, 9000, endpointPort(v6))
-
-	assert.Equal(t, 0, endpointPort(domain.Endpoint{Scheme: "http", Host: "node1", Path: "/d"}), "no port")
-	assert.Equal(t, 0, endpointPort(domain.Endpoint{Scheme: "http", Host: "node1:abc", Path: "/d"}), "bad port")
-	assert.Equal(t, "node1", endpointHostname(domain.Endpoint{Scheme: "http", Host: "NODE1:9000", Path: "/d"}))
-}
-
-func TestNode_String(t *testing.T) {
-	t.Parallel()
-	assert.Equal(t, "local", Node{}.String())
-	assert.Equal(t, "", Node{}.key())
-	assert.Equal(t, "node1:9000", Node{Host: "node1", Port: 9000}.String())
-	assert.Equal(t, "node1:9000", Node{Host: "node1", Port: 9000}.key())
-	assert.Equal(t, "[fe80::1]:9000", Node{Host: "fe80::1", Port: 9000}.String())
-}
-
-func TestValidMode(t *testing.T) {
-	t.Parallel()
-	assert.True(t, validMode(domain.ModeSNSD))
-	assert.True(t, validMode(domain.ModeSNMD))
-	assert.True(t, validMode(domain.ModeDistributed))
-	assert.False(t, validMode(domain.ModeUnknown))
-	assert.False(t, validMode(domain.Mode(42)))
 }
 
 func TestLayout_Validate(t *testing.T) {
@@ -167,10 +115,10 @@ func TestLayout_Validate(t *testing.T) {
 		}
 	})
 
-	var nilLayout *Layout
-	assert.ErrorIs(t, nilLayout.Validate(), ErrInvalidLayout)
+	var nilLayout *topology.Layout
+	assert.ErrorIs(t, nilLayout.Validate(), topology.ErrInvalidLayout)
 
-	tamper := func(name string, args []string, f func(l *Layout), want error) {
+	tamper := func(name string, args []string, f func(l *topology.Layout), want error) {
 		t.Run(name, func(t *testing.T) {
 			l := parseLayout(t, args...)
 			f(l)
@@ -182,43 +130,43 @@ func TestLayout_Validate(t *testing.T) {
 	snmd := []string{"/data{1...4}"}
 	dist := []string{"http://node{1...4}:9000/data{1...4}"}
 
-	tamper("unknown mode", snmd, func(l *Layout) { l.Mode = domain.ModeUnknown }, ErrInvalidLayout)
-	tamper("bogus mode", snmd, func(l *Layout) { l.Mode = domain.Mode(42) }, ErrInvalidLayout)
-	tamper("no pools", snmd, func(l *Layout) { l.Pools = nil }, ErrInvalidLayout)
-	tamper("snsd with many drives", snmd, func(l *Layout) { l.Mode = domain.ModeSNSD }, ErrInvalidLayout)
-	tamper("snsd set size", []string{"/data"}, func(l *Layout) { l.Pools[0].SetDriveCount = 2; l.Pools[0].SetCount = 1 }, ErrInvalidLayout)
-	tamper("pool index", snmd, func(l *Layout) { l.Pools[0].Index = 3 }, ErrInvalidLayout)
-	tamper("pool without drives", snmd, func(l *Layout) { l.Pools[0].Endpoints = nil }, ErrInvalidLayout)
-	tamper("set count mismatch", snmd, func(l *Layout) { l.Pools[0].SetCount = 2 }, ErrInvalidLayout)
-	tamper("set size too big", []string{"/data{1...32}"}, func(l *Layout) { l.Pools[0].SetCount = 1; l.Pools[0].SetDriveCount = 32 }, ErrInvalidLayout)
-	tamper("parity too high", snmd, func(l *Layout) { l.Pools[0].Parity = 3 }, ErrInvalidParity)
-	tamper("parity zero", snmd, func(l *Layout) { l.Pools[0].Parity = 0 }, ErrInvalidParity)
-	tamper("snsd parity", []string{"/data"}, func(l *Layout) { l.Pools[0].Parity = 1 }, ErrInvalidParity)
-	tamper("relative endpoint", snmd, func(l *Layout) { l.Pools[0].Endpoints[1].Path = "data2" }, ErrRelativePath)
-	tamper("root endpoint", snmd, func(l *Layout) { l.Pools[0].Endpoints[1].Path = "/" }, ErrRootPath)
-	tamper("empty endpoint", snmd, func(l *Layout) { l.Pools[0].Endpoints[1].Path = "" }, ErrInvalidEndpoint)
-	tamper("local path with host", snmd, func(l *Layout) { l.Pools[0].Endpoints[1].Host = "x" }, ErrInvalidEndpoint)
-	tamper("url in snmd", snmd, func(l *Layout) {
+	tamper("unknown mode", snmd, func(l *topology.Layout) { l.Mode = domain.ModeUnknown }, topology.ErrInvalidLayout)
+	tamper("bogus mode", snmd, func(l *topology.Layout) { l.Mode = domain.Mode(42) }, topology.ErrInvalidLayout)
+	tamper("no pools", snmd, func(l *topology.Layout) { l.Pools = nil }, topology.ErrInvalidLayout)
+	tamper("snsd with many drives", snmd, func(l *topology.Layout) { l.Mode = domain.ModeSNSD }, topology.ErrInvalidLayout)
+	tamper("snsd set size", []string{"/data"}, func(l *topology.Layout) { l.Pools[0].SetDriveCount = 2; l.Pools[0].SetCount = 1 }, topology.ErrInvalidLayout)
+	tamper("pool index", snmd, func(l *topology.Layout) { l.Pools[0].Index = 3 }, topology.ErrInvalidLayout)
+	tamper("pool without drives", snmd, func(l *topology.Layout) { l.Pools[0].Endpoints = nil }, topology.ErrInvalidLayout)
+	tamper("set count mismatch", snmd, func(l *topology.Layout) { l.Pools[0].SetCount = 2 }, topology.ErrInvalidLayout)
+	tamper("set size too big", []string{"/data{1...32}"}, func(l *topology.Layout) { l.Pools[0].SetCount = 1; l.Pools[0].SetDriveCount = 32 }, topology.ErrInvalidLayout)
+	tamper("parity too high", snmd, func(l *topology.Layout) { l.Pools[0].Parity = 3 }, topology.ErrInvalidParity)
+	tamper("parity zero", snmd, func(l *topology.Layout) { l.Pools[0].Parity = 0 }, topology.ErrInvalidParity)
+	tamper("snsd parity", []string{"/data"}, func(l *topology.Layout) { l.Pools[0].Parity = 1 }, topology.ErrInvalidParity)
+	tamper("relative endpoint", snmd, func(l *topology.Layout) { l.Pools[0].Endpoints[1].Path = "data2" }, topology.ErrRelativePath)
+	tamper("root endpoint", snmd, func(l *topology.Layout) { l.Pools[0].Endpoints[1].Path = "/" }, topology.ErrRootPath)
+	tamper("empty endpoint", snmd, func(l *topology.Layout) { l.Pools[0].Endpoints[1].Path = "" }, topology.ErrInvalidEndpoint)
+	tamper("local path with host", snmd, func(l *topology.Layout) { l.Pools[0].Endpoints[1].Host = "x" }, topology.ErrInvalidEndpoint)
+	tamper("url in snmd", snmd, func(l *topology.Layout) {
 		l.Pools[0].Endpoints[1] = domain.Endpoint{Scheme: "http", Host: "node1:9000", Path: "/x", IsLocal: true, SetIdx: 0, DiskIdx: 1}
-	}, ErrInvalidLayout)
-	tamper("path in distributed", dist, func(l *Layout) {
+	}, topology.ErrInvalidLayout)
+	tamper("path in distributed", dist, func(l *topology.Layout) {
 		l.Pools[0].Endpoints[1] = domain.Endpoint{Path: "/x", IsLocal: true, SetIdx: 0, DiskIdx: 1}
-	}, ErrInvalidLayout)
-	tamper("bad scheme", dist, func(l *Layout) { l.Pools[0].Endpoints[0].Scheme = "ftp" }, ErrInvalidScheme)
-	tamper("mixed schemes", dist, func(l *Layout) {
+	}, topology.ErrInvalidLayout)
+	tamper("bad scheme", dist, func(l *topology.Layout) { l.Pools[0].Endpoints[0].Scheme = "ftp" }, topology.ErrInvalidScheme)
+	tamper("mixed schemes", dist, func(l *topology.Layout) {
 		l.Pools[0].Endpoints[0].Scheme = "https"
-		l.Nodes = buildNodes(l)
-	}, ErrMixedSchemes)
-	tamper("missing host", dist, func(l *Layout) { l.Pools[0].Endpoints[0].Host = "" }, ErrInvalidEndpoint)
-	tamper("bad port", dist, func(l *Layout) { l.Pools[0].Endpoints[0].Host = "node1:70000" }, ErrInvalidEndpoint)
-	tamper("missing port", dist, func(l *Layout) { l.Pools[0].Endpoints[0].Host = "node1" }, ErrInvalidEndpoint)
-	tamper("placement swapped", snmd, func(l *Layout) {
+		l.Nodes = topology.BuildNodes(l)
+	}, topology.ErrMixedSchemes)
+	tamper("missing host", dist, func(l *topology.Layout) { l.Pools[0].Endpoints[0].Host = "" }, topology.ErrInvalidEndpoint)
+	tamper("bad port", dist, func(l *topology.Layout) { l.Pools[0].Endpoints[0].Host = "node1:70000" }, topology.ErrInvalidEndpoint)
+	tamper("missing port", dist, func(l *topology.Layout) { l.Pools[0].Endpoints[0].Host = "node1" }, topology.ErrInvalidEndpoint)
+	tamper("placement swapped", snmd, func(l *topology.Layout) {
 		l.Pools[0].Endpoints[0].DiskIdx, l.Pools[0].Endpoints[1].DiskIdx = 1, 0
-	}, ErrInvalidLayout)
-	tamper("wrong pool idx", snmd, func(l *Layout) { l.Pools[0].Endpoints[2].PoolIdx = 1 }, ErrInvalidLayout)
-	tamper("duplicate endpoint", snmd, func(l *Layout) { l.Pools[0].Endpoints[2].Path = "/data1" }, ErrDuplicateEndpoint)
-	tamper("node count", dist, func(l *Layout) { l.Pools[0].NodeCount = 3 }, ErrInvalidLayout)
-	tamper("set not spread across nodes", dist, func(l *Layout) {
+	}, topology.ErrInvalidLayout)
+	tamper("wrong pool idx", snmd, func(l *topology.Layout) { l.Pools[0].Endpoints[2].PoolIdx = 1 }, topology.ErrInvalidLayout)
+	tamper("duplicate endpoint", snmd, func(l *topology.Layout) { l.Pools[0].Endpoints[2].Path = "/data1" }, topology.ErrDuplicateEndpoint)
+	tamper("node count", dist, func(l *topology.Layout) { l.Pools[0].NodeCount = 3 }, topology.ErrInvalidLayout)
+	tamper("set not spread across nodes", dist, func(l *topology.Layout) {
 		// Put all drives of the set on node1: the symmetry check must notice.
 		for i := range l.Pools[0].Endpoints {
 			l.Pools[0].Endpoints[i].Host = "node1:9000"
@@ -226,27 +174,27 @@ func TestLayout_Validate(t *testing.T) {
 			l.Pools[0].Endpoints[i].IsLocal = true
 		}
 		l.Pools[0].NodeCount = 1
-		l.Nodes = buildNodes(l)
+		l.Nodes = topology.BuildNodes(l)
 		l.Pools[0].NodeCount = 4
-	}, ErrInvalidLayout)
-	tamper("uneven set", []string{"http://node{1...2}:9000/data{1...2}"}, func(l *Layout) {
+	}, topology.ErrInvalidLayout)
+	tamper("uneven set", []string{"http://node{1...2}:9000/data{1...2}"}, func(l *topology.Layout) {
 		// Move one drive from node2 to node1 inside the single set of 4.
 		l.Pools[0].Endpoints[3].Host = "node1:9000"
 		l.Pools[0].Endpoints[3].Path = "/data3"
 		l.Pools[0].Endpoints[3].IsLocal = true
-		l.Nodes = buildNodes(l)
-	}, ErrInvalidLayout)
-	tamper("nodes missing", dist, func(l *Layout) { l.Nodes = l.Nodes[:3] }, ErrInvalidLayout)
-	tamper("node without drives", dist, func(l *Layout) { l.Nodes = append(l.Nodes, Node{Host: "node9", Port: 9000}) }, ErrInvalidLayout)
-	tamper("node lists foreign drive", dist, func(l *Layout) { l.Nodes[1].Endpoints[0] = l.Nodes[2].Endpoints[0] }, ErrInvalidLayout)
-	tamper("node locality mismatch", dist, func(l *Layout) { l.Nodes[1].Local = true }, ErrInvalidLayout)
-	tamper("endpoint listed twice in nodes", dist, func(l *Layout) {
+		l.Nodes = topology.BuildNodes(l)
+	}, topology.ErrInvalidLayout)
+	tamper("nodes missing", dist, func(l *topology.Layout) { l.Nodes = l.Nodes[:3] }, topology.ErrInvalidLayout)
+	tamper("node without drives", dist, func(l *topology.Layout) { l.Nodes = append(l.Nodes, topology.Node{Host: "node9", Port: 9000}) }, topology.ErrInvalidLayout)
+	tamper("node lists foreign drive", dist, func(l *topology.Layout) { l.Nodes[1].Endpoints[0] = l.Nodes[2].Endpoints[0] }, topology.ErrInvalidLayout)
+	tamper("node locality mismatch", dist, func(l *topology.Layout) { l.Nodes[1].Local = true }, topology.ErrInvalidLayout)
+	tamper("endpoint listed twice in nodes", dist, func(l *topology.Layout) {
 		l.Nodes[1].Endpoints = append(l.Nodes[1].Endpoints, l.Nodes[1].Endpoints[0])
-	}, ErrInvalidLayout)
-	tamper("two local nodes", dist, func(l *Layout) {
+	}, topology.ErrInvalidLayout)
+	tamper("two local nodes", dist, func(l *topology.Layout) {
 		for i := range l.Nodes[1].Endpoints {
 			l.Nodes[1].Endpoints[i].IsLocal = true
 		}
 		l.Nodes[1].Local = true
-	}, ErrInvalidLayout)
+	}, topology.ErrInvalidLayout)
 }

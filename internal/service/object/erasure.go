@@ -26,10 +26,14 @@ const (
 	bitrotHashSize   = 32
 )
 
-// bitrotKey is the fixed HighwayHash key of the per-block shard hashes.
-var bitrotKey = [32]byte{
-	0x4b, 0xe7, 0x34, 0xfa, 0x8e, 0x23, 0x8a, 0xcd, 0x26, 0x3e, 0x83, 0xe6, 0xbb, 0x96, 0x80, 0x52,
-	0x04, 0x0f, 0x93, 0x5d, 0xa3, 0x9f, 0x44, 0x14, 0x97, 0xe0, 0x9d, 0x13, 0x22, 0xde, 0x36, 0xa0,
+// bitrotKey returns the fixed HighwayHash key of the per-block shard
+// hashes. It is part of the on-disk format: changing it makes every
+// existing shard fail its bitrot check.
+func bitrotKey() []byte {
+	return []byte{
+		0x4b, 0xe7, 0x34, 0xfa, 0x8e, 0x23, 0x8a, 0xcd, 0x26, 0x3e, 0x83, 0xe6, 0xbb, 0x96, 0x80, 0x52,
+		0x04, 0x0f, 0x93, 0x5d, 0xa3, 0x9f, 0x44, 0x14, 0x97, 0xe0, 0x9d, 0x13, 0x22, 0xde, 0x36, 0xa0,
+	}
 }
 
 // erasureObjects is the erasure-coded object layer (SNMD / distributed): a
@@ -66,7 +70,7 @@ func NewErasure(deps Deps, opts ...Option) (Service, error) {
 		if err != nil {
 			return nil, fmt.Errorf("object: erasure encoder for set %d: %w", i, err)
 		}
-		st := &erasureStore{drives: drives, rs: rs, data: n - deps.Parity, parity: deps.Parity, blockSize: o.blockSize, logger: deps.Logger, setIdx: i}
+		st := &erasureStore{drives: drives, rs: rs, data: n - deps.Parity, parity: deps.Parity, blockSize: o.blockSize, logger: deps.Logger, setIdx: i, bitrotKey: bitrotKey()}
 		stores = append(stores, st)
 		sets = append(sets, st)
 	}
@@ -114,6 +118,8 @@ type erasureStore struct {
 	blockSize int64
 	logger    *slog.Logger
 	setIdx    int
+	// bitrotKey keys the per-block shard hashes (bitrotKey()).
+	bitrotKey []byte
 }
 
 var _ store = (*erasureStore)(nil)
@@ -272,8 +278,9 @@ func (e *erasureStore) ErasureInfo() storage.ErasureInfo {
 	}
 }
 
-func bitrotSum(b []byte) []byte {
-	sum := highwayhash.Sum(b, bitrotKey[:])
+// bitrotSum is the HighwayHash-256 of one shard block.
+func (e *erasureStore) bitrotSum(b []byte) []byte {
+	sum := highwayhash.Sum(b, e.bitrotKey)
 	return sum[:]
 }
 
@@ -360,7 +367,7 @@ func (e *erasureStore) WriteData(ctx context.Context, dir string, partNum int, s
 			if w == nil {
 				continue
 			}
-			if _, werr := w.Write(bitrotSum(shards[i])); werr != nil {
+			if _, werr := w.Write(e.bitrotSum(shards[i])); werr != nil {
 				fail(i, werr)
 				continue
 			}
@@ -405,9 +412,8 @@ func (e *erasureStore) CommitData(ctx context.Context, tmpDir string, fi storage
 		return nil
 	})
 	if err != nil {
-		if tmpDir != "" {
-			e.cleanup(ctx, tmpDir)
-		}
+		// tmpDir is left to the caller: a failed multipart completion moves
+		// its parts back into the upload.
 		return "", err
 	}
 	return old, nil
@@ -470,12 +476,14 @@ func (e *erasureStore) ReadData(ctx context.Context, volume, path string, fi sto
 	return &erasureReader{
 		rs: rs, readers: readers, data: data, blockSize: blockSize, partSize: part.Size,
 		block: startBlock, skip: offset - startBlock*blockSize, remaining: length,
-		logger: e.logger, volume: volume, path: path,
+		logger: e.logger, volume: volume, path: path, bitrotSum: e.bitrotSum,
 	}, nil
 }
 
 // erasureReader decodes blocks from the shard streams on demand.
 type erasureReader struct {
+	// bitrotSum hashes a shard block to verify it (erasureStore.bitrotSum).
+	bitrotSum func([]byte) []byte
 	rs        reedsolomon.Encoder
 	readers   []io.ReadCloser
 	data      int
@@ -524,7 +532,7 @@ func (r *erasureReader) decodeNext() error {
 			r.drop(i, "short shard read", err)
 			continue
 		}
-		if !bytes.Equal(bitrotSum(buf[bitrotHashSize:]), buf[:bitrotHashSize]) {
+		if !bytes.Equal(r.bitrotSum(buf[bitrotHashSize:]), buf[:bitrotHashSize]) {
 			r.drop(i, "bitrot detected", nil)
 			continue
 		}

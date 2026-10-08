@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -104,7 +103,7 @@ func newBucketResponse(b *domain.BucketInfo) BucketResponse {
 		Name:              b.Name,
 		Created:           b.Created,
 		Region:            b.Region,
-		Versioning:        versioningState(b.Versioning),
+		Versioning:        b.Versioning.State(),
 		ObjectLockEnabled: b.ObjectLockEnabled,
 		Objects:           b.Objects,
 		Versions:          b.Versions,
@@ -112,15 +111,6 @@ func newBucketResponse(b *domain.BucketInfo) BucketResponse {
 		QuotaBytes:        b.QuotaBytes,
 		Tags:              nonNilMap(b.Tags),
 	}
-}
-
-// versioningState renders a versioning state as the console expects it
-// ("off", "enabled", "suspended").
-func versioningState(v domain.Versioning) string {
-	if s := v.String(); s != "" {
-		return strings.ToLower(s)
-	}
-	return "off"
 }
 
 // CreateBucketRequest is the JSON body of POST /buckets.
@@ -258,7 +248,7 @@ func (h *bucketRoutes) getVersioning(w http.ResponseWriter, r *http.Request) {
 		h.deps.Enc.WriteProblemError(w, r, err)
 		return
 	}
-	h.deps.Enc.WriteJSON(w, http.StatusOK, VersioningResponse{Status: versioningState(v)})
+	h.deps.Enc.WriteJSON(w, http.StatusOK, VersioningResponse{Status: v.State()})
 }
 
 func (h *bucketRoutes) putVersioning(w http.ResponseWriter, r *http.Request) {
@@ -271,11 +261,7 @@ func (h *bucketRoutes) putVersioning(w http.ResponseWriter, r *http.Request) {
 		h.deps.Enc.WriteProblemError(w, r, err)
 		return
 	}
-	status := in.Status
-	if strings.EqualFold(status, "off") {
-		status = ""
-	}
-	v, err := domain.ParseVersioning(status)
+	v, err := domain.ParseVersioningState(in.Status)
 	if err != nil {
 		h.deps.Enc.WriteProblemError(w, r, err)
 		return
@@ -284,7 +270,7 @@ func (h *bucketRoutes) putVersioning(w http.ResponseWriter, r *http.Request) {
 		h.deps.Enc.WriteProblemError(w, r, err)
 		return
 	}
-	h.deps.Enc.WriteJSON(w, http.StatusOK, VersioningResponse{Status: versioningState(v)})
+	h.deps.Enc.WriteJSON(w, http.StatusOK, VersioningResponse{Status: v.State()})
 }
 
 func (h *bucketRoutes) getPolicy(w http.ResponseWriter, r *http.Request) {
@@ -352,11 +338,8 @@ func (h *bucketRoutes) putQuota(w http.ResponseWriter, r *http.Request) {
 		h.deps.Enc.WriteProblemError(w, r, err)
 		return
 	}
-	q := bucket.Quota{Type: bucket.QuotaType(in.Type), Size: in.Size}
-	if q.Size > 0 && q.Type == "" {
-		q.Type = bucket.QuotaHard
-	}
-	if err := h.deps.Buckets.SetQuota(r.Context(), name, q); err != nil {
+	q, err := h.deps.Buckets.SetQuota(r.Context(), name, bucket.Quota{Type: bucket.QuotaType(in.Type), Size: in.Size})
+	if err != nil {
 		h.deps.Enc.WriteProblemError(w, r, err)
 		return
 	}

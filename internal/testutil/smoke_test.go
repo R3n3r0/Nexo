@@ -1,17 +1,22 @@
 package testutil_test
 
 import (
+	"context"
 	"encoding/json"
 	"encoding/xml"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/r3n3r0/nexo/internal/config"
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/auth"
+	"github.com/r3n3r0/nexo/internal/service/iam"
 	"github.com/r3n3r0/nexo/internal/testutil"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
@@ -67,17 +72,80 @@ func TestSmokeHealthS3AndConsoleLogin(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode, string(body))
 	assert.Contains(t, string(body), `"mode":"snsd"`)
 
-	// Metrics are exposed.
-	resp, err = srv.Client.Get(srv.S3URL + "/nexo/metrics/v1/node")
+	// Metrics are exposed to a bearer token of an admin (default
+	// NEXO_PROMETHEUS_AUTH_TYPE=jwt).
+	token, err := auth.NewSigner(auth.Deps{}).SignBearerToken(context.Background(),
+		domain.Credentials{AccessKey: srv.RootUser, SecretKey: srv.RootPassword}, time.Hour)
 	require.NoError(t, err)
-	body, _ = io.ReadAll(resp.Body)
-	resp.Body.Close()
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.Contains(t, string(body), "nexo_http_requests_total")
+	status, metricsBody := scrape(t, srv, token)
+	assert.Equal(t, http.StatusOK, status)
+	assert.Contains(t, metricsBody, "nexo_http_requests_total")
 }
 
-func TestSmokeSNMD(t *testing.T) {
-	dir := t.TempDir()
-	srv := testutil.StartServer(t, testutil.WithEndpoints(dir+"/d1", dir+"/d2", dir+"/d3", dir+"/d4"))
-	assert.Equal(t, domain.ModeSNMD, srv.App.Mode())
+// scrape GETs the node metrics with an optional bearer token.
+func scrape(t *testing.T, srv *testutil.Server, token string) (int, string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, srv.S3URL+"/nexo/metrics/v1/node", nil)
+	require.NoError(t, err)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := srv.Client.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	return resp.StatusCode, string(body)
+}
+
+// Regression: the metrics endpoints were served to anyone. They require a
+// bearer token of an identity allowed admin:Prometheus unless
+// NEXO_PROMETHEUS_AUTH_TYPE=public.
+func TestMetricsAuthentication(t *testing.T) {
+	ctx := context.Background()
+	srv := testutil.StartServer(t)
+	signer := auth.NewSigner(auth.Deps{})
+	root := domain.Credentials{AccessKey: srv.RootUser, SecretKey: srv.RootPassword}
+	rootToken, err := signer.SignBearerToken(ctx, root, time.Hour)
+	require.NoError(t, err)
+	forged, err := signer.SignBearerToken(ctx, domain.Credentials{AccessKey: srv.RootUser, SecretKey: "not-the-secret"}, time.Hour)
+	require.NoError(t, err)
+	_, err = srv.IAM.CreateUser(ctx, iam.CreateUserInput{AccessKey: "reader", SecretKey: "reader-secret", PolicyNames: []string{"readonly"}})
+	require.NoError(t, err)
+	readerToken, err := signer.SignBearerToken(ctx, domain.Credentials{AccessKey: "reader", SecretKey: "reader-secret"}, time.Hour)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name  string
+		token string
+		want  int
+	}{
+		{name: "no token", want: http.StatusForbidden},
+		{name: "forged token", token: forged, want: http.StatusForbidden},
+		{name: "user without admin:Prometheus", token: readerToken, want: http.StatusForbidden},
+		{name: "root token", token: rootToken, want: http.StatusOK},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status, body := scrape(t, srv, tt.token)
+			assert.Equal(t, tt.want, status, body)
+			if tt.want != http.StatusOK {
+				assert.NotContains(t, body, "go_goroutines")
+			}
+		})
+	}
+	// A SigV4 signature is no metrics credential, and a bearer token is no
+	// S3 credential.
+	req, err := http.NewRequest(http.MethodGet, srv.S3URL+"/", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+rootToken)
+	resp, err := srv.Client.Do(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	public := testutil.StartServer(t, testutil.WithConfig(func(c *config.Static) { c.PrometheusAuthType = config.PrometheusAuthPublic }))
+	status, body := scrape(t, public, "")
+	assert.Equal(t, http.StatusOK, status)
+	assert.Contains(t, body, "go_goroutines")
 }

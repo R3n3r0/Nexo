@@ -57,5 +57,5 @@
 | `NEXO_KMS_SECRET_KEY` / `NEXO_KMS_ENDPOINT` | — | KMS interno / esterno |
 | `NEXO_BROWSER` | `on` | Abilita/disabilita la console |
 | `NEXO_CONSOLE_SESSION_DURATION` | `12h` | Durata sessione console |
-| `NEXO_PROMETHEUS_AUTH_TYPE` | `jwt` | `jwt` o `public` |
+| `NEXO_PROMETHEUS_AUTH_TYPE` | `jwt` | `jwt` o `public`. Con `jwt` le rotte `/nexo/metrics/v1/*` richiedono `Authorization: Bearer <JWT>`: HMAC (HS256/384/512) firmato con la secret key del `sub` (access key), `iss=prometheus`, `exp` obbligatorio (formato di `mc admin prometheus generate`); l'identità deve avere `admin:Prometheus` (root o policy `diagnostics`). Il token non è mai una credenziale S3 |
 | `--certs-dir` | `~/.nexo/certs` | Certificati TLS |

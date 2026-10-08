@@ -1,31 +1,100 @@
 package policy
 
 import (
-	"net"
-	"strconv"
 	"strings"
-	"time"
-
-	"github.com/r3n3r0/nexo/internal/domain"
+	"unicode"
 )
 
-// matchWildcard reports whether s matches pattern, where "*" matches any
-// sequence and "?" any single character.
-func matchWildcard(pattern, s string) bool {
-	if pattern == "*" {
-		return true
+// pchar is one element of a compiled wildcard pattern.
+type pchar struct {
+	r    rune
+	kind uint8
+}
+
+// Kinds of pattern elements.
+const (
+	pLit  uint8 = iota // a literal rune
+	pStar              // "*": any sequence, empty included
+	pAny               // "?": any single rune
+)
+
+// pattern is a compiled wildcard pattern whose literal runes may come from
+// policy variables (and therefore contain '*' or '?' that are not
+// wildcards).
+type pattern []pchar
+
+// compileWildcard compiles s, where "*" and "?" are wildcards and there are
+// no policy variables (actions, principals).
+func compileWildcard(s string) pattern {
+	p := make(pattern, 0, len(s))
+	return appendWildcard(p, s)
+}
+
+func appendWildcard(p pattern, s string) pattern {
+	for _, r := range s {
+		switch r {
+		case '*':
+			p = append(p, pchar{kind: pStar})
+		case '?':
+			p = append(p, pchar{kind: pAny})
+		default:
+			p = append(p, pchar{r: r})
+		}
 	}
-	// Iterative glob matching with backtracking on the last star.
+	return p
+}
+
+func appendLiteral(p pattern, s string) pattern {
+	for _, r := range s {
+		p = append(p, pchar{r: r})
+	}
+	return p
+}
+
+// compilePattern compiles a policy string with wildcards and policy
+// variables, expanded from ctx as literal text. ok is false when a variable
+// cannot be resolved.
+func compilePattern(s string, ctx *evalContext) (pattern, bool) {
+	p := make(pattern, 0, len(s))
+	ok := expandTemplate(s, ctx, func(text string, fromVar bool) {
+		if fromVar {
+			p = appendLiteral(p, text)
+		} else {
+			p = appendWildcard(p, text)
+		}
+	})
+	return p, ok
+}
+
+// expandLiteral expands the policy variables of s into a plain string (the
+// operators without wildcards). ok is false when a variable cannot be
+// resolved.
+func expandLiteral(s string, ctx *evalContext) (string, bool) {
+	if !strings.Contains(s, "${") {
+		return s, true
+	}
+	var sb strings.Builder
+	ok := expandTemplate(s, ctx, func(text string, _ bool) { sb.WriteString(text) })
+	return sb.String(), ok
+}
+
+// match reports whether s matches the pattern; fold compares runes
+// case-insensitively.
+func (p pattern) match(s string, fold bool) bool {
+	return matchRunes(p, []rune(s), fold)
+}
+
+func matchRunes(p pattern, s []rune, fold bool) bool {
 	pi, si := 0, 0
 	star, mark := -1, 0
 	for si < len(s) {
 		switch {
-		case pi < len(pattern) && (pattern[pi] == '?' || pattern[pi] == s[si]):
-			pi++
-			si++
-		case pi < len(pattern) && pattern[pi] == '*':
+		case pi < len(p) && p[pi].kind == pStar:
 			star, mark = pi, si
 			pi++
+		case pi < len(p) && (p[pi].kind == pAny || runeEqual(p[pi].r, s[si], fold)):
+			pi++
+			si++
 		case star >= 0:
 			pi = star + 1
 			mark++
@@ -34,264 +103,165 @@ func matchWildcard(pattern, s string) bool {
 			return false
 		}
 	}
-	for pi < len(pattern) && pattern[pi] == '*' {
+	for pi < len(p) && p[pi].kind == pStar {
 		pi++
 	}
-	return pi == len(pattern)
+	return pi == len(p)
 }
 
-// matchWildcardFold is matchWildcard with case-insensitive comparison.
-func matchWildcardFold(pattern, s string) bool {
-	return matchWildcard(strings.ToLower(pattern), strings.ToLower(s))
+func runeEqual(a, b rune, fold bool) bool {
+	if a == b {
+		return true
+	}
+	return fold && unicode.ToLower(a) == unicode.ToLower(b)
 }
 
-// substitute expands ${key} policy variables from the condition context
-// ("${*}", "${?}" and "${$}" are the escaped literals).
-func substitute(s string, ctx map[string][]string) string {
-	if !strings.Contains(s, "${") {
-		return s
+// matchWildcard reports whether s matches the wildcard pattern (no
+// variables).
+func matchWildcard(pat, s string, fold bool) bool {
+	if pat == "*" {
+		return true
 	}
-	var sb strings.Builder
-	for {
-		start := strings.Index(s, "${")
-		if start < 0 {
-			sb.WriteString(s)
-			return sb.String()
+	if !strings.ContainsAny(pat, "*?") {
+		if fold {
+			return strings.EqualFold(pat, s)
 		}
-		end := strings.Index(s[start:], "}")
-		if end < 0 {
-			sb.WriteString(s)
-			return sb.String()
-		}
-		sb.WriteString(s[:start])
-		key := s[start+2 : start+end]
-		switch key {
-		case "*", "?", "$":
-			sb.WriteString(key)
-		default:
-			if vals, ok := lookupKey(ctx, key); ok && len(vals) > 0 {
-				sb.WriteString(vals[0])
-			} else {
-				sb.WriteString(s[start : start+end+1])
-			}
-		}
-		s = s[start+end+1:]
+		return pat == s
 	}
+	return compileWildcard(pat).match(s, fold)
 }
 
-// lookupKey finds a condition key case-insensitively.
-func lookupKey(ctx map[string][]string, key string) ([]string, bool) {
-	if v, ok := ctx[key]; ok {
-		return v, true
-	}
-	lower := strings.ToLower(key)
-	for k, v := range ctx {
-		if strings.ToLower(k) == lower {
-			return v, true
+// splitARN splits a compiled ARN pattern into its six colon-separated
+// components; the last one keeps any further colon. ok is false when the
+// pattern has fewer than six components.
+func (p pattern) splitARN() ([]pattern, bool) {
+	parts := make([]pattern, 0, 6)
+	start := 0
+	for i, c := range p {
+		if len(parts) == 5 {
+			break
+		}
+		if c.kind == pLit && c.r == ':' {
+			parts = append(parts, p[start:i])
+			start = i + 1
 		}
 	}
-	return nil, false
-}
-
-// conditionOperator is a parsed operator name.
-type conditionOperator struct {
-	base     string // e.g. "StringEquals"
-	negated  bool
-	ifExists bool
-	forAll   bool
-	forAny   bool
-}
-
-// knownOperators lists the supported base operators.
-var knownOperators = map[string]bool{
-	"StringEquals": true, "StringNotEquals": true, "StringEqualsIgnoreCase": true, "StringNotEqualsIgnoreCase": true,
-	"StringLike": true, "StringNotLike": true,
-	"NumericEquals": true, "NumericNotEquals": true, "NumericLessThan": true, "NumericLessThanEquals": true,
-	"NumericGreaterThan": true, "NumericGreaterThanEquals": true,
-	"DateEquals": true, "DateNotEquals": true, "DateLessThan": true, "DateLessThanEquals": true,
-	"DateGreaterThan": true, "DateGreaterThanEquals": true,
-	"Bool": true, "IpAddress": true, "NotIpAddress": true, "Null": true,
-}
-
-// parseOperator splits set qualifiers and the IfExists suffix off an operator.
-func parseOperator(op string) (conditionOperator, bool) {
-	var c conditionOperator
-	switch {
-	case strings.HasPrefix(op, "ForAllValues:"):
-		c.forAll = true
-		op = strings.TrimPrefix(op, "ForAllValues:")
-	case strings.HasPrefix(op, "ForAnyValue:"):
-		c.forAny = true
-		op = strings.TrimPrefix(op, "ForAnyValue:")
+	if len(parts) != 5 {
+		return nil, false
 	}
-	if strings.HasSuffix(op, "IfExists") && op != "Null" {
-		c.ifExists = true
-		op = strings.TrimSuffix(op, "IfExists")
-	}
-	if !knownOperators[op] {
-		return c, false
-	}
-	c.base = op
-	c.negated = strings.Contains(op, "Not")
-	return c, true
+	return append(parts, p[start:]), true
 }
 
-// evalCondition evaluates one condition block (operator → key → values).
-func evalCondition(cond domain.Condition, ctx map[string][]string) bool {
-	for op, keys := range cond {
-		parsed, ok := parseOperator(op)
-		if !ok {
+// matchARN implements ArnLike/ArnEquals: each of the six components of the
+// ARN is matched separately, with wildcards. Patterns that are not ARNs
+// fall back to a whole-string match.
+func matchARN(p pattern, value string) bool {
+	parts, ok := p.splitARN()
+	if !ok {
+		return p.match(value, false)
+	}
+	values := strings.SplitN(value, ":", 6)
+	if len(values) != 6 {
+		return false
+	}
+	for i := range parts {
+		if !parts[i].match(values[i], false) {
 			return false
-		}
-		for key, values := range keys {
-			actual, present := lookupKey(ctx, key)
-			if parsed.base == "Null" {
-				wantNull := len(values) > 0 && strings.EqualFold(values[0], "true")
-				if (!present || len(actual) == 0) != wantNull {
-					return false
-				}
-				continue
-			}
-			if !present || len(actual) == 0 {
-				if parsed.ifExists || parsed.negated || parsed.forAll {
-					continue
-				}
-				return false
-			}
-			if !evalValues(parsed, actual, values, ctx) {
-				return false
-			}
 		}
 	}
 	return true
 }
 
-// evalValues applies the operator to the request values and the policy values.
-func evalValues(op conditionOperator, actual []string, policyValues []string, ctx map[string][]string) bool {
-	expanded := make([]string, 0, len(policyValues))
-	for _, v := range policyValues {
-		expanded = append(expanded, substitute(v, ctx))
-	}
-	matchOne := func(a string) bool {
-		matched := false
-		for _, p := range expanded {
-			if compare(op.base, a, p) {
-				matched = true
-				break
-			}
-		}
-		if op.negated {
-			return !matched
-		}
-		return matched
-	}
-	switch {
-	case op.forAll:
-		for _, a := range actual {
-			if !matchOne(a) {
-				return false
-			}
-		}
-		return true
-	case op.forAny:
-		for _, a := range actual {
-			if matchOne(a) {
-				return true
-			}
-		}
-		return false
-	default:
-		if op.negated {
-			// Every request value must avoid every policy value.
-			for _, a := range actual {
-				if !matchOne(a) {
-					return false
-				}
-			}
+// expandTemplate walks a policy string, emitting its literal text and the
+// values of its ${...} variables in order. It returns false when a
+// variable cannot be resolved. An unterminated "${" is literal text
+// (Validate rejects it in stored documents).
+func expandTemplate(s string, ctx *evalContext, emit func(text string, fromVar bool)) bool {
+	for {
+		i := strings.Index(s, "${")
+		if i < 0 {
+			emit(s, false)
 			return true
 		}
-		for _, a := range actual {
-			if matchOne(a) {
-				return true
+		j := strings.IndexByte(s[i+2:], '}')
+		if j < 0 {
+			emit(s, false)
+			return true
+		}
+		if i > 0 {
+			emit(s[:i], false)
+		}
+		v, ok := resolveVariable(s[i+2:i+2+j], ctx)
+		if !ok {
+			return false
+		}
+		emit(v, true)
+		s = s[i+3+j:]
+	}
+}
+
+// resolveVariable resolves the inside of a ${...} reference: the escapes
+// "*", "?" and "$", a condition key, or "key, 'default'".
+func resolveVariable(inner string, ctx *evalContext) (string, bool) {
+	switch inner {
+	case "*", "?", "$":
+		return inner, true
+	}
+	key, def, hasDef, valid := parseVariable(inner)
+	if !valid {
+		return "", false
+	}
+	if ctx != nil {
+		if v, ok := ctx.variable(key); ok {
+			return v, true
+		}
+	}
+	return def, hasDef
+}
+
+// parseVariable splits "key" or "key, 'default'".
+func parseVariable(inner string) (key, def string, hasDef, valid bool) {
+	k, d, found := strings.Cut(inner, ",")
+	key = strings.TrimSpace(k)
+	if !found {
+		return key, "", false, key != "" && !strings.ContainsAny(key, " '{}$")
+	}
+	d = strings.TrimSpace(d)
+	if len(d) < 2 || d[0] != '\'' || d[len(d)-1] != '\'' {
+		return key, "", false, false
+	}
+	return key, d[1 : len(d)-1], true, key != "" && !strings.ContainsAny(key, " '{}$")
+}
+
+// checkVariables reports the first malformed ${...} reference of s.
+func checkVariables(s string) (string, bool) {
+	for {
+		i := strings.Index(s, "${")
+		if i < 0 {
+			return "", true
+		}
+		j := strings.IndexByte(s[i+2:], '}')
+		if j < 0 {
+			return s[i:], false
+		}
+		inner := s[i+2 : i+2+j]
+		switch inner {
+		case "*", "?", "$":
+		default:
+			if _, _, _, valid := parseVariable(inner); !valid {
+				return s[i : i+3+j], false
 			}
 		}
-		return false
+		s = s[i+3+j:]
 	}
 }
 
-// compare evaluates a single (request value, policy value) pair for the base
-// operator, ignoring negation (handled by the caller).
-func compare(base, actual, policy string) bool {
-	switch base {
-	case "StringEquals", "StringNotEquals":
-		return actual == policy
-	case "StringEqualsIgnoreCase", "StringNotEqualsIgnoreCase":
-		return strings.EqualFold(actual, policy)
-	case "StringLike", "StringNotLike":
-		return matchWildcard(policy, actual)
-	case "Bool":
-		return strings.EqualFold(actual, policy)
-	case "IpAddress", "NotIpAddress":
-		return ipMatches(policy, actual)
-	case "NumericEquals", "NumericNotEquals", "NumericLessThan", "NumericLessThanEquals", "NumericGreaterThan", "NumericGreaterThanEquals":
-		a, err1 := strconv.ParseFloat(actual, 64)
-		p, err2 := strconv.ParseFloat(policy, 64)
-		if err1 != nil || err2 != nil {
-			return false
-		}
-		return ordered(strings.TrimPrefix(base, "Numeric"), a, p)
-	case "DateEquals", "DateNotEquals", "DateLessThan", "DateLessThanEquals", "DateGreaterThan", "DateGreaterThanEquals":
-		a, err1 := parseDate(actual)
-		p, err2 := parseDate(policy)
-		if err1 != nil || err2 != nil {
-			return false
-		}
-		return ordered(strings.TrimPrefix(base, "Date"), float64(a.UnixNano()), float64(p.UnixNano()))
+// normalizeKey makes condition keys case-insensitive: the part before the
+// first "/" (the key name) is lowercased, the rest (a tag key such as in
+// s3:ExistingObjectTag/<key>) is kept as is.
+func normalizeKey(k string) string {
+	if i := strings.IndexByte(k, '/'); i >= 0 {
+		return strings.ToLower(k[:i]) + k[i:]
 	}
-	return false
-}
-
-func ordered(rel string, a, p float64) bool {
-	switch rel {
-	case "Equals", "NotEquals":
-		return a == p
-	case "LessThan":
-		return a < p
-	case "LessThanEquals":
-		return a <= p
-	case "GreaterThan":
-		return a > p
-	case "GreaterThanEquals":
-		return a >= p
-	}
-	return false
-}
-
-func parseDate(s string) (time.Time, error) {
-	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-		return t, nil
-	}
-	if epoch, err := strconv.ParseInt(s, 10, 64); err == nil {
-		return time.Unix(epoch, 0), nil
-	}
-	return time.Parse(time.RFC3339, s)
-}
-
-// ipMatches reports whether addr is within the policy CIDR (or equals the IP).
-func ipMatches(policy, addr string) bool {
-	ip := net.ParseIP(strings.TrimSpace(addr))
-	if ip == nil {
-		if host, _, err := net.SplitHostPort(addr); err == nil {
-			ip = net.ParseIP(host)
-		}
-	}
-	if ip == nil {
-		return false
-	}
-	if strings.Contains(policy, "/") {
-		_, network, err := net.ParseCIDR(policy)
-		return err == nil && network.Contains(ip)
-	}
-	p := net.ParseIP(policy)
-	return p != nil && p.Equal(ip)
+	return strings.ToLower(k)
 }

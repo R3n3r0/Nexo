@@ -2,58 +2,150 @@ package policy
 
 import (
 	"context"
-	"encoding/json"
+	"fmt"
+	"sort"
 	"sync"
+
+	"github.com/r3n3r0/nexo/internal/domain"
 )
 
-// memoryStore keeps the snapshot in memory (tests, bootstrap).
+// memoryStore keeps the policies and attachments in memory (tests,
+// bootstrap, and the cache of the file store).
 type memoryStore struct {
-	mu   sync.Mutex
-	snap *Snapshot
+	mu       sync.RWMutex
+	policies map[string]Named
+	attached map[EntityKind]map[string][]string
 }
 
 var _ PolicyStore = (*memoryStore)(nil)
 
-// NewMemoryStore returns an in-memory PolicyStore, optionally seeded.
-func NewMemoryStore(seed *Snapshot) PolicyStore {
-	return &memoryStore{snap: cloneSnapshot(seed)}
+// NewMemoryStore returns an empty in-memory PolicyStore.
+func NewMemoryStore() PolicyStore {
+	return newMemoryStore()
 }
 
-// Load implements PolicyStore.
-func (m *memoryStore) Load(context.Context) (*Snapshot, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return cloneSnapshot(m.snap), nil
+func newMemoryStore() *memoryStore {
+	return &memoryStore{
+		policies: map[string]Named{},
+		attached: map[EntityKind]map[string][]string{EntityUser: {}, EntityGroup: {}},
+	}
 }
 
-// Save implements PolicyStore.
-func (m *memoryStore) Save(_ context.Context, s *Snapshot) error {
+// Get implements PolicyStore.
+func (m *memoryStore) Get(_ context.Context, name string) (Named, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	n, ok := m.policies[name]
+	if !ok {
+		return Named{}, fmt.Errorf("%w: %s", domain.ErrPolicyNotFound, name)
+	}
+	return n, nil
+}
+
+// Set implements PolicyStore.
+func (m *memoryStore) Set(_ context.Context, p Named) error {
+	if !validPolicyName(p.Name) || p.Policy == nil {
+		return fmt.Errorf("%w: policy store: invalid policy %q", domain.ErrInvalidArgument, p.Name)
+	}
+	p.Policy = clonePolicy(p.Policy)
+	p.BuiltIn = false
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.snap = cloneSnapshot(s)
+	m.policies[p.Name] = p
 	return nil
 }
 
-// cloneSnapshot deep-copies a snapshot (through JSON, the persisted form),
-// normalizing nil maps.
-func cloneSnapshot(s *Snapshot) *Snapshot {
-	out := &Snapshot{Policies: map[string]Named{}, Users: map[string][]string{}, Groups: map[string][]string{}}
-	if s == nil {
-		return out
+// Delete implements PolicyStore.
+func (m *memoryStore) Delete(_ context.Context, name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.policies[name]; !ok {
+		return fmt.Errorf("%w: %s", domain.ErrPolicyNotFound, name)
 	}
-	data, err := json.Marshal(s)
-	if err != nil {
-		return out
+	delete(m.policies, name)
+	return nil
+}
+
+// List implements PolicyStore.
+func (m *memoryStore) List(context.Context) ([]Named, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]Named, 0, len(m.policies))
+	for _, n := range m.policies {
+		out = append(out, n)
 	}
-	_ = json.Unmarshal(data, out)
-	if out.Policies == nil {
-		out.Policies = map[string]Named{}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// Attached implements PolicyStore.
+func (m *memoryStore) Attached(_ context.Context, e Entity) ([]string, error) {
+	if err := checkEntity(e); err != nil {
+		return nil, err
 	}
-	if out.Users == nil {
-		out.Users = map[string][]string{}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return append([]string(nil), m.attached[e.Kind][e.Name]...), nil
+}
+
+// SetAttached implements PolicyStore.
+func (m *memoryStore) SetAttached(_ context.Context, e Entity, names []string) error {
+	if err := checkEntity(e); err != nil {
+		return err
 	}
-	if out.Groups == nil {
-		out.Groups = map[string][]string{}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.setAttachedLocked(e, names)
+	return nil
+}
+
+func (m *memoryStore) setAttachedLocked(e Entity, names []string) {
+	if list := normalizeNames(names); len(list) > 0 {
+		m.attached[e.Kind][e.Name] = list
+	} else {
+		delete(m.attached[e.Kind], e.Name)
+	}
+}
+
+// ListAttached implements PolicyStore.
+func (m *memoryStore) ListAttached(_ context.Context, kind EntityKind) (map[string][]string, error) {
+	if err := checkEntity(Entity{Kind: kind, Name: "-"}); err != nil {
+		return nil, err
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return cloneMapping(m.attached[kind]), nil
+}
+
+// checkEntity validates an entity of the attachment API.
+func checkEntity(e Entity) error {
+	if e.Kind != EntityUser && e.Kind != EntityGroup {
+		return fmt.Errorf("%w: policy store: unknown entity kind %q", domain.ErrInvalidArgument, e.Kind)
+	}
+	if e.Name == "" {
+		return fmt.Errorf("%w: policy store: empty %s name", domain.ErrInvalidArgument, e.Kind)
+	}
+	return nil
+}
+
+// normalizeNames sorts and deduplicates policy names, dropping empty ones.
+func normalizeNames(names []string) []string {
+	out := make([]string, 0, len(names))
+	seen := map[string]bool{}
+	for _, n := range names {
+		if n != "" && !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func cloneMapping(m map[string][]string) map[string][]string {
+	out := make(map[string][]string, len(m))
+	for k, v := range m {
+		out[k] = append([]string(nil), v...)
 	}
 	return out
 }

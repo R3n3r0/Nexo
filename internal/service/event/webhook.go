@@ -14,19 +14,6 @@ import (
 	"github.com/r3n3r0/nexo/internal/domain"
 )
 
-// HTTPDoer is the subset of *http.Client the webhook target needs, so that
-// tests can inject a fake transport.
-type HTTPDoer interface {
-	Do(req *http.Request) (*http.Response, error)
-}
-
-// WebhookDeps are the dependencies of the webhook target factory.
-type WebhookDeps struct {
-	// Client performs the HTTP calls (default: http.Client with a 10s timeout).
-	Client HTTPDoer
-	Logger *slog.Logger
-}
-
 // WebhookOption configures the webhook factory.
 type WebhookOption func(*webhookFactory)
 

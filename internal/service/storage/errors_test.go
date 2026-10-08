@@ -1,0 +1,305 @@
+package storage_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/storage"
+	"github.com/r3n3r0/nexo/internal/testutil"
+)
+
+// TestDriveOffline removes the drive directory under a running instance
+// (unmounted or failed drive): every operation reports ErrDiskNotFound and
+// nothing recreates the directory on the parent file system.
+func TestDriveOffline(t *testing.T) {
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), "drive")
+	s := testutil.NewLocalDrive(t, dir)
+	require.NoError(t, s.MakeVol(ctx, "b"))
+	fi, err := putObject(ctx, s, "b", "k", "", time.Now(), []byte("data"))
+	require.NoError(t, err)
+	require.True(t, s.IsOnline())
+
+	require.NoError(t, os.RemoveAll(dir))
+	assert.False(t, s.IsOnline())
+	noop := func(storage.WalkEntry) error { return nil }
+	ops := map[string]func() error{
+		"DiskInfo":    func() error { _, err := s.DiskInfo(ctx, storage.DiskInfoOptions{}); return err },
+		"MakeVol":     func() error { return s.MakeVol(ctx, "c") },
+		"ListVols":    func() error { _, err := s.ListVols(ctx); return err },
+		"StatVol":     func() error { _, err := s.StatVol(ctx, "b"); return err },
+		"DeleteVol":   func() error { return s.DeleteVol(ctx, "b", true) },
+		"ReadVersion": func() error { _, err := s.ReadVersion(ctx, "b", "k", "", storage.ReadOptions{}); return err },
+		"WriteMeta":   func() error { return s.WriteMetadata(ctx, "b", "k2", fi) },
+		"UpdateMeta":  func() error { return s.UpdateMetadata(ctx, "b", "k", fi, storage.UpdateMetadataOptions{}) },
+		"DeleteVer":   func() error { return s.DeleteVersion(ctx, "b", "k", fi, storage.DeleteOptions{}) },
+		"CreateFile":  func() error { return s.CreateFile(ctx, "b", "f", 1, strings.NewReader("x")) },
+		"ReadStream":  func() error { _, err := s.ReadFileStream(ctx, "b", "f", 0, 1); return err },
+		"RenameData": func() error {
+			_, err := s.RenameData(ctx, domain.SystemBucket, "tmp/x", fi, "b", "k", storage.RenameOptions{})
+			return err
+		},
+		"RenameFile":   func() error { return s.RenameFile(ctx, domain.SystemBucket, "tmp/a", "b", "x") },
+		"WalkDir":      func() error { return s.WalkDir(ctx, storage.WalkDirOptions{Bucket: "b"}, noop) },
+		"ReadAll":      func() error { _, err := s.ReadAll(ctx, domain.SystemBucket, storage.FormatFile); return err },
+		"WriteAll":     func() error { return s.WriteAll(ctx, domain.SystemBucket, "config/x", []byte("x")) },
+		"Delete":       func() error { return s.Delete(ctx, "b", "k", storage.DeleteOptions{Recursive: true}) },
+		"CheckParts":   func() error { _, err := s.CheckParts(ctx, "b", "k", fi); return err },
+		"StatInfoFile": func() error { _, err := s.StatInfoFile(ctx, "b", "k", false); return err },
+	}
+	for name, op := range ops {
+		t.Run(name, func(t *testing.T) {
+			assert.ErrorIs(t, op(), domain.ErrDiskNotFound)
+		})
+	}
+	_, err = os.Stat(dir)
+	assert.True(t, os.IsNotExist(err), "the drive directory is never recreated")
+}
+
+// TestSymlinksAreNotFollowed plants links pointing outside the drive.
+func TestSymlinksAreNotFollowed(t *testing.T) {
+	ctx := context.Background()
+	base := t.TempDir()
+	dir := filepath.Join(base, "drive")
+	outside := filepath.Join(base, "outside")
+	require.NoError(t, os.MkdirAll(filepath.Join(outside, "k"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(outside, "secret"), []byte("secret"), 0o600))
+	s := testutil.NewLocalDrive(t, dir)
+	require.NoError(t, s.MakeVol(ctx, "b"))
+	_, err := putObject(ctx, s, "b", "obj", "", time.Now(), []byte("data"))
+	require.NoError(t, err)
+
+	require.NoError(t, os.Symlink(outside, filepath.Join(dir, "b", "link")))
+	require.NoError(t, os.Symlink(outside, filepath.Join(dir, "vol")))
+	require.NoError(t, os.Symlink(filepath.Join(outside, "secret"), filepath.Join(dir, "b", "file")))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "b", "metalink"), 0o750))
+	require.NoError(t, os.Symlink(filepath.Join(outside, "secret"), filepath.Join(dir, "b", "metalink", storage.MetaFile)))
+
+	denied := map[string]func() error{
+		"read through dir link":  func() error { _, err := s.ReadAll(ctx, "b", "link/secret"); return err },
+		"write through dir link": func() error { return s.WriteAll(ctx, "b", "link/new", []byte("x")) },
+		"object below link":      func() error { _, err := s.ReadVersion(ctx, "b", "link/k", "", storage.ReadOptions{}); return err },
+		"put below link":         func() error { _, err := putObject(ctx, s, "b", "link/k2", "", time.Now(), []byte("x")); return err },
+		"linked volume":          func() error { _, err := s.StatVol(ctx, "vol"); return err },
+		"walk linked volume": func() error {
+			return s.WalkDir(ctx, storage.WalkDirOptions{Bucket: "vol"}, func(storage.WalkEntry) error { return nil })
+		},
+		"read file link":   func() error { _, err := s.ReadAll(ctx, "b", "file"); return err },
+		"stream file link": func() error { _, err := s.ReadFileStream(ctx, "b", "file", 0, -1); return err },
+		"linked xl.meta":   func() error { _, err := s.ReadVersion(ctx, "b", "metalink", "", storage.ReadOptions{}); return err },
+		"linked xl.meta data": func() error {
+			_, err := s.ReadVersion(ctx, "b", "metalink", "", storage.ReadOptions{ReadData: true})
+			return err
+		},
+		"stat link":           func() error { _, err := s.StatInfoFile(ctx, "b", "file", false); return err },
+		"delete through link": func() error { return s.Delete(ctx, "b", "link/secret", storage.DeleteOptions{}) },
+	}
+	for name, op := range denied {
+		t.Run(name, func(t *testing.T) {
+			assert.ErrorIs(t, op(), domain.ErrAccessDenied)
+		})
+	}
+	vols, err := s.ListVols(ctx)
+	require.NoError(t, err)
+	require.Len(t, vols, 1, "linked volumes are not listed")
+	infos, err := s.StatInfoFile(ctx, "b", "*", true)
+	require.NoError(t, err)
+	var globbed []string
+	for _, info := range infos {
+		globbed = append(globbed, info.Name)
+	}
+	assert.ElementsMatch(t, []string{"obj", "metalink"}, globbed, "globs skip links")
+	data, err := os.ReadFile(filepath.Join(outside, "secret"))
+	require.NoError(t, err)
+	assert.Equal(t, "secret", string(data))
+	_, err = os.Stat(filepath.Join(outside, "new"))
+	assert.True(t, os.IsNotExist(err), "nothing is written outside the drive")
+}
+
+func TestHealingTracker(t *testing.T) {
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), "drive")
+	s := testutil.NewLocalDrive(t, dir)
+	assert.Nil(t, s.Healing())
+
+	tracker := storage.HealingTracker{ID: "disk-1", Endpoint: dir, Started: time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC), ObjectsHealed: 3}
+	raw, err := json.Marshal(tracker)
+	require.NoError(t, err)
+	require.NoError(t, s.WriteAll(ctx, domain.SystemBucket, storage.HealingFile, raw))
+	got := s.Healing()
+	require.NotNil(t, got)
+	assert.Equal(t, tracker, *got)
+	got.ObjectsHealed = 99
+	assert.Equal(t, uint64(3), s.Healing().ObjectsHealed, "Healing returns a copy")
+	info, err := s.DiskInfo(ctx, storage.DiskInfoOptions{})
+	require.NoError(t, err)
+	assert.True(t, info.Healing)
+	assert.Equal(t, domain.StateHealing, info.State)
+
+	// The tracker is loaded at startup.
+	assert.NotNil(t, testutil.NewLocalDrive(t, dir).Healing())
+
+	// A finished heal leaves the drive online.
+	tracker.Finished = true
+	raw, _ = json.Marshal(tracker)
+	require.NoError(t, s.WriteAll(ctx, domain.SystemBucket, storage.HealingFile, raw))
+	info, err = s.DiskInfo(ctx, storage.DiskInfoOptions{})
+	require.NoError(t, err)
+	assert.False(t, info.Healing)
+	assert.Equal(t, domain.StateOnline, info.State)
+
+	// Unreadable trackers are ignored; deleting the file ends the heal.
+	require.NoError(t, s.WriteAll(ctx, domain.SystemBucket, storage.HealingFile, []byte("{")))
+	assert.Nil(t, s.Healing())
+	require.NoError(t, s.WriteAll(ctx, domain.SystemBucket, storage.HealingFile, raw))
+	require.NotNil(t, s.Healing())
+	require.NoError(t, s.Delete(ctx, domain.SystemBucket, storage.HealingFile, storage.DeleteOptions{}))
+	assert.Nil(t, s.Healing())
+}
+
+func TestStorageErrors(t *testing.T) {
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), "drive")
+	s := testutil.NewLocalDrive(t, dir)
+	require.NoError(t, s.MakeVol(ctx, "b"))
+	now := time.Now()
+
+	// Invalid data directories never become paths.
+	bad := storage.FileInfo{ModTime: now, DataDir: "../../etc"}
+	_, err := s.RenameData(ctx, domain.SystemBucket, "tmp/x", bad, "b", "k", storage.RenameOptions{})
+	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
+	assert.ErrorIs(t, s.WriteMetadata(ctx, "b", "k", bad), domain.ErrInvalidArgument)
+	_, err = s.CheckParts(ctx, "b", "k", bad)
+	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
+	assert.ErrorIs(t, s.DeleteVersion(ctx, "b", "k", storage.FileInfo{}, storage.DeleteOptions{OldDataDir: "../x"}), domain.ErrInvalidArgument)
+	require.NoError(t, s.WriteMetadata(ctx, "b", "k", storage.FileInfo{ModTime: now, Data: []byte("x")}))
+	assert.ErrorIs(t, s.UpdateMetadata(ctx, "b", "k", storage.FileInfo{ModTime: now, Size: -1}, storage.UpdateMetadataOptions{}), domain.ErrInvalidArgument)
+	assert.ErrorIs(t, s.UpdateMetadata(ctx, "b", "k", storage.FileInfo{VersionID: "null", ModTime: now, DataDir: "x"}, storage.UpdateMetadataOptions{}), domain.ErrInvalidArgument)
+
+	// "null" designates the null version everywhere.
+	fi, err := s.ReadVersion(ctx, "b", "k", "null", storage.ReadOptions{ReadData: true})
+	require.NoError(t, err)
+	assert.Equal(t, "x", string(fi.Data))
+	require.NoError(t, s.DeleteVersion(ctx, "b", "k", storage.FileInfo{VersionID: "null"}, storage.DeleteOptions{}))
+
+	// Streams: size checks and ranges.
+	assert.ErrorIs(t, s.CreateFile(ctx, "b", "f", -2, strings.NewReader("")), domain.ErrInvalidArgument)
+	err = s.CreateFile(ctx, "b", "f", 10, strings.NewReader("short"))
+	assert.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	require.NoError(t, s.CreateFile(ctx, "b", "f", 4, strings.NewReader("data and more")))
+	all, err := s.ReadAll(ctx, "b", "f")
+	require.NoError(t, err)
+	assert.Equal(t, "data", string(all), "exactly size bytes are written")
+	_, err = s.ReadFileStream(ctx, "b", "f", 2, 3)
+	assert.ErrorIs(t, err, storage.ErrFileCorrupt)
+	assert.ErrorIs(t, err, domain.ErrFaultyDisk)
+	_, err = s.ReadFileStream(ctx, "b", "f", -1, 1)
+	assert.ErrorIs(t, err, domain.ErrInvalidRange)
+	rc, err := s.ReadFileStream(ctx, "b", "f", 4, -1)
+	require.NoError(t, err)
+	rest, _ := io.ReadAll(rc)
+	_ = rc.Close()
+	assert.Empty(t, rest)
+	_, err = s.ReadFileStream(ctx, "b", "nodir", 0, -1)
+	assert.ErrorIs(t, err, domain.ErrObjectNotFound)
+	require.NoError(t, s.WriteAll(ctx, "b", "dir/file", []byte("x")))
+	_, err = s.ReadFileStream(ctx, "b", "dir", 0, -1)
+	assert.ErrorIs(t, err, domain.ErrObjectNotFound, "a directory is not a file")
+	_, err = s.ReadAll(ctx, "b", "dir")
+	assert.ErrorIs(t, err, domain.ErrObjectNotFound)
+
+	// A file in the middle of a path makes it unusable.
+	assert.ErrorIs(t, s.WriteAll(ctx, "b", "f/child", []byte("x")), domain.ErrInvalidObjectName)
+	assert.ErrorIs(t, s.CreateFile(ctx, "b", "f/child", 1, strings.NewReader("x")), domain.ErrInvalidObjectName)
+	_, err = s.ReadAll(ctx, "b", "f/child")
+	assert.ErrorIs(t, err, domain.ErrObjectNotFound)
+
+	// RenameData sources must be directories.
+	_, err = s.RenameData(ctx, "b", "f", storage.FileInfo{ModTime: now, DataDir: uuid.NewString()}, "b", "obj", storage.RenameOptions{})
+	assert.ErrorIs(t, err, domain.ErrObjectNotFound)
+
+	// Damaged metadata is reported as such.
+	require.NoError(t, s.WriteAll(ctx, "b", "broken/"+storage.MetaFile, []byte("garbage")))
+	_, err = s.ReadVersion(ctx, "b", "broken", "", storage.ReadOptions{})
+	assert.ErrorIs(t, err, domain.ErrInvalidFormat)
+	assert.ErrorIs(t, s.WriteMetadata(ctx, "b", "broken", storage.FileInfo{ModTime: now}), domain.ErrInvalidFormat)
+
+	// Volumes holding only empty directories are empty.
+	require.NoError(t, s.MakeVol(ctx, "leftovers"))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "leftovers", "a", "b"), 0o750))
+	require.NoError(t, s.DeleteVol(ctx, "leftovers", false))
+	_, err = s.StatVol(ctx, "leftovers")
+	assert.ErrorIs(t, err, domain.ErrBucketNotFound)
+	assert.ErrorIs(t, s.DeleteVol(ctx, "b", false), domain.ErrBucketNotEmpty)
+	assert.ErrorIs(t, s.MakeVol(ctx, "a\\b"), domain.ErrInvalidBucketName)
+
+	// The tmp directory is recreated when removed under a running drive.
+	require.NoError(t, os.RemoveAll(filepath.Join(dir, domain.SystemBucket, storage.TmpDir)))
+	require.NoError(t, s.WriteAll(ctx, domain.SystemBucket, "config/after", []byte("ok")))
+}
+
+func TestLegacyMetadataOnDisk(t *testing.T) {
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), "drive")
+	s := testutil.NewLocalDrive(t, dir)
+	require.NoError(t, s.MakeVol(ctx, "b"))
+	legacy, err := os.ReadFile(filepath.Join("testdata", "xlmeta", "legacy-json.meta"))
+	require.NoError(t, err)
+	require.NoError(t, s.WriteAll(ctx, "b", "old/"+storage.MetaFile, legacy))
+
+	fi, err := s.ReadVersion(ctx, "b", "old", "null", storage.ReadOptions{ReadData: true})
+	require.NoError(t, err)
+	assert.Equal(t, "hello", string(fi.Data))
+	assert.Equal(t, []string{"old"}, objectNames(t, s, storage.WalkDirOptions{Bucket: "b", Recursive: true}))
+
+	// The first update rewrites the document in the binary format.
+	fi.Metadata["x-amz-meta-new"] = "1"
+	require.NoError(t, s.UpdateMetadata(ctx, "b", "old", fi, storage.UpdateMetadataOptions{}))
+	raw, err := s.ReadAll(ctx, "b", "old/"+storage.MetaFile)
+	require.NoError(t, err)
+	assert.True(t, bytes.HasPrefix(raw, []byte("NXLM")))
+	fi, err = s.ReadVersion(ctx, "b", "old", "", storage.ReadOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, 2, fi.NumVersions)
+}
+
+func TestSharedDataDirSurvives(t *testing.T) {
+	ctx := context.Background()
+	s := testutil.NewLocalDrive(t, "")
+	require.NoError(t, s.MakeVol(ctx, "b"))
+	now := time.Now()
+	v1, err := putObject(ctx, s, "b", "k", "v1", now, bytes.Repeat([]byte("s"), storage.SmallFileThreshold))
+	require.NoError(t, err)
+	// A second version referencing the same data (in-place copy).
+	v2 := v1
+	v2.VersionID, v2.ModTime = "v2", now.Add(time.Second)
+	require.NoError(t, s.WriteMetadata(ctx, "b", "k", v2))
+	require.NoError(t, s.DeleteVersion(ctx, "b", "k", storage.FileInfo{VersionID: "v1"}, storage.DeleteOptions{}))
+	got, err := getObject(ctx, s, "b", "k", "v2")
+	require.NoError(t, err)
+	assert.Len(t, got, storage.SmallFileThreshold, "the data directory still referenced by v2 is kept")
+
+	// Inline versions have no part files: CheckParts looks at xl.meta.
+	inline, err := putObject(ctx, s, "b", "small", "", now, []byte("x"))
+	require.NoError(t, err)
+	inline.Parts = []storage.PartInfo{{Number: 1, Size: 1}}
+	check, err := s.CheckParts(ctx, "b", "small", inline)
+	require.NoError(t, err)
+	assert.Equal(t, []int{storage.CheckPartSuccess}, check.Results)
+	require.NoError(t, s.WriteAll(ctx, "b", "nometa/other", []byte("x")))
+	check, err = s.CheckParts(ctx, "b", "nometa", inline)
+	require.NoError(t, err)
+	assert.Equal(t, []int{storage.CheckPartFileNotFound}, check.Results)
+}

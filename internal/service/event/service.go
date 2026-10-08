@@ -7,6 +7,8 @@ package event
 
 import (
 	"context"
+	"log/slog"
+	"net/http"
 
 	"github.com/r3n3r0/nexo/internal/lifecycle"
 )
@@ -41,6 +43,20 @@ type Target interface {
 // TargetFactory builds a Target from its configuration.
 type TargetFactory interface {
 	New(ctx context.Context, cfg TargetConfig) (Target, error)
+}
+
+// HTTPDoer is the subset of *http.Client the webhook targets need, so that
+// tests can inject the generated mock. The request carries its context
+// (http.Request.Context), which is why Do has no context parameter.
+type HTTPDoer interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
+// WebhookDeps are the dependencies of the webhook target factory.
+type WebhookDeps struct {
+	// Client performs the HTTP calls (default: http.Client with a 10s timeout).
+	Client HTTPDoer
+	Logger *slog.Logger
 }
 
 // Target types.

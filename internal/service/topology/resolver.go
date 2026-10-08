@@ -17,13 +17,15 @@ var _ HostResolver = osHostResolver{}
 // net.Resolver and net.InterfaceAddrs.
 func NewOSHostResolver() HostResolver { return osHostResolver{} }
 
-func (osHostResolver) Hostname() (string, error) { return os.Hostname() }
+func (osHostResolver) Hostname(context.Context) (string, error) { return os.Hostname() }
 
 func (osHostResolver) LookupHost(ctx context.Context, host string) ([]string, error) {
 	return net.DefaultResolver.LookupHost(ctx, host)
 }
 
-func (osHostResolver) InterfaceAddrs() ([]net.Addr, error) { return net.InterfaceAddrs() }
+func (osHostResolver) InterfaceAddrs(context.Context) ([]net.Addr, error) {
+	return net.InterfaceAddrs()
+}
 
 // uuidGenerator is the IDGenerator producing random UUID v4 strings.
 type uuidGenerator struct{}

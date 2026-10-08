@@ -9,7 +9,8 @@ import (
 	"github.com/r3n3r0/nexo/internal/lifecycle"
 )
 
-// Service is a managed HTTP server.
+// Service is a managed HTTP server. Addr and Handler are pure accessors (no
+// I/O, never block): the documented exception to the context rule.
 type Service interface {
 	lifecycle.Runner
 	// Addr returns the address the server listens on. Before Start it is

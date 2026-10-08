@@ -23,6 +23,22 @@ func TestS3Error(t *testing.T) {
 	assert.Equal(t, "msg", (&S3Error{Message: "msg"}).Error())
 }
 
+func TestBadDigestWrapsChecksumMismatch(t *testing.T) {
+	err := fmt.Errorf("put: %w", ErrBadDigest)
+	assert.ErrorIs(t, err, ErrBadDigest)
+	assert.ErrorIs(t, err, ErrChecksumMismatch)
+	assert.NotErrorIs(t, ErrChecksumMismatch, ErrBadDigest)
+}
+
+func TestPolicyErrorsWrapInvalidArgument(t *testing.T) {
+	for _, sentinel := range []error{ErrMalformedPolicy, ErrPolicyTooLarge} {
+		err := fmt.Errorf("parse: %w", sentinel)
+		assert.ErrorIs(t, err, sentinel)
+		assert.ErrorIs(t, err, ErrInvalidArgument)
+	}
+	assert.NotErrorIs(t, ErrMalformedPolicy, ErrPolicyTooLarge)
+}
+
 func TestIdentityHelpers(t *testing.T) {
 	a := Anonymous()
 	assert.True(t, a.IsAnonymous)

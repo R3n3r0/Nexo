@@ -1,51 +1,69 @@
 package storage
 
 import (
+	"cmp"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash/maphash"
 	"io"
 	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
-	"syscall"
+	"sync/atomic"
 
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/topology"
 )
 
-// xlDirSuffix replaces the trailing slash of "directory object" keys
-// ("photos/") on disk, so that the object directory does not collide with
-// the prefix of the same name.
-const xlDirSuffix = "__XLDIR__"
+// keyLockStripes is the number of mutexes serializing the read-modify-write
+// cycles of xl.meta on the same object key (and the placement of a key
+// with respect to its ancestor prefixes, see lockPlacement).
+const keyLockStripes = 256
 
-// xlStorage is StorageAPI over a local drive directory. Objects live in
-// <root>/<volume>/<key>/xl.meta with their parts in <root>/<volume>/<key>/
-// <dataDir>/part.N; every write goes through a temporary file in the system
-// tmp directory followed by fsync and an atomic rename.
+// xlStorage is StorageAPI over a local drive directory:
+//
+//	<root>/.nexo.sys/{format.json,healing.bin,tmp/,multipart/,buckets/,config/}
+//	<root>/<volume>/<key>/xl.meta
+//	<root>/<volume>/<key>/<dataDir>/part.N
+//
+// Every write goes through a file of the system tmp directory followed by
+// fsync and an atomic rename, so a crash leaves either the old or the new
+// state plus garbage in tmp (emptied at startup) or an unreferenced data
+// directory (ignored by reads and listings). Updates of the same xl.meta
+// are serialized by striped key locks; distributed exclusion across nodes
+// is the job of the object layer's namespace locks.
 type xlStorage struct {
 	deps Deps
 	opts options
 	ep   domain.Endpoint
 	root string
 
-	mu     sync.RWMutex
-	closed bool
-	diskID string
+	mu       sync.RWMutex
+	closed   bool
+	diskID   string
+	lastInfo domain.DiskInfo
+
+	healing atomic.Pointer[HealingTracker]
+
+	seed     maphash.Seed
+	keyLocks [keyLockStripes]sync.RWMutex
+
+	// rename is os.Rename; internal tests replace it to inject failures.
+	rename func(oldpath, newpath string) error
 }
 
 var _ StorageAPI = (*xlStorage)(nil)
 
 // NewLocal opens (creating it when missing) the drive directory of a local
 // endpoint, prepares the system directories (.nexo.sys, tmp, multipart,
-// buckets), empties tmp, probes writability and loads the drive id from
-// format.json when present. The drive is left unformatted when no
+// buckets, config), empties tmp, probes writability and loads the drive id
+// from format.json when present. The drive is left unformatted when no
 // format.json exists: Formatter.EnsureFormats writes it.
 func NewLocal(deps Deps, ep domain.Endpoint, opts ...Option) (StorageAPI, error) {
 	if ep.IsURL() || ep.Path == "" {
@@ -65,7 +83,7 @@ func NewLocal(deps Deps, ep domain.Endpoint, opts ...Option) (StorageAPI, error)
 	if err != nil {
 		return nil, fmt.Errorf("storage: resolve %s: %w", ep.Path, err)
 	}
-	s := &xlStorage{deps: deps, opts: o, ep: ep, root: root}
+	s := &xlStorage{deps: deps, opts: o, ep: ep, root: root, seed: maphash.MakeSeed(), rename: os.Rename}
 	if err := s.initDirs(); err != nil {
 		return nil, err
 	}
@@ -73,32 +91,42 @@ func NewLocal(deps Deps, ep domain.Endpoint, opts ...Option) (StorageAPI, error)
 		return nil, err
 	}
 	s.diskID = s.loadDiskID()
+	s.loadHealing()
 	deps.Logger.Debug("storage: local drive ready", "path", root, "disk_id", s.diskID)
 	return s, nil
 }
 
 func (s *xlStorage) initDirs() error {
-	perm := fs.FileMode(s.opts.dirPerm)
-	if err := os.MkdirAll(s.root, perm); err != nil {
+	if err := os.MkdirAll(s.root, fs.FileMode(s.opts.dirPerm)); err != nil {
 		return fmt.Errorf("storage: create drive %s: %w", s.root, mapErr(err))
 	}
 	sys := filepath.Join(s.root, domain.SystemBucket)
-	for _, d := range []string{sys, filepath.Join(sys, TmpDir), filepath.Join(sys, MultipartDir), filepath.Join(sys, BucketsDir)} {
-		if err := os.MkdirAll(d, perm); err != nil {
+	for _, d := range []string{sys, filepath.Join(sys, TmpDir), filepath.Join(sys, MultipartDir), filepath.Join(sys, BucketsDir), filepath.Join(sys, ConfigDir)} {
+		if err := s.mkdirAll(d, s.root); err != nil {
 			return fmt.Errorf("storage: create %s: %w", d, mapErr(err))
 		}
 	}
 	if s.opts.cleanTmp {
-		tmp := filepath.Join(sys, TmpDir)
-		entries, err := os.ReadDir(tmp)
-		if err != nil {
-			return fmt.Errorf("storage: read %s: %w", tmp, mapErr(err))
+		return s.cleanTmp()
+	}
+	return nil
+}
+
+// cleanTmp removes the leftovers of interrupted writes from the system tmp
+// directory: staged xl.meta files, partial data files and directories.
+func (s *xlStorage) cleanTmp() error {
+	tmp := filepath.Join(s.root, domain.SystemBucket, TmpDir)
+	entries, err := os.ReadDir(tmp)
+	if err != nil {
+		return fmt.Errorf("storage: read %s: %w", tmp, mapErr(err))
+	}
+	for _, e := range entries {
+		if err := os.RemoveAll(filepath.Join(tmp, e.Name())); err != nil {
+			s.deps.Logger.Warn("storage: cannot remove stale temporary entry", "path", filepath.Join(tmp, e.Name()), "err", err)
 		}
-		for _, e := range entries {
-			if err := os.RemoveAll(filepath.Join(tmp, e.Name())); err != nil {
-				s.deps.Logger.Warn("storage: cannot remove stale temporary entry", "path", filepath.Join(tmp, e.Name()), "err", err)
-			}
-		}
+	}
+	if len(entries) > 0 {
+		s.deps.Logger.Info("storage: removed stale temporary entries", "path", s.root, "count", len(entries))
 	}
 	return nil
 }
@@ -116,7 +144,7 @@ func (s *xlStorage) probe() error {
 }
 
 func (s *xlStorage) loadDiskID() string {
-	data, err := os.ReadFile(filepath.Join(s.root, domain.SystemBucket, FormatFile))
+	data, err := readFile(filepath.Join(s.root, domain.SystemBucket, FormatFile))
 	if err != nil {
 		return ""
 	}
@@ -131,20 +159,13 @@ func (s *xlStorage) loadDiskID() string {
 // Endpoint implements StorageAPI.
 func (s *xlStorage) Endpoint() domain.Endpoint { return s.ep }
 
-// IsOnline implements StorageAPI.
+// IsOnline implements StorageAPI: the drive is open and its root exists.
 func (s *xlStorage) IsOnline() bool {
 	s.mu.RLock()
 	closed := s.closed
 	s.mu.RUnlock()
-	if closed {
-		return false
-	}
-	st, err := os.Stat(s.root)
-	return err == nil && st.IsDir()
+	return !closed && s.rootExists()
 }
-
-// Healing implements StorageAPI: local drives report no healing state yet.
-func (s *xlStorage) Healing() *HealingTracker { return nil }
 
 // Close implements StorageAPI.
 func (s *xlStorage) Close(context.Context) error {
@@ -167,7 +188,85 @@ func (s *xlStorage) checkOpen(ctx context.Context) error {
 	return nil
 }
 
-// DiskInfo implements StorageAPI.
+// stripe returns the key lock stripe of volume/key.
+func (s *xlStorage) stripe(volume, key string) int {
+	return int(maphash.String(s.seed, volume+"\x00"+key) % keyLockStripes)
+}
+
+// lockKey serializes the metadata updates of one existing object key
+// (updates that cannot create the key nor change its placement).
+func (s *xlStorage) lockKey(volume, key string) func() {
+	m := &s.keyLocks[s.stripe(volume, key)]
+	m.Lock()
+	return m.Unlock
+}
+
+// stripeLock is one stripe acquired by lockPlacement.
+type stripeLock struct {
+	idx   int
+	write bool
+}
+
+// lockPlacement locks a key for a metadata update that may create it or
+// remove it, together with its ancestor prefixes ("a" and "a/b" for
+// "a/b/c" or "a/b/c/"), so that checkObjectPlacement and the commit are
+// atomic with respect to the writers of those prefixes: "k" and "k/x"
+// written concurrently can no longer both pass the check. The key's own
+// stripe is taken for writing, the ancestors' for reading (writers of
+// sibling keys share them); the stripes are deduplicated (write wins) and
+// acquired in index order, so two writers never wait on each other in
+// opposite orders.
+func (s *xlStorage) lockPlacement(volume, key string) func() {
+	locks := []stripeLock{{idx: s.stripe(volume, key), write: true}}
+	for p := strings.TrimSuffix(key, "/"); ; {
+		i := strings.LastIndexByte(p, '/')
+		if i <= 0 {
+			break
+		}
+		p = p[:i]
+		locks = append(locks, stripeLock{idx: s.stripe(volume, p)})
+	}
+	locks = orderStripes(locks)
+	for _, l := range locks {
+		if l.write {
+			s.keyLocks[l.idx].Lock()
+		} else {
+			s.keyLocks[l.idx].RLock()
+		}
+	}
+	return func() {
+		for i := len(locks) - 1; i >= 0; i-- {
+			if locks[i].write {
+				s.keyLocks[locks[i].idx].Unlock()
+			} else {
+				s.keyLocks[locks[i].idx].RUnlock()
+			}
+		}
+	}
+}
+
+// orderStripes sorts stripe locks by index and merges duplicates, a write
+// lock absorbing a read lock of the same stripe (a stripe is never locked
+// twice by the same writer: RWMutex is not reentrant).
+func orderStripes(locks []stripeLock) []stripeLock {
+	slices.SortFunc(locks, func(a, b stripeLock) int {
+		if c := cmp.Compare(a.idx, b.idx); c != 0 {
+			return c
+		}
+		switch {
+		case a.write == b.write:
+			return 0
+		case a.write:
+			return -1
+		default:
+			return 1
+		}
+	})
+	return slices.CompactFunc(locks, func(a, b stripeLock) bool { return a.idx == b.idx })
+}
+
+// DiskInfo implements StorageAPI. With NoOp it returns the usage figures
+// of the previous call instead of querying the file system.
 func (s *xlStorage) DiskInfo(ctx context.Context, opts DiskInfoOptions) (domain.DiskInfo, error) {
 	if err := s.checkOpen(ctx); err != nil {
 		return domain.DiskInfo{}, err
@@ -176,7 +275,7 @@ func (s *xlStorage) DiskInfo(ctx context.Context, opts DiskInfoOptions) (domain.
 	if s.diskID == "" {
 		s.diskID = s.loadDiskID()
 	}
-	id := s.diskID
+	id, cached := s.diskID, s.lastInfo
 	s.mu.Unlock()
 	info := domain.DiskInfo{
 		Endpoint: s.ep.String(),
@@ -187,20 +286,37 @@ func (s *xlStorage) DiskInfo(ctx context.Context, opts DiskInfoOptions) (domain.
 		DiskIdx:  s.ep.DiskIdx,
 		State:    domain.StateOnline,
 	}
+	if !s.rootExists() {
+		info.State = domain.StateOffline
+		info.Error = "drive directory not found"
+		return info, fmt.Errorf("%w: drive %s is gone", domain.ErrDiskNotFound, s.root)
+	}
 	if opts.DiskID != "" && opts.DiskID != id {
 		return info, fmt.Errorf("%w: drive %s has id %q, want %q", domain.ErrDiskNotFound, s.root, id, opts.DiskID)
 	}
-	if !opts.NoOp {
+	if opts.NoOp {
+		info.Total, info.Free, info.Used = cached.Total, cached.Free, cached.Used
+		info.UsedInodes, info.FreeInodes, info.FSType, info.RootDisk = cached.UsedInodes, cached.FreeInodes, cached.FSType, cached.RootDisk
+	} else {
 		total, free, usedInodes, freeInodes, fsType, err := statfs(s.root)
 		if err != nil {
 			info.State = domain.StateOffline
 			info.Error = err.Error()
-			return info, fmt.Errorf("%w: %v", domain.ErrFaultyDisk, err)
+			return info, fmt.Errorf("%w: %w", domain.ErrFaultyDisk, err)
 		}
 		info.Total, info.Free, info.UsedInodes, info.FreeInodes, info.FSType = total, free, usedInodes, freeInodes, fsType
 		if total >= free {
 			info.Used = total - free
 		}
+		info.RootDisk = isRootDisk(s.root)
+		s.loadHealing()
+		s.mu.Lock()
+		s.lastInfo = info
+		s.mu.Unlock()
+	}
+	if h := s.healing.Load(); h != nil && !h.Finished {
+		info.Healing = true
+		info.State = domain.StateHealing
 	}
 	return info, nil
 }
@@ -218,20 +334,21 @@ func (s *xlStorage) MakeVol(ctx context.Context, volume string) error {
 		if errors.Is(err, fs.ErrExist) {
 			return fmt.Errorf("%w: %s", domain.ErrBucketAlreadyExists, volume)
 		}
-		return fmt.Errorf("storage: make volume %s: %w", volume, mapErr(err))
+		return s.fsErr("", volume, err)
 	}
 	s.syncDir(s.root)
 	return nil
 }
 
-// ListVols implements StorageAPI.
+// ListVols implements StorageAPI. Hidden directories (the system volume)
+// and symbolic links are not volumes.
 func (s *xlStorage) ListVols(ctx context.Context) ([]VolInfo, error) {
 	if err := s.checkOpen(ctx); err != nil {
 		return nil, err
 	}
 	entries, err := os.ReadDir(s.root)
 	if err != nil {
-		return nil, fmt.Errorf("storage: list volumes: %w", mapErr(err))
+		return nil, s.fsErr("", "", err)
 	}
 	out := make([]VolInfo, 0, len(entries))
 	for _, e := range entries {
@@ -252,24 +369,19 @@ func (s *xlStorage) StatVol(ctx context.Context, volume string) (VolInfo, error)
 	if err := s.checkOpen(ctx); err != nil {
 		return VolInfo{}, err
 	}
-	dir, err := s.volumeDir(volume)
+	dir, err := s.ensureVolume(volume)
 	if err != nil {
 		return VolInfo{}, err
 	}
-	st, err := os.Stat(dir)
+	st, err := os.Lstat(dir)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return VolInfo{}, fmt.Errorf("%w: %s", domain.ErrBucketNotFound, volume)
-		}
-		return VolInfo{}, fmt.Errorf("storage: stat volume %s: %w", volume, mapErr(err))
-	}
-	if !st.IsDir() {
-		return VolInfo{}, fmt.Errorf("%w: %s is not a directory", domain.ErrBucketNotFound, volume)
+		return VolInfo{}, s.fsErr(volume, "", err)
 	}
 	return VolInfo{Name: volume, Created: st.ModTime()}, nil
 }
 
-// DeleteVol implements StorageAPI.
+// DeleteVol implements StorageAPI. Without force a volume holding only
+// empty directories (leftovers of deleted objects) counts as empty.
 func (s *xlStorage) DeleteVol(ctx context.Context, volume string, force bool) error {
 	if err := s.checkOpen(ctx); err != nil {
 		return err
@@ -277,38 +389,47 @@ func (s *xlStorage) DeleteVol(ctx context.Context, volume string, force bool) er
 	if volume == domain.SystemBucket {
 		return fmt.Errorf("%w: the system volume cannot be deleted", domain.ErrInvalidArgument)
 	}
-	dir, err := s.volumeDir(volume)
+	dir, err := s.ensureVolume(volume)
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(dir); err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("%w: %s", domain.ErrBucketNotFound, volume)
+	if !force {
+		empty, err := onlyEmptyDirs(dir)
+		if err != nil {
+			return s.fsErr(volume, "", err)
 		}
-		return fmt.Errorf("storage: stat volume %s: %w", volume, mapErr(err))
-	}
-	if force {
-		if err := os.RemoveAll(dir); err != nil {
-			return fmt.Errorf("storage: delete volume %s: %w", volume, mapErr(err))
+		if !empty {
+			return fmt.Errorf("%w: %s", domain.ErrBucketNotEmpty, volume)
 		}
-		s.syncDir(s.root)
-		return nil
 	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return fmt.Errorf("storage: read volume %s: %w", volume, mapErr(err))
-	}
-	if len(entries) > 0 {
-		return fmt.Errorf("%w: %s", domain.ErrBucketNotEmpty, volume)
-	}
-	if err := os.Remove(dir); err != nil {
+	if err := os.RemoveAll(dir); err != nil {
 		return fmt.Errorf("storage: delete volume %s: %w", volume, mapErr(err))
 	}
 	s.syncDir(s.root)
 	return nil
 }
 
-// ReadVersion implements StorageAPI.
+// onlyEmptyDirs reports whether the tree below dir holds no file.
+func onlyEmptyDirs(dir string) (bool, error) {
+	empty := true
+	err := filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() {
+			empty = false
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return empty, err
+}
+
+// --- metadata ---------------------------------------------------------------
+
+// ReadVersion implements StorageAPI. An empty versionID selects the latest
+// version, "null" the null version. Without opts.ReadData only the
+// metadata section of xl.meta is read.
 func (s *xlStorage) ReadVersion(ctx context.Context, volume, objPath, versionID string, opts ReadOptions) (FileInfo, error) {
 	if err := s.checkOpen(ctx); err != nil {
 		return FileInfo{}, err
@@ -317,21 +438,24 @@ func (s *xlStorage) ReadVersion(ctx context.Context, volume, objPath, versionID 
 	if err != nil {
 		return FileInfo{}, err
 	}
-	meta, err := s.readMeta(dir)
+	meta, err := s.readMeta(dir, opts.ReadData)
 	if err != nil {
-		return FileInfo{}, s.notFound(volume, objPath, err)
+		return FileInfo{}, s.metaErr(volume, objPath, err)
 	}
-	idx := meta.find(versionID)
-	if idx < 0 {
-		if versionID == "" {
+	idx := 0
+	if versionID == "" {
+		if _, ok := meta.Latest(); !ok {
 			return FileInfo{}, fmt.Errorf("%w: %s/%s", domain.ErrObjectNotFound, volume, objPath)
 		}
-		return FileInfo{}, fmt.Errorf("%w: %s/%s version %s", domain.ErrNoSuchVersion, volume, objPath, versionID)
+	} else if idx, err = meta.FindVersion(versionID); err != nil {
+		return FileInfo{}, fmt.Errorf("storage: %s/%s: %w", volume, objPath, err)
 	}
 	return meta.fileInfoAt(idx, volume, objPath, opts.ReadData), nil
 }
 
-// WriteMetadata implements StorageAPI.
+// WriteMetadata implements StorageAPI: the version is added, replacing the
+// version with the same id; the data directory of a replaced version, no
+// longer referenced, is removed.
 func (s *xlStorage) WriteMetadata(ctx context.Context, volume, objPath string, fi FileInfo) error {
 	if err := s.checkOpen(ctx); err != nil {
 		return err
@@ -340,24 +464,35 @@ func (s *xlStorage) WriteMetadata(ctx context.Context, volume, objPath string, f
 	if err != nil {
 		return err
 	}
-	if err := s.ensureVolume(volume); err != nil {
+	volDir, err := s.ensureVolume(volume)
+	if err != nil {
 		return err
 	}
+	unlock := s.lockPlacement(volume, objPath)
+	defer unlock()
 	if err := s.checkObjectPlacement(volume, objPath); err != nil {
 		return err
 	}
-	meta, err := s.readMeta(dir)
+	meta, err := s.readMetaOrNew(volume, objPath, dir)
 	if err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
-			return s.notFound(volume, objPath, err)
-		}
-		meta = &xlMeta{}
+		return err
 	}
-	meta.upsert(versionFromFileInfo(fi))
-	return s.writeMeta(dir, meta, true)
+	replaced, err := meta.AddVersion(versionFromFileInfo(fi))
+	if err != nil {
+		return fmt.Errorf("storage: %s/%s: %w", volume, objPath, err)
+	}
+	if err := s.writeMeta(dir, volDir, meta, true); err != nil {
+		return err
+	}
+	if replaced != nil && !meta.sharesDataDir(replaced.DataDir) {
+		s.removeDataDir(dir, replaced.DataDir)
+	}
+	return nil
 }
 
-// UpdateMetadata implements StorageAPI.
+// UpdateMetadata implements StorageAPI. The version is matched by id (the
+// empty id is the null version); content fields left empty in fi (inline
+// data, data directory, parts, erasure layout) keep their stored value.
 func (s *xlStorage) UpdateMetadata(ctx context.Context, volume, objPath string, fi FileInfo, opts UpdateMetadataOptions) error {
 	if err := s.checkOpen(ctx); err != nil {
 		return err
@@ -366,20 +501,25 @@ func (s *xlStorage) UpdateMetadata(ctx context.Context, volume, objPath string, 
 	if err != nil {
 		return err
 	}
-	meta, err := s.readMeta(dir)
+	volDir, err := s.volumeDir(volume)
 	if err != nil {
-		return s.notFound(volume, objPath, err)
+		return err
 	}
-	idx := meta.find(fi.VersionID)
-	if idx < 0 {
-		return fmt.Errorf("%w: %s/%s version %q", domain.ErrNoSuchVersion, volume, objPath, fi.VersionID)
+	unlock := s.lockKey(volume, objPath)
+	defer unlock()
+	meta, err := s.readMeta(dir, true)
+	if err != nil {
+		return s.metaErr(volume, objPath, err)
 	}
-	// A metadata update never touches the content: callers usually read the
-	// version without its inline data, so keep what is on disk.
+	idx, err := meta.FindVersion(fi.VersionID)
+	if err != nil {
+		return fmt.Errorf("storage: %s/%s: %w", volume, objPath, err)
+	}
 	old := meta.Versions[idx]
 	v := versionFromFileInfo(fi)
-	if v.Data == nil {
+	if v.Data == nil && old.Flags&xlFlagInlineData != 0 {
 		v.Data = old.Data
+		v.Flags |= xlFlagInlineData
 	}
 	if v.DataDir == "" {
 		v.DataDir = old.DataDir
@@ -387,9 +527,15 @@ func (s *xlStorage) UpdateMetadata(ctx context.Context, volume, objPath string, 
 	if len(v.Parts) == 0 {
 		v.Parts = old.Parts
 	}
+	if v.Erasure == nil {
+		v.Erasure = old.Erasure
+	}
+	if err := v.validate(); err != nil {
+		return fmt.Errorf("%w: storage: %s/%s: %w", domain.ErrInvalidArgument, volume, objPath, err)
+	}
 	meta.Versions[idx] = v
-	meta.sort()
-	return s.writeMeta(dir, meta, !opts.NoPersistence)
+	meta.sortVersions()
+	return s.writeMeta(dir, volDir, meta, !opts.NoPersistence)
 }
 
 // DeleteVersion implements StorageAPI.
@@ -397,77 +543,124 @@ func (s *xlStorage) DeleteVersion(ctx context.Context, volume, objPath string, f
 	if err := s.checkOpen(ctx); err != nil {
 		return err
 	}
+	if opts.OldDataDir != "" && !isDataDir(opts.OldDataDir) {
+		return fmt.Errorf("%w: invalid data directory %q", domain.ErrInvalidArgument, opts.OldDataDir)
+	}
 	dir, err := s.objectDir(volume, objPath)
 	if err != nil {
 		return err
 	}
-	meta, err := s.readMeta(dir)
+	volDir, err := s.ensureVolume(volume)
 	if err != nil {
-		if fi.MarkDeleted && errors.Is(err, fs.ErrNotExist) {
-			// A delete marker on a missing object is still recorded, as S3 does.
-			if err := s.ensureVolume(volume); err != nil {
-				return err
-			}
-			if err := s.checkObjectPlacement(volume, objPath); err != nil {
-				return err
-			}
-			meta = &xlMeta{}
-		} else {
-			return s.notFound(volume, objPath, err)
+		return err
+	}
+	// A delete marker may create the key; removing the last version prunes
+	// the empty parent directories: both are placement changes.
+	unlock := s.lockPlacement(volume, objPath)
+	defer unlock()
+	meta, err := s.readMeta(dir, true)
+	if err != nil {
+		if !fi.MarkDeleted || !errors.Is(err, fs.ErrNotExist) {
+			return s.metaErr(volume, objPath, err)
 		}
+		// A delete marker on a missing object is still recorded, as S3 does.
+		if err := s.checkObjectPlacement(volume, objPath); err != nil {
+			return err
+		}
+		meta = &xlMeta{}
 	}
 	if fi.MarkDeleted {
 		marker := versionFromFileInfo(fi)
-		marker.Deleted = true
-		marker.DataDir, marker.Data, marker.Parts, marker.Size = "", nil, nil, 0
-		replaced := meta.upsert(marker)
-		if err := s.writeMeta(dir, meta, true); err != nil {
+		marker.Type = xlTypeDeleteMarker
+		replaced, err := meta.AddVersion(marker)
+		if err != nil {
+			return fmt.Errorf("storage: %s/%s: %w", volume, objPath, err)
+		}
+		if err := s.writeMeta(dir, volDir, meta, true); err != nil {
 			return err
 		}
 		// A marker replacing the null version (suspended versioning) frees its data.
-		if replaced != nil && replaced.DataDir != "" {
-			if err := os.RemoveAll(filepath.Join(dir, replaced.DataDir)); err != nil {
-				s.deps.Logger.Warn("storage: cannot remove data dir", "path", filepath.Join(dir, replaced.DataDir), "err", err)
-			}
+		if replaced != nil && !meta.sharesDataDir(replaced.DataDir) {
+			s.removeDataDir(dir, replaced.DataDir)
 		}
 		return nil
 	}
-	idx := meta.findExact(fi.VersionID)
-	if idx < 0 {
-		return fmt.Errorf("%w: %s/%s version %q", domain.ErrNoSuchVersion, volume, objPath, fi.VersionID)
-	}
-	removed := meta.remove(idx)
-	for _, dataDir := range []string{removed.DataDir, opts.OldDataDir} {
-		if dataDir != "" {
-			if err := os.RemoveAll(filepath.Join(dir, dataDir)); err != nil {
-				s.deps.Logger.Warn("storage: cannot remove data dir", "path", filepath.Join(dir, dataDir), "err", err)
-			}
-		}
+	removed, err := meta.DeleteVersion(fi.VersionID)
+	if err != nil {
+		return fmt.Errorf("storage: %s/%s: %w", volume, objPath, err)
 	}
 	if len(meta.Versions) == 0 {
 		if err := os.Remove(filepath.Join(dir, MetaFile)); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("storage: remove %s: %w", MetaFile, mapErr(err))
+			return fmt.Errorf("storage: remove %s/%s: %w", volume, objPath, mapErr(err))
 		}
-		s.pruneEmptyDirs(dir, s.pruneBoundary(volume, dir))
+		s.removeOrphanDataDirs(dir)
+		s.syncDir(dir)
+		s.pruneEmptyDirs(dir, volDir)
 		return nil
 	}
-	return s.writeMeta(dir, meta, true)
+	if err := s.writeMeta(dir, volDir, meta, true); err != nil {
+		return err
+	}
+	for _, dataDir := range []string{removed.DataDir, opts.OldDataDir} {
+		if dataDir != "" && !meta.sharesDataDir(dataDir) {
+			s.removeDataDir(dir, dataDir)
+		}
+	}
+	return nil
 }
+
+// removeDataDir purges a data directory that no version references. A
+// directory that is not a data directory on disk (a child prefix whose
+// name happens to be a UUID) is never removed.
+func (s *xlStorage) removeDataDir(objDir, dataDir string) {
+	if !isDataDir(dataDir) {
+		return
+	}
+	path := filepath.Join(objDir, dataDir)
+	ok, err := isDataDirOnDisk(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		s.deps.Logger.Warn("storage: cannot inspect data dir", "path", path, "err", err)
+	}
+	if !ok {
+		return
+	}
+	if err := os.RemoveAll(path); err != nil {
+		s.deps.Logger.Warn("storage: cannot remove data dir", "path", path, "err", err)
+	}
+}
+
+// removeOrphanDataDirs removes the data directories left in an object
+// directory without metadata (interrupted commits, purged versions). Child
+// prefixes and objects are left alone, whatever their name.
+func (s *xlStorage) removeOrphanDataDirs(objDir string) {
+	entries, err := os.ReadDir(objDir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() && isDataDir(e.Name()) {
+			s.removeDataDir(objDir, e.Name())
+		}
+	}
+}
+
+// --- data files -------------------------------------------------------------
 
 // CreateFile implements StorageAPI.
 func (s *xlStorage) CreateFile(ctx context.Context, volume, filePath string, size int64, r io.Reader) error {
 	if err := s.checkOpen(ctx); err != nil {
 		return err
 	}
+	if size < -1 {
+		return fmt.Errorf("%w: negative size %d", domain.ErrInvalidArgument, size)
+	}
 	dst, err := s.filePath(volume, filePath)
 	if err != nil {
 		return err
 	}
-	if err := s.ensureVolume(volume); err != nil {
+	volDir, err := s.ensureVolume(volume)
+	if err != nil {
 		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(dst), fs.FileMode(s.opts.dirPerm)); err != nil {
-		return fmt.Errorf("storage: create %s: %w", filepath.Dir(dst), mapErr(err))
 	}
 	tmp, err := s.tempFile()
 	if err != nil {
@@ -488,9 +681,9 @@ func (s *xlStorage) CreateFile(ctx context.Context, volume, filePath string, siz
 		cleanup()
 		return fmt.Errorf("storage: write %s/%s: %w", volume, filePath, mapErr(err))
 	}
-	if err := s.commitFile(tmp, dst); err != nil {
+	if err := s.commitFile(tmp, dst, volDir); err != nil {
 		cleanup()
-		return fmt.Errorf("storage: commit %s/%s: %w", volume, filePath, err)
+		return fmt.Errorf("storage: commit %s/%s: %w", volume, filePath, s.writeErr(volume, filePath, err))
 	}
 	return nil
 }
@@ -504,81 +697,147 @@ func (s *xlStorage) ReadFileStream(ctx context.Context, volume, filePath string,
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.Open(name)
+	f, st, err := openFile(name)
 	if err != nil {
-		return nil, s.notFound(volume, filePath, err)
+		return nil, s.fsErr(volume, filePath, err)
 	}
-	st, err := f.Stat()
-	if err != nil {
+	size := st.Size()
+	switch {
+	case offset < 0 || offset > size:
 		_ = f.Close()
-		return nil, fmt.Errorf("storage: stat %s: %w", filePath, mapErr(err))
-	}
-	if offset < 0 || offset > st.Size() {
+		return nil, fmt.Errorf("%w: offset %d outside %s/%s (%d bytes)", domain.ErrInvalidRange, offset, volume, filePath, size)
+	case length < 0:
+		length = size - offset
+	case length > size-offset:
 		_ = f.Close()
-		return nil, fmt.Errorf("%w: offset %d beyond size %d", domain.ErrInvalidRange, offset, st.Size())
-	}
-	if length < 0 || offset+length > st.Size() {
-		length = st.Size() - offset
+		return nil, fmt.Errorf("%w: %s/%s has %d bytes, want [%d, %d)", ErrFileCorrupt, volume, filePath, size, offset, offset+length)
 	}
 	return &sectionReadCloser{Reader: io.NewSectionReader(f, offset, length), f: f}, nil
 }
 
-// RenameData implements StorageAPI.
+// RenameData implements StorageAPI. The new xl.meta is staged and synced
+// in tmp first, then the data directory is moved into the object directory
+// and the staged xl.meta renamed over the old one: the commit point is
+// that last rename. When it fails the data directory is moved back (and a
+// data directory it displaced restored), so the caller can retry or clean
+// its temporary data; a crash before it leaves an unreferenced data
+// directory that reads and listings ignore.
 func (s *xlStorage) RenameData(ctx context.Context, srcVolume, srcPath string, fi FileInfo, dstVolume, dstPath string, opts RenameOptions) (RenameDataResult, error) {
 	if err := s.checkOpen(ctx); err != nil {
 		return RenameDataResult{}, err
+	}
+	if fi.DataDir != "" && !isDataDir(fi.DataDir) {
+		return RenameDataResult{}, fmt.Errorf("%w: data directory %q is not a UUID", domain.ErrInvalidArgument, fi.DataDir)
 	}
 	dstDir, err := s.objectDir(dstVolume, dstPath)
 	if err != nil {
 		return RenameDataResult{}, err
 	}
-	if err := s.ensureVolume(dstVolume); err != nil {
+	dstVolDir, err := s.ensureVolume(dstVolume)
+	if err != nil {
 		return RenameDataResult{}, err
 	}
+	var srcDir, srcVolDir string
+	if fi.DataDir != "" {
+		if srcDir, err = s.filePath(srcVolume, srcPath); err != nil {
+			return RenameDataResult{}, err
+		}
+		if srcVolDir, err = s.volumeDir(srcVolume); err != nil {
+			return RenameDataResult{}, err
+		}
+		st, err := os.Lstat(srcDir)
+		if err != nil {
+			return RenameDataResult{}, s.fsErr(srcVolume, srcPath, err)
+		}
+		if !st.IsDir() {
+			return RenameDataResult{}, fmt.Errorf("%w: %s/%s is not a data directory", domain.ErrObjectNotFound, srcVolume, srcPath)
+		}
+	}
+
+	unlock := s.lockPlacement(dstVolume, dstPath)
+	defer unlock()
 	if err := s.checkObjectPlacement(dstVolume, dstPath); err != nil {
 		return RenameDataResult{}, err
 	}
-	if err := os.MkdirAll(dstDir, fs.FileMode(s.opts.dirPerm)); err != nil {
-		return RenameDataResult{}, fmt.Errorf("storage: create %s: %w", dstDir, mapErr(err))
-	}
-	if fi.DataDir != "" {
-		srcDir, err := s.filePath(srcVolume, srcPath)
-		if err != nil {
-			return RenameDataResult{}, err
-		}
-		if _, err := os.Stat(srcDir); err != nil {
-			return RenameDataResult{}, s.notFound(srcVolume, srcPath, err)
-		}
-		target := filepath.Join(dstDir, fi.DataDir)
-		if err := os.RemoveAll(target); err != nil {
-			return RenameDataResult{}, fmt.Errorf("storage: replace %s: %w", target, mapErr(err))
-		}
-		if err := os.Rename(srcDir, target); err != nil {
-			return RenameDataResult{}, fmt.Errorf("storage: rename data into %s/%s: %w", dstVolume, dstPath, mapErr(err))
-		}
-	}
-	meta, err := s.readMeta(dstDir)
+	meta, err := s.readMetaOrNew(dstVolume, dstPath, dstDir)
 	if err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
-			return RenameDataResult{}, s.notFound(dstVolume, dstPath, err)
-		}
-		meta = &xlMeta{}
-	}
-	var result RenameDataResult
-	if replaced := meta.upsert(versionFromFileInfo(fi)); replaced != nil && replaced.DataDir != "" && replaced.DataDir != fi.DataDir {
-		result.OldDataDir = replaced.DataDir
-	}
-	if err := s.writeMeta(dstDir, meta, true); err != nil {
 		return RenameDataResult{}, err
 	}
-	if result.OldDataDir != "" && opts.BaseOptions.Immediate {
-		if err := os.RemoveAll(filepath.Join(dstDir, result.OldDataDir)); err != nil {
-			s.deps.Logger.Warn("storage: cannot purge replaced data dir", "path", filepath.Join(dstDir, result.OldDataDir), "err", err)
-		}
-		result.OldDataDir = ""
+	v := versionFromFileInfo(fi)
+	replaced, err := meta.AddVersion(v)
+	if err != nil {
+		return RenameDataResult{}, fmt.Errorf("storage: %s/%s: %w", dstVolume, dstPath, err)
 	}
-	copy(result.Signature[:], fi.VersionID+fi.DataDir+"....")
+	buf, err := meta.encode()
+	if err != nil {
+		return RenameDataResult{}, err
+	}
+	staged, err := s.writeTemp(buf, true)
+	if err != nil {
+		return RenameDataResult{}, fmt.Errorf("storage: stage %s/%s: %w", dstVolume, dstPath, err)
+	}
+	defer func() { _ = os.Remove(staged) }() // no-op once committed
+
+	if err := s.mkdirAll(dstDir, dstVolDir); err != nil {
+		return RenameDataResult{}, fmt.Errorf("storage: create %s/%s: %w", dstVolume, dstPath, s.writeErr(dstVolume, dstPath, err))
+	}
+	var target, aside string
+	if fi.DataDir != "" {
+		target = filepath.Join(dstDir, fi.DataDir)
+		if _, err := os.Lstat(target); err == nil {
+			// Same data directory committed again (heal): keep the old
+			// copy aside until the new metadata is in place.
+			aside = s.tmpPath()
+			if err := s.rename(target, aside); err != nil {
+				return RenameDataResult{}, fmt.Errorf("storage: move %s aside: %w", target, mapErr(err))
+			}
+		}
+		if err := s.rename(srcDir, target); err != nil {
+			s.restoreAside(aside, target)
+			s.pruneEmptyDirs(dstDir, dstVolDir)
+			return RenameDataResult{}, fmt.Errorf("storage: rename data into %s/%s: %w", dstVolume, dstPath, s.writeErr(srcVolume, srcPath, err))
+		}
+		s.syncDir(dstDir)
+	}
+	if err := s.rename(staged, filepath.Join(dstDir, MetaFile)); err != nil {
+		if target != "" {
+			if rerr := s.renameAll(target, srcDir, srcVolDir); rerr != nil {
+				s.deps.Logger.Error("storage: cannot roll back data directory", "from", target, "to", srcDir, "err", rerr)
+			}
+			s.restoreAside(aside, target)
+		}
+		s.pruneEmptyDirs(dstDir, dstVolDir)
+		return RenameDataResult{}, fmt.Errorf("storage: commit %s/%s: %w", dstVolume, dstPath, s.writeErr(dstVolume, dstPath, err))
+	}
+	s.syncDir(dstDir)
+	if aside != "" {
+		if err := os.RemoveAll(aside); err != nil {
+			s.deps.Logger.Warn("storage: cannot remove displaced data dir", "path", aside, "err", err)
+		}
+	}
+	if srcDir != "" {
+		s.pruneEmptyDirs(filepath.Dir(srcDir), s.pruneBoundary(srcVolume, srcDir))
+	}
+
+	result := RenameDataResult{Signature: v.signature()}
+	if replaced != nil && !meta.sharesDataDir(replaced.DataDir) {
+		result.OldDataDir = replaced.DataDir
+		if opts.BaseOptions.Immediate {
+			s.removeDataDir(dstDir, replaced.DataDir)
+			result.OldDataDir = ""
+		}
+	}
 	return result, nil
+}
+
+// restoreAside moves a displaced data directory back in place.
+func (s *xlStorage) restoreAside(aside, target string) {
+	if aside == "" {
+		return
+	}
+	if err := s.rename(aside, target); err != nil {
+		s.deps.Logger.Error("storage: cannot restore displaced data dir", "from", aside, "to", target, "err", err)
+	}
 }
 
 // RenameFile implements StorageAPI.
@@ -594,17 +853,15 @@ func (s *xlStorage) RenameFile(ctx context.Context, srcVolume, srcPath, dstVolum
 	if err != nil {
 		return err
 	}
-	if err := s.ensureVolume(dstVolume); err != nil {
+	dstVolDir, err := s.ensureVolume(dstVolume)
+	if err != nil {
 		return err
 	}
 	if _, err := os.Lstat(src); err != nil {
-		return s.notFound(srcVolume, srcPath, err)
+		return s.fsErr(srcVolume, srcPath, err)
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), fs.FileMode(s.opts.dirPerm)); err != nil {
-		return fmt.Errorf("storage: create %s: %w", filepath.Dir(dst), mapErr(err))
-	}
-	if err := os.Rename(src, dst); err != nil {
-		return fmt.Errorf("storage: rename %s/%s to %s/%s: %w", srcVolume, srcPath, dstVolume, dstPath, mapErr(err))
+	if err := s.renameAll(src, dst, dstVolDir); err != nil {
+		return fmt.Errorf("storage: rename %s/%s to %s/%s: %w", srcVolume, srcPath, dstVolume, dstPath, s.writeErr(dstVolume, dstPath, err))
 	}
 	s.syncDir(filepath.Dir(dst))
 	s.pruneEmptyDirs(filepath.Dir(src), s.pruneBoundary(srcVolume, src))
@@ -614,7 +871,9 @@ func (s *xlStorage) RenameFile(ctx context.Context, srcVolume, srcPath, dstVolum
 // checkObjectPlacement refuses object keys whose parent prefix is itself an
 // object ("a" exists, writing "a/b") and keys that are already a prefix with
 // children ("a/b" exists, writing "a"): both would make entries unreachable
-// through listings. Existing object directories (data dirs only) are fine.
+// through listings. Existing object directories (data dirs only) are fine;
+// a sub-directory named like a data directory that holds directories or an
+// xl.meta is a child prefix ("a/<uuid>/b" exists, writing "a").
 func (s *xlStorage) checkObjectPlacement(volume, key string) error {
 	volDir, err := s.volumeDir(volume)
 	if err != nil {
@@ -625,13 +884,13 @@ func (s *xlStorage) checkObjectPlacement(volume, key string) error {
 		return err
 	}
 	for parent := filepath.Dir(dir); parent != volDir && strings.HasPrefix(parent, volDir+string(filepath.Separator)); parent = filepath.Dir(parent) {
-		if fileExists(filepath.Join(parent, MetaFile)) {
+		if regularFileExists(filepath.Join(parent, MetaFile)) {
 			rel, _ := filepath.Rel(volDir, parent)
 			return domain.NewS3Error(domain.ErrInvalidObjectName, "XNexoParentIsObject",
 				"Object-prefix is already an object: "+filepath.ToSlash(rel)).WithResource(volume + "/" + key)
 		}
 	}
-	if strings.HasSuffix(key, "/") || fileExists(filepath.Join(dir, MetaFile)) {
+	if strings.HasSuffix(key, "/") || regularFileExists(filepath.Join(dir, MetaFile)) {
 		return nil
 	}
 	entries, err := os.ReadDir(dir)
@@ -639,13 +898,25 @@ func (s *xlStorage) checkObjectPlacement(volume, key string) error {
 		return nil // does not exist yet (or unreadable: later operations report it)
 	}
 	for _, e := range entries {
-		if e.IsDir() && !isDataDir(e.Name()) {
+		if !e.IsDir() {
+			continue
+		}
+		dataDir, err := isDataDirOnDisk(filepath.Join(dir, e.Name()))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue // removed concurrently
+		}
+		if err != nil {
+			return s.fsErr(volume, key, err)
+		}
+		if !dataDir {
 			return domain.NewS3Error(domain.ErrInvalidObjectName, "XNexoObjectExistsAsDirectory",
 				"Object name already exists as a prefix: "+key+"/").WithResource(volume + "/" + key)
 		}
 	}
 	return nil
 }
+
+// --- small files ------------------------------------------------------------
 
 // ReadAll implements StorageAPI.
 func (s *xlStorage) ReadAll(ctx context.Context, volume, filePath string) ([]byte, error) {
@@ -656,9 +927,9 @@ func (s *xlStorage) ReadAll(ctx context.Context, volume, filePath string) ([]byt
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(name)
+	data, err := readFile(name)
 	if err != nil {
-		return nil, s.notFound(volume, filePath, err)
+		return nil, s.fsErr(volume, filePath, err)
 	}
 	return data, nil
 }
@@ -672,11 +943,15 @@ func (s *xlStorage) WriteAll(ctx context.Context, volume, filePath string, b []b
 	if err != nil {
 		return err
 	}
-	if err := s.ensureVolume(volume); err != nil {
+	volDir, err := s.ensureVolume(volume)
+	if err != nil {
 		return err
 	}
-	if err := s.writeAtomic(name, b, true); err != nil {
-		return fmt.Errorf("storage: write %s/%s: %w", volume, filePath, err)
+	if err := s.writeAtomic(name, volDir, b, true); err != nil {
+		return fmt.Errorf("storage: write %s/%s: %w", volume, filePath, s.writeErr(volume, filePath, err))
+	}
+	if isHealingFile(volume, filePath) {
+		s.loadHealing()
 	}
 	return nil
 }
@@ -692,47 +967,62 @@ func (s *xlStorage) Delete(ctx context.Context, volume, filePath string, opts De
 	}
 	if opts.Recursive {
 		if _, err := os.Lstat(name); err != nil {
-			return s.notFound(volume, filePath, err)
+			return s.fsErr(volume, filePath, err)
 		}
 		if err := os.RemoveAll(name); err != nil {
 			return fmt.Errorf("storage: delete %s/%s: %w", volume, filePath, mapErr(err))
 		}
 	} else if err := os.Remove(name); err != nil {
-		return s.notFound(volume, filePath, err)
+		return s.fsErr(volume, filePath, err)
 	}
 	s.pruneEmptyDirs(filepath.Dir(name), s.pruneBoundary(volume, name))
+	if isHealingFile(volume, filePath) {
+		s.loadHealing()
+	}
 	return nil
 }
 
-// CheckParts implements StorageAPI.
+// CheckParts implements StorageAPI. Versions with inline data have no part
+// files: their parts are present when xl.meta is.
 func (s *xlStorage) CheckParts(ctx context.Context, volume, objPath string, fi FileInfo) (*CheckPartsResult, error) {
 	if err := s.checkOpen(ctx); err != nil {
 		return nil, err
+	}
+	if fi.DataDir != "" && !isDataDir(fi.DataDir) {
+		return nil, fmt.Errorf("%w: data directory %q is not a UUID", domain.ErrInvalidArgument, fi.DataDir)
 	}
 	dir, err := s.objectDir(volume, objPath)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := os.Stat(dir); err != nil {
+	if _, err := os.Lstat(dir); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			if volDir, _ := s.volumeDir(volume); volDir != "" {
-				if _, verr := os.Stat(volDir); errors.Is(verr, fs.ErrNotExist) {
+			if _, verr := s.ensureVolume(volume); verr != nil {
+				if errors.Is(verr, domain.ErrBucketNotFound) {
 					return &CheckPartsResult{Results: fill(len(fi.Parts), CheckPartVolumeNotFound)}, nil
 				}
+				return nil, verr
 			}
 			return &CheckPartsResult{Results: fill(len(fi.Parts), CheckPartFileNotFound)}, nil
 		}
-		return nil, fmt.Errorf("storage: stat %s: %w", dir, mapErr(err))
+		return nil, s.fsErr(volume, objPath, err)
+	}
+	if fi.DataDir == "" {
+		state := CheckPartSuccess
+		if !regularFileExists(filepath.Join(dir, MetaFile)) {
+			state = CheckPartFileNotFound
+		}
+		return &CheckPartsResult{Results: fill(len(fi.Parts), state)}, nil
 	}
 	res := &CheckPartsResult{Results: make([]int, len(fi.Parts))}
 	for i, p := range fi.Parts {
-		st, err := os.Stat(filepath.Join(dir, fi.DataDir, partName(p.Number)))
+		st, err := os.Lstat(filepath.Join(dir, fi.DataDir, partName(p.Number)))
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
 			res.Results[i] = CheckPartFileNotFound
 		case err != nil:
 			res.Results[i] = CheckPartUnknown
-		case st.Size() != p.Size:
+		case !st.Mode().IsRegular() || st.Size() != p.Size:
 			res.Results[i] = CheckPartFileCorrupt
 		default:
 			res.Results[i] = CheckPartSuccess
@@ -741,7 +1031,7 @@ func (s *xlStorage) CheckParts(ctx context.Context, volume, objPath string, fi F
 	return res, nil
 }
 
-// StatInfoFile implements StorageAPI.
+// StatInfoFile implements StorageAPI. Symbolic links are never reported.
 func (s *xlStorage) StatInfoFile(ctx context.Context, volume, filePath string, glob bool) ([]StatInfo, error) {
 	if err := s.checkOpen(ctx); err != nil {
 		return nil, err
@@ -754,298 +1044,28 @@ func (s *xlStorage) StatInfoFile(ctx context.Context, volume, filePath string, g
 	if glob {
 		matches, err := filepath.Glob(name)
 		if err != nil {
-			return nil, fmt.Errorf("%w: glob %q: %v", domain.ErrInvalidArgument, filePath, err)
+			return nil, fmt.Errorf("%w: glob %q: %w", domain.ErrInvalidArgument, filePath, err)
 		}
 		names = matches
 	}
 	volDir, _ := s.volumeDir(volume)
 	out := make([]StatInfo, 0, len(names))
 	for _, n := range names {
-		st, err := os.Stat(n)
+		st, err := os.Lstat(n)
+		if err == nil && st.Mode()&fs.ModeSymlink != 0 {
+			if glob {
+				continue
+			}
+			return nil, fmt.Errorf("%w: %s/%s", errSymlink, volume, filePath)
+		}
 		if err != nil {
 			if glob && errors.Is(err, fs.ErrNotExist) {
 				continue
 			}
-			return nil, s.notFound(volume, filePath, err)
+			return nil, s.fsErr(volume, filePath, err)
 		}
 		rel, _ := filepath.Rel(volDir, n)
 		out = append(out, StatInfo{Name: filepath.ToSlash(rel), Size: st.Size(), Dir: st.IsDir(), Mode: uint32(st.Mode()), ModTime: st.ModTime()})
 	}
 	return out, nil
-}
-
-// --- path helpers ---------------------------------------------------------
-
-// volumeDir validates a volume name and returns its directory.
-func (s *xlStorage) volumeDir(volume string) (string, error) {
-	if volume == "" || volume == "." || volume == ".." || strings.ContainsAny(volume, `/\`) {
-		return "", fmt.Errorf("%w: invalid volume name %q", domain.ErrInvalidBucketName, volume)
-	}
-	return filepath.Join(s.root, volume), nil
-}
-
-// filePath validates a slash-separated path inside a volume and returns the
-// corresponding file system path.
-func (s *xlStorage) filePath(volume, p string) (string, error) {
-	dir, err := s.volumeDir(volume)
-	if err != nil {
-		return "", err
-	}
-	if p == "" || strings.HasPrefix(p, "/") || strings.ContainsRune(p, 0) {
-		return "", fmt.Errorf("%w: invalid path %q", domain.ErrInvalidObjectName, p)
-	}
-	for _, seg := range strings.Split(strings.TrimSuffix(p, "/"), "/") {
-		if seg == "" || seg == "." || seg == ".." {
-			return "", fmt.Errorf("%w: invalid path %q", domain.ErrInvalidObjectName, p)
-		}
-	}
-	return filepath.Join(dir, filepath.FromSlash(p)), nil
-}
-
-// objectDir returns the directory holding the xl.meta of an object key.
-// Keys ending with a slash are stored under a "__XLDIR__" suffix.
-func (s *xlStorage) objectDir(volume, key string) (string, error) {
-	if strings.HasSuffix(key, "/") {
-		key = strings.TrimSuffix(key, "/") + xlDirSuffix
-	}
-	return s.filePath(volume, key)
-}
-
-func (s *xlStorage) ensureVolume(volume string) error {
-	dir, err := s.volumeDir(volume)
-	if err != nil {
-		return err
-	}
-	st, err := os.Stat(dir)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("%w: %s", domain.ErrBucketNotFound, volume)
-		}
-		return fmt.Errorf("storage: stat volume %s: %w", volume, mapErr(err))
-	}
-	if !st.IsDir() {
-		return fmt.Errorf("%w: %s", domain.ErrBucketNotFound, volume)
-	}
-	return nil
-}
-
-// notFound maps a file system error on volume/path to the domain sentinel:
-// a missing volume is ErrBucketNotFound, a missing file ErrObjectNotFound.
-func (s *xlStorage) notFound(volume, p string, err error) error {
-	if errors.Is(err, fs.ErrNotExist) {
-		if dir, derr := s.volumeDir(volume); derr == nil {
-			if _, serr := os.Stat(dir); errors.Is(serr, fs.ErrNotExist) {
-				return fmt.Errorf("%w: %s", domain.ErrBucketNotFound, volume)
-			}
-		}
-		return fmt.Errorf("%w: %s/%s", domain.ErrObjectNotFound, volume, p)
-	}
-	return fmt.Errorf("storage: %s/%s: %w", volume, p, mapErr(err))
-}
-
-// --- metadata and atomic writes ------------------------------------------
-
-func (s *xlStorage) readMeta(dir string) (*xlMeta, error) {
-	data, err := os.ReadFile(filepath.Join(dir, MetaFile))
-	if err != nil {
-		return nil, err
-	}
-	return decodeXLMeta(data)
-}
-
-func (s *xlStorage) writeMeta(dir string, meta *xlMeta, sync bool) error {
-	data, err := meta.encode()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dir, fs.FileMode(s.opts.dirPerm)); err != nil {
-		return fmt.Errorf("storage: create %s: %w", dir, mapErr(err))
-	}
-	if err := s.writeAtomic(filepath.Join(dir, MetaFile), data, sync); err != nil {
-		return fmt.Errorf("storage: write %s: %w", MetaFile, err)
-	}
-	return nil
-}
-
-// writeAtomic writes data to a temporary file in the system tmp directory,
-// syncs it and renames it over dst.
-func (s *xlStorage) writeAtomic(dst string, data []byte, sync bool) error {
-	if err := os.MkdirAll(filepath.Dir(dst), fs.FileMode(s.opts.dirPerm)); err != nil {
-		return mapErr(err)
-	}
-	tmp, err := s.tempFile()
-	if err != nil {
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmp.Name())
-		return mapErr(err)
-	}
-	if !sync {
-		if err := tmp.Close(); err != nil {
-			_ = os.Remove(tmp.Name())
-			return mapErr(err)
-		}
-		if err := os.Rename(tmp.Name(), dst); err != nil {
-			_ = os.Remove(tmp.Name())
-			return mapErr(err)
-		}
-		return nil
-	}
-	if err := s.commitFile(tmp, dst); err != nil {
-		_ = os.Remove(tmp.Name())
-		return err
-	}
-	return nil
-}
-
-// commitFile syncs and closes tmp, renames it to dst and syncs the parent.
-func (s *xlStorage) commitFile(tmp *os.File, dst string) error {
-	if s.opts.fsync {
-		if err := tmp.Sync(); err != nil {
-			_ = tmp.Close()
-			return mapErr(err)
-		}
-	}
-	if err := tmp.Close(); err != nil {
-		return mapErr(err)
-	}
-	if err := os.Rename(tmp.Name(), dst); err != nil {
-		return mapErr(err)
-	}
-	s.syncDir(filepath.Dir(dst))
-	return nil
-}
-
-func (s *xlStorage) tempFile() (*os.File, error) {
-	dir := filepath.Join(s.root, domain.SystemBucket, TmpDir)
-	f, err := os.OpenFile(filepath.Join(dir, randomSuffix()), os.O_RDWR|os.O_CREATE|os.O_EXCL, fs.FileMode(s.opts.filePerm))
-	if err != nil {
-		return nil, fmt.Errorf("storage: create temporary file: %w", mapErr(err))
-	}
-	return f, nil
-}
-
-// syncDir fsyncs a directory so that renames become durable (best effort).
-func (s *xlStorage) syncDir(dir string) {
-	if !s.opts.fsync {
-		return
-	}
-	d, err := os.Open(dir)
-	if err != nil {
-		return
-	}
-	_ = d.Sync()
-	_ = d.Close()
-}
-
-// pruneBoundary returns the directory below which empty parents of a path
-// may be removed: the volume directory, or the well-known top-level
-// directory (tmp, multipart, buckets, ...) inside the system volume.
-func (s *xlStorage) pruneBoundary(volume, name string) string {
-	volDir, err := s.volumeDir(volume)
-	if err != nil {
-		return name
-	}
-	if volume != domain.SystemBucket {
-		return volDir
-	}
-	rel, err := filepath.Rel(volDir, name)
-	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
-		return volDir
-	}
-	top := strings.SplitN(rel, string(filepath.Separator), 2)[0]
-	return filepath.Join(volDir, top)
-}
-
-// pruneEmptyDirs removes dir and its empty parents up to (excluding) stop.
-func (s *xlStorage) pruneEmptyDirs(dir, stop string) {
-	for dir != stop && strings.HasPrefix(dir, stop+string(filepath.Separator)) {
-		if err := os.Remove(dir); err != nil {
-			return
-		}
-		dir = filepath.Dir(dir)
-	}
-}
-
-func randomSuffix() string {
-	var b [12]byte
-	_, _ = rand.Read(b[:])
-	return hex.EncodeToString(b[:])
-}
-
-func partName(n int) string { return fmt.Sprintf("part.%d", n) }
-
-func fill(n, v int) []int {
-	out := make([]int, n)
-	for i := range out {
-		out[i] = v
-	}
-	return out
-}
-
-// mapErr translates operating system errors into domain sentinels.
-func mapErr(err error) error {
-	switch {
-	case err == nil:
-		return nil
-	case errors.Is(err, fs.ErrNotExist):
-		return fmt.Errorf("%w: %v", domain.ErrObjectNotFound, err)
-	case errors.Is(err, syscall.ENOSPC), errors.Is(err, syscall.EDQUOT):
-		return fmt.Errorf("%w: %v", domain.ErrStorageFull, err)
-	case errors.Is(err, syscall.EIO), errors.Is(err, syscall.EROFS), errors.Is(err, fs.ErrPermission):
-		return fmt.Errorf("%w: %v", domain.ErrFaultyDisk, err)
-	default:
-		return err
-	}
-}
-
-// ctxReader stops a copy as soon as the context ends.
-type ctxReader struct {
-	ctx context.Context
-	r   io.Reader
-}
-
-func (c *ctxReader) Read(p []byte) (int, error) {
-	if err := c.ctx.Err(); err != nil {
-		return 0, err
-	}
-	return c.r.Read(p)
-}
-
-// sectionReadCloser closes the file when the section is closed.
-type sectionReadCloser struct {
-	io.Reader
-	f *os.File
-}
-
-func (r *sectionReadCloser) Close() error { return r.f.Close() }
-
-// ObjectDataPath returns the path, relative to the volume, of a part file of
-// an object version: "<key>/<dataDir>/part.N". Directory objects ("dir/")
-// keep their data under the suffixed directory used for their metadata.
-func ObjectDataPath(key, dataDir string, part int) string {
-	if strings.HasSuffix(key, "/") {
-		key = strings.TrimSuffix(key, "/") + xlDirSuffix
-	}
-	return key + "/" + dataDir + "/" + partName(part)
-}
-
-// ObjectDataDir returns the path, relative to the volume, of the data
-// directory of an object version (see ObjectDataPath).
-func ObjectDataDir(key, dataDir string) string {
-	if strings.HasSuffix(key, "/") {
-		key = strings.TrimSuffix(key, "/") + xlDirSuffix
-	}
-	return key + "/" + dataDir
-}
-
-// keyFromDirName converts an on-disk object directory name back to the key
-// segment it represents.
-func keyFromDirName(name string) (segment string, dirObject bool) {
-	if strings.HasSuffix(name, xlDirSuffix) {
-		return strings.TrimSuffix(name, xlDirSuffix) + "/", true
-	}
-	return name, false
 }

@@ -1,104 +1,38 @@
-package topology
+package topology_test
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"log/slog"
-	"net"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/topology"
 )
-
-// fakeResolver is a HostResolver with a scripted host identity.
-type fakeResolver struct {
-	hostname    string
-	hostnameErr error
-	addrs       []string
-	addrsErr    error
-	hosts       map[string][]string
-}
-
-var _ HostResolver = (*fakeResolver)(nil)
-
-func (f *fakeResolver) Hostname() (string, error) { return f.hostname, f.hostnameErr }
-
-func (f *fakeResolver) LookupHost(_ context.Context, host string) ([]string, error) {
-	if ips, ok := f.hosts[host]; ok {
-		return ips, nil
-	}
-	return nil, fmt.Errorf("lookup %s: no such host", host)
-}
-
-func (f *fakeResolver) InterfaceAddrs() ([]net.Addr, error) {
-	if f.addrsErr != nil {
-		return nil, f.addrsErr
-	}
-	out := make([]net.Addr, 0, len(f.addrs))
-	for _, a := range f.addrs {
-		ip := net.ParseIP(a)
-		out = append(out, &net.IPNet{IP: ip, Mask: net.CIDRMask(24, 32)})
-	}
-	return out, nil
-}
-
-// newFakeResolver returns a resolver for a machine named node1 at 10.0.0.1.
-func newFakeResolver() *fakeResolver { return newFakeResolverFor(1) }
-
-// newFakeResolverFor returns a resolver for the machine node<n> at 10.0.0.<n>
-// in a DNS where node1..node32 map to 10.0.0.1..10.0.0.32.
-func newFakeResolverFor(n int) *fakeResolver {
-	hosts := map[string][]string{
-		"alias": {"10.0.0.1"},
-		"multi": {"10.0.0.9", "10.0.0.1"},
-	}
-	for i := 1; i <= 32; i++ {
-		hosts[fmt.Sprintf("node%d", i)] = []string{fmt.Sprintf("10.0.0.%d", i)}
-	}
-	return &fakeResolver{
-		hostname: fmt.Sprintf("node%d", n),
-		addrs:    []string{"127.0.0.1", fmt.Sprintf("10.0.0.%d", n)},
-		hosts:    hosts,
-	}
-}
-
-// counterIDs is a deterministic IDGenerator.
-type counterIDs struct{ n int }
-
-func (c *counterIDs) NewID() string { c.n++; return fmt.Sprintf("id-%03d", c.n) }
-
-func quietLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
-
-func newTestService(opts ...Option) Service {
-	return New(Deps{Hosts: newFakeResolver(), IDs: &counterIDs{}, Logger: quietLogger()}, opts...)
-}
 
 func TestNew_Defaults(t *testing.T) {
 	t.Parallel()
-	svc := New(Deps{})
+	svc := topology.New(topology.Deps{})
 	require.NotNil(t, svc)
 	layout, err := svc.Parse(context.Background(), []string{"/data"})
 	require.NoError(t, err)
 	assert.Equal(t, domain.ModeSNSD, layout.Mode)
-	impl, ok := svc.(*service)
-	require.True(t, ok)
-	assert.NotNil(t, impl.deps.Hosts)
-	assert.NotNil(t, impl.deps.IDs)
-	assert.NotNil(t, impl.deps.Logger)
-	assert.Equal(t, DefaultPort, impl.opts.defaultPort)
-	assert.Equal(t, DefaultPort, impl.opts.localPort)
-	assert.NotEmpty(t, NewUUIDGenerator().NewID())
+	hosts, ids, logger, defaultPort, localPort := topology.Defaults(svc)
+	assert.NotNil(t, hosts)
+	assert.NotNil(t, ids)
+	assert.NotNil(t, logger)
+	assert.Equal(t, topology.DefaultPort, defaultPort)
+	assert.Equal(t, topology.DefaultPort, localPort)
+	assert.NotEmpty(t, topology.NewUUIDGenerator().NewID())
 }
 
 // TM-03 / docs/08 §8.1: mode detection.
 func TestParse_ModeDetection(t *testing.T) {
 	t.Parallel()
-	svc := newTestService()
+	svc := newTestService(t)
 	ctx := context.Background()
 
 	t.Run("snsd", func(t *testing.T) {
@@ -185,57 +119,57 @@ func TestParse_ModeDetection(t *testing.T) {
 
 func TestParse_Errors(t *testing.T) {
 	t.Parallel()
-	svc := newTestService()
+	svc := newTestService(t)
 	ctx := context.Background()
 	tests := []struct {
 		name string
 		args []string
 		want error
 	}{
-		{"no args", nil, ErrNoEndpoints},
-		{"empty args", []string{}, ErrNoEndpoints},
-		{"empty arg", []string{""}, ErrInvalidEndpoint},
-		{"relative path", []string{"data"}, ErrRelativePath},
-		{"dot relative path", []string{"./data"}, ErrRelativePath},
-		{"host without scheme", []string{"node1:9000/data"}, ErrRelativePath},
-		{"root path", []string{"/"}, ErrRootPath},
-		{"root path via dots", []string{"/data/.."}, ErrRootPath},
-		{"root path in expansion", []string{"/data{1...2}", "/"}, ErrMixedEllipsis},
-		{"bad scheme", []string{"ftp://node1:9000/data"}, ErrInvalidScheme},
-		{"bad scheme ellipsis", []string{"ftp://node{1...4}:9000/data"}, ErrInvalidScheme},
-		{"url without path", []string{"http://node1:9000"}, ErrRootPath},
-		{"url root path", []string{"http://node1:9000/"}, ErrRootPath},
-		{"url user info", []string{"http://user:pw@node1:9000/data"}, ErrInvalidEndpoint},
-		{"url query", []string{"http://node1:9000/data?x=1"}, ErrInvalidEndpoint},
-		{"url fragment", []string{"http://node1:9000/data#x"}, ErrInvalidEndpoint},
-		{"url port too high", []string{"http://node1:99999/data"}, ErrInvalidEndpoint},
-		{"url port zero", []string{"http://node1:0/data"}, ErrInvalidEndpoint},
-		{"url missing host", []string{"http://:9000/data"}, ErrInvalidEndpoint},
-		{"url garbage", []string{"http://node1:abc/data"}, ErrInvalidEndpoint},
-		{"mixed path and url", []string{"/data", "http://node1:9000/data"}, ErrMixedEndpoints},
-		{"mixed path and url ellipsis", []string{"/data{1...2}", "http://node{1...2}:9000/d"}, ErrMixedEndpoints},
-		{"mixed http and https", []string{"http://node1:9000/data", "https://node2:9000/data"}, ErrMixedSchemes},
-		{"mixed http and https ellipsis", []string{"http://node{1...2}:9000/d{1...2}", "https://node{3...4}:9000/d{1...2}"}, ErrMixedSchemes},
-		{"mixed scheme case", []string{"HTTP://node1:9000/data", "https://node2:9000/data"}, ErrMixedSchemes},
-		{"duplicate path", []string{"/data", "/data"}, ErrDuplicateEndpoint},
-		{"duplicate after clean", []string{"/data/", "/data"}, ErrDuplicateEndpoint},
-		{"duplicate across pools", []string{"/data{1...4}", "/data{3...6}"}, ErrDuplicateEndpoint},
-		{"duplicate url case", []string{"http://Node1:9000/d1", "http://node1:9000/d1"}, ErrDuplicateEndpoint},
-		{"duplicate url default port", []string{"http://node1/d1", "http://node1:9000/d1"}, ErrDuplicateEndpoint},
-		{"invalid ellipsis", []string{"/data{1..4}"}, ErrInvalidEllipsis},
-		{"invalid ellipsis url", []string{"http://node{1...4}:9000/data{a...4}"}, ErrInvalidEllipsis},
-		{"too many", []string{"/data{1...70000}"}, ErrTooManyEndpoints},
-		{"mixed ellipsis and plain", []string{"/data{1...4}", "/extra"}, ErrMixedEllipsis},
-		{"prime drives", []string{"/data{1...17}"}, ErrInvalidSetSize},
-		{"prime nodes", []string{"http://node{1...17}:9000/data"}, ErrInvalidSetSize},
-		{"prime nodes many drives", []string{"http://node{1...17}:9000/data{1...16}"}, ErrInvalidSetSize},
-		{"second pool invalid", []string{"http://node{1...4}:9000/d{1...4}", "http://node{5...23}:9000/d"}, ErrInvalidSetSize},
-		{"asymmetric nodes", []string{"http://node1:9000/d1", "http://node1:9000/d2", "http://node1:9000/d3", "http://node2:9000/d1"}, ErrAsymmetricPool},
-		{"odd split", []string{"http://node1:9000/d1", "http://node2:9000/d1", "http://node2:9000/d2"}, ErrInvalidSetSize},
-		{"no local endpoint", []string{"http://node{2...5}:9000/data{1...4}"}, ErrNoLocalEndpoint},
-		{"wrong port for local", []string{"http://node1:9001/d1", "http://node2:9001/d1"}, ErrNoLocalEndpoint},
-		{"ambiguous local", []string{"http://node1:9000/d1", "http://localhost:9000/d2"}, ErrAmbiguousLocalNode},
-		{"ambiguous local alias", []string{"http://node1:9000/d1", "http://alias:9000/d1"}, ErrAmbiguousLocalNode},
+		{"no args", nil, topology.ErrNoEndpoints},
+		{"empty args", []string{}, topology.ErrNoEndpoints},
+		{"empty arg", []string{""}, topology.ErrInvalidEndpoint},
+		{"relative path", []string{"data"}, topology.ErrRelativePath},
+		{"dot relative path", []string{"./data"}, topology.ErrRelativePath},
+		{"host without scheme", []string{"node1:9000/data"}, topology.ErrRelativePath},
+		{"root path", []string{"/"}, topology.ErrRootPath},
+		{"root path via dots", []string{"/data/.."}, topology.ErrRootPath},
+		{"root path in expansion", []string{"/data{1...2}", "/"}, topology.ErrMixedEllipsis},
+		{"bad scheme", []string{"ftp://node1:9000/data"}, topology.ErrInvalidScheme},
+		{"bad scheme ellipsis", []string{"ftp://node{1...4}:9000/data"}, topology.ErrInvalidScheme},
+		{"url without path", []string{"http://node1:9000"}, topology.ErrRootPath},
+		{"url root path", []string{"http://node1:9000/"}, topology.ErrRootPath},
+		{"url user info", []string{"http://user:pw@node1:9000/data"}, topology.ErrInvalidEndpoint},
+		{"url query", []string{"http://node1:9000/data?x=1"}, topology.ErrInvalidEndpoint},
+		{"url fragment", []string{"http://node1:9000/data#x"}, topology.ErrInvalidEndpoint},
+		{"url port too high", []string{"http://node1:99999/data"}, topology.ErrInvalidEndpoint},
+		{"url port zero", []string{"http://node1:0/data"}, topology.ErrInvalidEndpoint},
+		{"url missing host", []string{"http://:9000/data"}, topology.ErrInvalidEndpoint},
+		{"url garbage", []string{"http://node1:abc/data"}, topology.ErrInvalidEndpoint},
+		{"mixed path and url", []string{"/data", "http://node1:9000/data"}, topology.ErrMixedEndpoints},
+		{"mixed path and url ellipsis", []string{"/data{1...2}", "http://node{1...2}:9000/d"}, topology.ErrMixedEndpoints},
+		{"mixed http and https", []string{"http://node1:9000/data", "https://node2:9000/data"}, topology.ErrMixedSchemes},
+		{"mixed http and https ellipsis", []string{"http://node{1...2}:9000/d{1...2}", "https://node{3...4}:9000/d{1...2}"}, topology.ErrMixedSchemes},
+		{"mixed scheme case", []string{"HTTP://node1:9000/data", "https://node2:9000/data"}, topology.ErrMixedSchemes},
+		{"duplicate path", []string{"/data", "/data"}, topology.ErrDuplicateEndpoint},
+		{"duplicate after clean", []string{"/data/", "/data"}, topology.ErrDuplicateEndpoint},
+		{"duplicate across pools", []string{"/data{1...4}", "/data{3...6}"}, topology.ErrDuplicateEndpoint},
+		{"duplicate url case", []string{"http://Node1:9000/d1", "http://node1:9000/d1"}, topology.ErrDuplicateEndpoint},
+		{"duplicate url default port", []string{"http://node1/d1", "http://node1:9000/d1"}, topology.ErrDuplicateEndpoint},
+		{"invalid ellipsis", []string{"/data{1..4}"}, topology.ErrInvalidEllipsis},
+		{"invalid ellipsis url", []string{"http://node{1...4}:9000/data{a...4}"}, topology.ErrInvalidEllipsis},
+		{"too many", []string{"/data{1...70000}"}, topology.ErrTooManyEndpoints},
+		{"mixed ellipsis and plain", []string{"/data{1...4}", "/extra"}, topology.ErrMixedEllipsis},
+		{"prime drives", []string{"/data{1...17}"}, topology.ErrInvalidSetSize},
+		{"prime nodes", []string{"http://node{1...17}:9000/data"}, topology.ErrInvalidSetSize},
+		{"prime nodes many drives", []string{"http://node{1...17}:9000/data{1...16}"}, topology.ErrInvalidSetSize},
+		{"second pool invalid", []string{"http://node{1...4}:9000/d{1...4}", "http://node{5...23}:9000/d"}, topology.ErrInvalidSetSize},
+		{"asymmetric nodes", []string{"http://node1:9000/d1", "http://node1:9000/d2", "http://node1:9000/d3", "http://node2:9000/d1"}, topology.ErrAsymmetricPool},
+		{"odd split", []string{"http://node1:9000/d1", "http://node2:9000/d1", "http://node2:9000/d2"}, topology.ErrInvalidSetSize},
+		{"no local endpoint", []string{"http://node{2...5}:9000/data{1...4}"}, topology.ErrNoLocalEndpoint},
+		{"wrong port for local", []string{"http://node1:9001/d1", "http://node2:9001/d1"}, topology.ErrNoLocalEndpoint},
+		{"ambiguous local", []string{"http://node1:9000/d1", "http://localhost:9000/d2"}, topology.ErrAmbiguousLocalNode},
+		{"ambiguous local alias", []string{"http://node1:9000/d1", "http://alias:9000/d1"}, topology.ErrAmbiguousLocalNode},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -252,62 +186,61 @@ func TestParse_Options(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("forced set size", func(t *testing.T) {
-		layout, err := newTestService(WithSetDriveCount(4)).Parse(ctx, []string{"/data{1...16}"})
+		layout, err := newTestService(t, topology.WithSetDriveCount(4)).Parse(ctx, []string{"/data{1...16}"})
 		require.NoError(t, err)
 		assert.Equal(t, 4, layout.Pools[0].SetCount)
 		assert.Equal(t, 4, layout.Pools[0].SetDriveCount)
 		assert.Equal(t, 2, layout.Pools[0].Parity)
 	})
 	t.Run("forced set size invalid", func(t *testing.T) {
-		_, err := newTestService(WithSetDriveCount(5)).Parse(ctx, []string{"/data{1...16}"})
-		assert.ErrorIs(t, err, ErrInvalidSetSize)
-		_, err = newTestService(WithSetDriveCount(8)).Parse(ctx, []string{"http://node{1...3}:9000/d{1...8}"})
-		assert.ErrorIs(t, err, ErrInvalidSetSize)
+		_, err := newTestService(t, topology.WithSetDriveCount(5)).Parse(ctx, []string{"/data{1...16}"})
+		assert.ErrorIs(t, err, topology.ErrInvalidSetSize)
+		_, err = newTestService(t, topology.WithSetDriveCount(8)).Parse(ctx, []string{"http://node{1...3}:9000/d{1...8}"})
+		assert.ErrorIs(t, err, topology.ErrInvalidSetSize)
 	})
 	t.Run("forced set size ignored for snsd", func(t *testing.T) {
-		layout, err := newTestService(WithSetDriveCount(4)).Parse(ctx, []string{"/data"})
+		layout, err := newTestService(t, topology.WithSetDriveCount(4)).Parse(ctx, []string{"/data"})
 		require.NoError(t, err)
 		assert.Equal(t, 1, layout.Pools[0].SetDriveCount)
 	})
 	t.Run("forced parity", func(t *testing.T) {
-		layout, err := newTestService(WithParity(3)).Parse(ctx, []string{"/data{1...8}"})
+		layout, err := newTestService(t, topology.WithParity(3)).Parse(ctx, []string{"/data{1...8}"})
 		require.NoError(t, err)
 		assert.Equal(t, 3, layout.Pools[0].Parity)
 		assert.Equal(t, 5, layout.Pools[0].DataShards())
 	})
 	t.Run("forced parity invalid", func(t *testing.T) {
-		_, err := newTestService(WithParity(5)).Parse(ctx, []string{"/data{1...8}"})
-		assert.ErrorIs(t, err, ErrInvalidParity)
-		_, err = newTestService(WithParity(0)).Parse(ctx, []string{"/data{1...8}"})
-		assert.ErrorIs(t, err, ErrInvalidParity)
+		_, err := newTestService(t, topology.WithParity(5)).Parse(ctx, []string{"/data{1...8}"})
+		assert.ErrorIs(t, err, topology.ErrInvalidParity)
+		_, err = newTestService(t, topology.WithParity(0)).Parse(ctx, []string{"/data{1...8}"})
+		assert.ErrorIs(t, err, topology.ErrInvalidParity)
 	})
 	t.Run("forced parity ignored for snsd", func(t *testing.T) {
-		layout, err := newTestService(WithParity(2)).Parse(ctx, []string{"/data"})
+		layout, err := newTestService(t, topology.WithParity(2)).Parse(ctx, []string{"/data"})
 		require.NoError(t, err)
 		assert.Equal(t, 0, layout.Pools[0].Parity)
 	})
 	t.Run("default port", func(t *testing.T) {
-		_, err := newTestService(WithDefaultPort(9100)).Parse(ctx, []string{"http://node{1...2}/d{1...2}"})
-		assert.ErrorIs(t, err, ErrNoLocalEndpoint, "local port still 9000")
+		_, err := newTestService(t, topology.WithDefaultPort(9100)).Parse(ctx, []string{"http://node{1...2}/d{1...2}"})
+		assert.ErrorIs(t, err, topology.ErrNoLocalEndpoint, "local port still 9000")
 
-		layout, err := newTestService(WithDefaultPort(9100), WithLocalPort(9100)).Parse(ctx, []string{"http://node{1...2}/d{1...2}"})
+		layout, err := newTestService(t, topology.WithDefaultPort(9100), topology.WithLocalPort(9100)).Parse(ctx, []string{"http://node{1...2}/d{1...2}"})
 		require.NoError(t, err)
 		for _, ep := range layout.Endpoints() {
-			assert.Equal(t, 9100, endpointPort(ep))
 			assert.Equal(t, "9100", ep.Port())
 		}
 		assert.Equal(t, "http://node1:9100/d1", layout.Pools[0].Endpoints[0].String())
 	})
 	t.Run("explicit port wins over default", func(t *testing.T) {
-		layout, err := newTestService(WithDefaultPort(9100)).Parse(ctx, []string{"http://node{1...2}:9000/d{1...2}"})
+		layout, err := newTestService(t, topology.WithDefaultPort(9100)).Parse(ctx, []string{"http://node{1...2}:9000/d{1...2}"})
 		require.NoError(t, err)
-		assert.Equal(t, 9000, endpointPort(layout.Pools[0].Endpoints[0]))
+		assert.Equal(t, "9000", layout.Pools[0].Endpoints[0].Port())
 	})
 }
 
 func TestParse_MultiPool(t *testing.T) {
 	t.Parallel()
-	svc := newTestService()
+	svc := newTestService(t)
 	layout, err := svc.Parse(context.Background(), []string{
 		"http://node{1...4}:9000/data{1...4}",
 		"http://node{5...8}:9000/data{1...8}",
@@ -334,7 +267,7 @@ func TestParse_MultiPool(t *testing.T) {
 	for s := 0; s < p1.SetCount; s++ {
 		perNode := map[string]int{}
 		for _, ep := range p1.Set(s) {
-			perNode[nodeKey(ep)]++
+			perNode[ep.Host]++
 		}
 		assert.Len(t, perNode, 4)
 		for _, c := range perNode {
@@ -348,7 +281,7 @@ func TestParse_MultiPool(t *testing.T) {
 
 func TestParse_SetsSpreadAcrossNodes(t *testing.T) {
 	t.Parallel()
-	svc := newTestService()
+	svc := newTestService(t)
 	ctx := context.Background()
 
 	t.Run("32 nodes x 1 drive -> 2 sets on distinct nodes", func(t *testing.T) {
@@ -419,8 +352,8 @@ func TestParse_SetsSpreadAcrossNodes(t *testing.T) {
 // TS-U-02: every topology from 1x1 to 32x32 nodes x drives.
 func TestParse_Matrix(t *testing.T) {
 	t.Parallel()
-	svc := newTestService()
-	other := New(Deps{Hosts: newFakeResolverFor(2), Logger: quietLogger()})
+	svc := newTestService(t)
+	other := topology.New(topology.Deps{Hosts: newResolver(t, nodeHost(2)), Logger: quietLogger()})
 	ctx := context.Background()
 
 	for nodes := 1; nodes <= 32; nodes++ {
@@ -440,8 +373,8 @@ func TestParse_Matrix(t *testing.T) {
 				total := nodes * drives
 
 				possible := false
-				for s := MinSetDriveCount; s <= MaxSetDriveCount; s++ {
-					if total%s == 0 && isSymmetric(s, nodes) {
+				for s := topology.MinSetDriveCount; s <= topology.MaxSetDriveCount; s++ {
+					if total%s == 0 && topology.IsSymmetric(s, nodes) {
 						possible = true
 					}
 				}
@@ -456,7 +389,7 @@ func TestParse_Matrix(t *testing.T) {
 				}
 				if !possible {
 					require.Error(t, err)
-					assert.ErrorIs(t, err, ErrInvalidSetSize)
+					assert.ErrorIs(t, err, topology.ErrInvalidSetSize)
 					return
 				}
 				require.NoError(t, err)
@@ -470,18 +403,18 @@ func TestParse_Matrix(t *testing.T) {
 				require.Len(t, layout.Nodes, nodes)
 				p := layout.Pools[0]
 				assert.Equal(t, nodes, p.NodeCount)
-				assert.GreaterOrEqual(t, p.SetDriveCount, MinSetDriveCount)
-				assert.LessOrEqual(t, p.SetDriveCount, MaxSetDriveCount)
+				assert.GreaterOrEqual(t, p.SetDriveCount, topology.MinSetDriveCount)
+				assert.LessOrEqual(t, p.SetDriveCount, topology.MaxSetDriveCount)
 				assert.Equal(t, total, p.SetCount*p.SetDriveCount)
 				assert.Equal(t, 0, total%p.SetDriveCount)
-				assert.True(t, isSymmetric(p.SetDriveCount, nodes))
-				assert.Equal(t, DefaultParity(p.SetDriveCount), p.Parity)
+				assert.True(t, topology.IsSymmetric(p.SetDriveCount, nodes))
+				assert.Equal(t, topology.DefaultParity(p.SetDriveCount), p.Parity)
 
 				// Symmetry: every set touches min(S, N) nodes with the same number of drives each.
 				for s := 0; s < p.SetCount; s++ {
 					perNode := map[string]int{}
 					for d, ep := range p.Set(s) {
-						perNode[nodeKey(ep)]++
+						perNode[ep.Host]++
 						assert.Equal(t, s, ep.SetIdx)
 						assert.Equal(t, d, ep.DiskIdx)
 					}
@@ -512,26 +445,12 @@ func TestParse_Matrix(t *testing.T) {
 }
 
 // mustParse builds an endpoint with domain.ParseEndpoint (not canonicalised).
-func mustParse(t *testing.T, raw string) domain.Endpoint {
-	t.Helper()
-	ep, err := domain.ParseEndpoint(raw)
-	require.NoError(t, err)
-	return ep
-}
-
-func mustLocalNode(t *testing.T, l *Layout) Node {
-	t.Helper()
-	n, ok := l.LocalNode()
-	require.True(t, ok)
-	return n
-}
-
 func TestIsLocal(t *testing.T) {
 	t.Parallel()
-	svc := newTestService()
+	svc := newTestService(t)
 	ctx := context.Background()
 	url := func(raw string) domain.Endpoint {
-		ep, err := svc.(*service).parseEndpoint(raw)
+		ep, err := topology.ParseEndpoint(svc, raw)
 		require.NoError(t, err)
 		return ep
 	}
@@ -573,9 +492,10 @@ func TestIsLocal_ResolverFailures(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("hostname error falls back to addresses", func(t *testing.T) {
-		r := newFakeResolver()
-		r.hostnameErr = errors.New("boom")
-		svc := New(Deps{Hosts: r, Logger: quietLogger()})
+		h := nodeHost(1)
+		h.hostnameErr = errors.New("boom")
+		r := newResolver(t, h)
+		svc := topology.New(topology.Deps{Hosts: r, Logger: quietLogger()})
 		local, err := svc.IsLocal(ctx, domain.Endpoint{Scheme: "http", Host: "10.0.0.1:9000", Path: "/d"})
 		require.NoError(t, err)
 		assert.True(t, local)
@@ -585,9 +505,10 @@ func TestIsLocal_ResolverFailures(t *testing.T) {
 	})
 
 	t.Run("interface error falls back to hostname", func(t *testing.T) {
-		r := newFakeResolver()
-		r.addrsErr = errors.New("boom")
-		svc := New(Deps{Hosts: r, Logger: quietLogger()})
+		h := nodeHost(1)
+		h.addrsErr = errors.New("boom")
+		r := newResolver(t, h)
+		svc := topology.New(topology.Deps{Hosts: r, Logger: quietLogger()})
 		local, err := svc.IsLocal(ctx, domain.Endpoint{Scheme: "http", Host: "node1:9000", Path: "/d"})
 		require.NoError(t, err)
 		assert.True(t, local)
@@ -597,8 +518,8 @@ func TestIsLocal_ResolverFailures(t *testing.T) {
 	})
 
 	t.Run("nothing known", func(t *testing.T) {
-		r := &fakeResolver{hostnameErr: errors.New("boom"), addrsErr: errors.New("boom")}
-		svc := New(Deps{Hosts: r, Logger: quietLogger()})
+		r := newResolver(t, host{hostnameErr: errors.New("boom"), addrsErr: errors.New("boom")})
+		svc := topology.New(topology.Deps{Hosts: r, Logger: quietLogger()})
 		local, err := svc.IsLocal(ctx, domain.Endpoint{Scheme: "http", Host: "node1:9000", Path: "/d"})
 		require.NoError(t, err)
 		assert.False(t, local)
@@ -606,11 +527,11 @@ func TestIsLocal_ResolverFailures(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, local)
 		_, err = svc.Parse(ctx, []string{"http://node{1...2}:9000/d"})
-		assert.ErrorIs(t, err, ErrNoLocalEndpoint)
+		assert.ErrorIs(t, err, topology.ErrNoLocalEndpoint)
 	})
 
 	t.Run("cancelled context", func(t *testing.T) {
-		svc := newTestService()
+		svc := newTestService(t)
 		cctx, cancel := context.WithCancel(ctx)
 		cancel()
 		_, err := svc.IsLocal(cctx, domain.Endpoint{Scheme: "http", Host: "nowhere:9000", Path: "/d"})
@@ -621,7 +542,7 @@ func TestIsLocal_ResolverFailures(t *testing.T) {
 func TestService_Formats(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	svc := newTestService()
+	svc := newTestService(t)
 
 	layout, err := svc.Parse(ctx, []string{"/data{1...4}"})
 	require.NoError(t, err)
@@ -633,7 +554,7 @@ func TestService_Formats(t *testing.T) {
 	for i, f := range formats {
 		require.NoError(t, f.Validate())
 		assert.Equal(t, "dep-1", f.ID)
-		assert.Equal(t, FormatModeErasure, f.Mode)
+		assert.Equal(t, topology.FormatModeErasure, f.Mode)
 		assert.Equal(t, 1, f.SetCount())
 		assert.Equal(t, 4, f.SetDriveCount())
 		set, disk, err := f.Position()
@@ -650,63 +571,63 @@ func TestService_Formats(t *testing.T) {
 	assert.Same(t, formats[0], ref)
 
 	t.Run("missing drive tolerated", func(t *testing.T) {
-		partial := append([]*FormatV1(nil), formats...)
+		partial := append([]*topology.FormatV1(nil), formats...)
 		partial[0] = nil
 		ref, err := svc.CheckFormats(ctx, layout, 0, partial)
 		require.NoError(t, err)
 		assert.Same(t, formats[1], ref)
 	})
 	t.Run("all missing", func(t *testing.T) {
-		_, err := svc.CheckFormats(ctx, layout, 0, make([]*FormatV1, 4))
-		assert.ErrorIs(t, err, ErrInvalidFormat)
+		_, err := svc.CheckFormats(ctx, layout, 0, make([]*topology.FormatV1, 4))
+		assert.ErrorIs(t, err, topology.ErrInvalidFormat)
 	})
 	t.Run("wrong count", func(t *testing.T) {
 		_, err := svc.CheckFormats(ctx, layout, 0, formats[:3])
-		assert.ErrorIs(t, err, ErrFormatLayoutMismatch)
+		assert.ErrorIs(t, err, topology.ErrFormatLayoutMismatch)
 	})
 	t.Run("different deployment", func(t *testing.T) {
 		foreign := formats[2].Clone()
 		foreign.ID = "dep-2"
-		mixed := append([]*FormatV1(nil), formats...)
+		mixed := append([]*topology.FormatV1(nil), formats...)
 		mixed[2] = foreign
 		_, err := svc.CheckFormats(ctx, layout, 0, mixed)
-		assert.ErrorIs(t, err, ErrFormatMismatch)
+		assert.ErrorIs(t, err, topology.ErrFormatMismatch)
 	})
 	t.Run("layout mismatch", func(t *testing.T) {
 		bigger, err := svc.Parse(ctx, []string{"/data{1...8}"})
 		require.NoError(t, err)
 		other, err := svc.NewFormats(ctx, bigger, 0, "dep-1")
 		require.NoError(t, err)
-		_, err = svc.CheckFormats(ctx, bigger, 0, append(append([]*FormatV1(nil), formats...), nil, nil, nil, nil))
-		assert.ErrorIs(t, err, ErrFormatLayoutMismatch, "drives formatted 1x4 used in a 1x8 pool")
+		_, err = svc.CheckFormats(ctx, bigger, 0, append(append([]*topology.FormatV1(nil), formats...), nil, nil, nil, nil))
+		assert.ErrorIs(t, err, topology.ErrFormatLayoutMismatch, "drives formatted 1x4 used in a 1x8 pool")
 		_, err = svc.CheckFormats(ctx, layout, 0, other[:4])
-		assert.ErrorIs(t, err, ErrFormatLayoutMismatch)
+		assert.ErrorIs(t, err, topology.ErrFormatLayoutMismatch)
 	})
 	t.Run("mode mismatch", func(t *testing.T) {
 		single, err := svc.Parse(ctx, []string{"/data"})
 		require.NoError(t, err)
 		_, err = svc.CheckFormats(ctx, single, 0, formats[:1])
-		assert.ErrorIs(t, err, ErrFormatModeMismatch)
+		assert.ErrorIs(t, err, topology.ErrFormatModeMismatch)
 
 		snsd, err := svc.NewFormats(ctx, single, 0, "dep-3")
 		require.NoError(t, err)
 		require.Len(t, snsd, 1)
-		assert.Equal(t, FormatModeSNSD, snsd[0].Mode)
+		assert.Equal(t, topology.FormatModeSNSD, snsd[0].Mode)
 		ref, err := svc.CheckFormats(ctx, single, 0, snsd)
 		require.NoError(t, err)
 		assert.Equal(t, "dep-3", ref.ID)
 	})
 	t.Run("pool index", func(t *testing.T) {
 		_, err := svc.NewFormats(ctx, layout, 1, "dep-1")
-		assert.ErrorIs(t, err, ErrInvalidLayout)
+		assert.ErrorIs(t, err, topology.ErrInvalidLayout)
 		_, err = svc.CheckFormats(ctx, layout, -1, formats)
-		assert.ErrorIs(t, err, ErrInvalidLayout)
+		assert.ErrorIs(t, err, topology.ErrInvalidLayout)
 		_, err = svc.NewFormats(ctx, nil, 0, "dep-1")
-		assert.ErrorIs(t, err, ErrInvalidLayout)
+		assert.ErrorIs(t, err, topology.ErrInvalidLayout)
 	})
 	t.Run("empty deployment id", func(t *testing.T) {
 		_, err := svc.NewFormats(ctx, layout, 0, "")
-		assert.ErrorIs(t, err, ErrInvalidFormat)
+		assert.ErrorIs(t, err, topology.ErrInvalidFormat)
 	})
 	t.Run("multi pool", func(t *testing.T) {
 		cluster, err := svc.Parse(ctx, []string{"http://node{1...4}:9000/d{1...4}", "http://node{5...8}:9000/d{1...8}"})
@@ -723,7 +644,7 @@ func TestService_Formats(t *testing.T) {
 		_, err = svc.CheckFormats(ctx, cluster, 1, f1)
 		require.NoError(t, err)
 		_, err = svc.CheckFormats(ctx, cluster, 0, f1[:16])
-		assert.ErrorIs(t, err, ErrFormatLayoutMismatch)
+		assert.ErrorIs(t, err, topology.ErrFormatLayoutMismatch)
 	})
 }
 
@@ -731,7 +652,7 @@ func TestService_Formats(t *testing.T) {
 // codes, dry-run reports) can treat them uniformly.
 func TestParse_ErrorsWrapInvalidArgument(t *testing.T) {
 	t.Parallel()
-	svc := newTestService()
+	svc := newTestService(t)
 	for _, args := range [][]string{
 		nil, {"data"}, {"/"}, {"/data{1..4}"}, {"/data", "/data"}, {"/data{1...17}"},
 		{"ftp://node1:9000/d"}, {"/data", "http://node1:9000/d"}, {"http://node{2...5}:9000/d"},
@@ -742,6 +663,6 @@ func TestParse_ErrorsWrapInvalidArgument(t *testing.T) {
 		assert.ErrorIs(t, err, domain.ErrInvalidArgument, "%v: %v", args, err)
 	}
 	// Layout and format consistency errors are not argument errors.
-	assert.NotErrorIs(t, ErrInvalidLayout, domain.ErrInvalidArgument)
-	assert.NotErrorIs(t, ErrFormatMismatch, domain.ErrInvalidArgument)
+	assert.NotErrorIs(t, topology.ErrInvalidLayout, domain.ErrInvalidArgument)
+	assert.NotErrorIs(t, topology.ErrFormatMismatch, domain.ErrInvalidArgument)
 }

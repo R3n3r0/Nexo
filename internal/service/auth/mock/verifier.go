@@ -86,6 +86,65 @@ func (_c *Verifier_Verify_Call) RunAndReturn(run func(context.Context, *http.Req
 	return _c
 }
 
+// VerifyBearerToken provides a mock function with given fields: ctx, token
+func (_m *Verifier) VerifyBearerToken(ctx context.Context, token string) (*domain.Identity, error) {
+	ret := _m.Called(ctx, token)
+
+	if len(ret) == 0 {
+		panic("no return value specified for VerifyBearerToken")
+	}
+
+	var r0 *domain.Identity
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*domain.Identity, error)); ok {
+		return rf(ctx, token)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *domain.Identity); ok {
+		r0 = rf(ctx, token)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*domain.Identity)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, token)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Verifier_VerifyBearerToken_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'VerifyBearerToken'
+type Verifier_VerifyBearerToken_Call struct {
+	*mock.Call
+}
+
+// VerifyBearerToken is a helper method to define mock.On call
+//   - ctx context.Context
+//   - token string
+func (_e *Verifier_Expecter) VerifyBearerToken(ctx interface{}, token interface{}) *Verifier_VerifyBearerToken_Call {
+	return &Verifier_VerifyBearerToken_Call{Call: _e.mock.On("VerifyBearerToken", ctx, token)}
+}
+
+func (_c *Verifier_VerifyBearerToken_Call) Run(run func(ctx context.Context, token string)) *Verifier_VerifyBearerToken_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *Verifier_VerifyBearerToken_Call) Return(_a0 *domain.Identity, _a1 error) *Verifier_VerifyBearerToken_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Verifier_VerifyBearerToken_Call) RunAndReturn(run func(context.Context, string) (*domain.Identity, error)) *Verifier_VerifyBearerToken_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // VerifyPostPolicy provides a mock function with given fields: ctx, form
 func (_m *Verifier) VerifyPostPolicy(ctx context.Context, form auth.PostForm) (*domain.Identity, *auth.PostPolicy, error) {
 	ret := _m.Called(ctx, form)

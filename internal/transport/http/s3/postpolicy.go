@@ -2,33 +2,53 @@ package s3
 
 import (
 	"errors"
-	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/auth"
-	"github.com/r3n3r0/nexo/internal/service/bucket"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
 )
 
-// maxPostFieldSize bounds every non-file form field of a POST upload.
-const maxPostFieldSize = 64 << 10
+// Limits of the form fields of a POST upload (the file excluded).
+const (
+	maxPostFieldSize = 64 << 10
+	maxPostFormSize  = 1 << 20
+)
 
-// PostPolicyDeps are the dependencies of the POST policy routes.
+// Form fields with a meaning for the POST upload itself.
+const (
+	postFieldFile            = "file"
+	postFieldPolicy          = "policy"
+	postFieldSignature       = "x-amz-signature"
+	postFieldCredential      = "x-amz-credential"
+	postFieldACL             = "acl"
+	postFieldTagging         = "tagging"
+	postFieldSuccessStatus   = "success_action_status"
+	postFieldSuccessRedirect = "success_action_redirect"
+	postFieldRedirect        = "redirect"
+)
+
+// PostPolicyDeps are the dependencies of the POST policy routes. Verifier,
+// Objects and Policy (which resolves the bucket policies itself) are
+// required: without them PostObject answers NotImplemented.
 type PostPolicyDeps struct {
 	Verifier auth.Verifier
 	Objects  object.Service
-	Buckets  bucket.Service
 	Policy   policy.Service
 	Enc      httpx.Codec
+	Clock    clock.Clock
+	Logger   *slog.Logger
 }
 
 type postPolicyRoutes struct {
@@ -39,148 +59,236 @@ type postPolicyRoutes struct {
 var _ PostPolicyRoutes = (*postPolicyRoutes)(nil)
 
 // NewPostPolicyRoutes returns the POST policy route group.
-func NewPostPolicyRoutes(deps PostPolicyDeps) PostPolicyRoutes {
+func NewPostPolicyRoutes(deps PostPolicyDeps, _ ...Option) PostPolicyRoutes {
 	if deps.Enc == nil {
 		deps.Enc = httpx.New()
 	}
-	return &postPolicyRoutes{deps: deps, authz: authorizer{policy: deps.Policy, buckets: deps.Buckets, enc: deps.Enc}}
+	if deps.Clock == nil {
+		deps.Clock = clock.NewReal()
+	}
+	if deps.Logger == nil {
+		deps.Logger = slog.Default()
+	}
+	return &postPolicyRoutes{deps: deps, authz: authorizer{policy: deps.Policy, enc: deps.Enc, clock: deps.Clock}}
 }
 
 // postObjectOperation is the browser upload: POST on the bucket without a
 // discriminating query (DeleteObjects uses ?delete).
 func postObjectOperation() Operation {
-	return Operation{Name: "PostObject", Method: "POST", Scope: ScopeBucket}
+	return Operation{Name: "PostObject", Method: http.MethodPost, Scope: ScopeBucket}
 }
 
 // Mount implements Group.
 func (h *postPolicyRoutes) Mount(d Dispatcher) {
-	if h.deps.Objects == nil || h.deps.Verifier == nil {
-		d.Handle(postObjectOperation(), notImplemented(h.deps.Enc, "PostObject"))
-		return
-	}
-	d.Handle(postObjectOperation(), h.postObject)
+	available := h.deps.Verifier != nil && h.deps.Objects != nil && h.deps.Policy != nil
+	mountAll(d, h.deps.Enc, map[Operation]http.HandlerFunc{postObjectOperation(): h.postObject}, available)
 }
 
 // Register implements Routes.
 func (h *postPolicyRoutes) Register(r chi.Router) { registerStandalone(r, h.deps.Enc, h) }
 
-// postObject parses the multipart form (fields first, then the file),
-// verifies the policy and stores the object.
+func (h *postPolicyRoutes) fail(w http.ResponseWriter, r *http.Request, err error) {
+	h.deps.Enc.WriteS3Error(w, r, err)
+}
+
+func malformedPost(message string) error {
+	return domain.NewS3Error(domain.ErrInvalidArgument, "MalformedPOSTRequest", message)
+}
+
+// postObject reads the form fields (the file must be the last field),
+// authenticates the policy, authorizes the signer and streams the file to
+// the object layer, which enforces the content-length-range of the policy
+// while it reads.
 func (h *postPolicyRoutes) postObject(w http.ResponseWriter, r *http.Request) {
 	bucketName := BucketName(r)
-	mr, err := r.MultipartReader()
+	form, file, err := readPostForm(r, bucketName)
 	if err != nil {
-		h.deps.Enc.WriteS3Error(w, r, domain.NewS3Error(domain.ErrInvalidArgument, "MalformedPOSTRequest", "The body of your POST request is not well-formed multipart/form-data."))
+		h.fail(w, r, err)
 		return
 	}
-	form := auth.PostForm{Bucket: bucketName, Fields: map[string]string{}}
-	var file *multipart.Part
-	for {
-		part, err := mr.NextPart()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			h.deps.Enc.WriteS3Error(w, r, domain.NewS3Error(domain.ErrInvalidArgument, "MalformedPOSTRequest", "The body of your POST request is not well-formed multipart/form-data."))
-			return
-		}
-		name := strings.ToLower(part.FormName())
-		if name == "file" {
-			file = part
-			form.FileName = part.FileName()
-			break // the file must be the last field
-		}
-		value, err := io.ReadAll(io.LimitReader(part, maxPostFieldSize+1))
-		if err != nil || len(value) > maxPostFieldSize {
-			h.deps.Enc.WriteS3Error(w, r, domain.NewS3Error(domain.ErrInvalidArgument, "MalformedPOSTRequest", "A form field is too large."))
-			return
-		}
-		form.Fields[name] = string(value)
-	}
-	if file == nil {
-		h.deps.Enc.WriteS3Error(w, r, domain.NewS3Error(domain.ErrInvalidArgument, "InvalidArgument", "POST requires a file field."))
-		return
-	}
-	id, postPolicy, err := h.deps.Verifier.VerifyPostPolicy(r.Context(), form)
+	id, postPolicy, err := h.authenticate(r, form)
 	if err != nil {
-		h.deps.Enc.WriteS3Error(w, r, err)
+		h.fail(w, r, err)
 		return
 	}
 	r = r.WithContext(middleware.WithIdentity(r.Context(), id))
-	key := strings.ReplaceAll(form.Fields["key"], "${filename}", form.FileName)
-	if key == "" {
-		h.deps.Enc.WriteS3Error(w, r, domain.NewS3Error(domain.ErrInvalidArgument, "InvalidArgument", "Bucket POST must contain a field named 'key'."))
+	// The key the policy conditions were verified against (anonymous
+	// uploads use the same substitution).
+	key := form.ObjectKey()
+	switch {
+	case key == "":
+		h.fail(w, r, invalidArgument("Bucket POST must contain a field named 'key'."))
+		return
+	case len(key) > domain.MaxObjectKeyLength:
+		h.fail(w, r, domain.NewS3Error(domain.ErrInvalidObjectName, "KeyTooLongError", "Your key is too long."))
 		return
 	}
-	if !h.authz.authorize(w, r, policy.ActionPutObject, bucketName, key) {
+	if !h.authz.authorize(w, r, bucketName, key) {
 		return
 	}
+	in, err := h.postInput(form, bucketName, key, file)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if lo, hi, ok := postPolicy.LengthRange(); ok {
+		in.LengthRange = &object.LengthRange{Min: lo, Max: hi}
+	}
+	info, err := h.deps.Objects.PutObject(r.Context(), in)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	h.respond(w, r, form, bucketName, key, info)
+}
 
-	// Bound the upload by the policy's content-length-range when present.
-	var body io.Reader = file
-	_, maxSize, hasRange := postPolicy.LengthRange()
-	if hasRange {
-		body = io.LimitReader(file, maxSize+1)
+// readPostForm reads the form fields up to the file, which is left
+// unread for streaming.
+func readPostForm(r *http.Request, bucketName string) (auth.PostForm, *multipart.Part, error) {
+	mr, err := r.MultipartReader()
+	if err != nil {
+		return auth.PostForm{}, nil, malformedPost("Bucket POST must be of the enclosure-type multipart/form-data.")
 	}
-	meta := map[string]string{}
-	tags := map[string]string{}
-	for name, value := range form.Fields {
-		switch {
-		case strings.HasPrefix(name, "x-amz-meta-"):
-			meta[strings.TrimPrefix(name, "x-amz-meta-")] = value
-		case name == "cache-control", name == "content-disposition", name == "content-encoding", name == "expires":
-			meta[name] = value
+	form := auth.PostForm{Bucket: bucketName, Fields: map[string]string{}}
+	total := 0
+	for {
+		part, err := mr.NextPart()
+		if errors.Is(err, io.EOF) {
+			return auth.PostForm{}, nil, invalidArgument("POST requires exactly one file upload per request.")
+		}
+		if err != nil {
+			return auth.PostForm{}, nil, malformedPost("The body of your POST request is not well-formed multipart/form-data.")
+		}
+		name := strings.ToLower(part.FormName())
+		if name == postFieldFile {
+			form.FileName = baseName(part.FileName())
+			return form, part, nil
+		}
+		value, err := io.ReadAll(io.LimitReader(part, maxPostFieldSize+1))
+		if err != nil {
+			return auth.PostForm{}, nil, malformedPost("The body of your POST request is not well-formed multipart/form-data.")
+		}
+		total += len(name) + len(value)
+		if len(value) > maxPostFieldSize || total > maxPostFormSize {
+			return auth.PostForm{}, nil, domain.NewS3Error(domain.ErrInvalidArgument, "MaxMessageLengthExceeded", "The form fields of your POST request are too large.")
+		}
+		if name != "" {
+			form.Fields[name] = string(value)
 		}
 	}
-	if tagging := form.Fields["tagging"]; tagging != "" {
+}
+
+// baseName strips the directories some browsers send with a file name.
+func baseName(name string) string {
+	if i := strings.LastIndexAny(name, `/\`); i >= 0 {
+		return name[i+1:]
+	}
+	return name
+}
+
+// authenticate verifies the signed policy. A form without policy nor
+// signature is an anonymous upload (allowed by a bucket policy, if any).
+func (h *postPolicyRoutes) authenticate(r *http.Request, form auth.PostForm) (*domain.Identity, *auth.PostPolicy, error) {
+	if form.Fields[postFieldPolicy] == "" && form.Fields[postFieldSignature] == "" && form.Fields[postFieldCredential] == "" {
+		return identityOf(r), nil, nil
+	}
+	id, p, err := h.deps.Verifier.VerifyPostPolicy(r.Context(), form)
+	if err != nil {
+		return nil, nil, err
+	}
+	if id == nil {
+		id = domain.Anonymous()
+	}
+	return id, p, nil
+}
+
+// postInput maps the form fields to the PutObject input: they follow the
+// rules of the request headers (metadata, unsupported features).
+func (h *postPolicyRoutes) postInput(form auth.PostForm, bucketName, key string, file io.Reader) (object.PutObjectInput, error) {
+	hdr := http.Header{}
+	for name, value := range form.Fields {
+		if name == postFieldACL {
+			name = httpx.HeaderAmzACL
+		}
+		hdr.Set(name, value)
+	}
+	if err := checkUnsupportedHeaders(hdr); err != nil {
+		return object.PutObjectInput{}, err
+	}
+	meta, err := metadataFromHeaders(hdr)
+	if err != nil {
+		return object.PutObjectInput{}, err
+	}
+	storageClass := hdr.Get(httpx.HeaderAmzStorageClass)
+	if err := checkStorageClass(storageClass); err != nil {
+		return object.PutObjectInput{}, err
+	}
+	checksum, err := checksumFromHeaders(hdr)
+	if err != nil {
+		return object.PutObjectInput{}, err
+	}
+	var tags map[string]string
+	if tagging := form.Fields[postFieldTagging]; tagging != "" {
 		var doc taggingRequest
 		if err := h.deps.Enc.DecodeXML(strings.NewReader(tagging), maxXMLBody, &doc); err != nil {
-			h.deps.Enc.WriteS3Error(w, r, err)
-			return
+			return object.PutObjectInput{}, err
 		}
 		if tags, err = tagsFromXML(doc.TagSet); err != nil {
-			h.deps.Enc.WriteS3Error(w, r, err)
-			return
+			return object.PutObjectInput{}, err
 		}
 	}
-	info, err := h.deps.Objects.PutObject(r.Context(), object.PutObjectInput{
-		Bucket: bucketName, Key: key, Reader: body, Size: -1,
-		ContentType: form.Fields["content-type"], UserMetadata: meta, Tags: tags,
-		StorageClass: form.Fields["x-amz-storage-class"],
-	})
-	if err != nil {
-		h.deps.Enc.WriteS3Error(w, r, err)
-		return
-	}
-	if err := postPolicy.CheckLength(info.Size); err != nil {
-		_, _ = h.deps.Objects.DeleteObject(r.Context(), bucketName, key, object.DeleteObjectOptions{VersionID: info.VersionID})
-		h.deps.Enc.WriteS3Error(w, r, err)
-		return
-	}
+	return object.PutObjectInput{
+		Bucket: bucketName, Key: key, Reader: file, Size: -1, Checksum: checksum,
+		ContentType: meta.contentType, ContentEncoding: meta.contentEncoding, ContentDisposition: meta.contentDisposition,
+		ContentLanguage: meta.contentLanguage, CacheControl: meta.cacheControl, Expires: meta.expires,
+		UserMetadata: meta.user, Tags: tags, StorageClass: storageClass,
+	}, nil
+}
 
-	location := fmt.Sprintf("%s://%s/%s/%s", scheme(r), r.Host, bucketName, key)
-	w.Header().Set("ETag", quoteETag(info.ETag))
+// respond answers a successful upload: a 303 to success_action_redirect
+// (with bucket, key and etag in its query), else the status of
+// success_action_status (201 carries a PostResponse document), else 204.
+func (h *postPolicyRoutes) respond(w http.ResponseWriter, r *http.Request, form auth.PostForm, bucketName, key string, info domain.ObjectInfo) {
+	location := objectURL(r, bucketName, key)
+	etag := quoteETag(info.ETag)
+	w.Header().Set("ETag", etag)
 	w.Header().Set("Location", location)
 	if info.VersionID != "" {
 		w.Header().Set(httpx.HeaderAmzVersionID, info.VersionID)
 	}
-	if redirect := form.Fields["success_action_redirect"]; redirect != "" {
-		http.Redirect(w, r, redirect, http.StatusSeeOther)
+	if redirect, ok := successRedirect(form.Fields, bucketName, key, etag); ok {
+		w.Header().Set("Location", redirect)
+		w.WriteHeader(http.StatusSeeOther)
 		return
 	}
-	switch form.Fields["success_action_status"] {
+	switch form.Fields[postFieldSuccessStatus] {
 	case "200":
 		w.WriteHeader(http.StatusOK)
 	case "201":
-		h.deps.Enc.WriteXML(w, http.StatusCreated, PostResponse{Location: location, Bucket: bucketName, Key: key, ETag: quoteETag(info.ETag)})
+		h.deps.Enc.WriteXML(w, http.StatusCreated, PostResponse{Location: location, Bucket: bucketName, Key: key, ETag: etag})
 	default:
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
-func scheme(r *http.Request) string {
-	if r.TLS != nil {
-		return "https"
+// successRedirect builds the redirect of a successful upload; a missing or
+// invalid (non http/https) URL is ignored, as S3 does.
+func successRedirect(fields map[string]string, bucketName, key, etag string) (string, bool) {
+	raw := fields[postFieldSuccessRedirect]
+	if raw == "" {
+		raw = fields[postFieldRedirect]
 	}
-	return "http"
+	if raw == "" {
+		return "", false
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return "", false
+	}
+	q := u.Query()
+	q.Set("bucket", bucketName)
+	q.Set("key", key)
+	q.Set("etag", etag)
+	u.RawQuery = q.Encode()
+	return u.String(), true
 }

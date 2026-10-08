@@ -1,4 +1,4 @@
-package health
+package health_test
 
 import (
 	"context"
@@ -6,10 +6,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/r3n3r0/nexo/internal/service/health"
 )
 
 func TestLiveAlwaysOK(t *testing.T) {
-	s := New(Deps{})
+	s := health.New(health.Deps{})
 	st := s.Live(context.Background())
 	assert.True(t, st.OK)
 	assert.Equal(t, "ok", st.Status)
@@ -17,7 +19,7 @@ func TestLiveAlwaysOK(t *testing.T) {
 
 func TestReadyAggregatesChecks(t *testing.T) {
 	ready := true
-	s := New(Deps{Readiness: map[string]Check{
+	s := health.New(health.Deps{Readiness: map[string]health.Check{
 		"storage": func(context.Context) error {
 			if ready {
 				return nil
@@ -39,14 +41,14 @@ func TestReadyAggregatesChecks(t *testing.T) {
 }
 
 func TestClusterDefaultsAndCustom(t *testing.T) {
-	s := New(Deps{})
+	s := health.New(health.Deps{})
 	cs := s.Cluster(context.Background())
 	assert.True(t, cs.OK)
 	assert.Equal(t, 1, cs.Nodes)
 	assert.True(t, cs.WriteQuorum)
 
-	custom := New(Deps{Cluster: func(context.Context) ClusterStatus {
-		return ClusterStatus{Status: Status{OK: false, Status: "degraded"}, Nodes: 4, NodesOnline: 3}
+	custom := health.New(health.Deps{Cluster: func(context.Context) health.ClusterStatus {
+		return health.ClusterStatus{Status: health.Status{OK: false, Status: "degraded"}, Nodes: 4, NodesOnline: 3}
 	}})
 	cs = custom.Cluster(context.Background())
 	assert.False(t, cs.OK)

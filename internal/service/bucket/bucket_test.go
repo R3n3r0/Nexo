@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -18,83 +19,84 @@ import (
 	bucketmock "github.com/r3n3r0/nexo/internal/service/bucket/mock"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	objectmock "github.com/r3n3r0/nexo/internal/service/object/mock"
+	policymock "github.com/r3n3r0/nexo/internal/service/policy/mock"
+	"github.com/r3n3r0/nexo/internal/service/storage"
+	"github.com/r3n3r0/nexo/internal/testutil"
 )
 
-// memStore is an in-memory MetadataStore used by the service tests; the
-// drive-backed store has its own tests.
-type memStore struct {
-	docs map[string]*bucket.Metadata
+// newDriveStore returns the real drive-backed metadata store over one
+// temporary drive: the service tests exercise the persisted documents
+// end to end (integration with the real implementation, no hand-written
+// fake).
+func newDriveStore(t *testing.T) bucket.MetadataStore {
+	t.Helper()
+	drive := testutil.NewLocalDrive(t, filepath.Join(t.TempDir(), "d1"))
+	store, err := bucket.NewStore(bucket.StoreDeps{Drives: []storage.StorageAPI{drive}, Logger: slog.New(slog.DiscardHandler)})
+	require.NoError(t, err)
+	return store
 }
 
-func newMemStore() *memStore { return &memStore{docs: map[string]*bucket.Metadata{}} }
-
-// cloneMeta deep-copies a document through its JSON form.
-func cloneMeta(m *bucket.Metadata) *bucket.Metadata {
-	data, _ := json.Marshal(m)
-	var out bucket.Metadata
-	_ = json.Unmarshal(data, &out)
-	return &out
+// doc loads the persisted metadata of a bucket.
+func doc(t *testing.T, store bucket.MetadataStore, name string) *bucket.Metadata {
+	t.Helper()
+	m, err := store.Load(context.Background(), name)
+	require.NoError(t, err)
+	return m
 }
 
-func (m *memStore) Load(_ context.Context, name string) (*bucket.Metadata, error) {
-	if d, ok := m.docs[name]; ok {
-		return cloneMeta(d), nil
-	}
-	return &bucket.Metadata{Name: name}, nil
-}
-
-func (m *memStore) Save(_ context.Context, name string, d *bucket.Metadata) error {
-	m.docs[name] = cloneMeta(d)
-	return nil
-}
-
-func (m *memStore) Delete(_ context.Context, name string) error {
-	delete(m.docs, name)
-	return nil
-}
-
-func (m *memStore) BucketConfig(ctx context.Context, name string) (object.BucketConfig, error) {
-	d, _ := m.Load(ctx, name)
-	return object.BucketConfig{Versioning: d.Versioning, ObjectLock: d.ObjectLock.Enabled, QuotaBytes: d.Quota.Size}, nil
-}
-
-func newService(t *testing.T) (bucket.Service, *objectmock.Service, *memStore, *clock.Fake) {
+func newService(t *testing.T) (bucket.Service, *objectmock.Service, bucket.MetadataStore, *policymock.Service, *clock.Fake) {
 	t.Helper()
 	objects := objectmock.NewService(t)
-	store := newMemStore()
+	policies := policymock.NewService(t)
+	store := newDriveStore(t)
 	clk := clock.NewFake(time.Date(2026, 10, 8, 9, 0, 0, 0, time.UTC))
-	svc, err := bucket.New(bucket.Deps{Objects: objects, Store: store, Clock: clk, Logger: slog.New(slog.DiscardHandler)}, bucket.WithRegion("eu-south-1"))
+	svc, err := bucket.New(bucket.Deps{Objects: objects, Store: store, Policy: policies, Clock: clk, Logger: slog.New(slog.DiscardHandler)}, bucket.WithRegion("eu-south-1"))
 	require.NoError(t, err)
-	return svc, objects, store, clk
+	return svc, objects, store, policies, clk
 }
 
 func TestNewRequiresDeps(t *testing.T) {
-	_, err := bucket.New(bucket.Deps{})
-	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
-	_, err = bucket.New(bucket.Deps{Objects: objectmock.NewService(t)})
-	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
-	_, err = bucket.New(bucket.Deps{Store: newMemStore()})
-	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
+	tests := []struct {
+		name string
+		deps bucket.Deps
+	}{
+		{"nothing", bucket.Deps{}},
+		{"no store", bucket.Deps{Objects: objectmock.NewService(t), Policy: policymock.NewService(t)}},
+		{"no objects", bucket.Deps{Store: bucketmock.NewMetadataStore(t), Policy: policymock.NewService(t)}},
+		{"no policy", bucket.Deps{Objects: objectmock.NewService(t), Store: bucketmock.NewMetadataStore(t)}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := bucket.New(tt.deps)
+			assert.ErrorIs(t, err, domain.ErrInvalidArgument)
+		})
+	}
 }
 
 func TestCreateGetListDelete(t *testing.T) {
 	ctx := context.Background()
-	svc, objects, store, clk := newService(t)
+	svc, objects, store, _, clk := newService(t)
 
+	// The creation time is the one the object layer recorded.
+	recorded := clk.Now().Add(-time.Second)
 	objects.EXPECT().MakeBucket(ctx, "photos", object.MakeBucketOptions{Region: "eu-south-1"}).Return(nil).Once()
+	objects.EXPECT().GetBucketInfo(ctx, "photos").Return(domain.BucketInfo{Bucket: domain.Bucket{Name: "photos", Created: recorded}}, nil).Once()
 	b, err := svc.Create(ctx, bucket.CreateInput{Name: "photos"})
 	require.NoError(t, err)
 	assert.Equal(t, "photos", b.Name)
 	assert.Equal(t, "eu-south-1", b.Region)
-	assert.Equal(t, clk.Now(), b.Created)
-	assert.Equal(t, domain.VersioningOff, store.docs["photos"].Versioning)
+	assert.Equal(t, recorded, b.Created)
+	assert.Equal(t, domain.VersioningOff, doc(t, store, "photos").Versioning)
+	assert.Equal(t, recorded, doc(t, store, "photos").Created)
 
-	// Object lock implies versioning.
+	// Object lock implies versioning; without a recorded time the clock is used.
 	objects.EXPECT().MakeBucket(ctx, "locked", object.MakeBucketOptions{Region: "us-west-2", LockEnabled: true, Versioning: domain.VersioningEnabled}).Return(nil).Once()
-	_, err = svc.Create(ctx, bucket.CreateInput{Name: "locked", Region: "us-west-2", ObjectLock: true})
+	objects.EXPECT().GetBucketInfo(ctx, "locked").Return(domain.BucketInfo{}, domain.ErrFaultyDisk).Once()
+	b, err = svc.Create(ctx, bucket.CreateInput{Name: "locked", Region: "us-west-2", ObjectLock: true})
 	require.NoError(t, err)
-	assert.Equal(t, domain.VersioningEnabled, store.docs["locked"].Versioning)
-	assert.True(t, store.docs["locked"].ObjectLock.Enabled)
+	assert.Equal(t, clk.Now(), b.Created)
+	assert.Equal(t, domain.VersioningEnabled, doc(t, store, "locked").Versioning)
+	assert.True(t, doc(t, store, "locked").ObjectLock.Enabled)
 	cfg, err := store.BucketConfig(ctx, "locked")
 	require.NoError(t, err)
 	assert.True(t, cfg.ObjectLock)
@@ -102,19 +104,25 @@ func TestCreateGetListDelete(t *testing.T) {
 	// Errors from the object layer and invalid names propagate.
 	_, err = svc.Create(ctx, bucket.CreateInput{Name: "x"})
 	assert.ErrorIs(t, err, domain.ErrInvalidBucketName)
+	// "nexo" is a valid S3 name reserved for the /nexo/ health and metrics
+	// paths: the object layer is never asked to create it.
+	_, err = svc.Create(ctx, bucket.CreateInput{Name: domain.ReservedBucket})
+	assert.ErrorIs(t, err, domain.ErrInvalidBucketName)
 	objects.EXPECT().MakeBucket(ctx, "photos", mock.Anything).Return(domain.ErrBucketAlreadyExists).Once()
 	_, err = svc.Create(ctx, bucket.CreateInput{Name: "photos"})
 	assert.ErrorIs(t, err, domain.ErrBucketAlreadyExists)
 
 	// Get merges the stored configuration.
-	store.docs["photos"].Quota = bucket.Quota{Type: bucket.QuotaHard, Size: 42}
-	store.docs["photos"].Tags = map[string]string{"team": "a"}
+	photos := doc(t, store, "photos")
+	photos.Quota = bucket.Quota{Type: bucket.QuotaHard, Size: 42}
+	photos.Tags = map[string]string{"team": "a"}
+	require.NoError(t, store.Save(ctx, "photos", photos))
 	objects.EXPECT().GetBucketInfo(ctx, "photos").Return(domain.BucketInfo{Bucket: domain.Bucket{Name: "photos", Created: clk.Now().Add(-time.Hour)}, Objects: 3}, nil).Once()
 	info, err := svc.Get(ctx, "photos")
 	require.NoError(t, err)
 	assert.Equal(t, uint64(42), info.QuotaBytes)
 	assert.Equal(t, "eu-south-1", info.Region)
-	assert.Equal(t, clk.Now(), info.Created, "the stored creation time wins")
+	assert.Equal(t, recorded, info.Created, "the stored creation time wins")
 	assert.Equal(t, uint64(3), info.Objects)
 	assert.Equal(t, map[string]string{"team": "a"}, info.Tags)
 	objects.EXPECT().GetBucketInfo(ctx, "missing").Return(domain.BucketInfo{}, domain.ErrBucketNotFound).Once()
@@ -138,20 +146,29 @@ func TestCreateGetListDelete(t *testing.T) {
 	_, err = svc.List(ctx, bucket.ListInput{})
 	assert.Error(t, err)
 
+	// Usage comes from a walk of the object layer.
+	objects.EXPECT().DataUsage(ctx, "").Return([]domain.BucketInfo{{Bucket: domain.Bucket{Name: "photos"}, Objects: 7, Size: 70}}, nil).Once()
+	list, err = svc.List(ctx, bucket.ListInput{WithUsage: true})
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, uint64(7), list[0].Objects)
+	assert.Equal(t, uint64(42), list[0].QuotaBytes, "merged with the configuration")
+	objects.EXPECT().DataUsage(ctx, "").Return(nil, domain.ErrReadQuorum).Once()
+	_, err = svc.List(ctx, bucket.ListInput{WithUsage: true})
+	assert.ErrorIs(t, err, domain.ErrReadQuorum)
+
 	// Delete removes the document too.
 	objects.EXPECT().DeleteBucket(ctx, "photos", object.DeleteBucketOptions{Force: true}).Return(nil).Once()
 	require.NoError(t, svc.Delete(ctx, "photos", bucket.DeleteOptions{Force: true}))
-	_, ok := store.docs["photos"]
-	assert.False(t, ok)
+	assert.Zero(t, doc(t, store, "photos").Created, "the document is gone")
 	objects.EXPECT().DeleteBucket(ctx, "locked", object.DeleteBucketOptions{}).Return(domain.ErrBucketNotEmpty).Once()
 	assert.ErrorIs(t, svc.Delete(ctx, "locked", bucket.DeleteOptions{}), domain.ErrBucketNotEmpty)
-	_, ok = store.docs["locked"]
-	assert.True(t, ok, "metadata is kept when the bucket survives")
+	assert.False(t, doc(t, store, "locked").Created.IsZero(), "metadata is kept when the bucket survives")
 }
 
 func TestVersioningAndObjectLock(t *testing.T) {
 	ctx := context.Background()
-	svc, objects, store, _ := newService(t)
+	svc, objects, store, _, _ := newService(t)
 	objects.EXPECT().GetBucketInfo(ctx, "bkt").Return(domain.BucketInfo{Bucket: domain.Bucket{Name: "bkt"}}, nil).Maybe()
 	objects.EXPECT().GetBucketInfo(ctx, "missing").Return(domain.BucketInfo{}, domain.ErrBucketNotFound).Maybe()
 
@@ -184,7 +201,7 @@ func TestVersioningAndObjectLock(t *testing.T) {
 	var s3err *domain.S3Error
 	require.ErrorAs(t, err, &s3err)
 	assert.Equal(t, "InvalidBucketState", s3err.Code)
-	assert.Equal(t, domain.VersioningEnabled, store.docs["bkt"].Versioning)
+	assert.Equal(t, domain.VersioningEnabled, doc(t, store, "bkt").Versioning)
 	cfg, err := store.BucketConfig(ctx, "bkt")
 	require.NoError(t, err)
 	assert.Equal(t, domain.VersioningEnabled, cfg.Versioning)
@@ -193,32 +210,18 @@ func TestVersioningAndObjectLock(t *testing.T) {
 
 func TestConfigurationDocuments(t *testing.T) {
 	ctx := context.Background()
-	svc, objects, _, _ := newService(t)
+	svc, objects, _, _, _ := newService(t)
 	objects.EXPECT().GetBucketInfo(ctx, "bkt").Return(domain.BucketInfo{Bucket: domain.Bucket{Name: "bkt"}}, nil).Maybe()
 
-	// Policy.
-	_, err := svc.GetPolicy(ctx, "bkt")
-	assert.ErrorIs(t, err, domain.ErrPolicyNotFound)
-	assert.ErrorIs(t, svc.SetPolicy(ctx, "bkt", json.RawMessage(`{not json`)), domain.ErrInvalidArgument)
-	assert.ErrorIs(t, svc.SetPolicy(ctx, "bkt", json.RawMessage(`{"Version":"2008-10-17","Statement":[]}`)), domain.ErrInvalidArgument)
-	policy := json.RawMessage(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::bkt/*"}]}`)
-	require.NoError(t, svc.SetPolicy(ctx, "bkt", policy))
-	got, err := svc.GetPolicy(ctx, "bkt")
-	require.NoError(t, err)
-	assert.JSONEq(t, string(policy), string(got))
-	require.NoError(t, svc.DeletePolicy(ctx, "bkt"))
-	_, err = svc.GetPolicy(ctx, "bkt")
-	assert.ErrorIs(t, err, domain.ErrPolicyNotFound)
-
 	// Lifecycle / CORS / notification: well-formed XML with the right root.
-	_, err = svc.GetLifecycle(ctx, "bkt")
+	_, err := svc.GetLifecycle(ctx, "bkt")
 	assert.ErrorIs(t, err, domain.ErrPolicyNotFound)
 	assert.ErrorIs(t, svc.SetLifecycle(ctx, "bkt", []byte("<Lifecycle")), domain.ErrMalformedXML)
 	assert.ErrorIs(t, svc.SetLifecycle(ctx, "bkt", []byte("<CORSConfiguration/>")), domain.ErrMalformedXML)
 	assert.ErrorIs(t, svc.SetLifecycle(ctx, "bkt", nil), domain.ErrMalformedXML)
 	lc := []byte(`<LifecycleConfiguration><Rule><ID>r</ID><Status>Enabled</Status><Expiration><Days>1</Days></Expiration></Rule></LifecycleConfiguration>`)
 	require.NoError(t, svc.SetLifecycle(ctx, "bkt", lc))
-	got, err = svc.GetLifecycle(ctx, "bkt")
+	got, err := svc.GetLifecycle(ctx, "bkt")
 	require.NoError(t, err)
 	assert.Equal(t, string(lc), string(got))
 	require.NoError(t, svc.DeleteLifecycle(ctx, "bkt"))
@@ -260,15 +263,22 @@ func TestConfigurationDocuments(t *testing.T) {
 	q, err := svc.GetQuota(ctx, "bkt")
 	require.NoError(t, err)
 	assert.Zero(t, q.Size)
-	assert.ErrorIs(t, svc.SetQuota(ctx, "bkt", bucket.Quota{Type: "soft", Size: 1}), domain.ErrInvalidArgument)
-	require.NoError(t, svc.SetQuota(ctx, "bkt", bucket.Quota{Size: 1024}))
+	_, err = svc.SetQuota(ctx, "bkt", bucket.Quota{Type: "soft", Size: 1})
+	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
+	set, err := svc.SetQuota(ctx, "bkt", bucket.Quota{Size: 1024})
+	require.NoError(t, err)
+	assert.Equal(t, bucket.Quota{Type: bucket.QuotaHard, Size: 1024}, set, "a typeless size is a hard quota")
 	q, err = svc.GetQuota(ctx, "bkt")
 	require.NoError(t, err)
-	assert.Equal(t, bucket.QuotaHard, q.Type)
-	assert.Equal(t, uint64(1024), q.Size)
-	require.NoError(t, svc.SetQuota(ctx, "bkt", bucket.Quota{Type: bucket.QuotaHard, Size: 0}))
+	assert.Equal(t, set, q)
+	set, err = svc.SetQuota(ctx, "bkt", bucket.Quota{Type: bucket.QuotaHard, Size: 0})
+	require.NoError(t, err)
+	assert.Equal(t, bucket.Quota{}, set)
 	q, _ = svc.GetQuota(ctx, "bkt")
 	assert.Empty(t, q.Type, "a zero size clears the quota")
+	objects.EXPECT().GetBucketInfo(ctx, "missing").Return(domain.BucketInfo{}, domain.ErrBucketNotFound).Once()
+	_, err = svc.SetQuota(ctx, "missing", bucket.Quota{Size: 1})
+	assert.ErrorIs(t, err, domain.ErrBucketNotFound)
 
 	// Tags.
 	_, err = svc.GetTags(ctx, "bkt")
@@ -292,13 +302,19 @@ func TestStoreErrorsPropagate(t *testing.T) {
 	ctx := context.Background()
 	objects := objectmock.NewService(t)
 	store := bucketmock.NewMetadataStore(t)
-	svc, err := bucket.New(bucket.Deps{Objects: objects, Store: store})
+	svc, err := bucket.New(bucket.Deps{Objects: objects, Store: store, Policy: policymock.NewService(t)})
 	require.NoError(t, err)
 
-	objects.EXPECT().MakeBucket(ctx, "bkt", mock.Anything).Return(nil).Once()
-	store.EXPECT().Save(ctx, "bkt", mock.Anything).Return(domain.ErrWriteQuorum).Once()
+	// A configuration that cannot be saved undoes the creation.
+	objects.EXPECT().MakeBucket(ctx, "bkt", mock.Anything).Return(nil).Twice()
+	objects.EXPECT().GetBucketInfo(ctx, "bkt").Return(domain.BucketInfo{}, nil).Twice()
+	store.EXPECT().Save(ctx, "bkt", mock.Anything).Return(domain.ErrWriteQuorum).Twice()
+	objects.EXPECT().DeleteBucket(mock.Anything, "bkt", object.DeleteBucketOptions{}).Return(nil).Once()
 	_, err = svc.Create(ctx, bucket.CreateInput{Name: "bkt"})
 	assert.ErrorIs(t, err, domain.ErrWriteQuorum)
+	objects.EXPECT().DeleteBucket(mock.Anything, "bkt", object.DeleteBucketOptions{}).Return(domain.ErrFaultyDisk).Once()
+	_, err = svc.Create(ctx, bucket.CreateInput{Name: "bkt"})
+	assert.ErrorIs(t, err, domain.ErrWriteQuorum, "a failed rollback is logged, the cause reported")
 
 	objects.EXPECT().GetBucketInfo(ctx, "bkt").Return(domain.BucketInfo{}, nil).Once()
 	store.EXPECT().Load(ctx, "bkt").Return(nil, domain.ErrFaultyDisk).Once()
@@ -308,4 +324,91 @@ func TestStoreErrorsPropagate(t *testing.T) {
 	objects.EXPECT().DeleteBucket(ctx, "bkt", mock.Anything).Return(nil).Once()
 	store.EXPECT().Delete(ctx, "bkt").Return(domain.ErrWriteQuorum).Once()
 	assert.ErrorIs(t, svc.Delete(ctx, "bkt", bucket.DeleteOptions{}), domain.ErrWriteQuorum)
+}
+
+// TestCreateRollbackSurvivesCanceledClient is a regression test: when the
+// client goes away while the configuration is saved, the creation is still
+// undone (no bucket directory without its configuration is left behind).
+func TestCreateRollbackSurvivesCanceledClient(t *testing.T) {
+	objects := objectmock.NewService(t)
+	store := bucketmock.NewMetadataStore(t)
+	svc, err := bucket.New(bucket.Deps{Objects: objects, Store: store, Policy: policymock.NewService(t)})
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	objects.EXPECT().MakeBucket(mock.Anything, "bkt", mock.Anything).Return(nil).Once()
+	objects.EXPECT().GetBucketInfo(mock.Anything, "bkt").Return(domain.BucketInfo{}, nil).Once()
+	store.EXPECT().Save(mock.Anything, "bkt", mock.Anything).RunAndReturn(func(ctx context.Context, _ string, _ *bucket.Metadata) error {
+		cancel() // the client disconnects during the save
+		return ctx.Err()
+	}).Once()
+	var rollbackCtxErr error
+	objects.EXPECT().DeleteBucket(mock.Anything, "bkt", object.DeleteBucketOptions{}).RunAndReturn(func(ctx context.Context, _ string, _ object.DeleteBucketOptions) error {
+		rollbackCtxErr = ctx.Err() // a canceled context would make the rollback fail
+		return rollbackCtxErr
+	}).Once()
+	_, err = svc.Create(ctx, bucket.CreateInput{Name: "bkt"})
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.NoError(t, rollbackCtxErr, "the rollback runs with a live context")
+}
+
+func TestPolicyDocuments(t *testing.T) {
+	ctx := context.Background()
+	svc, objects, _, policies, _ := newService(t)
+	objects.EXPECT().GetBucketInfo(ctx, "bkt").Return(domain.BucketInfo{Bucket: domain.Bucket{Name: "bkt"}}, nil).Maybe()
+	objects.EXPECT().GetBucketInfo(ctx, "missing").Return(domain.BucketInfo{}, domain.ErrBucketNotFound).Maybe()
+	raw := json.RawMessage(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::bkt/*"}]}`)
+	parsed := &domain.Policy{Version: domain.PolicyVersion}
+	malformed := domain.NewS3Error(domain.ErrInvalidArgument, "MalformedPolicy", "bad")
+
+	// No policy yet.
+	_, err := svc.GetPolicy(ctx, "bkt")
+	assert.ErrorIs(t, err, domain.ErrPolicyNotFound)
+	_, err = svc.IsPublic(ctx, "bkt")
+	assert.ErrorIs(t, err, domain.ErrPolicyNotFound)
+
+	// Invalid JSON never reaches the engine; the engine decides the rest.
+	assert.ErrorIs(t, svc.SetPolicy(ctx, "bkt", json.RawMessage(`{not json`)), domain.ErrInvalidArgument)
+	assert.ErrorIs(t, svc.SetPolicy(ctx, "bkt", nil), domain.ErrInvalidArgument)
+	invalid := json.RawMessage(`{"Version":"2008-10-17","Statement":[]}`)
+	policies.EXPECT().ParseBucketPolicy(ctx, "bkt", []byte(invalid)).Return(nil, malformed).Once()
+	err = svc.SetPolicy(ctx, "bkt", invalid)
+	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
+	var s3err *domain.S3Error
+	require.ErrorAs(t, err, &s3err)
+	assert.Equal(t, "MalformedPolicy", s3err.Code)
+
+	policies.EXPECT().ParseBucketPolicy(ctx, "bkt", []byte(raw)).Return(parsed, nil).Once()
+	policies.EXPECT().ParseBucketPolicy(ctx, "missing", []byte(raw)).Return(parsed, nil).Once()
+	policies.EXPECT().Parse(ctx, []byte(raw)).Return(parsed, nil).Once()
+	require.NoError(t, svc.SetPolicy(ctx, "bkt", raw))
+	got, err := svc.GetPolicy(ctx, "bkt")
+	require.NoError(t, err)
+	assert.JSONEq(t, string(raw), string(got))
+	assert.ErrorIs(t, svc.SetPolicy(ctx, "missing", raw), domain.ErrBucketNotFound)
+
+	// IsPublic delegates the policy semantics to the engine.
+	policies.EXPECT().IsPublic(ctx, parsed).Return(true).Once()
+	public, err := svc.IsPublic(ctx, "bkt")
+	require.NoError(t, err)
+	assert.True(t, public)
+
+	require.NoError(t, svc.DeletePolicy(ctx, "bkt"))
+	_, err = svc.GetPolicy(ctx, "bkt")
+	assert.ErrorIs(t, err, domain.ErrPolicyNotFound)
+}
+
+func TestIsPublicRejectsCorruptStoredPolicy(t *testing.T) {
+	ctx := context.Background()
+	objects := objectmock.NewService(t)
+	store := bucketmock.NewMetadataStore(t)
+	policies := policymock.NewService(t)
+	svc, err := bucket.New(bucket.Deps{Objects: objects, Store: store, Policy: policies})
+	require.NoError(t, err)
+	raw := json.RawMessage(`{"Version":"2012-10-17"}`)
+	objects.EXPECT().GetBucketInfo(ctx, "bkt").Return(domain.BucketInfo{}, nil).Once()
+	store.EXPECT().Load(ctx, "bkt").Return(&bucket.Metadata{Name: "bkt", Policy: raw}, nil).Once()
+	policies.EXPECT().Parse(ctx, []byte(raw)).Return(nil, domain.ErrInvalidArgument).Once()
+	_, err = svc.IsPublic(ctx, "bkt")
+	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
 }

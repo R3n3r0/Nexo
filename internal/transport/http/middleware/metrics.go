@@ -1,80 +1,107 @@
 package middleware
 
 import (
-	"errors"
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
 
-	"github.com/prometheus/client_golang/prometheus"
-
 	"github.com/r3n3r0/nexo/internal/clock"
+	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
 )
 
+// MetricsDeps are the dependencies of the metrics middleware.
+type MetricsDeps struct {
+	// Registry creates the HTTP instruments (required).
+	Registry metrics.Registry
+	// Clock measures latencies (default wall clock).
+	Clock clock.Clock
+}
+
+// MetricsOption configures the metrics middleware.
+type MetricsOption func(*metricsOptions)
+
+type metricsOptions struct {
+	server string
+}
+
+// WithMetricsServer sets the value of the "server" label that tells the
+// listeners apart ("s3", "console"; default "http").
+func WithMetricsServer(name string) MetricsOption {
+	return func(o *metricsOptions) {
+		if name != "" {
+			o.server = name
+		}
+	}
+}
+
 type httpMetrics struct {
-	requests *prometheus.CounterVec
-	duration *prometheus.HistogramVec
-	inflight prometheus.Gauge
+	requests metrics.Counter
+	duration metrics.Histogram
+	inflight metrics.Gauge
 	server   string
 	clock    clock.Clock
 }
 
 var _ Middleware = (*httpMetrics)(nil)
 
-// MetricsOption configures the metrics middleware.
-type MetricsOption func(*httpMetrics)
-
-// WithMetricsClock sets the clock used to measure latencies (tests).
-func WithMetricsClock(c clock.Clock) MetricsOption {
-	return func(m *httpMetrics) {
-		if c != nil {
-			m.clock = c
-		}
-	}
-}
-
 // NewMetrics returns a middleware recording request count, duration and
-// in-flight requests in reg. server labels the listener ("s3", "console").
-// Labels are low-cardinality on purpose: no path label.
-func NewMetrics(reg metrics.Registry, server string, opts ...MetricsOption) (Middleware, error) {
-	m := &httpMetrics{
-		server: server,
-		clock:  clock.NewReal(),
-		requests: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: metrics.Namespace, Subsystem: "http", Name: "requests_total",
-			Help: "Total HTTP requests by server, method and status.",
-		}, []string{"server", "method", "status"}),
-		duration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Namespace: metrics.Namespace, Subsystem: "http", Name: "request_duration_seconds",
-			Help:    "HTTP request latency by server and method.",
-			Buckets: []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30},
-		}, []string{"server", "method"}),
-		inflight: prometheus.NewGauge(prometheus.GaugeOpts{
-			Namespace: metrics.Namespace, Subsystem: "http", Name: "requests_in_flight",
-			Help:        "HTTP requests currently being served.",
-			ConstLabels: prometheus.Labels{"server": server},
-		}),
+// in-flight requests. Labels are low-cardinality on purpose: no path label.
+// The instruments are shared by every listener of a registry and told
+// apart by the "server" label.
+func NewMetrics(deps MetricsDeps, opts ...MetricsOption) (Middleware, error) {
+	if deps.Registry == nil {
+		return nil, fmt.Errorf("%w: metrics middleware requires a registry", domain.ErrInvalidArgument)
 	}
-	for _, o := range opts {
-		o(m)
+	if deps.Clock == nil {
+		deps.Clock = clock.NewReal()
 	}
-	for _, c := range []prometheus.Collector{m.requests, m.duration, m.inflight} {
-		if err := reg.Register(c); err != nil {
-			var already prometheus.AlreadyRegisteredError
-			if !errors.As(err, &already) {
-				return nil, fmt.Errorf("metrics middleware: register: %w", err)
-			}
-		}
+	o := metricsOptions{server: "http"}
+	for _, opt := range opts {
+		opt(&o)
 	}
-	return m, nil
+	// Registration is construction-time work, not tied to a request.
+	ctx := context.Background()
+	requests, err := deps.Registry.Counter(ctx, metrics.Definition{
+		Subsystem: "http", Name: "requests_total",
+		Help:   "Total HTTP requests by server, method and status.",
+		Labels: []string{"server", "method", "status"},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("metrics middleware: %w", err)
+	}
+	duration, err := deps.Registry.Histogram(ctx, metrics.Definition{
+		Subsystem: "http", Name: "request_duration_seconds",
+		Help:   "HTTP request latency by server and method.",
+		Labels: []string{"server", "method"},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("metrics middleware: %w", err)
+	}
+	inflight, err := deps.Registry.Gauge(ctx, metrics.Definition{
+		Subsystem: "http", Name: "requests_in_flight",
+		Help:   "HTTP requests currently being served.",
+		Labels: []string{"server"},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("metrics middleware: %w", err)
+	}
+	return &httpMetrics{
+		requests: requests,
+		duration: duration,
+		inflight: inflight,
+		server:   o.server,
+		clock:    deps.Clock,
+	}, nil
 }
 
 // Wrap implements Middleware.
 func (m *httpMetrics) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		m.inflight.Inc()
-		defer m.inflight.Dec()
+		ctx := r.Context()
+		m.inflight.Add(ctx, 1, m.server)
+		defer m.inflight.Add(ctx, -1, m.server)
 		start := m.clock.Now()
 		rw := wrapWriter(w)
 		next.ServeHTTP(rw, r)
@@ -82,8 +109,8 @@ func (m *httpMetrics) Wrap(next http.Handler) http.Handler {
 		if !knownMethod(method) {
 			method = "OTHER"
 		}
-		m.requests.WithLabelValues(m.server, method, strconv.Itoa(rw.Status())).Inc()
-		m.duration.WithLabelValues(m.server, method).Observe(m.clock.Now().Sub(start).Seconds())
+		m.requests.Add(ctx, 1, m.server, method, strconv.Itoa(rw.Status()))
+		m.duration.Observe(ctx, m.clock.Now().Sub(start).Seconds(), m.server, method)
 	})
 }
 

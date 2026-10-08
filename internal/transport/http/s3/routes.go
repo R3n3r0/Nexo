@@ -1,9 +1,15 @@
 // Package s3 implements the S3 API transport. S3 selects the operation from
 // the HTTP method, the URL scope (service, bucket or object) and a
 // discriminating query parameter (?uploads, ?tagging, ...), which a plain
-// path router cannot express. The Dispatcher owns the path-style patterns
-// ("/", "/{bucket}", "/{bucket}/*") and selects the operation; the route
-// groups (BucketRoutes, ObjectRoutes, ...) mount their operations on it.
+// path router cannot express. The Dispatcher owns the URL space: it resolves
+// the bucket and the key of path-style ("/{bucket}/{key...}") and
+// virtual-host ("{bucket}.{domain}/{key...}") requests and selects the
+// operation; the route groups (BucketRoutes, ObjectRoutes, ...) mount their
+// operations on it.
+//
+// Every handler decodes the request, authorizes it with the policy engine
+// (ActionOf maps each operation to its policy action), calls a service and
+// encodes the response; the services own the business rules.
 //
 // Every group is also a Routes: registering it alone on a chi router mounts
 // it on a private dispatcher, which is handy for tests.
@@ -15,6 +21,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/r3n3r0/nexo/internal/service/auth"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
 
@@ -37,7 +44,7 @@ const (
 // Operation identifies an S3 API operation.
 type Operation struct {
 	// Name is the S3 operation name (e.g. "ListObjectsV2"), used in logs,
-	// audit and policy mapping.
+	// audit and policy mapping (ActionOf).
 	Name string
 	// Method is the HTTP method.
 	Method string
@@ -50,7 +57,13 @@ type Operation struct {
 	QueryValue string
 }
 
-// Dispatcher routes S3 requests to operations.
+// Dispatcher routes S3 requests to operations. Among the operations of a
+// method and scope it selects, in order of precedence: the one whose Query
+// and QueryValue match, the one whose sub-resource Query is present, the one
+// discriminated by an authentication parameter (X-Amz-*, the presigned
+// operations), the default operation (empty Query). Registration order
+// breaks ties. A request matching no operation is answered NotImplemented,
+// a method without operations MethodNotAllowed.
 type Dispatcher interface {
 	Routes
 	// Handle registers the handler of an operation. Registering the same
@@ -84,8 +97,9 @@ type MultipartRoutes interface {
 }
 
 // PresignedRoutes handles requests authenticated by a presigned query
-// string (X-Amz-Signature): they take precedence over the plain operations
-// of the same method and scope and delegate to the object/bucket handlers.
+// string (X-Amz-Signature): they take precedence over the default
+// operations of the same method and scope (not over the sub-resources) and
+// delegate to the object/bucket handlers.
 type PresignedRoutes interface {
 	Routes
 	Group
@@ -103,14 +117,22 @@ type HealthRoutes interface{ Routes }
 // MetricsRoutes exposes /nexo/metrics/v1/{cluster,node,bucket}.
 type MetricsRoutes interface{ Routes }
 
-// BucketName returns the bucket of the request from the route parameters.
+// BucketName returns the bucket of the request as resolved by the
+// Dispatcher (path-style or virtual-host), falling back to the "bucket"
+// route parameter for handlers mounted without it.
 func BucketName(r *http.Request) string {
+	if t, ok := targetFromContext(r.Context()); ok {
+		return t.bucket
+	}
 	return chi.URLParam(r, "bucket")
 }
 
-// ObjectKey returns the (decoded) object key of the request: the path after
-// "/{bucket}/".
+// ObjectKey returns the decoded object key of the request as resolved by
+// the Dispatcher, falling back to the path after "/{bucket}/".
 func ObjectKey(r *http.Request) string {
+	if t, ok := targetFromContext(r.Context()); ok {
+		return t.key
+	}
 	bucket := BucketName(r)
 	if bucket == "" {
 		return ""
@@ -123,14 +145,100 @@ func ObjectKey(r *http.Request) string {
 	return strings.TrimPrefix(chi.URLParam(r, "*"), "/")
 }
 
+// APIDeps are the dependencies of the composed S3 API.
+type APIDeps struct {
+	// Enc writes the routing errors (default httpx.New()).
+	Enc httpx.Encoder
+	// Domains enable virtual-host style requests ("{bucket}.{domain}") for
+	// each domain (NEXO_DOMAIN); without them every request is path-style.
+	Domains []string
+	// System are the routes the listener serves beside the S3 API under
+	// the reserved "/nexo/" prefix (HealthRoutes, MetricsRoutes). They
+	// answer path-style requests only: the path of a virtual-host request
+	// is an object key of its bucket ("bkt.{domain}/nexo/metrics/x" is the
+	// key "nexo/metrics/x"), which the Dispatcher serves.
+	System []Routes
+}
+
+// api is the composed S3 API: the system routes, guarded against
+// virtual-host requests, and the Dispatcher owning the rest of the URL space.
+type api struct {
+	d      *dispatcher
+	system []Routes
+}
+
 // NewAPI composes the S3 API from its groups: a Dispatcher with every group
-// mounted, ready to be registered on the server router.
-func NewAPI(enc httpx.Encoder, groups ...Group) Routes {
-	d := NewDispatcher(enc)
+// mounted and the system routes, ready to be registered on the server router.
+func NewAPI(deps APIDeps, groups ...Group) Routes {
+	if deps.Enc == nil {
+		deps.Enc = httpx.New()
+	}
+	o := newOptions([]Option{WithDomains(deps.Domains...)})
+	d := &dispatcher{enc: deps.Enc, domains: o.domains, ops: make(map[opKey][]opEntry)}
 	for _, g := range groups {
 		if g != nil {
 			g.Mount(d)
 		}
 	}
-	return d
+	return &api{d: d, system: deps.System}
+}
+
+// Register implements Routes.
+func (a *api) Register(r chi.Router) {
+	if len(a.system) > 0 {
+		guarded := r.With(a.pathStyleOnly)
+		for _, rt := range a.system {
+			if rt != nil {
+				rt.Register(guarded)
+			}
+		}
+	}
+	a.d.Register(r)
+}
+
+// pathStyleOnly hands virtual-host requests matched by a system route to
+// the Dispatcher: their path is an object key.
+func (a *api) pathStyleOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := virtualHostBucket(a.d.domains, r.Host); ok {
+			a.d.serve(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// SigningService returns the function telling the SigV4 service a request
+// is addressed to (middleware.AuthDeps.Service): auth.ServiceSTS for the
+// STS API (POST on the service scope "/", path-style), auth.ServiceS3 for
+// every other request, virtual-host ones included ("bkt.{domain}/" is a
+// bucket).
+func SigningService(domains ...string) func(r *http.Request) string {
+	normalized := newOptions([]Option{WithDomains(domains...)}).domains
+	return func(r *http.Request) string {
+		if r.Method != http.MethodPost || strings.TrimPrefix(r.URL.Path, "/") != "" {
+			return auth.ServiceS3
+		}
+		if _, virtualHost := virtualHostBucket(normalized, r.Host); virtualHost {
+			return auth.ServiceS3
+		}
+		return auth.ServiceSTS
+	}
+}
+
+// MetricsRequest returns the predicate selecting the requests of the
+// metrics routes: path-style requests under MetricsPathPrefix. A
+// virtual-host request ("{bucket}.{domain}" for one of domains) is a bucket
+// request whatever its path. It is the middleware.AuthDeps.Skip of the S3
+// listener: the metrics routes authenticate their own bearer tokens, every
+// other request goes through SigV4.
+func MetricsRequest(domains ...string) func(r *http.Request) bool {
+	normalized := newOptions([]Option{WithDomains(domains...)}).domains
+	return func(r *http.Request) bool {
+		if !strings.HasPrefix(r.URL.Path, MetricsPathPrefix) {
+			return false
+		}
+		_, virtualHost := virtualHostBucket(normalized, r.Host)
+		return !virtualHost
+	}
 }

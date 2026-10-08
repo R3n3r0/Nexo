@@ -1,4 +1,4 @@
-package lifecycle
+package lifecycle_test
 
 import (
 	"context"
@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/r3n3r0/nexo/internal/lifecycle"
 )
 
 type recorder struct {
@@ -22,8 +24,8 @@ func (r *recorder) add(e string) {
 	r.events = append(r.events, e)
 }
 
-func (r *recorder) runner(name string, startErr error) Runner {
-	return Funcs{
+func (r *recorder) runner(name string, startErr error) lifecycle.Runner {
+	return lifecycle.Funcs{
 		OnStart: func(context.Context) error {
 			r.add("start:" + name)
 			return startErr
@@ -37,7 +39,7 @@ func (r *recorder) runner(name string, startErr error) Runner {
 
 func TestGroupStartsInOrderAndStopsInReverse(t *testing.T) {
 	rec := &recorder{}
-	g := NewGroup()
+	g := lifecycle.NewGroup()
 	g.Add("a", rec.runner("a", nil)).Add("b", rec.runner("b", nil)).Add("c", rec.runner("c", nil))
 	require.Equal(t, 3, g.Len())
 
@@ -53,7 +55,7 @@ func TestGroupStartsInOrderAndStopsInReverse(t *testing.T) {
 func TestGroupStartFailureStopsStarted(t *testing.T) {
 	rec := &recorder{}
 	boom := errors.New("boom")
-	g := NewGroup()
+	g := lifecycle.NewGroup()
 	g.Add("a", rec.runner("a", nil)).Add("b", rec.runner("b", boom)).Add("c", rec.runner("c", nil))
 
 	err := g.Start(context.Background())
@@ -65,14 +67,14 @@ func TestGroupStartFailureStopsStarted(t *testing.T) {
 func TestGroupStopTimeout(t *testing.T) {
 	block := make(chan struct{})
 	defer close(block)
-	slow := Funcs{OnStop: func(ctx context.Context) error {
+	slow := lifecycle.Funcs{OnStop: func(ctx context.Context) error {
 		select {
 		case <-block:
 		case <-ctx.Done():
 		}
 		return nil
 	}}
-	g := NewGroup(WithStopTimeout(20 * time.Millisecond))
+	g := lifecycle.NewGroup(lifecycle.WithStopTimeout(20 * time.Millisecond))
 	g.Add("slow", slow)
 	require.NoError(t, g.Start(context.Background()))
 	err := g.Stop(context.Background())
@@ -83,9 +85,9 @@ func TestGroupStopTimeout(t *testing.T) {
 
 func TestGroupCollectsStopErrors(t *testing.T) {
 	e1, e2 := errors.New("e1"), errors.New("e2")
-	g := NewGroup()
-	g.Add("one", Funcs{OnStop: func(context.Context) error { return e1 }})
-	g.Add("two", Funcs{OnStop: func(context.Context) error { return e2 }})
+	g := lifecycle.NewGroup()
+	g.Add("one", lifecycle.Funcs{OnStop: func(context.Context) error { return e1 }})
+	g.Add("two", lifecycle.Funcs{OnStop: func(context.Context) error { return e2 }})
 	require.NoError(t, g.Start(context.Background()))
 	err := g.Stop(context.Background())
 	assert.ErrorIs(t, err, e1)
@@ -93,10 +95,10 @@ func TestGroupCollectsStopErrors(t *testing.T) {
 }
 
 func TestGroupIgnoresNilAndDoubleStart(t *testing.T) {
-	g := NewGroup()
+	g := lifecycle.NewGroup()
 	g.Add("nil", nil)
 	assert.Equal(t, 0, g.Len())
-	g.Add("x", Funcs{})
+	g.Add("x", lifecycle.Funcs{})
 	require.NoError(t, g.Start(context.Background()))
 	assert.Error(t, g.Start(context.Background()))
 	require.NoError(t, g.Stop(context.Background()))
@@ -105,7 +107,7 @@ func TestGroupIgnoresNilAndDoubleStart(t *testing.T) {
 func TestGroupCancelledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	g := NewGroup()
-	g.Add("x", Funcs{})
+	g := lifecycle.NewGroup()
+	g.Add("x", lifecycle.Funcs{})
 	assert.ErrorIs(t, g.Start(ctx), context.Canceled)
 }

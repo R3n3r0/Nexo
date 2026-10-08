@@ -131,6 +131,11 @@ func (s *service) Login(ctx context.Context, accessKey, secretKey string) (*Sess
 	if creds.IsExpired(now) {
 		return nil, fmt.Errorf("%w: credentials expired", domain.ErrAccessDenied)
 	}
+	if creds.SessionToken != "" {
+		// STS credentials are only valid with their session token, which
+		// the console login does not carry.
+		return nil, fmt.Errorf("%w: temporary credentials cannot open a console session", domain.ErrAccessDenied)
+	}
 
 	id, err := randomHex(16)
 	if err != nil {

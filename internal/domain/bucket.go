@@ -37,6 +37,29 @@ func (v Versioning) String() string {
 // Versioned reports whether versions are retained (enabled or suspended).
 func (v Versioning) Versioned() bool { return v != VersioningOff }
 
+// State returns the lowercase state name used by the Admin API and the
+// console: "off", "enabled" or "suspended".
+func (v Versioning) State() string {
+	switch v {
+	case VersioningEnabled:
+		return "enabled"
+	case VersioningSuspended:
+		return "suspended"
+	default:
+		return "off"
+	}
+}
+
+// ParseVersioningState parses a state name as returned by State ("off",
+// "enabled", "suspended", case-insensitive); the S3 status strings
+// accepted by ParseVersioning are accepted too.
+func ParseVersioningState(s string) (Versioning, error) {
+	if strings.EqualFold(strings.TrimSpace(s), "off") {
+		return VersioningOff, nil
+	}
+	return ParseVersioning(s)
+}
+
 // ParseVersioning parses an S3 versioning status string.
 func ParseVersioning(s string) (Versioning, error) {
 	switch strings.ToLower(strings.TrimSpace(s)) {
@@ -113,6 +136,17 @@ func ValidateBucketName(name string) error {
 
 // IsSystemBucket reports whether name is the reserved metadata bucket.
 func IsSystemBucket(name string) bool { return name == SystemBucket }
+
+// ReservedBucket is a valid S3 bucket name that Nexo keeps for itself: the
+// "/nexo/" path of the S3 port serves health probes and metrics
+// (HealthLivePath, ...), so a bucket of that name would have keys that can
+// be written but not read back. MinIO reserves "minio" the same way.
+const ReservedBucket = "nexo"
+
+// IsReservedBucket reports whether name cannot be used for a bucket: the
+// system metadata bucket and ReservedBucket. Services refuse such names
+// with ErrInvalidBucketName.
+func IsReservedBucket(name string) bool { return IsSystemBucket(name) || name == ReservedBucket }
 
 func isAlnum(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')

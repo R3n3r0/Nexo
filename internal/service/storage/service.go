@@ -57,14 +57,28 @@ const (
 	MultipartDir = "multipart"
 	// BucketsDir holds the per-bucket metadata documents.
 	BucketsDir = "buckets"
+	// ConfigDir holds the cluster configuration and the IAM documents.
+	ConfigDir = "config"
+	// HealingFile is the healing tracker of the drive (HealingTracker
+	// encoded as JSON). Its presence marks a drive being healed.
+	HealingFile = "healing.bin"
 	// MetaFile is the per-object metadata document.
 	MetaFile = "xl.meta"
 )
+
+// SmallFileThreshold is the size below which the object layer keeps the
+// content of a version inline in xl.meta instead of a data directory.
+const SmallFileThreshold = 128 << 10
 
 // StorageAPI is the low-level drive interface used by the object layer.
 // Every method takes the volume (bucket) and the path (object key) the
 // operation refers to. Errors are domain sentinels (ErrDiskNotFound,
 // ErrFaultyDisk, ErrObjectNotFound, ErrNoSuchVersion, ErrStorageFull, ...).
+//
+// Paths are slash separated and relative to the volume: empty segments,
+// "." and "..", and symbolic links on disk are refused, so that no
+// operation can reach outside the drive. A version id of "null" designates
+// the null version, like the empty id.
 type StorageAPI interface {
 	// Endpoint returns the drive endpoint this API serves.
 	Endpoint() domain.Endpoint
@@ -92,13 +106,18 @@ type StorageAPI interface {
 	// UpdateMetadata updates the metadata of an existing version in place.
 	UpdateMetadata(ctx context.Context, volume, path string, fi FileInfo, opts UpdateMetadataOptions) error
 	// DeleteVersion removes one version (or writes a delete marker when
-	// fi.Deleted is set) and cleans up its data directory.
+	// fi.MarkDeleted is set) and cleans up its data directory.
 	DeleteVersion(ctx context.Context, volume, path string, fi FileInfo, opts DeleteOptions) error
 
-	// CreateFile streams size bytes from r into a new data file. size may
-	// be -1 when unknown.
+	// CreateFile streams size bytes from r into a new data file, written
+	// in the temporary area and renamed into place once complete. size may
+	// be -1 when unknown; otherwise a shorter stream fails with
+	// io.ErrUnexpectedEOF and nothing is left behind.
 	CreateFile(ctx context.Context, volume, path string, size int64, r io.Reader) error
-	// ReadFileStream returns a reader over length bytes starting at offset.
+	// ReadFileStream returns a reader over length bytes starting at offset
+	// (length -1 reads to the end). A range beyond the end of the file is
+	// ErrInvalidRange when offset is past the end, ErrFileCorrupt (a
+	// domain.ErrFaultyDisk) when only the end is.
 	ReadFileStream(ctx context.Context, volume, path string, offset, length int64) (io.ReadCloser, error)
 	// RenameData atomically moves the temporary data directory and metadata
 	// of fi into their final location, committing the version. Parent
@@ -112,8 +131,10 @@ type StorageAPI interface {
 	RenameFile(ctx context.Context, srcVolume, srcPath, dstVolume, dstPath string) error
 
 	// WalkDir walks the entries below opts.BaseDir in S3 key order and
-	// calls fn for each. Returning an error from fn stops the walk;
-	// returning fs.SkipDir skips a directory.
+	// calls fn for each. Returning an error from fn stops the walk with
+	// that error; fs.SkipAll stops it without error; fs.SkipDir skips the
+	// content of a prefix entry (or the remaining entries of the current
+	// directory when returned for an object entry).
 	WalkDir(ctx context.Context, opts WalkDirOptions, fn WalkDirFunc) error
 
 	// ReadAll reads a whole small file (configuration, format.json, ...).
