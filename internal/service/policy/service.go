@@ -199,6 +199,46 @@ const (
 	// ActionAdminPrometheus authorizes the scrape of the metrics
 	// endpoints with a bearer token.
 	ActionAdminPrometheus Action = "admin:Prometheus"
+
+	// Admin API actions named after the MinIO admin policy actions, used by
+	// the Admin API routes of M3 (docs/04 §4.4): user and group status,
+	// group membership, policy attachment, service accounts, bucket quota,
+	// traces and the management of the share links of other users.
+	ActionAdminEnableUser              Action = "admin:EnableUser"
+	ActionAdminDisableUser             Action = "admin:DisableUser"
+	ActionAdminListUserPolicies        Action = "admin:ListUserPolicies"
+	ActionAdminAttachUserOrGroupPolicy Action = "admin:AttachUserOrGroupPolicy"
+	ActionAdminAddUserToGroup          Action = "admin:AddUserToGroup"
+	ActionAdminRemoveUserFromGroup     Action = "admin:RemoveUserFromGroup"
+	ActionAdminEnableGroup             Action = "admin:EnableGroup"
+	ActionAdminDisableGroup            Action = "admin:DisableGroup"
+	ActionAdminRemoveServiceAccount    Action = "admin:RemoveServiceAccount"
+	ActionAdminGetBucketQuota          Action = "admin:GetBucketQuota"
+	ActionAdminSetBucketQuota          Action = "admin:SetBucketQuota"
+	ActionAdminServerTrace             Action = "admin:ServerTrace"
+	ActionAdminConsoleLog              Action = "admin:ConsoleLog"
+	ActionAdminManageShares            Action = "admin:ManageShares"
+
+	// Bucket and object configuration actions of the S3 API, shared by
+	// the S3 and the Admin API transports.
+	ActionGetBucketTagging           Action = "s3:GetBucketTagging"
+	ActionPutBucketTagging           Action = "s3:PutBucketTagging"
+	ActionGetEncryption              Action = "s3:GetEncryptionConfiguration"
+	ActionPutEncryption              Action = "s3:PutEncryptionConfiguration"
+	ActionGetBucketObjectLock        Action = "s3:GetBucketObjectLockConfiguration"
+	ActionPutBucketObjectLock        Action = "s3:PutBucketObjectLockConfiguration"
+	ActionGetObjectVersionTagging    Action = "s3:GetObjectVersionTagging"
+	ActionPutObjectVersionTagging    Action = "s3:PutObjectVersionTagging"
+	ActionDeleteObjectVersionTagging Action = "s3:DeleteObjectVersionTagging"
+	ActionGetLifecycle               Action = "s3:GetLifecycleConfiguration"
+	ActionPutLifecycle               Action = "s3:PutLifecycleConfiguration"
+	ActionGetBucketNotification      Action = "s3:GetBucketNotification"
+	ActionPutBucketNotification      Action = "s3:PutBucketNotification"
+	ActionGetReplication             Action = "s3:GetReplicationConfiguration"
+	ActionPutReplication             Action = "s3:PutReplicationConfiguration"
+	// ActionForceDeleteBucket is required on top of s3:DeleteBucket to
+	// delete a non-empty bucket.
+	ActionForceDeleteBucket Action = "s3:ForceDeleteBucket"
 )
 
 // Service is the policy engine and the IAM policy store.
