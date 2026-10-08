@@ -36,6 +36,28 @@ func TestPublicS3URL(t *testing.T) {
 	}
 }
 
+// TestSecureConsole: the session cookies of a console served over HTTPS
+// carry Secure even when a proxy terminates TLS (regression: only
+// r.TLS set the flag).
+func TestSecureConsole(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  config.Static
+		want bool
+	}{
+		{name: "plain http", cfg: config.Static{}, want: false},
+		{name: "tls certificates", cfg: config.Static{CertsDir: "/certs"}, want: true},
+		{name: "proxy terminating tls", cfg: config.Static{BrowserRedirectURL: "https://console.example.com"}, want: true},
+		{name: "upper-case scheme", cfg: config.Static{BrowserRedirectURL: "HTTPS://console.example.com"}, want: true},
+		{name: "http public url", cfg: config.Static{BrowserRedirectURL: "http://console.example.com"}, want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, secureConsole(tc.cfg))
+		})
+	}
+}
+
 func TestDomainsOf(t *testing.T) {
 	assert.Nil(t, domainsOf(config.Static{}))
 	assert.Equal(t, []string{"s3.example.com"}, domainsOf(config.Static{Domain: "s3.example.com"}))

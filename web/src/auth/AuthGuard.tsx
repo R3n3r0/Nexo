@@ -12,10 +12,11 @@ export interface AuthGuardProps {
 /**
  * Protects the routes below it: while the session is being resolved it
  * shows a loader, without a session it redirects to /login remembering the
- * requested route, otherwise it renders the children.
+ * requested route (and whether the session expired while in use),
+ * otherwise it renders the children.
  */
 export function AuthGuard({ children }: AuthGuardProps) {
-  const { status } = useSession();
+  const { status, expired } = useSession();
   const location = useLocation();
 
   if (status === 'loading') {
@@ -27,7 +28,10 @@ export function AuthGuard({ children }: AuthGuardProps) {
   }
   if (status === 'anonymous') {
     const from = `${location.pathname}${location.search}${location.hash}`;
-    return <Navigate to="/login" replace state={{ from }} />;
+    // The route is preserved so that signing in again lands where the user was (TD-E-17).
+    return (
+      <Navigate to="/login" replace state={expired ? { from, reason: 'expired' } : { from }} />
+    );
   }
   return children ?? <Outlet />;
 }

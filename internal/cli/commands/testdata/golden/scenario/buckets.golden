@@ -1,0 +1,60 @@
+$ nexoctl ls mem
+
+$ nexoctl mb mem/photos
+Bucket created successfully `mem/photos`.
+
+$ nexoctl mb mem/photos
+! nexoctl: error: mem/photos: bucket already exists: photos
+[exit 1]
+
+$ nexoctl mb --ignore-existing mem/photos
+Bucket `mem/photos` already exists.
+
+$ nexoctl mb --with-versioning mem/docs mem/logs
+Bucket created successfully `mem/docs`.
+Bucket created successfully `mem/logs`.
+
+$ nexoctl mb mem/x
+! nexoctl: error: mem/x: invalid bucket name: x
+[exit 1]
+
+$ nexoctl mb mem/photos/key
+! nexoctl: error: mem/photos/key: mb takes ALIAS/BUCKET without an object name
+! Run 'nexoctl mb --help' for usage.
+[exit 2]
+
+$ nexoctl mb mem
+! nexoctl: error: mem: a bucket is required (ALIAS/BUCKET)
+! Run 'nexoctl mb --help' for usage.
+[exit 2]
+
+$ nexoctl ls mem
+[2026-01-02 03:04:05 UTC]      0B docs/
+[2026-01-02 03:04:05 UTC]      0B logs/
+[2026-01-02 03:04:05 UTC]      0B photos/
+
+$ nexoctl stat mem/docs
+Name        : docs
+Date        : 2026-01-02 03:04:05 UTC
+Type        : bucket
+Versioning  : Enabled
+Anonymous   : private
+
+$ nexoctl version info mem/photos
+Versioning of `mem/photos` is not enabled (unversioned).
+
+$ nexoctl rb mem/logs
+! nexoctl: error: mem/logs: bucket not empty: logs (use --force to remove its content)
+[exit 1]
+
+$ nexoctl rb --force mem/logs
+Removed `mem/logs` successfully.
+
+$ nexoctl rb mem/photos mem/missing
+Removed `mem/photos` successfully.
+! nexoctl: error: mem/missing: bucket not found: missing
+[exit 3]
+
+$ nexoctl ls mem
+[2026-01-02 03:04:05 UTC]      0B docs/
+

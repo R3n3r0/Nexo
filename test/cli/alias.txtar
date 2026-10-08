@@ -1,0 +1,33 @@
+# TCL-E-01: alias set with wrong credentials fails with exit code 4 and
+# saves nothing; C-CFG-01: alias set/list/remove.
+
+expectcode 4 nexoctl alias set other $NEXO_URL $NEXO_ROOT_USER wrong-password --verify
+stderr 'verify alias "other"'
+stderr 'signature does not match'
+exec nexoctl alias list
+! stdout '^other'
+
+expectcode 4 nexoctl alias set other $NEXO_URL nobody wrong-password --verify
+exec nexoctl alias set other $NEXO_URL $NEXO_ROOT_USER $NEXO_ROOT_PASSWORD --verify
+stdout 'Added alias "other" for .* \(credentials verified\)'
+
+exec nexoctl alias list
+stdout '^NAME +URL +ACCESS KEY +API +PATH'
+stdout '^local '
+stdout '^other '
+! stdout $NEXO_ROOT_PASSWORD
+
+exec nexoctl alias list --json
+jsonlines stdout
+stdout '"name":"other"'
+! stdout 'secretKey'
+
+exec nexoctl ls other
+exec nexoctl alias remove other
+stdout 'Removed alias "other".'
+expectcode 3 nexoctl alias remove other
+stderr 'unknown alias "other"'
+
+expectcode 2 nexoctl alias set bad ftp://example.com a b
+expectcode 2 nexoctl alias set
+expectcode 3 nexoctl ls other/bucket

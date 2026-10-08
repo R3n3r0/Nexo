@@ -1,0 +1,97 @@
+# TCL-E-18: every admin and managed share command prints JSON Lines.
+
+exec nexoctl mb local/jbk
+exec nexoctl cp a.txt local/jbk/a.txt
+
+exec nexoctl admin info --json local
+jsonlines stdout
+exec nexoctl admin usage --json local
+jsonlines stdout
+exec nexoctl admin user add --json local juser juser-secret-1
+jsonlines stdout
+exec nexoctl admin user list --json local
+jsonlines stdout
+exec nexoctl admin user info --json local juser
+jsonlines stdout
+exec nexoctl admin user policy --json local juser
+jsonlines stdout
+exec nexoctl admin user disable --json local juser
+jsonlines stdout
+exec nexoctl admin user enable --json local juser
+jsonlines stdout
+exec nexoctl admin group add --json local jgroup juser
+jsonlines stdout
+exec nexoctl admin group list --json local
+jsonlines stdout
+exec nexoctl admin group info --json local jgroup
+jsonlines stdout
+exec nexoctl admin group members --json local jgroup
+jsonlines stdout
+exec nexoctl admin group disable --json local jgroup
+jsonlines stdout
+exec nexoctl admin policy create --json local jpolicy policy.json
+jsonlines stdout
+exec nexoctl admin policy list --json local
+jsonlines stdout
+exec nexoctl admin policy info --json local jpolicy
+jsonlines stdout
+exec nexoctl admin policy attach --json local jpolicy --user juser
+jsonlines stdout
+exec nexoctl admin policy entities --json local jpolicy
+jsonlines stdout
+exec nexoctl admin policy simulate --json --user juser --action s3:GetObject local/jbk/a.txt
+jsonlines stdout
+exec nexoctl admin policy validate --json local policy.json
+jsonlines stdout
+exec nexoctl admin policy detach --json local jpolicy --user juser
+jsonlines stdout
+exec nexoctl admin accesskey create --json --access-key JSONKEY0001 local
+jsonlines stdout
+exec nexoctl admin accesskey list --json local
+jsonlines stdout
+exec nexoctl admin accesskey info --json local JSONKEY0001
+jsonlines stdout
+exec nexoctl admin accesskey edit --json --name renamed local JSONKEY0001
+jsonlines stdout
+exec nexoctl admin accesskey remove --json local JSONKEY0001
+jsonlines stdout
+exec nexoctl admin config set --json local region name=eu-1
+jsonlines stdout
+exec nexoctl admin config get --json local
+jsonlines stdout
+exec nexoctl admin config export --json local
+jsonlines stdout
+exec nexoctl admin config export --output cfg.json local
+exec nexoctl admin config import --json local cfg.json
+jsonlines stdout
+exec nexoctl admin config reset --json local region
+jsonlines stdout
+exec nexoctl share download --json local/jbk/a.txt
+jsonlines stdout
+exec nexoctl share upload --json local/jbk/b.txt
+jsonlines stdout
+exec nexoctl share list --json local
+jsonlines stdout
+exec nexoctl share revoke --all --json local
+jsonlines stdout
+exec nexoctl admin policy remove --json local jpolicy
+jsonlines stdout
+exec nexoctl admin group remove --json local jgroup
+jsonlines stdout
+exec nexoctl admin user remove --json local juser
+jsonlines stdout
+
+# Errors are JSON on stderr.
+! exec nexoctl admin user info --json local nobody
+jsonlines stderr
+stderr '"code":"NotFound"'
+! exec nexoctl admin policy create --json local broken broken.json
+jsonlines stderr
+stderr '"details":\['
+
+-- a.txt --
+json
+-- policy.json --
+{"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Action": ["s3:GetObject"], "Resource": ["arn:aws:s3:::jbk/*"]}]}
+-- broken.json --
+{"Version": "2012-10-17", "Statement": [}

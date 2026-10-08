@@ -47,6 +47,7 @@ func TestMapS3ErrorTable(t *testing.T) {
 		{domain.ErrReadQuorum, "SlowDown", 503},
 		{domain.ErrWriteQuorum, "SlowDown", 503},
 		{domain.ErrLockTimeout, "SlowDown", 503},
+		{domain.ErrTooManyRequests, "SlowDown", 503},
 		{domain.ErrQuotaExceeded, "XNexoQuotaExceeded", 507},
 		{domain.ErrStorageFull, "XNexoStorageFull", 507},
 		{domain.ErrObjectLocked, "XNexoObjectLocked", 403},
@@ -95,7 +96,7 @@ func TestMapS3ErrorEverySentinelIsMapped(t *testing.T) {
 		domain.ErrLockTimeout, domain.ErrQuotaExceeded, domain.ErrObjectLocked, domain.ErrInvalidArgument,
 		domain.ErrMalformedXML, domain.ErrConflict, domain.ErrMethodNotAllowed, domain.ErrChecksumMismatch,
 		domain.ErrUnauthenticated, domain.ErrInvalidFormat, domain.ErrFormatMismatch, domain.ErrInvalidLayout,
-		domain.ErrShareNotFound,
+		domain.ErrShareNotFound, domain.ErrTooManyRequests,
 	}
 	c := httpx.New()
 	for _, s := range sentinels {
@@ -147,6 +148,10 @@ func TestProblemFromError(t *testing.T) {
 	p = c.ProblemFromError(fmt.Errorf("share abc: %w", domain.ErrShareNotFound))
 	assert.Equal(t, 404, p.Status)
 	assert.Equal(t, "share_not_found", p.Code)
+
+	p = c.ProblemFromError(fmt.Errorf("login: %w", domain.ErrTooManyRequests))
+	assert.Equal(t, 429, p.Status)
+	assert.Equal(t, "too_many_requests", p.Code)
 
 	p = c.ProblemFromError(errors.New("secret internal detail"))
 	assert.Equal(t, 500, p.Status)

@@ -16,10 +16,12 @@ import { useTranslation } from 'react-i18next';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router';
 
 import { useSession } from '@/auth/SessionProvider';
+import { usePermissions } from '@/auth/usePermissions';
 import { ColorSchemeToggle } from '@/components/ColorSchemeToggle';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
+import { UploadPanel } from '@/upload/UploadPanel';
 
-import { isNavItemActive, navigation } from './navigation';
+import { isNavItemActive, navigation, visibleNavigation } from './navigation';
 
 /** Header + sidebar frame of every authenticated page. */
 export function AppShellLayout() {
@@ -28,6 +30,7 @@ export function AppShellLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { session, logout } = useSession();
+  const permissions = usePermissions();
 
   const handleLogout = async () => {
     await logout();
@@ -89,9 +92,9 @@ export function AppShellLayout() {
         </Group>
       </AppShell.Header>
 
-      <AppShell.Navbar p="xs" component="nav" aria-label={t('common.openNavigation')}>
+      <AppShell.Navbar p="xs" component="nav" aria-label={t('common.mainNavigation')}>
         <ScrollArea type="auto" style={{ flex: 1 }}>
-          {navigation.map((item) => (
+          {visibleNavigation(navigation, permissions).map((item) => (
             <NavLink
               key={item.key}
               component={Link}
@@ -109,6 +112,7 @@ export function AppShellLayout() {
 
       <AppShell.Main>
         <Outlet />
+        <UploadPanel />
       </AppShell.Main>
     </AppShell>
   );

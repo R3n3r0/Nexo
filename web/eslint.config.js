@@ -111,6 +111,18 @@ export default tseslint.config(
     },
   },
 
+  // Playwright end-to-end suite: Node code, where `use` is the fixture
+  // callback of Playwright, not a React hook.
+  {
+    files: ['e2e/**/*.ts', 'playwright.config.ts'],
+    languageOptions: { globals: { ...globals.node } },
+    rules: {
+      'react-hooks/rules-of-hooks': 'off',
+      'react-hooks/exhaustive-deps': 'off',
+      'no-console': ['warn', { allow: ['warn', 'error'] }],
+    },
+  },
+
   // Test helpers export fixtures next to wrapper components.
   {
     files: ['src/test/**/*.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],

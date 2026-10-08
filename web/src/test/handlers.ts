@@ -44,7 +44,7 @@ export function sampleSession(accessKey = testCredentials.accessKey): Session {
 /** Baseline: no session, valid login with the test credentials, server info. */
 export const defaultHandlers: HttpHandler[] = [
   http.get(api('/auth/session'), () =>
-    problemResponse(401, 'invalid_access_key', 'Authentication required.'),
+    problemResponse(401, 'unauthenticated', 'Authentication required.'),
   ),
   http.post(api('/auth/login'), async ({ request }) => {
     const body = (await request.json()) as { accessKey?: string; secretKey?: string };
@@ -56,10 +56,19 @@ export const defaultHandlers: HttpHandler[] = [
         headers: { 'Set-Cookie': 'nexo_csrf=csrf-from-cookie; Path=/' },
       });
     }
-    return problemResponse(403, 'access_denied', 'The credentials are not valid.');
+    return problemResponse(401, 'invalid_credentials', 'invalid access key or secret key');
   }),
   http.post(api('/auth/logout'), () => new HttpResponse(null, { status: 204 })),
   http.get(api('/info'), () => HttpResponse.json(sampleServerInfo())),
+  // The layout asks for the effective permissions of the signed-in user.
+  http.get(api('/me/permissions'), () =>
+    HttpResponse.json({
+      user: testCredentials.accessKey,
+      isRoot: true,
+      allowed: [],
+      denied: [],
+    }),
+  ),
 ];
 
 function statusText(status: number): string {

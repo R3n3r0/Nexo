@@ -1,0 +1,17 @@
+Print the settings of every subsystem, or of the named ones
+
+Usage:
+  nexoctl admin config get ALIAS [SUBSYSTEM...] [flags]
+
+Examples:
+  nexoctl admin config get local region logger
+
+Flags:
+  -h, --help   help for get
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

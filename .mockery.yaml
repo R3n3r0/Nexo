@@ -16,12 +16,28 @@ filename: "{{.InterfaceName | snakecase}}.go"
 packages:
   github.com/r3n3r0/nexo/internal/cli:
     interfaces:
+      AdminClient:
+        config:
+          # DeleteConfig(ctx, subsystem, keys...): one expectation matches
+          # any number of keys.
+          unroll-variadic: false
+      AdminFactory:
       AliasService:
       ConfigStore:
+      S3Client:
+      S3Factory:
   github.com/r3n3r0/nexo/internal/service/admin:
     interfaces:
       Service:
       ActionHandler:
+      Authorizer:
+      BucketManager:
+      ObjectBrowser:
+      ShareManager:
+      IdentityManager:
+      AccessKeyManager:
+      PolicyManager:
+      ConfigManager:
   github.com/r3n3r0/nexo/internal/service/audit:
     interfaces:
       Service:
@@ -128,4 +144,6 @@ packages:
       UserRoutes:
       PolicyRoutes:
       BucketRoutes:
+      ObjectRoutes:
+      ShareRoutes:
       ConfigRoutes:

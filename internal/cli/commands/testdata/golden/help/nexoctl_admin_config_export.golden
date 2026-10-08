@@ -1,0 +1,19 @@
+Export the whole dynamic configuration as a JSON document, secrets included:
+protect the file. Restore it with "nexoctl admin config import".
+
+Usage:
+  nexoctl admin config export [flags] ALIAS
+
+Examples:
+  nexoctl admin config export local --output nexo-config.json
+
+Flags:
+  -h, --help            help for export
+  -o, --output string   write the document to this file (mode 0600)
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

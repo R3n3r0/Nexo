@@ -1,0 +1,60 @@
+# TCL-E-10: admin user add/list/disable/remove; a disabled or removed user
+# is denied (exit 4). C-ADM-02, C-ADM-03.
+
+exec nexoctl mb local/team
+exec nexoctl cp note.txt local/team/note.txt
+
+exec nexoctl admin user add local bob bob-secret-123 --policy readwrite
+stdout '^Added user "bob" \(enabled\)\.$'
+exec nexoctl alias set bob $NEXO_URL bob bob-secret-123 --admin-url $NEXO_ADMIN_URL
+exec nexoctl cat bob/team/note.txt
+cmp stdout note.txt
+
+exec nexoctl admin user list local
+stdout '^bob +enabled +readwrite +-$'
+exec nexoctl admin user info --json local bob
+jsonlines stdout
+stdout '"accessKey":"bob","state":"enabled","policyNames":\["readwrite"\]'
+
+exec nexoctl admin user disable local bob
+stdout '^User "bob" is disabled\.$'
+exec nexoctl admin user list local
+stdout '^bob +disabled '
+expectcode 4 nexoctl cat bob/team/note.txt
+exec nexoctl admin user enable local bob
+exec nexoctl cat bob/team/note.txt
+
+# A user without admin permissions cannot administer (exit 4).
+expectcode 4 nexoctl admin user list bob
+
+# Groups: members and policies.
+exec nexoctl admin user add local carol carol-secret-1
+exec nexoctl admin group add local devs bob carol --policy readonly
+stdout 'Created group "devs" with 2 member\(s\)'
+exec nexoctl admin group members local devs
+stdout '^bob$'
+stdout '^carol$'
+exec nexoctl admin user policy local carol
+stdout '^Group devs: readonly$'
+stdout '^Effective: readonly$'
+exec nexoctl alias set carol $NEXO_URL carol carol-secret-1 --admin-url $NEXO_ADMIN_URL
+exec nexoctl cat carol/team/note.txt
+exec nexoctl admin group disable local devs
+expectcode 4 nexoctl cat carol/team/note.txt
+exec nexoctl admin group enable local devs
+exec nexoctl admin group remove local devs carol
+expectcode 4 nexoctl cat carol/team/note.txt
+exec nexoctl admin group list local
+stdout '^devs +enabled +1  readonly$'
+exec nexoctl admin group remove local devs
+expectcode 3 nexoctl admin group info local devs
+
+# Removal: the credentials stop working at once.
+exec nexoctl admin user remove local bob
+expectcode 4 nexoctl cat bob/team/note.txt
+expectcode 3 nexoctl admin user info local bob
+exec nexoctl admin user list local
+! stdout '^bob '
+
+-- note.txt --
+team note

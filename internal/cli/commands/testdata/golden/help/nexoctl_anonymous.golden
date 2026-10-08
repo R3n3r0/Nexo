@@ -1,0 +1,32 @@
+Grant anonymous (unauthenticated) access to a bucket or to a prefix with a
+preset, implemented as statements of the bucket policy:
+
+  private   no anonymous access
+  download  list and read
+  upload    write (and abort multipart uploads)
+  public    download + upload + delete
+
+The statements of other prefixes and the custom statements are kept.
+
+Usage:
+  nexoctl anonymous [flags]
+  nexoctl anonymous [command]
+
+Available Commands:
+  get         Show the anonymous access of a bucket or prefix
+  get-json    Print the bucket policy
+  list        List the prefixes of a bucket with anonymous access
+  set         Set the anonymous access of a bucket or prefix
+  set-json    Replace the bucket policy with a JSON document
+
+Flags:
+  -h, --help   help for anonymous
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl anonymous [command] --help" for more information about a command.

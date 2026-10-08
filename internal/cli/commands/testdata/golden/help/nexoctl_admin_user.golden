@@ -1,0 +1,26 @@
+Manage the IAM users
+
+Usage:
+  nexoctl admin user [flags]
+  nexoctl admin user [command]
+
+Available Commands:
+  add         Create a user
+  disable     Disable users (a disabled user cannot sign any request)
+  enable      Enable users (a disabled user cannot sign any request)
+  info        Show a user
+  list        List the users
+  policy      Show the policies of a user, direct and inherited from its groups
+  remove      Remove users (with their access keys)
+
+Flags:
+  -h, --help   help for user
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl admin user [command] --help" for more information about a command.

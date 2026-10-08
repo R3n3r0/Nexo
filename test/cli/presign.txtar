@@ -1,0 +1,38 @@
+# TCL-P-06: presign --method DELETE (and the other methods) gives raw
+# presigned URLs that work without credentials.
+
+exec nexoctl mb local/bkt
+exec nexoctl cp a.txt local/bkt/a.txt
+exec nexoctl cp a.txt local/bkt/b.txt
+
+exec nexoctl presign --method DELETE --expire 10m local/bkt/a.txt
+stdout '^http://.*/bkt/a.txt\?.*X-Amz-Expires=600'
+exec nexoctl presign --method DELETE --expire 10m --json local/bkt/a.txt
+jsonlines stdout
+stdout '"method":"DELETE"'
+jsonfield stdout url DELURL
+http -X DELETE -status 204 $DELURL
+expectcode 3 nexoctl stat local/bkt/a.txt
+
+exec nexoctl presign --json local/bkt/b.txt
+jsonfield stdout url GETURL
+http -o got.txt $GETURL
+cmp got.txt a.txt
+exec nexoctl presign -X HEAD --json local/bkt/b.txt
+jsonfield stdout url HEADURL
+http -X HEAD $HEADURL
+
+exec nexoctl presign -X PUT -H 'Content-Type: text/plain' local/bkt/c.txt
+stdout '^Header: Content-Type: text/plain$'
+exec nexoctl presign -X PUT -H 'Content-Type: text/plain' --json local/bkt/c.txt
+jsonfield stdout url PUTURL
+http -X PUT -H 'Content-Type: image/png' -T a.txt -status 403 $PUTURL
+http -X PUT -H 'Content-Type: text/plain' -T a.txt $PUTURL
+exec nexoctl stat local/bkt/c.txt
+stdout 'Content-Type: text/plain'
+
+expectcode 2 nexoctl presign --method PATCH local/bkt/b.txt
+expectcode 2 nexoctl presign -H 'x-amz-acl: public-read' -X PUT local/bkt/b.txt
+
+-- a.txt --
+presigned content

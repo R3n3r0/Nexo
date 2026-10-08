@@ -1,0 +1,32 @@
+Administer a Nexo server through its Admin API: server information and usage,
+users, groups, policies, access keys, configuration and service control.
+
+The Admin API is served by the console listener of the server: see --admin-url
+of "nexoctl alias set". Every subcommand takes the alias as its first argument.
+
+Usage:
+  nexoctl admin [flags]
+  nexoctl admin [command]
+
+Available Commands:
+  accesskey   Manage the access keys (service accounts) of the users
+  config      Read and change the dynamic configuration of the server
+  group       Manage the IAM groups and their members
+  heal        Heal the drives of the server (erasure-coded deployments)
+  info        Show the server: version, mode, nodes and drives
+  policy      Manage the IAM policies (AWS policy language)
+  service     Restart or stop the server
+  usage       Show the data usage of the server and of each bucket
+  user        Manage the IAM users
+
+Flags:
+  -h, --help   help for admin
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl admin [command] --help" for more information about a command.

@@ -1,0 +1,31 @@
+Share objects with download and upload links that need no credentials.
+
+By default the links are managed: the Nexo server signs each link with a
+dedicated service account, lists it ("share list") and revokes it on demand
+("share revoke"), with immediate effect. --raw signs the URL locally with
+the credentials of the alias instead (any S3 endpoint): a raw URL cannot be
+revoked one by one, only by removing the access key or the permissions of its
+user. POST policies for HTML forms (share upload --post) are always signed
+locally. Every link expires after --expire (at most 7 days).
+
+Usage:
+  nexoctl share [flags]
+  nexoctl share [command]
+
+Available Commands:
+  download    Generate download links (managed by default, --raw for presigned GET)
+  list        List the active managed share links
+  revoke      Revoke managed share links (immediately)
+  upload      Generate upload links (managed PUT by default, --raw, or a --post policy)
+
+Flags:
+  -h, --help   help for share
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl share [command] --help" for more information about a command.

@@ -11,21 +11,10 @@ import { AppShellLayout } from '@/layout/AppShellLayout';
 import { LoginPage, type LoginPageProps } from '@/pages/LoginPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { OverviewPage } from '@/pages/OverviewPage';
-import {
-  AccessKeysPage,
-  BucketsPage,
-  CachePage,
-  ClusterPage,
-  ConfigurationPage,
-  DistributionsPage,
-  GroupsPage,
-  InfoPage,
-  MonitoringPage,
-  ObjectsPage,
-  PoliciesPage,
-  SharesPage,
-  UsersPage,
-} from '@/pages/placeholders';
+import { iamRoutes } from '@/pages/iamRoutes';
+import { CachePage, ClusterPage, DistributionsPage, MonitoringPage } from '@/pages/placeholders';
+import { storageRoutes } from '@/pages/storageRoutes';
+import { UploadProvider } from '@/upload/UploadProvider';
 
 export type AppRouter = RouterProviderProps['router'];
 
@@ -47,22 +36,20 @@ export function createRoutes(options: RouteOptions = {}): RouteObject[] {
       errorElement: <RouteErrorPage />,
       children: [
         {
-          element: <AppShellLayout />,
+          // The upload queue outlives the navigation between the pages.
+          element: (
+            <UploadProvider>
+              <AppShellLayout />
+            </UploadProvider>
+          ),
           children: [
             { index: true, element: <OverviewPage /> },
-            { path: 'buckets', element: <BucketsPage /> },
-            { path: 'objects', element: <ObjectsPage /> },
-            { path: 'users', element: <UsersPage /> },
-            { path: 'groups', element: <GroupsPage /> },
-            { path: 'policies', element: <PoliciesPage /> },
-            { path: 'access-keys', element: <AccessKeysPage /> },
-            { path: 'shares', element: <SharesPage /> },
+            ...storageRoutes(),
+            ...iamRoutes(),
             { path: 'distributions', element: <DistributionsPage /> },
             { path: 'cache', element: <CachePage /> },
             { path: 'cluster', element: <ClusterPage /> },
             { path: 'monitoring', element: <MonitoringPage /> },
-            { path: 'configuration', element: <ConfigurationPage /> },
-            { path: 'info', element: <InfoPage /> },
             { path: '*', element: <NotFoundPage /> },
           ],
         },

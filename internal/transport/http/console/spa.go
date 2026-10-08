@@ -85,22 +85,65 @@ func (h *spaRoutes) serve(w http.ResponseWriter, r *http.Request) {
 		h.deps.Enc.WriteProblem(w, r, httpx.Problem{Status: http.StatusNotFound, Code: "not_found", Detail: "no such endpoint"})
 		return
 	}
+	// A path climbing out of its directory ("/../etc/passwd", also
+	// percent-encoded) is never a route of the console nor an asset.
+	if hasDotDot(p) {
+		http.NotFound(w, r)
+		return
+	}
 	fsys, ok := h.deps.Assets.FS()
 	if !ok {
 		h.placeholder(w, r)
 		return
 	}
 	clean := strings.TrimPrefix(path.Clean("/"+p), "/")
-	if clean != "" && clean != "index.html" && path.Ext(clean) != "" {
+	if clean != "" && clean != "index.html" {
 		if h.serveFile(w, r, fsys, clean) {
 			return
 		}
 		// A missing asset is a 404, not the SPA shell: browsers must not
-		// receive HTML for a script or stylesheet URL.
-		http.NotFound(w, r)
-		return
+		// receive HTML for a script or stylesheet URL. The assets
+		// directory holds files only; elsewhere, routes ending with "/"
+		// are folders of the console (a prefix like "v1.2/"), never files.
+		if strings.HasPrefix(clean, assetsDir+"/") || clean == assetsDir ||
+			(!strings.HasSuffix(p, "/") && isStaticExtension(path.Ext(clean))) {
+			http.NotFound(w, r)
+			return
+		}
 	}
 	h.serveIndex(w, r, fsys)
+}
+
+// assetsDir is the directory of the fingerprinted build output (Vite).
+const assetsDir = "assets"
+
+// isStaticExtension reports whether ext is the extension of a file a
+// browser loads as an asset (script, style, image, font, manifest): a
+// missing one is a 404 rather than the SPA shell. Other dotted paths are
+// console routes (e.g. a folder "v1.2" of the object browser).
+func isStaticExtension(ext string) bool {
+	switch strings.ToLower(ext) {
+	case ".js", ".mjs", ".css", ".map", ".json", ".webmanifest", ".html", ".txt", ".xml", ".wasm",
+		".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp", ".avif",
+		".woff", ".woff2", ".ttf", ".otf", ".eot":
+		return true
+	default:
+		return false
+	}
+}
+
+// hasDotDot reports whether a (decoded) URL path has a ".." segment, or a
+// backslash some file systems treat as a separator.
+func hasDotDot(p string) bool {
+	if strings.Contains(p, "\\") {
+		return true
+	}
+	for _, segment := range strings.Split(p, "/") {
+		if segment == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *spaRoutes) isAPIPath(p string) bool {
@@ -122,7 +165,7 @@ func (h *spaRoutes) serveFile(w http.ResponseWriter, r *http.Request, fsys fs.FS
 	if err != nil || st.IsDir() {
 		return false
 	}
-	if h.hashedAsset.MatchString(path.Base(name)) || strings.HasPrefix(name, "assets/") {
+	if h.hashedAsset.MatchString(path.Base(name)) || strings.HasPrefix(name, assetsDir+"/") {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	} else {
 		w.Header().Set("Cache-Control", "public, max-age=3600")

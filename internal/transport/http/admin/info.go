@@ -8,22 +8,22 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/r3n3r0/nexo/internal/domain"
-	"github.com/r3n3r0/nexo/internal/service/admin"
+	adminsvc "github.com/r3n3r0/nexo/internal/service/admin"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
 
 // InfoDeps are the dependencies of the info routes.
 type InfoDeps struct {
-	Admin admin.Service
-	// Policy authorizes the admin:* actions; nil leaves the routes open (tests).
-	Policy policy.Service
-	Enc    httpx.Codec
+	Admin adminsvc.Service
+	// Authz authorizes the routes (required).
+	Authz adminsvc.Authorizer
+	Enc   httpx.Codec
 }
 
 type infoRoutes struct {
 	deps  InfoDeps
-	authz authorizer
+	guard guard
 }
 
 var _ InfoRoutes = (*infoRoutes)(nil)
@@ -31,22 +31,31 @@ var _ InfoRoutes = (*infoRoutes)(nil)
 // NewInfoRoutes returns the server information, data usage, healing and
 // service control routes.
 func NewInfoRoutes(deps InfoDeps) (InfoRoutes, error) {
-	if deps.Admin == nil {
-		return nil, fmt.Errorf("%w: info routes require the admin service", domain.ErrInvalidArgument)
+	if deps.Admin == nil || deps.Authz == nil {
+		return nil, fmt.Errorf("%w: info routes require the admin service and the authorizer", domain.ErrInvalidArgument)
 	}
 	if deps.Enc == nil {
 		deps.Enc = httpx.New()
 	}
-	return &infoRoutes{deps: deps, authz: authorizer{policy: deps.Policy, enc: deps.Enc}}, nil
+	return &infoRoutes{deps: deps, guard: guard{authz: deps.Authz, enc: deps.Enc}}, nil
 }
 
 // Register implements Routes.
-func (h *infoRoutes) Register(r chi.Router) {
-	r.Get("/info", h.info)
-	r.Get("/usage", h.usage)
-	r.Post("/heal", h.heal)
-	r.Get("/heal/{id}", h.healStatus)
-	r.Post("/service/{action}", h.serviceAction)
+func (h *infoRoutes) Register(r chi.Router) { h.guard.register(r, h.routes()) }
+
+func (h *infoRoutes) routes() []route {
+	ni := notImplemented(h.deps.Enc)
+	return []route{
+		{http.MethodGet, "/info", global(policy.ActionAdminServerInfo), h.info},
+		{http.MethodGet, "/usage", global(policy.ActionAdminDataUsage), h.usage},
+		{http.MethodPost, "/heal", global(policy.ActionAdminHeal), h.heal},
+		{http.MethodGet, "/heal/{id}", global(policy.ActionAdminHeal), h.healStatus},
+		{http.MethodPost, "/service/restart", global(policy.ActionAdminServiceRestart), h.serviceAction(adminsvc.ActionRestart)},
+		{http.MethodPost, "/service/stop", global(policy.ActionAdminServiceStop), h.serviceAction(adminsvc.ActionStop)},
+		// Live streams (SSE) arrive with the observability milestone.
+		{http.MethodGet, "/trace", global(policy.ActionAdminServerTrace), ni},
+		{http.MethodGet, "/logs", global(policy.ActionAdminConsoleLog), ni},
+	}
 }
 
 // ServerInfoResponse is the JSON body of GET /info. It mirrors the
@@ -143,24 +152,18 @@ func newServerInfoResponse(info *domain.ServerInfo) ServerInfoResponse {
 }
 
 func (h *infoRoutes) info(w http.ResponseWriter, r *http.Request) {
-	if !h.authz.authorize(w, r, policy.ActionAdminServerInfo, "") {
-		return
-	}
 	info, err := h.deps.Admin.ServerInfo(r.Context())
 	if err != nil {
-		h.deps.Enc.WriteProblemError(w, r, err)
+		writeError(h.deps.Enc, w, r, err)
 		return
 	}
 	h.deps.Enc.WriteJSON(w, http.StatusOK, newServerInfoResponse(info))
 }
 
 func (h *infoRoutes) usage(w http.ResponseWriter, r *http.Request) {
-	if !h.authz.authorize(w, r, policy.ActionAdminDataUsage, "") {
-		return
-	}
 	du, err := h.deps.Admin.DataUsage(r.Context())
 	if err != nil {
-		h.deps.Enc.WriteProblemError(w, r, err)
+		writeError(h.deps.Enc, w, r, err)
 		return
 	}
 	h.deps.Enc.WriteJSON(w, http.StatusOK, du)
@@ -175,54 +178,41 @@ type HealRequest struct {
 }
 
 func (h *infoRoutes) heal(w http.ResponseWriter, r *http.Request) {
-	if !h.authz.authorize(w, r, policy.ActionAdminHeal, "") {
+	var in HealRequest
+	if err := decodeJSON(h.deps.Enc, r, &in, true); err != nil {
+		writeError(h.deps.Enc, w, r, err)
 		return
 	}
-	var in HealRequest
-	if r.ContentLength != 0 {
-		if err := h.deps.Enc.DecodeJSON(r.Body, maxJSONBody, &in); err != nil {
-			h.deps.Enc.WriteProblemError(w, r, err)
-			return
-		}
-	}
-	res, err := h.deps.Admin.Heal(r.Context(), admin.HealInput{Bucket: in.Bucket, Prefix: in.Prefix, Recursive: in.Recursive, DryRun: in.DryRun})
+	res, err := h.deps.Admin.Heal(r.Context(), adminsvc.HealInput{Bucket: in.Bucket, Prefix: in.Prefix, Recursive: in.Recursive, DryRun: in.DryRun})
 	if err != nil {
-		h.deps.Enc.WriteProblemError(w, r, err)
+		writeError(h.deps.Enc, w, r, err)
 		return
 	}
 	h.deps.Enc.WriteJSON(w, http.StatusAccepted, res)
 }
 
 func (h *infoRoutes) healStatus(w http.ResponseWriter, r *http.Request) {
-	if !h.authz.authorize(w, r, policy.ActionAdminHeal, "") {
-		return
-	}
-	res, err := h.deps.Admin.Heal(r.Context(), admin.HealInput{ID: chi.URLParam(r, "id")})
+	res, err := h.deps.Admin.Heal(r.Context(), adminsvc.HealInput{ID: chi.URLParam(r, "id")})
 	if err != nil {
-		h.deps.Enc.WriteProblemError(w, r, err)
+		writeError(h.deps.Enc, w, r, err)
 		return
 	}
 	h.deps.Enc.WriteJSON(w, http.StatusOK, res)
 }
 
-func (h *infoRoutes) serviceAction(w http.ResponseWriter, r *http.Request) {
-	action := admin.Action(chi.URLParam(r, "action"))
-	var required policy.Action
-	switch action {
-	case admin.ActionRestart:
-		required = policy.ActionAdminServiceRestart
-	case admin.ActionStop:
-		required = policy.ActionAdminServiceStop
-	default:
-		badRequest(h.deps.Enc, w, r, fmt.Sprintf("unknown service action %q", action))
-		return
+// serviceAction restarts or stops the server; the response is sent
+// before the process acts on it.
+func (h *infoRoutes) serviceAction(action adminsvc.Action) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := h.deps.Admin.ServiceAction(r.Context(), action); err != nil {
+			writeError(h.deps.Enc, w, r, err)
+			return
+		}
+		h.deps.Enc.WriteJSON(w, http.StatusAccepted, ServiceActionResponse{Action: string(action)})
 	}
-	if !h.authz.authorize(w, r, required, "") {
-		return
-	}
-	if err := h.deps.Admin.ServiceAction(r.Context(), action); err != nil {
-		h.deps.Enc.WriteProblemError(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusAccepted)
+}
+
+// ServiceActionResponse acknowledges a service action.
+type ServiceActionResponse struct {
+	Action string `json:"action"`
 }

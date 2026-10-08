@@ -11,6 +11,29 @@ import (
 	"github.com/r3n3r0/nexo/internal/domain"
 )
 
+// ErrAliasNotFound reports an unknown alias; it wraps domain.ErrUserNotFound
+// (exit code 3).
+var ErrAliasNotFound = fmt.Errorf("alias not found: %w", domain.ErrUserNotFound)
+
+// AliasNotFoundError reports an unknown alias with a readable message; it
+// wraps ErrAliasNotFound.
+type AliasNotFoundError struct {
+	Name string
+	// Arg is the command argument that names the alias, if any.
+	Arg string
+}
+
+// Error implements error.
+func (e *AliasNotFoundError) Error() string {
+	if e.Arg != "" && e.Arg != e.Name {
+		return fmt.Sprintf("unknown alias %q in %q (remote locations are ALIAS/BUCKET[/PREFIX], see \"nexoctl alias list\")", e.Name, e.Arg)
+	}
+	return fmt.Sprintf("unknown alias %q (see \"nexoctl alias list\")", e.Name)
+}
+
+// Unwrap returns ErrAliasNotFound.
+func (e *AliasNotFoundError) Unwrap() error { return ErrAliasNotFound }
+
 // AliasDeps are the dependencies of the alias service.
 type AliasDeps struct {
 	Store ConfigStore
@@ -50,6 +73,9 @@ func ValidateAlias(a Alias) error {
 	if a.AccessKey == "" || a.SecretKey == "" {
 		return fmt.Errorf("%w: access key and secret key are required", domain.ErrInvalidArgument)
 	}
+	if a.AdminURL != "" && checkHTTPURL(a.AdminURL) != nil {
+		return fmt.Errorf("%w: alias admin URL %q must be an http(s) URL", domain.ErrInvalidArgument, a.AdminURL)
+	}
 	return nil
 }
 
@@ -81,7 +107,7 @@ func (s *aliasService) Get(ctx context.Context, name string) (*Alias, error) {
 	}
 	a, ok := cfg.Aliases[name]
 	if !ok {
-		return nil, fmt.Errorf("%w: alias %q", domain.ErrUserNotFound, name)
+		return nil, &AliasNotFoundError{Name: name}
 	}
 	a.Name = name
 	return &a, nil
@@ -109,7 +135,7 @@ func (s *aliasService) Remove(ctx context.Context, name string) error {
 		return err
 	}
 	if _, ok := cfg.Aliases[name]; !ok {
-		return fmt.Errorf("%w: alias %q", domain.ErrUserNotFound, name)
+		return &AliasNotFoundError{Name: name}
 	}
 	delete(cfg.Aliases, name)
 	return s.deps.Store.Save(ctx, cfg)

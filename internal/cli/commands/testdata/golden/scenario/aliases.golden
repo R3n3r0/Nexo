@@ -1,0 +1,50 @@
+$ nexoctl alias set prod https://s3.example.com AKPROD SKPROD --path on --region eu-west-1
+Added alias "prod" for https://s3.example.com.
+
+$ nexoctl alias list
+NAME             URL                                      ACCESS KEY           API   PATH
+mem              http://s3.mem.test                       MEMKEY               s3v4  auto
+prod             https://s3.example.com                   AKPROD               s3v4  on
+
+$ nexoctl alias list --json
+{"status":"success","type":"alias","name":"mem","url":"http://s3.mem.test","accessKey":"MEMKEY","api":"s3v4","path":"auto"}
+{"status":"success","type":"alias","name":"prod","url":"https://s3.example.com","accessKey":"AKPROD","api":"s3v4","path":"on","region":"eu-west-1"}
+
+$ nexoctl alias set bad name http://x a b
+! nexoctl: error: invalid argument: alias name "bad name" may only contain letters, digits, '-' and '_'
+! Run 'nexoctl alias set --help' for usage.
+[exit 2]
+
+$ nexoctl alias set x ftp://x a b
+! nexoctl: error: invalid argument: alias URL "ftp://x" must be an http(s) URL
+! Run 'nexoctl alias set --help' for usage.
+[exit 2]
+
+$ nexoctl alias set only-two http://x
+! nexoctl: error: nexoctl alias set takes 4 argument(s), got 2
+! Run 'nexoctl alias set --help' for usage.
+[exit 2]
+
+$ nexoctl alias remove prod
+Removed alias "prod".
+
+$ nexoctl alias rm prod
+! nexoctl: error: unknown alias "prod" (see "nexoctl alias list")
+[exit 3]
+
+$ nexoctl alias ls
+NAME             URL                                      ACCESS KEY           API   PATH
+mem              http://s3.mem.test                       MEMKEY               s3v4  auto
+
+$ nexoctl alias set checked http://s3.mem.test AK WRONG --verify
+! nexoctl: error: verify alias "checked" at http://s3.mem.test: signature does not match: the secret key is wrong
+[exit 4]
+
+$ nexoctl alias set checked http://s3.mem.test AK RIGHT --verify
+Added alias "checked" for http://s3.mem.test (credentials verified).
+
+$ nexoctl alias list --quiet
+NAME             URL                                      ACCESS KEY           API   PATH
+checked          http://s3.mem.test                       AK                   s3v4  auto
+mem              http://s3.mem.test                       MEMKEY               s3v4  auto
+

@@ -1,0 +1,26 @@
+Manage the IAM groups and their members
+
+Usage:
+  nexoctl admin group [flags]
+  nexoctl admin group [command]
+
+Available Commands:
+  add         Create a group or add members to it
+  disable     Disable groups (the policies of a disabled group do not apply)
+  enable      Enable groups (the policies of a disabled group do not apply)
+  info        Show a group
+  list        List the groups
+  members     List the members of a group
+  remove      Remove members from a group, or the group itself
+
+Flags:
+  -h, --help   help for group
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl admin group [command] --help" for more information about a command.

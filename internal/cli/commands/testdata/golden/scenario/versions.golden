@@ -1,0 +1,94 @@
+$ nexoctl mb --with-versioning mem/ver
+Bucket created successfully `mem/ver`.
+
+$ nexoctl rm mem/ver/doc.json
+Removed `mem/ver/doc.json` (delete marker v0003).
+
+$ nexoctl ls --versions mem/ver
+[2026-01-02 03:06:05 UTC]      0B v0003 DEL doc.json (latest)
+[2026-01-02 03:05:05 UTC]      7B v0002 PUT doc.json
+[2026-01-02 03:04:05 UTC]      7B v0001 PUT doc.json
+
+$ nexoctl ls --versions mem/ver/doc.json
+[2026-01-02 03:06:05 UTC]      0B v0003 DEL doc.json (latest)
+[2026-01-02 03:05:05 UTC]      7B v0002 PUT doc.json
+[2026-01-02 03:04:05 UTC]      7B v0001 PUT doc.json
+
+$ nexoctl cat --version-id v0001 mem/ver/doc.json
+{"v":1}
+$ nexoctl stat --version-id v0002 mem/ver/doc.json
+Name        : doc.json
+Date        : 2026-01-02 03:05:05 UTC
+Size        : 7B (7 bytes)
+Type        : file
+ETag        : 554a7f6757030bc85dc45e129076ef94
+Class       : STANDARD
+VersionID   : v0002
+
+$ nexoctl cp --version-id v0001 mem/ver/doc.json mem/ver/restored.json
+`mem/ver/doc.json` -> `mem/ver/restored.json` (7B)
+Copied 1 object (7B).
+
+$ nexoctl rm --version-id v0003 mem/ver/doc.json
+Removed `mem/ver/doc.json` (version v0003).
+
+$ nexoctl cat mem/ver/doc.json
+{"v":2}
+$ nexoctl rm --versions mem/ver/doc.json
+Removed `mem/ver/doc.json` (version v0002).
+Removed `mem/ver/doc.json` (version v0001).
+
+$ nexoctl ls --versions --recursive mem/ver
+[2026-01-02 03:06:05 UTC]      7B v0004 PUT restored.json (latest)
+
+$ nexoctl version suspend mem/ver
+Versioning of `mem/ver` is suspended.
+
+$ nexoctl version info mem/ver
+Versioning of `mem/ver` is suspended.
+
+$ nexoctl version enable mem/ver
+Versioning of `mem/ver` is enabled.
+
+$ nexoctl version bogus
+! nexoctl: error: unknown command "bogus" for "nexoctl version"
+! Run 'nexoctl version --help' for usage.
+[exit 2]
+
+$ nexoctl tag set mem/ver/restored.json project=nexo&status=final
+Tags set for `mem/ver/restored.json`.
+
+$ nexoctl tag list mem/ver/restored.json
+project: nexo
+status: final
+
+$ nexoctl tag remove mem/ver/restored.json
+Tags removed for `mem/ver/restored.json`.
+
+$ nexoctl tag list mem/ver/restored.json
+No tags for `mem/ver/restored.json`.
+
+$ nexoctl tag set mem/ver team=ops
+Tags set for `mem/ver`.
+
+$ nexoctl tag list mem/ver
+team: ops
+
+$ nexoctl tag set mem/ver/dir/ a=1
+! nexoctl: error: mem/ver/dir/: tags apply to a bucket or an object, not to a prefix
+! Run 'nexoctl tag set --help' for usage.
+[exit 2]
+
+$ nexoctl tag set mem/ver/restored.json a=1&a=2
+! nexoctl: error: invalid tags "a=1&a=2": duplicate key "a"
+! Run 'nexoctl tag set --help' for usage.
+[exit 2]
+
+$ nexoctl stat mem/ver
+Name        : ver
+Date        : 2026-01-02 03:04:05 UTC
+Type        : bucket
+Versioning  : Enabled
+Anonymous   : private
+Tags        : team=ops
+

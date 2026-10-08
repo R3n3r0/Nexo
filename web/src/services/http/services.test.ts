@@ -25,13 +25,13 @@ describe('createHttpServices', () => {
     expect(logoutHeader).toBe('csrf-from-login');
   });
 
-  it('rejects a wrong password with a 403 ApiError and no global event', async () => {
+  it('rejects a wrong password with a 401 ApiError and no global event', async () => {
     const services = createHttpServices({ baseUrl: '/api/v1' });
     const listener = vi.fn();
     services.authEvents.onUnauthorized(listener);
     await expect(services.session.login('admin', 'wrong-password')).rejects.toMatchObject({
-      status: 403,
-      code: 'access_denied',
+      status: 401,
+      code: 'invalid_credentials',
     });
     expect(listener).not.toHaveBeenCalled();
   });
@@ -51,17 +51,17 @@ describe('createHttpServices', () => {
   it('calls the documented endpoints', async () => {
     const calls: string[] = [];
     server.use(
-      http.get(api('/buckets'), () => HttpResponse.json([])),
+      http.get(api('/buckets'), () => HttpResponse.json({ items: [] })),
       http.post(api('/buckets'), () => HttpResponse.json({ name: 'new' }, { status: 201 })),
       http.delete(api('/buckets/old'), ({ request }) => {
         calls.push(new URL(request.url).search);
         return new HttpResponse(null, { status: 204 });
       }),
-      http.get(api('/users'), () => HttpResponse.json([])),
-      http.get(api('/groups'), () => HttpResponse.json([])),
-      http.get(api('/policies'), () => HttpResponse.json([])),
+      http.get(api('/users'), () => HttpResponse.json({ items: [] })),
+      http.get(api('/groups'), () => HttpResponse.json({ items: [] })),
+      http.get(api('/policies'), () => HttpResponse.json({ items: [] })),
       http.put(api('/policies/p1'), () => HttpResponse.json({ name: 'p1' })),
-      http.get(api('/access-keys'), () => HttpResponse.json([])),
+      http.get(api('/access-keys'), () => HttpResponse.json({ items: [] })),
     );
     const services = createHttpServices({ baseUrl: '/api/v1' });
     await expect(services.buckets.list()).resolves.toEqual([]);

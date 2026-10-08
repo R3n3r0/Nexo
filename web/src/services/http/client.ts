@@ -1,5 +1,6 @@
 import { ApiError, ClientErrorCode, type ProblemDetails } from '../errors';
 import { defaultCsrfCookieName, defaultCsrfHeaderName, readDocumentCookie } from './csrf';
+import { type FormDownloadOptions, submitFormDownload } from './formDownload';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -18,6 +19,30 @@ export interface RequestOptions {
   notifyUnauthorized?: boolean;
 }
 
+/** A request whose successful answer is not JSON (downloads, text previews). */
+export interface RawRequestOptions {
+  method?: HttpMethod;
+  query?: QueryParams;
+  headers?: Record<string, string>;
+  /** JSON-serialised request body. */
+  body?: unknown;
+  /** Body sent verbatim (set its Content-Type in headers); wins over body. */
+  rawBody?: string | Blob;
+  signal?: AbortSignal;
+}
+
+/** A request with a binary body whose upload progress is reported. */
+export interface UploadRequestOptions {
+  method?: 'POST' | 'PUT';
+  query?: QueryParams;
+  body: Blob;
+  /** Content-Type of the body; defaults to the type of the blob. */
+  contentType?: string;
+  signal?: AbortSignal;
+  /** Bytes sent so far out of total. */
+  onProgress?: (loaded: number, total: number) => void;
+}
+
 export interface HttpClientOptions {
   /** Base path or URL of the Admin API. Defaults to "/api/v1". */
   baseUrl?: string;
@@ -29,6 +54,8 @@ export interface HttpClientOptions {
   readCookie?: (name: string) => string | undefined;
   /** Called on every 401 response unless the request opted out. */
   onUnauthorized?: () => void;
+  /** XMLHttpRequest factory used by upload(); defaults to the global one. */
+  xhr?: () => XMLHttpRequest;
 }
 
 /**
@@ -38,6 +65,29 @@ export interface HttpClientOptions {
  */
 export interface HttpClient {
   request<T>(path: string, options?: RequestOptions): Promise<T>;
+  /**
+   * Absolute URL of an API path, for the links the browser follows itself
+   * with the session cookie (downloads, previews).
+   */
+  url(path: string, query?: QueryParams): string;
+  /** Like request, but resolves to the raw successful Response. */
+  send(path: string, options?: RawRequestOptions): Promise<Response>;
+  /**
+   * Sends a binary body with XMLHttpRequest, the only browser API that
+   * reports the upload progress, and decodes the JSON answer.
+   */
+  upload<T>(path: string, options: UploadRequestOptions): Promise<T>;
+  /**
+   * Submits a POST form (fields, plus the CSRF token) as the navigation of
+   * a hidden frame, so that the browser streams the attachment it answers
+   * to disk. Resolves once the attachment starts; rejects with the problem
+   * of a refused request.
+   */
+  download(
+    path: string,
+    fields: Record<string, string>,
+    options?: FormDownloadOptions,
+  ): Promise<void>;
   /**
    * Sets the CSRF token to use when the cookie is not readable (for example
    * when the server marks it HttpOnly and returns it in the login payload).
@@ -56,43 +106,143 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
   const doFetch: typeof fetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
   let memoryToken: string | undefined;
 
-  async function request<T>(path: string, requestOptions: RequestOptions = {}): Promise<T> {
+  function csrfHeader(method: HttpMethod, headers: Record<string, string>): void {
+    if (mutatingMethods.has(method)) {
+      const token = readCookie(csrfCookieName) ?? memoryToken;
+      if (token !== undefined && token !== '') {
+        headers[csrfHeaderName] = token;
+      }
+    }
+  }
+
+  async function fail(response: Response, notifyUnauthorized: boolean | undefined): Promise<never> {
+    const error = await decodeError(response);
+    if (error.isUnauthorized && notifyUnauthorized !== false) {
+      options.onUnauthorized?.();
+    }
+    throw error;
+  }
+
+  async function perform(path: string, requestOptions: RequestOptions & RawRequestOptions) {
     const method = requestOptions.method ?? 'GET';
-    const headers = new Headers({ Accept: 'application/json, application/problem+json' });
+    // A plain record (not Headers): what the caller sets reaches fetch as is.
+    const headers: Record<string, string> = {
+      Accept: 'application/json, application/problem+json',
+      ...requestOptions.headers,
+    };
     const init: RequestInit = { method, headers, credentials: 'same-origin' };
     if (requestOptions.signal) {
       init.signal = requestOptions.signal;
     }
-    if (requestOptions.body !== undefined) {
-      headers.set('Content-Type', 'application/json');
+    if (requestOptions.rawBody !== undefined) {
+      init.body = requestOptions.rawBody;
+    } else if (requestOptions.body !== undefined) {
+      headers['Content-Type'] = 'application/json';
       init.body = JSON.stringify(requestOptions.body);
     }
-    if (mutatingMethods.has(method)) {
-      const token = readCookie(csrfCookieName) ?? memoryToken;
-      if (token !== undefined && token !== '') {
-        headers.set(csrfHeaderName, token);
-      }
-    }
+    csrfHeader(method, headers);
 
     let response: Response;
     try {
       response = await doFetch(resolveUrl(baseUrl, path, requestOptions.query), init);
     } catch (cause) {
+      if (isAbort(cause, requestOptions.signal)) {
+        throw ApiError.aborted(cause);
+      }
       throw ApiError.network(cause);
     }
 
     if (!response.ok) {
-      const error = await decodeError(response);
-      if (error.isUnauthorized && requestOptions.notifyUnauthorized !== false) {
-        options.onUnauthorized?.();
-      }
-      throw error;
+      return fail(response, requestOptions.notifyUnauthorized);
     }
+    return response;
+  }
+
+  async function request<T>(path: string, requestOptions: RequestOptions = {}): Promise<T> {
+    const response = await perform(path, requestOptions);
     return decodeBody<T>(response);
+  }
+
+  function upload<T>(path: string, uploadOptions: UploadRequestOptions): Promise<T> {
+    const method = uploadOptions.method ?? 'PUT';
+    const { signal, onProgress, body } = uploadOptions;
+    return new Promise<T>((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(ApiError.aborted(signal.reason));
+        return;
+      }
+      const xhr = options.xhr ? options.xhr() : new XMLHttpRequest();
+      const onAbort = () => {
+        xhr.abort();
+      };
+      const settle = () => {
+        signal?.removeEventListener('abort', onAbort);
+      };
+      xhr.open(method, resolveUrl(baseUrl, path, uploadOptions.query));
+      xhr.withCredentials = true;
+      xhr.setRequestHeader('Accept', 'application/json, application/problem+json');
+      const contentType = uploadOptions.contentType ?? body.type;
+      xhr.setRequestHeader(
+        'Content-Type',
+        contentType !== '' ? contentType : 'application/octet-stream',
+      );
+      const headers: Record<string, string> = {};
+      csrfHeader(method, headers);
+      for (const [name, value] of Object.entries(headers)) {
+        xhr.setRequestHeader(name, value);
+      }
+      if (onProgress) {
+        xhr.upload.onprogress = (event) => {
+          onProgress(event.loaded, event.lengthComputable ? event.total : body.size);
+        };
+      }
+      xhr.onload = () => {
+        settle();
+        const response = new Response(xhr.status === 204 ? null : xhr.responseText, {
+          status: xhr.status,
+          statusText: xhr.statusText,
+          headers: { 'content-type': xhr.getResponseHeader('content-type') ?? '' },
+        });
+        if (!response.ok) {
+          fail(response, true).catch(reject);
+          return;
+        }
+        onProgress?.(body.size, body.size);
+        decodeBody<T>(response).then(resolve, reject);
+      };
+      xhr.onerror = () => {
+        settle();
+        reject(ApiError.network(new Error('The upload failed.')));
+      };
+      xhr.onabort = () => {
+        settle();
+        reject(ApiError.aborted(signal?.reason));
+      };
+      signal?.addEventListener('abort', onAbort);
+      xhr.send(body);
+    });
   }
 
   return {
     request,
+    url(path, query) {
+      return resolveUrl(baseUrl, path, query);
+    },
+    send(path, sendOptions = {}) {
+      return perform(path, sendOptions);
+    },
+    upload,
+    download(path, fields, downloadOptions) {
+      return submitFormDownload(
+        {
+          csrfToken: () => readCookie(csrfCookieName) ?? memoryToken,
+          ...(options.onUnauthorized ? { onUnauthorized: options.onUnauthorized } : {}),
+        },
+        resolveUrl(baseUrl, path),
+        fields,
+        downloadOptions,
+      );
+    },
     setCsrfToken(token) {
       memoryToken = token;
     },
@@ -116,6 +266,14 @@ export function resolveUrl(baseUrl: string, path: string, query?: QueryParams): 
     }
   }
   return url.toString();
+}
+
+/** True when a fetch failure is the cancellation of the request. */
+function isAbort(cause: unknown, signal: AbortSignal | undefined): boolean {
+  if (signal?.aborted) {
+    return true;
+  }
+  return cause instanceof Error && cause.name === 'AbortError';
 }
 
 async function decodeError(response: Response): Promise<ApiError> {

@@ -1,8 +1,7 @@
-import i18n, { type i18n as I18nInstance } from 'i18next';
+import i18n, { type BackendModule, type i18n as I18nInstance } from 'i18next';
 import { initReactI18next } from 'react-i18next';
 
 import en from './locales/en.json';
-import it from './locales/it.json';
 
 export const supportedLanguages = ['en', 'it'] as const;
 export type Language = (typeof supportedLanguages)[number];
@@ -11,10 +10,34 @@ export const defaultLanguage: Language = 'en';
 /** localStorage key remembering the user's language choice. */
 export const languageStorageKey = 'nexo.console.language';
 
+/**
+ * The bundled translations: the default language only. The others are
+ * loaded on first use as separate chunks (lazyLocales), so that they do not
+ * weigh on the initial bundle of the console.
+ */
 export const resources = {
   en: { translation: en },
-  it: { translation: it },
 } as const;
+
+/** Loads the translations of the languages that are not bundled. */
+const lazyLocales: BackendModule = {
+  type: 'backend',
+  init: () => undefined,
+  read(language, _namespace, callback) {
+    if (language !== 'it') {
+      callback(null, {});
+      return;
+    }
+    import('./locales/it.json').then(
+      (module) => {
+        callback(null, module.default);
+      },
+      (error: unknown) => {
+        callback(error instanceof Error ? error : new Error(String(error)), null);
+      },
+    );
+  },
+};
 
 export function isLanguage(value: unknown): value is Language {
   return typeof value === 'string' && (supportedLanguages as readonly string[]).includes(value);
@@ -45,27 +68,34 @@ export interface InitI18nOptions {
 }
 
 /**
- * Initialises i18next synchronously (resources are bundled) and binds it to
- * react-i18next. Calling it twice is a no-op, which keeps tests simple.
+ * Initialises i18next and binds it to react-i18next. The default language
+ * is bundled and ready at once (the tests do not wait); the promise
+ * resolves when the requested language is loaded too. Calling it twice
+ * only changes the language, which keeps tests simple.
  */
-export function initI18n(options: InitI18nOptions = {}): I18nInstance {
+export async function initI18n(options: InitI18nOptions = {}): Promise<I18nInstance> {
   if (!i18n.isInitialized) {
-    void i18n.use(initReactI18next).init({
-      resources,
-      lng: options.lng ?? defaultLanguage,
-      fallbackLng: defaultLanguage,
-      supportedLngs: [...supportedLanguages],
-      initImmediate: false,
-      interpolation: { escapeValue: false },
-      returnNull: false,
-    });
+    const ready = i18n
+      .use(lazyLocales)
+      .use(initReactI18next)
+      .init({
+        resources,
+        partialBundledLanguages: true,
+        lng: options.lng ?? defaultLanguage,
+        fallbackLng: defaultLanguage,
+        supportedLngs: [...supportedLanguages],
+        initImmediate: false,
+        interpolation: { escapeValue: false },
+        returnNull: false,
+      });
     i18n.on('languageChanged', (lng) => {
       if (typeof document !== 'undefined') {
         document.documentElement.lang = lng;
       }
     });
+    await ready;
   } else if (options.lng !== undefined && i18n.language !== options.lng) {
-    void i18n.changeLanguage(options.lng);
+    await i18n.changeLanguage(options.lng);
   }
   return i18n;
 }

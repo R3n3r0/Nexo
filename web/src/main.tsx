@@ -1,5 +1,4 @@
 import '@mantine/core/styles.css';
-import '@mantine/dates/styles.css';
 import '@mantine/notifications/styles.css';
 import 'dayjs/locale/it';
 
@@ -10,7 +9,7 @@ import { App } from '@/App';
 import { readAppConfig } from '@/config';
 import { detectLanguage, initI18n, languageStorageKey } from '@/i18n';
 import { createAppRouter } from '@/router';
-import { createServices, demoCredentials } from '@/services';
+import { demoCredentials, loadServices } from '@/services';
 
 function readStoredLanguage(): string | null {
   try {
@@ -21,9 +20,9 @@ function readStoredLanguage(): string | null {
 }
 
 const config = readAppConfig();
-initI18n({ lng: detectLanguage(readStoredLanguage(), navigator.languages) });
+await initI18n({ lng: detectLanguage(readStoredLanguage(), navigator.languages) });
 
-const services = createServices(config);
+const services = await loadServices(config);
 const router = createAppRouter(config.demo ? { login: { demoCredentials } } : {});
 
 const rootElement = document.getElementById('root');

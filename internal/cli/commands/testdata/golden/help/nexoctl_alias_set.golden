@@ -1,0 +1,28 @@
+Add or update an alias. With --verify the credentials are checked against the
+server (ListBuckets) before the alias is saved: wrong credentials exit with code 4.
+
+The admin and managed share commands talk to the Admin API of a Nexo server,
+served by its console listener: by default the URL of the alias with the next
+port (http://host:9000 -> http://host:9001), or the URL itself when it has no
+port; --admin-url sets it explicitly.
+
+Usage:
+  nexoctl alias set NAME URL ACCESS_KEY SECRET_KEY [flags]
+
+Examples:
+  nexoctl alias set local http://localhost:9000 admin supersecret --verify
+
+Flags:
+      --admin-url string   URL of the Admin API of a Nexo server (default: the alias URL with the next port)
+      --api string         signature version (s3v4) (default "s3v4")
+  -h, --help               help for set
+      --path string        URL style: auto, on (path-style), off (virtual-host) (default "auto")
+      --region string      signing region (default us-east-1)
+      --verify             check the connection and the credentials before saving
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

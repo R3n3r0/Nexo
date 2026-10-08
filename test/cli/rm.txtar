@@ -1,0 +1,49 @@
+# TCL-E-05: mv, rm -r --force, rm --versions.
+
+exec nexoctl mb local/plain
+exec nexoctl mb --with-versioning local/ver
+
+exec nexoctl cp a.txt local/plain/x/a.txt
+exec nexoctl mv local/plain/x/a.txt local/plain/y/a.txt
+stdout 'Moved 1 object'
+expectcode 3 nexoctl stat local/plain/x/a.txt
+exec nexoctl cat local/plain/y/a.txt
+cmp stdout a.txt
+exec nexoctl mv a.txt local/plain/moved.txt
+! exists a.txt
+exec nexoctl mv local/plain/moved.txt back.txt
+exists back.txt
+
+exec nexoctl cp --recursive dir local/plain/
+expectcode 2 nexoctl rm --recursive local/plain/dir
+stderr 'needs --force'
+exec nexoctl rm --recursive --force --dry-run local/plain/dir
+stdout -count=2 'Would remove'
+exec nexoctl rm --recursive --force local/plain/dir
+stdout -count=2 '^Removed'
+exec nexoctl ls --recursive local/plain
+! stdout 'dir/'
+stdout 'y/a.txt'
+
+# Versions: a removal adds a delete marker, --versions removes them all.
+exec nexoctl cp back.txt local/ver/doc.txt
+exec nexoctl cp back.txt local/ver/doc.txt
+exec nexoctl rm local/ver/doc.txt
+stdout 'delete marker'
+expectcode 3 nexoctl stat local/ver/doc.txt
+exec nexoctl ls --versions local/ver
+stdout -count=3 'doc.txt'
+stdout -count=1 'DEL doc.txt \(latest\)'
+exec nexoctl rm --versions local/ver/doc.txt
+stdout -count=3 '^Removed `local/ver/doc.txt` \(version '
+exec nexoctl ls --versions local/ver
+! stdout .
+exec nexoctl rb local/ver
+expectcode 3 nexoctl rm local/plain/missing
+
+-- a.txt --
+some content
+-- dir/one.txt --
+1
+-- dir/two.txt --
+2

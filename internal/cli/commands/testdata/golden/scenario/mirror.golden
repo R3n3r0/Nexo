@@ -1,0 +1,107 @@
+$ nexoctl mirror src mem/site
+`src/css/a.css` -> `mem/site/css/a.css` (4B)
+`src/css/b.css` -> `mem/site/css/b.css` (4B)
+`src/img/logo.svg` -> `mem/site/img/logo.svg` (7B)
+`src/index.html` -> `mem/site/index.html` (12B)
+`src/logs/old.log` -> `mem/site/logs/old.log` (4B)
+Mirrored 5 objects (31B), removed 0, skipped 0.
+
+$ nexoctl mirror src mem/site
+Mirrored 0 objects (0B), removed 0, skipped 0.
+
+$ nexoctl mirror --dry-run --remove src mem/site
+Would remove `mem/site/css/b.css`.
+Would copy `src/new.html` -> `mem/site/new.html` (11B)
+Would mirror 1 object (11B), removed 1, skipped 1.
+! warning: skipping `mem/site/index.html`: the target differs (use --overwrite)
+
+$ nexoctl mirror src mem/site
+`src/new.html` -> `mem/site/new.html` (11B)
+Mirrored 1 object (11B), removed 0, skipped 1.
+! warning: skipping `mem/site/index.html`: the target differs (use --overwrite)
+
+$ nexoctl mirror --overwrite --remove src mem/site
+Removed `mem/site/css/b.css`.
+`src/index.html` -> `mem/site/index.html` (13B, overwritten)
+Mirrored 1 object (13B), removed 1, skipped 0.
+
+$ nexoctl mirror src mem/site
+Mirrored 0 objects (0B), removed 0, skipped 0.
+
+$ nexoctl mirror mem/site backup
+`mem/site/css/a.css` -> `backup/css/a.css` (4B)
+`mem/site/img/logo.svg` -> `backup/img/logo.svg` (7B)
+`mem/site/index.html` -> `backup/index.html` (13B)
+`mem/site/logs/old.log` -> `backup/logs/old.log` (4B)
+`mem/site/new.html` -> `backup/new.html` (11B)
+Mirrored 5 objects (39B), removed 0, skipped 0.
+
+$ nexoctl mirror mem/site backup
+Mirrored 0 objects (0B), removed 0, skipped 0.
+
+$ nexoctl diff src mem/site
+
+$ nexoctl diff src mem/site
+< src/extra.html
+! src/new.html (size 20B != 11B)
+
+$ nexoctl tree mem/site
+mem/site
+├─ css/
+│  └─ a.css
+├─ img/
+│  └─ logo.svg
+├─ index.html
+├─ logs/
+│  └─ old.log
+└─ new.html
+
+$ nexoctl tree -d mem/site
+mem/site
+├─ css/
+├─ img/
+└─ logs/
+
+$ nexoctl du mem/site
+     39B       5 objects mem/site
+
+$ nexoctl du --depth 1 mem/site
+      4B       1 object  mem/site/css/
+      7B       1 object  mem/site/img/
+      4B       1 object  mem/site/logs/
+     39B       5 objects mem/site
+
+$ nexoctl find mem/site --name *.css
+mem/site/css/a.css
+
+$ nexoctl find mem/site --larger 10B
+mem/site/index.html
+mem/site/new.html
+
+$ nexoctl find mem/site --name *.log --older-than 30m
+
+$ nexoctl find mem/site --newer-than 30m
+mem/site/css/a.css
+mem/site/img/logo.svg
+mem/site/index.html
+mem/site/logs/old.log
+mem/site/new.html
+
+$ nexoctl find mem/site --path css/* --exec echo found {}
+exec: echo found mem/site/css/a.css
+
+$ nexoctl find mem/site --name [
+! nexoctl: error: invalid pattern "[": syntax error in pattern
+! Run 'nexoctl find --help' for usage.
+[exit 2]
+
+$ nexoctl mirror src/index.html mem/site
+! nexoctl: error: src/index.html: the source of mirror is a directory
+! Run 'nexoctl mirror --help' for usage.
+[exit 2]
+
+$ nexoctl mirror --watch mem/site out
+! nexoctl: error: --watch needs a local source and excludes --dry-run
+! Run 'nexoctl mirror --help' for usage.
+[exit 2]
+

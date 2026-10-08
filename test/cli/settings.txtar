@@ -1,0 +1,32 @@
+# C-OBJ-09: version enable|suspend|info and tag set|list|remove.
+
+exec nexoctl mb local/bkt
+exec nexoctl version info local/bkt
+stdout 'not enabled'
+exec nexoctl version enable local/bkt
+stdout 'Versioning of `local/bkt` is enabled.'
+exec nexoctl version info --json local/bkt
+stdout '"versioning":"Enabled"'
+exec nexoctl version suspend local/bkt
+exec nexoctl version info local/bkt
+stdout 'is suspended'
+exec nexoctl version
+stdout '^nexoctl '
+
+exec nexoctl cp a.txt local/bkt/a.txt
+exec nexoctl tag set local/bkt/a.txt 'project=nexo&status=final'
+exec nexoctl tag list local/bkt/a.txt
+stdout '^project: nexo$'
+stdout '^status: final$'
+exec nexoctl tag remove local/bkt/a.txt
+exec nexoctl tag list local/bkt/a.txt
+stdout 'No tags'
+exec nexoctl tag set local/bkt 'team=ops'
+exec nexoctl stat local/bkt
+stdout '^Tags        : team=ops$'
+exec nexoctl tag remove local/bkt
+expectcode 2 nexoctl tag set local/bkt/a.txt 'a=1&a=2'
+expectcode 3 nexoctl tag list local/bkt/missing
+
+-- a.txt --
+tagged

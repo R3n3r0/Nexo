@@ -31,7 +31,7 @@ describe('ServicesProvider', () => {
     const services = createMockServices();
     const serverInfo = vi.fn().mockResolvedValue(sampleServerInfo({ version: 'spy' }));
     render(
-      <ServicesProvider services={{ ...services, info: { serverInfo } }}>
+      <ServicesProvider services={{ ...services, info: { ...services.info, serverInfo } }}>
         <VersionLabel />
       </ServicesProvider>,
     );

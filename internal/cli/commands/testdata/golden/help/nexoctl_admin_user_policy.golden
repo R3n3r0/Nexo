@@ -1,0 +1,15 @@
+Show the policies that apply to a user: those attached to it and those of its
+enabled groups. Attach and detach them with "nexoctl admin policy attach|detach".
+
+Usage:
+  nexoctl admin user policy ALIAS ACCESS_KEY [flags]
+
+Flags:
+  -h, --help   help for policy
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

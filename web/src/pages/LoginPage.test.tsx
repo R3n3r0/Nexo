@@ -112,6 +112,34 @@ describe('LoginPage', () => {
     });
   });
 
+  it('reports the throttling of repeated failures', async () => {
+    renderRoutes(routes(), {
+      initialEntries: ['/login'],
+      services: createMockServices({ accounts }),
+    });
+    await screen.findByRole('button', { name: /sign in/i });
+    const user = userEvent.setup();
+    const secret = screen.getByLabelText(/secret key/i);
+    await user.type(screen.getByLabelText(/access key/i), 'admin');
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await user.clear(secret);
+      await user.type(secret, `wrong-secret-${attempt}`);
+      await user.click(screen.getByRole('button', { name: /sign in/i }));
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'Invalid access key or secret key.',
+      );
+    }
+    // Locked out: even the right secret is refused for now.
+    await user.clear(secret);
+    await user.type(secret, 'supersecret1');
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Too many failed attempts: wait a minute before signing in again.',
+      );
+    });
+  });
+
   it('reports other failures with their message', async () => {
     const services = createMockServices({ accounts });
     const failing = {

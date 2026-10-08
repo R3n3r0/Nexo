@@ -490,7 +490,7 @@ func conditionKey(k string) string {
 
 // condOperator is a parsed condition operator.
 type condOperator struct {
-	base                            string
+	base                              string
 	negated, ifExists, forAll, forAny bool
 }
 

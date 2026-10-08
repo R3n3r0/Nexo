@@ -16,6 +16,8 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -108,7 +110,9 @@ func WithStopTimeout(d time.Duration) Option {
 
 // App is a composed, runnable Nexo server.
 type App struct {
-	cfg          config.Static
+	cfg config.Static
+	// opts rebuild the application on a restart (POST /service/restart).
+	opts         []Option
 	layout       *topology.Layout
 	deploymentID string
 	logger       *slog.Logger
@@ -127,6 +131,9 @@ type App struct {
 	policies policy.Service
 	buckets  bucket.Service
 	signer   auth.Signer
+	// running is set while Run drives the application: only then may the
+	// Admin API stop or restart the process (processActions).
+	running *atomic.Bool
 }
 
 // Build composes the application: it parses the topology, opens and formats
@@ -275,6 +282,7 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (app *App, er
 
 	// Administration and health.
 	build := version.Get()
+	running := &atomic.Bool{}
 	adminSvc := adminsvc.New(adminsvc.Deps{
 		Clock:        o.clock,
 		Logger:       logger,
@@ -285,6 +293,7 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (app *App, er
 		Drives:       drives,
 		Pools:        poolInfos(layout),
 		Objects:      objects,
+		Actions:      processActions{running: running, signal: signalSelf},
 	})
 	healthSvc := health.New(health.Deps{Readiness: map[string]health.Check{
 		"storage": object.ReadinessCheck(objects),
@@ -330,19 +339,15 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (app *App, er
 
 	// Console + Admin API server (:9001).
 	consoleMiddlewares, err := consoleMiddlewares(middlewareDeps{
-		logger: logger, clock: o.clock, codec: codec, ids: ids, registry: registry,
+		logger: logger, clock: o.clock, codec: codec, ids: ids, registry: registry, trustedProxies: cfg.TrustedProxies,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("app: %w", err)
 	}
-	sessionAuth, err := middleware.NewSessionAuth(middleware.SessionAuthDeps{Sessions: sessions, Enc: codec})
-	if err != nil {
-		return nil, fmt.Errorf("app: %w", err)
-	}
 	adminAPI, err := buildAdminAPI(adminDeps{
-		codec: codec, clock: o.clock, auth: sessionAuth,
-		sessions: sessions, admin: adminSvc, iam: identities, policy: policies,
-		buckets: buckets, objects: objects, config: dynConfig,
+		codec: codec, clock: o.clock, logger: logger, region: cfg.Region, s3URL: publicS3URL(cfg),
+		sessions: sessions, verifier: verifier, signer: signer, admin: adminSvc, iam: identities, policy: policies,
+		buckets: buckets, objects: objects, shares: shares, config: dynConfig, secureCookies: secureConsole(cfg),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("app: %w", err)
@@ -366,6 +371,7 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (app *App, er
 
 	return &App{
 		cfg:          cfg,
+		opts:         opts,
 		layout:       layout,
 		deploymentID: deploymentID,
 		logger:       logger,
@@ -378,6 +384,7 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (app *App, er
 		policies:     policies,
 		buckets:      buckets,
 		signer:       signer,
+		running:      running,
 	}, nil
 }
 
@@ -431,6 +438,15 @@ func publicS3URL(cfg config.Static) string {
 	return scheme + "://" + net.JoinHostPort(host, port)
 }
 
+// secureConsole reports a console served over HTTPS: by this server (TLS
+// certificates) or by a proxy terminating TLS in front of it (an https
+// public console URL). Its session cookies then always carry Secure;
+// otherwise the flag follows each request (TLS, or X-Forwarded-Proto of a
+// trusted proxy).
+func secureConsole(cfg config.Static) bool {
+	return cfg.TLSEnabled() || strings.HasPrefix(strings.ToLower(cfg.BrowserRedirectURL), "https://")
+}
+
 // domainsOf returns the virtual-host domains of the configuration.
 func domainsOf(cfg config.Static) []string {
 	if cfg.Domain == "" {
@@ -450,6 +466,9 @@ type middlewareDeps struct {
 	auditor  audit.Service
 	// domains are the virtual-host domains of the S3 listener.
 	domains []string
+	// trustedProxies are the reverse proxies whose X-Forwarded-* headers
+	// name the client of the console requests.
+	trustedProxies []string
 }
 
 // s3Middlewares returns the middleware chain of the S3 listener, outermost
@@ -490,12 +509,22 @@ func consoleMiddlewares(d middlewareDeps) ([]middleware.Middleware, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The client of a request (login throttling, aws:SourceIp, Secure
+	// cookies) is the one behind the trusted proxies.
+	forwarded, err := middleware.NewForwarded(middleware.ForwardedDeps{}, middleware.WithTrustedProxies(d.trustedProxies...))
+	if err != nil {
+		return nil, err
+	}
 	return []middleware.Middleware{
 		middleware.NewRequestID(middleware.RequestIDDeps{IDs: d.ids}),
+		forwarded,
 		middleware.NewRecover(middleware.RecoverDeps{Logger: d.logger, OnError: middleware.ProblemErrorWriter(d.codec)}),
 		middleware.NewLogging(middleware.LoggingDeps{Logger: d.logger.With("server", "console"), Clock: d.clock}, middleware.WithLogLevel(slog.LevelDebug)),
 		httpMetrics,
-		middleware.NewMaxBody(middleware.MaxBodyDeps{}, middleware.WithMaxBodyLimit(middleware.DefaultMaxBody)),
+		// The proxied uploads of the console stream up to their own limits;
+		// the JSON endpoints bound their bodies themselves.
+		middleware.NewMaxBody(middleware.MaxBodyDeps{}, middleware.WithMaxBodyLimit(
+			max(middleware.DefaultMaxBody, adminhttp.DefaultMaxUploadSize, adminhttp.DefaultMaxPartSize))),
 	}, nil
 }
 
@@ -503,44 +532,156 @@ func consoleMiddlewares(d middlewareDeps) ([]middleware.Middleware, error) {
 type adminDeps struct {
 	codec    httpx.Codec
 	clock    clock.Clock
-	auth     middleware.Middleware
+	logger   *slog.Logger
+	region   string
+	s3URL    string
 	sessions session.Service
+	verifier auth.Verifier
+	signer   auth.Signer
 	admin    adminsvc.Service
 	iam      iam.Service
 	policy   policy.Service
 	buckets  bucket.Service
 	objects  object.Service
+	shares   share.Service
 	config   configsvc.Service
+	// secureCookies forces the Secure flag of the session cookies (the
+	// console is served over HTTPS, possibly by a proxy terminating TLS).
+	secureCookies bool
 }
 
-// buildAdminAPI assembles the Admin API route groups.
+// adminServices are the console services of internal/service/admin the
+// Admin API route groups delegate to.
+type adminServices struct {
+	authz      adminsvc.Authorizer
+	buckets    adminsvc.BucketManager
+	browser    adminsvc.ObjectBrowser
+	shares     adminsvc.ShareManager
+	identities adminsvc.IdentityManager
+	accessKeys adminsvc.AccessKeyManager
+	policies   adminsvc.PolicyManager
+	config     adminsvc.ConfigManager
+}
+
+// buildAdminServices composes the console services around the
+// authorization service.
+func buildAdminServices(d adminDeps) (adminServices, error) {
+	var (
+		out adminServices
+		err error
+	)
+	if out.authz, err = adminsvc.NewAuthorizer(adminsvc.AuthorizerDeps{Policy: d.policy, Creds: d.iam, Logger: d.logger}); err != nil {
+		return out, err
+	}
+	if out.buckets, err = adminsvc.NewBucketManager(adminsvc.BucketManagerDeps{Buckets: d.buckets, Objects: d.objects, Policy: d.policy, Authz: out.authz, Logger: d.logger}); err != nil {
+		return out, err
+	}
+	if out.browser, err = adminsvc.NewObjectBrowser(adminsvc.ObjectBrowserDeps{Objects: d.objects, Authz: out.authz, Clock: d.clock, Logger: d.logger}); err != nil {
+		return out, err
+	}
+	if out.shares, err = adminsvc.NewShareManager(adminsvc.ShareManagerDeps{Shares: d.shares, Signer: d.signer, Creds: d.iam, Authz: out.authz, Clock: d.clock, Logger: d.logger},
+		adminsvc.WithServerURL(d.s3URL), adminsvc.WithRegion(d.region)); err != nil {
+		return out, err
+	}
+	if out.identities, err = adminsvc.NewIdentityManager(adminsvc.IdentityManagerDeps{IAM: d.iam, Authz: out.authz, Logger: d.logger}); err != nil {
+		return out, err
+	}
+	if out.accessKeys, err = adminsvc.NewAccessKeyManager(adminsvc.AccessKeyManagerDeps{IAM: d.iam, Authz: out.authz, Logger: d.logger}); err != nil {
+		return out, err
+	}
+	if out.policies, err = adminsvc.NewPolicyManager(adminsvc.PolicyManagerDeps{Policy: d.policy, Creds: d.iam, Logger: d.logger}); err != nil {
+		return out, err
+	}
+	out.config, err = adminsvc.NewConfigManager(adminsvc.ConfigManagerDeps{Config: d.config, Logger: d.logger})
+	return out, err
+}
+
+// buildAdminAPI assembles the Admin API route groups behind the
+// authentication middleware (console session or SigV4).
 func buildAdminAPI(d adminDeps) (httpx.Routes, error) {
-	sessionRoutes, err := adminhttp.NewSessionRoutes(adminhttp.SessionDeps{Sessions: d.sessions, Codec: d.codec, Clock: d.clock})
+	svc, err := buildAdminServices(d)
 	if err != nil {
 		return nil, err
 	}
-	infoRoutes, err := adminhttp.NewInfoRoutes(adminhttp.InfoDeps{Admin: d.admin, Policy: d.policy, Enc: d.codec})
+	authn, err := adminhttp.NewAuthenticator(adminhttp.AuthenticatorDeps{Sessions: d.sessions, Verifier: d.verifier, Enc: d.codec})
 	if err != nil {
 		return nil, err
 	}
-	userRoutes, err := adminhttp.NewUserRoutes(adminhttp.UserDeps{IAM: d.iam, Policy: d.policy, Enc: d.codec})
+	var sessionOpts []adminhttp.SessionOption
+	if d.secureCookies {
+		sessionOpts = append(sessionOpts, adminhttp.WithSecureCookie(true))
+	}
+	sessionRoutes, err := adminhttp.NewSessionRoutes(adminhttp.SessionDeps{Sessions: d.sessions, Authz: svc.authz, Codec: d.codec, Clock: d.clock}, sessionOpts...)
 	if err != nil {
 		return nil, err
 	}
-	policyRoutes, err := adminhttp.NewPolicyRoutes(adminhttp.PolicyDeps{Policy: d.policy, Enc: d.codec})
+	infoRoutes, err := adminhttp.NewInfoRoutes(adminhttp.InfoDeps{Admin: d.admin, Authz: svc.authz, Enc: d.codec})
 	if err != nil {
 		return nil, err
 	}
-	bucketRoutes, err := adminhttp.NewBucketRoutes(adminhttp.BucketDeps{Buckets: d.buckets, Objects: d.objects, Policy: d.policy, Enc: d.codec})
+	userRoutes, err := adminhttp.NewUserRoutes(adminhttp.UserDeps{IAM: d.iam, Identities: svc.identities, AccessKeys: svc.accessKeys, Authz: svc.authz, Enc: d.codec})
 	if err != nil {
 		return nil, err
 	}
-	configRoutes, err := adminhttp.NewConfigRoutes(adminhttp.ConfigDeps{Config: d.config, Policy: d.policy, Enc: d.codec})
+	policyRoutes, err := adminhttp.NewPolicyRoutes(adminhttp.PolicyDeps{Policy: d.policy, Manager: svc.policies, Authz: svc.authz, Enc: d.codec})
 	if err != nil {
 		return nil, err
 	}
-	return adminhttp.NewAPI(adminhttp.APIDeps{Enc: d.codec, Auth: d.auth},
-		sessionRoutes, infoRoutes, userRoutes, policyRoutes, bucketRoutes, configRoutes), nil
+	bucketRoutes, err := adminhttp.NewBucketRoutes(adminhttp.BucketDeps{Manager: svc.buckets, Buckets: d.buckets, Authz: svc.authz, Enc: d.codec})
+	if err != nil {
+		return nil, err
+	}
+	objectRoutes, err := adminhttp.NewObjectRoutes(adminhttp.ObjectDeps{Browser: svc.browser, Objects: d.objects, Authz: svc.authz, Enc: d.codec, Logger: d.logger})
+	if err != nil {
+		return nil, err
+	}
+	shareRoutes, err := adminhttp.NewShareRoutes(adminhttp.ShareDeps{Shares: svc.shares, Authz: svc.authz, Enc: d.codec})
+	if err != nil {
+		return nil, err
+	}
+	configRoutes, err := adminhttp.NewConfigRoutes(adminhttp.ConfigDeps{Config: svc.config, Authz: svc.authz, Enc: d.codec})
+	if err != nil {
+		return nil, err
+	}
+	return adminhttp.NewAPI(adminhttp.APIDeps{Enc: d.codec, Auth: authn},
+		sessionRoutes, infoRoutes, userRoutes, policyRoutes, bucketRoutes, objectRoutes, shareRoutes, configRoutes)
+}
+
+// processActions implements the service control of the Admin API (POST
+// /service/restart|stop) for a server driven by App.Run: the action is a
+// signal to the process (SIGHUP restarts, SIGTERM stops), handled by Run
+// like the signal of an operator, after the response is sent (the
+// graceful shutdown waits for it). Outside Run (tests, embedding) the
+// process belongs to someone else: the actions are not available.
+type processActions struct {
+	running *atomic.Bool
+	signal  func(os.Signal) error
+}
+
+var _ adminsvc.ActionHandler = processActions{}
+
+// Handle implements adminsvc.ActionHandler.
+func (p processActions) Handle(_ context.Context, action adminsvc.Action) error {
+	if !p.running.Load() {
+		return fmt.Errorf("app: service %s: only a server run as a process can be controlled: %w", action, domain.ErrNotImplemented)
+	}
+	sig := os.Signal(syscall.SIGTERM)
+	if action == adminsvc.ActionRestart {
+		sig = syscall.SIGHUP
+	}
+	if err := p.signal(sig); err != nil {
+		return fmt.Errorf("app: service %s: %w", action, err)
+	}
+	return nil
+}
+
+// signalSelf sends a signal to the current process.
+func signalSelf(sig os.Signal) error {
+	p, err := os.FindProcess(os.Getpid())
+	if err != nil {
+		return err
+	}
+	return p.Signal(sig)
 }
 
 // Start starts every component. It returns once the servers listen.
@@ -572,16 +713,40 @@ func (a *App) Stop(ctx context.Context) error {
 }
 
 // Run starts the application, waits for ctx to end or for SIGINT/SIGTERM,
-// then stops it. It returns the start or stop error.
+// then stops it. SIGHUP (sent by POST /service/restart) restarts it in
+// place: every component stops, the application is built again from the
+// same configuration (re-reading the persisted state) and started. It
+// returns the start, restart or stop error.
 func (a *App) Run(ctx context.Context) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := a.Start(ctx); err != nil {
-		return err
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	defer signal.Stop(hup)
+	cur := a
+	for {
+		if err := cur.Start(ctx); err != nil {
+			return err
+		}
+		cur.running.Store(true)
+		select {
+		case <-ctx.Done():
+			cur.running.Store(false)
+			cur.logger.Info("shutdown requested", "reason", ctx.Err())
+			return cur.Stop(context.WithoutCancel(ctx))
+		case <-hup:
+			cur.running.Store(false)
+			cur.logger.Info("restart requested")
+			if err := cur.Stop(context.WithoutCancel(ctx)); err != nil {
+				return err
+			}
+			next, err := Build(ctx, cur.cfg, cur.opts...)
+			if err != nil {
+				return fmt.Errorf("app: restart: %w", err)
+			}
+			cur = next
+		}
 	}
-	<-ctx.Done()
-	a.logger.Info("shutdown requested", "reason", ctx.Err())
-	return a.Stop(context.WithoutCancel(ctx))
 }
 
 // S3Addr returns the S3 listen address (actual port after Start).

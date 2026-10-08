@@ -1,0 +1,22 @@
+Manage the tags of buckets and objects
+
+Usage:
+  nexoctl tag [flags]
+  nexoctl tag [command]
+
+Available Commands:
+  list        List the tags of a bucket or object
+  remove      Remove the tags of a bucket or object
+  set         Replace the tags of a bucket or object
+
+Flags:
+  -h, --help   help for tag
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl tag [command] --help" for more information about a command.

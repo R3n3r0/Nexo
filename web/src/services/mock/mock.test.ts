@@ -3,12 +3,26 @@ import { describe, expect, it, vi } from 'vitest';
 import { createMockServices, isValidBucketName } from './index';
 
 describe('mock services', () => {
+  it('session: locks an access key out after five failed logins, like the server', async () => {
+    const services = createMockServices({ accounts: { admin: 'supersecret1' } });
+    for (let i = 0; i < 5; i++) {
+      await expect(services.session.login('admin', 'nope')).rejects.toMatchObject({ status: 401 });
+    }
+    await expect(services.session.login('admin', 'supersecret1')).rejects.toMatchObject({
+      status: 429,
+      code: 'too_many_requests',
+    });
+  });
+
   it('session: rejects unknown credentials, accepts configured ones, expires', async () => {
     const services = createMockServices({ accounts: { admin: 'supersecret1' } });
     await expect(services.session.current()).rejects.toMatchObject({ status: 401 });
-    await expect(services.session.login('admin', 'nope')).rejects.toMatchObject({ status: 403 });
+    await expect(services.session.login('admin', 'nope')).rejects.toMatchObject({
+      status: 401,
+      code: 'invalid_credentials',
+    });
     await expect(services.session.login('ghost', 'supersecret1')).rejects.toMatchObject({
-      status: 403,
+      status: 401,
     });
     const session = await services.session.login('admin', 'supersecret1');
     expect(session.accessKey).toBe('admin');
@@ -85,7 +99,10 @@ describe('mock services', () => {
     await expect(services.policies.remove('readonly')).rejects.toMatchObject({ status: 403 });
     const saved = await services.policies.save({
       name: 'custom',
-      document: { Version: '2012-10-17', Statement: [] },
+      document: {
+        Version: '2012-10-17',
+        Statement: [{ Effect: 'Allow', Action: ['s3:GetObject'], Resource: ['arn:aws:s3:::x/*'] }],
+      },
     });
     expect(saved.builtIn).toBe(false);
     await services.policies.remove('custom');

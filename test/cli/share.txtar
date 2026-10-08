@@ -1,0 +1,68 @@
+# TCL-E-08, TCL-P-01: share download gives a URL that downloads the same
+# content; with --expire 1s it is refused after 2 s.
+# TCL-P-02: share upload gives a PUT URL; --post a POST policy for forms.
+
+exec nexoctl mb local/share
+exec nexoctl cp report.txt local/share/report.txt
+
+exec nexoctl share download --expire 1h local/share/report.txt
+stdout '^URL: local/share/report.txt$'
+stdout '^Expire: 1h0m0s$'
+stdout '^Share: http://.*X-Amz-Signature='
+
+exec nexoctl share download --expire 1h --json local/share/report.txt
+jsonlines stdout
+jsonfield stdout url URL
+http -o got.txt $URL
+cmp got.txt report.txt
+
+exec nexoctl share download --expire 1s --json local/share/report.txt
+jsonfield stdout url SHORT
+sleep 2s
+http -status 403 $SHORT
+
+exec nexoctl share download --recursive local/share/
+stdout -count=1 '^Share: '
+
+# Presigned PUT with a signed content type.
+exec nexoctl share upload --expire 1h --content-type text/plain local/share/inbox/up.txt
+stdout '^Command: curl -X PUT -H ''Content-Type: text/plain'' --upload-file <FILE> '
+exec nexoctl share upload --expire 1h --content-type text/plain --json local/share/inbox/up.txt
+jsonfield stdout url PUTURL
+http -X PUT -H 'Content-Type: image/png' -T upload.txt -status 403 $PUTURL
+http -X PUT -H 'Content-Type: text/plain' -T upload.txt $PUTURL
+exec nexoctl cat local/share/inbox/up.txt
+cmp stdout upload.txt
+
+# POST policy: an upload under the prefix, within the size limit.
+exec nexoctl share upload --post --max-size 1KiB --prefix uploads/ --expire 1h local/share
+stdout '^POST: http://.*/share$'
+stdout 'key: uploads/\$\{filename\}'
+stdout '<form action='
+exec nexoctl share upload --post --max-size 1KiB --prefix uploads/ --expire 1h --json local/share
+jsonlines stdout
+cp stdout policy.json
+postpolicy policy.json upload.txt
+exec nexoctl cat local/share/uploads/upload.txt
+cmp stdout upload.txt
+! postpolicy policy.json large.txt
+
+expectcode 2 nexoctl share download --expire 8d local/share/report.txt
+expectcode 2 nexoctl share upload --max-size 1KiB local/share/x
+
+-- report.txt --
+quarterly report
+-- upload.txt --
+uploaded through a link
+-- large.txt --
+0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789
+0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789
+0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789
+0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789
+0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789
+0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789
+0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789
+0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789
+0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789
+0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789
+0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789

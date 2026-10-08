@@ -1,0 +1,19 @@
+Summarize the disk usage of prefixes and directories
+
+Usage:
+  nexoctl du [flags] TARGET...
+
+Examples:
+  nexoctl du local/photos
+  nexoctl du --depth 1 local/photos
+
+Flags:
+  -d, --depth int   also print the directories down to this depth
+  -h, --help        help for du
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

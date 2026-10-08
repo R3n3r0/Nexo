@@ -1,0 +1,28 @@
+Read and change the dynamic configuration of the server, made of subsystems
+(api, browser, logger, notify_webhook, region, scanner...) holding key=value
+settings. Sensitive values are shown masked; setting a key to the mask keeps
+the stored secret. "export" and "import" save and restore the whole
+configuration as JSON.
+
+Usage:
+  nexoctl admin config [flags]
+  nexoctl admin config [command]
+
+Available Commands:
+  export      Export the whole configuration as JSON (stdout or --output)
+  get         Print the settings of every subsystem, or of the named ones
+  import      Import a configuration exported by "admin config export" (FILE, or - for stdin)
+  reset       Reset a subsystem, or some of its keys, to the defaults
+  set         Change settings of a subsystem (the other keys are kept)
+
+Flags:
+  -h, --help   help for config
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl admin config [command] --help" for more information about a command.

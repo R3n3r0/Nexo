@@ -212,6 +212,7 @@ func mappings(c S3Codes) []errorMapping {
 		{domain.ErrInvalidAccessKey, c.InvalidAccessKeyID, http.StatusUnauthorized, "invalid_access_key"},
 		{domain.ErrSignatureMismatch, c.SignatureDoesNotMatch, http.StatusUnauthorized, "signature_mismatch"},
 		{domain.ErrRequestExpired, c.RequestTimeTooSkewed, http.StatusUnauthorized, "request_expired"},
+		{domain.ErrTooManyRequests, c.SlowDown, http.StatusTooManyRequests, "too_many_requests"},
 		{domain.ErrUserNotFound, c.NoSuchUser, http.StatusNotFound, "user_not_found"},
 		{domain.ErrUserAlreadyExists, c.UserAlreadyExists, http.StatusConflict, "user_already_exists"},
 		{domain.ErrPolicyNotFound, c.NoSuchPolicy, http.StatusNotFound, "policy_not_found"},

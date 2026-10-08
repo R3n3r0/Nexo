@@ -15,7 +15,7 @@ export interface paths {
         put?: never;
         /**
          * Open a console session
-         * @description Public endpoint. Sets the `nexo_session` (HttpOnly) and `nexo_csrf` cookies.
+         * @description Public endpoint. Sets the `nexo_session` (HttpOnly) and `nexo_csrf` cookies. After 5 failed attempts of a client on an access key (or 20 of a client on any key) within 5 minutes, the attempts are refused for a minute (429 `too_many_requests` with Retry-After), even with the right secret; the client is the peer of the connection or, behind the `--trusted-proxies`, the address they forward. Against login CSRF the body must be `application/json` (415 `unsupported_media_type`) and a browser request must not be cross-site (`Sec-Fetch-Site` `cross-site` or `same-site`: 403 `cross_site_request`).
          */
         post: operations["login"];
         delete?: never;
@@ -48,8 +48,33 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Return the current session */
+        /**
+         * Return the current console session
+         * @description Signed (SigV4) requests have no session and receive 401.
+         */
         get: operations["currentSession"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/me/permissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Effective permissions of the caller (or of a user)
+         * @description Evaluates the catalog of console actions (`admin:*` and `s3:*`) with the policy
+         *     engine, globally or on `bucket` (object actions on `prefix*`). Naming another
+         *     `user` requires `admin:GetUser`.
+         */
+        get: operations["myPermissions"];
         put?: never;
         post?: never;
         delete?: never;
@@ -82,7 +107,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Data usage per bucket */
+        /** Data usage, total and per bucket */
         get: operations["dataUsage"];
         put?: never;
         post?: never;
@@ -126,7 +151,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/service/{action}": {
+    "/service/restart": {
         parameters: {
             query?: never;
             header?: never;
@@ -135,8 +160,62 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Restart or stop the server */
-        post: operations["serviceAction"];
+        /**
+         * Restart the server
+         * @description The response is sent before the process restarts (SIGHUP to the server process).
+         */
+        post: operations["restartService"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/service/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop the server */
+        post: operations["stopService"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/trace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Live trace of the requests (SSE, not implemented yet) */
+        get: operations["serverTrace"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Live server logs (SSE, not implemented yet) */
+        get: operations["serverLogs"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -150,10 +229,16 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List the buckets with their usage */
+        /**
+         * List the buckets visible to the caller, with usage and public flag
+         * @description Every bucket with s3:ListAllMyBuckets, otherwise those the caller may list (s3:ListBucket).
+         */
         get: operations["listBuckets"];
         put?: never;
-        /** Create a bucket */
+        /**
+         * Create a bucket with its initial settings
+         * @description Versioning, object lock and quota need their own actions on top of s3:CreateBucket.
+         */
         post: operations["createBucket"];
         delete?: never;
         options?: never;
@@ -170,11 +255,16 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Get a bucket */
+        /** Get a bucket with its usage */
         get: operations["getBucket"];
         put?: never;
         post?: never;
-        /** Delete a bucket */
+        /**
+         * Delete a bucket
+         * @description With `force=true` (and s3:ForceDeleteBucket) the bucket is emptied first through the
+         *     object layer: every version, delete marker and pending upload; object lock is
+         *     honored, a protected version keeps the bucket (409 bucket_not_empty).
+         */
         delete: operations["deleteBucket"];
         options?: never;
         head?: never;
@@ -190,9 +280,7 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Get the versioning state */
         get: operations["getBucketVersioning"];
-        /** Set the versioning state */
         put: operations["setBucketVersioning"];
         post?: never;
         delete?: never;
@@ -210,12 +298,10 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Get the bucket policy document */
         get: operations["getBucketPolicy"];
-        /** Replace the bucket policy document */
+        /** @description The body is the policy document; errors are malformed_policy problems located by line and column. */
         put: operations["setBucketPolicy"];
         post?: never;
-        /** Remove the bucket policy */
         delete: operations["deleteBucketPolicy"];
         options?: never;
         head?: never;
@@ -231,9 +317,7 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Get the bucket quota */
         get: operations["getBucketQuota"];
-        /** Set the bucket quota (size 0 disables it) */
         put: operations["setBucketQuota"];
         post?: never;
         delete?: never;
@@ -251,9 +335,9 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Get the bucket tags */
+        /** @description The tags; a bucket without tags answers an empty set. */
         get: operations["getBucketTags"];
-        /** Replace the bucket tags (an empty set removes them) */
+        /** @description Replaces the tags; an empty set removes them. */
         put: operations["setBucketTags"];
         post?: never;
         delete?: never;
@@ -271,9 +355,8 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Get the object lock configuration */
+        /** @description The object lock configuration; a bucket without object lock answers {"enabled":false}. */
         get: operations["getBucketObjectLock"];
-        /** Set the object lock configuration */
         put: operations["setBucketObjectLock"];
         post?: never;
         delete?: never;
@@ -291,13 +374,94 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Get the default encryption */
         get: operations["getBucketEncryption"];
-        /** Set the default encryption */
         put: operations["setBucketEncryption"];
         post?: never;
-        /** Remove the default encryption */
         delete: operations["deleteBucketEncryption"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /** Anonymous access rules (presets per prefix) of the bucket policy */
+        get: operations["getBucketAccess"];
+        /**
+         * Apply an anonymous access preset to a prefix
+         * @description private removes the rule of the prefix; the other statements of the bucket policy are kept.
+         */
+        put: operations["setBucketAccess"];
+        post?: never;
+        /** Remove the anonymous access of a prefix (private) */
+        delete: operations["removeBucketAccess"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/lifecycle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /** Lifecycle configuration (not implemented yet) */
+        get: operations["getBucketLifecycle"];
+        /** Lifecycle configuration (not implemented yet) */
+        put: operations["setBucketLifecycle"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /** Notification configuration (not implemented yet) */
+        get: operations["getBucketEvents"];
+        /** Notification configuration (not implemented yet) */
+        put: operations["setBucketEvents"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/replication": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /** Replication configuration (not implemented yet) */
+        get: operations["getBucketReplication"];
+        /** Replication configuration (not implemented yet) */
+        put: operations["setBucketReplication"];
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -312,10 +476,468 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** List objects for the object browser */
+        /**
+         * Folder view of a bucket
+         * @description Objects and common prefixes ("folders") directly under `prefix`, without the
+         *     folder placeholder object `prefix` itself. `delimiter` defaults to "/"; an empty
+         *     delimiter lists recursively. The object browser authorizes s3:ListBucket with the
+         *     conditions s3:prefix, s3:delimiter (the effective one) and s3:max-keys.
+         */
         get: operations["listObjects"];
         put?: never;
         post?: never;
+        /**
+         * Delete objects, versions and prefixes (recursive)
+         * @description Synchronous; every object is authorized and reported (s3:DeleteObject, s3:DeleteObjectVersion with a version).
+         *     Every prefix needs s3:ListBucket (s3:ListBucketVersions with `allVersions`) with the `s3:prefix` condition:
+         *     otherwise the whole request is denied before deleting anything.
+         */
+        delete: operations["deleteObjects"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/stat": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Metadata, tags and first versions of an object
+         * @description Tags and versions are included only when the caller may read them.
+         */
+        get: operations["statObject"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/versions": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /** Versions and delete markers of one key, newest first */
+        get: operations["listObjectVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/folder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a folder (the empty object "prefix/") */
+        post: operations["createFolder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/rename": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move an object, or every object under a prefix (copy then delete)
+         * @description Moving a prefix needs s3:ListBucket on the source prefix (`s3:prefix` condition): otherwise the
+         *     whole request is denied before moving anything.
+         */
+        post: operations["renameObjects"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/tags": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace the tags of an object (version); an empty set removes them */
+        put: operations["setObjectTags"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/download": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /** Download an object (Content-Disposition attachment, Range supported) */
+        get: operations["downloadObject"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/preview": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Preview an object
+         * @description Inline only for types that cannot run scripts in the console origin (raster
+         *     images, PDF, text/plain, JSON, audio, video), with a sandboxing
+         *     Content-Security-Policy; everything else (SVG, HTML, XML...) is served as an
+         *     `application/octet-stream` attachment.
+         */
+        get: operations["previewObject"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/download-zip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Zip archive of objects and prefixes, streamed
+         * @description Names are relative to `base`. Explicit keys are checked before streaming; every prefix
+         *     needs s3:ListBucket (`s3:prefix` condition), otherwise the request is denied before
+         *     streaming. Objects of the prefixes the caller may not read are listed in `nexo-zip-errors.txt`.
+         *     The console submits the request as a form (`application/x-www-form-urlencoded`: the JSON
+         *     `ZipRequest` in the field `request`, the CSRF token in the field `csrfToken`) so that the
+         *     browser streams the archive to disk instead of holding it in memory.
+         */
+        post: operations["downloadZip"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/upload": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload a small object in one request (raw body, streamed)
+         * @description The body is the content; its Content-Type is stored. Larger files use the
+         *     multipart endpoints (limit: 64 MiB by default, 413 entity_too_large beyond).
+         *     The policies see the condition values of the equivalent S3 PutObject
+         *     (s3:x-amz-tagging, s3:RequestObjectTag/<key>).
+         */
+        post: operations["uploadObject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/share": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a managed share link in the bucket of the path (see POST /shares) */
+        post: operations["shareObject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /** Pending multipart uploads */
+        get: operations["listUploads"];
+        put?: never;
+        /** Start a multipart upload proxied by the console */
+        post: operations["createUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/uploads/{uploadId}": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+                uploadId: components["parameters"]["uploadId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Abort a multipart upload */
+        delete: operations["abortUpload"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/uploads/{uploadId}/parts": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+                uploadId: components["parameters"]["uploadId"];
+            };
+            cookie?: never;
+        };
+        /** Uploaded parts (to resume an upload) */
+        get: operations["listUploadParts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/uploads/{uploadId}/parts/{partNumber}": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+                uploadId: components["parameters"]["uploadId"];
+                partNumber: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Upload one part (raw body, streamed; Content-Length required) */
+        put: operations["uploadPart"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/uploads/{uploadId}/complete": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+                uploadId: components["parameters"]["uploadId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete a multipart upload */
+        post: operations["completeUpload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/shares": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Active share links
+         * @description The caller's own links; every link (filtered by owner/bucket) with admin:ManageShares.
+         */
+        get: operations["listShares"];
+        put?: never;
+        /**
+         * Create a managed, revocable share link
+         * @description Signed by a dedicated service account (docs/09 §9.1); the caller needs the shared action (s3:GetObject or s3:PutObject).
+         */
+        post: operations["createShare"];
+        /** Revoke every share link of an owner (the caller by default) */
+        delete: operations["revokeAllShares"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/shares/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get: operations["getShare"];
+        put?: never;
+        post?: never;
+        /** Revoke a share link (immediate) */
+        delete: operations["revokeShare"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/presign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Raw presigned URL (not revocable), signed on the server with the caller's credentials */
+        post: operations["presign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/post-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Signed POST policy form for browser uploads */
+        post: operations["postPolicy"];
         delete?: never;
         options?: never;
         head?: never;
@@ -329,10 +951,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List the IAM users */
         get: operations["listUsers"];
         put?: never;
-        /** Create a user */
         post: operations["createUser"];
         delete?: never;
         options?: never;
@@ -345,17 +965,18 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
-                /** @description The access key. */
                 user: string;
             };
             cookie?: never;
         };
-        /** Get a user */
         get: operations["getUser"];
-        /** Update a user (absent fields are unchanged) */
+        /**
+         * @description Each change needs its action: secretKey admin:CreateUser, status
+         *     admin:EnableUser/admin:DisableUser, policyNames admin:AttachUserOrGroupPolicy,
+         *     groups admin:GetUser plus admin:AddUserToGroup/admin:RemoveUserFromGroup.
+         */
         put: operations["updateUser"];
         post?: never;
-        /** Delete a user */
         delete: operations["deleteUser"];
         options?: never;
         head?: never;
@@ -369,10 +990,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List the IAM groups */
         get: operations["listGroups"];
         put?: never;
-        /** Create a group */
         post: operations["createGroup"];
         delete?: never;
         options?: never;
@@ -389,12 +1008,9 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Get a group */
         get: operations["getGroup"];
-        /** Update a group (absent fields are unchanged) */
         put: operations["updateGroup"];
         post?: never;
-        /** Delete a group */
         delete: operations["deleteGroup"];
         options?: never;
         head?: never;
@@ -408,10 +1024,13 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List the service accounts */
+        /**
+         * Access keys of a user (the caller by default)
+         * @description The caller's own keys always; those of other users (or every key, without user) with admin:ListServiceAccounts.
+         */
         get: operations["listAccessKeys"];
         put?: never;
-        /** Create a service account */
+        /** Create an access key; the secret is returned only here */
         post: operations["createAccessKey"];
         delete?: never;
         options?: never;
@@ -428,12 +1047,9 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Get a service account */
         get: operations["getAccessKey"];
-        /** Update a service account (absent fields are unchanged) */
         put: operations["updateAccessKey"];
         post?: never;
-        /** Delete a service account */
         delete: operations["deleteAccessKey"];
         options?: never;
         head?: never;
@@ -447,10 +1063,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List the IAM policies (built-ins first) */
+        /** Built-in and stored policies */
         get: operations["listPolicies"];
         put?: never;
-        /** Create a policy */
+        /** @description 409 conflict when the name exists; malformed documents are malformed_policy problems with their position. */
         post: operations["createPolicy"];
         delete?: never;
         options?: never;
@@ -467,7 +1083,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Attach policies to a user or a group */
         post: operations["attachPolicy"];
         delete?: never;
         options?: never;
@@ -484,8 +1099,41 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Detach policies from a user or a group */
         post: operations["detachPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/policies/simulate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Evaluate a request with the enforcement engine */
+        post: operations["simulatePolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/policies/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Validate an IAM policy, or a bucket policy of `bucket`, without storing it */
+        post: operations["validatePolicy"];
         delete?: never;
         options?: never;
         head?: never;
@@ -501,13 +1149,29 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Get a policy */
         get: operations["getPolicy"];
-        /** Create or replace a policy document */
         put: operations["savePolicy"];
         post?: never;
-        /** Delete a policy (built-ins are read-only) */
         delete: operations["deletePolicy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/policies/{policy}/entities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policy: string;
+            };
+            cookie?: never;
+        };
+        /** Users and groups a policy is attached to */
+        get: operations["policyEntities"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -520,10 +1184,27 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List every configured subsystem with its settings */
+        /** Every known subsystem with its settings (sensitive values masked) */
         get: operations["listConfig"];
-        /** Merge the settings of several subsystems */
+        /** Merge the settings of several subsystems (validated first) */
         put: operations["mergeConfig"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/config/schema": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Known subsystems and keys */
+        get: operations["configSchema"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -538,7 +1219,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Export the whole configuration */
+        /** Export the whole configuration (secrets included) */
         get: operations["exportConfig"];
         put?: never;
         post?: never;
@@ -557,7 +1238,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Replace the whole configuration with an exported document */
+        /** Replace the whole configuration (validated first) */
         post: operations["importConfig"];
         delete?: never;
         options?: never;
@@ -570,16 +1251,15 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description A subsystem of GET /config/schema (api, browser, logger, notify_webhook, region, scanner). */
                 subsys: string;
             };
             cookie?: never;
         };
-        /** Get the settings of a subsystem (empty when unset) */
         get: operations["getConfigSubsystem"];
-        /** Merge settings into a subsystem */
+        /** @description Merges the settings; a masked sensitive value keeps the stored secret. */
         put: operations["setConfigSubsystem"];
         post?: never;
-        /** Delete a subsystem, or only some of its keys */
         delete: operations["deleteConfigSubsystem"];
         options?: never;
         head?: never;
@@ -599,6 +1279,19 @@ export interface components {
             /** @description Stable machine-readable error code (snake_case). */
             code: string;
             requestId?: string;
+            /** @description Located errors of a malformed policy (code malformed_policy). */
+            errors?: components["schemas"]["PolicyError"][];
+        };
+        PolicyError: {
+            /** @description 1-based statement index, 0 for document-level errors. */
+            statement: number;
+            sid?: string;
+            element?: string;
+            /** @description 1-based, 0 when unknown. */
+            line: number;
+            /** @description 1-based, 0 when unknown. */
+            column: number;
+            message: string;
         };
         /** @enum {string} */
         DeploymentMode: "snsd" | "snmd" | "distributed" | "unknown";
@@ -608,6 +1301,10 @@ export interface components {
         CredentialStatus: "enabled" | "disabled";
         /** @enum {string} */
         VersioningState: "off" | "enabled" | "suspended";
+        /** @enum {string} */
+        AccessPreset: "private" | "download" | "upload" | "public" | "custom";
+        /** @enum {string} */
+        SharePermission: "download" | "upload";
         LoginRequest: {
             accessKey: string;
             secretKey: string;
@@ -615,7 +1312,9 @@ export interface components {
         SessionIdentity: {
             accessKey: string;
             isRoot: boolean;
+            /** @description Enabled groups of the user. */
             groups: string[];
+            /** @description Effective policies, attached to the user and to its enabled groups. */
             policyNames: string[];
         };
         Session: {
@@ -628,6 +1327,14 @@ export interface components {
             expiresAt: string;
             /** @description Token the browser echoes in the X-CSRF-Token header on mutating requests. */
             csrfToken: string;
+        };
+        Permissions: {
+            user: string;
+            isRoot: boolean;
+            bucket?: string;
+            prefix?: string;
+            allowed: string[];
+            denied: string[];
         };
         DiskInfo: {
             endpoint: string;
@@ -727,6 +1434,10 @@ export interface components {
             /** Format: int64 */
             failed: number;
         };
+        ServiceAction: {
+            /** @enum {string} */
+            action: "restart" | "stop";
+        };
         Bucket: {
             name: string;
             /** Format: date-time */
@@ -739,20 +1450,35 @@ export interface components {
             /** Format: int64 */
             versions: number;
             /** Format: int64 */
+            deleteMarkers: number;
+            /** Format: int64 */
             size: number;
             /**
              * Format: int64
              * @description Hard quota in bytes, 0 when unset.
              */
             quotaBytes: number;
+            /** @description The bucket policy grants access to everyone. */
+            public: boolean;
             tags: {
                 [key: string]: string;
             };
         };
+        BucketList: {
+            items: components["schemas"]["Bucket"][];
+            nextCursor?: string;
+        };
         CreateBucketRequest: {
             name: string;
             region?: string;
+            /** @description Enable versioning (implied by objectLock). */
+            versioning?: boolean;
             objectLock?: boolean;
+            /**
+             * Format: int64
+             * @description Hard quota in bytes (0 none).
+             */
+            quotaBytes?: number;
         };
         BucketVersioning: {
             status: components["schemas"]["VersioningState"];
@@ -766,7 +1492,7 @@ export interface components {
              */
             size: number;
         };
-        BucketTags: {
+        Tags: {
             tags: {
                 [key: string]: string;
             };
@@ -783,6 +1509,22 @@ export interface components {
             algorithm: string;
             kmsKeyId?: string;
         };
+        AccessRule: {
+            /** @description The prefix, "" for the whole bucket. */
+            prefix: string;
+            preset: components["schemas"]["AccessPreset"];
+        };
+        BucketAccess: {
+            bucket: string;
+            rules: components["schemas"]["AccessRule"][];
+            public: boolean;
+            hasPolicy: boolean;
+        };
+        SetAccessRequest: {
+            prefix?: string;
+            /** @enum {string} */
+            preset: "private" | "download" | "upload" | "public";
+        };
         ObjectEntry: {
             key: string;
             versionId?: string;
@@ -794,6 +1536,7 @@ export interface components {
             contentType?: string;
             isDeleteMarker: boolean;
             isLatest: boolean;
+            storageClass?: string;
         };
         ObjectList: {
             objects: components["schemas"]["ObjectEntry"][];
@@ -801,6 +1544,264 @@ export interface components {
             isTruncated: boolean;
             /** @description Resumes a truncated listing through the cursor query parameter. */
             nextCursor?: string;
+        };
+        ObjectDetails: components["schemas"]["ObjectEntry"] & {
+            contentEncoding?: string;
+            contentDisposition?: string;
+            contentLanguage?: string;
+            cacheControl?: string;
+            /** Format: date-time */
+            expires?: string;
+            userMetadata: {
+                [key: string]: string;
+            };
+            parts?: number;
+            checksumAlgorithm?: string;
+            checksum?: string;
+            /** @description Absent when the caller may not read the tags. */
+            tags?: {
+                [key: string]: string;
+            };
+            /** @description First versions of the key; absent when the caller may not list them. */
+            versions?: components["schemas"]["ObjectEntry"][];
+            versionsTruncated?: boolean;
+        };
+        VersionList: {
+            items: components["schemas"]["ObjectEntry"][];
+            nextCursor?: string;
+        };
+        FolderRequest: {
+            /** @description The folder key; a trailing "/" is added when missing. */
+            prefix: string;
+        };
+        ObjectRef: {
+            key: string;
+            versionId?: string;
+        };
+        DeleteObjectsRequest: {
+            objects?: components["schemas"]["ObjectRef"][];
+            /** @description Deleted recursively ("" is the whole bucket). */
+            prefixes?: string[];
+            /** @description Delete every version under the prefixes permanently. */
+            allVersions?: boolean;
+        };
+        DeletedObject: {
+            key: string;
+            versionId?: string;
+            deleteMarker: boolean;
+            deleteMarkerVersionId?: string;
+        };
+        ObjectError: {
+            key: string;
+            versionId?: string;
+            code: string;
+            message: string;
+        };
+        DeleteObjectsResult: {
+            deleted: components["schemas"]["DeletedObject"][];
+            errors: components["schemas"]["ObjectError"][];
+        };
+        RenameRequest: {
+            source: string;
+            destination: string;
+            /** @description Move every object under source (destination may not lie under it). */
+            prefix?: boolean;
+            /** @description Replace existing destination objects (otherwise conflict). */
+            overwrite?: boolean;
+        };
+        RenamedObject: {
+            source: string;
+            destination: string;
+        };
+        RenameError: {
+            source: string;
+            destination: string;
+            code: string;
+            message: string;
+        };
+        RenameResult: {
+            renamed: components["schemas"]["RenamedObject"][];
+            errors: components["schemas"]["RenameError"][];
+        };
+        ZipRequest: {
+            keys?: string[];
+            prefixes?: string[];
+            /** @description Folder the archive names are relative to. */
+            base?: string;
+        };
+        CreateUploadRequest: {
+            contentType?: string;
+            userMetadata?: {
+                [key: string]: string;
+            };
+        };
+        Upload: {
+            bucket: string;
+            key: string;
+            uploadId: string;
+            /** Format: date-time */
+            initiated: string;
+            /**
+             * Format: int64
+             * @description Recommended part size.
+             */
+            partSize: number;
+            /**
+             * Format: int64
+             * @description Minimum size of every part but the last.
+             */
+            minPartSize: number;
+            /** Format: int64 */
+            maxPartSize: number;
+            maxParts: number;
+        };
+        PendingUpload: {
+            key: string;
+            uploadId: string;
+            /** Format: date-time */
+            initiated: string;
+        };
+        UploadList: {
+            items: components["schemas"]["PendingUpload"][];
+            nextCursor?: string;
+        };
+        Part: {
+            partNumber: number;
+            etag: string;
+            /** Format: int64 */
+            size: number;
+            /** Format: date-time */
+            lastModified?: string;
+        };
+        PartList: {
+            items: components["schemas"]["Part"][];
+            nextCursor?: string;
+        };
+        CompleteUploadRequest: {
+            parts: {
+                partNumber: number;
+                etag: string;
+            }[];
+        };
+        Share: {
+            id: string;
+            owner: string;
+            bucket: string;
+            /** @description The object key, or the prefix of a prefix share. */
+            key: string;
+            prefix: boolean;
+            permission: components["schemas"]["SharePermission"];
+            versionId?: string;
+            contentType?: string;
+            contentDisposition?: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** @description GET/PUT URL of the object, ListObjectsV2 URL of a prefix download share, absent for prefix upload shares. */
+            url?: string;
+            /** @description Service account signing the link (share-<id>). */
+            accessKey: string;
+        };
+        ShareList: {
+            items: components["schemas"]["Share"][];
+            nextCursor?: string;
+        };
+        CreateShareRequest: {
+            /** @description Required by POST /shares; taken from the path by POST /buckets/{bucket}/objects/share. */
+            bucket?: string;
+            key: string;
+            prefix?: boolean;
+            permission?: components["schemas"]["SharePermission"];
+            /**
+             * Format: int64
+             * @description Validity in seconds (default and maximum 7 days).
+             */
+            expiresIn?: number;
+            contentType?: string;
+            contentDisposition?: string;
+            versionId?: string;
+        };
+        RevokeAllResult: {
+            revoked: number;
+        };
+        PresignRequest: {
+            /** @enum {string} */
+            method?: "GET" | "PUT" | "HEAD" | "DELETE";
+            bucket: string;
+            key: string;
+            versionId?: string;
+            /**
+             * Format: int64
+             * @description Validity in seconds (default and maximum 7 days), capped at the expiration of the credentials.
+             */
+            expiresIn?: number;
+            /** @description Signed Content-Type of PUT URLs, response-content-type of GET URLs. */
+            contentType?: string;
+            /** @description response-content-disposition of GET URLs. */
+            contentDisposition?: string;
+            /** @description Additional signed headers (x-amz-meta-*...). */
+            headers?: {
+                [key: string]: string;
+            };
+        };
+        PresignedURL: {
+            url: string;
+            method: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** @description Signed headers the client must send unchanged. */
+            headers: {
+                [key: string]: string;
+            };
+        };
+        PostPolicyRequest: {
+            bucket: string;
+            /** @description Exact key ("${filename}" is replaced by the file name). */
+            key?: string;
+            /** @description Any key under this prefix. */
+            keyPrefix?: string;
+            /**
+             * Format: int64
+             * @description Validity in seconds (default 1 hour).
+             */
+            expiresIn?: number;
+            /** Format: int64 */
+            minSize?: number;
+            /**
+             * Format: int64
+             * @description content-length-range upper bound when positive.
+             */
+            maxSize?: number;
+            contentType?: string;
+            contentTypePrefix?: string;
+            /** @enum {integer} */
+            successActionStatus?: 200 | 201 | 204;
+            successActionRedirect?: string;
+            fields?: {
+                [key: string]: string;
+            };
+        };
+        PostCondition: {
+            /** @enum {string} */
+            operator: "eq" | "starts-with" | "content-length-range";
+            key?: string;
+            value?: string;
+            /** Format: int64 */
+            min?: number;
+            /** Format: int64 */
+            max?: number;
+        };
+        PostPolicy: {
+            /** @description Where the multipart/form-data is posted (the bucket URL). */
+            url: string;
+            /** @description Form fields to send before the "file" field. */
+            fields: {
+                [key: string]: string;
+            };
+            /** Format: date-time */
+            expiresAt: string;
+            conditions: components["schemas"]["PostCondition"][];
         };
         User: {
             accessKey: string;
@@ -812,16 +1813,24 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
+        UserList: {
+            items: components["schemas"]["User"][];
+            nextCursor?: string;
+        };
         CreateUserRequest: {
             accessKey: string;
             secretKey: string;
             policyNames?: string[];
+            /** @description Existing groups the user joins. */
+            groups?: string[];
             status?: components["schemas"]["CredentialStatus"];
         };
         UpdateUserRequest: {
             secretKey?: string;
             status?: components["schemas"]["CredentialStatus"];
             policyNames?: string[];
+            /** @description Replaces the group memberships. */
+            groups?: string[];
         };
         Group: {
             name: string;
@@ -830,6 +1839,12 @@ export interface components {
             policyNames: string[];
             /** Format: date-time */
             createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        GroupList: {
+            items: components["schemas"]["Group"][];
+            nextCursor?: string;
         };
         CreateGroupRequest: {
             name: string;
@@ -856,13 +1871,19 @@ export interface components {
             policy?: components["schemas"]["PolicyDocument"];
             /** Format: date-time */
             createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        AccessKeyList: {
+            items: components["schemas"]["AccessKey"][];
+            nextCursor?: string;
         };
         /** @description The access key just created; the only time the secret is visible. */
         CreatedAccessKey: components["schemas"]["AccessKey"] & {
             secretKey: string;
         };
         CreateAccessKeyRequest: {
-            /** @description Owner of the key; defaults to the caller. Only root may name another user. */
+            /** @description Owner of the key; defaults to the caller. Naming another user requires admin:CreateServiceAccount. */
             parentUser?: string;
             /** @description Generated when empty. */
             accessKey?: string;
@@ -881,6 +1902,8 @@ export interface components {
             status?: components["schemas"]["CredentialStatus"];
             /** Format: date-time */
             expiration?: string;
+            /** @description Remove the expiration. */
+            clearExpiration?: boolean;
             policy?: components["schemas"]["PolicyDocument"];
             /** @description Remove the inline policy. */
             clearPolicy?: boolean;
@@ -915,6 +1938,8 @@ export interface components {
             Version: string;
             Statement: components["schemas"]["PolicyStatement"][];
         };
+        /** @description A policy document, or its JSON text (errors are then located in that text). */
+        PolicyDocumentOrText: components["schemas"]["PolicyDocument"] | string;
         Policy: {
             name: string;
             document: components["schemas"]["PolicyDocument"];
@@ -923,18 +1948,82 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
+        PolicyList: {
+            items: components["schemas"]["Policy"][];
+            nextCursor?: string;
+        };
         CreatePolicyRequest: {
             name: string;
-            document: components["schemas"]["PolicyDocument"];
+            document: components["schemas"]["PolicyDocumentOrText"];
         };
         SavePolicyRequest: {
-            document: components["schemas"]["PolicyDocument"];
+            document: components["schemas"]["PolicyDocumentOrText"];
         };
         /** @description Exactly one of user and group is set. */
         AttachRequest: {
             policyNames: string[];
             user?: string;
             group?: string;
+        };
+        PolicyEntities: {
+            policy: string;
+            users: string[];
+            groups: string[];
+        };
+        ValidatePolicyRequest: {
+            document: components["schemas"]["PolicyDocumentOrText"];
+            /** @description Validate a bucket policy of this bucket. */
+            bucket?: string;
+        };
+        ValidationReport: {
+            valid: boolean;
+            errors: components["schemas"]["PolicyError"][];
+        };
+        SimulateRequest: {
+            /** @description Access key to simulate (user or service account); the caller by default. */
+            user?: string;
+            action: string;
+            bucket?: string;
+            object?: string;
+            sourceIp?: string;
+            secureTransport?: boolean;
+            /** Format: date-time */
+            time?: string;
+            /** @description Other condition values (aws:Referer, s3:prefix...). */
+            conditions?: {
+                [key: string]: string[];
+            };
+        };
+        EvaluatedStatement: {
+            /** @enum {string} */
+            source: "root" | "iam" | "group" | "inline" | "bucket";
+            policyName?: string;
+            group?: string;
+            /** @description 0-based position of the statement in its document. */
+            index: number;
+            sid?: string;
+            /** @enum {string} */
+            effect: "Allow" | "Deny";
+            matched: boolean;
+            /** @enum {string} */
+            mismatch?: "principal" | "action" | "resource" | "condition";
+            statement?: components["schemas"]["PolicyStatement"];
+        };
+        Simulation: {
+            user: string;
+            action: string;
+            bucket?: string;
+            object?: string;
+            allowed: boolean;
+            /** @enum {string} */
+            decision: "allow" | "deny";
+            reason: string;
+            /** @enum {string} */
+            source?: "root" | "iam" | "group" | "inline" | "bucket";
+            policyName?: string;
+            group?: string;
+            statement?: components["schemas"]["EvaluatedStatement"];
+            evaluated: components["schemas"]["EvaluatedStatement"][];
         };
         ConfigSettings: {
             [key: string]: string;
@@ -950,6 +2039,20 @@ export interface components {
         ConfigDocument: {
             [key: string]: components["schemas"]["ConfigSettings"];
         };
+        ConfigKey: {
+            name: string;
+            /** @enum {string} */
+            type: "string" | "bool" | "int" | "duration" | "url" | "enum" | "list";
+            description: string;
+            default?: string;
+            values?: string[];
+            sensitive: boolean;
+        };
+        ConfigSubsystemSchema: {
+            name: string;
+            description: string;
+            keys: components["schemas"]["ConfigKey"][];
+        };
     };
     responses: {
         /** @description An error, as an RFC 9457 problem document. */
@@ -964,6 +2067,23 @@ export interface components {
     };
     parameters: {
         bucket: string;
+        /** @description Object key. */
+        key: string;
+        /**
+         * @description Version of the object; the policies see it as s3:versionid, as for the
+         *     S3 request with the same versionId.
+         */
+        versionId: string;
+        /**
+         * @description Tags of the new object, URL-encoded (k1=v1&k2=v2) as the S3 header of the
+         *     same name; authorized with s3:RequestObjectTag/<key>.
+         */
+        tagging: string;
+        uploadId: string;
+        /** @description Opaque cursor of the next page (nextCursor of the previous one). */
+        cursor: string;
+        /** @description Page size, 1 to 1000 (default 1000). */
+        limit: number;
     };
     requestBodies: never;
     headers: never;
@@ -994,6 +2114,20 @@ export interface operations {
                 };
             };
             401: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
+            415: components["responses"]["Problem"];
+            /** @description Too many failed attempts. */
+            429: {
+                headers: {
+                    /** @description Seconds before the next attempt is verified. */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            default: components["responses"]["Problem"];
         };
     };
     logout: {
@@ -1014,6 +2148,7 @@ export interface operations {
             };
             401: components["responses"]["Problem"];
             403: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     currentSession: {
@@ -1025,7 +2160,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The session. */
+            /** @description The session, with the effective policies and the expiration. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1035,6 +2170,32 @@ export interface operations {
                 };
             };
             401: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    myPermissions: {
+        parameters: {
+            query?: {
+                bucket?: string;
+                prefix?: string;
+                user?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Allowed and denied actions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Permissions"];
+                };
+            };
+            default: components["responses"]["Problem"];
         };
     };
     serverInfo: {
@@ -1055,8 +2216,7 @@ export interface operations {
                     "application/json": components["schemas"]["ServerInfo"];
                 };
             };
-            401: components["responses"]["Problem"];
-            403: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     dataUsage: {
@@ -1077,7 +2237,7 @@ export interface operations {
                     "application/json": components["schemas"]["DataUsage"];
                 };
             };
-            403: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     startHeal: {
@@ -1102,8 +2262,8 @@ export interface operations {
                     "application/json": components["schemas"]["HealResult"];
                 };
             };
-            403: components["responses"]["Problem"];
             501: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     healStatus: {
@@ -1126,35 +2286,87 @@ export interface operations {
                     "application/json": components["schemas"]["HealResult"];
                 };
             };
-            404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
-    serviceAction: {
+    restartService: {
         parameters: {
             query?: never;
             header?: never;
-            path: {
-                action: "restart" | "stop";
-            };
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Action accepted. */
+            /** @description Restart accepted. */
             202: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ServiceAction"];
+                };
             };
-            400: components["responses"]["Problem"];
-            403: components["responses"]["Problem"];
+            501: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    stopService: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stop accepted. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceAction"];
+                };
+            };
+            501: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    serverTrace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            501: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    serverLogs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            501: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     listBuckets: {
         parameters: {
             query?: {
                 prefix?: string;
+                /** @description Opaque cursor of the next page (nextCursor of the previous one). */
+                cursor?: components["parameters"]["cursor"];
+                /** @description Page size, 1 to 1000 (default 1000). */
+                limit?: components["parameters"]["limit"];
             };
             header?: never;
             path?: never;
@@ -1162,16 +2374,16 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The buckets. */
+            /** @description A page of buckets. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Bucket"][];
+                    "application/json": components["schemas"]["BucketList"];
                 };
             };
-            403: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     createBucket: {
@@ -1198,6 +2410,7 @@ export interface operations {
             };
             400: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     getBucket: {
@@ -1221,12 +2434,13 @@ export interface operations {
                 };
             };
             404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     deleteBucket: {
         parameters: {
             query?: {
-                /** @description Delete the bucket even when it still contains objects. */
+                /** @description Empty the bucket before deleting it. */
                 force?: boolean;
             };
             header?: never;
@@ -1244,8 +2458,8 @@ export interface operations {
                 };
                 content?: never;
             };
-            404: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     getBucketVersioning: {
@@ -1268,6 +2482,7 @@ export interface operations {
                     "application/json": components["schemas"]["BucketVersioning"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     setBucketVersioning: {
@@ -1294,7 +2509,7 @@ export interface operations {
                     "application/json": components["schemas"]["BucketVersioning"];
                 };
             };
-            400: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     getBucketPolicy: {
@@ -1308,7 +2523,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The policy document. */
+            /** @description The bucket policy document. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1318,6 +2533,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     setBucketPolicy: {
@@ -1343,6 +2559,7 @@ export interface operations {
                 content?: never;
             };
             400: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     deleteBucketPolicy: {
@@ -1356,13 +2573,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Removed. */
+            /** @description Deleted. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     getBucketQuota: {
@@ -1385,6 +2603,7 @@ export interface operations {
                     "application/json": components["schemas"]["BucketQuota"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     setBucketQuota: {
@@ -1411,6 +2630,7 @@ export interface operations {
                     "application/json": components["schemas"]["BucketQuota"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     getBucketTags: {
@@ -1430,9 +2650,10 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BucketTags"];
+                    "application/json": components["schemas"]["Tags"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     setBucketTags: {
@@ -1446,7 +2667,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["BucketTags"];
+                "application/json": components["schemas"]["Tags"];
             };
         };
         responses: {
@@ -1456,9 +2677,10 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BucketTags"];
+                    "application/json": components["schemas"]["Tags"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     getBucketObjectLock: {
@@ -1472,7 +2694,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The configuration. */
+            /** @description The object lock configuration. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1481,6 +2703,7 @@ export interface operations {
                     "application/json": components["schemas"]["BucketObjectLock"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     setBucketObjectLock: {
@@ -1498,7 +2721,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The configuration. */
+            /** @description The object lock configuration. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1507,6 +2730,7 @@ export interface operations {
                     "application/json": components["schemas"]["BucketObjectLock"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     getBucketEncryption: {
@@ -1520,7 +2744,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The configuration. */
+            /** @description The default encryption. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1529,6 +2753,7 @@ export interface operations {
                     "application/json": components["schemas"]["BucketEncryption"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     setBucketEncryption: {
@@ -1546,7 +2771,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The configuration. */
+            /** @description The default encryption. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1555,6 +2780,7 @@ export interface operations {
                     "application/json": components["schemas"]["BucketEncryption"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     deleteBucketEncryption: {
@@ -1568,23 +2794,71 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Removed. */
+            /** @description Deleted. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
-    listObjects: {
+    getBucketAccess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The anonymous access. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BucketAccess"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    setBucketAccess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetAccessRequest"];
+            };
+        };
+        responses: {
+            /** @description The anonymous access. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BucketAccess"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    removeBucketAccess: {
         parameters: {
             query?: {
+                /** @description The prefix; the whole bucket when absent. */
                 prefix?: string;
-                delimiter?: string;
-                /** @description The `nextCursor` of a previous truncated listing. */
-                cursor?: string;
-                limit?: number;
             };
             header?: never;
             path: {
@@ -1594,7 +2868,128 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The listing. */
+            /** @description The anonymous access. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BucketAccess"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getBucketLifecycle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            501: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    setBucketLifecycle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            501: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    getBucketEvents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            501: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    setBucketEvents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            501: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    getBucketReplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            501: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    setBucketReplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            501: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    listObjects: {
+        parameters: {
+            query?: {
+                prefix?: string;
+                /** @description Default "/"; empty lists recursively. */
+                delimiter?: string;
+                /** @description Opaque cursor of the next page (nextCursor of the previous one). */
+                cursor?: components["parameters"]["cursor"];
+                /** @description Page size, 1 to 1000 (default 1000). */
+                limit?: components["parameters"]["limit"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of the listing. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1603,27 +2998,766 @@ export interface operations {
                     "application/json": components["schemas"]["ObjectList"];
                 };
             };
-            404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
-    listUsers: {
+    deleteObjects: {
         parameters: {
             query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteObjectsRequest"];
+            };
+        };
+        responses: {
+            /** @description The result of every object. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeleteObjectsResult"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    statObject: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The object. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectDetails"];
+                };
+            };
+            404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    listObjectVersions: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /** @description Opaque cursor of the next page (nextCursor of the previous one). */
+                cursor?: components["parameters"]["cursor"];
+                /** @description Page size, 1 to 1000 (default 1000). */
+                limit?: components["parameters"]["limit"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of versions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    createFolder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FolderRequest"];
+            };
+        };
+        responses: {
+            /** @description The folder object. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectEntry"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    renameObjects: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RenameRequest"];
+            };
+        };
+        responses: {
+            /** @description The result of every object. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RenameResult"];
+                };
+            };
+            409: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    setObjectTags: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Tags"];
+            };
+        };
+        responses: {
+            /** @description The tags. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tags"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    downloadObject: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: {
+                Range?: string;
+            };
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The object. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": unknown;
+                };
+            };
+            /** @description A range of the object. */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": unknown;
+                };
+            };
+            /** @description Not modified. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    previewObject: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: {
+                Range?: string;
+            };
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The object. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": unknown;
+                };
+            };
+            /** @description A range of the object. */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": unknown;
+                };
+            };
+            /** @description Not modified. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    downloadZip: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ZipRequest"];
+                "application/x-www-form-urlencoded": {
+                    /** @description The ZipRequest as a JSON document. */
+                    request: string;
+                    /** @description The CSRF token of the console session (instead of the X-CSRF-Token header). */
+                    csrfToken?: string;
+                    /** @description Set by the console to learn that the archive started: the answer then sets the cookie `nexo_dl_<downloadToken>` (a download never loads the frame of the form). */
+                    downloadToken?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The archive. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": unknown;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    uploadObject: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+            };
+            header?: {
+                /**
+                 * @description Tags of the new object, URL-encoded (k1=v1&k2=v2) as the S3 header of the
+                 *     same name; authorized with s3:RequestObjectTag/<key>.
+                 */
+                "x-amz-tagging"?: components["parameters"]["tagging"];
+            };
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "*/*": string;
+            };
+        };
+        responses: {
+            /** @description The object. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectEntry"];
+                };
+            };
+            413: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    shareObject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateShareRequest"];
+            };
+        };
+        responses: {
+            /** @description The share link. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Share"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listUploads: {
+        parameters: {
+            query?: {
+                prefix?: string;
+                /** @description Opaque cursor of the next page (nextCursor of the previous one). */
+                cursor?: components["parameters"]["cursor"];
+                /** @description Page size, 1 to 1000 (default 1000). */
+                limit?: components["parameters"]["limit"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of uploads. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    createUpload: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+            };
+            header?: {
+                /**
+                 * @description Tags of the new object, URL-encoded (k1=v1&k2=v2) as the S3 header of the
+                 *     same name; authorized with s3:RequestObjectTag/<key>.
+                 */
+                "x-amz-tagging"?: components["parameters"]["tagging"];
+            };
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CreateUploadRequest"];
+            };
+        };
+        responses: {
+            /** @description The upload and the limits of its parts. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Upload"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    abortUpload: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+                uploadId: components["parameters"]["uploadId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Aborted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listUploadParts: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /** @description Opaque cursor of the next page (nextCursor of the previous one). */
+                cursor?: components["parameters"]["cursor"];
+                /** @description Page size, 1 to 1000 (default 1000). */
+                limit?: components["parameters"]["limit"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+                uploadId: components["parameters"]["uploadId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of parts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PartList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    uploadPart: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+                uploadId: components["parameters"]["uploadId"];
+                partNumber: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "*/*": string;
+            };
+        };
+        responses: {
+            /** @description The part. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Part"];
+                };
+            };
+            413: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    completeUpload: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+                uploadId: components["parameters"]["uploadId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompleteUploadRequest"];
+            };
+        };
+        responses: {
+            /** @description The object. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectEntry"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listShares: {
+        parameters: {
+            query?: {
+                owner?: string;
+                bucket?: string;
+                /** @description Opaque cursor of the next page (nextCursor of the previous one). */
+                cursor?: components["parameters"]["cursor"];
+                /** @description Page size, 1 to 1000 (default 1000). */
+                limit?: components["parameters"]["limit"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description The users. */
+            /** @description A page of share links. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["User"][];
+                    "application/json": components["schemas"]["ShareList"];
                 };
             };
+            default: components["responses"]["Problem"];
+        };
+    };
+    createShare: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateShareRequest"];
+            };
+        };
+        responses: {
+            /** @description The share link. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Share"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    revokeAllShares: {
+        parameters: {
+            query?: {
+                owner?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description How many links were revoked. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevokeAllResult"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getShare: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The share link. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Share"];
+                };
+            };
+            404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    revokeShare: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    presign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PresignRequest"];
+            };
+        };
+        responses: {
+            /** @description The presigned URL. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PresignedURL"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    postPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PostPolicyRequest"];
+            };
+        };
+        responses: {
+            /** @description The form. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostPolicy"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listUsers: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor of the next page (nextCursor of the previous one). */
+                cursor?: components["parameters"]["cursor"];
+                /** @description Page size, 1 to 1000 (default 1000). */
+                limit?: components["parameters"]["limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of users. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserList"];
+                };
+            };
+            default: components["responses"]["Problem"];
         };
     };
     createUser: {
@@ -1648,8 +3782,8 @@ export interface operations {
                     "application/json": components["schemas"]["User"];
                 };
             };
-            400: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     getUser: {
@@ -1657,7 +3791,6 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The access key. */
                 user: string;
             };
             cookie?: never;
@@ -1674,6 +3807,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     updateUser: {
@@ -1681,7 +3815,6 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The access key. */
                 user: string;
             };
             cookie?: never;
@@ -1701,7 +3834,7 @@ export interface operations {
                     "application/json": components["schemas"]["User"];
                 };
             };
-            404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     deleteUser: {
@@ -1709,7 +3842,6 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description The access key. */
                 user: string;
             };
             cookie?: never;
@@ -1723,27 +3855,33 @@ export interface operations {
                 };
                 content?: never;
             };
-            404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     listGroups: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Opaque cursor of the next page (nextCursor of the previous one). */
+                cursor?: components["parameters"]["cursor"];
+                /** @description Page size, 1 to 1000 (default 1000). */
+                limit?: components["parameters"]["limit"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description The groups. */
+            /** @description A page of groups. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Group"][];
+                    "application/json": components["schemas"]["GroupList"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     createGroup: {
@@ -1769,6 +3907,7 @@ export interface operations {
                 };
             };
             409: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     getGroup: {
@@ -1792,6 +3931,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     updateGroup: {
@@ -1818,7 +3958,7 @@ export interface operations {
                     "application/json": components["schemas"]["Group"];
                 };
             };
-            404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     deleteGroup: {
@@ -1839,14 +3979,17 @@ export interface operations {
                 };
                 content?: never;
             };
-            404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     listAccessKeys: {
         parameters: {
             query?: {
-                /** @description Owner of the keys; root may omit it to list every key, other callers only see their own. */
-                parent?: string;
+                user?: string;
+                /** @description Opaque cursor of the next page (nextCursor of the previous one). */
+                cursor?: components["parameters"]["cursor"];
+                /** @description Page size, 1 to 1000 (default 1000). */
+                limit?: components["parameters"]["limit"];
             };
             header?: never;
             path?: never;
@@ -1854,15 +3997,16 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The access keys (secrets are never listed). */
+            /** @description A page of access keys. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AccessKey"][];
+                    "application/json": components["schemas"]["AccessKeyList"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     createAccessKey: {
@@ -1878,7 +4022,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The access key with its secret, shown only once. */
+            /** @description The access key with its secret. */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -1887,7 +4031,7 @@ export interface operations {
                     "application/json": components["schemas"]["CreatedAccessKey"];
                 };
             };
-            403: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     getAccessKey: {
@@ -1911,6 +4055,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     updateAccessKey: {
@@ -1937,7 +4082,7 @@ export interface operations {
                     "application/json": components["schemas"]["AccessKey"];
                 };
             };
-            404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     deleteAccessKey: {
@@ -1958,27 +4103,33 @@ export interface operations {
                 };
                 content?: never;
             };
-            404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     listPolicies: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Opaque cursor of the next page (nextCursor of the previous one). */
+                cursor?: components["parameters"]["cursor"];
+                /** @description Page size, 1 to 1000 (default 1000). */
+                limit?: components["parameters"]["limit"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description The policies. */
+            /** @description A page of policies. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Policy"][];
+                    "application/json": components["schemas"]["PolicyList"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     createPolicy: {
@@ -2004,6 +4155,8 @@ export interface operations {
                 };
             };
             400: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     attachPolicy: {
@@ -2026,8 +4179,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            400: components["responses"]["Problem"];
-            404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     detachPolicy: {
@@ -2050,7 +4202,57 @@ export interface operations {
                 };
                 content?: never;
             };
-            400: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    simulatePolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SimulateRequest"];
+            };
+        };
+        responses: {
+            /** @description The decision, the deciding statement and every statement considered. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Simulation"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    validatePolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ValidatePolicyRequest"];
+            };
+        };
+        responses: {
+            /** @description The validation report. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ValidationReport"];
+                };
+            };
+            default: components["responses"]["Problem"];
         };
     };
     getPolicy: {
@@ -2074,6 +4276,7 @@ export interface operations {
                 };
             };
             404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     savePolicy: {
@@ -2101,6 +4304,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     deletePolicy: {
@@ -2121,8 +4325,30 @@ export interface operations {
                 };
                 content?: never;
             };
-            400: components["responses"]["Problem"];
-            404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    policyEntities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                policy: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The entities. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyEntities"];
+                };
+            };
+            default: components["responses"]["Problem"];
         };
     };
     listConfig: {
@@ -2134,7 +4360,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The subsystems, sorted by name. */
+            /** @description The subsystems. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2143,6 +4369,7 @@ export interface operations {
                     "application/json": components["schemas"]["ConfigSubsystem"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     mergeConfig: {
@@ -2158,13 +4385,35 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Stored. */
+            /** @description Merged. */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
+        };
+    };
+    configSchema: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The schema. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigSubsystemSchema"][];
+                };
+            };
+            default: components["responses"]["Problem"];
         };
     };
     exportConfig: {
@@ -2176,7 +4425,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The configuration document. */
+            /** @description The configuration document (attachment). */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2185,6 +4434,7 @@ export interface operations {
                     "application/json": components["schemas"]["ConfigDocument"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     importConfig: {
@@ -2207,7 +4457,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            400: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
         };
     };
     getConfigSubsystem: {
@@ -2215,6 +4465,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description A subsystem of GET /config/schema (api, browser, logger, notify_webhook, region, scanner). */
                 subsys: string;
             };
             cookie?: never;
@@ -2230,6 +4481,7 @@ export interface operations {
                     "application/json": components["schemas"]["ConfigSubsystem"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     setConfigSubsystem: {
@@ -2237,6 +4489,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description A subsystem of GET /config/schema (api, browser, logger, notify_webhook, region, scanner). */
                 subsys: string;
             };
             cookie?: never;
@@ -2256,6 +4509,7 @@ export interface operations {
                     "application/json": components["schemas"]["ConfigSubsystem"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     deleteConfigSubsystem: {
@@ -2266,6 +4520,7 @@ export interface operations {
             };
             header?: never;
             path: {
+                /** @description A subsystem of GET /config/schema (api, browser, logger, notify_webhook, region, scanner). */
                 subsys: string;
             };
             cookie?: never;
@@ -2279,6 +4534,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
 }

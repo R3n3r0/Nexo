@@ -1,0 +1,99 @@
+$ nexoctl share list mem
+No active share links.
+
+$ nexoctl share download --expire 2h --content-disposition attachment mem/pub/docs/report.pdf
+URL: mem/pub/docs/report.pdf
+Expire: 2h0m0s
+Share: http://s3.mem.test/pub/docs/report.pdf?X-Amz-Credential=share-sh0001&X-Amz-Expires=7200&X-Amz-Signature=mem&response-content-disposition=attachment
+ID: sh0001 (revoke with: nexoctl share revoke mem sh0001)
+
+$ nexoctl share download --recursive --expire 1h mem/pub/docs/
+URL: mem/pub/docs/2026/a.txt
+Expire: 1h0m0s
+Share: http://s3.mem.test/pub/docs/2026/a.txt?X-Amz-Credential=share-sh0002&X-Amz-Expires=3600&X-Amz-Signature=mem
+ID: sh0002 (revoke with: nexoctl share revoke mem sh0002)
+URL: mem/pub/docs/report.pdf
+Expire: 1h0m0s
+Share: http://s3.mem.test/pub/docs/report.pdf?X-Amz-Credential=share-sh0003&X-Amz-Expires=3600&X-Amz-Signature=mem
+ID: sh0003 (revoke with: nexoctl share revoke mem sh0003)
+
+$ nexoctl share upload --expire 1h --content-type application/pdf mem/pub/inbox/new.pdf
+URL: mem/pub/inbox/new.pdf
+Expire: 1h0m0s
+Share: http://s3.mem.test/pub/inbox/new.pdf?X-Amz-Credential=share-sh0004&X-Amz-Expires=3600&X-Amz-Signature=mem
+Command: curl -X PUT -H 'Content-Type: application/pdf' --upload-file <FILE> 'http://s3.mem.test/pub/inbox/new.pdf?X-Amz-Credential=share-sh0004&X-Amz-Expires=3600&X-Amz-Signature=mem'
+ID: sh0004 (revoke with: nexoctl share revoke mem sh0004)
+
+$ nexoctl share upload --managed --post mem/pub/inbox/
+! nexoctl: error: POST policies are signed locally: --managed excludes --post
+! Run 'nexoctl share upload --help' for usage.
+[exit 2]
+
+$ nexoctl share download --managed --raw mem/pub/docs/report.pdf
+! nexoctl: error: --managed excludes --raw
+! Run 'nexoctl share download --help' for usage.
+[exit 2]
+
+$ nexoctl share download --json alice/pub/docs/report.pdf
+{"status":"success","alias":"alice","id":"sh0005","target":"alice/pub/docs/report.pdf","owner":"alice","bucket":"pub","key":"docs/report.pdf","prefix":false,"permission":"download","managed":true,"method":"GET","url":"http://s3.mem.test/pub/docs/report.pdf?X-Amz-Credential=share-sh0005&X-Amz-Expires=604800&X-Amz-Signature=mem","expire":"7d0s","expiresAt":"2026-01-09T03:04:05Z","createdAt":"2026-01-02T03:04:05Z","accessKey":"share-sh0005"}
+
+$ nexoctl share list mem
+ID             OWNER            ACCESS   EXPIRES                 TARGET
+sh0005         alice            download 2026-01-09 03:04:05 UTC mem/pub/docs/report.pdf
+sh0004         MEMKEY           upload   2026-01-02 04:04:05 UTC mem/pub/inbox/new.pdf
+sh0003         MEMKEY           download 2026-01-02 04:04:05 UTC mem/pub/docs/report.pdf
+sh0002         MEMKEY           download 2026-01-02 04:04:05 UTC mem/pub/docs/2026/a.txt
+sh0001         MEMKEY           download 2026-01-02 05:04:05 UTC mem/pub/docs/report.pdf
+
+$ nexoctl share list mem/pub --user alice
+ID             OWNER            ACCESS   EXPIRES                 TARGET
+sh0005         alice            download 2026-01-09 03:04:05 UTC mem/pub/docs/report.pdf
+
+$ nexoctl share list alice
+ID             OWNER            ACCESS   EXPIRES                 TARGET
+sh0005         alice            download 2026-01-09 03:04:05 UTC alice/pub/docs/report.pdf
+
+$ nexoctl share list alice --user admin
+! nexoctl: error: admin:ManageShares: no policy allows admin:ManageShares (access_denied)
+[exit 4]
+
+$ nexoctl share list mem/pub/docs
+! nexoctl: error: mem/pub/docs: share list takes ALIAS or ALIAS/BUCKET
+! Run 'nexoctl share list --help' for usage.
+[exit 2]
+
+$ nexoctl share revoke mem sh0001
+Revoked share sh0001.
+
+$ nexoctl share revoke mem sh0001
+! nexoctl: error: revoke share "sh0001": share not found: "sh0001" (share_not_found)
+[exit 3]
+
+$ nexoctl share revoke mem
+! nexoctl: error: name the share IDs to revoke, or use --all
+! Run 'nexoctl share revoke --help' for usage.
+[exit 2]
+
+$ nexoctl share revoke --all mem sh0002
+! nexoctl: error: --all takes no share ID
+! Run 'nexoctl share revoke --help' for usage.
+[exit 2]
+
+$ nexoctl share revoke --user alice mem sh0002
+! nexoctl: error: --user needs --all
+! Run 'nexoctl share revoke --help' for usage.
+[exit 2]
+
+$ nexoctl share revoke alice sh0002
+! nexoctl: error: revoke share "sh0002": admin:ManageShares: no policy allows admin:ManageShares (access_denied)
+[exit 4]
+
+$ nexoctl share revoke --all --user alice mem
+Revoked 1 share link(s) of user "alice".
+
+$ nexoctl share revoke --all mem
+Revoked 3 of your share link(s).
+
+$ nexoctl share list mem
+No active share links.
+

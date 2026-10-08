@@ -1,0 +1,23 @@
+Without arguments, print the version of nexoctl. The subcommands manage the
+versioning of buckets: enable, suspend, info.
+
+Usage:
+  nexoctl version [flags]
+  nexoctl version [command]
+
+Available Commands:
+  enable      Enable the versioning of a bucket
+  info        Show the versioning state of a bucket
+  suspend     Suspend the versioning of a bucket
+
+Flags:
+  -h, --help   help for version
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl version [command] --help" for more information about a command.

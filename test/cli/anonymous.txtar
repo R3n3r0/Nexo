@@ -1,0 +1,53 @@
+# TCL-P-04: anonymous set download on a prefix: anonymous requests may read
+# and list that prefix only.
+
+exec nexoctl mb local/pub
+exec nexoctl cp a.txt local/pub/public/a.txt
+exec nexoctl cp a.txt local/pub/private/a.txt
+
+http -status 403 $NEXO_URL/pub/public/a.txt
+exec nexoctl anonymous set download local/pub/public/
+stdout 'Access permission for `local/pub/public/` is set to `download`.'
+http -o got.txt $NEXO_URL/pub/public/a.txt
+cmp got.txt a.txt
+http -status 403 $NEXO_URL/pub/private/a.txt
+http $NEXO_URL/pub?list-type=2&prefix=public/
+stdout '<Key>public/a.txt</Key>'
+http -status 403 $NEXO_URL/pub?list-type=2&prefix=private/
+http -X PUT -T a.txt -status 403 $NEXO_URL/pub/public/new.txt
+
+exec nexoctl anonymous get local/pub/public/
+stdout 'is `download`'
+exec nexoctl anonymous get local/pub/private/
+stdout 'is `private`'
+exec nexoctl anonymous list local/pub
+stdout '^download +local/pub/public/$'
+exec nexoctl anonymous list --json local/pub
+jsonlines stdout
+stdout '"prefix":"public/","access":"download"'
+
+# Upload-only prefix.
+exec nexoctl anonymous set upload local/pub/inbox/
+http -X PUT -T a.txt $NEXO_URL/pub/inbox/drop.txt
+http -status 403 $NEXO_URL/pub/inbox/drop.txt
+exec nexoctl cat local/pub/inbox/drop.txt
+cmp stdout a.txt
+
+# The policy round-trips through get-json and set-json.
+exec nexoctl anonymous get-json local/pub
+cp stdout policy.json
+exec nexoctl anonymous set private local/pub/public/
+exec nexoctl anonymous set private local/pub/inbox/
+http -status 403 $NEXO_URL/pub/public/a.txt
+exec nexoctl anonymous get-json local/pub
+stdout '"Statement": \[\]'
+exec nexoctl anonymous set-json policy.json local/pub
+http $NEXO_URL/pub/public/a.txt
+exec nexoctl anonymous list local/pub
+stdout -count=2 'local/pub/'
+
+expectcode 2 nexoctl anonymous set readonly local/pub
+expectcode 1 nexoctl anonymous set-json a.txt local/pub
+
+-- a.txt --
+public content

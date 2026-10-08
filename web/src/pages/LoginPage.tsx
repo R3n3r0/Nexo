@@ -10,12 +10,12 @@ import {
   TextInput,
   Title,
 } from '@mantine/core';
-import { IconAlertCircle, IconInfoCircle } from '@tabler/icons-react';
+import { IconAlertCircle, IconClockExclamation, IconInfoCircle } from '@tabler/icons-react';
 import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Navigate, useLocation, useNavigate } from 'react-router';
 
-import { redirectTargetFromState } from '@/auth/redirect';
+import { redirectTargetFromState, sessionExpiredFromState } from '@/auth/redirect';
 import { useSession } from '@/auth/SessionProvider';
 import { isApiError } from '@/services';
 
@@ -45,6 +45,7 @@ export function LoginPage({ demoCredentials }: LoginPageProps) {
   const [error, setError] = useState<string | null>(null);
 
   const target = redirectTargetFromState(location.state);
+  const expired = sessionExpiredFromState(location.state);
   if (status === 'authenticated') {
     return <Navigate to={target} replace />;
   }
@@ -75,6 +76,8 @@ export function LoginPage({ demoCredentials }: LoginPageProps) {
     } catch (cause) {
       if (isApiError(cause) && (cause.isUnauthorized || cause.isForbidden)) {
         setError(t('login.invalidCredentials'));
+      } else if (isApiError(cause) && cause.isTooManyRequests) {
+        setError(t('login.tooManyAttempts'));
       } else {
         const message = cause instanceof Error ? cause.message : t('common.unknownError');
         setError(t('login.failed', { message }));
@@ -100,6 +103,11 @@ export function LoginPage({ demoCredentials }: LoginPageProps) {
                 {demoCredentials ? (
                   <Alert variant="light" icon={<IconInfoCircle size={18} />}>
                     {t('login.demoHint', demoCredentials)}
+                  </Alert>
+                ) : null}
+                {expired && !error ? (
+                  <Alert color="yellow" variant="light" icon={<IconClockExclamation size={18} />}>
+                    {t('login.sessionExpired')}
                   </Alert>
                 ) : null}
                 {error ? (

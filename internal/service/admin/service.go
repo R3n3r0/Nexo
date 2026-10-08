@@ -11,16 +11,20 @@
 //   - BucketManager: bucket listing with the public flag, creation with its
 //     initial settings, safe forced deletion and the anonymous access
 //     presets per prefix;
-//   - ObjectBrowser: the object browser operations (stat, versions,
-//     folders, recursive delete, rename, download, preview and zip
-//     archives), authorized object by object;
+//   - ObjectBrowser: the object browser operations (folder listing, stat,
+//     versions, folders, recursive delete, rename, tags, download, preview
+//     and zip archives), authorized object by object;
 //   - ShareManager: managed share links, raw presigned URLs and POST policy
 //     forms, signed on behalf of the caller without exposing its secret;
-//   - IdentityManager and PolicyManager: the user, group and policy
-//     operations of the console that combine several IAM calls, the policy
-//     validator (with positions) and the simulator;
+//   - IdentityManager, AccessKeyManager and PolicyManager: the user, group,
+//     access key and policy operations of the console that combine several
+//     IAM calls or depend on the caller, the policy validator (with
+//     positions) and the simulator;
 //   - ConfigManager: the dynamic configuration with its schema of known
 //     subsystems, validated before it reaches config.Service.
+//
+// Every implementation is created by its New* constructor from a Deps
+// struct of interfaces; the transport never applies these rules itself.
 package admin
 
 import (
@@ -30,6 +34,7 @@ import (
 	"time"
 
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/bucket"
 	"github.com/r3n3r0/nexo/internal/service/config"
 	"github.com/r3n3r0/nexo/internal/service/iam"
 	"github.com/r3n3r0/nexo/internal/service/object"
@@ -120,6 +125,41 @@ type Requester struct {
 	Conditions map[string][]string
 }
 
+// Client describes the client of an Admin API request; ClientConditions
+// turns it into the condition values of its Requester.
+type Client struct {
+	// IP is the address of the client (behind the trusted proxies).
+	IP string
+	// Secure reports a request received over TLS, or through a trusted
+	// proxy terminating it.
+	Secure    bool
+	UserAgent string
+	Referer   string
+}
+
+// ObjectRequest describes, for the policy engine, the S3 request an object
+// operation of the Admin API stands for. ObjectConditions gives it the
+// condition values the S3 API computes for the same request, so that a
+// policy decides alike through the console and through S3 (docs/12 §12.7):
+// every object authorization of the transport and of the services goes
+// through it.
+type ObjectRequest struct {
+	// VersionID is the version the operation addresses (s3:versionid).
+	VersionID string
+	// Headers are the x-amz-* headers (case-insensitive names) the
+	// operation forwards to the object layer or signs into a presigned
+	// URL, and only those: each is the condition value s3:<name>
+	// (x-amz-meta-* and x-amz-security-token aside, as in the S3 API);
+	// x-amz-tagging also gives s3:RequestObjectTag/<key> and
+	// s3:RequestObjectTagKeys.
+	Headers map[string]string
+	// AuthType is how the S3 request authenticates: "" for a request
+	// signed in its headers (what the console stands for),
+	// domain.AuthTypeQuery for the use of a presigned URL or share link,
+	// domain.AuthTypePost for a POST policy upload (s3:authType).
+	AuthType domain.AuthType
+}
+
 // Authorizer is the authorization service of the Admin API. Every route
 // declares the actions it needs and the transport asks Authorize before
 // calling the handler; the services that act on resources named in the
@@ -130,8 +170,9 @@ type Authorizer interface {
 	// in.Actions on the bucket/object of in (none: the whole deployment).
 	// The first denied action decides. With SelfService an implicit deny
 	// is overridden (the service owning the resource enforces ownership:
-	// own access keys, own share links); an explicit Deny never is. An
-	// empty action list is domain.ErrInvalidArgument.
+	// own access keys, own share links); an explicit Deny never is.
+	// Anonymous requesters are always denied. An empty action list is
+	// domain.ErrInvalidArgument.
 	Authorize(ctx context.Context, in AuthorizeInput) (Decision, error)
 	// Permissions evaluates the catalog of console actions (admin:* and
 	// s3:*) for the requester, or for in.User when set, on the bucket and
@@ -147,9 +188,22 @@ type AuthorizeInput struct {
 	// actions (admin:*, s3:ListAllMyBuckets).
 	Bucket string
 	Object string
+	// Conditions are request condition values specific to the operation
+	// (s3:prefix, s3:delimiter, s3:max-keys...), merged over the
+	// requester's.
+	Conditions map[string][]string
 	// SelfService marks the operations whose ownership rule is enforced by
 	// the domain service (iam access keys, share links).
 	SelfService bool
+	// Partial also allows the actions that a statement grants on the
+	// resource under conditions the request does not meet: a listing that
+	// s3:prefix restricts to a home directory (docs/09 §9.3) makes the
+	// bucket visible although its root cannot be listed. It decides what
+	// the console shows (the buckets of the listing, the bucket page),
+	// never an operation on data, which the S3 conditions of the
+	// operation itself authorize. An explicit Deny that applies still
+	// denies.
+	Partial bool
 }
 
 // Decision is the outcome of Authorize.
@@ -159,7 +213,8 @@ type Decision struct {
 	DeniedAction policy.Action
 	// Reason explains the decision (policy engine reason).
 	Reason string
-	// SelfService reports a request allowed by the self-service rule only.
+	// SelfService reports a request allowed by the self-service rule only:
+	// the requester may act on its own resources, not on those of others.
 	SelfService bool
 }
 
@@ -191,9 +246,11 @@ type Permissions struct {
 
 // BucketManager is the console view of the buckets.
 type BucketManager interface {
-	// List returns the buckets visible to the requester, with their usage
-	// and public flag: every bucket with s3:ListAllMyBuckets, otherwise
-	// those it may list (s3:ListBucket).
+	// List returns the buckets visible to the requester, sorted by name,
+	// with their usage and public flag: every bucket with
+	// s3:ListAllMyBuckets, otherwise those it may list at least in part
+	// (s3:ListBucket, conditions such as the s3:prefix of a home directory
+	// aside: AuthorizeInput.Partial).
 	List(ctx context.Context, in ListBucketsInput) ([]BucketSummary, error)
 	// Get returns a bucket with its usage and public flag.
 	Get(ctx context.Context, name string) (*BucketSummary, error)
@@ -213,6 +270,13 @@ type BucketManager interface {
 	// the whole bucket) and stores the resulting bucket policy, or deletes
 	// it when no statement remains. PresetPrivate removes the rule.
 	SetAccess(ctx context.Context, in SetAccessInput) (*BucketAccess, error)
+	// Tags returns the tags of a bucket. Unlike S3 (NoSuchTagSet), a
+	// bucket without tags has an empty, non-nil set.
+	Tags(ctx context.Context, name string) (map[string]string, error)
+	// ObjectLock returns the object lock configuration of a bucket. Unlike
+	// S3 (ObjectLockConfigurationNotFoundError), a bucket without one has
+	// the zero configuration (disabled).
+	ObjectLock(ctx context.Context, name string) (bucket.ObjectLockConfig, error)
 }
 
 // ListBucketsInput are the parameters of BucketManager.List.
@@ -272,6 +336,12 @@ type SetAccessInput struct {
 // operations naming several objects authorize every object with the
 // Authorizer and report per-object results.
 type ObjectBrowser interface {
+	// List is the folder view of a bucket: the objects and the common
+	// prefixes ("folders") directly under Prefix, without the folder
+	// placeholder object Prefix itself, resuming after Cursor. It
+	// authorizes s3:ListBucket with the conditions s3:prefix, s3:delimiter
+	// (the effective one) and s3:max-keys (when Limit is set).
+	List(ctx context.Context, in ListObjectsInput) (*ObjectListing, error)
 	// Stat returns the metadata of an object (version) with its tags and
 	// first versions, each included only when the requester may read them.
 	Stat(ctx context.Context, in StatInput) (*ObjectDetails, error)
@@ -288,6 +358,9 @@ type ObjectBrowser interface {
 	// Rename moves an object, or every object under a prefix, within the
 	// bucket: copy (multipart for objects over 5 GiB) then delete.
 	Rename(ctx context.Context, in RenameInput) (*RenameResult, error)
+	// SetTags replaces the tags of an object (version); an empty set
+	// removes them.
+	SetTags(ctx context.Context, in SetTagsInput) (map[string]string, error)
 	// Open opens an object for download or preview and decides how it is
 	// served. Previews are inline only for content types that cannot run
 	// scripts in the console origin (raster images, PDF, plain text, JSON,
@@ -301,6 +374,45 @@ type ObjectBrowser interface {
 	// requester may not read are skipped and listed in a final
 	// "nexo-zip-errors.txt" entry.
 	Zip(ctx context.Context, in ZipInput, open ZipOpener) (*ZipResult, error)
+	// Upload stores an object proxied by the console in one request; the
+	// route authorizes s3:PutObject. An object without a content type is
+	// stored as DefaultContentType.
+	Upload(ctx context.Context, in object.PutObjectInput) (domain.ObjectInfo, error)
+	// CreateUpload starts a multipart upload proxied by the console; the
+	// route authorizes s3:PutObject. An object without a content type is
+	// stored as DefaultContentType.
+	CreateUpload(ctx context.Context, in object.NewMultipartInput) (domain.MultipartUpload, error)
+}
+
+// Defaults of the object browser.
+const (
+	// DefaultDelimiter is the delimiter of the folder view: the one of
+	// ObjectBrowser.List when the request names none.
+	DefaultDelimiter = "/"
+	// DefaultContentType is the type of the objects uploaded without one.
+	DefaultContentType = "application/octet-stream"
+)
+
+// ListObjectsInput are the parameters of ObjectBrowser.List.
+type ListObjectsInput struct {
+	Requester Requester
+	Bucket    string
+	Prefix    string
+	// Delimiter groups the keys into folders: nil means DefaultDelimiter
+	// (the folder view), "" a flat recursive listing.
+	Delimiter *string
+	// Cursor resumes a truncated listing (ObjectListing.NextCursor).
+	Cursor string
+	// Limit is 1 to 1000; 0 means 1000.
+	Limit int
+}
+
+// ObjectListing is a page of the folder view.
+type ObjectListing struct {
+	Objects  []domain.ObjectInfo
+	Prefixes []string
+	// NextCursor is set when the listing is truncated.
+	NextCursor string
 }
 
 // StatInput are the parameters of Stat.
@@ -420,6 +532,14 @@ type RenameResult struct {
 	Errors  []RenameError
 }
 
+// SetTagsInput are the parameters of SetTags.
+type SetTagsInput struct {
+	Bucket    string
+	Key       string
+	VersionID string
+	Tags      map[string]string
+}
+
 // OpenInput are the parameters of Open.
 type OpenInput struct {
 	Bucket    string
@@ -483,10 +603,10 @@ type ZipResult struct {
 // --- shares --------------------------------------------------------------
 
 // ShareManager exposes share links and presigned URLs to the console and
-// the CLI. A requester always manages its own share links; managing those
-// of other users requires admin:ManageShares (root has it implicitly).
-// Signatures are computed on the server with the requester's credentials,
-// which never leave it.
+// the CLI. A requester always manages its own share links (unless
+// explicitly denied); managing those of other users requires
+// admin:ManageShares (root has it implicitly). Signatures are computed on
+// the server with the requester's credentials, which never leave it.
 type ShareManager interface {
 	// Create creates a managed share link owned by the requester.
 	Create(ctx context.Context, in CreateShareInput) (*share.Share, error)
@@ -501,9 +621,6 @@ type ShareManager interface {
 	// RevokeAll revokes every share of owner ("" is the requester) and
 	// returns how many were revoked.
 	RevokeAll(ctx context.Context, req Requester, owner string) (int, error)
-	// PresignShare signs the URL of key under a prefix share (or the
-	// object of an object share) with the share's service account.
-	PresignShare(ctx context.Context, req Requester, id, key string) (*SignedURL, error)
 	// Presign returns a raw presigned URL (not revocable) signed with the
 	// requester's credentials, after checking that it may perform the
 	// operation now (it is checked again when the URL is used).
@@ -518,7 +635,8 @@ type CreateShareInput struct {
 	Bucket    string
 	Key       string
 	Prefix    bool
-	// Permission is share.PermissionDownload or share.PermissionUpload.
+	// Permission is share.PermissionDownload (the default when empty) or
+	// share.PermissionUpload.
 	Permission share.Permission
 	// Expires is the validity (1 second to 7 days; 0 is 7 days).
 	Expires            time.Duration
@@ -559,8 +677,8 @@ type PresignInput struct {
 	Bucket    string
 	Key       string
 	VersionID string
-	// Expires is the validity (1 second to 7 days), capped at the
-	// expiration of the requester's credentials.
+	// Expires is the validity (1 second to 7 days; 0 is 7 days), capped at
+	// the expiration of the requester's credentials.
 	Expires time.Duration
 	// ContentType is a signed header of PUT URLs and the
 	// response-content-type of GET URLs.
@@ -579,7 +697,8 @@ type PostPolicyInput struct {
 	// under it (an empty Key then defaults to KeyPrefix + "${filename}").
 	Key       string
 	KeyPrefix string
-	// Expires is the validity of the policy (1 second to 7 days).
+	// Expires is the validity of the policy (1 second to 7 days; 0 is one
+	// hour).
 	Expires time.Duration
 	// MinSize and MaxSize bound the file size (content-length-range) when
 	// MaxSize is positive.
@@ -622,14 +741,18 @@ type PostCondition struct {
 // that combine several IAM calls. Each change is authorized with its own
 // admin action before anything is applied.
 type IdentityManager interface {
-	// CreateUser creates a user and adds it to Groups
-	// (admin:AddUserToGroup is required when Groups is set).
+	// CreateUser creates a user (admin:CreateUser) and adds it to Groups
+	// (admin:AddUserToGroup); attaching policies requires
+	// admin:AttachUserOrGroupPolicy.
 	CreateUser(ctx context.Context, in CreateUserInput) (*iam.User, error)
 	// UpdateUser changes the secret (admin:CreateUser), the status
 	// (admin:EnableUser / admin:DisableUser), the attached policies
 	// (admin:AttachUserOrGroupPolicy) and the group memberships
 	// (admin:AddUserToGroup / admin:RemoveUserFromGroup) of a user.
 	UpdateUser(ctx context.Context, in UpdateUserInput) (*iam.User, error)
+	// CreateGroup creates a group with its members (admin:AddUserToGroup)
+	// and policies (admin:AttachUserOrGroupPolicy).
+	CreateGroup(ctx context.Context, in CreateGroupInput) (*iam.Group, error)
 	// UpdateGroup changes the status (admin:EnableGroup /
 	// admin:DisableGroup), the policies (admin:AttachUserOrGroupPolicy)
 	// and the members (admin:AddUserToGroup / admin:RemoveUserFromGroup)
@@ -659,6 +782,14 @@ type UpdateUserInput struct {
 	Groups *[]string
 }
 
+// CreateGroupInput are the parameters of IdentityManager.CreateGroup.
+type CreateGroupInput struct {
+	Requester   Requester
+	Name        string
+	Members     []string
+	PolicyNames []string
+}
+
 // UpdateGroupInput are the parameters of UpdateGroup; nil and empty
 // fields are left unchanged.
 type UpdateGroupInput struct {
@@ -668,6 +799,26 @@ type UpdateGroupInput struct {
 	PolicyNames   *[]string
 	AddMembers    []string
 	RemoveMembers []string
+}
+
+// AccessKeyManager manages service accounts on behalf of a requester. A
+// requester always manages its own keys (self-service, unless explicitly
+// denied); the keys of other users need the admin action granted by a
+// policy (root has every action). Derived credentials (service accounts,
+// STS) manage no key, as iam.Service enforces.
+type AccessKeyManager interface {
+	// List lists the keys of parent ("" is the requester's own keys, or
+	// every key for an administrator).
+	List(ctx context.Context, req Requester, parent string) ([]iam.AccessKey, error)
+	// Get returns a key without its secret.
+	Get(ctx context.Context, req Requester, accessKey string) (*iam.AccessKey, error)
+	// Create creates a key; the result carries the secret, returned only
+	// here.
+	Create(ctx context.Context, req Requester, in iam.CreateAccessKeyInput) (*iam.AccessKey, error)
+	// Update changes a key.
+	Update(ctx context.Context, req Requester, accessKey string, in iam.UpdateAccessKeyInput) (*iam.AccessKey, error)
+	// Delete removes a key.
+	Delete(ctx context.Context, req Requester, accessKey string) error
 }
 
 // PolicyManager implements the policy operations of the console that go
@@ -751,7 +902,9 @@ type Simulation struct {
 // ConfigManager is the dynamic configuration with its schema: every
 // subsystem and key written through it is validated against the schema
 // (unknown subsystems and keys and malformed values are
-// domain.ErrInvalidArgument).
+// domain.ErrInvalidArgument). Sensitive values (tokens, keys) are masked
+// in the values it returns, except in Export, and a masked value written
+// back leaves the stored secret unchanged.
 type ConfigManager interface {
 	// Schema describes the known subsystems, sorted by name.
 	Schema(ctx context.Context) []SubsystemSchema

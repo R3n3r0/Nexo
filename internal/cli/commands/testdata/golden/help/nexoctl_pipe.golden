@@ -1,0 +1,26 @@
+Upload the standard input as an object. The stream is sent as a multipart
+upload with parts of growing size, so its length need not be known; Ctrl-C
+aborts the upload on the server.
+
+Usage:
+  nexoctl pipe [flags] ALIAS/BUCKET/OBJECT
+
+Examples:
+  tar czf - photos/ | nexoctl pipe local/backups/photos.tgz
+
+Flags:
+      --attr string             user metadata of the uploaded objects: "key1=value1;key2=value2"
+      --content-type string     content type of the uploaded objects (default: from the file extension)
+  -h, --help                    help for pipe
+      --limit-download string   cap the download bandwidth (e.g. 10MiB, per second)
+      --limit-upload string     cap the upload bandwidth (e.g. 10MiB, per second)
+      --parallel int            parts of a multipart upload sent at once (default 4)
+      --part-size string        part size of the multipart uploads, 5MiB-5GiB (default: computed from the size)
+      --tags string             tags of the uploaded objects: "key1=value1&key2=value2"
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

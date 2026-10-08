@@ -1,0 +1,19 @@
+Remove empty buckets. With --force every object, version, delete marker and
+incomplete upload of the bucket is removed first.
+
+Usage:
+  nexoctl rb [flags] ALIAS/BUCKET...
+
+Examples:
+  nexoctl rb --force local/scratch
+
+Flags:
+      --force   remove the content of the bucket first
+  -h, --help    help for rb
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

@@ -1,7 +1,13 @@
 import type { AuthEventEmitter } from '../events';
 import type { SessionService } from '../interfaces';
 import type { Session } from '../types';
-import { accessDenied, clone, unauthorized, type MockContext } from './support';
+import {
+  clone,
+  invalidCredentials,
+  tooManyRequests,
+  unauthorized,
+  type MockContext,
+} from './support';
 
 export interface MockSessionOptions {
   /** Accepted credentials: access key -> secret key. */
@@ -12,13 +18,24 @@ export interface MockSessionOptions {
   initialAccessKey?: string;
   /** When set, a current() call without a session also raises the global event. */
   authEvents?: AuthEventEmitter;
+  /** Groups and effective policies of a principal (from the IAM mock). */
+  identityOf?: (accessKey: string) => { groups: string[]; policyNames: string[] };
+  /** Accepts other credentials (users created in the IAM mock). */
+  verify?: (accessKey: string, secretKey: string) => boolean;
 }
 
 /** SessionService with an in-memory session; login checks the configured accounts. */
 export interface MockSessionService extends SessionService {
   /** Drops the session without going through logout (simulates expiry). */
   expire(): void;
+  /** Access key of the open session, null without one (pure accessor). */
+  currentAccessKey(): string | null;
 }
+
+/** Failed logins of an access key before the lockout, like the Go session service. */
+const maxLoginFailures = 5;
+/** Lockout after too many failures, in milliseconds. */
+const loginLockoutMs = 60_000;
 
 export function createMockSessionService(
   ctx: MockContext,
@@ -27,19 +44,23 @@ export function createMockSessionService(
   const ttl = options.ttlSeconds ?? 12 * 3600;
   let session: Session | null = null;
   let counter = 0;
+  // Failed logins per access key (the mock has a single client).
+  const failures = new Map<string, { count: number; lockedUntil: number }>();
 
   function open(accessKey: string): Session {
     counter += 1;
     const issued = ctx.now();
     const expires = new Date(issued.getTime() + ttl * 1000);
+    const isRoot = accessKey === Object.keys(options.accounts)[0];
+    const iam = options.identityOf?.(accessKey);
     return {
       id: `mock-session-${counter}`,
       accessKey,
       identity: {
         accessKey,
-        isRoot: accessKey === Object.keys(options.accounts)[0],
-        groups: [],
-        policyNames: ['consoleAdmin'],
+        isRoot,
+        groups: iam?.groups ?? [],
+        policyNames: iam !== undefined && !isRoot ? iam.policyNames : ['consoleAdmin'],
       },
       issuedAt: issued.toISOString(),
       expiresAt: expires.toISOString(),
@@ -54,12 +75,27 @@ export function createMockSessionService(
   return {
     async login(accessKey, secretKey) {
       await ctx.delay();
+      const now = ctx.now().getTime();
+      const failed = failures.get(accessKey);
+      if (failed !== undefined && failed.lockedUntil > now) {
+        throw tooManyRequests();
+      }
       const expected = Object.hasOwn(options.accounts, accessKey)
         ? options.accounts[accessKey]
         : undefined;
-      if (expected === undefined || expected !== secretKey) {
-        throw accessDenied();
+      const accepted =
+        expected !== undefined
+          ? expected === secretKey
+          : (options.verify?.(accessKey, secretKey) ?? false);
+      if (!accepted) {
+        const count = (failed !== undefined && failed.lockedUntil === 0 ? failed.count : 0) + 1;
+        failures.set(accessKey, {
+          count,
+          lockedUntil: count >= maxLoginFailures ? now + loginLockoutMs : 0,
+        });
+        throw invalidCredentials();
       }
+      failures.delete(accessKey);
       session = open(accessKey);
       return clone(session);
     },
@@ -77,6 +113,9 @@ export function createMockSessionService(
     },
     expire() {
       session = null;
+    },
+    currentAccessKey() {
+      return session?.accessKey ?? null;
     },
   };
 }

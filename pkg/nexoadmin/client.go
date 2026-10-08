@@ -1,0 +1,183 @@
+// Package nexoadmin is the Go client of the Nexo Admin API (/api/v1,
+// documented by api/openapi.yaml). Requests are signed with AWS Signature
+// Version 4 (service "s3", the region of the server), like the S3 API, so
+// the same access keys work for both; the console session flow of the web
+// UI is not used.
+//
+//	c, err := nexoadmin.New(nexoadmin.Config{
+//		Endpoint:  "http://localhost:9001",
+//		AccessKey: "admin",
+//		SecretKey: "password",
+//	})
+//	info, err := c.ServerInfo(ctx)
+//
+// Failures of the server are *APIError values carrying the HTTP status and
+// the stable problem code (access_denied, user_not_found...).
+package nexoadmin
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+)
+
+// AdminClient is the Admin API. Every method fails with an *APIError when
+// the server answers with an error.
+type AdminClient interface {
+	// Session and permissions.
+	MyPermissions(ctx context.Context, q PermissionsQuery) (*Permissions, error)
+
+	// Server.
+	ServerInfo(ctx context.Context) (*ServerInfo, error)
+	DataUsage(ctx context.Context) (*DataUsage, error)
+	Heal(ctx context.Context, in HealRequest) (*HealResult, error)
+	HealStatus(ctx context.Context, id string) (*HealResult, error)
+	RestartService(ctx context.Context) error
+	StopService(ctx context.Context) error
+
+	// Buckets.
+	ListBuckets(ctx context.Context, opts ListBucketsOptions) (*BucketList, error)
+	CreateBucket(ctx context.Context, in CreateBucketRequest) (*Bucket, error)
+	GetBucket(ctx context.Context, name string) (*Bucket, error)
+	DeleteBucket(ctx context.Context, name string, force bool) error
+	GetBucketVersioning(ctx context.Context, name string) (string, error)
+	SetBucketVersioning(ctx context.Context, name, status string) error
+	GetBucketPolicy(ctx context.Context, name string) (json.RawMessage, error)
+	SetBucketPolicy(ctx context.Context, name string, document []byte) error
+	DeleteBucketPolicy(ctx context.Context, name string) error
+	GetBucketQuota(ctx context.Context, name string) (*BucketQuota, error)
+	SetBucketQuota(ctx context.Context, name string, quota BucketQuota) (*BucketQuota, error)
+	GetBucketTags(ctx context.Context, name string) (map[string]string, error)
+	SetBucketTags(ctx context.Context, name string, tags map[string]string) error
+	GetBucketAccess(ctx context.Context, name string) (*BucketAccess, error)
+	// SetBucketAccess applies an anonymous preset (private, download,
+	// upload, public) to a prefix ("" for the whole bucket).
+	SetBucketAccess(ctx context.Context, name, prefix, preset string) (*BucketAccess, error)
+
+	// Objects (the S3 API is the way to transfer data; these are the
+	// management operations of the console).
+	ListObjects(ctx context.Context, bucket string, opts ListObjectsOptions) (*ObjectList, error)
+	StatObject(ctx context.Context, bucket, key, versionID string) (*ObjectDetails, error)
+	DeleteObjects(ctx context.Context, bucket string, in DeleteObjectsRequest) (*DeleteObjectsResult, error)
+
+	// Share links, presigned URLs and POST policies.
+	CreateShare(ctx context.Context, in CreateShareRequest) (*Share, error)
+	ListShares(ctx context.Context, opts ListSharesOptions) (*ShareList, error)
+	GetShare(ctx context.Context, id string) (*Share, error)
+	RevokeShare(ctx context.Context, id string) error
+	// RevokeAllShares revokes every share of owner ("" is the caller) and
+	// returns how many were revoked.
+	RevokeAllShares(ctx context.Context, owner string) (int, error)
+	Presign(ctx context.Context, in PresignRequest) (*PresignedURL, error)
+	PostPolicy(ctx context.Context, in PostPolicyRequest) (*PostPolicy, error)
+
+	// Users and groups.
+	ListUsers(ctx context.Context, opts ListOptions) (*UserList, error)
+	CreateUser(ctx context.Context, in CreateUserRequest) (*User, error)
+	GetUser(ctx context.Context, accessKey string) (*User, error)
+	UpdateUser(ctx context.Context, accessKey string, in UpdateUserRequest) (*User, error)
+	DeleteUser(ctx context.Context, accessKey string) error
+	ListGroups(ctx context.Context, opts ListOptions) (*GroupList, error)
+	CreateGroup(ctx context.Context, in CreateGroupRequest) (*Group, error)
+	GetGroup(ctx context.Context, name string) (*Group, error)
+	UpdateGroup(ctx context.Context, name string, in UpdateGroupRequest) (*Group, error)
+	DeleteGroup(ctx context.Context, name string) error
+
+	// Access keys (service accounts).
+	ListAccessKeys(ctx context.Context, opts ListAccessKeysOptions) (*AccessKeyList, error)
+	CreateAccessKey(ctx context.Context, in CreateAccessKeyRequest) (*CreatedAccessKey, error)
+	GetAccessKey(ctx context.Context, accessKey string) (*AccessKey, error)
+	UpdateAccessKey(ctx context.Context, accessKey string, in UpdateAccessKeyRequest) (*AccessKey, error)
+	DeleteAccessKey(ctx context.Context, accessKey string) error
+
+	// Policies. The documents are sent as their JSON text, so that errors
+	// are located by line and column in that text (APIError.Errors).
+	ListPolicies(ctx context.Context, opts ListOptions) (*PolicyList, error)
+	CreatePolicy(ctx context.Context, name string, document []byte) (*Policy, error)
+	GetPolicy(ctx context.Context, name string) (*Policy, error)
+	SavePolicy(ctx context.Context, name string, document []byte) (*Policy, error)
+	DeletePolicy(ctx context.Context, name string) error
+	AttachPolicy(ctx context.Context, in AttachRequest) error
+	DetachPolicy(ctx context.Context, in AttachRequest) error
+	PolicyEntities(ctx context.Context, name string) (*PolicyEntities, error)
+	SimulatePolicy(ctx context.Context, in SimulateRequest) (*Simulation, error)
+	// ValidatePolicy validates an IAM policy, or a bucket policy of bucket
+	// when set, without storing it.
+	ValidatePolicy(ctx context.Context, document []byte, bucket string) (*ValidationReport, error)
+
+	// Configuration.
+	ListConfig(ctx context.Context) ([]ConfigSubsystem, error)
+	ConfigSchema(ctx context.Context) ([]ConfigSubsystemSchema, error)
+	GetConfig(ctx context.Context, subsystem string) (*ConfigSubsystem, error)
+	SetConfig(ctx context.Context, subsystem string, settings map[string]string) (*ConfigSubsystem, error)
+	MergeConfig(ctx context.Context, all map[string]map[string]string) error
+	// DeleteConfig removes a subsystem, or only the given keys.
+	DeleteConfig(ctx context.Context, subsystem string, keys ...string) error
+	ExportConfig(ctx context.Context) ([]byte, error)
+	ImportConfig(ctx context.Context, data []byte) error
+}
+
+// DefaultRegion is the signing region when Config.Region is empty.
+const DefaultRegion = "us-east-1"
+
+// Config configures a client.
+type Config struct {
+	// Endpoint is the base URL of the console listener
+	// (http(s)://host:port); "/api/v1" is appended.
+	Endpoint string
+	// AccessKey and SecretKey sign the requests; SessionToken is set for
+	// temporary (STS) credentials.
+	AccessKey    string
+	SecretKey    string
+	SessionToken string
+	// Region is the region of the server (default "us-east-1").
+	Region string
+	// HTTPClient sends the requests (default: a client with a 60 s
+	// timeout).
+	HTTPClient *http.Client
+	// UserAgent is sent with every request.
+	UserAgent string
+	// Now is the signing clock (default time.Now).
+	Now func() time.Time
+}
+
+type client struct {
+	base   *url.URL
+	cfg    Config
+	signer *signer
+}
+
+var _ AdminClient = (*client)(nil)
+
+// New returns a client. The endpoint must be an absolute http(s) URL and
+// the credentials are required.
+func New(cfg Config) (AdminClient, error) {
+	u, err := url.Parse(strings.TrimSuffix(strings.TrimSpace(cfg.Endpoint), "/"))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return nil, fmt.Errorf("nexoadmin: endpoint %q must be http(s)://host[:port]", cfg.Endpoint)
+	}
+	if cfg.AccessKey == "" || cfg.SecretKey == "" {
+		return nil, fmt.Errorf("nexoadmin: access key and secret key are required")
+	}
+	if cfg.Region == "" {
+		cfg.Region = DefaultRegion
+	}
+	if cfg.HTTPClient == nil {
+		cfg.HTTPClient = &http.Client{Timeout: 60 * time.Second}
+	}
+	if cfg.UserAgent == "" {
+		cfg.UserAgent = "nexoadmin-go"
+	}
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
+	u.Path = strings.TrimSuffix(u.Path, "/") + apiPrefix
+	return &client{base: u, cfg: cfg, signer: newSigner(cfg)}, nil
+}
+
+// apiPrefix is the base path of the Admin API.
+const apiPrefix = "/api/v1"

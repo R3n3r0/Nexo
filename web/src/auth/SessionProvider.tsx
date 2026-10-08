@@ -17,6 +17,11 @@ export type SessionStatus = 'loading' | 'authenticated' | 'anonymous';
 export interface SessionState {
   status: SessionStatus;
   session: Session | null;
+  /**
+   * True when the session was lost while in use (any call answered 401):
+   * the login page then explains that the session expired (TD-U-02).
+   */
+  expired: boolean;
 }
 
 export interface SessionContextValue extends SessionState {
@@ -34,7 +39,11 @@ const SessionContext = createContext<SessionContextValue | null>(null);
 export function SessionProvider({ children }: { children: ReactNode }) {
   const services = useServices();
   const queryClient = useQueryClient();
-  const [state, setState] = useState<SessionState>({ status: 'loading', session: null });
+  const [state, setState] = useState<SessionState>({
+    status: 'loading',
+    session: null,
+    expired: false,
+  });
   // Mirrors state.status for the event listener, which must not capture a stale status.
   const statusRef = useRef<SessionStatus>('loading');
   statusRef.current = state.status;
@@ -49,7 +58,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       // drop when we were never authenticated.
       const hadSession = statusRef.current === 'authenticated';
       statusRef.current = 'anonymous';
-      setState({ status: 'anonymous', session: null });
+      setState({ status: 'anonymous', session: null, expired: hadSession });
       if (hadSession) {
         queryClient.clear();
       }
@@ -58,7 +67,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     services.session.current().then(
       (session) => {
         if (!cancelled) {
-          setState({ status: 'authenticated', session });
+          setState({ status: 'authenticated', session, expired: false });
         }
       },
       () => {
@@ -74,7 +83,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const login = useCallback(
     async (accessKey: string, secretKey: string) => {
       const session = await services.session.login(accessKey, secretKey);
-      setState({ status: 'authenticated', session });
+      setState({ status: 'authenticated', session, expired: false });
       return session;
     },
     [services],
@@ -84,7 +93,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     try {
       await services.session.logout();
     } finally {
-      setState({ status: 'anonymous', session: null });
+      setState({ status: 'anonymous', session: null, expired: false });
       queryClient.clear();
     }
   }, [services, queryClient]);

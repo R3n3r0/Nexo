@@ -1,0 +1,53 @@
+nexoctl manages Nexo servers and any S3-compatible endpoint: aliases,
+buckets, objects, sharing, anonymous access and administration.
+
+Remote locations are written ALIAS[/BUCKET[/PREFIX]] (see "nexoctl alias");
+anything else is a local path.
+
+Usage:
+  nexoctl [command]
+
+Buckets and objects:
+  cat         Print the content of objects and files
+  cp          Copy files and objects
+  diff        List the differences between two directories or prefixes
+  du          Summarize the disk usage of prefixes and directories
+  find        Find objects and files by name, size and age
+  head        Print the first lines of objects and files
+  ls          List buckets, objects and object versions
+  mb          Make buckets
+  mirror      Synchronize a directory or prefix to another one
+  mv          Move files and objects
+  pipe        Stream the standard input to an object
+  rb          Remove buckets
+  rm          Remove objects, object versions and incomplete uploads
+  stat        Show the metadata of objects, buckets and files
+  tree        Show the objects and prefixes as a tree
+
+Sharing and access:
+  anonymous   Manage the anonymous access of buckets and prefixes
+  presign     Generate a raw presigned URL for any method
+  share       Share objects with links that need no credentials
+
+Bucket and object settings:
+  tag         Manage the tags of buckets and objects
+  version     Print the nexoctl version, or manage bucket versioning
+
+Administration:
+  admin       Administer a Nexo server (Admin API)
+
+Configuration:
+  alias       Manage server aliases (saved in ~/.nexoctl/config.json)
+  completion  Generate the autocompletion script for the specified shell
+  help        Help about any command
+
+Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+  -h, --help                help for nexoctl
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+  -v, --version             version for nexoctl
+
+Use "nexoctl [command] --help" for more information about a command.

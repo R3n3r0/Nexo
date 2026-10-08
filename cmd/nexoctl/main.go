@@ -1,16 +1,14 @@
-// Command nexoctl is the Nexo command-line client.
+// Command nexoctl is the Nexo command-line client. The commands live in
+// internal/cli/commands; main only wires the process (standard streams,
+// environment, signals) and exits with the code of docs/06 TCL-U-04.
 package main
 
 import (
-	"context"
-	"fmt"
 	"os"
+
+	"github.com/r3n3r0/nexo/internal/cli/commands"
 )
 
 func main() {
-	deps := cmdDeps{stdout: os.Stdout, stderr: os.Stderr, lookupEnv: os.LookupEnv}
-	if err := newRootCmd(deps).ExecuteContext(context.Background()); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
-	}
+	os.Exit(commands.Run(commands.DefaultDeps(), os.Args[1:]))
 }

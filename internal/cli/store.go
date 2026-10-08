@@ -1,5 +1,9 @@
-// Package cli holds the nexoctl building blocks: the alias configuration
-// store and the alias service used by the cobra commands.
+// Package cli holds the nexoctl building blocks used by the cobra commands
+// (internal/cli/commands): the alias configuration store and service, the
+// S3Client contract with its aws-sdk-go-v2 implementation, the parsing of
+// targets, sizes and durations, the transfer engine of cp, mv, mirror and
+// rm, the anonymous access presets and the output helpers (tables, JSON
+// Lines, progress bar, stable exit codes).
 package cli
 
 import (
@@ -12,12 +16,17 @@ const ConfigVersion = "1"
 
 // Alias is a named server endpoint with its credentials.
 type Alias struct {
-	Name      string    `json:"-"`
-	URL       string    `json:"url"`
-	AccessKey string    `json:"accessKey"`
-	SecretKey string    `json:"secretKey"`
-	API       string    `json:"api,omitempty"`
-	Path      string    `json:"path,omitempty"`
+	Name      string `json:"-"`
+	URL       string `json:"url"`
+	AccessKey string `json:"accessKey"`
+	SecretKey string `json:"secretKey"`
+	API       string `json:"api,omitempty"`
+	Path      string `json:"path,omitempty"`
+	// Region is the signing region of the server ("" means DefaultRegion).
+	Region string `json:"region,omitempty"`
+	// AdminURL is the base URL of the Admin API of a Nexo server (its
+	// console listener); "" derives it from URL (see AdminURL).
+	AdminURL  string    `json:"adminUrl,omitempty"`
 	UpdatedAt time.Time `json:"updatedAt,omitempty"`
 }
 

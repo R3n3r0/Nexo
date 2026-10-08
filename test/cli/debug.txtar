@@ -1,0 +1,19 @@
+# C-UX-01: --debug dumps the HTTP exchanges on stderr with the secrets
+# redacted; --quiet and --no-color.
+
+exec nexoctl --debug ls local
+stderr '^> GET /\?x-id=ListBuckets HTTP/1.1$'
+stderr 'Authorization: AWS4-HMAC-SHA256 Credential=.*Signature=REDACTED'
+stderr '^< HTTP/1.1 200 OK'
+! stderr $NEXO_ROOT_PASSWORD
+
+exec nexoctl mb --quiet local/bkt
+! stdout .
+exec nexoctl cp --quiet a.txt local/bkt/
+! stdout .
+exec nexoctl ls --no-color local
+! stdout '\x1b\['
+stdout 'bkt/'
+
+-- a.txt --
+debug

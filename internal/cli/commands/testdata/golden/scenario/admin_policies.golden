@@ -1,0 +1,137 @@
+$ nexoctl admin policy list mem
+POLICY                   TYPE     UPDATED
+consoleAdmin             built-in 2026-01-02 03:04:05 UTC
+diagnostics              built-in 2026-01-02 03:04:05 UTC
+readonly                 built-in 2026-01-02 03:04:05 UTC
+readwrite                built-in 2026-01-02 03:04:05 UTC
+writeonly                built-in 2026-01-02 03:04:05 UTC
+
+$ nexoctl admin policy create mem pub-read bad.json
+! nexoctl: error: bad.json: policy "pub-read": line 4, column 50: invalid JSON: invalid character '"' after object key:value pair (malformed_policy)
+[exit 1]
+
+$ nexoctl admin policy create mem pub-read bad.json --json
+! {"status":"error","error":{"code":"Error","message":"bad.json: policy \"pub-read\": line 4, column 50: invalid JSON: invalid character '\"' after object key:value pair (malformed_policy)","exitCode":1,"details":[{"statement":0,"line":4,"column":50,"message":"invalid JSON: invalid character '\"' after object key:value pair"}]}}
+[exit 1]
+
+$ nexoctl admin policy validate mem bad.json
+! nexoctl: error: bad.json: invalid policy
+!   line 4, column 50: invalid JSON: invalid character '"' after object key:value pair
+[exit 1]
+
+$ nexoctl admin policy validate mem noeffect.json
+! nexoctl: error: noeffect.json: invalid policy
+!   statement 1, Effect: invalid effect "Maybe"
+[exit 1]
+
+$ nexoctl admin policy validate mem good.json
+good.json: valid policy.
+
+$ nexoctl admin policy create mem pub-read good.json
+Created policy "pub-read".
+
+$ nexoctl admin policy create mem pub-read good.json
+! nexoctl: error: good.json: policy "pub-read": policy "pub-read" already exists (conflict)
+[exit 1]
+
+$ nexoctl admin policy create --update mem pub-read -
+Saved policy "pub-read".
+
+$ nexoctl admin policy create mem x missing.json
+! nexoctl: error: open missing.json: no such file or directory
+[exit 3]
+
+$ nexoctl admin policy info mem pub-read
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadPub",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::pub/*"
+      ]
+    }
+  ]
+}
+
+$ nexoctl admin policy simulate --user alice --action s3:GetObject mem/pub/a.txt
+Decision: deny
+User: alice
+Action: s3:GetObject
+Resource: pub/a.txt
+Reason: no policy allows s3:GetObject
+
+$ nexoctl admin policy attach mem pub-read --user alice
+Policies pub-read attached to "alice".
+
+$ nexoctl admin policy attach mem pub-read
+! nexoctl: error: exactly one of --user and --group is required
+! Run 'nexoctl admin policy attach --help' for usage.
+[exit 2]
+
+$ nexoctl admin policy attach mem pub-read --user alice --group g
+! nexoctl: error: exactly one of --user and --group is required
+! Run 'nexoctl admin policy attach --help' for usage.
+[exit 2]
+
+$ nexoctl admin policy entities mem pub-read
+Policy: pub-read
+Users: alice
+Groups: -
+
+$ nexoctl admin policy simulate --user alice --action s3:GetObject mem/pub/a.txt
+Decision: allow
+User: alice
+Action: s3:GetObject
+Resource: pub/a.txt
+Reason: allowed by identity policy "pub-read", statement 1
+Statement: Allow, statement 1 (ReadPub) of policy pub-read
+
+$ nexoctl admin policy simulate --user alice --action s3:PutObject --verbose mem/pub/a.txt
+Decision: deny
+User: alice
+Action: s3:PutObject
+Resource: pub/a.txt
+Reason: no policy allows s3:PutObject
+  - Allow, statement 1 (ReadPub) of policy pub-read (action)
+
+$ nexoctl admin policy simulate --action s3:PutObject --condition s3:prefix=a/ --source-ip 10.0.0.1 --secure mem/pub
+Decision: allow
+User: MEMKEY
+Action: s3:PutObject
+Resource: pub
+Reason: root credentials
+
+$ nexoctl admin policy simulate mem/pub
+! nexoctl: error: --action is required (e.g. s3:GetObject)
+! Run 'nexoctl admin policy simulate --help' for usage.
+[exit 2]
+
+$ nexoctl admin policy simulate --action s3:GetObject --time yesterday mem/pub
+! nexoctl: error: --time "yesterday": use RFC 3339 (2026-01-02T15:04:05Z)
+! Run 'nexoctl admin policy simulate --help' for usage.
+[exit 2]
+
+$ nexoctl admin policy detach mem pub-read --user alice
+Policies pub-read detached from "alice".
+
+$ nexoctl admin policy detach mem pub-read --user alice
+! nexoctl: error: detach pub-read from user alice: policy "pub-read" is not attached (invalid_argument)
+[exit 1]
+
+$ nexoctl admin policy remove mem pub-read
+Removed policy "pub-read".
+
+$ nexoctl admin policy remove mem readonly
+! nexoctl: error: remove policy "readonly": built-in policy "readonly" cannot be removed (invalid_argument)
+[exit 1]
+
+$ nexoctl admin policy info mem pub-read
+! nexoctl: error: policy "pub-read": policy not found: "pub-read" (policy_not_found)
+[exit 3]
+
