@@ -1,0 +1,89 @@
+package admin
+
+import "github.com/r3n3r0/nexo/internal/service/policy"
+
+// actionScope tells how an action of the catalog is evaluated by
+// Permissions.
+type actionScope int
+
+const (
+	// scopeGlobal actions are never bound to a bucket (admin:*,
+	// s3:ListAllMyBuckets, s3:CreateBucket).
+	scopeGlobal actionScope = iota
+	// scopeBucket actions are evaluated on the bucket.
+	scopeBucket
+	// scopeObject actions are evaluated on "<bucket>/<prefix>*".
+	scopeObject
+)
+
+// catalogEntry is an action of the permission catalog.
+type catalogEntry struct {
+	action policy.Action
+	scope  actionScope
+}
+
+// catalog lists the actions the console and the Admin API care about: the
+// admin:* action of every Admin API endpoint and the s3:* actions of the
+// bucket and object operations. Permissions evaluates exactly these.
+func catalog() []catalogEntry {
+	global := func(actions ...policy.Action) []catalogEntry {
+		out := make([]catalogEntry, 0, len(actions))
+		for _, a := range actions {
+			out = append(out, catalogEntry{action: a, scope: scopeGlobal})
+		}
+		return out
+	}
+	scoped := func(scope actionScope, actions ...policy.Action) []catalogEntry {
+		out := make([]catalogEntry, 0, len(actions))
+		for _, a := range actions {
+			out = append(out, catalogEntry{action: a, scope: scope})
+		}
+		return out
+	}
+	var out []catalogEntry
+	out = append(out, global(
+		policy.ActionAdminServerInfo, policy.ActionAdminDataUsage, policy.ActionAdminHeal,
+		policy.ActionAdminServiceRestart, policy.ActionAdminServerTrace, policy.ActionAdminConsoleLog,
+		policy.ActionAdminConfigWrite,
+		policy.ActionAdminCreateUser, policy.ActionAdminDeleteUser, policy.ActionAdminListUsers, policy.ActionAdminGetUser,
+		policy.ActionAdminEnableUser, policy.ActionAdminDisableUser,
+		policy.ActionAdminCreatePolicy, policy.ActionAdminDeletePolicy, policy.ActionAdminGetPolicy,
+		policy.ActionAdminListUserPolicies, policy.ActionAdminAttachUserOrGroupPolicy, policy.ActionAdminSimulatePolicy,
+		policy.ActionAdminAddUserToGroup, policy.ActionAdminRemoveUserFromGroup, policy.ActionAdminGetGroup,
+		policy.ActionAdminListGroups, policy.ActionAdminEnableGroup, policy.ActionAdminDisableGroup,
+		policy.ActionAdminCreateAccessKey, policy.ActionAdminUpdateAccessKey, policy.ActionAdminRemoveServiceAccount,
+		policy.ActionAdminListAccessKeys, policy.ActionAdminManageShares,
+		policy.ActionListAllMyBuckets, policy.ActionCreateBucket,
+	)...)
+	out = append(out, scoped(scopeBucket,
+		policy.ActionAdminGetBucketQuota, policy.ActionAdminSetBucketQuota,
+		policy.ActionDeleteBucket, policy.ActionForceDeleteBucket, policy.ActionListBucket,
+		policy.ActionListBucketVersions, policy.ActionListMultipart,
+		policy.ActionGetBucketPolicy, policy.ActionPutBucketPolicy, policy.ActionDeleteBucketPolicy,
+		policy.ActionGetBucketVersioning, policy.ActionPutBucketVersioning,
+		policy.ActionGetBucketTagging, policy.ActionPutBucketTagging,
+		policy.ActionGetEncryption, policy.ActionPutEncryption,
+		policy.ActionGetBucketObjectLock, policy.ActionPutBucketObjectLock,
+		policy.ActionGetLifecycle, policy.ActionPutLifecycle,
+		policy.ActionGetBucketNotification, policy.ActionPutBucketNotification,
+	)...)
+	out = append(out, scoped(scopeObject,
+		policy.ActionGetObject, policy.ActionGetObjectVersion, policy.ActionPutObject,
+		policy.ActionDeleteObject, policy.ActionDeleteObjectVersion,
+		policy.ActionGetObjectTagging, policy.ActionPutObjectTagging,
+		policy.ActionAbortMultipart, policy.ActionListMultipartParts,
+	)...)
+	return out
+}
+
+// CatalogActions returns the actions evaluated by
+// Authorizer.Permissions, in catalog order. The transport checks that
+// every action an Admin API route declares belongs to it.
+func CatalogActions() []policy.Action {
+	entries := catalog()
+	out := make([]policy.Action, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, e.action)
+	}
+	return out
+}
