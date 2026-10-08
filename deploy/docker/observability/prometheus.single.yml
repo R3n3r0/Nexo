@@ -1,0 +1,40 @@
+# Prometheus configuration for a single Nexo node (compose.single.yml or
+# compose.snmd.yml, service "nexo"). Selected by default in
+# compose.observability.yml (PROMETHEUS_CONFIG=prometheus.single.yml).
+#
+# Nexo serves metrics on the S3 port under /nexo/metrics/v1/{cluster,node,bucket}.
+# With NEXO_PROMETHEUS_AUTH_TYPE=jwt (default) a bearer token is required:
+# uncomment "authorization" and mount the token file, or set
+# NEXO_PROMETHEUS_AUTH_TYPE=public in nexo.env.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    deployment: nexo-single
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: nexo-node
+    metrics_path: /nexo/metrics/v1/node
+    # authorization:
+    #   type: Bearer
+    #   credentials_file: /etc/prometheus/nexo-token
+    static_configs:
+      - targets: ["nexo:9000"]
+
+  - job_name: nexo-cluster
+    metrics_path: /nexo/metrics/v1/cluster
+    static_configs:
+      - targets: ["nexo:9000"]
+
+  - job_name: nexo-bucket
+    metrics_path: /nexo/metrics/v1/bucket
+    scrape_interval: 60s
+    static_configs:
+      - targets: ["nexo:9000"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

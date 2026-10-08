@@ -1,0 +1,4 @@
+# Local secrets and generated material.
+nexo.env
+.env
+certs/

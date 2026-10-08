@@ -1,17 +1,64 @@
 // Package storage defines StorageAPI, the contract for accessing a single
 // drive: metadata files (xl.meta), data parts and volume (bucket) directories.
-// Implementations are the local xl storage (M1) and the RPC client to a
-// remote node (M6).
+// Implementations are the local xl storage (NewLocal) and the RPC client to a
+// remote node (M6). The Formatter service manages the format.json documents
+// that bind the drives of a pool together.
 //
-//go:generate mockery --name StorageAPI --output ./mock --outpkg mock --with-expecter
+// Mocks are generated into ./mock by the repository-wide mockery
+// configuration (.mockery.yaml, run through go generate in internal/service).
 package storage
 
 import (
 	"context"
 	"io"
+	"log/slog"
 	"time"
 
+	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/topology"
+)
+
+// Deps are the dependencies of the storage implementations. Every field is
+// optional: nil values are replaced by defaults.
+type Deps struct {
+	Clock  clock.Clock
+	Logger *slog.Logger
+}
+
+// Formatter manages the format.json documents of the drives of a deployment.
+type Formatter interface {
+	// EnsureFormats reads the format.json of every drive of layout and makes
+	// the deployment consistent: a pool whose drives carry no document is
+	// freshly formatted (one document per drive, written atomically), a
+	// pool whose drives carry documents is checked with
+	// topology.Service.CheckFormats and its unformatted drives (fresh
+	// replacements) receive the document of their position. Drives are
+	// matched to the layout by endpoint; endpoints without a drive (remote
+	// nodes) are skipped. It returns the deployment id.
+	EnsureFormats(ctx context.Context, layout *topology.Layout, drives []StorageAPI) (string, error)
+}
+
+// FormatterDeps are the dependencies of the formatter.
+type FormatterDeps struct {
+	Topology topology.Service
+	// IDs generates deployment identifiers (default: UUID v4).
+	IDs    topology.IDGenerator
+	Logger *slog.Logger
+}
+
+// Well-known paths inside the system volume (domain.SystemBucket).
+const (
+	// FormatFile is the format.json document, relative to the system volume.
+	FormatFile = "format.json"
+	// TmpDir holds in-progress writes; it is emptied at startup.
+	TmpDir = "tmp"
+	// MultipartDir holds in-progress multipart uploads.
+	MultipartDir = "multipart"
+	// BucketsDir holds the per-bucket metadata documents.
+	BucketsDir = "buckets"
+	// MetaFile is the per-object metadata document.
+	MetaFile = "xl.meta"
 )
 
 // StorageAPI is the low-level drive interface used by the object layer.
@@ -57,9 +104,9 @@ type StorageAPI interface {
 	// of fi into their final location, committing the version.
 	RenameData(ctx context.Context, srcVolume, srcPath string, fi FileInfo, dstVolume, dstPath string, opts RenameOptions) (RenameDataResult, error)
 
-	// WalkDir walks the entries below opts.BaseDir in lexical order and
+	// WalkDir walks the entries below opts.BaseDir in S3 key order and
 	// calls fn for each. Returning an error from fn stops the walk;
-	// returning SkipDir skips a directory.
+	// returning fs.SkipDir skips a directory.
 	WalkDir(ctx context.Context, opts WalkDirOptions, fn WalkDirFunc) error
 
 	// ReadAll reads a whole small file (configuration, format.json, ...).
@@ -77,7 +124,7 @@ type StorageAPI interface {
 	// Healing returns the healing state of the drive, nil when not healing.
 	Healing() *HealingTracker
 	// Close releases the drive resources.
-	Close() error
+	Close(ctx context.Context) error
 }
 
 // DiskInfoOptions tunes DiskInfo.
@@ -154,7 +201,8 @@ type WalkDirOptions struct {
 
 // WalkEntry is one entry produced by WalkDir.
 type WalkEntry struct {
-	// Name is the entry path relative to the volume.
+	// Name is the entry path relative to the volume. Directory entries end
+	// with a slash.
 	Name string
 	// IsDir reports a directory (prefix).
 	IsDir bool
@@ -162,15 +210,9 @@ type WalkEntry struct {
 	Metadata []byte
 }
 
-// WalkDirFunc receives WalkDir entries.
+// WalkDirFunc receives WalkDir entries. Returning fs.SkipDir from a
+// directory entry skips its content.
 type WalkDirFunc func(entry WalkEntry) error
-
-// SkipDir can be returned by a WalkDirFunc to skip a directory.
-var SkipDir = errSkipDir{}
-
-type errSkipDir struct{}
-
-func (errSkipDir) Error() string { return "skip directory" }
 
 // FileInfo is one version of an object as stored in xl.meta.
 type FileInfo struct {

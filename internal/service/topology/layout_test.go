@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/r3n3r0/nexo/internal/domain"
 )
 
 func parseLayout(t *testing.T, args ...string) *Layout {
@@ -20,7 +22,7 @@ func TestLayout_HashStable(t *testing.T) {
 	t.Parallel()
 	// Golden value: changing the canonical form is a wire-compatibility change
 	// for the bootstrap check between nodes.
-	const goldenHash = "PLACEHOLDER"
+	const goldenHash = "bf8a6310d0d7f0f2312ae5ae1ea24244a57a7ffd831db00dcc86cf1989f82498"
 	layout := parseLayout(t, "http://node{1...4}:9000/data{1...4}")
 	h := layout.Hash()
 	assert.Len(t, h, 64)
@@ -38,9 +40,7 @@ func TestLayout_HashIndependentOfLocalNode(t *testing.T) {
 	ctx := context.Background()
 	a, err := newTestService().Parse(ctx, args)
 	require.NoError(t, err)
-	r := newFakeResolver()
-	r.hostname = "node3"
-	b, err := New(Deps{Hosts: r, Logger: quietLogger()}).Parse(ctx, args)
+	b, err := New(Deps{Hosts: newFakeResolverFor(3), Logger: quietLogger()}).Parse(ctx, args)
 	require.NoError(t, err)
 	assert.Equal(t, a.Hash(), b.Hash())
 	assert.NotEqual(t, a.LocalEndpoints(), b.LocalEndpoints())
@@ -96,7 +96,7 @@ func TestLayout_Helpers(t *testing.T) {
 	assert.Equal(t, 12, p.DataShards())
 	assert.Equal(t, 16, p.DriveCount())
 	assert.Nil(t, Pool{}.Set(0))
-	assert.Nil(t, Pool{SetCount: 2, SetDriveCount: 4, Endpoints: make([]Endpoint, 4)}.Set(1))
+	assert.Nil(t, Pool{SetCount: 2, SetDriveCount: 4, Endpoints: make([]domain.Endpoint, 4)}.Set(1))
 
 	var empty Layout
 	assert.Equal(t, 0, empty.DriveCount())
@@ -106,49 +106,50 @@ func TestLayout_Helpers(t *testing.T) {
 	assert.False(t, ok)
 }
 
-func TestEndpoint(t *testing.T) {
+func TestEndpointHelpers(t *testing.T) {
 	t.Parallel()
-	local := Endpoint{Path: "/data"}
+	local := domain.Endpoint{Path: "/data"}
 	assert.False(t, local.IsURL())
-	assert.Equal(t, "", local.HostPort())
-	assert.Equal(t, "", local.NodeKey())
+	assert.Equal(t, "", nodeKey(local))
+	assert.Equal(t, "", endpointHostname(local))
+	assert.Equal(t, 0, endpointPort(local))
 	assert.Equal(t, "/data", local.String())
 
-	remote := Endpoint{Scheme: "https", Host: "node1", Port: 9000, Path: "/data"}
+	remote := newURLEndpoint("HTTPS", "Node1", 9000, "/data")
 	assert.True(t, remote.IsURL())
-	assert.Equal(t, "node1:9000", remote.HostPort())
-	assert.Equal(t, "node1:9000", remote.NodeKey())
+	assert.Equal(t, "https", remote.Scheme)
+	assert.Equal(t, "node1:9000", remote.Host)
+	assert.Equal(t, "node1:9000", nodeKey(remote))
+	assert.Equal(t, "node1", endpointHostname(remote))
+	assert.Equal(t, 9000, endpointPort(remote))
 	assert.Equal(t, "https://node1:9000/data", remote.String())
 
-	v6 := Endpoint{Scheme: "http", Host: "::1", Port: 9000, Path: "/data"}
+	v6 := newURLEndpoint("http", "::1", 9000, "/data")
 	assert.Equal(t, "http://[::1]:9000/data", v6.String())
+	assert.Equal(t, "::1", endpointHostname(v6))
+	assert.Equal(t, 9000, endpointPort(v6))
 
-	other := remote
-	other.IsLocal, other.PoolIdx, other.SetIdx, other.DiskIdx = true, 1, 2, 3
-	assert.True(t, remote.Equal(other))
-	other.Path = "/other"
-	assert.False(t, remote.Equal(other))
-	assert.False(t, remote.Equal(local))
+	assert.Equal(t, 0, endpointPort(domain.Endpoint{Scheme: "http", Host: "node1", Path: "/d"}), "no port")
+	assert.Equal(t, 0, endpointPort(domain.Endpoint{Scheme: "http", Host: "node1:abc", Path: "/d"}), "bad port")
+	assert.Equal(t, "node1", endpointHostname(domain.Endpoint{Scheme: "http", Host: "NODE1:9000", Path: "/d"}))
 }
 
 func TestNode_String(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, "local", Node{}.String())
+	assert.Equal(t, "", Node{}.key())
 	assert.Equal(t, "node1:9000", Node{Host: "node1", Port: 9000}.String())
+	assert.Equal(t, "node1:9000", Node{Host: "node1", Port: 9000}.key())
 	assert.Equal(t, "[fe80::1]:9000", Node{Host: "fe80::1", Port: 9000}.String())
 }
 
-func TestMode(t *testing.T) {
+func TestValidMode(t *testing.T) {
 	t.Parallel()
-	assert.True(t, ModeSNSD.Valid())
-	assert.True(t, ModeSNMD.Valid())
-	assert.True(t, ModeDistributed.Valid())
-	assert.False(t, Mode("cluster").Valid())
-	assert.False(t, Mode("").Valid())
-	assert.False(t, ModeSNSD.Erasure())
-	assert.True(t, ModeSNMD.Erasure())
-	assert.True(t, ModeDistributed.Erasure())
-	assert.Equal(t, "snsd", ModeSNSD.String())
+	assert.True(t, validMode(domain.ModeSNSD))
+	assert.True(t, validMode(domain.ModeSNMD))
+	assert.True(t, validMode(domain.ModeDistributed))
+	assert.False(t, validMode(domain.ModeUnknown))
+	assert.False(t, validMode(domain.Mode(42)))
 }
 
 func TestLayout_Validate(t *testing.T) {
@@ -181,9 +182,10 @@ func TestLayout_Validate(t *testing.T) {
 	snmd := []string{"/data{1...4}"}
 	dist := []string{"http://node{1...4}:9000/data{1...4}"}
 
-	tamper("unknown mode", snmd, func(l *Layout) { l.Mode = "bogus" }, ErrInvalidLayout)
+	tamper("unknown mode", snmd, func(l *Layout) { l.Mode = domain.ModeUnknown }, ErrInvalidLayout)
+	tamper("bogus mode", snmd, func(l *Layout) { l.Mode = domain.Mode(42) }, ErrInvalidLayout)
 	tamper("no pools", snmd, func(l *Layout) { l.Pools = nil }, ErrInvalidLayout)
-	tamper("snsd with many drives", snmd, func(l *Layout) { l.Mode = ModeSNSD }, ErrInvalidLayout)
+	tamper("snsd with many drives", snmd, func(l *Layout) { l.Mode = domain.ModeSNSD }, ErrInvalidLayout)
 	tamper("snsd set size", []string{"/data"}, func(l *Layout) { l.Pools[0].SetDriveCount = 2; l.Pools[0].SetCount = 1 }, ErrInvalidLayout)
 	tamper("pool index", snmd, func(l *Layout) { l.Pools[0].Index = 3 }, ErrInvalidLayout)
 	tamper("pool without drives", snmd, func(l *Layout) { l.Pools[0].Endpoints = nil }, ErrInvalidLayout)
@@ -197,14 +199,19 @@ func TestLayout_Validate(t *testing.T) {
 	tamper("empty endpoint", snmd, func(l *Layout) { l.Pools[0].Endpoints[1].Path = "" }, ErrInvalidEndpoint)
 	tamper("local path with host", snmd, func(l *Layout) { l.Pools[0].Endpoints[1].Host = "x" }, ErrInvalidEndpoint)
 	tamper("url in snmd", snmd, func(l *Layout) {
-		l.Pools[0].Endpoints[1] = Endpoint{Scheme: "http", Host: "node1", Port: 9000, Path: "/x", IsLocal: true, SetIdx: 0, DiskIdx: 1}
+		l.Pools[0].Endpoints[1] = domain.Endpoint{Scheme: "http", Host: "node1:9000", Path: "/x", IsLocal: true, SetIdx: 0, DiskIdx: 1}
 	}, ErrInvalidLayout)
 	tamper("path in distributed", dist, func(l *Layout) {
-		l.Pools[0].Endpoints[1] = Endpoint{Path: "/x", SetIdx: 0, DiskIdx: 1}
+		l.Pools[0].Endpoints[1] = domain.Endpoint{Path: "/x", IsLocal: true, SetIdx: 0, DiskIdx: 1}
 	}, ErrInvalidLayout)
 	tamper("bad scheme", dist, func(l *Layout) { l.Pools[0].Endpoints[0].Scheme = "ftp" }, ErrInvalidScheme)
+	tamper("mixed schemes", dist, func(l *Layout) {
+		l.Pools[0].Endpoints[0].Scheme = "https"
+		l.Nodes = buildNodes(l)
+	}, ErrMixedSchemes)
 	tamper("missing host", dist, func(l *Layout) { l.Pools[0].Endpoints[0].Host = "" }, ErrInvalidEndpoint)
-	tamper("bad port", dist, func(l *Layout) { l.Pools[0].Endpoints[0].Port = 70000 }, ErrInvalidEndpoint)
+	tamper("bad port", dist, func(l *Layout) { l.Pools[0].Endpoints[0].Host = "node1:70000" }, ErrInvalidEndpoint)
+	tamper("missing port", dist, func(l *Layout) { l.Pools[0].Endpoints[0].Host = "node1" }, ErrInvalidEndpoint)
 	tamper("placement swapped", snmd, func(l *Layout) {
 		l.Pools[0].Endpoints[0].DiskIdx, l.Pools[0].Endpoints[1].DiskIdx = 1, 0
 	}, ErrInvalidLayout)
@@ -214,7 +221,7 @@ func TestLayout_Validate(t *testing.T) {
 	tamper("set not spread across nodes", dist, func(l *Layout) {
 		// Put all drives of the set on node1: the symmetry check must notice.
 		for i := range l.Pools[0].Endpoints {
-			l.Pools[0].Endpoints[i].Host = "node1"
+			l.Pools[0].Endpoints[i].Host = "node1:9000"
 			l.Pools[0].Endpoints[i].Path = "/data" + string(rune('a'+i))
 			l.Pools[0].Endpoints[i].IsLocal = true
 		}
@@ -224,7 +231,7 @@ func TestLayout_Validate(t *testing.T) {
 	}, ErrInvalidLayout)
 	tamper("uneven set", []string{"http://node{1...2}:9000/data{1...2}"}, func(l *Layout) {
 		// Move one drive from node2 to node1 inside the single set of 4.
-		l.Pools[0].Endpoints[3].Host = "node1"
+		l.Pools[0].Endpoints[3].Host = "node1:9000"
 		l.Pools[0].Endpoints[3].Path = "/data3"
 		l.Pools[0].Endpoints[3].IsLocal = true
 		l.Nodes = buildNodes(l)

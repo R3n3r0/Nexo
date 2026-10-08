@@ -1,0 +1,64 @@
+# syntax=docker/dockerfile:1.7
+#
+# nexoctl image: the Nexo command-line client only, for CI pipelines and
+# container-based usage. No console build is needed.
+#
+#   docker build -f Dockerfile.nexoctl -t nexoctl .
+#   docker run --rm -it --network host -v nexoctl-config:/home/nonroot/.nexoctl \
+#     ghcr.io/r3n3r0/nexoctl alias set local http://localhost:9000 admin supersecret
+
+ARG GO_VERSION=1.24
+
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS go
+
+ARG TARGETOS
+ARG TARGETARCH
+ARG VERSION=dev
+ARG COMMIT=none
+ARG DATE=unknown
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+COPY . .
+
+ENV CGO_ENABLED=0
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    set -eux; \
+    export GOOS="${TARGETOS}" GOARCH="${TARGETARCH}"; \
+    go build -trimpath -ldflags "-s -w \
+      -X github.com/r3n3r0/nexo/internal/version.Version=${VERSION} \
+      -X github.com/r3n3r0/nexo/internal/version.Commit=${COMMIT} \
+      -X github.com/r3n3r0/nexo/internal/version.Date=${DATE}" \
+      -o /out/nexoctl ./cmd/nexoctl; \
+    # Home directory for ~/.nexoctl/config.json, owned by nonroot.
+    mkdir -p /out/home/nonroot
+
+FROM gcr.io/distroless/static-debian12:nonroot
+
+ARG VERSION=dev
+ARG COMMIT=none
+ARG DATE=unknown
+
+LABEL org.opencontainers.image.title="nexoctl" \
+      org.opencontainers.image.description="Command-line client for Nexo, the S3-compatible object storage server" \
+      org.opencontainers.image.url="https://github.com/r3n3r0/nexo" \
+      org.opencontainers.image.source="https://github.com/r3n3r0/nexo" \
+      org.opencontainers.image.vendor="r3n3r0" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.created="${DATE}"
+
+COPY --from=go /out/nexoctl /nexoctl
+COPY --from=go --chown=65532:65532 /out/home/nonroot /home/nonroot
+
+USER 65532:65532
+WORKDIR /home/nonroot
+ENV HOME=/home/nonroot
+
+ENTRYPOINT ["/nexoctl"]
+CMD ["--help"]

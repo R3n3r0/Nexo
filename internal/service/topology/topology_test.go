@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/r3n3r0/nexo/internal/domain"
 )
 
 // fakeResolver is a HostResolver with a scripted host identity.
@@ -46,17 +48,22 @@ func (f *fakeResolver) InterfaceAddrs() ([]net.Addr, error) {
 }
 
 // newFakeResolver returns a resolver for a machine named node1 at 10.0.0.1.
-func newFakeResolver() *fakeResolver {
+func newFakeResolver() *fakeResolver { return newFakeResolverFor(1) }
+
+// newFakeResolverFor returns a resolver for the machine node<n> at 10.0.0.<n>
+// in a DNS where node1..node32 map to 10.0.0.1..10.0.0.32.
+func newFakeResolverFor(n int) *fakeResolver {
+	hosts := map[string][]string{
+		"alias": {"10.0.0.1"},
+		"multi": {"10.0.0.9", "10.0.0.1"},
+	}
+	for i := 1; i <= 32; i++ {
+		hosts[fmt.Sprintf("node%d", i)] = []string{fmt.Sprintf("10.0.0.%d", i)}
+	}
 	return &fakeResolver{
-		hostname: "node1",
-		addrs:    []string{"127.0.0.1", "10.0.0.1"},
-		hosts: map[string][]string{
-			"node1": {"10.0.0.1"},
-			"node2": {"10.0.0.2"},
-			"node3": {"10.0.0.3"},
-			"alias": {"10.0.0.1"},
-			"multi": {"10.0.0.9", "10.0.0.1"},
-		},
+		hostname: fmt.Sprintf("node%d", n),
+		addrs:    []string{"127.0.0.1", fmt.Sprintf("10.0.0.%d", n)},
+		hosts:    hosts,
 	}
 }
 
@@ -77,7 +84,7 @@ func TestNew_Defaults(t *testing.T) {
 	require.NotNil(t, svc)
 	layout, err := svc.Parse(context.Background(), []string{"/data"})
 	require.NoError(t, err)
-	assert.Equal(t, ModeSNSD, layout.Mode)
+	assert.Equal(t, domain.ModeSNSD, layout.Mode)
 	impl, ok := svc.(*service)
 	require.True(t, ok)
 	assert.NotNil(t, impl.deps.Hosts)
@@ -97,7 +104,7 @@ func TestParse_ModeDetection(t *testing.T) {
 	t.Run("snsd", func(t *testing.T) {
 		layout, err := svc.Parse(ctx, []string{"/data"})
 		require.NoError(t, err)
-		assert.Equal(t, ModeSNSD, layout.Mode)
+		assert.Equal(t, domain.ModeSNSD, layout.Mode)
 		require.Len(t, layout.Pools, 1)
 		p := layout.Pools[0]
 		assert.Equal(t, 1, p.SetCount)
@@ -116,7 +123,7 @@ func TestParse_ModeDetection(t *testing.T) {
 	t.Run("snmd", func(t *testing.T) {
 		layout, err := svc.Parse(ctx, []string{"/data{1...4}"})
 		require.NoError(t, err)
-		assert.Equal(t, ModeSNMD, layout.Mode)
+		assert.Equal(t, domain.ModeSNMD, layout.Mode)
 		require.Len(t, layout.Pools, 1)
 		p := layout.Pools[0]
 		assert.Equal(t, 1, p.SetCount)
@@ -136,7 +143,7 @@ func TestParse_ModeDetection(t *testing.T) {
 	t.Run("snmd explicit list", func(t *testing.T) {
 		layout, err := svc.Parse(ctx, []string{"/d1", "/d2", "/d3", "/d4"})
 		require.NoError(t, err)
-		assert.Equal(t, ModeSNMD, layout.Mode)
+		assert.Equal(t, domain.ModeSNMD, layout.Mode)
 		require.Len(t, layout.Pools, 1)
 		assert.Equal(t, 4, layout.Pools[0].DriveCount())
 		assert.Equal(t, []string{"/d1", "/d2", "/d3", "/d4"}, layout.Pools[0].Args)
@@ -145,7 +152,7 @@ func TestParse_ModeDetection(t *testing.T) {
 	t.Run("distributed", func(t *testing.T) {
 		layout, err := svc.Parse(ctx, []string{"http://node{1...4}:9000/data{1...4}"})
 		require.NoError(t, err)
-		assert.Equal(t, ModeDistributed, layout.Mode)
+		assert.Equal(t, domain.ModeDistributed, layout.Mode)
 		require.Len(t, layout.Pools, 1)
 		p := layout.Pools[0]
 		assert.Equal(t, 16, p.DriveCount())
@@ -170,7 +177,7 @@ func TestParse_ModeDetection(t *testing.T) {
 	t.Run("distributed single node", func(t *testing.T) {
 		layout, err := svc.Parse(ctx, []string{"http://node1:9000/data{1...4}"})
 		require.NoError(t, err)
-		assert.Equal(t, ModeDistributed, layout.Mode)
+		assert.Equal(t, domain.ModeDistributed, layout.Mode)
 		assert.Equal(t, 1, layout.Pools[0].NodeCount)
 		assert.Len(t, layout.LocalEndpoints(), 4)
 	})
@@ -207,7 +214,9 @@ func TestParse_Errors(t *testing.T) {
 		{"url garbage", []string{"http://node1:abc/data"}, ErrInvalidEndpoint},
 		{"mixed path and url", []string{"/data", "http://node1:9000/data"}, ErrMixedEndpoints},
 		{"mixed path and url ellipsis", []string{"/data{1...2}", "http://node{1...2}:9000/d"}, ErrMixedEndpoints},
-		{"mixed http and https", []string{"http://node1:9000/data", "https://node2:9000/data"}, ErrNoLocalEndpoint},
+		{"mixed http and https", []string{"http://node1:9000/data", "https://node2:9000/data"}, ErrMixedSchemes},
+		{"mixed http and https ellipsis", []string{"http://node{1...2}:9000/d{1...2}", "https://node{3...4}:9000/d{1...2}"}, ErrMixedSchemes},
+		{"mixed scheme case", []string{"HTTP://node1:9000/data", "https://node2:9000/data"}, ErrMixedSchemes},
 		{"duplicate path", []string{"/data", "/data"}, ErrDuplicateEndpoint},
 		{"duplicate after clean", []string{"/data/", "/data"}, ErrDuplicateEndpoint},
 		{"duplicate across pools", []string{"/data{1...4}", "/data{3...6}"}, ErrDuplicateEndpoint},
@@ -284,14 +293,15 @@ func TestParse_Options(t *testing.T) {
 		layout, err := newTestService(WithDefaultPort(9100), WithLocalPort(9100)).Parse(ctx, []string{"http://node{1...2}/d{1...2}"})
 		require.NoError(t, err)
 		for _, ep := range layout.Endpoints() {
-			assert.Equal(t, 9100, ep.Port)
+			assert.Equal(t, 9100, endpointPort(ep))
+			assert.Equal(t, "9100", ep.Port())
 		}
 		assert.Equal(t, "http://node1:9100/d1", layout.Pools[0].Endpoints[0].String())
 	})
 	t.Run("explicit port wins over default", func(t *testing.T) {
 		layout, err := newTestService(WithDefaultPort(9100)).Parse(ctx, []string{"http://node{1...2}:9000/d{1...2}"})
 		require.NoError(t, err)
-		assert.Equal(t, 9000, layout.Pools[0].Endpoints[0].Port)
+		assert.Equal(t, 9000, endpointPort(layout.Pools[0].Endpoints[0]))
 	})
 }
 
@@ -303,7 +313,7 @@ func TestParse_MultiPool(t *testing.T) {
 		"http://node{5...8}:9000/data{1...8}",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, ModeDistributed, layout.Mode)
+	assert.Equal(t, domain.ModeDistributed, layout.Mode)
 	require.Len(t, layout.Pools, 2)
 	require.Len(t, layout.Nodes, 8)
 	assert.Equal(t, 48, layout.DriveCount())
@@ -324,7 +334,7 @@ func TestParse_MultiPool(t *testing.T) {
 	for s := 0; s < p1.SetCount; s++ {
 		perNode := map[string]int{}
 		for _, ep := range p1.Set(s) {
-			perNode[ep.NodeKey()]++
+			perNode[nodeKey(ep)]++
 		}
 		assert.Len(t, perNode, 4)
 		for _, c := range perNode {
@@ -350,14 +360,14 @@ func TestParse_SetsSpreadAcrossNodes(t *testing.T) {
 		for s := 0; s < 2; s++ {
 			hosts := map[string]struct{}{}
 			for _, ep := range p.Set(s) {
-				hosts[ep.Host] = struct{}{}
+				hosts[ep.Hostname()] = struct{}{}
 			}
 			assert.Len(t, hosts, 16)
 		}
-		assert.Equal(t, "node1", p.Set(0)[0].Host)
-		assert.Equal(t, "node16", p.Set(0)[15].Host)
-		assert.Equal(t, "node17", p.Set(1)[0].Host)
-		assert.Equal(t, "node32", p.Set(1)[15].Host)
+		assert.Equal(t, "node1", p.Set(0)[0].Hostname())
+		assert.Equal(t, "node16", p.Set(0)[15].Hostname())
+		assert.Equal(t, "node17", p.Set(1)[0].Hostname())
+		assert.Equal(t, "node32", p.Set(1)[15].Hostname())
 	})
 
 	t.Run("16 nodes x 2 drives -> every set takes one drive per node", func(t *testing.T) {
@@ -368,7 +378,7 @@ func TestParse_SetsSpreadAcrossNodes(t *testing.T) {
 		for s := 0; s < 2; s++ {
 			hosts := map[string]int{}
 			for _, ep := range p.Set(s) {
-				hosts[ep.Host]++
+				hosts[ep.Hostname()]++
 				assert.Equal(t, fmt.Sprintf("/data%d", s+1), ep.Path)
 			}
 			assert.Len(t, hosts, 16)
@@ -399,10 +409,10 @@ func TestParse_SetsSpreadAcrossNodes(t *testing.T) {
 		})
 		require.NoError(t, err)
 		p := layout.Pools[0]
-		assert.Equal(t, "node1", p.Endpoints[0].Host)
-		assert.Equal(t, "node2", p.Endpoints[1].Host)
-		assert.Equal(t, "node1", p.Endpoints[2].Host)
-		assert.Equal(t, "node2", p.Endpoints[3].Host)
+		assert.Equal(t, "node1:9000", p.Endpoints[0].Host)
+		assert.Equal(t, "node2:9000", p.Endpoints[1].Host)
+		assert.Equal(t, "node1:9000", p.Endpoints[2].Host)
+		assert.Equal(t, "node2:9000", p.Endpoints[3].Host)
 	})
 }
 
@@ -410,7 +420,7 @@ func TestParse_SetsSpreadAcrossNodes(t *testing.T) {
 func TestParse_Matrix(t *testing.T) {
 	t.Parallel()
 	svc := newTestService()
-	other := New(Deps{Hosts: &fakeResolver{hostname: "node2", hosts: map[string][]string{}}, Logger: quietLogger()})
+	other := New(Deps{Hosts: newFakeResolverFor(2), Logger: quietLogger()})
 	ctx := context.Background()
 
 	for nodes := 1; nodes <= 32; nodes++ {
@@ -439,7 +449,7 @@ func TestParse_Matrix(t *testing.T) {
 				layout, err := svc.Parse(ctx, args)
 				if total == 1 {
 					require.NoError(t, err)
-					assert.Equal(t, ModeSNSD, layout.Mode)
+					assert.Equal(t, domain.ModeSNSD, layout.Mode)
 					assert.Equal(t, 1, layout.Pools[0].SetDriveCount)
 					assert.Equal(t, 0, layout.Pools[0].Parity)
 					return
@@ -452,9 +462,9 @@ func TestParse_Matrix(t *testing.T) {
 				require.NoError(t, err)
 				require.NoError(t, layout.Validate())
 				if nodes == 1 {
-					assert.Equal(t, ModeSNMD, layout.Mode)
+					assert.Equal(t, domain.ModeSNMD, layout.Mode)
 				} else {
-					assert.Equal(t, ModeDistributed, layout.Mode)
+					assert.Equal(t, domain.ModeDistributed, layout.Mode)
 				}
 				require.Len(t, layout.Pools, 1)
 				require.Len(t, layout.Nodes, nodes)
@@ -471,7 +481,7 @@ func TestParse_Matrix(t *testing.T) {
 				for s := 0; s < p.SetCount; s++ {
 					perNode := map[string]int{}
 					for d, ep := range p.Set(s) {
-						perNode[ep.NodeKey()]++
+						perNode[nodeKey(ep)]++
 						assert.Equal(t, s, ep.SetIdx)
 						assert.Equal(t, d, ep.DiskIdx)
 					}
@@ -501,6 +511,14 @@ func TestParse_Matrix(t *testing.T) {
 	}
 }
 
+// mustParse builds an endpoint with domain.ParseEndpoint (not canonicalised).
+func mustParse(t *testing.T, raw string) domain.Endpoint {
+	t.Helper()
+	ep, err := domain.ParseEndpoint(raw)
+	require.NoError(t, err)
+	return ep
+}
+
 func mustLocalNode(t *testing.T, l *Layout) Node {
 	t.Helper()
 	n, ok := l.LocalNode()
@@ -512,19 +530,21 @@ func TestIsLocal(t *testing.T) {
 	t.Parallel()
 	svc := newTestService()
 	ctx := context.Background()
-	url := func(raw string) Endpoint {
+	url := func(raw string) domain.Endpoint {
 		ep, err := svc.(*service).parseEndpoint(raw)
 		require.NoError(t, err)
 		return ep
 	}
 	tests := []struct {
 		name string
-		ep   Endpoint
+		ep   domain.Endpoint
 		want bool
 	}{
-		{"local path", Endpoint{Path: "/data"}, true},
+		{"local path", domain.Endpoint{Path: "/data"}, true},
 		{"hostname", url("http://node1:9000/d"), true},
-		{"hostname upper case", Endpoint{Scheme: "http", Host: "NODE1", Port: 9000, Path: "/d"}, true},
+		{"hostname upper case", domain.Endpoint{Scheme: "http", Host: "NODE1:9000", Path: "/d"}, true},
+		{"missing port", domain.Endpoint{Scheme: "http", Host: "node1", Path: "/d"}, false},
+		{"domain parsed endpoint", mustParse(t, "http://node1:9000/d"), true},
 		{"localhost", url("http://localhost:9000/d"), true},
 		{"loopback v4", url("http://127.0.0.1:9000/d"), true},
 		{"loopback v6", url("http://[::1]:9000/d"), true},
@@ -556,10 +576,10 @@ func TestIsLocal_ResolverFailures(t *testing.T) {
 		r := newFakeResolver()
 		r.hostnameErr = errors.New("boom")
 		svc := New(Deps{Hosts: r, Logger: quietLogger()})
-		local, err := svc.IsLocal(ctx, Endpoint{Scheme: "http", Host: "10.0.0.1", Port: 9000, Path: "/d"})
+		local, err := svc.IsLocal(ctx, domain.Endpoint{Scheme: "http", Host: "10.0.0.1:9000", Path: "/d"})
 		require.NoError(t, err)
 		assert.True(t, local)
-		local, err = svc.IsLocal(ctx, Endpoint{Scheme: "http", Host: "node1", Port: 9000, Path: "/d"})
+		local, err = svc.IsLocal(ctx, domain.Endpoint{Scheme: "http", Host: "node1:9000", Path: "/d"})
 		require.NoError(t, err)
 		assert.True(t, local, "node1 still resolves to a local address")
 	})
@@ -568,10 +588,10 @@ func TestIsLocal_ResolverFailures(t *testing.T) {
 		r := newFakeResolver()
 		r.addrsErr = errors.New("boom")
 		svc := New(Deps{Hosts: r, Logger: quietLogger()})
-		local, err := svc.IsLocal(ctx, Endpoint{Scheme: "http", Host: "node1", Port: 9000, Path: "/d"})
+		local, err := svc.IsLocal(ctx, domain.Endpoint{Scheme: "http", Host: "node1:9000", Path: "/d"})
 		require.NoError(t, err)
 		assert.True(t, local)
-		local, err = svc.IsLocal(ctx, Endpoint{Scheme: "http", Host: "alias", Port: 9000, Path: "/d"})
+		local, err = svc.IsLocal(ctx, domain.Endpoint{Scheme: "http", Host: "alias:9000", Path: "/d"})
 		require.NoError(t, err)
 		assert.True(t, local, "hostname resolution still provides 10.0.0.1")
 	})
@@ -579,10 +599,10 @@ func TestIsLocal_ResolverFailures(t *testing.T) {
 	t.Run("nothing known", func(t *testing.T) {
 		r := &fakeResolver{hostnameErr: errors.New("boom"), addrsErr: errors.New("boom")}
 		svc := New(Deps{Hosts: r, Logger: quietLogger()})
-		local, err := svc.IsLocal(ctx, Endpoint{Scheme: "http", Host: "node1", Port: 9000, Path: "/d"})
+		local, err := svc.IsLocal(ctx, domain.Endpoint{Scheme: "http", Host: "node1:9000", Path: "/d"})
 		require.NoError(t, err)
 		assert.False(t, local)
-		local, err = svc.IsLocal(ctx, Endpoint{Scheme: "http", Host: "localhost", Port: 9000, Path: "/d"})
+		local, err = svc.IsLocal(ctx, domain.Endpoint{Scheme: "http", Host: "localhost:9000", Path: "/d"})
 		require.NoError(t, err)
 		assert.True(t, local)
 		_, err = svc.Parse(ctx, []string{"http://node{1...2}:9000/d"})
@@ -593,7 +613,7 @@ func TestIsLocal_ResolverFailures(t *testing.T) {
 		svc := newTestService()
 		cctx, cancel := context.WithCancel(ctx)
 		cancel()
-		_, err := svc.IsLocal(cctx, Endpoint{Scheme: "http", Host: "nowhere", Port: 9000, Path: "/d"})
+		_, err := svc.IsLocal(cctx, domain.Endpoint{Scheme: "http", Host: "nowhere:9000", Path: "/d"})
 		assert.ErrorIs(t, err, context.Canceled)
 	})
 }
@@ -657,7 +677,7 @@ func TestService_Formats(t *testing.T) {
 		require.NoError(t, err)
 		other, err := svc.NewFormats(ctx, bigger, 0, "dep-1")
 		require.NoError(t, err)
-		_, err = svc.CheckFormats(ctx, bigger, 0, append(formats, formats...))
+		_, err = svc.CheckFormats(ctx, bigger, 0, append(append([]*FormatV1(nil), formats...), nil, nil, nil, nil))
 		assert.ErrorIs(t, err, ErrFormatLayoutMismatch, "drives formatted 1x4 used in a 1x8 pool")
 		_, err = svc.CheckFormats(ctx, layout, 0, other[:4])
 		assert.ErrorIs(t, err, ErrFormatLayoutMismatch)
@@ -693,8 +713,8 @@ func TestService_Formats(t *testing.T) {
 		require.NoError(t, err)
 		f1, err := svc.NewFormats(ctx, cluster, 1, "dep-9")
 		require.NoError(t, err)
-		require.Len(t, f1, 64)
-		assert.Equal(t, 4, f1[0].SetCount())
+		require.Len(t, f1, 32)
+		assert.Equal(t, 2, f1[0].SetCount())
 		assert.Equal(t, 16, f1[0].SetDriveCount())
 		set, disk, err := f1[17].Position()
 		require.NoError(t, err)
@@ -705,4 +725,23 @@ func TestService_Formats(t *testing.T) {
 		_, err = svc.CheckFormats(ctx, cluster, 0, f1[:16])
 		assert.ErrorIs(t, err, ErrFormatLayoutMismatch)
 	})
+}
+
+// Argument errors wrap domain.ErrInvalidArgument so that callers (CLI exit
+// codes, dry-run reports) can treat them uniformly.
+func TestParse_ErrorsWrapInvalidArgument(t *testing.T) {
+	t.Parallel()
+	svc := newTestService()
+	for _, args := range [][]string{
+		nil, {"data"}, {"/"}, {"/data{1..4}"}, {"/data", "/data"}, {"/data{1...17}"},
+		{"ftp://node1:9000/d"}, {"/data", "http://node1:9000/d"}, {"http://node{2...5}:9000/d"},
+		{"http://node1:9000/d", "https://node2:9000/d"}, {"http://node1:9000/d1", "http://localhost:9000/d2"},
+	} {
+		_, err := svc.Parse(context.Background(), args)
+		require.Error(t, err, "%v", args)
+		assert.ErrorIs(t, err, domain.ErrInvalidArgument, "%v: %v", args, err)
+	}
+	// Layout and format consistency errors are not argument errors.
+	assert.NotErrorIs(t, ErrInvalidLayout, domain.ErrInvalidArgument)
+	assert.NotErrorIs(t, ErrFormatMismatch, domain.ErrInvalidArgument)
 }

@@ -1,0 +1,70 @@
+# systemd unit for the Nexo S3-compatible object storage server.
+#
+# Install:
+#   install -m 0755 nexo nexoctl /usr/local/bin/
+#   useradd --system --home-dir /var/lib/nexo --shell /usr/sbin/nologin nexo
+#   install -d -o nexo -g nexo -m 0750 /var/lib/nexo /srv/nexo
+#   install -d -m 0750 /etc/nexo && install -m 0640 -g nexo nexo.env.example /etc/nexo/nexo.env
+#   cp nexo.service /etc/systemd/system/ && systemctl daemon-reload
+#   systemctl enable --now nexo
+#
+# The endpoints (SNSD, SNMD or cluster) come from NEXO_ENDPOINTS in
+# /etc/nexo/nexo.env, so this unit is the same for every mode.
+
+[Unit]
+Description=Nexo S3-compatible object storage server
+Documentation=https://github.com/r3n3r0/nexo
+Wants=network-online.target
+After=network-online.target
+AssertFileIsExecutable=/usr/local/bin/nexo
+AssertPathExists=/etc/nexo/nexo.env
+
+[Service]
+Type=simple
+User=nexo
+Group=nexo
+WorkingDirectory=/var/lib/nexo
+EnvironmentFile=/etc/nexo/nexo.env
+
+# Validate topology, drive permissions, ports and certificates before starting.
+ExecStartPre=/usr/local/bin/nexo server --dry-run
+ExecStart=/usr/local/bin/nexo server
+# SIGHUP reloads the TLS certificates.
+ExecReload=/bin/kill -HUP $MAINPID
+
+Restart=always
+RestartSec=5s
+# Give in-flight uploads time to complete on shutdown.
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=90s
+
+LimitNOFILE=1048576
+LimitNPROC=infinity
+TasksMax=infinity
+OOMScoreAdjust=-500
+
+# Hardening. Data directories outside /srv, /var and /mnt must be listed in
+# ReadWritePaths (ProtectSystem=full makes /usr, /boot and /etc read-only).
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+SystemCallArchitectures=native
+#ReadWritePaths=/mnt/disk1 /mnt/disk2 /mnt/disk3 /mnt/disk4
+# Required only when binding ports below 1024.
+#AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,115 @@
+{
+  "app": {
+    "name": "Nexo",
+    "title": "Nexo Console",
+    "tagline": "S3-compatible object storage"
+  },
+  "common": {
+    "loading": "Loading…",
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "close": "Close",
+    "save": "Save",
+    "delete": "Delete",
+    "create": "Create",
+    "search": "Search",
+    "actions": "Actions",
+    "name": "Name",
+    "status": "Status",
+    "created": "Created",
+    "comingSoon": "This section is not available yet.",
+    "notAvailable": "n/a",
+    "error": "Something went wrong",
+    "unknownError": "An unexpected error occurred.",
+    "goHome": "Back to overview",
+    "goBack": "Go back",
+    "signOut": "Sign out",
+    "signedInAs": "Signed in as {{user}}",
+    "openNavigation": "Open navigation",
+    "closeNavigation": "Close navigation"
+  },
+  "theme": {
+    "toggle": "Toggle colour scheme",
+    "light": "Light",
+    "dark": "Dark"
+  },
+  "language": {
+    "label": "Language",
+    "en": "English",
+    "it": "Italiano"
+  },
+  "nav": {
+    "overview": "Overview",
+    "buckets": "Buckets",
+    "objects": "Objects",
+    "users": "Users",
+    "groups": "Groups",
+    "policies": "Policies",
+    "accessKeys": "Access keys",
+    "shares": "Shares",
+    "distributions": "Distributions",
+    "cache": "Cache",
+    "cluster": "Cluster",
+    "monitoring": "Monitoring",
+    "configuration": "Configuration",
+    "info": "Info"
+  },
+  "login": {
+    "title": "Sign in to Nexo",
+    "subtitle": "Use an access key and its secret key.",
+    "accessKey": "Access key",
+    "accessKeyPlaceholder": "Your access key",
+    "secretKey": "Secret key",
+    "secretKeyPlaceholder": "Your secret key",
+    "submit": "Sign in",
+    "submitting": "Signing in…",
+    "invalidCredentials": "Invalid access key or secret key.",
+    "failed": "Sign-in failed: {{message}}",
+    "validation": {
+      "accessKeyRequired": "Enter your access key.",
+      "accessKeyTooShort": "The access key must be at least {{min}} characters.",
+      "secretKeyRequired": "Enter your secret key.",
+      "secretKeyTooShort": "The secret key must be at least {{min}} characters."
+    },
+    "demoHint": "Demo mode: sign in with {{accessKey}} / {{secretKey}}."
+  },
+  "overview": {
+    "title": "Overview",
+    "subtitle": "Server status at a glance.",
+    "loadError": "Could not load the server information.",
+    "tiles": {
+      "mode": "Deployment mode",
+      "version": "Version",
+      "uptime": "Uptime",
+      "buckets": "Buckets",
+      "objects": "Objects",
+      "usage": "Used storage",
+      "nodes": "Nodes online",
+      "drives": "Drives online"
+    },
+    "ofTotal": "{{online}} of {{total}}"
+  },
+  "modes": {
+    "snsd": "Single node, single drive",
+    "snmd": "Single node, multiple drives",
+    "distributed": "Distributed cluster",
+    "unknown": "Unknown"
+  },
+  "duration": {
+    "days": "{{count}}d",
+    "hours": "{{count}}h",
+    "minutes": "{{count}}m",
+    "seconds": "{{count}}s"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "message": "The page {{path}} does not exist."
+  },
+  "errorBoundary": {
+    "title": "The console hit an unexpected error",
+    "message": "You can try again or reload the page. If the problem persists, check the server logs.",
+    "reload": "Reload",
+    "tryAgain": "Try again",
+    "details": "Technical details"
+  }
+}

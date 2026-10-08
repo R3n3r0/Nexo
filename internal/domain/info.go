@@ -44,7 +44,7 @@ type NodeInfo struct {
 	Disks    []DiskInfo
 }
 
-// PoolInfo summarises an erasure pool.
+// PoolInfo summarizes an erasure pool.
 type PoolInfo struct {
 	Index        int
 	Sets         int

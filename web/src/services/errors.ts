@@ -1,0 +1,119 @@
+/**
+ * RFC 9457 problem details document as produced by the Admin API
+ * (httpx.Problem in the Go transport).
+ */
+export interface ProblemDetails {
+  type?: string;
+  title: string;
+  status: number;
+  detail?: string;
+  instance?: string;
+  /** Stable machine-readable code (snake_case), e.g. "bucket_not_found". */
+  code: string;
+  /** Request id to correlate with the server logs. */
+  requestId?: string;
+}
+
+/** Codes used by the client for failures that never reached a problem document. */
+export const ClientErrorCode = {
+  Network: 'network_error',
+  Http: 'http_error',
+  InvalidResponse: 'invalid_response',
+} as const;
+
+/**
+ * ApiError is the single error type surfaced by every service implementation.
+ * HTTP services build it from problem+json responses; mock services build it
+ * directly so that components can treat both transports identically.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly title: string;
+  readonly detail: string | undefined;
+  readonly instance: string | undefined;
+  readonly requestId: string | undefined;
+
+  constructor(problem: ProblemDetails, options?: ErrorOptions) {
+    super(problem.detail ?? problem.title, options);
+    this.name = 'ApiError';
+    this.status = problem.status;
+    this.code = problem.code;
+    this.title = problem.title;
+    this.detail = problem.detail;
+    this.instance = problem.instance;
+    this.requestId = problem.requestId;
+  }
+
+  /** Builds an error from a parsed problem+json body, defaulting the status. */
+  static fromProblem(body: Partial<ProblemDetails>, fallbackStatus: number): ApiError {
+    const status = typeof body.status === 'number' ? body.status : fallbackStatus;
+    return new ApiError({
+      type: body.type,
+      title: body.title ?? defaultTitle(status),
+      status,
+      detail: body.detail,
+      instance: body.instance,
+      code: body.code ?? ClientErrorCode.Http,
+      requestId: body.requestId,
+    });
+  }
+
+  /** Builds an error for a non-2xx response without a problem document. */
+  static fromStatus(status: number, statusText?: string): ApiError {
+    return new ApiError({
+      title: statusText && statusText !== '' ? statusText : defaultTitle(status),
+      status,
+      code: ClientErrorCode.Http,
+    });
+  }
+
+  /** Builds an error for a request that never got a response. */
+  static network(cause: unknown): ApiError {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    return new ApiError(
+      { title: 'Network error', status: 0, detail, code: ClientErrorCode.Network },
+      { cause },
+    );
+  }
+
+  get isUnauthorized(): boolean {
+    return this.status === 401;
+  }
+
+  get isForbidden(): boolean {
+    return this.status === 403;
+  }
+
+  get isNotFound(): boolean {
+    return this.status === 404;
+  }
+
+  get isConflict(): boolean {
+    return this.status === 409;
+  }
+
+  /** True when the request never reached the server or the response was unusable. */
+  get isNetwork(): boolean {
+    return this.status === 0;
+  }
+}
+
+export function isApiError(value: unknown): value is ApiError {
+  return value instanceof ApiError;
+}
+
+const titles: Record<number, string> = {
+  400: 'Bad Request',
+  401: 'Unauthorized',
+  403: 'Forbidden',
+  404: 'Not Found',
+  409: 'Conflict',
+  500: 'Internal Server Error',
+  502: 'Bad Gateway',
+  503: 'Service Unavailable',
+};
+
+function defaultTitle(status: number): string {
+  return titles[status] ?? `HTTP ${status}`;
+}

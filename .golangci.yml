@@ -1,0 +1,71 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+  build-tags: []
+
+linters:
+  default: none
+  enable:
+    - govet
+    - errcheck
+    - staticcheck
+    - unused
+    - misspell
+    - depguard
+  settings:
+    misspell:
+      # No locale forced: both US and UK spellings are accepted, only real
+      # misspellings are reported.
+      ignore-rules: []
+    errcheck:
+      exclude-functions:
+        - (net/http.ResponseWriter).Write
+        - (*net/http.Server).Close
+        - io.Copy
+    depguard:
+      rules:
+        # Services never import transports (12.2 rule 10): transport → service → domain.
+        service-no-transport:
+          files:
+            - "**/internal/service/**"
+          deny:
+            - pkg: github.com/r3n3r0/nexo/internal/transport
+              desc: services must not import transport packages
+            - pkg: github.com/r3n3r0/nexo/internal/app
+              desc: services must not import the composition root
+        # The domain package depends on nothing internal.
+        domain-no-internal:
+          files:
+            - "**/internal/domain/**"
+          deny:
+            - pkg: github.com/r3n3r0/nexo/internal
+              desc: domain must not import any internal package
+        # Transports never import the composition root.
+        transport-no-app:
+          files:
+            - "**/internal/transport/**"
+          deny:
+            - pkg: github.com/r3n3r0/nexo/internal/app
+              desc: transports must not import the composition root
+  exclusions:
+    # Third-party Go sources shipped inside npm packages are not ours.
+    paths:
+      - web/node_modules
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/r3n3r0/nexo
+  exclusions:
+    paths:
+      - web/node_modules

@@ -1,0 +1,41 @@
+# Prometheus configuration for the 4-node cluster (compose.cluster.yml).
+# Select it with PROMETHEUS_CONFIG=prometheus.cluster.yml.
+#
+# Node metrics are scraped from every node; cluster-wide metrics are the
+# same on every node, so one target (through the load balancer) is enough.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    deployment: nexo-cluster
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: nexo-node
+    metrics_path: /nexo/metrics/v1/node
+    # authorization:
+    #   type: Bearer
+    #   credentials_file: /etc/prometheus/nexo-token
+    static_configs:
+      - targets:
+          - nexo1:9000
+          - nexo2:9000
+          - nexo3:9000
+          - nexo4:9000
+
+  - job_name: nexo-cluster
+    metrics_path: /nexo/metrics/v1/cluster
+    static_configs:
+      - targets: ["lb:9000"]
+
+  - job_name: nexo-bucket
+    metrics_path: /nexo/metrics/v1/bucket
+    scrape_interval: 60s
+    static_configs:
+      - targets: ["lb:9000"]
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

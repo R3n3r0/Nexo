@@ -1,0 +1,320 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "22"
+  GOLANGCI_LINT_VERSION: v2.5.0
+
+jobs:
+  lint-go:
+    name: Lint Go
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go mod tidy is a no-op
+        run: go mod tidy -diff
+
+      - name: gofmt
+        run: |
+          out="$(gofmt -l $(git ls-files '*.go'))"
+          if [ -n "$out" ]; then
+            echo "files need gofmt:"; echo "$out"; exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          args: --timeout=5m
+
+  test-go:
+    name: Test Go
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: go test -race
+        env:
+          CGO_ENABLED: "1"
+        run: go test -race -count=1 -shuffle=on -coverprofile=coverage.txt -covermode=atomic ./...
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [ -f coverage.txt ]; then
+            go tool cover -func=coverage.txt | tail -n 1 | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-go
+          path: coverage.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
+  web:
+    name: Web console
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: npm ci
+        run: npm ci --no-audit --no-fund
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test -- --run --coverage
+
+      - name: Build
+        run: npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+          if-no-files-found: error
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-web
+          path: web/coverage
+          if-no-files-found: ignore
+          retention-days: 14
+
+  build:
+    name: Build binaries (embedded UI)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [web]
+    env:
+      CGO_ENABLED: "0"
+      GOOS: linux
+      GOARCH: amd64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+
+      - name: Build nexo and nexoctl
+        run: |
+          VERSION="$(git describe --tags --always --dirty)"
+          COMMIT="$(git rev-parse --short HEAD)"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          LDFLAGS="-s -w \
+            -X github.com/r3n3r0/nexo/internal/version.Version=${VERSION} \
+            -X github.com/r3n3r0/nexo/internal/version.Commit=${COMMIT} \
+            -X github.com/r3n3r0/nexo/internal/version.Date=${DATE}"
+          go build -trimpath -tags embedui -ldflags "${LDFLAGS}" -o bin/nexo ./cmd/nexo
+          go build -trimpath -ldflags "${LDFLAGS}" -o bin/nexoctl ./cmd/nexoctl
+          ls -la bin/
+
+      - name: Smoke test
+        env:
+          NEXO_ROOT_USER: admin
+          NEXO_ROOT_PASSWORD: password123
+        run: |
+          ./bin/nexo version
+          ./bin/nexo version --json
+          ./bin/nexoctl version
+          ./bin/nexo server --dry-run --address 127.0.0.1:0 --console-address 127.0.0.1:0 "$(mktemp -d)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nexo-linux-amd64
+          path: bin/
+          if-no-files-found: error
+          retention-days: 7
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build nexo image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          load: true
+          tags: nexo:ci
+          build-args: |
+            VERSION=ci-${{ github.sha }}
+            COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=nexo
+          cache-to: type=gha,scope=nexo,mode=max
+
+      - name: Build nexoctl image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.nexoctl
+          push: false
+          load: true
+          tags: nexoctl:ci
+          build-args: |
+            VERSION=ci-${{ github.sha }}
+            COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=nexoctl
+          cache-to: type=gha,scope=nexoctl,mode=max
+
+      - name: Smoke test images
+        run: |
+          set -eux
+          docker run --rm nexo:ci version
+          docker run --rm nexoctl:ci version
+
+          docker run -d --name nexo \
+            -e NEXO_ROOT_USER=admin -e NEXO_ROOT_PASSWORD=password123 \
+            nexo:ci
+
+          # Wait for the image HEALTHCHECK (nexo healthcheck) to report healthy.
+          for _ in $(seq 1 30); do
+            status="$(docker inspect -f '{{.State.Health.Status}}' nexo)"
+            [ "$status" = "healthy" ] && break
+            sleep 2
+          done
+          docker inspect -f '{{.State.Health.Status}}' nexo | grep -qx healthy
+
+          # Probe the liveness and readiness endpoints from the container network.
+          docker run --rm --network container:nexo curlimages/curl:8.14.1 \
+            -fsS http://127.0.0.1:9001/nexo/health/live
+          docker run --rm --network container:nexo curlimages/curl:8.14.1 \
+            -fsS http://127.0.0.1:9001/nexo/health/ready
+          docker run --rm --network container:nexo curlimages/curl:8.14.1 \
+            -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:9001/
+
+          # The process runs as nonroot.
+          docker exec nexo /nexoctl version
+
+      - name: Container logs
+        if: failure()
+        run: docker logs nexo || true
+
+      - name: Vulnerability scan (informational)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: nexo:ci
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0"
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f nexo >/dev/null 2>&1 || true
+
+  deploy-files:
+    name: Deploy files
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: YAML syntax (compose, workflows, observability)
+        run: |
+          python3 -c 'import sys, yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]; print("ok", len(sys.argv) - 1, "files")' \
+            deploy/docker/compose.*.yml \
+            deploy/docker/observability/*.yml \
+            deploy/docker/observability/grafana/provisioning/*/*.yml \
+            deploy/proxy/*.yml \
+            .github/workflows/*.yml \
+            .github/dependabot.yml \
+            .goreleaser.yaml
+
+      - name: Compose files validate
+        run: |
+          cd deploy/docker
+          cp nexo.env.example nexo.env
+          mkdir -p certs
+          for f in compose.single.yml compose.snmd.yml compose.cluster.yml compose.cluster-tls.yml; do
+            docker compose -f "$f" config --quiet
+          done
+          docker compose -f compose.single.yml -f compose.observability.yml config --quiet
+          PROMETHEUS_CONFIG=prometheus.cluster.yml docker compose -f compose.cluster.yml -f compose.observability.yml config --quiet
+
+      - name: nginx configs
+        run: |
+          for f in nginx.conf nginx-tls.conf; do
+            docker run --rm -v "$PWD/deploy/docker/$f:/etc/nginx/nginx.conf:ro" nginx:1.27-alpine nginx -t
+          done
+
+      - name: Grafana dashboard JSON
+        run: python3 -m json.tool deploy/docker/observability/grafana/dashboards/nexo-overview.json >/dev/null
+
+      - name: Prometheus rules and config
+        run: |
+          docker run --rm -v "$PWD/deploy/docker/observability:/obs:ro" --entrypoint promtool prom/prometheus:v3.5.0 check rules /obs/alerts.yml
+          for f in prometheus.single.yml prometheus.cluster.yml; do
+            docker run --rm -v "$PWD/deploy/docker/observability:/obs:ro" --entrypoint promtool prom/prometheus:v3.5.0 check config --syntax-only "/obs/$f"
+          done
+
+      - name: systemd unit
+        run: systemd-analyze verify --man=no deploy/systemd/nexo.service || true
+
+      - name: GoReleaser config
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: check

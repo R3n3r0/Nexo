@@ -1,0 +1,94 @@
+# Nexo distributed cluster with TLS: 4 nodes x 2 drives, certificates mounted
+# from ./certs into /certs, nginx in TCP passthrough mode (TLS terminates on
+# the nodes, so clients see Nexo's own certificate end to end).
+#
+#   cp nexo.env.example nexo.env
+#   ./gen-dev-certs.sh s3.example.com          # dev CA + cert in ./certs (or bring your own)
+#   docker compose -f compose.cluster-tls.yml up -d
+#   curl --cacert certs/CAs/ca.crt https://localhost:9001/nexo/health/live
+#
+# ./certs must contain:
+#   public.crt   server certificate; SANs: nexo1..nexo4 (internode), the
+#                public hostname(s) and localhost
+#   private.key  its key
+#   CAs/ca.crt   the issuing CA, trusted by the nodes for internode calls
+name: nexo-cluster-tls
+
+x-nexo: &nexo
+  image: ${NEXO_IMAGE:-ghcr.io/r3n3r0/nexo:latest}
+  command: ["server", "--console-address", ":9001", "https://nexo{1...4}:9000/data{1...2}"]
+  env_file:
+    - nexo.env
+  environment:
+    NEXO_CERTS_DIR: /certs
+  # volumes are listed per service: YAML merge keys replace lists, they do
+  # not concatenate them, so ./certs is repeated on every node.
+  healthcheck:
+    # The console listens with TLS: probe it explicitly over https. The dev
+    # certificate includes "localhost" and the CA in /certs/CAs is trusted.
+    test: ["CMD", "/nexo", "healthcheck", "--url", "https://localhost:9001/nexo/health/live"]
+    interval: 10s
+    timeout: 3s
+    retries: 3
+    start_period: 10s
+  restart: unless-stopped
+  stop_grace_period: 30s
+
+services:
+  nexo1:
+    <<: *nexo
+    hostname: nexo1
+    volumes:
+      - ./certs:/certs:ro
+      - d1-1:/data1
+      - d1-2:/data2
+
+  nexo2:
+    <<: *nexo
+    hostname: nexo2
+    volumes:
+      - ./certs:/certs:ro
+      - d2-1:/data1
+      - d2-2:/data2
+
+  nexo3:
+    <<: *nexo
+    hostname: nexo3
+    volumes:
+      - ./certs:/certs:ro
+      - d3-1:/data1
+      - d3-2:/data2
+
+  nexo4:
+    <<: *nexo
+    hostname: nexo4
+    volumes:
+      - ./certs:/certs:ro
+      - d4-1:/data1
+      - d4-2:/data2
+
+  # TCP passthrough load balancer: no TLS termination here, the Host header
+  # and the certificate the client sees are Nexo's.
+  lb:
+    image: nginx:1.27-alpine
+    ports:
+      - "${NEXO_S3_PORT:-9000}:9000"
+      - "${NEXO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - ./nginx-tls.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - nexo1
+      - nexo2
+      - nexo3
+      - nexo4
+    restart: unless-stopped
+
+volumes:
+  d1-1: {}
+  d1-2: {}
+  d2-1: {}
+  d2-2: {}
+  d3-1: {}
+  d3-2: {}
+  d4-1: {}
+  d4-2: {}

@@ -18,7 +18,7 @@ type Option func(*local)
 // local is an in-memory reader/writer locker keyed by resource name. Each
 // resource holds a small state record; waiters block on a channel that is
 // closed (and replaced) whenever the state changes, so that acquisition
-// honours both the timeout and the caller's context.
+// honors both the timeout and the caller's context.
 type local struct {
 	mu        sync.Mutex
 	resources map[string]*entry

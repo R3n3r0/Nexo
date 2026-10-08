@@ -1,0 +1,30 @@
+# Keep the build context small: only sources needed by the Dockerfiles.
+.git
+.github
+.gitignore
+.dockerignore
+.golangci.yml
+.goreleaser.yaml
+Dockerfile*
+Makefile
+README.md
+bin/
+dist/
+docs/
+deploy/
+data/
+data[0-9]*/
+tmp/
+.cache/
+coverage*.txt
+*.out
+*.test
+.DS_Store
+
+# Web: dependencies and build output are produced inside the image.
+web/node_modules/
+web/dist/
+web/coverage/
+web/playwright-report/
+web/test-results/
+web/README.md

@@ -1,0 +1,76 @@
+# Example alerting rules for Nexo (docs/07 §7.4). Metric names follow the
+# nexo_* namespace; adjust thresholds to your deployment.
+groups:
+  - name: nexo.availability
+    rules:
+      - alert: NexoNodeDown
+        expr: up{job="nexo-node"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Nexo node {{ $labels.instance }} is not reachable"
+          description: "Prometheus has not been able to scrape {{ $labels.instance }} for 1 minute."
+
+      - alert: NexoDriveOffline
+        expr: nexo_drive_online == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Drive {{ $labels.drive }} on {{ $labels.instance }} is offline"
+          description: "An offline drive reduces the redundancy of its erasure set; healing starts when it comes back."
+
+      - alert: NexoClusterNodesOffline
+        expr: nexo_cluster_nodes_offline > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} Nexo node(s) offline"
+
+      - alert: NexoQuorumAtRisk
+        # Half of the nodes offline means writes are refused on a 4-node cluster.
+        expr: nexo_cluster_nodes_offline >= nexo_cluster_nodes_online
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Nexo write quorum at risk"
+          description: "Offline nodes: {{ $value }}. Writes are refused until quorum is restored."
+
+  - name: nexo.capacity
+    rules:
+      - alert: NexoCapacityHigh
+        expr: |
+          sum(nexo_drive_used_bytes) / sum(nexo_drive_total_bytes) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Nexo capacity above 85%"
+          description: "Used {{ $value | humanizePercentage }} of the raw capacity. Plan a new pool."
+
+  - name: nexo.requests
+    rules:
+      - alert: NexoHigh5xxRate
+        expr: |
+          sum(rate(nexo_s3_requests_total{status=~"5.."}[5m]))
+            / sum(rate(nexo_s3_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 5% of S3 requests fail with 5xx"
+
+  - name: nexo.healing
+    rules:
+      - alert: NexoHealingStalled
+        expr: |
+          nexo_heal_objects_pending > 0
+            and rate(nexo_heal_objects_healed_total[30m]) == 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Nexo healing has pending objects but no progress in 30 minutes"

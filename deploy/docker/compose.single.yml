@@ -1,0 +1,33 @@
+# Nexo single node, single drive (SNSD): one container, one named volume.
+#
+#   cp nexo.env.example nexo.env      # set NEXO_ROOT_USER / NEXO_ROOT_PASSWORD
+#   docker compose -f compose.single.yml up -d
+#   open http://localhost:9001        # console; S3 API on http://localhost:9000
+#
+# Interpolated variables (NEXO_IMAGE, NEXO_S3_PORT, NEXO_CONSOLE_PORT) can be
+# set in a .env file next to this one or in the shell. To run a locally built
+# image: docker build -t nexo:dev ../.. && NEXO_IMAGE=nexo:dev docker compose ...
+name: nexo
+
+services:
+  nexo:
+    image: ${NEXO_IMAGE:-ghcr.io/r3n3r0/nexo:latest}
+    command: ["server", "/data"]
+    env_file:
+      - nexo.env
+    ports:
+      - "${NEXO_S3_PORT:-9000}:9000"
+      - "${NEXO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - nexo-data:/data
+    healthcheck:
+      test: ["CMD", "/nexo", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+volumes:
+  nexo-data: {}

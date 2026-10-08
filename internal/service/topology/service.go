@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"net"
+
+	"github.com/r3n3r0/nexo/internal/domain"
 )
 
 // Service turns the server command line into a validated deployment Layout and
@@ -22,14 +24,16 @@ type Service interface {
 	//
 	// When every argument contains an ellipsis pattern each argument is a pool;
 	// when none does, all the arguments form a single pool (mixing both styles
-	// is an error).
+	// is an error). Endpoints are canonical: local paths are absolute and
+	// cleaned, URL endpoints have a lower-cased host and an explicit port.
+	// Errors caused by the arguments wrap domain.ErrInvalidArgument.
 	Parse(ctx context.Context, args []string) (*Layout, error)
 
 	// IsLocal reports whether ep belongs to the node running this process: local
 	// paths are always local, URL endpoints are local when the port equals the
 	// local server port and the host is the local hostname, a loopback address or
 	// an address assigned to a local network interface.
-	IsLocal(ctx context.Context, ep Endpoint) (bool, error)
+	IsLocal(ctx context.Context, ep domain.Endpoint) (bool, error)
 
 	// NewFormats builds a fresh FormatV1 for every drive of the given pool of
 	// layout, all sharing the deployment id and the same set map. The result is

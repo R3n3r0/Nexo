@@ -1,0 +1,115 @@
+{
+  "app": {
+    "name": "Nexo",
+    "title": "Console Nexo",
+    "tagline": "Object storage compatibile S3"
+  },
+  "common": {
+    "loading": "Caricamento…",
+    "retry": "Riprova",
+    "cancel": "Annulla",
+    "close": "Chiudi",
+    "save": "Salva",
+    "delete": "Elimina",
+    "create": "Crea",
+    "search": "Cerca",
+    "actions": "Azioni",
+    "name": "Nome",
+    "status": "Stato",
+    "created": "Creato",
+    "comingSoon": "Questa sezione non è ancora disponibile.",
+    "notAvailable": "n/d",
+    "error": "Qualcosa è andato storto",
+    "unknownError": "Si è verificato un errore imprevisto.",
+    "goHome": "Torna alla panoramica",
+    "goBack": "Indietro",
+    "signOut": "Esci",
+    "signedInAs": "Accesso come {{user}}",
+    "openNavigation": "Apri il menu",
+    "closeNavigation": "Chiudi il menu"
+  },
+  "theme": {
+    "toggle": "Cambia tema",
+    "light": "Chiaro",
+    "dark": "Scuro"
+  },
+  "language": {
+    "label": "Lingua",
+    "en": "English",
+    "it": "Italiano"
+  },
+  "nav": {
+    "overview": "Panoramica",
+    "buckets": "Bucket",
+    "objects": "Oggetti",
+    "users": "Utenti",
+    "groups": "Gruppi",
+    "policies": "Policy",
+    "accessKeys": "Access key",
+    "shares": "Condivisioni",
+    "distributions": "Distribuzioni",
+    "cache": "Cache",
+    "cluster": "Cluster",
+    "monitoring": "Monitoraggio",
+    "configuration": "Configurazione",
+    "info": "Info"
+  },
+  "login": {
+    "title": "Accedi a Nexo",
+    "subtitle": "Usa una access key e la relativa secret key.",
+    "accessKey": "Access key",
+    "accessKeyPlaceholder": "La tua access key",
+    "secretKey": "Secret key",
+    "secretKeyPlaceholder": "La tua secret key",
+    "submit": "Accedi",
+    "submitting": "Accesso in corso…",
+    "invalidCredentials": "Access key o secret key non validi.",
+    "failed": "Accesso non riuscito: {{message}}",
+    "validation": {
+      "accessKeyRequired": "Inserisci la access key.",
+      "accessKeyTooShort": "La access key deve avere almeno {{min}} caratteri.",
+      "secretKeyRequired": "Inserisci la secret key.",
+      "secretKeyTooShort": "La secret key deve avere almeno {{min}} caratteri."
+    },
+    "demoHint": "Modalità demo: accedi con {{accessKey}} / {{secretKey}}."
+  },
+  "overview": {
+    "title": "Panoramica",
+    "subtitle": "Lo stato del server a colpo d'occhio.",
+    "loadError": "Impossibile caricare le informazioni del server.",
+    "tiles": {
+      "mode": "Modalità",
+      "version": "Versione",
+      "uptime": "Uptime",
+      "buckets": "Bucket",
+      "objects": "Oggetti",
+      "usage": "Spazio usato",
+      "nodes": "Nodi online",
+      "drives": "Dischi online"
+    },
+    "ofTotal": "{{online}} di {{total}}"
+  },
+  "modes": {
+    "snsd": "Singolo nodo, singolo disco",
+    "snmd": "Singolo nodo, più dischi",
+    "distributed": "Cluster distribuito",
+    "unknown": "Sconosciuta"
+  },
+  "duration": {
+    "days": "{{count}}g",
+    "hours": "{{count}}h",
+    "minutes": "{{count}}m",
+    "seconds": "{{count}}s"
+  },
+  "notFound": {
+    "title": "Pagina non trovata",
+    "message": "La pagina {{path}} non esiste."
+  },
+  "errorBoundary": {
+    "title": "La console ha incontrato un errore imprevisto",
+    "message": "Puoi riprovare o ricaricare la pagina. Se il problema persiste, controlla i log del server.",
+    "reload": "Ricarica",
+    "tryAgain": "Riprova",
+    "details": "Dettagli tecnici"
+  }
+}

@@ -11,7 +11,7 @@ type Service interface {
 	// process is wedged.
 	Live(ctx context.Context) Status
 	// Ready reports whether the server can serve traffic (storage
-	// initialised, quorum met).
+	// initialized, quorum met).
 	Ready(ctx context.Context) Status
 	// Cluster reports the health of the whole deployment.
 	Cluster(ctx context.Context) ClusterStatus

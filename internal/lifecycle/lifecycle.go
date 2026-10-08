@@ -13,7 +13,7 @@ import (
 
 // Runner is a component with a start and a stop phase. Start must return
 // once the component is running (listening, scheduled, ...), not when it
-// terminates. Stop must be idempotent and honour ctx for its deadline.
+// terminates. Stop must be idempotent and honor ctx for its deadline.
 type Runner interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error

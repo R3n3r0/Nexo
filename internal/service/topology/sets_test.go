@@ -2,11 +2,12 @@ package topology
 
 import (
 	"errors"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/r3n3r0/nexo/internal/domain"
 )
 
 func TestDefaultParity(t *testing.T) {
@@ -124,14 +125,14 @@ func TestValidateParity(t *testing.T) {
 
 func TestDistributeRoundRobin(t *testing.T) {
 	t.Parallel()
-	ep := func(host, p string) Endpoint {
-		return Endpoint{Scheme: "http", Host: host, Port: 9000, Path: p}
+	ep := func(host, p string) domain.Endpoint {
+		return domain.Endpoint{Scheme: "http", Host: host + ":9000", Path: p}
 	}
-	in := []Endpoint{ep("a", "/1"), ep("a", "/2"), ep("b", "/1"), ep("b", "/2"), ep("c", "/1"), ep("c", "/2")}
+	in := []domain.Endpoint{ep("a", "/1"), ep("a", "/2"), ep("b", "/1"), ep("b", "/2"), ep("c", "/1"), ep("c", "/2")}
 	ordered, keys, perNode := distributeRoundRobin(in)
 	assert.Equal(t, []string{"a:9000", "b:9000", "c:9000"}, keys)
 	assert.Len(t, perNode["a:9000"], 2)
-	want := []Endpoint{ep("a", "/1"), ep("b", "/1"), ep("c", "/1"), ep("a", "/2"), ep("b", "/2"), ep("c", "/2")}
+	want := []domain.Endpoint{ep("a", "/1"), ep("b", "/1"), ep("c", "/1"), ep("a", "/2"), ep("b", "/2"), ep("c", "/2")}
 	assert.Equal(t, want, ordered)
 
 	// Already interleaved input keeps its order.
@@ -139,17 +140,18 @@ func TestDistributeRoundRobin(t *testing.T) {
 	assert.Equal(t, want, ordered)
 
 	// Local paths share one node and keep their order.
-	local := []Endpoint{{Path: "/d1"}, {Path: "/d2"}, {Path: "/d3"}}
+	local := []domain.Endpoint{{Path: "/d1"}, {Path: "/d2"}, {Path: "/d3"}}
 	ordered, keys, _ = distributeRoundRobin(local)
 	assert.Equal(t, []string{""}, keys)
 	assert.Equal(t, local, ordered)
 
 	// Uneven nodes: the shorter node simply runs out.
-	uneven := []Endpoint{ep("a", "/1"), ep("a", "/2"), ep("a", "/3"), ep("b", "/1")}
+	uneven := []domain.Endpoint{ep("a", "/1"), ep("a", "/2"), ep("a", "/3"), ep("b", "/1")}
 	ordered, _, _ = distributeRoundRobin(uneven)
-	assert.Equal(t, []Endpoint{ep("a", "/1"), ep("b", "/1"), ep("a", "/2"), ep("a", "/3")}, ordered)
+	assert.Equal(t, []domain.Endpoint{ep("a", "/1"), ep("b", "/1"), ep("a", "/2"), ep("a", "/3")}, ordered)
 
-	assert.Empty(t, fmt.Sprint(mustEmpty(distributeRoundRobin(nil))))
+	ordered, keys, perNode = distributeRoundRobin(nil)
+	assert.Empty(t, ordered)
+	assert.Empty(t, keys)
+	assert.Empty(t, perNode)
 }
-
-func mustEmpty(eps []Endpoint, _ []string, _ map[string][]Endpoint) []Endpoint { return eps }

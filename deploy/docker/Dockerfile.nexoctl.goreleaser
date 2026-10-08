@@ -1,0 +1,22 @@
+# Release image for ghcr.io/r3n3r0/nexoctl, built by GoReleaser from the
+# already compiled "nexoctl" binary. For local builds from sources use
+# Dockerfile.nexoctl at the repository root instead.
+FROM --platform=$BUILDPLATFORM busybox:1.37-musl AS dirs
+RUN mkdir -p /out/home/nonroot
+
+FROM gcr.io/distroless/static-debian12:nonroot
+
+LABEL org.opencontainers.image.title="nexoctl" \
+      org.opencontainers.image.description="Command-line client for Nexo, the S3-compatible object storage server" \
+      org.opencontainers.image.url="https://github.com/r3n3r0/nexo" \
+      org.opencontainers.image.source="https://github.com/r3n3r0/nexo" \
+      org.opencontainers.image.vendor="r3n3r0"
+
+COPY nexoctl /nexoctl
+COPY --from=dirs --chown=65532:65532 /out/home/nonroot /home/nonroot
+
+USER 65532:65532
+WORKDIR /home/nonroot
+ENV HOME=/home/nonroot
+ENTRYPOINT ["/nexoctl"]
+CMD ["--help"]

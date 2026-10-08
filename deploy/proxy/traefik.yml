@@ -1,0 +1,71 @@
+# Traefik v3 static configuration for a Nexo deployment.
+# Routers and services are in traefik-dynamic.yml (file provider).
+#
+#   traefik --configFile=traefik.yml
+#
+# Important for S3 traffic: Traefik v3 defaults readTimeout to 60 s, which
+# aborts long uploads. It is disabled (0) on the entry points below.
+# Traefik passes the Host header to the backend unchanged by default
+# (passHostHeader: true) and sets X-Forwarded-* headers.
+
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+
+  websecure:
+    address: ":443"
+    transport:
+      respondingTimeouts:
+        readTimeout: 0
+        writeTimeout: 0
+        idleTimeout: 180s
+    http:
+      tls:
+        certResolver: letsencrypt
+    # Needed only when another proxy/LB sits in front of Traefik.
+    # forwardedHeaders:
+    #   trustedIPs: ["10.0.0.0/8"]
+
+providers:
+  file:
+    filename: traefik-dynamic.yml
+    watch: true
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: admin@example.com
+      storage: /etc/traefik/acme.json
+      # TLS-ALPN works for s3.example.com and console.example.com.
+      tlsChallenge: {}
+      # A wildcard certificate (*.s3.example.com, virtual-host style
+      # buckets) needs a DNS challenge instead:
+      # dnsChallenge:
+      #   provider: cloudflare
+
+serversTransport:
+  # Nexo nodes serving plain HTTP behind Traefik need nothing here. With TLS
+  # on the nodes (NEXO_CERTS_DIR), trust their CA:
+  # rootCAs:
+  #   - /etc/traefik/nexo-ca.crt
+  forwardingTimeouts:
+    dialTimeout: 5s
+    responseHeaderTimeout: 0s
+    idleConnTimeout: 90s
+  maxIdleConnsPerHost: 64
+
+api:
+  dashboard: false
+
+log:
+  level: INFO
+  format: json
+
+accessLog:
+  format: json
