@@ -1,189 +1,72 @@
 /**
  * Data transfer objects exchanged with the Admin API (/api/v1).
  *
- * Field names follow the JSON produced by the Go transport (camelCase).
- * Timestamps are RFC 3339 strings; sizes and counters are plain numbers.
+ * Every wire type is derived from the OpenAPI contract (api/openapi.yaml)
+ * through the generated `http/schema.d.ts` (`npm run gen:api`), so that the
+ * console and the Go transport cannot drift apart: a change to the contract
+ * fails `npm run typecheck` here. Field names are camelCase, timestamps are
+ * RFC 3339 strings and sizes/counters are plain numbers.
+ *
+ * The handful of types at the end are console-side inputs (not wire
+ * documents) composed from the schema types.
  */
+import type { components } from './http/schema';
+
+type Schemas = components['schemas'];
 
 /** Deployment mode as reported by GET /info (see domain.Mode). */
-export type DeploymentMode = 'snsd' | 'snmd' | 'distributed' | 'unknown';
+export type DeploymentMode = Schemas['DeploymentMode'];
 
 /** Enabled/disabled state of a user, group or access key. */
-export type CredentialStatus = 'enabled' | 'disabled';
+export type CredentialStatus = Schemas['CredentialStatus'];
 
 /** Versioning state of a bucket. */
-export type VersioningState = 'off' | 'enabled' | 'suspended';
+export type VersioningState = Schemas['VersioningState'];
 
 /** Drive and node states (see domain.State*). */
-export type ResourceState = 'online' | 'offline' | 'healing' | 'unknown';
+export type ResourceState = Schemas['ResourceState'];
 
 /** The principal behind a console session. */
-export interface SessionIdentity {
-  accessKey: string;
-  isRoot: boolean;
-  groups: string[];
-  policyNames: string[];
-}
+export type SessionIdentity = Schemas['SessionIdentity'];
 
 /** An authenticated console session (POST /auth/login, GET /auth/session). */
-export interface Session {
-  id: string;
-  accessKey: string;
-  identity: SessionIdentity;
-  issuedAt: string;
-  expiresAt: string;
-  /** Token the browser echoes in the X-CSRF-Token header on mutating requests. */
-  csrfToken: string;
-}
+export type Session = Schemas['Session'];
 
-export interface DiskInfo {
-  endpoint: string;
-  path: string;
-  id: string;
-  poolIdx: number;
-  setIdx: number;
-  diskIdx: number;
-  state: ResourceState;
-  total: number;
-  free: number;
-  used: number;
-  healing: boolean;
-  error?: string;
-}
-
-export interface NodeInfo {
-  endpoint: string;
-  state: ResourceState;
-  version: string;
-  commit: string;
-  uptimeSeconds: number;
-  disks: DiskInfo[];
-}
-
-export interface PoolInfo {
-  index: number;
-  sets: number;
-  drivesPerSet: number;
-  parity: number;
-}
+export type DiskInfo = Schemas['DiskInfo'];
+export type NodeInfo = Schemas['NodeInfo'];
+export type PoolInfo = Schemas['PoolInfo'];
 
 /** Aggregated server/cluster information (GET /info). */
-export interface ServerInfo {
-  version: string;
-  commit: string;
-  buildDate: string;
-  mode: DeploymentMode;
-  region: string;
-  deploymentId: string;
-  startedAt: string;
-  uptimeSeconds: number;
-  pools: PoolInfo[];
-  nodes: NodeInfo[];
-  buckets: number;
-  objects: number;
-  /** Logical size in bytes of all stored versions. */
-  usage: number;
-}
+export type ServerInfo = Schemas['ServerInfo'];
 
-export interface Bucket {
-  name: string;
-  created: string;
-  region: string;
-  versioning: VersioningState;
-  objectLockEnabled: boolean;
-  objects: number;
-  versions: number;
-  size: number;
-  /** Hard quota in bytes, 0 when unset. */
-  quotaBytes: number;
-  tags: Record<string, string>;
-}
+export type Bucket = Schemas['Bucket'];
+export type CreateBucketInput = Schemas['CreateBucketRequest'];
 
-export interface CreateBucketInput {
-  name: string;
-  region?: string;
-  objectLock?: boolean;
-}
+export type User = Schemas['User'];
+export type CreateUserInput = Schemas['CreateUserRequest'];
+
+export type Group = Schemas['Group'];
+export type CreateGroupInput = Schemas['CreateGroupRequest'];
+
+/** An IAM policy with its JSON document (AWS format). */
+export type Policy = Schemas['Policy'];
+export type PolicyDocument = Schemas['PolicyDocument'];
+export type PolicyStatement = Schemas['PolicyStatement'];
+
+export type AccessKey = Schemas['AccessKey'];
+/** The access key just created: the only time the secret is visible. */
+export type CreatedAccessKey = Schemas['CreatedAccessKey'];
+export type CreateAccessKeyInput = Schemas['CreateAccessKeyRequest'];
+
+/* Console-side inputs composed from the wire types. */
 
 export interface RemoveBucketOptions {
   /** Delete the bucket even when it still contains objects. */
   force?: boolean;
 }
 
-export interface User {
-  accessKey: string;
-  status: CredentialStatus;
-  policyNames: string[];
-  groups: string[];
-  createdAt: string;
-}
-
-export interface CreateUserInput {
-  accessKey: string;
-  secretKey: string;
-  policyNames?: string[];
-}
-
-export interface Group {
-  name: string;
-  status: CredentialStatus;
-  members: string[];
-  policyNames: string[];
-  createdAt: string;
-}
-
-export interface CreateGroupInput {
-  name: string;
-  members?: string[];
-  policyNames?: string[];
-}
-
-/** An IAM policy with its JSON document (AWS format). */
-export interface Policy {
-  name: string;
-  document: PolicyDocument;
-  builtIn: boolean;
-  updatedAt: string;
-}
-
-export interface PolicyDocument {
-  Version: string;
-  Statement: PolicyStatement[];
-}
-
-export interface PolicyStatement {
-  Sid?: string;
-  Effect: 'Allow' | 'Deny';
-  Action: string | string[];
-  Resource: string | string[];
-  Condition?: Record<string, Record<string, string | string[]>>;
-}
-
+/** PUT /policies/{name}: the name travels in the path, the document in the body. */
 export interface SavePolicyInput {
   name: string;
   document: PolicyDocument;
-}
-
-export interface AccessKey {
-  accessKey: string;
-  parentUser: string;
-  name: string;
-  description: string;
-  status: CredentialStatus;
-  /** Absent for non-expiring keys. */
-  expiration?: string;
-  createdAt: string;
-}
-
-/** The access key just created: the only time the secret is visible. */
-export interface CreatedAccessKey extends AccessKey {
-  secretKey: string;
-}
-
-export interface CreateAccessKeyInput {
-  parentUser?: string;
-  name?: string;
-  description?: string;
-  expiration?: string;
-  policy?: PolicyDocument;
 }

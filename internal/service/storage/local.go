@@ -10,7 +10,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -344,6 +343,9 @@ func (s *xlStorage) WriteMetadata(ctx context.Context, volume, objPath string, f
 	if err := s.ensureVolume(volume); err != nil {
 		return err
 	}
+	if err := s.checkObjectPlacement(volume, objPath); err != nil {
+		return err
+	}
 	meta, err := s.readMeta(dir)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
@@ -372,7 +374,20 @@ func (s *xlStorage) UpdateMetadata(ctx context.Context, volume, objPath string, 
 	if idx < 0 {
 		return fmt.Errorf("%w: %s/%s version %q", domain.ErrNoSuchVersion, volume, objPath, fi.VersionID)
 	}
-	meta.Versions[idx] = versionFromFileInfo(fi)
+	// A metadata update never touches the content: callers usually read the
+	// version without its inline data, so keep what is on disk.
+	old := meta.Versions[idx]
+	v := versionFromFileInfo(fi)
+	if v.Data == nil {
+		v.Data = old.Data
+	}
+	if v.DataDir == "" {
+		v.DataDir = old.DataDir
+	}
+	if len(v.Parts) == 0 {
+		v.Parts = old.Parts
+	}
+	meta.Versions[idx] = v
 	meta.sort()
 	return s.writeMeta(dir, meta, !opts.NoPersistence)
 }
@@ -393,6 +408,9 @@ func (s *xlStorage) DeleteVersion(ctx context.Context, volume, objPath string, f
 			if err := s.ensureVolume(volume); err != nil {
 				return err
 			}
+			if err := s.checkObjectPlacement(volume, objPath); err != nil {
+				return err
+			}
 			meta = &xlMeta{}
 		} else {
 			return s.notFound(volume, objPath, err)
@@ -402,8 +420,17 @@ func (s *xlStorage) DeleteVersion(ctx context.Context, volume, objPath string, f
 		marker := versionFromFileInfo(fi)
 		marker.Deleted = true
 		marker.DataDir, marker.Data, marker.Parts, marker.Size = "", nil, nil, 0
-		meta.upsert(marker)
-		return s.writeMeta(dir, meta, true)
+		replaced := meta.upsert(marker)
+		if err := s.writeMeta(dir, meta, true); err != nil {
+			return err
+		}
+		// A marker replacing the null version (suspended versioning) frees its data.
+		if replaced != nil && replaced.DataDir != "" {
+			if err := os.RemoveAll(filepath.Join(dir, replaced.DataDir)); err != nil {
+				s.deps.Logger.Warn("storage: cannot remove data dir", "path", filepath.Join(dir, replaced.DataDir), "err", err)
+			}
+		}
+		return nil
 	}
 	idx := meta.findExact(fi.VersionID)
 	if idx < 0 {
@@ -421,8 +448,7 @@ func (s *xlStorage) DeleteVersion(ctx context.Context, volume, objPath string, f
 		if err := os.Remove(filepath.Join(dir, MetaFile)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("storage: remove %s: %w", MetaFile, mapErr(err))
 		}
-		volDir, _ := s.volumeDir(volume)
-		s.pruneEmptyDirs(dir, volDir)
+		s.pruneEmptyDirs(dir, s.pruneBoundary(volume, dir))
 		return nil
 	}
 	return s.writeMeta(dir, meta, true)
@@ -449,14 +475,14 @@ func (s *xlStorage) CreateFile(ctx context.Context, volume, filePath string, siz
 	}
 	cleanup := func() { _ = tmp.Close(); _ = os.Remove(tmp.Name()) }
 	src := &ctxReader{ctx: ctx, r: r}
-	var n int64
 	if size >= 0 {
+		var n int64
 		n, err = io.Copy(tmp, io.LimitReader(src, size))
 		if err == nil && n != size {
 			err = fmt.Errorf("%w: expected %d bytes, got %d", io.ErrUnexpectedEOF, size, n)
 		}
 	} else {
-		n, err = io.Copy(tmp, src)
+		_, err = io.Copy(tmp, src)
 	}
 	if err != nil {
 		cleanup()
@@ -466,7 +492,6 @@ func (s *xlStorage) CreateFile(ctx context.Context, volume, filePath string, siz
 		cleanup()
 		return fmt.Errorf("storage: commit %s/%s: %w", volume, filePath, err)
 	}
-	_ = n
 	return nil
 }
 
@@ -510,6 +535,9 @@ func (s *xlStorage) RenameData(ctx context.Context, srcVolume, srcPath string, f
 	if err := s.ensureVolume(dstVolume); err != nil {
 		return RenameDataResult{}, err
 	}
+	if err := s.checkObjectPlacement(dstVolume, dstPath); err != nil {
+		return RenameDataResult{}, err
+	}
 	if err := os.MkdirAll(dstDir, fs.FileMode(s.opts.dirPerm)); err != nil {
 		return RenameDataResult{}, fmt.Errorf("storage: create %s: %w", dstDir, mapErr(err))
 	}
@@ -551,6 +579,72 @@ func (s *xlStorage) RenameData(ctx context.Context, srcVolume, srcPath string, f
 	}
 	copy(result.Signature[:], fi.VersionID+fi.DataDir+"....")
 	return result, nil
+}
+
+// RenameFile implements StorageAPI.
+func (s *xlStorage) RenameFile(ctx context.Context, srcVolume, srcPath, dstVolume, dstPath string) error {
+	if err := s.checkOpen(ctx); err != nil {
+		return err
+	}
+	src, err := s.filePath(srcVolume, srcPath)
+	if err != nil {
+		return err
+	}
+	dst, err := s.filePath(dstVolume, dstPath)
+	if err != nil {
+		return err
+	}
+	if err := s.ensureVolume(dstVolume); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(src); err != nil {
+		return s.notFound(srcVolume, srcPath, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), fs.FileMode(s.opts.dirPerm)); err != nil {
+		return fmt.Errorf("storage: create %s: %w", filepath.Dir(dst), mapErr(err))
+	}
+	if err := os.Rename(src, dst); err != nil {
+		return fmt.Errorf("storage: rename %s/%s to %s/%s: %w", srcVolume, srcPath, dstVolume, dstPath, mapErr(err))
+	}
+	s.syncDir(filepath.Dir(dst))
+	s.pruneEmptyDirs(filepath.Dir(src), s.pruneBoundary(srcVolume, src))
+	return nil
+}
+
+// checkObjectPlacement refuses object keys whose parent prefix is itself an
+// object ("a" exists, writing "a/b") and keys that are already a prefix with
+// children ("a/b" exists, writing "a"): both would make entries unreachable
+// through listings. Existing object directories (data dirs only) are fine.
+func (s *xlStorage) checkObjectPlacement(volume, key string) error {
+	volDir, err := s.volumeDir(volume)
+	if err != nil {
+		return err
+	}
+	dir, err := s.objectDir(volume, key)
+	if err != nil {
+		return err
+	}
+	for parent := filepath.Dir(dir); parent != volDir && strings.HasPrefix(parent, volDir+string(filepath.Separator)); parent = filepath.Dir(parent) {
+		if fileExists(filepath.Join(parent, MetaFile)) {
+			rel, _ := filepath.Rel(volDir, parent)
+			return domain.NewS3Error(domain.ErrInvalidObjectName, "XNexoParentIsObject",
+				"Object-prefix is already an object: "+filepath.ToSlash(rel)).WithResource(volume + "/" + key)
+		}
+	}
+	if strings.HasSuffix(key, "/") || fileExists(filepath.Join(dir, MetaFile)) {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil // does not exist yet (or unreadable: later operations report it)
+	}
+	for _, e := range entries {
+		if e.IsDir() && !isDataDir(e.Name()) {
+			return domain.NewS3Error(domain.ErrInvalidObjectName, "XNexoObjectExistsAsDirectory",
+				"Object name already exists as a prefix: "+key+"/").WithResource(volume + "/" + key)
+		}
+	}
+	return nil
 }
 
 // ReadAll implements StorageAPI.
@@ -606,8 +700,7 @@ func (s *xlStorage) Delete(ctx context.Context, volume, filePath string, opts De
 	} else if err := os.Remove(name); err != nil {
 		return s.notFound(volume, filePath, err)
 	}
-	volDir, _ := s.volumeDir(volume)
-	s.pruneEmptyDirs(filepath.Dir(name), volDir)
+	s.pruneEmptyDirs(filepath.Dir(name), s.pruneBoundary(volume, name))
 	return nil
 }
 
@@ -847,6 +940,25 @@ func (s *xlStorage) syncDir(dir string) {
 	_ = d.Close()
 }
 
+// pruneBoundary returns the directory below which empty parents of a path
+// may be removed: the volume directory, or the well-known top-level
+// directory (tmp, multipart, buckets, ...) inside the system volume.
+func (s *xlStorage) pruneBoundary(volume, name string) string {
+	volDir, err := s.volumeDir(volume)
+	if err != nil {
+		return name
+	}
+	if volume != domain.SystemBucket {
+		return volDir
+	}
+	rel, err := filepath.Rel(volDir, name)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return volDir
+	}
+	top := strings.SplitN(rel, string(filepath.Separator), 2)[0]
+	return filepath.Join(volDir, top)
+}
+
 // pruneEmptyDirs removes dir and its empty parents up to (excluding) stop.
 func (s *xlStorage) pruneEmptyDirs(dir, stop string) {
 	for dir != stop && strings.HasPrefix(dir, stop+string(filepath.Separator)) {
@@ -910,6 +1022,25 @@ type sectionReadCloser struct {
 
 func (r *sectionReadCloser) Close() error { return r.f.Close() }
 
+// ObjectDataPath returns the path, relative to the volume, of a part file of
+// an object version: "<key>/<dataDir>/part.N". Directory objects ("dir/")
+// keep their data under the suffixed directory used for their metadata.
+func ObjectDataPath(key, dataDir string, part int) string {
+	if strings.HasSuffix(key, "/") {
+		key = strings.TrimSuffix(key, "/") + xlDirSuffix
+	}
+	return key + "/" + dataDir + "/" + partName(part)
+}
+
+// ObjectDataDir returns the path, relative to the volume, of the data
+// directory of an object version (see ObjectDataPath).
+func ObjectDataDir(key, dataDir string) string {
+	if strings.HasSuffix(key, "/") {
+		key = strings.TrimSuffix(key, "/") + xlDirSuffix
+	}
+	return key + "/" + dataDir
+}
+
 // keyFromDirName converts an on-disk object directory name back to the key
 // segment it represents.
 func keyFromDirName(name string) (segment string, dirObject bool) {
@@ -917,16 +1048,4 @@ func keyFromDirName(name string) (segment string, dirObject bool) {
 		return strings.TrimSuffix(name, xlDirSuffix) + "/", true
 	}
 	return name, false
-}
-
-// joinKey joins a prefix (ending with a slash or empty) and a segment.
-func joinKey(prefix, segment string) string {
-	return path.Join(prefix, segment) + strings.Repeat("/", boolToInt(strings.HasSuffix(segment, "/")))
-}
-
-func boolToInt(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }

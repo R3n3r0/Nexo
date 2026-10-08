@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
@@ -8,52 +9,44 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/admin"
-	"github.com/r3n3r0/nexo/internal/service/session"
+	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
 
 // InfoDeps are the dependencies of the info routes.
 type InfoDeps struct {
 	Admin admin.Service
-	// Sessions protects the endpoints with the console session; when nil
-	// the endpoints are open (tests).
-	//
-	// TODO(M3): replace with the shared admin authorization middleware
-	// (session cookie or SigV4 + policy "admin:ServerInfo").
-	Sessions session.Service
-	Enc      httpx.Encoder
+	// Policy authorizes the admin:* actions; nil leaves the routes open (tests).
+	Policy policy.Service
+	Enc    httpx.Codec
 }
 
 type infoRoutes struct {
-	deps InfoDeps
+	deps  InfoDeps
+	authz authorizer
 }
 
 var _ InfoRoutes = (*infoRoutes)(nil)
 
-// NewInfoRoutes returns the info routes.
-func NewInfoRoutes(deps InfoDeps) InfoRoutes {
+// NewInfoRoutes returns the server information, data usage, healing and
+// service control routes.
+func NewInfoRoutes(deps InfoDeps) (InfoRoutes, error) {
+	if deps.Admin == nil {
+		return nil, fmt.Errorf("%w: info routes require the admin service", domain.ErrInvalidArgument)
+	}
 	if deps.Enc == nil {
 		deps.Enc = httpx.New()
 	}
-	return &infoRoutes{deps: deps}
+	return &infoRoutes{deps: deps, authz: authorizer{policy: deps.Policy, enc: deps.Enc}}, nil
 }
 
 // Register implements Routes.
 func (h *infoRoutes) Register(r chi.Router) {
-	r.Get("/info", h.authenticated(h.info))
-	r.Get("/usage", h.authenticated(h.usage))
-}
-
-func (h *infoRoutes) authenticated(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if h.deps.Sessions != nil {
-			if _, err := SessionFromRequest(r, h.deps.Sessions); err != nil {
-				h.deps.Enc.WriteProblem(w, r, httpx.Problem{Status: http.StatusUnauthorized, Code: "unauthenticated", Detail: "no valid session"})
-				return
-			}
-		}
-		next(w, r)
-	}
+	r.Get("/info", h.info)
+	r.Get("/usage", h.usage)
+	r.Post("/heal", h.heal)
+	r.Get("/heal/{id}", h.healStatus)
+	r.Post("/service/{action}", h.serviceAction)
 }
 
 // ServerInfoResponse is the JSON body of GET /info. It mirrors the
@@ -150,6 +143,9 @@ func newServerInfoResponse(info *domain.ServerInfo) ServerInfoResponse {
 }
 
 func (h *infoRoutes) info(w http.ResponseWriter, r *http.Request) {
+	if !h.authz.authorize(w, r, policy.ActionAdminServerInfo, "") {
+		return
+	}
 	info, err := h.deps.Admin.ServerInfo(r.Context())
 	if err != nil {
 		h.deps.Enc.WriteProblemError(w, r, err)
@@ -159,10 +155,74 @@ func (h *infoRoutes) info(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *infoRoutes) usage(w http.ResponseWriter, r *http.Request) {
+	if !h.authz.authorize(w, r, policy.ActionAdminDataUsage, "") {
+		return
+	}
 	du, err := h.deps.Admin.DataUsage(r.Context())
 	if err != nil {
 		h.deps.Enc.WriteProblemError(w, r, err)
 		return
 	}
 	h.deps.Enc.WriteJSON(w, http.StatusOK, du)
+}
+
+// HealRequest is the JSON body of POST /heal.
+type HealRequest struct {
+	Bucket    string `json:"bucket,omitempty"`
+	Prefix    string `json:"prefix,omitempty"`
+	Recursive bool   `json:"recursive,omitempty"`
+	DryRun    bool   `json:"dryRun,omitempty"`
+}
+
+func (h *infoRoutes) heal(w http.ResponseWriter, r *http.Request) {
+	if !h.authz.authorize(w, r, policy.ActionAdminHeal, "") {
+		return
+	}
+	var in HealRequest
+	if r.ContentLength != 0 {
+		if err := h.deps.Enc.DecodeJSON(r.Body, maxJSONBody, &in); err != nil {
+			h.deps.Enc.WriteProblemError(w, r, err)
+			return
+		}
+	}
+	res, err := h.deps.Admin.Heal(r.Context(), admin.HealInput{Bucket: in.Bucket, Prefix: in.Prefix, Recursive: in.Recursive, DryRun: in.DryRun})
+	if err != nil {
+		h.deps.Enc.WriteProblemError(w, r, err)
+		return
+	}
+	h.deps.Enc.WriteJSON(w, http.StatusAccepted, res)
+}
+
+func (h *infoRoutes) healStatus(w http.ResponseWriter, r *http.Request) {
+	if !h.authz.authorize(w, r, policy.ActionAdminHeal, "") {
+		return
+	}
+	res, err := h.deps.Admin.Heal(r.Context(), admin.HealInput{ID: chi.URLParam(r, "id")})
+	if err != nil {
+		h.deps.Enc.WriteProblemError(w, r, err)
+		return
+	}
+	h.deps.Enc.WriteJSON(w, http.StatusOK, res)
+}
+
+func (h *infoRoutes) serviceAction(w http.ResponseWriter, r *http.Request) {
+	action := admin.Action(chi.URLParam(r, "action"))
+	var required policy.Action
+	switch action {
+	case admin.ActionRestart:
+		required = policy.ActionAdminServiceRestart
+	case admin.ActionStop:
+		required = policy.ActionAdminServiceStop
+	default:
+		badRequest(h.deps.Enc, w, r, fmt.Sprintf("unknown service action %q", action))
+		return
+	}
+	if !h.authz.authorize(w, r, required, "") {
+		return
+	}
+	if err := h.deps.Admin.ServiceAction(r.Context(), action); err != nil {
+		h.deps.Enc.WriteProblemError(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
 }

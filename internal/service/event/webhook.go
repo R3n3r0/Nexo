@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
@@ -13,24 +14,57 @@ import (
 	"github.com/r3n3r0/nexo/internal/domain"
 )
 
+// HTTPDoer is the subset of *http.Client the webhook target needs, so that
+// tests can inject a fake transport.
+type HTTPDoer interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
+// WebhookDeps are the dependencies of the webhook target factory.
+type WebhookDeps struct {
+	// Client performs the HTTP calls (default: http.Client with a 10s timeout).
+	Client HTTPDoer
+	Logger *slog.Logger
+}
+
+// WebhookOption configures the webhook factory.
+type WebhookOption func(*webhookFactory)
+
+// WithWebhookUserAgent sets the User-Agent header of the deliveries
+// (default "nexo-webhook").
+func WithWebhookUserAgent(ua string) WebhookOption {
+	return func(f *webhookFactory) {
+		if ua != "" {
+			f.userAgent = ua
+		}
+	}
+}
+
 // webhookFactory builds webhook targets sharing one HTTP client.
 type webhookFactory struct {
-	client *http.Client
+	deps      WebhookDeps
+	userAgent string
 }
 
 var _ TargetFactory = (*webhookFactory)(nil)
 
-// NewWebhookFactory returns a factory for webhook targets. A nil client uses
-// a default one with a 10s timeout.
-func NewWebhookFactory(client *http.Client) TargetFactory {
-	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second}
+// NewWebhookFactory returns a factory for webhook targets.
+func NewWebhookFactory(deps WebhookDeps, opts ...WebhookOption) TargetFactory {
+	if deps.Client == nil {
+		deps.Client = &http.Client{Timeout: 10 * time.Second}
 	}
-	return &webhookFactory{client: client}
+	if deps.Logger == nil {
+		deps.Logger = slog.Default()
+	}
+	f := &webhookFactory{deps: deps, userAgent: "nexo-webhook"}
+	for _, o := range opts {
+		o(f)
+	}
+	return f
 }
 
 // New implements TargetFactory.
-func (f *webhookFactory) New(cfg TargetConfig) (Target, error) {
+func (f *webhookFactory) New(_ context.Context, cfg TargetConfig) (Target, error) {
 	if cfg.Type != TypeWebhook {
 		return nil, fmt.Errorf("%w: unsupported target type %q", domain.ErrInvalidArgument, cfg.Type)
 	}
@@ -38,15 +72,16 @@ func (f *webhookFactory) New(cfg TargetConfig) (Target, error) {
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return nil, fmt.Errorf("%w: webhook endpoint %q must be an http(s) URL", domain.ErrInvalidArgument, cfg.Endpoint)
 	}
-	return &webhook{id: cfg.ID, endpoint: cfg.Endpoint, token: cfg.AuthToken, client: f.client}, nil
+	return &webhook{id: cfg.ID, endpoint: cfg.Endpoint, token: cfg.AuthToken, client: f.deps.Client, userAgent: f.userAgent}, nil
 }
 
 // webhook posts events as JSON to an HTTP endpoint.
 type webhook struct {
-	id       string
-	endpoint string
-	token    string
-	client   *http.Client
+	id        string
+	endpoint  string
+	token     string
+	client    HTTPDoer
+	userAgent string
 }
 
 var _ Target = (*webhook)(nil)
@@ -76,7 +111,7 @@ func (w *webhook) Send(ctx context.Context, e Event) error {
 		return fmt.Errorf("webhook %s: build request: %w", w.id, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "nexo-webhook")
+	req.Header.Set("User-Agent", w.userAgent)
 	if w.token != "" {
 		req.Header.Set("Authorization", "Bearer "+w.token)
 	}
@@ -93,4 +128,4 @@ func (w *webhook) Send(ctx context.Context, e Event) error {
 }
 
 // Close implements Target.
-func (w *webhook) Close() error { return nil }
+func (w *webhook) Close(context.Context) error { return nil }

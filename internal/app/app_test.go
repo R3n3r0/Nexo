@@ -49,15 +49,17 @@ func TestBuildStartStop(t *testing.T) {
 	resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 
+	// Anonymous ListBuckets is refused by the policy engine with S3 XML.
 	resp, err = http.Get("http://" + app.S3Addr() + "/")
 	require.NoError(t, err)
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	assert.Equal(t, http.StatusNotImplemented, resp.StatusCode)
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 	assert.NotEmpty(t, resp.Header.Get("x-amz-request-id"))
 	var s3err httpx.S3ErrorResponse
 	require.NoError(t, xml.Unmarshal(body, &s3err))
-	assert.Equal(t, "NotImplemented", s3err.Code)
+	assert.Equal(t, "AccessDenied", s3err.Code)
+	assert.NotEmpty(t, app.DeploymentID())
 
 	resp, err = http.Get("http://" + app.ConsoleAddr() + "/buckets")
 	require.NoError(t, err)

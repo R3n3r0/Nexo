@@ -54,6 +54,10 @@ func TestMapS3ErrorTable(t *testing.T) {
 		{domain.ErrPolicyNotFound, "XNexoAdminNoSuchPolicy", 404},
 		{domain.ErrGroupNotFound, "XNexoAdminNoSuchGroup", 404},
 		{domain.ErrConflict, "XNexoConflict", 409},
+		{domain.ErrMethodNotAllowed, "MethodNotAllowed", 405},
+		{domain.ErrChecksumMismatch, "BadDigest", 400},
+		{domain.ErrUnauthenticated, "AccessDenied", 403},
+		{domain.ErrInvalidFormat, "XNexoInvalidFormat", 500},
 		{context.DeadlineExceeded, "RequestTimeout", 408},
 		{errors.New("something unexpected"), "InternalError", 500},
 		{nil, "InternalError", 500},
@@ -64,13 +68,14 @@ func TestMapS3ErrorTable(t *testing.T) {
 			name = tc.err.Error()
 		}
 		t.Run(name, func(t *testing.T) {
-			code, msg := MapS3Error(tc.err)
+			c := New()
+			code, msg := c.MapS3Error(tc.err)
 			assert.Equal(t, tc.code, code.Code)
 			assert.Equal(t, tc.status, code.HTTPStatus)
 			assert.NotEmpty(t, msg)
 			if tc.err != nil {
 				// Wrapped errors map identically.
-				wrapped, _ := MapS3Error(fmt.Errorf("layer: %w", tc.err))
+				wrapped, _ := c.MapS3Error(fmt.Errorf("layer: %w", tc.err))
 				assert.Equal(t, code, wrapped)
 			}
 		})
@@ -87,19 +92,27 @@ func TestMapS3ErrorEverySentinelIsMapped(t *testing.T) {
 		domain.ErrUserAlreadyExists, domain.ErrPolicyNotFound, domain.ErrGroupNotFound, domain.ErrNotImplemented,
 		domain.ErrStorageFull, domain.ErrDiskNotFound, domain.ErrFaultyDisk, domain.ErrReadQuorum, domain.ErrWriteQuorum,
 		domain.ErrLockTimeout, domain.ErrQuotaExceeded, domain.ErrObjectLocked, domain.ErrInvalidArgument,
-		domain.ErrMalformedXML, domain.ErrConflict,
+		domain.ErrMalformedXML, domain.ErrConflict, domain.ErrMethodNotAllowed, domain.ErrChecksumMismatch,
+		domain.ErrUnauthenticated, domain.ErrInvalidFormat, domain.ErrFormatMismatch, domain.ErrInvalidLayout,
 	}
+	c := New()
 	for _, s := range sentinels {
-		code, _ := MapS3Error(s)
-		assert.NotEqual(t, CodeInternalError, code, "sentinel %v has no S3 mapping", s)
-		p := ProblemFromError(s)
+		code, _ := c.MapS3Error(s)
+		assert.NotEqual(t, c.Codes().InternalError, code, "sentinel %v has no S3 mapping", s)
+		p := c.ProblemFromError(s)
 		assert.NotEqual(t, "internal_error", p.Code, "sentinel %v has no problem mapping", s)
 	}
+	// The code table is a copy: mutating it does not affect the codec.
+	codes := c.Codes()
+	codes.NoSuchBucket.HTTPStatus = 500
+	code, _ := c.MapS3Error(domain.ErrBucketNotFound)
+	assert.Equal(t, 404, code.HTTPStatus)
 }
 
 func TestMapS3ErrorHonoursS3Error(t *testing.T) {
+	c := New()
 	err := fmt.Errorf("complete: %w", domain.NewS3Error(domain.ErrInvalidPart, "InvalidPartNumber", "part 7 is odd").WithResource("/b/k"))
-	code, msg := MapS3Error(err)
+	code, msg := c.MapS3Error(err)
 	assert.Equal(t, "InvalidPartNumber", code.Code)
 	assert.Equal(t, http.StatusBadRequest, code.HTTPStatus)
 	assert.Equal(t, "part 7 is odd", msg)
@@ -107,22 +120,23 @@ func TestMapS3ErrorHonoursS3Error(t *testing.T) {
 	assert.Empty(t, S3ErrorResource(domain.ErrConflict))
 
 	// A code with no sentinel defaults to 400.
-	code, _ = MapS3Error(&domain.S3Error{Code: "XNexoCustom"})
+	code, _ = c.MapS3Error(&domain.S3Error{Code: "XNexoCustom"})
 	assert.Equal(t, http.StatusBadRequest, code.HTTPStatus)
 	// A message without a code keeps the sentinel code.
-	code, msg = MapS3Error(&domain.S3Error{Message: "bucket gone", Err: domain.ErrBucketNotFound})
+	code, msg = c.MapS3Error(&domain.S3Error{Message: "bucket gone", Err: domain.ErrBucketNotFound})
 	assert.Equal(t, "NoSuchBucket", code.Code)
 	assert.Equal(t, "bucket gone", msg)
 }
 
 func TestProblemFromError(t *testing.T) {
-	p := ProblemFromError(fmt.Errorf("x: %w", domain.ErrAccessDenied))
+	c := New()
+	p := c.ProblemFromError(fmt.Errorf("x: %w", domain.ErrAccessDenied))
 	assert.Equal(t, 403, p.Status)
 	assert.Equal(t, "access_denied", p.Code)
 	assert.Equal(t, "Forbidden", p.Title)
 	assert.Contains(t, p.Detail, "access denied")
 
-	p = ProblemFromError(errors.New("secret internal detail"))
+	p = c.ProblemFromError(errors.New("secret internal detail"))
 	assert.Equal(t, 500, p.Status)
 	assert.Equal(t, "internal_error", p.Code)
 	assert.Empty(t, p.Detail, "internal details must not leak")

@@ -101,8 +101,15 @@ type StorageAPI interface {
 	// ReadFileStream returns a reader over length bytes starting at offset.
 	ReadFileStream(ctx context.Context, volume, path string, offset, length int64) (io.ReadCloser, error)
 	// RenameData atomically moves the temporary data directory and metadata
-	// of fi into their final location, committing the version.
+	// of fi into their final location, committing the version. Parent
+	// prefixes that are objects, or a destination that is a prefix, are
+	// refused with domain.ErrInvalidObjectName (code XNexoParentIsObject /
+	// XNexoObjectExistsAsDirectory).
 	RenameData(ctx context.Context, srcVolume, srcPath string, fi FileInfo, dstVolume, dstPath string, opts RenameOptions) (RenameDataResult, error)
+	// RenameFile atomically moves a single file (multipart parts being
+	// assembled into an object data directory). Missing parents of the
+	// destination are created.
+	RenameFile(ctx context.Context, srcVolume, srcPath, dstVolume, dstPath string) error
 
 	// WalkDir walks the entries below opts.BaseDir in S3 key order and
 	// calls fn for each. Returning an error from fn stops the walk;

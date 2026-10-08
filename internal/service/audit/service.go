@@ -1,7 +1,5 @@
 // Package audit records who did what: one Entry per API call, delivered to
 // the configured sinks (structured log in M0, webhook/Kafka targets later).
-//
-//go:generate mockery --name Service --output ./mock --outpkg mock --with-expecter
 package audit
 
 import (

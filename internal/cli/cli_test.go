@@ -19,15 +19,20 @@ func TestDefaultConfigPathUsesHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	t.Setenv(EnvConfigDir, "")
-	p, err := DefaultConfigPath()
+	none := func(string) (string, bool) { return "", false }
+	p, err := DefaultConfigPath(none)
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(home, ConfigDirName, ConfigFileName), p)
 
-	t.Setenv(EnvConfigDir, "/custom/dir")
-	p, err = DefaultConfigPath()
+	custom := func(k string) (string, bool) { return "/custom/dir", k == EnvConfigDir }
+	p, err = DefaultConfigPath(custom)
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join("/custom/dir", ConfigFileName), p)
+
+	t.Setenv(EnvConfigDir, "/from/env")
+	p, err = DefaultConfigPath(nil)
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join("/from/env", ConfigFileName), p, "nil lookup reads the process environment")
 }
 
 func TestFileStoreRoundTripAndPermissions(t *testing.T) {
@@ -70,9 +75,7 @@ func TestFileStoreRoundTripAndPermissions(t *testing.T) {
 
 func TestAliasService(t *testing.T) {
 	ctx := context.Background()
-	t.Setenv("HOME", t.TempDir())
-	path, err := DefaultConfigPath()
-	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), ConfigDirName, ConfigFileName)
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	svc := NewAliasService(AliasDeps{Store: NewFileStore(path), Clock: clock.NewFake(now)})
 

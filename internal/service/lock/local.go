@@ -81,7 +81,7 @@ func (l *local) RUnlock(_ context.Context, resource string) error {
 }
 
 // NewNSLock implements Locker.
-func (l *local) NewNSLock(volume, path string) NSLock {
+func (l *local) NewNSLock(_ context.Context, volume, path string) NSLock {
 	return &nsLock{locker: l, resource: Resource(volume, path)}
 }
 

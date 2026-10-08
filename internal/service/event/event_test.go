@@ -25,7 +25,7 @@ func TestNameMatch(t *testing.T) {
 }
 
 func TestFilterMatches(t *testing.T) {
-	e := New(ObjectCreatedPut, "us-east-1", time.Now())
+	e := NewEvent(ObjectCreatedPut, "us-east-1", time.Now())
 	e.S3.Bucket.Name = "photos"
 	e.S3.Object.Key = "2024/img.jpg"
 
@@ -52,7 +52,7 @@ func TestDispatcherDeliversToWebhook(t *testing.T) {
 	defer srv.Close()
 
 	ctx := context.Background()
-	d := NewDispatcher(Deps{Factory: NewWebhookFactory(srv.Client())}, WithQueueSize(8))
+	d := NewDispatcher(Deps{Factory: NewWebhookFactory(WebhookDeps{Client: srv.Client()})}, WithQueueSize(8))
 	// Publishing before Start fails.
 	assert.ErrorIs(t, d.Publish(ctx, Event{}), domain.ErrConflict)
 	require.NoError(t, d.Start(ctx))
@@ -66,13 +66,13 @@ func TestDispatcherDeliversToWebhook(t *testing.T) {
 		ID: "disabled", Type: TypeWebhook, Endpoint: srv.URL, Enabled: false,
 	}))
 
-	e := New(ObjectCreatedPut, "us-east-1", time.Now())
+	e := NewEvent(ObjectCreatedPut, "us-east-1", time.Now())
 	e.S3.Bucket.Name = "photos"
 	e.S3.Object.Key = "a.jpg"
 	e.S3.Object.Size = 3
 	require.NoError(t, d.Publish(ctx, e))
 
-	other := New(ObjectRemovedDelete, "us-east-1", time.Now())
+	other := NewEvent(ObjectRemovedDelete, "us-east-1", time.Now())
 	other.S3.Bucket.Name = "photos"
 	require.NoError(t, d.Publish(ctx, other)) // filtered out
 
@@ -133,13 +133,13 @@ func TestWebhookReportsHTTPErrors(t *testing.T) {
 		http.Error(w, "nope", http.StatusBadGateway)
 	}))
 	defer srv.Close()
-	target, err := NewWebhookFactory(srv.Client()).New(TargetConfig{ID: "h", Type: TypeWebhook, Endpoint: srv.URL})
+	target, err := NewWebhookFactory(WebhookDeps{Client: srv.Client()}).New(context.Background(), TargetConfig{ID: "h", Type: TypeWebhook, Endpoint: srv.URL})
 	require.NoError(t, err)
 	assert.Equal(t, "h", target.ID())
-	err = target.Send(context.Background(), New(ObjectCreatedPut, "r", time.Now()))
+	err = target.Send(context.Background(), NewEvent(ObjectCreatedPut, "r", time.Now()))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "502")
-	assert.NoError(t, target.Close())
+	assert.NoError(t, target.Close(context.Background()))
 }
 
 func TestDispatcherQueueFull(t *testing.T) {
@@ -149,10 +149,10 @@ func TestDispatcherQueueFull(t *testing.T) {
 	defer srv.Close()
 	defer close(block)
 
-	d := NewDispatcher(Deps{Factory: NewWebhookFactory(srv.Client())}, WithQueueSize(1), WithSendTimeout(5*time.Second))
+	d := NewDispatcher(Deps{Factory: NewWebhookFactory(WebhookDeps{Client: srv.Client()})}, WithQueueSize(1), WithSendTimeout(5*time.Second))
 	require.NoError(t, d.Start(ctx))
 	require.NoError(t, d.SetTarget(ctx, TargetConfig{ID: "slow", Type: TypeWebhook, Endpoint: srv.URL, Enabled: true}))
-	e := New(ObjectCreatedPut, "r", time.Now())
+	e := NewEvent(ObjectCreatedPut, "r", time.Now())
 	// First event is picked by the worker and blocks; second fills the queue;
 	// the third must be rejected.
 	require.NoError(t, d.Publish(ctx, e))

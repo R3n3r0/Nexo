@@ -33,6 +33,18 @@ func (m *memoryStore) Save(_ context.Context, all map[string]KV) error {
 	return nil
 }
 
+// Clone returns a copy of the KV.
+func (kv KV) Clone() KV {
+	if kv == nil {
+		return nil
+	}
+	out := make(KV, len(kv))
+	for k, v := range kv {
+		out[k] = v
+	}
+	return out
+}
+
 func cloneAll(in map[string]KV) map[string]KV {
 	out := make(map[string]KV, len(in))
 	for k, v := range in {

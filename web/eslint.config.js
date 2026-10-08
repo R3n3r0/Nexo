@@ -14,7 +14,16 @@ const networkLayer = ['src/services/http/**', 'src/test/**', 'src/**/*.test.{ts,
 const compositionLayer = ['src/services/**', 'src/test/**', 'src/**/*.test.{ts,tsx}'];
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'coverage/**', 'node_modules/**', 'playwright-report/**'] },
+  {
+    ignores: [
+      'dist/**',
+      'coverage/**',
+      'node_modules/**',
+      'playwright-report/**',
+      // Generated from api/openapi.yaml by `npm run gen:api`.
+      'src/services/http/schema.d.ts',
+    ],
+  },
 
   // TypeScript sources (app + vite config).
   {

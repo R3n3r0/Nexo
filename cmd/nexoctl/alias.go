@@ -26,7 +26,7 @@ func newAliasSetCmd(deps cmdDeps) *cobra.Command {
 		Example: "  nexoctl alias set local http://localhost:9000 admin supersecret",
 		Args:    cobra.ExactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := deps.aliases()
+			svc, err := deps.aliasService()
 			if err != nil {
 				return err
 			}
@@ -63,7 +63,7 @@ func newAliasListCmd(deps cmdDeps) *cobra.Command {
 		Short:   "List aliases",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			svc, err := deps.aliases()
+			svc, err := deps.aliasService()
 			if err != nil {
 				return err
 			}
@@ -99,7 +99,7 @@ func newAliasRemoveCmd(deps cmdDeps) *cobra.Command {
 		Short:   "Remove an alias",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			svc, err := deps.aliases()
+			svc, err := deps.aliasService()
 			if err != nil {
 				return err
 			}

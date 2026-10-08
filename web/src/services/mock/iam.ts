@@ -10,6 +10,7 @@ export function sampleUsers(): User[] {
       policyNames: ['readwrite'],
       groups: ['developers'],
       createdAt: '2026-09-02T09:00:00Z',
+      updatedAt: '2026-09-02T09:00:00Z',
     },
     {
       accessKey: 'ci-bot',
@@ -17,6 +18,7 @@ export function sampleUsers(): User[] {
       policyNames: ['writeonly'],
       groups: [],
       createdAt: '2026-09-20T12:00:00Z',
+      updatedAt: '2026-09-20T12:00:00Z',
     },
   ];
 }
@@ -146,6 +148,7 @@ export function createMockUserService(ctx: MockContext, options: MockIamOptions 
           policyNames: input.policyNames ?? [],
           groups: [],
           createdAt: ctx.nowIso(),
+          updatedAt: ctx.nowIso(),
         },
         'user_already_exists',
       );

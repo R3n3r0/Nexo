@@ -1,8 +1,6 @@
 // Package admin is the facade used by the Admin API and the CLI for
 // server-wide operations: information, data usage, healing and service
 // control.
-//
-//go:generate mockery --name Service --output ./mock --outpkg mock --with-expecter
 package admin
 
 import (

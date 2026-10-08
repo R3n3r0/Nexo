@@ -1,27 +1,12 @@
 // Package config is the dynamic configuration service: key/value settings
 // grouped by subsystem (e.g. "notify_webhook", "scanner"), persisted through
 // a Store and observable through Watch.
-//
-//go:generate mockery --name Service --output ./mock --outpkg mock --with-expecter
-//go:generate mockery --name Store --output ./mock --outpkg mock --with-expecter
 package config
 
 import "context"
 
 // KV is the key/value settings of one subsystem.
 type KV map[string]string
-
-// Clone returns a copy of the KV.
-func (kv KV) Clone() KV {
-	if kv == nil {
-		return nil
-	}
-	out := make(KV, len(kv))
-	for k, v := range kv {
-		out[k] = v
-	}
-	return out
-}
 
 // Service manages the dynamic configuration.
 type Service interface {

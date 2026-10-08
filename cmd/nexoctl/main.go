@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	deps := cmdDeps{stdout: os.Stdout, stderr: os.Stderr, configPath: ""}
+	deps := cmdDeps{stdout: os.Stdout, stderr: os.Stderr, lookupEnv: os.LookupEnv}
 	if err := newRootCmd(deps).ExecuteContext(context.Background()); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)

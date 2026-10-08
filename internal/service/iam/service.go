@@ -1,7 +1,5 @@
 // Package iam manages identities: users, groups, service accounts (access
 // keys with inline policies and expiry) and STS temporary credentials.
-//
-//go:generate mockery --name Service --output ./mock --outpkg mock --with-expecter
 package iam
 
 import (

@@ -84,8 +84,8 @@ type MultipartRoutes interface {
 }
 
 // PresignedRoutes handles requests authenticated by a presigned query
-// string (X-Amz-Signature). It is mounted as a Group so that it can refuse
-// operations that must not be presigned.
+// string (X-Amz-Signature): they take precedence over the plain operations
+// of the same method and scope and delegate to the object/bucket handlers.
 type PresignedRoutes interface {
 	Routes
 	Group

@@ -1,0 +1,1275 @@
+openapi: 3.1.0
+info:
+  title: Nexo Admin API
+  version: "1"
+  description: |
+    Administration API of the Nexo object storage server, served on the console
+    listener under `/api/v1`. JSON in, JSON out; failures are RFC 9457
+    `application/problem+json` documents with a stable `code`.
+
+    Authentication: the console session cookie (`nexo_session`, issued by
+    `POST /auth/login`) plus the `X-CSRF-Token` header on state-changing
+    requests. Every endpoint maps to an `admin:*` policy action evaluated by
+    the policy engine (docs/04 §4.4).
+
+    This document is the source of the TypeScript types of the web console
+    (`web/src/services/http/schema.d.ts`, generated with `npm run gen:api`);
+    the Go transport (`internal/transport/http/admin`) is the reference
+    implementation.
+servers:
+  - url: /api/v1
+
+tags:
+  - name: session
+  - name: server
+  - name: buckets
+  - name: users
+  - name: groups
+  - name: access-keys
+  - name: policies
+  - name: config
+
+paths:
+  /auth/login:
+    post:
+      tags: [session]
+      operationId: login
+      summary: Open a console session
+      description: Public endpoint. Sets the `nexo_session` (HttpOnly) and `nexo_csrf` cookies.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: The session.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "401": { $ref: "#/components/responses/Problem" }
+  /auth/logout:
+    post:
+      tags: [session]
+      operationId: logout
+      summary: Revoke the current session and clear the cookies
+      responses:
+        "204": { description: Logged out. }
+        "401": { $ref: "#/components/responses/Problem" }
+        "403": { $ref: "#/components/responses/Problem" }
+  /auth/session:
+    get:
+      tags: [session]
+      operationId: currentSession
+      summary: Return the current session
+      responses:
+        "200":
+          description: The session.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "401": { $ref: "#/components/responses/Problem" }
+
+  /info:
+    get:
+      tags: [server]
+      operationId: serverInfo
+      summary: Server and cluster information
+      responses:
+        "200":
+          description: Server information.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServerInfo" }
+        "401": { $ref: "#/components/responses/Problem" }
+        "403": { $ref: "#/components/responses/Problem" }
+  /usage:
+    get:
+      tags: [server]
+      operationId: dataUsage
+      summary: Data usage per bucket
+      responses:
+        "200":
+          description: Data usage.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DataUsage" }
+        "403": { $ref: "#/components/responses/Problem" }
+  /heal:
+    post:
+      tags: [server]
+      operationId: startHeal
+      summary: Start a healing operation
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/HealRequest" }
+      responses:
+        "202":
+          description: The healing operation.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealResult" }
+        "403": { $ref: "#/components/responses/Problem" }
+        "501": { $ref: "#/components/responses/Problem" }
+  /heal/{id}:
+    get:
+      tags: [server]
+      operationId: healStatus
+      summary: Query a healing operation
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: The healing operation.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealResult" }
+        "404": { $ref: "#/components/responses/Problem" }
+  /service/{action}:
+    post:
+      tags: [server]
+      operationId: serviceAction
+      summary: Restart or stop the server
+      parameters:
+        - name: action
+          in: path
+          required: true
+          schema: { type: string, enum: [restart, stop] }
+      responses:
+        "202": { description: Action accepted. }
+        "400": { $ref: "#/components/responses/Problem" }
+        "403": { $ref: "#/components/responses/Problem" }
+
+  /buckets:
+    get:
+      tags: [buckets]
+      operationId: listBuckets
+      summary: List the buckets with their usage
+      parameters:
+        - { name: prefix, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: The buckets.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Bucket" }
+        "403": { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [buckets]
+      operationId: createBucket
+      summary: Create a bucket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateBucketRequest" }
+      responses:
+        "201":
+          description: The bucket.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Bucket" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    get:
+      tags: [buckets]
+      operationId: getBucket
+      summary: Get a bucket
+      responses:
+        "200":
+          description: The bucket.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Bucket" }
+        "404": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [buckets]
+      operationId: deleteBucket
+      summary: Delete a bucket
+      parameters:
+        - name: force
+          in: query
+          description: Delete the bucket even when it still contains objects.
+          schema: { type: boolean }
+      responses:
+        "204": { description: Deleted. }
+        "404": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/versioning:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    get:
+      tags: [buckets]
+      operationId: getBucketVersioning
+      summary: Get the versioning state
+      responses:
+        "200":
+          description: The versioning state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BucketVersioning" }
+    put:
+      tags: [buckets]
+      operationId: setBucketVersioning
+      summary: Set the versioning state
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BucketVersioning" }
+      responses:
+        "200":
+          description: The versioning state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BucketVersioning" }
+        "400": { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/policy:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    get:
+      tags: [buckets]
+      operationId: getBucketPolicy
+      summary: Get the bucket policy document
+      responses:
+        "200":
+          description: The policy document.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PolicyDocument" }
+        "404": { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [buckets]
+      operationId: setBucketPolicy
+      summary: Replace the bucket policy document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PolicyDocument" }
+      responses:
+        "204": { description: Stored. }
+        "400": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [buckets]
+      operationId: deleteBucketPolicy
+      summary: Remove the bucket policy
+      responses:
+        "204": { description: Removed. }
+  /buckets/{bucket}/quota:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    get:
+      tags: [buckets]
+      operationId: getBucketQuota
+      summary: Get the bucket quota
+      responses:
+        "200":
+          description: The quota.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BucketQuota" }
+    put:
+      tags: [buckets]
+      operationId: setBucketQuota
+      summary: Set the bucket quota (size 0 disables it)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BucketQuota" }
+      responses:
+        "200":
+          description: The quota.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BucketQuota" }
+  /buckets/{bucket}/tags:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    get:
+      tags: [buckets]
+      operationId: getBucketTags
+      summary: Get the bucket tags
+      responses:
+        "200":
+          description: The tags.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BucketTags" }
+    put:
+      tags: [buckets]
+      operationId: setBucketTags
+      summary: Replace the bucket tags (an empty set removes them)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BucketTags" }
+      responses:
+        "200":
+          description: The tags.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BucketTags" }
+  /buckets/{bucket}/objectlock:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    get:
+      tags: [buckets]
+      operationId: getBucketObjectLock
+      summary: Get the object lock configuration
+      responses:
+        "200":
+          description: The configuration.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BucketObjectLock" }
+    put:
+      tags: [buckets]
+      operationId: setBucketObjectLock
+      summary: Set the object lock configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BucketObjectLock" }
+      responses:
+        "200":
+          description: The configuration.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BucketObjectLock" }
+  /buckets/{bucket}/encryption:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    get:
+      tags: [buckets]
+      operationId: getBucketEncryption
+      summary: Get the default encryption
+      responses:
+        "200":
+          description: The configuration.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BucketEncryption" }
+    put:
+      tags: [buckets]
+      operationId: setBucketEncryption
+      summary: Set the default encryption
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BucketEncryption" }
+      responses:
+        "200":
+          description: The configuration.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BucketEncryption" }
+    delete:
+      tags: [buckets]
+      operationId: deleteBucketEncryption
+      summary: Remove the default encryption
+      responses:
+        "204": { description: Removed. }
+  /buckets/{bucket}/objects:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    get:
+      tags: [buckets]
+      operationId: listObjects
+      summary: List objects for the object browser
+      parameters:
+        - { name: prefix, in: query, schema: { type: string } }
+        - { name: delimiter, in: query, schema: { type: string } }
+        - name: cursor
+          in: query
+          description: The `nextCursor` of a previous truncated listing.
+          schema: { type: string }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000 } }
+      responses:
+        "200":
+          description: The listing.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ObjectList" }
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /users:
+    get:
+      tags: [users]
+      operationId: listUsers
+      summary: List the IAM users
+      responses:
+        "200":
+          description: The users.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/User" }
+    post:
+      tags: [users]
+      operationId: createUser
+      summary: Create a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateUserRequest" }
+      responses:
+        "201":
+          description: The user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+  /users/{user}:
+    parameters:
+      - { name: user, in: path, required: true, schema: { type: string }, description: The access key. }
+    get:
+      tags: [users]
+      operationId: getUser
+      summary: Get a user
+      responses:
+        "200":
+          description: The user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "404": { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [users]
+      operationId: updateUser
+      summary: Update a user (absent fields are unchanged)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateUserRequest" }
+      responses:
+        "200":
+          description: The user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "404": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [users]
+      operationId: deleteUser
+      summary: Delete a user
+      responses:
+        "204": { description: Deleted. }
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /groups:
+    get:
+      tags: [groups]
+      operationId: listGroups
+      summary: List the IAM groups
+      responses:
+        "200":
+          description: The groups.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Group" }
+    post:
+      tags: [groups]
+      operationId: createGroup
+      summary: Create a group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateGroupRequest" }
+      responses:
+        "201":
+          description: The group.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Group" }
+        "409": { $ref: "#/components/responses/Problem" }
+  /groups/{group}:
+    parameters:
+      - { name: group, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [groups]
+      operationId: getGroup
+      summary: Get a group
+      responses:
+        "200":
+          description: The group.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Group" }
+        "404": { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [groups]
+      operationId: updateGroup
+      summary: Update a group (absent fields are unchanged)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateGroupRequest" }
+      responses:
+        "200":
+          description: The group.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Group" }
+        "404": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [groups]
+      operationId: deleteGroup
+      summary: Delete a group
+      responses:
+        "204": { description: Deleted. }
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /access-keys:
+    get:
+      tags: [access-keys]
+      operationId: listAccessKeys
+      summary: List the service accounts
+      parameters:
+        - name: parent
+          in: query
+          description: Owner of the keys; root may omit it to list every key, other callers only see their own.
+          schema: { type: string }
+      responses:
+        "200":
+          description: The access keys (secrets are never listed).
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AccessKey" }
+    post:
+      tags: [access-keys]
+      operationId: createAccessKey
+      summary: Create a service account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateAccessKeyRequest" }
+      responses:
+        "201":
+          description: The access key with its secret, shown only once.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreatedAccessKey" }
+        "403": { $ref: "#/components/responses/Problem" }
+  /access-keys/{key}:
+    parameters:
+      - { name: key, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [access-keys]
+      operationId: getAccessKey
+      summary: Get a service account
+      responses:
+        "200":
+          description: The access key.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AccessKey" }
+        "404": { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [access-keys]
+      operationId: updateAccessKey
+      summary: Update a service account (absent fields are unchanged)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateAccessKeyRequest" }
+      responses:
+        "200":
+          description: The access key.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AccessKey" }
+        "404": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [access-keys]
+      operationId: deleteAccessKey
+      summary: Delete a service account
+      responses:
+        "204": { description: Deleted. }
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /policies:
+    get:
+      tags: [policies]
+      operationId: listPolicies
+      summary: List the IAM policies (built-ins first)
+      responses:
+        "200":
+          description: The policies.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Policy" }
+    post:
+      tags: [policies]
+      operationId: createPolicy
+      summary: Create a policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreatePolicyRequest" }
+      responses:
+        "201":
+          description: The policy.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Policy" }
+        "400": { $ref: "#/components/responses/Problem" }
+  /policies/attach:
+    post:
+      tags: [policies]
+      operationId: attachPolicy
+      summary: Attach policies to a user or a group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AttachRequest" }
+      responses:
+        "204": { description: Attached. }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+  /policies/detach:
+    post:
+      tags: [policies]
+      operationId: detachPolicy
+      summary: Detach policies from a user or a group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AttachRequest" }
+      responses:
+        "204": { description: Detached. }
+        "400": { $ref: "#/components/responses/Problem" }
+  /policies/{policy}:
+    parameters:
+      - { name: policy, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [policies]
+      operationId: getPolicy
+      summary: Get a policy
+      responses:
+        "200":
+          description: The policy.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Policy" }
+        "404": { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [policies]
+      operationId: savePolicy
+      summary: Create or replace a policy document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SavePolicyRequest" }
+      responses:
+        "200":
+          description: The policy.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Policy" }
+        "400": { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [policies]
+      operationId: deletePolicy
+      summary: Delete a policy (built-ins are read-only)
+      responses:
+        "204": { description: Deleted. }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+
+  /config:
+    get:
+      tags: [config]
+      operationId: listConfig
+      summary: List every configured subsystem with its settings
+      responses:
+        "200":
+          description: The subsystems, sorted by name.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ConfigSubsystem" }
+    put:
+      tags: [config]
+      operationId: mergeConfig
+      summary: Merge the settings of several subsystems
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConfigDocument" }
+      responses:
+        "204": { description: Stored. }
+  /config/export:
+    get:
+      tags: [config]
+      operationId: exportConfig
+      summary: Export the whole configuration
+      responses:
+        "200":
+          description: The configuration document.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConfigDocument" }
+  /config/import:
+    post:
+      tags: [config]
+      operationId: importConfig
+      summary: Replace the whole configuration with an exported document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConfigDocument" }
+      responses:
+        "204": { description: Imported. }
+        "400": { $ref: "#/components/responses/Problem" }
+  /config/{subsys}:
+    parameters:
+      - { name: subsys, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [config]
+      operationId: getConfigSubsystem
+      summary: Get the settings of a subsystem (empty when unset)
+      responses:
+        "200":
+          description: The subsystem.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConfigSubsystem" }
+    put:
+      tags: [config]
+      operationId: setConfigSubsystem
+      summary: Merge settings into a subsystem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConfigSubsystemRequest" }
+      responses:
+        "200":
+          description: The subsystem.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConfigSubsystem" }
+    delete:
+      tags: [config]
+      operationId: deleteConfigSubsystem
+      summary: Delete a subsystem, or only some of its keys
+      parameters:
+        - name: keys
+          in: query
+          description: Comma separated keys to remove; absent removes the whole subsystem.
+          schema: { type: string }
+      responses:
+        "204": { description: Deleted. }
+
+components:
+  parameters:
+    bucket:
+      name: bucket
+      in: path
+      required: true
+      schema: { type: string }
+
+  responses:
+    Problem:
+      description: An error, as an RFC 9457 problem document.
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+
+  schemas:
+    Problem:
+      type: object
+      required: [title, status, code]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        code:
+          type: string
+          description: Stable machine-readable error code (snake_case).
+        requestId: { type: string }
+
+    DeploymentMode:
+      type: string
+      enum: [snsd, snmd, distributed, unknown]
+    ResourceState:
+      type: string
+      enum: [online, offline, healing, unknown]
+    CredentialStatus:
+      type: string
+      enum: [enabled, disabled]
+    VersioningState:
+      type: string
+      enum: ["off", enabled, suspended]
+
+    LoginRequest:
+      type: object
+      required: [accessKey, secretKey]
+      properties:
+        accessKey: { type: string }
+        secretKey: { type: string }
+    SessionIdentity:
+      type: object
+      required: [accessKey, isRoot, groups, policyNames]
+      properties:
+        accessKey: { type: string }
+        isRoot: { type: boolean }
+        groups:
+          type: array
+          items: { type: string }
+        policyNames:
+          type: array
+          items: { type: string }
+    Session:
+      type: object
+      required: [id, accessKey, identity, issuedAt, expiresAt, csrfToken]
+      properties:
+        id: { type: string }
+        accessKey: { type: string }
+        identity: { $ref: "#/components/schemas/SessionIdentity" }
+        issuedAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        csrfToken:
+          type: string
+          description: Token the browser echoes in the X-CSRF-Token header on mutating requests.
+
+    DiskInfo:
+      type: object
+      required: [endpoint, path, id, poolIdx, setIdx, diskIdx, state, total, free, used, healing]
+      properties:
+        endpoint: { type: string }
+        path: { type: string }
+        id: { type: string }
+        poolIdx: { type: integer }
+        setIdx: { type: integer }
+        diskIdx: { type: integer }
+        state: { $ref: "#/components/schemas/ResourceState" }
+        total: { type: integer, format: int64 }
+        free: { type: integer, format: int64 }
+        used: { type: integer, format: int64 }
+        healing: { type: boolean }
+        error: { type: string }
+    NodeInfo:
+      type: object
+      required: [endpoint, state, version, commit, uptimeSeconds, disks]
+      properties:
+        endpoint: { type: string }
+        state: { $ref: "#/components/schemas/ResourceState" }
+        version: { type: string }
+        commit: { type: string }
+        uptimeSeconds: { type: integer, format: int64 }
+        disks:
+          type: array
+          items: { $ref: "#/components/schemas/DiskInfo" }
+    PoolInfo:
+      type: object
+      required: [index, sets, drivesPerSet, parity]
+      properties:
+        index: { type: integer }
+        sets: { type: integer }
+        drivesPerSet: { type: integer }
+        parity: { type: integer }
+    ServerInfo:
+      type: object
+      required:
+        [version, commit, buildDate, mode, region, deploymentId, startedAt, uptimeSeconds, buckets, objects, usage, pools, nodes]
+      properties:
+        version: { type: string }
+        commit: { type: string }
+        buildDate: { type: string }
+        mode: { $ref: "#/components/schemas/DeploymentMode" }
+        region: { type: string }
+        deploymentId: { type: string }
+        startedAt: { type: string, format: date-time }
+        uptimeSeconds: { type: integer, format: int64 }
+        buckets: { type: integer, format: int64 }
+        objects: { type: integer, format: int64 }
+        usage:
+          type: integer
+          format: int64
+          description: Logical size in bytes of all stored versions.
+        pools:
+          type: array
+          items: { $ref: "#/components/schemas/PoolInfo" }
+        nodes:
+          type: array
+          items: { $ref: "#/components/schemas/NodeInfo" }
+    BucketUsage:
+      type: object
+      required: [size, objectsCount, versionsCount, deleteMarkers]
+      properties:
+        size: { type: integer, format: int64 }
+        objectsCount: { type: integer, format: int64 }
+        versionsCount: { type: integer, format: int64 }
+        deleteMarkers: { type: integer, format: int64 }
+    DataUsage:
+      type: object
+      required: [lastUpdate, objectsCount, versionsCount, totalSize, bucketsCount, buckets]
+      properties:
+        lastUpdate: { type: string, format: date-time }
+        objectsCount: { type: integer, format: int64 }
+        versionsCount: { type: integer, format: int64 }
+        totalSize: { type: integer, format: int64 }
+        bucketsCount: { type: integer, format: int64 }
+        buckets:
+          type: object
+          additionalProperties: { $ref: "#/components/schemas/BucketUsage" }
+    HealRequest:
+      type: object
+      properties:
+        bucket: { type: string }
+        prefix: { type: string }
+        recursive: { type: boolean }
+        dryRun: { type: boolean }
+    HealResult:
+      type: object
+      required: [id, startedAt, finished, scanned, healed, failed]
+      properties:
+        id: { type: string }
+        startedAt: { type: string, format: date-time }
+        finished: { type: boolean }
+        scanned: { type: integer, format: int64 }
+        healed: { type: integer, format: int64 }
+        failed: { type: integer, format: int64 }
+
+    Bucket:
+      type: object
+      required: [name, created, region, versioning, objectLockEnabled, objects, versions, size, quotaBytes, tags]
+      properties:
+        name: { type: string }
+        created: { type: string, format: date-time }
+        region: { type: string }
+        versioning: { $ref: "#/components/schemas/VersioningState" }
+        objectLockEnabled: { type: boolean }
+        objects: { type: integer, format: int64 }
+        versions: { type: integer, format: int64 }
+        size: { type: integer, format: int64 }
+        quotaBytes:
+          type: integer
+          format: int64
+          description: Hard quota in bytes, 0 when unset.
+        tags:
+          type: object
+          additionalProperties: { type: string }
+    CreateBucketRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        region: { type: string }
+        objectLock: { type: boolean }
+    BucketVersioning:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: "#/components/schemas/VersioningState" }
+    BucketQuota:
+      type: object
+      required: [type, size]
+      properties:
+        type:
+          type: string
+          description: Enforcement type ("hard"); empty when no quota is set.
+        size:
+          type: integer
+          format: int64
+          description: Limit in bytes; 0 disables the quota.
+    BucketTags:
+      type: object
+      required: [tags]
+      properties:
+        tags:
+          type: object
+          additionalProperties: { type: string }
+    BucketObjectLock:
+      type: object
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
+        mode:
+          type: string
+          enum: [GOVERNANCE, COMPLIANCE]
+        days: { type: integer }
+        years: { type: integer }
+    BucketEncryption:
+      type: object
+      required: [algorithm]
+      properties:
+        algorithm:
+          type: string
+          description: '"AES256" (SSE-S3) or "aws:kms" (SSE-KMS).'
+        kmsKeyId: { type: string }
+    ObjectEntry:
+      type: object
+      required: [key, size, etag, lastModified, isDeleteMarker, isLatest]
+      properties:
+        key: { type: string }
+        versionId: { type: string }
+        size: { type: integer, format: int64 }
+        etag: { type: string }
+        lastModified: { type: string, format: date-time }
+        contentType: { type: string }
+        isDeleteMarker: { type: boolean }
+        isLatest: { type: boolean }
+    ObjectList:
+      type: object
+      required: [objects, prefixes, isTruncated]
+      properties:
+        objects:
+          type: array
+          items: { $ref: "#/components/schemas/ObjectEntry" }
+        prefixes:
+          type: array
+          items: { type: string }
+        isTruncated: { type: boolean }
+        nextCursor:
+          type: string
+          description: Resumes a truncated listing through the cursor query parameter.
+
+    User:
+      type: object
+      required: [accessKey, status, policyNames, groups, createdAt, updatedAt]
+      properties:
+        accessKey: { type: string }
+        status: { $ref: "#/components/schemas/CredentialStatus" }
+        policyNames:
+          type: array
+          items: { type: string }
+        groups:
+          type: array
+          items: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CreateUserRequest:
+      type: object
+      required: [accessKey, secretKey]
+      properties:
+        accessKey: { type: string }
+        secretKey: { type: string }
+        policyNames:
+          type: array
+          items: { type: string }
+        status: { $ref: "#/components/schemas/CredentialStatus" }
+    UpdateUserRequest:
+      type: object
+      properties:
+        secretKey: { type: string }
+        status: { $ref: "#/components/schemas/CredentialStatus" }
+        policyNames:
+          type: array
+          items: { type: string }
+
+    Group:
+      type: object
+      required: [name, status, members, policyNames, createdAt]
+      properties:
+        name: { type: string }
+        status: { $ref: "#/components/schemas/CredentialStatus" }
+        members:
+          type: array
+          items: { type: string }
+        policyNames:
+          type: array
+          items: { type: string }
+        createdAt: { type: string, format: date-time }
+    CreateGroupRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        members:
+          type: array
+          items: { type: string }
+        policyNames:
+          type: array
+          items: { type: string }
+    UpdateGroupRequest:
+      type: object
+      properties:
+        status: { $ref: "#/components/schemas/CredentialStatus" }
+        policyNames:
+          type: array
+          items: { type: string }
+        addMembers:
+          type: array
+          items: { type: string }
+        removeMembers:
+          type: array
+          items: { type: string }
+
+    AccessKey:
+      type: object
+      required: [accessKey, parentUser, name, description, status, createdAt]
+      properties:
+        accessKey: { type: string }
+        parentUser: { type: string }
+        name: { type: string }
+        description: { type: string }
+        status: { $ref: "#/components/schemas/CredentialStatus" }
+        expiration:
+          type: string
+          format: date-time
+          description: Absent for non-expiring keys.
+        policy: { $ref: "#/components/schemas/PolicyDocument" }
+        createdAt: { type: string, format: date-time }
+    CreatedAccessKey:
+      description: The access key just created; the only time the secret is visible.
+      allOf:
+        - $ref: "#/components/schemas/AccessKey"
+        - type: object
+          required: [secretKey]
+          properties:
+            secretKey: { type: string }
+    CreateAccessKeyRequest:
+      type: object
+      properties:
+        parentUser:
+          type: string
+          description: Owner of the key; defaults to the caller. Only root may name another user.
+        accessKey: { type: string, description: Generated when empty. }
+        secretKey: { type: string, description: Generated when empty. }
+        name: { type: string }
+        description: { type: string }
+        expiration: { type: string, format: date-time }
+        policy: { $ref: "#/components/schemas/PolicyDocument" }
+    UpdateAccessKeyRequest:
+      type: object
+      properties:
+        secretKey: { type: string }
+        name: { type: string }
+        description: { type: string }
+        status: { $ref: "#/components/schemas/CredentialStatus" }
+        expiration: { type: string, format: date-time }
+        policy: { $ref: "#/components/schemas/PolicyDocument" }
+        clearPolicy:
+          type: boolean
+          description: Remove the inline policy.
+
+    StringOrStrings:
+      description: AWS policy element that may be a single string or an array.
+      oneOf:
+        - type: string
+        - type: array
+          items: { type: string }
+    PolicyPrincipal:
+      description: '"*" or an object naming the principals.'
+      oneOf:
+        - type: string
+        - type: object
+          properties:
+            AWS: { $ref: "#/components/schemas/StringOrStrings" }
+            Service: { $ref: "#/components/schemas/StringOrStrings" }
+            Federated: { $ref: "#/components/schemas/StringOrStrings" }
+    PolicyStatement:
+      type: object
+      required: [Effect]
+      properties:
+        Sid: { type: string }
+        Effect:
+          type: string
+          enum: [Allow, Deny]
+        Principal: { $ref: "#/components/schemas/PolicyPrincipal" }
+        NotPrincipal: { $ref: "#/components/schemas/PolicyPrincipal" }
+        Action: { $ref: "#/components/schemas/StringOrStrings" }
+        NotAction: { $ref: "#/components/schemas/StringOrStrings" }
+        Resource: { $ref: "#/components/schemas/StringOrStrings" }
+        NotResource: { $ref: "#/components/schemas/StringOrStrings" }
+        Condition:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties: { $ref: "#/components/schemas/StringOrStrings" }
+    PolicyDocument:
+      type: object
+      description: An IAM or bucket policy in the AWS JSON format.
+      required: [Version, Statement]
+      properties:
+        Id: { type: string }
+        Version: { type: string }
+        Statement:
+          type: array
+          items: { $ref: "#/components/schemas/PolicyStatement" }
+    Policy:
+      type: object
+      required: [name, document, builtIn, updatedAt]
+      properties:
+        name: { type: string }
+        document: { $ref: "#/components/schemas/PolicyDocument" }
+        builtIn:
+          type: boolean
+          description: Shipped with Nexo; read-only.
+        updatedAt: { type: string, format: date-time }
+    CreatePolicyRequest:
+      type: object
+      required: [name, document]
+      properties:
+        name: { type: string }
+        document: { $ref: "#/components/schemas/PolicyDocument" }
+    SavePolicyRequest:
+      type: object
+      required: [document]
+      properties:
+        document: { $ref: "#/components/schemas/PolicyDocument" }
+    AttachRequest:
+      type: object
+      description: Exactly one of user and group is set.
+      required: [policyNames]
+      properties:
+        policyNames:
+          type: array
+          items: { type: string }
+        user: { type: string }
+        group: { type: string }
+
+    ConfigSettings:
+      type: object
+      additionalProperties: { type: string }
+    ConfigSubsystem:
+      type: object
+      required: [name, settings]
+      properties:
+        name: { type: string }
+        settings: { $ref: "#/components/schemas/ConfigSettings" }
+    ConfigSubsystemRequest:
+      type: object
+      required: [settings]
+      properties:
+        settings: { $ref: "#/components/schemas/ConfigSettings" }
+    ConfigDocument:
+      type: object
+      description: The whole configuration, keyed by subsystem.
+      additionalProperties: { $ref: "#/components/schemas/ConfigSettings" }

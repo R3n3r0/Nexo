@@ -8,12 +8,16 @@ React dashboard served by the `nexo` binary on `:9001`.
   `src/services/http/` implements them against the Admin API (`/api/v1`),
   `src/services/mock/` implements them in memory (tests and demo mode). Components only
   use `useServices()`.
+- The wire types (`src/services/types.ts`) derive from the OpenAPI contract
+  `api/openapi.yaml`: `npm run gen:api` regenerates `src/services/http/schema.d.ts`
+  (openapi-typescript) and CI fails when the generated file is stale.
 
 ```sh
 npm ci
 npm run dev            # http://localhost:5173, proxies /api and /nexo to :9001
 VITE_DEMO=1 npm run dev  # demo mode with mock services (nexoadmin / nexoadmin)
 npm run lint && npm run typecheck && npm test -- --run
+npm run gen:api        # regenerate src/services/http/schema.d.ts from ../api/openapi.yaml
 npm run build          # output in dist/, embedded with: go build -tags embedui ./...
 ```
 

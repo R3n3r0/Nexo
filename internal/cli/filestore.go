@@ -17,10 +17,17 @@ const (
 	EnvConfigDir = "NEXOCTL_CONFIG_DIR"
 )
 
+// LookupEnv reads an environment variable (os.LookupEnv or a test double).
+type LookupEnv func(key string) (string, bool)
+
 // DefaultConfigPath returns $NEXOCTL_CONFIG_DIR/config.json or
-// ~/.nexoctl/config.json.
-func DefaultConfigPath() (string, error) {
-	if dir := os.Getenv(EnvConfigDir); dir != "" {
+// ~/.nexoctl/config.json. The environment is read through lookup so that
+// commands stay testable; a nil lookup uses the process environment.
+func DefaultConfigPath(lookup LookupEnv) (string, error) {
+	if lookup == nil {
+		lookup = os.LookupEnv
+	}
+	if dir, ok := lookup(EnvConfigDir); ok && dir != "" {
 		return filepath.Join(dir, ConfigFileName), nil
 	}
 	home, err := os.UserHomeDir()

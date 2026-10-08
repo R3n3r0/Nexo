@@ -1,9 +1,6 @@
 // Package lock defines the namespace locking used to serialize access to
 // buckets and objects. The local implementation serves single-node modes;
 // the distributed one (dsync) arrives with the cluster mode.
-//
-//go:generate mockery --name Locker --output ./mock --outpkg mock --with-expecter
-//go:generate mockery --name NSLock --output ./mock --outpkg mock --with-expecter
 package lock
 
 import (
@@ -21,8 +18,9 @@ type Locker interface {
 	RUnlock(ctx context.Context, resource string) error
 
 	// NewNSLock returns a lock handle for the given volume/path, the
-	// preferred way to lock objects.
-	NewNSLock(volume, path string) NSLock
+	// preferred way to lock objects. Nothing is acquired until GetLock or
+	// GetRLock is called.
+	NewNSLock(ctx context.Context, volume, path string) NSLock
 }
 
 // NSLock is a lock handle on one namespace entry (volume + path).
@@ -41,12 +39,4 @@ type LockContext interface {
 	Context() context.Context
 	// Unlock releases the lock. It is idempotent.
 	Unlock()
-}
-
-// Resource builds the canonical resource name for a volume and path.
-func Resource(volume, path string) string {
-	if path == "" {
-		return volume
-	}
-	return volume + "/" + path
 }

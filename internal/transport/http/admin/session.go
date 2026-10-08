@@ -12,6 +12,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/session"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
+	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
 )
 
 // SessionDeps are the dependencies of the session routes.
@@ -37,8 +38,13 @@ type sessionRoutes struct {
 
 var _ SessionRoutes = (*sessionRoutes)(nil)
 
-// NewSessionRoutes returns the console session routes.
-func NewSessionRoutes(deps SessionDeps, opts ...SessionOption) SessionRoutes {
+// NewSessionRoutes returns the console session routes. Login is public;
+// the session and logout endpoints rely on the session middleware
+// (middleware.NewSessionAuth) having validated the cookie.
+func NewSessionRoutes(deps SessionDeps, opts ...SessionOption) (SessionRoutes, error) {
+	if deps.Sessions == nil {
+		return nil, fmt.Errorf("%w: session routes require the session service", domain.ErrInvalidArgument)
+	}
 	if deps.Codec == nil {
 		deps.Codec = httpx.New()
 	}
@@ -49,12 +55,16 @@ func NewSessionRoutes(deps SessionDeps, opts ...SessionOption) SessionRoutes {
 	for _, o := range opts {
 		o(h)
 	}
-	return h
+	return h, nil
+}
+
+// RegisterPublic implements PublicRoutes.
+func (h *sessionRoutes) RegisterPublic(r chi.Router) {
+	r.Post("/auth/login", h.login)
 }
 
 // Register implements Routes.
 func (h *sessionRoutes) Register(r chi.Router) {
-	r.Post("/auth/login", h.login)
 	r.Post("/auth/logout", h.logout)
 	r.Get("/auth/session", h.session)
 }
@@ -106,13 +116,13 @@ func newSessionResponse(sess *session.Session) SessionResponse {
 
 func (h *sessionRoutes) login(w http.ResponseWriter, r *http.Request) {
 	var in LoginRequest
-	if err := h.deps.Codec.DecodeJSON(r.Body, 64<<10, &in); err != nil {
+	if err := h.deps.Codec.DecodeJSON(r.Body, maxJSONBody, &in); err != nil {
 		h.deps.Codec.WriteProblemError(w, r, err)
 		return
 	}
 	sess, err := h.deps.Sessions.Login(r.Context(), in.AccessKey, in.SecretKey)
 	if err != nil {
-		if errors.Is(err, domain.ErrAccessDenied) {
+		if errors.Is(err, domain.ErrAccessDenied) || errors.Is(err, domain.ErrInvalidAccessKey) {
 			h.deps.Codec.WriteProblem(w, r, httpx.Problem{Status: http.StatusUnauthorized, Code: "invalid_credentials", Detail: "invalid access key or secret key"})
 			return
 		}
@@ -126,8 +136,8 @@ func (h *sessionRoutes) login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *sessionRoutes) session(w http.ResponseWriter, r *http.Request) {
-	sess, err := SessionFromRequest(r, h.deps.Sessions)
-	if err != nil {
+	sess := middleware.SessionFromContext(r.Context())
+	if sess == nil {
 		h.deps.Codec.WriteProblem(w, r, httpx.Problem{Status: http.StatusUnauthorized, Code: "unauthenticated", Detail: "no valid session"})
 		return
 	}
@@ -135,21 +145,16 @@ func (h *sessionRoutes) session(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *sessionRoutes) logout(w http.ResponseWriter, r *http.Request) {
-	c, err := r.Cookie(session.CookieName)
-	if err != nil {
-		h.deps.Codec.WriteProblem(w, r, httpx.Problem{Status: http.StatusUnauthorized, Code: "unauthenticated", Detail: "no session cookie"})
+	if middleware.SessionFromContext(r.Context()) == nil {
+		h.deps.Codec.WriteProblem(w, r, httpx.Problem{Status: http.StatusUnauthorized, Code: "unauthenticated", Detail: "no valid session"})
 		return
 	}
-	sess, err := h.deps.Sessions.Validate(r.Context(), c.Value)
-	if err == nil {
-		if err := h.deps.Sessions.ValidateCSRF(r.Context(), sess, r.Header.Get(session.CSRFHeader)); err != nil {
-			h.deps.Codec.WriteProblem(w, r, httpx.Problem{Status: http.StatusForbidden, Code: "invalid_csrf_token", Detail: "missing or invalid CSRF token"})
+	// The middleware validated the cookie; its value is the token to revoke.
+	if c, err := r.Cookie(session.CookieName); err == nil && c.Value != "" {
+		if err := h.deps.Sessions.Logout(r.Context(), c.Value); err != nil {
+			h.deps.Codec.WriteProblemError(w, r, fmt.Errorf("logout: %w", err))
 			return
 		}
-	}
-	if err := h.deps.Sessions.Logout(r.Context(), c.Value); err != nil {
-		h.deps.Codec.WriteProblemError(w, r, fmt.Errorf("logout: %w", err))
-		return
 	}
 	expired := h.deps.Clock.Now().Add(-time.Hour)
 	http.SetCookie(w, h.cookie(r, session.CookieName, "", expired, true))
@@ -176,22 +181,4 @@ func (h *sessionRoutes) cookie(r *http.Request, name, value string, expires time
 		c.MaxAge = -1
 	}
 	return c
-}
-
-// SessionFromRequest validates the session cookie of r.
-func SessionFromRequest(r *http.Request, sessions session.Service) (*session.Session, error) {
-	c, err := r.Cookie(session.CookieName)
-	if err != nil {
-		return nil, fmt.Errorf("%w: no session cookie", domain.ErrAccessDenied)
-	}
-	return sessions.Validate(r.Context(), c.Value)
-}
-
-// nonNil returns s, or an empty slice when s is nil, so that JSON clients
-// always receive an array.
-func nonNil(s []string) []string {
-	if s == nil {
-		return []string{}
-	}
-	return s
 }

@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
@@ -36,6 +37,13 @@ func WithSigningKey(key []byte) Option {
 			s.key = append([]byte(nil), key...)
 		}
 	}
+}
+
+// DeriveKey derives a deterministic signing key from the root credentials
+// so that every node of a deployment accepts the same session cookies.
+func DeriveKey(accessKey, secretKey string) []byte {
+	sum := sha256.Sum256([]byte("nexo-console-session\x00" + accessKey + "\x00" + secretKey))
+	return sum[:]
 }
 
 // WithTTL sets the session lifetime (default 12h).
@@ -161,8 +169,11 @@ func (s *service) Login(ctx context.Context, accessKey, secretKey string) (*Sess
 	}, nil
 }
 
-// Validate implements Service.
-func (s *service) Validate(_ context.Context, token string) (*Session, error) {
+// Validate implements Service. The token only proves who logged in: the
+// identity (groups, attached policies, status) is resolved again through
+// IAM so that revoked permissions and disabled accounts take effect
+// immediately.
+func (s *service) Validate(ctx context.Context, token string) (*Session, error) {
 	cl, err := s.parse(token)
 	if err != nil {
 		return nil, err
@@ -173,10 +184,24 @@ func (s *service) Validate(_ context.Context, token string) (*Session, error) {
 	if revoked {
 		return nil, fmt.Errorf("%w: session revoked", domain.ErrAccessDenied)
 	}
+	creds, identity, err := s.deps.IAM.LookupCredentials(ctx, cl.Subject)
+	if err != nil {
+		if errors.Is(err, domain.ErrInvalidAccessKey) || errors.Is(err, domain.ErrUserNotFound) {
+			return nil, fmt.Errorf("%w: account no longer exists", domain.ErrAccessDenied)
+		}
+		return nil, fmt.Errorf("session: lookup credentials: %w", err)
+	}
+	if !creds.IsEnabled() {
+		return nil, fmt.Errorf("%w: account disabled", domain.ErrAccessDenied)
+	}
+	if creds.IsExpired(s.deps.Clock.Now()) {
+		return nil, fmt.Errorf("%w: credentials expired", domain.ErrAccessDenied)
+	}
+	identity.AccessKey = cl.Subject
 	return &Session{
 		ID:        cl.ID,
 		AccessKey: cl.Subject,
-		Identity:  domain.Identity{AccessKey: cl.Subject, IsRoot: cl.IsRoot, Parent: cl.Parent},
+		Identity:  identity,
 		IssuedAt:  cl.IssuedAt.Time,
 		ExpiresAt: cl.ExpiresAt.Time,
 		CSRFToken: cl.CSRF,

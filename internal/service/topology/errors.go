@@ -1,16 +1,17 @@
 package topology
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/r3n3r0/nexo/internal/domain"
 )
 
-// Sentinel errors returned by the topology service. Errors caused by the
-// command line arguments wrap domain.ErrInvalidArgument so that callers can
-// treat them uniformly; all of them are enriched with fmt.Errorf("...: %w", err)
-// and matched with errors.Is.
+// Sentinel errors returned by the topology service. Every sentinel wraps a
+// domain sentinel (docs/12 §12.2 rule 5): errors caused by the command line
+// arguments wrap domain.ErrInvalidArgument, layout errors wrap
+// domain.ErrInvalidLayout and format.json errors wrap domain.ErrInvalidFormat
+// or domain.ErrFormatMismatch, so that callers and transports can treat them
+// uniformly while tests keep matching the specific sentinel with errors.Is.
 var (
 	// ErrNoEndpoints is returned when no argument was given.
 	ErrNoEndpoints = fmt.Errorf("%w: topology: no endpoints specified", domain.ErrInvalidArgument)
@@ -47,15 +48,15 @@ var (
 	ErrAmbiguousLocalNode = fmt.Errorf("%w: topology: more than one node resolves to the local host", domain.ErrInvalidArgument)
 
 	// ErrInvalidLayout is returned by Layout.Validate for an inconsistent layout.
-	ErrInvalidLayout = errors.New("topology: invalid layout")
+	ErrInvalidLayout = fmt.Errorf("%w: topology: invalid layout", domain.ErrInvalidLayout)
 	// ErrInvalidFormat is returned for a malformed format.json document.
-	ErrInvalidFormat = errors.New("topology: invalid format.json")
+	ErrInvalidFormat = fmt.Errorf("%w: topology: invalid format.json", domain.ErrInvalidFormat)
 	// ErrFormatVersion is returned for an unsupported format.json version.
-	ErrFormatVersion = errors.New("topology: unsupported format.json version")
+	ErrFormatVersion = fmt.Errorf("%w: topology: unsupported format.json version", domain.ErrInvalidFormat)
 	// ErrFormatMismatch is returned when the formats of different drives disagree.
-	ErrFormatMismatch = errors.New("topology: format.json mismatch between drives")
+	ErrFormatMismatch = fmt.Errorf("%w: topology: format.json mismatch between drives", domain.ErrFormatMismatch)
 	// ErrFormatModeMismatch is returned when a drive formatted in one mode is used in another.
-	ErrFormatModeMismatch = errors.New("topology: format.json mode is incompatible with the deployment mode")
+	ErrFormatModeMismatch = fmt.Errorf("%w: topology: format.json mode is incompatible with the deployment mode", domain.ErrFormatMismatch)
 	// ErrFormatLayoutMismatch is returned when format.json sets do not match the pool layout.
-	ErrFormatLayoutMismatch = errors.New("topology: format.json sets do not match the pool layout")
+	ErrFormatLayoutMismatch = fmt.Errorf("%w: topology: format.json sets do not match the pool layout", domain.ErrFormatMismatch)
 )

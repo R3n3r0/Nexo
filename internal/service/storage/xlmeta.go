@@ -112,6 +112,12 @@ func (m *xlMeta) find(versionID string) int {
 		}
 		return 0
 	}
+	return m.findExact(versionID)
+}
+
+// findExact returns the index of the version whose id is exactly versionID
+// (the empty id matches the null version), or -1.
+func (m *xlMeta) findExact(versionID string) int {
 	for i, v := range m.Versions {
 		if v.ID == versionID {
 			return i
@@ -120,10 +126,12 @@ func (m *xlMeta) find(versionID string) int {
 	return -1
 }
 
-// upsert replaces the version with the same id or inserts a new one, then
-// re-sorts the versions by descending modification time.
+// upsert replaces the version with the same id (the empty id is the null
+// version of unversioned or suspended buckets) or inserts a new one, then
+// re-sorts the versions by descending modification time. It returns the
+// replaced version, if any.
 func (m *xlMeta) upsert(v xlVersion) (replaced *xlVersion) {
-	if i := m.find(v.ID); i >= 0 && (v.ID != "" || len(m.Versions) > 0 && m.Versions[i].ID == "") {
+	if i := m.findExact(v.ID); i >= 0 {
 		old := m.Versions[i]
 		replaced = &old
 		m.Versions[i] = v
@@ -145,6 +153,26 @@ func (m *xlMeta) sort() {
 	sort.SliceStable(m.Versions, func(i, j int) bool {
 		return m.Versions[i].ModTime.After(m.Versions[j].ModTime)
 	})
+}
+
+// fileInfos returns every version as a FileInfo, latest first, without
+// inline data.
+func (m *xlMeta) fileInfos(volume, name string) []FileInfo {
+	out := make([]FileInfo, 0, len(m.Versions))
+	for i := range m.Versions {
+		out = append(out, m.fileInfoAt(i, volume, name, false))
+	}
+	return out
+}
+
+// DecodeFileInfos decodes a raw xl.meta document (as produced by WalkDir)
+// into the FileInfos of its versions, latest first, without inline data.
+func DecodeFileInfos(volume, name string, raw []byte) ([]FileInfo, error) {
+	m, err := decodeXLMeta(raw)
+	if err != nil {
+		return nil, err
+	}
+	return m.fileInfos(volume, name), nil
 }
 
 // fileInfoAt builds the FileInfo of version i with the positional fields

@@ -20,8 +20,17 @@ func WithoutRuntimeCollectors() Option {
 	return func(o *options) { o.runtimeCollectors = false }
 }
 
-// New returns a fresh Prometheus registry with the Go runtime and process
-// collectors registered.
+// registry is the Registry implementation: a Prometheus registry owned by
+// the service, so that the composition root never handles the external type
+// directly.
+type registry struct {
+	*prometheus.Registry
+}
+
+var _ Registry = (*registry)(nil)
+
+// New returns a fresh registry with the Go runtime and process collectors
+// registered.
 func New(_ Deps, opts ...Option) Registry {
 	o := options{runtimeCollectors: true}
 	for _, opt := range opts {
@@ -31,7 +40,5 @@ func New(_ Deps, opts ...Option) Registry {
 	if o.runtimeCollectors {
 		reg.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	}
-	return reg
+	return &registry{Registry: reg}
 }
-
-var _ Registry = (*prometheus.Registry)(nil)

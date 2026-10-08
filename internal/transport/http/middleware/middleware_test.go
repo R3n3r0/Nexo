@@ -14,9 +14,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/r3n3r0/nexo/internal/domain"
+	authmock "github.com/r3n3r0/nexo/internal/service/auth/mock"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
@@ -175,18 +177,6 @@ func TestMetrics(t *testing.T) {
 	assert.True(t, found["nexo_http_requests_in_flight"])
 }
 
-type fakeVerifier struct {
-	id  *domain.Identity
-	err error
-}
-
-func (f fakeVerifier) Verify(context.Context, *http.Request) (*domain.Identity, error) {
-	return f.id, f.err
-}
-func (f fakeVerifier) VerifyPresigned(context.Context, *http.Request) (*domain.Identity, error) {
-	return f.id, f.err
-}
-
 func TestAuth(t *testing.T) {
 	var got *domain.Identity
 	var ok bool
@@ -200,12 +190,18 @@ func TestAuth(t *testing.T) {
 	assert.True(t, got.IsAnonymous)
 
 	// Verified identity.
-	v := verifierAdapter{fakeVerifier{id: &domain.Identity{AccessKey: "alice"}}}
+	v := authmock.NewVerifier(t)
+	v.EXPECT().Verify(mock.Anything, mock.Anything).Return(&domain.Identity{AccessKey: "alice"}, nil).Once()
 	NewAuth(v, nil).Wrap(capture).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
 	assert.Equal(t, "alice", got.AccessKey)
 
+	// A nil identity without error is anonymous.
+	v.EXPECT().Verify(mock.Anything, mock.Anything).Return(nil, nil).Once()
+	NewAuth(v, nil).Wrap(capture).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+	assert.True(t, got.IsAnonymous)
+
 	// Failure writes the S3 error.
-	v = verifierAdapter{fakeVerifier{err: fmt.Errorf("sig: %w", domain.ErrSignatureMismatch)}}
+	v.EXPECT().Verify(mock.Anything, mock.Anything).Return(nil, fmt.Errorf("sig: %w", domain.ErrSignatureMismatch)).Once()
 	rec := httptest.NewRecorder()
 	NewAuth(v, nil).Wrap(capture).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/b", nil))
 	assert.Equal(t, http.StatusForbidden, rec.Code)

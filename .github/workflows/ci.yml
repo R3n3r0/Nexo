@@ -43,6 +43,11 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      - name: go generate is a no-op (mocks are up to date)
+        run: |
+          go generate ./...
+          git diff --exit-code -- '*.go' || { echo "generated mocks are stale: run go generate ./..."; exit 1; }
+
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
@@ -105,6 +110,11 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Generated API types are up to date
+        run: |
+          npm run gen:api
+          git diff --exit-code -- src/services/http/schema.d.ts || { echo "schema.d.ts is stale: run npm run gen:api"; exit 1; }
 
       - name: Unit tests
         run: npm test -- --run --coverage
@@ -280,7 +290,9 @@ jobs:
             deploy/proxy/*.yml \
             .github/workflows/*.yml \
             .github/dependabot.yml \
-            .goreleaser.yaml
+            .goreleaser.yaml \
+            .mockery.yaml \
+            api/openapi.yaml
 
       - name: Compose files validate
         run: |
