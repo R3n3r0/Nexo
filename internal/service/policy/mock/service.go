@@ -24,6 +24,68 @@ func (_m *Service) EXPECT() *Service_Expecter {
 	return &Service_Expecter{mock: &_m.Mock}
 }
 
+// ApplyPublicPreset provides a mock function with given fields: ctx, current, bucket, prefix, preset
+func (_m *Service) ApplyPublicPreset(ctx context.Context, current *domain.Policy, bucket string, prefix string, preset policy.Preset) (*domain.Policy, error) {
+	ret := _m.Called(ctx, current, bucket, prefix, preset)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ApplyPublicPreset")
+	}
+
+	var r0 *domain.Policy
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *domain.Policy, string, string, policy.Preset) (*domain.Policy, error)); ok {
+		return rf(ctx, current, bucket, prefix, preset)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *domain.Policy, string, string, policy.Preset) *domain.Policy); ok {
+		r0 = rf(ctx, current, bucket, prefix, preset)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*domain.Policy)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *domain.Policy, string, string, policy.Preset) error); ok {
+		r1 = rf(ctx, current, bucket, prefix, preset)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_ApplyPublicPreset_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ApplyPublicPreset'
+type Service_ApplyPublicPreset_Call struct {
+	*mock.Call
+}
+
+// ApplyPublicPreset is a helper method to define mock.On call
+//   - ctx context.Context
+//   - current *domain.Policy
+//   - bucket string
+//   - prefix string
+//   - preset policy.Preset
+func (_e *Service_Expecter) ApplyPublicPreset(ctx interface{}, current interface{}, bucket interface{}, prefix interface{}, preset interface{}) *Service_ApplyPublicPreset_Call {
+	return &Service_ApplyPublicPreset_Call{Call: _e.mock.On("ApplyPublicPreset", ctx, current, bucket, prefix, preset)}
+}
+
+func (_c *Service_ApplyPublicPreset_Call) Run(run func(ctx context.Context, current *domain.Policy, bucket string, prefix string, preset policy.Preset)) *Service_ApplyPublicPreset_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*domain.Policy), args[2].(string), args[3].(string), args[4].(policy.Preset))
+	})
+	return _c
+}
+
+func (_c *Service_ApplyPublicPreset_Call) Return(_a0 *domain.Policy, _a1 error) *Service_ApplyPublicPreset_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_ApplyPublicPreset_Call) RunAndReturn(run func(context.Context, *domain.Policy, string, string, policy.Preset) (*domain.Policy, error)) *Service_ApplyPublicPreset_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Attach provides a mock function with given fields: ctx, in
 func (_m *Service) Attach(ctx context.Context, in policy.AttachInput) error {
 	ret := _m.Called(ctx, in)
@@ -165,6 +227,112 @@ func (_c *Service_Detach_Call) RunAndReturn(run func(context.Context, policy.Att
 	return _c
 }
 
+// DetectPreset provides a mock function with given fields: ctx, p, bucket, prefix
+func (_m *Service) DetectPreset(ctx context.Context, p *domain.Policy, bucket string, prefix string) policy.Preset {
+	ret := _m.Called(ctx, p, bucket, prefix)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DetectPreset")
+	}
+
+	var r0 policy.Preset
+	if rf, ok := ret.Get(0).(func(context.Context, *domain.Policy, string, string) policy.Preset); ok {
+		r0 = rf(ctx, p, bucket, prefix)
+	} else {
+		r0 = ret.Get(0).(policy.Preset)
+	}
+
+	return r0
+}
+
+// Service_DetectPreset_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DetectPreset'
+type Service_DetectPreset_Call struct {
+	*mock.Call
+}
+
+// DetectPreset is a helper method to define mock.On call
+//   - ctx context.Context
+//   - p *domain.Policy
+//   - bucket string
+//   - prefix string
+func (_e *Service_Expecter) DetectPreset(ctx interface{}, p interface{}, bucket interface{}, prefix interface{}) *Service_DetectPreset_Call {
+	return &Service_DetectPreset_Call{Call: _e.mock.On("DetectPreset", ctx, p, bucket, prefix)}
+}
+
+func (_c *Service_DetectPreset_Call) Run(run func(ctx context.Context, p *domain.Policy, bucket string, prefix string)) *Service_DetectPreset_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*domain.Policy), args[2].(string), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *Service_DetectPreset_Call) Return(_a0 policy.Preset) *Service_DetectPreset_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Service_DetectPreset_Call) RunAndReturn(run func(context.Context, *domain.Policy, string, string) policy.Preset) *Service_DetectPreset_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Entities provides a mock function with given fields: ctx, name
+func (_m *Service) Entities(ctx context.Context, name string) (policy.PolicyEntities, error) {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Entities")
+	}
+
+	var r0 policy.PolicyEntities
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (policy.PolicyEntities, error)); ok {
+		return rf(ctx, name)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) policy.PolicyEntities); ok {
+		r0 = rf(ctx, name)
+	} else {
+		r0 = ret.Get(0).(policy.PolicyEntities)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, name)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_Entities_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Entities'
+type Service_Entities_Call struct {
+	*mock.Call
+}
+
+// Entities is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+func (_e *Service_Expecter) Entities(ctx interface{}, name interface{}) *Service_Entities_Call {
+	return &Service_Entities_Call{Call: _e.mock.On("Entities", ctx, name)}
+}
+
+func (_c *Service_Entities_Call) Run(run func(ctx context.Context, name string)) *Service_Entities_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *Service_Entities_Call) Return(_a0 policy.PolicyEntities, _a1 error) *Service_Entities_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_Entities_Call) RunAndReturn(run func(context.Context, string) (policy.PolicyEntities, error)) *Service_Entities_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Evaluate provides a mock function with given fields: ctx, args
 func (_m *Service) Evaluate(ctx context.Context, args policy.Args) (policy.Decision, error) {
 	ret := _m.Called(ctx, args)
@@ -218,6 +386,67 @@ func (_c *Service_Evaluate_Call) Return(_a0 policy.Decision, _a1 error) *Service
 }
 
 func (_c *Service_Evaluate_Call) RunAndReturn(run func(context.Context, policy.Args) (policy.Decision, error)) *Service_Evaluate_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GeneratePublicPolicy provides a mock function with given fields: ctx, bucket, prefix, preset
+func (_m *Service) GeneratePublicPolicy(ctx context.Context, bucket string, prefix string, preset policy.Preset) (*domain.Policy, error) {
+	ret := _m.Called(ctx, bucket, prefix, preset)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GeneratePublicPolicy")
+	}
+
+	var r0 *domain.Policy
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, policy.Preset) (*domain.Policy, error)); ok {
+		return rf(ctx, bucket, prefix, preset)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, policy.Preset) *domain.Policy); ok {
+		r0 = rf(ctx, bucket, prefix, preset)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*domain.Policy)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, policy.Preset) error); ok {
+		r1 = rf(ctx, bucket, prefix, preset)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_GeneratePublicPolicy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GeneratePublicPolicy'
+type Service_GeneratePublicPolicy_Call struct {
+	*mock.Call
+}
+
+// GeneratePublicPolicy is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - prefix string
+//   - preset policy.Preset
+func (_e *Service_Expecter) GeneratePublicPolicy(ctx interface{}, bucket interface{}, prefix interface{}, preset interface{}) *Service_GeneratePublicPolicy_Call {
+	return &Service_GeneratePublicPolicy_Call{Call: _e.mock.On("GeneratePublicPolicy", ctx, bucket, prefix, preset)}
+}
+
+func (_c *Service_GeneratePublicPolicy_Call) Run(run func(ctx context.Context, bucket string, prefix string, preset policy.Preset)) *Service_GeneratePublicPolicy_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(policy.Preset))
+	})
+	return _c
+}
+
+func (_c *Service_GeneratePublicPolicy_Call) Return(_a0 *domain.Policy, _a1 error) *Service_GeneratePublicPolicy_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_GeneratePublicPolicy_Call) RunAndReturn(run func(context.Context, string, string, policy.Preset) (*domain.Policy, error)) *Service_GeneratePublicPolicy_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -281,6 +510,101 @@ func (_c *Service_GetPolicy_Call) RunAndReturn(run func(context.Context, string)
 	return _c
 }
 
+// IsPublic provides a mock function with given fields: ctx, p
+func (_m *Service) IsPublic(ctx context.Context, p *domain.Policy) bool {
+	ret := _m.Called(ctx, p)
+
+	if len(ret) == 0 {
+		panic("no return value specified for IsPublic")
+	}
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func(context.Context, *domain.Policy) bool); ok {
+		r0 = rf(ctx, p)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	return r0
+}
+
+// Service_IsPublic_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IsPublic'
+type Service_IsPublic_Call struct {
+	*mock.Call
+}
+
+// IsPublic is a helper method to define mock.On call
+//   - ctx context.Context
+//   - p *domain.Policy
+func (_e *Service_Expecter) IsPublic(ctx interface{}, p interface{}) *Service_IsPublic_Call {
+	return &Service_IsPublic_Call{Call: _e.mock.On("IsPublic", ctx, p)}
+}
+
+func (_c *Service_IsPublic_Call) Run(run func(ctx context.Context, p *domain.Policy)) *Service_IsPublic_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*domain.Policy))
+	})
+	return _c
+}
+
+func (_c *Service_IsPublic_Call) Return(_a0 bool) *Service_IsPublic_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Service_IsPublic_Call) RunAndReturn(run func(context.Context, *domain.Policy) bool) *Service_IsPublic_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListBuiltin provides a mock function with given fields: ctx
+func (_m *Service) ListBuiltin(ctx context.Context) []policy.Named {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListBuiltin")
+	}
+
+	var r0 []policy.Named
+	if rf, ok := ret.Get(0).(func(context.Context) []policy.Named); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]policy.Named)
+		}
+	}
+
+	return r0
+}
+
+// Service_ListBuiltin_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListBuiltin'
+type Service_ListBuiltin_Call struct {
+	*mock.Call
+}
+
+// ListBuiltin is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *Service_Expecter) ListBuiltin(ctx interface{}) *Service_ListBuiltin_Call {
+	return &Service_ListBuiltin_Call{Call: _e.mock.On("ListBuiltin", ctx)}
+}
+
+func (_c *Service_ListBuiltin_Call) Run(run func(ctx context.Context)) *Service_ListBuiltin_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *Service_ListBuiltin_Call) Return(_a0 []policy.Named) *Service_ListBuiltin_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Service_ListBuiltin_Call) RunAndReturn(run func(context.Context) []policy.Named) *Service_ListBuiltin_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListPolicies provides a mock function with given fields: ctx
 func (_m *Service) ListPolicies(ctx context.Context) ([]policy.Named, error) {
 	ret := _m.Called(ctx)
@@ -335,6 +659,56 @@ func (_c *Service_ListPolicies_Call) Return(_a0 []policy.Named, _a1 error) *Serv
 }
 
 func (_c *Service_ListPolicies_Call) RunAndReturn(run func(context.Context) ([]policy.Named, error)) *Service_ListPolicies_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListPublicAccess provides a mock function with given fields: ctx, p, bucket
+func (_m *Service) ListPublicAccess(ctx context.Context, p *domain.Policy, bucket string) []policy.PublicAccessRule {
+	ret := _m.Called(ctx, p, bucket)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListPublicAccess")
+	}
+
+	var r0 []policy.PublicAccessRule
+	if rf, ok := ret.Get(0).(func(context.Context, *domain.Policy, string) []policy.PublicAccessRule); ok {
+		r0 = rf(ctx, p, bucket)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]policy.PublicAccessRule)
+		}
+	}
+
+	return r0
+}
+
+// Service_ListPublicAccess_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListPublicAccess'
+type Service_ListPublicAccess_Call struct {
+	*mock.Call
+}
+
+// ListPublicAccess is a helper method to define mock.On call
+//   - ctx context.Context
+//   - p *domain.Policy
+//   - bucket string
+func (_e *Service_Expecter) ListPublicAccess(ctx interface{}, p interface{}, bucket interface{}) *Service_ListPublicAccess_Call {
+	return &Service_ListPublicAccess_Call{Call: _e.mock.On("ListPublicAccess", ctx, p, bucket)}
+}
+
+func (_c *Service_ListPublicAccess_Call) Run(run func(ctx context.Context, p *domain.Policy, bucket string)) *Service_ListPublicAccess_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*domain.Policy), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *Service_ListPublicAccess_Call) Return(_a0 []policy.PublicAccessRule) *Service_ListPublicAccess_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Service_ListPublicAccess_Call) RunAndReturn(run func(context.Context, *domain.Policy, string) []policy.PublicAccessRule) *Service_ListPublicAccess_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -398,6 +772,66 @@ func (_c *Service_Parse_Call) RunAndReturn(run func(context.Context, []byte) (*d
 	return _c
 }
 
+// ParseBucketPolicy provides a mock function with given fields: ctx, bucket, raw
+func (_m *Service) ParseBucketPolicy(ctx context.Context, bucket string, raw []byte) (*domain.Policy, error) {
+	ret := _m.Called(ctx, bucket, raw)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ParseBucketPolicy")
+	}
+
+	var r0 *domain.Policy
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, []byte) (*domain.Policy, error)); ok {
+		return rf(ctx, bucket, raw)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, []byte) *domain.Policy); ok {
+		r0 = rf(ctx, bucket, raw)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*domain.Policy)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, []byte) error); ok {
+		r1 = rf(ctx, bucket, raw)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_ParseBucketPolicy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ParseBucketPolicy'
+type Service_ParseBucketPolicy_Call struct {
+	*mock.Call
+}
+
+// ParseBucketPolicy is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - raw []byte
+func (_e *Service_Expecter) ParseBucketPolicy(ctx interface{}, bucket interface{}, raw interface{}) *Service_ParseBucketPolicy_Call {
+	return &Service_ParseBucketPolicy_Call{Call: _e.mock.On("ParseBucketPolicy", ctx, bucket, raw)}
+}
+
+func (_c *Service_ParseBucketPolicy_Call) Run(run func(ctx context.Context, bucket string, raw []byte)) *Service_ParseBucketPolicy_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].([]byte))
+	})
+	return _c
+}
+
+func (_c *Service_ParseBucketPolicy_Call) Return(_a0 *domain.Policy, _a1 error) *Service_ParseBucketPolicy_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_ParseBucketPolicy_Call) RunAndReturn(run func(context.Context, string, []byte) (*domain.Policy, error)) *Service_ParseBucketPolicy_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SetPolicy provides a mock function with given fields: ctx, name, p
 func (_m *Service) SetPolicy(ctx context.Context, name string, p *domain.Policy) error {
 	ret := _m.Called(ctx, name, p)
@@ -446,6 +880,63 @@ func (_c *Service_SetPolicy_Call) RunAndReturn(run func(context.Context, string,
 	return _c
 }
 
+// Simulate provides a mock function with given fields: ctx, args
+func (_m *Service) Simulate(ctx context.Context, args policy.Args) (policy.Decision, error) {
+	ret := _m.Called(ctx, args)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Simulate")
+	}
+
+	var r0 policy.Decision
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, policy.Args) (policy.Decision, error)); ok {
+		return rf(ctx, args)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, policy.Args) policy.Decision); ok {
+		r0 = rf(ctx, args)
+	} else {
+		r0 = ret.Get(0).(policy.Decision)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, policy.Args) error); ok {
+		r1 = rf(ctx, args)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_Simulate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Simulate'
+type Service_Simulate_Call struct {
+	*mock.Call
+}
+
+// Simulate is a helper method to define mock.On call
+//   - ctx context.Context
+//   - args policy.Args
+func (_e *Service_Expecter) Simulate(ctx interface{}, args interface{}) *Service_Simulate_Call {
+	return &Service_Simulate_Call{Call: _e.mock.On("Simulate", ctx, args)}
+}
+
+func (_c *Service_Simulate_Call) Run(run func(ctx context.Context, args policy.Args)) *Service_Simulate_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(policy.Args))
+	})
+	return _c
+}
+
+func (_c *Service_Simulate_Call) Return(_a0 policy.Decision, _a1 error) *Service_Simulate_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_Simulate_Call) RunAndReturn(run func(context.Context, policy.Args) (policy.Decision, error)) *Service_Simulate_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Validate provides a mock function with given fields: ctx, p
 func (_m *Service) Validate(ctx context.Context, p *domain.Policy) error {
 	ret := _m.Called(ctx, p)
@@ -489,6 +980,54 @@ func (_c *Service_Validate_Call) Return(_a0 error) *Service_Validate_Call {
 }
 
 func (_c *Service_Validate_Call) RunAndReturn(run func(context.Context, *domain.Policy) error) *Service_Validate_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ValidateBucketPolicy provides a mock function with given fields: ctx, bucket, p
+func (_m *Service) ValidateBucketPolicy(ctx context.Context, bucket string, p *domain.Policy) error {
+	ret := _m.Called(ctx, bucket, p)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ValidateBucketPolicy")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, *domain.Policy) error); ok {
+		r0 = rf(ctx, bucket, p)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Service_ValidateBucketPolicy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ValidateBucketPolicy'
+type Service_ValidateBucketPolicy_Call struct {
+	*mock.Call
+}
+
+// ValidateBucketPolicy is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - p *domain.Policy
+func (_e *Service_Expecter) ValidateBucketPolicy(ctx interface{}, bucket interface{}, p interface{}) *Service_ValidateBucketPolicy_Call {
+	return &Service_ValidateBucketPolicy_Call{Call: _e.mock.On("ValidateBucketPolicy", ctx, bucket, p)}
+}
+
+func (_c *Service_ValidateBucketPolicy_Call) Run(run func(ctx context.Context, bucket string, p *domain.Policy)) *Service_ValidateBucketPolicy_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(*domain.Policy))
+	})
+	return _c
+}
+
+func (_c *Service_ValidateBucketPolicy_Call) Return(_a0 error) *Service_ValidateBucketPolicy_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Service_ValidateBucketPolicy_Call) RunAndReturn(run func(context.Context, string, *domain.Policy) error) *Service_ValidateBucketPolicy_Call {
 	_c.Call.Return(run)
 	return _c
 }

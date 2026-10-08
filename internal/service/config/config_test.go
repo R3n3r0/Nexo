@@ -1,4 +1,4 @@
-package config
+package config_test
 
 import (
 	"context"
@@ -7,35 +7,31 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/config"
+	configmock "github.com/r3n3r0/nexo/internal/service/config/mock"
 )
-
-type failingStore struct {
-	Store
-	err error
-}
-
-func (f failingStore) Save(context.Context, map[string]KV) error { return f.err }
 
 func TestServiceGetSetDelete(t *testing.T) {
 	ctx := context.Background()
-	store := NewMemoryStore(map[string]KV{"scanner": {"speed": "fast"}})
-	svc := New(Deps{Store: store})
+	store := config.NewMemoryStore(map[string]config.KV{"scanner": {"speed": "fast"}})
+	svc := config.New(config.Deps{Store: store})
 
 	kv, err := svc.Get(ctx, "scanner")
 	require.NoError(t, err)
-	assert.Equal(t, KV{"speed": "fast"}, kv)
+	assert.Equal(t, config.KV{"speed": "fast"}, kv)
 
 	missing, err := svc.Get(ctx, "nope")
 	require.NoError(t, err)
-	assert.Equal(t, KV{}, missing)
+	assert.Equal(t, config.KV{}, missing)
 
-	require.NoError(t, svc.Set(ctx, "scanner", KV{"delay": "10"}))
+	require.NoError(t, svc.Set(ctx, "scanner", config.KV{"delay": "10"}))
 	kv, err = svc.Get(ctx, "scanner")
 	require.NoError(t, err)
-	assert.Equal(t, KV{"speed": "fast", "delay": "10"}, kv)
+	assert.Equal(t, config.KV{"speed": "fast", "delay": "10"}, kv)
 
 	// Mutating the returned map does not affect the service.
 	kv["speed"] = "slow"
@@ -49,20 +45,20 @@ func TestServiceGetSetDelete(t *testing.T) {
 
 	require.NoError(t, svc.Delete(ctx, "scanner", "delay"))
 	kv, _ = svc.Get(ctx, "scanner")
-	assert.Equal(t, KV{"speed": "fast"}, kv)
+	assert.Equal(t, config.KV{"speed": "fast"}, kv)
 	require.NoError(t, svc.Delete(ctx, "scanner"))
 	kv, _ = svc.Get(ctx, "scanner")
 	assert.Empty(t, kv)
 	require.NoError(t, svc.Delete(ctx, "scanner")) // idempotent
 
-	assert.ErrorIs(t, svc.Set(ctx, "", KV{"a": "b"}), domain.ErrInvalidArgument)
+	assert.ErrorIs(t, svc.Set(ctx, "", config.KV{"a": "b"}), domain.ErrInvalidArgument)
 }
 
 func TestServiceListExportImport(t *testing.T) {
 	ctx := context.Background()
-	svc := New(Deps{})
-	require.NoError(t, svc.Set(ctx, "b", KV{"k": "v"}))
-	require.NoError(t, svc.Set(ctx, "a", KV{"x": "1"}))
+	svc := config.New(config.Deps{})
+	require.NoError(t, svc.Set(ctx, "b", config.KV{"k": "v"}))
+	require.NoError(t, svc.Set(ctx, "a", config.KV{"x": "1"}))
 	names, err := svc.List(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"a", "b"}, names)
@@ -70,24 +66,24 @@ func TestServiceListExportImport(t *testing.T) {
 	exported, err := svc.Export(ctx)
 	require.NoError(t, err)
 
-	other := New(Deps{})
+	other := config.New(config.Deps{})
 	require.NoError(t, other.Import(ctx, exported))
 	kv, err := other.Get(ctx, "b")
 	require.NoError(t, err)
-	assert.Equal(t, KV{"k": "v"}, kv)
+	assert.Equal(t, config.KV{"k": "v"}, kv)
 
 	assert.ErrorIs(t, other.Import(ctx, []byte("{bad")), domain.ErrInvalidArgument)
 }
 
 func TestServiceWatch(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	svc := New(Deps{})
+	svc := config.New(config.Deps{})
 	ch := svc.Watch(ctx)
 
-	require.NoError(t, svc.Set(ctx, "notify", KV{"endpoint": "http://x", "enable": "on"}))
+	require.NoError(t, svc.Set(ctx, "notify", config.KV{"endpoint": "http://x", "enable": "on"}))
 	select {
 	case c := <-ch:
-		assert.Equal(t, Change{Subsystem: "notify", Keys: []string{"enable", "endpoint"}}, c)
+		assert.Equal(t, config.Change{Subsystem: "notify", Keys: []string{"enable", "endpoint"}}, c)
 	case <-time.After(time.Second):
 		t.Fatal("no change received")
 	}
@@ -110,8 +106,11 @@ func TestServiceWatch(t *testing.T) {
 func TestServiceStoreFailure(t *testing.T) {
 	ctx := context.Background()
 	boom := errors.New("disk on fire")
-	svc := New(Deps{Store: failingStore{Store: NewMemoryStore(nil), err: boom}})
-	err := svc.Set(ctx, "s", KV{"a": "b"})
+	store := configmock.NewStore(t)
+	store.EXPECT().Load(ctx).Return(map[string]config.KV{}, nil).Maybe()
+	store.EXPECT().Save(ctx, mock.Anything).Return(boom).Once()
+	svc := config.New(config.Deps{Store: store})
+	err := svc.Set(ctx, "s", config.KV{"a": "b"})
 	assert.ErrorIs(t, err, boom)
 	kv, _ := svc.Get(ctx, "s")
 	assert.Empty(t, kv, "failed writes must not be cached")

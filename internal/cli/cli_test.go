@@ -1,4 +1,4 @@
-package cli
+package cli_test
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/r3n3r0/nexo/internal/cli"
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
 )
@@ -20,34 +21,34 @@ func TestDefaultConfigPathUsesHome(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	none := func(string) (string, bool) { return "", false }
-	p, err := DefaultConfigPath(none)
+	p, err := cli.DefaultConfigPath(none)
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(home, ConfigDirName, ConfigFileName), p)
+	assert.Equal(t, filepath.Join(home, cli.ConfigDirName, cli.ConfigFileName), p)
 
-	custom := func(k string) (string, bool) { return "/custom/dir", k == EnvConfigDir }
-	p, err = DefaultConfigPath(custom)
+	custom := func(k string) (string, bool) { return "/custom/dir", k == cli.EnvConfigDir }
+	p, err = cli.DefaultConfigPath(custom)
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join("/custom/dir", ConfigFileName), p)
+	assert.Equal(t, filepath.Join("/custom/dir", cli.ConfigFileName), p)
 
-	t.Setenv(EnvConfigDir, "/from/env")
-	p, err = DefaultConfigPath(nil)
+	t.Setenv(cli.EnvConfigDir, "/from/env")
+	p, err = cli.DefaultConfigPath(nil)
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join("/from/env", ConfigFileName), p, "nil lookup reads the process environment")
+	assert.Equal(t, filepath.Join("/from/env", cli.ConfigFileName), p, "nil lookup reads the process environment")
 }
 
 func TestFileStoreRoundTripAndPermissions(t *testing.T) {
 	ctx := context.Background()
 	home := t.TempDir()
-	path := filepath.Join(home, ConfigDirName, ConfigFileName)
-	store := NewFileStore(path)
+	path := filepath.Join(home, cli.ConfigDirName, cli.ConfigFileName)
+	store := cli.NewFileStore(path)
 	assert.Equal(t, path, store.Path())
 
 	cfg, err := store.Load(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, cfg.Aliases)
-	assert.Equal(t, ConfigVersion, cfg.Version)
+	assert.Equal(t, cli.ConfigVersion, cfg.Version)
 
-	cfg.Aliases["local"] = Alias{URL: "http://localhost:9000", AccessKey: "a", SecretKey: "s"}
+	cfg.Aliases["local"] = cli.Alias{URL: "http://localhost:9000", AccessKey: "a", SecretKey: "s"}
 	require.NoError(t, store.Save(ctx, cfg))
 
 	if runtime.GOOS != "windows" {
@@ -75,12 +76,12 @@ func TestFileStoreRoundTripAndPermissions(t *testing.T) {
 
 func TestAliasService(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), ConfigDirName, ConfigFileName)
+	path := filepath.Join(t.TempDir(), cli.ConfigDirName, cli.ConfigFileName)
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
-	svc := NewAliasService(AliasDeps{Store: NewFileStore(path), Clock: clock.NewFake(now)})
+	svc := cli.NewAliasService(cli.AliasDeps{Store: cli.NewFileStore(path), Clock: clock.NewFake(now)})
 
-	require.NoError(t, svc.Set(ctx, Alias{Name: "prod", URL: "https://s3.example.com", AccessKey: "AK", SecretKey: "SK"}))
-	require.NoError(t, svc.Set(ctx, Alias{Name: "local", URL: "http://127.0.0.1:9000", AccessKey: "admin", SecretKey: "password123"}))
+	require.NoError(t, svc.Set(ctx, cli.Alias{Name: "prod", URL: "https://s3.example.com", AccessKey: "AK", SecretKey: "SK"}))
+	require.NoError(t, svc.Set(ctx, cli.Alias{Name: "local", URL: "http://127.0.0.1:9000", AccessKey: "admin", SecretKey: "password123"}))
 
 	list, err := svc.List(ctx)
 	require.NoError(t, err)
@@ -96,7 +97,7 @@ func TestAliasService(t *testing.T) {
 	assert.Equal(t, "AK", got.AccessKey)
 
 	// Overwrite.
-	require.NoError(t, svc.Set(ctx, Alias{Name: "prod", URL: "https://s3.example.com", AccessKey: "AK2", SecretKey: "SK2"}))
+	require.NoError(t, svc.Set(ctx, cli.Alias{Name: "prod", URL: "https://s3.example.com", AccessKey: "AK2", SecretKey: "SK2"}))
 	got, _ = svc.Get(ctx, "prod")
 	assert.Equal(t, "AK2", got.AccessKey)
 
@@ -105,7 +106,7 @@ func TestAliasService(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrUserNotFound)
 	assert.ErrorIs(t, svc.Remove(ctx, "prod"), domain.ErrUserNotFound)
 
-	for _, bad := range []Alias{
+	for _, bad := range []cli.Alias{
 		{Name: "", URL: "http://x", AccessKey: "a", SecretKey: "b"},
 		{Name: "bad name", URL: "http://x", AccessKey: "a", SecretKey: "b"},
 		{Name: "x", URL: "ftp://x", AccessKey: "a", SecretKey: "b"},

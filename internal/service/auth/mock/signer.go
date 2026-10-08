@@ -13,6 +13,8 @@ import (
 
 	mock "github.com/stretchr/testify/mock"
 
+	time "time"
+
 	url "net/url"
 )
 
@@ -88,6 +90,65 @@ func (_c *Signer_Presign_Call) RunAndReturn(run func(context.Context, auth.Presi
 	return _c
 }
 
+// PresignPostPolicy provides a mock function with given fields: ctx, in
+func (_m *Signer) PresignPostPolicy(ctx context.Context, in auth.PostPolicyInput) (*auth.PostPolicyForm, error) {
+	ret := _m.Called(ctx, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PresignPostPolicy")
+	}
+
+	var r0 *auth.PostPolicyForm
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, auth.PostPolicyInput) (*auth.PostPolicyForm, error)); ok {
+		return rf(ctx, in)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, auth.PostPolicyInput) *auth.PostPolicyForm); ok {
+		r0 = rf(ctx, in)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*auth.PostPolicyForm)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, auth.PostPolicyInput) error); ok {
+		r1 = rf(ctx, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Signer_PresignPostPolicy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PresignPostPolicy'
+type Signer_PresignPostPolicy_Call struct {
+	*mock.Call
+}
+
+// PresignPostPolicy is a helper method to define mock.On call
+//   - ctx context.Context
+//   - in auth.PostPolicyInput
+func (_e *Signer_Expecter) PresignPostPolicy(ctx interface{}, in interface{}) *Signer_PresignPostPolicy_Call {
+	return &Signer_PresignPostPolicy_Call{Call: _e.mock.On("PresignPostPolicy", ctx, in)}
+}
+
+func (_c *Signer_PresignPostPolicy_Call) Run(run func(ctx context.Context, in auth.PostPolicyInput)) *Signer_PresignPostPolicy_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(auth.PostPolicyInput))
+	})
+	return _c
+}
+
+func (_c *Signer_PresignPostPolicy_Call) Return(_a0 *auth.PostPolicyForm, _a1 error) *Signer_PresignPostPolicy_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Signer_PresignPostPolicy_Call) RunAndReturn(run func(context.Context, auth.PostPolicyInput) (*auth.PostPolicyForm, error)) *Signer_PresignPostPolicy_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Sign provides a mock function with given fields: ctx, req, creds, payloadSHA256
 func (_m *Signer) Sign(ctx context.Context, req *http.Request, creds domain.Credentials, payloadSHA256 string) error {
 	ret := _m.Called(ctx, req, creds, payloadSHA256)
@@ -133,6 +194,64 @@ func (_c *Signer_Sign_Call) Return(_a0 error) *Signer_Sign_Call {
 }
 
 func (_c *Signer_Sign_Call) RunAndReturn(run func(context.Context, *http.Request, domain.Credentials, string) error) *Signer_Sign_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SignBearerToken provides a mock function with given fields: ctx, creds, ttl
+func (_m *Signer) SignBearerToken(ctx context.Context, creds domain.Credentials, ttl time.Duration) (string, error) {
+	ret := _m.Called(ctx, creds, ttl)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SignBearerToken")
+	}
+
+	var r0 string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, domain.Credentials, time.Duration) (string, error)); ok {
+		return rf(ctx, creds, ttl)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, domain.Credentials, time.Duration) string); ok {
+		r0 = rf(ctx, creds, ttl)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, domain.Credentials, time.Duration) error); ok {
+		r1 = rf(ctx, creds, ttl)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Signer_SignBearerToken_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SignBearerToken'
+type Signer_SignBearerToken_Call struct {
+	*mock.Call
+}
+
+// SignBearerToken is a helper method to define mock.On call
+//   - ctx context.Context
+//   - creds domain.Credentials
+//   - ttl time.Duration
+func (_e *Signer_Expecter) SignBearerToken(ctx interface{}, creds interface{}, ttl interface{}) *Signer_SignBearerToken_Call {
+	return &Signer_SignBearerToken_Call{Call: _e.mock.On("SignBearerToken", ctx, creds, ttl)}
+}
+
+func (_c *Signer_SignBearerToken_Call) Run(run func(ctx context.Context, creds domain.Credentials, ttl time.Duration)) *Signer_SignBearerToken_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(domain.Credentials), args[2].(time.Duration))
+	})
+	return _c
+}
+
+func (_c *Signer_SignBearerToken_Call) Return(_a0 string, _a1 error) *Signer_SignBearerToken_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Signer_SignBearerToken_Call) RunAndReturn(run func(context.Context, domain.Credentials, time.Duration) (string, error)) *Signer_SignBearerToken_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -129,6 +129,40 @@ func (_c *MetadataStore_Delete_Call) RunAndReturn(run func(context.Context, stri
 	return _c
 }
 
+// Invalidate provides a mock function with given fields: ctx, _a1
+func (_m *MetadataStore) Invalidate(ctx context.Context, _a1 string) {
+	_m.Called(ctx, _a1)
+}
+
+// MetadataStore_Invalidate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Invalidate'
+type MetadataStore_Invalidate_Call struct {
+	*mock.Call
+}
+
+// Invalidate is a helper method to define mock.On call
+//   - ctx context.Context
+//   - _a1 string
+func (_e *MetadataStore_Expecter) Invalidate(ctx interface{}, _a1 interface{}) *MetadataStore_Invalidate_Call {
+	return &MetadataStore_Invalidate_Call{Call: _e.mock.On("Invalidate", ctx, _a1)}
+}
+
+func (_c *MetadataStore_Invalidate_Call) Run(run func(ctx context.Context, _a1 string)) *MetadataStore_Invalidate_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MetadataStore_Invalidate_Call) Return() *MetadataStore_Invalidate_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MetadataStore_Invalidate_Call) RunAndReturn(run func(context.Context, string)) *MetadataStore_Invalidate_Call {
+	_c.Run(run)
+	return _c
+}
+
 // Load provides a mock function with given fields: ctx, _a1
 func (_m *MetadataStore) Load(ctx context.Context, _a1 string) (*bucket.Metadata, error) {
 	ret := _m.Called(ctx, _a1)

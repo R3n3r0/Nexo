@@ -68,9 +68,9 @@ func (_c *LockContext_Context_Call) RunAndReturn(run func() context.Context) *Lo
 	return _c
 }
 
-// Unlock provides a mock function with no fields
-func (_m *LockContext) Unlock() {
-	_m.Called()
+// Unlock provides a mock function with given fields: ctx
+func (_m *LockContext) Unlock(ctx context.Context) {
+	_m.Called(ctx)
 }
 
 // LockContext_Unlock_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Unlock'
@@ -79,13 +79,14 @@ type LockContext_Unlock_Call struct {
 }
 
 // Unlock is a helper method to define mock.On call
-func (_e *LockContext_Expecter) Unlock() *LockContext_Unlock_Call {
-	return &LockContext_Unlock_Call{Call: _e.mock.On("Unlock")}
+//   - ctx context.Context
+func (_e *LockContext_Expecter) Unlock(ctx interface{}) *LockContext_Unlock_Call {
+	return &LockContext_Unlock_Call{Call: _e.mock.On("Unlock", ctx)}
 }
 
-func (_c *LockContext_Unlock_Call) Run(run func()) *LockContext_Unlock_Call {
+func (_c *LockContext_Unlock_Call) Run(run func(ctx context.Context)) *LockContext_Unlock_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(context.Context))
 	})
 	return _c
 }
@@ -95,7 +96,7 @@ func (_c *LockContext_Unlock_Call) Return() *LockContext_Unlock_Call {
 	return _c
 }
 
-func (_c *LockContext_Unlock_Call) RunAndReturn(run func()) *LockContext_Unlock_Call {
+func (_c *LockContext_Unlock_Call) RunAndReturn(run func(context.Context)) *LockContext_Unlock_Call {
 	_c.Run(run)
 	return _c
 }

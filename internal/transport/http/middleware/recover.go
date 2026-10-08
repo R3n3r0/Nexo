@@ -24,24 +24,31 @@ func ProblemErrorWriter(enc httpx.Encoder) ErrorWriter {
 	return enc.WriteProblemError
 }
 
+// RecoverDeps are the dependencies of the panic recovery middleware.
+type RecoverDeps struct {
+	// Logger records the panics (default slog.Default()).
+	Logger *slog.Logger
+	// OnError writes the 500 response (default: S3 XML errors).
+	OnError ErrorWriter
+}
+
 type recoverer struct {
-	logger  *slog.Logger
-	onError ErrorWriter
+	deps RecoverDeps
 }
 
 var _ Middleware = (*recoverer)(nil)
 
 // NewRecover returns a middleware that turns panics into 500 responses
-// (written with onError) and logs them with a stack trace.
+// (written with OnError) and logs them with a stack trace.
 // http.ErrAbortHandler is re-panicked as net/http expects.
-func NewRecover(logger *slog.Logger, onError ErrorWriter) Middleware {
-	if logger == nil {
-		logger = slog.Default()
+func NewRecover(deps RecoverDeps) Middleware {
+	if deps.Logger == nil {
+		deps.Logger = slog.Default()
 	}
-	if onError == nil {
-		onError = S3ErrorWriter(httpx.New())
+	if deps.OnError == nil {
+		deps.OnError = S3ErrorWriter(httpx.New())
 	}
-	return &recoverer{logger: logger, onError: onError}
+	return &recoverer{deps: deps}
 }
 
 // Wrap implements Middleware.
@@ -55,14 +62,14 @@ func (m *recoverer) Wrap(next http.Handler) http.Handler {
 			if err, ok := rec.(error); ok && errors.Is(err, http.ErrAbortHandler) {
 				panic(rec)
 			}
-			m.logger.ErrorContext(r.Context(), "panic serving request",
+			m.deps.Logger.ErrorContext(r.Context(), "panic serving request",
 				"panic", fmt.Sprint(rec),
 				"method", r.Method,
 				"path", r.URL.Path,
 				"request_id", httpx.RequestIDFrom(r.Context()),
 				"stack", string(debug.Stack()),
 			)
-			m.onError(w, r, fmt.Errorf("panic: %v", rec))
+			m.deps.OnError(w, r, fmt.Errorf("panic: %v", rec))
 		}()
 		next.ServeHTTP(w, r)
 	})

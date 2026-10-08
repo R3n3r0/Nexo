@@ -44,11 +44,18 @@ func (e listEntry) items() int {
 	return len(e.infos)
 }
 
+// clampMaxKeys returns the effective limit of a listing: the default
+// (1000) for zero and for larger values, none for domain.ListLimitNone
+// (any negative value).
 func clampMaxKeys(n int) int {
-	if n <= 0 || n > maxListKeys {
+	switch {
+	case n < 0:
+		return 0
+	case n == 0 || n > maxListKeys:
 		return maxListKeys
+	default:
+		return n
 	}
-	return n
 }
 
 // splitPrefix returns the directory to walk and the key filter of a prefix.
@@ -69,6 +76,10 @@ func (l *layer) listEntries(ctx context.Context, p listParams) ([]listEntry, boo
 	if _, err := l.sets[0].StatVol(ctx, p.bucket); err != nil {
 		return nil, false, fmt.Errorf("%s: list %s: %w", l.name, p.bucket, err)
 	}
+	if p.limit == 0 {
+		// max-keys=0: an empty listing, not truncated (as S3 answers).
+		return nil, false, nil
+	}
 	perSet := make([][]listEntry, len(l.sets))
 	errs := parallel(len(l.sets), func(i int) error {
 		entries, err := l.walkStore(ctx, l.sets[i], p)
@@ -82,12 +93,17 @@ func (l *layer) listEntries(ctx context.Context, p listParams) ([]listEntry, boo
 	}
 	all := mergeEntries(perSet)
 
-	// The prefix itself may be a directory object stored in the parent.
-	if strings.HasSuffix(p.prefix, "/") && p.prefix > p.keyMarker {
-		if fi, err := l.pick(p.prefix).ReadVersion(ctx, p.bucket, p.prefix, "", false); err == nil {
-			if e, ok := l.entryFor(p, p.prefix, fi.Volume, versionsOf(fi)); ok {
-				all = append([]listEntry{e}, all...)
-			}
+	// The prefix itself may be a directory object stored in the parent,
+	// which the walk of the prefix does not reach. All its versions are
+	// read (entryFor resumes after the version marker when the listing
+	// resumes within them).
+	if strings.HasSuffix(p.prefix, "/") && p.prefix >= p.keyMarker {
+		infos, err := l.dirObjectVersions(ctx, l.pick(p.prefix), p.bucket, p.prefix)
+		if err != nil {
+			return nil, false, fmt.Errorf("%s: list %s: %w", l.name, p.bucket, err)
+		}
+		if e, ok := l.entryFor(p, p.prefix, p.bucket, infos); ok {
+			all = append([]listEntry{e}, all...)
 		}
 	}
 
@@ -113,8 +129,57 @@ func (l *layer) listEntries(ctx context.Context, p listParams) ([]listEntry, boo
 	return out, false, nil
 }
 
-// versionsOf wraps the single version returned by ReadVersion for entryFor.
-func versionsOf(fi storage.FileInfo) []storage.FileInfo { return []storage.FileInfo{fi} }
+// dirObjectVersions returns all the versions (latest first) of the
+// directory object key ("dir/", stored in the parent directory), none when
+// it does not exist.
+func (l *layer) dirObjectVersions(ctx context.Context, st store, bucket, key string) ([]storage.FileInfo, error) {
+	parent, _ := splitPrefix(strings.TrimSuffix(key, "/"))
+	var infos []storage.FileInfo
+	err := st.Walk(ctx, storage.WalkDirOptions{Bucket: bucket, BaseDir: parent, FilterPrefix: key, ForwardTo: key}, func(e storage.WalkEntry) error {
+		if e.IsDir || e.Name != key {
+			return nil
+		}
+		decoded, err := storage.DecodeFileInfos(bucket, key, e.Metadata)
+		if err != nil {
+			l.deps.Logger.WarnContext(ctx, "object: skipping unreadable metadata", "bucket", bucket, "key", key, "err", err)
+		} else {
+			infos = decoded
+		}
+		return errListDone
+	})
+	if err != nil && !errors.Is(err, errListDone) {
+		return nil, err
+	}
+	return infos, nil
+}
+
+// skipPrefix reports whether the common prefix cp is before the marker: a
+// prefix equal to the marker was the last entry of the previous page (its
+// NextMarker), and a prefix before the marker holds only earlier keys,
+// unless the marker lies inside it ("a/" with start-after "a/b"), in which
+// case the keys after the marker still roll up into it.
+func skipPrefix(cp, keyMarker string) bool {
+	return cp == keyMarker || (cp < keyMarker && !strings.HasPrefix(keyMarker, cp))
+}
+
+// prefixHasKeysAfter reports whether the common prefix cp, which contains
+// the marker, holds an object after it: only then is cp part of the
+// listing (S3 lists the keys after the marker, then rolls them up).
+func (l *layer) prefixHasKeysAfter(ctx context.Context, st store, bucket, cp, keyMarker string) (bool, error) {
+	found := false
+	opts := storage.WalkDirOptions{Bucket: bucket, BaseDir: strings.TrimSuffix(cp, "/"), FilterPrefix: cp, Recursive: true, ForwardTo: keyMarker}
+	err := st.Walk(ctx, opts, func(e storage.WalkEntry) error {
+		if e.IsDir || e.Name <= keyMarker {
+			return nil
+		}
+		found = true
+		return errListDone
+	})
+	if err != nil && !errors.Is(err, errListDone) {
+		return false, err
+	}
+	return found, nil
+}
 
 // walkStore collects the entries of one store, up to limit+1 items.
 func (l *layer) walkStore(ctx context.Context, st store, p listParams) ([]listEntry, error) {
@@ -133,11 +198,20 @@ func (l *layer) walkStore(ctx context.Context, st store, p listParams) ([]listEn
 			if p.delimiter != "/" {
 				return nil // flat listings descend into prefixes
 			}
-			if e.Name <= p.keyMarker {
+			if skipPrefix(e.Name, p.keyMarker) {
 				return nil
 			}
-			entries = appendEntry(entries, listEntry{name: e.Name, isPrefix: true})
-			count++
+			if e.Name < p.keyMarker {
+				// The marker lies inside the prefix.
+				ok, err := l.prefixHasKeysAfter(ctx, st, p.bucket, e.Name, p.keyMarker)
+				if err != nil || !ok {
+					return err
+				}
+			}
+			var added bool
+			if entries, added = appendEntry(entries, listEntry{name: e.Name, isPrefix: true}); added {
+				count++
+			}
 		} else {
 			infos, err := storage.DecodeFileInfos(p.bucket, e.Name, e.Metadata)
 			if err != nil {
@@ -148,8 +222,10 @@ func (l *layer) walkStore(ctx context.Context, st store, p listParams) ([]listEn
 			if !ok {
 				return nil
 			}
-			entries = appendEntry(entries, entry)
-			count += entry.items()
+			var added bool
+			if entries, added = appendEntry(entries, entry); added {
+				count += entry.items()
+			}
 		}
 		if count > p.limit {
 			return errListDone
@@ -172,7 +248,9 @@ func (l *layer) entryFor(p listParams, key, bucket string, infos []storage.FileI
 		rest := key[len(p.prefix):]
 		if i := strings.Index(rest, p.delimiter); i >= 0 {
 			cp := key[:len(p.prefix)+i+len(p.delimiter)]
-			if cp <= p.keyMarker {
+			// key is after the marker: cp holds it even when cp itself
+			// sorts before a marker inside it.
+			if skipPrefix(cp, p.keyMarker) {
 				return listEntry{}, false
 			}
 			return listEntry{name: cp, isPrefix: true}, true
@@ -205,15 +283,16 @@ func (l *layer) entryFor(p listParams, key, bucket string, infos []storage.FileI
 	return listEntry{name: key, infos: infos}, true
 }
 
-// appendEntry adds an entry, collapsing a prefix repeated by consecutive keys.
-func appendEntry(entries []listEntry, e listEntry) []listEntry {
+// appendEntry adds an entry, collapsing a prefix repeated by consecutive
+// keys; added reports whether the entry was appended.
+func appendEntry(entries []listEntry, e listEntry) (out []listEntry, added bool) {
 	if e.isPrefix && len(entries) > 0 {
 		last := entries[len(entries)-1]
 		if last.isPrefix && last.name == e.name {
-			return entries
+			return entries, false
 		}
 	}
-	return append(entries, e)
+	return append(entries, e), true
 }
 
 // mergeEntries merges the per-store listings: objects before a prefix of the
@@ -234,7 +313,7 @@ func mergeEntries(perSet [][]listEntry) []listEntry {
 	})
 	out := make([]listEntry, 0, len(all))
 	for _, e := range all {
-		out = appendEntry(out, e)
+		out, _ = appendEntry(out, e)
 	}
 	return out
 }

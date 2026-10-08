@@ -1,4 +1,4 @@
-package audit
+package audit_test
 
 import (
 	"bytes"
@@ -11,17 +11,18 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/r3n3r0/nexo/internal/clock"
+	"github.com/r3n3r0/nexo/internal/service/audit"
 )
 
 func TestSlogLogsEntry(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slogJSON(&buf)
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
-	svc := NewSlog(Deps{Logger: logger, Clock: clock.NewFake(now)})
+	svc := audit.NewSlog(audit.Deps{Logger: logger, Clock: clock.NewFake(now)})
 
-	err := svc.Log(context.Background(), Entry{
+	err := svc.Log(context.Background(), audit.Entry{
 		RequestID: "req-1",
-		API:       API{Name: "PutObject", Bucket: "b", Object: "o", StatusCode: 200, InputBytes: 42},
+		API:       audit.API{Name: "PutObject", Bucket: "b", Object: "o", StatusCode: 200, InputBytes: 42},
 		AccessKey: "admin",
 		Tags:      map[string]any{"size": 42},
 	})

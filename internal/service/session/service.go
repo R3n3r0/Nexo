@@ -13,8 +13,9 @@ import (
 // Service manages console sessions.
 type Service interface {
 	// Login verifies the credentials and issues a session. Invalid
-	// credentials return domain.ErrAccessDenied; disabled or expired ones
-	// too. The returned Session carries the signed Token.
+	// credentials return domain.ErrAccessDenied; disabled, expired and
+	// temporary (STS, which need their session token) ones too. The
+	// returned Session carries the signed Token.
 	Login(ctx context.Context, accessKey, secretKey string) (*Session, error)
 	// Validate parses and verifies a token and returns its session. Expired,
 	// tampered or revoked tokens return domain.ErrAccessDenied.

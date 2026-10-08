@@ -3,21 +3,33 @@ package s3
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/auth"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
+	"github.com/r3n3r0/nexo/internal/service/policy"
+	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
 
-// MetricsDeps are the dependencies of the metrics routes.
+// MetricsDeps are the dependencies of the metrics routes. Registry is
+// required; unless the routes are public (WithPublicMetrics), Verifier
+// (bearer tokens) and Policy (admin:Prometheus) are required too. Enc and
+// Clock default to httpx.New() and the wall clock.
 type MetricsDeps struct {
 	Registry metrics.Registry
+	Verifier auth.Verifier
+	Policy   policy.Service
+	Enc      httpx.Encoder
+	Clock    clock.Clock
 }
 
 type metricsRoutes struct {
 	deps    MetricsDeps
+	public  bool
 	handler http.Handler
 }
 
@@ -25,30 +37,84 @@ var _ MetricsRoutes = (*metricsRoutes)(nil)
 
 // Metrics endpoint paths.
 const (
-	PathMetricsCluster = "/nexo/metrics/v1/cluster"
-	PathMetricsNode    = "/nexo/metrics/v1/node"
-	PathMetricsBucket  = "/nexo/metrics/v1/bucket"
+	// MetricsPathPrefix prefixes every metrics path. The routes
+	// authenticate their own requests (bearer tokens), so the SigV4
+	// middleware must skip it (middleware.AuthDeps.SkipPaths).
+	MetricsPathPrefix  = "/nexo/metrics/"
+	PathMetricsCluster = MetricsPathPrefix + "v1/cluster"
+	PathMetricsNode    = MetricsPathPrefix + "v1/node"
+	PathMetricsBucket  = MetricsPathPrefix + "v1/bucket"
 )
 
-// NewMetricsRoutes returns the Prometheus route group. The registry is
-// wired by the composition root (the same one the middlewares write to);
-// a nil registry is a wiring error. The three scopes serve the same registry
-// until per-scope collectors exist (M8).
-func NewMetricsRoutes(deps MetricsDeps) (MetricsRoutes, error) {
+// bearerPrefix is the authentication scheme of the scrape tokens.
+const bearerPrefix = "Bearer "
+
+// WithPublicMetrics serves the metrics endpoints without authentication
+// (NEXO_PROMETHEUS_AUTH_TYPE=public). By default they require a bearer
+// token of an identity allowed admin:Prometheus. Used by NewMetricsRoutes.
+func WithPublicMetrics(public bool) Option {
+	return func(o *options) { o.publicMetrics = public }
+}
+
+// NewMetricsRoutes returns the metrics route group (Prometheus text
+// exposition, served by the registry itself). The registry is wired by the
+// composition root (the same one the middlewares write to). A missing
+// dependency is a wiring error (domain.ErrInvalidArgument). The three
+// scopes serve the same registry until per-scope collectors exist (M8).
+func NewMetricsRoutes(deps MetricsDeps, opts ...Option) (MetricsRoutes, error) {
+	o := newOptions(opts)
 	if deps.Registry == nil {
 		return nil, fmt.Errorf("%w: s3: metrics routes require a registry", domain.ErrInvalidArgument)
 	}
-	return &metricsRoutes{
-		deps: deps,
-		handler: promhttp.HandlerFor(deps.Registry, promhttp.HandlerOpts{
-			ErrorHandling: promhttp.ContinueOnError,
-		}),
-	}, nil
+	if !o.publicMetrics && (deps.Verifier == nil || deps.Policy == nil) {
+		return nil, fmt.Errorf("%w: s3: protected metrics routes require a verifier and a policy engine", domain.ErrInvalidArgument)
+	}
+	if deps.Enc == nil {
+		deps.Enc = httpx.New()
+	}
+	if deps.Clock == nil {
+		deps.Clock = clock.NewReal()
+	}
+	return &metricsRoutes{deps: deps, public: o.publicMetrics, handler: deps.Registry.Handler()}, nil
 }
 
 // Register implements Routes.
 func (h *metricsRoutes) Register(r chi.Router) {
-	r.Get(PathMetricsCluster, h.handler.ServeHTTP)
-	r.Get(PathMetricsNode, h.handler.ServeHTTP)
-	r.Get(PathMetricsBucket, h.handler.ServeHTTP)
+	r.Get(PathMetricsCluster, h.serve)
+	r.Get(PathMetricsNode, h.serve)
+	r.Get(PathMetricsBucket, h.serve)
+}
+
+// serve authenticates and authorizes the scraper, then hands the request
+// to the registry.
+func (h *metricsRoutes) serve(w http.ResponseWriter, r *http.Request) {
+	if !h.public {
+		if err := h.authorize(r); err != nil {
+			h.deps.Enc.WriteS3Error(w, r, err)
+			return
+		}
+	}
+	h.handler.ServeHTTP(w, r)
+}
+
+// authorize verifies the bearer token and asks the policy engine for
+// admin:Prometheus.
+func (h *metricsRoutes) authorize(r *http.Request) error {
+	ctx := r.Context()
+	header := r.Header.Get("Authorization")
+	if len(header) <= len(bearerPrefix) || !strings.EqualFold(header[:len(bearerPrefix)], bearerPrefix) {
+		return domain.NewS3Error(domain.ErrAccessDenied, "AccessDenied", "The metrics endpoints require a bearer token.")
+	}
+	id, err := h.deps.Verifier.VerifyBearerToken(ctx, strings.TrimSpace(header[len(bearerPrefix):]))
+	if err != nil {
+		return err
+	}
+	decision, err := h.deps.Policy.Evaluate(ctx, policy.Args{Identity: id, Action: policy.ActionAdminPrometheus, Now: h.deps.Clock.Now()})
+	if err != nil {
+		return err
+	}
+	if !decision.Allowed {
+		return fmt.Errorf("%w: %s", domain.ErrAccessDenied, decision.Reason)
+	}
+	return nil
 }

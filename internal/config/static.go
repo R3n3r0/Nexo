@@ -22,6 +22,16 @@ const (
 	MinRootPasswordLength = 8
 )
 
+// Authentication of the Prometheus endpoints (/nexo/metrics/v1/*),
+// NEXO_PROMETHEUS_AUTH_TYPE.
+const (
+	// PrometheusAuthJWT requires a bearer JWT signed with the secret key
+	// of an identity allowed admin:Prometheus (the default).
+	PrometheusAuthJWT = "jwt"
+	// PrometheusAuthPublic serves the metrics to anyone.
+	PrometheusAuthPublic = "public"
+)
+
 // Static is the startup configuration.
 type Static struct {
 	// Address is the S3 API listen address (host:port).
@@ -48,6 +58,9 @@ type Static struct {
 	LogFormat      string   `json:"logFormat"`
 	// Endpoints are the raw drive arguments (paths, URLs, ellipsis patterns).
 	Endpoints []string `json:"endpoints"`
+	// PrometheusAuthType protects the metrics endpoints: PrometheusAuthJWT
+	// (default) or PrometheusAuthPublic.
+	PrometheusAuthType string `json:"prometheusAuthType"`
 }
 
 // Default returns the configuration defaults.
@@ -58,6 +71,8 @@ func Default() Static {
 		Region:         DefaultRegion,
 		LogLevel:       DefaultLogLevel,
 		LogFormat:      DefaultLogFormat,
+
+		PrometheusAuthType: PrometheusAuthJWT,
 	}
 }
 
@@ -107,6 +122,11 @@ func (s Static) Validate() error {
 	case "json", "text":
 	default:
 		errs = append(errs, fmt.Errorf("log format %q must be json or text", s.LogFormat))
+	}
+	switch s.PrometheusAuthType {
+	case PrometheusAuthJWT, PrometheusAuthPublic:
+	default:
+		errs = append(errs, fmt.Errorf("prometheus auth type %q must be %s or %s", s.PrometheusAuthType, PrometheusAuthJWT, PrometheusAuthPublic))
 	}
 	if len(s.Endpoints) == 0 {
 		errs = append(errs, errors.New("at least one endpoint (drive path or URL) is required"))

@@ -125,6 +125,7 @@ Supporto policy:
 | TPS-18 | Simulatore di policy concorde con l'enforcement reale (property-based su policy generate casualmente) | 100% coincidenza |
 | TPS-19 | Presigned dietro reverse proxy con host pubblico (vedi §8.5) | 200 |
 | TPS-20 | Fuzzing dei parametri di query presigned e del documento POST policy | Nessun panic, nessun bypass |
+| TPS-21 | Header `x-amz-*` non firmati aggiunti a un presigned (`x-amz-copy-source`, `x-amz-tagging`, `x-amz-meta-*`, `x-amz-storage-class`) o a una richiesta firmata via header | 403 `AccessDenied` "There were headers present in the request which were not signed", nessun effetto |
 
 ### CLI
 | ID | Caso |

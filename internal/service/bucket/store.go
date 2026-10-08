@@ -3,7 +3,6 @@ package bucket
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -20,13 +19,23 @@ type StoreDeps struct {
 	Logger *slog.Logger
 }
 
+// metadataFile is the name of the configuration document of a bucket,
+// in its system directory (.nexo.sys/buckets/<bucket>/). The object layer
+// keeps its own record (.bucket.json) in the same directory.
+const metadataFile = ".metadata.json"
+
 // metadataStore keeps one JSON document per bucket on every drive, under
-// .nexo.sys/buckets/<bucket>/metadata.json, with an in-memory cache.
+// .nexo.sys/buckets/<bucket>/.metadata.json, with an in-memory cache.
+//
+// The cache is guarded by a generation counter bumped by every change, so
+// that a Load racing with a Save, a Delete or an Invalidate never caches
+// the document it read before the change.
 type metadataStore struct {
 	deps StoreDeps
 
 	mu    sync.RWMutex
 	cache map[string]*Metadata
+	gen   uint64
 }
 
 var _ MetadataStore = (*metadataStore)(nil)
@@ -43,7 +52,7 @@ func NewStore(deps StoreDeps) (MetadataStore, error) {
 }
 
 func metadataPath(bucket string) string {
-	return storage.BucketsDir + "/" + bucket + "/metadata.json"
+	return storage.BucketsDir + "/" + bucket + "/" + metadataFile
 }
 
 // quorum is the number of drives that must acknowledge a write.
@@ -56,41 +65,49 @@ func (s *metadataStore) Load(ctx context.Context, bucket string) (*Metadata, err
 	}
 	s.mu.RLock()
 	cached, ok := s.cache[bucket]
+	gen := s.gen
 	s.mu.RUnlock()
 	if ok {
 		return cached.clone(), nil
 	}
+	m, err := s.read(ctx, bucket)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	if s.gen == gen {
+		s.cache[bucket] = m.clone()
+	}
+	s.mu.Unlock()
+	return m, nil
+}
+
+// read loads the document from the first drive that has a readable copy.
+func (s *metadataStore) read(ctx context.Context, bucket string) (*Metadata, error) {
 	var firstErr error
-	found := false
-	var m Metadata
 	for _, d := range s.deps.Drives {
 		if d == nil || !d.IsOnline() {
 			continue
 		}
 		data, err := d.ReadAll(ctx, domain.SystemBucket, metadataPath(bucket))
 		if err != nil {
-			if !errors.Is(err, domain.ErrObjectNotFound) && firstErr == nil {
+			if !isNotFound(err) && firstErr == nil {
 				firstErr = err
 			}
 			continue
 		}
+		var m Metadata
 		if err := json.Unmarshal(data, &m); err != nil {
 			s.deps.Logger.WarnContext(ctx, "bucket: unreadable metadata document", "bucket", bucket, "drive", d.Endpoint().String(), "err", err)
 			continue
 		}
-		found = true
-		break
+		m.Name = bucket
+		return &m, nil
 	}
-	if !found {
-		if firstErr != nil {
-			return nil, fmt.Errorf("bucket: load metadata of %s: %w", bucket, firstErr)
-		}
-		m = Metadata{Name: bucket}
+	if firstErr != nil {
+		return nil, fmt.Errorf("bucket: load metadata of %s: %w", bucket, firstErr)
 	}
-	s.mu.Lock()
-	s.cache[bucket] = m.clone()
-	s.mu.Unlock()
-	return &m, nil
+	return &Metadata{Name: bucket}, nil
 }
 
 // Save implements MetadataStore.
@@ -101,20 +118,28 @@ func (s *metadataStore) Save(ctx context.Context, bucket string, m *Metadata) er
 	if m == nil {
 		return fmt.Errorf("%w: nil bucket metadata", domain.ErrInvalidArgument)
 	}
-	m.Name = bucket
-	data, err := json.Marshal(m)
+	saved := m.clone()
+	saved.Name = bucket
+	data, err := json.Marshal(saved)
 	if err != nil {
 		return fmt.Errorf("bucket: encode metadata of %s: %w", bucket, err)
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.cache, bucket)
-	if err := s.each(ctx, func(d storage.StorageAPI) error {
+	s.drop(bucket)
+	err = s.each(ctx, func(d storage.StorageAPI) error {
 		return d.WriteAll(ctx, domain.SystemBucket, metadataPath(bucket), data)
-	}); err != nil {
+	})
+	s.mu.Lock()
+	s.gen++
+	if err == nil {
+		s.cache[bucket] = saved
+	} else {
+		delete(s.cache, bucket)
+	}
+	s.mu.Unlock()
+	if err != nil {
 		return fmt.Errorf("bucket: save metadata of %s: %w", bucket, err)
 	}
-	s.cache[bucket] = m.clone()
+	m.Name = bucket
 	return nil
 }
 
@@ -123,19 +148,39 @@ func (s *metadataStore) Delete(ctx context.Context, bucket string) error {
 	if err := domain.ValidateBucketName(bucket); err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.cache, bucket)
-	if err := s.each(ctx, func(d storage.StorageAPI) error {
-		err := d.Delete(ctx, domain.SystemBucket, storage.BucketsDir+"/"+bucket, storage.DeleteOptions{Recursive: true})
-		if errors.Is(err, domain.ErrObjectNotFound) {
+	s.drop(bucket)
+	err := s.each(ctx, func(d storage.StorageAPI) error {
+		err := d.Delete(ctx, domain.SystemBucket, metadataPath(bucket), storage.DeleteOptions{})
+		if isNotFound(err) {
 			return nil
 		}
 		return err
-	}); err != nil {
+	})
+	s.drop(bucket)
+	if err != nil {
 		return fmt.Errorf("bucket: delete metadata of %s: %w", bucket, err)
 	}
 	return nil
+}
+
+// Invalidate implements MetadataStore.
+func (s *metadataStore) Invalidate(_ context.Context, bucket string) {
+	if bucket == "" {
+		s.mu.Lock()
+		s.gen++
+		s.cache = make(map[string]*Metadata)
+		s.mu.Unlock()
+		return
+	}
+	s.drop(bucket)
+}
+
+// drop removes a cache entry and bumps the generation.
+func (s *metadataStore) drop(bucket string) {
+	s.mu.Lock()
+	s.gen++
+	delete(s.cache, bucket)
+	s.mu.Unlock()
 }
 
 // BucketConfig implements object.BucketConfigSource.
@@ -178,7 +223,7 @@ func (s *metadataStore) each(ctx context.Context, fn func(d storage.StorageAPI) 
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	return fmt.Errorf("%w: %d of %d drives acknowledged: %v", domain.ErrWriteQuorum, ok, len(s.deps.Drives), first)
+	return fmt.Errorf("%w: %d of %d drives acknowledged: %w", domain.ErrWriteQuorum, ok, len(s.deps.Drives), first)
 }
 
 // clone returns a deep copy so that callers cannot mutate the cache.
@@ -193,9 +238,17 @@ func (m *Metadata) clone() *Metadata {
 			c.Tags[k] = v
 		}
 	}
-	c.Policy = append(json.RawMessage(nil), m.Policy...)
-	c.Lifecycle = append([]byte(nil), m.Lifecycle...)
-	c.CORS = append([]byte(nil), m.CORS...)
-	c.Notification = append([]byte(nil), m.Notification...)
+	c.Policy = cloneBytes(m.Policy)
+	c.Lifecycle = cloneBytes(m.Lifecycle)
+	c.CORS = cloneBytes(m.CORS)
+	c.Notification = cloneBytes(m.Notification)
 	return &c
+}
+
+// cloneBytes copies b, keeping nil as nil.
+func cloneBytes[T ~[]byte](b T) T {
+	if b == nil {
+		return nil
+	}
+	return append(T(nil), b...)
 }

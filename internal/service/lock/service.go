@@ -37,6 +37,9 @@ type LockContext interface {
 	// Context is derived from the caller's context and is canceled when
 	// the lock is released or lost.
 	Context() context.Context
-	// Unlock releases the lock. It is idempotent.
-	Unlock()
+	// Unlock releases the lock. It is idempotent. ctx carries the request
+	// values (logging, tracing); the release is not aborted when ctx is
+	// already canceled, so that a lock is never leaked by a client that
+	// went away.
+	Unlock(ctx context.Context)
 }

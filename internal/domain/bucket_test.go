@@ -65,3 +65,48 @@ func TestParseVersioning(t *testing.T) {
 	assert.True(t, VersioningSuspended.Versioned())
 	assert.False(t, VersioningOff.Versioned())
 }
+
+func TestVersioningState(t *testing.T) {
+	tests := []struct {
+		in      string
+		want    Versioning
+		state   string
+		wantErr bool
+	}{
+		{in: "off", want: VersioningOff, state: "off"},
+		{in: " OFF ", want: VersioningOff, state: "off"},
+		{in: "", want: VersioningOff, state: "off"},
+		{in: "enabled", want: VersioningEnabled, state: "enabled"},
+		{in: "Suspended", want: VersioningSuspended, state: "suspended"},
+		{in: "maybe", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			got, err := ParseVersioningState(tt.in)
+			if tt.wantErr {
+				assert.ErrorIs(t, err, ErrInvalidArgument)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+			assert.Equal(t, tt.state, got.State())
+		})
+	}
+}
+
+func TestIsReservedBucket(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{name: SystemBucket, want: true},
+		{name: ReservedBucket, want: true},
+		{name: "nexo-data"},
+		{name: "photos"},
+	}
+	for _, tt := range tests {
+		assert.Equal(t, tt.want, IsReservedBucket(tt.name), tt.name)
+	}
+	// "nexo" passes the S3 naming rules: only IsReservedBucket keeps it.
+	assert.NoError(t, ValidateBucketName(ReservedBucket))
+}

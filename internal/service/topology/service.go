@@ -49,20 +49,22 @@ type Service interface {
 }
 
 // HostResolver abstracts the host identity lookups used to decide whether an
-// endpoint is local. The OS implementation is used by default; tests inject a
-// fake one.
+// endpoint is local. The OS implementation is used by default; tests inject
+// the generated mock.
 type HostResolver interface {
 	// Hostname returns the host name of the local machine.
-	Hostname() (string, error)
+	Hostname(ctx context.Context) (string, error)
 	// LookupHost resolves host to its IP addresses.
 	LookupHost(ctx context.Context, host string) ([]string, error)
 	// InterfaceAddrs returns the addresses assigned to the local network interfaces.
-	InterfaceAddrs() ([]net.Addr, error)
+	InterfaceAddrs(ctx context.Context) ([]net.Addr, error)
 }
 
 // IDGenerator produces unique identifiers for deployments and drives.
 type IDGenerator interface {
-	// NewID returns a new unique identifier.
+	// NewID returns a new unique identifier. It is a pure accessor (no I/O
+	// beyond the random source, never blocks): the documented exception to
+	// the context rule.
 	NewID() string
 }
 

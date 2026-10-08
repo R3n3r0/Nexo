@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/r3n3r0/nexo/internal/config"
-	"github.com/r3n3r0/nexo/internal/transport/http/s3"
+	"github.com/r3n3r0/nexo/internal/domain"
 )
 
 // newHealthcheckCmd probes the liveness endpoint of a local server. It is
@@ -29,9 +29,9 @@ func newHealthcheckCmd(deps cmdDeps) *cobra.Command {
 				if v, ok := deps.lookupEnv(config.EnvConsoleAddress); ok && v != "" {
 					addr = v
 				}
-				path := s3.PathHealthLive
+				path := domain.HealthLivePath
 				if ready {
-					path = s3.PathHealthReady
+					path = domain.HealthReadyPath
 				}
 				var err error
 				if u, err = healthURL(addr, path); err != nil {

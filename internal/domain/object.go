@@ -42,7 +42,8 @@ func (c Checksum) IsZero() bool { return c.Algorithm == ChecksumNone && c.Value 
 type ObjectInfo struct {
 	Bucket string
 	Key    string
-	// VersionID is empty for unversioned buckets.
+	// VersionID is empty for unversioned buckets and "null" for the null
+	// version of a versioned or suspended bucket.
 	VersionID string
 	Size      int64
 	// ETag is the quoted-free entity tag (MD5 hex or multipart "md5-N").
@@ -82,6 +83,13 @@ func (c Conditions) IsZero() bool {
 	return c.IfMatch == "" && c.IfNoneMatch == "" && c.IfModifiedSince.IsZero() && c.IfUnmodifiedSince.IsZero()
 }
 
+// ListLimitNone is the MaxKeys, MaxUploads or MaxParts of a listing that
+// asks for no entries (S3 max-keys=0, max-uploads=0, max-parts=0): the
+// bucket and the arguments are still validated, the result is empty and
+// not truncated. Zero, the zero value, means the default limit (1000), so
+// that internal callers never get an empty listing by omission.
+const ListLimitNone = -1
+
 // ListObjectsInput are the parameters of ListObjects (v1 and v2) and
 // ListObjectVersions.
 type ListObjectsInput struct {
@@ -95,7 +103,8 @@ type ListObjectsInput struct {
 	StartAfter string
 	// VersionIDMarker is the version id to start from (ListObjectVersions).
 	VersionIDMarker string
-	// MaxKeys limits the number of keys returned (1-1000, default 1000).
+	// MaxKeys limits the number of keys returned: 1-1000, 0 for the
+	// default (1000), ListLimitNone for none.
 	MaxKeys    int
 	FetchOwner bool
 	// IncludeVersions requests all versions and delete markers.
@@ -152,7 +161,8 @@ type ListMultipartUploadsInput struct {
 	Delimiter      string
 	KeyMarker      string
 	UploadIDMarker string
-	MaxUploads     int
+	// MaxUploads limits the uploads returned, as MaxKeys does.
+	MaxUploads int
 }
 
 // ListMultipartUploadsResult is the result of ListMultipartUploads.
@@ -170,7 +180,8 @@ type ListPartsInput struct {
 	Key              string
 	UploadID         string
 	PartNumberMarker int
-	MaxParts         int
+	// MaxParts limits the parts returned, as MaxKeys does.
+	MaxParts int
 }
 
 // ListPartsResult is the result of ListParts.

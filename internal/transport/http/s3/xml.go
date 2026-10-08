@@ -2,6 +2,11 @@ package s3
 
 import "encoding/xml"
 
+// Response documents carry the S3 namespace. Request documents are
+// declared without it because clients may omit xmlns and encoding/xml
+// requires a declared namespace to match exactly; an element name without
+// namespace matches any.
+
 // Owner is the owner element of listings. Nexo has a single owner model.
 type Owner struct {
 	ID          string `xml:"ID"`
@@ -15,6 +20,7 @@ type ListAllMyBucketsResult struct {
 	Buckets struct {
 		Bucket []BucketEntry `xml:"Bucket"`
 	} `xml:"Buckets"`
+	Prefix string `xml:"Prefix,omitempty"`
 }
 
 // BucketEntry is one bucket of ListBuckets.
@@ -89,9 +95,9 @@ type VersionEntry struct {
 	VersionID    string `xml:"VersionId"`
 	IsLatest     bool   `xml:"IsLatest"`
 	LastModified string `xml:"LastModified"`
-	ETag         string `xml:"ETag,omitempty"`
+	ETag         string `xml:"ETag"`
 	Size         int64  `xml:"Size"`
-	StorageClass string `xml:"StorageClass,omitempty"`
+	StorageClass string `xml:"StorageClass"`
 	Owner        Owner  `xml:"Owner"`
 }
 
@@ -115,6 +121,7 @@ type ListVersionsResult struct {
 	NextVersionIDMarker string              `xml:"NextVersionIdMarker,omitempty"`
 	MaxKeys             int                 `xml:"MaxKeys"`
 	Delimiter           string              `xml:"Delimiter,omitempty"`
+	EncodingType        string              `xml:"EncodingType,omitempty"`
 	IsTruncated         bool                `xml:"IsTruncated"`
 	Versions            []VersionEntry      `xml:"Version"`
 	DeleteMarkers       []DeleteMarkerEntry `xml:"DeleteMarker"`
@@ -123,16 +130,16 @@ type ListVersionsResult struct {
 
 // VersioningConfiguration is the body of GetBucketVersioning.
 type VersioningConfiguration struct {
-	XMLName xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ VersioningConfiguration"`
-	Status  string   `xml:"Status,omitempty"`
+	XMLName   xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ VersioningConfiguration"`
+	Status    string   `xml:"Status,omitempty"`
+	MFADelete string   `xml:"MfaDelete,omitempty"`
 }
 
-// versioningRequest is VersioningConfiguration as accepted in request bodies.
-// Request documents carry no namespace in the struct tag because clients may
-// omit xmlns, and encoding/xml requires a declared namespace to match exactly.
+// versioningRequest is VersioningConfiguration as accepted in requests.
 type versioningRequest struct {
-	XMLName xml.Name `xml:"VersioningConfiguration"`
-	Status  string   `xml:"Status,omitempty"`
+	XMLName   xml.Name `xml:"VersioningConfiguration"`
+	Status    string   `xml:"Status"`
+	MFADelete string   `xml:"MfaDelete"`
 }
 
 // Tag is one tag of a Tagging document.
@@ -152,7 +159,7 @@ type Tagging struct {
 	TagSet  TagSet   `xml:"TagSet"`
 }
 
-// taggingRequest is Tagging as accepted in request bodies (see versioningRequest).
+// taggingRequest is Tagging as accepted in requests and POST forms.
 type taggingRequest struct {
 	XMLName xml.Name `xml:"Tagging"`
 	TagSet  TagSet   `xml:"TagSet"`
@@ -183,13 +190,6 @@ type ObjectLockConfiguration struct {
 	Rule              *ObjectLockRule `xml:"Rule,omitempty"`
 }
 
-// objectLockRequest is ObjectLockConfiguration as accepted in request bodies.
-type objectLockRequest struct {
-	XMLName           xml.Name        `xml:"ObjectLockConfiguration"`
-	ObjectLockEnabled string          `xml:"ObjectLockEnabled,omitempty"`
-	Rule              *ObjectLockRule `xml:"Rule,omitempty"`
-}
-
 // EncryptionByDefault is the default encryption of an encryption rule.
 type EncryptionByDefault struct {
 	SSEAlgorithm   string `xml:"SSEAlgorithm"`
@@ -207,11 +207,18 @@ type ServerSideEncryptionConfiguration struct {
 	Rules   []EncryptionRule `xml:"Rule"`
 }
 
-// encryptionRequest is ServerSideEncryptionConfiguration as accepted in
-// request bodies.
-type encryptionRequest struct {
-	XMLName xml.Name         `xml:"ServerSideEncryptionConfiguration"`
-	Rules   []EncryptionRule `xml:"Rule"`
+// Grantee is the grantee of an ACL grant.
+type Grantee struct {
+	XMLNS       string `xml:"xmlns:xsi,attr"`
+	Type        string `xml:"xsi:type,attr"`
+	ID          string `xml:"ID"`
+	DisplayName string `xml:"DisplayName"`
+}
+
+// Grant is one ACL grant.
+type Grant struct {
+	Grantee    Grantee `xml:"Grantee"`
+	Permission string  `xml:"Permission"`
 }
 
 // AccessControlPolicy is the canned private ACL returned by the ACL getters.
@@ -221,17 +228,6 @@ type AccessControlPolicy struct {
 	AccessControlList struct {
 		Grants []Grant `xml:"Grant"`
 	} `xml:"AccessControlList"`
-}
-
-// Grant is one ACL grant.
-type Grant struct {
-	Grantee struct {
-		XMLNS       string `xml:"xmlns:xsi,attr"`
-		Type        string `xml:"xsi:type,attr"`
-		ID          string `xml:"ID"`
-		DisplayName string `xml:"DisplayName"`
-	} `xml:"Grantee"`
-	Permission string `xml:"Permission"`
 }
 
 // CopyObjectResult is the body of CopyObject.
@@ -248,31 +244,40 @@ type CopyPartResult struct {
 	LastModified string   `xml:"LastModified"`
 }
 
+// ObjectIdentifier is one object of a DeleteObjects request.
+type ObjectIdentifier struct {
+	Key       string `xml:"Key"`
+	VersionID string `xml:"VersionId,omitempty"`
+}
+
 // DeleteRequest is the body of DeleteObjects.
 type DeleteRequest struct {
-	XMLName xml.Name `xml:"Delete"`
-	Quiet   bool     `xml:"Quiet"`
-	Objects []struct {
-		Key       string `xml:"Key"`
-		VersionID string `xml:"VersionId"`
-	} `xml:"Object"`
+	XMLName xml.Name           `xml:"Delete"`
+	Quiet   bool               `xml:"Quiet"`
+	Objects []ObjectIdentifier `xml:"Object"`
+}
+
+// DeletedEntry is a successful deletion of DeleteObjects.
+type DeletedEntry struct {
+	Key                   string `xml:"Key"`
+	VersionID             string `xml:"VersionId,omitempty"`
+	DeleteMarker          bool   `xml:"DeleteMarker,omitempty"`
+	DeleteMarkerVersionID string `xml:"DeleteMarkerVersionId,omitempty"`
+}
+
+// DeleteErrorEntry is a failed deletion of DeleteObjects.
+type DeleteErrorEntry struct {
+	Key       string `xml:"Key"`
+	VersionID string `xml:"VersionId,omitempty"`
+	Code      string `xml:"Code"`
+	Message   string `xml:"Message"`
 }
 
 // DeleteResult is the body of DeleteObjects.
 type DeleteResult struct {
-	XMLName xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ DeleteResult"`
-	Deleted []struct {
-		Key                   string `xml:"Key"`
-		VersionID             string `xml:"VersionId,omitempty"`
-		DeleteMarker          bool   `xml:"DeleteMarker,omitempty"`
-		DeleteMarkerVersionID string `xml:"DeleteMarkerVersionId,omitempty"`
-	} `xml:"Deleted"`
-	Errors []struct {
-		Key       string `xml:"Key"`
-		VersionID string `xml:"VersionId,omitempty"`
-		Code      string `xml:"Code"`
-		Message   string `xml:"Message"`
-	} `xml:"Error"`
+	XMLName xml.Name           `xml:"http://s3.amazonaws.com/doc/2006-03-01/ DeleteResult"`
+	Deleted []DeletedEntry     `xml:"Deleted"`
+	Errors  []DeleteErrorEntry `xml:"Error"`
 }
 
 // InitiateMultipartUploadResult is the body of CreateMultipartUpload.
@@ -283,34 +288,45 @@ type InitiateMultipartUploadResult struct {
 	UploadID string   `xml:"UploadId"`
 }
 
+// CompletedPart is one part of a CompleteMultipartUpload request.
+type CompletedPart struct {
+	PartNumber     int    `xml:"PartNumber"`
+	ETag           string `xml:"ETag"`
+	ChecksumCRC32  string `xml:"ChecksumCRC32,omitempty"`
+	ChecksumCRC32C string `xml:"ChecksumCRC32C,omitempty"`
+	ChecksumSHA1   string `xml:"ChecksumSHA1,omitempty"`
+	ChecksumSHA256 string `xml:"ChecksumSHA256,omitempty"`
+}
+
 // CompleteMultipartUploadRequest is the body of CompleteMultipartUpload.
 type CompleteMultipartUploadRequest struct {
-	XMLName xml.Name `xml:"CompleteMultipartUpload"`
-	Parts   []struct {
-		PartNumber     int    `xml:"PartNumber"`
-		ETag           string `xml:"ETag"`
-		ChecksumCRC32  string `xml:"ChecksumCRC32"`
-		ChecksumCRC32C string `xml:"ChecksumCRC32C"`
-		ChecksumSHA1   string `xml:"ChecksumSHA1"`
-		ChecksumSHA256 string `xml:"ChecksumSHA256"`
-	} `xml:"Part"`
+	XMLName xml.Name        `xml:"CompleteMultipartUpload"`
+	Parts   []CompletedPart `xml:"Part"`
 }
 
 // CompleteMultipartUploadResult is the body of CompleteMultipartUpload.
 type CompleteMultipartUploadResult struct {
-	XMLName  xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ CompleteMultipartUploadResult"`
-	Location string   `xml:"Location"`
-	Bucket   string   `xml:"Bucket"`
-	Key      string   `xml:"Key"`
-	ETag     string   `xml:"ETag"`
+	XMLName        xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ CompleteMultipartUploadResult"`
+	Location       string   `xml:"Location"`
+	Bucket         string   `xml:"Bucket"`
+	Key            string   `xml:"Key"`
+	ETag           string   `xml:"ETag"`
+	ChecksumCRC32  string   `xml:"ChecksumCRC32,omitempty"`
+	ChecksumCRC32C string   `xml:"ChecksumCRC32C,omitempty"`
+	ChecksumSHA1   string   `xml:"ChecksumSHA1,omitempty"`
+	ChecksumSHA256 string   `xml:"ChecksumSHA256,omitempty"`
 }
 
 // PartEntry is one part of ListParts.
 type PartEntry struct {
-	PartNumber   int    `xml:"PartNumber"`
-	LastModified string `xml:"LastModified"`
-	ETag         string `xml:"ETag"`
-	Size         int64  `xml:"Size"`
+	PartNumber     int    `xml:"PartNumber"`
+	LastModified   string `xml:"LastModified"`
+	ETag           string `xml:"ETag"`
+	Size           int64  `xml:"Size"`
+	ChecksumCRC32  string `xml:"ChecksumCRC32,omitempty"`
+	ChecksumCRC32C string `xml:"ChecksumCRC32C,omitempty"`
+	ChecksumSHA1   string `xml:"ChecksumSHA1,omitempty"`
+	ChecksumSHA256 string `xml:"ChecksumSHA256,omitempty"`
 }
 
 // ListPartsResult is the body of ListParts.
@@ -326,6 +342,7 @@ type ListPartsResult struct {
 	NextPartNumberMarker int         `xml:"NextPartNumberMarker"`
 	MaxParts             int         `xml:"MaxParts"`
 	IsTruncated          bool        `xml:"IsTruncated"`
+	ChecksumAlgorithm    string      `xml:"ChecksumAlgorithm,omitempty"`
 	Parts                []PartEntry `xml:"Part"`
 }
 
@@ -350,6 +367,7 @@ type ListMultipartUploadsResult struct {
 	Prefix             string         `xml:"Prefix"`
 	Delimiter          string         `xml:"Delimiter,omitempty"`
 	MaxUploads         int            `xml:"MaxUploads"`
+	EncodingType       string         `xml:"EncodingType,omitempty"`
 	IsTruncated        bool           `xml:"IsTruncated"`
 	Uploads            []UploadEntry  `xml:"Upload"`
 	CommonPrefixes     []CommonPrefix `xml:"CommonPrefixes"`

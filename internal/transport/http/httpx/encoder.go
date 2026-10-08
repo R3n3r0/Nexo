@@ -18,7 +18,9 @@ const (
 	ContentTypeProblem = "application/problem+json"
 )
 
-// Encoder writes responses.
+// Encoder writes responses. Its methods are bound to an
+// http.ResponseWriter (and, when they need it, to the *http.Request that
+// carries the context), so they take no separate context.
 type Encoder interface {
 	// WriteXML encodes v as XML with the S3 declaration header.
 	WriteXML(w http.ResponseWriter, status int, v any)
@@ -40,7 +42,8 @@ type Encoder interface {
 	Codes() S3Codes
 }
 
-// Decoder reads request bodies.
+// Decoder reads request bodies; the reader belongs to the request, whose
+// context governs the read.
 type Decoder interface {
 	// DecodeXML reads at most maxBytes from r into v; failures return
 	// domain.ErrMalformedXML.
@@ -68,6 +71,8 @@ type codec struct {
 	indent   bool
 	codes    S3Codes
 	mappings []errorMapping
+	// byCode indexes the code table by S3 code name.
+	byCode map[string]S3Code
 }
 
 var _ Codec = (*codec)(nil)
@@ -79,6 +84,10 @@ func New(opts ...Option) Codec {
 		o(c)
 	}
 	c.mappings = mappings(c.codes)
+	c.byCode = make(map[string]S3Code)
+	for _, code := range c.codes.all() {
+		c.byCode[code.Code] = code
+	}
 	return c
 }
 

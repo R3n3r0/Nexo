@@ -1,4 +1,4 @@
-package config
+package config_test
 
 import (
 	"context"
@@ -9,16 +9,18 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/r3n3r0/nexo/internal/config"
 )
 
-func envOf(m map[string]string) LookupEnv {
+func envOf(m map[string]string) config.LookupEnv {
 	return func(k string) (string, bool) {
 		v, ok := m[k]
 		return v, ok
 	}
 }
 
-func filesOf(m map[string]string) ReadFile {
+func filesOf(m map[string]string) config.ReadFile {
 	return func(name string) ([]byte, error) {
 		v, ok := m[name]
 		if !ok {
@@ -31,42 +33,71 @@ func filesOf(m map[string]string) ReadFile {
 func flagsFrom(t *testing.T, args ...string) *pflag.FlagSet {
 	t.Helper()
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
-	BindFlags(fs)
+	config.BindFlags(fs)
 	require.NoError(t, fs.Parse(args))
 	return fs
 }
 
 func TestLoadDefaultsAndEnv(t *testing.T) {
-	l := NewLoader(WithEnv(envOf(map[string]string{
-		EnvRootUser:       "admin",
-		EnvRootPassword:   "password123",
-		EnvTrustedProxies: "10.0.0.0/8, 192.168.1.1",
+	l := config.NewLoader(config.WithEnv(envOf(map[string]string{
+		config.EnvRootUser:       "admin",
+		config.EnvRootPassword:   "password123",
+		config.EnvTrustedProxies: "10.0.0.0/8, 192.168.1.1",
 	})))
-	cfg, err := l.Load(context.Background(), Input{Args: []string{"/data"}})
+	cfg, err := l.Load(context.Background(), config.Input{Args: []string{"/data"}})
 	require.NoError(t, err)
-	assert.Equal(t, DefaultAddress, cfg.Address)
-	assert.Equal(t, DefaultConsoleAddress, cfg.ConsoleAddress)
-	assert.Equal(t, DefaultRegion, cfg.Region)
+	assert.Equal(t, config.DefaultAddress, cfg.Address)
+	assert.Equal(t, config.DefaultConsoleAddress, cfg.ConsoleAddress)
+	assert.Equal(t, config.DefaultRegion, cfg.Region)
 	assert.Equal(t, "admin", cfg.RootUser)
 	assert.Equal(t, []string{"10.0.0.0/8", "192.168.1.1"}, cfg.TrustedProxies)
 	assert.Equal(t, []string{"/data"}, cfg.Endpoints)
 	assert.False(t, cfg.TLSEnabled())
+	assert.Equal(t, config.PrometheusAuthJWT, cfg.PrometheusAuthType, "the metrics endpoints are protected by default")
+}
+
+func TestLoadPrometheusAuthType(t *testing.T) {
+	tests := []struct {
+		value   string
+		want    string
+		wantErr bool
+	}{
+		{value: "public", want: config.PrometheusAuthPublic},
+		{value: " JWT ", want: config.PrometheusAuthJWT},
+		{value: "none", wantErr: true},
+		{value: "", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.value, func(t *testing.T) {
+			l := config.NewLoader(config.WithEnv(envOf(map[string]string{
+				config.EnvRootUser: "admin", config.EnvRootPassword: "password123", config.EnvPrometheusAuthType: tt.value,
+			})))
+			cfg, err := l.Load(context.Background(), config.Input{Args: []string{"/data"}})
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "prometheus auth type")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, cfg.PrometheusAuthType)
+		})
+	}
 }
 
 func TestLoadPrecedenceFlagsOverEnvOverFile(t *testing.T) {
 	env := map[string]string{
-		EnvRootUser:     "admin",
-		EnvRootPassword: "password123",
-		EnvConfigFile:   "/etc/nexo.json",
-		EnvAddress:      ":7000",
-		EnvRegion:       "eu-west-1",
+		config.EnvRootUser:     "admin",
+		config.EnvRootPassword: "password123",
+		config.EnvConfigFile:   "/etc/nexo.json",
+		config.EnvAddress:      ":7000",
+		config.EnvRegion:       "eu-west-1",
 	}
 	files := map[string]string{
 		"/etc/nexo.json": `{"address":":6000","consoleAddress":":6001","region":"ap-south-1","logLevel":"debug","endpoints":["/from-file"]}`,
 	}
-	l := NewLoader(WithEnv(envOf(env)), WithReadFile(filesOf(files)))
+	l := config.NewLoader(config.WithEnv(envOf(env)), config.WithReadFile(filesOf(files)))
 	fs := flagsFrom(t, "--address", ":8000", "--trusted-proxies", "127.0.0.1")
-	cfg, err := l.Load(context.Background(), Input{Flags: fs})
+	cfg, err := l.Load(context.Background(), config.Input{Flags: fs})
 	require.NoError(t, err)
 	assert.Equal(t, ":8000", cfg.Address, "flag wins")
 	assert.Equal(t, "eu-west-1", cfg.Region, "env wins over file")
@@ -78,7 +109,7 @@ func TestLoadPrecedenceFlagsOverEnvOverFile(t *testing.T) {
 	// Positional args override file endpoints; --config flag overrides env.
 	files["/other.json"] = `{"endpoints":["/x"],"logFormat":"text"}`
 	fs = flagsFrom(t, "--config", "/other.json")
-	cfg, err = l.Load(context.Background(), Input{Flags: fs, Args: []string{"/a", "/b"}})
+	cfg, err = l.Load(context.Background(), config.Input{Flags: fs, Args: []string{"/a", "/b"}})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/a", "/b"}, cfg.Endpoints)
 	assert.Equal(t, "text", cfg.LogFormat)
@@ -87,57 +118,58 @@ func TestLoadPrecedenceFlagsOverEnvOverFile(t *testing.T) {
 
 func TestLoadSecretsFromFiles(t *testing.T) {
 	env := map[string]string{
-		EnvRootUser:                  "stale",
-		EnvRootUser + FileSuffix:     "/run/secrets/user",
-		EnvRootPassword + FileSuffix: "/run/secrets/password",
+		config.EnvRootUser:                         "stale",
+		config.EnvRootUser + config.FileSuffix:     "/run/secrets/user",
+		config.EnvRootPassword + config.FileSuffix: "/run/secrets/password",
 	}
 	files := map[string]string{
 		"/run/secrets/user":     "admin\n",
 		"/run/secrets/password": "  supersecret123 \n",
 	}
-	l := NewLoader(WithEnv(envOf(env)), WithReadFile(filesOf(files)))
-	cfg, err := l.Load(context.Background(), Input{Args: []string{"/data"}})
+	l := config.NewLoader(config.WithEnv(envOf(env)), config.WithReadFile(filesOf(files)))
+	cfg, err := l.Load(context.Background(), config.Input{Args: []string{"/data"}})
 	require.NoError(t, err)
 	assert.Equal(t, "admin", cfg.RootUser, "_FILE wins over the plain variable")
 	assert.Equal(t, "supersecret123", cfg.RootPassword)
 
-	env[EnvRootPassword+FileSuffix] = "/missing"
-	_, err = l.Load(context.Background(), Input{Args: []string{"/data"}})
+	env[config.EnvRootPassword+config.FileSuffix] = "/missing"
+	_, err = l.Load(context.Background(), config.Input{Args: []string{"/data"}})
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, os.ErrNotExist))
 }
 
 func TestLoadErrors(t *testing.T) {
-	l := NewLoader(WithEnv(envOf(map[string]string{EnvConfigFile: "/nope"})), WithReadFile(filesOf(nil)))
-	_, err := l.Load(context.Background(), Input{})
+	l := config.NewLoader(config.WithEnv(envOf(map[string]string{config.EnvConfigFile: "/nope"})), config.WithReadFile(filesOf(nil)))
+	_, err := l.Load(context.Background(), config.Input{})
 	assert.ErrorIs(t, err, os.ErrNotExist)
 
-	l = NewLoader(WithEnv(envOf(map[string]string{EnvConfigFile: "/bad"})), WithReadFile(filesOf(map[string]string{"/bad": "{"})))
-	_, err = l.Load(context.Background(), Input{})
+	l = config.NewLoader(config.WithEnv(envOf(map[string]string{config.EnvConfigFile: "/bad"})), config.WithReadFile(filesOf(map[string]string{"/bad": "{"})))
+	_, err = l.Load(context.Background(), config.Input{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "parse config file")
 }
 
 func TestValidate(t *testing.T) {
-	valid := Default()
+	valid := config.Default()
 	valid.RootUser, valid.RootPassword, valid.Endpoints = "admin", "password123", []string{"/data"}
 	require.NoError(t, valid.Validate())
 
 	tests := []struct {
 		name   string
-		mutate func(*Static)
+		mutate func(*config.Static)
 		want   string
 	}{
-		{"short password", func(s *Static) { s.RootPassword = "short" }, "root password"},
-		{"short user", func(s *Static) { s.RootUser = "ab" }, "root user"},
-		{"no endpoints", func(s *Static) { s.Endpoints = nil }, "endpoint"},
-		{"bad address", func(s *Static) { s.Address = "9000" }, "address"},
-		{"same addresses", func(s *Static) { s.ConsoleAddress = s.Address }, "must differ"},
-		{"bad log level", func(s *Static) { s.LogLevel = "loud" }, "log level"},
-		{"bad log format", func(s *Static) { s.LogFormat = "yaml" }, "log format"},
-		{"bad server url", func(s *Static) { s.ServerURL = "ftp://x" }, "server url"},
-		{"bad proxy", func(s *Static) { s.TrustedProxies = []string{"not-an-ip"} }, "trusted proxy"},
-		{"empty region", func(s *Static) { s.Region = "" }, "region"},
+		{"short password", func(s *config.Static) { s.RootPassword = "short" }, "root password"},
+		{"short user", func(s *config.Static) { s.RootUser = "ab" }, "root user"},
+		{"no endpoints", func(s *config.Static) { s.Endpoints = nil }, "endpoint"},
+		{"bad address", func(s *config.Static) { s.Address = "9000" }, "address"},
+		{"same addresses", func(s *config.Static) { s.ConsoleAddress = s.Address }, "must differ"},
+		{"bad log level", func(s *config.Static) { s.LogLevel = "loud" }, "log level"},
+		{"bad log format", func(s *config.Static) { s.LogFormat = "yaml" }, "log format"},
+		{"bad server url", func(s *config.Static) { s.ServerURL = "ftp://x" }, "server url"},
+		{"bad proxy", func(s *config.Static) { s.TrustedProxies = []string{"not-an-ip"} }, "trusted proxy"},
+		{"empty region", func(s *config.Static) { s.Region = "" }, "region"},
+		{"bad prometheus auth", func(s *config.Static) { s.PrometheusAuthType = "basic" }, "prometheus auth type"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -151,7 +183,7 @@ func TestValidate(t *testing.T) {
 	}
 
 	// Every error is reported at once.
-	empty := Static{}
+	empty := config.Static{}
 	err := empty.Validate()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "root user")

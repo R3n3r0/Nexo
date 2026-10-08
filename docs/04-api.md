@@ -7,9 +7,15 @@
 | 9000 | `/` | API S3 (path-style; virtual-host se `NEXO_DOMAIN` impostato) |
 | 9000 | `/nexo/rpc/v1/*` | Internode RPC (solo peer autenticati) |
 | 9000 | `/nexo/health/{live,ready,cluster}` | Health check |
-| 9000 | `/nexo/metrics/v1/{cluster,node,bucket}` | Prometheus (auth bearer o pubblico se configurato) |
+| 9000 | `/nexo/metrics/v1/{cluster,node,bucket}` | Prometheus (bearer JWT con `admin:Prometheus` di default, pubblico con `NEXO_PROMETHEUS_AUTH_TYPE=public`, vedi 07 §7.6) |
 | 9001 | `/` | Console React (SPA) |
 | 9001 | `/api/v1/*` | Admin API (SigV4 per CLI/SDK, cookie di sessione per la console) |
+
+Il nome di bucket `nexo` è riservato (come `minio` in MinIO): i path `/nexo/*` della porta 9000 servono RPC,
+health e metriche, quindi `CreateBucket` con quel nome risponde `400 InvalidBucketName`. Le rotte di sistema
+rispondono solo alle richieste path-style: in virtual-host (`{bucket}.{NEXO_DOMAIN}`) il path è sempre una chiave
+del bucket (`bkt.example.com/nexo/metrics/x` è la chiave `nexo/metrics/x`), autenticata con SigV4 come ogni
+altra richiesta.
 
 ## 4.2 API S3 supportate (v1.0)
 

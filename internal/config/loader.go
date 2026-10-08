@@ -27,6 +27,7 @@ const (
 	EnvLogFormat          = "NEXO_LOG_FORMAT"
 	EnvEndpoints          = "NEXO_ENDPOINTS"
 	EnvConfigFile         = "NEXO_CONFIG_FILE"
+	EnvPrometheusAuthType = "NEXO_PROMETHEUS_AUTH_TYPE"
 	// FileSuffix is appended to a variable name to read its value from a file.
 	FileSuffix = "_FILE"
 )
@@ -177,6 +178,9 @@ func (l *loader) applyEnv(cfg *Static) error {
 	set(EnvCertsDir, &cfg.CertsDir)
 	set(EnvLogLevel, &cfg.LogLevel)
 	set(EnvLogFormat, &cfg.LogFormat)
+	if v, ok := l.env(EnvPrometheusAuthType); ok {
+		cfg.PrometheusAuthType = strings.ToLower(strings.TrimSpace(v))
+	}
 	if v, ok := l.env(EnvTrustedProxies); ok {
 		cfg.TrustedProxies = splitList(v)
 	}

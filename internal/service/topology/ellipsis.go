@@ -8,12 +8,16 @@ import (
 	"strings"
 )
 
-// ellipsisRE matches one ellipsis token: an opening brace, a start value, three
-// dots, an end value and a closing brace. Braces are not allowed inside a token.
-var ellipsisRE = regexp.MustCompile(`\{([^{}]*)\.\.\.([^{}]*)\}`)
+// ellipsisPattern matches one ellipsis token: an opening brace, a start
+// value, three dots, an end value and a closing brace. Braces are not
+// allowed inside a token. It is compiled on use: endpoints are parsed once
+// at startup.
+func ellipsisPattern() *regexp.Regexp {
+	return regexp.MustCompile(`\{([^{}]*)\.\.\.([^{}]*)\}`)
+}
 
 // hasEllipsis reports whether arg contains at least one ellipsis token.
-func hasEllipsis(arg string) bool { return ellipsisRE.MatchString(arg) }
+func hasEllipsis(arg string) bool { return ellipsisPattern().MatchString(arg) }
 
 // expandArg expands every ellipsis token of arg and returns the cartesian
 // product of the expansions. The first token varies fastest, so that
@@ -24,7 +28,7 @@ func expandArg(arg string) ([]string, error) {
 	if arg == "" {
 		return nil, fmt.Errorf("%w: empty argument", ErrInvalidEndpoint)
 	}
-	locs := ellipsisRE.FindAllStringSubmatchIndex(arg, -1)
+	locs := ellipsisPattern().FindAllStringSubmatchIndex(arg, -1)
 
 	literals := make([]string, 0, len(locs)+1)
 	ranges := make([][]string, 0, len(locs))

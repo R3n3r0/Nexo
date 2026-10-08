@@ -1,10 +1,12 @@
 package s3
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/service/auth"
 	"github.com/r3n3r0/nexo/internal/service/bucket"
 	"github.com/r3n3r0/nexo/internal/service/object"
@@ -13,16 +15,21 @@ import (
 	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
 )
 
+// presignedQuery is the query parameter that marks a presigned request.
+const presignedQuery = "X-Amz-Signature"
+
 // PresignedDeps are the dependencies of the presigned routes. Verifier is
 // used only when no auth middleware established an identity (tests,
 // standalone registration): the S3 server verifies presigned signatures in
-// the auth middleware.
+// the auth middleware. Objects, Buckets and Policy are required.
 type PresignedDeps struct {
 	Verifier auth.Verifier
 	Objects  object.Service
 	Buckets  bucket.Service
 	Policy   policy.Service
 	Enc      httpx.Codec
+	Clock    clock.Clock
+	Logger   *slog.Logger
 }
 
 type presignedRoutes struct {
@@ -34,28 +41,35 @@ type presignedRoutes struct {
 var _ PresignedRoutes = (*presignedRoutes)(nil)
 
 // NewPresignedRoutes returns the presigned route group: the object and
-// listing operations, reached through a signed query string.
-func NewPresignedRoutes(deps PresignedDeps) PresignedRoutes {
+// listing operations, reached through a signed query string. The
+// permissions are those of the signer, evaluated when the URL is used.
+func NewPresignedRoutes(deps PresignedDeps, opts ...Option) PresignedRoutes {
 	if deps.Enc == nil {
 		deps.Enc = httpx.New()
 	}
-	objects, _ := NewObjectRoutes(ObjectDeps{Objects: deps.Objects, Buckets: deps.Buckets, Policy: deps.Policy, Enc: deps.Enc}).(*objectRoutes)
-	buckets, _ := NewBucketRoutes(BucketDeps{Buckets: deps.Buckets, Objects: deps.Objects, Policy: deps.Policy, Enc: deps.Enc}).(*bucketRoutes)
-	return &presignedRoutes{deps: deps, objects: objects, buckets: buckets}
+	return &presignedRoutes{
+		deps: deps,
+		objects: newObjectRoutes(ObjectDeps{
+			Objects: deps.Objects, Policy: deps.Policy, Enc: deps.Enc, Clock: deps.Clock, Logger: deps.Logger,
+		}),
+		buckets: newBucketRoutes(BucketDeps{
+			Buckets: deps.Buckets, Objects: deps.Objects, Policy: deps.Policy, Enc: deps.Enc, Clock: deps.Clock, Logger: deps.Logger,
+		}, opts...),
+	}
 }
 
-// presignedOperations lists the operations reachable through a presigned
-// URL. They are discriminated by the X-Amz-Signature query parameter and
-// take precedence over the plain object operations.
+// operations lists the operations reachable through a presigned URL. They
+// are discriminated by the X-Amz-Signature query parameter, which ranks
+// below the sub-resources: a presigned UploadPart (?uploadId) or
+// GetObjectTagging (?tagging) reaches its own operation.
 func (h *presignedRoutes) operations() map[Operation]http.HandlerFunc {
-	ops := map[Operation]http.HandlerFunc{
-		{Name: "PresignedGetObject", Method: "GET", Scope: ScopeObject, Query: "X-Amz-Signature"}:       h.objects.getObject,
-		{Name: "PresignedHeadObject", Method: "HEAD", Scope: ScopeObject, Query: "X-Amz-Signature"}:     h.objects.headObject,
-		{Name: "PresignedPutObject", Method: "PUT", Scope: ScopeObject, Query: "X-Amz-Signature"}:       h.objects.putObject,
-		{Name: "PresignedDeleteObject", Method: "DELETE", Scope: ScopeObject, Query: "X-Amz-Signature"}: h.objects.deleteObject,
-		{Name: "PresignedListObjects", Method: "GET", Scope: ScopeBucket, Query: "X-Amz-Signature"}:     h.listObjects,
+	return map[Operation]http.HandlerFunc{
+		{Name: "PresignedGetObject", Method: http.MethodGet, Scope: ScopeObject, Query: presignedQuery}:       h.objects.getObject,
+		{Name: "PresignedHeadObject", Method: http.MethodHead, Scope: ScopeObject, Query: presignedQuery}:     h.objects.headObject,
+		{Name: "PresignedPutObject", Method: http.MethodPut, Scope: ScopeObject, Query: presignedQuery}:       h.objects.putObject,
+		{Name: "PresignedDeleteObject", Method: http.MethodDelete, Scope: ScopeObject, Query: presignedQuery}: h.objects.deleteObject,
+		{Name: "PresignedListObjects", Method: http.MethodGet, Scope: ScopeBucket, Query: presignedQuery}:     h.listObjects,
 	}
-	return ops
 }
 
 // listObjects picks the v1 or v2 listing from the query.
@@ -73,7 +87,7 @@ func (h *presignedRoutes) Mount(d Dispatcher) {
 	for op, fn := range h.operations() {
 		ops[op] = h.verified(fn)
 	}
-	mountAll(d, h.deps.Enc, ops, h.deps.Objects != nil && h.deps.Buckets != nil)
+	mountAll(d, h.deps.Enc, ops, h.objects.available())
 }
 
 // verified authenticates the presigned request when no middleware did.

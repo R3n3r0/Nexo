@@ -40,14 +40,18 @@ const DefaultCSP = "default-src 'self'; script-src 'self'; style-src 'self' 'uns
 	"img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; " +
 	"frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
 
-// hashedAsset matches Vite-style fingerprinted file names: name-<hash>.ext
-// or name.<hash>.ext with a hash of at least 8 characters.
-var hashedAsset = regexp.MustCompile(`[-.][A-Za-z0-9_-]{8,}\.[A-Za-z0-9]+$`)
+// hashedAssetPattern matches Vite-style fingerprinted file names:
+// name-<hash>.ext or name.<hash>.ext with a hash of at least 8 characters.
+func hashedAssetPattern() *regexp.Regexp {
+	return regexp.MustCompile(`[-.][A-Za-z0-9_-]{8,}\.[A-Za-z0-9]+$`)
+}
 
 type spaRoutes struct {
 	deps        SPADeps
 	apiPrefixes []string
 	csp         string
+	// hashedAsset recognizes fingerprinted assets (hashedAssetPattern).
+	hashedAsset *regexp.Regexp
 }
 
 var _ SPARoutes = (*spaRoutes)(nil)
@@ -58,9 +62,9 @@ func NewSPARoutes(deps SPADeps, opts ...SPAOption) SPARoutes {
 		deps.Enc = httpx.New()
 	}
 	if deps.Assets == nil {
-		deps.Assets = NewAssets(nil)
+		deps.Assets = NewAssets(AssetsDeps{})
 	}
-	h := &spaRoutes{deps: deps, apiPrefixes: []string{"/api/", "/nexo/"}, csp: DefaultCSP}
+	h := &spaRoutes{deps: deps, apiPrefixes: []string{"/api/", "/nexo/"}, csp: DefaultCSP, hashedAsset: hashedAssetPattern()}
 	for _, o := range opts {
 		o(h)
 	}
@@ -118,7 +122,7 @@ func (h *spaRoutes) serveFile(w http.ResponseWriter, r *http.Request, fsys fs.FS
 	if err != nil || st.IsDir() {
 		return false
 	}
-	if hashedAsset.MatchString(path.Base(name)) || strings.HasPrefix(name, "assets/") {
+	if h.hashedAsset.MatchString(path.Base(name)) || strings.HasPrefix(name, "assets/") {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	} else {
 		w.Header().Set("Cache-Control", "public, max-age=3600")

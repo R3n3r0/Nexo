@@ -46,6 +46,7 @@ func newTestService(t *testing.T, clk clock.Clock, opts ...session.Option) (sess
 		"root":     {AccessKey: "root", SecretKey: "rootsecret", Status: domain.StatusEnabled},
 		"disabled": {AccessKey: "disabled", SecretKey: "secret", Status: domain.StatusDisabled},
 		"expired":  {AccessKey: "expired", SecretKey: "secret", Expiration: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)},
+		"sts":      {AccessKey: "sts", SecretKey: "secret", SessionToken: "token", Expiration: time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)},
 	}, identities: map[string]domain.Identity{}}
 	users := iammock.NewService(t)
 	users.EXPECT().LookupCredentials(mock.Anything, mock.Anything).RunAndReturn(d.lookup).Maybe()
@@ -133,6 +134,7 @@ func TestLoginFailures(t *testing.T) {
 		"unknown user": {"ghost", "x"},
 		"disabled":     {"disabled", "secret"},
 		"expired":      {"expired", "secret"},
+		"temporary":    {"sts", "secret"},
 		"empty":        {"", ""},
 	} {
 		_, err := svc.Login(ctx, tc[0], tc[1])

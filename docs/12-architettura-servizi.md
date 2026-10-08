@@ -98,12 +98,12 @@ Regole:
 | 1 | Il file `service.go` contiene **solo** l'interfaccia, i tipi di input/output e la documentazione. Unica forma di metodo ammessa: l'adattatore di un tipo funzione (es. `ActionHandlerFunc.Handle`, come `http.HandlerFunc`). |
 | 2 | L'implementazione è un tipo **non esportato**; si crea solo tramite `New(deps, opts...)`. |
 | 3 | Le dipendenze sono **interfacce** passate nel costruttore (`Deps`); mai variabili di package. |
-| 4 | Ogni metodo riceve `context.Context` come primo parametro. Eccezione documentata: gli **accessori puri** che non fanno I/O né bloccano (es. `StorageAPI.Endpoint()`, `IsOnline()`, `Healing()`, `Target.ID()`, `Registry.Gatherer()`), indicati come tali nel commento. |
+| 4 | Ogni metodo riceve `context.Context` come primo parametro. Eccezione documentata: gli **accessori puri** che non fanno I/O né bloccano (es. `StorageAPI.Endpoint()`, `IsOnline()`, `Healing()`, `Target.ID()`, `metrics.Registry.Handler()`, `topology.IDGenerator.NewID()`), indicati come tali nel commento, e i metodi di wiring/encoding del transport legati a una richiesta o a un router (`Middleware.Wrap`, `Routes.Register`, `httpx.Encoder`, `HTTPDoer.Do` dove il contesto viaggia nella `*http.Request`). Rilasci e operazioni che potranno fare RPC prendono sempre il contesto (`LockContext.Unlock(ctx)`, `HostResolver.Hostname(ctx)`). |
 | 5 | Gli errori sono sentinel in `domain` (`domain.ErrBucketNotFound`), arricchiti con `fmt.Errorf("...: %w", err)`; i transport li mappano in codici S3/HTTP. Un package può definire sentinel più specifici purché **avvolgano** quelli di `domain` (es. `topology.ErrFormatMismatch` wrappa `domain.ErrFormatMismatch`), così `errors.Is` sul sentinel di dominio continua a funzionare. |
 | 6 | Più implementazioni della stessa interfaccia convivono (es. `object.NewFS` e `object.NewErasure`), scelte in `app`. |
 | 7 | Servizi con goroutine implementano anche `lifecycle.Runner` (`Start(ctx) error`, `Stop(ctx) error`). |
-| 8 | Ogni interfaccia ha un mock in `mock/` generato da mockery (configurazione unica `.mockery.yaml` alla radice, `//go:generate` in `internal/service/doc.go`, `with-expecter`); i test unitari usano i mock (package esterno `*_test` per evitare cicli), i test di integrazione le implementazioni reali. Niente fake scritti a mano per interfacce che hanno un mock. |
-| 9 | Decoratori per responsabilità trasversali (metriche, tracing, audit, cache) implementano la stessa interfaccia e avvolgono il servizio: `metrics.WrapBucket(svc)`. Le librerie esterne non escono mai dal package che le usa: `metrics.Registry` è un'interfaccia e il tipo non esportato `registry` incapsula `*prometheus.Registry`. |
+| 8 | Ogni interfaccia dei package `service`, `transport`, `config` e `cli` ha un mock in `mock/` generato da mockery (configurazione unica `.mockery.yaml` alla radice, `//go:generate` in `internal/service/doc.go`, `with-expecter`); i test unitari usano i mock (package esterno `*_test` per evitare cicli), i test di integrazione le implementazioni reali. Niente fake scritti a mano per interfacce che hanno un mock (lo stato condiviso si modella con `RunAndReturn` sul mock). Restano nel package solo i test degli helper non esportati; quando un test esterno deve ispezionare un dettaglio interno lo espone un `export_test.go`. Fuori da questo perimetro `clock.Fake` è l'implementazione deterministica di riferimento di `clock.Clock`. |
+| 9 | Decoratori per responsabilità trasversali (metriche, tracing, audit, cache) implementano la stessa interfaccia e avvolgono il servizio: `metrics.WrapBucket(svc)`. Le librerie esterne non escono mai dal package che le usa: `metrics.Registry` è un'interfaccia neutrale (`Counter/Gauge/Histogram(ctx, metrics.Definition)` che restituiscono `metrics.Counter/Gauge/Histogram`, `Handler() http.Handler`) e il tipo non esportato `registry` incapsula `*prometheus.Registry` e `promhttp`; nessun tipo Prometheus compare fuori da `internal/service/metrics` (regola depguard). |
 | 10 | Nessun import da `transport` verso `app` e da `service` verso `transport`. Dipendenze solo verso il basso: `transport → service → domain`. |
 
 ## 12.3 Le rotte sono servizi
@@ -141,7 +141,9 @@ func (h *bucketRoutes) Register(r chi.Router) {
   `rpc.StorageRoutes`, `rpc.LockRoutes`, ecc.
 - Il handler fa tre cose: **decodifica** la richiesta → **chiama** un servizio → **codifica** la risposta/errore.
 - I middleware sono servizi: `type Middleware interface { Wrap(http.Handler) http.Handler }` con implementazioni
-  `auth`, `requestid`, `audit`, `metrics`, `ratelimit`, `cors`, `recover`.
+  `auth`, `requestid`, `audit`, `metrics`, `ratelimit`, `cors`, `recover`, costruite come ogni servizio con
+  `NewX(XDeps, opts ...XOption)` (es. `middleware.NewAuth(middleware.AuthDeps{Verifier: v})`); una dipendenza
+  obbligatoria mancante è un errore di wiring (`domain.ErrInvalidArgument`), mai un comportamento degradato.
 - Il server HTTP è un servizio: `server.Service` (`Start/Stop`, registrazione dei `Routes`, selezione del router
   per `Host` tramite `distribution.Resolver`).
 
@@ -174,7 +176,9 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (*App, error)
 - `Build` **prepara i dischi** (crea le directory di sistema, scrive o verifica `format.json`) ma non apre socket:
   i listener partono in `Start`. In caso di errore di composizione i dischi già aperti vengono chiusi.
 - `App.Run(ctx)` avvia i `Runner` in ordine, attende il segnale di stop e li ferma in ordine inverso (i dischi per ultimi).
-- I `cmd/` non importano mai i package `service` o `transport`: `cmd/nexo` passa a `app.Build` solo opzioni
+- I `cmd/` non importano mai i package `service` o `transport` (regola depguard `cmd-no-layers`): le costanti
+  condivise con i transport (es. i path di health `domain.HealthLivePath`/`HealthReadyPath`) stanno in `domain`;
+  `cmd/nexo` passa a `app.Build` solo opzioni
   (`app.WithAssetsFS(fs.FS)`), `cmd/nexoctl` riceve le dipendenze in `cmdDeps` (`lookupEnv`, factory di
   `cli.AliasService`) e i test le sostituiscono con i mock generati.
 
@@ -190,12 +194,15 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (*App, error)
   e vengono testati con implementazioni finte.
 
 ## 12.6 Verifica in CI
-- Lint custom (`go vet` + regola `depguard` di golangci-lint) che vieta import "verso l'alto" e import di
-  `transport` dentro `service`.
+- Lint custom (`go vet` + regole `depguard` di golangci-lint) che vieta import "verso l'alto": `transport`
+  dentro `service`, `app` dentro `service`/`transport`, qualsiasi package interno dentro `domain`, `service` e
+  `transport` dentro `cmd/` (`cmd-no-layers`) e `github.com/prometheus/**` fuori da `internal/service/metrics`.
 - `internal/service/convention_test.go`: per ogni package `internal/service/*` verifica che esista `service.go`
   con almeno un'interfaccia esportata e nessuna funzione (salvo gli adattatori di tipo funzione), che
   l'implementazione sia non esportata e dichiari `var _ <Interfaccia> = (*impl)(nil)`, e che ogni interfaccia
-  abbia il mock generato in `mock/`.
+  abbia il mock generato in `mock/`; `TestMockCoverage` estende il controllo dei mock alle interfacce di
+  `transport`, `config` e `cli`; `TestNoMutableGlobals` vieta le variabili di package (ammessi solo
+  `var _ I = ...` e i sentinel `errors.New`/`fmt.Errorf`; eccezione `internal/version`, valorizzato da `-ldflags`).
 - Copertura dei mock: `go generate ./...` deve essere idempotente (`git diff --exit-code` in CI).
 - Contratto Admin API: `npm run gen:api` deve essere idempotente (`git diff --exit-code` su
   `web/src/services/http/schema.d.ts`).
@@ -209,4 +216,7 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (*App, error)
   richieste mutanti; la sessione viene **ri-risolta in IAM a ogni richiesta** (gruppi, policy, stato), così
   revoche e disabilitazioni hanno effetto immediato. Solo `POST /auth/login` è pubblico (`PublicRoutes`).
   Ogni endpoint mappa su un'azione `admin:*` (costanti `policy.ActionAdmin*`) valutata dallo stesso motore;
+  le regole che dipendono dal chiamante oltre l'azione (ownership delle access key: root gestisce tutte le chiavi,
+  un utente solo le proprie, le credenziali derivate nessuna) sono applicate dal servizio, che riceve l'identità
+  nel contratto (`iam.Service.ListAccessKeys(ctx, caller, parent)`, `CreateAccessKeyInput.Caller`, ...);
   gli errori sono `problem+json` con `code` stabile (`unauthenticated`, `invalid_csrf_token`, `access_denied`).

@@ -1,53 +1,54 @@
 package middleware
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/r3n3r0/nexo/internal/clock"
+	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/audit"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
 
+// AuditDeps are the dependencies of the audit middleware.
+type AuditDeps struct {
+	// Auditor records the entries (required).
+	Auditor audit.Service
+	// Clock timestamps the entries and measures durations (default wall clock).
+	Clock clock.Clock
+}
+
 type auditMiddleware struct {
-	auditor audit.Service
-	clock   clock.Clock
+	deps AuditDeps
 }
 
 var _ Middleware = (*auditMiddleware)(nil)
 
-// AuditOption configures the audit middleware.
-type AuditOption func(*auditMiddleware)
-
-// WithAuditClock sets the clock used for timestamps and durations.
-func WithAuditClock(c clock.Clock) AuditOption {
-	return func(m *auditMiddleware) {
-		if c != nil {
-			m.clock = c
-		}
-	}
-}
-
 // NewAudit returns a middleware recording one audit entry per request. It
-// installs an operation holder so that the router can report the API name
-// (httpx.SetOperationName) and reads the identity set by the auth
-// middlewares, which must therefore run before it.
-func NewAudit(auditor audit.Service, opts ...AuditOption) Middleware {
-	m := &auditMiddleware{auditor: auditor, clock: clock.NewReal()}
-	for _, o := range opts {
-		o(m)
+// installs an operation holder, so that the router can report the API name
+// (httpx.SetOperationName), and an identity holder, so that the identity
+// established below it is recorded: the one of the auth middleware or the
+// one a handler authenticates itself (presigned URLs, POST policy). It must
+// run before (outside) the auth middleware, so that the requests rejected
+// by the authentication are recorded too. A missing auditor is a wiring
+// error (domain.ErrInvalidArgument).
+func NewAudit(deps AuditDeps) (Middleware, error) {
+	if deps.Auditor == nil {
+		return nil, fmt.Errorf("%w: audit middleware requires an auditor", domain.ErrInvalidArgument)
 	}
-	return m
+	if deps.Clock == nil {
+		deps.Clock = clock.NewReal()
+	}
+	return &auditMiddleware{deps: deps}, nil
 }
 
 // Wrap implements Middleware.
 func (m *auditMiddleware) Wrap(next http.Handler) http.Handler {
-	if m.auditor == nil {
-		return next
-	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := m.clock.Now()
+		start := m.deps.Clock.Now()
 		ctx, holder := httpx.WithOperationHolder(r.Context())
+		ctx = WithIdentityHolder(ctx)
 		rw := wrapWriter(w)
 		next.ServeHTTP(rw, r.WithContext(ctx))
 
@@ -66,18 +67,23 @@ func (m *auditMiddleware) Wrap(next http.Handler) http.Handler {
 				StatusCode:     rw.Status(),
 				InputBytes:     max(r.ContentLength, 0),
 				OutputBytes:    rw.bytes,
-				TimeToResponse: m.clock.Now().Sub(start),
+				TimeToResponse: m.deps.Clock.Now().Sub(start),
 			},
-			ReqQuery: flatten(r.URL.Query()),
+			// Presigned signatures and tokens are capabilities: never logged.
+			ReqQuery: flatten(httpx.RedactQuery(r.URL.Query())),
 		}
 		if entry.API.Name == "" {
 			entry.API.Name = r.Method + " " + r.URL.Path
 		}
-		if id, ok := IdentityFromContext(ctx); ok {
+		id, ok := HeldIdentity(ctx)
+		if !ok { // authenticated before this middleware
+			id, ok = IdentityFromContext(ctx)
+		}
+		if ok {
 			entry.AccessKey = id.AccessKey
 			entry.ParentUser = id.Parent
 		}
-		_ = m.auditor.Log(ctx, entry)
+		_ = m.deps.Auditor.Log(ctx, entry)
 	})
 }
 

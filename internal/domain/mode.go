@@ -19,19 +19,20 @@ const (
 	ModeDistributed
 )
 
-var modeNames = map[Mode]string{
-	ModeUnknown:     "unknown",
-	ModeSNSD:        "snsd",
-	ModeSNMD:        "snmd",
-	ModeDistributed: "distributed",
-}
-
 // String returns the canonical lowercase name of the mode.
 func (m Mode) String() string {
-	if s, ok := modeNames[m]; ok {
-		return s
+	switch m {
+	case ModeUnknown:
+		return "unknown"
+	case ModeSNSD:
+		return "snsd"
+	case ModeSNMD:
+		return "snmd"
+	case ModeDistributed:
+		return "distributed"
+	default:
+		return fmt.Sprintf("Mode(%d)", int(m))
 	}
-	return fmt.Sprintf("Mode(%d)", int(m))
 }
 
 // IsErasure reports whether the mode uses erasure coding.

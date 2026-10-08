@@ -78,7 +78,7 @@ func parseRangeInt(s string) (int64, error) {
 
 // Resolve computes the byte offset and length to serve for a resource of the
 // given size. It returns ErrInvalidRange when the range is unsatisfiable
-// (start beyond the end of the resource).
+// (start beyond the end of the resource, or any range of an empty one).
 func (r *Range) Resolve(size int64) (offset, length int64, err error) {
 	if r == nil {
 		return 0, size, nil
@@ -87,6 +87,11 @@ func (r *Range) Resolve(size int64) (offset, length int64, err error) {
 		return 0, 0, fmt.Errorf("%w: negative size", ErrInvalidRange)
 	}
 	if r.IsSuffix {
+		// No byte of an empty resource can be served: a 206 could not
+		// describe it, so the range is unsatisfiable like "bytes=0-".
+		if size == 0 || r.SuffixLength <= 0 {
+			return 0, 0, fmt.Errorf("%w: last %d bytes of a %d-byte resource", ErrInvalidRange, r.SuffixLength, size)
+		}
 		if r.SuffixLength >= size {
 			return 0, size, nil
 		}

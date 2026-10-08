@@ -1,4 +1,4 @@
-package httpx
+package httpx_test
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
 
 func TestMapS3ErrorTable(t *testing.T) {
@@ -68,7 +69,7 @@ func TestMapS3ErrorTable(t *testing.T) {
 			name = tc.err.Error()
 		}
 		t.Run(name, func(t *testing.T) {
-			c := New()
+			c := httpx.New()
 			code, msg := c.MapS3Error(tc.err)
 			assert.Equal(t, tc.code, code.Code)
 			assert.Equal(t, tc.status, code.HTTPStatus)
@@ -94,8 +95,9 @@ func TestMapS3ErrorEverySentinelIsMapped(t *testing.T) {
 		domain.ErrLockTimeout, domain.ErrQuotaExceeded, domain.ErrObjectLocked, domain.ErrInvalidArgument,
 		domain.ErrMalformedXML, domain.ErrConflict, domain.ErrMethodNotAllowed, domain.ErrChecksumMismatch,
 		domain.ErrUnauthenticated, domain.ErrInvalidFormat, domain.ErrFormatMismatch, domain.ErrInvalidLayout,
+		domain.ErrShareNotFound,
 	}
-	c := New()
+	c := httpx.New()
 	for _, s := range sentinels {
 		code, _ := c.MapS3Error(s)
 		assert.NotEqual(t, c.Codes().InternalError, code, "sentinel %v has no S3 mapping", s)
@@ -110,18 +112,24 @@ func TestMapS3ErrorEverySentinelIsMapped(t *testing.T) {
 }
 
 func TestMapS3ErrorHonoursS3Error(t *testing.T) {
-	c := New()
+	c := httpx.New()
 	err := fmt.Errorf("complete: %w", domain.NewS3Error(domain.ErrInvalidPart, "InvalidPartNumber", "part 7 is odd").WithResource("/b/k"))
 	code, msg := c.MapS3Error(err)
 	assert.Equal(t, "InvalidPartNumber", code.Code)
-	assert.Equal(t, http.StatusBadRequest, code.HTTPStatus)
+	assert.Equal(t, http.StatusRequestedRangeNotSatisfiable, code.HTTPStatus, "a known code brings its canonical status")
 	assert.Equal(t, "part 7 is odd", msg)
-	assert.Equal(t, "/b/k", S3ErrorResource(err))
-	assert.Empty(t, S3ErrorResource(domain.ErrConflict))
+	assert.Equal(t, "/b/k", httpx.S3ErrorResource(err))
+	assert.Empty(t, httpx.S3ErrorResource(domain.ErrConflict))
 
 	// A code with no sentinel defaults to 400.
-	code, _ = c.MapS3Error(&domain.S3Error{Code: "XNexoCustom"})
+	code, msg = c.MapS3Error(&domain.S3Error{Code: "XNexoCustom"})
 	assert.Equal(t, http.StatusBadRequest, code.HTTPStatus)
+	assert.Equal(t, "XNexoCustom", code.Code)
+	assert.Equal(t, c.Codes().InvalidRequest.Description, msg, "no internal text leaks")
+	// An unknown code keeps the status of the wrapped sentinel.
+	code, _ = c.MapS3Error(domain.NewS3Error(domain.ErrBucketNotFound, "XNexoGone", ""))
+	assert.Equal(t, "XNexoGone", code.Code)
+	assert.Equal(t, http.StatusNotFound, code.HTTPStatus)
 	// A message without a code keeps the sentinel code.
 	code, msg = c.MapS3Error(&domain.S3Error{Message: "bucket gone", Err: domain.ErrBucketNotFound})
 	assert.Equal(t, "NoSuchBucket", code.Code)
@@ -129,16 +137,90 @@ func TestMapS3ErrorHonoursS3Error(t *testing.T) {
 }
 
 func TestProblemFromError(t *testing.T) {
-	c := New()
+	c := httpx.New()
 	p := c.ProblemFromError(fmt.Errorf("x: %w", domain.ErrAccessDenied))
 	assert.Equal(t, 403, p.Status)
 	assert.Equal(t, "access_denied", p.Code)
 	assert.Equal(t, "Forbidden", p.Title)
 	assert.Contains(t, p.Detail, "access denied")
 
+	p = c.ProblemFromError(fmt.Errorf("share abc: %w", domain.ErrShareNotFound))
+	assert.Equal(t, 404, p.Status)
+	assert.Equal(t, "share_not_found", p.Code)
+
 	p = c.ProblemFromError(errors.New("secret internal detail"))
 	assert.Equal(t, 500, p.Status)
 	assert.Equal(t, "internal_error", p.Code)
 	assert.Empty(t, p.Detail, "internal details must not leak")
 	require.Equal(t, "Internal Server Error", p.Title)
+}
+
+func TestMapS3ErrorExplicitCodes(t *testing.T) {
+	tests := []struct {
+		sentinel error
+		code     string
+		status   int
+	}{
+		{domain.ErrChecksumMismatch, "BadDigest", http.StatusBadRequest},
+		{domain.ErrInvalidArgument, "InvalidDigest", http.StatusBadRequest},
+		{domain.ErrInvalidObjectName, "KeyTooLongError", http.StatusBadRequest},
+		{domain.ErrInvalidArgument, "MetadataTooLarge", http.StatusBadRequest},
+		{domain.ErrInvalidArgument, "MissingContentLength", http.StatusLengthRequired},
+		{domain.ErrInvalidRange, "InvalidPartNumber", http.StatusRequestedRangeNotSatisfiable},
+		{domain.ErrPolicyNotFound, "NoSuchTagSet", http.StatusNotFound},
+		{domain.ErrPolicyNotFound, "NoSuchBucketPolicy", http.StatusNotFound},
+		{domain.ErrPolicyNotFound, "NoSuchLifecycleConfiguration", http.StatusNotFound},
+		{domain.ErrPolicyNotFound, "NoSuchCORSConfiguration", http.StatusNotFound},
+		{domain.ErrPolicyNotFound, "ServerSideEncryptionConfigurationNotFoundError", http.StatusNotFound},
+		{domain.ErrPolicyNotFound, "ObjectLockConfigurationNotFoundError", http.StatusNotFound},
+		{domain.ErrInvalidArgument, "PolicyTooLarge", http.StatusBadRequest},
+		{domain.ErrInvalidArgument, "MalformedPolicy", http.StatusBadRequest},
+		{domain.ErrInvalidArgument, "InvalidRequest", http.StatusBadRequest},
+		{domain.ErrMethodNotAllowed, "MethodNotAllowed", http.StatusMethodNotAllowed},
+		{domain.ErrChecksumMismatch, "XAmzContentSHA256Mismatch", http.StatusBadRequest},
+		{domain.ErrInvalidArgument, "IncompleteBody", http.StatusBadRequest},
+		{domain.ErrInvalidArgument, "InvalidLocationConstraint", http.StatusBadRequest},
+		{domain.ErrConflict, "InvalidBucketState", http.StatusConflict},
+		{domain.ErrInvalidArgument, "InvalidTag", http.StatusBadRequest},
+		{domain.ErrInvalidArgument, "InvalidStorageClass", http.StatusBadRequest},
+		{domain.ErrInvalidArgument, "MalformedPOSTRequest", http.StatusBadRequest},
+		{domain.ErrMalformedXML, "IllegalVersioningConfigurationException", http.StatusBadRequest},
+		{domain.ErrSignatureMismatch, "AuthorizationHeaderMalformed", http.StatusBadRequest},
+		{domain.ErrSignatureMismatch, "AuthorizationQueryParametersError", http.StatusBadRequest},
+		{domain.ErrAccessDenied, "InvalidToken", http.StatusBadRequest},
+		{domain.ErrAccessDenied, "ExpiredToken", http.StatusBadRequest},
+		{domain.ErrRequestExpired, "AccessDenied", http.StatusForbidden},
+		{domain.ErrMalformedXML, "MaxMessageLengthExceeded", http.StatusBadRequest},
+		{domain.ErrInvalidArgument, "InvalidPolicyDocument", http.StatusBadRequest},
+	}
+	c := httpx.New()
+	for _, tc := range tests {
+		t.Run(tc.code, func(t *testing.T) {
+			code, msg := c.MapS3Error(fmt.Errorf("layer: %w", domain.NewS3Error(tc.sentinel, tc.code, "")))
+			assert.Equal(t, tc.code, code.Code)
+			assert.Equal(t, tc.status, code.HTTPStatus)
+			assert.NotEmpty(t, msg)
+			// The default description is the one of the code, not of the sentinel.
+			assert.Equal(t, code.Description, msg)
+		})
+	}
+	// ErrBadDigest maps to BadDigest on its own.
+	code, _ := c.MapS3Error(fmt.Errorf("put: %w", domain.ErrBadDigest))
+	assert.Equal(t, "BadDigest", code.Code)
+}
+
+func TestS3CodesAreUnique(t *testing.T) {
+	c := httpx.New().Codes()
+	seen := map[string]bool{}
+	for _, code := range []httpx.S3Code{
+		c.InvalidDigest, c.KeyTooLongError, c.MetadataTooLarge, c.MissingContentLength, c.InvalidPartNumber,
+		c.NoSuchTagSet, c.NoSuchBucketPolicy, c.PolicyTooLarge, c.MalformedPolicy, c.InvalidRequest,
+		c.XAmzContentSHA256Mismatch, c.IncompleteBody, c.InvalidLocationConstraint, c.InvalidBucketState,
+		c.MethodNotAllowed, c.BadDigest,
+	} {
+		assert.False(t, seen[code.Code], "duplicate code %s", code.Code)
+		seen[code.Code] = true
+		assert.NotEmpty(t, code.Description)
+		assert.NotZero(t, code.HTTPStatus)
+	}
 }

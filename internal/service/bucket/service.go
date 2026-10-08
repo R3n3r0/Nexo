@@ -13,19 +13,30 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/lock"
 	"github.com/r3n3r0/nexo/internal/service/object"
+	"github.com/r3n3r0/nexo/internal/service/policy"
 )
 
 // Deps are the dependencies of the bucket service.
 type Deps struct {
 	Objects object.Service
 	Store   MetadataStore
-	Clock   clock.Clock
-	Logger  *slog.Logger
+	// Policy parses and validates bucket policies and decides whether they
+	// are public.
+	Policy policy.Service
+	// Locks serializes the read-modify-write cycles of a bucket's
+	// configuration (default: a local locker; pass the deployment's
+	// locker so that every node serializes on the same locks).
+	Locks  lock.Locker
+	Clock  clock.Clock
+	Logger *slog.Logger
 }
 
 // Metadata is the persisted configuration of a bucket
-// (.nexo.sys/buckets/<bucket>/metadata.json).
+// (.nexo.sys/buckets/<bucket>/.metadata.json). Policy is the raw JSON
+// document; Lifecycle, CORS and Notification are the raw XML (or JSON)
+// documents, parsed and evaluated by their own packages.
 type Metadata struct {
 	Name         string            `json:"name"`
 	Created      time.Time         `json:"created"`
@@ -42,13 +53,23 @@ type Metadata struct {
 	UpdatedAt    time.Time         `json:"updatedAt"`
 }
 
-// MetadataStore persists the bucket metadata documents. A bucket without a
-// document yields the zero Metadata (unversioned, no configuration).
+// MetadataStore persists the bucket metadata documents behind an
+// in-memory cache. A bucket without a document yields the zero Metadata
+// (unversioned, no configuration).
 type MetadataStore interface {
 	object.BucketConfigSource
+	// Load returns a copy of the bucket metadata, from the cache when
+	// present.
 	Load(ctx context.Context, bucket string) (*Metadata, error)
+	// Save writes the document atomically (on a majority of the drives)
+	// and refreshes the cache.
 	Save(ctx context.Context, bucket string, m *Metadata) error
+	// Delete removes the document and its cache entry.
 	Delete(ctx context.Context, bucket string) error
+	// Invalidate drops the cache entry of bucket (every bucket when
+	// empty) so that the next Load reads the drives: the hook of the peer
+	// notifications sent when another node changes a bucket.
+	Invalidate(ctx context.Context, bucket string)
 }
 
 // Service manages buckets and their metadata.
@@ -66,8 +87,15 @@ type Service interface {
 	// GetPolicy returns the bucket policy document as raw JSON, or
 	// domain.ErrPolicyNotFound when none is set.
 	GetPolicy(ctx context.Context, name string) (json.RawMessage, error)
+	// SetPolicy validates the document with the policy engine's bucket
+	// policy rules (policy.Service.ParseBucketPolicy: S3 MalformedPolicy
+	// errors wrapping domain.ErrInvalidArgument) and stores it as given.
 	SetPolicy(ctx context.Context, name string, policy json.RawMessage) error
 	DeletePolicy(ctx context.Context, name string) error
+	// IsPublic reports whether the bucket policy grants access to everyone
+	// (S3 GetBucketPolicyStatus). A bucket without a policy returns
+	// domain.ErrPolicyNotFound (S3 NoSuchBucketPolicy).
+	IsPublic(ctx context.Context, name string) (bool, error)
 
 	// Lifecycle, CORS and Notification configurations are stored as their
 	// canonical XML documents; parsing and evaluation live in the ilm and
@@ -85,7 +113,9 @@ type Service interface {
 	DeleteEncryption(ctx context.Context, name string) error
 
 	GetQuota(ctx context.Context, name string) (Quota, error)
-	SetQuota(ctx context.Context, name string, q Quota) error
+	// SetQuota stores the quota and returns it normalized: a positive size
+	// without a type is a hard quota, a zero size clears the quota.
+	SetQuota(ctx context.Context, name string, q Quota) (Quota, error)
 
 	GetTags(ctx context.Context, name string) (map[string]string, error)
 	SetTags(ctx context.Context, name string, tags map[string]string) error
@@ -97,6 +127,10 @@ type Service interface {
 
 	GetNotification(ctx context.Context, name string) ([]byte, error)
 	SetNotification(ctx context.Context, name string, xmlDoc []byte) error
+
+	// Invalidate drops the cached metadata of a bucket (every bucket when
+	// name is empty); see MetadataStore.Invalidate.
+	Invalidate(ctx context.Context, name string)
 }
 
 // CreateInput are the parameters of Create.
@@ -111,7 +145,8 @@ type CreateInput struct {
 type ListInput struct {
 	// Prefix filters bucket names.
 	Prefix string
-	// WithUsage includes object counts and sizes (slower).
+	// WithUsage fills in the usage counters (objects, versions, delete
+	// markers, size) with a walk of every bucket: slower.
 	WithUsage bool
 }
 

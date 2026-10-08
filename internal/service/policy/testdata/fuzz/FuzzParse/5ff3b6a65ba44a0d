@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"0\",\"Effect\":\"Deny\",\"NotAction\":[\"s3:*AB*\"],\"NotResource\":\"arn:aws:s3:::0000000000000000000\",\"Condition\":{}}]}")

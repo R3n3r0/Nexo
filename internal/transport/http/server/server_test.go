@@ -1,4 +1,4 @@
-package server
+package server_test
 
 import (
 	"context"
@@ -13,6 +13,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
+	"github.com/r3n3r0/nexo/internal/transport/http/server"
 )
 
 func TestServerStartServeStop(t *testing.T) {
@@ -31,13 +32,13 @@ func TestServerStartServeStop(t *testing.T) {
 			next.ServeHTTP(w, r)
 		})
 	})
-	srv := New(Deps{
+	srv := server.New(server.Deps{
 		Routes:      []httpx.Routes{routes, nil},
 		Middlewares: []middleware.Middleware{header},
 		NotFound: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "custom 404", http.StatusNotFound)
 		}),
-	}, WithAddr("127.0.0.1:0"), WithName("test"), WithReadHeaderTimeout(time.Second), WithShutdownTimeout(2*time.Second))
+	}, server.WithAddr("127.0.0.1:0"), server.WithName("test"), server.WithReadHeaderTimeout(time.Second), server.WithShutdownTimeout(2*time.Second))
 
 	assert.Equal(t, "127.0.0.1:0", srv.Addr())
 	ctx := context.Background()
@@ -83,7 +84,7 @@ func TestServerStartServeStop(t *testing.T) {
 }
 
 func TestServerHandlerIsUsableWithoutStart(t *testing.T) {
-	srv := New(Deps{Routes: []httpx.Routes{httpx.RoutesFunc(func(r chi.Router) {
+	srv := server.New(server.Deps{Routes: []httpx.Routes{httpx.RoutesFunc(func(r chi.Router) {
 		r.Get("/x", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	})}})
 	assert.NotNil(t, srv.Handler())
@@ -91,14 +92,14 @@ func TestServerHandlerIsUsableWithoutStart(t *testing.T) {
 }
 
 func TestServerListenError(t *testing.T) {
-	first := New(Deps{}, WithAddr("127.0.0.1:0"))
+	first := server.New(server.Deps{}, server.WithAddr("127.0.0.1:0"))
 	require.NoError(t, first.Start(context.Background()))
 	defer func() { _ = first.Stop(context.Background()) }()
-	second := New(Deps{}, WithAddr(first.Addr()))
+	second := server.New(server.Deps{}, server.WithAddr(first.Addr()))
 	err := second.Start(context.Background())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "listen")
 
-	bad := New(Deps{}, WithTLS("/nonexistent/cert.pem", "/nonexistent/key.pem"), WithAddr("127.0.0.1:0"))
+	bad := server.New(server.Deps{}, server.WithTLS("/nonexistent/cert.pem", "/nonexistent/key.pem"), server.WithAddr("127.0.0.1:0"))
 	assert.Error(t, bad.Start(context.Background()))
 }

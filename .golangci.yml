@@ -49,6 +49,25 @@ linters:
           deny:
             - pkg: github.com/r3n3r0/nexo/internal/app
               desc: transports must not import the composition root
+        # Commands only talk to the composition root (12.4): cmd → app
+        # (+ config, version, domain, cli), never services or transports.
+        cmd-no-layers:
+          files:
+            - "**/cmd/**"
+          deny:
+            - pkg: github.com/r3n3r0/nexo/internal/service
+              desc: commands must not import service packages, go through internal/app
+            - pkg: github.com/r3n3r0/nexo/internal/transport
+              desc: commands must not import transport packages, go through internal/app
+        # External libraries never leave the package that wraps them
+        # (12.2 rule 9): Prometheus is confined to internal/service/metrics.
+        prometheus-only-in-metrics:
+          files:
+            - "$all"
+            - "!**/internal/service/metrics/**"
+          deny:
+            - pkg: github.com/prometheus
+              desc: use the library-neutral API of internal/service/metrics
   exclusions:
     # Third-party Go sources shipped inside npm packages are not ours.
     paths:
