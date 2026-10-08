@@ -1,0 +1,42 @@
+# C-OBJ-09: quota and encrypt manage the hard quota and the default
+# encryption of a bucket through the Admin API (regression: the commands
+# were missing).
+
+exec nexoctl mb local/settings
+exec nexoctl quota info local/settings
+stdout 'has no quota'
+exec nexoctl quota set local/settings --size 1MiB
+stdout 'Set a hard quota of 1(\.0)?MiB on `local/settings`.'
+exec nexoctl quota info --json local/settings
+jsonlines stdout
+stdout '"type":"hard","size":1048576'
+# The quota is enforced on the writes.
+exec nexoctl quota set local/settings --size 16
+! exec nexoctl cp big.txt local/settings/big.txt
+stderr 'quota'
+exec nexoctl quota clear local/settings
+exec nexoctl quota info local/settings
+stdout 'has no quota'
+exec nexoctl cp big.txt local/settings/big.txt
+expectcode 3 nexoctl quota info local/missing-bucket
+
+exec nexoctl encrypt info local/settings
+stdout 'no default encryption'
+exec nexoctl encrypt set sse-s3 local/settings
+stdout 'SSE-S3 \(AES256\)'
+exec nexoctl encrypt info --json local/settings
+stdout '"algorithm":"AES256"'
+exec nexoctl encrypt set sse-kms local/settings --kms-key-id nexo-key
+exec nexoctl encrypt info local/settings
+stdout 'SSE-KMS with key nexo-key'
+exec nexoctl encrypt clear local/settings
+exec nexoctl encrypt info local/settings
+stdout 'no default encryption'
+
+# A user without the admin actions is denied (exit 4).
+exec nexoctl admin user add local quinn quinn-secret-1 --policy readwrite
+exec nexoctl alias set quinn $NEXO_URL quinn quinn-secret-1 --admin-url $NEXO_ADMIN_URL
+expectcode 4 nexoctl quota set quinn/settings --size 1GiB
+
+-- big.txt --
+more than sixteen bytes of content

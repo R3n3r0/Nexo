@@ -179,6 +179,10 @@ func TestVerifyHeaderErrors(t *testing.T) {
 		{"deleted user", key("GONE"), nil, domain.ErrInvalidAccessKey, "InvalidAccessKeyId"},
 		{"no secret", key("NOSECRET"), nil, domain.ErrInvalidAccessKey, "InvalidAccessKeyId"},
 		{"disabled key", key("DISABLED"), nil, domain.ErrAccessDenied, "InvalidAccessKeyId"},
+		// Regression: the refusal of the IAM answered AccessDenied, which
+		// clients read as valid credentials without the permission.
+		{"key disabled in the lookup", key("REFUSED"), nil, domain.ErrCredentialsDisabled, "InvalidAccessKeyId"},
+		{"key expired in the lookup", key("LAPSED"), nil, domain.ErrAccessDenied, ""},
 		{"expired key", key("EXPIRED"), nil, domain.ErrAccessDenied, "InvalidAccessKeyId"},
 		{"expired session", domain.Credentials{AccessKey: "EXPIREDTEMP", SecretKey: "s", SessionToken: "t"}, nil, domain.ErrAccessDenied, "ExpiredToken"},
 		{"lookup failure", key("BROKEN"), nil, domain.ErrFaultyDisk, ""},

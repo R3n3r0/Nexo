@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	adminsvc "github.com/r3n3r0/nexo/internal/service/admin"
 	"github.com/r3n3r0/nexo/internal/service/session"
 	"github.com/r3n3r0/nexo/internal/testutil"
 	"github.com/r3n3r0/nexo/internal/transport/http/admin"
@@ -433,7 +434,7 @@ func TestUploadLimit(t *testing.T) {
 	srv := testutil.StartServer(t)
 	c := newConsole(t, srv, srv.RootUser, srv.RootPassword)
 	c.call(http.MethodPost, "/buckets", map[string]any{"name": "limits"}, http.StatusCreated)
-	body := bytes.NewReader(make([]byte, admin.DefaultMaxUploadSize+1))
+	body := bytes.NewReader(make([]byte, adminsvc.DefaultMaxUploadSize+1))
 	data := c.call(http.MethodPost, "/buckets/limits/objects/upload"+q("too-big.bin"), body, http.StatusRequestEntityTooLarge)
 	assert.Contains(t, string(data), "entity_too_large")
 	c.call(http.MethodGet, "/buckets/limits/objects/stat"+q("too-big.bin"), nil, http.StatusNotFound)

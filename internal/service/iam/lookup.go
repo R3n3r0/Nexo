@@ -38,7 +38,7 @@ func (s *service) lookup(st *state, ak string) (domain.Credentials, domain.Ident
 	}
 	if u := st.users[ak]; u != nil {
 		if u.Status == domain.StatusDisabled {
-			return domain.Credentials{}, domain.Identity{}, fmt.Errorf("%w: user %q is disabled", domain.ErrAccessDenied, ak)
+			return domain.Credentials{}, domain.Identity{}, fmt.Errorf("%w: user %q is disabled", domain.ErrCredentialsDisabled, ak)
 		}
 		id := domain.Identity{AccessKey: ak}
 		st.fillUser(&id, u)
@@ -48,7 +48,7 @@ func (s *service) lookup(st *state, ak string) (domain.Credentials, domain.Ident
 	if sa := st.sas[ak]; sa != nil {
 		switch {
 		case sa.Status == domain.StatusDisabled:
-			return domain.Credentials{}, domain.Identity{}, fmt.Errorf("%w: access key %q is disabled", domain.ErrAccessDenied, ak)
+			return domain.Credentials{}, domain.Identity{}, fmt.Errorf("%w: access key %q is disabled", domain.ErrCredentialsDisabled, ak)
 		case !sa.Expiration.IsZero() && !now.Before(sa.Expiration):
 			return domain.Credentials{}, domain.Identity{}, fmt.Errorf("%w: access key %q has expired", domain.ErrAccessDenied, ak)
 		}
@@ -94,7 +94,7 @@ func (s *service) fillParent(st *state, id *domain.Identity, ak string) error {
 		return fmt.Errorf("%w: %q: parent user %q no longer exists", domain.ErrInvalidAccessKey, ak, id.Parent)
 	}
 	if u.Status == domain.StatusDisabled {
-		return fmt.Errorf("%w: parent user %q of %q is disabled", domain.ErrAccessDenied, id.Parent, ak)
+		return fmt.Errorf("%w: parent user %q of %q is disabled", domain.ErrCredentialsDisabled, id.Parent, ak)
 	}
 	st.fillUser(id, u)
 	return nil

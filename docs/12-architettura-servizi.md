@@ -179,8 +179,12 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (*App, error)
 - I `cmd/` non importano mai i package `service` o `transport` (regola depguard `cmd-no-layers`): le costanti
   condivise con i transport (es. i path di health `domain.HealthLivePath`/`HealthReadyPath`) stanno in `domain`;
   `cmd/nexo` passa a `app.Build` solo opzioni
-  (`app.WithAssetsFS(fs.FS)`), `cmd/nexoctl` riceve le dipendenze in `cmdDeps` (`lookupEnv`, factory di
-  `cli.AliasService`) e i test le sostituiscono con i mock generati.
+  (`app.WithAssetsFS(fs.FS)`); `cmd/nexoctl` delega a `commands.Run(commands.DefaultDeps(), args)`: il punto di
+  iniezione delle dipendenze di processo della CLI è `internal/cli/commands.Deps` (stream, `LookupEnv`,
+  factory `Aliases` di `cli.AliasService`, `S3` e `Admin` (`cli.S3Factory`, `cli.AdminFactory`), `Clock`,
+  `IsTerminal`, `HomeDir`, `Exec`), che i test dei comandi sostituiscono con i mock generati e con gli
+  archivi in memoria costruiti su di essi (`clitest.MemS3`, `clitest.MemAdmin`); `cmd/nexoctl/main_test.go`
+  verifica solo il cablaggio del processo (exit code di `--version`, `--help`, comando o alias sconosciuto).
 
 ## 12.5 Frontend e CLI
 
@@ -190,8 +194,13 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (*App, error)
   dal contratto OpenAPI `api/openapi.yaml` tramite `http/schema.d.ts`, generato con `npm run gen:api`
   (`openapi-typescript`): il Go (`internal/transport/http/admin`) è l'implementazione di riferimento e un
   cambio di contratto rompe il typecheck della console.
-- **CLI**: `internal/cli/` con `S3Client` e `AdminClient` come interfacce; i comandi cobra ricevono le interfacce
-  e vengono testati con implementazioni finte.
+- **CLI**: `internal/cli/` con `S3Client` e `AdminClient` come interfacce (factory `S3Factory`/`AdminFactory`)
+  e i building block dei comandi (es. `Mirrorer`, il motore di `mirror` e `mirror --watch`: piano, esecuzione,
+  eventi; `NewMirrorer(MirrorDeps, ...MirrorerOption)`): i comandi decodificano flag e argomenti, chiamano i
+  building block e stampano i risultati;
+  i comandi cobra di `internal/cli/commands` le ricevono tramite `commands.Deps` e vengono testati con i mock
+  generati in `internal/cli/mock` (stato condiviso modellato con `RunAndReturn` in `internal/cli/clitest`),
+  golden file e script `testscript` contro un server reale (`test/cli`).
 
 ## 12.6 Verifica in CI
 - Lint custom (`go vet` + regole `depguard` di golangci-lint) che vieta import "verso l'alto": `transport`
@@ -212,8 +221,11 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (*App, error)
   contesto; ogni handler chiede al `policy.Service` l'azione `s3:*` corrispondente con le condizioni della
   richiesta (`aws:SourceIp`, `s3:prefix`, …) e la bucket policy; il middleware `audit` registra l'operazione
   (nome impostato dal dispatcher con `httpx.SetOperationName`).
-- **Admin API** (`:9001/api/v1`): il middleware `sessionauth` valida il cookie di sessione e il CSRF sulle
-  richieste mutanti; la sessione viene **ri-risolta in IAM a ogni richiesta** (gruppi, policy, stato), così
+- **Admin API** (`:9001/api/v1`): il middleware di autenticazione (`admin.NewAuthenticator`) valida il cookie di
+  sessione e, sulle richieste mutanti, l'origine (`Sec-Fetch-Site: same-origin`, o in sua assenza `Origin`/`Referer`
+  della console: le porte di uno stesso host sono same-site, quindi le pagine servite dal listener S3 ricevono il
+  cookie `SameSite=Strict`) e il token CSRF (header `X-CSRF-Token`; il campo di form `csrfToken` solo sulla rotta
+  `download-zip`; il token sta nel payload della sessione, mai in un cookie leggibile); la sessione viene **ri-risolta in IAM a ogni richiesta** (gruppi, policy, stato), così
   revoche e disabilitazioni hanno effetto immediato. Solo `POST /auth/login` è pubblico (`PublicRoutes`).
   Ogni endpoint mappa su un'azione `admin:*` (costanti `policy.ActionAdmin*`) valutata dallo stesso motore;
   le regole che dipendono dal chiamante oltre l'azione (ownership delle access key: root gestisce tutte le chiavi,

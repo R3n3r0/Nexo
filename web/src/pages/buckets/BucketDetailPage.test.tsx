@@ -137,16 +137,80 @@ describe('BucketSettingsTab (D-BKT-02)', () => {
     });
   });
 
-  it('shows object lock read-only and keeps versioning on a locked bucket', async () => {
+  it('shows object lock and keeps versioning on a locked bucket', async () => {
     renderRoutes(routes, { initialEntries: ['/buckets/logs-archive/settings'], services: admin() });
     const lock = await screen.findByRole('region', { name: 'Object lock' });
-    expect(await within(lock).findByText('GOVERNANCE')).toBeInTheDocument();
-    expect(within(lock).getByText('30 days')).toBeInTheDocument();
+    expect(await within(lock).findByText('GOVERNANCE · 30 days')).toBeInTheDocument();
+    expect(
+      within(lock).getByText(/default retention applies to the new objects/),
+    ).toBeInTheDocument();
     expect(
       screen.getByText('Versioning cannot be suspended on a bucket with object lock.'),
     ).toBeInTheDocument();
     const encryption = screen.getByRole('region', { name: 'Encryption' });
-    expect(await within(encryption).findByText('Not configured')).toBeInTheDocument();
+    expect(
+      await within(encryption).findByText('Not configured', { selector: '.mantine-Badge-label' }),
+    ).toBeInTheDocument();
+  });
+
+  // Regression (D-BKT-02): encryption and object lock were read-only.
+  it('sets the default encryption and the object lock retention', async () => {
+    const services = admin();
+    const setEncryption = vi.spyOn(services.buckets, 'setEncryption');
+    const setObjectLock = vi.spyOn(services.buckets, 'setObjectLock');
+    renderRoutes(routes, { initialEntries: ['/buckets/logs-archive/settings'], services });
+    const user = userEvent.setup();
+
+    const encryption = await screen.findByRole('region', { name: 'Encryption' });
+    await user.click(
+      await within(encryption).findByRole('textbox', { name: 'Default encryption' }),
+    );
+    await user.click(await screen.findByRole('option', { name: 'SSE-KMS' }));
+    await user.type(within(encryption).getByRole('textbox', { name: /KMS key ID/ }), 'nexo-key');
+    await user.click(within(encryption).getByRole('button', { name: 'Save' }));
+    await waitFor(() => {
+      expect(setEncryption).toHaveBeenCalledWith('logs-archive', {
+        algorithm: 'aws:kms',
+        kmsKeyId: 'nexo-key',
+      });
+    });
+    expect(await within(encryption).findByText('SSE-KMS (nexo-key)')).toBeInTheDocument();
+
+    const lock = screen.getByRole('region', { name: 'Object lock' });
+    await within(lock).findByText('GOVERNANCE · 30 days');
+    await user.click(within(lock).getByRole('textbox', { name: 'Default mode' }));
+    await user.click(await screen.findByRole('option', { name: 'COMPLIANCE' }));
+    const period = within(lock).getByRole('textbox', { name: 'Default retention' });
+    await user.clear(period);
+    await user.type(period, '2');
+    await user.click(within(lock).getByRole('textbox', { name: 'Retention unit' }));
+    await user.click(await screen.findByRole('option', { name: 'years' }));
+    await user.click(within(lock).getByRole('button', { name: 'Save' }));
+    await waitFor(() => {
+      expect(setObjectLock).toHaveBeenCalledWith('logs-archive', {
+        enabled: true,
+        mode: 'COMPLIANCE',
+        years: 2,
+      });
+    });
+    expect(await within(lock).findByText('COMPLIANCE · 2 years')).toBeInTheDocument();
+
+    // Removing the default encryption.
+    await user.click(within(encryption).getByRole('textbox', { name: 'Default encryption' }));
+    await user.click(await screen.findByRole('option', { name: 'Not configured' }));
+    await user.click(within(encryption).getByRole('button', { name: 'Save' }));
+    await waitFor(() => {
+      expect(setEncryption).toHaveBeenLastCalledWith('logs-archive', null);
+    });
+  });
+
+  it('needs versioning to enable object lock', async () => {
+    renderRoutes(routes, { initialEntries: ['/buckets/media/settings'], services: admin() });
+    const lock = await screen.findByRole('region', { name: 'Object lock' });
+    expect(
+      await within(lock).findByText('Object lock needs versioning enabled.'),
+    ).toBeInTheDocument();
+    expect(within(lock).getByRole('button', { name: 'Enable object lock' })).toBeDisabled();
   });
 
   it('disables the changes for a read-only user', async () => {

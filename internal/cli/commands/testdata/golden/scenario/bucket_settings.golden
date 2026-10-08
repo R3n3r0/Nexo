@@ -1,0 +1,68 @@
+$ nexoctl quota info mem/photos
+`mem/photos` has no quota.
+
+$ nexoctl quota set mem/photos --size 1.5GiB
+Set a hard quota of 1.5GiB on `mem/photos`.
+
+$ nexoctl quota info mem/photos
+`mem/photos` has a hard quota of 1.5GiB.
+
+$ nexoctl quota info --json mem/photos
+{"status":"success","target":"mem/photos","bucket":"photos","type":"hard","size":1610612736}
+
+$ nexoctl quota set mem/photos
+! nexoctl: error: --size is required (use "quota clear" to remove the quota)
+! Run 'nexoctl quota set --help' for usage.
+[exit 2]
+
+$ nexoctl quota set mem/photos --size 0
+! nexoctl: error: --size must be positive (use "quota clear" to remove the quota)
+! Run 'nexoctl quota set --help' for usage.
+[exit 2]
+
+$ nexoctl quota set mem/photos/key --size 1GiB
+! nexoctl: error: mem/photos/key: quota applies to ALIAS/BUCKET
+! Run 'nexoctl quota set --help' for usage.
+[exit 2]
+
+$ nexoctl quota set bob/photos --size 1GiB
+! nexoctl: error: bob/photos: admin:SetBucketQuota: no policy allows admin:SetBucketQuota (access_denied)
+[exit 4]
+
+$ nexoctl quota clear mem/photos
+Removed the quota of `mem/photos`.
+
+$ nexoctl quota info mem/photos
+`mem/photos` has no quota.
+
+$ nexoctl encrypt info mem/photos
+`mem/photos`: no default encryption.
+
+$ nexoctl encrypt set sse-s3 mem/photos
+Default encryption of `mem/photos`: SSE-S3 (AES256).
+
+$ nexoctl encrypt info mem/photos
+`mem/photos`: SSE-S3 (AES256).
+
+$ nexoctl encrypt set sse-kms mem/photos --kms-key-id nexo-key
+Default encryption of `mem/photos`: SSE-KMS with key nexo-key.
+
+$ nexoctl encrypt info --json mem/photos
+{"status":"success","target":"mem/photos","bucket":"photos","algorithm":"aws:kms","kmsKeyId":"nexo-key"}
+
+$ nexoctl encrypt set sse-s3 mem/photos --kms-key-id k
+! nexoctl: error: --kms-key-id needs sse-kms
+! Run 'nexoctl encrypt set --help' for usage.
+[exit 2]
+
+$ nexoctl encrypt set rot13 mem/photos
+! nexoctl: error: unknown encryption "rot13" (sse-s3 or sse-kms)
+! Run 'nexoctl encrypt set --help' for usage.
+[exit 2]
+
+$ nexoctl encrypt clear mem/photos
+Removed the default encryption of `mem/photos`.
+
+$ nexoctl encrypt info mem/photos
+`mem/photos`: no default encryption.
+

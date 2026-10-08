@@ -15,7 +15,7 @@ describe('createHttpServices', () => {
         return new HttpResponse(null, { status: 204 });
       }),
     );
-    const services = createHttpServices({ baseUrl: '/api/v1', readCookie: () => undefined });
+    const services = createHttpServices({ baseUrl: '/api/v1' });
     const session = await services.session.login(
       testCredentials.accessKey,
       testCredentials.secretKey,

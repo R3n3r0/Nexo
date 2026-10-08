@@ -43,6 +43,11 @@ var (
 	// ErrUnauthenticated reports a request that needs a valid session or
 	// signature and has none (HTTP 401); ErrAccessDenied is the 403 flavor.
 	ErrUnauthenticated = errors.New("unauthenticated")
+	// ErrCredentialsDisabled reports the credentials of a disabled user,
+	// access key or parent user: no valid credentials (S3
+	// InvalidAccessKeyId, as AWS answers for an inactive key), never the
+	// authorization denial of valid ones. It wraps ErrAccessDenied.
+	ErrCredentialsDisabled = fmt.Errorf("credentials disabled: %w", ErrAccessDenied)
 
 	// IAM.
 	ErrUserNotFound      = errors.New("user not found")
@@ -71,6 +76,13 @@ var (
 	// ErrShareNotFound reports an unknown managed share link, or one the
 	// caller may not see.
 	ErrShareNotFound = errors.New("share not found")
+
+	// ErrNotFound reports a missing resource that has no more specific
+	// sentinel (an unknown Admin API endpoint, healing operation...).
+	// Resources with their own sentinel (bucket, object, user, group,
+	// policy, share...) never use it, so that errors.Is on one of them
+	// keeps its meaning.
+	ErrNotFound = errors.New("not found")
 
 	// Server and storage.
 	ErrNotImplemented = errors.New("not implemented")

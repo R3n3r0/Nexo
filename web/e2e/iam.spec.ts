@@ -163,7 +163,9 @@ test.describe('identities and policies', () => {
                   Action: ['s3:ListBucket'],
                   Resource: [`arn:aws:s3:::${bucket}`],
                   Condition: {
-                    StringLike: { 's3:prefix': ['home/${aws:username}/*', 'home/${aws:username}/'] },
+                    StringLike: {
+                      's3:prefix': ['home/${aws:username}/*', 'home/${aws:username}/'],
+                    },
                   },
                 },
                 {
@@ -176,7 +178,10 @@ test.describe('identities and policies', () => {
           },
         });
         await api.call('POST', '/users', { json: { ...user, policyNames: [policy] } });
-        const context = await browser.newContext({ baseURL: nexo.consoleURL, storageState: anonymous });
+        const context = await browser.newContext({
+          baseURL: nexo.consoleURL,
+          storageState: anonymous,
+        });
         try {
           const page = await context.newPage();
           await page.goto('/login');
@@ -186,15 +191,36 @@ test.describe('identities and policies', () => {
           await page.goto('/buckets');
           const table = page.getByRole('table', { name: 'Buckets' });
           await table.getByRole('link', { name: bucket, exact: true }).click();
-          const alert = page.getByRole('alert').filter({ hasText: 'You may not list this folder.' });
+          const alert = page
+            .getByRole('alert')
+            .filter({ hasText: 'You may not list this folder.' });
           await expect(alert).toBeVisible();
           await alert.getByRole('textbox', { name: 'Folder path' }).fill(home);
           await alert.getByRole('button', { name: 'Open folder' }).click();
           await expect(page.getByRole('button', { name: 'notes.txt', exact: true })).toBeVisible();
           await expect(page.getByRole('button', { name: 'Upload' })).toBeVisible();
+          // A deep link to the home directory opens it directly, with the
+          // permissions of the folder (the listing is not hidden).
+          await page.goto(
+            `/buckets/${encodeURIComponent(bucket)}/browse/home/${encodeURIComponent(user.accessKey)}/`,
+          );
+          await expect(page.getByRole('button', { name: 'notes.txt', exact: true })).toBeVisible();
+          await expect(page.getByText('You may not list this folder.')).toHaveCount(0);
+          const perms = await context.request.get('/api/v1/me/permissions', {
+            params: { bucket, prefix: home },
+          });
+          expect(perms.status()).toBe(200);
+          const allowed = ((await perms.json()) as { allowed: string[] }).allowed;
+          expect(allowed).toEqual(
+            expect.arrayContaining(['s3:ListBucket', 's3:GetObject', 's3:PutObject']),
+          );
           // Nothing of the other homes.
           expect(
-            (await context.request.get(`/api/v1/buckets/${bucket}/objects`, { params: { prefix: 'home/someone-else/' } })).status(),
+            (
+              await context.request.get(`/api/v1/buckets/${bucket}/objects`, {
+                params: { prefix: 'home/someone-else/' },
+              })
+            ).status(),
           ).toBe(403);
         } finally {
           await context.close();
@@ -335,5 +361,46 @@ test.describe('identities and policies', () => {
     expect(res.status).toBe(200);
     expect(await res.text()).toContain('<ListAllMyBucketsResult');
     await api.call('DELETE', `/access-keys/${accessKey}`);
+  });
+
+  test('D-IAM-01 a user whose access key has "@" and "+" is edited and deleted from the console', async ({
+    page,
+    api,
+  }) => {
+    // The console escapes every path segment ("%40", "%2B"): the server
+    // must decode them (regression: such users were listed but every
+    // change answered 404).
+    const accessKey = `e2e+${Math.random().toString(36).slice(2, 8)}@x.io`;
+    await api.call('POST', '/users', { json: { accessKey, secretKey: 'plus-at-secret-123' } });
+    try {
+      await page.goto('/users');
+      const table = page.getByRole('table', { name: 'Users' });
+      await table.getByRole('button', { name: accessKey, exact: true }).click();
+      const drawer = page.getByRole('dialog', { name: `User ${accessKey}` });
+      // The input of the Mantine switch is visually hidden: its label
+      // toggles it, as a pointer does.
+      const enabled = drawer.getByRole('switch', { name: 'Enabled' });
+      await expect(enabled).toBeChecked();
+      await drawer
+        .locator('label')
+        .filter({ hasText: /^Enabled$/ })
+        .click();
+      await expect(enabled).not.toBeChecked();
+      await drawer.getByRole('button', { name: 'Save' }).click();
+      await expect(page.getByText(`User ${accessKey} saved.`)).toBeVisible();
+      const saved = await api.call<{ status: string }>('GET', `/users/${accessKey}`);
+      expect(saved.status).toBe('disabled');
+      await page.keyboard.press('Escape');
+      await expect(drawer).toBeHidden();
+
+      await page.getByRole('button', { name: `Actions for ${accessKey}` }).click();
+      await page.getByRole('menuitem', { name: 'Delete' }).click();
+      const confirm = page.getByRole('dialog', { name: 'Delete user' });
+      await confirm.getByRole('button', { name: 'Delete' }).click();
+      await expect(table.getByRole('button', { name: accessKey, exact: true })).toBeHidden();
+      expect((await api.admin('GET', `/users/${accessKey}`)).status).toBe(404);
+    } finally {
+      await api.admin('DELETE', `/users/${accessKey}`);
+    }
   });
 });

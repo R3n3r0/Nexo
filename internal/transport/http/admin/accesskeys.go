@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/iam"
 )
@@ -91,15 +89,14 @@ func (h *userRoutes) listAccessKeys(w http.ResponseWriter, r *http.Request) {
 	if parent == "" {
 		parent = q.Get("parent")
 	}
-	keys, err := h.deps.AccessKeys.List(r.Context(), requesterOf(r), parent)
+	keys, err := h.deps.AccessKeys.List(r.Context(), requesterOf(r), parent, p)
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	items, next := paginate(keys, func(k iam.AccessKey) string { return k.AccessKey }, p)
-	out := AccessKeyListResponse{Items: make([]AccessKeyResponse, 0, len(items)), NextCursor: next}
-	for i := range items {
-		out.Items = append(out.Items, newAccessKeyResponse(&items[i], false))
+	out := AccessKeyListResponse{Items: make([]AccessKeyResponse, 0, len(keys.Items)), NextCursor: keys.NextCursor}
+	for i := range keys.Items {
+		out.Items = append(out.Items, newAccessKeyResponse(&keys.Items[i], false))
 	}
 	h.deps.Enc.WriteJSON(w, http.StatusOK, out)
 }
@@ -130,7 +127,12 @@ func (h *userRoutes) createAccessKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *userRoutes) getAccessKey(w http.ResponseWriter, r *http.Request) {
-	k, err := h.deps.AccessKeys.Get(r.Context(), requesterOf(r), chi.URLParam(r, "key"))
+	key, err := pathParam(r, "key")
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	k, err := h.deps.AccessKeys.Get(r.Context(), requesterOf(r), key)
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -139,6 +141,11 @@ func (h *userRoutes) getAccessKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *userRoutes) updateAccessKey(w http.ResponseWriter, r *http.Request) {
+	key, err := pathParam(r, "key")
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
 	var in UpdateAccessKeyRequest
 	if err := decodeJSON(h.deps.Enc, r, &in, false); err != nil {
 		h.fail(w, r, err)
@@ -163,7 +170,7 @@ func (h *userRoutes) updateAccessKey(w http.ResponseWriter, r *http.Request) {
 		}
 		input.Status = &status
 	}
-	k, err := h.deps.AccessKeys.Update(r.Context(), requesterOf(r), chi.URLParam(r, "key"), input)
+	k, err := h.deps.AccessKeys.Update(r.Context(), requesterOf(r), key, input)
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -172,7 +179,12 @@ func (h *userRoutes) updateAccessKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *userRoutes) deleteAccessKey(w http.ResponseWriter, r *http.Request) {
-	if err := h.deps.AccessKeys.Delete(r.Context(), requesterOf(r), chi.URLParam(r, "key")); err != nil {
+	key, err := pathParam(r, "key")
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if err := h.deps.AccessKeys.Delete(r.Context(), requesterOf(r), key); err != nil {
 		h.fail(w, r, err)
 		return
 	}

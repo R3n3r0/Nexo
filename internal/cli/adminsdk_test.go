@@ -78,7 +78,9 @@ func TestMapAdminError(t *testing.T) {
 		{"policy", problem(404, "policy_not_found"), domain.ErrPolicyNotFound, cli.ExitNotFound},
 		{"share", problem(404, "share_not_found"), domain.ErrShareNotFound, cli.ExitNotFound},
 		{"bucket", problem(404, "bucket_not_found"), domain.ErrBucketNotFound, cli.ExitNotFound},
+		{"access key", problem(404, "access_key_not_found"), domain.ErrAccessKeyNotFound, cli.ExitNotFound},
 		{"other 404", problem(404, "not_found"), cli.ErrAdminNotFound, cli.ExitNotFound},
+		{"404 without code", problem(404, ""), domain.ErrNotFound, cli.ExitNotFound},
 		{"other 403", problem(403, "forbidden"), domain.ErrAccessDenied, cli.ExitAccess},
 		{"other 401", problem(401, "unauthorized"), domain.ErrUnauthenticated, cli.ExitAccess},
 		{"conflict", problem(409, "conflict"), domain.ErrConflict, cli.ExitError},
@@ -100,6 +102,10 @@ func TestMapAdminError(t *testing.T) {
 			assert.ErrorAs(t, err, &api, "the problem stays reachable")
 			assert.Equal(t, tc.exit, cli.ExitCode(err))
 			assert.Contains(t, err.Error(), "detail of ")
+			if tc.sentinel != domain.ErrObjectNotFound {
+				// Regression: every admin 404 claimed to be a missing object.
+				assert.NotErrorIs(t, err, domain.ErrObjectNotFound)
+			}
 		})
 	}
 

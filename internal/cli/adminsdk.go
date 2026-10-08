@@ -261,6 +261,8 @@ func adminCodeSentinel(code string) error {
 		return domain.ErrPolicyNotFound
 	case "share_not_found":
 		return domain.ErrShareNotFound
+	case "access_key_not_found":
+		return domain.ErrAccessKeyNotFound
 	case "bucket_not_found":
 		return domain.ErrBucketNotFound
 	case "object_not_found":
@@ -311,9 +313,9 @@ func adminStatusSentinel(status int) error {
 }
 
 // ErrAdminNotFound reports a resource of the Admin API that does not exist
-// and has no more specific code (exit code 3); it wraps
-// domain.ErrObjectNotFound.
-var ErrAdminNotFound = fmt.Errorf("admin resource not found: %w", domain.ErrObjectNotFound)
+// and has no more specific code (exit code 3). It wraps the neutral
+// domain.ErrNotFound: a missing group or endpoint is not a missing object.
+var ErrAdminNotFound = fmt.Errorf("admin resource not found: %w", domain.ErrNotFound)
 
 // MapAdminError converts an error of pkg/nexoadmin: a problem answered by
 // the server becomes an *AdminError wrapping the matching domain sentinel;
@@ -571,6 +573,35 @@ func (c *adminClient) ExportConfig(ctx context.Context) ([]byte, error) {
 // ImportConfig implements AdminClient.
 func (c *adminClient) ImportConfig(ctx context.Context, data []byte) error {
 	return MapAdminError(c.api.ImportConfig(ctx, data), c.endpoint)
+}
+
+// GetBucketQuota implements AdminClient.
+func (c *adminClient) GetBucketQuota(ctx context.Context, bucket string) (*nexoadmin.BucketQuota, error) {
+	v, err := c.api.GetBucketQuota(ctx, bucket)
+	return mapped(c, v, err)
+}
+
+// SetBucketQuota implements AdminClient.
+func (c *adminClient) SetBucketQuota(ctx context.Context, bucket string, quota nexoadmin.BucketQuota) (*nexoadmin.BucketQuota, error) {
+	v, err := c.api.SetBucketQuota(ctx, bucket, quota)
+	return mapped(c, v, err)
+}
+
+// GetBucketEncryption implements AdminClient.
+func (c *adminClient) GetBucketEncryption(ctx context.Context, bucket string) (*nexoadmin.BucketEncryption, error) {
+	v, err := c.api.GetBucketEncryption(ctx, bucket)
+	return mapped(c, v, err)
+}
+
+// SetBucketEncryption implements AdminClient.
+func (c *adminClient) SetBucketEncryption(ctx context.Context, bucket string, enc nexoadmin.BucketEncryption) (*nexoadmin.BucketEncryption, error) {
+	v, err := c.api.SetBucketEncryption(ctx, bucket, enc)
+	return mapped(c, v, err)
+}
+
+// DeleteBucketEncryption implements AdminClient.
+func (c *adminClient) DeleteBucketEncryption(ctx context.Context, bucket string) error {
+	return MapAdminError(c.api.DeleteBucketEncryption(ctx, bucket), c.endpoint)
 }
 
 // CreateShare implements AdminClient.

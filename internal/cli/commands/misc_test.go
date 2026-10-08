@@ -353,3 +353,78 @@ func TestUnsafeKeysNeverEscapeTheLocalDestination(t *testing.T) {
 	}
 	assert.Equal(t, []string{"mem/bkt2/../../escaped-mirror.txt"}, rejected)
 }
+
+// covers: TCL-E-01, C-CFG-01 (alias set verifies the credentials by
+// default; regression: wrong credentials were saved with exit 0, and
+// valid credentials without s3:ListAllMyBuckets were refused)
+func TestAliasSetVerifiesCredentials(t *testing.T) {
+	tests := []struct {
+		name    string
+		failure error
+		args    []string
+		code    int
+		saved   bool
+		calls   int
+	}{
+		{name: "valid", code: 0, saved: true, calls: 1},
+		{name: "wrong secret", failure: fmt.Errorf("%w: SignatureDoesNotMatch", domain.ErrSignatureMismatch), code: cli.ExitAccess, calls: 1},
+		{name: "unknown access key", failure: fmt.Errorf("%w: InvalidAccessKeyId", domain.ErrInvalidAccessKey), code: cli.ExitAccess, calls: 1},
+		{name: "valid but may not list the buckets", failure: fmt.Errorf("%w: AccessDenied", domain.ErrAccessDenied), code: 0, saved: true, calls: 1},
+		{name: "server unreachable", failure: errors.New("dial tcp: connection refused"), code: cli.ExitError, calls: 1},
+		{name: "offline", failure: errors.New("dial tcp: connection refused"), args: []string{"--no-verify"}, code: 0, saved: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t)
+			before := h.mem.Calls("ListBuckets")
+			h.mem.FailOn("ListBuckets", tt.failure)
+			r := h.run(append([]string{"alias", "set", "other", "http://s3.other.test", "AK", "SK"}, tt.args...)...)
+			assert.Equal(t, tt.code, r.code, "stdout: %s\nstderr: %s", r.stdout, r.stderr)
+			assert.Equal(t, tt.calls, h.mem.Calls("ListBuckets")-before)
+			list := h.mustRun("alias", "list")
+			if tt.saved {
+				assert.Contains(t, list.stdout, "other")
+			} else {
+				assert.NotContains(t, list.stdout, "other", "nothing is saved")
+			}
+		})
+	}
+	h := newHarness(t)
+	r := h.run("alias", "set", "x", "http://s3.other.test", "AK", "SK", "--verify", "--no-verify")
+	assert.Equal(t, cli.ExitUsage, r.code, r.stderr)
+}
+
+// covers: C-OBJ-07 (a raw download URL is signed only for an object that
+// exists and that the alias may read; regression: the URL was printed with
+// exit 0 and answered 403 or 404)
+func TestRawDownloadURLsCheckTheObject(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		fail error
+		code int
+	}{
+		{name: "share download readable", args: []string{"share", "download", "--raw", "mem/bkt/a.txt"}, code: 0},
+		{name: "share download missing", args: []string{"share", "download", "--raw", "mem/bkt/nope.txt"}, code: cli.ExitNotFound},
+		{name: "share download denied", args: []string{"share", "download", "--raw", "mem/bkt/a.txt"}, fail: fmt.Errorf("%w: AccessDenied", domain.ErrAccessDenied), code: cli.ExitAccess},
+		{name: "presign GET missing version", args: []string{"presign", "--version-id", "v9", "mem/bkt/a.txt"}, code: cli.ExitNotFound},
+		{name: "presign HEAD denied", args: []string{"presign", "-X", "HEAD", "mem/bkt/a.txt"}, fail: fmt.Errorf("%w: AccessDenied", domain.ErrAccessDenied), code: cli.ExitAccess},
+		{name: "presign PUT is not checked", args: []string{"presign", "-X", "PUT", "mem/bkt/new.txt"}, fail: fmt.Errorf("%w: AccessDenied", domain.ErrAccessDenied), code: 0},
+		{name: "presign DELETE is not checked", args: []string{"presign", "-X", "DELETE", "mem/bkt/nope.txt"}, code: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.mem.MakeBucket("bkt")
+			h.mem.PutObject("bkt", "a.txt", "A", clitest.ObjectSpec{})
+			h.mem.FailOn("Stat", tt.fail)
+			r := h.run(tt.args...)
+			assert.Equal(t, tt.code, r.code, "stdout: %s\nstderr: %s", r.stdout, r.stderr)
+			if tt.code != 0 {
+				assert.NotContains(t, r.stdout, "X-Amz-Signature", "no URL is printed")
+			} else {
+				assert.Contains(t, r.stdout, "X-Amz-Signature")
+			}
+		})
+	}
+}

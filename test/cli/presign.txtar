@@ -31,8 +31,29 @@ http -X PUT -H 'Content-Type: text/plain' -T a.txt $PUTURL
 exec nexoctl stat local/bkt/c.txt
 stdout 'Content-Type: text/plain'
 
+# C-OBJ-07: a raw download URL is signed only after a HEAD of the object
+# with the credentials of the alias (regression: a URL answering 403 or
+# 404 was printed with exit 0). PUT and DELETE are not checked.
+exec nexoctl mb local/beta
+exec nexoctl cp a.txt local/beta/secret.txt
+exec nexoctl admin policy create local bkt-only bkt-only.json
+exec nexoctl admin user add local bob bob-secret-123 --policy bkt-only
+exec nexoctl alias set b $NEXO_URL bob bob-secret-123 --admin-url $NEXO_ADMIN_URL
+expectcode 4 nexoctl share download --raw b/beta/secret.txt
+! stdout 'X-Amz-Signature'
+expectcode 4 nexoctl presign b/beta/secret.txt
+expectcode 3 nexoctl share download --raw b/bkt/missing.txt
+expectcode 3 nexoctl presign -X HEAD b/bkt/missing.txt
+exec nexoctl share download --raw b/bkt/b.txt
+stdout 'X-Amz-Signature'
+exec nexoctl presign -X PUT b/bkt/new.txt
+stdout 'X-Amz-Signature'
+
 expectcode 2 nexoctl presign --method PATCH local/bkt/b.txt
 expectcode 2 nexoctl presign -H 'x-amz-acl: public-read' -X PUT local/bkt/b.txt
 
 -- a.txt --
 presigned content
+-- bkt-only.json --
+{"Version":"2012-10-17","Statement":[
+  {"Effect":"Allow","Action":["s3:ListBucket","s3:GetObject","s3:PutObject"],"Resource":["arn:aws:s3:::bkt","arn:aws:s3:::bkt/*"]}]}

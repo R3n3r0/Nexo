@@ -154,6 +154,45 @@ describe('ObjectBrowser (TD-U-05)', () => {
     expect(await screen.findByRole('button', { name: 'inside.txt' })).toBeInTheDocument();
   });
 
+  // D-OBJ-06: a previous version becomes the latest again (regression:
+  // the versions panel offered download and deletion only).
+  it('restores a previous version from the versions panel', async () => {
+    const svc = services({ buckets: [{ ...bucket, versioning: 'enabled' }] });
+    const enc = new TextEncoder();
+    await svc.uploads.putObject({
+      bucket: 'media',
+      key: 'top.json',
+      body: new Blob([enc.encode('{"a":2}')]),
+    });
+    renderRoutes(routes, {
+      initialEntries: ['/buckets/media/browse/?object=top.json'],
+      services: svc,
+    });
+    const user = userEvent.setup();
+    const drawer = await screen.findByRole('dialog', { name: 'top.json' });
+    await user.click(within(drawer).getByRole('tab', { name: 'Versions' }));
+    const versions = await within(drawer).findByRole('table', { name: 'Versions' });
+    const rows = within(versions).getAllByRole('row');
+    expect(rows).toHaveLength(2);
+    // The latest version has no restore action.
+    expect(
+      within(rows[0] as HTMLElement).queryByRole('button', { name: /^Restore version/ }),
+    ).toBeNull();
+    const restore = within(rows[1] as HTMLElement).getByRole('button', {
+      name: /^Restore version/,
+    });
+    await user.click(restore);
+    await waitFor(async () => {
+      expect((await svc.objects.versions('media', 'top.json')).items).toHaveLength(3);
+    });
+    const latest = (await svc.objects.versions('media', 'top.json')).items[0];
+    expect(latest?.size).toBe(7);
+    // The panel shows the new history.
+    await waitFor(() => {
+      expect(within(versions).getAllByRole('row')).toHaveLength(3);
+    });
+  });
+
   it('opens a deep link with special characters and the object drawer', async () => {
     renderRoutes(routes, {
       initialEntries: ['/buckets/media/browse/docs/?object=docs%2F100%25+done.txt'],

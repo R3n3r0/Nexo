@@ -105,6 +105,20 @@ describe('BucketsPage (TD-U-03)', () => {
     );
   });
 
+  it('shows no usage for a bucket the user may list only in part', async () => {
+    const services = adminServices();
+    const media = sampleBuckets().find((b) => b.name === 'media');
+    if (media === undefined) throw new Error('no sample bucket media');
+    vi.spyOn(services.buckets, 'list').mockResolvedValue([
+      { ...media, size: 0, objects: 0, partial: true },
+    ]);
+    renderRoutes(routes, { initialEntries: ['/buckets'], services });
+    const row = (await screen.findByRole('link', { name: 'media' })).closest('tr');
+    if (row === null) throw new Error('no row');
+    expect(within(row).getByText('You may use part of this bucket only.')).toBeInTheDocument();
+    expect(within(row).queryByText('0 B')).not.toBeInTheDocument();
+  });
+
   it('filters by name and tells when nothing matches', async () => {
     renderRoutes(routes, { initialEntries: ['/buckets'], services: adminServices() });
     await screen.findByRole('link', { name: 'media' });

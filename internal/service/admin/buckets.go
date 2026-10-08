@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/bucket"
@@ -54,8 +55,17 @@ func NewBucketManager(deps BucketManagerDeps, opts ...BucketManagerOption) (Buck
 	return m, nil
 }
 
-// List implements BucketManager.
-func (m *bucketManager) List(ctx context.Context, in ListBucketsInput) ([]BucketSummary, error) {
+// List implements BucketManager. The buckets are visited by name after
+// the cursor and authorized one by one until the page is full.
+func (m *bucketManager) List(ctx context.Context, in ListBucketsInput) (*Paged[BucketSummary], error) {
+	limit, err := pageLimit(in.Page)
+	if err != nil {
+		return nil, err
+	}
+	after, err := decodeCursor(in.Page.Cursor)
+	if err != nil {
+		return nil, err
+	}
 	all, err := m.deps.Authz.Authorize(ctx, AuthorizeInput{Requester: in.Requester, Actions: []policy.Action{policy.ActionListAllMyBuckets}})
 	if err != nil {
 		return nil, err
@@ -64,26 +74,76 @@ func (m *bucketManager) List(ctx context.Context, in ListBucketsInput) ([]Bucket
 	if err != nil {
 		return nil, err
 	}
-	out := make([]BucketSummary, 0, len(infos))
+	sort.Slice(infos, func(i, j int) bool { return infos[i].Name < infos[j].Name })
+	out := &Paged[BucketSummary]{Items: make([]BucketSummary, 0, min(len(infos), limit))}
 	for _, info := range infos {
-		if !all.Allowed {
+		if info.Name <= after {
+			continue
+		}
+		whole, err := m.listable(ctx, in.Requester, info.Name, false)
+		if err != nil {
+			return nil, err
+		}
+		if !whole && !all.Allowed {
 			// A bucket is visible when some part of it may be listed: a
 			// home directory restricted by s3:prefix counts (Partial).
-			d, err := m.deps.Authz.Authorize(ctx, AuthorizeInput{Requester: in.Requester, Actions: []policy.Action{policy.ActionListBucket}, Bucket: info.Name, Partial: true})
+			visible, err := m.listable(ctx, in.Requester, info.Name, true)
 			if err != nil {
 				return nil, err
 			}
-			if !d.Allowed {
+			if !visible {
 				continue
 			}
 		}
-		out = append(out, BucketSummary{Info: info, Public: m.public(ctx, info.Name)})
+		if len(out.Items) == limit {
+			out.NextCursor = encodeCursor(out.Items[limit-1].Info.Name)
+			break
+		}
+		if !whole {
+			out.Items = append(out.Items, partialSummary(info))
+			continue
+		}
+		out.Items = append(out.Items, BucketSummary{Info: info, Public: m.public(ctx, info.Name)})
 	}
 	return out, nil
 }
 
+// listable reports whether the requester may list the bucket: as a whole,
+// or with partial at least a part of it (AuthorizeInput.Partial).
+func (m *bucketManager) listable(ctx context.Context, req Requester, name string, partial bool) (bool, error) {
+	d, err := m.deps.Authz.Authorize(ctx, AuthorizeInput{Requester: req, Actions: []policy.Action{policy.ActionListBucket}, Bucket: name, Partial: partial})
+	if err != nil {
+		return false, err
+	}
+	return d.Allowed, nil
+}
+
+// partialSummary is the summary of a bucket the requester may list only in
+// part: its name, creation date and region, as s3:ListAllMyBuckets shows.
+func partialSummary(info domain.BucketInfo) BucketSummary {
+	return BucketSummary{Info: domain.BucketInfo{Bucket: info.Bucket}, Partial: true}
+}
+
 // Get implements BucketManager.
-func (m *bucketManager) Get(ctx context.Context, name string) (*BucketSummary, error) {
+func (m *bucketManager) Get(ctx context.Context, req Requester, name string) (*BucketSummary, error) {
+	whole, err := m.listable(ctx, req, name, false)
+	if err != nil {
+		return nil, err
+	}
+	if !whole {
+		info, err := m.deps.Buckets.Get(ctx, name)
+		if err != nil {
+			return nil, err
+		}
+		s := partialSummary(*info)
+		return &s, nil
+	}
+	return m.summary(ctx, name)
+}
+
+// summary returns the full summary of a bucket: usage, settings, tags and
+// public flag.
+func (m *bucketManager) summary(ctx context.Context, name string) (*BucketSummary, error) {
 	info, err := m.deps.Buckets.Get(ctx, name)
 	if err != nil {
 		return nil, err
@@ -141,7 +201,9 @@ func (m *bucketManager) Create(ctx context.Context, in CreateBucketInput) (*Buck
 		return nil, err
 	}
 	m.deps.Logger.InfoContext(ctx, "admin: bucket created", "bucket", in.Name, "by", in.Requester.Identity.AccessKey)
-	return m.Get(ctx, in.Name)
+	// The creator sees the settings it has just applied to the empty
+	// bucket.
+	return m.summary(ctx, in.Name)
 }
 
 // applySettings applies the settings requested at creation.

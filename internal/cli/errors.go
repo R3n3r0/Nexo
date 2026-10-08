@@ -78,6 +78,21 @@ func ErrorCode(err error) string {
 	}
 }
 
+// IsAuthorizationDenial reports a request that the server authenticated
+// and then refused by policy (AccessDenied): the credentials are valid.
+// Unknown access keys, wrong secrets and expired requests are not.
+func IsAuthorizationDenial(err error) bool {
+	if !errors.Is(err, domain.ErrAccessDenied) {
+		return false
+	}
+	for _, target := range []error{domain.ErrInvalidAccessKey, domain.ErrSignatureMismatch, domain.ErrRequestExpired, domain.ErrUnauthenticated} {
+		if errors.Is(err, target) {
+			return false
+		}
+	}
+	return true
+}
+
 func isAccessError(err error) bool {
 	for _, target := range []error{
 		domain.ErrAccessDenied, domain.ErrInvalidAccessKey, domain.ErrSignatureMismatch,
@@ -94,7 +109,7 @@ func isNotFound(err error) bool {
 	for _, target := range []error{
 		domain.ErrBucketNotFound, domain.ErrObjectNotFound, domain.ErrNoSuchVersion,
 		domain.ErrNoSuchUpload, domain.ErrPolicyNotFound, domain.ErrUserNotFound, domain.ErrGroupNotFound,
-		domain.ErrShareNotFound, fs.ErrNotExist,
+		domain.ErrShareNotFound, domain.ErrNotFound, fs.ErrNotExist,
 	} {
 		if errors.Is(err, target) {
 			return true

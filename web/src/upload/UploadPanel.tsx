@@ -10,6 +10,7 @@ import {
   Stack,
   Text,
   Tooltip,
+  VisuallyHidden,
 } from '@mantine/core';
 import {
   IconChevronDown,
@@ -100,6 +101,27 @@ function UploadRow({ item }: { item: UploadItem }) {
               >
                 <IconRefresh size={14} />
               </ActionIcon>
+            </Tooltip>
+          ) : null}
+          {item.status === 'completing' ? (
+            // CompleteMultipartUpload is in flight: canceling now could not
+            // undo it (the manager refuses too).
+            <Tooltip label={t('uploadQueue.cannotCancel')}>
+              <span>
+                <ActionIcon
+                  variant="subtle"
+                  color="red"
+                  size="sm"
+                  disabled
+                  aria-label={t('uploadQueue.cancelFile', { name })}
+                  aria-describedby={`cannot-cancel-${item.id}`}
+                >
+                  <IconX size={14} />
+                </ActionIcon>
+                <VisuallyHidden id={`cannot-cancel-${item.id}`}>
+                  {t('uploadQueue.cannotCancel')}
+                </VisuallyHidden>
+              </span>
             </Tooltip>
           ) : null}
           {canCancel ? (

@@ -21,6 +21,10 @@ type InfoDeps struct {
 	Enc   httpx.Codec
 }
 
+// InfoOption configures the info routes (none yet: the type keeps the
+// constructor shape of every route group, docs/12 §12.3).
+type InfoOption func(*infoRoutes)
+
 type infoRoutes struct {
 	deps  InfoDeps
 	guard guard
@@ -30,14 +34,18 @@ var _ InfoRoutes = (*infoRoutes)(nil)
 
 // NewInfoRoutes returns the server information, data usage, healing and
 // service control routes.
-func NewInfoRoutes(deps InfoDeps) (InfoRoutes, error) {
+func NewInfoRoutes(deps InfoDeps, opts ...InfoOption) (InfoRoutes, error) {
 	if deps.Admin == nil || deps.Authz == nil {
 		return nil, fmt.Errorf("%w: info routes require the admin service and the authorizer", domain.ErrInvalidArgument)
 	}
 	if deps.Enc == nil {
 		deps.Enc = httpx.New()
 	}
-	return &infoRoutes{deps: deps, guard: guard{authz: deps.Authz, enc: deps.Enc}}, nil
+	h := &infoRoutes{deps: deps, guard: guard{authz: deps.Authz, enc: deps.Enc}}
+	for _, o := range opts {
+		o(h)
+	}
+	return h, nil
 }
 
 // Register implements Routes.
@@ -192,7 +200,12 @@ func (h *infoRoutes) heal(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *infoRoutes) healStatus(w http.ResponseWriter, r *http.Request) {
-	res, err := h.deps.Admin.Heal(r.Context(), adminsvc.HealInput{ID: chi.URLParam(r, "id")})
+	id, err := pathParam(r, "id")
+	if err != nil {
+		writeError(h.deps.Enc, w, r, err)
+		return
+	}
+	res, err := h.deps.Admin.Heal(r.Context(), adminsvc.HealInput{ID: id})
 	if err != nil {
 		writeError(h.deps.Enc, w, r, err)
 		return

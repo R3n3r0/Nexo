@@ -142,3 +142,42 @@ func TestPolicyManagerSimulate(t *testing.T) {
 	_, err = m.Simulate(ctx, admin.SimulateInput{Requester: rootReq(), Action: policy.ActionGetObject, Object: "k"})
 	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
 }
+
+// TestPolicyManagerSimulateClient: the service composes the keys of the
+// simulated client with the shared definition (policy.RequestConditions)
+// over the other conditions; an unspecified transport stays unset
+// (regression: the transport handler built the keys by hand).
+func TestPolicyManagerSimulateClient(t *testing.T) {
+	ctx := context.Background()
+	yes, no := true, false
+	tests := []struct {
+		name   string
+		in     admin.SimulateInput
+		expect map[string][]string
+	}{
+		{name: "no client", in: admin.SimulateInput{Conditions: map[string][]string{"aws:Referer": {"r"}}},
+			expect: map[string][]string{"aws:Referer": {"r"}}},
+		{name: "address only", in: admin.SimulateInput{SourceIP: "10.0.0.1"},
+			expect: map[string][]string{policy.KeySourceIP: {"10.0.0.1"}}},
+		{name: "transport only", in: admin.SimulateInput{SecureTransport: &no},
+			expect: map[string][]string{policy.KeySecureTransport: {"false"}}},
+		{name: "client over conditions", in: admin.SimulateInput{SourceIP: "10.0.0.1", SecureTransport: &yes,
+			Conditions: map[string][]string{policy.KeySourceIP: {"192.0.2.1"}, "s3:prefix": {"docs/"}}},
+			expect: map[string][]string{policy.KeySourceIP: {"10.0.0.1"}, policy.KeySecureTransport: {"true"}, "s3:prefix": {"docs/"}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m, engine, _ := newPolicyManager(t)
+			var got map[string][]string
+			engine.EXPECT().Simulate(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, a policy.Args) (policy.Decision, error) {
+				got = a.Conditions
+				return policy.Decision{}, nil
+			})
+			in := tt.in
+			in.Requester, in.Action = req("bob"), policy.ActionGetObject
+			_, err := m.Simulate(ctx, in)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expect, got)
+		})
+	}
+}

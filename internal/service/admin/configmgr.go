@@ -13,6 +13,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/config"
+	"github.com/r3n3r0/nexo/internal/service/settings"
 )
 
 // SensitiveMask replaces the sensitive configuration values returned by
@@ -51,14 +52,26 @@ func NewConfigManager(deps ConfigManagerDeps, opts ...ConfigManagerOption) (Conf
 	return m, nil
 }
 
-// configSchema is the schema of the known subsystems, sorted by name.
+// configSchema is the schema of the known subsystems, sorted by name,
+// each key marked with whether the server applies it (settings.Applied).
 func configSchema() []SubsystemSchema {
+	schema := knownSubsystems()
+	for i := range schema {
+		for j := range schema[i].Keys {
+			schema[i].Keys[j].Applied = settings.Applied(schema[i].Name, schema[i].Keys[j].Name)
+		}
+	}
+	return schema
+}
+
+// knownSubsystems lists the subsystems and keys the configuration accepts.
+func knownSubsystems() []SubsystemSchema {
 	return []SubsystemSchema{
 		{Name: "api", Description: "S3 API behavior", Keys: []KeySchema{
 			{Name: "cors_allow_origin", Type: KeyList, Default: "*", Description: "Origins allowed by CORS, comma separated"},
 			{Name: "requests_max", Type: KeyInt, Default: "0", Description: "Maximum concurrent requests (0: automatic)"},
 			{Name: "requests_deadline", Type: KeyDuration, Default: "10s", Description: "How long a request waits for a slot"},
-			{Name: "root_access", Type: KeyBool, Default: "on", Description: "Allow the root credentials on the S3 API"},
+			{Name: "root_access", Type: KeyBool, Default: "on", Description: "Allow the root credentials on the S3 API (off: denied there; the console and the credentials derived from root keep working)"},
 		}},
 		{Name: "browser", Description: "Web console", Keys: []KeySchema{
 			{Name: "session_duration", Type: KeyDuration, Default: "12h", Description: "Lifetime of a console session"},

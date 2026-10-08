@@ -218,6 +218,7 @@ func mappings(c S3Codes) []errorMapping {
 		{domain.ErrPolicyNotFound, c.NoSuchPolicy, http.StatusNotFound, "policy_not_found"},
 		{domain.ErrGroupNotFound, c.NoSuchGroup, http.StatusNotFound, "group_not_found"},
 		{domain.ErrShareNotFound, c.NoSuchKey, http.StatusNotFound, "share_not_found"},
+		{domain.ErrNotFound, c.NoSuchKey, http.StatusNotFound, "not_found"},
 		{domain.ErrNotImplemented, c.NotImplemented, http.StatusNotImplemented, "not_implemented"},
 		{domain.ErrStorageFull, c.StorageFull, http.StatusInsufficientStorage, "storage_full"},
 		{domain.ErrDiskNotFound, c.SlowDown, http.StatusServiceUnavailable, "disk_not_found"},

@@ -120,7 +120,19 @@ func (m *accessKeyManager) checkKey(ctx context.Context, c keyCaller, accessKey 
 }
 
 // List implements AccessKeyManager.
-func (m *accessKeyManager) List(ctx context.Context, req Requester, parent string) ([]iam.AccessKey, error) {
+func (m *accessKeyManager) List(ctx context.Context, req Requester, parent string, page Page) (*Paged[iam.AccessKey], error) {
+	if _, err := pageLimit(page); err != nil {
+		return nil, err
+	}
+	keys, err := m.list(ctx, req, parent)
+	if err != nil {
+		return nil, err
+	}
+	return pageOf(keys, func(k iam.AccessKey) string { return k.AccessKey }, page)
+}
+
+// list returns every key of parent visible to the requester.
+func (m *accessKeyManager) list(ctx context.Context, req Requester, parent string) ([]iam.AccessKey, error) {
 	c, err := m.caller(ctx, req, policy.ActionAdminListAccessKeys)
 	if err != nil {
 		return nil, err

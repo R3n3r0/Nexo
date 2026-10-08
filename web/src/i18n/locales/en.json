@@ -266,11 +266,16 @@
       "sse": "SSE-S3 (AES-256)",
       "kms": "SSE-KMS ({{key}})",
       "unavailable": "The encryption settings are not available.",
-      "comingSoon": "Configuring encryption from the console arrives in a later release."
+      "current": "Current",
+      "algorithm": "Default encryption",
+      "kmsOption": "SSE-KMS",
+      "kmsKey": "KMS key ID",
+      "kmsKeyHint": "Empty: the default key of the server.",
+      "newObjects": "Applies to the objects written from now on; existing objects are not rewritten."
     },
     "objectLock": {
       "title": "Object lock",
-      "description": "Write-once-read-many protection, set when the bucket is created.",
+      "description": "Write-once-read-many protection: once enabled it cannot be disabled.",
       "status": "Status",
       "enabled": "Enabled",
       "disabled": "Disabled",
@@ -279,7 +284,15 @@
       "noDefault": "None",
       "days": "{{n}} days",
       "years": "{{n}} years",
-      "unavailable": "The object lock settings are not available."
+      "unavailable": "The object lock settings are not available.",
+      "enable": "Enable object lock",
+      "unit": "Retention unit",
+      "unitDays": "days",
+      "unitYears": "years",
+      "periodInvalid": "Enter a whole number of at least 1.",
+      "permanent": "Object lock cannot be disabled; the default retention applies to the new objects.",
+      "enableHint": "Enabling object lock is permanent.",
+      "needsVersioning": "Object lock needs versioning enabled."
     }
   },
   "bucketAccess": {
@@ -421,7 +434,10 @@
     "delete": "Delete this version",
     "deleteVersion": "Delete version {{version}}",
     "confirmDelete": "Confirm the deletion of version {{version}}",
-    "deleted": "Version deleted."
+    "deleted": "Version deleted.",
+    "restore": "Restore this version",
+    "restoreVersion": "Restore version {{version}}",
+    "restored": "Version {{version}} restored: it is the latest again."
   },
   "objectPreview": {
     "imageAlt": "Preview of {{name}}",
@@ -450,6 +466,7 @@
     "resumeFile": "Resume {{name}}",
     "retryFile": "Retry {{name}}",
     "cancelFile": "Cancel {{name}}",
+    "cannotCancel": "Finishing the upload: it can no longer be canceled.",
     "progressOf": "Upload progress of {{name}}",
     "failedWith": "Failed: {{message}}",
     "queued": "{{n}} files queued for upload.",
@@ -837,6 +854,18 @@
       "curl": "Upload with curl",
       "noUrl": "Prefix upload shares have no direct URL.",
       "another": "Create another link"
+    },
+    "links": {
+      "label": "Links of the shared objects",
+      "hint_one": "{{count}} object, one link each. Revoking the share revokes every link.",
+      "hint_other": "{{count}} objects, one link each. Revoking the share revokes every link.",
+      "object": "Object",
+      "size": "Size",
+      "copy": "Copy",
+      "copyOne": "Copy the link of {{key}}",
+      "copyAll": "Copy all links",
+      "more": "Load more links",
+      "empty": "The folder has no objects yet: the links appear here once it has some."
     }
   },
   "shares": {
@@ -853,6 +882,8 @@
     "createdAt": "Created {{date}}",
     "copy": "Copy link",
     "copyFor": "Copy the link of {{name}}",
+    "linksFor": "Links of the objects of {{name}}",
+    "linksTitle": "Shared objects of {{name}}",
     "selectAll": "Select all links",
     "select": "Select {{name}}",
     "filter": {
@@ -928,6 +959,9 @@
     "resetConfirm": "Remove every setting of {{subsystem}} and go back to the defaults?",
     "default": "default {{value}}",
     "secretSet": "a secret is stored; leave it to keep it",
+    "notApplied": "Not applied yet",
+    "notAppliedHint": "Not applied yet: stored and validated, no effect on the server for now",
+    "appliedNote": "Only the settings without the \"not applied yet\" note take effect, immediately and without a restart; the others are kept for a later release.",
     "problems": {
       "bool": "Use on or off.",
       "int": "Enter a non-negative integer.",

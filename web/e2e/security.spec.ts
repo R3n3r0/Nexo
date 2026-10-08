@@ -3,9 +3,9 @@ import { mkdtemp } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
 import { join } from 'node:path';
 
-import { request as playwrightRequest } from '@playwright/test';
+import { type APIRequestContext, request as playwrightRequest } from '@playwright/test';
 
-import { uniqueName } from './support/api';
+import { NexoClient, uniqueName } from './support/api';
 import { repoRoot } from './support/env';
 import { rootCredentials, startNexo, stopNexo } from './support/nexo';
 import { anonymous, contextAs, expect, loginWithForm, test } from './support/fixtures';
@@ -29,10 +29,20 @@ function rawGet(origin: string, path: string): Promise<{ status: number; body: s
   });
 }
 
+/** The CSRF token of the session of a request context (from the session payload). */
+async function sessionToken(request: APIRequestContext): Promise<string> {
+  const res = await request.get('/api/v1/auth/session');
+  expect(res.status()).toBe(200);
+  return ((await res.json()) as { csrfToken: string }).csrfToken;
+}
+
+/** The binary under test. */
+const nexoBinary = () => process.env.NEXO_E2E_BINARY || join(repoRoot, 'bin', 'nexo');
+
 test.describe('console security', () => {
   test('TD-S-01 a mutating request without the CSRF token is refused', async ({ page, api }) => {
     await page.goto('/');
-    const csrf = (await page.context().cookies()).find((c) => c.name === 'nexo_csrf')?.value;
+    const csrf = await sessionToken(page.request);
     expect(csrf).toBeTruthy();
     const bucket = uniqueName('e2e-csrf');
     try {
@@ -52,7 +62,7 @@ test.describe('console security', () => {
       // With the token of the session the same request succeeds.
       res = await page.request.post('/api/v1/buckets', {
         data: { name: bucket },
-        headers: { 'X-CSRF-Token': csrf ?? '' },
+        headers: { 'X-CSRF-Token': csrf },
       });
       expect(res.status()).toBe(201);
       // Reads need no token.
@@ -74,10 +84,10 @@ test.describe('console security', () => {
       await loginWithForm(page, rootCredentials);
       const cookies = await context.cookies();
       const session = cookies.find((c) => c.name === 'nexo_session');
-      const csrf = cookies.find((c) => c.name === 'nexo_csrf');
       expect(session).toMatchObject({ httpOnly: true, sameSite: 'Strict', path: '/' });
-      // The CSRF cookie is read by the console (double submit).
-      expect(csrf).toMatchObject({ httpOnly: false, sameSite: 'Strict' });
+      // The CSRF token lives in the memory of the console, never in a
+      // cookie the pages of the other ports of the host could read.
+      expect(cookies.map((c) => c.name)).not.toContain('nexo_csrf');
       // Not readable from the page.
       expect(await page.evaluate(() => document.cookie)).not.toContain('nexo_session');
 
@@ -105,7 +115,7 @@ test.describe('console security', () => {
         { stdio: 'ignore' },
       );
       const tls = await startNexo({
-        binary: process.env.NEXO_E2E_BINARY || join(repoRoot, 'bin', 'nexo'),
+        binary: nexoBinary(),
         workDir,
         certsDir: workDir,
       });
@@ -124,12 +134,76 @@ test.describe('console security', () => {
         expect(sessionCookie).toMatch(/;\s*HttpOnly/i);
         expect(sessionCookie).toMatch(/;\s*Secure/i);
         expect(sessionCookie).toMatch(/;\s*SameSite=Strict/i);
-        expect(setCookies.find((c) => c.startsWith('nexo_csrf='))).toMatch(/;\s*Secure/i);
+        expect(setCookies.some((c) => c.startsWith('nexo_csrf='))).toBe(false);
         await ctx.dispose();
       } finally {
         await stopNexo(tls.pid);
       }
     });
+  });
+
+  test('TD-S-08 a page served by the S3 port cannot act in the console session', async ({
+    browser,
+    nexo,
+  }) => {
+    // A server of its own: a successful attack stops it.
+    const srv = await startNexo({
+      binary: nexoBinary(),
+      workDir: await mkdtemp(join(nexo.workDir, 'same-site-')),
+    });
+    const context = await browser.newContext({ baseURL: srv.consoleURL });
+    try {
+      const api = new NexoClient(srv);
+      const login = await context.request.post('/api/v1/auth/login', { data: rootCredentials });
+      expect(login.status()).toBe(200);
+      // Even a leaked token is useless from another origin of the site.
+      const leaked = ((await login.json()) as { csrfToken: string }).csrfToken;
+      expect((await context.cookies()).map((c) => c.name)).not.toContain('nexo_csrf');
+
+      // The page reads the token from the cookies like the reported
+      // attack, then sends simple (no preflight) form posts with it and
+      // with the leaked one: the browser attaches the SameSite=Strict
+      // session cookie, the ports of a host being same-site.
+      const bucket = uniqueName('e2e-same-site');
+      await api.createBucket(bucket);
+      const html = `<!doctype html><html><head><title>evil</title></head><body><script>
+        const fromCookie = (document.cookie.match(/nexo_csrf=([^;]+)/) || [])[1] || '';
+        const target = ${JSON.stringify(srv.consoleURL)};
+        const sends = [];
+        for (const token of [fromCookie, ${JSON.stringify(leaked)}]) {
+          for (const path of ['/api/v1/auth/logout', '/api/v1/service/stop',
+                              '/api/v1/buckets/${bucket}/objects/download-zip']) {
+            sends.push(fetch(target + path, {
+              method: 'POST', mode: 'no-cors', credentials: 'include',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: 'csrfToken=' + encodeURIComponent(token) + '&request=%7B%7D',
+            }).then(() => 'sent', () => 'failed'));
+          }
+        }
+        Promise.all(sends).then((r) => { document.title = 'done:' + r.join(','); });
+      </script></body></html>`;
+      await api.putObject(bucket, 'evil.html', html, 'text/html');
+      const presigned = await api.call<{ url: string }>('POST', '/presign', {
+        json: { bucket, key: 'evil.html' },
+      });
+      expect(new URL(presigned.url).origin).toBe(srv.s3URL);
+
+      const page = await context.newPage();
+      await page.goto(presigned.url);
+      // The requests reached the server (no network failure): it refused them.
+      await expect(page).toHaveTitle(/^done:sent(,sent){5}$/);
+      await page.close();
+
+      // Give a stop request the time to take effect, then check: the
+      // server runs and the session is still open.
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect(() => process.kill(srv.pid, 0)).not.toThrow();
+      expect((await context.request.get('/nexo/health/ready')).status()).toBe(200);
+      expect((await context.request.get('/api/v1/auth/session')).status()).toBe(200);
+    } finally {
+      await context.close();
+      await stopNexo(srv.pid);
+    }
   });
 
   test('TD-S-03 an object key with markup is shown as text, never executed', async ({
@@ -280,7 +354,7 @@ test.describe('console security', () => {
       const res = await context.request.get('/api/v1/users');
       expect(res.status()).toBe(403);
       expect((await res.json()) as { code: string }).toMatchObject({ code: 'access_denied' });
-      const csrf = (await context.cookies()).find((c) => c.name === 'nexo_csrf')?.value ?? '';
+      const csrf = await sessionToken(context.request);
       const create = await context.request.post('/api/v1/users', {
         data: { accessKey: 'sneaky-user', secretKey: 'sneaky-secret-1' },
         headers: { 'X-CSRF-Token': csrf },

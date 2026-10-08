@@ -48,7 +48,7 @@ Fields:
   x-amz-credential: MEM/20260102/us-east-1/s3/aws4_request
   x-amz-date: 20260102T030405Z
   x-amz-signature: fake
-Command: curl -F 'key=uploads/${filename}' -F 'policy=eyJidWNrZXQiOiJwdWIiLCJleHBpcmF0aW9uIjoiMjAyNi0wMS0wMlQwNDowNDowNVoiLCJrZXkiOiJ1cGxvYWRzLyR7ZmlsZW5hbWV9IiwibWF4U2l6ZSI6MTA0ODU3NjB9' -F 'x-amz-algorithm=AWS4-HMAC-SHA256' -F 'x-amz-credential=MEM/20260102/us-east-1/s3/aws4_request' -F 'x-amz-date=20260102T030405Z' -F 'x-amz-signature=fake' -F file=@<FILE> 'https://s3.mem.test/pub'
+Command: curl --form-string 'key=uploads/${filename}' --form-string 'policy=eyJidWNrZXQiOiJwdWIiLCJleHBpcmF0aW9uIjoiMjAyNi0wMS0wMlQwNDowNDowNVoiLCJrZXkiOiJ1cGxvYWRzLyR7ZmlsZW5hbWV9IiwibWF4U2l6ZSI6MTA0ODU3NjB9' --form-string 'x-amz-algorithm=AWS4-HMAC-SHA256' --form-string 'x-amz-credential=MEM/20260102/us-east-1/s3/aws4_request' --form-string 'x-amz-date=20260102T030405Z' --form-string 'x-amz-signature=fake' -F file=@<FILE> 'https://s3.mem.test/pub'
 HTML:
 <form action="https://s3.mem.test/pub" method="post" enctype="multipart/form-data">
   <input type="hidden" name="key" value="uploads/${filename}">
@@ -72,7 +72,7 @@ Fields:
   x-amz-credential: MEM/20260102/us-east-1/s3/aws4_request
   x-amz-date: 20260102T030405Z
   x-amz-signature: fake
-Command: curl -F 'key=exact.bin' -F 'policy=eyJidWNrZXQiOiJwdWIiLCJleHBpcmF0aW9uIjoiMjAyNi0wMS0wMlQwNDowNDowNVoiLCJrZXkiOiJleGFjdC5iaW4iLCJtYXhTaXplIjowfQ==' -F 'x-amz-algorithm=AWS4-HMAC-SHA256' -F 'x-amz-credential=MEM/20260102/us-east-1/s3/aws4_request' -F 'x-amz-date=20260102T030405Z' -F 'x-amz-signature=fake' -F file=@<FILE> 'https://s3.mem.test/pub'
+Command: curl --form-string 'key=exact.bin' --form-string 'policy=eyJidWNrZXQiOiJwdWIiLCJleHBpcmF0aW9uIjoiMjAyNi0wMS0wMlQwNDowNDowNVoiLCJrZXkiOiJleGFjdC5iaW4iLCJtYXhTaXplIjowfQ==' --form-string 'x-amz-algorithm=AWS4-HMAC-SHA256' --form-string 'x-amz-credential=MEM/20260102/us-east-1/s3/aws4_request' --form-string 'x-amz-date=20260102T030405Z' --form-string 'x-amz-signature=fake' -F file=@<FILE> 'https://s3.mem.test/pub'
 HTML:
 <form action="https://s3.mem.test/pub" method="post" enctype="multipart/form-data">
   <input type="hidden" name="key" value="exact.bin">

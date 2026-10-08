@@ -87,8 +87,24 @@ export function createHttpBucketService(client: HttpClient): BucketService {
       // A bucket without object lock answers {enabled: false}.
       return client.request<BucketObjectLock>(path(name, 'objectlock'));
     },
+    setObjectLock(name, config) {
+      return client.request<BucketObjectLock>(path(name, 'objectlock'), {
+        method: 'PUT',
+        body: config,
+      });
+    },
     getEncryption(name) {
       return optional(client.request<BucketEncryption>(path(name, 'encryption')));
+    },
+    async setEncryption(name, encryption) {
+      if (encryption === null) {
+        await client.request<void>(path(name, 'encryption'), { method: 'DELETE' });
+        return null;
+      }
+      return client.request<BucketEncryption>(path(name, 'encryption'), {
+        method: 'PUT',
+        body: encryption,
+      });
     },
     async getPolicy(name) {
       const response = await optional(client.send(path(name, 'policy')));

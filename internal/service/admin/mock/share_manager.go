@@ -144,24 +144,83 @@ func (_c *ShareManager_Get_Call) RunAndReturn(run func(context.Context, admin.Re
 	return _c
 }
 
+// Links provides a mock function with given fields: ctx, in
+func (_m *ShareManager) Links(ctx context.Context, in admin.ShareLinksInput) (*admin.ShareLinks, error) {
+	ret := _m.Called(ctx, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Links")
+	}
+
+	var r0 *admin.ShareLinks
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, admin.ShareLinksInput) (*admin.ShareLinks, error)); ok {
+		return rf(ctx, in)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, admin.ShareLinksInput) *admin.ShareLinks); ok {
+		r0 = rf(ctx, in)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*admin.ShareLinks)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, admin.ShareLinksInput) error); ok {
+		r1 = rf(ctx, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ShareManager_Links_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Links'
+type ShareManager_Links_Call struct {
+	*mock.Call
+}
+
+// Links is a helper method to define mock.On call
+//   - ctx context.Context
+//   - in admin.ShareLinksInput
+func (_e *ShareManager_Expecter) Links(ctx interface{}, in interface{}) *ShareManager_Links_Call {
+	return &ShareManager_Links_Call{Call: _e.mock.On("Links", ctx, in)}
+}
+
+func (_c *ShareManager_Links_Call) Run(run func(ctx context.Context, in admin.ShareLinksInput)) *ShareManager_Links_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(admin.ShareLinksInput))
+	})
+	return _c
+}
+
+func (_c *ShareManager_Links_Call) Return(_a0 *admin.ShareLinks, _a1 error) *ShareManager_Links_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *ShareManager_Links_Call) RunAndReturn(run func(context.Context, admin.ShareLinksInput) (*admin.ShareLinks, error)) *ShareManager_Links_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // List provides a mock function with given fields: ctx, in
-func (_m *ShareManager) List(ctx context.Context, in admin.ListSharesInput) ([]share.Share, error) {
+func (_m *ShareManager) List(ctx context.Context, in admin.ListSharesInput) (*admin.Paged[share.Share], error) {
 	ret := _m.Called(ctx, in)
 
 	if len(ret) == 0 {
 		panic("no return value specified for List")
 	}
 
-	var r0 []share.Share
+	var r0 *admin.Paged[share.Share]
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, admin.ListSharesInput) ([]share.Share, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, admin.ListSharesInput) (*admin.Paged[share.Share], error)); ok {
 		return rf(ctx, in)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, admin.ListSharesInput) []share.Share); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, admin.ListSharesInput) *admin.Paged[share.Share]); ok {
 		r0 = rf(ctx, in)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]share.Share)
+			r0 = ret.Get(0).(*admin.Paged[share.Share])
 		}
 	}
 
@@ -193,12 +252,12 @@ func (_c *ShareManager_List_Call) Run(run func(ctx context.Context, in admin.Lis
 	return _c
 }
 
-func (_c *ShareManager_List_Call) Return(_a0 []share.Share, _a1 error) *ShareManager_List_Call {
+func (_c *ShareManager_List_Call) Return(_a0 *admin.Paged[share.Share], _a1 error) *ShareManager_List_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *ShareManager_List_Call) RunAndReturn(run func(context.Context, admin.ListSharesInput) ([]share.Share, error)) *ShareManager_List_Call {
+func (_c *ShareManager_List_Call) RunAndReturn(run func(context.Context, admin.ListSharesInput) (*admin.Paged[share.Share], error)) *ShareManager_List_Call {
 	_c.Call.Return(run)
 	return _c
 }

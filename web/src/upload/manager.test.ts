@@ -326,6 +326,35 @@ describe('createUploadManager (TD-U-06)', () => {
     expect((await services.uploads.list('media')).items).toEqual([]);
   });
 
+  // Regression (D-OBJ-02): canceling while CompleteMultipartUpload was in
+  // flight marked as canceled an object that the completion created.
+  it('cannot cancel an upload while it is completing', async () => {
+    const services = smallPartServices();
+    const gate = deferred<void>();
+    const original = services.uploads.complete.bind(services.uploads);
+    const complete = vi
+      .spyOn(services.uploads, 'complete')
+      .mockImplementation(async (bucket, key, uploadId, parts) => {
+        await gate.promise;
+        return original(bucket, key, uploadId, parts);
+      });
+    const abort = vi.spyOn(services.uploads, 'abort');
+    const manager = createUploadManager({ uploads: services.uploads, singleUploadThreshold: KiB });
+
+    const [id = ''] = manager.enqueue('media', [{ key: 'done.bin', file: blob(3 * KiB) }]);
+    await until(manager, () => complete.mock.calls.length > 0);
+    expect(manager.getSnapshot().items[0]?.status).toBe('completing');
+    await manager.cancel(id);
+    await manager.cancelAll();
+    expect(manager.getSnapshot().items[0]?.status).toBe('completing');
+    expect(abort).not.toHaveBeenCalled();
+
+    gate.resolve();
+    await until(manager, () => manager.getSnapshot().items[0]?.status === 'completed');
+    expect(abort).not.toHaveBeenCalled();
+    expect((await services.objects.stat('media', 'done.bin')).size).toBe(3 * KiB);
+  });
+
   it('cancel during the creation aborts once the upload exists', async () => {
     const services = smallPartServices();
     const created = deferred<void>();

@@ -2,7 +2,6 @@ package admin
 
 import (
 	"fmt"
-	"math"
 	"net/http"
 	"time"
 
@@ -39,6 +38,10 @@ type ShareDeps struct {
 	Enc   httpx.Codec
 }
 
+// ShareOption configures the share routes (none yet: the type keeps the
+// constructor shape of every route group, docs/12 §12.3).
+type ShareOption func(*shareRoutes)
+
 type shareRoutes struct {
 	deps  ShareDeps
 	guard guard
@@ -47,14 +50,18 @@ type shareRoutes struct {
 var _ ShareRoutes = (*shareRoutes)(nil)
 
 // NewShareRoutes returns the share link, presign and POST policy routes.
-func NewShareRoutes(deps ShareDeps) (ShareRoutes, error) {
+func NewShareRoutes(deps ShareDeps, opts ...ShareOption) (ShareRoutes, error) {
 	if deps.Shares == nil || deps.Authz == nil {
 		return nil, fmt.Errorf("%w: share routes require the share manager and the authorizer", domain.ErrInvalidArgument)
 	}
 	if deps.Enc == nil {
 		deps.Enc = httpx.New()
 	}
-	return &shareRoutes{deps: deps, guard: guard{authz: deps.Authz, enc: deps.Enc}}, nil
+	h := &shareRoutes{deps: deps, guard: guard{authz: deps.Authz, enc: deps.Enc}}
+	for _, o := range opts {
+		o(h)
+	}
+	return h, nil
 }
 
 // Register implements Routes.
@@ -70,6 +77,7 @@ func (h *shareRoutes) routes() []route {
 		{http.MethodGet, "/shares", manage, h.list},
 		{http.MethodDelete, "/shares", manage, h.revokeAll},
 		{http.MethodGet, "/shares/{id}", manage, h.get},
+		{http.MethodGet, "/shares/{id}/links", byService(policy.ActionAdminManageShares, policy.ActionListBucket), h.links},
 		{http.MethodDelete, "/shares/{id}", manage, h.revoke},
 		{http.MethodPost, "/buckets/{bucket}/objects/share", shared, h.createInBucket},
 		{http.MethodPost, "/presign", byService(policy.ActionGetObject, policy.ActionPutObject, policy.ActionDeleteObject), h.presign},
@@ -183,21 +191,25 @@ func (h *shareRoutes) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := r.URL.Query()
-	shares, err := h.deps.Shares.List(r.Context(), adminsvc.ListSharesInput{Requester: requesterOf(r), Owner: q.Get("owner"), Bucket: q.Get("bucket")})
+	shares, err := h.deps.Shares.List(r.Context(), adminsvc.ListSharesInput{Requester: requesterOf(r), Owner: q.Get("owner"), Bucket: q.Get("bucket"), Page: p})
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	items, next := paginate(shares, shareOrder, p)
-	out := ShareListResponse{Items: make([]ShareResponse, 0, len(items)), NextCursor: next}
-	for i := range items {
-		out.Items = append(out.Items, newShareResponse(&items[i]))
+	out := ShareListResponse{Items: make([]ShareResponse, 0, len(shares.Items)), NextCursor: shares.NextCursor}
+	for i := range shares.Items {
+		out.Items = append(out.Items, newShareResponse(&shares.Items[i]))
 	}
 	h.deps.Enc.WriteJSON(w, http.StatusOK, out)
 }
 
 func (h *shareRoutes) get(w http.ResponseWriter, r *http.Request) {
-	s, err := h.deps.Shares.Get(r.Context(), requesterOf(r), chi.URLParam(r, "id"))
+	id, err := pathParam(r, "id")
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	s, err := h.deps.Shares.Get(r.Context(), requesterOf(r), id)
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -205,8 +217,55 @@ func (h *shareRoutes) get(w http.ResponseWriter, r *http.Request) {
 	h.deps.Enc.WriteJSON(w, http.StatusOK, newShareResponse(s))
 }
 
+// ShareLinkResponse is the link of one object of a prefix share.
+type ShareLinkResponse struct {
+	Key  string `json:"key"`
+	Size int64  `json:"size"`
+	// URL downloads the object; it is signed by the share and revoked with
+	// it.
+	URL string `json:"url"`
+}
+
+// ShareLinksResponse is a page of the per-object links of a prefix
+// download share.
+type ShareLinksResponse struct {
+	Share      ShareResponse       `json:"share"`
+	Items      []ShareLinkResponse `json:"items"`
+	NextCursor string              `json:"nextCursor,omitempty"`
+}
+
+// links is GET /shares/{id}/links: the objects of a prefix download share,
+// one link each.
+func (h *shareRoutes) links(w http.ResponseWriter, r *http.Request) {
+	id, err := pathParam(r, "id")
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	p, err := readPage(r)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	res, err := h.deps.Shares.Links(r.Context(), adminsvc.ShareLinksInput{Requester: requesterOf(r), ID: id, Page: p})
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	out := ShareLinksResponse{Share: newShareResponse(res.Share), Items: make([]ShareLinkResponse, 0, len(res.Items)), NextCursor: res.NextCursor}
+	for _, l := range res.Items {
+		out.Items = append(out.Items, ShareLinkResponse(l))
+	}
+	h.deps.Enc.WriteJSON(w, http.StatusOK, out)
+}
+
 func (h *shareRoutes) revoke(w http.ResponseWriter, r *http.Request) {
-	if err := h.deps.Shares.Revoke(r.Context(), requesterOf(r), chi.URLParam(r, "id")); err != nil {
+	id, err := pathParam(r, "id")
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if err := h.deps.Shares.Revoke(r.Context(), requesterOf(r), id); err != nil {
 		h.fail(w, r, err)
 		return
 	}
@@ -334,10 +393,4 @@ func (h *shareRoutes) postPolicy(w http.ResponseWriter, r *http.Request) {
 		out.Conditions = append(out.Conditions, PostConditionResponse(c))
 	}
 	h.deps.Enc.WriteJSON(w, http.StatusOK, out)
-}
-
-// shareOrder sorts the share links newest first (then by id) with a
-// string key, the order of the pages.
-func shareOrder(s share.Share) string {
-	return fmt.Sprintf("%020d/%s", math.MaxInt64-s.CreatedAt.UnixNano(), s.ID)
 }

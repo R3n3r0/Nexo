@@ -60,6 +60,7 @@ describe('checkConfigValue', () => {
     type,
     description: '',
     sensitive: false,
+    applied: false,
     ...(values ? { values } : {}),
   });
   it.each([
@@ -110,8 +111,22 @@ describe('upload snippets', () => {
     expect(snippets.html?.indexOf('name="file"')).toBeGreaterThan(
       snippets.html?.indexOf('name="policy"') ?? Infinity,
     );
-    expect(snippets.curl).toContain(`-F 'key=up/\${filename}'`);
+    expect(snippets.curl).toContain(`--form-string 'key=up/\${filename}'`);
     expect(snippets.curl.trim().endsWith(`'http://s3/b'`)).toBe(true);
     expect(snippets.javascript).toContain(`form.append("policy", "a\\"b<c");`);
+  });
+
+  it('sends the policy fields of the curl snippet verbatim, never as local files', () => {
+    const snippets = postSnippets({
+      url: 'http://s3/b',
+      expiresAt: '2026-10-08T13:00:00Z',
+      conditions: [],
+      fields: { key: '@inbox/${filename}', 'x-amz-meta-note': '<notes.txt', policy: 'p' },
+    });
+    // With -F, curl reads the file named after "@" or "<".
+    expect(snippets.curl).toContain(`--form-string 'key=@inbox/\${filename}'`);
+    expect(snippets.curl).toContain(`--form-string 'x-amz-meta-note=<notes.txt'`);
+    const fileFields = snippets.curl.split('\n').filter((line) => line.trim().startsWith('-F '));
+    expect(fileFields).toEqual(['  -F file=@./file \\']);
   });
 });

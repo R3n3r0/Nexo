@@ -19,19 +19,24 @@ written with owner-only permissions (0600).`
 
 func newAliasSetCmd(e *env) *cobra.Command {
 	var api, pathStyle, region, adminURL string
-	var verify bool
+	var verify, noVerify bool
 	cmd := &cobra.Command{
 		Use:   "set NAME URL ACCESS_KEY SECRET_KEY",
 		Short: "Add or update an alias",
-		Long: `Add or update an alias. With --verify the credentials are checked against the
-server (ListBuckets) before the alias is saved: wrong credentials exit with code 4.
+		Long: `Add or update an alias. The credentials are checked against the server
+(ListBuckets) before the alias is saved: an unknown, disabled or expired access
+key or a wrong secret key exits with code 4 and saves nothing. Credentials the
+server authenticates but may not list the buckets (a policy limited to some
+buckets) are accepted, and the message says that the listing was denied.
+--no-verify saves the alias without contacting the server (offline setup).
 
 The admin and managed share commands talk to the Admin API of a Nexo server,
 served by its console listener: by default the URL of the alias with the next
 port (http://host:9000 -> http://host:9001), or the URL itself when it has no
 port; --admin-url sets it explicitly.`,
-		Example: "  nexoctl alias set local http://localhost:9000 admin supersecret --verify",
-		Args:    exactArgs(4),
+		Example: `  nexoctl alias set local http://localhost:9000 admin supersecret
+  nexoctl alias set later https://s3.example.com AKIA... secret --no-verify`,
+		Args: exactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			svc, err := e.aliasService()
@@ -42,13 +47,23 @@ port; --admin-url sets it explicitly.`,
 			if err := cli.ValidateAlias(a); err != nil {
 				return cli.UsageError("%v", err)
 			}
+			if noVerify && cmd.Flags().Changed("verify") {
+				return cli.UsageError("--no-verify excludes --verify")
+			}
+			verify = verify && !noVerify
+			// listDenied: the server authenticated the credentials and
+			// refused the listing by policy; they are not fully verified.
+			listDenied := false
 			if verify {
 				client, err := e.deps.S3.Client(ctx, a, cli.ClientOptions{Debug: debugWriter(e)})
 				if err != nil {
 					return err
 				}
 				if _, err := client.ListBuckets(ctx); err != nil {
-					return fmt.Errorf("verify alias %q at %s: %w", a.Name, a.URL, err)
+					if !cli.IsAuthorizationDenial(err) {
+						return fmt.Errorf("verify alias %q at %s: %w", a.Name, a.URL, err)
+					}
+					listDenied = true
 				}
 			}
 			if err := svc.Set(ctx, a); err != nil {
@@ -62,7 +77,10 @@ port; --admin-url sets it explicitly.`,
 				rec.Path = "auto"
 			}
 			msg := fmt.Sprintf("Added alias %q for %s.", a.Name, a.URL)
-			if verify {
+			switch {
+			case listDenied:
+				msg = fmt.Sprintf("Added alias %q for %s (credentials accepted; listing the buckets is denied).", a.Name, a.URL)
+			case verify:
 				msg = fmt.Sprintf("Added alias %q for %s (credentials verified).", a.Name, a.URL)
 			}
 			return e.out.Info(rec, msg)
@@ -71,7 +89,8 @@ port; --admin-url sets it explicitly.`,
 	cmd.Flags().StringVar(&api, "api", "s3v4", "signature version (s3v4)")
 	cmd.Flags().StringVar(&pathStyle, "path", "auto", "URL style: auto, on (path-style), off (virtual-host)")
 	cmd.Flags().StringVar(&region, "region", "", "signing region (default "+cli.DefaultRegion+")")
-	cmd.Flags().BoolVar(&verify, "verify", false, "check the connection and the credentials before saving")
+	cmd.Flags().BoolVar(&verify, "verify", true, "check the connection and the credentials before saving")
+	cmd.Flags().BoolVar(&noVerify, "no-verify", false, "save without contacting the server")
 	cmd.Flags().StringVar(&adminURL, "admin-url", "", "URL of the Admin API of a Nexo server (default: the alias URL with the next port)")
 	return cmd
 }

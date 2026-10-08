@@ -68,7 +68,7 @@ describe('HTTP IAM services', () => {
       }),
       http.get(api('/me/permissions'), async ({ request }) => (await record(request), ok())),
     );
-    const s = createHttpServices({ baseUrl: '/api/v1', readCookie: () => undefined });
+    const s = createHttpServices({ baseUrl: '/api/v1' });
     await s.users.get('a b');
     await s.users.update('alice', { status: 'disabled', groups: ['g'] });
     await s.groups.get('devs');
@@ -174,7 +174,7 @@ describe('HTTP IAM services', () => {
         return HttpResponse.json({ accessKey: 'K' });
       }),
     );
-    const s = createHttpServices({ baseUrl: '/api/v1', readCookie: () => undefined });
+    const s = createHttpServices({ baseUrl: '/api/v1' });
     await s.accessKeys.list();
     await s.accessKeys.list({ user: 'bob' });
     await s.accessKeys.update('K', { clearExpiration: true });
@@ -216,7 +216,7 @@ describe('HTTP share and config services', () => {
         return HttpResponse.json({ url: 'u', fields: {}, expiresAt: 'x', conditions: [] });
       }),
     );
-    const s = createHttpServices({ baseUrl: '/api/v1', readCookie: () => undefined });
+    const s = createHttpServices({ baseUrl: '/api/v1' });
     await expect(s.shares.list({ owner: 'bob', bucket: 'b' })).resolves.toEqual([{ id: 's1' }]);
     await s.shares.create({ bucket: 'b', key: 'k', expiresIn: 3600 });
     await s.shares.revoke('s1');
@@ -262,7 +262,7 @@ describe('HTTP share and config services', () => {
         return new HttpResponse(null, { status: 204 });
       }),
     );
-    const s = createHttpServices({ baseUrl: '/api/v1', readCookie: () => undefined });
+    const s = createHttpServices({ baseUrl: '/api/v1' });
     await s.config.list();
     await s.config.schema();
     await expect(s.config.exportAll()).resolves.toEqual({ region: { name: 'x' } });

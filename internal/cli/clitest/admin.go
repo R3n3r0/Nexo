@@ -51,16 +51,22 @@ type MemAdmin struct {
 	keys     map[string]*nexoadmin.AccessKey
 	config   map[string]map[string]string
 	shares   []*nexoadmin.Share
-	info     nexoadmin.ServerInfo
-	usage    nexoadmin.DataUsage
-	seq      int
-	fail     map[string]error
-	calls    map[string]int
+	// quotas and encryption are the bucket settings, by bucket name.
+	quotas     map[string]nexoadmin.BucketQuota
+	encryption map[string]nexoadmin.BucketEncryption
+	info       nexoadmin.ServerInfo
+	usage      nexoadmin.DataUsage
+	seq        int
+	fail       map[string]error
+	calls      map[string]int
 }
 
 // memConfigSchema is the configuration schema of MemAdmin.
 func memConfigSchema() []nexoadmin.ConfigSubsystemSchema {
 	return []nexoadmin.ConfigSubsystemSchema{
+		{Name: "api", Description: "S3 API behavior", Keys: []nexoadmin.ConfigKey{
+			{Name: "root_access", Type: "bool", Default: "on", Applied: true},
+		}},
 		{Name: "logger", Description: "Server logs", Keys: []nexoadmin.ConfigKey{
 			{Name: "format", Type: "enum", Default: "text", Values: []string{"text", "json"}},
 			{Name: "level", Type: "enum", Default: "info", Values: []string{"debug", "info", "warn", "error"}},
@@ -89,6 +95,7 @@ func NewMemAdmin(clk clock.Clock) *MemAdmin {
 	m := &MemAdmin{
 		clock: clk, users: map[string]*nexoadmin.User{}, secrets: map[string]string{}, groups: map[string]*nexoadmin.Group{},
 		policies: map[string]*nexoadmin.Policy{}, keys: map[string]*nexoadmin.AccessKey{}, config: map[string]map[string]string{},
+		quotas: map[string]nexoadmin.BucketQuota{}, encryption: map[string]nexoadmin.BucketEncryption{},
 		fail: map[string]error{}, calls: map[string]int{},
 	}
 	builtins := map[string]string{
@@ -248,6 +255,11 @@ func (m *MemAdmin) Client(t TestingT, caller string) *climock.AdminClient {
 	c.EXPECT().DeleteConfig(x, x, x).RunAndReturn(s.deleteConfig).Maybe()
 	c.EXPECT().ExportConfig(x).RunAndReturn(s.exportConfig).Maybe()
 	c.EXPECT().ImportConfig(x, x).RunAndReturn(s.importConfig).Maybe()
+	c.EXPECT().GetBucketQuota(x, x).RunAndReturn(s.getBucketQuota).Maybe()
+	c.EXPECT().SetBucketQuota(x, x, x).RunAndReturn(s.setBucketQuota).Maybe()
+	c.EXPECT().GetBucketEncryption(x, x).RunAndReturn(s.getBucketEncryption).Maybe()
+	c.EXPECT().SetBucketEncryption(x, x, x).RunAndReturn(s.setBucketEncryption).Maybe()
+	c.EXPECT().DeleteBucketEncryption(x, x).RunAndReturn(s.deleteBucketEncryption).Maybe()
 	c.EXPECT().CreateShare(x, x).RunAndReturn(s.createShare).Maybe()
 	c.EXPECT().ListShares(x, x).RunAndReturn(s.listShares).Maybe()
 	c.EXPECT().GetShare(x, x).RunAndReturn(s.getShare).Maybe()
@@ -1474,4 +1486,83 @@ func (s *memSession) revokeAllShares(_ context.Context, owner string) (int, erro
 	}
 	s.m.shares = kept
 	return n, nil
+}
+
+// --- bucket settings -------------------------------------------------------------
+
+func (s *memSession) getBucketQuota(_ context.Context, bucket string) (*nexoadmin.BucketQuota, error) {
+	if err := s.begin("GetBucketQuota"); err != nil {
+		return nil, err
+	}
+	if err := s.requireAdminLocked("admin:GetBucketQuota"); err != nil {
+		return nil, err
+	}
+	defer s.m.mu.Unlock()
+	q := s.m.quotas[bucket]
+	return &q, nil
+}
+
+func (s *memSession) setBucketQuota(_ context.Context, bucket string, q nexoadmin.BucketQuota) (*nexoadmin.BucketQuota, error) {
+	if err := s.begin("SetBucketQuota"); err != nil {
+		return nil, err
+	}
+	if err := s.requireAdminLocked("admin:SetBucketQuota"); err != nil {
+		return nil, err
+	}
+	defer s.m.mu.Unlock()
+	if q.Type != "" && q.Type != "hard" {
+		return nil, invalid("unsupported quota type %q", q.Type)
+	}
+	if q.Size == 0 {
+		delete(s.m.quotas, bucket)
+		return &nexoadmin.BucketQuota{}, nil
+	}
+	q.Type = "hard"
+	s.m.quotas[bucket] = q
+	return &q, nil
+}
+
+func (s *memSession) getBucketEncryption(_ context.Context, bucket string) (*nexoadmin.BucketEncryption, error) {
+	if err := s.begin("GetBucketEncryption"); err != nil {
+		return nil, err
+	}
+	if err := s.requireAdminLocked("s3:GetEncryptionConfiguration"); err != nil {
+		return nil, err
+	}
+	defer s.m.mu.Unlock()
+	enc, ok := s.m.encryption[bucket]
+	if !ok {
+		return nil, nil
+	}
+	return &enc, nil
+}
+
+func (s *memSession) setBucketEncryption(_ context.Context, bucket string, enc nexoadmin.BucketEncryption) (*nexoadmin.BucketEncryption, error) {
+	if err := s.begin("SetBucketEncryption"); err != nil {
+		return nil, err
+	}
+	if err := s.requireAdminLocked("s3:PutEncryptionConfiguration"); err != nil {
+		return nil, err
+	}
+	defer s.m.mu.Unlock()
+	switch {
+	case enc.Algorithm != "AES256" && enc.Algorithm != "aws:kms":
+		return nil, invalid("SSEAlgorithm must be AES256 or aws:kms")
+	case enc.Algorithm == "AES256" && enc.KMSKeyID != "":
+		return nil, invalid("KMSMasterKeyID is only valid with aws:kms")
+	}
+	s.m.encryption[bucket] = enc
+	return &enc, nil
+}
+
+func (s *memSession) deleteBucketEncryption(_ context.Context, bucket string) error {
+	if err := s.begin("DeleteBucketEncryption"); err != nil {
+		return err
+	}
+	if err := s.requireAdminLocked("s3:PutEncryptionConfiguration"); err != nil {
+		return err
+	}
+	defer s.m.mu.Unlock()
+	delete(s.m.encryption, bucket)
+	return nil
 }

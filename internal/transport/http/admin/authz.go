@@ -3,6 +3,7 @@ package admin
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -218,17 +219,13 @@ func deniedDetail(d adminsvc.Decision) string {
 	return fmt.Sprintf("%s: %s", d.DeniedAction, reason)
 }
 
-// prefixConditions are the listing conditions of a bucket route.
+// prefixConditions are the listing conditions of a bucket route
+// (adminsvc.ListingConditions); an invalid limit is left out, the handler
+// rejects it.
 func prefixConditions(param string) func(r *http.Request) map[string][]string {
 	return func(r *http.Request) map[string][]string {
 		q := r.URL.Query()
-		conds := map[string][]string{"s3:prefix": {q.Get(param)}}
-		if d := q.Get("delimiter"); d != "" {
-			conds["s3:delimiter"] = []string{d}
-		}
-		if l := q.Get("limit"); l != "" {
-			conds["s3:max-keys"] = []string{l}
-		}
-		return conds
+		limit, _ := strconv.Atoi(q.Get("limit"))
+		return adminsvc.ListingConditions(q.Get(param), q.Get("delimiter"), limit)
 	}
 }

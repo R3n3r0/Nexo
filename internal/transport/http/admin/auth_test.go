@@ -1,9 +1,11 @@
 package admin_test
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -37,9 +39,10 @@ func TestSessionLoginSessionLogout(t *testing.T) {
 	assert.Equal(t, http.SameSiteStrictMode, cookie.SameSite)
 	assert.Equal(t, "/", cookie.Path)
 	assert.False(t, cookie.Secure, "plain HTTP request: no Secure flag")
-	csrfCookie := namedCookie(t, rec, session.CSRFCookieName)
-	assert.False(t, csrfCookie.HttpOnly, "the console scripts read the CSRF cookie")
-	assert.Equal(t, resp.CSRFToken, csrfCookie.Value)
+	for _, c := range rec.Result().Cookies() {
+		assert.NotEqual(t, session.CSRFCookieName, c.Name,
+			"the CSRF token is never in a readable cookie: the pages of the other ports of the host would read it")
+	}
 
 	c := &client{t: t, f: f, cookie: cookie, csrf: resp.CSRFToken}
 	rec = c.do(http.MethodGet, "/auth/session", nil)
@@ -67,7 +70,7 @@ func TestSessionLoginSessionLogout(t *testing.T) {
 	cleared := namedCookie(t, rec, session.CookieName)
 	assert.Empty(t, cleared.Value)
 	assert.Equal(t, -1, cleared.MaxAge)
-	assert.Equal(t, -1, namedCookie(t, rec, session.CSRFCookieName).MaxAge)
+	assert.Equal(t, -1, namedCookie(t, rec, session.CSRFCookieName).MaxAge, "the cookie of older versions is cleared")
 	rec = c.do(http.MethodGet, "/auth/session", nil)
 	assert.Equal(t, http.StatusUnauthorized, rec.Code, "the session is revoked")
 }
@@ -233,6 +236,123 @@ func TestAuthentication(t *testing.T) {
 	assert.NotEmpty(t, in.Requester.Conditions["aws:SourceIp"])
 }
 
+// TestCSRFRefusesOtherOrigins: a page served by another port of the same
+// host (the S3 listener serves HTML objects inline) is same-site with the
+// console, so the browser sends it the SameSite=Strict session cookie. A
+// state-changing request must therefore come from the console origin, and
+// the CSRF token travels in a form field only on the zip route.
+// Regression: a page of the S3 listener read the readable CSRF cookie and
+// stopped the server with a no-cors form POST to /service/stop.
+func TestCSRFRefusesOtherOrigins(t *testing.T) {
+	const consoleHost = "console.local:9001"
+	tests := []struct {
+		name    string
+		headers map[string]string
+		// form sends the token in the csrfToken field of a form instead
+		// of the header.
+		form   bool
+		path   string
+		status int
+	}{
+		{name: "console fetch", headers: map[string]string{"Sec-Fetch-Site": "same-origin", "Origin": "http://" + consoleHost}, status: http.StatusNoContent},
+		{name: "same-site fetch with the token", headers: map[string]string{"Sec-Fetch-Site": "same-site", "Origin": "http://console.local:9000"}, status: http.StatusForbidden},
+		{name: "cross-site fetch with the token", headers: map[string]string{"Sec-Fetch-Site": "cross-site", "Origin": "https://evil.example"}, status: http.StatusForbidden},
+		{name: "user-initiated post", headers: map[string]string{"Sec-Fetch-Site": "none"}, status: http.StatusForbidden},
+		{name: "sec-fetch-site wins over a matching origin", headers: map[string]string{"Sec-Fetch-Site": "same-site", "Origin": "http://" + consoleHost}, status: http.StatusForbidden},
+		{name: "legacy browser, console origin", headers: map[string]string{"Origin": "http://" + consoleHost}, status: http.StatusNoContent},
+		{name: "legacy browser, other port", headers: map[string]string{"Origin": "http://console.local:9000"}, status: http.StatusForbidden},
+		{name: "legacy browser, null origin", headers: map[string]string{"Origin": "null"}, status: http.StatusForbidden},
+		{name: "legacy browser, referer of another port", headers: map[string]string{"Referer": "http://console.local:9000/bkt/evil.html"}, status: http.StatusForbidden},
+		{name: "legacy browser, referer of the console", headers: map[string]string{"Referer": "http://" + consoleHost + "/buckets"}, status: http.StatusNoContent},
+		{name: "non-browser client", status: http.StatusNoContent},
+		{name: "form token outside the zip route", form: true, path: "/service/stop", status: http.StatusForbidden},
+		{name: "form token outside the zip route, console origin", form: true, path: "/auth/logout", headers: map[string]string{"Sec-Fetch-Site": "same-origin"}, status: http.StatusForbidden},
+		{name: "form token on the zip route from another port", form: true, path: "/buckets/b/objects/download-zip",
+			headers: map[string]string{"Origin": "http://console.local:9000"}, status: http.StatusForbidden},
+		{name: "form token on the zip route, same-site", form: true, path: "/buckets/b/objects/download-zip",
+			headers: map[string]string{"Sec-Fetch-Site": "same-site"}, status: http.StatusForbidden},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			c := f.root(t)
+			path := tt.path
+			if path == "" {
+				path = "/auth/logout"
+			}
+			var req *http.Request
+			if tt.form {
+				body := url.Values{session.CSRFFormField: {c.csrf}, admin.ZipFormField: {`{"keys":["k"]}`}}.Encode()
+				req = httptest.NewRequest(http.MethodPost, admin.Prefix+path, strings.NewReader(body))
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				req.AddCookie(c.cookie)
+			} else {
+				req = c.newRequest(http.MethodPost, path, nil)
+			}
+			req.Host = consoleHost
+			for k, v := range tt.headers {
+				req.Header.Set(k, v)
+			}
+			// The services are never reached when the request is refused
+			// (the mocks would fail the test).
+			rec := c.serve(req)
+			require.Equal(t, tt.status, rec.Code, rec.Body.String())
+			if tt.status == http.StatusForbidden {
+				assert.Equal(t, "invalid_csrf_token", problemOf(t, rec).Code)
+			}
+		})
+	}
+
+	t.Run("reads are not affected", func(t *testing.T) {
+		f := newFixture(t)
+		c := f.root(t)
+		req := c.newRequest(http.MethodGet, "/auth/session", nil)
+		req.Header.Set("Sec-Fetch-Site", "same-site")
+		assert.Equal(t, http.StatusOK, c.serve(req).Code)
+	})
+	t.Run("signed requests are not affected", func(t *testing.T) {
+		f := newFixture(t)
+		f.buckets.EXPECT().Create(mock.Anything, mock.Anything).Return(&adminsvc.BucketSummary{Info: domain.BucketInfo{Bucket: domain.Bucket{Name: "b1"}}}, nil).Once()
+		req := f.signed(t, rootKey, rootSecret).newRequest(http.MethodPost, "/buckets", `{"name":"b1"}`)
+		req.Header.Set("Sec-Fetch-Site", "cross-site")
+		rec := httptest.NewRecorder()
+		f.handler.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	})
+}
+
+// TestConsoleOrigins: behind a proxy that rewrites the Host header, the
+// public console URL (WithConsoleOrigins) is the origin of the console.
+func TestConsoleOrigins(t *testing.T) {
+	sessions := newFixture(t).sessions
+	_, err := admin.NewAuthenticator(admin.AuthenticatorDeps{Sessions: sessions}, admin.WithConsoleOrigins("ftp://console"))
+	require.ErrorIs(t, err, domain.ErrInvalidArgument)
+	_, err = admin.NewAuthenticator(admin.AuthenticatorDeps{Sessions: sessions}, admin.WithConsoleOrigins("/relative"))
+	require.ErrorIs(t, err, domain.ErrInvalidArgument)
+
+	authn, err := admin.NewAuthenticator(admin.AuthenticatorDeps{Sessions: sessions},
+		admin.WithConsoleOrigins("https://Console.Example.com/ui/"))
+	require.NoError(t, err)
+	sess, err := sessions.Login(context.Background(), session.LoginInput{AccessKey: rootKey, SecretKey: rootSecret})
+	require.NoError(t, err)
+	h := authn.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	for origin, status := range map[string]int{
+		"https://console.example.com":      http.StatusNoContent,
+		"http://console.example.com":       http.StatusForbidden,
+		"https://console.example.com:8443": http.StatusForbidden,
+		"https://s3.example.com":           http.StatusForbidden,
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/x", nil)
+		req.Host = "127.0.0.1:9001"
+		req.AddCookie(&http.Cookie{Name: session.CookieName, Value: sess.Token})
+		req.Header.Set(session.CSRFHeader, sess.CSRFToken)
+		req.Header.Set("Origin", origin)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		assert.Equal(t, status, rec.Code, origin)
+	}
+}
+
 // TestAuthorizationDeniedPerGroup sends one request of every route group
 // with a denying authorizer: the guard answers 403 access_denied and the
 // services are never called (the mocks would fail the test).
@@ -245,7 +365,7 @@ func TestAuthorizationDeniedPerGroup(t *testing.T) {
 		{"info", http.MethodPost, "/service/restart", "", policy.ActionAdminServiceRestart},
 		{"session", http.MethodGet, "/me/permissions?user=alice", "", policy.ActionAdminGetUser},
 		{"users", http.MethodGet, "/users", "", policy.ActionAdminListUsers},
-		{"users", http.MethodDelete, "/users/alice", "", policy.ActionAdminDeleteUser},
+		{"users", http.MethodGet, "/users/alice", "", policy.ActionAdminGetUser},
 		{"groups", http.MethodGet, "/groups/g1", "", policy.ActionAdminGetGroup},
 		{"policies", http.MethodPost, "/policies/attach", `{"policyNames":["readonly"],"user":"alice"}`, policy.ActionAdminAttachUserOrGroupPolicy},
 		{"policies", http.MethodPost, "/policies/simulate", `{"action":"s3:GetObject"}`, policy.ActionAdminSimulatePolicy},
@@ -295,11 +415,15 @@ func TestAuthorizedByService(t *testing.T) {
 		{"delete objects", http.MethodDelete, "/buckets/b1/objects", `{"prefixes":["a/"]}`, func(f *fixture) {
 			f.browser.EXPECT().Delete(mock.Anything, mock.Anything).Return(nil, denied)
 		}},
+		{"delete user", http.MethodDelete, "/users/alice", "", func(f *fixture) {
+			f.identities.EXPECT().DeleteUser(mock.Anything, requester(bobKey), "alice").
+				Return(fmt.Errorf("%w: admin:DeleteUser: implicit deny", domain.ErrAccessDenied))
+		}},
 		{"share", http.MethodPost, "/shares", `{"bucket":"b1","key":"k"}`, func(f *fixture) {
 			f.shares.EXPECT().Create(mock.Anything, mock.Anything).Return(nil, denied)
 		}},
 		{"access keys of another user", http.MethodGet, "/access-keys?user=alice", "", func(f *fixture) {
-			f.accessKeys.EXPECT().List(mock.Anything, requester(bobKey), "alice").Return(nil, denied)
+			f.accessKeys.EXPECT().List(mock.Anything, requester(bobKey), "alice", adminsvc.Page{}).Return(nil, denied)
 		}},
 		{"update user", http.MethodPut, "/users/alice", `{"status":"disabled"}`, func(f *fixture) {
 			f.identities.EXPECT().UpdateUser(mock.Anything, mock.Anything).Return(nil, denied)

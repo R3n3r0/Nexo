@@ -51,6 +51,11 @@ type AdminClient interface {
 	DeleteBucketPolicy(ctx context.Context, name string) error
 	GetBucketQuota(ctx context.Context, name string) (*BucketQuota, error)
 	SetBucketQuota(ctx context.Context, name string, quota BucketQuota) (*BucketQuota, error)
+	// GetBucketEncryption returns the default encryption of a bucket, nil
+	// when it has none.
+	GetBucketEncryption(ctx context.Context, name string) (*BucketEncryption, error)
+	SetBucketEncryption(ctx context.Context, name string, enc BucketEncryption) (*BucketEncryption, error)
+	DeleteBucketEncryption(ctx context.Context, name string) error
 	GetBucketTags(ctx context.Context, name string) (map[string]string, error)
 	SetBucketTags(ctx context.Context, name string, tags map[string]string) error
 	GetBucketAccess(ctx context.Context, name string) (*BucketAccess, error)

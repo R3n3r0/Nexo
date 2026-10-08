@@ -167,7 +167,7 @@ func (a *authorizer) Permissions(ctx context.Context, in PermissionsInput) (*Per
 	// the delimiter) are evaluated with the conditions of that listing, as
 	// ObjectBrowser.List authorizes it: a home directory restricted by
 	// s3:prefix is listable although the bucket root is not.
-	listing := mergeConditions(in.Requester.Conditions, map[string][]string{"s3:prefix": {in.Prefix}, "s3:delimiter": {DefaultDelimiter}})
+	listing := mergeConditions(in.Requester.Conditions, ListingConditions(in.Prefix, DefaultDelimiter, 0))
 	for _, e := range catalog() {
 		args := policy.Args{Identity: &id, Action: e.action, Conditions: in.Requester.Conditions}
 		if in.Bucket != "" {

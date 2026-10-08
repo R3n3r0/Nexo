@@ -3,6 +3,7 @@ package nexoadmin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -135,6 +136,32 @@ func (c *client) GetBucketQuota(ctx context.Context, name string) (*BucketQuota,
 func (c *client) SetBucketQuota(ctx context.Context, name string, quota BucketQuota) (*BucketQuota, error) {
 	var out BucketQuota
 	return &out, c.do(ctx, request{method: http.MethodPut, path: pathOf("buckets", name, "quota"), body: quota}, &out)
+}
+
+// GetBucketEncryption implements AdminClient.
+func (c *client) GetBucketEncryption(ctx context.Context, name string) (*BucketEncryption, error) {
+	var out BucketEncryption
+	err := c.do(ctx, request{method: http.MethodGet, path: pathOf("buckets", name, "encryption")}, &out)
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound && apiErr.Code != "bucket_not_found" {
+		// No default encryption (S3 ServerSideEncryptionConfigurationNotFoundError).
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// SetBucketEncryption implements AdminClient.
+func (c *client) SetBucketEncryption(ctx context.Context, name string, enc BucketEncryption) (*BucketEncryption, error) {
+	var out BucketEncryption
+	return &out, c.do(ctx, request{method: http.MethodPut, path: pathOf("buckets", name, "encryption"), body: enc}, &out)
+}
+
+// DeleteBucketEncryption implements AdminClient.
+func (c *client) DeleteBucketEncryption(ctx context.Context, name string) error {
+	return c.do(ctx, request{method: http.MethodDelete, path: pathOf("buckets", name, "encryption")}, nil)
 }
 
 type tagsBody struct {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"strings"
 
 	"github.com/r3n3r0/nexo/internal/domain"
@@ -44,6 +45,18 @@ func NewPolicyManager(deps PolicyManagerDeps, opts ...PolicyManagerOption) (Poli
 		o(m)
 	}
 	return m, nil
+}
+
+// List implements PolicyManager.
+func (m *policyManager) List(ctx context.Context, page Page) (*Paged[policy.Named], error) {
+	if _, err := pageLimit(page); err != nil {
+		return nil, err
+	}
+	all, err := m.deps.Policy.ListPolicies(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return pageOf(all, func(n policy.Named) string { return n.Name }, page)
 }
 
 // Get implements PolicyManager.
@@ -138,9 +151,31 @@ func (m *policyManager) Simulate(ctx context.Context, in SimulateInput) (*Simula
 		}
 		id, user = other, in.User
 	}
-	d, err := m.deps.Policy.Simulate(ctx, policy.Args{Identity: &id, Action: in.Action, Bucket: in.Bucket, Object: in.Object, Conditions: in.Conditions, Now: in.Now})
+	d, err := m.deps.Policy.Simulate(ctx, policy.Args{
+		Identity: &id, Action: in.Action, Bucket: in.Bucket, Object: in.Object, Conditions: simulatedConditions(in), Now: in.Now,
+	})
 	if err != nil {
 		return nil, err
 	}
 	return &Simulation{User: user, Decision: d}, nil
+}
+
+// simulatedConditions returns the condition values of a simulated
+// request: Conditions, overridden by the keys of the client described by
+// SourceIP and SecureTransport (policy.RequestConditions). The simulator
+// may leave out any key: an unspecified transport stays unset, where a
+// real request always has one. The time keys come from Now (the engine).
+func simulatedConditions(in SimulateInput) map[string][]string {
+	conds := make(map[string][]string, len(in.Conditions)+2)
+	maps.Copy(conds, in.Conditions)
+	if in.SourceIP == "" && in.SecureTransport == nil {
+		return conds
+	}
+	client := &policy.RequestClient{IP: in.SourceIP, Secure: in.SecureTransport != nil && *in.SecureTransport}
+	values := policy.RequestConditions(policy.Request{Client: client})
+	if in.SecureTransport == nil {
+		delete(values, policy.KeySecureTransport)
+	}
+	maps.Copy(conds, values)
+	return conds
 }

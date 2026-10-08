@@ -66,9 +66,11 @@ export function postSnippets(policy: PostPolicy): Snippets {
     '  <button type="submit">Upload</button>',
     '</form>',
   ].join('\n');
+  // --form-string sends the values verbatim: with -F a value starting
+  // with "@" or "<" (a key prefix "@inbox/") would read a local file.
   const curl = [
     'curl -X POST',
-    ...fields.map(([k, v]) => `  -F ${shellQuote(`${k}=${v}`)}`),
+    ...fields.map(([k, v]) => `  --form-string ${shellQuote(`${k}=${v}`)}`),
     '  -F file=@./file',
     `  ${shellQuote(policy.url)}`,
   ].join(' \\\n');

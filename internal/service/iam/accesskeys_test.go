@@ -191,7 +191,8 @@ func TestUpdateAccessKey(t *testing.T) {
 	assert.Equal(t, t0().Add(time.Minute), got.UpdatedAt)
 	assert.Empty(t, got.SecretKey)
 	_, _, err = svc.LookupCredentials(ctx, "ak-alice")
-	assert.ErrorIs(t, err, domain.ErrAccessDenied, "disabled")
+	assert.ErrorIs(t, err, domain.ErrCredentialsDisabled, "disabled")
+	assert.ErrorIs(t, err, domain.ErrAccessDenied)
 
 	enabled := domain.StatusEnabled
 	noExpiry := time.Time{}

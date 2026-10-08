@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -28,6 +27,10 @@ type PolicyDeps struct {
 	Enc   httpx.Codec
 }
 
+// PolicyOption configures the policy routes (none yet: the type keeps the
+// constructor shape of every route group, docs/12 §12.3).
+type PolicyOption func(*policyRoutes)
+
 type policyRoutes struct {
 	deps  PolicyDeps
 	guard guard
@@ -36,14 +39,18 @@ type policyRoutes struct {
 var _ PolicyRoutes = (*policyRoutes)(nil)
 
 // NewPolicyRoutes returns the IAM policy routes.
-func NewPolicyRoutes(deps PolicyDeps) (PolicyRoutes, error) {
+func NewPolicyRoutes(deps PolicyDeps, opts ...PolicyOption) (PolicyRoutes, error) {
 	if deps.Policy == nil || deps.Manager == nil || deps.Authz == nil {
 		return nil, fmt.Errorf("%w: policy routes require the policy service, the policy manager and the authorizer", domain.ErrInvalidArgument)
 	}
 	if deps.Enc == nil {
 		deps.Enc = httpx.New()
 	}
-	return &policyRoutes{deps: deps, guard: guard{authz: deps.Authz, enc: deps.Enc}}, nil
+	h := &policyRoutes{deps: deps, guard: guard{authz: deps.Authz, enc: deps.Enc}}
+	for _, o := range opts {
+		o(h)
+	}
+	return h, nil
 }
 
 // Register implements Routes.
@@ -209,21 +216,25 @@ func (h *policyRoutes) list(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	named, err := h.deps.Policy.ListPolicies(r.Context())
+	named, err := h.deps.Manager.List(r.Context(), p)
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	items, next := paginate(named, func(n policy.Named) string { return n.Name }, p)
-	out := PolicyListResponse{Items: make([]PolicyResponse, 0, len(items)), NextCursor: next}
-	for i := range items {
-		out.Items = append(out.Items, newPolicyResponse(&items[i]))
+	out := PolicyListResponse{Items: make([]PolicyResponse, 0, len(named.Items)), NextCursor: named.NextCursor}
+	for i := range named.Items {
+		out.Items = append(out.Items, newPolicyResponse(&named.Items[i]))
 	}
 	h.deps.Enc.WriteJSON(w, http.StatusOK, out)
 }
 
 func (h *policyRoutes) get(w http.ResponseWriter, r *http.Request) {
-	n, err := h.deps.Manager.Get(r.Context(), chi.URLParam(r, "policy"))
+	name, err := pathParam(r, "policy")
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	n, err := h.deps.Manager.Get(r.Context(), name)
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -241,12 +252,17 @@ func (h *policyRoutes) create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *policyRoutes) put(w http.ResponseWriter, r *http.Request) {
+	name, err := pathParam(r, "policy")
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
 	var in SavePolicyRequest
 	if err := decodeJSON(h.deps.Enc, r, &in, false); err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	h.save(w, r, chi.URLParam(r, "policy"), in.Document, false, http.StatusOK)
+	h.save(w, r, name, in.Document, false, http.StatusOK)
 }
 
 func (h *policyRoutes) save(w http.ResponseWriter, r *http.Request, name string, raw json.RawMessage, create bool, status int) {
@@ -264,7 +280,12 @@ func (h *policyRoutes) save(w http.ResponseWriter, r *http.Request, name string,
 }
 
 func (h *policyRoutes) remove(w http.ResponseWriter, r *http.Request) {
-	if err := h.deps.Policy.DeletePolicy(r.Context(), chi.URLParam(r, "policy")); err != nil {
+	name, err := pathParam(r, "policy")
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if err := h.deps.Policy.DeletePolicy(r.Context(), name); err != nil {
 		h.fail(w, r, err)
 		return
 	}
@@ -293,7 +314,12 @@ func (h *policyRoutes) bind(w http.ResponseWriter, r *http.Request, op func(ctx 
 }
 
 func (h *policyRoutes) entities(w http.ResponseWriter, r *http.Request) {
-	e, err := h.deps.Policy.Entities(r.Context(), chi.URLParam(r, "policy"))
+	name, err := pathParam(r, "policy")
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	e, err := h.deps.Policy.Entities(r.Context(), name)
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -337,18 +363,9 @@ func (h *policyRoutes) simulate(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	conds := map[string][]string{}
-	for k, v := range in.Conditions {
-		conds[k] = v
-	}
-	if in.SourceIP != "" {
-		conds["aws:SourceIp"] = []string{in.SourceIP}
-	}
-	if in.SecureTransport != nil {
-		conds["aws:SecureTransport"] = []string{strconv.FormatBool(*in.SecureTransport)}
-	}
 	sim := adminsvc.SimulateInput{
-		Requester: requesterOf(r), User: in.User, Action: policy.Action(in.Action), Bucket: in.Bucket, Object: in.Object, Conditions: conds,
+		Requester: requesterOf(r), User: in.User, Action: policy.Action(in.Action), Bucket: in.Bucket, Object: in.Object,
+		SourceIP: in.SourceIP, SecureTransport: in.SecureTransport, Conditions: in.Conditions,
 	}
 	if in.Time != nil {
 		sim.Now = *in.Time

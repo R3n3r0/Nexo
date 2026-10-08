@@ -22,6 +22,10 @@ type ConfigDeps struct {
 	Enc   httpx.Codec
 }
 
+// ConfigOption configures the config routes (none yet: the type keeps the
+// constructor shape of every route group, docs/12 §12.3).
+type ConfigOption func(*configRoutes)
+
 type configRoutes struct {
 	deps  ConfigDeps
 	guard guard
@@ -30,14 +34,18 @@ type configRoutes struct {
 var _ ConfigRoutes = (*configRoutes)(nil)
 
 // NewConfigRoutes returns the dynamic configuration routes.
-func NewConfigRoutes(deps ConfigDeps) (ConfigRoutes, error) {
+func NewConfigRoutes(deps ConfigDeps, opts ...ConfigOption) (ConfigRoutes, error) {
 	if deps.Config == nil || deps.Authz == nil {
 		return nil, fmt.Errorf("%w: config routes require the config manager and the authorizer", domain.ErrInvalidArgument)
 	}
 	if deps.Enc == nil {
 		deps.Enc = httpx.New()
 	}
-	return &configRoutes{deps: deps, guard: guard{authz: deps.Authz, enc: deps.Enc}}, nil
+	h := &configRoutes{deps: deps, guard: guard{authz: deps.Authz, enc: deps.Enc}}
+	for _, o := range opts {
+		o(h)
+	}
+	return h, nil
 }
 
 // Register implements Routes.
@@ -85,6 +93,9 @@ type ConfigKeyResponse struct {
 	Default     string   `json:"default,omitempty"`
 	Values      []string `json:"values,omitempty"`
 	Sensitive   bool     `json:"sensitive"`
+	// Applied reports a key the server applies (on the next request); the
+	// others are stored but have no effect yet.
+	Applied bool `json:"applied"`
 }
 
 // ConfigSchemaResponse describes a configuration subsystem.
@@ -120,7 +131,7 @@ func (h *configRoutes) schema(w http.ResponseWriter, r *http.Request) {
 	for _, s := range schema {
 		sr := ConfigSchemaResponse{Name: s.Name, Description: s.Description, Keys: make([]ConfigKeyResponse, 0, len(s.Keys))}
 		for _, k := range s.Keys {
-			sr.Keys = append(sr.Keys, ConfigKeyResponse{Name: k.Name, Type: string(k.Type), Description: k.Description, Default: k.Default, Values: k.Values, Sensitive: k.Sensitive})
+			sr.Keys = append(sr.Keys, ConfigKeyResponse{Name: k.Name, Type: string(k.Type), Description: k.Description, Default: k.Default, Values: k.Values, Sensitive: k.Sensitive, Applied: k.Applied})
 		}
 		out = append(out, sr)
 	}
@@ -143,7 +154,11 @@ func (h *configRoutes) putAll(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *configRoutes) get(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "subsys")
+	name, err := pathParam(r, "subsys")
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
 	kv, err := h.deps.Config.Get(r.Context(), name)
 	if err != nil {
 		h.fail(w, r, err)
@@ -153,7 +168,11 @@ func (h *configRoutes) get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *configRoutes) put(w http.ResponseWriter, r *http.Request) {
-	name := chi.URLParam(r, "subsys")
+	name, err := pathParam(r, "subsys")
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
 	var in SubsystemRequest
 	if err := decodeJSON(h.deps.Enc, r, &in, false); err != nil {
 		h.fail(w, r, err)
@@ -170,7 +189,12 @@ func (h *configRoutes) put(w http.ResponseWriter, r *http.Request) {
 // remove deletes a subsystem, or only the keys listed in the "keys" query
 // parameter (comma separated).
 func (h *configRoutes) remove(w http.ResponseWriter, r *http.Request) {
-	if err := h.deps.Config.Delete(r.Context(), chi.URLParam(r, "subsys"), trimList(r.URL.Query().Get("keys"))); err != nil {
+	name, err := pathParam(r, "subsys")
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if err := h.deps.Config.Delete(r.Context(), name, trimList(r.URL.Query().Get("keys"))); err != nil {
 		h.fail(w, r, err)
 		return
 	}

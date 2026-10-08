@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/r3n3r0/nexo/internal/domain"
 	adminsvc "github.com/r3n3r0/nexo/internal/service/admin"
 	"github.com/r3n3r0/nexo/internal/service/iam"
@@ -60,15 +58,14 @@ func (h *userRoutes) listGroups(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	groups, err := h.deps.IAM.ListGroups(r.Context())
+	groups, err := h.deps.Identities.ListGroups(r.Context(), p)
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	items, next := paginate(groups, func(g iam.Group) string { return g.Name }, p)
-	out := GroupListResponse{Items: make([]GroupResponse, 0, len(items)), NextCursor: next}
-	for i := range items {
-		out.Items = append(out.Items, newGroupResponse(&items[i]))
+	out := GroupListResponse{Items: make([]GroupResponse, 0, len(groups.Items)), NextCursor: groups.NextCursor}
+	for i := range groups.Items {
+		out.Items = append(out.Items, newGroupResponse(&groups.Items[i]))
 	}
 	h.deps.Enc.WriteJSON(w, http.StatusOK, out)
 }
@@ -90,7 +87,12 @@ func (h *userRoutes) createGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *userRoutes) getGroup(w http.ResponseWriter, r *http.Request) {
-	g, err := h.deps.IAM.GetGroup(r.Context(), chi.URLParam(r, "group"))
+	name, err := pathParam(r, "group")
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	g, err := h.deps.IAM.GetGroup(r.Context(), name)
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -99,13 +101,18 @@ func (h *userRoutes) getGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *userRoutes) updateGroup(w http.ResponseWriter, r *http.Request) {
+	name, err := pathParam(r, "group")
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
 	var in UpdateGroupRequest
 	if err := decodeJSON(h.deps.Enc, r, &in, false); err != nil {
 		h.fail(w, r, err)
 		return
 	}
 	upd := adminsvc.UpdateGroupInput{
-		Requester: requesterOf(r), Name: chi.URLParam(r, "group"), PolicyNames: in.PolicyNames,
+		Requester: requesterOf(r), Name: name, PolicyNames: in.PolicyNames,
 		AddMembers: in.AddMembers, RemoveMembers: in.RemoveMembers,
 	}
 	if in.Status != nil {
@@ -125,7 +132,12 @@ func (h *userRoutes) updateGroup(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *userRoutes) deleteGroup(w http.ResponseWriter, r *http.Request) {
-	if err := h.deps.IAM.DeleteGroup(r.Context(), chi.URLParam(r, "group")); err != nil {
+	name, err := pathParam(r, "group")
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if err := h.deps.IAM.DeleteGroup(r.Context(), name); err != nil {
 		h.fail(w, r, err)
 		return
 	}

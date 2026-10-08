@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/auth"
+	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/service/share"
 )
@@ -31,9 +33,11 @@ type ShareManagerDeps struct {
 	// server (required).
 	Creds auth.CredentialLookup
 	// Authz authorizes the shared operations (required).
-	Authz  Authorizer
-	Clock  clock.Clock
-	Logger *slog.Logger
+	Authz Authorizer
+	// Objects lists the objects of a prefix share (required).
+	Objects object.Service
+	Clock   clock.Clock
+	Logger  *slog.Logger
 }
 
 // ShareManagerOption configures the share manager.
@@ -62,8 +66,8 @@ var _ ShareManager = (*shareManager)(nil)
 // NewShareManager returns the share manager. Missing dependencies and an
 // invalid server URL are a wiring error (domain.ErrInvalidArgument).
 func NewShareManager(deps ShareManagerDeps, opts ...ShareManagerOption) (ShareManager, error) {
-	if deps.Shares == nil || deps.Signer == nil || deps.Creds == nil || deps.Authz == nil {
-		return nil, fmt.Errorf("%w: share manager requires the share, signer, credential and authorizer services", domain.ErrInvalidArgument)
+	if deps.Shares == nil || deps.Signer == nil || deps.Creds == nil || deps.Authz == nil || deps.Objects == nil {
+		return nil, fmt.Errorf("%w: share manager requires the share, signer, credential, authorizer and object services", domain.ErrInvalidArgument)
 	}
 	if deps.Clock == nil {
 		deps.Clock = clock.NewReal()
@@ -139,12 +143,76 @@ func (m *shareManager) Get(ctx context.Context, req Requester, id string) (*shar
 }
 
 // List implements ShareManager.
-func (m *shareManager) List(ctx context.Context, in ListSharesInput) ([]share.Share, error) {
+func (m *shareManager) List(ctx context.Context, in ListSharesInput) (*Paged[share.Share], error) {
+	if _, err := pageLimit(in.Page); err != nil {
+		return nil, err
+	}
 	caller, err := m.caller(ctx, in.Requester)
 	if err != nil {
 		return nil, err
 	}
-	return m.deps.Shares.List(ctx, caller, share.ListFilter{Owner: in.Owner, Bucket: in.Bucket})
+	shares, err := m.deps.Shares.List(ctx, caller, share.ListFilter{Owner: in.Owner, Bucket: in.Bucket})
+	if err != nil {
+		return nil, err
+	}
+	return pageOf(shares, shareOrder, in.Page)
+}
+
+// shareOrder is the sort key of the share links: newest first, then by id.
+func shareOrder(s share.Share) string {
+	return fmt.Sprintf("%020d/%s", math.MaxInt64-s.CreatedAt.UnixNano(), s.ID)
+}
+
+// Links implements ShareManager.
+func (m *shareManager) Links(ctx context.Context, in ShareLinksInput) (*ShareLinks, error) {
+	limit, err := pageLimit(in.Page)
+	if err != nil {
+		return nil, err
+	}
+	caller, err := m.caller(ctx, in.Requester)
+	if err != nil {
+		return nil, err
+	}
+	sh, err := m.deps.Shares.Get(ctx, caller, in.ID)
+	if err != nil {
+		return nil, err
+	}
+	if !sh.Prefix || sh.Permission != share.PermissionDownload {
+		return nil, fmt.Errorf("%w: share %s is not a prefix download share", domain.ErrInvalidArgument, sh.ID)
+	}
+	// Enumerating the prefix is a listing of the requester: the share
+	// does not let it see more than it may list itself.
+	d, err := m.deps.Authz.Authorize(ctx, AuthorizeInput{
+		Requester: in.Requester, Actions: []policy.Action{policy.ActionListBucket}, Bucket: sh.Bucket,
+		Conditions: ListingConditions(sh.Key, "", limit),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !d.Allowed {
+		return nil, denied(d)
+	}
+	res, err := m.deps.Objects.ListObjects(ctx, domain.ListObjectsInput{
+		Bucket: sh.Bucket, Prefix: sh.Key, ContinuationToken: in.Page.Cursor, MaxKeys: limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := &ShareLinks{Share: sh, Items: make([]ShareLink, 0, len(res.Objects))}
+	for _, o := range res.Objects {
+		if strings.HasSuffix(o.Key, "/") {
+			continue // folder placeholder
+		}
+		u, err := m.deps.Shares.Presign(ctx, caller, sh.ID, o.Key)
+		if err != nil {
+			return nil, fmt.Errorf("admin: link of %s: %w", o.Key, err)
+		}
+		out.Items = append(out.Items, ShareLink{Key: o.Key, Size: o.Size, URL: u.String()})
+	}
+	if res.IsTruncated {
+		out.NextCursor = res.NextContinuationToken
+	}
+	return out, nil
 }
 
 // Revoke implements ShareManager.

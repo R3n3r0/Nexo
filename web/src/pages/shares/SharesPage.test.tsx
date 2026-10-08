@@ -19,6 +19,35 @@ function renderPage(initialAccessKey = 'nexoadmin', path = '/shares') {
 }
 
 describe('Shares page (D-SHR-03)', () => {
+  // Regression (D-SHR-01): the copy button of a prefix share copied the
+  // ListObjectsV2 URL of the prefix, which downloads nothing.
+  it('shows the per-object links of a shared prefix', async () => {
+    const user = userEvent.setup();
+    const services = createMockServices({ accounts, initialAccessKey: 'nexoadmin' });
+    await services.shares.create({ bucket: 'media', key: 'photos/2026/', prefix: true });
+    renderRoutes([{ path: '/shares', element: <SharesPage /> }], {
+      initialEntries: ['/shares'],
+      services,
+    });
+    const table = await screen.findByRole('table', { name: 'Active links' });
+    await within(table).findByText('media/photos/2026/');
+    expect(
+      within(table).queryByRole('button', { name: 'Copy the link of media/photos/2026/' }),
+    ).not.toBeInTheDocument();
+    await user.click(
+      within(table).getByRole('button', { name: 'Links of the objects of media/photos/2026/' }),
+    );
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Shared objects of media/photos/2026/',
+    });
+    const links = await within(dialog).findByRole('table', { name: 'Links of the shared objects' });
+    expect(within(links).getByRole('link', { name: 'photos/2026/beach.png' })).toBeInTheDocument();
+    // Object shares keep their direct link.
+    expect(
+      within(table).getByRole('button', { name: 'Copy the link of media/videos/intro.mp4' }),
+    ).toBeInTheDocument();
+  });
+
   it('lists every link for an administrator and revokes a selection', async () => {
     const user = userEvent.setup();
     const { services } = renderPage();
@@ -85,7 +114,7 @@ describe('Shares page (D-SHR-03)', () => {
     );
     expect(snippets).toHaveTextContent('<form action="http://localhost:9000/media"');
     await user.click(within(snippets).getByRole('tab', { name: 'curl' }));
-    expect(snippets).toHaveTextContent("-F 'key=incoming/${filename}'");
+    expect(snippets).toHaveTextContent("--form-string 'key=incoming/${filename}'");
     await user.click(within(snippets).getByRole('button', { name: 'Copy the curl snippet' }));
     await waitFor(async () => {
       expect(await navigator.clipboard.readText()).toContain('curl -X POST');

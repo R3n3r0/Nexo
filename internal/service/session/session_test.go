@@ -13,6 +13,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/iam"
 	iammock "github.com/r3n3r0/nexo/internal/service/iam/mock"
 	"github.com/r3n3r0/nexo/internal/service/session"
 )
@@ -305,4 +306,88 @@ func TestDeriveKey(t *testing.T) {
 	assert.Len(t, k1, 32)
 	assert.Equal(t, k1, k2, "deterministic: every node accepts the same cookies")
 	assert.NotEqual(t, k1, k3)
+}
+
+// covers: docs/09 §9.1 point 3 (rotating the secret of a user closes its
+// console sessions; regression: the session kept working after the secret
+// changed)
+func TestSecretRotationClosesSessions(t *testing.T) {
+	ctx := context.Background()
+	clk := clock.NewFake(time.Date(2026, 10, 7, 10, 0, 0, 0, time.UTC))
+	svc, dir := newTestService(t, clk)
+	dir.users["dave"] = domain.Credentials{AccessKey: "dave", SecretKey: "dave-secret-1", Status: domain.StatusEnabled}
+	sess, err := svc.Login(ctx, login("dave", "dave-secret-1"))
+	require.NoError(t, err)
+	_, err = svc.Validate(ctx, sess.Token)
+	require.NoError(t, err)
+
+	dir.users["dave"] = domain.Credentials{AccessKey: "dave", SecretKey: "dave-secret-2", Status: domain.StatusEnabled}
+	_, err = svc.Validate(ctx, sess.Token)
+	require.ErrorIs(t, err, domain.ErrAccessDenied)
+	assert.Contains(t, err.Error(), "credentials changed")
+
+	// A new login with the new secret works; the token does not disclose it.
+	sess2, err := svc.Login(ctx, login("dave", "dave-secret-2"))
+	require.NoError(t, err)
+	_, err = svc.Validate(ctx, sess2.Token)
+	require.NoError(t, err)
+	assert.NotContains(t, sess2.Token, "dave-secret-2")
+}
+
+// newStoredService returns a session service over store, as a node of a
+// deployment (or the server after a restart) would be.
+func newStoredService(t *testing.T, clk clock.Clock, store iam.Store) session.Service {
+	t.Helper()
+	d := &directory{users: map[string]domain.Credentials{
+		"root": {AccessKey: "root", SecretKey: "rootsecret", Status: domain.StatusEnabled},
+	}, identities: map[string]domain.Identity{}}
+	users := iammock.NewService(t)
+	users.EXPECT().LookupCredentials(mock.Anything, mock.Anything).RunAndReturn(d.lookup).Maybe()
+	svc, err := session.New(session.Deps{IAM: users, Store: store, Clock: clk}, session.WithSigningKey([]byte("0123456789abcdef0123456789abcdef")), session.WithTTL(time.Hour))
+	require.NoError(t, err)
+	return svc
+}
+
+// covers: S-SEC (a logout survives a restart and is seen by every node;
+// regression: the revocations lived in the memory of one process)
+func TestLogoutIsPersisted(t *testing.T) {
+	ctx := context.Background()
+	clk := clock.NewFake(time.Date(2026, 10, 7, 10, 0, 0, 0, time.UTC))
+	store := iam.NewMemoryStore()
+	first := newStoredService(t, clk, store)
+	sess, err := first.Login(ctx, login("root", "rootsecret"))
+	require.NoError(t, err)
+	other, err := first.Login(ctx, login("root", "rootsecret"))
+	require.NoError(t, err)
+	require.NoError(t, first.Logout(ctx, sess.Token))
+
+	restarted := newStoredService(t, clk, store)
+	_, err = restarted.Validate(ctx, sess.Token)
+	assert.ErrorIs(t, err, domain.ErrAccessDenied, "the logout survives the restart")
+	_, err = restarted.Validate(ctx, other.Token)
+	assert.NoError(t, err, "the other sessions stay open")
+
+	// Expired revocations are purged at the next logout.
+	clk.Advance(2 * time.Hour)
+	fresh, err := restarted.Login(ctx, login("root", "rootsecret"))
+	require.NoError(t, err)
+	require.NoError(t, restarted.Logout(ctx, fresh.Token))
+	all, err := store.List(ctx, iam.NamespaceSessions)
+	require.NoError(t, err)
+	assert.Len(t, all, 1, "only the revocation of the live session is kept")
+}
+
+func TestRevocationStoreFailureFailsClosed(t *testing.T) {
+	ctx := context.Background()
+	clk := clock.NewFake(time.Date(2026, 10, 7, 10, 0, 0, 0, time.UTC))
+	store := iammock.NewStore(t)
+	svc := newStoredService(t, clk, store)
+	sess, err := svc.Login(ctx, login("root", "rootsecret"))
+	require.NoError(t, err)
+	store.EXPECT().Get(mock.Anything, iam.NamespaceSessions, sess.ID).Return(nil, errors.New("disk failure"))
+	_, err = svc.Validate(ctx, sess.Token)
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, iam.ErrEntryNotFound)
+	store.EXPECT().Put(mock.Anything, iam.NamespaceSessions, sess.ID, mock.Anything).Return(errors.New("disk full"))
+	assert.Error(t, svc.Logout(ctx, sess.Token), "a revocation that cannot be stored is reported")
 }

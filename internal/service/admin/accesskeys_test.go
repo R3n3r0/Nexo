@@ -91,7 +91,7 @@ func TestAccessKeyManagerRootKeys(t *testing.T) {
 			return err
 		}},
 		{name: "list the keys of root", denied: true, run: func(m admin.AccessKeyManager) error {
-			_, err := m.List(ctx, mallory, rootKey)
+			_, err := m.List(ctx, mallory, rootKey, admin.Page{})
 			return err
 		}},
 		{name: "create for another user", expect: func(users *iammock.Service) {
@@ -157,16 +157,16 @@ func TestAccessKeyManagerListHidesRootKeys(t *testing.T) {
 		want []string
 	}{
 		{name: "delegated administrator", req: req("mallory"), want: []string{"SABOB", "SAOFF"}},
-		{name: "root", req: rootReq(), want: []string{"SAROOT", "SABOB", "SAROOT2", "SAOFF"}},
+		{name: "root", req: rootReq(), want: []string{"SABOB", "SAOFF", "SAROOT", "SAROOT2"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m, users := newDelegatedKeyManager(t)
 			users.EXPECT().ListAccessKeys(mock.Anything, mock.Anything, "").Return(all, nil)
-			keys, err := m.List(ctx, tt.req, "")
+			keys, err := m.List(ctx, tt.req, "", admin.Page{})
 			require.NoError(t, err)
-			got := make([]string, 0, len(keys))
-			for _, k := range keys {
+			got := make([]string, 0, len(keys.Items))
+			for _, k := range keys.Items {
 				got = append(got, k.AccessKey)
 			}
 			assert.Equal(t, tt.want, got)

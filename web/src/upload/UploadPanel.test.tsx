@@ -85,3 +85,32 @@ describe('UploadPanel (D-OBJ-02)', () => {
     expect(screen.queryByRole('region', { name: 'Uploads' })).not.toBeInTheDocument();
   });
 });
+
+describe('UploadPanel while completing (D-OBJ-02)', () => {
+  // Regression: the completion could be "canceled" although the object was
+  // created.
+  it('disables the cancellation and tells why', async () => {
+    const services = createMockServices({
+      initialAccessKey: 'nexoadmin',
+      uploadLimits: { partSize: KiB, minPartSize: KiB, maxPartSize: 4 * KiB, maxParts: 100 },
+    });
+    vi.spyOn(services.uploads, 'complete').mockImplementation(() => new Promise(() => undefined));
+    const manager = createUploadManager({ uploads: services.uploads, singleUploadThreshold: KiB });
+    renderWithProviders(
+      <UploadProvider manager={manager}>
+        <UploadPanel />
+      </UploadProvider>,
+      { services },
+    );
+    act(() => {
+      manager.enqueue('media', [{ key: 'big.bin', file: new Blob([new Uint8Array(3 * KiB)]) }]);
+    });
+    const panel = await screen.findByRole('region', { name: 'Uploads' });
+    expect(await within(panel).findByText('Completing')).toBeInTheDocument();
+    const cancel = within(panel).getByRole('button', { name: 'Cancel big.bin' });
+    expect(cancel).toBeDisabled();
+    expect(cancel).toHaveAccessibleDescription(
+      'Finishing the upload: it can no longer be canceled.',
+    );
+  });
+});

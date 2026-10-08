@@ -344,6 +344,50 @@ type Args struct {
 	Now time.Time
 }
 
+// Request describes the S3 request an action is authorized for: the facts
+// RequestConditions derives the condition values of Args.Conditions from.
+// It is the single definition of the request condition keys (docs/09
+// §9.3): the S3 API describes the HTTP request it serves, the Admin API
+// its client and the S3 request each proxied operation stands for, so
+// that a policy decides alike through S3 and through the console (docs/12
+// §12.7).
+type Request struct {
+	// Client describes the caller (aws:SourceIp, aws:SecureTransport,
+	// aws:UserAgent, aws:Referer); nil leaves these keys out, for values
+	// merged over those of a client described separately.
+	Client *RequestClient
+	// Now gives aws:CurrentTime, aws:EpochTime and, with SignedAt,
+	// s3:signatureAge; zero leaves the time keys to the engine.
+	Now time.Time
+	// Params are the query parameters of the S3 request that are
+	// condition keys, by parameter name: "prefix", "delimiter",
+	// "max-keys" (s3:prefix, s3:delimiter, s3:max-keys) and "versionId"
+	// (s3:versionid). Other names are ignored; a parameter present with an
+	// empty value is a key with an empty value.
+	Params map[string]string
+	// Headers are the headers of the S3 request, in any letter case: each
+	// x-amz-* header but x-amz-meta-* and x-amz-security-token is the
+	// value of s3:<lowercase name>; x-amz-tagging also gives
+	// s3:RequestObjectTag/<key> and s3:RequestObjectTagKeys.
+	Headers map[string][]string
+	// AuthType is how the request authenticates (s3:authType, and
+	// s3:signatureversion for a signed request); "" for an anonymous
+	// request, or to leave both to a client described separately.
+	AuthType domain.AuthType
+	// SignedAt is when the request was signed (s3:signatureAge, with Now).
+	SignedAt time.Time
+}
+
+// RequestClient describes the client of a request (Request.Client).
+type RequestClient struct {
+	// IP is the address of the client (aws:SourceIp; "" leaves it out).
+	IP string
+	// Secure reports a request received over TLS (aws:SecureTransport).
+	Secure    bool
+	UserAgent string
+	Referer   string
+}
+
 // Source is where a statement comes from.
 type Source string
 

@@ -3,6 +3,7 @@ import type {
   AccessRule,
   Bucket,
   BucketEncryption,
+  BucketObjectLock,
   ObjectEntry,
   TagSet,
   Upload,
@@ -45,6 +46,8 @@ export interface MockBucketState {
   policy: string | null;
   rules: AccessRule[];
   encryption: BucketEncryption | null;
+  /** Default retention set with setObjectLock (sample default otherwise). */
+  objectLock?: BucketObjectLock;
 }
 
 /** A pending multipart upload. */

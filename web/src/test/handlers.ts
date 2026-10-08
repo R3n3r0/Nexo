@@ -52,9 +52,7 @@ export const defaultHandlers: HttpHandler[] = [
       body.accessKey === testCredentials.accessKey &&
       body.secretKey === testCredentials.secretKey
     ) {
-      return HttpResponse.json(sampleSession(), {
-        headers: { 'Set-Cookie': 'nexo_csrf=csrf-from-cookie; Path=/' },
-      });
+      return HttpResponse.json(sampleSession());
     }
     return problemResponse(401, 'invalid_credentials', 'invalid access key or secret key');
   }),

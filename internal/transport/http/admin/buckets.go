@@ -30,6 +30,10 @@ type BucketDeps struct {
 	Enc   httpx.Codec
 }
 
+// BucketOption configures the bucket routes (none yet: the type keeps the
+// constructor shape of every route group, docs/12 §12.3).
+type BucketOption func(*bucketRoutes)
+
 type bucketRoutes struct {
 	deps  BucketDeps
 	guard guard
@@ -38,14 +42,18 @@ type bucketRoutes struct {
 var _ BucketRoutes = (*bucketRoutes)(nil)
 
 // NewBucketRoutes returns the admin bucket routes.
-func NewBucketRoutes(deps BucketDeps) (BucketRoutes, error) {
+func NewBucketRoutes(deps BucketDeps, opts ...BucketOption) (BucketRoutes, error) {
 	if deps.Manager == nil || deps.Buckets == nil || deps.Authz == nil {
 		return nil, fmt.Errorf("%w: bucket routes require the bucket manager, the bucket service and the authorizer", domain.ErrInvalidArgument)
 	}
 	if deps.Enc == nil {
 		deps.Enc = httpx.New()
 	}
-	return &bucketRoutes{deps: deps, guard: guard{authz: deps.Authz, enc: deps.Enc}}, nil
+	h := &bucketRoutes{deps: deps, guard: guard{authz: deps.Authz, enc: deps.Enc}}
+	for _, o := range opts {
+		o(h)
+	}
+	return h, nil
 }
 
 // Register implements Routes.
@@ -64,7 +72,9 @@ func (h *bucketRoutes) routes() []route {
 		{http.MethodPost, "/buckets", byService(policy.ActionCreateBucket, policy.ActionPutBucketVersioning,
 			policy.ActionPutBucketObjectLock, policy.ActionAdminSetBucketQuota), h.create},
 		// The page of a bucket opens for a requester that may list part of
-		// it (a home directory): the listing itself checks s3:prefix.
+		// it (a home directory): the listing itself checks s3:prefix and
+		// the service shows such a requester only the name, creation date
+		// and region of the bucket.
 		{http.MethodGet, "/buckets/{bucket}", onBucket(policy.ActionListBucket).inPart(), h.get},
 		{http.MethodDelete, "/buckets/{bucket}", onBucket(policy.ActionDeleteBucket).plus(force, policy.ActionForceDeleteBucket), h.remove},
 
@@ -113,6 +123,9 @@ type BucketResponse struct {
 	QuotaBytes        uint64            `json:"quotaBytes"`
 	Public            bool              `json:"public"`
 	Tags              map[string]string `json:"tags"`
+	// Partial reports a summary restricted to the name, creation date and
+	// region: the caller may list only a part of the bucket.
+	Partial bool `json:"partial,omitempty"`
 }
 
 func newBucketResponse(b *adminsvc.BucketSummary) BucketResponse {
@@ -129,6 +142,7 @@ func newBucketResponse(b *adminsvc.BucketSummary) BucketResponse {
 		QuotaBytes:        b.Info.QuotaBytes,
 		Public:            b.Public,
 		Tags:              nonNilMap(b.Info.Tags),
+		Partial:           b.Partial,
 	}
 }
 
@@ -223,15 +237,14 @@ func (h *bucketRoutes) list(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	buckets, err := h.deps.Manager.List(r.Context(), adminsvc.ListBucketsInput{Requester: requesterOf(r), Prefix: r.URL.Query().Get("prefix")})
+	buckets, err := h.deps.Manager.List(r.Context(), adminsvc.ListBucketsInput{Requester: requesterOf(r), Prefix: r.URL.Query().Get("prefix"), Page: p})
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	items, next := paginate(buckets, func(b adminsvc.BucketSummary) string { return b.Info.Name }, p)
-	out := BucketListResponse{Items: make([]BucketResponse, 0, len(items)), NextCursor: next}
-	for i := range items {
-		out.Items = append(out.Items, newBucketResponse(&items[i]))
+	out := BucketListResponse{Items: make([]BucketResponse, 0, len(buckets.Items)), NextCursor: buckets.NextCursor}
+	for i := range buckets.Items {
+		out.Items = append(out.Items, newBucketResponse(&buckets.Items[i]))
 	}
 	h.deps.Enc.WriteJSON(w, http.StatusOK, out)
 }
@@ -253,7 +266,7 @@ func (h *bucketRoutes) create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *bucketRoutes) get(w http.ResponseWriter, r *http.Request) {
-	b, err := h.deps.Manager.Get(r.Context(), bucketName(r))
+	b, err := h.deps.Manager.Get(r.Context(), requesterOf(r), bucketName(r))
 	if err != nil {
 		h.fail(w, r, err)
 		return

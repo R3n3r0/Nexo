@@ -149,6 +149,10 @@ func TestProblemFromError(t *testing.T) {
 	assert.Equal(t, 404, p.Status)
 	assert.Equal(t, "share_not_found", p.Code)
 
+	p = c.ProblemFromError(fmt.Errorf("heal h1: %w", domain.ErrNotFound))
+	assert.Equal(t, 404, p.Status)
+	assert.Equal(t, "not_found", p.Code)
+
 	p = c.ProblemFromError(fmt.Errorf("login: %w", domain.ErrTooManyRequests))
 	assert.Equal(t, 429, p.Status)
 	assert.Equal(t, "too_many_requests", p.Code)

@@ -18,23 +18,25 @@ import (
 	adminmock "github.com/r3n3r0/nexo/internal/service/admin/mock"
 	"github.com/r3n3r0/nexo/internal/service/auth"
 	authmock "github.com/r3n3r0/nexo/internal/service/auth/mock"
+	objectmock "github.com/r3n3r0/nexo/internal/service/object/mock"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/service/share"
 	sharemock "github.com/r3n3r0/nexo/internal/service/share/mock"
 )
 
 type shareEnv struct {
-	shares *sharemock.Service
-	signer *authmock.Signer
-	creds  *authmock.CredentialLookup
-	clk    *clock.Fake
-	mgr    admin.ShareManager
+	shares  *sharemock.Service
+	signer  *authmock.Signer
+	creds   *authmock.CredentialLookup
+	objects *objectmock.Service
+	clk     *clock.Fake
+	mgr     admin.ShareManager
 }
 
 func newShareEnv(t *testing.T, authz admin.Authorizer) *shareEnv {
 	e := &shareEnv{shares: sharemock.NewService(t), signer: authmock.NewSigner(t), creds: authmock.NewCredentialLookup(t),
-		clk: clock.NewFake(time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC))}
-	mgr, err := admin.NewShareManager(admin.ShareManagerDeps{Shares: e.shares, Signer: e.signer, Creds: e.creds, Authz: authz, Clock: e.clk},
+		objects: objectmock.NewService(t), clk: clock.NewFake(time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC))}
+	mgr, err := admin.NewShareManager(admin.ShareManagerDeps{Shares: e.shares, Signer: e.signer, Creds: e.creds, Authz: authz, Objects: e.objects, Clock: e.clk},
 		admin.WithServerURL("https://s3.example.com/"), admin.WithRegion("eu-1"))
 	require.NoError(t, err)
 	e.mgr = mgr
@@ -44,7 +46,9 @@ func newShareEnv(t *testing.T, authz admin.Authorizer) *shareEnv {
 func TestNewShareManagerValidates(t *testing.T) {
 	_, err := admin.NewShareManager(admin.ShareManagerDeps{})
 	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
-	_, err = admin.NewShareManager(admin.ShareManagerDeps{Shares: sharemock.NewService(t), Signer: authmock.NewSigner(t), Creds: authmock.NewCredentialLookup(t), Authz: allowAll(t)},
+	_, err = admin.NewShareManager(admin.ShareManagerDeps{Shares: sharemock.NewService(t), Signer: authmock.NewSigner(t), Creds: authmock.NewCredentialLookup(t), Authz: allowAll(t)})
+	assert.ErrorIs(t, err, domain.ErrInvalidArgument, "the object service is required")
+	_, err = admin.NewShareManager(admin.ShareManagerDeps{Shares: sharemock.NewService(t), Signer: authmock.NewSigner(t), Creds: authmock.NewCredentialLookup(t), Authz: allowAll(t), Objects: objectmock.NewService(t)},
 		admin.WithServerURL("ftp://x"))
 	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
 }
@@ -92,7 +96,7 @@ func TestShareManagementScope(t *testing.T) {
 	e.shares.EXPECT().List(mock.Anything, domain.Identity{IsRoot: true}, share.ListFilter{Owner: "carol"}).Return([]share.Share{{ID: "c1"}}, nil)
 	got, err := e.mgr.List(ctx, admin.ListSharesInput{Requester: req("admin1"), Owner: "carol"})
 	require.NoError(t, err)
-	assert.Len(t, got, 1)
+	assert.Len(t, got.Items, 1)
 	// A user acts as itself (own shares only).
 	e.shares.EXPECT().Revoke(mock.Anything, domain.Identity{AccessKey: "bob"}, "c1").Return(fmt.Errorf("x: %w", domain.ErrShareNotFound))
 	assert.ErrorIs(t, e.mgr.Revoke(ctx, req("bob"), "c1"), domain.ErrShareNotFound)

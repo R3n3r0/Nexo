@@ -189,9 +189,9 @@ func (_c *BucketManager_Delete_Call) RunAndReturn(run func(context.Context, admi
 	return _c
 }
 
-// Get provides a mock function with given fields: ctx, name
-func (_m *BucketManager) Get(ctx context.Context, name string) (*admin.BucketSummary, error) {
-	ret := _m.Called(ctx, name)
+// Get provides a mock function with given fields: ctx, req, name
+func (_m *BucketManager) Get(ctx context.Context, req admin.Requester, name string) (*admin.BucketSummary, error) {
+	ret := _m.Called(ctx, req, name)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Get")
@@ -199,19 +199,19 @@ func (_m *BucketManager) Get(ctx context.Context, name string) (*admin.BucketSum
 
 	var r0 *admin.BucketSummary
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) (*admin.BucketSummary, error)); ok {
-		return rf(ctx, name)
+	if rf, ok := ret.Get(0).(func(context.Context, admin.Requester, string) (*admin.BucketSummary, error)); ok {
+		return rf(ctx, req, name)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) *admin.BucketSummary); ok {
-		r0 = rf(ctx, name)
+	if rf, ok := ret.Get(0).(func(context.Context, admin.Requester, string) *admin.BucketSummary); ok {
+		r0 = rf(ctx, req, name)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*admin.BucketSummary)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, name)
+	if rf, ok := ret.Get(1).(func(context.Context, admin.Requester, string) error); ok {
+		r1 = rf(ctx, req, name)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -226,14 +226,15 @@ type BucketManager_Get_Call struct {
 
 // Get is a helper method to define mock.On call
 //   - ctx context.Context
+//   - req admin.Requester
 //   - name string
-func (_e *BucketManager_Expecter) Get(ctx interface{}, name interface{}) *BucketManager_Get_Call {
-	return &BucketManager_Get_Call{Call: _e.mock.On("Get", ctx, name)}
+func (_e *BucketManager_Expecter) Get(ctx interface{}, req interface{}, name interface{}) *BucketManager_Get_Call {
+	return &BucketManager_Get_Call{Call: _e.mock.On("Get", ctx, req, name)}
 }
 
-func (_c *BucketManager_Get_Call) Run(run func(ctx context.Context, name string)) *BucketManager_Get_Call {
+func (_c *BucketManager_Get_Call) Run(run func(ctx context.Context, req admin.Requester, name string)) *BucketManager_Get_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
+		run(args[0].(context.Context), args[1].(admin.Requester), args[2].(string))
 	})
 	return _c
 }
@@ -243,29 +244,29 @@ func (_c *BucketManager_Get_Call) Return(_a0 *admin.BucketSummary, _a1 error) *B
 	return _c
 }
 
-func (_c *BucketManager_Get_Call) RunAndReturn(run func(context.Context, string) (*admin.BucketSummary, error)) *BucketManager_Get_Call {
+func (_c *BucketManager_Get_Call) RunAndReturn(run func(context.Context, admin.Requester, string) (*admin.BucketSummary, error)) *BucketManager_Get_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // List provides a mock function with given fields: ctx, in
-func (_m *BucketManager) List(ctx context.Context, in admin.ListBucketsInput) ([]admin.BucketSummary, error) {
+func (_m *BucketManager) List(ctx context.Context, in admin.ListBucketsInput) (*admin.Paged[admin.BucketSummary], error) {
 	ret := _m.Called(ctx, in)
 
 	if len(ret) == 0 {
 		panic("no return value specified for List")
 	}
 
-	var r0 []admin.BucketSummary
+	var r0 *admin.Paged[admin.BucketSummary]
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, admin.ListBucketsInput) ([]admin.BucketSummary, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, admin.ListBucketsInput) (*admin.Paged[admin.BucketSummary], error)); ok {
 		return rf(ctx, in)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, admin.ListBucketsInput) []admin.BucketSummary); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, admin.ListBucketsInput) *admin.Paged[admin.BucketSummary]); ok {
 		r0 = rf(ctx, in)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]admin.BucketSummary)
+			r0 = ret.Get(0).(*admin.Paged[admin.BucketSummary])
 		}
 	}
 
@@ -297,12 +298,12 @@ func (_c *BucketManager_List_Call) Run(run func(ctx context.Context, in admin.Li
 	return _c
 }
 
-func (_c *BucketManager_List_Call) Return(_a0 []admin.BucketSummary, _a1 error) *BucketManager_List_Call {
+func (_c *BucketManager_List_Call) Return(_a0 *admin.Paged[admin.BucketSummary], _a1 error) *BucketManager_List_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *BucketManager_List_Call) RunAndReturn(run func(context.Context, admin.ListBucketsInput) ([]admin.BucketSummary, error)) *BucketManager_List_Call {
+func (_c *BucketManager_List_Call) RunAndReturn(run func(context.Context, admin.ListBucketsInput) (*admin.Paged[admin.BucketSummary], error)) *BucketManager_List_Call {
 	_c.Call.Return(run)
 	return _c
 }

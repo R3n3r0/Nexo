@@ -37,6 +37,8 @@ import { iamKeys } from '@/lib/iamQueries';
 import { shellQuote } from '@/lib/uploadSnippets';
 import { useServices, type SharePermission } from '@/services';
 
+import { ShareLinks } from './ShareLinks';
+
 export interface ShareDialogProps {
   opened: boolean;
   onClose: () => void;
@@ -83,6 +85,11 @@ interface ShareResult {
   method: string;
   headers: Record<string, string>;
   managed: boolean;
+  /**
+   * The managed prefix download share whose objects are handed out one
+   * link each (the share URL itself only lists the prefix).
+   */
+  prefixShareId?: string;
 }
 
 const baseName = (key: string) => key.split('/').filter(Boolean).pop() ?? key;
@@ -181,6 +188,7 @@ function ShareForm({ target, onClose }: { target: ResolvedTarget; onClose: () =>
         method: permission === 'upload' ? 'PUT' : 'GET',
         headers: signedType !== undefined ? { 'Content-Type': signedType } : {},
         managed: true,
+        ...(isPrefix && permission === 'download' ? { prefixShareId: share.id } : {}),
       };
     },
     onSuccess: async (value) => {
@@ -373,7 +381,9 @@ function ShareResultView({
         {result.managed ? t('shareDialog.result.managed') : t('shareDialog.result.raw')}
       </Alert>
       <Text size="sm">{t('shareDialog.result.expires', { date: expiresLabel })}</Text>
-      {result.url !== undefined ? (
+      {result.prefixShareId !== undefined ? (
+        <ShareLinks shareId={result.prefixShareId} />
+      ) : result.url !== undefined ? (
         <>
           <Group gap="xs" align="flex-end" wrap="nowrap">
             <TextInput

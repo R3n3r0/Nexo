@@ -1,5 +1,5 @@
 $ nexoctl alias set prod https://s3.example.com AKPROD SKPROD --path on --region eu-west-1
-Added alias "prod" for https://s3.example.com.
+Added alias "prod" for https://s3.example.com (credentials verified).
 
 $ nexoctl alias list
 NAME             URL                                      ACCESS KEY           API   PATH
@@ -40,11 +40,19 @@ $ nexoctl alias set checked http://s3.mem.test AK WRONG --verify
 ! nexoctl: error: verify alias "checked" at http://s3.mem.test: signature does not match: the secret key is wrong
 [exit 4]
 
+$ nexoctl alias set checked http://s3.mem.test AK DISABLED --verify
+! nexoctl: error: verify alias "checked" at http://s3.mem.test: invalid access key: the access key is disabled
+[exit 4]
+
+$ nexoctl alias set limited http://s3.mem.test AK LIMITED --verify
+Added alias "limited" for http://s3.mem.test (credentials accepted; listing the buckets is denied).
+
 $ nexoctl alias set checked http://s3.mem.test AK RIGHT --verify
 Added alias "checked" for http://s3.mem.test (credentials verified).
 
 $ nexoctl alias list --quiet
 NAME             URL                                      ACCESS KEY           API   PATH
 checked          http://s3.mem.test                       AK                   s3v4  auto
+limited          http://s3.mem.test                       AK                   s3v4  auto
 mem              http://s3.mem.test                       MEMKEY               s3v4  auto
 

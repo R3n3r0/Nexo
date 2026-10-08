@@ -266,11 +266,16 @@
       "sse": "SSE-S3 (AES-256)",
       "kms": "SSE-KMS ({{key}})",
       "unavailable": "Le impostazioni di crittografia non sono disponibili.",
-      "comingSoon": "La configurazione della crittografia dalla console arriverà in una versione successiva."
+      "current": "Attuale",
+      "algorithm": "Crittografia predefinita",
+      "kmsOption": "SSE-KMS",
+      "kmsKey": "ID della chiave KMS",
+      "kmsKeyHint": "Vuoto: la chiave predefinita del server.",
+      "newObjects": "Si applica agli oggetti scritti da ora in poi; gli oggetti esistenti non vengono riscritti."
     },
     "objectLock": {
       "title": "Object lock",
-      "description": "Protezione WORM, impostata alla creazione del bucket.",
+      "description": "Protezione write-once-read-many: una volta abilitata non può essere disabilitata.",
       "status": "Stato",
       "enabled": "Attivo",
       "disabled": "Disattivo",
@@ -279,7 +284,15 @@
       "noDefault": "Nessuna",
       "days": "{{n}} giorni",
       "years": "{{n}} anni",
-      "unavailable": "Le impostazioni di object lock non sono disponibili."
+      "unavailable": "Le impostazioni di object lock non sono disponibili.",
+      "enable": "Abilita object lock",
+      "unit": "Unità di conservazione",
+      "unitDays": "giorni",
+      "unitYears": "anni",
+      "periodInvalid": "Inserisci un numero intero di almeno 1.",
+      "permanent": "Object lock non può essere disabilitato; la conservazione predefinita si applica ai nuovi oggetti.",
+      "enableHint": "Abilitare object lock è definitivo.",
+      "needsVersioning": "Object lock richiede il versioning abilitato."
     }
   },
   "bucketAccess": {
@@ -421,7 +434,10 @@
     "delete": "Elimina questa versione",
     "deleteVersion": "Elimina la versione {{version}}",
     "confirmDelete": "Conferma l'eliminazione della versione {{version}}",
-    "deleted": "Versione eliminata."
+    "deleted": "Versione eliminata.",
+    "restore": "Ripristina questa versione",
+    "restoreVersion": "Ripristina la versione {{version}}",
+    "restored": "Versione {{version}} ripristinata: ora è di nuovo la più recente."
   },
   "objectPreview": {
     "imageAlt": "Anteprima di {{name}}",
@@ -450,6 +466,7 @@
     "resumeFile": "Riprendi {{name}}",
     "retryFile": "Riprova {{name}}",
     "cancelFile": "Annulla {{name}}",
+    "cannotCancel": "Completamento in corso: il caricamento non può più essere annullato.",
     "progressOf": "Avanzamento del caricamento di {{name}}",
     "failedWith": "Non riuscito: {{message}}",
     "queued": "{{n}} file in coda per il caricamento.",
@@ -837,6 +854,18 @@
       "curl": "Carica con curl",
       "noUrl": "Le condivisioni di upload su un prefisso non hanno un URL diretto.",
       "another": "Crea un altro link"
+    },
+    "links": {
+      "label": "Link degli oggetti condivisi",
+      "hint_one": "{{count}} oggetto, un link ciascuno. Revocando la condivisione si revocano tutti i link.",
+      "hint_other": "{{count}} oggetti, un link ciascuno. Revocando la condivisione si revocano tutti i link.",
+      "object": "Oggetto",
+      "size": "Dimensione",
+      "copy": "Copia",
+      "copyOne": "Copia il link di {{key}}",
+      "copyAll": "Copia tutti i link",
+      "more": "Carica altri link",
+      "empty": "La cartella non contiene ancora oggetti: i link compariranno qui quando ne avrà."
     }
   },
   "shares": {
@@ -853,6 +882,8 @@
     "createdAt": "Creato il {{date}}",
     "copy": "Copia il link",
     "copyFor": "Copia il link di {{name}}",
+    "linksFor": "Link degli oggetti di {{name}}",
+    "linksTitle": "Oggetti condivisi di {{name}}",
     "selectAll": "Seleziona tutti i link",
     "select": "Seleziona {{name}}",
     "filter": {
@@ -928,6 +959,9 @@
     "resetConfirm": "Rimuovere tutte le impostazioni di {{subsystem}} e tornare ai valori predefiniti?",
     "default": "predefinito {{value}}",
     "secretSet": "è salvato un segreto; lascialo così per mantenerlo",
+    "notApplied": "Non ancora applicata",
+    "notAppliedHint": "Non ancora applicata: salvata e validata, per ora senza effetto sul server",
+    "appliedNote": "Hanno effetto, subito e senza riavvio, solo le impostazioni senza la nota \"non ancora applicata\"; le altre sono conservate per una versione successiva.",
     "problems": {
       "bool": "Usa on oppure off.",
       "int": "Inserisci un intero non negativo.",

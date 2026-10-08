@@ -92,8 +92,10 @@ func TestBucketRoutes(t *testing.T) {
 	f := newFixture(t)
 	c := f.root(t)
 
-	f.buckets.EXPECT().List(mock.Anything, mock.MatchedBy(func(in adminsvc.ListBucketsInput) bool { return in.Prefix == "" })).
-		Return([]adminsvc.BucketSummary{bucketSummary("c"), bucketSummary("a"), bucketSummary("b")}, nil).Times(2)
+	// The service selects the page: the route carries cursor and limit.
+	f.buckets.EXPECT().List(mock.Anything, mock.MatchedBy(func(in adminsvc.ListBucketsInput) bool {
+		return in.Prefix == "" && in.Page == adminsvc.Page{Limit: 2}
+	})).Return(&adminsvc.Paged[adminsvc.BucketSummary]{Items: []adminsvc.BucketSummary{bucketSummary("a"), bucketSummary("b")}, NextCursor: "next-1"}, nil)
 	rec := c.do(http.MethodGet, "/buckets?limit=2", nil)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	page := decode[admin.BucketListResponse](t, rec)
@@ -101,14 +103,19 @@ func TestBucketRoutes(t *testing.T) {
 	assert.Equal(t, "a", page.Items[0].Name)
 	assert.Equal(t, "enabled", page.Items[0].Versioning)
 	assert.True(t, page.Items[0].Public)
-	require.NotEmpty(t, page.NextCursor)
-	rec = c.do(http.MethodGet, "/buckets?limit=2&cursor="+page.NextCursor, nil)
+	assert.Equal(t, "next-1", page.NextCursor)
+	f.buckets.EXPECT().List(mock.Anything, mock.MatchedBy(func(in adminsvc.ListBucketsInput) bool {
+		return in.Page == adminsvc.Page{Cursor: "next-1", Limit: 2}
+	})).Return(&adminsvc.Paged[adminsvc.BucketSummary]{Items: []adminsvc.BucketSummary{bucketSummary("c")}}, nil)
+	rec = c.do(http.MethodGet, "/buckets?limit=2&cursor=next-1", nil)
 	page = decode[admin.BucketListResponse](t, rec)
 	require.Len(t, page.Items, 1)
 	assert.Equal(t, "c", page.Items[0].Name)
 	assert.Empty(t, page.NextCursor)
 	rec = c.do(http.MethodGet, "/buckets?limit=0", nil)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	f.buckets.EXPECT().List(mock.Anything, mock.MatchedBy(func(in adminsvc.ListBucketsInput) bool { return in.Page.Cursor == "***" })).
+		Return(nil, fmt.Errorf("x: %w", domain.ErrInvalidArgument))
 	rec = c.do(http.MethodGet, "/buckets?cursor=***", nil)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
@@ -123,10 +130,16 @@ func TestBucketRoutes(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, rec.Code)
 	assert.Equal(t, "bucket_already_exists", problemOf(t, rec).Code)
 
-	f.buckets.EXPECT().Get(mock.Anything, "missing").Return(nil, fmt.Errorf("x: %w", domain.ErrBucketNotFound))
+	f.buckets.EXPECT().Get(mock.Anything, requester(rootKey), "missing").Return(nil, fmt.Errorf("x: %w", domain.ErrBucketNotFound))
 	rec = c.do(http.MethodGet, "/buckets/missing", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Equal(t, "bucket_not_found", problemOf(t, rec).Code)
+	// A summary restricted by the service says so.
+	f.buckets.EXPECT().Get(mock.Anything, requester(rootKey), "home").
+		Return(&adminsvc.BucketSummary{Info: domain.BucketInfo{Bucket: domain.Bucket{Name: "home"}}, Partial: true}, nil)
+	rec = c.do(http.MethodGet, "/buckets/home", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.True(t, decode[admin.BucketResponse](t, rec).Partial)
 
 	f.buckets.EXPECT().Delete(mock.Anything, adminsvc.DeleteBucketInput{Name: "full"}).Return(fmt.Errorf("x: %w", domain.ErrBucketNotEmpty))
 	rec = c.do(http.MethodDelete, "/buckets/full", nil)
@@ -451,13 +464,12 @@ func TestZipForm(t *testing.T) {
 }
 
 func TestUploadRoutes(t *testing.T) {
-	f := newFixture(t, func(o *fixtureOptions) {
-		o.objectOpts = []admin.ObjectOption{admin.WithMaxUploadSize(8), admin.WithMaxPartSize(6 << 20)}
-	})
+	f := newFixture(t)
 	c := f.root(t)
 	mod := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 
-	f.browser.EXPECT().Upload(mock.Anything, mock.MatchedBy(func(in object.PutObjectInput) bool {
+	// The body is streamed to the upload manager, which applies the limits.
+	f.uploads.EXPECT().Upload(mock.Anything, mock.MatchedBy(func(in object.PutObjectInput) bool {
 		return in.Bucket == "b" && in.Key == "dir/a.txt" && in.ContentType == "text/plain" && in.Size == 5 && in.UserMetadata["owner"] == "me"
 	})).RunAndReturn(func(_ context.Context, in object.PutObjectInput) (domain.ObjectInfo, error) {
 		data, err := io.ReadAll(in.Reader)
@@ -465,18 +477,19 @@ func TestUploadRoutes(t *testing.T) {
 			return domain.ObjectInfo{}, err
 		}
 		return domain.ObjectInfo{Key: in.Key, Size: int64(len(data)), ContentType: in.ContentType, ModTime: mod}, nil
-	})
+	}).Once()
 	req := c.newRequest(http.MethodPost, "/buckets/b/objects/upload?key=dir/a.txt", strings.NewReader("hello"))
 	req.Header.Set("Content-Type", "text/plain")
 	req.Header.Set("X-Amz-Meta-Owner", "me")
 	rec := c.serve(req)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	assert.Equal(t, int64(5), decode[admin.ObjectResponse](t, rec).Size)
 
 	// The tags of x-amz-tagging are forwarded and authorized as the S3
 	// PutObject would (s3:RequestObjectTag/<key>).
-	f.browser.EXPECT().Upload(mock.Anything, mock.MatchedBy(func(in object.PutObjectInput) bool {
+	f.uploads.EXPECT().Upload(mock.Anything, mock.MatchedBy(func(in object.PutObjectInput) bool {
 		return in.Key == "tagged.txt" && assert.ObjectsAreEqual(map[string]string{"class": "secret"}, in.Tags)
-	})).Return(domain.ObjectInfo{Key: "tagged.txt", ModTime: mod}, nil)
+	})).Return(domain.ObjectInfo{Key: "tagged.txt", ModTime: mod}, nil).Once()
 	f.resetChecks()
 	req = c.newRequest(http.MethodPost, "/buckets/b/objects/upload?key=tagged.txt", strings.NewReader("hi"))
 	req.Header.Set("X-Amz-Tagging", "class=secret")
@@ -490,62 +503,70 @@ func TestUploadRoutes(t *testing.T) {
 	rec = c.serve(req)
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "a malformed tag set is refused before storing anything")
 
-	// Over the limit: refused before reading.
-	rec = c.do(http.MethodPost, "/buckets/b/objects/upload?key=big", strings.NewReader("123456789"))
-	assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
-	assert.Equal(t, "entity_too_large", problemOf(t, rec).Code)
-	// A chunked body over the limit fails while streaming.
-	f.browser.EXPECT().Upload(mock.Anything, mock.MatchedBy(func(in object.PutObjectInput) bool { return in.Key == "chunked" })).
-		RunAndReturn(func(_ context.Context, in object.PutObjectInput) (domain.ObjectInfo, error) {
-			_, err := io.ReadAll(in.Reader)
-			return domain.ObjectInfo{}, fmt.Errorf("put: %w", err)
-		})
-	req = c.newRequest(http.MethodPost, "/buckets/b/objects/upload?key=chunked", strings.NewReader("123456789"))
+	// The limits are the service's; the transport maps the error.
+	f.uploads.EXPECT().Upload(mock.Anything, mock.MatchedBy(func(in object.PutObjectInput) bool { return in.Key == "big" && in.Size == -1 })).
+		Return(domain.ObjectInfo{}, fmt.Errorf("x: %w", domain.ErrEntityTooLarge)).Once()
+	req = c.newRequest(http.MethodPost, "/buckets/b/objects/upload?key=big", strings.NewReader("123456789"))
 	req.ContentLength = -1
 	rec = c.serve(req)
 	assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	assert.Equal(t, "entity_too_large", problemOf(t, rec).Code)
 
 	// The default content type is the service's: the handler passes none.
-	f.browser.EXPECT().CreateUpload(mock.Anything, object.NewMultipartInput{Bucket: "b", Key: "big.bin"}).
-		Return(domain.MultipartUpload{Bucket: "b", Key: "big.bin", UploadID: "u1", Initiated: mod}, nil)
+	f.uploads.EXPECT().Create(mock.Anything, object.NewMultipartInput{Bucket: "b", Key: "big.bin"}).
+		Return(&adminsvc.NewUpload{
+			Upload: domain.MultipartUpload{Bucket: "b", Key: "big.bin", UploadID: "u1", Initiated: mod},
+			Limits: adminsvc.UploadLimits{MaxUploadSize: 8, PartSize: 6 << 20, MinPartSize: 5 << 20, MaxPartSize: 6 << 20, MaxParts: 10000},
+		}, nil).Once()
 	rec = c.do(http.MethodPost, "/buckets/b/uploads?key=big.bin", nil)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
-	up := decode[admin.UploadResponse](t, rec)
-	assert.Equal(t, int64(6<<20), up.MaxPartSize)
-	assert.Equal(t, int64(6<<20), up.PartSize, "the recommendation respects the limit")
+	assert.Equal(t, admin.UploadResponse{Bucket: "b", Key: "big.bin", UploadID: "u1", Initiated: mod, PartSize: 6 << 20, MinPartSize: 5 << 20, MaxPartSize: 6 << 20, MaxParts: 10000},
+		decode[admin.UploadResponse](t, rec))
 
-	f.objects.EXPECT().PutObjectPart(mock.Anything, mock.MatchedBy(func(in object.PutObjectPartInput) bool {
+	f.uploads.EXPECT().UploadPart(mock.Anything, mock.MatchedBy(func(in object.PutObjectPartInput) bool {
 		return in.UploadID == "u1" && in.PartNumber == 2 && in.Key == "big.bin" && in.Size == 4
-	})).Return(domain.Part{Number: 2, ETag: "e2", Size: 4}, nil)
+	})).Return(domain.Part{Number: 2, ETag: "e2", Size: 4}, nil).Once()
 	rec = c.do(http.MethodPut, "/buckets/b/uploads/u1/parts/2?key=big.bin", strings.NewReader("data"))
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.Equal(t, "e2", decode[admin.PartResponse](t, rec).ETag)
+	rec = c.do(http.MethodPut, "/buckets/b/uploads/u1/parts/two?key=big.bin", strings.NewReader("data"))
+	assert.Equal(t, http.StatusBadRequest, rec.Code, "the part number is an integer")
+	f.uploads.EXPECT().UploadPart(mock.Anything, mock.MatchedBy(func(in object.PutObjectPartInput) bool { return in.PartNumber == 0 })).
+		Return(domain.Part{}, fmt.Errorf("x: %w", domain.ErrInvalidArgument)).Once()
 	rec = c.do(http.MethodPut, "/buckets/b/uploads/u1/parts/0?key=big.bin", strings.NewReader("data"))
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	rec = c.do(http.MethodPut, "/buckets/b/uploads/u1/parts/10001?key=big.bin", strings.NewReader("data"))
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code, "the service validates the range")
 
-	f.objects.EXPECT().CompleteMultipartUpload(mock.Anything, object.CompleteMultipartInput{Bucket: "b", Key: "big.bin", UploadID: "u1",
-		Parts: []domain.CompletePart{{Number: 1, ETag: "e1"}, {Number: 2, ETag: "e2"}}}).Return(domain.ObjectInfo{Key: "big.bin", Size: 9, ModTime: mod}, nil)
+	f.uploads.EXPECT().Complete(mock.Anything, object.CompleteMultipartInput{Bucket: "b", Key: "big.bin", UploadID: "u1",
+		Parts: []domain.CompletePart{{Number: 1, ETag: "e1"}, {Number: 2, ETag: "e2"}}}).Return(domain.ObjectInfo{Key: "big.bin", Size: 9, ModTime: mod}, nil).Once()
 	rec = c.do(http.MethodPost, "/buckets/b/uploads/u1/complete?key=big.bin", `{"parts":[{"partNumber":1,"etag":"e1"},{"partNumber":2,"etag":"e2"}]}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
-	f.objects.EXPECT().AbortMultipartUpload(mock.Anything, "b", "big.bin", "u9").Return(fmt.Errorf("x: %w", domain.ErrNoSuchUpload))
+	f.uploads.EXPECT().Abort(mock.Anything, adminsvc.UploadRef{Bucket: "b", Key: "big.bin", UploadID: "u9"}).Return(fmt.Errorf("x: %w", domain.ErrNoSuchUpload)).Once()
 	rec = c.do(http.MethodDelete, "/buckets/b/uploads/u9?key=big.bin", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Equal(t, "upload_not_found", problemOf(t, rec).Code)
 
-	f.objects.EXPECT().ListMultipartUploads(mock.Anything, domain.ListMultipartUploadsInput{Bucket: "b", Prefix: "x/", MaxUploads: 1}).
-		Return(domain.ListMultipartUploadsResult{Uploads: []domain.MultipartUpload{{Key: "x/1", UploadID: "u1", Initiated: mod}}, IsTruncated: true, NextKeyMarker: "x/1", NextUploadIDMarker: "u1"}, nil)
+	// The cursor and the limit are carried to the service, which pages.
+	f.uploads.EXPECT().List(mock.Anything, adminsvc.ListUploadsInput{Bucket: "b", Prefix: "x/", Page: adminsvc.Page{Limit: 1}}).
+		Return(&adminsvc.Paged[domain.MultipartUpload]{Items: []domain.MultipartUpload{{Key: "x/1", UploadID: "u1", Initiated: mod}}, NextCursor: "c1"}, nil).Once()
 	rec = c.do(http.MethodGet, "/buckets/b/uploads?prefix=x/&limit=1", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	ul := decode[admin.UploadListResponse](t, rec)
-	require.NotEmpty(t, ul.NextCursor)
-	f.objects.EXPECT().ListMultipartUploads(mock.Anything, domain.ListMultipartUploadsInput{Bucket: "b", KeyMarker: "x/1", UploadIDMarker: "u1"}).
-		Return(domain.ListMultipartUploadsResult{}, nil)
-	rec = c.do(http.MethodGet, "/buckets/b/uploads?cursor="+ul.NextCursor, nil)
+	assert.Equal(t, "c1", ul.NextCursor)
+	require.Len(t, ul.Items, 1)
+	f.uploads.EXPECT().List(mock.Anything, adminsvc.ListUploadsInput{Bucket: "b", Page: adminsvc.Page{Cursor: "c1"}}).
+		Return(&adminsvc.Paged[domain.MultipartUpload]{}, nil).Once()
+	rec = c.do(http.MethodGet, "/buckets/b/uploads?cursor=c1", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.JSONEq(t, `{"items":[]}`, rec.Body.String())
+	rec = c.do(http.MethodGet, "/buckets/b/uploads?limit=0", nil)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	f.uploads.EXPECT().Parts(mock.Anything, adminsvc.ListPartsInput{Upload: adminsvc.UploadRef{Bucket: "b", Key: "big.bin", UploadID: "u1"}, Page: adminsvc.Page{Cursor: "p2", Limit: 2}}).
+		Return(&adminsvc.Paged[domain.Part]{Items: []domain.Part{{Number: 3, ETag: "e3", Size: 1}}}, nil).Once()
+	rec = c.do(http.MethodGet, "/buckets/b/uploads/u1/parts?key=big.bin&cursor=p2&limit=2", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.JSONEq(t, `{"items":[{"partNumber":3,"etag":"e3","size":1}]}`, rec.Body.String())
 }
 
 func TestShareRoutes(t *testing.T) {
@@ -642,12 +663,14 @@ func TestUserGroupAccessKeyRoutes(t *testing.T) {
 	c := f.root(t)
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	f.iam.EXPECT().ListUsers(mock.Anything).Return([]iam.User{{AccessKey: "b", Status: domain.StatusEnabled}, {AccessKey: "a", Status: domain.StatusDisabled}}, nil)
+	f.identities.EXPECT().ListUsers(mock.Anything, adminsvc.Page{}).Return(&adminsvc.Paged[iam.User]{
+		Items: []iam.User{{AccessKey: "a", Status: domain.StatusDisabled}, {AccessKey: "b", Status: domain.StatusEnabled}},
+	}, nil)
 	rec := c.do(http.MethodGet, "/users", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	users := decode[admin.UserListResponse](t, rec)
 	require.Len(t, users.Items, 2)
-	assert.Equal(t, "a", users.Items[0].AccessKey, "sorted")
+	assert.Equal(t, "a", users.Items[0].AccessKey)
 	assert.NotNil(t, users.Items[0].Groups)
 
 	rec = c.do(http.MethodPost, "/users", `{"accessKey":"alice","secretKey":"alice-secret","status":"sleeping"}`)
@@ -668,7 +691,9 @@ func TestUserGroupAccessKeyRoutes(t *testing.T) {
 	rec = c.do(http.MethodGet, "/users/ghost", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Equal(t, "user_not_found", problemOf(t, rec).Code)
-	f.iam.EXPECT().DeleteUser(mock.Anything, "alice").Return(nil)
+	// The deletion goes through the identity manager, which also removes
+	// the share links of the user.
+	f.identities.EXPECT().DeleteUser(mock.Anything, requester(rootKey), "alice").Return(nil)
 	rec = c.do(http.MethodDelete, "/users/alice", nil)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 
@@ -682,7 +707,7 @@ func TestUserGroupAccessKeyRoutes(t *testing.T) {
 	rec = c.do(http.MethodPut, "/groups/g", `{"addMembers":["x"]}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, []string{"x"}, decode[admin.GroupResponse](t, rec).Members)
-	f.iam.EXPECT().ListGroups(mock.Anything).Return(nil, nil)
+	f.identities.EXPECT().ListGroups(mock.Anything, adminsvc.Page{}).Return(&adminsvc.Paged[iam.Group]{}, nil)
 	rec = c.do(http.MethodGet, "/groups", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.JSONEq(t, `{"items":[]}`, rec.Body.String())
@@ -699,13 +724,15 @@ func TestUserGroupAccessKeyRoutes(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.NotContains(t, rec.Body.String(), "leak?", "never the secret again")
 
-	f.accessKeys.EXPECT().List(mock.Anything, requester(rootKey), "alice").Return([]iam.AccessKey{{AccessKey: "AK2"}, {AccessKey: "AK1"}}, nil)
+	f.accessKeys.EXPECT().List(mock.Anything, requester(rootKey), "alice", adminsvc.Page{Limit: 1}).
+		Return(&adminsvc.Paged[iam.AccessKey]{Items: []iam.AccessKey{{AccessKey: "AK1", SecretKey: "leak?"}}, NextCursor: "c1"}, nil)
 	rec = c.do(http.MethodGet, "/access-keys?user=alice&limit=1", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	keys := decode[admin.AccessKeyListResponse](t, rec)
 	require.Len(t, keys.Items, 1)
 	assert.Equal(t, "AK1", keys.Items[0].AccessKey)
-	assert.NotEmpty(t, keys.NextCursor)
+	assert.Equal(t, "c1", keys.NextCursor)
+	assert.NotContains(t, rec.Body.String(), "leak?", "a listing never carries secrets")
 
 	f.accessKeys.EXPECT().Update(mock.Anything, requester(rootKey), "AK1", mock.MatchedBy(func(in iam.UpdateAccessKeyInput) bool {
 		return in.Expiration != nil && in.Expiration.IsZero() && in.Status != nil && *in.Status == domain.StatusDisabled
@@ -722,7 +749,8 @@ func TestPolicyRoutes(t *testing.T) {
 	c := f.root(t)
 	doc := &domain.Policy{Version: domain.PolicyVersion, Statement: domain.Statements{{Effect: domain.Allow, Action: domain.StringSet{"s3:*"}}}}
 
-	f.policy.EXPECT().ListPolicies(mock.Anything).Return([]policy.Named{{Name: "readonly", Policy: doc, BuiltIn: true}, {Name: "custom", Policy: doc}}, nil)
+	f.policies.EXPECT().List(mock.Anything, adminsvc.Page{}).
+		Return(&adminsvc.Paged[policy.Named]{Items: []policy.Named{{Name: "custom", Policy: doc}, {Name: "readonly", Policy: doc, BuiltIn: true}}}, nil)
 	rec := c.do(http.MethodGet, "/policies", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Len(t, decode[admin.PolicyListResponse](t, rec).Items, 2)
@@ -751,15 +779,17 @@ func TestPolicyRoutes(t *testing.T) {
 	assert.JSONEq(t, `{"valid":false,"errors":[{"statement":0,"line":1,"column":2,"message":"bad"}]}`, rec.Body.String())
 
 	stmt := &doc.Statement[0]
+	// The handler only decodes: the service composes the condition keys.
 	f.policies.EXPECT().Simulate(mock.Anything, mock.MatchedBy(func(in adminsvc.SimulateInput) bool {
-		return in.User == "alice" && in.Action == policy.ActionGetObject && in.Conditions["aws:SourceIp"][0] == "10.0.0.1" &&
-			in.Conditions["aws:SecureTransport"][0] == "true" && !in.Now.IsZero()
+		return in.User == "alice" && in.Action == policy.ActionGetObject && in.SourceIP == "10.0.0.1" &&
+			in.SecureTransport != nil && *in.SecureTransport && in.Now.Equal(time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)) &&
+			in.Conditions["aws:Referer"][0] == "https://app.example.com/"
 	})).Return(&adminsvc.Simulation{User: "alice", Decision: policy.Decision{
 		Allowed: true, Reason: "allowed", Source: policy.SourceIAM, PolicyName: "readonly", MatchedStatement: stmt, Index: 0,
 		Evaluated: []policy.EvaluatedStatement{{Source: policy.SourceIAM, PolicyName: "readonly", Effect: domain.Allow, Matched: true, Statement: stmt},
 			{Source: policy.SourceBucket, Effect: domain.Deny, Mismatch: policy.MismatchCondition}},
 	}}, nil)
-	rec = c.do(http.MethodPost, "/policies/simulate", `{"user":"alice","action":"s3:GetObject","bucket":"b","object":"k","sourceIp":"10.0.0.1","secureTransport":true,"time":"2026-01-01T10:00:00Z"}`)
+	rec = c.do(http.MethodPost, "/policies/simulate", `{"user":"alice","action":"s3:GetObject","bucket":"b","object":"k","sourceIp":"10.0.0.1","secureTransport":true,"time":"2026-01-01T10:00:00Z","conditions":{"aws:Referer":["https://app.example.com/"]}}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	sim := decode[admin.SimulationResponse](t, rec)
 	assert.Equal(t, "allow", sim.Decision)
@@ -827,22 +857,33 @@ func TestConfigRoutes(t *testing.T) {
 	assert.NotContains(t, rec.Body.String(), "boom", "unknown errors do not leak")
 }
 
-func TestShareListNewestFirst(t *testing.T) {
+func TestShareListAndLinks(t *testing.T) {
 	f := newFixture(t)
 	c := f.root(t)
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	f.shares.EXPECT().List(mock.Anything, mock.Anything).Return([]share.Share{
-		{ID: "old", CreatedAt: base}, {ID: "new", CreatedAt: base.Add(time.Hour)}, {ID: "mid", CreatedAt: base.Add(time.Minute)},
-	}, nil).Twice()
-	rec := c.do(http.MethodGet, "/shares?limit=2", nil)
+	f.shares.EXPECT().List(mock.Anything, mock.MatchedBy(func(in adminsvc.ListSharesInput) bool { return in.Page == adminsvc.Page{Cursor: "c0", Limit: 2} })).
+		Return(&adminsvc.Paged[share.Share]{Items: []share.Share{{ID: "new", CreatedAt: base.Add(time.Hour)}, {ID: "mid", CreatedAt: base}}, NextCursor: "c1"}, nil)
+	rec := c.do(http.MethodGet, "/shares?limit=2&cursor=c0", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	page := decode[admin.ShareListResponse](t, rec)
-	require.Len(t, page.Items, 2)
 	assert.Equal(t, []string{"new", "mid"}, []string{page.Items[0].ID, page.Items[1].ID})
-	rec = c.do(http.MethodGet, "/shares?limit=2&cursor="+page.NextCursor, nil)
-	page = decode[admin.ShareListResponse](t, rec)
-	require.Len(t, page.Items, 1)
-	assert.Equal(t, "old", page.Items[0].ID)
+	assert.Equal(t, "c1", page.NextCursor)
+
+	// The per-object links of a prefix share (D-SHR-01).
+	sh := &share.Share{ID: "s1", Bucket: "b", Key: "docs/", Prefix: true, Permission: share.PermissionDownload, Expires: base.Add(time.Hour)}
+	f.shares.EXPECT().Links(mock.Anything, mock.MatchedBy(func(in adminsvc.ShareLinksInput) bool {
+		return in.ID == "s1" && in.Page == adminsvc.Page{Cursor: "k1", Limit: 10} && in.Requester.Identity.IsRoot
+	})).Return(&adminsvc.ShareLinks{Share: sh, Items: []adminsvc.ShareLink{{Key: "docs/a.pdf", Size: 3, URL: "http://s3/b/docs/a.pdf?sig"}}, NextCursor: "k2"}, nil)
+	rec = c.do(http.MethodGet, "/shares/s1/links?limit=10&cursor=k1", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	links := decode[admin.ShareLinksResponse](t, rec)
+	assert.Equal(t, "s1", links.Share.ID)
+	assert.Equal(t, []admin.ShareLinkResponse{{Key: "docs/a.pdf", Size: 3, URL: "http://s3/b/docs/a.pdf?sig"}}, links.Items)
+	assert.Equal(t, "k2", links.NextCursor)
+	f.shares.EXPECT().Links(mock.Anything, mock.MatchedBy(func(in adminsvc.ShareLinksInput) bool { return in.ID == "up" })).
+		Return(nil, fmt.Errorf("x: %w", domain.ErrInvalidArgument))
+	rec = c.do(http.MethodGet, "/shares/up/links", nil)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestDownloadAttachmentIsSandboxed(t *testing.T) {
@@ -855,4 +896,133 @@ func TestDownloadAttachmentIsSandboxed(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.True(t, strings.HasPrefix(rec.Header().Get("Content-Disposition"), "attachment"), rec.Header().Get("Content-Disposition"))
 	assert.Contains(t, rec.Header().Get("Content-Security-Policy"), "sandbox")
+}
+
+func TestRestoreVersionRoute(t *testing.T) {
+	f := newFixture(t)
+	c := f.root(t)
+	f.browser.EXPECT().RestoreVersion(mock.Anything, mock.MatchedBy(func(in adminsvc.RestoreVersionInput) bool {
+		return in.Bucket == "b" && in.Key == "dir/k" && in.VersionID == "v1" && in.Requester.Identity.IsRoot
+	})).Return(domain.ObjectInfo{Key: "dir/k", VersionID: "v3", IsLatest: true, Size: 4}, nil)
+	rec := c.do(http.MethodPost, "/buckets/b/objects/restore?key=dir/k&versionId=v1", nil)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	assert.Equal(t, "v3", decode[admin.ObjectResponse](t, rec).VersionID)
+	f.browser.EXPECT().RestoreVersion(mock.Anything, mock.MatchedBy(func(in adminsvc.RestoreVersionInput) bool { return in.VersionID == "dm" })).
+		Return(domain.ObjectInfo{}, fmt.Errorf("x: %w", domain.ErrMethodNotAllowed))
+	rec = c.do(http.MethodPost, "/buckets/b/objects/restore?key=k&versionId=dm", nil)
+	assert.Equal(t, http.StatusMethodNotAllowed, rec.Code)
+}
+
+// TestEscapedPathParameters: the path parameters are decoded once, whether
+// chi routed on the escaped path (a character Go leaves as is was
+// escaped: "@", "+", "/"...) or on the decoded one (regression: the
+// console escapes every segment, and users, policies or groups with such
+// characters could be listed but not managed).
+func TestEscapedPathParameters(t *testing.T) {
+	f := newFixture(t)
+	c := f.root(t)
+	f.iam.EXPECT().GetUser(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, key string) (*iam.User, error) {
+		return &iam.User{AccessKey: key}, nil
+	}).Maybe()
+	f.iam.EXPECT().GetGroup(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, name string) (*iam.Group, error) {
+		return &iam.Group{Name: name}, nil
+	}).Maybe()
+	f.policies.EXPECT().Get(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, name string) (*policy.Named, error) {
+		return &policy.Named{Name: name, Policy: &domain.Policy{Version: domain.PolicyVersion}}, nil
+	}).Maybe()
+	f.accessKeys.EXPECT().Get(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, _ adminsvc.Requester, key string) (*iam.AccessKey, error) {
+		return &iam.AccessKey{AccessKey: key}, nil
+	}).Maybe()
+
+	tests := []struct {
+		name string
+		path string
+		// field is the JSON member echoing the decoded parameter.
+		field string
+		want  string
+	}{
+		{name: "user with @", path: "/users/alice%40example.com", field: "accessKey", want: "alice@example.com"},
+		{name: "user with @ unescaped", path: "/users/alice@example.com", field: "accessKey", want: "alice@example.com"},
+		{name: "user with +", path: "/users/a%2Bb", field: "accessKey", want: "a+b"},
+		{name: "policy with +", path: "/policies/read%2Bwrite", field: "name", want: "read+write"},
+		{name: "policy with , and =", path: "/policies/a%2Cb%3Dc", field: "name", want: "a,b=c"},
+		{name: "group with /", path: "/groups/eng%2Fbackend", field: "name", want: "eng/backend"},
+		{name: "group with a space", path: "/groups/dev%20team", field: "name", want: "dev team"},
+		{name: "group with unicode", path: "/groups/citt%C3%A0", field: "name", want: "città"},
+		// Without RawPath chi routed on the decoded path: no second decoding.
+		{name: "literal percent", path: "/groups/a%2541", field: "name", want: "a%41"},
+		{name: "literal percent with /", path: "/groups/a%2541%2Fb", field: "name", want: "a%41/b"},
+		{name: "access key with +", path: "/access-keys/AK%2B1", field: "accessKey", want: "AK+1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := c.do(http.MethodGet, tt.path, nil)
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			got := decode[map[string]any](t, rec)
+			assert.Equal(t, tt.want, got[tt.field])
+		})
+	}
+
+	t.Run("mutations", func(t *testing.T) {
+		f.identities.EXPECT().UpdateUser(mock.Anything, mock.MatchedBy(func(in adminsvc.UpdateUserInput) bool { return in.AccessKey == "alice@example.com" })).
+			Return(&iam.User{AccessKey: "alice@example.com", Status: domain.StatusDisabled}, nil).Once()
+		rec := c.do(http.MethodPut, "/users/alice%40example.com", `{"status":"disabled"}`)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		f.identities.EXPECT().DeleteUser(mock.Anything, requester(rootKey), "alice@example.com").Return(nil).Once()
+		rec = c.do(http.MethodDelete, "/users/alice%40example.com", nil)
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+
+		f.policies.EXPECT().Save(mock.Anything, mock.MatchedBy(func(in adminsvc.SavePolicyInput) bool { return in.Name == "read+write" && !in.Create })).
+			Return(&policy.Named{Name: "read+write", Policy: &domain.Policy{Version: domain.PolicyVersion}}, nil).Once()
+		rec = c.do(http.MethodPut, "/policies/read%2Bwrite", `{"document":{"Version":"2012-10-17","Statement":[]}}`)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		f.policy.EXPECT().Entities(mock.Anything, "read+write").Return(policy.PolicyEntities{Policy: "read+write"}, nil).Once()
+		rec = c.do(http.MethodGet, "/policies/read%2Bwrite/entities", nil)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		f.policy.EXPECT().DeletePolicy(mock.Anything, "read+write").Return(nil).Once()
+		rec = c.do(http.MethodDelete, "/policies/read%2Bwrite", nil)
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+
+		f.identities.EXPECT().UpdateGroup(mock.Anything, mock.MatchedBy(func(in adminsvc.UpdateGroupInput) bool { return in.Name == "eng/backend" })).
+			Return(&iam.Group{Name: "eng/backend"}, nil).Once()
+		rec = c.do(http.MethodPut, "/groups/eng%2Fbackend", `{"addMembers":["x"]}`)
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		f.iam.EXPECT().DeleteGroup(mock.Anything, "eng/backend").Return(nil).Once()
+		rec = c.do(http.MethodDelete, "/groups/eng%2Fbackend", nil)
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+
+		f.accessKeys.EXPECT().Delete(mock.Anything, requester(rootKey), "AK+1").Return(nil).Once()
+		rec = c.do(http.MethodDelete, "/access-keys/AK%2B1", nil)
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+
+		f.shares.EXPECT().Revoke(mock.Anything, requester(rootKey), "s@1").Return(nil).Once()
+		rec = c.do(http.MethodDelete, "/shares/s%401", nil)
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+
+		f.config.EXPECT().Delete(mock.Anything, "a:b", []string(nil)).Return(nil).Once()
+		rec = c.do(http.MethodDelete, "/config/a%3Ab", nil)
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+
+		f.adm.EXPECT().Heal(mock.Anything, adminsvc.HealInput{ID: "h+1"}).Return(&adminsvc.HealResult{ID: "h+1"}, nil).Once()
+		rec = c.do(http.MethodGet, "/heal/h%2B1", nil)
+		assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+		f.uploads.EXPECT().Abort(mock.Anything, adminsvc.UploadRef{Bucket: "b", Key: "k", UploadID: "u+1"}).Return(nil).Once()
+		rec = c.do(http.MethodDelete, "/buckets/b/uploads/u%2B1?key=k", nil)
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+		f.uploads.EXPECT().UploadPart(mock.Anything, mock.MatchedBy(func(in object.PutObjectPartInput) bool { return in.UploadID == "u+1" && in.PartNumber == 3 })).
+			Return(domain.Part{Number: 3, ETag: "e3"}, nil).Once()
+		rec = c.do(http.MethodPut, "/buckets/b/uploads/u%2B1/parts/%33?key=k", strings.NewReader("data"))
+		assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	})
+
+	t.Run("a malformed escape is an invalid argument", func(t *testing.T) {
+		// net/http refuses such a request line; a router that hands chi a
+		// raw path anyway must not reach the services.
+		req := c.newRequest(http.MethodGet, "/users/x", nil)
+		req.URL.RawPath = admin.Prefix + "/users/a%zz%40b"
+		rec := c.serve(req)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Equal(t, "invalid_argument", problemOf(t, rec).Code)
+	})
 }

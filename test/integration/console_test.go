@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -148,6 +149,32 @@ func TestConsoleBehindProxy(t *testing.T) {
 	}
 }
 
+// TestS3BehindProxyUsesTheForwardedClient: behind a trusted reverse proxy
+// the S3 listener evaluates aws:SourceIp and aws:SecureTransport for the
+// client the proxy forwards, like the console listener, so a policy
+// decides alike through both (docs/04 §4.3; regression: the S3 listener
+// used the address and the scheme of the proxy). Untrusted peers cannot
+// forge the headers: TestConsoleBehindProxy and the middleware tests.
+func TestS3BehindProxyUsesTheForwardedClient(t *testing.T) {
+	e := newEnv(t, testutil.WithConfig(func(cfg *config.Static) {
+		cfg.TrustedProxies = []string{"127.0.0.1", "::1"}
+	}))
+	e.mkBucket("lan")
+	e.put("lan", "doc.txt", []byte("hello"))
+	e.putBucketPolicy("lan", `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},
+		"Action":"s3:GetObject","Resource":"arn:aws:s3:::lan/*",
+		"Condition":{"IpAddress":{"aws:SourceIp":"198.51.100.0/24"},"Bool":{"aws:SecureTransport":"true"}}}]}`)
+	get := func(client, proto string) int {
+		req := newRequest(t, http.MethodGet, e.srv.S3URL+"/lan/doc.txt", nil)
+		req.Header.Set("X-Forwarded-For", client)
+		req.Header.Set("X-Forwarded-Proto", proto)
+		return do(t, req).StatusCode
+	}
+	assert.Equal(t, http.StatusOK, get("198.51.100.7", "https"), "the forwarded client is in the allowed network, over TLS")
+	assert.Equal(t, http.StatusForbidden, get("203.0.113.9", "https"), "another client behind the same proxy")
+	assert.Equal(t, http.StatusForbidden, get("198.51.100.7", "http"), "the client did not use TLS")
+}
+
 // doRaw sends an Admin API request with a raw body and extra headers.
 func (c *console) doRaw(method, path string, body []byte, hdr http.Header) response {
 	c.t.Helper()
@@ -286,17 +313,37 @@ func TestConsoleHomeDirectory(t *testing.T) {
 
 	resp := gina.do(http.MethodGet, "/buckets", "")
 	require.Equal(t, http.StatusOK, resp.StatusCode, "%s", resp.Body)
+	// summary is what the console shows of a bucket.
+	type summary struct {
+		Name    string            `json:"name"`
+		Objects uint64            `json:"objects"`
+		Size    uint64            `json:"size"`
+		Tags    map[string]string `json:"tags"`
+		Partial bool              `json:"partial"`
+	}
 	var buckets struct {
-		Items []struct {
-			Name string `json:"name"`
-		} `json:"items"`
+		Items []summary `json:"items"`
 	}
 	require.NoError(t, json.Unmarshal(resp.Body, &buckets))
 	require.Len(t, buckets.Items, 1, "%s", resp.Body)
 	assert.Equal(t, "homes", buckets.Items[0].Name, "only the bucket of the home directory is visible")
+	assert.True(t, buckets.Items[0].Partial)
+	assert.Zero(t, buckets.Items[0].Objects, "no usage of the whole bucket")
 
+	// The page of the bucket opens, without the statistics, settings and
+	// tags of the whole bucket (regression: they were all disclosed).
+	root := e.consoleLogin(e.rootCreds())
+	require.Equal(t, http.StatusOK, root.do(http.MethodPut, "/buckets/homes/tags", `{"tags":{"team":"secret"}}`).StatusCode)
 	resp = gina.do(http.MethodGet, "/buckets/homes", "")
-	assert.Equal(t, http.StatusOK, resp.StatusCode, "the page of the bucket opens: %s", resp.Body)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "the page of the bucket opens: %s", resp.Body)
+	var page summary
+	require.NoError(t, json.Unmarshal(resp.Body, &page))
+	assert.Equal(t, summary{Name: "homes", Tags: map[string]string{}, Partial: true}, page)
+	resp = root.do(http.MethodGet, "/buckets/homes", "")
+	require.Equal(t, http.StatusOK, resp.StatusCode, "%s", resp.Body)
+	var whole summary
+	require.NoError(t, json.Unmarshal(resp.Body, &whole))
+	assert.Equal(t, summary{Name: "homes", Objects: 2, Size: 12, Tags: map[string]string{"team": "secret"}}, whole, "root sees the whole bucket")
 	assert.Equal(t, http.StatusForbidden, gina.do(http.MethodGet, "/buckets/other", "").StatusCode)
 
 	resp = gina.do(http.MethodGet, "/buckets/homes/objects?prefix=home/gina/", "")
@@ -331,4 +378,184 @@ func TestConsoleHomeDirectory(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	assert.Equal(t, "new", string(resp.Body))
 	assert.Equal(t, http.StatusForbidden, gina.do(http.MethodGet, "/buckets/homes/objects/download?key=home/hugo/secret.txt", "").StatusCode)
+}
+
+// TestConsolePrefixShareLinks: a prefix shared from the console is handed
+// out one download link per object (GET /shares/{id}/links), each usable
+// without credentials and revoked with the share (D-SHR-01; regression:
+// the console showed the ListObjectsV2 URL of the prefix, an XML listing
+// that downloads nothing).
+func TestConsolePrefixShareLinks(t *testing.T) {
+	e := newEnv(t)
+	e.mkBucket("alpha")
+	e.put("alpha", "folder/a.txt", []byte("A"))
+	e.put("alpha", "folder/sub/b.txt", []byte("B"))
+	e.put("alpha", "other/c.txt", []byte("C"))
+	root := e.consoleLogin(e.rootCreds())
+
+	resp := root.do(http.MethodPost, "/buckets/alpha/objects/share", `{"key":"folder/","prefix":true,"expiresIn":3600}`)
+	require.Equal(t, http.StatusCreated, resp.StatusCode, "%s", resp.Body)
+	var sh struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Body, &sh))
+
+	type link struct {
+		Key string `json:"key"`
+		URL string `json:"url"`
+	}
+	var links []link
+	cursor := ""
+	for {
+		resp = root.do(http.MethodGet, "/shares/"+sh.ID+"/links?limit=1&cursor="+cursor, "")
+		require.Equal(t, http.StatusOK, resp.StatusCode, "%s", resp.Body)
+		var page struct {
+			Items      []link `json:"items"`
+			NextCursor string `json:"nextCursor"`
+		}
+		require.NoError(t, json.Unmarshal(resp.Body, &page))
+		links = append(links, page.Items...)
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	require.Len(t, links, 2)
+	assert.Equal(t, "folder/a.txt", links[0].Key)
+	assert.Equal(t, "folder/sub/b.txt", links[1].Key)
+	for i, want := range []string{"A", "B"} {
+		resp = do(t, newRequest(t, http.MethodGet, links[i].URL, nil))
+		require.Equal(t, http.StatusOK, resp.StatusCode, "%s: %s", links[i].Key, resp.Body)
+		assert.Equal(t, want, string(resp.Body))
+	}
+
+	// An object share has no per-object links.
+	resp = root.do(http.MethodPost, "/buckets/alpha/objects/share", `{"key":"other/c.txt","expiresIn":3600}`)
+	require.Equal(t, http.StatusCreated, resp.StatusCode, "%s", resp.Body)
+	var single struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Body, &single))
+	assert.Equal(t, http.StatusBadRequest, root.do(http.MethodGet, "/shares/"+single.ID+"/links", "").StatusCode)
+
+	// Revoking the share revokes every link at once.
+	require.Equal(t, http.StatusNoContent, root.do(http.MethodDelete, "/shares/"+sh.ID, "").StatusCode)
+	for _, l := range links {
+		resp = do(t, newRequest(t, http.MethodGet, l.URL, nil))
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode, "%s after the revocation", l.Key)
+	}
+}
+
+// TestConsoleRootAccessSetting: api.root_access=off, written through the
+// Admin API, denies the root credentials on the S3 API at the next request
+// (hot reload) while the console and the service accounts of root keep
+// working; turning it back on restores them (S-OPS-01; regression: the key
+// was validated, stored and shown but nothing applied it).
+func TestConsoleRootAccessSetting(t *testing.T) {
+	e := newEnv(t)
+	e.mkBucket("ops")
+	e.put("ops", "a.txt", []byte("A"))
+	root := e.consoleLogin(e.rootCreds())
+	resp := root.do(http.MethodPost, "/access-keys", `{"accessKey":"rootsvc","secretKey":"rootsvc-secret-1"}`)
+	require.Equal(t, http.StatusCreated, resp.StatusCode, "%s", resp.Body)
+	svc := e.client("rootsvc", "rootsvc-secret-1", "")
+
+	resp = root.do(http.MethodPut, "/config/api", `{"settings":{"root_access":"off"}}`)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "%s", resp.Body)
+	_, err := e.root.ListBuckets(e.ctx, &s3.ListBucketsInput{})
+	require.Error(t, err)
+	assert.Equal(t, http.StatusForbidden, httpStatus(err), "root is denied on the S3 API: %v", err)
+	_, err = e.root.GetObject(e.ctx, &s3.GetObjectInput{Bucket: aws.String("ops"), Key: aws.String("a.txt")})
+	assert.Equal(t, http.StatusForbidden, httpStatus(err))
+	out, err := svc.GetObject(e.ctx, &s3.GetObjectInput{Bucket: aws.String("ops"), Key: aws.String("a.txt")})
+	require.NoError(t, err, "the service accounts of root keep working")
+	_ = out.Body.Close()
+	assert.Equal(t, http.StatusOK, root.do(http.MethodGet, "/buckets", "").StatusCode, "the console keeps working")
+
+	resp = root.do(http.MethodPut, "/config/api", `{"settings":{"root_access":"on"}}`)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "%s", resp.Body)
+	_, err = e.root.ListBuckets(e.ctx, &s3.ListBucketsInput{})
+	require.NoError(t, err, "root is allowed again")
+}
+
+// TestConsoleRevocations: rotating the secret of a user closes its console
+// sessions and revokes its managed share links (docs/09 §9.1 point 3), and
+// a logout survives a restart (regression: the session and the share link
+// kept answering 200 after the rotation, and the revocations of the
+// logouts lived in memory only).
+func TestConsoleRevocations(t *testing.T) {
+	e := newEnv(t)
+	e.mkBucket("rot")
+	e.put("rot", "a.txt", []byte("A"))
+	root := e.consoleLogin(e.rootCreds())
+	dave := e.consoleLogin(e.createUser("dave", "dave-secret-1", "readwrite"))
+	erin := e.consoleLogin(e.createUser("erin", "erin-secret-1", "readwrite"))
+
+	// The session of dave closes when its secret changes.
+	require.Equal(t, http.StatusOK, dave.do(http.MethodGet, "/buckets", "").StatusCode)
+	resp := root.do(http.MethodPut, "/users/dave", `{"secretKey":"dave-secret-2"}`)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "%s", resp.Body)
+	assert.Equal(t, http.StatusUnauthorized, dave.do(http.MethodGet, "/buckets", "").StatusCode)
+	assert.Equal(t, http.StatusOK, e.consoleLogin(creds{AccessKey: "dave", SecretKey: "dave-secret-2"}).do(http.MethodGet, "/buckets", "").StatusCode)
+
+	// The managed share links of erin stop working when its secret changes.
+	resp = erin.do(http.MethodPost, "/buckets/rot/objects/share", `{"key":"a.txt","expiresIn":3600}`)
+	require.Equal(t, http.StatusCreated, resp.StatusCode, "%s", resp.Body)
+	var sh struct {
+		URL string `json:"url"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Body, &sh))
+	require.Equal(t, http.StatusOK, do(t, newRequest(t, http.MethodGet, sh.URL, nil)).StatusCode)
+	resp = root.do(http.MethodPut, "/users/erin", `{"secretKey":"erin-secret-2"}`)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "%s", resp.Body)
+	assert.Equal(t, http.StatusForbidden, do(t, newRequest(t, http.MethodGet, sh.URL, nil)).StatusCode)
+
+	// A logged out session stays closed after a restart.
+	u, err := url.Parse(e.srv.ConsoleURL)
+	require.NoError(t, err)
+	cookies := root.client.Jar.Cookies(u)
+	require.NotEmpty(t, cookies)
+	require.Equal(t, http.StatusNoContent, root.do(http.MethodPost, "/auth/logout", "").StatusCode)
+	e.srv.Restart(t)
+	replay := newRequest(t, http.MethodGet, e.srv.ConsoleURL+"/api/v1/buckets", nil)
+	for _, c := range cookies {
+		replay.AddCookie(c)
+	}
+	assert.Equal(t, http.StatusUnauthorized, do(t, replay).StatusCode, "the revocation survives the restart")
+	// A session that was not closed survives the restart.
+	resp = e.consoleLogin(e.rootCreds()).do(http.MethodGet, "/buckets", "")
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+}
+
+// TestConsoleRestoreVersion: restoring a version from the console makes it
+// the latest again and keeps the history (D-OBJ-06); a Deny on the version
+// (s3:versionid) denies the restore as it denies its download.
+func TestConsoleRestoreVersion(t *testing.T) {
+	e := newEnv(t)
+	e.mkBucket("hist")
+	_, err := e.root.PutBucketVersioning(e.ctx, &s3.PutBucketVersioningInput{Bucket: aws.String("hist"),
+		VersioningConfiguration: &types.VersioningConfiguration{Status: types.BucketVersioningStatusEnabled}})
+	require.NoError(t, err)
+	put := func(body string) string {
+		out, err := e.root.PutObject(e.ctx, &s3.PutObjectInput{Bucket: aws.String("hist"), Key: aws.String("doc.txt"), Body: strings.NewReader(body)})
+		require.NoError(t, err)
+		return aws.ToString(out.VersionId)
+	}
+	v1, v2 := put("one"), put("two")
+	root := e.consoleLogin(e.rootCreds())
+	resp := root.do(http.MethodPost, "/buckets/hist/objects/restore?key=doc.txt&versionId="+v1, "")
+	require.Equal(t, http.StatusCreated, resp.StatusCode, "%s", resp.Body)
+	assert.Equal(t, []byte("one"), e.get("hist", "doc.txt"), "the restored content is the latest")
+	versions, err := e.root.ListObjectVersions(e.ctx, &s3.ListObjectVersionsInput{Bucket: aws.String("hist")})
+	require.NoError(t, err)
+	assert.Len(t, versions.Versions, 3, "the history is kept")
+
+	e.putBucketPolicy("hist", fmt.Sprintf(`{"Version":"2012-10-17","Statement":[
+		{"Effect":"Deny","Principal":{"AWS":["*"]},"Action":["s3:GetObjectVersion"],"Resource":"arn:aws:s3:::hist/*",
+		 "Condition":{"StringEquals":{"s3:versionid":[%q]}}}]}`, v2))
+	frank := e.consoleLogin(e.createUser("frank", "frank-secret-1", "readwrite"))
+	resp = frank.do(http.MethodPost, "/buckets/hist/objects/restore?key=doc.txt&versionId="+v2, "")
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode, "%s", resp.Body)
+	resp = frank.do(http.MethodPost, "/buckets/hist/objects/restore?key=doc.txt&versionId="+v1, "")
+	assert.Equal(t, http.StatusCreated, resp.StatusCode, "%s", resp.Body)
 }

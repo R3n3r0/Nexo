@@ -15,7 +15,7 @@ export interface paths {
         put?: never;
         /**
          * Open a console session
-         * @description Public endpoint. Sets the `nexo_session` (HttpOnly) and `nexo_csrf` cookies. After 5 failed attempts of a client on an access key (or 20 of a client on any key) within 5 minutes, the attempts are refused for a minute (429 `too_many_requests` with Retry-After), even with the right secret; the client is the peer of the connection or, behind the `--trusted-proxies`, the address they forward. Against login CSRF the body must be `application/json` (415 `unsupported_media_type`) and a browser request must not be cross-site (`Sec-Fetch-Site` `cross-site` or `same-site`: 403 `cross_site_request`).
+         * @description Public endpoint. Sets the `nexo_session` cookie (HttpOnly); the CSRF token is in the body (`csrfToken`), never in a cookie. After 5 failed attempts of a client on an access key (or 20 of a client on any key) within 5 minutes, the attempts are refused for a minute (429 `too_many_requests` with Retry-After), even with the right secret; the client is the peer of the connection or, behind the `--trusted-proxies`, the address they forward. Against login CSRF the body must be `application/json` (415 `unsupported_media_type`) and a browser request must not be cross-site (`Sec-Fetch-Site` `cross-site` or `same-site`: 403 `cross_site_request`).
          */
         post: operations["login"];
         delete?: never;
@@ -255,7 +255,10 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Get a bucket with its usage */
+        /**
+         * Get a bucket with its usage
+         * @description A caller that may list only a part of the bucket (s3:ListBucket under an s3:prefix condition, a home directory) gets its name, creation date and region only (partial).
+         */
         get: operations["getBucket"];
         put?: never;
         post?: never;
@@ -569,6 +572,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/buckets/{bucket}/objects/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make a previous version the latest again (copy of the version onto its key)
+         * @description Copies the version onto its own key with its content, metadata and tags: a new latest
+         *     version is created and the history is kept. Authorized like the S3 CopyObject it stands
+         *     for: s3:GetObjectVersion on the version (`s3:versionid` condition) and s3:PutObject on
+         *     the key. A delete marker cannot be restored (405).
+         */
+        post: operations["restoreObjectVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/buckets/{bucket}/objects/rename": {
         parameters: {
             query?: never;
@@ -697,7 +725,9 @@ export interface paths {
          *     streaming. Objects of the prefixes the caller may not read are listed in `nexo-zip-errors.txt`.
          *     The console submits the request as a form (`application/x-www-form-urlencoded`: the JSON
          *     `ZipRequest` in the field `request`, the CSRF token in the field `csrfToken`) so that the
-         *     browser streams the archive to disk instead of holding it in memory.
+         *     browser streams the archive to disk instead of holding it in memory. This is the only
+         *     operation that reads the CSRF token from a form field; the request must still come from
+         *     the console origin.
          */
         post: operations["downloadZip"];
         delete?: never;
@@ -910,6 +940,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/shares/{id}/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * One download link per object of a prefix share, revoked with the share
+         * @description Hands out a prefix download share one object at a time (as
+         *     `nexoctl share download --recursive`): a page of the objects under the
+         *     shared prefix, each with a URL signed by the share's service account
+         *     and valid until the share expires. The caller must see the share and
+         *     may list the prefix (s3:ListBucket); other shares are invalid_argument.
+         */
+        get: operations["listShareLinks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/presign": {
         parameters: {
             query?: never;
@@ -977,6 +1033,7 @@ export interface paths {
          */
         put: operations["updateUser"];
         post?: never;
+        /** @description Deletes the user with its access keys and STS credentials, then removes the records of its managed share links (their service accounts went with the user). */
         delete: operations["deleteUser"];
         options?: never;
         head?: never;
@@ -1463,6 +1520,8 @@ export interface components {
             tags: {
                 [key: string]: string;
             };
+            /** @description The caller may list only a part of the bucket (a home directory): the summary is restricted to the name, creation date and region, every other member is zero or empty. */
+            partial?: boolean;
         };
         BucketList: {
             items: components["schemas"]["Bucket"][];
@@ -1580,7 +1639,7 @@ export interface components {
         };
         DeleteObjectsRequest: {
             objects?: components["schemas"]["ObjectRef"][];
-            /** @description Deleted recursively ("" is the whole bucket). */
+            /** @description Folders deleted recursively ("" is the whole bucket). A prefix without a trailing slash names the folder of that name, as in the CLI: "photos" is "photos/", never "photos2/" nor "photosx.txt". */
             prefixes?: string[];
             /** @description Delete every version under the prefixes permanently. */
             allVersions?: boolean;
@@ -1604,7 +1663,7 @@ export interface components {
         RenameRequest: {
             source: string;
             destination: string;
-            /** @description Move every object under source (destination may not lie under it). */
+            /** @description Move every object of the folder source to the folder destination (which may not lie under it). Both name folders: a missing trailing slash is added ("photos" is "photos/", never "photos2/"). */
             prefix?: boolean;
             /** @description Replace existing destination objects (otherwise conflict). */
             overwrite?: boolean;
@@ -1625,8 +1684,9 @@ export interface components {
         };
         ZipRequest: {
             keys?: string[];
+            /** @description Folders archived recursively. A prefix without a trailing slash names the folder of that name ("photos" is "photos/", never "photos2/"). */
             prefixes?: string[];
-            /** @description Folder the archive names are relative to. */
+            /** @description Folder the archive names are relative to ("photos" is "photos/"). */
             base?: string;
         };
         CreateUploadRequest: {
@@ -1698,13 +1758,29 @@ export interface components {
             expiresAt: string;
             /** Format: date-time */
             createdAt: string;
-            /** @description GET/PUT URL of the object, ListObjectsV2 URL of a prefix download share, absent for prefix upload shares. */
+            /**
+             * @description GET/PUT URL of the object; for a prefix download share the
+             *     ListObjectsV2 URL of the prefix (an XML listing: the objects are
+             *     handed out by GET /shares/{id}/links); absent for prefix upload shares.
+             */
             url?: string;
             /** @description Service account signing the link (share-<id>). */
             accessKey: string;
         };
         ShareList: {
             items: components["schemas"]["Share"][];
+            nextCursor?: string;
+        };
+        ShareLink: {
+            key: string;
+            /** Format: int64 */
+            size: number;
+            /** @description Download URL signed by the share, revoked with it. */
+            url: string;
+        };
+        ShareLinkList: {
+            share: components["schemas"]["Share"];
+            items: components["schemas"]["ShareLink"][];
             nextCursor?: string;
         };
         CreateShareRequest: {
@@ -2047,6 +2123,11 @@ export interface components {
             default?: string;
             values?: string[];
             sensitive: boolean;
+            /**
+             * @description The server applies the key, on the next request (hot reload). The
+             *     other keys are validated and stored but have no effect yet.
+             */
+            applied: boolean;
         };
         ConfigSubsystemSchema: {
             name: string;
@@ -3117,6 +3198,35 @@ export interface operations {
             default: components["responses"]["Problem"];
         };
     };
+    restoreObjectVersion: {
+        parameters: {
+            query: {
+                key: string;
+                versionId: string;
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The new latest version. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectEntry"];
+                };
+            };
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            405: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
     renameObjects: {
         parameters: {
             query?: never;
@@ -3680,6 +3790,37 @@ export interface operations {
                 };
                 content?: never;
             };
+            404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    listShareLinks: {
+        parameters: {
+            query?: {
+                /** @description Opaque cursor of the next page (nextCursor of the previous one). */
+                cursor?: components["parameters"]["cursor"];
+                /** @description Page size, 1 to 1000 (default 1000). */
+                limit?: components["parameters"]["limit"];
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of the links. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareLinkList"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            403: components["responses"]["Problem"];
             404: components["responses"]["Problem"];
             default: components["responses"]["Problem"];
         };

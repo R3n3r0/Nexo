@@ -24,6 +24,7 @@ packages:
       AdminFactory:
       AliasService:
       ConfigStore:
+      Mirrorer:
       S3Client:
       S3Factory:
   github.com/r3n3r0/nexo/internal/service/admin:
@@ -33,6 +34,7 @@ packages:
       Authorizer:
       BucketManager:
       ObjectBrowser:
+      UploadManager:
       ShareManager:
       IdentityManager:
       AccessKeyManager:
@@ -93,6 +95,9 @@ packages:
     interfaces:
       Service:
   github.com/r3n3r0/nexo/internal/service/share:
+    interfaces:
+      Service:
+  github.com/r3n3r0/nexo/internal/service/settings:
     interfaces:
       Service:
   github.com/r3n3r0/nexo/internal/service/storage:
