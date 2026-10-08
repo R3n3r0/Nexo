@@ -128,6 +128,17 @@ type PolicyStore interface {
 	ListAttached(ctx context.Context, kind EntityKind) (map[string][]string, error)
 }
 
+// SharedStore is a PolicyStore shared by the nodes of a deployment
+// (NewDocsStore, on the replicated system documents of the erasure-coded
+// modes): it caches the policies, and Invalidate drops the cache when
+// another node changed them (peer notification, docs/03 §3.9).
+type SharedStore interface {
+	PolicyStore
+	// Invalidate drops the cached policies: the next call reloads them.
+	// It does no I/O.
+	Invalidate(ctx context.Context)
+}
+
 // Action is a policy action name such as "s3:GetObject" or "admin:ServerInfo".
 type Action string
 

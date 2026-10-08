@@ -1,4 +1,4 @@
-package storage_test
+package storagetest
 
 import (
 	"context"
@@ -18,111 +18,142 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/storage"
-	"github.com/r3n3r0/nexo/internal/testutil"
 )
 
-// expectedWalk computes the recursive walk of a set of keys: every object
-// and every prefix, in byte order, an object before the prefix of the same
-// name.
-func expectedWalk(keys []string) []string {
-	type entry struct {
-		name string
-		dir  bool
-	}
-	seen := map[entry]bool{}
-	var entries []entry
-	for _, k := range keys {
-		e := entry{name: k}
-		if !seen[e] {
-			seen[e] = true
-			entries = append(entries, e)
-		}
-		for i := 0; i < len(k)-1; i++ {
-			if k[i] == '/' {
-				p := entry{name: k[:i+1], dir: true}
-				if !seen[p] {
-					seen[p] = true
-					entries = append(entries, p)
-				}
-			}
-		}
-	}
-	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].name != entries[j].name {
-			return entries[i].name < entries[j].name
-		}
-		return !entries[i].dir
-	})
-	out := make([]string, 0, len(entries))
-	for _, e := range entries {
-		if e.dir {
-			out = append(out, "D:"+e.name)
-		} else {
-			out = append(out, e.name)
-		}
-	}
-	return out
-}
-
-func walkNames(t *testing.T, s storage.StorageAPI, opts storage.WalkDirOptions) []string {
-	t.Helper()
-	var out []string
-	require.NoError(t, s.WalkDir(context.Background(), opts, func(e storage.WalkEntry) error {
-		if e.IsDir {
-			out = append(out, "D:"+e.Name)
-			return nil
-		}
-		infos, err := storage.DecodeFileInfos(opts.Bucket, e.Name, e.Metadata)
-		if err != nil {
-			return err
-		}
-		if len(infos) == 0 || infos[0].Data != nil {
-			return fmt.Errorf("%s: walk entries carry metadata only", e.Name)
-		}
-		out = append(out, e.Name)
-		return nil
-	}))
-	return out
-}
-
-func writeKeys(t *testing.T, s storage.StorageAPI, volume string, keys []string) {
-	t.Helper()
+func testWalkDir(t *testing.T, f Factory) {
 	ctx := context.Background()
+	s, dir := open(t, f)
+	require.NoError(t, s.MakeVol(ctx, "b"))
 	now := time.Now()
-	run(t, 8, func(w int) error {
-		for i := w; i < len(keys); i += 8 {
-			if err := s.WriteMetadata(ctx, volume, keys[i], storage.FileInfo{ModTime: now, Size: 1, Data: []byte("x")}); err != nil {
-				return fmt.Errorf("%s: %w", keys[i], err)
+	for _, k := range []string{"a-b", "a.txt", "a/x", "a/y/z", "b.txt", "photos/", "photos/1.jpg", "photos/2024/a.jpg", "zeta"} {
+		require.NoError(t, s.WriteMetadata(ctx, "b", k, version("", now, 1)), k)
+	}
+	// A stray file at the volume root is ignored.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "b", "stray"), []byte("x"), 0o600))
+
+	collect := func(opts storage.WalkDirOptions, fn func(e storage.WalkEntry) error) ([]string, error) {
+		var out []string
+		err := s.WalkDir(ctx, opts, func(e storage.WalkEntry) error {
+			name := e.Name
+			if e.IsDir {
+				name = "D:" + name
+			} else {
+				require.NotEmpty(t, e.Metadata, name)
+				fis, err := storage.DecodeFileInfos("b", e.Name, e.Metadata)
+				require.NoError(t, err)
+				require.Len(t, fis, 1)
+				assert.Equal(t, e.Name, fis[0].Name)
 			}
+			out = append(out, name)
+			if fn != nil {
+				return fn(e)
+			}
+			return nil
+		})
+		return out, err
+	}
+
+	// Non-recursive: S3 key order ("a-b" < "a.txt" < "a/"), the directory
+	// object "photos/" before the prefix of the same name.
+	got, err := collect(storage.WalkDirOptions{Bucket: "b"}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a-b", "a.txt", "D:a/", "b.txt", "photos/", "D:photos/", "zeta"}, got)
+
+	// Recursive.
+	got, err = collect(storage.WalkDirOptions{Bucket: "b", Recursive: true}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a-b", "a.txt", "D:a/", "a/x", "D:a/y/", "a/y/z", "b.txt", "photos/", "D:photos/", "photos/1.jpg", "D:photos/2024/", "photos/2024/a.jpg", "zeta"}, got)
+
+	// SkipDir skips the content of a prefix.
+	got, err = collect(storage.WalkDirOptions{Bucket: "b", Recursive: true}, func(e storage.WalkEntry) error {
+		if e.IsDir && e.Name == "photos/" {
+			return fs.SkipDir
 		}
 		return nil
 	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a-b", "a.txt", "D:a/", "a/x", "D:a/y/", "a/y/z", "b.txt", "photos/", "D:photos/", "zeta"}, got)
+
+	// SkipDir on a directory object skips the rest of its directory.
+	got, err = collect(storage.WalkDirOptions{Bucket: "b", Recursive: true}, func(e storage.WalkEntry) error {
+		if !e.IsDir && e.Name == "photos/" {
+			return fs.SkipDir
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a-b", "a.txt", "D:a/", "a/x", "D:a/y/", "a/y/z", "b.txt", "photos/"}, got)
+
+	// BaseDir + FilterPrefix + ForwardTo + Limit.
+	got, err = collect(storage.WalkDirOptions{Bucket: "b", BaseDir: "photos", Recursive: true}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"photos/1.jpg", "D:photos/2024/", "photos/2024/a.jpg"}, got)
+	got, err = collect(storage.WalkDirOptions{Bucket: "b", FilterPrefix: "a", Recursive: true}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a-b", "a.txt", "D:a/", "a/x", "D:a/y/", "a/y/z"}, got)
+	got, err = collect(storage.WalkDirOptions{Bucket: "b", FilterPrefix: "a/y/", Recursive: true}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"D:a/", "D:a/y/", "a/y/z"}, got)
+	got, err = collect(storage.WalkDirOptions{Bucket: "b", Recursive: true, ForwardTo: "b"}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"b.txt", "photos/", "D:photos/", "photos/1.jpg", "D:photos/2024/", "photos/2024/a.jpg", "zeta"}, got)
+	got, err = collect(storage.WalkDirOptions{Bucket: "b", Recursive: true, ForwardTo: "photos/2"}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"D:photos/", "D:photos/2024/", "photos/2024/a.jpg", "zeta"}, got)
+	got, err = collect(storage.WalkDirOptions{Bucket: "b", Recursive: true, Limit: 3}, nil)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a-b", "a.txt", "D:a/", "a/x"}, got, "prefixes do not count toward the limit")
+	// Entries skipped by the callback do not count toward the limit.
+	got, err = collect(storage.WalkDirOptions{Bucket: "b", Recursive: true, Limit: 3}, func(e storage.WalkEntry) error {
+		if e.IsDir && e.Name == "a/" {
+			return fs.SkipDir
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a-b", "a.txt", "D:a/", "b.txt"}, got)
+
+	// Errors from the callback propagate; missing base dirs are reported on request.
+	boom := errors.New("boom")
+	_, err = collect(storage.WalkDirOptions{Bucket: "b"}, func(storage.WalkEntry) error { return boom })
+	assert.ErrorIs(t, err, boom)
+	got, err = collect(storage.WalkDirOptions{Bucket: "b", BaseDir: "nothing"}, nil)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+	_, err = collect(storage.WalkDirOptions{Bucket: "b", BaseDir: "nothing", ReportNotFound: true}, nil)
+	assert.ErrorIs(t, err, domain.ErrObjectNotFound)
+	_, err = collect(storage.WalkDirOptions{Bucket: "nobucket"}, nil)
+	assert.ErrorIs(t, err, domain.ErrBucketNotFound)
+	assert.ErrorIs(t, s.WalkDir(ctx, storage.WalkDirOptions{Bucket: "b"}, nil), domain.ErrInvalidArgument)
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	assert.ErrorIs(t, s.WalkDir(canceled, storage.WalkDirOptions{Bucket: "b"}, func(storage.WalkEntry) error { return nil }), context.Canceled)
 }
 
-// TestWalkDirOrder covers the keys whose order depends on the bytes that
+// testWalkDirOrder covers the keys whose order depends on the bytes that
 // sort before '/' (space, '!', '-', '.') and on directory objects.
-func TestWalkDirOrder(t *testing.T) {
+func testWalkDirOrder(t *testing.T, f Factory) {
 	// Objects whose name is the start of other names ("a" vs "a b", "a/").
 	objects := []string{
 		"a", "a!", "a b", "a-b", "a.txt", "a/", "a0", "b/c/d", "b/c!", "b/c/",
 		"c-d/e", "c/", "c/f", "file", "file.txt", "file-1/x", "z!/a", "z/a",
 	}
-	s := testutil.NewLocalDrive(t, "")
+	s, _ := open(t, f)
 	require.NoError(t, s.MakeVol(context.Background(), "b"))
 	writeKeys(t, s, "b", objects)
 	assert.Equal(t, expectedWalk(objects), walkNames(t, s, storage.WalkDirOptions{Bucket: "b", Recursive: true}))
 
 	// Prefixes ordered among objects ("a0" vs "a/", "c-d/" vs "c/").
-	s2 := testutil.NewLocalDrive(t, "")
+	s2, _ := open(t, f)
 	require.NoError(t, s2.MakeVol(context.Background(), "b"))
 	prefixed := []string{"a/", "a/x", "a/ y", "a/!z", "a!", "a b", "a-b", "a.txt", "a0", "c-d/e", "c/", "c/f", "c!", "file/sub", "file.txt", "file-1/x"}
 	writeKeys(t, s2, "b", prefixed)
 	assert.Equal(t, expectedWalk(prefixed), walkNames(t, s2, storage.WalkDirOptions{Bucket: "b", Recursive: true}))
 }
 
-func TestWalkDirTenThousandKeys(t *testing.T) {
+func testWalkDirTenThousandKeys(t *testing.T, f Factory) {
 	ctx := context.Background()
-	s := testutil.NewLocalDrive(t, "")
+	s, _ := open(t, f)
 	require.NoError(t, s.MakeVol(ctx, "b"))
 	rng := rand.New(rand.NewPCG(1, 2))
 	alphabet := []rune("ab-._ ~!+%é文Z09")
@@ -189,10 +220,9 @@ func TestWalkDirTenThousandKeys(t *testing.T) {
 	assert.Equal(t, wantBranch, objectNames(t, s, storage.WalkDirOptions{Bucket: "b", FilterPrefix: branch + "/", Recursive: true}))
 }
 
-func TestWalkDirControl(t *testing.T) {
+func testWalkDirControl(t *testing.T, f Factory) {
 	ctx := context.Background()
-	dir := filepath.Join(t.TempDir(), "drive")
-	s := testutil.NewLocalDrive(t, dir)
+	s, dir := open(t, f)
 	require.NoError(t, s.MakeVol(ctx, "b"))
 	writeKeys(t, s, "b", []string{"a/1", "a/2", "a/3", "b/1", "c"})
 
@@ -249,6 +279,14 @@ func TestWalkDirControl(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrAccessDenied, "links are never followed")
 	err = s.WalkDir(ctx, storage.WalkDirOptions{Bucket: "b", BaseDir: "../x"}, func(storage.WalkEntry) error { return nil })
 	assert.ErrorIs(t, err, domain.ErrInvalidObjectName)
+
+	// SkipDir in a base directory ends the walk.
+	got = nil
+	require.NoError(t, s.WalkDir(ctx, storage.WalkDirOptions{Bucket: "b", BaseDir: "a", Recursive: true}, func(e storage.WalkEntry) error {
+		got = append(got, e.Name)
+		return fs.SkipDir
+	}))
+	assert.Equal(t, []string{"a/1"}, got)
 
 	// Errors of the callback and of the metadata reads propagate.
 	boom := errors.New("boom")

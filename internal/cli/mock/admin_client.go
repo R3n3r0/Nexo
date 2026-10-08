@@ -1355,23 +1355,23 @@ func (_c *AdminClient_GetUser_Call) RunAndReturn(run func(context.Context, strin
 }
 
 // Heal provides a mock function with given fields: ctx, in
-func (_m *AdminClient) Heal(ctx context.Context, in nexoadmin.HealRequest) (*nexoadmin.HealResult, error) {
+func (_m *AdminClient) Heal(ctx context.Context, in nexoadmin.HealRequest) (*nexoadmin.HealJob, error) {
 	ret := _m.Called(ctx, in)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Heal")
 	}
 
-	var r0 *nexoadmin.HealResult
+	var r0 *nexoadmin.HealJob
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, nexoadmin.HealRequest) (*nexoadmin.HealResult, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, nexoadmin.HealRequest) (*nexoadmin.HealJob, error)); ok {
 		return rf(ctx, in)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, nexoadmin.HealRequest) *nexoadmin.HealResult); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, nexoadmin.HealRequest) *nexoadmin.HealJob); ok {
 		r0 = rf(ctx, in)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*nexoadmin.HealResult)
+			r0 = ret.Get(0).(*nexoadmin.HealJob)
 		}
 	}
 
@@ -1403,12 +1403,71 @@ func (_c *AdminClient_Heal_Call) Run(run func(ctx context.Context, in nexoadmin.
 	return _c
 }
 
-func (_c *AdminClient_Heal_Call) Return(_a0 *nexoadmin.HealResult, _a1 error) *AdminClient_Heal_Call {
+func (_c *AdminClient_Heal_Call) Return(_a0 *nexoadmin.HealJob, _a1 error) *AdminClient_Heal_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *AdminClient_Heal_Call) RunAndReturn(run func(context.Context, nexoadmin.HealRequest) (*nexoadmin.HealResult, error)) *AdminClient_Heal_Call {
+func (_c *AdminClient_Heal_Call) RunAndReturn(run func(context.Context, nexoadmin.HealRequest) (*nexoadmin.HealJob, error)) *AdminClient_Heal_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// HealStatus provides a mock function with given fields: ctx, id
+func (_m *AdminClient) HealStatus(ctx context.Context, id string) (*nexoadmin.HealJob, error) {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for HealStatus")
+	}
+
+	var r0 *nexoadmin.HealJob
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*nexoadmin.HealJob, error)); ok {
+		return rf(ctx, id)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *nexoadmin.HealJob); ok {
+		r0 = rf(ctx, id)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.HealJob)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_HealStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HealStatus'
+type AdminClient_HealStatus_Call struct {
+	*mock.Call
+}
+
+// HealStatus is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+func (_e *AdminClient_Expecter) HealStatus(ctx interface{}, id interface{}) *AdminClient_HealStatus_Call {
+	return &AdminClient_HealStatus_Call{Call: _e.mock.On("HealStatus", ctx, id)}
+}
+
+func (_c *AdminClient_HealStatus_Call) Run(run func(ctx context.Context, id string)) *AdminClient_HealStatus_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_HealStatus_Call) Return(_a0 *nexoadmin.HealJob, _a1 error) *AdminClient_HealStatus_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_HealStatus_Call) RunAndReturn(run func(context.Context, string) (*nexoadmin.HealJob, error)) *AdminClient_HealStatus_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1632,6 +1691,64 @@ func (_c *AdminClient_ListGroups_Call) Return(_a0 *nexoadmin.GroupList, _a1 erro
 }
 
 func (_c *AdminClient_ListGroups_Call) RunAndReturn(run func(context.Context, nexoadmin.ListOptions) (*nexoadmin.GroupList, error)) *AdminClient_ListGroups_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListHeals provides a mock function with given fields: ctx
+func (_m *AdminClient) ListHeals(ctx context.Context) (*nexoadmin.HealJobList, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListHeals")
+	}
+
+	var r0 *nexoadmin.HealJobList
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (*nexoadmin.HealJobList, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) *nexoadmin.HealJobList); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.HealJobList)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_ListHeals_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListHeals'
+type AdminClient_ListHeals_Call struct {
+	*mock.Call
+}
+
+// ListHeals is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) ListHeals(ctx interface{}) *AdminClient_ListHeals_Call {
+	return &AdminClient_ListHeals_Call{Call: _e.mock.On("ListHeals", ctx)}
+}
+
+func (_c *AdminClient_ListHeals_Call) Run(run func(ctx context.Context)) *AdminClient_ListHeals_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_ListHeals_Call) Return(_a0 *nexoadmin.HealJobList, _a1 error) *AdminClient_ListHeals_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_ListHeals_Call) RunAndReturn(run func(context.Context) (*nexoadmin.HealJobList, error)) *AdminClient_ListHeals_Call {
 	_c.Call.Return(run)
 	return _c
 }

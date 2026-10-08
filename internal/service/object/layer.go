@@ -35,13 +35,14 @@ const (
 
 // layer holds the S3 logic shared by the filesystem and erasure
 // implementations. Every object lives in exactly one store (erasure set),
-// chosen by pick; buckets exist in every store.
+// chosen by place; buckets exist in every store.
 type layer struct {
 	deps Deps
 	opts options
-	sets []store
-	pick func(key string) store
-	name string
+	// sets are all the stores, pool by pool.
+	sets  []store
+	place placement
+	name  string
 }
 
 func newLayer(deps Deps, opts []Option, sets []store, name string) *layer {
@@ -57,13 +58,14 @@ func newLayer(deps Deps, opts []Option, sets []store, name string) *layer {
 	if deps.IDs == nil {
 		deps.IDs = uuidV7{}
 	}
+	if deps.Heal == nil {
+		deps.Heal = &noopHeal{}
+	}
 	o := defaultOptions()
 	for _, opt := range opts {
 		opt(&o)
 	}
-	l := &layer{deps: deps, opts: o, sets: sets, name: name}
-	l.pick = func(string) store { return sets[0] }
-	return l
+	return &layer{deps: deps, opts: o, sets: sets, place: fixedPlacement{st: sets[0]}, name: name}
 }
 
 func (l *layer) now() time.Time { return l.deps.Clock.Now().UTC() }
@@ -235,7 +237,7 @@ func (l *layer) bucketConfig(ctx context.Context, bucket string) (BucketConfig, 
 }
 
 // statBucket fails with domain.ErrBucketNotFound when the bucket is missing
-// from the store holding key.
+// from the store st.
 func (l *layer) statBucket(ctx context.Context, st store, bucket string) error {
 	if _, err := st.StatVol(ctx, bucket); err != nil {
 		return fmt.Errorf("%s: bucket %s: %w", l.name, bucket, err)

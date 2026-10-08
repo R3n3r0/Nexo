@@ -28,6 +28,10 @@ type Service interface {
 	// until ctx is canceled, when it is closed. Slow consumers may miss
 	// intermediate changes; they should re-read the subsystem.
 	Watch(ctx context.Context) <-chan Change
+	// Reload re-reads the configuration from the Store and notifies the
+	// watchers of every subsystem that changed: the peers of a cluster
+	// call it when another node changed the configuration (docs/03 §3.9).
+	Reload(ctx context.Context) error
 }
 
 // Change describes a configuration mutation.

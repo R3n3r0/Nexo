@@ -29,9 +29,28 @@ type DiskInfo struct {
 	FSType     string
 	RootDisk   bool
 	Healing    bool
-	Scanning   bool
+	// HealingProgress is the progress of the healing of the drive (a
+	// replaced or wiped drive being repopulated), nil when not healing.
+	HealingProgress *HealingProgress
+	Scanning        bool
 	// Error is set when the drive could not be queried.
 	Error string
+}
+
+// HealingProgress is the progress of the healing of a drive, from its
+// healing tracker.
+type HealingProgress struct {
+	Started    time.Time
+	LastUpdate time.Time
+	// Bucket and Object are the last item healed.
+	Bucket string
+	Object string
+	// HealedBuckets counts the buckets completely healed.
+	HealedBuckets int
+	ObjectsHealed uint64
+	ObjectsFailed uint64
+	BytesDone     uint64
+	BytesFailed   uint64
 }
 
 // NodeInfo describes a server node.

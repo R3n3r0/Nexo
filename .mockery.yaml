@@ -52,10 +52,25 @@ packages:
     interfaces:
       Service:
       MetadataStore:
+  github.com/r3n3r0/nexo/internal/service/cluster:
+    interfaces:
+      Notifier:
+      Handler:
+      Peer:
+      BootstrapPeer:
+      Bootstrapper:
+      LeaderListener:
+      Leader:
+      Info:
   github.com/r3n3r0/nexo/internal/service/config:
     interfaces:
       Service:
       Store:
+  github.com/r3n3r0/nexo/internal/service/erasure:
+    interfaces:
+      Codec:
+      Factory:
+      ShardReader:
   github.com/r3n3r0/nexo/internal/service/event:
     interfaces:
       Service:
@@ -63,6 +78,10 @@ packages:
       Target:
       TargetFactory:
       HTTPDoer:
+  github.com/r3n3r0/nexo/internal/service/heal:
+    interfaces:
+      Service:
+      Queue:
   github.com/r3n3r0/nexo/internal/service/health:
     interfaces:
       Service:
@@ -75,6 +94,8 @@ packages:
       Locker:
       NSLock:
       LockContext:
+      Server:
+      Manager:
   github.com/r3n3r0/nexo/internal/service/metrics:
     interfaces:
       Registry:
@@ -85,12 +106,20 @@ packages:
     interfaces:
       Service:
       BucketConfigSource:
+      HealNotifier:
+      Healer:
   github.com/r3n3r0/nexo/internal/service/policy:
     interfaces:
       Service:
       PolicyStore:
       Attachments:
       BucketPolicyProvider:
+      SharedStore:
+  github.com/r3n3r0/nexo/internal/service/scanner:
+    interfaces:
+      Service:
+      LoadSampler:
+      Lifecycle:
   github.com/r3n3r0/nexo/internal/service/session:
     interfaces:
       Service:
@@ -104,6 +133,9 @@ packages:
     interfaces:
       StorageAPI:
       Formatter:
+  github.com/r3n3r0/nexo/internal/service/sysstore:
+    interfaces:
+      Store:
   github.com/r3n3r0/nexo/internal/service/topology:
     interfaces:
       Service:
@@ -152,3 +184,14 @@ packages:
       ObjectRoutes:
       ShareRoutes:
       ConfigRoutes:
+  github.com/r3n3r0/nexo/internal/transport/rpc:
+    interfaces:
+      Routes:
+      StorageRoutes:
+      LockRoutes:
+      PeerRoutes:
+      BootstrapRoutes:
+      Server:
+      Authenticator:
+      Conn:
+      MsgStream:

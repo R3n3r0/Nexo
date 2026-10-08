@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -24,21 +25,41 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/iam"
 )
 
-// tmpDir is the directory of the in-progress writes of the test drive.
-func tmpDir(e *env) string {
-	return filepath.Join(e.srv.Dir, "data", ".nexo.sys", "tmp")
+// tmpDirs are the directories of the in-progress writes of the drives of
+// the deployment.
+func tmpDirs(e *env) []string {
+	var out []string
+	for _, d := range e.srv.DriveDirs() {
+		out = append(out, filepath.Join(d, ".nexo.sys", "tmp"))
+	}
+	return out
 }
 
-// assertNoTmp checks that no in-progress write is left in the drive.
+// tmpEntries lists the in-progress writes left in the drives (a drive
+// without its temporary area counts as empty).
+func tmpEntries(e *env) ([]string, error) {
+	var names []string
+	for _, dir := range tmpDirs(e) {
+		entries, err := os.ReadDir(dir)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		for _, en := range entries {
+			names = append(names, filepath.Join(dir, en.Name()))
+		}
+	}
+	return names, nil
+}
+
+// assertNoTmp checks that no in-progress write is left in the drives.
 func assertNoTmp(t *testing.T, e *env) {
 	t.Helper()
-	entries, err := os.ReadDir(tmpDir(e))
+	names, err := tmpEntries(e)
 	require.NoError(t, err)
-	var names []string
-	for _, en := range entries {
-		names = append(names, en.Name())
-	}
-	assert.Empty(t, names, "temporary files left in %s", tmpDir(e))
+	assert.Empty(t, names, "temporary files left in the drives")
 }
 
 // TS-I-17: after a restart on the same directory every object, version,
@@ -276,7 +297,7 @@ func TestInterruptedUpload(t *testing.T) {
 
 		// The server notices the broken body and cleans up.
 		require.Eventually(t, func() bool {
-			entries, err := os.ReadDir(tmpDir(e))
+			entries, err := tmpEntries(e)
 			return err == nil && len(entries) == 0
 		}, 10*time.Second, 20*time.Millisecond, "the temporary data of the aborted upload is removed")
 		_, err = e.root.HeadObject(e.ctx, &s3.HeadObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
@@ -314,7 +335,7 @@ func TestInterruptedUpload(t *testing.T) {
 	cancel()
 	require.Error(t, <-done)
 	require.Eventually(t, func() bool {
-		entries, err := os.ReadDir(tmpDir(e))
+		entries, err := tmpEntries(e)
 		return err == nil && len(entries) == 0
 	}, 10*time.Second, 20*time.Millisecond, "the temporary data of the aborted part is removed")
 	parts, err := e.root.ListParts(e.ctx, &s3.ListPartsInput{Bucket: aws.String(bucket), Key: aws.String("parts.bin"), UploadId: mpu.UploadId})
@@ -326,7 +347,7 @@ func TestInterruptedUpload(t *testing.T) {
 	// A hard crash leaves temporary data behind: simulate it while the
 	// server is down, the restart removes it.
 	e.srv.Stop(t)
-	leftover := filepath.Join(tmpDir(e), "0192f2c4-dead-7000-8000-000000000000")
+	leftover := filepath.Join(tmpDirs(e)[0], "0192f2c4-dead-7000-8000-000000000000")
 	require.NoError(t, os.MkdirAll(filepath.Join(leftover, "data-dir"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(leftover, "data-dir", "part.1"), pseudoRandom(1, 1<<20), 0o644))
 	e.srv.Restart(t)

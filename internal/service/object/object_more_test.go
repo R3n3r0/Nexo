@@ -509,7 +509,7 @@ func TestHealthAndFaultTolerance(t *testing.T) {
 		_, err = svc.GetObjectInfo(ctx, "bkt", "k", object.GetObjectOptions{})
 		assert.Error(t, err)
 		_, err = svc.ListBuckets(ctx)
-		require.NoError(t, err, "one drive still answers listings")
+		require.ErrorIs(t, err, domain.ErrReadQuorum, "one drive is not a read quorum")
 	})
 }
 

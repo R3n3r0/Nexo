@@ -101,6 +101,10 @@ var (
 	ErrFormatMismatch = errors.New("on-disk format mismatch")
 	// ErrInvalidLayout reports an inconsistent deployment topology.
 	ErrInvalidLayout = errors.New("invalid deployment layout")
+	// ErrNodeOffline reports a peer node that cannot be reached (connection
+	// refused, circuit breaker open). Remote drives of an offline node
+	// report ErrDiskNotFound as well.
+	ErrNodeOffline = errors.New("node offline")
 
 	// Requests.
 	ErrInvalidArgument  = errors.New("invalid argument")

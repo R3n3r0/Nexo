@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,7 +20,9 @@ import (
 	"github.com/r3n3r0/nexo/internal/app"
 	"github.com/r3n3r0/nexo/internal/config"
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/bucket"
 	"github.com/r3n3r0/nexo/internal/service/iam"
+	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
 
@@ -134,13 +137,53 @@ func TestAuditRecordsRejectedRequests(t *testing.T) {
 	assert.Empty(t, rejected["access_key"], "no identity was established")
 }
 
-func TestBuildErasureModesNotYetServed(t *testing.T) {
+// TestBuildSNMD: a single node with four drives runs the erasure-coded
+// layer; the system documents (IAM, configuration) are replicated on the
+// drives of the erasure set and survive a restart.
+func TestBuildSNMD(t *testing.T) {
+	ctx := context.Background()
 	dir := t.TempDir()
 	cfg := testConfig(t, filepath.Join(dir, "d1"), filepath.Join(dir, "d2"), filepath.Join(dir, "d3"), filepath.Join(dir, "d4"))
-	_, err := app.Build(context.Background(), cfg, app.WithLogger(slog.New(slog.DiscardHandler)))
-	require.ErrorIs(t, err, domain.ErrNotImplemented)
-	assert.Contains(t, err.Error(), "M5")
-	assert.NoDirExists(t, filepath.Join(dir, "d1", domain.SystemBucket), "no drive is formatted")
+	logger := app.WithLogger(slog.New(slog.DiscardHandler))
+	a, err := app.Build(ctx, cfg, logger, app.WithStopTimeout(5*time.Second))
+	require.NoError(t, err)
+	assert.Equal(t, domain.ModeSNMD, a.Mode())
+	assert.Equal(t, "local", a.NodeID())
+	require.NoError(t, a.Start(ctx))
+	assert.True(t, a.IsLeader(), "a single node leads its background jobs")
+
+	_, err = a.IAM().CreateUser(ctx, iam.CreateUserInput{AccessKey: "reader", SecretKey: "reader-secret", PolicyNames: []string{"readonly"}})
+	require.NoError(t, err)
+	_, err = a.Buckets().Create(ctx, bucket.CreateInput{Name: "photos"})
+	require.NoError(t, err)
+	_, err = a.Objects().PutObject(ctx, object.PutObjectInput{Bucket: "photos", Key: "a.txt", Reader: strings.NewReader("hello"), Size: 5})
+	require.NoError(t, err)
+	for _, d := range []string{"d1", "d2", "d3", "d4"} {
+		assert.FileExists(t, filepath.Join(dir, d, domain.SystemBucket, "format.json"))
+		assert.FileExists(t, filepath.Join(dir, d, domain.SystemBucket, "config", "iam", "kdf.json"), "replicated on every drive of the set")
+		assert.DirExists(t, filepath.Join(dir, d, "photos", "a.txt"))
+	}
+	require.NoError(t, a.Stop(ctx))
+
+	b, err := app.Build(ctx, cfg, logger, app.WithStopTimeout(5*time.Second))
+	require.NoError(t, err)
+	require.NoError(t, b.Start(ctx))
+	defer func() { require.NoError(t, b.Stop(ctx)) }()
+	assert.Equal(t, a.DeploymentID(), b.DeploymentID())
+	u, err := b.IAM().GetUser(ctx, "reader")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"readonly"}, u.PolicyNames)
+	r, err := b.Objects().GetObject(ctx, "photos", "a.txt", object.GetObjectOptions{})
+	require.NoError(t, err)
+	data, err := io.ReadAll(r)
+	require.NoError(t, err)
+	_ = r.Close()
+	assert.Equal(t, "hello", string(data))
+
+	// Another root secret cannot open the IAM documents.
+	cfg.RootPassword = "another-password"
+	_, err = app.Build(ctx, cfg, logger)
+	require.ErrorIs(t, err, iam.ErrWrongKey)
 }
 
 func TestBuildPersistsIdentitiesAcrossRestarts(t *testing.T) {

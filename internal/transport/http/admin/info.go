@@ -9,6 +9,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	adminsvc "github.com/r3n3r0/nexo/internal/service/admin"
+	"github.com/r3n3r0/nexo/internal/service/heal"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
@@ -57,6 +58,7 @@ func (h *infoRoutes) routes() []route {
 		{http.MethodGet, "/info", global(policy.ActionAdminServerInfo), h.info},
 		{http.MethodGet, "/usage", global(policy.ActionAdminDataUsage), h.usage},
 		{http.MethodPost, "/heal", global(policy.ActionAdminHeal), h.heal},
+		{http.MethodGet, "/heal", global(policy.ActionAdminHeal), h.healList},
 		{http.MethodGet, "/heal/{id}", global(policy.ActionAdminHeal), h.healStatus},
 		{http.MethodPost, "/service/restart", global(policy.ActionAdminServiceRestart), h.serviceAction(adminsvc.ActionRestart)},
 		{http.MethodPost, "/service/stop", global(policy.ActionAdminServiceStop), h.serviceAction(adminsvc.ActionStop)},
@@ -115,7 +117,33 @@ type DiskResponse struct {
 	Free     uint64 `json:"free"`
 	Used     uint64 `json:"used"`
 	Healing  bool   `json:"healing"`
-	Error    string `json:"error,omitempty"`
+	// HealingProgress is the progress of the drive healing, when healing.
+	HealingProgress *HealingProgressResponse `json:"healingProgress,omitempty"`
+	Error           string                   `json:"error,omitempty"`
+}
+
+// HealingProgressResponse is the progress of the healing of a drive in
+// DiskResponse.
+type HealingProgressResponse struct {
+	Started       time.Time `json:"started"`
+	LastUpdate    time.Time `json:"lastUpdate"`
+	Bucket        string    `json:"bucket,omitempty"`
+	Object        string    `json:"object,omitempty"`
+	HealedBuckets int       `json:"healedBuckets"`
+	ObjectsHealed uint64    `json:"objectsHealed"`
+	ObjectsFailed uint64    `json:"objectsFailed"`
+	BytesDone     uint64    `json:"bytesDone"`
+	BytesFailed   uint64    `json:"bytesFailed"`
+}
+
+func newHealingProgressResponse(p *domain.HealingProgress) *HealingProgressResponse {
+	if p == nil {
+		return nil
+	}
+	return &HealingProgressResponse{
+		Started: p.Started, LastUpdate: p.LastUpdate, Bucket: p.Bucket, Object: p.Object, HealedBuckets: p.HealedBuckets,
+		ObjectsHealed: p.ObjectsHealed, ObjectsFailed: p.ObjectsFailed, BytesDone: p.BytesDone, BytesFailed: p.BytesFailed,
+	}
 }
 
 func newServerInfoResponse(info *domain.ServerInfo) ServerInfoResponse {
@@ -151,7 +179,7 @@ func newServerInfoResponse(info *domain.ServerInfo) ServerInfoResponse {
 				Endpoint: d.Endpoint, Path: d.Path, ID: d.ID,
 				PoolIdx: d.PoolIdx, SetIdx: d.SetIdx, DiskIdx: d.DiskIdx,
 				State: d.State, Total: d.Total, Free: d.Free, Used: d.Used,
-				Healing: d.Healing, Error: d.Error,
+				Healing: d.Healing, HealingProgress: newHealingProgressResponse(d.HealingProgress), Error: d.Error,
 			})
 		}
 		resp.Nodes = append(resp.Nodes, node)
@@ -183,6 +211,113 @@ type HealRequest struct {
 	Prefix    string `json:"prefix,omitempty"`
 	Recursive bool   `json:"recursive,omitempty"`
 	DryRun    bool   `json:"dryRun,omitempty"`
+	Deep      bool   `json:"deep,omitempty"`
+	Remove    bool   `json:"remove,omitempty"`
+}
+
+// HealJobResponse is a healing job (POST /heal, GET /heal/{id}).
+type HealJobResponse struct {
+	ID      string      `json:"id"`
+	State   string      `json:"state"`
+	Request HealRequest `json:"request"`
+	// Finished reports a job that is no longer running.
+	Finished   bool       `json:"finished"`
+	Node       string     `json:"node,omitempty"`
+	StartedAt  time.Time  `json:"startedAt"`
+	UpdatedAt  time.Time  `json:"updatedAt"`
+	FinishedAt *time.Time `json:"finishedAt,omitempty"`
+	Current    string     `json:"current,omitempty"`
+	Scanned    uint64     `json:"scanned"`
+	Healed     uint64     `json:"healed"`
+	Failed     uint64     `json:"failed"`
+	Dangling   uint64     `json:"dangling"`
+	Removed    uint64     `json:"removed"`
+	Bytes      uint64     `json:"bytes"`
+	// Drives sums up the job drive by drive.
+	Drives []HealJobDriveResponse `json:"drives"`
+	// Items are the items that needed healing, were dangling or failed.
+	Items          []HealItemResponse `json:"items"`
+	ItemsTruncated bool               `json:"itemsTruncated,omitempty"`
+	Error          string             `json:"error,omitempty"`
+}
+
+// HealJobDriveResponse is the summary of a job on one drive.
+type HealJobDriveResponse struct {
+	Endpoint string `json:"endpoint"`
+	Pool     int    `json:"pool"`
+	Set      int    `json:"set"`
+	Disk     int    `json:"disk"`
+	State    string `json:"state"`
+	Missing  uint64 `json:"missing"`
+	Corrupt  uint64 `json:"corrupt"`
+	Offline  uint64 `json:"offline"`
+	Healed   uint64 `json:"healed"`
+}
+
+// HealItemResponse is an item of a job that needed healing.
+type HealItemResponse struct {
+	Kind     string                  `json:"kind"`
+	Bucket   string                  `json:"bucket,omitempty"`
+	Object   string                  `json:"object,omitempty"`
+	Healed   int                     `json:"healed"`
+	Dangling bool                    `json:"dangling,omitempty"`
+	Removed  bool                    `json:"removed,omitempty"`
+	Error    string                  `json:"error,omitempty"`
+	Drives   []HealItemDriveResponse `json:"drives"`
+}
+
+// HealItemDriveResponse is the state of an item on one drive, before and
+// after the healing (ok, missing, corrupt, offline).
+type HealItemDriveResponse struct {
+	Endpoint string `json:"endpoint"`
+	Pool     int    `json:"pool"`
+	Set      int    `json:"set"`
+	Disk     int    `json:"disk"`
+	Before   string `json:"before"`
+	After    string `json:"after"`
+}
+
+// HealJobListResponse is the body of GET /heal.
+type HealJobListResponse struct {
+	Items      []HealJobResponse `json:"items"`
+	NextCursor string            `json:"nextCursor"`
+}
+
+func newHealJobResponse(j heal.Job) HealJobResponse {
+	resp := HealJobResponse{
+		ID: j.ID, State: string(j.State), Finished: j.State != heal.JobRunning, Node: j.Node,
+		Request: HealRequest{
+			Bucket: j.Request.Bucket, Prefix: j.Request.Prefix, Recursive: j.Request.Recursive,
+			DryRun: j.Request.DryRun, Deep: j.Request.Deep, Remove: j.Request.Remove,
+		},
+		StartedAt: j.StartedAt, UpdatedAt: j.UpdatedAt, Current: j.Current,
+		Scanned: j.Scanned, Healed: j.Healed, Failed: j.Failed, Dangling: j.Dangling, Removed: j.Removed, Bytes: j.Bytes,
+		Drives: make([]HealJobDriveResponse, 0, len(j.Drives)), Items: make([]HealItemResponse, 0, len(j.Items)),
+		ItemsTruncated: j.ItemsTruncated, Error: j.Error,
+	}
+	if !j.FinishedAt.IsZero() {
+		at := j.FinishedAt
+		resp.FinishedAt = &at
+	}
+	for _, d := range j.Drives {
+		resp.Drives = append(resp.Drives, HealJobDriveResponse{
+			Endpoint: d.Endpoint, Pool: d.Pool, Set: d.Set, Disk: d.Disk, State: d.State,
+			Missing: d.Missing, Corrupt: d.Corrupt, Offline: d.Offline, Healed: d.Healed,
+		})
+	}
+	for _, it := range j.Items {
+		item := HealItemResponse{
+			Kind: it.Kind, Bucket: it.Bucket, Object: it.Object, Healed: it.Healed, Dangling: it.Dangling,
+			Removed: it.Removed, Error: it.Error, Drives: make([]HealItemDriveResponse, 0, len(it.Drives)),
+		}
+		for _, d := range it.Drives {
+			item.Drives = append(item.Drives, HealItemDriveResponse{
+				Endpoint: d.Endpoint, Pool: d.Pool, Set: d.Set, Disk: d.Disk, Before: string(d.Before), After: string(d.After),
+			})
+		}
+		resp.Items = append(resp.Items, item)
+	}
+	return resp
 }
 
 func (h *infoRoutes) heal(w http.ResponseWriter, r *http.Request) {
@@ -191,12 +326,27 @@ func (h *infoRoutes) heal(w http.ResponseWriter, r *http.Request) {
 		writeError(h.deps.Enc, w, r, err)
 		return
 	}
-	res, err := h.deps.Admin.Heal(r.Context(), adminsvc.HealInput{Bucket: in.Bucket, Prefix: in.Prefix, Recursive: in.Recursive, DryRun: in.DryRun})
+	j, err := h.deps.Admin.StartHeal(r.Context(), adminsvc.HealInput{
+		Bucket: in.Bucket, Prefix: in.Prefix, Recursive: in.Recursive, DryRun: in.DryRun, Deep: in.Deep, Remove: in.Remove,
+	})
 	if err != nil {
 		writeError(h.deps.Enc, w, r, err)
 		return
 	}
-	h.deps.Enc.WriteJSON(w, http.StatusAccepted, res)
+	h.deps.Enc.WriteJSON(w, http.StatusAccepted, newHealJobResponse(j))
+}
+
+func (h *infoRoutes) healList(w http.ResponseWriter, r *http.Request) {
+	jobs, err := h.deps.Admin.ListHeals(r.Context())
+	if err != nil {
+		writeError(h.deps.Enc, w, r, err)
+		return
+	}
+	resp := HealJobListResponse{Items: make([]HealJobResponse, 0, len(jobs))}
+	for _, j := range jobs {
+		resp.Items = append(resp.Items, newHealJobResponse(j))
+	}
+	h.deps.Enc.WriteJSON(w, http.StatusOK, resp)
 }
 
 func (h *infoRoutes) healStatus(w http.ResponseWriter, r *http.Request) {
@@ -205,12 +355,12 @@ func (h *infoRoutes) healStatus(w http.ResponseWriter, r *http.Request) {
 		writeError(h.deps.Enc, w, r, err)
 		return
 	}
-	res, err := h.deps.Admin.Heal(r.Context(), adminsvc.HealInput{ID: id})
+	j, err := h.deps.Admin.HealStatus(r.Context(), id)
 	if err != nil {
 		writeError(h.deps.Enc, w, r, err)
 		return
 	}
-	h.deps.Enc.WriteJSON(w, http.StatusOK, res)
+	h.deps.Enc.WriteJSON(w, http.StatusOK, newHealJobResponse(j))
 }
 
 // serviceAction restarts or stops the server; the response is sent

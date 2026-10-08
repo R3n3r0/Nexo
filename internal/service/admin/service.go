@@ -39,6 +39,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/bucket"
 	"github.com/r3n3r0/nexo/internal/service/config"
+	"github.com/r3n3r0/nexo/internal/service/heal"
 	"github.com/r3n3r0/nexo/internal/service/iam"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
@@ -49,10 +50,20 @@ import (
 type Service interface {
 	// ServerInfo returns the server/cluster information.
 	ServerInfo(ctx context.Context) (*domain.ServerInfo, error)
-	// DataUsage returns the data usage per bucket.
+	// DataUsage returns the data usage per bucket: the usage computed by
+	// the scanner, the buckets it has not met yet computed on demand (all
+	// of them without scanner).
 	DataUsage(ctx context.Context) (*DataUsage, error)
-	// Heal starts (or queries) a healing operation.
-	Heal(ctx context.Context, in HealInput) (*HealResult, error)
+	// StartHeal starts a healing job (domain.ErrNotImplemented without
+	// healing: the single-drive mode); an identical running job is
+	// returned instead of a new one.
+	StartHeal(ctx context.Context, in HealInput) (heal.Job, error)
+	// HealStatus returns the state of a healing job (domain.ErrNotFound
+	// when unknown).
+	HealStatus(ctx context.Context, id string) (heal.Job, error)
+	// ListHeals lists the running and recently finished healing jobs,
+	// newest first.
+	ListHeals(ctx context.Context) ([]heal.Job, error)
 	// ServiceAction restarts or stops the server through the injected
 	// ActionHandler (domain.ErrNotImplemented without one).
 	ServiceAction(ctx context.Context, action Action) error
@@ -74,26 +85,32 @@ type BucketUsage struct {
 	ObjectsCount  uint64 `json:"objectsCount"`
 	VersionsCount uint64 `json:"versionsCount"`
 	DeleteMarkers uint64 `json:"deleteMarkers"`
+	// Prefixes breaks the bucket down by top-level prefix ("photos/", ""
+	// for the root), when the scanner computed it.
+	Prefixes map[string]PrefixUsage `json:"prefixes,omitempty"`
 }
 
-// HealInput are the parameters of Heal.
+// PrefixUsage is the data usage of a top-level prefix of a bucket.
+type PrefixUsage struct {
+	Size          uint64 `json:"size"`
+	ObjectsCount  uint64 `json:"objectsCount"`
+	VersionsCount uint64 `json:"versionsCount"`
+	DeleteMarkers uint64 `json:"deleteMarkers"`
+}
+
+// HealInput are the parameters of StartHeal: the whole deployment (format
+// of the drives and buckets), a bucket, or with Recursive every object
+// below the bucket(s) or Prefix (without Recursive, Prefix names the one
+// object to heal).
 type HealInput struct {
 	Bucket    string
 	Prefix    string
 	Recursive bool
 	DryRun    bool
-	// ID queries an existing healing operation instead of starting one.
-	ID string
-}
-
-// HealResult is the state of a healing operation.
-type HealResult struct {
-	ID        string    `json:"id"`
-	StartedAt time.Time `json:"startedAt"`
-	Finished  bool      `json:"finished"`
-	Scanned   uint64    `json:"scanned"`
-	Healed    uint64    `json:"healed"`
-	Failed    uint64    `json:"failed"`
+	// Deep verifies the bitrot hash of every shard block.
+	Deep bool
+	// Remove deletes the dangling objects found (never implied).
+	Remove bool
 }
 
 // Action is a service control action.

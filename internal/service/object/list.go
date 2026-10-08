@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/r3n3r0/nexo/internal/domain"
@@ -66,9 +65,9 @@ func splitPrefix(prefix string) (baseDir, filter string) {
 	return "", prefix
 }
 
-// listEntries walks every store and merges the results in S3 order. The
-// returned slice holds at most limit items plus one extra entry when the
-// listing is truncated.
+// listEntries walks every store (merged in S3 order) and collects the
+// entries of the listing. The returned slice holds at most limit items
+// plus one extra entry when the listing is truncated.
 func (l *layer) listEntries(ctx context.Context, p listParams) ([]listEntry, bool, error) {
 	if err := domain.ValidateObjectPrefix(p.prefix); err != nil {
 		return nil, false, err
@@ -80,25 +79,17 @@ func (l *layer) listEntries(ctx context.Context, p listParams) ([]listEntry, boo
 		// max-keys=0: an empty listing, not truncated (as S3 answers).
 		return nil, false, nil
 	}
-	perSet := make([][]listEntry, len(l.sets))
-	errs := parallel(len(l.sets), func(i int) error {
-		entries, err := l.walkStore(ctx, l.sets[i], p)
-		perSet[i] = entries
-		return err
-	})
-	for _, err := range errs {
-		if err != nil {
-			return nil, false, fmt.Errorf("%s: list %s: %w", l.name, p.bucket, err)
-		}
+	all, err := l.collect(ctx, p)
+	if err != nil {
+		return nil, false, fmt.Errorf("%s: list %s: %w", l.name, p.bucket, err)
 	}
-	all := mergeEntries(perSet)
 
 	// The prefix itself may be a directory object stored in the parent,
 	// which the walk of the prefix does not reach. All its versions are
 	// read (entryFor resumes after the version marker when the listing
 	// resumes within them).
 	if strings.HasSuffix(p.prefix, "/") && p.prefix >= p.keyMarker {
-		infos, err := l.dirObjectVersions(ctx, l.pick(p.prefix), p.bucket, p.prefix)
+		infos, err := l.dirObjectVersions(ctx, p.bucket, p.prefix)
 		if err != nil {
 			return nil, false, fmt.Errorf("%s: list %s: %w", l.name, p.bucket, err)
 		}
@@ -132,19 +123,14 @@ func (l *layer) listEntries(ctx context.Context, p listParams) ([]listEntry, boo
 // dirObjectVersions returns all the versions (latest first) of the
 // directory object key ("dir/", stored in the parent directory), none when
 // it does not exist.
-func (l *layer) dirObjectVersions(ctx context.Context, st store, bucket, key string) ([]storage.FileInfo, error) {
+func (l *layer) dirObjectVersions(ctx context.Context, bucket, key string) ([]storage.FileInfo, error) {
 	parent, _ := splitPrefix(strings.TrimSuffix(key, "/"))
 	var infos []storage.FileInfo
-	err := st.Walk(ctx, storage.WalkDirOptions{Bucket: bucket, BaseDir: parent, FilterPrefix: key, ForwardTo: key}, func(e storage.WalkEntry) error {
+	err := l.walkAll(ctx, storage.WalkDirOptions{Bucket: bucket, BaseDir: parent, FilterPrefix: key, ForwardTo: key}, func(e walkEntry) error {
 		if e.IsDir || e.Name != key {
 			return nil
 		}
-		decoded, err := storage.DecodeFileInfos(bucket, key, e.Metadata)
-		if err != nil {
-			l.deps.Logger.WarnContext(ctx, "object: skipping unreadable metadata", "bucket", bucket, "key", key, "err", err)
-		} else {
-			infos = decoded
-		}
+		infos = e.Versions
 		return errListDone
 	})
 	if err != nil && !errors.Is(err, errListDone) {
@@ -165,10 +151,10 @@ func skipPrefix(cp, keyMarker string) bool {
 // prefixHasKeysAfter reports whether the common prefix cp, which contains
 // the marker, holds an object after it: only then is cp part of the
 // listing (S3 lists the keys after the marker, then rolls them up).
-func (l *layer) prefixHasKeysAfter(ctx context.Context, st store, bucket, cp, keyMarker string) (bool, error) {
+func (l *layer) prefixHasKeysAfter(ctx context.Context, bucket, cp, keyMarker string) (bool, error) {
 	found := false
 	opts := storage.WalkDirOptions{Bucket: bucket, BaseDir: strings.TrimSuffix(cp, "/"), FilterPrefix: cp, Recursive: true, ForwardTo: keyMarker}
-	err := st.Walk(ctx, opts, func(e storage.WalkEntry) error {
+	err := l.walkAll(ctx, opts, func(e walkEntry) error {
 		if e.IsDir || e.Name <= keyMarker {
 			return nil
 		}
@@ -181,8 +167,9 @@ func (l *layer) prefixHasKeysAfter(ctx context.Context, st store, bucket, cp, ke
 	return found, nil
 }
 
-// walkStore collects the entries of one store, up to limit+1 items.
-func (l *layer) walkStore(ctx context.Context, st store, p listParams) ([]listEntry, error) {
+// collect walks the stores, merged, and collects the entries of the
+// listing, up to limit+1 items.
+func (l *layer) collect(ctx context.Context, p listParams) ([]listEntry, error) {
 	baseDir, filter := splitPrefix(p.prefix)
 	opts := storage.WalkDirOptions{
 		Bucket:       p.bucket,
@@ -193,7 +180,7 @@ func (l *layer) walkStore(ctx context.Context, st store, p listParams) ([]listEn
 	}
 	var entries []listEntry
 	count := 0
-	err := st.Walk(ctx, opts, func(e storage.WalkEntry) error {
+	err := l.walkAll(ctx, opts, func(e walkEntry) error {
 		if e.IsDir {
 			if p.delimiter != "/" {
 				return nil // flat listings descend into prefixes
@@ -203,7 +190,7 @@ func (l *layer) walkStore(ctx context.Context, st store, p listParams) ([]listEn
 			}
 			if e.Name < p.keyMarker {
 				// The marker lies inside the prefix.
-				ok, err := l.prefixHasKeysAfter(ctx, st, p.bucket, e.Name, p.keyMarker)
+				ok, err := l.prefixHasKeysAfter(ctx, p.bucket, e.Name, p.keyMarker)
 				if err != nil || !ok {
 					return err
 				}
@@ -213,12 +200,7 @@ func (l *layer) walkStore(ctx context.Context, st store, p listParams) ([]listEn
 				count++
 			}
 		} else {
-			infos, err := storage.DecodeFileInfos(p.bucket, e.Name, e.Metadata)
-			if err != nil {
-				l.deps.Logger.WarnContext(ctx, "object: skipping unreadable metadata", "bucket", p.bucket, "key", e.Name, "err", err)
-				return nil
-			}
-			entry, ok := l.entryFor(p, e.Name, p.bucket, infos)
+			entry, ok := l.entryFor(p, e.Name, p.bucket, e.Versions)
 			if !ok {
 				return nil
 			}
@@ -293,29 +275,6 @@ func appendEntry(entries []listEntry, e listEntry) (out []listEntry, added bool)
 		}
 	}
 	return append(entries, e), true
-}
-
-// mergeEntries merges the per-store listings: objects before a prefix of the
-// same name, duplicate prefixes collapsed.
-func mergeEntries(perSet [][]listEntry) []listEntry {
-	if len(perSet) == 1 {
-		return perSet[0]
-	}
-	var all []listEntry
-	for _, entries := range perSet {
-		all = append(all, entries...)
-	}
-	sort.SliceStable(all, func(i, j int) bool {
-		if all[i].name != all[j].name {
-			return all[i].name < all[j].name
-		}
-		return !all[i].isPrefix && all[j].isPrefix
-	})
-	out := make([]listEntry, 0, len(all))
-	for _, e := range all {
-		out, _ = appendEntry(out, e)
-	}
-	return out
 }
 
 // ListObjects implements Service (v1 and v2).

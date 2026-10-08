@@ -2,10 +2,12 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 
+	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/topology"
 )
@@ -27,6 +29,9 @@ func NewFormatter(deps FormatterDeps) Formatter {
 	}
 	if deps.Logger == nil {
 		deps.Logger = slog.Default()
+	}
+	if deps.Clock == nil {
+		deps.Clock = clock.NewReal()
 	}
 	if deps.Topology == nil {
 		deps.Topology = topology.New(topology.Deps{IDs: deps.IDs, Logger: deps.Logger})
@@ -137,13 +142,26 @@ func (f *formatter) ensurePool(ctx context.Context, layout *topology.Layout, poo
 			}
 			continue
 		}
-		// A fresh replacement drive takes the document of its position.
+		// A fresh replacement drive takes the document of its position and
+		// is marked for healing (the tracker first: a crash between the two
+		// writes leaves an unformatted drive, formatted again next time).
 		doc := ref.Clone()
 		doc.Erasure.This = ref.Erasure.Sets[set][disk]
+		now := f.deps.Clock.Now().UTC()
+		tracker, err := json.Marshal(HealingTracker{
+			ID: doc.Erasure.This, PoolIndex: pool.Index, SetIndex: set, DiskIndex: disk,
+			Path: pool.Endpoints[i].Path, Endpoint: pool.Endpoints[i].String(), Started: now, LastUpdate: now,
+		})
+		if err != nil {
+			return "", fmt.Errorf("storage: encode healing tracker: %w", err)
+		}
+		if err := d.WriteAll(ctx, domain.SystemBucket, HealingFile, tracker); err != nil {
+			return "", fmt.Errorf("storage: mark %s for healing: %w", d.Endpoint(), err)
+		}
 		if err := f.write(ctx, d, doc); err != nil {
 			return "", err
 		}
-		f.deps.Logger.LogAttrs(ctx, slog.LevelWarn, "formatted replacement drive",
+		f.deps.Logger.LogAttrs(ctx, slog.LevelWarn, "formatted replacement drive (marked for healing)",
 			slog.String("drive", pool.Endpoints[i].String()), slog.Int("pool", pool.Index+1),
 			slog.Int("set", set+1), slog.Int("disk", disk+1))
 	}

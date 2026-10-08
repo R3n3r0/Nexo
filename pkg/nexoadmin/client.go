@@ -34,8 +34,10 @@ type AdminClient interface {
 	// Server.
 	ServerInfo(ctx context.Context) (*ServerInfo, error)
 	DataUsage(ctx context.Context) (*DataUsage, error)
-	Heal(ctx context.Context, in HealRequest) (*HealResult, error)
-	HealStatus(ctx context.Context, id string) (*HealResult, error)
+	// Heal starts a healing job; HealStatus and ListHeals follow it.
+	Heal(ctx context.Context, in HealRequest) (*HealJob, error)
+	HealStatus(ctx context.Context, id string) (*HealJob, error)
+	ListHeals(ctx context.Context) (*HealJobList, error)
 	RestartService(ctx context.Context) error
 	StopService(ctx context.Context) error
 

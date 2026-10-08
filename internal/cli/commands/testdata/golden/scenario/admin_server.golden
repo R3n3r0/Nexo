@@ -22,9 +22,10 @@ Mode: distributed  Region: eu-1  Deployment: d-2
 Uptime: 1m0s  Buckets: 0  Objects: 0  Usage: 0B
 Pool 1: 1 set(s) of 4 drive(s), parity 2
 Nodes: 1 online, 1 offline
-  http://node1:9000  online  uptime 1m0s  2 drive(s)
+  http://node1:9000  online  uptime 1m0s  3 drive(s)
     /data1  online  used 1.0GiB of 10.0GiB (free 9.0GiB)
     /data2  online  used 1.0GiB of 10.0GiB (free 9.0GiB)  healing
+    /data3  healing  healing (12 object(s) healed, 1 failed, 3.0MiB, at photos/2026/a.jpg)
   http://node2:9000  offline  uptime -  1 drive(s)
     http://node2:9000/data1  offline  error: connection refused
 
@@ -34,8 +35,43 @@ SIZE          OBJECTS   VERSIONS  BUCKET
 2.0MiB              2          3  photos
 3.0MiB              3          4  total (2 bucket(s))
 
-$ nexoctl admin heal --recursive --dry-run mem/photos
-Heal heal-0001 (dry run): finished, scanned 3, healed 0, failed 0
+$ nexoctl admin heal --recursive --dry-run --interval 1ms mem/photos
+Heal heal-0001 (dry run): done, scanned 3, healed 1, failed 0, 1.0MiB
+  drive /data2 (pool 1 set 1 disk 2) online: missing 1, corrupt 0, offline 0, healed 0
+  object photos/a.jpg: disk 2 missing -> missing
+
+$ nexoctl admin heal -r --deep --remove --interval 1ms mem/photos/2026/
+Heal heal-0002: done, scanned 3, healed 1, failed 0, 1.0MiB
+  drive /data2 (pool 1 set 1 disk 2) online: missing 1, corrupt 0, offline 0, healed 1
+  object photos/2026/a.jpg: disk 2 missing -> ok
+
+$ nexoctl admin heal --background mem/logs
+Heal heal-0003 started on mem/logs: follow it with "nexoctl admin heal status mem heal-0003"
+
+$ nexoctl admin heal status mem
+ID                                   STATE     STARTED               SCANNED   HEALED   FAILED  TARGET
+heal-0003                            running   2026-01-02 03:04:05         0        0        0  mem/logs
+heal-0002                            done      2026-01-02 03:04:05         3        1        0  mem/photos/2026 (recursive)
+heal-0001                            done      2026-01-02 03:04:05         3        1        0  mem/photos (recursive) (dry run)
+
+$ nexoctl admin heal status mem heal-0003
+Heal heal-0003: done, scanned 3, healed 1, failed 0, 1.0MiB
+  drive /data2 (pool 1 set 1 disk 2) online: missing 1, corrupt 0, offline 0, healed 1
+  object logs/a.jpg: disk 2 missing -> ok
+
+$ nexoctl admin heal status mem nope
+! nexoctl: error: heal nope: healing job "nope": not found (not_found)
+[exit 3]
+
+$ nexoctl admin heal status mem a b
+! nexoctl: error: nexoctl admin heal status takes 1 or 2 argument(s), got 3
+! Run 'nexoctl admin heal status --help' for usage.
+[exit 2]
+
+$ nexoctl admin heal --interval 0s mem
+! nexoctl: error: --interval must be positive
+! Run 'nexoctl admin heal --help' for usage.
+[exit 2]
 
 $ nexoctl admin heal mem
 ! nexoctl: error: heal mem: admin: heal: not implemented (not_implemented)

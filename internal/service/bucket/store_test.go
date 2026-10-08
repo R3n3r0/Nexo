@@ -15,6 +15,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/bucket"
 	"github.com/r3n3r0/nexo/internal/service/storage"
+	"github.com/r3n3r0/nexo/internal/service/sysstore"
 	"github.com/r3n3r0/nexo/internal/testutil"
 )
 
@@ -177,4 +178,49 @@ func TestStoreCacheNeverGoesStale(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrInvalidBucketName)
 	assert.ErrorIs(t, st.Delete(ctx, "x"), domain.ErrInvalidBucketName)
 	assert.ErrorIs(t, st.Save(ctx, "x", &bucket.Metadata{}), domain.ErrInvalidBucketName)
+}
+
+// TestMetadataStoreOnDocuments: with the system document store the
+// documents are shared by every node; Invalidate makes the changes of
+// another node visible.
+func TestMetadataStoreOnDocuments(t *testing.T) {
+	ctx := context.Background()
+	drives := make([]storage.StorageAPI, 4)
+	for i := range drives {
+		drives[i] = testutil.NewLocalDriveIndex(t, "", i)
+	}
+	docs, err := sysstore.New(sysstore.Deps{Drives: drives})
+	require.NoError(t, err)
+	a, err := bucket.NewStore(bucket.StoreDeps{Docs: docs})
+	require.NoError(t, err)
+	b, err := bucket.NewStore(bucket.StoreDeps{Docs: docs})
+	require.NoError(t, err)
+
+	m, err := b.Load(ctx, "photos")
+	require.NoError(t, err)
+	assert.Equal(t, domain.VersioningOff, m.Versioning)
+
+	require.NoError(t, a.Save(ctx, "photos", &bucket.Metadata{Versioning: domain.VersioningEnabled, Region: "r"}))
+	m, err = b.Load(ctx, "photos")
+	require.NoError(t, err)
+	assert.Equal(t, domain.VersioningOff, m.Versioning, "cached until invalidated")
+	b.Invalidate(ctx, "photos")
+	cfg, err := b.BucketConfig(ctx, "photos")
+	require.NoError(t, err)
+	assert.Equal(t, domain.VersioningEnabled, cfg.Versioning)
+
+	require.NoError(t, a.Delete(ctx, "photos"))
+	b.Invalidate(ctx, "")
+	m, err = b.Load(ctx, "photos")
+	require.NoError(t, err)
+	assert.Empty(t, m.Region)
+
+	// Every drive carries the document of the store, none the drive file.
+	require.NoError(t, a.Save(ctx, "logs", &bucket.Metadata{Region: "x"}))
+	for _, d := range drives {
+		_, err := d.ReadAll(ctx, domain.SystemBucket, storage.BucketsDir+"/logs/.metadata.json")
+		assert.ErrorIs(t, err, domain.ErrObjectNotFound)
+		_, err = d.ReadAll(ctx, domain.SystemBucket, storage.ConfigDir+"/"+storage.BucketsDir+"/logs.json")
+		require.NoError(t, err)
+	}
 }

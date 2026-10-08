@@ -1,0 +1,19 @@
+Show the state and the outcome of a healing job, or without ID list the running
+and recently finished jobs (newest first).
+
+Usage:
+  nexoctl admin heal status ALIAS [ID] [flags]
+
+Examples:
+  nexoctl admin heal status local
+  nexoctl admin heal status local 0192f0f0-0000-7000-8000-000000000001
+
+Flags:
+  -h, --help   help for status
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

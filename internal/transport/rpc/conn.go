@@ -1,0 +1,544 @@
+package rpc
+
+import (
+	"bytes"
+	"context"
+	"crypto/tls"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/url"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/vmihailenco/msgpack/v5"
+	"golang.org/x/net/http2"
+
+	"github.com/r3n3r0/nexo/internal/domain"
+)
+
+// Defaults of the internode connections.
+const (
+	defaultCallTimeout = 30 * time.Second
+	defaultDialTimeout = 5 * time.Second
+	defaultHealthMin   = 250 * time.Millisecond
+	defaultHealthMax   = 3 * time.Second
+	pingTimeout        = 2 * time.Second
+	// http2ReadIdle and http2PingTimeout detect dead connections (a node
+	// partitioned without resets) by HTTP/2 pings.
+	http2ReadIdle    = 10 * time.Second
+	http2PingTimeout = 5 * time.Second
+)
+
+// ConnDeps are the dependencies of a connection to a node.
+type ConnDeps struct {
+	// Auth signs the outgoing calls (required).
+	Auth   Authenticator
+	Logger *slog.Logger
+}
+
+// ConnOption configures a connection.
+type ConnOption func(*connOptions)
+
+type connOptions struct {
+	tls         *tls.Config
+	callTimeout time.Duration
+	dialTimeout time.Duration
+	healthMin   time.Duration
+	healthMax   time.Duration
+	wrap        func(http.RoundTripper) http.RoundTripper
+}
+
+// WithTLSConfig calls the node over TLS (https) with cfg; without it the
+// calls use cleartext HTTP/2 (h2c).
+func WithTLSConfig(cfg *tls.Config) ConnOption {
+	return func(o *connOptions) { o.tls = cfg }
+}
+
+// WithCallTimeout sets the default timeout of the unary calls (default
+// 30s).
+func WithCallTimeout(d time.Duration) ConnOption {
+	return func(o *connOptions) {
+		if d > 0 {
+			o.callTimeout = d
+		}
+	}
+}
+
+// WithDialTimeout bounds the establishment of a connection (default 5s).
+func WithDialTimeout(d time.Duration) ConnOption {
+	return func(o *connOptions) {
+		if d > 0 {
+			o.dialTimeout = d
+		}
+	}
+}
+
+// WithHealthInterval sets the bounds of the backoff between two probes of
+// an offline node (default 250ms-3s).
+func WithHealthInterval(lo, hi time.Duration) ConnOption {
+	return func(o *connOptions) {
+		if lo > 0 && hi >= lo {
+			o.healthMin, o.healthMax = lo, hi
+		}
+	}
+}
+
+// WithTransportWrapper decorates the HTTP/2 round tripper of the
+// connection (latency or fault injection in tests, tracing).
+func WithTransportWrapper(wrap func(http.RoundTripper) http.RoundTripper) ConnOption {
+	return func(o *connOptions) { o.wrap = wrap }
+}
+
+// conn implements Conn over an HTTP/2 transport, which multiplexes the
+// calls on one pooled connection per node.
+type conn struct {
+	deps      ConnDeps
+	opts      connOptions
+	node      string
+	base      string
+	transport *http2.Transport
+	client    *http.Client
+
+	online  atomic.Bool
+	closed  atomic.Bool
+	mu      sync.Mutex
+	probing bool
+	lastErr string
+	stop    chan struct{}
+	wg      sync.WaitGroup
+	once    sync.Once
+}
+
+var _ Conn = (*conn)(nil)
+
+// NewConn returns the connection to the RPC server of node ("host:port").
+// Nothing is dialed until the first call; the node is assumed online.
+func NewConn(deps ConnDeps, node string, opts ...ConnOption) (Conn, error) {
+	if deps.Auth == nil {
+		return nil, fmt.Errorf("%w: rpc: a connection needs the authenticator", domain.ErrInvalidArgument)
+	}
+	if _, _, err := net.SplitHostPort(node); err != nil {
+		return nil, fmt.Errorf("%w: rpc: node %q is not host:port: %v", domain.ErrInvalidArgument, node, err)
+	}
+	if deps.Logger == nil {
+		deps.Logger = slog.Default()
+	}
+	o := connOptions{
+		callTimeout: defaultCallTimeout, dialTimeout: defaultDialTimeout,
+		healthMin: defaultHealthMin, healthMax: defaultHealthMax,
+	}
+	for _, opt := range opts {
+		opt(&o)
+	}
+	c := &conn{deps: deps, opts: o, node: node, stop: make(chan struct{})}
+	scheme := "http"
+	if o.tls != nil {
+		scheme = "https"
+	}
+	c.base = scheme + "://" + node + Prefix + "/"
+	dialer := &net.Dialer{Timeout: o.dialTimeout, KeepAlive: 30 * time.Second}
+	c.transport = &http2.Transport{
+		AllowHTTP:       o.tls == nil,
+		TLSClientConfig: o.tls,
+		ReadIdleTimeout: http2ReadIdle,
+		PingTimeout:     http2PingTimeout,
+		DialTLSContext: func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
+			if o.tls == nil {
+				return dialer.DialContext(ctx, network, addr)
+			}
+			return (&tls.Dialer{NetDialer: dialer, Config: cfg}).DialContext(ctx, network, addr)
+		},
+	}
+	var rt http.RoundTripper = c.transport
+	if o.wrap != nil {
+		rt = o.wrap(rt)
+	}
+	c.client = &http.Client{Transport: rt}
+	c.online.Store(true)
+	return c, nil
+}
+
+// Node implements Conn.
+func (c *conn) Node() string { return c.node }
+
+// IsOnline implements Conn.
+func (c *conn) IsOnline() bool { return c.online.Load() && !c.closed.Load() }
+
+// Close implements Conn.
+func (c *conn) Close(context.Context) error {
+	c.once.Do(func() {
+		c.closed.Store(true)
+		close(c.stop)
+		c.wg.Wait()
+		c.transport.CloseIdleConnections()
+	})
+	return nil
+}
+
+func (c *conn) options(opts []CallOption) callOptions {
+	o := callOptions{timeout: c.opts.callTimeout}
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return o
+}
+
+// check fails fast when the call cannot be attempted.
+func (c *conn) check(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if c.closed.Load() {
+		return fmt.Errorf("%w: connection to %s is closed", domain.ErrNodeOffline, c.node)
+	}
+	if !c.online.Load() {
+		c.mu.Lock()
+		last := c.lastErr
+		c.mu.Unlock()
+		return fmt.Errorf("%w: %s (circuit open: %s)", domain.ErrNodeOffline, c.node, last)
+	}
+	return nil
+}
+
+// newRequest builds an authenticated call.
+func (c *conn) newRequest(ctx context.Context, path string, body io.Reader, contentType string, o callOptions) (*http.Request, error) {
+	u := c.base + strings.TrimPrefix(path, "/")
+	if len(o.params) > 0 {
+		q := url.Values{}
+		for _, p := range o.params {
+			q.Add(p[0], p[1])
+		}
+		u += "?" + q.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, body)
+	if err != nil {
+		return nil, fmt.Errorf("rpc: build call %s to %s: %w", path, c.node, err)
+	}
+	token, err := c.deps.Auth.Token(ctx)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", contentType)
+	return req, nil
+}
+
+// transportError classifies the failure of an exchange: the caller gave
+// up (its context error), the call timed out (the node is slow: no
+// breaker), or the node is unreachable (the circuit opens).
+func (c *conn) transportError(ctx context.Context, timedOut bool, err error) error {
+	if cerr := ctx.Err(); cerr != nil {
+		return cerr
+	}
+	if timedOut {
+		return fmt.Errorf("%w: %s: call timed out: %w", domain.ErrNodeOffline, c.node, context.DeadlineExceeded)
+	}
+	c.trip(err)
+	return fmt.Errorf("%w: %s: %v", domain.ErrNodeOffline, c.node, err)
+}
+
+// answer turns a non-200 answer into the remote error.
+func (c *conn) answer(resp *http.Response) error {
+	if resp.StatusCode == http.StatusOK {
+		return nil
+	}
+	var we wireError
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if !strings.HasPrefix(resp.Header.Get("Content-Type"), contentTypeMsgpack) || msgpack.Unmarshal(body, &we) != nil || we.Code == "" {
+		return fmt.Errorf("%w: %s answered %s", ErrProtocol, c.node, resp.Status)
+	}
+	return decodeError(c.node, we)
+}
+
+// Call implements Conn.
+func (c *conn) Call(ctx context.Context, path string, in, out any, opts ...CallOption) error {
+	if err := c.check(ctx); err != nil {
+		return err
+	}
+	return c.unary(ctx, path, in, out, c.options(opts))
+}
+
+// unary performs a unary exchange without the circuit check (the probe
+// uses it while the circuit is open).
+func (c *conn) unary(ctx context.Context, path string, in, out any, o callOptions) error {
+	body, err := msgpack.Marshal(in)
+	if err != nil {
+		return fmt.Errorf("rpc: encode %T: %w", in, err)
+	}
+	callCtx, cancel := context.WithTimeout(ctx, o.timeout)
+	defer cancel()
+	req, err := c.newRequest(callCtx, path, bytes.NewReader(body), contentTypeMsgpack, o)
+	if err != nil {
+		return err
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return c.transportError(ctx, errors.Is(callCtx.Err(), context.DeadlineExceeded), err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if err := c.answer(resp); err != nil {
+		return err
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return c.transportError(ctx, errors.Is(callCtx.Err(), context.DeadlineExceeded), err)
+	}
+	if out == nil || len(data) == 0 {
+		return nil
+	}
+	if err := msgpack.Unmarshal(data, out); err != nil {
+		return fmt.Errorf("%w: decode answer of %s from %s: %v", ErrProtocol, path, c.node, err)
+	}
+	return nil
+}
+
+// errUploadDone stops the writer of an upload whose answer arrived.
+var errUploadDone = errors.New("rpc: upload answered")
+
+// Upload implements Conn.
+func (c *conn) Upload(ctx context.Context, path string, args any, body io.Reader, out any, opts ...CallOption) error {
+	if err := c.check(ctx); err != nil {
+		return err
+	}
+	o := callOptions{}
+	for _, opt := range opts {
+		opt(&o)
+	}
+	callCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	timedOut := atomic.Bool{}
+	if o.timeout > 0 {
+		timer := time.AfterFunc(o.timeout, func() { timedOut.Store(true); cancel() })
+		defer timer.Stop()
+	}
+	pr, pw := io.Pipe()
+	var readErr error
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		readErr = writeUpload(pw, args, body)
+	}()
+	req, err := c.newRequest(callCtx, path, pr, contentTypeStream, o)
+	if err != nil {
+		_ = pr.CloseWithError(err)
+		<-done
+		return err
+	}
+	resp, err := c.client.Do(req)
+	_ = pr.CloseWithError(errUploadDone)
+	<-done
+	if readErr != nil {
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		return readErr
+	}
+	if err != nil {
+		return c.transportError(ctx, timedOut.Load(), err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if err := c.answer(resp); err != nil {
+		return err
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return c.transportError(ctx, timedOut.Load(), err)
+	}
+	if out != nil && len(data) > 0 {
+		if err := msgpack.Unmarshal(data, out); err != nil {
+			return fmt.Errorf("%w: decode answer of %s from %s: %v", ErrProtocol, path, c.node, err)
+		}
+	}
+	return nil
+}
+
+// writeUpload writes the framed upload: the arguments, the data, the end.
+// It returns the read error of body, if any (sent as an error frame so
+// that the node discards the partial data); write errors only mean that
+// the exchange ended.
+func writeUpload(pw *io.PipeWriter, args any, body io.Reader) error {
+	fw := newFrameWriter(pw)
+	if err := fw.Msg(args); err != nil {
+		_ = pw.CloseWithError(err)
+		return nil
+	}
+	buf := make([]byte, dataChunk)
+	for {
+		n, rerr := body.Read(buf)
+		if n > 0 {
+			if err := fw.Data(buf[:n]); err != nil {
+				_ = pw.CloseWithError(err)
+				return nil
+			}
+		}
+		if errors.Is(rerr, io.EOF) {
+			break
+		}
+		if rerr != nil {
+			_ = fw.Error(rerr)
+			_ = fw.Flush()
+			_ = pw.Close()
+			return rerr
+		}
+	}
+	if err := fw.End(); err == nil {
+		_ = fw.Flush()
+	}
+	_ = pw.Close()
+	return nil
+}
+
+// open performs a call answered by a frame stream. The timeout bounds the
+// wait for the answer only.
+func (c *conn) open(ctx context.Context, path string, in any, opts []CallOption) (*frameStream, error) {
+	if err := c.check(ctx); err != nil {
+		return nil, err
+	}
+	o := c.options(opts)
+	body, err := msgpack.Marshal(in)
+	if err != nil {
+		return nil, fmt.Errorf("rpc: encode %T: %w", in, err)
+	}
+	streamCtx, cancel := context.WithCancel(ctx)
+	timedOut := atomic.Bool{}
+	timer := time.AfterFunc(o.timeout, func() { timedOut.Store(true); cancel() })
+	req, err := c.newRequest(streamCtx, path, bytes.NewReader(body), contentTypeMsgpack, o)
+	if err != nil {
+		timer.Stop()
+		cancel()
+		return nil, err
+	}
+	resp, err := c.client.Do(req)
+	if !timer.Stop() && err == nil && timedOut.Load() {
+		err = context.DeadlineExceeded
+	}
+	if err != nil {
+		cancel()
+		if resp != nil {
+			_ = resp.Body.Close()
+		}
+		return nil, c.transportError(ctx, timedOut.Load(), err)
+	}
+	if err := c.answer(resp); err != nil {
+		_ = resp.Body.Close()
+		cancel()
+		return nil, err
+	}
+	return &frameStream{ctx: ctx, fr: newFrameReader(resp.Body, c.node), body: resp.Body, cancel: cancel}, nil
+}
+
+// Download implements Conn.
+func (c *conn) Download(ctx context.Context, path string, in any, opts ...CallOption) (io.ReadCloser, error) {
+	return c.open(ctx, path, in, opts)
+}
+
+// Stream implements Conn.
+func (c *conn) Stream(ctx context.Context, path string, in any, opts ...CallOption) (MsgStream, error) {
+	return c.open(ctx, path, in, opts)
+}
+
+// frameStream is the reader of a streamed answer: a data reader for
+// Download, a message stream for Stream.
+type frameStream struct {
+	ctx    context.Context
+	fr     *frameReader
+	body   io.Closer
+	cancel context.CancelFunc
+	once   sync.Once
+}
+
+var (
+	_ io.ReadCloser = (*frameStream)(nil)
+	_ MsgStream     = (*frameStream)(nil)
+)
+
+func (s *frameStream) Read(p []byte) (int, error) {
+	n, err := s.fr.Read(p)
+	return n, s.fail(err)
+}
+
+func (s *frameStream) Next(v any) error { return s.fail(s.fr.Next(v)) }
+
+// fail reports the error of the caller's context rather than the broken
+// stream it caused.
+func (s *frameStream) fail(err error) error {
+	if err == nil || errors.Is(err, io.EOF) {
+		return err
+	}
+	if cerr := s.ctx.Err(); cerr != nil {
+		return cerr
+	}
+	return err
+}
+
+func (s *frameStream) Close() error {
+	s.once.Do(func() {
+		s.cancel()
+		_ = s.body.Close()
+	})
+	return nil
+}
+
+// trip opens the circuit and starts the background probe.
+func (c *conn) trip(err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.lastErr = err.Error()
+	if c.online.CompareAndSwap(true, false) {
+		c.deps.Logger.Warn("rpc: node offline, probing it in the background", "node", c.node, "err", err)
+	}
+	if c.probing || c.closed.Load() {
+		return
+	}
+	c.probing = true
+	c.wg.Add(1)
+	go c.probe()
+}
+
+// probe pings the node with a growing backoff until it answers.
+func (c *conn) probe() {
+	defer c.wg.Done()
+	interval := c.opts.healthMin
+	lastLogged := ""
+	for {
+		timer := time.NewTimer(interval)
+		select {
+		case <-c.stop:
+			timer.Stop()
+			c.mu.Lock()
+			c.probing = false
+			c.mu.Unlock()
+			return
+		case <-timer.C:
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), min(pingTimeout, c.opts.callTimeout))
+		var reply pingReply
+		err := c.unary(ctx, "health/ping", struct{}{}, &reply, callOptions{timeout: min(pingTimeout, c.opts.callTimeout)})
+		cancel()
+		if err == nil {
+			c.mu.Lock()
+			c.probing = false
+			c.lastErr = ""
+			c.online.Store(true)
+			c.mu.Unlock()
+			c.deps.Logger.Info("rpc: node online", "node", c.node, "remote_node", reply.Node)
+			return
+		}
+		c.mu.Lock()
+		c.lastErr = err.Error()
+		c.mu.Unlock()
+		if msg := err.Error(); msg != lastLogged && !errors.Is(err, domain.ErrNodeOffline) {
+			// The node answers but refuses us (credentials, deployment,
+			// version): worth an explicit warning.
+			c.deps.Logger.Warn("rpc: node refuses the internode calls", "node", c.node, "err", err)
+			lastLogged = msg
+		}
+		interval = min(interval*2, c.opts.healthMax)
+	}
+}

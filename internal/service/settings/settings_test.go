@@ -62,7 +62,9 @@ func TestAPI(t *testing.T) {
 func TestApplied(t *testing.T) {
 	assert.True(t, settings.Applied("api", "root_access"))
 	assert.False(t, settings.Applied("api", "requests_max"))
-	assert.False(t, settings.Applied("scanner", "speed"))
+	assert.True(t, settings.Applied("scanner", "speed"), "read by the scanner at every cycle")
+	assert.True(t, settings.Applied("scanner", "cycle"))
+	assert.False(t, settings.Applied("region", "comment"))
 }
 
 // covers: S-OPS-01 (api.root_access=off denies the root credentials on

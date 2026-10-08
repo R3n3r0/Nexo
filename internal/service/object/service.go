@@ -1,8 +1,10 @@
 // Package object defines the object layer: the logical S3 API over buckets,
 // objects, versions and multipart uploads. Two implementations share the
 // contract: the single-drive filesystem layer (NewFS, SNSD) and the
-// erasure-coded layer (NewErasure, SNMD / distributed), both selected by the
-// composition root from the deployment mode.
+// erasure-coded layer (NewServerPools, SNMD / distributed: server pools of
+// erasure sets of drives, docs/03), both selected by the composition root
+// from the deployment mode. NewErasure is the single-pool shorthand of
+// NewServerPools.
 package object
 
 import (
@@ -13,6 +15,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/erasure"
 	"github.com/r3n3r0/nexo/internal/service/event"
 	"github.com/r3n3r0/nexo/internal/service/lock"
 	"github.com/r3n3r0/nexo/internal/service/storage"
@@ -39,12 +42,146 @@ type Deps struct {
 	Locks lock.Locker
 	// Events receives bucket notifications; nil disables them.
 	Events event.Service
+	// Heal receives the damaged objects found by the erasure layer (see
+	// PoolsDeps.Heal); nil means no healing.
+	Heal HealNotifier
 	// IDs generates version identifiers and temporary directory names
 	// (default: time-ordered UUID v7). Upload ids embed one of its ids when
 	// it is a UUID.
 	IDs    topology.IDGenerator
 	Clock  clock.Clock
 	Logger *slog.Logger
+}
+
+// Healer repairs the buckets and objects of the erasure layer (docs/03
+// §3.7): the layers of NewServerPools and NewErasure implement it (the
+// single-drive layer has nothing to rebuild). The healing service drives
+// it from its queue (heal-on-read, MRF), the scanner, drive replacements
+// and the Admin API. Healing an object takes its write lock.
+type Healer interface {
+	// HealBucket creates the bucket (volume and record) on the online
+	// drives that miss it, in every set.
+	HealBucket(ctx context.Context, bucket string, opts HealOptions) (HealResult, error)
+	// HealObject rebuilds one version of bucket/key ("" is the latest,
+	// "null" the null version; opts.AllVersions heals every version) on
+	// the online drives of its set that miss it, hold an outdated or
+	// corrupt copy, or lack shard files. A version that a quorum of drives
+	// miss and too few drives hold to be rebuilt is dangling: it is
+	// reported, and removed with opts.Remove. A key no drive holds fails
+	// with domain.ErrObjectNotFound.
+	HealObject(ctx context.Context, bucket, key, versionID string, opts HealOptions) (HealResult, error)
+}
+
+// HealOptions tunes the healing operations.
+type HealOptions struct {
+	// Deep verifies the bitrot hash of every shard block (reads all the
+	// data); otherwise shard files are only checked for presence and size.
+	Deep bool
+	// DryRun reports what would be healed without writing anything.
+	DryRun bool
+	// Remove deletes the dangling versions found.
+	Remove bool
+	// AllVersions heals every version of the key (HealObject).
+	AllVersions bool
+}
+
+// HealResult reports a healing operation.
+type HealResult struct {
+	Bucket string
+	Key    string
+	// VersionIDs are the versions examined (HealObject).
+	VersionIDs []string
+	// Drives is the number of drives involved and Offline those that
+	// could not be reached (they are healed when they come back).
+	Drives  int
+	Offline int
+	// Healed counts the drive copies rebuilt (or that would be, with
+	// DryRun), across the versions examined.
+	Healed int
+	// Dangling counts the dangling versions found; Removed those deleted.
+	Dangling int
+	Removed  int
+	// DriveStates reports, for every drive involved (the drives of the
+	// object's set, of every set for HealBucket), the state of its copy
+	// before and after the operation; across several versions the worst
+	// state is kept. With DryRun, After is Before.
+	DriveStates []HealDrive
+	// Bytes is the logical size of the versions examined (HealObject).
+	Bytes int64
+}
+
+// HealDriveState is the state of the copy of a bucket or of an object
+// version on one drive.
+type HealDriveState string
+
+// Drive states of a healing operation, from the best to the worst.
+const (
+	// HealDriveOK is a complete, intact copy.
+	HealDriveOK HealDriveState = "ok"
+	// HealDriveMissing is a copy that is absent or outdated (the drive
+	// missed a write, or lacks shard files).
+	HealDriveMissing HealDriveState = "missing"
+	// HealDriveCorrupt is a copy that is present but damaged: bitrot,
+	// truncated shard, unreadable or diverging metadata.
+	HealDriveCorrupt HealDriveState = "corrupt"
+	// HealDriveOffline is a drive that could not be reached.
+	HealDriveOffline HealDriveState = "offline"
+)
+
+// HealDrive is the outcome of a healing operation on one drive.
+type HealDrive struct {
+	// Endpoint is the drive endpoint ("" for a drive never connected).
+	Endpoint string `json:"endpoint"`
+	// Pool, Set and Disk are the 0-based position of the drive.
+	Pool   int            `json:"pool"`
+	Set    int            `json:"set"`
+	Disk   int            `json:"disk"`
+	Before HealDriveState `json:"before"`
+	After  HealDriveState `json:"after"`
+}
+
+// PoolsDeps are the dependencies of the erasure object layer
+// (NewServerPools). The drives are storage.StorageAPI values, local or
+// remote: the layer does not know which.
+type PoolsDeps struct {
+	// Pools lists the server pools in command line order (at least one).
+	Pools []PoolSpec
+	// DeploymentID seeds the placement of objects on erasure sets and the
+	// bitrot key of the shards (format.json).
+	DeploymentID string
+	// Locks serializes access to buckets and objects: the local locker in
+	// SNMD, the distributed one (dsync) in a cluster (default: local).
+	Locks lock.Locker
+	// Heal receives the objects found damaged by reads (heal-on-read) and
+	// the writes that missed some drive (MRF). Nil means no healing.
+	Heal HealNotifier
+	// Buckets provides the bucket settings (versioning, object lock,
+	// quota). Nil means every bucket is unversioned.
+	Buckets BucketConfigSource
+	// Events receives bucket notifications; nil disables them.
+	Events event.Service
+	// Codecs builds the erasure codecs; nil builds them from DeploymentID
+	// (erasure.NewFactory with the block size and hedge delay options).
+	Codecs erasure.Factory
+	// IDs generates version identifiers and temporary directory names
+	// (default: time-ordered UUID v7).
+	IDs    topology.IDGenerator
+	Clock  clock.Clock
+	Logger *slog.Logger
+}
+
+// PoolSpec describes one server pool.
+type PoolSpec struct {
+	// Sets lists the drives of every erasure set of the pool, in set and
+	// disk order (topology.Pool.Sets()); every set has the same size
+	// (2..16 drives). A nil drive is an offline one.
+	Sets [][]storage.StorageAPI
+	// Parity is the parity of the STANDARD storage class (0 selects the
+	// default of the set size, docs/03 §3.3); WithStorageClass overrides it.
+	Parity int
+	// Decommissioning excludes the pool from the placement of new objects
+	// (its objects stay readable and writable).
+	Decommissioning bool
 }
 
 // BucketConfig is the subset of bucket settings the object layer enforces.
@@ -60,6 +197,16 @@ type BucketConfig struct {
 // metadata store implements it; a missing bucket yields the zero config.
 type BucketConfigSource interface {
 	BucketConfig(ctx context.Context, bucket string) (BucketConfig, error)
+}
+
+// HealNotifier receives the objects the erasure layer found damaged: a
+// read that met missing, outdated or corrupt shards or metadata (served
+// anyway from the healthy ones: heal-on-read), or a write committed with
+// quorum but not on every drive (MRF, most recently failed). The healing
+// service queues them; the call must not block the request. The default
+// is a no-op.
+type HealNotifier interface {
+	NotifyHeal(ctx context.Context, bucket, object, versionID string)
 }
 
 // Service is the object layer. ETags are returned unquoted (transports

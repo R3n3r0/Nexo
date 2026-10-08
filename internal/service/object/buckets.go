@@ -158,11 +158,44 @@ func (l *layer) bucketInfo(ctx context.Context, vi storage.VolInfo) domain.Bucke
 	return info
 }
 
-// ListBuckets implements Service.
+// ListBuckets implements Service. The volumes of every store are merged:
+// a bucket is listed when a majority of the stores that answered hold it
+// (a creation rolled back on some sets only is not), and the listing
+// fails only when no store answers.
 func (l *layer) ListBuckets(ctx context.Context) ([]domain.BucketInfo, error) {
-	vols, err := l.sets[0].ListVols(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("%s: list buckets: %w", l.name, err)
+	lists := make([][]storage.VolInfo, len(l.sets))
+	errs := parallel(len(l.sets), func(i int) error {
+		vols, err := l.sets[i].ListVols(ctx)
+		lists[i] = vols
+		return err
+	})
+	answered := 0
+	counts := map[string]int{}
+	first := map[string]storage.VolInfo{}
+	var failure error
+	for i, err := range errs {
+		if err != nil {
+			if failure == nil {
+				failure = err
+			}
+			continue
+		}
+		answered++
+		for _, v := range lists[i] {
+			if _, ok := first[v.Name]; !ok {
+				first[v.Name] = v
+			}
+			counts[v.Name]++
+		}
+	}
+	if answered == 0 {
+		return nil, fmt.Errorf("%s: list buckets: %w", l.name, failure)
+	}
+	vols := make([]storage.VolInfo, 0, len(counts))
+	for name, c := range counts {
+		if 2*c > answered {
+			vols = append(vols, first[name])
+		}
 	}
 	sort.Slice(vols, func(i, j int) bool { return vols[i].Name < vols[j].Name })
 	out := make([]domain.BucketInfo, 0, len(vols))
@@ -195,9 +228,20 @@ func (l *layer) DeleteBucket(ctx context.Context, bucket string, opts DeleteBuck
 	}
 	errs := parallel(len(l.sets), func(i int) error { return l.sets[i].DeleteVol(ctx, bucket, opts.Force) })
 	for _, err := range errs {
-		if err != nil {
-			return fmt.Errorf("%s: delete bucket %s: %w", l.name, bucket, err)
+		if err == nil || errors.Is(err, domain.ErrBucketNotFound) {
+			continue
 		}
+		// Keep the bucket coherent: it is re-created on the sets where it
+		// was removed, so that it exists everywhere or nowhere.
+		ctx := context.WithoutCancel(ctx)
+		for i, derr := range errs {
+			if derr == nil {
+				if uerr := l.sets[i].MakeVol(ctx, bucket); uerr != nil {
+					l.deps.Logger.WarnContext(ctx, "object: cannot roll back bucket removal", "bucket", bucket, "err", uerr)
+				}
+			}
+		}
+		return fmt.Errorf("%s: delete bucket %s: %w", l.name, bucket, err)
 	}
 	// The bucket's system records (its record, its configuration and its
 	// in-progress uploads) go with it.
@@ -215,20 +259,19 @@ func (l *layer) DeleteBucket(ctx context.Context, bucket string, opts DeleteBuck
 // checkEmpty fails with domain.ErrBucketNotEmpty when the bucket holds an
 // object, a version, a delete marker or an in-progress multipart upload.
 func (l *layer) checkEmpty(ctx context.Context, bucket string) error {
-	for _, st := range l.sets {
-		empty := true
-		err := st.Walk(ctx, storage.WalkDirOptions{Bucket: bucket, Recursive: true, Limit: 1}, func(e storage.WalkEntry) error {
-			if !e.IsDir {
-				empty = false
-			}
+	empty := true
+	err := l.walkAll(ctx, storage.WalkDirOptions{Bucket: bucket, Recursive: true}, func(e walkEntry) error {
+		if e.IsDir {
 			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("%s: delete bucket %s: %w", l.name, bucket, err)
 		}
-		if !empty {
-			return domain.NewS3Error(domain.ErrBucketNotEmpty, "BucketNotEmpty", "The bucket you tried to delete is not empty").WithResource(bucket)
-		}
+		empty = false
+		return errListDone
+	})
+	if err != nil && !errors.Is(err, errListDone) {
+		return fmt.Errorf("%s: delete bucket %s: %w", l.name, bucket, err)
+	}
+	if !empty {
+		return domain.NewS3Error(domain.ErrBucketNotEmpty, "BucketNotEmpty", "The bucket you tried to delete is not empty").WithResource(bucket)
 	}
 	uploads, err := l.uploadsOf(ctx, bucket)
 	if err != nil {
@@ -266,35 +309,28 @@ func (l *layer) DataUsage(ctx context.Context, bucket string) ([]domain.BucketIn
 
 // usage walks a bucket and fills in its usage counters.
 func (l *layer) usage(ctx context.Context, info *domain.BucketInfo) error {
-	for _, st := range l.sets {
-		err := st.Walk(ctx, storage.WalkDirOptions{Bucket: info.Name, Recursive: true}, func(e storage.WalkEntry) error {
-			if e.IsDir {
-				return nil
-			}
-			versions, err := storage.DecodeFileInfos(info.Name, e.Name, e.Metadata)
-			if err != nil {
-				l.deps.Logger.WarnContext(ctx, "object: usage skips unreadable metadata", "bucket", info.Name, "key", e.Name, "err", err)
-				return nil
-			}
-			for i, fi := range versions {
-				switch {
-				case fi.Deleted:
-					info.DeleteMarkers++
-					continue
-				case i == 0:
-					info.Objects++
-				default:
-					info.Versions++
-				}
-				if fi.Size > 0 {
-					info.Size += uint64(fi.Size)
-				}
-			}
+	err := l.walkAll(ctx, storage.WalkDirOptions{Bucket: info.Name, Recursive: true}, func(e walkEntry) error {
+		if e.IsDir {
 			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("%s: usage of %s: %w", l.name, info.Name, err)
 		}
+		for i, fi := range e.Versions {
+			switch {
+			case fi.Deleted:
+				info.DeleteMarkers++
+				continue
+			case i == 0:
+				info.Objects++
+			default:
+				info.Versions++
+			}
+			if fi.Size > 0 {
+				info.Size += uint64(fi.Size)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("%s: usage of %s: %w", l.name, info.Name, err)
 	}
 	return nil
 }

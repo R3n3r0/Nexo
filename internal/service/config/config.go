@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"sort"
 	"sync"
 
@@ -201,6 +202,43 @@ func (s *service) Import(ctx context.Context, data []byte) error {
 	s.loaded = true
 	for name := range all {
 		s.notifyLocked(Change{Subsystem: name})
+	}
+	return nil
+}
+
+// Reload implements Service.
+func (s *service) Reload(ctx context.Context) error {
+	data, err := s.deps.Store.Load(ctx)
+	if err != nil {
+		return fmt.Errorf("config: reload: %w", err)
+	}
+	if data == nil {
+		data = make(map[string]KV)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	prev := s.data
+	s.data = data
+	s.loaded = true
+	names := make([]string, 0, len(prev)+len(data))
+	for name := range prev {
+		names = append(names, name)
+	}
+	for name := range data {
+		if _, ok := prev[name]; !ok {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		old, had := prev[name]
+		cur, has := data[name]
+		switch {
+		case had && !has:
+			s.notifyLocked(Change{Subsystem: name, Deleted: true})
+		case !maps.Equal(old, cur):
+			s.notifyLocked(Change{Subsystem: name})
+		}
 	}
 	return nil
 }

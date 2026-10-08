@@ -16,6 +16,9 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/iam"
+	"github.com/r3n3r0/nexo/internal/service/storage"
+	"github.com/r3n3r0/nexo/internal/service/sysstore"
+	"github.com/r3n3r0/nexo/internal/testutil"
 )
 
 func newFileStore(t *testing.T, dir, secret string) iam.Store {
@@ -30,7 +33,47 @@ func storeFactories() map[string]func(t *testing.T) iam.Store {
 	return map[string]func(t *testing.T) iam.Store{
 		"memory": func(*testing.T) iam.Store { return iam.NewMemoryStore() },
 		"file":   func(t *testing.T) iam.Store { return newFileStore(t, t.TempDir(), rootSK) },
+		"docs":   func(t *testing.T) iam.Store { return newDocsStore(t, newDocs(t, 4), rootSK) },
 	}
+}
+
+// newDocs returns a system document store over n temporary drives.
+func newDocs(t *testing.T, n int) sysstore.Store {
+	t.Helper()
+	drives := make([]storage.StorageAPI, n)
+	for i := range drives {
+		drives[i] = testutil.NewLocalDriveIndex(t, "", i)
+	}
+	docs, err := sysstore.New(sysstore.Deps{Drives: drives})
+	require.NoError(t, err)
+	return docs
+}
+
+func newDocsStore(t *testing.T, docs sysstore.Store, secret string) iam.Store {
+	t.Helper()
+	s, err := iam.NewDocsStore(context.Background(), docs, secret, iam.WithFileKDFParams(testKDF()))
+	require.NoError(t, err)
+	return s
+}
+
+// TestDocsStoreSharedByNodes: the stores of several nodes over the same
+// documents agree on the key; another root secret is refused.
+func TestDocsStoreSharedByNodes(t *testing.T) {
+	ctx := context.Background()
+	docs := newDocs(t, 4)
+	a := newDocsStore(t, docs, rootSK)
+	b := newDocsStore(t, docs, rootSK)
+	require.NoError(t, a.Put(ctx, iam.NamespaceUsers, "alice", []byte(`{"v":1}`)))
+	v, err := b.Get(ctx, iam.NamespaceUsers, "alice")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"v":1}`, string(v))
+
+	_, err = iam.NewDocsStore(ctx, docs, "another-root-secret", iam.WithFileKDFParams(testKDF()))
+	require.ErrorIs(t, err, iam.ErrWrongKey)
+	_, err = iam.NewDocsStore(ctx, nil, rootSK)
+	require.ErrorIs(t, err, domain.ErrInvalidArgument)
+	_, err = iam.NewDocsStore(ctx, docs, "")
+	require.ErrorIs(t, err, domain.ErrInvalidArgument)
 }
 
 func TestStoreContract(t *testing.T) {

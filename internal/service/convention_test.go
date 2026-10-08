@@ -125,6 +125,7 @@ func TestMockCoverage(t *testing.T) {
 		"../transport/http/console",
 		"../transport/http/s3",
 		"../transport/http/admin",
+		"../transport/rpc",
 	}
 	for _, dir := range dirs {
 		t.Run(filepath.Base(dir), func(t *testing.T) {

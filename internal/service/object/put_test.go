@@ -64,7 +64,7 @@ func TestPutGetSizes(t *testing.T) {
 		{name: "8MiB", size: 8 << 20},
 		{name: "100MiB", size: 100 << 20, fsOnly: true},
 	}
-	for _, kind := range []string{"fs", "erasure"} {
+	for _, kind := range implKinds() {
 		t.Run(kind, func(t *testing.T) {
 			fx := newFixture(t, kind, object.WithInlineLimit(128<<10), object.WithBlockSize(1<<20))
 			ctx := context.Background()

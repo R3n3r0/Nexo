@@ -124,9 +124,24 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List the running and recently finished healing jobs
+         * @description Newest first; a finished job stays listed for an hour.
+         */
+        get: operations["listHeals"];
         put?: never;
-        /** Start a healing operation */
+        /**
+         * Start a healing job
+         * @description Starts a background healing job and answers at once with its initial state; poll
+         *     `GET /heal/{id}` for the progress. Without `bucket` the job heals the format of the
+         *     drives (new or wiped drives) and every bucket; with `bucket` that bucket; with
+         *     `recursive` every object below the bucket(s) or `prefix` too (without `recursive`,
+         *     `prefix` names the one object to heal). `deep` verifies the bitrot hash of every
+         *     shard block, `dryRun` only reports, `remove` deletes the dangling objects found
+         *     (versions on too few drives to ever be read; never implied). An identical job
+         *     already running is returned instead of a new one; too many running jobs answer 429.
+         *     A single-drive deployment has nothing to heal: 501.
+         */
         post: operations["startHeal"];
         delete?: never;
         options?: never;
@@ -141,7 +156,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Query a healing operation */
+        /**
+         * Query a healing job
+         * @description Any node answers, the progress of a job being persisted on the drives.
+         */
         get: operations["healStatus"];
         put?: never;
         post?: never;
@@ -1408,7 +1426,29 @@ export interface components {
             /** Format: int64 */
             used: number;
             healing: boolean;
+            healingProgress?: components["schemas"]["HealingProgress"];
             error?: string;
+        };
+        /** @description Progress of the healing of a replaced or wiped drive (present while it heals). */
+        HealingProgress: {
+            /** Format: date-time */
+            started: string;
+            /** Format: date-time */
+            lastUpdate: string;
+            /** @description Bucket of the last object healed. */
+            bucket?: string;
+            /** @description Last object healed. */
+            object?: string;
+            /** @description Buckets completely healed. */
+            healedBuckets: number;
+            /** Format: int64 */
+            objectsHealed: number;
+            /** Format: int64 */
+            objectsFailed: number;
+            /** Format: int64 */
+            bytesDone: number;
+            /** Format: int64 */
+            bytesFailed: number;
         };
         NodeInfo: {
             endpoint: string;
@@ -1453,11 +1493,29 @@ export interface components {
             size: number;
             /** Format: int64 */
             objectsCount: number;
+            /**
+             * Format: int64
+             * @description Noncurrent versions.
+             */
+            versionsCount: number;
+            /** Format: int64 */
+            deleteMarkers: number;
+            /** @description Usage by top-level prefix ("photos/"; "" for the objects at the root), when computed by the scanner (at most 1000 prefixes per bucket). */
+            prefixes?: {
+                [key: string]: components["schemas"]["PrefixUsage"];
+            };
+        };
+        PrefixUsage: {
+            /** Format: int64 */
+            size: number;
+            /** Format: int64 */
+            objectsCount: number;
             /** Format: int64 */
             versionsCount: number;
             /** Format: int64 */
             deleteMarkers: number;
         };
+        /** @description Usage computed by the background scanner (lastUpdate is the end of its last cycle); the buckets created since are computed on demand. */
         DataUsage: {
             /** Format: date-time */
             lastUpdate: string;
@@ -1478,18 +1536,109 @@ export interface components {
             prefix?: string;
             recursive?: boolean;
             dryRun?: boolean;
+            /** @description Verify the bitrot hash of every shard block. */
+            deep?: boolean;
+            /** @description Delete the dangling objects found. */
+            remove?: boolean;
         };
-        HealResult: {
+        /** @enum {string} */
+        HealDriveState: "ok" | "missing" | "corrupt" | "offline";
+        /** @enum {string} */
+        HealJobState: "running" | "done" | "failed" | "canceled";
+        HealJob: {
             id: string;
+            state: components["schemas"]["HealJobState"];
+            request: components["schemas"]["HealRequest"];
+            /** @description The job is no longer running. */
+            finished: boolean;
+            /** @description Node running the job. */
+            node?: string;
             /** Format: date-time */
             startedAt: string;
-            finished: boolean;
-            /** Format: int64 */
+            /** Format: date-time */
+            updatedAt: string;
+            /** Format: date-time */
+            finishedAt?: string;
+            /** @description Item being healed (bucket/object). */
+            current?: string;
+            /**
+             * Format: int64
+             * @description Items examined (format, buckets, objects).
+             */
             scanned: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Items repaired on at least one drive (or that would be, with dryRun).
+             */
             healed: number;
             /** Format: int64 */
             failed: number;
+            /** Format: int64 */
+            dangling: number;
+            /** Format: int64 */
+            removed: number;
+            /**
+             * Format: int64
+             * @description Logical size of the objects examined.
+             */
+            bytes: number;
+            drives: components["schemas"]["HealJobDrive"][];
+            /** @description Items that needed healing, were dangling or failed (at most 1000). */
+            items: components["schemas"]["HealItem"][];
+            itemsTruncated?: boolean;
+            error?: string;
+        };
+        HealJobDrive: {
+            endpoint: string;
+            pool: number;
+            set: number;
+            disk: number;
+            /** @enum {string} */
+            state: "online" | "offline";
+            /**
+             * Format: int64
+             * @description Items found missing on the drive.
+             */
+            missing: number;
+            /**
+             * Format: int64
+             * @description Items found corrupt on the drive.
+             */
+            corrupt: number;
+            /**
+             * Format: int64
+             * @description Items met while the drive was offline.
+             */
+            offline: number;
+            /**
+             * Format: int64
+             * @description Copies rebuilt on the drive.
+             */
+            healed: number;
+        };
+        HealItem: {
+            /** @enum {string} */
+            kind: "format" | "bucket" | "object";
+            bucket?: string;
+            object?: string;
+            /** @description Drive copies rebuilt. */
+            healed: number;
+            dangling?: boolean;
+            removed?: boolean;
+            error?: string;
+            drives: components["schemas"]["HealItemDrive"][];
+        };
+        HealItemDrive: {
+            endpoint: string;
+            pool: number;
+            set: number;
+            disk: number;
+            before: components["schemas"]["HealDriveState"];
+            after: components["schemas"]["HealDriveState"];
+        };
+        HealJobList: {
+            items: components["schemas"]["HealJob"][];
+            nextCursor: string;
         };
         ServiceAction: {
             /** @enum {string} */
@@ -2321,6 +2470,28 @@ export interface operations {
             default: components["responses"]["Problem"];
         };
     };
+    listHeals: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The healing jobs. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealJobList"];
+                };
+            };
+            501: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
     startHeal: {
         parameters: {
             query?: never;
@@ -2334,15 +2505,16 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The healing operation. */
+            /** @description The healing job. */
             202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HealResult"];
+                    "application/json": components["schemas"]["HealJob"];
                 };
             };
+            429: components["responses"]["Problem"];
             501: components["responses"]["Problem"];
             default: components["responses"]["Problem"];
         };
@@ -2358,15 +2530,16 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The healing operation. */
+            /** @description The healing job. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HealResult"];
+                    "application/json": components["schemas"]["HealJob"];
                 };
             };
+            404: components["responses"]["Problem"];
             default: components["responses"]["Problem"];
         };
     };
