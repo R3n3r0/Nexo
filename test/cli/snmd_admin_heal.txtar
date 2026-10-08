@@ -1,0 +1,51 @@
+# TCL-E-16 and C-ADM heal (SNMD, 4 drives): admin heal finds the objects a
+# drive lost, reports them drive by drive without changing anything with
+# --dry-run, repairs them, and follows a job started in the background.
+
+exec nexoctl admin info local
+stdout '^Mode: snmd '
+stdout '^Pool 1: 1 set\(s\) of 4 drive\(s\), parity 2$'
+
+exec nexoctl mb local/photos
+exec nexoctl cp small.txt local/photos/small.txt
+mkfile big.bin 300KiB
+exec nexoctl cp big.bin local/photos/2026/big.bin
+exists $NEXO_DRIVE2/photos/2026/big.bin/xl.meta
+
+# The second drive loses a prefix.
+rm $NEXO_DRIVE2/photos/2026
+
+# Dry run: the report, nothing repaired.
+exec nexoctl admin heal -r --dry-run --interval 10ms local/photos
+stdout '^Heal .* \(dry run\): done, scanned 3, healed 1, failed 0'
+stdout '^  drive .*d2 \(pool 1 set 1 disk 2\) online: missing 1, corrupt 0, offline 0, healed 0$'
+stdout '^  object photos/2026/big.bin: disk 2 missing -> missing$'
+! exists $NEXO_DRIVE2/photos/2026/big.bin/xl.meta
+
+# The real heal repairs the drive.
+exec nexoctl admin heal -r --interval 10ms local/photos/2026/
+stdout '^Heal [^ ]+: done, scanned 2, healed 1, failed 0'
+stdout 'disk 2 missing -> ok$'
+exists $NEXO_DRIVE2/photos/2026/big.bin/xl.meta
+
+# Nothing left to heal, also with the deep verification of the bitrot
+# checksums; the JSON record carries the job.
+exec nexoctl admin heal -r --deep --json --interval 10ms local/photos
+jsonlines stdout
+stdout '"state":"done"'
+stdout '"healed":0'
+stdout '"deep":true'
+
+# A job of the whole server (format and buckets) in the background, then
+# its status and the list of the jobs.
+exec nexoctl admin heal --background --json local
+jsonfield stdout id ID
+eventually 10s -match ': done, scanned 2, healed 0, failed 0' nexoctl admin heal status local $ID
+exec nexoctl admin heal status local
+stdout '^ID +STATE +STARTED +SCANNED +HEALED +FAILED +TARGET$'
+stdout ' done .* local/photos \(recursive\) \(dry run\)$'
+expectcode 3 nexoctl admin heal status local no-such-job
+expectcode 2 nexoctl admin heal status
+
+-- small.txt --
+inline object

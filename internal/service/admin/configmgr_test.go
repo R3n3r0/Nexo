@@ -93,8 +93,10 @@ func TestConfigManagerListAndSchema(t *testing.T) {
 			applied[s.Name+"."+k.Name] = k.Applied
 		}
 	}
-	assert.True(t, applied["api.root_access"])
-	for _, k := range []string{"api.requests_max", "browser.session_duration", "logger.level", "scanner.speed", "region.name"} {
+	for _, k := range []string{"api.root_access", "scanner.speed", "scanner.cycle"} {
+		assert.True(t, applied[k], k)
+	}
+	for _, k := range []string{"api.requests_max", "browser.session_duration", "logger.level", "region.name"} {
 		assert.False(t, applied[k], k)
 	}
 	store.EXPECT().Get(mock.Anything, mock.Anything).Return(config.KV{}, nil)

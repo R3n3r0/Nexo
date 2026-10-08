@@ -9,6 +9,8 @@ import (
 
 	domain "github.com/r3n3r0/nexo/internal/domain"
 
+	heal "github.com/r3n3r0/nexo/internal/service/heal"
+
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -83,29 +85,27 @@ func (_c *Service_DataUsage_Call) RunAndReturn(run func(context.Context) (*admin
 	return _c
 }
 
-// Heal provides a mock function with given fields: ctx, in
-func (_m *Service) Heal(ctx context.Context, in admin.HealInput) (*admin.HealResult, error) {
-	ret := _m.Called(ctx, in)
+// HealStatus provides a mock function with given fields: ctx, id
+func (_m *Service) HealStatus(ctx context.Context, id string) (heal.Job, error) {
+	ret := _m.Called(ctx, id)
 
 	if len(ret) == 0 {
-		panic("no return value specified for Heal")
+		panic("no return value specified for HealStatus")
 	}
 
-	var r0 *admin.HealResult
+	var r0 heal.Job
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, admin.HealInput) (*admin.HealResult, error)); ok {
-		return rf(ctx, in)
+	if rf, ok := ret.Get(0).(func(context.Context, string) (heal.Job, error)); ok {
+		return rf(ctx, id)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, admin.HealInput) *admin.HealResult); ok {
-		r0 = rf(ctx, in)
+	if rf, ok := ret.Get(0).(func(context.Context, string) heal.Job); ok {
+		r0 = rf(ctx, id)
 	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*admin.HealResult)
-		}
+		r0 = ret.Get(0).(heal.Job)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, admin.HealInput) error); ok {
-		r1 = rf(ctx, in)
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, id)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -113,31 +113,89 @@ func (_m *Service) Heal(ctx context.Context, in admin.HealInput) (*admin.HealRes
 	return r0, r1
 }
 
-// Service_Heal_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Heal'
-type Service_Heal_Call struct {
+// Service_HealStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HealStatus'
+type Service_HealStatus_Call struct {
 	*mock.Call
 }
 
-// Heal is a helper method to define mock.On call
+// HealStatus is a helper method to define mock.On call
 //   - ctx context.Context
-//   - in admin.HealInput
-func (_e *Service_Expecter) Heal(ctx interface{}, in interface{}) *Service_Heal_Call {
-	return &Service_Heal_Call{Call: _e.mock.On("Heal", ctx, in)}
+//   - id string
+func (_e *Service_Expecter) HealStatus(ctx interface{}, id interface{}) *Service_HealStatus_Call {
+	return &Service_HealStatus_Call{Call: _e.mock.On("HealStatus", ctx, id)}
 }
 
-func (_c *Service_Heal_Call) Run(run func(ctx context.Context, in admin.HealInput)) *Service_Heal_Call {
+func (_c *Service_HealStatus_Call) Run(run func(ctx context.Context, id string)) *Service_HealStatus_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(admin.HealInput))
+		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
 
-func (_c *Service_Heal_Call) Return(_a0 *admin.HealResult, _a1 error) *Service_Heal_Call {
+func (_c *Service_HealStatus_Call) Return(_a0 heal.Job, _a1 error) *Service_HealStatus_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *Service_Heal_Call) RunAndReturn(run func(context.Context, admin.HealInput) (*admin.HealResult, error)) *Service_Heal_Call {
+func (_c *Service_HealStatus_Call) RunAndReturn(run func(context.Context, string) (heal.Job, error)) *Service_HealStatus_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListHeals provides a mock function with given fields: ctx
+func (_m *Service) ListHeals(ctx context.Context) ([]heal.Job, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListHeals")
+	}
+
+	var r0 []heal.Job
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]heal.Job, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []heal.Job); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]heal.Job)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_ListHeals_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListHeals'
+type Service_ListHeals_Call struct {
+	*mock.Call
+}
+
+// ListHeals is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *Service_Expecter) ListHeals(ctx interface{}) *Service_ListHeals_Call {
+	return &Service_ListHeals_Call{Call: _e.mock.On("ListHeals", ctx)}
+}
+
+func (_c *Service_ListHeals_Call) Run(run func(ctx context.Context)) *Service_ListHeals_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *Service_ListHeals_Call) Return(_a0 []heal.Job, _a1 error) *Service_ListHeals_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_ListHeals_Call) RunAndReturn(run func(context.Context) ([]heal.Job, error)) *Service_ListHeals_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -243,6 +301,63 @@ func (_c *Service_ServiceAction_Call) Return(_a0 error) *Service_ServiceAction_C
 }
 
 func (_c *Service_ServiceAction_Call) RunAndReturn(run func(context.Context, admin.Action) error) *Service_ServiceAction_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// StartHeal provides a mock function with given fields: ctx, in
+func (_m *Service) StartHeal(ctx context.Context, in admin.HealInput) (heal.Job, error) {
+	ret := _m.Called(ctx, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StartHeal")
+	}
+
+	var r0 heal.Job
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, admin.HealInput) (heal.Job, error)); ok {
+		return rf(ctx, in)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, admin.HealInput) heal.Job); ok {
+		r0 = rf(ctx, in)
+	} else {
+		r0 = ret.Get(0).(heal.Job)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, admin.HealInput) error); ok {
+		r1 = rf(ctx, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_StartHeal_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StartHeal'
+type Service_StartHeal_Call struct {
+	*mock.Call
+}
+
+// StartHeal is a helper method to define mock.On call
+//   - ctx context.Context
+//   - in admin.HealInput
+func (_e *Service_Expecter) StartHeal(ctx interface{}, in interface{}) *Service_StartHeal_Call {
+	return &Service_StartHeal_Call{Call: _e.mock.On("StartHeal", ctx, in)}
+}
+
+func (_c *Service_StartHeal_Call) Run(run func(ctx context.Context, in admin.HealInput)) *Service_StartHeal_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(admin.HealInput))
+	})
+	return _c
+}
+
+func (_c *Service_StartHeal_Call) Return(_a0 heal.Job, _a1 error) *Service_StartHeal_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_StartHeal_Call) RunAndReturn(run func(context.Context, admin.HealInput) (heal.Job, error)) *Service_StartHeal_Call {
 	_c.Call.Return(run)
 	return _c
 }

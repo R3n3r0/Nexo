@@ -1,4 +1,4 @@
-package storage_test
+package storagetest
 
 import (
 	"bytes"
@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -17,23 +18,21 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/storage"
-	"github.com/r3n3r0/nexo/internal/testutil"
 )
 
-// TestDriveOffline removes the drive directory under a running instance
-// (unmounted or failed drive): every operation reports ErrDiskNotFound and
-// nothing recreates the directory on the parent file system.
-func TestDriveOffline(t *testing.T) {
+// testDriveOffline removes the drive directory under a running instance
+// (unmounted or failed drive): every operation reports ErrDiskNotFound, the
+// drive is reported offline and nothing recreates the directory on the
+// parent file system.
+func testDriveOffline(t *testing.T, f Factory) {
 	ctx := context.Background()
-	dir := filepath.Join(t.TempDir(), "drive")
-	s := testutil.NewLocalDrive(t, dir)
+	s, dir := open(t, f)
 	require.NoError(t, s.MakeVol(ctx, "b"))
 	fi, err := putObject(ctx, s, "b", "k", "", time.Now(), []byte("data"))
 	require.NoError(t, err)
 	require.True(t, s.IsOnline())
 
 	require.NoError(t, os.RemoveAll(dir))
-	assert.False(t, s.IsOnline())
 	noop := func(storage.WalkEntry) error { return nil }
 	ops := map[string]func() error{
 		"DiskInfo":    func() error { _, err := s.DiskInfo(ctx, storage.DiskInfoOptions{}); return err },
@@ -64,19 +63,20 @@ func TestDriveOffline(t *testing.T) {
 			assert.ErrorIs(t, op(), domain.ErrDiskNotFound)
 		})
 	}
+	assert.False(t, s.IsOnline())
 	_, err = os.Stat(dir)
 	assert.True(t, os.IsNotExist(err), "the drive directory is never recreated")
 }
 
-// TestSymlinksAreNotFollowed plants links pointing outside the drive.
-func TestSymlinksAreNotFollowed(t *testing.T) {
+// testSymlinksAreNotFollowed plants links pointing outside the drive.
+func testSymlinksAreNotFollowed(t *testing.T, f Factory) {
 	ctx := context.Background()
 	base := t.TempDir()
 	dir := filepath.Join(base, "drive")
 	outside := filepath.Join(base, "outside")
 	require.NoError(t, os.MkdirAll(filepath.Join(outside, "k"), 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(outside, "secret"), []byte("secret"), 0o600))
-	s := testutil.NewLocalDrive(t, dir)
+	s := f(t, dir)
 	require.NoError(t, s.MakeVol(ctx, "b"))
 	_, err := putObject(ctx, s, "b", "obj", "", time.Now(), []byte("data"))
 	require.NoError(t, err)
@@ -128,10 +128,9 @@ func TestSymlinksAreNotFollowed(t *testing.T) {
 	assert.True(t, os.IsNotExist(err), "nothing is written outside the drive")
 }
 
-func TestHealingTracker(t *testing.T) {
+func testHealingTracker(t *testing.T, f Factory) {
 	ctx := context.Background()
-	dir := filepath.Join(t.TempDir(), "drive")
-	s := testutil.NewLocalDrive(t, dir)
+	s, dir := open(t, f)
 	assert.Nil(t, s.Healing())
 
 	tracker := storage.HealingTracker{ID: "disk-1", Endpoint: dir, Started: time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC), ObjectsHealed: 3}
@@ -149,7 +148,7 @@ func TestHealingTracker(t *testing.T) {
 	assert.Equal(t, domain.StateHealing, info.State)
 
 	// The tracker is loaded at startup.
-	assert.NotNil(t, testutil.NewLocalDrive(t, dir).Healing())
+	assert.NotNil(t, f(t, dir).Healing())
 
 	// A finished heal leaves the drive online.
 	tracker.Finished = true
@@ -169,10 +168,9 @@ func TestHealingTracker(t *testing.T) {
 	assert.Nil(t, s.Healing())
 }
 
-func TestStorageErrors(t *testing.T) {
+func testStorageErrors(t *testing.T, f Factory) {
 	ctx := context.Background()
-	dir := filepath.Join(t.TempDir(), "drive")
-	s := testutil.NewLocalDrive(t, dir)
+	s, dir := open(t, f)
 	require.NoError(t, s.MakeVol(ctx, "b"))
 	now := time.Now()
 
@@ -250,14 +248,21 @@ func TestStorageErrors(t *testing.T) {
 	require.NoError(t, s.WriteAll(ctx, domain.SystemBucket, "config/after", []byte("ok")))
 }
 
-func TestLegacyMetadataOnDisk(t *testing.T) {
-	ctx := context.Background()
-	dir := filepath.Join(t.TempDir(), "drive")
-	s := testutil.NewLocalDrive(t, dir)
-	require.NoError(t, s.MakeVol(ctx, "b"))
-	legacy, err := os.ReadFile(filepath.Join("testdata", "xlmeta", "legacy-json.meta"))
+// fixture reads a file of the storage package testdata directory.
+func fixture(t *testing.T, name string) []byte {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	require.True(t, ok, "locate the storagetest sources")
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "testdata", "xlmeta", name))
 	require.NoError(t, err)
-	require.NoError(t, s.WriteAll(ctx, "b", "old/"+storage.MetaFile, legacy))
+	return data
+}
+
+func testLegacyMetadataOnDisk(t *testing.T, f Factory) {
+	ctx := context.Background()
+	s, _ := open(t, f)
+	require.NoError(t, s.MakeVol(ctx, "b"))
+	require.NoError(t, s.WriteAll(ctx, "b", "old/"+storage.MetaFile, fixture(t, "legacy-json.meta")))
 
 	fi, err := s.ReadVersion(ctx, "b", "old", "null", storage.ReadOptions{ReadData: true})
 	require.NoError(t, err)
@@ -275,9 +280,9 @@ func TestLegacyMetadataOnDisk(t *testing.T) {
 	assert.Equal(t, 2, fi.NumVersions)
 }
 
-func TestSharedDataDirSurvives(t *testing.T) {
+func testSharedDataDirSurvives(t *testing.T, f Factory) {
 	ctx := context.Background()
-	s := testutil.NewLocalDrive(t, "")
+	s, _ := open(t, f)
 	require.NoError(t, s.MakeVol(ctx, "b"))
 	now := time.Now()
 	v1, err := putObject(ctx, s, "b", "k", "v1", now, bytes.Repeat([]byte("s"), storage.SmallFileThreshold))

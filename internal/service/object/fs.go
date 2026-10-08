@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/storage"
@@ -23,7 +24,10 @@ func NewFS(deps Deps, opts ...Option) (Service, error) {
 	if deps.Store == nil {
 		return nil, fmt.Errorf("%w: object: NewFS requires a storage drive", domain.ErrInvalidArgument)
 	}
-	st := &singleDrive{d: deps.Store}
+	if deps.Logger == nil {
+		deps.Logger = slog.Default()
+	}
+	st := &singleDrive{d: deps.Store, logger: deps.Logger}
 	l := newLayer(deps, opts, []store{st}, "fs")
 	return &fsObjects{layer: l, drive: deps.Store}, nil
 }
@@ -43,7 +47,8 @@ func (f *fsObjects) Health(_ context.Context, opts HealthOptions) HealthResult {
 
 // singleDrive adapts one StorageAPI to the store contract.
 type singleDrive struct {
-	d storage.StorageAPI
+	d      storage.StorageAPI
+	logger *slog.Logger
 }
 
 var _ store = (*singleDrive)(nil)
@@ -92,7 +97,7 @@ func (c *countingReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func (s *singleDrive) WriteData(ctx context.Context, dir string, partNum int, size int64, r io.Reader) (int64, error) {
+func (s *singleDrive) WriteData(ctx context.Context, dir string, partNum int, size int64, r io.Reader, _ storage.ErasureInfo) (int64, error) {
 	cr := &countingReader{r: r}
 	if err := s.d.CreateFile(ctx, domain.SystemBucket, dir+"/"+partName(partNum), size, cr); err != nil {
 		return cr.n, err
@@ -100,7 +105,7 @@ func (s *singleDrive) WriteData(ctx context.Context, dir string, partNum int, si
 	return cr.n, nil
 }
 
-func (s *singleDrive) ErasureInfo() storage.ErasureInfo {
+func (s *singleDrive) ErasureInfo(string, string) storage.ErasureInfo {
 	return storage.ErasureInfo{Algorithm: "none", DataBlocks: 1, ParityBlocks: 0, Index: 1, Distribution: []int{1}}
 }
 
@@ -136,8 +141,19 @@ func (s *singleDrive) StatGlob(ctx context.Context, pattern string) ([]storage.S
 	return s.d.StatInfoFile(ctx, domain.SystemBucket, pattern, true)
 }
 
-func (s *singleDrive) Walk(ctx context.Context, opts storage.WalkDirOptions, fn storage.WalkDirFunc) error {
-	return s.d.WalkDir(ctx, opts, fn)
+func (s *singleDrive) WalkVersions(ctx context.Context, opts storage.WalkDirOptions, fn func(walkEntry) error) error {
+	opts.Limit = 0
+	return s.d.WalkDir(ctx, opts, func(e storage.WalkEntry) error {
+		if e.IsDir {
+			return fn(walkEntry{Name: e.Name, IsDir: true})
+		}
+		versions, err := storage.DecodeFileInfos(opts.Bucket, e.Name, e.Metadata)
+		if err != nil {
+			s.logger.WarnContext(ctx, "object: skipping unreadable metadata", "bucket", opts.Bucket, "key", e.Name, "err", err)
+			return nil
+		}
+		return fn(walkEntry{Name: e.Name, Versions: versions})
+	})
 }
 
 func (s *singleDrive) Online() (int, int) {

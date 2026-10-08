@@ -30,6 +30,13 @@ func newServerCmdWith(deps cmdDeps, assets assetsProvider) *cobra.Command {
   nexo server /data                                  single node, single drive (SNSD)
   nexo server /data{1...4}                           single node, multi drive (SNMD, erasure coding)
   nexo server http://node{1...4}:9000/data{1...4}    distributed cluster
+  nexo server http://node{1...4}:9000/data{1...4} \
+              http://node{5...8}:9000/data{1...4}    cluster expanded with a second pool
+
+In a cluster every node runs the same command; a node recognizes its own
+endpoints by its host names or addresses and the port of --address.
+--dry-run checks a configuration without starting the server nor
+writing to the drives.
 
 Root credentials come from NEXO_ROOT_USER and NEXO_ROOT_PASSWORD (or the
 *_FILE variants); every option is also available as NEXO_<OPTION> (e.g.
@@ -43,6 +50,9 @@ NEXO_CONSOLE_ADDRESS). Precedence: flags > environment > --config file.`,
 				return err
 			}
 			logger := newLogger(deps, cfg)
+			if dryRun {
+				return dryRunReport(cmd, cfg, app.WithLogger(logger))
+			}
 			opts := []app.Option{app.WithLogger(logger)}
 			if fsys, ok := assets(); ok {
 				opts = append(opts, app.WithAssetsFS(fsys))
@@ -51,16 +61,12 @@ NEXO_CONSOLE_ADDRESS). Precedence: flags > environment > --config file.`,
 			if err != nil {
 				return err
 			}
-			if dryRun {
-				_, err := fmt.Fprintf(cmd.OutOrStdout(), "configuration OK: mode=%s s3=%s console=%s endpoints=%s\n",
-					application.Mode(), cfg.Address, cfg.ConsoleAddress, strings.Join(cfg.Endpoints, " "))
-				return err
-			}
 			return application.Run(ctx)
 		},
 	}
 	config.BindFlags(cmd.Flags())
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "validate the configuration and topology, then exit")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false,
+		"validate the configuration, topology, drive permissions, ports and certificates without starting, then exit")
 	return cmd
 }
 
@@ -81,4 +87,30 @@ func newLogger(deps cmdDeps, cfg config.Static) *slog.Logger {
 		return slog.New(slog.NewTextHandler(deps.stderr, opts))
 	}
 	return slog.New(slog.NewJSONHandler(deps.stderr, opts))
+}
+
+// dryRunReport validates the configuration (app.DryRun) and prints what
+// was checked; any problem fails the command.
+func dryRunReport(cmd *cobra.Command, cfg config.Static, opts ...app.Option) error {
+	rep, err := app.DryRun(cmd.Context(), cfg, opts...)
+	if err != nil {
+		return fmt.Errorf("invalid configuration: %w", err)
+	}
+	out := cmd.OutOrStdout()
+	if _, err := fmt.Fprintf(out, "configuration OK: mode=%s s3=%s console=%s endpoints=%s\n",
+		rep.Mode, cfg.Address, cfg.ConsoleAddress, strings.Join(cfg.Endpoints, " ")); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(out, "  node: %s (%d node(s))\n", rep.NodeID, rep.Nodes)
+	for _, p := range rep.Pools {
+		_, _ = fmt.Fprintf(out, "  pool %d: %d erasure set(s) of %d drive(s), parity %d\n", p.Index+1, p.Sets, p.DrivesPerSet, p.Parity)
+	}
+	_, _ = fmt.Fprintf(out, "  local drives: %d writable, %d formatted\n", len(rep.LocalDrives), rep.Formatted)
+	if rep.DeploymentID != "" {
+		_, _ = fmt.Fprintf(out, "  deployment: %s\n", rep.DeploymentID)
+	}
+	for _, w := range rep.Warnings {
+		_, _ = fmt.Fprintf(out, "  warning: %s\n", w)
+	}
+	return nil
 }

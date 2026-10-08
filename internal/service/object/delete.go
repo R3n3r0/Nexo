@@ -25,7 +25,10 @@ func (l *layer) DeleteObject(ctx context.Context, bucket, key string, opts Delet
 		return DeletedObject{}, err
 	}
 	defer unlock()
-	st := l.pick(key)
+	st, err := l.place.forVersion(ctx, bucket, key, opts.VersionID)
+	if err != nil {
+		return DeletedObject{}, fmt.Errorf("%s: delete %s/%s: %w", l.name, bucket, key, err)
+	}
 	if err := l.statBucket(ctx, st, bucket); err != nil {
 		return DeletedObject{}, err
 	}

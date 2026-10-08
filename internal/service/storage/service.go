@@ -33,7 +33,8 @@ type Formatter interface {
 	// freshly formatted (one document per drive, written atomically), a
 	// pool whose drives carry documents is checked with
 	// topology.Service.CheckFormats and its unformatted drives (fresh
-	// replacements) receive the document of their position. Drives are
+	// replacements) receive the document of their position and a healing
+	// tracker (HealingFile), so that the healing service repopulates them. Drives are
 	// matched to the layout by endpoint; endpoints without a drive (remote
 	// nodes) are skipped. It returns the deployment id.
 	EnsureFormats(ctx context.Context, layout *topology.Layout, drives []StorageAPI) (string, error)
@@ -43,7 +44,10 @@ type Formatter interface {
 type FormatterDeps struct {
 	Topology topology.Service
 	// IDs generates deployment identifiers (default: UUID v4).
-	IDs    topology.IDGenerator
+	IDs topology.IDGenerator
+	// Clock dates the healing trackers of the replacement drives (default:
+	// wall clock).
+	Clock  clock.Clock
 	Logger *slog.Logger
 }
 
@@ -354,7 +358,11 @@ type HealingTracker struct {
 	ObjectsFailed uint64
 	BytesDone     uint64
 	BytesFailed   uint64
-	Bucket        string
-	Object        string
+	// Bucket and Object are the last item healed: a restarted healing
+	// resumes after them.
+	Bucket string
+	Object string
+	// HealedBuckets lists the buckets completely healed.
+	HealedBuckets []string `json:",omitempty"`
 	Finished      bool
 }

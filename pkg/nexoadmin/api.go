@@ -40,15 +40,21 @@ func (c *client) DataUsage(ctx context.Context) (*DataUsage, error) {
 }
 
 // Heal implements AdminClient.
-func (c *client) Heal(ctx context.Context, in HealRequest) (*HealResult, error) {
-	var out HealResult
+func (c *client) Heal(ctx context.Context, in HealRequest) (*HealJob, error) {
+	var out HealJob
 	return &out, c.do(ctx, request{method: http.MethodPost, path: "/heal", body: in}, &out)
 }
 
 // HealStatus implements AdminClient.
-func (c *client) HealStatus(ctx context.Context, id string) (*HealResult, error) {
-	var out HealResult
+func (c *client) HealStatus(ctx context.Context, id string) (*HealJob, error) {
+	var out HealJob
 	return &out, c.do(ctx, request{method: http.MethodGet, path: pathOf("heal", id)}, &out)
+}
+
+// ListHeals implements AdminClient.
+func (c *client) ListHeals(ctx context.Context) (*HealJobList, error) {
+	var out HealJobList
+	return &out, c.do(ctx, request{method: http.MethodGet, path: "/heal"}, &out)
 }
 
 // RestartService implements AdminClient.

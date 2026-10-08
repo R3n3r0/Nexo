@@ -64,9 +64,11 @@ var _ StorageAPI = (*xlStorage)(nil)
 // endpoint, prepares the system directories (.nexo.sys, tmp, multipart,
 // buckets, config), empties tmp, probes writability and loads the drive id
 // from format.json when present. The drive is left unformatted when no
-// format.json exists: Formatter.EnsureFormats writes it.
+// format.json exists: Formatter.EnsureFormats writes it. In a distributed
+// deployment the drives of this node are URL endpoints marked IsLocal by the
+// topology: they are opened at their path and keep their URL as Endpoint.
 func NewLocal(deps Deps, ep domain.Endpoint, opts ...Option) (StorageAPI, error) {
-	if ep.IsURL() || ep.Path == "" {
+	if (ep.IsURL() && !ep.IsLocal) || ep.Path == "" {
 		return nil, fmt.Errorf("%w: storage: endpoint %q is not a local path", domain.ErrInvalidArgument, ep.String())
 	}
 	if deps.Clock == nil {
@@ -317,6 +319,7 @@ func (s *xlStorage) DiskInfo(ctx context.Context, opts DiskInfoOptions) (domain.
 	if h := s.healing.Load(); h != nil && !h.Finished {
 		info.Healing = true
 		info.State = domain.StateHealing
+		info.HealingProgress = h.Progress()
 	}
 	return info, nil
 }

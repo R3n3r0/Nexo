@@ -5,7 +5,9 @@
 // an isolated HOME holding the alias "local" of the server (root
 // credentials, Admin API on the console listener). The scripts read the
 // endpoints in $NEXO_URL (S3) and $NEXO_ADMIN_URL (Admin API) and the root
-// credentials in $NEXO_ROOT_USER and $NEXO_ROOT_PASSWORD.
+// credentials in $NEXO_ROOT_USER and $NEXO_ROOT_PASSWORD. The scripts
+// named snmd_*.txtar run against a single node of 4 drives (SNMD) whose
+// drive directories are $NEXO_DRIVE1 ... $NEXO_DRIVE4.
 //
 // Custom commands available to the scripts:
 //
@@ -112,6 +114,14 @@ func TestScripts(t *testing.T) {
 	})
 }
 
+// snmdPrefix marks the scripts run against an erasure-coded single node
+// of snmdDrives drives (SNMD) instead of a single drive; their drive
+// directories are in $NEXO_DRIVE1 ... $NEXO_DRIVEn.
+const (
+	snmdPrefix = "snmd_"
+	snmdDrives = 4
+)
+
 // setup starts a server for the script and configures the alias "local"
 // in an isolated HOME.
 func setup(env *testscript.Env) error {
@@ -119,7 +129,16 @@ func setup(env *testscript.Env) error {
 	if !ok {
 		return errors.New("the testscript T is not a testing.TB")
 	}
-	srv := testutil.StartServer(tb)
+	var opts []testutil.Option
+	if strings.HasPrefix(strings.TrimPrefix(filepath.Base(env.WorkDir), "script-"), snmdPrefix) {
+		opts = append(opts, testutil.Drives(snmdDrives))
+	}
+	srv := testutil.StartServer(tb, opts...)
+	if len(opts) > 0 {
+		for i, dir := range srv.DriveDirs() {
+			env.Setenv(fmt.Sprintf("NEXO_DRIVE%d", i+1), dir)
+		}
+	}
 	home := filepath.Join(env.WorkDir, "home")
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return err

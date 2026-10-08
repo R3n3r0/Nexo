@@ -3,6 +3,11 @@
 // raw net/http requests signed with the SDK's SigV4 signer. Identities and
 // policies are provisioned through the services the test server exposes.
 //
+// The suite runs in every deployment mode (docs/08 §8.6 TM-01): the
+// top-level tests on a single drive (SNSD), TestDeploymentModes the same
+// tests on a node with four drives (SNMD) and on a cluster of 4 nodes x 2
+// drives running in the test process behind a round-robin load balancer.
+//
 // The test IDs refer to docs/06 §6.2 (TS-I-*) and docs/09 §9.6 (TPS-*).
 package integration_test
 
@@ -50,10 +55,11 @@ type env struct {
 	ctx  context.Context
 }
 
-// newEnv starts a server for the test.
+// newEnv starts a server for the test, in the deployment mode the test
+// runs in (modeOf).
 func newEnv(t *testing.T, opts ...testutil.Option) *env {
 	t.Helper()
-	srv := testutil.StartServer(t, opts...)
+	srv := startDeployment(t, modeOf(t), opts...)
 	e := &env{t: t, srv: srv, ctx: context.Background()}
 	e.root = e.client(srv.RootUser, srv.RootPassword, "")
 	return e

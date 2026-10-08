@@ -10,7 +10,9 @@
 //   - api.root_access: "off" denies the root credentials on the S3 API
 //     (GuardRootAccess); the console, the Admin API and the credentials
 //     derived from root (service accounts, STS sessions) keep working, so
-//     that an administrator can always turn it back on.
+//     that an administrator can always turn it back on;
+//   - scanner.speed and scanner.cycle: read by the background scanner at
+//     the start of every cycle.
 package settings
 
 import (

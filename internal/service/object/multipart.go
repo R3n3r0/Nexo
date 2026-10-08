@@ -44,6 +44,17 @@ type uploadMeta struct {
 	Initiated time.Time                `json:"initiated"`
 	Metadata  map[string]string        `json:"metadata"`
 	Checksum  domain.ChecksumAlgorithm `json:"checksum,omitempty"`
+	// Erasure is the layout the parts are written with, decided at the
+	// creation of the upload (absent for uploads of earlier builds).
+	Erasure *storage.ErasureInfo `json:"erasure,omitempty"`
+}
+
+// layout returns the erasure layout of the upload's parts in st.
+func (m uploadMeta) layout(st store) storage.ErasureInfo {
+	if m.Erasure != nil {
+		return *m.Erasure
+	}
+	return st.ErasureInfo(m.Key, m.Metadata[metaStorageClass])
 }
 
 // partMeta is the persisted description of an uploaded part.
@@ -139,7 +150,10 @@ func (l *layer) NewMultipartUpload(ctx context.Context, in NewMultipartInput) (d
 	if _, err := newHashReader(nil, false, in.Checksum); err != nil {
 		return domain.MultipartUpload{}, err
 	}
-	st := l.pick(in.Key)
+	st, err := l.place.forWrite(ctx, in.Bucket, in.Key, -1)
+	if err != nil {
+		return domain.MultipartUpload{}, fmt.Errorf("%s: place %s/%s: %w", l.name, in.Bucket, in.Key, err)
+	}
 	if err := l.statBucket(ctx, st, in.Bucket); err != nil {
 		return domain.MultipartUpload{}, err
 	}
@@ -160,6 +174,8 @@ func (l *layer) NewMultipartUpload(ctx context.Context, in NewMultipartInput) (d
 		}.build(in.Tags, in.StorageClass),
 		Checksum: in.Checksum,
 	}
+	ei := st.ErasureInfo(in.Key, m.Metadata[metaStorageClass])
+	m.Erasure = &ei
 	data, err := json.Marshal(m)
 	if err != nil {
 		return domain.MultipartUpload{}, fmt.Errorf("%s: encode upload: %w", l.name, err)
@@ -189,7 +205,10 @@ func (l *layer) PutObjectPart(ctx context.Context, in PutObjectPartInput) (domai
 		return domain.Part{}, err
 	}
 	defer lc.Unlock(ctx)
-	st := l.pick(in.Key)
+	st, err := l.place.forUpload(ctx, in.Bucket, in.Key, in.UploadID)
+	if err != nil {
+		return domain.Part{}, fmt.Errorf("%s: upload %s: %w", l.name, in.UploadID, err)
+	}
 	m, dir, err := l.loadUpload(ctx, st, in.Bucket, in.Key, in.UploadID)
 	if err != nil {
 		return domain.Part{}, err
@@ -210,7 +229,7 @@ func (l *layer) PutObjectPart(ctx context.Context, in PutObjectPartInput) (domai
 	// moved under a unique name into the upload directory.
 	tmpDir := l.newTmpDir()
 	defer l.cleanupTmp(ctx, st, tmpDir)
-	n, err := st.WriteData(ctx, tmpDir, in.PartNumber, in.Size, hr)
+	n, err := st.WriteData(ctx, tmpDir, in.PartNumber, in.Size, hr, m.layout(st))
 	if err != nil {
 		return domain.Part{}, fmt.Errorf("%s: upload part %d of %s: %w", l.name, in.PartNumber, in.UploadID, mapBodyErr(err))
 	}
@@ -225,6 +244,14 @@ func (l *layer) PutObjectPart(ctx context.Context, in PutObjectPartInput) (domai
 		Number: in.PartNumber, ETag: hr.etag(), Size: n, ActualSize: n, ModTime: l.now(), Checksum: checksum,
 		DataFile: partName(in.PartNumber) + "." + uuid.NewString(),
 	}
+	// Concurrent uploads of the same part number commit one at a time: on
+	// an erasure set their descriptions would otherwise reach the drives
+	// in different orders and no version of it would have a quorum.
+	plc, err := l.lockPath(ctx, domain.SystemBucket, dir+"/"+partName(in.PartNumber), true)
+	if err != nil {
+		return domain.Part{}, err
+	}
+	defer plc.Unlock(ctx)
 	if err := st.RenameFile(ctx, tmpDir+"/"+partName(in.PartNumber), dir+"/"+part.DataFile); err != nil {
 		return domain.Part{}, fmt.Errorf("%s: store part %d of %s: %w", l.name, in.PartNumber, in.UploadID, err)
 	}
@@ -341,7 +368,10 @@ func (l *layer) ListObjectParts(ctx context.Context, in domain.ListPartsInput) (
 	if err := validObject(in.Bucket, in.Key); err != nil {
 		return domain.ListPartsResult{}, err
 	}
-	st := l.pick(in.Key)
+	st, err := l.place.forUpload(ctx, in.Bucket, in.Key, in.UploadID)
+	if err != nil {
+		return domain.ListPartsResult{}, fmt.Errorf("%s: upload %s: %w", l.name, in.UploadID, err)
+	}
 	m, dir, err := l.loadUpload(ctx, st, in.Bucket, in.Key, in.UploadID)
 	if err != nil {
 		return domain.ListPartsResult{}, err
@@ -382,7 +412,10 @@ func (l *layer) AbortMultipartUpload(ctx context.Context, bucket, key, uploadID 
 		return err
 	}
 	defer lc.Unlock(ctx)
-	st := l.pick(key)
+	st, err := l.place.forUpload(ctx, bucket, key, uploadID)
+	if err != nil {
+		return fmt.Errorf("%s: upload %s: %w", l.name, uploadID, err)
+	}
 	if _, _, err := l.loadUpload(ctx, st, bucket, key, uploadID); err != nil {
 		return err
 	}
@@ -424,7 +457,10 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 		return domain.ObjectInfo{}, err
 	}
 	defer ulc.Unlock(ctx)
-	st := l.pick(in.Key)
+	st, err := l.place.forUpload(ctx, in.Bucket, in.Key, in.UploadID)
+	if err != nil {
+		return domain.ObjectInfo{}, fmt.Errorf("%s: upload %s: %w", l.name, in.UploadID, err)
+	}
 	m, dir, err := l.loadUpload(ctx, st, in.Bucket, in.Key, in.UploadID)
 	if err != nil {
 		return domain.ObjectInfo{}, err
@@ -475,7 +511,7 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 	if err != nil {
 		return domain.ObjectInfo{}, err
 	}
-	if err := l.checkCurrent(ctx, st, in.Bucket, in.Key, in.Conditions); err != nil {
+	if err := l.checkCurrent(ctx, in.Bucket, in.Key, in.Conditions); err != nil {
 		return domain.ObjectInfo{}, err
 	}
 	cfg, err := l.bucketConfig(ctx, in.Bucket)
@@ -531,7 +567,7 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 		DataDir:   uuid.NewString(),
 		Metadata:  meta,
 		Parts:     parts,
-		Erasure:   st.ErasureInfo(),
+		Erasure:   m.layout(st),
 		Versioned: versioned,
 	}
 	old, err := st.CommitData(ctx, tmpDir, fi, in.Bucket, in.Key)
@@ -540,6 +576,7 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 		return domain.ObjectInfo{}, fmt.Errorf("%s: complete %s: %w", l.name, in.UploadID, err)
 	}
 	l.purgeReplaced(ctx, st, in.Bucket, in.Key, old, fi.DataDir)
+	l.dropElsewhere(ctx, st, in.Bucket, in.Key, fi.VersionID)
 	if err := st.DeletePath(ctx, domain.SystemBucket, dir, true); err != nil && !isNotFound(err) {
 		l.deps.Logger.WarnContext(ctx, "object: cannot remove completed upload", "upload", in.UploadID, "err", err)
 	}

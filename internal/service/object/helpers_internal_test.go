@@ -36,8 +36,6 @@ func TestHelpers(t *testing.T) {
 	assert.True(t, validUploadID("abc-DEF_123"))
 	assert.False(t, validUploadID("a/b"))
 	assert.False(t, validUploadID(""))
-	assert.Equal(t, int64(3), shardSize(5, 2))
-	assert.Equal(t, int64(2048), shardSize(4096, 2))
 
 	errs := []error{nil, nil, domain.ErrObjectNotFound}
 	assert.NoError(t, reduceErrs(errs, 2, domain.ErrWriteQuorum))

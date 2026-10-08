@@ -7,7 +7,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -17,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -29,21 +29,16 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/audit"
 	"github.com/r3n3r0/nexo/internal/service/auth"
 	"github.com/r3n3r0/nexo/internal/service/bucket"
+	"github.com/r3n3r0/nexo/internal/service/cluster"
 	configsvc "github.com/r3n3r0/nexo/internal/service/config"
-	"github.com/r3n3r0/nexo/internal/service/event"
-	"github.com/r3n3r0/nexo/internal/service/health"
 	"github.com/r3n3r0/nexo/internal/service/iam"
-	"github.com/r3n3r0/nexo/internal/service/lock"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/service/session"
-	"github.com/r3n3r0/nexo/internal/service/settings"
 	"github.com/r3n3r0/nexo/internal/service/share"
-	"github.com/r3n3r0/nexo/internal/service/storage"
 	"github.com/r3n3r0/nexo/internal/service/topology"
 	adminhttp "github.com/r3n3r0/nexo/internal/transport/http/admin"
-	"github.com/r3n3r0/nexo/internal/transport/http/console"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
 	"github.com/r3n3r0/nexo/internal/transport/http/s3"
@@ -60,6 +55,7 @@ type options struct {
 	assets   fs.FS
 	topology topology.Service
 	stopWait time.Duration
+	noFsync  bool
 }
 
 // WithLogger sets the logger (default slog.Default()).
@@ -100,6 +96,13 @@ func WithTopology(t topology.Service) Option {
 	}
 }
 
+// WithoutFsync skips the fsync calls of the drives (tests: the data
+// durability is left to the operating system, which a process crash does
+// not affect).
+func WithoutFsync() Option {
+	return func(o *options) { o.noFsync = true }
+}
+
 // WithStopTimeout bounds the shutdown (default 30s).
 func WithStopTimeout(d time.Duration) Option {
 	return func(o *options) {
@@ -113,38 +116,41 @@ func WithStopTimeout(d time.Duration) Option {
 type App struct {
 	cfg config.Static
 	// opts rebuild the application on a restart (POST /service/restart).
-	opts         []Option
-	layout       *topology.Layout
-	deploymentID string
-	logger       *slog.Logger
-	group        *lifecycle.Group
-	s3Srv        server.Service
-	consSrv      server.Service
-	stopWait     time.Duration
-	// identities is the IAM service (integration tests provision users
-	// through IAM).
-	identities iam.Service
-	// shares is the share-link service; the Admin API exposes it from M3
-	// (/buckets/{bucket}/objects/share).
-	shares share.Service
-	// policies, buckets and signer are exposed to the integration tests
-	// (internal/testutil), which drive the services directly.
-	policies policy.Service
-	buckets  bucket.Service
-	signer   auth.Signer
+	opts     []Option
+	o        options
+	layout   *topology.Layout
+	logger   *slog.Logger
+	group    *lifecycle.Group
+	stopWait time.Duration
+	f        *foundation
+	// s3Srv and consSrv are the listeners: the composed servers in the
+	// single-node modes; in a cluster, servers whose gate serves the
+	// composed APIs once the bootstrap is complete (the S3 one serves the
+	// internode RPC from the start).
+	s3Srv    server.Service
+	consSrv  server.Service
+	s3Gate   *gate
+	consGate *gate
 	// running is set while Run drives the application: only then may the
 	// Admin API stop or restart the process (processActions).
 	running *atomic.Bool
+
+	mu sync.RWMutex
+	// svc are the composed services: set by Build in the single-node
+	// modes, by Start after the bootstrap in a cluster.
+	svc *services
+	// late are the background components started with svc in a cluster.
+	late *lifecycle.Group
 }
 
-// Build composes the application: it parses the topology, opens and formats
-// the local drives, builds the object layer of the deployment mode, the
-// identity and policy services and the HTTP servers. It does not open
-// sockets: that happens in Start. On error every drive opened so far is
-// closed.
-//
-// Only the single-drive mode (SNSD) is served for now: the erasure-coded
-// modes (SNMD, distributed) return domain.ErrNotImplemented.
+// Build composes the application: it parses the topology and builds the
+// foundation of the deployment mode (docs/08 §8.1, docs/12 §12.4). In the
+// single-node modes (SNSD, SNMD) it also formats or checks the drives and
+// composes the object layer, the identity and policy services and the HTTP
+// servers. A cluster node cannot format its drives alone: its peers reach
+// it on the S3 port during the bootstrap, so Start opens the listener,
+// runs the bootstrap and only then composes the services. Build does not
+// open sockets. On error every drive opened so far is closed.
 func Build(ctx context.Context, cfg config.Static, opts ...Option) (app *App, err error) {
 	o := options{logger: slog.Default(), clock: clock.NewReal(), stopWait: 30 * time.Second}
 	for _, opt := range opts {
@@ -155,248 +161,147 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (app *App, er
 	}
 	logger := o.logger
 
-	// Topology: mode and drive layout from the endpoint arguments.
+	// Topology: mode and drive layout from the endpoint arguments; this
+	// node is recognized among the URL endpoints by the port of its S3
+	// address.
 	topo := o.topology
 	if topo == nil {
-		topoOpts := []topology.Option{}
-		if port := portOf(cfg.Address); port > 0 {
-			topoOpts = append(topoOpts, topology.WithLocalPort(port), topology.WithDefaultPort(port))
-		}
-		topo = topology.New(topology.Deps{Logger: logger}, topoOpts...)
+		topo = newTopology(cfg, logger)
 	}
 	layout, err := topo.Parse(ctx, cfg.Endpoints)
 	if err != nil {
 		return nil, fmt.Errorf("app: parse endpoints: %w", err)
 	}
-	if layout.Mode != domain.ModeSNSD {
-		// TODO(M5): erasure object layer (SNMD); TODO(M6): remote drives
-		// and distributed locks.
-		return nil, fmt.Errorf("app: %s deployment: erasure-coded modes are available from milestone M5, only a single drive (snsd) is served: %w",
-			layout.Mode, domain.ErrNotImplemented)
-	}
 
-	// Drives: one local storage per local endpoint, bound together by the
-	// format.json documents.
-	drives, err := openDrives(storage.Deps{Clock: o.clock, Logger: logger}, layout)
+	f, err := newFoundation(foundationDeps{cfg: cfg, layout: layout, topo: topo, clock: o.clock, logger: logger, noFsync: o.noFsync})
 	if err != nil {
 		return nil, fmt.Errorf("app: %w", err)
-	}
-	closeDrives := func(ctx context.Context) error {
-		var errs []error
-		for _, d := range drives {
-			if cerr := d.Close(ctx); cerr != nil {
-				errs = append(errs, cerr)
-			}
-		}
-		return errors.Join(errs...)
 	}
 	defer func() {
 		if err != nil {
-			_ = closeDrives(context.WithoutCancel(ctx))
+			_ = f.close(context.WithoutCancel(ctx))
 		}
 	}()
-	formatter := storage.NewFormatter(storage.FormatterDeps{Topology: topo, Logger: logger})
-	deploymentID, err := formatter.EnsureFormats(ctx, layout, drives)
-	if err != nil {
-		return nil, fmt.Errorf("app: format drives: %w", err)
+	a := &App{
+		cfg: cfg, opts: opts, o: o, layout: layout, logger: logger, stopWait: o.stopWait, f: f,
+		running: &atomic.Bool{},
 	}
-	logger.Info("deployment layout", "mode", layout.Mode.String(), "pools", len(layout.Pools), "drives", len(drives), "deployment_id", deploymentID)
-
-	// Cross-cutting services. The dynamic configuration, the identities
-	// and the named policies are documents of the system volume
-	// (<drive>/.nexo.sys/config).
-	sysConfigDir := filepath.Join(drives[0].Endpoint().Path, domain.SystemBucket, storage.ConfigDir)
-	registry := metrics.New(metrics.Deps{Logger: logger})
-	auditor := audit.NewSlog(audit.Deps{Logger: logger.With("component", "audit"), Clock: o.clock})
-	locks := lock.NewLocal(lock.Deps{})
-	configStore, err := configsvc.NewFileStore(filepath.Join(sysConfigDir, configFile))
-	if err != nil {
-		return nil, fmt.Errorf("app: config store: %w", err)
-	}
-	dynConfig := configsvc.New(configsvc.Deps{Store: configStore, Logger: logger})
-	events := event.NewDispatcher(event.Deps{Logger: logger.With("component", "events")})
-
-	// Object layer (SNSD: the single local drive) and the bucket metadata
-	// documents it reads the bucket configuration from.
-	bucketStore, err := bucket.NewStore(bucket.StoreDeps{Drives: drives, Logger: logger})
-	if err != nil {
-		return nil, fmt.Errorf("app: %w", err)
-	}
-	objects, err := object.NewFS(object.Deps{
-		Store:        drives[0],
-		Buckets:      bucketStore,
-		Locks:        locks,
-		Events:       events,
-		DeploymentID: deploymentID,
-		Clock:        o.clock,
-		Logger:       logger,
-	}, object.WithRegion(cfg.Region))
-	if err != nil {
-		return nil, fmt.Errorf("app: object layer: %w", err)
-	}
-
-	// Identities, policies and buckets. IAM is the source of truth of the
-	// policy attachments; the policy engine resolves bucket policies from
-	// the bucket metadata store, which breaks the bucket → policy → bucket
-	// construction cycle.
-	iamStore, err := iam.NewFileStore(ctx, filepath.Join(sysConfigDir, iamDir), cfg.RootPassword)
-	if err != nil {
-		return nil, fmt.Errorf("app: iam store: %w", err)
-	}
-	identities := iam.New(iam.Deps{Store: iamStore, Clock: o.clock, Logger: logger.With("component", "iam")})
-	if err := identities.Bootstrap(ctx, domain.Credentials{AccessKey: cfg.RootUser, SecretKey: cfg.RootPassword}); err != nil {
-		return nil, fmt.Errorf("app: bootstrap root credentials: %w", err)
-	}
-	policyStore, err := policy.NewFileStore(filepath.Join(sysConfigDir, policiesDir))
-	if err != nil {
-		return nil, fmt.Errorf("app: policy store: %w", err)
-	}
-	policies := policy.New(policy.Deps{
-		Store:       policyStore,
-		Attachments: identities,
-		Buckets:     bucketPolicies{store: bucketStore},
-		Clock:       o.clock,
-		Logger:      logger,
-	})
-	buckets, err := bucket.New(bucket.Deps{Objects: objects, Store: bucketStore, Policy: policies, Locks: locks, Clock: o.clock, Logger: logger},
-		bucket.WithRegion(cfg.Region))
-	if err != nil {
-		return nil, fmt.Errorf("app: %w", err)
-	}
-
-	// Authentication, share links and console sessions.
-	authDeps := auth.Deps{Creds: identities, Clock: o.clock, Logger: logger}
-	verifier, err := auth.NewVerifier(authDeps, auth.WithRegion(cfg.Region))
-	if err != nil {
-		return nil, fmt.Errorf("app: %w", err)
-	}
-	signer := auth.NewSigner(authDeps, auth.WithRegion(cfg.Region))
-	shares := share.New(share.Deps{IAM: identities, Signer: signer, Store: iamStore, Policy: policies, Clock: o.clock, Logger: logger},
-		share.WithServerURL(publicS3URL(cfg)), share.WithRegion(cfg.Region))
-	// The signing key derives from the root credentials so that every node
-	// of a deployment accepts the same cookies.
-	sessions, err := session.New(session.Deps{IAM: identities, Store: iamStore, Clock: o.clock, Logger: logger},
-		session.WithSigningKey(session.DeriveKey(cfg.RootUser, cfg.RootPassword)))
-	if err != nil {
-		return nil, fmt.Errorf("app: %w", err)
-	}
-
-	// Administration and health.
-	build := version.Get()
-	running := &atomic.Bool{}
-	adminSvc := adminsvc.New(adminsvc.Deps{
-		Clock:        o.clock,
-		Logger:       logger,
-		Build:        adminsvc.BuildInfo{Version: build.Version, Commit: build.Commit, Date: build.Date},
-		Mode:         layout.Mode,
-		Region:       cfg.Region,
-		DeploymentID: deploymentID,
-		Drives:       drives,
-		Pools:        poolInfos(layout),
-		Objects:      objects,
-		Actions:      processActions{running: running, signal: signalSelf},
-	})
-	healthSvc := health.New(health.Deps{Readiness: map[string]health.Check{
-		"storage": object.ReadinessCheck(objects),
-	}})
-
-	codec := httpx.New()
-	ids := httpx.NewIDGenerator()
-
-	// The S3 API evaluates with the engine decorated by the applied
-	// dynamic settings (api.root_access, hot reloaded).
-	applied, err := settings.New(settings.Deps{Config: dynConfig, Logger: logger})
-	if err != nil {
-		return nil, fmt.Errorf("app: %w", err)
-	}
-	s3Policy := settings.GuardRootAccess(policies, applied)
-
-	// S3 server (:9000): every route goes through the SigV4 middleware,
-	// which admits anonymous requests; the handlers authorize with the
-	// policy engine.
-	s3Middlewares, err := s3Middlewares(middlewareDeps{
-		logger: logger, clock: o.clock, codec: codec, ids: ids,
-		registry: registry, verifier: verifier, auditor: auditor, domains: domainsOf(cfg),
-		trustedProxies: cfg.TrustedProxies,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("app: %w", err)
-	}
-	metricsRoutes, err := s3.NewMetricsRoutes(
-		s3.MetricsDeps{Registry: registry, Verifier: verifier, Policy: s3Policy, Enc: codec, Clock: o.clock},
-		s3.WithPublicMetrics(cfg.PrometheusAuthType == config.PrometheusAuthPublic))
-	if err != nil {
-		return nil, fmt.Errorf("app: %w", err)
-	}
-	s3API := s3.NewAPI(s3.APIDeps{Enc: codec, Domains: domainsOf(cfg), System: []httpx.Routes{
-		s3.NewHealthRoutes(s3.HealthDeps{Health: healthSvc, Enc: codec}),
-		metricsRoutes,
-	}},
-		s3.NewBucketRoutes(s3.BucketDeps{Buckets: buckets, Objects: objects, Policy: s3Policy, Enc: codec, Clock: o.clock, Logger: logger},
-			s3.WithRegion(cfg.Region)),
-		s3.NewObjectRoutes(s3.ObjectDeps{Objects: objects, Policy: s3Policy, Enc: codec, Clock: o.clock, Logger: logger}),
-		s3.NewMultipartRoutes(s3.MultipartDeps{Objects: objects, Policy: s3Policy, Enc: codec, Clock: o.clock, Logger: logger}),
-		s3.NewPresignedRoutes(s3.PresignedDeps{Verifier: verifier, Objects: objects, Buckets: buckets, Policy: s3Policy, Enc: codec, Clock: o.clock, Logger: logger},
-			s3.WithRegion(cfg.Region)),
-		s3.NewPostPolicyRoutes(s3.PostPolicyDeps{Verifier: verifier, Objects: objects, Policy: s3Policy, Enc: codec, Clock: o.clock, Logger: logger}),
-		s3.NewSTSRoutes(s3.STSDeps{IAM: identities, Policy: s3Policy, Enc: codec, Clock: o.clock, Logger: logger}),
-	)
-	s3Srv := server.New(server.Deps{
-		Routes:      []httpx.Routes{s3API},
-		Middlewares: s3Middlewares,
-		Logger:      logger,
-	}, serverOptions(cfg, cfg.Address, "s3")...)
-
-	// Console + Admin API server (:9001).
-	consoleMiddlewares, err := consoleMiddlewares(middlewareDeps{
-		logger: logger, clock: o.clock, codec: codec, ids: ids, registry: registry, trustedProxies: cfg.TrustedProxies,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("app: %w", err)
-	}
-	adminAPI, err := buildAdminAPI(adminDeps{
-		codec: codec, clock: o.clock, logger: logger, region: cfg.Region, s3URL: publicS3URL(cfg),
-		sessions: sessions, verifier: verifier, signer: signer, admin: adminSvc, iam: identities, policy: policies,
-		buckets: buckets, objects: objects, shares: shares, config: dynConfig, secureCookies: secureConsole(cfg),
-		consoleURL: cfg.BrowserRedirectURL,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("app: %w", err)
-	}
-	consSrv := server.New(server.Deps{
-		Routes: []httpx.Routes{
-			s3.NewHealthRoutes(s3.HealthDeps{Health: healthSvc, Enc: codec}),
-			adminAPI,
-			console.NewSPARoutes(console.SPADeps{Assets: console.NewAssets(console.AssetsDeps{FS: o.assets}), Enc: codec}),
-		},
-		Middlewares: consoleMiddlewares,
-		Logger:      logger,
-	}, serverOptions(cfg, cfg.ConsoleAddress, "console")...)
 
 	// Components stop in reverse order: the drives are released last.
 	group := lifecycle.NewGroup(lifecycle.WithLogger(logger), lifecycle.WithStopTimeout(o.stopWait))
-	group.Add("drives", lifecycle.Funcs{OnStop: closeDrives})
-	group.Add("events", events)
-	group.Add("s3", s3Srv)
-	group.Add("console", consSrv)
+	group.Add("drives", lifecycle.Funcs{OnStop: f.close})
+	group.Add("notifier", f.notifier)
+	if f.distributed() {
+		a.s3Gate = newGate(true, "the cluster bootstrap is not complete: this node waits for its peers")
+		a.consGate = newGate(false, "the cluster bootstrap is not complete: this node waits for its peers")
+		a.s3Srv = server.New(server.Deps{Middlewares: []middleware.Middleware{f.rpc, a.s3Gate}, Logger: logger},
+			serverOptions(cfg, cfg.Address, "s3")...)
+		a.consSrv = server.New(server.Deps{Middlewares: []middleware.Middleware{a.consGate}, Logger: logger},
+			serverOptions(cfg, cfg.ConsoleAddress, "console")...)
+		group.Add("s3", a.s3Srv)
+		group.Add("console", a.consSrv)
+		group.Add("cluster", lifecycle.Funcs{OnStart: a.joinCluster, OnStop: a.leaveCluster})
+		a.group = group
+		logger.Info("deployment layout", "mode", layout.Mode.String(), "pools", len(layout.Pools), "nodes", len(layout.Nodes),
+			"drives", layout.DriveCount(), "local_drives", len(f.local), "node", f.nodeID)
+		return a, nil
+	}
 
-	return &App{
-		cfg:          cfg,
-		opts:         opts,
-		layout:       layout,
-		deploymentID: deploymentID,
-		logger:       logger,
-		group:        group,
-		s3Srv:        s3Srv,
-		consSrv:      consSrv,
-		stopWait:     o.stopWait,
-		identities:   identities,
-		shares:       shares,
-		policies:     policies,
-		buckets:      buckets,
-		signer:       signer,
-		running:      running,
-	}, nil
+	// Single node: the drives are formatted (or checked) here.
+	res, err := f.bootstrapper.Bootstrap(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("app: format drives: %w", err)
+	}
+	logger.Info("deployment layout", "mode", layout.Mode.String(), "pools", len(layout.Pools), "drives", len(f.local), "deployment_id", res.DeploymentID)
+	svc, err := compose(ctx, a.composeDeps(res.DeploymentID))
+	if err != nil {
+		return nil, fmt.Errorf("app: %w", err)
+	}
+	a.svc = svc
+	a.s3Srv, a.consSrv = svc.s3Srv, svc.consSrv
+	group.Add("services", svc.runners())
+	group.Add("leader", f.leader)
+	group.Add("s3", svc.s3Srv)
+	group.Add("console", svc.consSrv)
+	a.group = group
+	return a, nil
+}
+
+// newTopology returns the topology service of the configuration: the S3
+// port is the port of this node, and the default port of the URL
+// endpoints that name none.
+func newTopology(cfg config.Static, logger *slog.Logger) topology.Service {
+	var topoOpts []topology.Option
+	if port := portOf(cfg.Address); port > 0 {
+		topoOpts = append(topoOpts, topology.WithLocalPort(port), topology.WithDefaultPort(port))
+	}
+	return topology.New(topology.Deps{Logger: logger}, topoOpts...)
+}
+
+// composeDeps are the inputs of compose for this application.
+func (a *App) composeDeps(deploymentID string) composeDeps {
+	return composeDeps{
+		cfg: a.cfg, f: a.f, deploymentID: deploymentID, clock: a.o.clock, logger: a.logger,
+		assets: a.o.assets, running: a.running,
+	}
+}
+
+// joinCluster runs the bootstrap of a cluster node (its listeners are
+// open: the peers bootstrap through them), binds the internode
+// authentication to the deployment, composes the services and opens the
+// gates of the listeners. It blocks until a quorum of the nodes and of
+// the drives of every erasure set is available, or ctx ends.
+func (a *App) joinCluster(ctx context.Context) error {
+	res, err := a.f.bootstrapper.Bootstrap(ctx)
+	if err != nil {
+		return fmt.Errorf("cluster bootstrap: %w", err)
+	}
+	a.f.auth.SetDeploymentID(ctx, res.DeploymentID)
+	if len(res.Healing) > 0 {
+		a.logger.Warn("cluster: local drives formatted as replacements, to be healed", "drives", len(res.Healing))
+	}
+	svc, err := compose(ctx, a.composeDeps(res.DeploymentID))
+	if err != nil {
+		return fmt.Errorf("compose: %w", err)
+	}
+	late := lifecycle.NewGroup(lifecycle.WithLogger(a.logger), lifecycle.WithStopTimeout(a.stopWait))
+	late.Add("services", svc.runners())
+	late.Add("leader", a.f.leader)
+	if err := late.Start(ctx); err != nil {
+		svc.unsubscribe()
+		return err
+	}
+	a.mu.Lock()
+	a.svc, a.late = svc, late
+	a.mu.Unlock()
+	a.s3Gate.open(svc.s3Srv.Handler())
+	a.consGate.open(svc.consSrv.Handler())
+	a.logger.Info("cluster: node ready", "node", a.f.nodeID, "deployment_id", res.DeploymentID,
+		"offline_drives", len(res.Offline), "healing_drives", len(res.Healing))
+	return nil
+}
+
+// leaveCluster turns the requests away and stops the background
+// components of a cluster node.
+func (a *App) leaveCluster(ctx context.Context) error {
+	a.s3Gate.close("the node is stopping")
+	a.consGate.close("the node is stopping")
+	a.mu.Lock()
+	late := a.late
+	a.late = nil
+	a.mu.Unlock()
+	if late == nil {
+		return nil
+	}
+	return late.Stop(ctx)
+}
+
+// services returns the composed services, nil before a cluster node
+// completed its bootstrap.
+func (a *App) services() *services {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.svc
 }
 
 // Locations of the persisted identity, policy and configuration documents,
@@ -715,7 +620,9 @@ func signalSelf(sig os.Signal) error {
 	return p.Signal(sig)
 }
 
-// Start starts every component. It returns once the servers listen.
+// Start starts every component. It returns once the servers listen and,
+// for a cluster node, once the bootstrap is complete and the APIs are
+// served.
 func (a *App) Start(ctx context.Context) error {
 	if err := a.group.Start(ctx); err != nil {
 		return fmt.Errorf("app: start: %w", err)
@@ -792,27 +699,84 @@ func (a *App) Mode() domain.Mode { return a.layout.Mode }
 // Layout returns the parsed topology.
 func (a *App) Layout() *topology.Layout { return a.layout }
 
-// DeploymentID returns the identifier written in the drives' format.json.
-func (a *App) DeploymentID() string { return a.deploymentID }
+// NodeID returns the "host:port" of this node in a cluster, "local" in
+// the single-node modes.
+func (a *App) NodeID() string { return a.f.nodeID }
+
+// IsLeader reports whether this node runs the singleton background jobs
+// (docs/03 §3.5): always in the single-node modes once started, the
+// holder of the leader lock in a cluster.
+func (a *App) IsLeader() bool { return a.f.leader.IsLeader() }
+
+// Leader returns the leader election of the node, for the singleton
+// background jobs (scanner, MRF, ILM) to subscribe to.
+func (a *App) Leader() cluster.Leader { return a.f.leader }
+
+// Notifier returns the cluster notifier of the node (cache invalidations).
+func (a *App) Notifier() cluster.Notifier { return a.f.notifier }
+
+// DeploymentID returns the identifier written in the drives' format.json
+// (empty until a cluster node completed its bootstrap).
+func (a *App) DeploymentID() string {
+	if s := a.services(); s != nil {
+		return s.deploymentID
+	}
+	return ""
+}
 
 // IAM returns the identity service, for the integration tests that
-// provision users and groups without going through the Admin API.
-func (a *App) IAM() iam.Service { return a.identities }
+// provision users and groups without going through the Admin API (nil
+// until a cluster node completed its bootstrap, like the other service
+// accessors).
+func (a *App) IAM() iam.Service {
+	if s := a.services(); s != nil {
+		return s.identities
+	}
+	return nil
+}
 
 // Policies returns the policy engine and the store of named IAM policies
 // (integration tests).
-func (a *App) Policies() policy.Service { return a.policies }
+func (a *App) Policies() policy.Service {
+	if s := a.services(); s != nil {
+		return s.policies
+	}
+	return nil
+}
 
 // Buckets returns the bucket service (integration tests).
-func (a *App) Buckets() bucket.Service { return a.buckets }
+func (a *App) Buckets() bucket.Service {
+	if s := a.services(); s != nil {
+		return s.buckets
+	}
+	return nil
+}
+
+// Objects returns the object layer (integration and cluster tests).
+func (a *App) Objects() object.Service {
+	if s := a.services(); s != nil {
+		return s.objects
+	}
+	return nil
+}
 
 // Shares returns the managed share-link service (integration tests: the
 // Admin API exposes it from M3).
-func (a *App) Shares() share.Service { return a.shares }
+func (a *App) Shares() share.Service {
+	if s := a.services(); s != nil {
+		return s.shares
+	}
+	return nil
+}
 
 // Signer returns the SigV4 signer of the server (integration tests build
 // POST policy forms and presigned URLs with it).
-func (a *App) Signer() auth.Signer { return a.signer }
+func (a *App) Signer() auth.Signer {
+	if s := a.services(); s != nil {
+		return s.signer
+	}
+	return nil
+}
 
 func serverOptions(cfg config.Static, addr, name string) []server.Option {
 	opts := []server.Option{server.WithAddr(addr), server.WithName(name)}
@@ -841,27 +805,4 @@ func poolInfos(layout *topology.Layout) []domain.PoolInfo {
 		out = append(out, domain.PoolInfo{Index: p.Index, Sets: p.SetCount, DrivesPerSet: p.SetDriveCount, Parity: p.Parity})
 	}
 	return out
-}
-
-// openDrives opens a local storage for every local drive of the layout, in
-// layout order; on error the drives opened so far are closed.
-func openDrives(deps storage.Deps, layout *topology.Layout) ([]storage.StorageAPI, error) {
-	var drives []storage.StorageAPI
-	for _, ep := range layout.LocalEndpoints() {
-		if ep.IsURL() {
-			continue
-		}
-		d, err := storage.NewLocal(deps, ep)
-		if err != nil {
-			for _, opened := range drives {
-				_ = opened.Close(context.Background())
-			}
-			return nil, fmt.Errorf("open drive %s: %w", ep, err)
-		}
-		drives = append(drives, d)
-	}
-	if len(drives) == 0 {
-		return nil, fmt.Errorf("%w: no local drives in the deployment", domain.ErrInvalidArgument)
-	}
-	return drives, nil
 }

@@ -79,6 +79,13 @@ func TestEnsureFormatsFreshAndIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	_, disk, _ := doc.Position()
 	assert.Equal(t, 2, disk)
+	// ... and is marked for healing; the other drives are not.
+	tracker := drives[2].Healing()
+	require.NotNil(t, tracker, "the replacement drive is marked for healing")
+	assert.Equal(t, doc.Erasure.This, tracker.ID)
+	assert.Equal(t, 2, tracker.DiskIndex)
+	assert.False(t, tracker.Finished)
+	assert.Nil(t, drives[1].Healing())
 }
 
 func TestEnsureFormatsSNSD(t *testing.T) {

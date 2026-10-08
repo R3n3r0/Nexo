@@ -155,6 +155,10 @@ func TestClientAgainstServer(t *testing.T) {
 		assert.Empty(t, perms.Denied)
 		_, err = c.Heal(ctx, nexoadmin.HealRequest{DryRun: true})
 		assert.Equal(t, http.StatusNotImplemented, apiError(t, err).Status)
+		_, err = c.ListHeals(ctx)
+		assert.Equal(t, http.StatusNotImplemented, apiError(t, err).Status)
+		_, err = c.HealStatus(ctx, "h1")
+		assert.Equal(t, http.StatusNotImplemented, apiError(t, err).Status)
 		// Outside a server process the service cannot be controlled.
 		assert.Equal(t, http.StatusNotImplemented, apiError(t, c.RestartService(ctx)).Status)
 	})

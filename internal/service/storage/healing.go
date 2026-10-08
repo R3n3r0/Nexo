@@ -50,3 +50,16 @@ func (s *xlStorage) Healing() *HealingTracker {
 func isHealingFile(volume, path string) bool {
 	return volume == domain.SystemBucket && path == HealingFile
 }
+
+// Progress returns the progress the tracker records, for the drive
+// information (domain.DiskInfo.HealingProgress); nil for a nil tracker.
+func (h *HealingTracker) Progress() *domain.HealingProgress {
+	if h == nil {
+		return nil
+	}
+	return &domain.HealingProgress{
+		Started: h.Started, LastUpdate: h.LastUpdate, Bucket: h.Bucket, Object: h.Object,
+		HealedBuckets: len(h.HealedBuckets), ObjectsHealed: h.ObjectsHealed, ObjectsFailed: h.ObjectsFailed,
+		BytesDone: h.BytesDone, BytesFailed: h.BytesFailed,
+	}
+}

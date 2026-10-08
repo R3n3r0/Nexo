@@ -56,6 +56,7 @@ type MemAdmin struct {
 	encryption map[string]nexoadmin.BucketEncryption
 	info       nexoadmin.ServerInfo
 	usage      nexoadmin.DataUsage
+	heals      []*nexoadmin.HealJob
 	seq        int
 	fail       map[string]error
 	calls      map[string]int
@@ -212,6 +213,8 @@ func (m *MemAdmin) Client(t TestingT, caller string) *climock.AdminClient {
 	c.EXPECT().ServerInfo(x).RunAndReturn(s.serverInfo).Maybe()
 	c.EXPECT().DataUsage(x).RunAndReturn(s.dataUsage).Maybe()
 	c.EXPECT().Heal(x, x).RunAndReturn(s.heal).Maybe()
+	c.EXPECT().HealStatus(x, x).RunAndReturn(s.healStatus).Maybe()
+	c.EXPECT().ListHeals(x).RunAndReturn(s.listHeals).Maybe()
 	c.EXPECT().RestartService(x).RunAndReturn(func(ctx context.Context) error { return s.service(ctx, "RestartService") }).Maybe()
 	c.EXPECT().StopService(x).RunAndReturn(func(ctx context.Context) error { return s.service(ctx, "StopService") }).Maybe()
 	c.EXPECT().ListUsers(x, x).RunAndReturn(s.listUsers).Maybe()
@@ -399,7 +402,7 @@ func (s *memSession) dataUsage(context.Context) (*nexoadmin.DataUsage, error) {
 	return &du, nil
 }
 
-func (s *memSession) heal(_ context.Context, in nexoadmin.HealRequest) (*nexoadmin.HealResult, error) {
+func (s *memSession) heal(_ context.Context, in nexoadmin.HealRequest) (*nexoadmin.HealJob, error) {
 	if err := s.begin("Heal"); err != nil {
 		return nil, err
 	}
@@ -407,12 +410,76 @@ func (s *memSession) heal(_ context.Context, in nexoadmin.HealRequest) (*nexoadm
 		return nil, err
 	}
 	defer s.m.mu.Unlock()
-	s.m.seq++
-	res := &nexoadmin.HealResult{ID: fmt.Sprintf("heal-%04d", s.m.seq), StartedAt: s.now(), Finished: true, Scanned: 3}
-	if !in.DryRun {
-		res.Healed = 1
+	now := s.now()
+	// A job starts running and is done when its status is first asked.
+	j := nexoadmin.HealJob{
+		ID: fmt.Sprintf("heal-%04d", len(s.m.heals)+1), State: nexoadmin.HealRunning, Request: in, Node: "local",
+		StartedAt: now, UpdatedAt: now, Drives: []nexoadmin.HealJobDrive{}, Items: []nexoadmin.HealItem{},
 	}
-	return res, nil
+	s.m.heals = append(s.m.heals, &j)
+	out := j
+	return &out, nil
+}
+
+// finishHealLocked completes a running job of the store: 3 items scanned,
+// one object missing on the second drive (repaired unless dry run).
+func (s *memSession) finishHealLocked(j *nexoadmin.HealJob) {
+	if j.State != nexoadmin.HealRunning {
+		return
+	}
+	now := s.now()
+	after := "ok"
+	healedCopies := uint64(1)
+	if j.Request.DryRun {
+		after, healedCopies = "missing", 0
+	}
+	j.State, j.Finished, j.FinishedAt, j.UpdatedAt = nexoadmin.HealDone, true, &now, now
+	j.Scanned, j.Healed, j.Bytes = 3, 1, 1<<20
+	bucket := j.Request.Bucket
+	if bucket == "" {
+		bucket = "photos"
+	}
+	j.Drives = []nexoadmin.HealJobDrive{
+		{Endpoint: "/data1", Disk: 0, State: "online"},
+		{Endpoint: "/data2", Disk: 1, State: "online", Missing: 1, Healed: healedCopies},
+	}
+	j.Items = []nexoadmin.HealItem{{Kind: "object", Bucket: bucket, Object: j.Request.Prefix + "a.jpg", Healed: 1, Drives: []nexoadmin.HealItemDrive{
+		{Endpoint: "/data1", Disk: 0, Before: "ok", After: "ok"},
+		{Endpoint: "/data2", Disk: 1, Before: "missing", After: after},
+	}}}
+}
+
+func (s *memSession) healStatus(_ context.Context, id string) (*nexoadmin.HealJob, error) {
+	if err := s.begin("HealStatus"); err != nil {
+		return nil, err
+	}
+	if err := s.requireAdminLocked("admin:Heal"); err != nil {
+		return nil, err
+	}
+	defer s.m.mu.Unlock()
+	for _, j := range s.m.heals {
+		if j.ID == id {
+			s.finishHealLocked(j)
+			out := *j
+			return &out, nil
+		}
+	}
+	return nil, apiError(http.StatusNotFound, "not_found", fmt.Sprintf("healing job %q: not found", id))
+}
+
+func (s *memSession) listHeals(context.Context) (*nexoadmin.HealJobList, error) {
+	if err := s.begin("ListHeals"); err != nil {
+		return nil, err
+	}
+	if err := s.requireAdminLocked("admin:Heal"); err != nil {
+		return nil, err
+	}
+	defer s.m.mu.Unlock()
+	out := &nexoadmin.HealJobList{Items: []nexoadmin.HealJob{}}
+	for i := len(s.m.heals) - 1; i >= 0; i-- {
+		out.Items = append(out.Items, *s.m.heals[i])
+	}
+	return out, nil
 }
 
 func (s *memSession) service(_ context.Context, method string) error {

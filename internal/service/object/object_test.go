@@ -83,7 +83,7 @@ func newDrives(t *testing.T, n int) ([]storage.StorageAPI, []string) {
 	return drives, roots
 }
 
-// newFixture builds an object layer of the given kind ("fs" or "erasure")
+// newFixture builds an object layer of the given kind (implKinds)
 // over fresh drives; extra options override the test defaults.
 func newFixture(t *testing.T, kind string, extra ...object.Option) *fixture {
 	t.Helper()
@@ -119,6 +119,18 @@ func newFixture(t *testing.T, kind string, extra ...object.Option) *fixture {
 		deps.Parity = 2
 		deps.DeploymentID = "deployment-test"
 		fx.svc, err = object.NewErasure(deps, opts...)
+	case "pools":
+		// The public constructor of the composition root: 1 pool × 1 set
+		// × 4 drives with the default parity (EC:2).
+		fx.drives, fx.roots = newDrives(t, 4)
+		fx.svc, err = object.NewServerPools(object.PoolsDeps{
+			Pools:        []object.PoolSpec{{Sets: [][]storage.StorageAPI{fx.drives}}},
+			DeploymentID: "deployment-test",
+			Buckets:      deps.Buckets,
+			Events:       deps.Events,
+			Clock:        deps.Clock,
+			Logger:       deps.Logger,
+		}, opts...)
 	default:
 		t.Fatalf("unknown kind %s", kind)
 	}
@@ -126,10 +138,23 @@ func newFixture(t *testing.T, kind string, extra ...object.Option) *fixture {
 	return fx
 }
 
-// forEachImpl runs fn against both implementations.
+// implKinds are the object layers every behavior test runs against: the
+// single-drive layer, the erasure layer of NewErasure and the one of
+// NewServerPools (1 pool × 1 set × 4 drives), which must behave alike.
+func implKinds() []string { return []string{"fs", "erasure", "pools"} }
+
+// driveCount is the number of drives of a fixture kind.
+func driveCount(kind string) int {
+	if kind == "fs" {
+		return 1
+	}
+	return 4
+}
+
+// forEachImpl runs fn against every implementation (implKinds).
 func forEachImpl(t *testing.T, fn func(t *testing.T, fx *fixture)) {
 	t.Helper()
-	for _, kind := range []string{"fs", "erasure"} {
+	for _, kind := range implKinds() {
 		t.Run(kind, func(t *testing.T) { fn(t, newFixture(t, kind)) })
 	}
 }

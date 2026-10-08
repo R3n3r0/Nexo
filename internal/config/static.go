@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // Defaults.
@@ -61,6 +63,19 @@ type Static struct {
 	// PrometheusAuthType protects the metrics endpoints: PrometheusAuthJWT
 	// (default) or PrometheusAuthPublic.
 	PrometheusAuthType string `json:"prometheusAuthType"`
+	// StorageClassStandard and StorageClassRRS set the parity of the
+	// STANDARD and REDUCED_REDUNDANCY storage classes of the erasure-coded
+	// modes as "EC:n" (empty: the defaults of docs/03 §3.3).
+	StorageClassStandard string `json:"storageClassStandard"`
+	StorageClassRRS      string `json:"storageClassRRS"`
+	// LockStaleAfter, LockRefreshInterval and RPCCallTimeout tune the
+	// internode protocol of a cluster (environment only; zero keeps the
+	// defaults: 60s, 10s and 30s): how long a lock of a node that stopped
+	// refreshing it survives on the lock servers, how often a held lock is
+	// refreshed, and how long an internode call may take.
+	LockStaleAfter      time.Duration `json:"-"`
+	LockRefreshInterval time.Duration `json:"-"`
+	RPCCallTimeout      time.Duration `json:"-"`
 }
 
 // Default returns the configuration defaults.
@@ -131,7 +146,33 @@ func (s Static) Validate() error {
 	if len(s.Endpoints) == 0 {
 		errs = append(errs, errors.New("at least one endpoint (drive path or URL) is required"))
 	}
+	for name, v := range map[string]string{"standard storage class": s.StorageClassStandard, "reduced redundancy storage class": s.StorageClassRRS} {
+		if err := validateStorageClass(v); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", name, err))
+		}
+	}
+	for name, d := range map[string]time.Duration{"lock stale after": s.LockStaleAfter, "lock refresh interval": s.LockRefreshInterval, "rpc call timeout": s.RPCCallTimeout} {
+		if d < 0 {
+			errs = append(errs, fmt.Errorf("%s %s must not be negative", name, d))
+		}
+	}
+	if s.LockStaleAfter > 0 && s.LockRefreshInterval > 0 && s.LockRefreshInterval >= s.LockStaleAfter {
+		errs = append(errs, fmt.Errorf("lock refresh interval %s must be shorter than the lock stale delay %s", s.LockRefreshInterval, s.LockStaleAfter))
+	}
 	return errors.Join(errs...)
+}
+
+// validateStorageClass checks a storage class parity setting: empty, or
+// "EC:n" with n >= 0.
+func validateStorageClass(v string) error {
+	if v == "" {
+		return nil
+	}
+	scheme, num, ok := strings.Cut(strings.TrimSpace(v), ":")
+	if n, err := strconv.Atoi(num); !ok || !strings.EqualFold(scheme, "EC") || err != nil || n < 0 {
+		return fmt.Errorf("%q must be EC:<parity>", v)
+	}
+	return nil
 }
 
 // isEphemeralPort reports whether addr asks the kernel for a free port.

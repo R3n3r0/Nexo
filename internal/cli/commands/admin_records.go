@@ -49,11 +49,11 @@ type adminUsageRecord struct {
 	nexoadmin.DataUsage
 }
 
-// adminHealRecord is a healing operation (admin heal).
+// adminHealRecord is a healing job (admin heal, admin heal status).
 type adminHealRecord struct {
 	Alias  string `json:"alias"`
 	DryRun bool   `json:"dryRun"`
-	nexoadmin.HealResult
+	nexoadmin.HealJob
 }
 
 // adminUserRecord is an IAM user.

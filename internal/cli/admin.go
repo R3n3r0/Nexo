@@ -17,7 +17,9 @@ type AdminClient interface {
 	// Server.
 	ServerInfo(ctx context.Context) (*nexoadmin.ServerInfo, error)
 	DataUsage(ctx context.Context) (*nexoadmin.DataUsage, error)
-	Heal(ctx context.Context, in nexoadmin.HealRequest) (*nexoadmin.HealResult, error)
+	Heal(ctx context.Context, in nexoadmin.HealRequest) (*nexoadmin.HealJob, error)
+	HealStatus(ctx context.Context, id string) (*nexoadmin.HealJob, error)
+	ListHeals(ctx context.Context) (*nexoadmin.HealJobList, error)
 	RestartService(ctx context.Context) error
 	StopService(ctx context.Context) error
 

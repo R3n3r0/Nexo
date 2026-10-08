@@ -69,7 +69,10 @@ func (l *layer) writeObject(ctx context.Context, bucket, key string, body io.Rea
 	if body == nil {
 		body = bytes.NewReader(nil)
 	}
-	st := l.pick(key)
+	st, err := l.place.forWrite(ctx, bucket, key, in.size)
+	if err != nil {
+		return domain.ObjectInfo{}, fmt.Errorf("%s: place %s/%s: %w", l.name, bucket, key, err)
+	}
 	cfg, err := l.checkWrite(ctx, st, bucket, key, in)
 	if err != nil {
 		return domain.ObjectInfo{}, err
@@ -95,7 +98,7 @@ func (l *layer) writeObject(ctx context.Context, bucket, key string, body io.Rea
 		Volume:   bucket,
 		Name:     key,
 		Metadata: in.meta,
-		Erasure:  st.ErasureInfo(),
+		Erasure:  st.ErasureInfo(key, in.meta[metaStorageClass]),
 	}
 	tmpDir := ""
 	if in.size >= 0 && in.size <= l.opts.inlineLimit {
@@ -111,7 +114,7 @@ func (l *layer) writeObject(ctx context.Context, bucket, key string, body io.Rea
 	} else {
 		tmpDir = l.newTmpDir()
 		fi.DataDir = uuid.NewString()
-		n, err := st.WriteData(ctx, tmpDir, 1, in.size, hr)
+		n, err := st.WriteData(ctx, tmpDir, 1, in.size, hr, fi.Erasure)
 		if err != nil {
 			l.cleanupTmp(ctx, st, tmpDir)
 			return domain.ObjectInfo{}, fmt.Errorf("%s: write %s/%s: %w", l.name, bucket, key, mapBodyErr(err))
@@ -189,7 +192,7 @@ func (l *layer) checkWrite(ctx context.Context, st store, bucket, key string, in
 	if err != nil {
 		return BucketConfig{}, err
 	}
-	if err := l.checkCurrent(ctx, st, bucket, key, in.conditions); err != nil {
+	if err := l.checkCurrent(ctx, bucket, key, in.conditions); err != nil {
 		return BucketConfig{}, err
 	}
 	if cfg.QuotaBytes > 0 && in.size > 0 && uint64(in.size) > cfg.QuotaBytes {
@@ -199,9 +202,13 @@ func (l *layer) checkWrite(ctx context.Context, st store, bucket, key string, in
 }
 
 // checkCurrent evaluates write preconditions against the current version.
-func (l *layer) checkCurrent(ctx context.Context, st store, bucket, key string, c domain.Conditions) error {
+func (l *layer) checkCurrent(ctx context.Context, bucket, key string, c domain.Conditions) error {
 	if c.IsZero() {
 		return nil
+	}
+	st, err := l.place.forRead(ctx, bucket, key)
+	if err != nil {
+		return fmt.Errorf("%s: conditions on %s/%s: %w", l.name, bucket, key, err)
 	}
 	cur, err := st.ReadVersion(ctx, bucket, key, "", false)
 	if err != nil && !isNotFound(err) {
@@ -219,7 +226,26 @@ func (l *layer) commitVersion(ctx context.Context, st store, bucket, key string,
 		return err
 	}
 	l.purgeReplaced(ctx, st, bucket, key, old, fi.DataDir)
+	l.dropElsewhere(ctx, st, bucket, key, fi.VersionID)
 	return nil
+}
+
+// dropElsewhere keeps an object in a single pool: a commit of the null
+// version replaces the null version wherever it is, so a copy left in
+// another pool (two first writes of the key racing to different pools) is
+// removed. Other versions are distinct versions and stay where they are;
+// reads pick the newest across pools.
+func (l *layer) dropElsewhere(ctx context.Context, st store, bucket, key, versionID string) {
+	if versionID != "" {
+		return
+	}
+	ctx = context.WithoutCancel(ctx)
+	for _, other := range l.place.others(st, key) {
+		err := other.DeleteVersion(ctx, bucket, key, storage.FileInfo{})
+		if err != nil && !isNotFound(err) && !errors.Is(err, domain.ErrNoSuchVersion) {
+			l.deps.Logger.WarnContext(ctx, "object: cannot remove the copy of another pool", "bucket", bucket, "key", key, "err", err)
+		}
+	}
 }
 
 // purgeReplaced removes the data directory of the version a commit
@@ -338,7 +364,7 @@ func (l *layer) CopyObject(ctx context.Context, in CopyObjectInput) (domain.Obje
 		return domain.ObjectInfo{}, err
 	}
 	defer unlock()
-	if err := l.statBucket(ctx, l.pick(in.DstKey), in.DstBucket); err != nil {
+	if err := l.statBucket(ctx, l.place.home(in.DstKey), in.DstBucket); err != nil {
 		return domain.ObjectInfo{}, err
 	}
 	src, fi, err := l.openObject(ctx, in.SrcBucket, in.SrcKey, GetObjectOptions{VersionID: in.SrcVersionID}, nil)

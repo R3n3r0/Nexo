@@ -176,7 +176,17 @@ paths:
     post:
       tags: [server]
       operationId: startHeal
-      summary: Start a healing operation
+      summary: Start a healing job
+      description: |
+        Starts a background healing job and answers at once with its initial state; poll
+        `GET /heal/{id}` for the progress. Without `bucket` the job heals the format of the
+        drives (new or wiped drives) and every bucket; with `bucket` that bucket; with
+        `recursive` every object below the bucket(s) or `prefix` too (without `recursive`,
+        `prefix` names the one object to heal). `deep` verifies the bitrot hash of every
+        shard block, `dryRun` only reports, `remove` deletes the dangling objects found
+        (versions on too few drives to ever be read; never implied). An identical job
+        already running is returned instead of a new one; too many running jobs answer 429.
+        A single-drive deployment has nothing to heal: 501.
       x-nexo-actions: ["admin:Heal"]
       requestBody:
         content:
@@ -184,26 +194,43 @@ paths:
             schema: { $ref: "#/components/schemas/HealRequest" }
       responses:
         "202":
-          description: The healing operation.
+          description: The healing job.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/HealResult" }
+              schema: { $ref: "#/components/schemas/HealJob" }
+        "429": { $ref: "#/components/responses/Problem" }
+        "501": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+    get:
+      tags: [server]
+      operationId: listHeals
+      summary: List the running and recently finished healing jobs
+      description: Newest first; a finished job stays listed for an hour.
+      x-nexo-actions: ["admin:Heal"]
+      responses:
+        "200":
+          description: The healing jobs.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealJobList" }
         "501": { $ref: "#/components/responses/Problem" }
         default: { $ref: "#/components/responses/Problem" }
   /heal/{id}:
     get:
       tags: [server]
       operationId: healStatus
-      summary: Query a healing operation
+      summary: Query a healing job
+      description: Any node answers, the progress of a job being persisted on the drives.
       x-nexo-actions: ["admin:Heal"]
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
       responses:
         "200":
-          description: The healing operation.
+          description: The healing job.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/HealResult" }
+              schema: { $ref: "#/components/schemas/HealJob" }
+        "404": { $ref: "#/components/responses/Problem" }
         default: { $ref: "#/components/responses/Problem" }
   /service/restart:
     post:
@@ -1913,7 +1940,22 @@ components:
         free: { type: integer, format: int64 }
         used: { type: integer, format: int64 }
         healing: { type: boolean }
+        healingProgress: { $ref: "#/components/schemas/HealingProgress" }
         error: { type: string }
+    HealingProgress:
+      type: object
+      description: Progress of the healing of a replaced or wiped drive (present while it heals).
+      required: [started, lastUpdate, healedBuckets, objectsHealed, objectsFailed, bytesDone, bytesFailed]
+      properties:
+        started: { type: string, format: date-time }
+        lastUpdate: { type: string, format: date-time }
+        bucket: { type: string, description: Bucket of the last object healed. }
+        object: { type: string, description: Last object healed. }
+        healedBuckets: { type: integer, description: Buckets completely healed. }
+        objectsHealed: { type: integer, format: int64 }
+        objectsFailed: { type: integer, format: int64 }
+        bytesDone: { type: integer, format: int64 }
+        bytesFailed: { type: integer, format: int64 }
     NodeInfo:
       type: object
       required: [endpoint, state, version, commit, uptimeSeconds, disks]
@@ -1965,10 +2007,30 @@ components:
       properties:
         size: { type: integer, format: int64 }
         objectsCount: { type: integer, format: int64 }
+        versionsCount:
+          type: integer
+          format: int64
+          description: Noncurrent versions.
+        deleteMarkers: { type: integer, format: int64 }
+        prefixes:
+          type: object
+          description: >-
+            Usage by top-level prefix ("photos/"; "" for the objects at the root), when computed
+            by the scanner (at most 1000 prefixes per bucket).
+          additionalProperties: { $ref: "#/components/schemas/PrefixUsage" }
+    PrefixUsage:
+      type: object
+      required: [size, objectsCount, versionsCount, deleteMarkers]
+      properties:
+        size: { type: integer, format: int64 }
+        objectsCount: { type: integer, format: int64 }
         versionsCount: { type: integer, format: int64 }
         deleteMarkers: { type: integer, format: int64 }
     DataUsage:
       type: object
+      description: >-
+        Usage computed by the background scanner (lastUpdate is the end of its last cycle);
+        the buckets created since are computed on demand.
       required: [lastUpdate, objectsCount, versionsCount, totalSize, bucketsCount, buckets]
       properties:
         lastUpdate: { type: string, format: date-time }
@@ -1986,16 +2048,90 @@ components:
         prefix: { type: string }
         recursive: { type: boolean }
         dryRun: { type: boolean }
-    HealResult:
+        deep: { type: boolean, description: Verify the bitrot hash of every shard block. }
+        remove: { type: boolean, description: Delete the dangling objects found. }
+    HealDriveState:
+      type: string
+      enum: [ok, missing, corrupt, offline]
+    HealJobState:
+      type: string
+      enum: [running, done, failed, canceled]
+    HealJob:
       type: object
-      required: [id, startedAt, finished, scanned, healed, failed]
+      required: [id, state, request, finished, startedAt, updatedAt, scanned, healed, failed, dangling, removed, bytes, drives, items]
       properties:
         id: { type: string }
+        state: { $ref: "#/components/schemas/HealJobState" }
+        request: { $ref: "#/components/schemas/HealRequest" }
+        finished: { type: boolean, description: The job is no longer running. }
+        node: { type: string, description: Node running the job. }
         startedAt: { type: string, format: date-time }
-        finished: { type: boolean }
-        scanned: { type: integer, format: int64 }
-        healed: { type: integer, format: int64 }
+        updatedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        current: { type: string, description: Item being healed (bucket/object). }
+        scanned: { type: integer, format: int64, description: "Items examined (format, buckets, objects)." }
+        healed:
+          type: integer
+          format: int64
+          description: Items repaired on at least one drive (or that would be, with dryRun).
         failed: { type: integer, format: int64 }
+        dangling: { type: integer, format: int64 }
+        removed: { type: integer, format: int64 }
+        bytes: { type: integer, format: int64, description: Logical size of the objects examined. }
+        drives:
+          type: array
+          items: { $ref: "#/components/schemas/HealJobDrive" }
+        items:
+          type: array
+          description: Items that needed healing, were dangling or failed (at most 1000).
+          items: { $ref: "#/components/schemas/HealItem" }
+        itemsTruncated: { type: boolean }
+        error: { type: string }
+    HealJobDrive:
+      type: object
+      required: [endpoint, pool, set, disk, state, missing, corrupt, offline, healed]
+      properties:
+        endpoint: { type: string }
+        pool: { type: integer }
+        set: { type: integer }
+        disk: { type: integer }
+        state: { type: string, enum: [online, offline] }
+        missing: { type: integer, format: int64, description: Items found missing on the drive. }
+        corrupt: { type: integer, format: int64, description: Items found corrupt on the drive. }
+        offline: { type: integer, format: int64, description: Items met while the drive was offline. }
+        healed: { type: integer, format: int64, description: Copies rebuilt on the drive. }
+    HealItem:
+      type: object
+      required: [kind, healed, drives]
+      properties:
+        kind: { type: string, enum: [format, bucket, object] }
+        bucket: { type: string }
+        object: { type: string }
+        healed: { type: integer, description: Drive copies rebuilt. }
+        dangling: { type: boolean }
+        removed: { type: boolean }
+        error: { type: string }
+        drives:
+          type: array
+          items: { $ref: "#/components/schemas/HealItemDrive" }
+    HealItemDrive:
+      type: object
+      required: [endpoint, pool, set, disk, before, after]
+      properties:
+        endpoint: { type: string }
+        pool: { type: integer }
+        set: { type: integer }
+        disk: { type: integer }
+        before: { $ref: "#/components/schemas/HealDriveState" }
+        after: { $ref: "#/components/schemas/HealDriveState" }
+    HealJobList:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/HealJob" }
+        nextCursor: { type: string }
     ServiceAction:
       type: object
       required: [action]

@@ -376,8 +376,20 @@ func (c *adminClient) DataUsage(ctx context.Context) (*nexoadmin.DataUsage, erro
 }
 
 // Heal implements AdminClient.
-func (c *adminClient) Heal(ctx context.Context, in nexoadmin.HealRequest) (*nexoadmin.HealResult, error) {
+func (c *adminClient) Heal(ctx context.Context, in nexoadmin.HealRequest) (*nexoadmin.HealJob, error) {
 	v, err := c.api.Heal(ctx, in)
+	return mapped(c, v, err)
+}
+
+// HealStatus implements AdminClient.
+func (c *adminClient) HealStatus(ctx context.Context, id string) (*nexoadmin.HealJob, error) {
+	v, err := c.api.HealStatus(ctx, id)
+	return mapped(c, v, err)
+}
+
+// ListHeals implements AdminClient.
+func (c *adminClient) ListHeals(ctx context.Context) (*nexoadmin.HealJobList, error) {
+	v, err := c.api.ListHeals(ctx)
 	return mapped(c, v, err)
 }
 

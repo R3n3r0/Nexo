@@ -87,7 +87,8 @@ func (f *commitFault) intercept(next renameDataFunc) renameDataFunc {
 	}
 }
 
-// newLayer builds an fs (one drive) or erasure (2+2) layer over drives.
+// newLayer builds an fs (one drive) or erasure (2+2, NewErasure or
+// NewServerPools) layer over drives.
 func newLayer(t *testing.T, kind string, drives []storage.StorageAPI) object.Service {
 	t.Helper()
 	deps := object.Deps{Logger: slog.New(slog.DiscardHandler)}
@@ -96,10 +97,15 @@ func newLayer(t *testing.T, kind string, drives []storage.StorageAPI) object.Ser
 		svc object.Service
 		err error
 	)
-	if kind == "fs" {
+	switch kind {
+	case "fs":
 		deps.Store = drives[0]
 		svc, err = object.NewFS(deps, opts...)
-	} else {
+	case "pools":
+		svc, err = object.NewServerPools(object.PoolsDeps{
+			Pools: []object.PoolSpec{{Sets: [][]storage.StorageAPI{drives}}}, DeploymentID: "deployment-test", Logger: deps.Logger,
+		}, opts...)
+	default:
 		deps.Sets, deps.Parity, deps.DeploymentID = [][]storage.StorageAPI{drives}, 2, "deployment-test"
 		svc, err = object.NewErasure(deps, opts...)
 	}
@@ -121,12 +127,12 @@ func TestCompleteMultipartSurvivesCanceledClient(t *testing.T) {
 		{name: "canceled during commit", fail: false},
 		{name: "canceled and failed commit", fail: true},
 	}
-	for _, kind := range []string{"fs", "erasure"} {
+	for _, kind := range implKinds() {
 		for _, tt := range tests {
 			t.Run(kind+"/"+tt.name, func(t *testing.T) {
 				ctx := context.Background()
 				fault := &commitFault{}
-				bases, _ := newDrives(t, map[string]int{"fs": 1, "erasure": 4}[kind])
+				bases, _ := newDrives(t, driveCount(kind))
 				drives := make([]storage.StorageAPI, len(bases))
 				for i, d := range bases {
 					drives[i] = delegatingDrive(t, d, fault.intercept)

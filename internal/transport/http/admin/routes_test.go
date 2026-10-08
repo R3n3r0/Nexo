@@ -23,6 +23,7 @@ import (
 	adminsvc "github.com/r3n3r0/nexo/internal/service/admin"
 	"github.com/r3n3r0/nexo/internal/service/bucket"
 	"github.com/r3n3r0/nexo/internal/service/config"
+	"github.com/r3n3r0/nexo/internal/service/heal"
 	"github.com/r3n3r0/nexo/internal/service/iam"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
@@ -53,10 +54,45 @@ func TestInfoRoutes(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, uint64(3), decode[adminsvc.DataUsage](t, rec).Buckets["a"].Size)
 
-	f.adm.EXPECT().Heal(mock.Anything, adminsvc.HealInput{Bucket: "photos", Recursive: true}).Return(nil, fmt.Errorf("heal: %w", domain.ErrNotImplemented))
+	f.adm.EXPECT().StartHeal(mock.Anything, adminsvc.HealInput{Bucket: "photos", Recursive: true}).Return(heal.Job{}, fmt.Errorf("heal: %w", domain.ErrNotImplemented)).Once()
 	rec = c.do(http.MethodPost, "/heal", `{"bucket":"photos","recursive":true}`)
 	assert.Equal(t, http.StatusNotImplemented, rec.Code)
 	assert.Equal(t, "not_implemented", problemOf(t, rec).Code)
+
+	started := time.Date(2026, 10, 8, 9, 0, 0, 0, time.UTC)
+	job := heal.Job{
+		ID: "h1", State: heal.JobDone, Node: "local", StartedAt: started, UpdatedAt: started, FinishedAt: started.Add(time.Second),
+		Request: heal.JobRequest{Bucket: "photos", Recursive: true, Options: heal.Options{DryRun: true, Deep: true}},
+		Scanned: 3, Healed: 1,
+		Drives: []heal.JobDrive{{Endpoint: "/d1", Disk: 0, State: "online", Missing: 1}},
+		Items: []heal.JobItem{{Kind: heal.ItemObject, Bucket: "photos", Object: "a.jpg", Healed: 1,
+			Drives: []object.HealDrive{{Endpoint: "/d1", Before: object.HealDriveMissing, After: object.HealDriveMissing}}}},
+	}
+	f.adm.EXPECT().StartHeal(mock.Anything, adminsvc.HealInput{Bucket: "photos", Prefix: "2026/", Recursive: true, DryRun: true, Deep: true, Remove: true}).
+		Return(job, nil).Once()
+	rec = c.do(http.MethodPost, "/heal", `{"bucket":"photos","prefix":"2026/","recursive":true,"dryRun":true,"deep":true,"remove":true}`)
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+	got := decode[admin.HealJobResponse](t, rec)
+	assert.Equal(t, "done", got.State)
+	assert.True(t, got.Finished)
+	assert.True(t, got.Request.Deep)
+	require.Len(t, got.Items, 1)
+	assert.Equal(t, "missing", got.Items[0].Drives[0].Before)
+	require.Len(t, got.Drives, 1)
+	assert.Equal(t, uint64(1), got.Drives[0].Missing)
+
+	f.adm.EXPECT().ListHeals(mock.Anything).Return([]heal.Job{job, {ID: "h2", State: heal.JobRunning, StartedAt: started}}, nil).Once()
+	rec = c.do(http.MethodGet, "/heal", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	list := decode[admin.HealJobListResponse](t, rec)
+	require.Len(t, list.Items, 2)
+	assert.False(t, list.Items[1].Finished)
+	assert.Nil(t, list.Items[1].FinishedAt)
+	assert.NotNil(t, list.Items[1].Drives, "empty lists, not null")
+
+	f.adm.EXPECT().HealStatus(mock.Anything, "nope").Return(heal.Job{}, fmt.Errorf("heal: %w", domain.ErrNotFound)).Once()
+	rec = c.do(http.MethodGet, "/heal/nope", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	f.adm.EXPECT().ServiceAction(mock.Anything, adminsvc.ActionRestart).Return(nil)
 	rec = c.do(http.MethodPost, "/service/restart", nil)
@@ -1003,7 +1039,7 @@ func TestEscapedPathParameters(t *testing.T) {
 		rec = c.do(http.MethodDelete, "/config/a%3Ab", nil)
 		assert.Equal(t, http.StatusNoContent, rec.Code)
 
-		f.adm.EXPECT().Heal(mock.Anything, adminsvc.HealInput{ID: "h+1"}).Return(&adminsvc.HealResult{ID: "h+1"}, nil).Once()
+		f.adm.EXPECT().HealStatus(mock.Anything, "h+1").Return(heal.Job{ID: "h+1"}, nil).Once()
 		rec = c.do(http.MethodGet, "/heal/h%2B1", nil)
 		assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 

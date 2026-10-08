@@ -52,7 +52,10 @@ func (l *layer) updateTags(ctx context.Context, bucket, key, versionID string, m
 		return domain.ObjectInfo{}, err
 	}
 	defer lc.Unlock(ctx)
-	st := l.pick(key)
+	st, err := l.place.forVersion(ctx, bucket, key, versionID)
+	if err != nil {
+		return domain.ObjectInfo{}, fmt.Errorf("%s: tag %s/%s: %w", l.name, bucket, key, err)
+	}
 	fi, err := l.readVersion(ctx, st, bucket, key, versionID, false)
 	if err != nil {
 		return domain.ObjectInfo{}, fmt.Errorf("%s: tag %s/%s: %w", l.name, bucket, key, err)

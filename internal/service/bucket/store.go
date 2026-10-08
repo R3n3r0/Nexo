@@ -3,6 +3,7 @@ package bucket
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -10,12 +11,17 @@ import (
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/storage"
+	"github.com/r3n3r0/nexo/internal/service/sysstore"
 )
 
 // StoreDeps are the dependencies of the drive-backed metadata store.
 type StoreDeps struct {
 	// Drives receive every document (all the local drives of the deployment).
 	Drives []storage.StorageAPI
+	// Docs, when set, holds the documents instead of Drives: the
+	// replicated system document store of the erasure-coded deployments
+	// (SNMD, distributed), shared by every node.
+	Docs   sysstore.Store
 	Logger *slog.Logger
 }
 
@@ -42,8 +48,8 @@ var _ MetadataStore = (*metadataStore)(nil)
 
 // NewStore returns a MetadataStore writing to every drive of deps.
 func NewStore(deps StoreDeps) (MetadataStore, error) {
-	if len(deps.Drives) == 0 {
-		return nil, fmt.Errorf("%w: bucket: NewStore requires at least one drive", domain.ErrInvalidArgument)
+	if len(deps.Drives) == 0 && deps.Docs == nil {
+		return nil, fmt.Errorf("%w: bucket: NewStore requires at least one drive or the document store", domain.ErrInvalidArgument)
 	}
 	if deps.Logger == nil {
 		deps.Logger = slog.Default()
@@ -54,6 +60,9 @@ func NewStore(deps StoreDeps) (MetadataStore, error) {
 func metadataPath(bucket string) string {
 	return storage.BucketsDir + "/" + bucket + "/" + metadataFile
 }
+
+// docsPath is the path of the document of a bucket in the document store.
+func docsPath(bucket string) string { return storage.BucketsDir + "/" + bucket + ".json" }
 
 // quorum is the number of drives that must acknowledge a write.
 func (s *metadataStore) quorum() int { return len(s.deps.Drives)/2 + 1 }
@@ -82,8 +91,24 @@ func (s *metadataStore) Load(ctx context.Context, bucket string) (*Metadata, err
 	return m, nil
 }
 
-// read loads the document from the first drive that has a readable copy.
+// read loads the document from the document store, or from the first
+// drive that has a readable copy.
 func (s *metadataStore) read(ctx context.Context, bucket string) (*Metadata, error) {
+	if s.deps.Docs != nil {
+		data, err := s.deps.Docs.Get(ctx, docsPath(bucket))
+		if errors.Is(err, sysstore.ErrNotFound) {
+			return &Metadata{Name: bucket}, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("bucket: load metadata of %s: %w", bucket, err)
+		}
+		var m Metadata
+		if err := json.Unmarshal(data, &m); err != nil {
+			return nil, fmt.Errorf("bucket: load metadata of %s: %w: %v", bucket, domain.ErrInvalidFormat, err)
+		}
+		m.Name = bucket
+		return &m, nil
+	}
 	var firstErr error
 	for _, d := range s.deps.Drives {
 		if d == nil || !d.IsOnline() {
@@ -125,9 +150,13 @@ func (s *metadataStore) Save(ctx context.Context, bucket string, m *Metadata) er
 		return fmt.Errorf("bucket: encode metadata of %s: %w", bucket, err)
 	}
 	s.drop(bucket)
-	err = s.each(ctx, func(d storage.StorageAPI) error {
-		return d.WriteAll(ctx, domain.SystemBucket, metadataPath(bucket), data)
-	})
+	if s.deps.Docs != nil {
+		err = s.deps.Docs.Put(ctx, docsPath(bucket), data)
+	} else {
+		err = s.each(ctx, func(d storage.StorageAPI) error {
+			return d.WriteAll(ctx, domain.SystemBucket, metadataPath(bucket), data)
+		})
+	}
 	s.mu.Lock()
 	s.gen++
 	if err == nil {
@@ -149,13 +178,18 @@ func (s *metadataStore) Delete(ctx context.Context, bucket string) error {
 		return err
 	}
 	s.drop(bucket)
-	err := s.each(ctx, func(d storage.StorageAPI) error {
-		err := d.Delete(ctx, domain.SystemBucket, metadataPath(bucket), storage.DeleteOptions{})
-		if isNotFound(err) {
-			return nil
-		}
-		return err
-	})
+	var err error
+	if s.deps.Docs != nil {
+		err = s.deps.Docs.Delete(ctx, docsPath(bucket))
+	} else {
+		err = s.each(ctx, func(d storage.StorageAPI) error {
+			err := d.Delete(ctx, domain.SystemBucket, metadataPath(bucket), storage.DeleteOptions{})
+			if isNotFound(err) {
+				return nil
+			}
+			return err
+		})
+	}
 	s.drop(bucket)
 	if err != nil {
 		return fmt.Errorf("bucket: delete metadata of %s: %w", bucket, err)

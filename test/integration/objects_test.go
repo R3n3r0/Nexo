@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/ratelimit"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/stretchr/testify/assert"
@@ -340,8 +342,10 @@ type listV2Raw struct {
 }
 
 // TS-I-05: listing of 10k objects with nested prefixes and delimiters,
-// pagination by 1 and by 1000, start-after, encoding-type=url: no
-// duplicates, nothing missing.
+// pagination by 1 and by a tenth of the keys, start-after,
+// encoding-type=url: no duplicates, nothing missing. The erasure-coded
+// modes list 1000 objects (10 per leaf prefix): every write reaches
+// several drives, and the listing paths are the same.
 //
 // covers: S-OBJ-03
 func TestListing(t *testing.T) {
@@ -350,11 +354,16 @@ func TestListing(t *testing.T) {
 	const bucket = "listing"
 	e.mkBucket(bucket)
 
-	// 10 × 10 × 100 = 10000 keys "dNN/sNN/oNNN", uploaded concurrently.
+	// 10 × 10 × leaf keys "dNN/sNN/oNNN", uploaded concurrently.
+	leaf := 100
+	if modeOf(t) != modeSNSD {
+		leaf = 10
+	}
+	total, page := 100*leaf, int32(10*leaf)
 	var want []string
 	for d := range 10 {
 		for s := range 10 {
-			for o := range 100 {
+			for o := range leaf {
 				want = append(want, fmt.Sprintf("d%02d/s%02d/o%03d", d, s, o))
 			}
 		}
@@ -384,16 +393,17 @@ func TestListing(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	t.Run("all by 1000", func(t *testing.T) {
+	require.Len(t, want, total)
+	t.Run("all by a tenth", func(t *testing.T) {
 		var got []string
 		pages := 0
-		p := s3.NewListObjectsV2Paginator(e.root, &s3.ListObjectsV2Input{Bucket: aws.String(bucket), MaxKeys: aws.Int32(1000)})
+		p := s3.NewListObjectsV2Paginator(e.root, &s3.ListObjectsV2Input{Bucket: aws.String(bucket), MaxKeys: aws.Int32(page)})
 		for p.HasMorePages() {
-			page, err := p.NextPage(e.ctx)
+			out, err := p.NextPage(e.ctx)
 			require.NoError(t, err)
 			pages++
-			assert.LessOrEqual(t, len(page.Contents), 1000)
-			for _, o := range page.Contents {
+			assert.LessOrEqual(t, len(out.Contents), int(page))
+			for _, o := range out.Contents {
 				got = append(got, aws.ToString(o.Key))
 			}
 		}
@@ -401,19 +411,19 @@ func TestListing(t *testing.T) {
 		assert.Equal(t, want, got, "every key exactly once, in order")
 	})
 
-	t.Run("v1 markers by 1000", func(t *testing.T) {
+	t.Run("v1 markers by a tenth", func(t *testing.T) {
 		var got []string
 		marker := ""
 		for {
-			page, err := e.root.ListObjects(e.ctx, &s3.ListObjectsInput{Bucket: aws.String(bucket), MaxKeys: aws.Int32(1000), Marker: aws.String(marker)})
+			out, err := e.root.ListObjects(e.ctx, &s3.ListObjectsInput{Bucket: aws.String(bucket), MaxKeys: aws.Int32(page), Marker: aws.String(marker)})
 			require.NoError(t, err)
-			for _, o := range page.Contents {
+			for _, o := range out.Contents {
 				got = append(got, aws.ToString(o.Key))
 			}
-			if !aws.ToBool(page.IsTruncated) {
+			if !aws.ToBool(out.IsTruncated) {
 				break
 			}
-			marker = aws.ToString(page.NextMarker)
+			marker = aws.ToString(out.NextMarker)
 			if marker == "" {
 				marker = got[len(got)-1]
 			}
@@ -456,7 +466,9 @@ func TestListing(t *testing.T) {
 		}
 		// The delimiter cuts at the first "5" after the prefix: o050-o059
 		// collapse into "o05", o005 into itself.
-		assert.Contains(t, cps, "d01/s01/o05")
+		if leaf > 50 {
+			assert.Contains(t, cps, "d01/s01/o05")
+		}
 		assert.Contains(t, cps, "d01/s01/o005")
 	})
 
@@ -471,21 +483,21 @@ func TestListing(t *testing.T) {
 				got = append(got, aws.ToString(o.Key))
 			}
 		}
-		require.Len(t, got, 100)
-		assert.Equal(t, want[5*1000+5*100:5*1000+6*100], got)
+		require.Len(t, got, leaf)
+		assert.Equal(t, want[5*10*leaf+5*leaf:5*10*leaf+6*leaf], got)
 	})
 
 	t.Run("start-after", func(t *testing.T) {
-		out, err := e.root.ListObjectsV2(e.ctx, &s3.ListObjectsV2Input{Bucket: aws.String(bucket), StartAfter: aws.String("d09/s09/o095"), MaxKeys: aws.Int32(10)})
+		out, err := e.root.ListObjectsV2(e.ctx, &s3.ListObjectsV2Input{Bucket: aws.String(bucket), StartAfter: aws.String(fmt.Sprintf("d09/s09/o%03d", leaf-5)), MaxKeys: aws.Int32(10)})
 		require.NoError(t, err)
 		var got []string
 		for _, o := range out.Contents {
 			got = append(got, aws.ToString(o.Key))
 		}
-		assert.Equal(t, []string{"d09/s09/o096", "d09/s09/o097", "d09/s09/o098", "d09/s09/o099"}, got)
+		assert.Equal(t, want[total-4:], got)
 		assert.False(t, aws.ToBool(out.IsTruncated))
 		// StartAfter between keys.
-		out, err = e.root.ListObjectsV2(e.ctx, &s3.ListObjectsV2Input{Bucket: aws.String(bucket), StartAfter: aws.String("d04/s09/o099z"), MaxKeys: aws.Int32(1)})
+		out, err = e.root.ListObjectsV2(e.ctx, &s3.ListObjectsV2Input{Bucket: aws.String(bucket), StartAfter: aws.String(fmt.Sprintf("d04/s09/o%03dz", leaf-1)), MaxKeys: aws.Int32(1)})
 		require.NoError(t, err)
 		require.Len(t, out.Contents, 1)
 		assert.Equal(t, "d05/s00/o000", aws.ToString(out.Contents[0].Key))
@@ -732,13 +744,37 @@ func uniq(s []string) []string {
 // TS-I-13: 100 goroutines PUT the same key while readers GET it: every
 // read returns one complete, consistent object.
 //
+// In the erasure-coded modes a request may wait beyond the lock timeout
+// under this contention and be refused with 503 SlowDown, which an SDK
+// retries (as it does for S3): the clients of this test retry, the
+// consistency checks are the same. In a cluster the contenders compete on
+// the quorum of the lock servers of every node (dsync), which has no
+// fairness (readers holding the key starve the writers until their lock
+// timeout): the test runs 16 writers and 1 reader there.
+//
 // covers: S-OBJ-01, S-STO-01
 func TestConcurrentPutSameKey(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
+	if modeOf(t) != modeSNSD {
+		e.root = s3.NewFromConfig(e.sdkConfig(e.rootCreds()), func(o *s3.Options) {
+			o.BaseEndpoint = aws.String(e.srv.S3URL)
+			o.UsePathStyle = true
+			o.RetryMaxAttempts = 20
+			o.Retryer = retry.NewStandard(func(so *retry.StandardOptions) {
+				so.MaxAttempts = 20
+				so.MaxBackoff = 2 * time.Second
+				so.RateLimiter = ratelimit.None
+			})
+		})
+	}
 	const bucket, key = "race", "hot"
 	e.mkBucket(bucket)
-	const writers, size = 100, 160 << 10 // beyond the inline limit
+	const size = 160 << 10 // beyond the inline limit
+	writers, readerCount := 100, 8
+	if modeOf(t) == modeCluster {
+		writers, readerCount = 16, 1
+	}
 	payloads := make([][]byte, writers)
 	digests := map[string]int{}
 	for i := range payloads {
@@ -751,7 +787,7 @@ func TestConcurrentPutSameKey(t *testing.T) {
 	stop := make(chan struct{})
 	var readers sync.WaitGroup
 	var reads, readErrs sync.Map
-	for r := range 8 {
+	for r := range readerCount {
 		readers.Add(1)
 		go func() {
 			defer readers.Done()

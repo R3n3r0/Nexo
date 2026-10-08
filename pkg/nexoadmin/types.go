@@ -92,7 +92,23 @@ type DiskInfo struct {
 	Free     uint64 `json:"free"`
 	Used     uint64 `json:"used"`
 	Healing  bool   `json:"healing"`
-	Error    string `json:"error,omitempty"`
+	// HealingProgress is the progress of the drive healing, when healing.
+	HealingProgress *HealingProgress `json:"healingProgress,omitempty"`
+	Error           string           `json:"error,omitempty"`
+}
+
+// HealingProgress is the progress of the healing of a replaced or wiped
+// drive.
+type HealingProgress struct {
+	Started       time.Time `json:"started"`
+	LastUpdate    time.Time `json:"lastUpdate"`
+	Bucket        string    `json:"bucket,omitempty"`
+	Object        string    `json:"object,omitempty"`
+	HealedBuckets int       `json:"healedBuckets"`
+	ObjectsHealed uint64    `json:"objectsHealed"`
+	ObjectsFailed uint64    `json:"objectsFailed"`
+	BytesDone     uint64    `json:"bytesDone"`
+	BytesFailed   uint64    `json:"bytesFailed"`
 }
 
 // DataUsage is the data usage, total and per bucket.
@@ -111,24 +127,114 @@ type BucketUsage struct {
 	ObjectsCount  uint64 `json:"objectsCount"`
 	VersionsCount uint64 `json:"versionsCount"`
 	DeleteMarkers uint64 `json:"deleteMarkers"`
+	// Prefixes breaks the bucket down by top-level prefix, when the
+	// scanner computed it.
+	Prefixes map[string]PrefixUsage `json:"prefixes,omitempty"`
 }
 
-// HealRequest starts a healing operation.
+// PrefixUsage is the usage of a top-level prefix of a bucket.
+type PrefixUsage struct {
+	Size          uint64 `json:"size"`
+	ObjectsCount  uint64 `json:"objectsCount"`
+	VersionsCount uint64 `json:"versionsCount"`
+	DeleteMarkers uint64 `json:"deleteMarkers"`
+}
+
+// HealRequest starts a healing job: the whole deployment, a bucket, or
+// with Recursive every object below the bucket(s) or Prefix (without
+// Recursive, Prefix names one object).
 type HealRequest struct {
 	Bucket    string `json:"bucket,omitempty"`
 	Prefix    string `json:"prefix,omitempty"`
 	Recursive bool   `json:"recursive,omitempty"`
 	DryRun    bool   `json:"dryRun,omitempty"`
+	// Deep verifies the bitrot hash of every shard block.
+	Deep bool `json:"deep,omitempty"`
+	// Remove deletes the dangling objects found.
+	Remove bool `json:"remove,omitempty"`
 }
 
-// HealResult is the state of a healing operation.
-type HealResult struct {
-	ID        string    `json:"id"`
-	StartedAt time.Time `json:"startedAt"`
-	Finished  bool      `json:"finished"`
-	Scanned   uint64    `json:"scanned"`
-	Healed    uint64    `json:"healed"`
-	Failed    uint64    `json:"failed"`
+// Heal job states.
+const (
+	HealRunning  = "running"
+	HealDone     = "done"
+	HealFailed   = "failed"
+	HealCanceled = "canceled"
+)
+
+// HealJob is the state of a healing job.
+type HealJob struct {
+	ID string `json:"id"`
+	// State is HealRunning, HealDone, HealFailed or HealCanceled.
+	State   string      `json:"state"`
+	Request HealRequest `json:"request"`
+	// Finished reports a job that is no longer running.
+	Finished   bool       `json:"finished"`
+	Node       string     `json:"node,omitempty"`
+	StartedAt  time.Time  `json:"startedAt"`
+	UpdatedAt  time.Time  `json:"updatedAt"`
+	FinishedAt *time.Time `json:"finishedAt,omitempty"`
+	// Current is the item being healed (bucket/object).
+	Current string `json:"current,omitempty"`
+	// Scanned counts the items examined, Healed those repaired on at
+	// least one drive (or that would be, with DryRun), Failed those that
+	// could not be healed.
+	Scanned  uint64 `json:"scanned"`
+	Healed   uint64 `json:"healed"`
+	Failed   uint64 `json:"failed"`
+	Dangling uint64 `json:"dangling"`
+	Removed  uint64 `json:"removed"`
+	Bytes    uint64 `json:"bytes"`
+	// Drives sums up the job drive by drive.
+	Drives []HealJobDrive `json:"drives"`
+	// Items are the items that needed healing, were dangling or failed.
+	Items          []HealItem `json:"items"`
+	ItemsTruncated bool       `json:"itemsTruncated,omitempty"`
+	Error          string     `json:"error,omitempty"`
+}
+
+// HealJobDrive is the summary of a job on one drive.
+type HealJobDrive struct {
+	Endpoint string `json:"endpoint"`
+	Pool     int    `json:"pool"`
+	Set      int    `json:"set"`
+	Disk     int    `json:"disk"`
+	// State is "online" or "offline".
+	State   string `json:"state"`
+	Missing uint64 `json:"missing"`
+	Corrupt uint64 `json:"corrupt"`
+	Offline uint64 `json:"offline"`
+	Healed  uint64 `json:"healed"`
+}
+
+// HealItem is an item of a job that needed healing.
+type HealItem struct {
+	// Kind is "format", "bucket" or "object".
+	Kind     string          `json:"kind"`
+	Bucket   string          `json:"bucket,omitempty"`
+	Object   string          `json:"object,omitempty"`
+	Healed   int             `json:"healed"`
+	Dangling bool            `json:"dangling,omitempty"`
+	Removed  bool            `json:"removed,omitempty"`
+	Error    string          `json:"error,omitempty"`
+	Drives   []HealItemDrive `json:"drives"`
+}
+
+// HealItemDrive is the state of an item on one drive before and after
+// the healing: "ok", "missing", "corrupt" or "offline".
+type HealItemDrive struct {
+	Endpoint string `json:"endpoint"`
+	Pool     int    `json:"pool"`
+	Set      int    `json:"set"`
+	Disk     int    `json:"disk"`
+	Before   string `json:"before"`
+	After    string `json:"after"`
+}
+
+// HealJobList is the list of the healing jobs, newest first.
+type HealJobList struct {
+	Items      []HealJob `json:"items"`
+	NextCursor string    `json:"nextCursor"`
 }
 
 // ListOptions page a list endpoint.

@@ -135,15 +135,17 @@ func TestOperationsTakeNamespaceLocks(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"W " + obj, "R " + dst, "unlock " + dst, "unlock " + obj}, rec.take())
 
-	// Multipart: parts share the upload lock, completion holds the object
-	// and the upload exclusively.
+	// Multipart: parts share the upload lock (and commit under the lock of
+	// their part number), completion holds the object and the upload
+	// exclusively.
 	up, err := svc.NewMultipartUpload(ctx, object.NewMultipartInput{Bucket: "bkt", Key: "k"})
 	require.NoError(t, err)
 	rec.take()
 	upload := lock.Resource(domain.SystemBucket, "multipart/bkt/"+up.UploadID)
 	p, err := svc.PutObjectPart(ctx, object.PutObjectPartInput{Bucket: "bkt", Key: "k", UploadID: up.UploadID, PartNumber: 1, Reader: strings.NewReader("x"), Size: 1})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"R " + upload, "unlock " + upload}, rec.take())
+	part := lock.Resource(domain.SystemBucket, "multipart/bkt/"+up.UploadID+"/part.1")
+	assert.Equal(t, []string{"R " + upload, "W " + part, "unlock " + part, "unlock " + upload}, rec.take())
 	_, err = svc.CompleteMultipartUpload(ctx, object.CompleteMultipartInput{Bucket: "bkt", Key: "k", UploadID: up.UploadID, Parts: []domain.CompletePart{{Number: 1, ETag: p.ETag}}})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"W " + obj, "W " + upload, "unlock " + upload, "unlock " + obj}, rec.take())

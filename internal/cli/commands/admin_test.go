@@ -49,6 +49,9 @@ func TestScenarioAdminServer(t *testing.T) {
 			{Endpoint: "http://node1:9000", State: "online", UptimeSeconds: 60, Disks: []nexoadmin.DiskInfo{
 				{Path: "/data1", State: "online", Total: 10 << 30, Used: 1 << 30, Free: 9 << 30},
 				{Path: "/data2", State: "online", Total: 10 << 30, Used: 1 << 30, Free: 9 << 30, Healing: true},
+				{Path: "/data3", State: "healing", Healing: true, HealingProgress: &nexoadmin.HealingProgress{
+					ObjectsHealed: 12, ObjectsFailed: 1, BytesDone: 3 << 20, Bucket: "photos", Object: "2026/a.jpg",
+				}},
 			}},
 			{Endpoint: "http://node2:9000", State: "offline", Disks: []nexoadmin.DiskInfo{
 				{Endpoint: "http://node2:9000/data1", State: "offline", Error: "connection refused"},
@@ -58,7 +61,14 @@ func TestScenarioAdminServer(t *testing.T) {
 	h.admin.SetServerInfo(info)
 	s.run("admin", "info", "mem")
 	s.run("admin", "usage", "mem")
-	s.run("admin", "heal", "--recursive", "--dry-run", "mem/photos")
+	s.run("admin", "heal", "--recursive", "--dry-run", "--interval", "1ms", "mem/photos")
+	s.run("admin", "heal", "-r", "--deep", "--remove", "--interval", "1ms", "mem/photos/2026/")
+	s.run("admin", "heal", "--background", "mem/logs")
+	s.run("admin", "heal", "status", "mem")
+	s.run("admin", "heal", "status", "mem", "heal-0003")
+	s.run("admin", "heal", "status", "mem", "nope")
+	s.run("admin", "heal", "status", "mem", "a", "b")
+	s.run("admin", "heal", "--interval", "0s", "mem")
 	h.admin.FailOn("Heal", clitestNotImplemented())
 	s.run("admin", "heal", "mem")
 	h.stdin = "n\n"
@@ -324,7 +334,9 @@ func TestAdminCommandsPrintJSONLines(t *testing.T) {
 	}{
 		{"info", []string{"admin", "info", "mem"}},
 		{"usage", []string{"admin", "usage", "mem"}},
-		{"heal", []string{"admin", "heal", "--dry-run", "mem"}},
+		{"heal", []string{"admin", "heal", "--dry-run", "--interval", "1ms", "mem"}},
+		{"heal", []string{"admin", "heal", "--background", "mem"}},
+		{"heal", []string{"admin", "heal", "status", "mem"}},
 		{"user", []string{"admin", "user", "add", "mem", "bob", "bob-secret-1"}},
 		{"user", []string{"admin", "user", "list", "mem"}},
 		{"user", []string{"admin", "user", "info", "mem", "bob"}},

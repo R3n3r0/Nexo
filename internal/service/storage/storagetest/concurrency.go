@@ -1,15 +1,13 @@
-package storage_test
+package storagetest
 
 import (
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -20,97 +18,13 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/storage"
-	"github.com/r3n3r0/nexo/internal/testutil"
 )
 
 const workers = 100
 
-// putObject stores payload as a version of volume/key the way the object
-// layer does: inline below SmallFileThreshold, otherwise streamed into tmp
-// and committed with RenameData.
-func putObject(ctx context.Context, s storage.StorageAPI, volume, key, versionID string, modTime time.Time, payload []byte) (storage.FileInfo, error) {
-	fi := storage.FileInfo{VersionID: versionID, ModTime: modTime, Size: int64(len(payload)), Versioned: versionID != "",
-		Metadata: map[string]string{"etag": fmt.Sprintf("%x", len(payload)), "content-type": "application/octet-stream"}}
-	if len(payload) < storage.SmallFileThreshold {
-		fi.Data = payload
-		return fi, s.WriteMetadata(ctx, volume, key, fi)
-	}
-	tmp := storage.TmpDir + "/" + uuid.NewString()
-	if err := s.CreateFile(ctx, domain.SystemBucket, tmp+"/part.1", int64(len(payload)), bytes.NewReader(payload)); err != nil {
-		return fi, err
-	}
-	fi.DataDir = uuid.NewString()
-	fi.Parts = []storage.PartInfo{{Number: 1, Size: fi.Size, ActualSize: fi.Size}}
-	_, err := s.RenameData(ctx, domain.SystemBucket, tmp, fi, volume, key, storage.RenameOptions{})
-	return fi, err
-}
-
-// getObject reads the content of a version back.
-func getObject(ctx context.Context, s storage.StorageAPI, volume, key, versionID string) ([]byte, error) {
-	fi, err := s.ReadVersion(ctx, volume, key, versionID, storage.ReadOptions{ReadData: true})
-	if err != nil {
-		return nil, err
-	}
-	if fi.DataDir == "" {
-		return fi.Data, nil
-	}
-	var out []byte
-	for _, p := range fi.Parts {
-		rc, err := s.ReadFileStream(ctx, volume, storage.ObjectDataPath(key, fi.DataDir, p.Number), 0, p.Size)
-		if err != nil {
-			return nil, err
-		}
-		data, err := io.ReadAll(rc)
-		_ = rc.Close()
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, data...)
-	}
-	return out, nil
-}
-
-func payloadFor(i, size int) []byte {
-	return bytes.Repeat([]byte{byte('a' + i%26)}, size)
-}
-
-// run executes fn for every worker index and collects the errors.
-func run(t *testing.T, n int, fn func(i int) error) {
-	t.Helper()
-	var wg sync.WaitGroup
-	errs := make(chan error, n)
-	for i := range n {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := fn(i); err != nil {
-				errs <- fmt.Errorf("worker %d: %w", i, err)
-			}
-		}()
-	}
-	wg.Wait()
-	close(errs)
-	for err := range errs {
-		t.Error(err)
-	}
-}
-
-func objectNames(t *testing.T, s storage.StorageAPI, opts storage.WalkDirOptions) []string {
-	t.Helper()
-	var names []string
-	require.NoError(t, s.WalkDir(context.Background(), opts, func(e storage.WalkEntry) error {
-		if !e.IsDir {
-			names = append(names, e.Name)
-		}
-		return nil
-	}))
-	return names
-}
-
-func TestConcurrentDifferentKeys(t *testing.T) {
+func testConcurrentDifferentKeys(t *testing.T, f Factory) {
 	ctx := context.Background()
-	dir := filepath.Join(t.TempDir(), "drive")
-	s := testutil.NewLocalDrive(t, dir)
+	s, dir := open(t, f)
 	require.NoError(t, s.MakeVol(ctx, "b"))
 	now := time.Now()
 
@@ -149,9 +63,9 @@ func TestConcurrentDifferentKeys(t *testing.T) {
 	assert.Empty(t, entries, "no temporary file is left behind")
 }
 
-func TestConcurrentSameKeyVersions(t *testing.T) {
+func testConcurrentSameKeyVersions(t *testing.T, f Factory) {
 	ctx := context.Background()
-	s := testutil.NewLocalDrive(t, "")
+	s, _ := open(t, f)
 	require.NoError(t, s.MakeVol(ctx, "b"))
 	base := time.Date(2026, 10, 8, 0, 0, 0, 0, time.UTC)
 
@@ -184,10 +98,9 @@ func TestConcurrentSameKeyVersions(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrObjectNotFound)
 }
 
-func TestConcurrentNullVersionOverwrites(t *testing.T) {
+func testConcurrentNullVersionOverwrites(t *testing.T, f Factory) {
 	ctx := context.Background()
-	dir := filepath.Join(t.TempDir(), "drive")
-	s := testutil.NewLocalDrive(t, dir)
+	s, dir := open(t, f)
 	require.NoError(t, s.MakeVol(ctx, "b"))
 	now := time.Now()
 
@@ -217,11 +130,11 @@ func TestConcurrentNullVersionOverwrites(t *testing.T) {
 	assert.Len(t, got, int(fi.Size))
 }
 
-// TestConcurrentCreateDeleteSamePrefix races the creation of objects with
+// testConcurrentCreateDeleteSamePrefix races the creation of objects with
 // the pruning of the empty directories left by deletes in the same prefix.
-func TestConcurrentCreateDeleteSamePrefix(t *testing.T) {
+func testConcurrentCreateDeleteSamePrefix(t *testing.T, f Factory) {
 	ctx := context.Background()
-	s := testutil.NewLocalDrive(t, "")
+	s, _ := open(t, f)
 	require.NoError(t, s.MakeVol(ctx, "b"))
 	now := time.Now()
 	run(t, workers, func(i int) error {
@@ -240,15 +153,15 @@ func TestConcurrentCreateDeleteSamePrefix(t *testing.T) {
 	assert.Len(t, objectNames(t, s, storage.WalkDirOptions{Bucket: "b", Recursive: true}), workers)
 }
 
-// TestConcurrentParentChildPlacement is the regression test of the
+// testConcurrentParentChildPlacement is the regression test of the
 // placement race: "k" and "k/x" (or "k/x/y") written concurrently took
-// different key locks, both passed the placement check and both
-// committed, leaving the child readable but invisible to listings. Now
-// exactly one write of each pair wins, the other is refused, and what is
-// readable is what is listed.
-func TestConcurrentParentChildPlacement(t *testing.T) {
+// different key locks, both passed the placement check and both committed,
+// leaving the child readable but invisible to listings. Now exactly one
+// write of each pair wins, the other is refused, and what is readable is
+// what is listed.
+func testConcurrentParentChildPlacement(t *testing.T, f Factory) {
 	ctx := context.Background()
-	s := testutil.NewLocalDrive(t, "")
+	s, _ := open(t, f)
 	require.NoError(t, s.MakeVol(ctx, "b"))
 	now := time.Now()
 	const pairs = 200
@@ -294,12 +207,12 @@ func TestConcurrentParentChildPlacement(t *testing.T) {
 		"every readable object is listed")
 }
 
-// TestConcurrentPlacementWithDeletes races writes of children with the
+// testConcurrentPlacementWithDeletes races writes of children with the
 // creation and removal of their parent object (delete markers included):
 // no write may commit under a parent that is an object.
-func TestConcurrentPlacementWithDeletes(t *testing.T) {
+func testConcurrentPlacementWithDeletes(t *testing.T, f Factory) {
 	ctx := context.Background()
-	s := testutil.NewLocalDrive(t, "")
+	s, _ := open(t, f)
 	require.NoError(t, s.MakeVol(ctx, "b"))
 	now := time.Now()
 	run(t, workers, func(i int) error {

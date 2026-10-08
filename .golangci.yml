@@ -68,6 +68,17 @@ linters:
           deny:
             - pkg: github.com/prometheus
               desc: use the library-neutral API of internal/service/metrics
+        # The Reed-Solomon and HighwayHash libraries are confined to the
+        # erasure codec service (internal/service/erasure).
+        erasure-libs-only-in-erasure:
+          files:
+            - "$all"
+            - "!**/internal/service/erasure/**"
+          deny:
+            - pkg: github.com/klauspost/reedsolomon
+              desc: use erasure.Codec (internal/service/erasure)
+            - pkg: github.com/minio/highwayhash
+              desc: use erasure.Codec bitrot readers/writers (internal/service/erasure)
   exclusions:
     # Third-party Go sources shipped inside npm packages are not ours.
     paths:

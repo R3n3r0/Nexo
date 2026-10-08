@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/pflag"
 )
@@ -28,6 +29,11 @@ const (
 	EnvEndpoints          = "NEXO_ENDPOINTS"
 	EnvConfigFile         = "NEXO_CONFIG_FILE"
 	EnvPrometheusAuthType = "NEXO_PROMETHEUS_AUTH_TYPE"
+	EnvStorageClassStd    = "NEXO_STORAGE_CLASS_STANDARD"
+	EnvStorageClassRRS    = "NEXO_STORAGE_CLASS_RRS"
+	EnvLockStaleAfter     = "NEXO_LOCK_STALE_AFTER"
+	EnvLockRefresh        = "NEXO_LOCK_REFRESH_INTERVAL"
+	EnvRPCCallTimeout     = "NEXO_RPC_CALL_TIMEOUT"
 	// FileSuffix is appended to a variable name to read its value from a file.
 	FileSuffix = "_FILE"
 )
@@ -45,6 +51,8 @@ const (
 	FlagLogLevel           = "log-level"
 	FlagLogFormat          = "log-format"
 	FlagConfigFile         = "config"
+	FlagStorageClassStd    = "storage-class-standard"
+	FlagStorageClassRRS    = "storage-class-rrs"
 )
 
 // BindFlags defines the server flags on fs. Root credentials have no flag
@@ -62,6 +70,8 @@ func BindFlags(fs *pflag.FlagSet) {
 	fs.String(FlagLogLevel, d.LogLevel, "log level: debug, info, warn, error")
 	fs.String(FlagLogFormat, d.LogFormat, "log format: json, text")
 	fs.String(FlagConfigFile, "", "JSON configuration file (lowest precedence)")
+	fs.String(FlagStorageClassStd, "", "parity of the STANDARD storage class as EC:n (erasure-coded modes)")
+	fs.String(FlagStorageClassRRS, "", "parity of the REDUCED_REDUNDANCY storage class as EC:n (erasure-coded modes)")
 }
 
 // Input is what the Loader reads from.
@@ -187,6 +197,17 @@ func (l *loader) applyEnv(cfg *Static) error {
 	if v, ok := l.env(EnvEndpoints); ok {
 		cfg.Endpoints = strings.Fields(v)
 	}
+	set(EnvStorageClassStd, &cfg.StorageClassStandard)
+	set(EnvStorageClassRRS, &cfg.StorageClassRRS)
+	for key, dst := range map[string]*time.Duration{EnvLockStaleAfter: &cfg.LockStaleAfter, EnvLockRefresh: &cfg.LockRefreshInterval, EnvRPCCallTimeout: &cfg.RPCCallTimeout} {
+		if v, ok := l.env(key); ok && strings.TrimSpace(v) != "" {
+			d, err := time.ParseDuration(strings.TrimSpace(v))
+			if err != nil {
+				return fmt.Errorf("%s: %w", key, err)
+			}
+			*dst = d
+		}
+	}
 	var err error
 	if cfg.RootUser, err = l.secret(EnvRootUser, cfg.RootUser); err != nil {
 		return err
@@ -234,6 +255,8 @@ func applyFlags(cfg *Static, fs *pflag.FlagSet) error {
 	setString(FlagCertsDir, &cfg.CertsDir)
 	setString(FlagLogLevel, &cfg.LogLevel)
 	setString(FlagLogFormat, &cfg.LogFormat)
+	setString(FlagStorageClassStd, &cfg.StorageClassStandard)
+	setString(FlagStorageClassRRS, &cfg.StorageClassRRS)
 	if err != nil {
 		return fmt.Errorf("read flags: %w", err)
 	}

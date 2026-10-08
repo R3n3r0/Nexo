@@ -131,6 +131,13 @@ func openKDF(dir, secret string, params KDFParams) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("iam: file store: read %s: %w", path, err)
 	}
+	return verifyKDF(raw, path, secret)
+}
+
+// verifyKDF decodes a kdf.json document (path names it in errors) and
+// returns the key it derives from secret, checked against the key-check
+// value.
+func verifyKDF(raw []byte, path, secret string) ([]byte, error) {
 	var kf kdfFile
 	if err := json.Unmarshal(raw, &kf); err != nil {
 		return nil, corrupted(path, err)
@@ -161,24 +168,33 @@ func openKDF(dir, secret string, params KDFParams) ([]byte, error) {
 	return key, nil
 }
 
-// createKDF writes a new kdf.json with a random salt. The file is linked
-// into place so that concurrent creators agree on a single salt.
-func createKDF(dir, path, secret string, params KDFParams) error {
+// newKDF encodes a new kdf.json document with a random salt for secret.
+func newKDF(path, secret string, params KDFParams) ([]byte, error) {
 	salt, err := randomBytes(saltSize)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	key := deriveKey(secret, salt, params)
 	nonce, check, err := seal(key, []byte(keyCheckPlaintext), []byte(keyCheckAAD))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	raw, err := json.MarshalIndent(kdfFile{
 		Format: kdfFileFormat, Version: fileFormatVersion, Algorithm: kdfAlgorithm,
 		Salt: salt, KDFParams: params, CheckNonce: nonce, Check: check,
 	}, "", "  ")
 	if err != nil {
-		return fmt.Errorf("iam: file store: encode %s: %w", path, err)
+		return nil, fmt.Errorf("iam: file store: encode %s: %w", path, err)
+	}
+	return raw, nil
+}
+
+// createKDF writes a new kdf.json with a random salt. The file is linked
+// into place so that concurrent creators agree on a single salt.
+func createKDF(dir, path, secret string, params KDFParams) error {
+	raw, err := newKDF(path, secret, params)
+	if err != nil {
+		return err
 	}
 	tmp, err := writeTemp(dir, raw)
 	if err != nil {

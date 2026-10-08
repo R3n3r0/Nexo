@@ -103,6 +103,13 @@ func (e *env) formatInfo(alias string, info *nexoadmin.ServerInfo) string {
 			}
 			if d.Healing {
 				b.WriteString("  healing")
+				if hp := d.HealingProgress; hp != nil {
+					fmt.Fprintf(&b, " (%d object(s) healed, %d failed, %s", hp.ObjectsHealed, hp.ObjectsFailed, cli.HumanSize(int64(hp.BytesDone)))
+					if at := strings.TrimSuffix(hp.Bucket+"/"+hp.Object, "/"); at != "" {
+						fmt.Fprintf(&b, ", at %s", at)
+					}
+					b.WriteString(")")
+				}
 			}
 			if d.Error != "" {
 				b.WriteString("  error: " + d.Error)
@@ -144,14 +151,36 @@ func newAdminUsageCmd(e *env) *cobra.Command {
 	}
 }
 
+// healPollInterval is the default pause between two queries of a running
+// healing job.
+const healPollInterval = time.Second
+
+// healMaxItems bounds the items printed by the text output of a job.
+const healMaxItems = 20
+
 func newAdminHealCmd(e *env) *cobra.Command {
-	var recursive, dryRun bool
+	var (
+		recursive, dryRun, deep, remove, background bool
+		interval                                    time.Duration
+	)
 	cmd := &cobra.Command{
 		Use:   "heal [flags] ALIAS[/BUCKET[/PREFIX]]",
 		Short: "Heal the drives of the server (erasure-coded deployments)",
-		Long: `Start a healing operation on the whole server, a bucket or a prefix and print its
-outcome. With --dry-run the objects are checked and nothing is repaired.`,
-		Example:           "  nexoctl admin heal --recursive --dry-run local/photos",
+		Long: `Start a healing job on the whole server (the format of the drives and every
+bucket), a bucket or an object, or with --recursive on every object below the
+bucket or prefix, follow its progress and print its outcome: the items examined,
+repaired and failed, the drives that missed or held corrupt copies.
+
+With --dry-run the objects are checked and nothing is repaired; --deep verifies
+the bitrot checksum of every block (it reads all the data); --remove deletes the
+dangling objects found (present on too few drives to ever be read again).
+With --background the job is started and its id printed: follow it with
+"nexoctl admin heal status ALIAS ID". The exit code is 1 when the job failed or
+some item could not be healed.`,
+		Example: `  nexoctl admin heal --recursive --dry-run local/photos
+  nexoctl admin heal -r --deep local
+  nexoctl admin heal --background -r local/photos/2026/
+  nexoctl admin heal status local`,
 		Args:              exactArgs(1),
 		ValidArgsFunction: completeTargets(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -160,26 +189,207 @@ outcome. With --dry-run the objects are checked and nothing is repaired.`,
 			if err != nil {
 				return err
 			}
+			if interval <= 0 {
+				return cli.UsageError("--interval must be positive")
+			}
 			client, err := e.admin(ctx, t.Alias)
 			if err != nil {
 				return err
 			}
-			res, err := client.Heal(ctx, nexoadmin.HealRequest{Bucket: t.Bucket, Prefix: t.Key, Recursive: recursive, DryRun: dryRun})
+			job, err := client.Heal(ctx, nexoadmin.HealRequest{
+				Bucket: t.Bucket, Prefix: t.Key, Recursive: recursive, DryRun: dryRun, Deep: deep, Remove: remove,
+			})
 			if err != nil {
 				return fmt.Errorf("heal %s: %w", t, err)
 			}
-			mode := ""
-			if dryRun {
-				mode = " (dry run)"
+			if background {
+				text := fmt.Sprintf("Heal %s started on %s: follow it with \"nexoctl admin heal status %s %s\"", job.ID, t, t.Alias, job.ID)
+				return e.out.Result(adminHealRecord{Alias: t.Alias, DryRun: dryRun, HealJob: *job}, text)
 			}
-			text := fmt.Sprintf("Heal %s%s: %s, scanned %d, healed %d, failed %d", res.ID, mode,
-				map[bool]string{true: "finished", false: "running"}[res.Finished], res.Scanned, res.Healed, res.Failed)
-			return e.out.Result(adminHealRecord{Alias: t.Alias, DryRun: dryRun, HealResult: *res}, text)
+			job, err = e.waitHeal(ctx, client, job, interval)
+			if err != nil {
+				return fmt.Errorf("heal %s: %w", t, err)
+			}
+			return e.healResult(t.Alias, job)
 		},
 	}
 	cmd.Flags().BoolVarP(&recursive, "recursive", "r", false, "heal every object under the bucket or prefix")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "only report what would be healed")
+	cmd.Flags().BoolVar(&deep, "deep", false, "verify the bitrot checksum of every block (reads all the data)")
+	cmd.Flags().BoolVar(&remove, "remove", false, "delete the dangling objects found")
+	cmd.Flags().BoolVar(&background, "background", false, "start the job and print its id without waiting")
+	cmd.Flags().DurationVar(&interval, "interval", healPollInterval, "pause between two queries of the job progress")
+	cmd.AddCommand(newAdminHealStatusCmd(e))
 	return cmd
+}
+
+// waitHeal polls a job until it is no longer running, drawing its
+// progress on a terminal.
+func (e *env) waitHeal(ctx context.Context, client cli.AdminClient, job *nexoadmin.HealJob, interval time.Duration) (*nexoadmin.HealJob, error) {
+	bar := e.progress(0)
+	defer bar.Finish()
+	var bytes uint64
+	for !job.Finished && job.State == nexoadmin.HealRunning {
+		bar.SetLabel(fmt.Sprintf("scanned %d healed %d failed %d", job.Scanned, job.Healed, job.Failed))
+		if job.Bytes > bytes {
+			bar.Add(int64(job.Bytes - bytes))
+			bytes = job.Bytes
+		}
+		t := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return nil, fmt.Errorf("job %s still runs on the server (nexoctl admin heal status): %w", job.ID, ctx.Err())
+		case <-t.C:
+		}
+		next, err := client.HealStatus(ctx, job.ID)
+		if err != nil {
+			return nil, err
+		}
+		job = next
+	}
+	return job, nil
+}
+
+// healResult prints the outcome of a finished job; a failed job, or one
+// with items not healed, is an error (exit code 1) after the report.
+func (e *env) healResult(alias string, job *nexoadmin.HealJob) error {
+	if err := e.out.Result(adminHealRecord{Alias: alias, DryRun: job.Request.DryRun, HealJob: *job}, e.formatHeal(job)); err != nil {
+		return err
+	}
+	switch {
+	case job.State == nexoadmin.HealFailed || job.State == nexoadmin.HealCanceled:
+		return fmt.Errorf("heal %s %s: %s", job.ID, job.State, orDash(job.Error))
+	case job.Failed > 0:
+		return fmt.Errorf("heal %s: %d item(s) could not be healed", job.ID, job.Failed)
+	}
+	return nil
+}
+
+// formatHeal renders a job: a summary, the drives that needed healing and
+// the items healed or failed.
+func (e *env) formatHeal(job *nexoadmin.HealJob) string {
+	var b strings.Builder
+	p := e.out
+	mode := ""
+	if job.Request.DryRun {
+		mode = " (dry run)"
+	}
+	fmt.Fprintf(&b, "Heal %s%s: %s, scanned %d, healed %d, failed %d", job.ID, mode, job.State, job.Scanned, job.Healed, job.Failed)
+	if job.Dangling > 0 || job.Removed > 0 {
+		fmt.Fprintf(&b, ", dangling %d, removed %d", job.Dangling, job.Removed)
+	}
+	if job.Bytes > 0 {
+		fmt.Fprintf(&b, ", %s", cli.HumanSize(int64(job.Bytes)))
+	}
+	if job.Current != "" {
+		fmt.Fprintf(&b, "\n  current: %s", job.Current)
+	}
+	if job.Error != "" {
+		fmt.Fprintf(&b, "\n  error: %s", job.Error)
+	}
+	for _, d := range job.Drives {
+		if d.Missing+d.Corrupt+d.Offline+d.Healed == 0 {
+			continue
+		}
+		state := p.Paint(cli.ColorGreen, d.State)
+		if d.State != stateOnline {
+			state = p.Paint(cli.ColorRed, d.State)
+		}
+		fmt.Fprintf(&b, "\n  drive %s (pool %d set %d disk %d) %s: missing %d, corrupt %d, offline %d, healed %d",
+			orDash(d.Endpoint), d.Pool+1, d.Set+1, d.Disk+1, state, d.Missing, d.Corrupt, d.Offline, d.Healed)
+	}
+	for i, it := range job.Items {
+		if i == healMaxItems {
+			fmt.Fprintf(&b, "\n  ... %d more item(s) (--json lists them)", len(job.Items)-healMaxItems)
+			break
+		}
+		name := strings.TrimSuffix(it.Bucket+"/"+it.Object, "/")
+		if name == "" {
+			name = it.Kind
+		}
+		fmt.Fprintf(&b, "\n  %s %s:", it.Kind, name)
+		var changes []string
+		for _, d := range it.Drives {
+			if d.Before != "ok" || d.After != "ok" {
+				changes = append(changes, fmt.Sprintf("disk %d %s -> %s", d.Disk+1, d.Before, d.After))
+			}
+		}
+		if len(changes) > 0 {
+			b.WriteString(" " + strings.Join(changes, ", "))
+		}
+		switch {
+		case it.Error != "":
+			b.WriteString("  " + p.Paint(cli.ColorRed, "error: "+it.Error))
+		case it.Removed:
+			b.WriteString("  dangling, removed")
+		case it.Dangling:
+			b.WriteString("  dangling (--remove deletes it)")
+		}
+	}
+	if job.ItemsTruncated {
+		b.WriteString("\n  ... the server kept the first items only")
+	}
+	return b.String()
+}
+
+func newAdminHealStatusCmd(e *env) *cobra.Command {
+	return &cobra.Command{
+		Use:   "status ALIAS [ID]",
+		Short: "Show a healing job, or list the running and recent ones",
+		Long: `Show the state and the outcome of a healing job, or without ID list the running
+and recently finished jobs (newest first).`,
+		Example: `  nexoctl admin heal status local
+  nexoctl admin heal status local 0192f0f0-0000-7000-8000-000000000001`,
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) < 1 || len(args) > 2 {
+				return cli.UsageError("%s takes 1 or 2 argument(s), got %d", cmd.CommandPath(), len(args))
+			}
+			return nil
+		},
+		ValidArgsFunction: completeAliasNames(e),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			alias, client, err := e.adminAlias(ctx, args[0])
+			if err != nil {
+				return err
+			}
+			if len(args) == 2 {
+				job, err := client.HealStatus(ctx, args[1])
+				if err != nil {
+					return fmt.Errorf("heal %s: %w", args[1], err)
+				}
+				return e.healResult(alias, job)
+			}
+			list, err := client.ListHeals(ctx)
+			if err != nil {
+				return err
+			}
+			if e.out.JSON() {
+				for _, j := range list.Items {
+					if err := e.out.Result(adminHealRecord{Alias: alias, DryRun: j.Request.DryRun, HealJob: j}, ""); err != nil {
+						return err
+					}
+				}
+				return nil
+			}
+			var b strings.Builder
+			fmt.Fprintf(&b, "%-36s %-9s %-20s %8s %8s %8s  %s", "ID", "STATE", "STARTED", "SCANNED", "HEALED", "FAILED", "TARGET")
+			for _, j := range list.Items {
+				target := strings.TrimSuffix(alias+"/"+j.Request.Bucket+"/"+j.Request.Prefix, "/")
+				target = strings.TrimSuffix(target, "/")
+				if j.Request.Recursive {
+					target += " (recursive)"
+				}
+				if j.Request.DryRun {
+					target += " (dry run)"
+				}
+				fmt.Fprintf(&b, "\n%-36s %-9s %-20s %8d %8d %8d  %s", j.ID, j.State, j.StartedAt.UTC().Format(time.DateTime),
+					j.Scanned, j.Healed, j.Failed, target)
+			}
+			return e.out.Text(b.String())
+		},
+	}
 }
 
 func newAdminServiceCmd(e *env) *cobra.Command {

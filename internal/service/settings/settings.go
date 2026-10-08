@@ -17,9 +17,16 @@ const (
 
 // Applied reports whether the server applies a key of the dynamic
 // configuration; the other keys of the schema are stored and validated
-// but have no effect yet.
+// but have no effect yet. The scanner reads scanner.speed and
+// scanner.cycle at the start of every cycle (internal/service/scanner).
 func Applied(subsystem, key string) bool {
-	return subsystem == SubsystemAPI && key == KeyRootAccess
+	switch subsystem {
+	case SubsystemAPI:
+		return key == KeyRootAccess
+	case "scanner":
+		return key == "speed" || key == "cycle"
+	}
+	return false
 }
 
 // Option configures the settings service.

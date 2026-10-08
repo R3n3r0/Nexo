@@ -1,4 +1,4 @@
-package storage_test
+package storagetest
 
 import (
 	"bytes"
@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -17,13 +16,11 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/storage"
-	"github.com/r3n3r0/nexo/internal/testutil"
 )
 
-func TestKeyNames(t *testing.T) {
+func testKeyNames(t *testing.T, f Factory) {
 	ctx := context.Background()
-	dir := filepath.Join(t.TempDir(), "drive")
-	s := testutil.NewLocalDrive(t, dir)
+	s, dir := open(t, f)
 	require.NoError(t, s.MakeVol(ctx, "b"))
 	now := time.Now()
 
@@ -86,9 +83,9 @@ func TestKeyNames(t *testing.T) {
 	assert.ElementsMatch(t, []string{domain.SystemBucket, "b"}, names)
 }
 
-func TestObjectSizes(t *testing.T) {
+func testObjectSizes(t *testing.T, f Factory) {
 	ctx := context.Background()
-	s := testutil.NewLocalDrive(t, "")
+	s, _ := open(t, f)
 	require.NoError(t, s.MakeVol(ctx, "b"))
 	sizes := map[string]int{
 		"0 B": 0, "1 B": 1, "127 KiB": 127 << 10, "128 KiB - 1": storage.SmallFileThreshold - 1,

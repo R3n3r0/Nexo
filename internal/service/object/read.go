@@ -52,7 +52,11 @@ func (l *layer) GetObjectInfo(ctx context.Context, bucket, key string, opts GetO
 		}
 		defer lc.Unlock(ctx)
 	}
-	fi, err := l.readVersion(ctx, l.pick(key), bucket, key, opts.VersionID, false)
+	st, err := l.place.forVersion(ctx, bucket, key, opts.VersionID)
+	if err != nil {
+		return domain.ObjectInfo{}, fmt.Errorf("%s: head %s/%s: %w", l.name, bucket, key, err)
+	}
+	fi, err := l.readVersion(ctx, st, bucket, key, opts.VersionID, false)
 	if err != nil {
 		return domain.ObjectInfo{}, fmt.Errorf("%s: head %s/%s: %w", l.name, bucket, key, err)
 	}
@@ -100,7 +104,11 @@ func (l *layer) openObject(ctx context.Context, bucket, key string, opts GetObje
 			unlock()
 		}
 	}
-	st := l.pick(key)
+	st, err := l.place.forVersion(ctx, bucket, key, opts.VersionID)
+	if err != nil {
+		release()
+		return nil, storage.FileInfo{}, fmt.Errorf("%s: get %s/%s: %w", l.name, bucket, key, err)
+	}
 	fi, err := l.readVersion(ctx, st, bucket, key, opts.VersionID, true)
 	if err != nil {
 		release()

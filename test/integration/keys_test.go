@@ -138,8 +138,15 @@ func TestPathTraversalKeys(t *testing.T) {
 	e := newEnv(t)
 	const bucket = "jail"
 	e.mkBucket(bucket)
-	drive := filepath.Join(e.srv.Dir, "data")
-	before := listFiles(t, drive, bucket)
+	drives := e.srv.DriveDirs()
+	listAll := func() []string {
+		var out []string
+		for _, d := range drives {
+			out = append(out, listFiles(t, d, bucket)...)
+		}
+		return out
+	}
+	before := listAll()
 	for _, key := range []string{"../escape.txt", "a/../../escape.txt", "a/./b.txt", "..", ".", "a/..", "../.nexo.sys/config/x", "\\..\\win.txt", "nul\x00byte"} {
 		t.Run(strings.ReplaceAll(key, "/", "_"), func(t *testing.T) {
 			// The dot segments are sent as they are (no client-side cleaning).
@@ -155,7 +162,7 @@ func TestPathTraversalKeys(t *testing.T) {
 			assert.Contains(t, []int{http.StatusBadRequest, http.StatusForbidden, http.StatusNotFound, http.StatusMethodNotAllowed}, resp.StatusCode, "%s", resp.Body)
 		})
 	}
-	after := listFiles(t, drive, bucket)
+	after := listAll()
 	assert.Equal(t, before, after, "no file outside the bucket directory changed")
 }
 
