@@ -26,6 +26,7 @@ func (b *objectBrowser) Zip(ctx context.Context, in ZipInput, open ZipOpener) (*
 	if len(in.Keys) > maxExplicitObjects {
 		return nil, fmt.Errorf("%w: at most %d objects per archive request", domain.ErrInvalidArgument, maxExplicitObjects)
 	}
+	in.Base, in.Prefixes = folderPrefix(in.Base), folderPrefixes(in.Prefixes)
 	if err := domain.ValidateObjectPrefix(in.Base); err != nil {
 		return nil, err
 	}

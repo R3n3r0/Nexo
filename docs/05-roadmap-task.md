@@ -149,7 +149,7 @@ M3/M4 (UI e CLI) e M5 (storage) possono procedere in parallelo grazie all'interf
 | T-6.9 | Dashboard pagina Cluster e Healing (D-CLU-01, 02), CLI `admin heal` (C-ADM-07) | T-6.5 | E2E su cluster docker |
 | T-6.10 | `compose.cluster.yml` + nginx, `compose.cluster-tls.yml`, URL pubblico (`NEXO_SERVER_URL`) per presigned dietro proxy | T-6.4 | TM-06, TM-09, TPS-19 |
 | T-6.11 | CI in matrice completa SNSD/SNMD/Cluster (integrazione, CLI, Playwright) | T-6.10 | TM-01, TM-02 verdi |
-| T-6.12 | `admin cluster export/import` per migrazione tra modalità (S-OPS-15) | T-6.5 | TM-04 |
+| T-6.12 | `admin cluster export/import` per migrazione tra modalità (S-OPS-15, C-ADM-13): IAM, config e metadati bucket in un solo archivio (oggi `admin config export/import` copre la sola configurazione) | T-6.5 | TM-04 |
 
 ## M7 — Funzionalità avanzate
 
@@ -163,8 +163,8 @@ M3/M4 (UI e CLI) e M5 (storage) possono procedere in parallelo grazie all'interf
 | T-7.6 | Notifiche eventi: target Webhook, Kafka, NATS, AMQP, Redis, PostgreSQL; coda persistente per target offline (S-BKT-10) | M1 | Evento recapitato dopo ripristino target |
 | T-7.7 | Quota bucket (S-BKT-09) | T-5.8 | PUT oltre quota → 507/`XNexoQuotaExceeded` |
 | T-7.8 | Checksum S3 aggiuntivi (S-OBJ-09) | T-1.6 | — |
-| T-7.9 | Dashboard: impostazioni bucket, lifecycle, eventi, dettaglio oggetto/versioni, anteprima, gruppi, access key (D-BKT-02..04, D-OBJ-05..06, D-IAM-02, 04) | T-7.1..T-7.7 | E2E per ogni pagina |
-| T-7.10 | CLI: `version`, `tag`, `retention`, `legalhold`, `ilm`, `event`, `quota`, `encrypt`, `anonymous`, `admin group`, `admin accesskey`, `admin config` | T-7.1..T-7.7 | testscript per ogni comando |
+| T-7.9 | Dashboard: impostazioni bucket, lifecycle, eventi, dettaglio oggetto/versioni, anteprima, gruppi, access key (D-BKT-02..04, D-OBJ-05..06, D-IAM-02, 04). Già in M3/M4: impostazioni bucket (versioning, quota, tag, crittografia predefinita, object lock con retention predefinita), ripristino ed eliminazione versioni, anteprima, gruppi, access key. Restano per M7: lifecycle (D-BKT-03) ed eventi (D-BKT-04), oggi 501 nell'Admin API, retention e legal hold del singolo oggetto (D-OBJ-06) | T-7.1..T-7.7 | E2E per ogni pagina |
+| T-7.10 | CLI: `version`, `tag`, `retention`, `legalhold`, `ilm`, `event`, `quota`, `encrypt`, `anonymous`, `admin group`, `admin accesskey`, `admin config`. Già in M3/M4: `version`, `tag`, `quota`, `encrypt`, `anonymous`, `admin group/accesskey/config`. Restano per M7: `retention`, `legalhold`, `ilm`, `event` (con T-7.3, T-7.4, T-7.6) | T-7.1..T-7.7 | testscript per ogni comando |
 
 ## M7b — Accessi, domini e distribuzioni
 

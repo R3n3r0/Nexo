@@ -189,6 +189,21 @@ func TestClientAgainstServer(t *testing.T) {
 		q, err := c.SetBucketQuota(ctx, "photos", nexoadmin.BucketQuota{Size: 2 << 30})
 		require.NoError(t, err)
 		assert.Equal(t, "hard", q.Type)
+
+		enc, err := c.GetBucketEncryption(ctx, "photos")
+		require.NoError(t, err)
+		assert.Nil(t, enc, "no default encryption")
+		_, err = c.SetBucketEncryption(ctx, "photos", nexoadmin.BucketEncryption{Algorithm: "aws:kms", KMSKeyID: "k1"})
+		require.NoError(t, err)
+		enc, err = c.GetBucketEncryption(ctx, "photos")
+		require.NoError(t, err)
+		assert.Equal(t, &nexoadmin.BucketEncryption{Algorithm: "aws:kms", KMSKeyID: "k1"}, enc)
+		require.NoError(t, c.DeleteBucketEncryption(ctx, "photos"))
+		enc, err = c.GetBucketEncryption(ctx, "photos")
+		require.NoError(t, err)
+		assert.Nil(t, enc)
+		_, err = c.GetBucketEncryption(ctx, "no-such-bucket")
+		require.Error(t, err, "a missing bucket is not a bucket without encryption")
 		require.NoError(t, c.SetBucketTags(ctx, "photos", map[string]string{"team": "web"}))
 		tags, err := c.GetBucketTags(ctx, "photos")
 		require.NoError(t, err)
@@ -463,4 +478,123 @@ func TestPolicyDocumentsRoundTrip(t *testing.T) {
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(p.Document, &got))
 	assert.Equal(t, "2012-10-17", got["Version"])
+}
+
+// TestPathSegmentsAreEscapedOnce: every path parameter reaches the server
+// escaped exactly once (regression: the escaped segments were escaped
+// again, "dev team" arriving as "dev%20team"), and a "/" inside a name
+// stays inside its segment.
+func TestPathSegmentsAreEscapedOnce(t *testing.T) {
+	type seen struct{ path, escaped, uri, auth string }
+	tests := []struct {
+		name     string
+		endpoint string
+		call     func(ctx context.Context, c nexoadmin.AdminClient) error
+		path     string
+		escaped  string
+	}{
+		{name: "group with a space", call: func(ctx context.Context, c nexoadmin.AdminClient) error {
+			_, err := c.GetGroup(ctx, "dev team")
+			return err
+		},
+			path: "/api/v1/groups/dev team", escaped: "/api/v1/groups/dev%20team"},
+		{name: "group with unicode", call: func(ctx context.Context, c nexoadmin.AdminClient) error {
+			_, err := c.GetGroup(ctx, "città")
+			return err
+		},
+			path: "/api/v1/groups/città", escaped: "/api/v1/groups/citt%C3%A0"},
+		{name: "group with a slash", call: func(ctx context.Context, c nexoadmin.AdminClient) error { return c.DeleteGroup(ctx, "a/b") },
+			path: "/api/v1/groups/a/b", escaped: "/api/v1/groups/a%2Fb"},
+		{name: "group with ? # and %", call: func(ctx context.Context, c nexoadmin.AdminClient) error {
+			_, err := c.GetGroup(ctx, "q?#100%")
+			return err
+		},
+			path: "/api/v1/groups/q?#100%", escaped: "/api/v1/groups/q%3F%23100%25"},
+		{name: "policy with a comma", call: func(ctx context.Context, c nexoadmin.AdminClient) error {
+			_, err := c.GetPolicy(ctx, "a,b")
+			return err
+		},
+			path: "/api/v1/policies/a,b", escaped: "/api/v1/policies/a%2Cb"},
+		{name: "user with @ and +", call: func(ctx context.Context, c nexoadmin.AdminClient) error {
+			_, err := c.GetUser(ctx, "a+b@example.com")
+			return err
+		},
+			path: "/api/v1/users/a+b@example.com", escaped: "/api/v1/users/a+b@example.com"},
+		{name: "endpoint with a base path", endpoint: "/console/", call: func(ctx context.Context, c nexoadmin.AdminClient) error {
+			_, err := c.GetGroup(ctx, "dev team")
+			return err
+		},
+			path: "/console/api/v1/groups/dev team", escaped: "/console/api/v1/groups/dev%20team"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := make(chan seen, 1)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				got <- seen{path: r.URL.Path, escaped: r.URL.EscapedPath(), uri: r.RequestURI, auth: r.Header.Get("Authorization")}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{}`)
+			}))
+			defer srv.Close()
+			c, err := nexoadmin.New(nexoadmin.Config{Endpoint: srv.URL + tt.endpoint, AccessKey: "ak", SecretKey: "secret-key"})
+			require.NoError(t, err)
+			require.NoError(t, tt.call(context.Background(), c))
+			s := <-got
+			assert.Equal(t, tt.path, s.path)
+			assert.Equal(t, tt.escaped, s.escaped)
+			assert.Equal(t, tt.escaped, s.uri, "sent as escaped once")
+			assert.NotEmpty(t, s.auth)
+		})
+	}
+}
+
+// TestEscapedNamesAgainstServer manages, through the client, users,
+// groups and policies whose names need escaping: the server decodes each
+// segment once and verifies the signature of the escaped path.
+func TestEscapedNamesAgainstServer(t *testing.T) {
+	h := newHarness(t)
+	ctx, c := h.ctx, h.root
+	disabled := nexoadmin.StatusDisabled
+
+	for _, name := range []string{"dev team", "eng/backend", "città", "100% q?#"} {
+		t.Run("group "+name, func(t *testing.T) {
+			_, err := c.CreateGroup(ctx, nexoadmin.CreateGroupRequest{Name: name})
+			require.NoError(t, err)
+			g, err := c.GetGroup(ctx, name)
+			require.NoError(t, err)
+			assert.Equal(t, name, g.Name)
+			g, err = c.UpdateGroup(ctx, name, nexoadmin.UpdateGroupRequest{Status: &disabled})
+			require.NoError(t, err)
+			assert.Equal(t, "disabled", g.Status)
+			require.NoError(t, c.DeleteGroup(ctx, name))
+			_, err = c.GetGroup(ctx, name)
+			assert.True(t, nexoadmin.IsNotFound(err), "%v", err)
+		})
+	}
+	t.Run("user with @ and +", func(t *testing.T) {
+		const key = "a+b@example.com"
+		_, err := c.CreateUser(ctx, nexoadmin.CreateUserRequest{AccessKey: key, SecretKey: "plus-at-secret"})
+		require.NoError(t, err)
+		u, err := c.UpdateUser(ctx, key, nexoadmin.UpdateUserRequest{Status: &disabled})
+		require.NoError(t, err)
+		assert.Equal(t, key, u.AccessKey)
+		assert.Equal(t, "disabled", u.Status)
+		require.NoError(t, c.DeleteUser(ctx, key))
+		_, err = c.GetUser(ctx, key)
+		assert.True(t, nexoadmin.IsNotFound(err), "%v", err)
+	})
+	for _, name := range []string{"read+write", "a,b=c@d"} {
+		t.Run("policy "+name, func(t *testing.T) {
+			_, err := c.CreatePolicy(ctx, name, []byte(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}]}`))
+			require.NoError(t, err)
+			p, err := c.GetPolicy(ctx, name)
+			require.NoError(t, err)
+			assert.Equal(t, name, p.Name)
+			ents, err := c.PolicyEntities(ctx, name)
+			require.NoError(t, err)
+			assert.Equal(t, name, ents.Policy)
+			require.NoError(t, c.DeletePolicy(ctx, name))
+			_, err = c.GetPolicy(ctx, name)
+			assert.True(t, nexoadmin.IsNotFound(err), "%v", err)
+		})
+	}
 }

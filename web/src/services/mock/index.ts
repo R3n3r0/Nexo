@@ -64,17 +64,18 @@ export function createMockServices(options: MockServicesOptions = {}): MockServi
       : {}),
   };
   const session = createMockSessionService(ctx, sessionOptions);
+  const objects = createMockObjectService(storage);
   return {
     session,
     info: createMockInfoService(ctx, options, storage),
     buckets: createMockBucketService(storage),
-    objects: createMockObjectService(storage),
+    objects,
     uploads: createMockUploadService(storage),
     users: iam.users,
     groups: iam.groups,
     policies: iam.policies,
     accessKeys: iam.accessKeys,
-    shares: createMockShareService(ctx, iam, options),
+    shares: createMockShareService(ctx, iam, options, objects),
     config: createMockConfigService(ctx, iam, options),
     permissions: iam.permissions,
     authEvents,

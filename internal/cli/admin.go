@@ -62,6 +62,15 @@ type AdminClient interface {
 	ExportConfig(ctx context.Context) ([]byte, error)
 	ImportConfig(ctx context.Context, data []byte) error
 
+	// Bucket settings of the Admin API (C-OBJ-09: quota, encrypt).
+	GetBucketQuota(ctx context.Context, bucket string) (*nexoadmin.BucketQuota, error)
+	SetBucketQuota(ctx context.Context, bucket string, quota nexoadmin.BucketQuota) (*nexoadmin.BucketQuota, error)
+	// GetBucketEncryption returns nil when the bucket has no default
+	// encryption.
+	GetBucketEncryption(ctx context.Context, bucket string) (*nexoadmin.BucketEncryption, error)
+	SetBucketEncryption(ctx context.Context, bucket string, enc nexoadmin.BucketEncryption) (*nexoadmin.BucketEncryption, error)
+	DeleteBucketEncryption(ctx context.Context, bucket string) error
+
 	// Managed share links (docs/09 §9.1, S-OBJ-08c).
 	CreateShare(ctx context.Context, in nexoadmin.CreateShareRequest) (*nexoadmin.Share, error)
 	ListShares(ctx context.Context, opts nexoadmin.ListSharesOptions) (*nexoadmin.ShareList, error)

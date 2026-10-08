@@ -1,5 +1,5 @@
 import { ApiError, ClientErrorCode, type ProblemDetails } from '../errors';
-import { defaultCsrfCookieName, defaultCsrfHeaderName, readDocumentCookie } from './csrf';
+import { defaultCsrfHeaderName } from './csrf';
 import { type FormDownloadOptions, submitFormDownload } from './formDownload';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -48,10 +48,7 @@ export interface HttpClientOptions {
   baseUrl?: string;
   /** fetch implementation; defaults to the global one. */
   fetch?: typeof fetch;
-  csrfCookieName?: string;
   csrfHeaderName?: string;
-  /** Reads a cookie by name; defaults to document.cookie. */
-  readCookie?: (name: string) => string | undefined;
   /** Called on every 401 response unless the request opted out. */
   onUnauthorized?: () => void;
   /** XMLHttpRequest factory used by upload(); defaults to the global one. */
@@ -62,6 +59,10 @@ export interface HttpClientOptions {
  * Minimal JSON client for the Admin API. It resolves paths against the base
  * URL, decodes problem+json failures into ApiError, adds the CSRF header on
  * mutating requests and raises the unauthorized event on 401.
+ *
+ * The CSRF token is held in memory only (setCsrfToken, from the login and
+ * session payloads): the server never puts it in a cookie, which the pages
+ * of the other ports of the host (the S3 listener) could read.
  */
 export interface HttpClient {
   request<T>(path: string, options?: RequestOptions): Promise<T>;
@@ -89,8 +90,8 @@ export interface HttpClient {
     options?: FormDownloadOptions,
   ): Promise<void>;
   /**
-   * Sets the CSRF token to use when the cookie is not readable (for example
-   * when the server marks it HttpOnly and returns it in the login payload).
+   * Sets the CSRF token of the session (from the login and session
+   * payloads) sent on mutating requests; undefined forgets it.
    */
   setCsrfToken(token: string | undefined): void;
 }
@@ -99,18 +100,15 @@ const mutatingMethods: ReadonlySet<HttpMethod> = new Set(['POST', 'PUT', 'PATCH'
 
 export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
   const baseUrl = options.baseUrl ?? '/api/v1';
-  const csrfCookieName = options.csrfCookieName ?? defaultCsrfCookieName;
   const csrfHeaderName = options.csrfHeaderName ?? defaultCsrfHeaderName;
-  const readCookie = options.readCookie ?? readDocumentCookie;
   // Bind lazily so tests and MSW can replace the global fetch after creation.
   const doFetch: typeof fetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
   let memoryToken: string | undefined;
 
   function csrfHeader(method: HttpMethod, headers: Record<string, string>): void {
     if (mutatingMethods.has(method)) {
-      const token = readCookie(csrfCookieName) ?? memoryToken;
-      if (token !== undefined && token !== '') {
-        headers[csrfHeaderName] = token;
+      if (memoryToken !== undefined && memoryToken !== '') {
+        headers[csrfHeaderName] = memoryToken;
       }
     }
   }
@@ -235,7 +233,7 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
     download(path, fields, downloadOptions) {
       return submitFormDownload(
         {
-          csrfToken: () => readCookie(csrfCookieName) ?? memoryToken,
+          csrfToken: () => memoryToken,
           ...(options.onUnauthorized ? { onUnauthorized: options.onUnauthorized } : {}),
         },
         resolveUrl(baseUrl, path),

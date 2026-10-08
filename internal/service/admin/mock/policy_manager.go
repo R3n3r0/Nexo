@@ -84,6 +84,65 @@ func (_c *PolicyManager_Get_Call) RunAndReturn(run func(context.Context, string)
 	return _c
 }
 
+// List provides a mock function with given fields: ctx, page
+func (_m *PolicyManager) List(ctx context.Context, page admin.Page) (*admin.Paged[policy.Named], error) {
+	ret := _m.Called(ctx, page)
+
+	if len(ret) == 0 {
+		panic("no return value specified for List")
+	}
+
+	var r0 *admin.Paged[policy.Named]
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, admin.Page) (*admin.Paged[policy.Named], error)); ok {
+		return rf(ctx, page)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, admin.Page) *admin.Paged[policy.Named]); ok {
+		r0 = rf(ctx, page)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*admin.Paged[policy.Named])
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, admin.Page) error); ok {
+		r1 = rf(ctx, page)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// PolicyManager_List_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'List'
+type PolicyManager_List_Call struct {
+	*mock.Call
+}
+
+// List is a helper method to define mock.On call
+//   - ctx context.Context
+//   - page admin.Page
+func (_e *PolicyManager_Expecter) List(ctx interface{}, page interface{}) *PolicyManager_List_Call {
+	return &PolicyManager_List_Call{Call: _e.mock.On("List", ctx, page)}
+}
+
+func (_c *PolicyManager_List_Call) Run(run func(ctx context.Context, page admin.Page)) *PolicyManager_List_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(admin.Page))
+	})
+	return _c
+}
+
+func (_c *PolicyManager_List_Call) Return(_a0 *admin.Paged[policy.Named], _a1 error) *PolicyManager_List_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *PolicyManager_List_Call) RunAndReturn(run func(context.Context, admin.Page) (*admin.Paged[policy.Named], error)) *PolicyManager_List_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Save provides a mock function with given fields: ctx, in
 func (_m *PolicyManager) Save(ctx context.Context, in admin.SavePolicyInput) (*policy.Named, error) {
 	ret := _m.Called(ctx, in)

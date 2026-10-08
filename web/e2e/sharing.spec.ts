@@ -74,6 +74,35 @@ test.describe('sharing', () => {
     await expect.poll(async () => (await anonymousGet(browser, url)).status).toBe(403);
   });
 
+  // Regression (D-SHR-01): sharing a folder showed the ListObjectsV2 URL
+  // of the prefix, an XML listing that downloads nothing.
+  test('TD-P-01 a shared folder hands out one working link per object', async ({
+    page,
+    browser,
+    api,
+  }) => {
+    await api.putObject(bucket, 'folder/a.txt', 'first file', 'text/plain');
+    await api.putObject(bucket, 'folder/sub/b.txt', 'second file', 'text/plain');
+    await page.goto(`/buckets/${bucket}/browse/`);
+    await page.getByRole('button', { name: 'Actions for folder/' }).click();
+    await page.getByRole('menuitem', { name: 'Share' }).click();
+    const dialog = page.getByRole('dialog', { name: `Share ${bucket}/folder/` });
+    await dialog.getByText('1 hour', { exact: true }).click();
+    await dialog.getByRole('button', { name: 'Create link' }).click();
+    const links = dialog.getByRole('table', { name: 'Links of the shared objects' });
+    await expect(links).toBeVisible();
+    await expect(dialog.getByRole('textbox', { name: 'Link' })).toHaveCount(0);
+    for (const [key, body] of [
+      ['folder/a.txt', 'first file'],
+      ['folder/sub/b.txt', 'second file'],
+    ] as const) {
+      const href = await links.getByRole('link', { name: key }).getAttribute('href');
+      expect(href).not.toBeNull();
+      const res = await anonymousGet(browser, href ?? '');
+      expect(res).toEqual({ status: 200, body });
+    }
+  });
+
   test('TD-P-03 the POST policy generator snippet uploads into the prefix', async ({
     page,
     browser,

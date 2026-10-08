@@ -18,6 +18,15 @@ function liveKeys(state: MockBucketState): string[] {
   return keys.sort();
 }
 
+/**
+ * A prefix of the bulk operations as the folder it names, like the server
+ * (admin.folderPrefix): "photos" is "photos/", never "photos2/"; "" is the
+ * whole bucket.
+ */
+function folderPrefix(prefix: string): string {
+  return prefix === '' || prefix.endsWith('/') ? prefix : `${prefix}/`;
+}
+
 function latestLive(state: MockBucketState, key: string): MockVersion {
   const latest = state.keys.get(key)?.[0];
   if (!latest || latest.isDeleteMarker) {
@@ -194,7 +203,7 @@ export function createMockObjectService(storage: MockStorage): ObjectService {
       for (const ref of input.objects ?? []) {
         deleteKey(state, ref.key, ref.versionId, result);
       }
-      for (const prefix of input.prefixes ?? []) {
+      for (const prefix of (input.prefixes ?? []).map(folderPrefix)) {
         for (const key of [...state.keys.keys()].filter((k) => k.startsWith(prefix)).sort()) {
           if (input.allVersions === true) {
             for (const v of [...(state.keys.get(key) ?? [])]) {
@@ -207,25 +216,43 @@ export function createMockObjectService(storage: MockStorage): ObjectService {
       }
       return result;
     },
+    async restoreVersion(bucket, key, versionId) {
+      await ctx.delay();
+      const state = storage.bucket(bucket);
+      const version = findVersion(state, key, versionId);
+      if (version.isDeleteMarker) {
+        throw problem(405, 'method_not_allowed', 'A delete marker cannot be restored.');
+      }
+      const restored = storage.put(state, {
+        key,
+        size: version.size,
+        etag: version.etag,
+        lastModified: ctx.now().toISOString(),
+        contentType: version.contentType,
+        tags: { ...version.tags },
+        userMetadata: { ...version.userMetadata },
+        ...(version.content !== undefined ? { content: version.content } : {}),
+      });
+      return toEntry(restored, true);
+    },
     async rename(bucket, input) {
       await ctx.delay();
       const state = storage.bucket(bucket);
-      const sources =
-        input.prefix === true
-          ? liveKeys(state).filter((k) => k.startsWith(input.source))
-          : [latestLive(state, input.source).key];
-      if (input.prefix === true && input.destination.startsWith(input.source)) {
+      const folders = input.prefix === true;
+      const from = folders ? folderPrefix(input.source) : input.source;
+      const to = folders ? folderPrefix(input.destination) : input.destination;
+      const sources = folders
+        ? liveKeys(state).filter((k) => k.startsWith(from))
+        : [latestLive(state, from).key];
+      if (folders && to.startsWith(from)) {
         throw problem(400, 'invalid_argument', 'The destination lies under the source.');
       }
       const result: RenameResult = { renamed: [], errors: [] };
       for (const source of sources) {
-        const destination =
-          input.prefix === true
-            ? input.destination + source.slice(input.source.length)
-            : input.destination;
+        const destination = folders ? to + source.slice(from.length) : to;
         const exists = state.keys.get(destination)?.[0];
         if (exists && !exists.isDeleteMarker && input.overwrite !== true) {
-          if (input.prefix !== true) {
+          if (!folders) {
             throw problem(409, 'conflict', `Object ${destination} already exists.`);
           }
           result.errors.push({
@@ -236,8 +263,8 @@ export function createMockObjectService(storage: MockStorage): ObjectService {
           });
           continue;
         }
-        const from = latestLive(state, source);
-        storage.put(state, { ...from, key: destination, lastModified: ctx.nowIso() });
+        const latest = latestLive(state, source);
+        storage.put(state, { ...latest, key: destination, lastModified: ctx.nowIso() });
         storage.remove(state, source);
         result.renamed.push({ source, destination });
       }
@@ -285,7 +312,9 @@ export function createMockObjectService(storage: MockStorage): ObjectService {
       }
       const names = [
         ...(input.keys ?? []),
-        ...(input.prefixes ?? []).flatMap((p) => liveKeys(state).filter((k) => k.startsWith(p))),
+        ...(input.prefixes ?? [])
+          .map(folderPrefix)
+          .flatMap((p) => liveKeys(state).filter((k) => k.startsWith(p))),
       ];
       // The demo mode saves a listing in place of the archive; the tests
       // (no object URLs in jsdom) only check the request.

@@ -103,6 +103,18 @@ func errInvalidAccessKey(accessKey string) error {
 	}
 }
 
+// errCredentialsDisabled reports credentials the credential lookup
+// refused as disabled (cause wraps domain.ErrCredentialsDisabled). The
+// code is InvalidAccessKeyId, as AWS answers for an inactive key, like the
+// disabled credentials the verifier itself detects.
+func errCredentialsDisabled(cause error) error {
+	return &domain.S3Error{
+		Code:    codeInvalidAccessKey,
+		Message: "Your account is disabled; please contact your administrator.",
+		Err:     cause,
+	}
+}
+
 // errSHA256Mismatch reports a body whose SHA-256 differs from the declared
 // X-Amz-Content-Sha256.
 func errSHA256Mismatch() error {

@@ -38,7 +38,8 @@ export function sampleBuckets(): Bucket[] {
       name: 'logs-archive',
       created: '2026-10-01T08:00:00Z',
       region: 'us-east-1',
-      versioning: 'suspended',
+      // Object lock implies versioning (it cannot be suspended).
+      versioning: 'enabled',
       objectLockEnabled: true,
       objects: 100,
       versions: 20,
@@ -161,15 +162,50 @@ export function createMockBucketService(storage: MockStorage): BucketService {
     },
     async getObjectLock(name) {
       await ctx.delay();
-      const { bucket } = storage.bucket(name);
-      return bucket.objectLockEnabled
-        ? { enabled: true, mode: 'GOVERNANCE', days: 30 }
-        : { enabled: false };
+      const state = storage.bucket(name);
+      if (!state.bucket.objectLockEnabled) return { enabled: false };
+      return clone(state.objectLock ?? { enabled: true, mode: 'GOVERNANCE', days: 30 });
+    },
+    async setObjectLock(name, config) {
+      await ctx.delay();
+      const state = storage.bucket(name);
+      if (!config.enabled) {
+        throw problem(400, 'malformed_xml', 'ObjectLockEnabled must be Enabled.');
+      }
+      if (state.bucket.versioning !== 'enabled') {
+        throw problem(409, 'conflict', 'Object lock needs versioning enabled.');
+      }
+      const hasPeriod = (config.days ?? 0) > 0 || (config.years ?? 0) > 0;
+      if (
+        ((config.days ?? 0) > 0 && (config.years ?? 0) > 0) ||
+        (hasPeriod && config.mode === undefined)
+      ) {
+        throw problem(400, 'malformed_xml', 'Specify a mode and either days or years.');
+      }
+      state.bucket.objectLockEnabled = true;
+      state.objectLock = clone(config);
+      return clone(config);
     },
     async getEncryption(name) {
       await ctx.delay();
       const { encryption } = storage.bucket(name);
       return encryption ? clone(encryption) : null;
+    },
+    async setEncryption(name, encryption) {
+      await ctx.delay();
+      const state = storage.bucket(name);
+      if (encryption === null) {
+        state.encryption = null;
+        return null;
+      }
+      if (encryption.algorithm !== 'AES256' && encryption.algorithm !== 'aws:kms') {
+        throw problem(400, 'malformed_xml', 'SSEAlgorithm must be AES256 or aws:kms.');
+      }
+      if (encryption.algorithm === 'AES256' && (encryption.kmsKeyId ?? '') !== '') {
+        throw problem(400, 'invalid_argument', 'KMSMasterKeyID is only valid with aws:kms.');
+      }
+      state.encryption = clone(encryption);
+      return clone(encryption);
     },
     async getPolicy(name) {
       await ctx.delay();

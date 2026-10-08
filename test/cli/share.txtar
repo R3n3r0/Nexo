@@ -39,6 +39,9 @@ exec nexoctl share upload --post --max-size 1KiB --prefix uploads/ --expire 1h l
 stdout '^POST: http://.*/share$'
 stdout 'key: uploads/\$\{filename\}'
 stdout '<form action='
+# The fields of the curl command are sent verbatim, never read as files.
+stdout '^Command: curl --form-string ''key=uploads/'
+! stdout 'curl -F ''key='
 exec nexoctl share upload --post --max-size 1KiB --prefix uploads/ --expire 1h --json local/share
 jsonlines stdout
 cp stdout policy.json

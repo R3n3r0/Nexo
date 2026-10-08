@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,6 +16,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/bucket"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
+	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
 	"github.com/r3n3r0/nexo/internal/transport/http/s3"
 )
 
@@ -190,6 +192,40 @@ func TestAuthorizationConditions(t *testing.T) {
 	assert.Equal(t, []string{"60000"}, c["s3:signatureAge"], "signed one minute before the fake clock")
 	assert.NotContains(t, c, "s3:x-amz-security-token", "credentials never reach the condition context")
 	assert.NotContains(t, c, "s3:x-amz-meta-a")
+}
+
+// TestAuthorizationConditionsUseTheForwardedClient: behind trusted
+// proxies the client of aws:SourceIp and aws:SecureTransport is the one
+// they forward (middleware.NewForwarded), as on the console listener, so
+// a policy decides alike through S3 and through the console (regression:
+// the S3 listener used the address and the scheme of the proxy).
+func TestAuthorizationConditionsUseTheForwardedClient(t *testing.T) {
+	forwarded, err := middleware.NewForwarded(middleware.ForwardedDeps{}, middleware.WithTrustedProxies("10.0.0.0/8"))
+	require.NoError(t, err)
+	tests := []struct {
+		name, peer, xff, proto string
+		wantIP, wantSecure     string
+	}{
+		{name: "trusted proxy", peer: "10.0.0.5:1234", xff: "198.51.100.7", proto: "https", wantIP: "198.51.100.7", wantSecure: "true"},
+		{name: "untrusted peer", peer: "192.0.2.9:1234", xff: "198.51.100.7", proto: "https", wantIP: "192.0.2.9", wantSecure: "false"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t, asIdentity(&domain.Identity{AccessKey: "alice"}), withStrictPolicy())
+			var args policy.Args
+			f.policy.EXPECT().Evaluate(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, a policy.Args) (policy.Decision, error) {
+				args = a
+				return policy.Decision{Allowed: false}, nil
+			}).Once()
+			req := request(http.MethodGet, "/pub", "", "X-Forwarded-For", tt.xff, "X-Forwarded-Proto", tt.proto)
+			req.RemoteAddr = tt.peer
+			rec := httptest.NewRecorder()
+			forwarded.Wrap(f.handler).ServeHTTP(rec, req)
+			requireError(t, rec, http.StatusForbidden, "AccessDenied")
+			assert.Equal(t, []string{tt.wantIP}, args.Conditions[policy.KeySourceIP])
+			assert.Equal(t, []string{tt.wantSecure}, args.Conditions[policy.KeySecureTransport])
+		})
+	}
 }
 
 func TestAuthorizationPresignedAndTagConditions(t *testing.T) {

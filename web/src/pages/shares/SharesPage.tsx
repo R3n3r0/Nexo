@@ -6,6 +6,7 @@ import {
   Checkbox,
   CopyButton,
   Group,
+  Modal,
   Paper,
   Skeleton,
   Stack,
@@ -15,7 +16,7 @@ import {
   Tooltip,
   VisuallyHidden,
 } from '@mantine/core';
-import { IconCheck, IconCopy, IconLinkOff, IconTrash } from '@tabler/icons-react';
+import { IconCheck, IconCopy, IconLinkOff, IconList, IconTrash } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -24,6 +25,7 @@ import { useSearchParams } from 'react-router';
 import { useSession } from '@/auth/SessionProvider';
 import { usePermissions } from '@/auth/usePermissions';
 import { ConfirmDialog, ErrorAlert, PageHeader } from '@/components/iam/common';
+import { ShareLinks } from '@/components/share/ShareLinks';
 import { UploadGenerator } from '@/components/share/UploadGenerator';
 import { iamKeys, useInvalidatingMutation } from '@/lib/iamQueries';
 import { useServices, type Share } from '@/services';
@@ -81,6 +83,8 @@ function ActiveLinks() {
   const [owner, setOwner] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pending, setPending] = useState<Pending | null>(null);
+  // The prefix download share whose per-object links are shown.
+  const [linksOf, setLinksOf] = useState<Share | null>(null);
 
   const filter = {
     ...(bucket.trim() !== '' ? { bucket: bucket.trim() } : {}),
@@ -299,7 +303,21 @@ function ActiveLinks() {
                     </Table.Td>
                     <Table.Td>
                       <Group gap={4} wrap="nowrap">
-                        {share.url !== undefined ? (
+                        {share.prefix && share.permission === 'download' ? (
+                          // The URL of a prefix share only lists it: its
+                          // objects are handed out one link each.
+                          <Tooltip label={t('shares.linksFor', { name })}>
+                            <ActionIcon
+                              variant="subtle"
+                              aria-label={t('shares.linksFor', { name })}
+                              onClick={() => {
+                                setLinksOf(share);
+                              }}
+                            >
+                              <IconList size={16} />
+                            </ActionIcon>
+                          </Tooltip>
+                        ) : share.url !== undefined ? (
                           <CopyButton value={share.url}>
                             {({ copied, copy }) => (
                               <Tooltip label={copied ? t('common.copied') : t('shares.copy')}>
@@ -336,6 +354,19 @@ function ActiveLinks() {
           </Table>
         </Table.ScrollContainer>
       </Paper>
+
+      <Modal
+        opened={linksOf !== null}
+        onClose={() => {
+          setLinksOf(null);
+        }}
+        title={t('shares.linksTitle', {
+          name: linksOf !== null ? `${linksOf.bucket}/${linksOf.key}` : '',
+        })}
+        size="lg"
+      >
+        {linksOf !== null ? <ShareLinks shareId={linksOf.id} /> : null}
+      </Modal>
 
       <ConfirmDialog
         opened={pending !== null}

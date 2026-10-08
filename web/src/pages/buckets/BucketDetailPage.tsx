@@ -115,14 +115,14 @@ export function BucketDetailPage() {
               </Badge>
             ) : null}
           </Group>
-          {bucket ? (
+          {bucket && bucket.partial !== true ? (
             <Text size="sm" c="dimmed">
               {t('bucket.summary', {
                 size: formatBytes(bucket.size, locale),
                 objects: formatNumber(bucket.objects, locale),
               })}
             </Text>
-          ) : forbidden ? (
+          ) : bucket || forbidden ? (
             <Text size="sm" c="dimmed">
               {t('bucket.limitedAccess')}
             </Text>

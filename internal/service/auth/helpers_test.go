@@ -84,7 +84,12 @@ func newLookup(t testing.TB) *authmock.CredentialLookup {
 		"NOSECRET":    {creds: domain.Credentials{AccessKey: "NOSECRET"}},
 		tempAccessKey: {creds: domain.Credentials{AccessKey: tempAccessKey, SecretKey: tempSecretKey, SessionToken: tempToken}, id: domain.Identity{Parent: tempParent}},
 		"BROKEN":      {err: domain.ErrFaultyDisk},
-		"GONE":        {err: fmt.Errorf("lookup: %w", domain.ErrUserNotFound)},
+		// The IAM refuses a disabled user, key or parent and an expired
+		// key itself (iam.Service.LookupCredentials).
+		"REFUSED": {err: fmt.Errorf("%w: user %q is disabled", domain.ErrCredentialsDisabled, "REFUSED")},
+		// An expired key the IAM refuses stays an AccessDenied.
+		"LAPSED": {err: fmt.Errorf("%w: access key %q has expired", domain.ErrAccessDenied, "LAPSED")},
+		"GONE":   {err: fmt.Errorf("lookup: %w", domain.ErrUserNotFound)},
 	}
 	creds.EXPECT().LookupCredentials(mock.Anything, mock.Anything).RunAndReturn(
 		func(_ context.Context, accessKey string) (domain.Credentials, domain.Identity, error) {

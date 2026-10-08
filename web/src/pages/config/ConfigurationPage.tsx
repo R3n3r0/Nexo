@@ -1,6 +1,7 @@
 import {
   Accordion,
   Alert,
+  Badge,
   Button,
   FileButton,
   Group,
@@ -125,6 +126,9 @@ export function ConfigurationPage() {
       <Alert variant="light" color="yellow">
         {t('configuration.exportWarning')}
       </Alert>
+      <Text size="sm" c="dimmed">
+        {t('configuration.appliedNote')}
+      </Text>
       {exportConfig.isError ? <ErrorAlert error={exportConfig.error} /> : null}
       {importError !== null ? (
         <Alert color="red" variant="light" role="alert">
@@ -150,9 +154,16 @@ export function ConfigurationPage() {
               <Accordion.Item key={subsystem.name} value={subsystem.name}>
                 <Accordion.Control>
                   <Stack gap={0}>
-                    <Text fw={500} ff="monospace">
-                      {subsystem.name}
-                    </Text>
+                    <Group gap="xs">
+                      <Text fw={500} ff="monospace">
+                        {subsystem.name}
+                      </Text>
+                      {subsystem.keys.every((key) => !key.applied) ? (
+                        <Badge size="xs" variant="light" color="gray">
+                          {t('configuration.notApplied')}
+                        </Badge>
+                      ) : null}
+                    </Group>
                     <Text size="sm" c="dimmed">
                       {subsystem.description}
                     </Text>
@@ -306,6 +317,7 @@ function ConfigField({
   const { t } = useTranslation();
   const label = configKey.name;
   const description = [
+    configKey.applied ? '' : t('configuration.notAppliedHint'),
     configKey.description,
     configKey.default !== undefined && configKey.default !== ''
       ? t('configuration.default', { value: configKey.default })

@@ -1,6 +1,6 @@
 // Package session manages console sessions: login with access/secret key
 // yields a signed token stored by the transport in an HttpOnly cookie, plus
-// a CSRF token the browser sends back in a header (double submit).
+// a CSRF token, bound to the session, the browser sends back in a header.
 package session
 
 import (
@@ -22,9 +22,14 @@ type Service interface {
 	// Session carries the signed Token.
 	Login(ctx context.Context, in LoginInput) (*Session, error)
 	// Validate parses and verifies a token and returns its session. Expired,
-	// tampered or revoked tokens return domain.ErrAccessDenied.
+	// tampered or revoked tokens return domain.ErrAccessDenied, and so do
+	// the tokens issued before the secret key of their credentials changed:
+	// rotating a secret closes every console session opened with it, on
+	// every node and across restarts.
 	Validate(ctx context.Context, token string) (*Session, error)
-	// Logout revokes the token. Unknown tokens are ignored.
+	// Logout revokes the token until it expires; the revocation is
+	// persisted (Deps.Store), so that it survives a restart and is seen by
+	// every node sharing the store. Unknown tokens are ignored.
 	Logout(ctx context.Context, token string) error
 	// ValidateCSRF checks that csrfToken (from the request header) matches
 	// the session's token; mismatches return domain.ErrAccessDenied.
@@ -58,8 +63,10 @@ type Session struct {
 const (
 	// CookieName is the HttpOnly cookie carrying the signed session token.
 	CookieName = "nexo_session"
-	// CSRFCookieName is the script-readable cookie carrying the CSRF token
-	// (double submit): the console sends it back in CSRFHeader.
+	// CSRFCookieName is the script-readable cookie older versions set with
+	// the CSRF token. It is no longer set (a page of another port of the
+	// same host could read it): the token travels in the session payload
+	// and logout clears the cookie.
 	CSRFCookieName = "nexo_csrf"
 	// CSRFHeader is the request header carrying the CSRF token.
 	CSRFHeader = "X-CSRF-Token"

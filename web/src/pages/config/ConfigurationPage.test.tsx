@@ -47,6 +47,27 @@ describe('Configuration page (D-CFG-01)', () => {
     expect(within(webhook).getByLabelText('auth_token')).toHaveValue('********');
   });
 
+  // Regression (S-OPS-01, D-CFG-01): every key looked effective although
+  // only some are applied by the server.
+  it('tells which settings the server does not apply yet', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const region = await screen.findByRole('textbox', { name: 'name' });
+    expect(region).toHaveAccessibleDescription(/^Not applied yet/);
+    await user.click(screen.getByRole('button', { name: /^api/ }));
+    // The label of a switch carries its description.
+    const rootAccess = await screen.findByRole('switch', { name: /^root_access/ });
+    expect(rootAccess).not.toHaveAccessibleName(/Not applied yet/);
+    expect(rootAccess).not.toHaveAccessibleDescription(/Not applied yet/);
+    expect(
+      await screen.findByRole('textbox', { name: 'cors_allow_origin' }),
+    ).toHaveAccessibleDescription(/^Not applied yet/);
+    // A subsystem without any applied key is flagged as a whole.
+    const scanner = screen.getByRole('button', { name: /^scanner/ });
+    expect(scanner).toHaveTextContent('Not applied yet');
+    expect(screen.getByRole('button', { name: /^api/ })).not.toHaveTextContent('Not applied yet');
+  });
+
   it('exports and imports the whole configuration', async () => {
     const user = userEvent.setup();
     const { services } = renderPage();

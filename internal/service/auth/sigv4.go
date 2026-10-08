@@ -364,6 +364,14 @@ func (v *verifier) lookup(ctx context.Context, accessKey, token string) (domain.
 		if errors.Is(err, domain.ErrInvalidAccessKey) || errors.Is(err, domain.ErrUserNotFound) {
 			return domain.Credentials{}, domain.Identity{}, errInvalidAccessKey(accessKey)
 		}
+		if errors.Is(err, domain.ErrCredentialsDisabled) {
+			// The IAM refuses disabled credentials (or those of a disabled
+			// parent) before any signature check: like AWS for an inactive
+			// key, they are no valid credentials (InvalidAccessKeyId),
+			// never an authorization denial, which would tell a client
+			// that its credentials work.
+			return domain.Credentials{}, domain.Identity{}, errCredentialsDisabled(err)
+		}
 		return domain.Credentials{}, domain.Identity{}, fmt.Errorf("auth: lookup credentials of %s: %w", accessKey, err)
 	}
 	if creds.SecretKey == "" {

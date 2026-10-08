@@ -2,6 +2,12 @@ Generate a raw presigned URL (GET, HEAD, PUT or DELETE), signed locally with the
 credentials of the alias: it is neither managed nor revocable.
 Signed headers (--header) must be sent unchanged with the request.
 
+For GET and HEAD the object is checked first (HEAD with the credentials of the
+alias): a missing object exits with code 3 and an object the alias may not
+read with code 4, instead of printing a URL that would fail. PUT and DELETE
+URLs are signed without a check (the object may not exist yet); the
+permissions are evaluated when the URL is used.
+
 Usage:
   nexoctl presign [flags] ALIAS/BUCKET/OBJECT
 

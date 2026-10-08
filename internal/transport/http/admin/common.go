@@ -1,16 +1,17 @@
 package admin
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	adminsvc "github.com/r3n3r0/nexo/internal/service/admin"
@@ -20,10 +21,6 @@ import (
 
 // maxJSONBody bounds the JSON request bodies of the Admin API.
 const maxJSONBody = 1 << 20
-
-// maxPageLimit is the largest page of a list endpoint (and the default).
-// Lists answer {items, nextCursor}; the cursor is opaque.
-const maxPageLimit = 1000
 
 // Problem codes specific to the Admin API (the others come from
 // httpx.Codec.ProblemFromError).
@@ -72,6 +69,26 @@ func objectRequestOf(r *http.Request) adminsvc.ObjectRequest {
 		or.Headers = map[string]string{adminsvc.HeaderTagging: v}
 	}
 	return or
+}
+
+// pathParam returns the path parameter name, decoded. chi routes on the
+// path as sent (r.URL.RawPath) whenever the client escaped a character Go
+// leaves as is ("@", "+", "=", ",", ":"...), so that an escaped "/" inside
+// a name ("eng%2Fbackend") does not split the route: the parameter is then
+// still escaped and must be decoded once. Without RawPath chi routed on
+// the decoded path and the value is final (decoding it again would turn
+// a literal "%41" into "A"). A malformed escape is
+// domain.ErrInvalidArgument.
+func pathParam(r *http.Request, name string) (string, error) {
+	v := chi.URLParam(r, name)
+	if r.URL.RawPath == "" {
+		return v, nil
+	}
+	s, err := url.PathUnescape(v)
+	if err != nil {
+		return "", fmt.Errorf("%w: malformed escape in the %s path parameter", domain.ErrInvalidArgument, name)
+	}
+	return s, nil
 }
 
 // nonNil returns s, or an empty slice when s is nil, so that JSON clients
@@ -229,50 +246,19 @@ func notImplemented(enc httpx.Encoder) http.HandlerFunc {
 
 // --- pagination ------------------------------------------------------------
 
-// page are the cursor and limit of a list request.
-type page struct {
-	// after is the decoded cursor: the sort key of the last item served.
-	after string
-	limit int
-}
-
-// readPage reads the cursor and limit query parameters (limit 1 to 1000,
-// default 1000).
-func readPage(r *http.Request) (page, error) {
+// readPage reads the cursor and limit query parameters of a list request:
+// the service selects the page (adminsvc.Page), the cursor is opaque.
+func readPage(r *http.Request) (adminsvc.Page, error) {
 	q := r.URL.Query()
-	p := page{limit: maxPageLimit}
+	p := adminsvc.Page{Cursor: q.Get("cursor")}
 	if v := q.Get("limit"); v != "" {
 		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > maxPageLimit {
-			return page{}, fmt.Errorf("%w: limit must be between 1 and %d", domain.ErrInvalidArgument, maxPageLimit)
+		if err != nil || n < 1 || n > adminsvc.MaxPageLimit {
+			return adminsvc.Page{}, fmt.Errorf("%w: limit must be between 1 and %d", domain.ErrInvalidArgument, adminsvc.MaxPageLimit)
 		}
-		p.limit = n
-	}
-	if c := q.Get("cursor"); c != "" {
-		raw, err := base64.RawURLEncoding.DecodeString(c)
-		if err != nil || len(raw) == 0 {
-			return page{}, fmt.Errorf("%w: invalid cursor", domain.ErrInvalidArgument)
-		}
-		p.after = string(raw)
+		p.Limit = n
 	}
 	return p, nil
-}
-
-// paginate sorts items by key and returns the page after p.after, with
-// the cursor of the next page ("" on the last one).
-func paginate[T any](items []T, key func(T) string, p page) ([]T, string) {
-	sort.SliceStable(items, func(i, j int) bool { return key(items[i]) < key(items[j]) })
-	start := 0
-	if p.after != "" {
-		start = sort.Search(len(items), func(i int) bool { return key(items[i]) > p.after })
-	}
-	end := min(start+p.limit, len(items))
-	out := items[start:end]
-	next := ""
-	if end < len(items) && len(out) > 0 {
-		next = base64.RawURLEncoding.EncodeToString([]byte(key(out[len(out)-1])))
-	}
-	return out, next
 }
 
 // trimList splits a comma separated query value.

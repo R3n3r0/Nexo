@@ -38,6 +38,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/service/session"
+	"github.com/r3n3r0/nexo/internal/service/settings"
 	"github.com/r3n3r0/nexo/internal/service/share"
 	"github.com/r3n3r0/nexo/internal/service/storage"
 	"github.com/r3n3r0/nexo/internal/service/topology"
@@ -274,7 +275,7 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (app *App, er
 		share.WithServerURL(publicS3URL(cfg)), share.WithRegion(cfg.Region))
 	// The signing key derives from the root credentials so that every node
 	// of a deployment accepts the same cookies.
-	sessions, err := session.New(session.Deps{IAM: identities, Clock: o.clock, Logger: logger},
+	sessions, err := session.New(session.Deps{IAM: identities, Store: iamStore, Clock: o.clock, Logger: logger},
 		session.WithSigningKey(session.DeriveKey(cfg.RootUser, cfg.RootPassword)))
 	if err != nil {
 		return nil, fmt.Errorf("app: %w", err)
@@ -302,18 +303,27 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (app *App, er
 	codec := httpx.New()
 	ids := httpx.NewIDGenerator()
 
+	// The S3 API evaluates with the engine decorated by the applied
+	// dynamic settings (api.root_access, hot reloaded).
+	applied, err := settings.New(settings.Deps{Config: dynConfig, Logger: logger})
+	if err != nil {
+		return nil, fmt.Errorf("app: %w", err)
+	}
+	s3Policy := settings.GuardRootAccess(policies, applied)
+
 	// S3 server (:9000): every route goes through the SigV4 middleware,
 	// which admits anonymous requests; the handlers authorize with the
 	// policy engine.
 	s3Middlewares, err := s3Middlewares(middlewareDeps{
 		logger: logger, clock: o.clock, codec: codec, ids: ids,
 		registry: registry, verifier: verifier, auditor: auditor, domains: domainsOf(cfg),
+		trustedProxies: cfg.TrustedProxies,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("app: %w", err)
 	}
 	metricsRoutes, err := s3.NewMetricsRoutes(
-		s3.MetricsDeps{Registry: registry, Verifier: verifier, Policy: policies, Enc: codec, Clock: o.clock},
+		s3.MetricsDeps{Registry: registry, Verifier: verifier, Policy: s3Policy, Enc: codec, Clock: o.clock},
 		s3.WithPublicMetrics(cfg.PrometheusAuthType == config.PrometheusAuthPublic))
 	if err != nil {
 		return nil, fmt.Errorf("app: %w", err)
@@ -322,14 +332,14 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (app *App, er
 		s3.NewHealthRoutes(s3.HealthDeps{Health: healthSvc, Enc: codec}),
 		metricsRoutes,
 	}},
-		s3.NewBucketRoutes(s3.BucketDeps{Buckets: buckets, Objects: objects, Policy: policies, Enc: codec, Clock: o.clock, Logger: logger},
+		s3.NewBucketRoutes(s3.BucketDeps{Buckets: buckets, Objects: objects, Policy: s3Policy, Enc: codec, Clock: o.clock, Logger: logger},
 			s3.WithRegion(cfg.Region)),
-		s3.NewObjectRoutes(s3.ObjectDeps{Objects: objects, Policy: policies, Enc: codec, Clock: o.clock, Logger: logger}),
-		s3.NewMultipartRoutes(s3.MultipartDeps{Objects: objects, Policy: policies, Enc: codec, Clock: o.clock, Logger: logger}),
-		s3.NewPresignedRoutes(s3.PresignedDeps{Verifier: verifier, Objects: objects, Buckets: buckets, Policy: policies, Enc: codec, Clock: o.clock, Logger: logger},
+		s3.NewObjectRoutes(s3.ObjectDeps{Objects: objects, Policy: s3Policy, Enc: codec, Clock: o.clock, Logger: logger}),
+		s3.NewMultipartRoutes(s3.MultipartDeps{Objects: objects, Policy: s3Policy, Enc: codec, Clock: o.clock, Logger: logger}),
+		s3.NewPresignedRoutes(s3.PresignedDeps{Verifier: verifier, Objects: objects, Buckets: buckets, Policy: s3Policy, Enc: codec, Clock: o.clock, Logger: logger},
 			s3.WithRegion(cfg.Region)),
-		s3.NewPostPolicyRoutes(s3.PostPolicyDeps{Verifier: verifier, Objects: objects, Policy: policies, Enc: codec, Clock: o.clock, Logger: logger}),
-		s3.NewSTSRoutes(s3.STSDeps{IAM: identities, Policy: policies, Enc: codec, Clock: o.clock, Logger: logger}),
+		s3.NewPostPolicyRoutes(s3.PostPolicyDeps{Verifier: verifier, Objects: objects, Policy: s3Policy, Enc: codec, Clock: o.clock, Logger: logger}),
+		s3.NewSTSRoutes(s3.STSDeps{IAM: identities, Policy: s3Policy, Enc: codec, Clock: o.clock, Logger: logger}),
 	)
 	s3Srv := server.New(server.Deps{
 		Routes:      []httpx.Routes{s3API},
@@ -348,6 +358,7 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (app *App, er
 		codec: codec, clock: o.clock, logger: logger, region: cfg.Region, s3URL: publicS3URL(cfg),
 		sessions: sessions, verifier: verifier, signer: signer, admin: adminSvc, iam: identities, policy: policies,
 		buckets: buckets, objects: objects, shares: shares, config: dynConfig, secureCookies: secureConsole(cfg),
+		consoleURL: cfg.BrowserRedirectURL,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("app: %w", err)
@@ -467,15 +478,23 @@ type middlewareDeps struct {
 	// domains are the virtual-host domains of the S3 listener.
 	domains []string
 	// trustedProxies are the reverse proxies whose X-Forwarded-* headers
-	// name the client of the console requests.
+	// name the client of the requests of both listeners.
 	trustedProxies []string
 }
 
 // s3Middlewares returns the middleware chain of the S3 listener, outermost
-// first: request ids, panic recovery, access log, metrics, CORS, audit and
-// SigV4 authentication. Audit wraps the authentication so that rejected
-// requests are recorded too; it learns the identity through its holder.
+// first: request ids, forwarded client, panic recovery, access log,
+// metrics, CORS, audit and SigV4 authentication. Audit wraps the
+// authentication so that rejected requests are recorded too; it learns the
+// identity through its holder. The client behind the trusted proxies is
+// the one of the console listener too, so that aws:SourceIp and
+// aws:SecureTransport decide alike through S3 and through the console
+// (docs/04 §4.3).
 func s3Middlewares(d middlewareDeps) ([]middleware.Middleware, error) {
+	forwarded, err := middleware.NewForwarded(middleware.ForwardedDeps{}, middleware.WithTrustedProxies(d.trustedProxies...))
+	if err != nil {
+		return nil, err
+	}
 	httpMetrics, err := middleware.NewMetrics(middleware.MetricsDeps{Registry: d.registry, Clock: d.clock}, middleware.WithMetricsServer("s3"))
 	if err != nil {
 		return nil, err
@@ -493,6 +512,7 @@ func s3Middlewares(d middlewareDeps) ([]middleware.Middleware, error) {
 	}
 	return []middleware.Middleware{
 		middleware.NewRequestID(middleware.RequestIDDeps{IDs: d.ids}),
+		forwarded,
 		middleware.NewRecover(middleware.RecoverDeps{Logger: d.logger, OnError: middleware.S3ErrorWriter(d.codec)}),
 		middleware.NewLogging(middleware.LoggingDeps{Logger: d.logger.With("server", "s3"), Clock: d.clock}, middleware.WithLogLevel(slog.LevelDebug)),
 		httpMetrics,
@@ -524,7 +544,7 @@ func consoleMiddlewares(d middlewareDeps) ([]middleware.Middleware, error) {
 		// The proxied uploads of the console stream up to their own limits;
 		// the JSON endpoints bound their bodies themselves.
 		middleware.NewMaxBody(middleware.MaxBodyDeps{}, middleware.WithMaxBodyLimit(
-			max(middleware.DefaultMaxBody, adminhttp.DefaultMaxUploadSize, adminhttp.DefaultMaxPartSize))),
+			max(middleware.DefaultMaxBody, adminsvc.DefaultMaxUploadSize, adminsvc.DefaultMaxPartSize))),
 	}, nil
 }
 
@@ -548,6 +568,9 @@ type adminDeps struct {
 	// secureCookies forces the Secure flag of the session cookies (the
 	// console is served over HTTPS, possibly by a proxy terminating TLS).
 	secureCookies bool
+	// consoleURL is the public URL of the console, when configured: an
+	// origin the console requests may come from besides their Host.
+	consoleURL string
 }
 
 // adminServices are the console services of internal/service/admin the
@@ -556,6 +579,7 @@ type adminServices struct {
 	authz      adminsvc.Authorizer
 	buckets    adminsvc.BucketManager
 	browser    adminsvc.ObjectBrowser
+	uploads    adminsvc.UploadManager
 	shares     adminsvc.ShareManager
 	identities adminsvc.IdentityManager
 	accessKeys adminsvc.AccessKeyManager
@@ -579,11 +603,14 @@ func buildAdminServices(d adminDeps) (adminServices, error) {
 	if out.browser, err = adminsvc.NewObjectBrowser(adminsvc.ObjectBrowserDeps{Objects: d.objects, Authz: out.authz, Clock: d.clock, Logger: d.logger}); err != nil {
 		return out, err
 	}
-	if out.shares, err = adminsvc.NewShareManager(adminsvc.ShareManagerDeps{Shares: d.shares, Signer: d.signer, Creds: d.iam, Authz: out.authz, Clock: d.clock, Logger: d.logger},
+	if out.uploads, err = adminsvc.NewUploadManager(adminsvc.UploadManagerDeps{Objects: d.objects, Logger: d.logger}); err != nil {
+		return out, err
+	}
+	if out.shares, err = adminsvc.NewShareManager(adminsvc.ShareManagerDeps{Shares: d.shares, Signer: d.signer, Creds: d.iam, Authz: out.authz, Objects: d.objects, Clock: d.clock, Logger: d.logger},
 		adminsvc.WithServerURL(d.s3URL), adminsvc.WithRegion(d.region)); err != nil {
 		return out, err
 	}
-	if out.identities, err = adminsvc.NewIdentityManager(adminsvc.IdentityManagerDeps{IAM: d.iam, Authz: out.authz, Logger: d.logger}); err != nil {
+	if out.identities, err = adminsvc.NewIdentityManager(adminsvc.IdentityManagerDeps{IAM: d.iam, Authz: out.authz, Shares: d.shares, Logger: d.logger}); err != nil {
 		return out, err
 	}
 	if out.accessKeys, err = adminsvc.NewAccessKeyManager(adminsvc.AccessKeyManagerDeps{IAM: d.iam, Authz: out.authz, Logger: d.logger}); err != nil {
@@ -603,7 +630,11 @@ func buildAdminAPI(d adminDeps) (httpx.Routes, error) {
 	if err != nil {
 		return nil, err
 	}
-	authn, err := adminhttp.NewAuthenticator(adminhttp.AuthenticatorDeps{Sessions: d.sessions, Verifier: d.verifier, Enc: d.codec})
+	var authnOpts []adminhttp.AuthenticatorOption
+	if d.consoleURL != "" {
+		authnOpts = append(authnOpts, adminhttp.WithConsoleOrigins(d.consoleURL))
+	}
+	authn, err := adminhttp.NewAuthenticator(adminhttp.AuthenticatorDeps{Sessions: d.sessions, Verifier: d.verifier, Enc: d.codec}, authnOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -631,7 +662,7 @@ func buildAdminAPI(d adminDeps) (httpx.Routes, error) {
 	if err != nil {
 		return nil, err
 	}
-	objectRoutes, err := adminhttp.NewObjectRoutes(adminhttp.ObjectDeps{Browser: svc.browser, Objects: d.objects, Authz: svc.authz, Enc: d.codec, Logger: d.logger})
+	objectRoutes, err := adminhttp.NewObjectRoutes(adminhttp.ObjectDeps{Browser: svc.browser, Uploads: svc.uploads, Authz: svc.authz, Enc: d.codec, Logger: d.logger})
 	if err != nil {
 		return nil, err
 	}

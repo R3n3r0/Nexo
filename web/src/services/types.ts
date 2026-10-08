@@ -86,6 +86,10 @@ export type SharePermission = Schemas['SharePermission'];
 /** A managed, revocable share link. */
 export type Share = Schemas['Share'];
 export type CreateShareInput = Schemas['CreateShareRequest'];
+/** The download link of one object of a prefix share (revoked with the share). */
+export type ShareLink = Schemas['ShareLink'];
+/** A page of the per-object links of a prefix download share. */
+export type ShareLinkList = Schemas['ShareLinkList'];
 export type RevokeAllResult = Schemas['RevokeAllResult'];
 export type PresignInput = Schemas['PresignRequest'];
 /** A raw presigned URL: not revocable, valid until it expires. */

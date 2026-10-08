@@ -30,6 +30,8 @@ Sharing and access:
   share       Share objects with links that need no credentials
 
 Bucket and object settings:
+  encrypt     Manage the default encryption of buckets
+  quota       Manage the hard quota of buckets (Admin API)
   tag         Manage the tags of buckets and objects
   version     Print the nexoctl version, or manage bucket versioning
 

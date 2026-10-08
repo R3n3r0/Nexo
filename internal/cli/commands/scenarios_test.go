@@ -33,6 +33,13 @@ func TestScenarioAliases(t *testing.T) {
 	s.run("alias", "ls")
 	h.mem.FailOn("ListBuckets", errSignature)
 	s.run("alias", "set", "checked", "http://s3.mem.test", "AK", "WRONG", "--verify")
+	// Disabled credentials: the server answers InvalidAccessKeyId.
+	h.mem.FailOn("ListBuckets", errDisabled)
+	s.run("alias", "set", "checked", "http://s3.mem.test", "AK", "DISABLED", "--verify")
+	// Authenticated, but the listing is denied: saved, not "verified"
+	// (regression: an AccessDenied printed "credentials verified").
+	h.mem.FailOn("ListBuckets", errDenied)
+	s.run("alias", "set", "limited", "http://s3.mem.test", "AK", "LIMITED", "--verify")
 	h.mem.FailOn("ListBuckets", nil)
 	s.run("alias", "set", "checked", "http://s3.mem.test", "AK", "RIGHT", "--verify")
 	s.run("alias", "list", "--quiet")
@@ -266,3 +273,38 @@ func removeFile(h *harness, rel string) error {
 
 // errSignature is the failure of wrong credentials.
 var errSignature = fmt.Errorf("%w: the secret key is wrong", domain.ErrSignatureMismatch)
+
+// errDisabled is the failure of disabled credentials (InvalidAccessKeyId).
+var errDisabled = fmt.Errorf("%w: the access key is disabled", domain.ErrInvalidAccessKey)
+
+// errDenied is a listing the policy of valid credentials refuses.
+var errDenied = fmt.Errorf("%w: s3:ListAllMyBuckets", domain.ErrAccessDenied)
+
+// covers: C-OBJ-09 (quota and encrypt; regression: the commands were
+// missing)
+func TestScenarioBucketSettings(t *testing.T) {
+	h := newHarness(t)
+	h.admin.AddUser("bob", "bob-secret-1", "readwrite")
+	h.mustRun("alias", "set", "bob", "http://s3.mem.test", "bob", "bob-secret-1")
+	s := h.session()
+	s.run("quota", "info", "mem/photos")
+	s.run("quota", "set", "mem/photos", "--size", "1.5GiB")
+	s.run("quota", "info", "mem/photos")
+	s.run("quota", "info", "--json", "mem/photos")
+	s.run("quota", "set", "mem/photos")
+	s.run("quota", "set", "mem/photos", "--size", "0")
+	s.run("quota", "set", "mem/photos/key", "--size", "1GiB")
+	s.run("quota", "set", "bob/photos", "--size", "1GiB")
+	s.run("quota", "clear", "mem/photos")
+	s.run("quota", "info", "mem/photos")
+	s.run("encrypt", "info", "mem/photos")
+	s.run("encrypt", "set", "sse-s3", "mem/photos")
+	s.run("encrypt", "info", "mem/photos")
+	s.run("encrypt", "set", "sse-kms", "mem/photos", "--kms-key-id", "nexo-key")
+	s.run("encrypt", "info", "--json", "mem/photos")
+	s.run("encrypt", "set", "sse-s3", "mem/photos", "--kms-key-id", "k")
+	s.run("encrypt", "set", "rot13", "mem/photos")
+	s.run("encrypt", "clear", "mem/photos")
+	s.run("encrypt", "info", "mem/photos")
+	golden(t, "scenario/bucket_settings", s.b.String())
+}

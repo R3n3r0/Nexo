@@ -56,7 +56,9 @@ func TestLookupServiceAccounts(t *testing.T) {
 	// Disabling the parent disables its keys immediately.
 	require.NoError(t, svc.SetUserStatus(ctx, "alice", domain.StatusDisabled))
 	_, _, err = svc.LookupCredentials(ctx, plain.AccessKey)
-	assert.ErrorIs(t, err, domain.ErrAccessDenied)
+	assert.ErrorIs(t, err, domain.ErrCredentialsDisabled)
+	_, _, err = svc.LookupCredentials(ctx, "alice")
+	assert.ErrorIs(t, err, domain.ErrCredentialsDisabled, "the user itself")
 	require.NoError(t, svc.SetUserStatus(ctx, "alice", domain.StatusEnabled))
 
 	// Expiry follows the clock.
@@ -66,6 +68,7 @@ func TestLookupServiceAccounts(t *testing.T) {
 	clk.Set(exp)
 	_, _, err = svc.LookupCredentials(ctx, key.AccessKey)
 	assert.ErrorIs(t, err, domain.ErrAccessDenied)
+	assert.NotErrorIs(t, err, domain.ErrCredentialsDisabled, "expired, not disabled")
 	assert.Contains(t, err.Error(), "expired")
 	_, _, err = svc.LookupCredentials(ctx, plain.AccessKey)
 	assert.NoError(t, err, "keys without expiration never expire")

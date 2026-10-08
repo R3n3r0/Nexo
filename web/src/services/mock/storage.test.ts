@@ -77,6 +77,26 @@ describe('mock storage services', () => {
     expect(await services.buckets.get('ver')).toMatchObject({ objects: 0, size: 0 });
   });
 
+  it('treats the prefixes of the bulk operations as folders, like the server', async () => {
+    const services = createMockServices({
+      buckets: [bucket('sib')],
+      objects: {
+        sib: [{ key: 'photos/a.txt' }, { key: 'photos2/b.txt' }, { key: 'photosx.txt' }],
+      },
+    });
+    const moved = await services.objects.rename('sib', {
+      source: 'photos',
+      destination: 'pics',
+      prefix: true,
+    });
+    expect(moved.renamed).toEqual([{ source: 'photos/a.txt', destination: 'pics/a.txt' }]);
+    const removed = await services.objects.remove('sib', { prefixes: ['pics'] });
+    expect(removed.deleted.map((d) => d.key)).toEqual(['pics/a.txt']);
+    expect(
+      (await services.objects.list('sib', { delimiter: '' })).objects.map((o) => o.key),
+    ).toEqual(['photos2/b.txt', 'photosx.txt']);
+  });
+
   it('moves a folder and refuses to overwrite an object', async () => {
     const services = createMockServices({
       buckets: [bucket('mv')],

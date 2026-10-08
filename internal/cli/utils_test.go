@@ -167,7 +167,10 @@ func TestShareSnippets(t *testing.T) {
 	assert.Equal(t, `curl -I 'http://h/x'`, cli.CurlCommand(&cli.PresignedRequest{Method: "HEAD", URL: "http://h/x"}))
 	assert.Equal(t, `curl -X DELETE 'http://h/x'`, cli.CurlCommand(&cli.PresignedRequest{Method: "DELETE", URL: "http://h/x"}))
 	form := &cli.PostPolicyForm{URL: "http://h/b", Fields: map[string]string{"key": "up/${filename}", "policy": "p\"<"}}
-	assert.Equal(t, `curl -F 'key=up/${filename}' -F 'policy=p"<' -F file=@<FILE> 'http://h/b'`, cli.CurlPostCommand(form))
+	assert.Equal(t, `curl --form-string 'key=up/${filename}' --form-string 'policy=p"<' -F file=@<FILE> 'http://h/b'`, cli.CurlPostCommand(form))
+	// The fields are never read as local files ("@" or "<" with -F).
+	at := &cli.PostPolicyForm{URL: "http://h/b", Fields: map[string]string{"key": "@inbox/${filename}", "x-amz-meta-note": "<notes.txt"}}
+	assert.Equal(t, `curl --form-string 'key=@inbox/${filename}' --form-string 'x-amz-meta-note=<notes.txt' -F file=@<FILE> 'http://h/b'`, cli.CurlPostCommand(at))
 	html := cli.HTMLPostForm(form)
 	assert.Contains(t, html, `<form action="http://h/b" method="post" enctype="multipart/form-data">`)
 	assert.Contains(t, html, `<input type="hidden" name="policy" value="p&#34;&lt;">`)

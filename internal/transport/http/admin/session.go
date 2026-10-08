@@ -118,8 +118,10 @@ type SessionResponse struct {
 	ExpiresAt time.Time        `json:"expiresAt"`
 	// CSRFToken is echoed by the client in the X-CSRF-Token header of
 	// state-changing requests. It is returned by login and by GET
-	// /auth/session so that a reloaded page can recover it; the response is
-	// JSON on a same-origin API, so a third-party page cannot read it.
+	// /auth/session so that a reloaded page can recover it, and never in a
+	// cookie: the response is JSON on an API without CORS, so a page of
+	// another origin (another port of the same host included) cannot read
+	// it.
 	CSRFToken string `json:"csrfToken"`
 }
 
@@ -190,9 +192,10 @@ func (h *sessionRoutes) login(w http.ResponseWriter, r *http.Request) {
 		writeError(h.deps.Codec, w, r, err)
 		return
 	}
+	// The CSRF token travels only in the JSON answer, which the console
+	// keeps in memory: a cookie readable by scripts would be readable by
+	// the pages of every port of the host (the S3 listener among them).
 	http.SetCookie(w, h.cookie(r, session.CookieName, sess.Token, sess.ExpiresAt, true))
-	// The CSRF cookie is readable by the console scripts (double submit).
-	http.SetCookie(w, h.cookie(r, session.CSRFCookieName, sess.CSRFToken, sess.ExpiresAt, false))
 	h.deps.Codec.WriteJSON(w, http.StatusOK, newSessionResponse(sess))
 }
 
@@ -219,6 +222,8 @@ func (h *sessionRoutes) logout(w http.ResponseWriter, r *http.Request) {
 	}
 	expired := h.deps.Clock.Now().Add(-time.Hour)
 	http.SetCookie(w, h.cookie(r, session.CookieName, "", expired, true))
+	// Clears the readable CSRF cookie of the sessions opened by older
+	// versions.
 	http.SetCookie(w, h.cookie(r, session.CSRFCookieName, "", expired, false))
 	w.WriteHeader(http.StatusNoContent)
 }

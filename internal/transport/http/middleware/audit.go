@@ -57,7 +57,7 @@ func (m *auditMiddleware) Wrap(next http.Handler) http.Handler {
 			Version:    audit.EntryVersion,
 			Time:       start,
 			RequestID:  httpx.RequestIDFrom(r.Context()),
-			RemoteHost: remoteHost(r.RemoteAddr),
+			RemoteHost: ClientOf(r).IP,
 			UserAgent:  r.UserAgent(),
 			API: audit.API{
 				Name:           holder.Name(),
@@ -95,13 +95,6 @@ func splitPath(p string) (bucket, object string) {
 	}
 	bucket, object, _ = strings.Cut(p, "/")
 	return bucket, object
-}
-
-func remoteHost(addr string) string {
-	if i := strings.LastIndex(addr, ":"); i > 0 && !strings.HasSuffix(addr, "]") {
-		return strings.Trim(addr[:i], "[]")
-	}
-	return addr
 }
 
 func flatten(values map[string][]string) map[string]string {

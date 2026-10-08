@@ -1,5 +1,5 @@
-import type { ShareService } from '../interfaces';
-import type { PostCondition, PostPolicy, PresignedUrl, Share } from '../types';
+import type { ObjectService, ShareService } from '../interfaces';
+import type { PostCondition, PostPolicy, PresignedUrl, Share, ShareLinkList } from '../types';
 import type { MockIam } from './iam';
 import { clone, problem, type MockContext } from './support';
 
@@ -68,12 +68,14 @@ function checkExpiry(expiresIn: number | undefined, fallback: number): number {
 /**
  * In-memory share links. The owner of a new link is the caller; listing,
  * revoking and revoking all follow the self-service rule of the server
- * (own links always, everybody's with admin:ManageShares).
+ * (own links always, everybody's with admin:ManageShares). The objects of
+ * a prefix share are listed through the object mock.
  */
 export function createMockShareService(
   ctx: MockContext,
   iam: MockIam,
   options: MockShareOptions = {},
+  objects?: ObjectService,
 ): ShareService {
   const shares = new Map((options.shares ?? sampleShares()).map((s) => [s.id, clone(s)]));
   let counter = 0;
@@ -159,6 +161,46 @@ export function createMockShareService(
       }
       shares.set(id, share);
       return clone(share);
+    },
+    async links(id, query) {
+      await ctx.delay();
+      const share = find(id);
+      if (!share.prefix || share.permission !== 'download') {
+        throw problem(400, 'invalid_argument', `Share ${id} is not a prefix download share.`);
+      }
+      if (!iam.allowed('s3:ListBucket', share.bucket)) {
+        throw problem(403, 'access_denied', 'Access denied: s3:ListBucket is not allowed.');
+      }
+      const page = objects
+        ? await objects.list(share.bucket, {
+            prefix: share.key,
+            delimiter: '',
+            ...(query?.cursor !== undefined ? { cursor: query.cursor } : {}),
+            ...(query?.limit !== undefined ? { limit: query.limit } : {}),
+          })
+        : { objects: [], prefixes: [], isTruncated: false };
+      const seconds = Math.max(
+        1,
+        Math.round((new Date(share.expiresAt).getTime() - ctx.now().getTime()) / 1000),
+      );
+      const result: ShareLinkList = {
+        share: clone(share),
+        items: page.objects
+          .filter((o) => !o.key.endsWith('/'))
+          .map((o) => ({
+            key: o.key,
+            size: o.size,
+            url: signedUrl(
+              'GET',
+              share.bucket,
+              o.key,
+              seconds,
+              `&X-Amz-Credential=${share.accessKey}`,
+            ),
+          })),
+        ...(page.nextCursor !== undefined ? { nextCursor: page.nextCursor } : {}),
+      };
+      return result;
     },
     async revoke(id) {
       await ctx.delay();

@@ -1,13 +1,18 @@
 $ nexoctl admin config get mem
+api (defaults)
 logger (defaults)
 notify_webhook (defaults)
 region (defaults)
 
 $ nexoctl admin config set mem region name=eu-south-1 comment=Milan DC
 Updated region: comment, name.
+! warning: region.comment is stored but not applied yet by the server
+! warning: region.name is stored but not applied yet by the server
 
 $ nexoctl admin config set mem notify_webhook endpoint=http://hook.test/x auth_token=t0ken
 Updated notify_webhook: auth_token, endpoint.
+! warning: notify_webhook.auth_token is stored but not applied yet by the server
+! warning: notify_webhook.endpoint is stored but not applied yet by the server
 
 $ nexoctl admin config set mem logger level=verbose
 ! nexoctl: error: config "logger": logger.level: "verbose" is not one of debug, info, warn, error (invalid_argument)

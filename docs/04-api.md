@@ -46,21 +46,28 @@ JSON, versionata, documentata con **OpenAPI 3.1** (`api/openapi.yaml`) da cui si
   da cui derivano i DTO di `web/src/services/types.ts`; il client HTTP è `web/src/services/http/client.ts`;
 - validazione delle risposte nei test di contratto.
 
+I parametri di path (`{u}`, `{g}`, `{p}`, `{k}`, `{id}`, `{subsys}`, `{uploadId}`, `{partNumber}`) sono segmenti
+codificati una sola volta (percent-encoding RFC 3986, come `encodeURIComponent` e `url.PathEscape`): un `/` dentro
+un nome viaggia come `%2F` e resta nel suo segmento, `@`, `+`, `,` possono essere codificati o no; il server li
+decodifica una volta sola.
+
 | Metodo | Path | Descrizione |
 |--------|------|-------------|
 | POST | `/auth/login` · `/auth/logout` · GET `/auth/session` | Sessione console |
 | GET | `/info` | Info server/cluster (pool, nodi, dischi, versioni, uptime) |
 | GET | `/usage` | Uso dati per cluster/bucket |
-| GET/POST/DELETE | `/buckets`, `/buckets/{b}` | Gestione bucket (estende S3 con stat, quota, ecc.) |
+| GET/POST/DELETE | `/buckets`, `/buckets/{b}` | Gestione bucket (estende S3 con stat, quota, ecc.); chi può elencare solo una parte del bucket (home directory) ne vede nome, data di creazione e regione (`partial: true`) |
 | GET/PUT | `/buckets/{b}/{versioning,policy,lifecycle,encryption,objectlock,quota,tags,events,replication}` | Impostazioni bucket |
 | GET | `/buckets/{b}/objects?prefix=&delimiter=&cursor=` | Listing per object browser |
 | POST | `/buckets/{b}/objects/upload` · GET `/download` · POST `/download-zip` · DELETE `/objects` | Operazioni oggetti dalla console |
-| POST | `/buckets/{b}/objects/share` | Genera presigned URL |
-| GET/POST/PUT/DELETE | `/users`, `/users/{u}` | Utenti |
+| POST | `/buckets/{b}/objects/restore?key=&versionId=` | Ripristina una versione (copia della versione sulla sua chiave, autorizzata come la `CopyObject` S3) |
+| POST | `/buckets/{b}/objects/share` · GET/DELETE `/shares`, `/shares/{id}` | Share link gestiti e revocabili |
+| GET | `/shares/{id}/links?cursor=&limit=` | Un link per oggetto di uno share di prefix in download, firmati dallo share e revocati con esso |
+| GET/POST/PUT/DELETE | `/users`, `/users/{u}` | Utenti (`DELETE` rimuove anche gli share gestiti dell'utente) |
 | GET/POST/PUT/DELETE | `/groups`, `/groups/{g}` | Gruppi |
 | GET/POST/PUT/DELETE | `/policies`, `/policies/{p}`, POST `/policies/attach` `/detach` | Policy |
 | GET/POST/PUT/DELETE | `/access-keys`, `/access-keys/{k}` | Service account |
-| GET/PUT | `/config`, `/config/{subsys}` · POST `/config/import` · GET `/config/export` | Configurazione |
+| GET/PUT | `/config`, `/config/{subsys}` · POST `/config/import` · GET `/config/export` | Configurazione (lo schema `GET /config/schema` dice per ogni chiave se il server la applica, `applied`: oggi `api.root_access`, a caldo; le altre sono salvate e validate ma non ancora applicate) |
 | POST | `/heal` · GET `/heal/{id}` | Healing |
 | GET (SSE) | `/trace`, `/logs` | Stream live |
 | GET | `/metrics/query?metric=&range=` | Serie storiche per grafici (ring buffer in memoria, opzionale Prometheus remoto) |
@@ -69,6 +76,21 @@ JSON, versionata, documentata con **OpenAPI 3.1** (`api/openapi.yaml`) da cui si
 | POST/GET | `/pools/{id}/decommission`, `/rebalance` | Gestione pool (P2) |
 
 Errori in formato `application/problem+json` (RFC 9457) con `code` stabile.
+
+Le liste (`/users`, `/groups`, `/policies`, `/access-keys`, `/shares`, `/buckets`, `/shares/{id}/links`)
+rispondono `{items, nextCursor}`: il servizio seleziona la pagina (`limit` 1–1000, default 1000) e il cursore è
+opaco, da ripassare tal quale in `cursor`.
+
+Le operazioni sugli oggetti proxate dalla console (download, anteprima, stat, tag, upload, eliminazione,
+rinomina, zip, ripristino, share) sono valutate con le stesse chiavi di condizione della richiesta S3
+equivalente (`s3:versionid`, `s3:x-amz-*`, `s3:RequestObjectTag/*`, `s3:authType`…), costruite da un'unica
+definizione (`policy.RequestConditions`): una policy decide allo stesso modo via S3 e via console. Il client di
+`aws:SourceIp` e `aws:SecureTransport` è, su entrambi i listener, quello inoltrato dai proxy fidati
+(`--trusted-proxies`, `X-Forwarded-For`/`X-Forwarded-Proto`), altrimenti il peer della connessione.
+
+Le operazioni sugli oggetti per prefisso (eliminazione, rinomina e zip) trattano ogni prefisso come una cartella,
+come la CLI: un prefisso non vuoto senza `/` finale indica la cartella omonima (`photos` è `photos/`, mai
+`photos2/` né `photosx.txt`); `""` è l'intero bucket.
 
 Endpoint per regole di accesso, distribuzioni, key group e certificati: vedi [10 §10.5](10-domini-accessi-distribuzioni.md#105-admin-api).
 

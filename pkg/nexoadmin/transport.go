@@ -60,7 +60,8 @@ type request struct {
 	contentType string
 }
 
-// pathOf joins escaped path segments.
+// pathOf joins escaped path segments: each segment is escaped once, so a
+// "/" inside a name stays inside its segment ("%2F").
 func pathOf(segments ...string) string {
 	var b strings.Builder
 	for _, s := range segments {
@@ -68,6 +69,23 @@ func pathOf(segments ...string) string {
 		b.WriteString(url.PathEscape(s))
 	}
 	return b.String()
+}
+
+// endpoint returns the URL of an Admin API path, escaped already (pathOf).
+// Both forms of the path are set so that the URL is sent, and signed
+// (DisableURIPathEscaping signs EscapedPath), exactly as escaped: setting
+// only the decoded Path would let url.URL escape the escapes again ("%20"
+// sent as "%2520"), and clearing RawPath would turn an escaped "/" into a
+// path separator.
+func (c *client) endpoint(path string) (url.URL, error) {
+	u := *c.base
+	raw := strings.TrimSuffix(c.base.EscapedPath(), "/") + path
+	decoded, err := url.PathUnescape(raw)
+	if err != nil {
+		return url.URL{}, fmt.Errorf("nexoadmin: invalid path %q: %w", path, err)
+	}
+	u.Path, u.RawPath = decoded, raw
+	return u, nil
 }
 
 // do sends a request and decodes a JSON response into out (nil: none).
@@ -96,9 +114,10 @@ func (c *client) send(ctx context.Context, in request) ([]byte, http.Header, err
 		}
 		contentType = "application/json"
 	}
-	u := *c.base
-	u.Path += in.path
-	u.RawPath = ""
+	u, err := c.endpoint(in.path)
+	if err != nil {
+		return nil, nil, err
+	}
 	if len(in.query) > 0 {
 		u.RawQuery = in.query.Encode()
 	}

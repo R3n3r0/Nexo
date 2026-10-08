@@ -47,6 +47,12 @@ export function createHttpObjectService(client: HttpClient): ObjectService {
     rename(bucket, input) {
       return client.request<RenameResult>(path(bucket, 'rename'), { method: 'POST', body: input });
     },
+    restoreVersion(bucket, key, versionId) {
+      return client.request<ObjectEntry>(path(bucket, 'restore'), {
+        method: 'POST',
+        query: { key, versionId },
+      });
+    },
     async setTags(bucket, key, tags, versionId) {
       const body = await client.request<{ tags: TagSet }>(path(bucket, 'tags'), {
         method: 'PUT',

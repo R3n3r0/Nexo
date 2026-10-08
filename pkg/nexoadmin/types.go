@@ -153,6 +153,9 @@ type Bucket struct {
 	QuotaBytes        uint64            `json:"quotaBytes"`
 	Public            bool              `json:"public"`
 	Tags              map[string]string `json:"tags"`
+	// Partial reports a summary restricted to the name, creation date and
+	// region: the caller may list only a part of the bucket.
+	Partial bool `json:"partial,omitempty"`
 }
 
 // BucketList is a page of buckets.
@@ -180,6 +183,13 @@ type CreateBucketRequest struct {
 type BucketQuota struct {
 	Type string `json:"type"`
 	Size uint64 `json:"size"`
+}
+
+// BucketEncryption is the default encryption of a bucket.
+type BucketEncryption struct {
+	// Algorithm is "AES256" (SSE-S3) or "aws:kms" (SSE-KMS).
+	Algorithm string `json:"algorithm"`
+	KMSKeyID  string `json:"kmsKeyId,omitempty"`
 }
 
 // AccessRule is the anonymous access of one prefix.
@@ -252,9 +262,11 @@ type ObjectRef struct {
 
 // DeleteObjectsRequest deletes objects and prefixes.
 type DeleteObjectsRequest struct {
-	Objects     []ObjectRef `json:"objects,omitempty"`
-	Prefixes    []string    `json:"prefixes,omitempty"`
-	AllVersions bool        `json:"allVersions,omitempty"`
+	Objects []ObjectRef `json:"objects,omitempty"`
+	// Prefixes are folders deleted recursively: "photos" is "photos/",
+	// never "photos2/" ("" is the whole bucket).
+	Prefixes    []string `json:"prefixes,omitempty"`
+	AllVersions bool     `json:"allVersions,omitempty"`
 }
 
 // DeletedObject is a successful deletion.
@@ -611,6 +623,9 @@ type ConfigKey struct {
 	Default     string   `json:"default,omitempty"`
 	Values      []string `json:"values,omitempty"`
 	Sensitive   bool     `json:"sensitive"`
+	// Applied reports a key the server applies; the others are stored but
+	// have no effect yet.
+	Applied bool `json:"applied"`
 }
 
 // ConfigSubsystemSchema describes a subsystem.

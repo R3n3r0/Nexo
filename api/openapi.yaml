@@ -11,9 +11,14 @@ info:
     `conflict`, `malformed_policy`, `entity_too_large`, `not_implemented`...).
 
     Authentication, one of:
-    - the console session: the `nexo_session` cookie (HttpOnly, issued by
-      `POST /auth/login`) plus the `X-CSRF-Token` header on state-changing
-      requests (double submit of the `nexo_csrf` cookie);
+    - the console session: the `nexo_session` cookie (HttpOnly, SameSite=Strict,
+      issued by `POST /auth/login`). A state-changing request must also carry the
+      `X-CSRF-Token` header with the `csrfToken` of the session (returned by login
+      and `GET /auth/session`, never set in a cookie) and come from the console
+      origin: `Sec-Fetch-Site: same-origin` or, from a browser that does not send it,
+      an `Origin` (else `Referer`) of the console; otherwise 403
+      `invalid_csrf_token`. The ports of a host are same-site, so the pages of the
+      S3 listener receive the session cookie too: the origin check refuses them;
     - AWS Signature Version 4 in the `Authorization` header (CLI, SDKs), with the
       service `s3` and the region of the server in the credential scope. Presigned
       URLs are not accepted.
@@ -59,7 +64,8 @@ paths:
       operationId: login
       summary: Open a console session
       description: >-
-        Public endpoint. Sets the `nexo_session` (HttpOnly) and `nexo_csrf` cookies. After 5 failed
+        Public endpoint. Sets the `nexo_session` cookie (HttpOnly); the CSRF token is in the body
+        (`csrfToken`), never in a cookie. After 5 failed
         attempts of a client on an access key (or 20 of a client on any key) within 5 minutes, the
         attempts are refused for a minute (429 `too_many_requests` with Retry-After), even with the
         right secret; the client is the peer of the connection or, behind the `--trusted-proxies`,
@@ -294,6 +300,10 @@ paths:
       tags: [buckets]
       operationId: getBucket
       summary: Get a bucket with its usage
+      description: >-
+        A caller that may list only a part of the bucket (s3:ListBucket under an
+        s3:prefix condition, a home directory) gets its name, creation date and
+        region only (partial).
       x-nexo-actions: ["s3:ListBucket"]
       responses:
         "200":
@@ -729,6 +739,33 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ObjectEntry" }
         default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/restore:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    post:
+      tags: [objects]
+      operationId: restoreObjectVersion
+      summary: Make a previous version the latest again (copy of the version onto its key)
+      description: |
+        Copies the version onto its own key with its content, metadata and tags: a new latest
+        version is created and the history is kept. Authorized like the S3 CopyObject it stands
+        for: s3:GetObjectVersion on the version (`s3:versionid` condition) and s3:PutObject on
+        the key. A delete marker cannot be restored (405).
+      x-nexo-actions: ["s3:GetObjectVersion", "s3:PutObject"]
+      x-nexo-authorized-by: service
+      parameters:
+        - { name: key, in: query, required: true, schema: { type: string } }
+        - { name: versionId, in: query, required: true, schema: { type: string } }
+      responses:
+        "201":
+          description: The new latest version.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ObjectEntry" }
+        "403": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+        "405": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
   /buckets/{bucket}/objects/rename:
     parameters:
       - { $ref: "#/components/parameters/bucket" }
@@ -840,7 +877,9 @@ paths:
         streaming. Objects of the prefixes the caller may not read are listed in `nexo-zip-errors.txt`.
         The console submits the request as a form (`application/x-www-form-urlencoded`: the JSON
         `ZipRequest` in the field `request`, the CSRF token in the field `csrfToken`) so that the
-        browser streams the archive to disk instead of holding it in memory.
+        browser streams the archive to disk instead of holding it in memory. This is the only
+        operation that reads the CSRF token from a form field; the request must still come from
+        the console origin.
       x-nexo-actions: ["s3:GetObject", "s3:ListBucket"]
       x-nexo-authorized-by: service
       requestBody:
@@ -1123,6 +1162,34 @@ paths:
         "204": { description: Revoked. }
         "404": { $ref: "#/components/responses/Problem" }
         default: { $ref: "#/components/responses/Problem" }
+  /shares/{id}/links:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [shares]
+      operationId: listShareLinks
+      summary: One download link per object of a prefix share, revoked with the share
+      description: |
+        Hands out a prefix download share one object at a time (as
+        `nexoctl share download --recursive`): a page of the objects under the
+        shared prefix, each with a URL signed by the share's service account
+        and valid until the share expires. The caller must see the share and
+        may list the prefix (s3:ListBucket); other shares are invalid_argument.
+      x-nexo-actions: ["admin:ManageShares", "s3:ListBucket"]
+      x-nexo-authorized-by: service
+      parameters:
+        - { $ref: "#/components/parameters/cursor" }
+        - { $ref: "#/components/parameters/limit" }
+      responses:
+        "200":
+          description: A page of the links.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ShareLinkList" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "403": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
   /presign:
     post:
       tags: [shares]
@@ -1235,7 +1302,12 @@ paths:
     delete:
       tags: [users]
       operationId: deleteUser
+      description: >-
+        Deletes the user with its access keys and STS credentials, then removes
+        the records of its managed share links (their service accounts went
+        with the user).
       x-nexo-actions: ["admin:DeleteUser"]
+      x-nexo-authorized-by: service
       responses:
         "204": { description: Deleted. }
         default: { $ref: "#/components/responses/Problem" }
@@ -1955,6 +2027,12 @@ components:
         tags:
           type: object
           additionalProperties: { type: string }
+        partial:
+          type: boolean
+          description: >-
+            The caller may list only a part of the bucket (a home directory): the
+            summary is restricted to the name, creation date and region, every
+            other member is zero or empty.
     BucketList:
       type: object
       required: [items]
@@ -2127,7 +2205,10 @@ components:
           items: { $ref: "#/components/schemas/ObjectRef" }
         prefixes:
           type: array
-          description: Deleted recursively ("" is the whole bucket).
+          description: >-
+            Folders deleted recursively ("" is the whole bucket). A prefix without a trailing slash
+            names the folder of that name, as in the CLI: "photos" is "photos/", never "photos2/" nor
+            "photosx.txt".
           items: { type: string }
         allVersions:
           type: boolean
@@ -2166,7 +2247,10 @@ components:
         destination: { type: string }
         prefix:
           type: boolean
-          description: Move every object under source (destination may not lie under it).
+          description: >-
+            Move every object of the folder source to the folder destination (which may not lie under
+            it). Both name folders: a missing trailing slash is added ("photos" is "photos/", never
+            "photos2/").
         overwrite:
           type: boolean
           description: Replace existing destination objects (otherwise conflict).
@@ -2202,10 +2286,13 @@ components:
           items: { type: string }
         prefixes:
           type: array
+          description: >-
+            Folders archived recursively. A prefix without a trailing slash names the folder of that
+            name ("photos" is "photos/", never "photos2/").
           items: { type: string }
         base:
           type: string
-          description: Folder the archive names are relative to.
+          description: Folder the archive names are relative to ("photos" is "photos/").
 
     CreateUploadRequest:
       type: object
@@ -2295,7 +2382,10 @@ components:
         createdAt: { type: string, format: date-time }
         url:
           type: string
-          description: GET/PUT URL of the object, ListObjectsV2 URL of a prefix download share, absent for prefix upload shares.
+          description: |
+            GET/PUT URL of the object; for a prefix download share the
+            ListObjectsV2 URL of the prefix (an XML listing: the objects are
+            handed out by GET /shares/{id}/links); absent for prefix upload shares.
         accessKey:
           type: string
           description: Service account signing the link (share-<id>).
@@ -2306,6 +2396,24 @@ components:
         items:
           type: array
           items: { $ref: "#/components/schemas/Share" }
+        nextCursor: { type: string }
+    ShareLink:
+      type: object
+      required: [key, size, url]
+      properties:
+        key: { type: string }
+        size: { type: integer, format: int64 }
+        url:
+          type: string
+          description: Download URL signed by the share, revoked with it.
+    ShareLinkList:
+      type: object
+      required: [share, items]
+      properties:
+        share: { $ref: "#/components/schemas/Share" }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ShareLink" }
         nextCursor: { type: string }
     CreateShareRequest:
       type: object
@@ -2780,7 +2888,7 @@ components:
       additionalProperties: { $ref: "#/components/schemas/ConfigSettings" }
     ConfigKey:
       type: object
-      required: [name, type, description, sensitive]
+      required: [name, type, description, sensitive, applied]
       properties:
         name: { type: string }
         type:
@@ -2792,6 +2900,11 @@ components:
           type: array
           items: { type: string }
         sensitive: { type: boolean }
+        applied:
+          type: boolean
+          description: |
+            The server applies the key, on the next request (hot reload). The
+            other keys are validated and stored but have no effect yet.
     ConfigSubsystemSchema:
       type: object
       required: [name, description, keys]

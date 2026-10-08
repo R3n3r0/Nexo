@@ -1,6 +1,3 @@
-/** Name of the readable cookie that carries the CSRF token (double submit). */
-export const defaultCsrfCookieName = 'nexo_csrf';
-
 /** Header the Go session service expects (session.CSRFHeader). */
 export const defaultCsrfHeaderName = 'X-CSRF-Token';
 
@@ -27,12 +24,4 @@ export function readCookie(name: string, cookieString: string): string | undefin
     }
   }
   return undefined;
-}
-
-/** Reads a cookie from the current document, when there is one. */
-export function readDocumentCookie(name: string): string | undefined {
-  if (typeof document === 'undefined') {
-    return undefined;
-  }
-  return readCookie(name, document.cookie);
 }

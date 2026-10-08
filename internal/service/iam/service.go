@@ -148,6 +148,9 @@ const (
 	NamespaceSTS             Namespace = "sts"
 	// NamespaceShares holds the managed share links (package share).
 	NamespaceShares Namespace = "shares"
+	// NamespaceSessions holds the revoked console sessions until they
+	// expire (package session).
+	NamespaceSessions Namespace = "sessions"
 )
 
 // Store is a key-value store partitioned by namespace. Values are opaque

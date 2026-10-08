@@ -14,7 +14,14 @@ import {
   Tooltip,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconCheck, IconDownload, IconShare, IconTrash, IconX } from '@tabler/icons-react';
+import {
+  IconCheck,
+  IconDownload,
+  IconHistory,
+  IconShare,
+  IconTrash,
+  IconX,
+} from '@tabler/icons-react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -54,10 +61,12 @@ function VersionRow({
   bucket,
   version,
   canDelete,
+  canRestore,
 }: {
   bucket: string;
   version: ObjectEntry;
   canDelete: boolean;
+  canRestore: boolean;
 }) {
   const { t, i18n } = useTranslation();
   const { objects } = useServices();
@@ -74,6 +83,25 @@ function VersionRow({
       } else {
         notifications.show({ color: 'green', message: t('objectVersions.deleted') });
       }
+    },
+    onError: (error) => {
+      notifications.show({
+        color: 'red',
+        title: t('common.error'),
+        message: problemMessage(t, error),
+      });
+    },
+  });
+  const restore = useMutation({
+    mutationFn: () => objects.restoreVersion(bucket, version.key, versionId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: storageKeys.objects(bucket) });
+      await queryClient.invalidateQueries({ queryKey: storageKeys.versions(bucket, version.key) });
+      await queryClient.invalidateQueries({ queryKey: storageKeys.object(bucket, version.key) });
+      notifications.show({
+        color: 'green',
+        message: t('objectVersions.restored', { version: versionId }),
+      });
     },
     onError: (error) => {
       notifications.show({
@@ -109,7 +137,7 @@ function VersionRow({
           </Text>
         </Stack>
       </Table.Td>
-      <Table.Td w={96}>
+      <Table.Td w={120}>
         <Group gap={4} wrap="nowrap" justify="flex-end">
           {confirming ? (
             <>
@@ -138,6 +166,28 @@ function VersionRow({
             </>
           ) : (
             <>
+              {!version.isDeleteMarker && version.isLatest !== true ? (
+                <Tooltip
+                  label={
+                    canRestore
+                      ? t('objectVersions.restore')
+                      : t('permissions.missing', { action: StorageActions.getObjectVersion })
+                  }
+                >
+                  <ActionIcon
+                    variant="subtle"
+                    size="sm"
+                    disabled={!canRestore}
+                    loading={restore.isPending}
+                    aria-label={t('objectVersions.restoreVersion', { version: versionId })}
+                    onClick={() => {
+                      restore.mutate();
+                    }}
+                  >
+                    <IconHistory size={14} />
+                  </ActionIcon>
+                </Tooltip>
+              ) : null}
               {!version.isDeleteMarker ? (
                 <Tooltip label={t('objectVersions.download')}>
                   <ActionIcon
@@ -187,10 +237,12 @@ function VersionsPanel({
   bucket,
   objectKey,
   canDelete,
+  canRestore,
 }: {
   bucket: string;
   objectKey: string;
   canDelete: boolean;
+  canRestore: boolean;
 }) {
   const { t } = useTranslation();
   const { objects } = useServices();
@@ -223,6 +275,7 @@ function VersionsPanel({
               bucket={bucket}
               version={version}
               canDelete={canDelete}
+              canRestore={canRestore}
             />
           ))}
         </Table.Tbody>
@@ -426,6 +479,10 @@ export function ObjectDrawer({ bucket, objectKey, perms, onClose, onShare }: Obj
                   bucket={bucket}
                   objectKey={key}
                   canDelete={perms.can(StorageActions.deleteObjectVersion)}
+                  canRestore={
+                    perms.can(StorageActions.getObjectVersion) &&
+                    perms.can(StorageActions.putObject)
+                  }
                 />
               ) : (
                 <Text size="sm" c="dimmed">

@@ -10,6 +10,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/iam"
 	"github.com/r3n3r0/nexo/internal/service/policy"
+	"github.com/r3n3r0/nexo/internal/service/share"
 )
 
 // IdentityManagerDeps are the dependencies of the identity manager.
@@ -17,7 +18,10 @@ type IdentityManagerDeps struct {
 	// IAM stores users and groups (required).
 	IAM iam.Service
 	// Authz authorizes every change (required).
-	Authz  Authorizer
+	Authz Authorizer
+	// Shares revokes the share links of a user whose secret is rotated or
+	// who is deleted (required).
+	Shares share.Service
 	Logger *slog.Logger
 }
 
@@ -33,8 +37,8 @@ var _ IdentityManager = (*identityManager)(nil)
 // NewIdentityManager returns the identity manager. Missing dependencies
 // are a wiring error (domain.ErrInvalidArgument).
 func NewIdentityManager(deps IdentityManagerDeps, opts ...IdentityManagerOption) (IdentityManager, error) {
-	if deps.IAM == nil || deps.Authz == nil {
-		return nil, fmt.Errorf("%w: identity manager requires the IAM service and the authorizer", domain.ErrInvalidArgument)
+	if deps.IAM == nil || deps.Authz == nil || deps.Shares == nil {
+		return nil, fmt.Errorf("%w: identity manager requires the IAM, authorizer and share services", domain.ErrInvalidArgument)
 	}
 	if deps.Logger == nil {
 		deps.Logger = slog.Default()
@@ -44,6 +48,46 @@ func NewIdentityManager(deps IdentityManagerDeps, opts ...IdentityManagerOption)
 		o(m)
 	}
 	return m, nil
+}
+
+// ListUsers implements IdentityManager.
+func (m *identityManager) ListUsers(ctx context.Context, page Page) (*Paged[iam.User], error) {
+	if _, err := pageLimit(page); err != nil {
+		return nil, err
+	}
+	users, err := m.deps.IAM.ListUsers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return pageOf(users, func(u iam.User) string { return u.AccessKey }, page)
+}
+
+// ListGroups implements IdentityManager.
+func (m *identityManager) ListGroups(ctx context.Context, page Page) (*Paged[iam.Group], error) {
+	if _, err := pageLimit(page); err != nil {
+		return nil, err
+	}
+	groups, err := m.deps.IAM.ListGroups(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return pageOf(groups, func(g iam.Group) string { return g.Name }, page)
+}
+
+// rotateSecret changes the secret of a user and revokes what it handed
+// out with the old one (docs/09 §9.1, mass revocation): its managed share
+// links. Its console sessions, bound to the secret, close by themselves
+// (session.Service.Validate); its raw presigned URLs no longer verify.
+func (m *identityManager) rotateSecret(ctx context.Context, user, secret string) error {
+	if err := m.deps.IAM.SetUserSecret(ctx, user, secret); err != nil {
+		return err
+	}
+	n, err := m.deps.Shares.RevokeAll(ctx, systemActor(), user)
+	if err != nil {
+		return fmt.Errorf("admin: the secret of %s changed but its share links were not revoked: %w", user, err)
+	}
+	m.deps.Logger.InfoContext(ctx, "admin: user secret rotated", "user", user, "revoked_shares", n)
+	return nil
 }
 
 // statusAction is the action that sets a user or group status.
@@ -138,7 +182,7 @@ func (m *identityManager) UpdateUser(ctx context.Context, in UpdateUserInput) (*
 		}
 	}
 	if in.SecretKey != nil {
-		if err := m.deps.IAM.SetUserSecret(ctx, in.AccessKey, *in.SecretKey); err != nil {
+		if err := m.rotateSecret(ctx, in.AccessKey, *in.SecretKey); err != nil {
 			return nil, err
 		}
 	}
@@ -163,6 +207,26 @@ func (m *identityManager) UpdateUser(ctx context.Context, in UpdateUserInput) (*
 		}
 	}
 	return m.deps.IAM.GetUser(ctx, in.AccessKey)
+}
+
+// DeleteUser implements IdentityManager. IAM deletes the user first, so
+// that the root key and a missing user fail without side effects; the
+// share links are then removed by owner (share.Service tolerates the
+// service accounts IAM already deleted). A failure there is reported with
+// the user already gone: retrying DELETE /shares?owner= cleans up.
+func (m *identityManager) DeleteUser(ctx context.Context, req Requester, user string) error {
+	if err := authorizeAll(ctx, m.deps.Authz, req, "", "", policy.ActionAdminDeleteUser); err != nil {
+		return err
+	}
+	if err := m.deps.IAM.DeleteUser(ctx, user); err != nil {
+		return err
+	}
+	n, err := m.deps.Shares.RevokeAll(context.WithoutCancel(ctx), systemActor(), user)
+	if err != nil {
+		return fmt.Errorf("admin: user %s deleted but its share links were not all removed: %w", user, err)
+	}
+	m.deps.Logger.InfoContext(ctx, "admin: user deleted", "user", user, "by", req.Identity.AccessKey, "revoked_shares", n)
+	return nil
 }
 
 // CreateGroup implements IdentityManager.

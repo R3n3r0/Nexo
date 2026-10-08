@@ -287,12 +287,14 @@ func CurlCommand(req *PresignedRequest) string {
 }
 
 // CurlPostCommand renders the curl command of a POST policy upload: the
-// form fields, then the file.
+// form fields, then the file. The fields are sent with --form-string,
+// verbatim: with -F a value starting with "@" or "<" (a key prefix
+// "@inbox/") would make curl read a local file.
 func CurlPostCommand(form *PostPolicyForm) string {
 	var b strings.Builder
 	b.WriteString("curl")
 	for _, k := range SortedKeys(form.Fields) {
-		b.WriteString(" -F " + shellQuote(k+"="+form.Fields[k]))
+		b.WriteString(" --form-string " + shellQuote(k+"="+form.Fields[k]))
 	}
 	b.WriteString(" -F file=@<FILE> " + shellQuote(form.URL))
 	return b.String()

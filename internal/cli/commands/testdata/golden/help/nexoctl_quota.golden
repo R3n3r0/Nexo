@@ -1,0 +1,23 @@
+Manage the hard quota of buckets: writes that would exceed it are refused.
+The quota is a setting of the Nexo Admin API (admin:SetBucketQuota).
+
+Usage:
+  nexoctl quota [flags]
+  nexoctl quota [command]
+
+Available Commands:
+  clear       Remove the quota of a bucket
+  info        Show the quota of a bucket
+  set         Set the hard quota of a bucket
+
+Flags:
+  -h, --help   help for quota
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl quota [command] --help" for more information about a command.

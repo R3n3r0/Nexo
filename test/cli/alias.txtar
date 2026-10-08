@@ -1,15 +1,48 @@
 # TCL-E-01: alias set with wrong credentials fails with exit code 4 and
-# saves nothing; C-CFG-01: alias set/list/remove.
+# saves nothing (the credentials are verified by default); C-CFG-01: alias
+# set/list/remove.
 
-expectcode 4 nexoctl alias set other $NEXO_URL $NEXO_ROOT_USER wrong-password --verify
+expectcode 4 nexoctl alias set other $NEXO_URL $NEXO_ROOT_USER wrong-password
 stderr 'verify alias "other"'
 stderr 'signature does not match'
 exec nexoctl alias list
 ! stdout '^other'
 
-expectcode 4 nexoctl alias set other $NEXO_URL nobody wrong-password --verify
-exec nexoctl alias set other $NEXO_URL $NEXO_ROOT_USER $NEXO_ROOT_PASSWORD --verify
+expectcode 4 nexoctl alias set other $NEXO_URL nobody wrong-password
+exec nexoctl alias list
+! stdout '^other'
+exec nexoctl alias set other $NEXO_URL $NEXO_ROOT_USER $NEXO_ROOT_PASSWORD
 stdout 'Added alias "other" for .* \(credentials verified\)'
+
+# Valid credentials that may not list the buckets are accepted (regression:
+# they were reported as wrong).
+exec nexoctl mb local/alpha
+exec nexoctl admin policy create local alpha-only alpha-only.json
+exec nexoctl admin user add local bob bob-secret-123 --policy alpha-only
+exec nexoctl alias set bob $NEXO_URL bob bob-secret-123
+stdout 'Added alias "bob" for .* \(credentials accepted; listing the buckets is denied\)'
+! stdout 'credentials verified'
+expectcode 4 nexoctl ls bob
+exec nexoctl ls bob/alpha
+
+# The credentials of a disabled user are refused (InvalidAccessKeyId), never
+# accepted as valid credentials without permissions (regression).
+exec nexoctl admin user disable local bob
+expectcode 4 nexoctl alias set bobdis $NEXO_URL bob bob-secret-123
+stderr 'verify alias "bobdis"'
+stderr 'invalid access key'
+! stdout 'Added alias'
+exec nexoctl alias list
+! stdout '^bobdis'
+expectcode 4 nexoctl ls bob/alpha
+exec nexoctl admin user enable local bob
+exec nexoctl ls bob/alpha
+
+# --no-verify saves without contacting the server.
+exec nexoctl alias set offline http://127.0.0.1:1 AK SK --no-verify
+stdout 'Added alias "offline" for http://127.0.0.1:1.'
+expectcode 1 nexoctl alias set unreachable http://127.0.0.1:1 AK SK
+exec nexoctl alias remove offline
 
 exec nexoctl alias list
 stdout '^NAME +URL +ACCESS KEY +API +PATH'
@@ -31,3 +64,7 @@ stderr 'unknown alias "other"'
 expectcode 2 nexoctl alias set bad ftp://example.com a b
 expectcode 2 nexoctl alias set
 expectcode 3 nexoctl ls other/bucket
+
+-- alpha-only.json --
+{"Version":"2012-10-17","Statement":[
+  {"Effect":"Allow","Action":["s3:ListBucket","s3:GetObject","s3:PutObject"],"Resource":["arn:aws:s3:::alpha","arn:aws:s3:::alpha/*"]}]}

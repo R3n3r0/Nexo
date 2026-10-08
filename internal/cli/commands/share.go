@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -56,6 +57,11 @@ func newShareDownloadCmd(e *env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "download [flags] ALIAS/BUCKET/OBJECT",
 		Short: "Generate download links (managed by default, --raw for presigned GET)",
+		Long: `Generate download links: managed, revocable links signed by the server (the
+default), or with --raw presigned GET URLs signed locally with the credentials of
+the alias, which cannot be revoked. A raw URL is signed after checking the
+object (HEAD): a missing object exits with code 3 and one the alias may not read
+with code 4. --recursive generates one link per object under a prefix.`,
 		Example: `  nexoctl share download --expire 2h local/docs/report.pdf
   nexoctl share download --recursive local/docs/2026/
   nexoctl share download --raw --expire 10m local/docs/report.pdf`,
@@ -114,6 +120,12 @@ func newShareDownloadCmd(e *env) *cobra.Command {
 				return err
 			}
 			for _, key := range keys {
+				// A raw URL is signed locally: check first that the
+				// object exists and that the alias may read it, as the
+				// URL would answer 404 or 403 (exit codes 3 and 4).
+				if err := statBeforeSigning(ctx, client, t.Bucket, key, versionID); err != nil {
+					return fmt.Errorf("%s: %w", t.Child(key), err)
+				}
 				req, err := client.Presign(ctx, cli.PresignInput{
 					Method: http.MethodGet, Bucket: t.Bucket, Key: key, VersionID: versionID, Expiry: expiry,
 					ResponseContentDisposition: disposition, ResponseContentType: contentType,
@@ -264,7 +276,13 @@ func newPresignCmd(e *env) *cobra.Command {
 		Short: "Generate a raw presigned URL for any method",
 		Long: `Generate a raw presigned URL (GET, HEAD, PUT or DELETE), signed locally with the
 credentials of the alias: it is neither managed nor revocable.
-Signed headers (--header) must be sent unchanged with the request.`,
+Signed headers (--header) must be sent unchanged with the request.
+
+For GET and HEAD the object is checked first (HEAD with the credentials of the
+alias): a missing object exits with code 3 and an object the alias may not
+read with code 4, instead of printing a URL that would fail. PUT and DELETE
+URLs are signed without a check (the object may not exist yet); the
+permissions are evaluated when the URL is used.`,
 		Example: `  nexoctl presign --method DELETE --expire 10m local/tmp/old.bin
   nexoctl presign --method PUT --header "Content-Type: image/png" local/img/logo.png`,
 		Args:              exactArgs(1),
@@ -316,6 +334,11 @@ Signed headers (--header) must be sent unchanged with the request.`,
 			client, err := e.client(ctx, t.Alias)
 			if err != nil {
 				return err
+			}
+			if m == http.MethodGet || m == http.MethodHead {
+				if err := statBeforeSigning(ctx, client, t.Bucket, t.Key, versionID); err != nil {
+					return fmt.Errorf("%s: %w", t, err)
+				}
 			}
 			req, err := client.Presign(ctx, in)
 			if err != nil {
@@ -386,4 +409,12 @@ func (e *env) printPostPolicy(t cli.Target, form *cli.PostPolicyForm, expiry tim
 	}
 	fmt.Fprintf(&b, "Command: %s\nHTML:\n%s", command, htmlForm)
 	return e.out.Result(rec, b.String())
+}
+
+// statBeforeSigning checks, before signing a download URL locally, that
+// the object (version) exists and that the credentials may read it (HEAD
+// needs s3:GetObject), as mc does: the URL would otherwise fail when used.
+func statBeforeSigning(ctx context.Context, client cli.S3Client, bucket, key, versionID string) error {
+	_, err := client.Stat(ctx, bucket, key, cli.StatOptions{VersionID: versionID})
+	return err
 }

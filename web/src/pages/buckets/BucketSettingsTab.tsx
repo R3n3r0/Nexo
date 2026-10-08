@@ -9,8 +9,8 @@ import {
   Select,
   Skeleton,
   Stack,
-  Table,
   Text,
+  TextInput,
   Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -271,12 +271,43 @@ function TagsSection({ bucket, canEdit }: { bucket: string; canEdit: boolean }) 
   );
 }
 
-function EncryptionSection({ bucket }: { bucket: string }) {
+type EncryptionChoice = 'none' | 'AES256' | 'aws:kms';
+
+function EncryptionSection({ bucket, canEdit }: { bucket: string; canEdit: boolean }) {
   const { t } = useTranslation();
   const { buckets } = useServices();
+  const queryClient = useQueryClient();
+  const notifyError = useNotifyError();
   const encryption = useQuery({
     queryKey: storageKeys.bucketSetting(bucket, 'encryption'),
     queryFn: () => buckets.getEncryption(bucket),
+  });
+  const [choice, setChoice] = useState<EncryptionChoice>('none');
+  const [kmsKey, setKmsKey] = useState('');
+  useEffect(() => {
+    if (encryption.data === undefined) return;
+    const algorithm = encryption.data?.algorithm;
+    setChoice(algorithm === 'AES256' || algorithm === 'aws:kms' ? algorithm : 'none');
+    setKmsKey(encryption.data?.kmsKeyId ?? '');
+  }, [encryption.data]);
+  const mutation = useMutation({
+    mutationFn: () =>
+      buckets.setEncryption(
+        bucket,
+        choice === 'none'
+          ? null
+          : {
+              algorithm: choice,
+              ...(choice === 'aws:kms' && kmsKey.trim() !== '' ? { kmsKeyId: kmsKey.trim() } : {}),
+            },
+      ),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: storageKeys.bucketSetting(bucket, 'encryption'),
+      });
+      notifications.show({ color: 'green', message: t('bucketSettings.saved') });
+    },
+    onError: notifyError,
   });
   return (
     <Section
@@ -290,31 +321,118 @@ function EncryptionSection({ bucket }: { bucket: string }) {
           {t('bucketSettings.encryption.unavailable')}
         </Text>
       ) : (
-        <Group gap="sm">
-          <Badge variant="light" color={encryption.data ? 'green' : 'gray'}>
-            {encryption.data
-              ? encryption.data.algorithm === 'aws:kms'
-                ? t('bucketSettings.encryption.kms', { key: encryption.data.kmsKeyId ?? '' })
-                : t('bucketSettings.encryption.sse')
-              : t('bucketSettings.encryption.none')}
-          </Badge>
-        </Group>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            mutation.mutate();
+          }}
+        >
+          <Stack gap="xs">
+            <Group gap="sm">
+              <Text size="sm">{t('bucketSettings.encryption.current')}</Text>
+              <Badge variant="light" color={encryption.data ? 'green' : 'gray'}>
+                {encryption.data
+                  ? encryption.data.algorithm === 'aws:kms'
+                    ? t('bucketSettings.encryption.kms', { key: encryption.data.kmsKeyId ?? '' })
+                    : t('bucketSettings.encryption.sse')
+                  : t('bucketSettings.encryption.none')}
+              </Badge>
+            </Group>
+            <Group gap="sm" align="flex-end" wrap="wrap">
+              <Select
+                label={t('bucketSettings.encryption.algorithm')}
+                data={[
+                  { value: 'none', label: t('bucketSettings.encryption.none') },
+                  { value: 'AES256', label: t('bucketSettings.encryption.sse') },
+                  { value: 'aws:kms', label: t('bucketSettings.encryption.kmsOption') },
+                ]}
+                value={choice}
+                allowDeselect={false}
+                disabled={!canEdit}
+                onChange={(next) => {
+                  if (next === 'none' || next === 'AES256' || next === 'aws:kms') setChoice(next);
+                }}
+                w={220}
+              />
+              {choice === 'aws:kms' ? (
+                <TextInput
+                  label={t('bucketSettings.encryption.kmsKey')}
+                  description={t('bucketSettings.encryption.kmsKeyHint')}
+                  value={kmsKey}
+                  disabled={!canEdit}
+                  onChange={(event) => {
+                    setKmsKey(event.currentTarget.value);
+                  }}
+                  w={260}
+                />
+              ) : null}
+              <PermissionGuard allowed={canEdit} action={StorageActions.putEncryption}>
+                {(disabled) => (
+                  <Button type="submit" disabled={disabled} loading={mutation.isPending}>
+                    {t('common.save')}
+                  </Button>
+                )}
+              </PermissionGuard>
+            </Group>
+            <Text size="xs" c="dimmed">
+              {t('bucketSettings.encryption.newObjects')}
+            </Text>
+          </Stack>
+        </form>
       )}
-      <Text size="xs" c="dimmed">
-        {t('bucketSettings.encryption.comingSoon')}
-      </Text>
     </Section>
   );
 }
 
-function ObjectLockSection({ bucket }: { bucket: string }) {
+type RetentionUnit = 'days' | 'years';
+
+function ObjectLockSection({ bucket, canEdit }: { bucket: string; canEdit: boolean }) {
   const { t } = useTranslation();
   const { buckets } = useServices();
+  const queryClient = useQueryClient();
+  const notifyError = useNotifyError();
+  const details = useQuery({
+    queryKey: storageKeys.bucket(bucket),
+    queryFn: () => buckets.get(bucket),
+  });
   const lock = useQuery({
     queryKey: storageKeys.bucketSetting(bucket, 'objectlock'),
     queryFn: () => buckets.getObjectLock(bucket),
   });
+  const [mode, setMode] = useState<'none' | 'GOVERNANCE' | 'COMPLIANCE'>('none');
+  const [period, setPeriod] = useState<number | string>(30);
+  const [unit, setUnit] = useState<RetentionUnit>('days');
+  useEffect(() => {
+    const data = lock.data;
+    if (data === undefined) return;
+    setMode(data.mode ?? 'none');
+    if (data.years !== undefined && data.years > 0) {
+      setPeriod(data.years);
+      setUnit('years');
+    } else if (data.days !== undefined && data.days > 0) {
+      setPeriod(data.days);
+      setUnit('days');
+    }
+  }, [lock.data]);
+  const periodValue = typeof period === 'number' ? period : Number(period);
+  const invalid = mode !== 'none' && (!Number.isInteger(periodValue) || periodValue < 1);
+  const mutation = useMutation({
+    mutationFn: () =>
+      buckets.setObjectLock(bucket, {
+        enabled: true,
+        ...(mode === 'none' ? {} : { mode, [unit]: periodValue }),
+      }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: storageKeys.bucketSetting(bucket, 'objectlock'),
+      });
+      await queryClient.invalidateQueries({ queryKey: storageKeys.bucket(bucket) });
+      notifications.show({ color: 'green', message: t('bucketSettings.saved') });
+    },
+    onError: notifyError,
+  });
   const data = lock.data;
+  const versioned = details.data?.versioning === 'enabled';
   return (
     <Section
       title={t('bucketSettings.objectLock.title')}
@@ -327,44 +445,105 @@ function ObjectLockSection({ bucket }: { bucket: string }) {
           {t('bucketSettings.objectLock.unavailable')}
         </Text>
       ) : (
-        <Table variant="vertical" layout="fixed" withTableBorder={false} maw={480}>
-          <Table.Tbody>
-            <Table.Tr>
-              <Table.Th w={180}>{t('bucketSettings.objectLock.status')}</Table.Th>
-              <Table.Td>
-                <Badge variant="light" color={data.enabled ? 'green' : 'gray'}>
-                  {data.enabled
-                    ? t('bucketSettings.objectLock.enabled')
-                    : t('bucketSettings.objectLock.disabled')}
-                </Badge>
-              </Table.Td>
-            </Table.Tr>
-            {data.enabled ? (
-              <>
-                <Table.Tr>
-                  <Table.Th>{t('bucketSettings.objectLock.mode')}</Table.Th>
-                  <Table.Td>{data.mode ?? t('bucketSettings.objectLock.noDefault')}</Table.Td>
-                </Table.Tr>
-                <Table.Tr>
-                  <Table.Th>{t('bucketSettings.objectLock.retention')}</Table.Th>
-                  <Table.Td>
-                    {data.days !== undefined && data.days > 0
-                      ? t('bucketSettings.objectLock.days', { n: data.days })
-                      : data.years !== undefined && data.years > 0
-                        ? t('bucketSettings.objectLock.years', { n: data.years })
-                        : t('bucketSettings.objectLock.noDefault')}
-                  </Table.Td>
-                </Table.Tr>
-              </>
-            ) : null}
-          </Table.Tbody>
-        </Table>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!invalid) mutation.mutate();
+          }}
+        >
+          <Stack gap="xs">
+            <Group gap="sm">
+              <Text size="sm">{t('bucketSettings.objectLock.status')}</Text>
+              <Badge variant="light" color={data.enabled ? 'green' : 'gray'}>
+                {data.enabled
+                  ? t('bucketSettings.objectLock.enabled')
+                  : t('bucketSettings.objectLock.disabled')}
+              </Badge>
+              {data.enabled ? (
+                <Text size="sm" c="dimmed">
+                  {data.mode === undefined
+                    ? t('bucketSettings.objectLock.noDefault')
+                    : `${data.mode} · ${
+                        data.years !== undefined && data.years > 0
+                          ? t('bucketSettings.objectLock.years', { n: data.years })
+                          : t('bucketSettings.objectLock.days', { n: data.days ?? 0 })
+                      }`}
+                </Text>
+              ) : null}
+            </Group>
+            <Group gap="sm" align="flex-end" wrap="wrap">
+              <Select
+                label={t('bucketSettings.objectLock.mode')}
+                data={[
+                  { value: 'none', label: t('bucketSettings.objectLock.noDefault') },
+                  { value: 'GOVERNANCE', label: 'GOVERNANCE' },
+                  { value: 'COMPLIANCE', label: 'COMPLIANCE' },
+                ]}
+                value={mode}
+                allowDeselect={false}
+                disabled={!canEdit}
+                onChange={(next) => {
+                  if (next === 'none' || next === 'GOVERNANCE' || next === 'COMPLIANCE') {
+                    setMode(next);
+                  }
+                }}
+                w={180}
+              />
+              {mode !== 'none' ? (
+                <>
+                  <NumberInput
+                    label={t('bucketSettings.objectLock.retention')}
+                    min={1}
+                    allowDecimal={false}
+                    allowNegative={false}
+                    value={period}
+                    onChange={setPeriod}
+                    disabled={!canEdit}
+                    error={invalid ? t('bucketSettings.objectLock.periodInvalid') : undefined}
+                    w={140}
+                  />
+                  <Select
+                    aria-label={t('bucketSettings.objectLock.unit')}
+                    data={[
+                      { value: 'days', label: t('bucketSettings.objectLock.unitDays') },
+                      { value: 'years', label: t('bucketSettings.objectLock.unitYears') },
+                    ]}
+                    value={unit}
+                    allowDeselect={false}
+                    disabled={!canEdit}
+                    onChange={(next) => {
+                      if (next === 'days' || next === 'years') setUnit(next);
+                    }}
+                    w={120}
+                  />
+                </>
+              ) : null}
+              <PermissionGuard
+                allowed={canEdit && (data.enabled || versioned)}
+                action={StorageActions.putObjectLock}
+              >
+                {(disabled) => (
+                  <Button type="submit" disabled={disabled || invalid} loading={mutation.isPending}>
+                    {data.enabled ? t('common.save') : t('bucketSettings.objectLock.enable')}
+                  </Button>
+                )}
+              </PermissionGuard>
+            </Group>
+            <Text size="xs" c="dimmed">
+              {data.enabled
+                ? t('bucketSettings.objectLock.permanent')
+                : versioned
+                  ? t('bucketSettings.objectLock.enableHint')
+                  : t('bucketSettings.objectLock.needsVersioning')}
+            </Text>
+          </Stack>
+        </form>
       )}
     </Section>
   );
 }
 
-/** D-BKT-02: versioning, quota, tags, encryption (placeholder), object lock (read-only). */
+/** D-BKT-02: versioning, quota, tags, default encryption, object lock. */
 export function BucketSettingsTab() {
   const { bucket = '' } = useParams();
   const perms = usePermissions({ bucket });
@@ -373,8 +552,8 @@ export function BucketSettingsTab() {
       <VersioningSection bucket={bucket} canEdit={perms.can(StorageActions.putVersioning)} />
       <QuotaSection bucket={bucket} canEdit={perms.can(StorageActions.setQuota)} />
       <TagsSection bucket={bucket} canEdit={perms.can(StorageActions.putTagging)} />
-      <EncryptionSection bucket={bucket} />
-      <ObjectLockSection bucket={bucket} />
+      <EncryptionSection bucket={bucket} canEdit={perms.can(StorageActions.putEncryption)} />
+      <ObjectLockSection bucket={bucket} canEdit={perms.can(StorageActions.putObjectLock)} />
     </Stack>
   );
 }

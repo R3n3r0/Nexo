@@ -331,7 +331,9 @@ func TestPresignedRevokedSigner(t *testing.T) {
 		u := e.createUser("disabled-user", "disabled-secret", "readonly")
 		raw := link(u)
 		require.NoError(t, e.srv.IAM.SetUserStatus(ctx, u.AccessKey, domain.StatusDisabled))
-		requireS3Error(t, presignedDo(t, http.MethodGet, raw, nil, nil), http.StatusForbidden, "AccessDenied")
+		// Disabled credentials are no valid credentials, as AWS answers for
+		// an inactive key (never AccessDenied, the denial of valid ones).
+		requireS3Error(t, presignedDo(t, http.MethodGet, raw, nil, nil), http.StatusForbidden, "InvalidAccessKeyId")
 		require.NoError(t, e.srv.IAM.SetUserStatus(ctx, u.AccessKey, domain.StatusEnabled))
 		assert.Equal(t, http.StatusOK, presignedDo(t, http.MethodGet, raw, nil, nil).StatusCode, "re-enabled")
 	})

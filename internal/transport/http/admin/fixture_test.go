@@ -26,7 +26,6 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/auth"
 	bucketmock "github.com/r3n3r0/nexo/internal/service/bucket/mock"
 	iammock "github.com/r3n3r0/nexo/internal/service/iam/mock"
-	objectmock "github.com/r3n3r0/nexo/internal/service/object/mock"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	policymock "github.com/r3n3r0/nexo/internal/service/policy/mock"
 	"github.com/r3n3r0/nexo/internal/service/session"
@@ -61,36 +60,28 @@ type fixture struct {
 	buckets    *adminmock.BucketManager
 	bucketSvc  *bucketmock.Service
 	browser    *adminmock.ObjectBrowser
-	objects    *objectmock.Service
+	uploads    *adminmock.UploadManager
 	shares     *adminmock.ShareManager
 	identities *adminmock.IdentityManager
 	accessKeys *adminmock.AccessKeyManager
 	policies   *adminmock.PolicyManager
 	policy     *policymock.Service
 	config     *adminmock.ConfigManager
+	sessions   session.Service
 
 	mu     sync.Mutex
 	deny   bool
 	checks []adminsvc.AuthorizeInput
 }
 
-// fixtureOptions customizes the object routes.
-type fixtureOptions struct {
-	objectOpts []admin.ObjectOption
-}
-
-func newFixture(t *testing.T, opts ...func(*fixtureOptions)) *fixture {
+func newFixture(t *testing.T) *fixture {
 	t.Helper()
-	var fo fixtureOptions
-	for _, o := range opts {
-		o(&fo)
-	}
 	clk := clock.NewFake(time.Now().UTC().Truncate(time.Second))
 	f := &fixture{
 		t: t, clk: clk,
 		iam: iammock.NewService(t), authz: adminmock.NewAuthorizer(t), adm: adminmock.NewService(t),
 		buckets: adminmock.NewBucketManager(t), bucketSvc: bucketmock.NewService(t), browser: adminmock.NewObjectBrowser(t),
-		objects: objectmock.NewService(t), shares: adminmock.NewShareManager(t), identities: adminmock.NewIdentityManager(t),
+		uploads: adminmock.NewUploadManager(t), shares: adminmock.NewShareManager(t), identities: adminmock.NewIdentityManager(t),
 		accessKeys: adminmock.NewAccessKeyManager(t), policies: adminmock.NewPolicyManager(t), policy: policymock.NewService(t),
 		config: adminmock.NewConfigManager(t), catalog: adminsvc.CatalogActions(),
 	}
@@ -119,6 +110,7 @@ func newFixture(t *testing.T, opts ...func(*fixtureOptions)) *fixture {
 	enc := httpx.New()
 	sessions, err := session.New(session.Deps{IAM: f.iam, Clock: clk}, session.WithTTL(time.Hour))
 	require.NoError(t, err)
+	f.sessions = sessions
 	authDeps := auth.Deps{Creds: f.iam, Clock: clk}
 	verifier, err := auth.NewVerifier(authDeps, auth.WithRegion(region))
 	require.NoError(t, err)
@@ -136,7 +128,7 @@ func newFixture(t *testing.T, opts ...func(*fixtureOptions)) *fixture {
 	require.NoError(t, err)
 	bucketRoutes, err := admin.NewBucketRoutes(admin.BucketDeps{Manager: f.buckets, Buckets: f.bucketSvc, Authz: f.authz, Enc: enc})
 	require.NoError(t, err)
-	objectRoutes, err := admin.NewObjectRoutes(admin.ObjectDeps{Browser: f.browser, Objects: f.objects, Authz: f.authz, Enc: enc}, fo.objectOpts...)
+	objectRoutes, err := admin.NewObjectRoutes(admin.ObjectDeps{Browser: f.browser, Uploads: f.uploads, Authz: f.authz, Enc: enc})
 	require.NoError(t, err)
 	shareRoutes, err := admin.NewShareRoutes(admin.ShareDeps{Shares: f.shares, Authz: f.authz, Enc: enc})
 	require.NoError(t, err)

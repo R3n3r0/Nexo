@@ -16,9 +16,10 @@ import (
 
 // UserDeps are the dependencies of the user, group and access key routes.
 type UserDeps struct {
-	// IAM serves the reads and the deletions (required).
+	// IAM serves the reads and the group deletions (required).
 	IAM iam.Service
-	// Identities creates and updates users and groups (required).
+	// Identities creates, updates and deletes users and creates and
+	// updates groups (required).
 	Identities adminsvc.IdentityManager
 	// AccessKeys manages the service accounts on behalf of the caller
 	// (required).
@@ -28,6 +29,10 @@ type UserDeps struct {
 	Enc   httpx.Codec
 }
 
+// UserOption configures the user routes (none yet: the type keeps the
+// constructor shape of every route group, docs/12 §12.3).
+type UserOption func(*userRoutes)
+
 type userRoutes struct {
 	deps  UserDeps
 	guard guard
@@ -36,14 +41,18 @@ type userRoutes struct {
 var _ UserRoutes = (*userRoutes)(nil)
 
 // NewUserRoutes returns the user, group and access-key routes.
-func NewUserRoutes(deps UserDeps) (UserRoutes, error) {
+func NewUserRoutes(deps UserDeps, opts ...UserOption) (UserRoutes, error) {
 	if deps.IAM == nil || deps.Identities == nil || deps.AccessKeys == nil || deps.Authz == nil {
 		return nil, fmt.Errorf("%w: user routes require the IAM service, the identity and access key managers and the authorizer", domain.ErrInvalidArgument)
 	}
 	if deps.Enc == nil {
 		deps.Enc = httpx.New()
 	}
-	return &userRoutes{deps: deps, guard: guard{authz: deps.Authz, enc: deps.Enc}}, nil
+	h := &userRoutes{deps: deps, guard: guard{authz: deps.Authz, enc: deps.Enc}}
+	for _, o := range opts {
+		o(h)
+	}
+	return h, nil
 }
 
 // Register implements Routes.
@@ -58,7 +67,7 @@ func (h *userRoutes) routes() []route {
 		{http.MethodGet, "/users/{user}", global(policy.ActionAdminGetUser), h.getUser},
 		{http.MethodPut, "/users/{user}", byService(policy.ActionAdminCreateUser, policy.ActionAdminEnableUser, policy.ActionAdminDisableUser,
 			policy.ActionAdminAttachUserOrGroupPolicy, policy.ActionAdminAddUserToGroup, policy.ActionAdminRemoveUserFromGroup, policy.ActionAdminGetUser), h.updateUser},
-		{http.MethodDelete, "/users/{user}", global(policy.ActionAdminDeleteUser), h.deleteUser},
+		{http.MethodDelete, "/users/{user}", byService(policy.ActionAdminDeleteUser), h.deleteUser},
 
 		{http.MethodGet, "/groups", global(policy.ActionAdminListGroups), h.listGroups},
 		{http.MethodPost, "/groups", byService(policy.ActionAdminAddUserToGroup, policy.ActionAdminAttachUserOrGroupPolicy), h.createGroup},
@@ -141,15 +150,14 @@ func (h *userRoutes) listUsers(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	users, err := h.deps.IAM.ListUsers(r.Context())
+	users, err := h.deps.Identities.ListUsers(r.Context(), p)
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	items, next := paginate(users, func(u iam.User) string { return u.AccessKey }, p)
-	out := UserListResponse{Items: make([]UserResponse, 0, len(items)), NextCursor: next}
-	for i := range items {
-		out.Items = append(out.Items, newUserResponse(&items[i]))
+	out := UserListResponse{Items: make([]UserResponse, 0, len(users.Items)), NextCursor: users.NextCursor}
+	for i := range users.Items {
+		out.Items = append(out.Items, newUserResponse(&users.Items[i]))
 	}
 	h.deps.Enc.WriteJSON(w, http.StatusOK, out)
 }
@@ -176,7 +184,12 @@ func (h *userRoutes) createUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *userRoutes) getUser(w http.ResponseWriter, r *http.Request) {
-	u, err := h.deps.IAM.GetUser(r.Context(), chi.URLParam(r, "user"))
+	name, err := pathParam(r, "user")
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	u, err := h.deps.IAM.GetUser(r.Context(), name)
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -185,12 +198,17 @@ func (h *userRoutes) getUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *userRoutes) updateUser(w http.ResponseWriter, r *http.Request) {
+	name, err := pathParam(r, "user")
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
 	var in UpdateUserRequest
 	if err := decodeJSON(h.deps.Enc, r, &in, false); err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	upd := adminsvc.UpdateUserInput{Requester: requesterOf(r), AccessKey: chi.URLParam(r, "user"), SecretKey: in.SecretKey, PolicyNames: in.PolicyNames, Groups: in.Groups}
+	upd := adminsvc.UpdateUserInput{Requester: requesterOf(r), AccessKey: name, SecretKey: in.SecretKey, PolicyNames: in.PolicyNames, Groups: in.Groups}
 	if in.Status != nil {
 		status, err := domain.ParseCredentialStatus(*in.Status)
 		if err != nil {
@@ -208,7 +226,12 @@ func (h *userRoutes) updateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *userRoutes) deleteUser(w http.ResponseWriter, r *http.Request) {
-	if err := h.deps.IAM.DeleteUser(r.Context(), chi.URLParam(r, "user")); err != nil {
+	name, err := pathParam(r, "user")
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if err := h.deps.Identities.DeleteUser(r.Context(), requesterOf(r), name); err != nil {
 		h.fail(w, r, err)
 		return
 	}

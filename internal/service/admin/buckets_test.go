@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -65,9 +66,35 @@ func TestBucketManagerList(t *testing.T) {
 		e.buckets.EXPECT().IsPublic(mock.Anything, "team").Return(false, fmt.Errorf("x: %w", domain.ErrPolicyNotFound))
 		got, err := e.mgr.List(ctx, admin.ListBucketsInput{Requester: req("bob")})
 		require.NoError(t, err)
-		require.Len(t, got, 1)
-		assert.Equal(t, "team", got[0].Info.Name)
-		assert.False(t, got[0].Public)
+		require.Len(t, got.Items, 1)
+		assert.Equal(t, "team", got.Items[0].Info.Name)
+		assert.False(t, got.Items[0].Public)
+		assert.Empty(t, got.NextCursor)
+	})
+	// Regression: a bucket listed in part (home directory) disclosed its
+	// usage, tags, quota and public flag.
+	t.Run("a bucket listed in part shows only its name", func(t *testing.T) {
+		e := newBucketEnv(t, allowing(t, func(in admin.AuthorizeInput) bool {
+			return in.Actions[0] == policy.ActionListBucket && (in.Bucket == "whole" || in.Partial)
+		}))
+		home := domain.BucketInfo{Bucket: domain.Bucket{Name: "home", Region: "r1"}, Versioning: domain.VersioningEnabled, Objects: 9, Size: 99, QuotaBytes: 5, Tags: map[string]string{"k": "v"}}
+		whole := domain.BucketInfo{Bucket: domain.Bucket{Name: "whole"}, Objects: 1}
+		e.buckets.EXPECT().List(mock.Anything, bucket.ListInput{WithUsage: true}).Return([]domain.BucketInfo{home, whole}, nil)
+		e.buckets.EXPECT().IsPublic(mock.Anything, "whole").Return(true, nil)
+		got, err := e.mgr.List(ctx, admin.ListBucketsInput{Requester: req("carol")})
+		require.NoError(t, err)
+		require.Len(t, got.Items, 2)
+		assert.Equal(t, admin.BucketSummary{Info: domain.BucketInfo{Bucket: home.Bucket}, Partial: true}, got.Items[0])
+		assert.Equal(t, admin.BucketSummary{Info: whole, Public: true}, got.Items[1])
+	})
+	t.Run("s3:ListAllMyBuckets alone shows the names", func(t *testing.T) {
+		e := newBucketEnv(t, allowing(t, func(in admin.AuthorizeInput) bool { return in.Actions[0] == policy.ActionListAllMyBuckets }))
+		e.buckets.EXPECT().List(mock.Anything, bucket.ListInput{WithUsage: true}).Return([]domain.BucketInfo{{Bucket: domain.Bucket{Name: "b"}, Objects: 3}}, nil)
+		got, err := e.mgr.List(ctx, admin.ListBucketsInput{Requester: req("bob")})
+		require.NoError(t, err)
+		require.Len(t, got.Items, 1)
+		assert.True(t, got.Items[0].Partial)
+		assert.Zero(t, got.Items[0].Info.Objects)
 	})
 	t.Run("every bucket with s3:ListAllMyBuckets", func(t *testing.T) {
 		e := newBucketEnv(t, allowAll(t))
@@ -76,23 +103,83 @@ func TestBucketManagerList(t *testing.T) {
 		e.buckets.EXPECT().IsPublic(mock.Anything, "tb").Return(false, errDown)
 		got, err := e.mgr.List(ctx, admin.ListBucketsInput{Requester: req("bob"), Prefix: "t"})
 		require.NoError(t, err)
-		require.Len(t, got, 2)
-		assert.True(t, got[0].Public)
-		assert.False(t, got[1].Public, "a failure is not public")
+		require.Len(t, got.Items, 2)
+		assert.True(t, got.Items[0].Public)
+		assert.False(t, got.Items[1].Public, "a failure is not public")
+	})
+	// covers: docs/12 §12.3 (the service selects the page; regression: the
+	// handler sorted and paginated the whole list)
+	t.Run("pages by name, authorizing only what it serves", func(t *testing.T) {
+		var asked []string
+		e := newBucketEnv(t, allowing(t, func(in admin.AuthorizeInput) bool {
+			if in.Actions[0] == policy.ActionListAllMyBuckets {
+				return false
+			}
+			if !in.Partial {
+				asked = append(asked, in.Bucket)
+			}
+			return in.Bucket != "b"
+		}))
+		e.buckets.EXPECT().List(mock.Anything, bucket.ListInput{WithUsage: true}).Return([]domain.BucketInfo{info("d"), info("a"), info("c"), info("b"), info("e")}, nil).Twice()
+		e.buckets.EXPECT().IsPublic(mock.Anything, mock.Anything).Return(false, nil)
+		got, err := e.mgr.List(ctx, admin.ListBucketsInput{Requester: req("bob"), Page: admin.Page{Limit: 2}})
+		require.NoError(t, err)
+		require.Len(t, got.Items, 2)
+		assert.Equal(t, []string{"a", "c"}, []string{got.Items[0].Info.Name, got.Items[1].Info.Name}, "b is not visible")
+		require.NotEmpty(t, got.NextCursor)
+		assert.Equal(t, []string{"a", "b", "c", "d"}, asked, "one bucket past the page tells that more follow")
+		got, err = e.mgr.List(ctx, admin.ListBucketsInput{Requester: req("bob"), Page: admin.Page{Cursor: got.NextCursor, Limit: 2}})
+		require.NoError(t, err)
+		require.Len(t, got.Items, 2)
+		assert.Equal(t, []string{"d", "e"}, []string{got.Items[0].Info.Name, got.Items[1].Info.Name})
+		assert.Empty(t, got.NextCursor)
+	})
+	t.Run("invalid page", func(t *testing.T) {
+		e := newBucketEnv(t, allowAll(t))
+		for _, p := range []admin.Page{{Limit: -1}, {Limit: admin.MaxPageLimit + 1}, {Cursor: "%%%"}} {
+			_, err := e.mgr.List(ctx, admin.ListBucketsInput{Requester: req("bob"), Page: p})
+			assert.ErrorIs(t, err, domain.ErrInvalidArgument, "%+v", p)
+		}
 	})
 }
 
 func TestBucketManagerGet(t *testing.T) {
-	e := newBucketEnv(t, allowAll(t))
-	b := info("photos")
-	e.buckets.EXPECT().Get(mock.Anything, "photos").Return(&b, nil)
-	e.objects.EXPECT().DataUsage(mock.Anything, "photos").Return([]domain.BucketInfo{{Objects: 3, Size: 30, Versions: 1}}, nil)
-	e.buckets.EXPECT().IsPublic(mock.Anything, "photos").Return(true, nil)
-	got, err := e.mgr.Get(context.Background(), "photos")
-	require.NoError(t, err)
-	assert.Equal(t, uint64(3), got.Info.Objects)
-	assert.Equal(t, uint64(30), got.Info.Size)
-	assert.True(t, got.Public)
+	ctx := context.Background()
+	t.Run("whole bucket", func(t *testing.T) {
+		var asked []admin.AuthorizeInput
+		e := newBucketEnv(t, allowing(t, func(in admin.AuthorizeInput) bool { asked = append(asked, in); return true }))
+		b := info("photos")
+		e.buckets.EXPECT().Get(mock.Anything, "photos").Return(&b, nil)
+		e.objects.EXPECT().DataUsage(mock.Anything, "photos").Return([]domain.BucketInfo{{Objects: 3, Size: 30, Versions: 1}}, nil)
+		e.buckets.EXPECT().IsPublic(mock.Anything, "photos").Return(true, nil)
+		got, err := e.mgr.Get(ctx, req("bob"), "photos")
+		require.NoError(t, err)
+		assert.Equal(t, uint64(3), got.Info.Objects)
+		assert.Equal(t, uint64(30), got.Info.Size)
+		assert.True(t, got.Public)
+		assert.False(t, got.Partial)
+		require.Len(t, asked, 1)
+		assert.Equal(t, admin.AuthorizeInput{Requester: req("bob"), Actions: []policy.Action{policy.ActionListBucket}, Bucket: "photos"}, asked[0],
+			"the whole bucket: no partial authorization")
+	})
+	// Regression: GET /buckets/{bucket} answered a home directory user with
+	// the usage, tags, quota and public flag of the whole bucket.
+	t.Run("listed in part: name, creation date and region only", func(t *testing.T) {
+		e := newBucketEnv(t, allowing(t, func(in admin.AuthorizeInput) bool { return in.Partial }))
+		created := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+		b := domain.BucketInfo{Bucket: domain.Bucket{Name: "bkt", Created: created, Region: "eu"}, Versioning: domain.VersioningEnabled,
+			ObjectLockEnabled: true, Objects: 7, Versions: 2, DeleteMarkers: 1, Size: 70, QuotaBytes: 100, Tags: map[string]string{"team": "x"}}
+		e.buckets.EXPECT().Get(mock.Anything, "bkt").Return(&b, nil)
+		got, err := e.mgr.Get(ctx, req("carol"), "bkt")
+		require.NoError(t, err)
+		assert.Equal(t, &admin.BucketSummary{Info: domain.BucketInfo{Bucket: domain.Bucket{Name: "bkt", Created: created, Region: "eu"}}, Partial: true}, got)
+	})
+	t.Run("missing bucket", func(t *testing.T) {
+		e := newBucketEnv(t, allowing(t, func(in admin.AuthorizeInput) bool { return in.Partial }))
+		e.buckets.EXPECT().Get(mock.Anything, "nope").Return(nil, fmt.Errorf("x: %w", domain.ErrBucketNotFound))
+		_, err := e.mgr.Get(ctx, req("carol"), "nope")
+		assert.ErrorIs(t, err, domain.ErrBucketNotFound)
+	})
 }
 
 func TestBucketManagerCreate(t *testing.T) {

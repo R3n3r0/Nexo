@@ -110,12 +110,41 @@ func newAdminConfigSetCmd(e *env) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("config %q: %w", args[1], err)
 			}
+			for _, k := range e.unappliedKeys(cmd, client, args[1], settings) {
+				e.out.Warn(fmt.Sprintf("%s.%s is stored but not applied yet by the server", args[1], k))
+			}
 			if e.out.JSON() {
 				return e.printConfig(alias, s)
 			}
 			return e.out.Info(nil, fmt.Sprintf("Updated %s: %s.", args[1], strings.Join(cli.SortedKeys(settings), ", ")))
 		},
 	}
+}
+
+// unappliedKeys returns the keys of settings that the server stores but
+// does not apply yet (ConfigKey.Applied), sorted; the schema is best
+// effort: when it cannot be read nothing is reported.
+func (e *env) unappliedKeys(cmd *cobra.Command, client cli.AdminClient, subsystem string, settings map[string]string) []string {
+	schema, err := client.ConfigSchema(cmd.Context())
+	if err != nil {
+		return nil
+	}
+	applied := map[string]bool{}
+	for _, s := range schema {
+		if s.Name != subsystem {
+			continue
+		}
+		for _, k := range s.Keys {
+			applied[k.Name] = k.Applied
+		}
+	}
+	var out []string
+	for _, k := range cli.SortedKeys(settings) {
+		if a, known := applied[k]; known && !a {
+			out = append(out, k)
+		}
+	}
+	return out
 }
 
 func newAdminConfigResetCmd(e *env) *cobra.Command {

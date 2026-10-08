@@ -123,7 +123,7 @@ anything else is a local path.`,
 		newFindCmd(e), newDuCmd(e), newTreeCmd(e), newDiffCmd(e),
 	)
 	add(groupSharing, newShareCmd(e), newPresignCmd(e), newAnonymousCmd(e))
-	add(groupSettings, newVersionCmd(e), newTagCmd(e))
+	add(groupSettings, newVersionCmd(e), newTagCmd(e), newQuotaCmd(e), newEncryptCmd(e))
 	add(groupAdmin, newAdminCmd(e))
 	add(groupConfig, newAliasCmd(e))
 	root.SetCompletionCommandGroupID(groupConfig)

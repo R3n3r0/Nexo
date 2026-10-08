@@ -88,7 +88,7 @@ describe('createHttpClient', () => {
     expect(err.isNetwork).toBe(true);
   });
 
-  it('sends the CSRF token from the cookie on mutating requests only', async () => {
+  it('sends the in-memory CSRF token on mutating requests only, never a cookie value', async () => {
     const seen: Record<string, string | null> = {};
     server.use(
       http.post(api('/buckets'), ({ request }) => {
@@ -100,26 +100,23 @@ describe('createHttpClient', () => {
         return HttpResponse.json([]);
       }),
     );
+    // A readable cookie of an older server is ignored.
     document.cookie = 'nexo_csrf=cookie-token; Path=/';
-    const client = createHttpClient({ baseUrl });
-    await client.request('/buckets', { method: 'POST', body: { name: 'b' } });
-    await client.request('/buckets');
-    expect(seen.post).toBe('cookie-token');
-    expect(seen.get).toBeNull();
-  });
-
-  it('uses the in-memory token when the cookie is not readable', async () => {
-    let header: string | null = null;
-    server.use(
-      http.post(api('/buckets'), ({ request }) => {
-        header = request.headers.get('x-csrf-token');
-        return HttpResponse.json({ name: 'b' }, { status: 201 });
-      }),
-    );
-    const client = createHttpClient({ baseUrl, readCookie: () => undefined });
-    client.setCsrfToken('memory-token');
-    await client.request('/buckets', { method: 'POST', body: { name: 'b' } });
-    expect(header).toBe('memory-token');
+    try {
+      const client = createHttpClient({ baseUrl });
+      await client.request('/buckets', { method: 'POST', body: { name: 'b' } });
+      expect(seen.post).toBeNull();
+      client.setCsrfToken('memory-token');
+      await client.request('/buckets', { method: 'POST', body: { name: 'b' } });
+      await client.request('/buckets');
+      expect(seen.post).toBe('memory-token');
+      expect(seen.get).toBeNull();
+      client.setCsrfToken(undefined);
+      await client.request('/buckets', { method: 'POST', body: { name: 'b' } });
+      expect(seen.post).toBeNull();
+    } finally {
+      document.cookie = 'nexo_csrf=; Max-Age=0; Path=/';
+    }
   });
 
   it('raises onUnauthorized on 401 unless the request opts out', async () => {

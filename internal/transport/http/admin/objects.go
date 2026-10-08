@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -14,38 +15,24 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	adminsvc "github.com/r3n3r0/nexo/internal/service/admin"
-	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
-)
-
-// Upload limits of the console (the console proxies the uploads: it never
-// holds the secret key of the user).
-const (
-	// DefaultMaxUploadSize is the default limit of a single-request upload
-	// (POST /buckets/{bucket}/objects/upload): larger files go multipart.
-	DefaultMaxUploadSize = 64 << 20
-	// DefaultMaxPartSize is the default limit of a proxied part.
-	DefaultMaxPartSize = 64 << 20
-	// minPartSize is the S3 minimum size of every part but the last.
-	minPartSize = 5 << 20
-	// maxParts is the S3 maximum number of parts.
-	maxParts = 10000
-	// recommendedPartSize is the part size suggested to the console.
-	recommendedPartSize = 16 << 20
 )
 
 // previewCSP confines the inline previews: no script, no plugin, no
 // navigation, only the document itself.
 const previewCSP = "default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'; sandbox"
 
+// errorsIsNotModified reports a failed If-None-Match / If-Modified-Since.
+func errorsIsNotModified(err error) bool { return errors.Is(err, domain.ErrNotModified) }
+
 // ObjectDeps are the dependencies of the object routes.
 type ObjectDeps struct {
 	// Browser implements the object browser operations (required).
 	Browser adminsvc.ObjectBrowser
-	// Objects serves the proxied uploads (required).
-	Objects object.Service
+	// Uploads serves the proxied uploads, single and multipart (required).
+	Uploads adminsvc.UploadManager
 	// Authz authorizes the routes (required).
 	Authz  adminsvc.Authorizer
 	Enc    httpx.Codec
@@ -55,39 +42,17 @@ type ObjectDeps struct {
 // ObjectOption configures the object routes.
 type ObjectOption func(*objectRoutes)
 
-// WithMaxUploadSize sets the limit of a single-request upload (default
-// 64 MiB).
-func WithMaxUploadSize(n int64) ObjectOption {
-	return func(h *objectRoutes) {
-		if n > 0 {
-			h.maxUpload = n
-		}
-	}
-}
-
-// WithMaxPartSize sets the limit of a proxied multipart part (default
-// 64 MiB, at least 5 MiB).
-func WithMaxPartSize(n int64) ObjectOption {
-	return func(h *objectRoutes) {
-		if n >= minPartSize {
-			h.maxPart = n
-		}
-	}
-}
-
 type objectRoutes struct {
-	deps      ObjectDeps
-	guard     guard
-	maxUpload int64
-	maxPart   int64
+	deps  ObjectDeps
+	guard guard
 }
 
 var _ ObjectRoutes = (*objectRoutes)(nil)
 
 // NewObjectRoutes returns the object browser routes.
 func NewObjectRoutes(deps ObjectDeps, opts ...ObjectOption) (ObjectRoutes, error) {
-	if deps.Browser == nil || deps.Objects == nil || deps.Authz == nil {
-		return nil, fmt.Errorf("%w: object routes require the object browser, the object layer and the authorizer", domain.ErrInvalidArgument)
+	if deps.Browser == nil || deps.Uploads == nil || deps.Authz == nil {
+		return nil, fmt.Errorf("%w: object routes require the object browser, the upload manager and the authorizer", domain.ErrInvalidArgument)
 	}
 	if deps.Enc == nil {
 		deps.Enc = httpx.New()
@@ -95,7 +60,7 @@ func NewObjectRoutes(deps ObjectDeps, opts ...ObjectOption) (ObjectRoutes, error
 	if deps.Logger == nil {
 		deps.Logger = slog.Default()
 	}
-	h := &objectRoutes{deps: deps, guard: guard{authz: deps.Authz, enc: deps.Enc}, maxUpload: DefaultMaxUploadSize, maxPart: DefaultMaxPartSize}
+	h := &objectRoutes{deps: deps, guard: guard{authz: deps.Authz, enc: deps.Enc}}
 	for _, o := range opts {
 		o(h)
 	}
@@ -114,10 +79,11 @@ func (h *objectRoutes) routes() []route {
 		{http.MethodGet, "/buckets/{bucket}/objects/versions", onBucket(policy.ActionListBucketVersions).when(prefixConditions("key")), h.versions},
 		{http.MethodPost, "/buckets/{bucket}/objects/folder", byService(policy.ActionPutObject), h.folder},
 		{http.MethodPost, "/buckets/{bucket}/objects/rename", byService(policy.ActionGetObject, policy.ActionPutObject, policy.ActionDeleteObject, policy.ActionListBucket), h.rename},
+		{http.MethodPost, "/buckets/{bucket}/objects/restore", byService(policy.ActionGetObjectVersion, policy.ActionPutObject), h.restore},
 		{http.MethodPut, "/buckets/{bucket}/objects/tags", onObject(policy.ActionPutObjectTagging).orVersion(policy.ActionPutObjectVersionTagging), h.putTags},
 		{http.MethodGet, "/buckets/{bucket}/objects/download", read, h.download},
 		{http.MethodGet, "/buckets/{bucket}/objects/preview", read, h.preview},
-		{http.MethodPost, "/buckets/{bucket}/objects/download-zip", byService(policy.ActionGetObject, policy.ActionListBucket), h.zip},
+		{http.MethodPost, zipDownloadPattern, byService(policy.ActionGetObject, policy.ActionListBucket), h.zip},
 		{http.MethodPost, "/buckets/{bucket}/objects/upload", onObject(policy.ActionPutObject), h.upload},
 
 		{http.MethodGet, "/buckets/{bucket}/uploads", onBucket(policy.ActionListMultipart).when(prefixConditions("prefix")), h.listUploads},
@@ -293,6 +259,20 @@ func (h *objectRoutes) folder(w http.ResponseWriter, r *http.Request) {
 	h.deps.Enc.WriteJSON(w, http.StatusCreated, newObjectResponse(info))
 }
 
+// restore is POST /buckets/{bucket}/objects/restore?key=&versionId=: the
+// version becomes the latest again (a copy onto its own key).
+func (h *objectRoutes) restore(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	info, err := h.deps.Browser.RestoreVersion(r.Context(), adminsvc.RestoreVersionInput{
+		Requester: requesterOf(r), Bucket: bucketName(r), Key: q.Get("key"), VersionID: q.Get("versionId"),
+	})
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	h.deps.Enc.WriteJSON(w, http.StatusCreated, newObjectResponse(info))
+}
+
 // ObjectRefRequest names an object or one of its versions.
 type ObjectRefRequest struct {
 	Key       string `json:"key"`
@@ -303,7 +283,7 @@ type ObjectRefRequest struct {
 // /buckets/{bucket}/objects.
 type DeleteObjectsRequest struct {
 	Objects []ObjectRefRequest `json:"objects,omitempty"`
-	// Prefixes are deleted recursively.
+	// Prefixes are folders deleted recursively ("photos" is "photos/").
 	Prefixes []string `json:"prefixes,omitempty"`
 	// AllVersions deletes every version under the prefixes permanently.
 	AllVersions bool `json:"allVersions,omitempty"`
@@ -368,7 +348,8 @@ func (h *objectRoutes) remove(w http.ResponseWriter, r *http.Request) {
 type RenameRequest struct {
 	Source      string `json:"source"`
 	Destination string `json:"destination"`
-	// Prefix moves every object under Source.
+	// Prefix moves every object of the folder Source to the folder
+	// Destination ("photos" is "photos/").
 	Prefix bool `json:"prefix,omitempty"`
 	// Overwrite replaces existing destination objects.
 	Overwrite bool `json:"overwrite,omitempty"`
@@ -508,6 +489,10 @@ type ZipRequest struct {
 	// Base is the folder the archive names are relative to.
 	Base string `json:"base,omitempty"`
 }
+
+// zipDownloadPattern is the route of the zip archives: the only route
+// that accepts the CSRF token in a form field (see formTokenRoute).
+const zipDownloadPattern = "/buckets/{bucket}/objects/download-zip"
 
 // Fields of a download-zip form.
 const (

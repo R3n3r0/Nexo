@@ -57,6 +57,7 @@ import type {
   SetAccessInput,
   Share,
   ShareFilter,
+  ShareLinkList,
   SimulateInput,
   Simulation,
   TagSet,
@@ -108,8 +109,18 @@ export interface BucketService {
   /** Replaces the tags; an empty set removes them. */
   setTags(name: string, tags: TagSet): Promise<TagSet>;
   getObjectLock(name: string): Promise<BucketObjectLock>;
+  /**
+   * Enables object lock (versioned buckets only; it cannot be disabled)
+   * with its default retention: mode and days or years, or none.
+   */
+  setObjectLock(name: string, config: BucketObjectLock): Promise<BucketObjectLock>;
   /** Default encryption; null when the bucket has none. */
   getEncryption(name: string): Promise<BucketEncryption | null>;
+  /** Sets the default encryption, or removes it with null. */
+  setEncryption(
+    name: string,
+    encryption: BucketEncryption | null,
+  ): Promise<BucketEncryption | null>;
   /** The bucket policy as JSON text; null when the bucket has none. */
   getPolicy(name: string): Promise<string | null>;
   /**
@@ -139,6 +150,11 @@ export interface ObjectService {
   /** Moves an object or a prefix (copy then delete). */
   rename(bucket: string, input: RenameInput): Promise<RenameResult>;
   setTags(bucket: string, key: string, tags: TagSet, versionId?: string): Promise<TagSet>;
+  /**
+   * Makes a previous version the latest again (a copy of the version onto
+   * its key, the history is kept); resolves to the new latest version.
+   */
+  restoreVersion(bucket: string, key: string, versionId: string): Promise<ObjectEntry>;
   /** URL that downloads the object as an attachment (session cookie). */
   downloadUrl(bucket: string, key: string, versionId?: string): string;
   /** URL that renders a safe preview inline (others are served as attachments). */
@@ -234,6 +250,11 @@ export interface ShareService {
   get(id: string): Promise<Share>;
   /** Creates a revocable link signed by a dedicated service account. */
   create(input: CreateShareInput): Promise<Share>;
+  /**
+   * One download link per object of a prefix download share, a page at a
+   * time: every link is signed by the share and revoked with it.
+   */
+  links(id: string, query?: PageQuery): Promise<ShareLinkList>;
   /** Revokes a link with immediate effect. */
   revoke(id: string): Promise<void>;
   /** Revokes every link of an owner (the caller by default); resolves to the count. */

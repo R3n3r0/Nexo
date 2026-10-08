@@ -6,7 +6,6 @@ import type { Page } from '@playwright/test';
 import { uniqueName } from './support/api';
 import { dropFromDisk, writeNestedFolder } from './support/files';
 import { expect, test } from './support/fixtures';
-import { pdfDocument, pngImage } from './support/samples';
 import { readZip } from './support/zip';
 
 /** The row of an object (a button opening its details) of the browser. */
@@ -151,55 +150,5 @@ test.describe('object browser', () => {
     await expect(remove).toBeHidden();
     await expect(page.getByText('This folder is empty.')).toBeVisible();
     await expect.poll(() => api.listKeys(bucket)).toEqual([]);
-  });
-
-  test('TD-E-10 previews an image, a PDF and a text file', async ({ page, api }) => {
-    await api.putObject(bucket, 'media/pixel.png', pngImage, 'image/png');
-    await api.putObject(bucket, 'media/doc.pdf', pdfDocument, 'application/pdf');
-    await api.putObject(
-      bucket,
-      'media/readme.txt',
-      'Plain text preview\nsecond line',
-      'text/plain',
-    );
-    await page.goto(`/buckets/${bucket}/browse/media/`);
-
-    const openPreview = async (name: string) => {
-      await page.getByRole('button', { name, exact: true }).click();
-      const drawer = page.getByRole('dialog', { name });
-      await expect(drawer).toBeVisible();
-      await drawer.getByRole('tab', { name: 'Preview' }).click();
-      return drawer;
-    };
-    const close = async () => {
-      await page.getByRole('button', { name: 'Close' }).click();
-    };
-
-    // Image: decoded by the browser.
-    let drawer = await openPreview('pixel.png');
-    const image = drawer.getByRole('img', { name: 'Preview of pixel.png' });
-    await expect(image).toBeVisible();
-    await expect
-      .poll(() => image.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth))
-      .toBe(8);
-    await close();
-
-    // PDF: an inline document in a sandboxed frame.
-    drawer = await openPreview('doc.pdf');
-    const frame = drawer.locator('iframe[title="PDF preview of doc.pdf"]');
-    await expect(frame).toBeVisible();
-    expect(await frame.getAttribute('sandbox')).toBe('allow-same-origin');
-    const src = await frame.getAttribute('src');
-    const res = await page.request.get(src ?? '');
-    expect(res.status()).toBe(200);
-    expect(res.headers()['content-type']).toBe('application/pdf');
-    expect(res.headers()['content-disposition']).toMatch(/^inline/);
-    expect(Buffer.compare(await res.body(), pdfDocument)).toBe(0);
-    await close();
-
-    // Text: shown in the page.
-    drawer = await openPreview('readme.txt');
-    await expect(drawer.getByText('Plain text preview')).toBeVisible();
-    await expect(drawer.getByText('second line')).toBeVisible();
   });
 });

@@ -1,14 +1,27 @@
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it, vi } from 'vitest';
 
-import { api, problemResponse } from '@/test/handlers';
+import { api, problemResponse, sampleSession } from '@/test/handlers';
 import { server } from '@/test/server';
 
 import { ApiError } from '../errors';
 import type { ObjectList } from '../types';
 import { createHttpServices } from './index';
 
-const csrf = { readCookie: () => 'csrf-token' };
+/**
+ * Services of a signed-in console: the CSRF token comes from the session
+ * payload (never from a cookie).
+ */
+async function signedInServices() {
+  server.use(
+    http.get(api('/auth/session'), () =>
+      HttpResponse.json({ ...sampleSession(), csrfToken: 'csrf-token' }),
+    ),
+  );
+  const services = createHttpServices({ baseUrl: '/api/v1' });
+  await services.session.current();
+  return services;
+}
 
 describe('storage HTTP services (TD-U-14)', () => {
   it('lists a folder with prefix, delimiter and cursor, and keeps special keys intact', async () => {
@@ -109,7 +122,7 @@ describe('storage HTTP services (TD-U-14)', () => {
       forms.push(this);
     });
     try {
-      const services = createHttpServices({ baseUrl: '/api/v1', ...csrf });
+      const services = await signedInServices();
       const done = services.objects.downloadZip('media', {
         keys: ['a.txt'],
         prefixes: ['docs/'],
@@ -155,7 +168,7 @@ describe('storage HTTP services (TD-U-14)', () => {
       forms.push(this);
     });
     try {
-      const services = createHttpServices({ baseUrl: '/api/v1', ...csrf });
+      const services = await signedInServices();
       let unauthorized = 0;
       services.authEvents.onUnauthorized(() => {
         unauthorized += 1;
@@ -195,7 +208,7 @@ describe('storage HTTP services (TD-U-14)', () => {
       forms.push(this);
     });
     try {
-      const services = createHttpServices({ baseUrl: '/api/v1', ...csrf });
+      const services = await signedInServices();
       const controller = new AbortController();
       const done = services.objects.downloadZip('media', { keys: ['a.txt'] }, controller.signal);
       const name = forms.at(-1)?.target ?? '';
@@ -219,7 +232,7 @@ describe('storage HTTP services (TD-U-14)', () => {
         });
       }),
     );
-    const services = createHttpServices({ baseUrl: '/api/v1', ...csrf });
+    const services = await signedInServices();
     const text = '{\n  "Statement": [\n    {"Action": "s3:Nope"}\n  ]\n}';
     const error = await services.buckets.setPolicy('media', text).catch((e: unknown) => e);
     expect(received).toBe(text);
@@ -289,7 +302,7 @@ describe('storage HTTP services (TD-U-14)', () => {
         return HttpResponse.json({ bucket: 'media', rules: [], public: false, hasPolicy: false });
       }),
     );
-    const services = createHttpServices({ baseUrl: '/api/v1', ...csrf });
+    const services = await signedInServices();
     await expect(services.buckets.setVersioning('media', 'suspended')).resolves.toBe('suspended');
     await expect(services.buckets.setQuota('media', 1024)).resolves.toEqual({
       type: 'hard',
@@ -362,7 +375,7 @@ describe('storage HTTP services (TD-U-14)', () => {
         return new HttpResponse(null, { status: 204 });
       }),
     );
-    const services = createHttpServices({ baseUrl: '/api/v1', ...csrf });
+    const services = await signedInServices();
     const up = await services.uploads.create('media', 'a b.bin', { contentType: 'text/plain' });
     const part = await services.uploads.uploadPart({
       bucket: 'media',
@@ -390,7 +403,7 @@ describe('storage HTTP services (TD-U-14)', () => {
         problemResponse(413, 'entity_too_large', 'The body exceeds 67108864 bytes.'),
       ),
     );
-    const services = createHttpServices({ baseUrl: '/api/v1', ...csrf });
+    const services = await signedInServices();
     await expect(
       services.uploads.putObject({ bucket: 'media', key: 'big.iso', body: new Blob(['x']) }),
     ).rejects.toMatchObject({ status: 413, code: 'entity_too_large' });

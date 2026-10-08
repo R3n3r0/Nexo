@@ -85,6 +85,18 @@ func TestConfigManagerListAndSchema(t *testing.T) {
 		names = append(names, s.Name)
 	}
 	assert.Equal(t, []string{"api", "browser", "logger", "notify_webhook", "region", "scanner"}, names)
+	// Every key says whether the server applies it (regression: keys were
+	// shown as if they took effect while nothing read them).
+	applied := map[string]bool{}
+	for _, s := range schema {
+		for _, k := range s.Keys {
+			applied[s.Name+"."+k.Name] = k.Applied
+		}
+	}
+	assert.True(t, applied["api.root_access"])
+	for _, k := range []string{"api.requests_max", "browser.session_duration", "logger.level", "scanner.speed", "region.name"} {
+		assert.False(t, applied[k], k)
+	}
 	store.EXPECT().Get(mock.Anything, mock.Anything).Return(config.KV{}, nil)
 	all, err := m.List(ctx)
 	require.NoError(t, err)

@@ -1,0 +1,24 @@
+Manage the default server-side encryption of buckets: sse-s3 (AES256) or sse-kms
+(aws:kms, with an optional key ID). It applies to the objects written from then
+on; existing objects are not rewritten.
+
+Usage:
+  nexoctl encrypt [flags]
+  nexoctl encrypt [command]
+
+Available Commands:
+  clear       Remove the default encryption of a bucket
+  info        Show the default encryption of a bucket
+  set         Set the default encryption of a bucket
+
+Flags:
+  -h, --help   help for encrypt
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl encrypt [command] --help" for more information about a command.

@@ -1,5 +1,5 @@
 import type { ShareService } from '../interfaces';
-import type { PostPolicy, PresignedUrl, RevokeAllResult, Share } from '../types';
+import type { PostPolicy, PresignedUrl, RevokeAllResult, Share, ShareLinkList } from '../types';
 import type { HttpClient } from './client';
 import { collectPages, segment } from './pages';
 
@@ -17,6 +17,11 @@ export function createHttpShareService(client: HttpClient): ShareService {
     },
     create(input) {
       return client.request<Share>('/shares', { method: 'POST', body: input });
+    },
+    links(id, query) {
+      return client.request<ShareLinkList>(`/shares/${segment(id)}/links`, {
+        query: { cursor: query?.cursor, limit: query?.limit },
+      });
     },
     revoke(id) {
       return client.request<void>(`/shares/${segment(id)}`, { method: 'DELETE' });

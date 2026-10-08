@@ -120,7 +120,14 @@ export interface ObjectPreviewProps {
   size: number;
 }
 
-/** D-OBJ-05: images, PDF (sandboxed frame), text and JSON (size-limited), audio and video. */
+/**
+ * D-OBJ-05: images, PDF, text and JSON (size-limited), audio and video.
+ *
+ * The PDF frame is not sandboxed: Chromium refuses to start its PDF viewer
+ * in a sandboxed frame. The preview endpoint serves only application/pdf
+ * inline to it (nosniff, so another document typed as PDF never renders as
+ * HTML) and the viewer runs in its own context, not in the console origin.
+ */
 export function ObjectPreview({
   bucket,
   objectKey,
@@ -153,7 +160,6 @@ export function ObjectPreview({
           <iframe
             src={url}
             title={t('objectPreview.pdfTitle', { name })}
-            sandbox="allow-same-origin"
             style={{ width: '100%', height: 480, border: 0 }}
           />
           <Group>

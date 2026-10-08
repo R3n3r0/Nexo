@@ -596,9 +596,12 @@ func tagsFromXML(set TagSet) (map[string]string, error) {
 	return tags, nil
 }
 
-// requestScheme returns the scheme the client used.
+// requestScheme returns the scheme the client used, for the URLs the
+// responses name (no authorization depends on it): TLS to this server or
+// to a trusted proxy (middleware.NewForwarded), else the X-Forwarded-Proto
+// header.
 func requestScheme(r *http.Request) string {
-	if r.TLS != nil {
+	if middleware.ClientOf(r).Secure {
 		return "https"
 	}
 	if p := strings.ToLower(r.Header.Get("X-Forwarded-Proto")); p == "https" || p == "http" {

@@ -349,7 +349,7 @@ func TestAdminCommandsPrintJSONLines(t *testing.T) {
 		{"key", []string{"admin", "accesskey", "info", "mem", "AKJSON"}},
 		{"key", []string{"admin", "accesskey", "edit", "mem", "AKJSON", "--disable"}},
 		{"action", []string{"admin", "accesskey", "remove", "mem", "AKJSON"}},
-		{"config", []string{"admin", "config", "set", "mem", "region", "name=eu-2"}},
+		{"config", []string{"admin", "config", "set", "mem", "api", "root_access=on"}},
 		{"config", []string{"admin", "config", "get", "mem"}},
 		{"export", []string{"admin", "config", "export", "mem"}},
 		{"action", []string{"admin", "config", "import", "mem", "cfg.json"}},
@@ -510,6 +510,19 @@ func TestAdminCompletion(t *testing.T) {
 	assert.Equal(t, []string{"devs"}, complete("admin", "group", "info", "mem", ""))
 	assert.Equal(t, []string{"albert", "alice", "bob"}, complete("admin", "group", "add", "mem", "devs", ""))
 	assert.Equal(t, []string{"diagnostics"}, complete("admin", "user", "add", "mem", "x", "y", "--policy", "d"))
-	assert.Equal(t, []string{"logger", "notify_webhook", "region"}, complete("admin", "config", "get", "mem", ""))
+	assert.Equal(t, []string{"api", "logger", "notify_webhook", "region"}, complete("admin", "config", "get", "mem", ""))
 	assert.Equal(t, []string{"alice"}, complete("share", "list", "mem", "--user", "ali"))
+}
+
+// covers: C-ADM-12, S-OPS-01 (a key the server does not apply yet is
+// reported, so that an administrator does not believe it took effect)
+func TestAdminConfigSetWarnsAboutUnappliedKeys(t *testing.T) {
+	h := newHarness(t)
+	r := h.run("admin", "config", "set", "mem", "region", "name=eu-2", "comment=milan")
+	require.Equal(t, 0, r.code, r.stderr)
+	assert.Contains(t, r.stderr, "region.comment is stored but not applied yet by the server")
+	assert.Contains(t, r.stderr, "region.name is stored but not applied yet by the server")
+	r = h.run("admin", "config", "set", "mem", "api", "root_access=off")
+	require.Equal(t, 0, r.code, r.stderr)
+	assert.Empty(t, r.stderr, "api.root_access is applied")
 }

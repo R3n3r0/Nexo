@@ -14,6 +14,9 @@
 //   - ObjectBrowser: the object browser operations (folder listing, stat,
 //     versions, folders, recursive delete, rename, tags, download, preview
 //     and zip archives), authorized object by object;
+//   - UploadManager: the uploads proxied by the console (single request
+//     and multipart), with their limits and the paging of the pending
+//     uploads and parts;
 //   - ShareManager: managed share links, raw presigned URLs and POST policy
 //     forms, signed on behalf of the caller without exposing its secret;
 //   - IdentityManager, AccessKeyManager and PolicyManager: the user, group,
@@ -113,6 +116,30 @@ type ActionHandlerFunc func(ctx context.Context, action Action) error
 
 // Handle implements ActionHandler.
 func (f ActionHandlerFunc) Handle(ctx context.Context, action Action) error { return f(ctx, action) }
+
+// --- pagination ----------------------------------------------------------
+
+// MaxPageLimit is the largest page of the console lists, and the default.
+const MaxPageLimit = 1000
+
+// Page selects a page of a list. The lists are sorted by a stable key
+// (name, access key, newest first for share links); the services select
+// the page, the transports only carry Cursor and Limit.
+type Page struct {
+	// Cursor resumes a list after the last item of the previous page (its
+	// Paged.NextCursor, an opaque value); "" starts from the first item. A
+	// malformed cursor is domain.ErrInvalidArgument.
+	Cursor string
+	// Limit is 1 to MaxPageLimit; 0 means MaxPageLimit.
+	Limit int
+}
+
+// Paged is a page of a list.
+type Paged[T any] struct {
+	Items []T
+	// NextCursor resumes the list (Page.Cursor); "" on the last page.
+	NextCursor string
+}
 
 // --- authorization -------------------------------------------------------
 
@@ -247,13 +274,18 @@ type Permissions struct {
 // BucketManager is the console view of the buckets.
 type BucketManager interface {
 	// List returns the buckets visible to the requester, sorted by name,
-	// with their usage and public flag: every bucket with
-	// s3:ListAllMyBuckets, otherwise those it may list at least in part
-	// (s3:ListBucket, conditions such as the s3:prefix of a home directory
-	// aside: AuthorizeInput.Partial).
-	List(ctx context.Context, in ListBucketsInput) ([]BucketSummary, error)
-	// Get returns a bucket with its usage and public flag.
-	Get(ctx context.Context, name string) (*BucketSummary, error)
+	// one page at a time: every bucket with s3:ListAllMyBuckets, otherwise
+	// those it may list at least in part (s3:ListBucket, conditions such
+	// as the s3:prefix of a home directory aside: AuthorizeInput.Partial).
+	// Each is summarized as Get does.
+	List(ctx context.Context, in ListBucketsInput) (*Paged[BucketSummary], error)
+	// Get returns a bucket as the requester may see it: with its usage,
+	// settings, tags and public flag when it may list the whole bucket
+	// (s3:ListBucket with no condition left unmet), otherwise only its
+	// name, creation date and region (BucketSummary.Partial). The page of
+	// a bucket opens for a requester that may list a part of it (a home
+	// directory) without disclosing what S3 would not show it.
+	Get(ctx context.Context, req Requester, name string) (*BucketSummary, error)
 	// Create authorizes (s3:CreateBucket and the actions of the requested
 	// settings), creates the bucket and applies versioning and quota; a
 	// failure after the creation removes the new bucket.
@@ -284,6 +316,7 @@ type ListBucketsInput struct {
 	Requester Requester
 	// Prefix filters the bucket names.
 	Prefix string
+	Page   Page
 }
 
 // BucketSummary is a bucket as shown by the console.
@@ -291,6 +324,10 @@ type BucketSummary struct {
 	Info domain.BucketInfo
 	// Public reports a bucket policy granting access to everyone.
 	Public bool
+	// Partial reports a summary restricted to the name, creation date and
+	// region of the bucket (the other fields are zero): the requester may
+	// list only a part of it.
+	Partial bool
 }
 
 // CreateBucketInput are the parameters of BucketManager.Create.
@@ -361,6 +398,14 @@ type ObjectBrowser interface {
 	// SetTags replaces the tags of an object (version); an empty set
 	// removes them.
 	SetTags(ctx context.Context, in SetTagsInput) (map[string]string, error)
+	// RestoreVersion makes a previous version of an object the latest
+	// again, as the S3 clients do: the version is copied onto its own key
+	// (part by part over 5 GiB) with its content, metadata and tags, which
+	// creates a new latest version and keeps the history. It authorizes
+	// s3:GetObjectVersion on the version (with its s3:versionid) and
+	// s3:PutObject on the key (with the x-amz-copy-source of the copy). A
+	// delete marker cannot be restored (domain.ErrMethodNotAllowed).
+	RestoreVersion(ctx context.Context, in RestoreVersionInput) (domain.ObjectInfo, error)
 	// Open opens an object for download or preview and decides how it is
 	// served. Previews are inline only for content types that cannot run
 	// scripts in the console origin (raster images, PDF, plain text, JSON,
@@ -374,14 +419,6 @@ type ObjectBrowser interface {
 	// requester may not read are skipped and listed in a final
 	// "nexo-zip-errors.txt" entry.
 	Zip(ctx context.Context, in ZipInput, open ZipOpener) (*ZipResult, error)
-	// Upload stores an object proxied by the console in one request; the
-	// route authorizes s3:PutObject. An object without a content type is
-	// stored as DefaultContentType.
-	Upload(ctx context.Context, in object.PutObjectInput) (domain.ObjectInfo, error)
-	// CreateUpload starts a multipart upload proxied by the console; the
-	// route authorizes s3:PutObject. An object without a content type is
-	// stored as DefaultContentType.
-	CreateUpload(ctx context.Context, in object.NewMultipartInput) (domain.MultipartUpload, error)
 }
 
 // Defaults of the object browser.
@@ -469,7 +506,9 @@ type DeleteObjectsInput struct {
 	Requester Requester
 	Bucket    string
 	Objects   []ObjectRef
-	// Prefixes are deleted recursively ("" is the whole bucket).
+	// Prefixes are folders deleted recursively: a prefix without a
+	// trailing slash names the folder of that name ("photos" is
+	// "photos/", not "photos2/"); "" is the whole bucket.
 	Prefixes []string
 	// AllVersions deletes every version and delete marker under the
 	// prefixes permanently, instead of the latest versions (which leaves
@@ -499,14 +538,25 @@ type DeleteObjectsResult struct {
 	Errors  []ObjectError
 }
 
+// RestoreVersionInput are the parameters of RestoreVersion.
+type RestoreVersionInput struct {
+	Requester Requester
+	Bucket    string
+	Key       string
+	// VersionID is the version to restore (required).
+	VersionID string
+}
+
 // RenameInput are the parameters of Rename.
 type RenameInput struct {
 	Requester   Requester
 	Bucket      string
 	Source      string
 	Destination string
-	// Prefix renames every object under Source to Destination + the rest
-	// of the key; Destination may not lie under Source.
+	// Prefix renames every object of the folder Source to the folder
+	// Destination + the rest of the key; both name folders (a missing
+	// trailing slash is added: "photos" is "photos/", not "photos2/") and
+	// Destination may not lie under Source.
 	Prefix bool
 	// Overwrite replaces existing destination objects; otherwise they are
 	// reported as domain.ErrConflict.
@@ -580,10 +630,13 @@ type Download struct {
 type ZipInput struct {
 	Requester Requester
 	Bucket    string
-	// Base is the prefix the archive names are relative to (the folder
+	// Base is the folder the archive names are relative to (the folder
 	// being browsed); keys outside it keep their full path.
-	Base     string
-	Keys     []string
+	Base string
+	Keys []string
+	// Prefixes are folders archived recursively; like Base, a prefix
+	// without a trailing slash names the folder of that name ("photos" is
+	// "photos/", not "photos2/").
 	Prefixes []string
 }
 
@@ -600,6 +653,101 @@ type ZipResult struct {
 	Skipped []ObjectError
 }
 
+// --- proxied uploads -----------------------------------------------------
+
+// UploadManager implements the uploads the console proxies to the object
+// layer (the console never holds the secret key of the user): objects
+// stored in one request and multipart uploads part by part, with the
+// limits of their bodies and the paging of the pending uploads and of the
+// parts. Each route authorizes the S3 action of its operation
+// (s3:PutObject, s3:ListBucketMultipartUploads,
+// s3:ListMultipartUploadParts, s3:AbortMultipartUpload) on the object or
+// the bucket before calling it.
+type UploadManager interface {
+	// Upload stores an object in one request. A Size over
+	// UploadLimits.MaxUploadSize is domain.ErrEntityTooLarge before
+	// anything is read; a body of unknown size (-1), or longer than
+	// announced, fails with domain.ErrEntityTooLarge once it exceeds the
+	// limit and nothing is committed. An object without a content type is
+	// stored as DefaultContentType.
+	Upload(ctx context.Context, in object.PutObjectInput) (domain.ObjectInfo, error)
+	// Create starts a multipart upload (an object without a content type
+	// is stored as DefaultContentType) and returns it with the limits its
+	// parts must respect.
+	Create(ctx context.Context, in object.NewMultipartInput) (*NewUpload, error)
+	// List lists the pending multipart uploads of a bucket under Prefix,
+	// sorted by key and upload ID, one page at a time.
+	List(ctx context.Context, in ListUploadsInput) (*Paged[domain.MultipartUpload], error)
+	// Parts lists the uploaded parts of an upload by number, one page at a
+	// time.
+	Parts(ctx context.Context, in ListPartsInput) (*Paged[domain.Part], error)
+	// UploadPart stores one part, streaming. The number is 1 to
+	// UploadLimits.MaxParts and the size is required, or
+	// domain.ErrInvalidArgument; a part over UploadLimits.MaxPartSize is
+	// domain.ErrEntityTooLarge, before anything is read or once the body
+	// exceeds it.
+	UploadPart(ctx context.Context, in object.PutObjectPartInput) (domain.Part, error)
+	// Complete assembles the parts into the object.
+	Complete(ctx context.Context, in object.CompleteMultipartInput) (domain.ObjectInfo, error)
+	// Abort discards an upload and its parts.
+	Abort(ctx context.Context, in UploadRef) error
+}
+
+// Limits of the proxied uploads.
+const (
+	// DefaultMaxUploadSize is the default limit of an object stored in one
+	// request: larger files go multipart.
+	DefaultMaxUploadSize = 64 << 20
+	// DefaultMaxPartSize is the default limit of a proxied part.
+	DefaultMaxPartSize = 64 << 20
+	// MinPartSize is the S3 minimum size of every part but the last.
+	MinPartSize = 5 << 20
+	// MaxUploadParts is the S3 maximum number of parts of an upload.
+	MaxUploadParts = 10000
+	// RecommendedPartSize is the part size suggested to the console (at
+	// most the part limit).
+	RecommendedPartSize = 16 << 20
+)
+
+// UploadLimits are the limits of the proxied uploads.
+type UploadLimits struct {
+	// MaxUploadSize bounds an object stored in one request.
+	MaxUploadSize int64
+	// PartSize is the recommended part size.
+	PartSize int64
+	// MinPartSize applies to every part but the last.
+	MinPartSize int64
+	MaxPartSize int64
+	MaxParts    int
+}
+
+// NewUpload is a started multipart upload with the limits of its parts.
+type NewUpload struct {
+	Upload domain.MultipartUpload
+	Limits UploadLimits
+}
+
+// UploadRef names a multipart upload.
+type UploadRef struct {
+	Bucket   string
+	Key      string
+	UploadID string
+}
+
+// ListUploadsInput are the parameters of UploadManager.List.
+type ListUploadsInput struct {
+	Bucket string
+	// Prefix filters the keys.
+	Prefix string
+	Page   Page
+}
+
+// ListPartsInput are the parameters of UploadManager.Parts.
+type ListPartsInput struct {
+	Upload UploadRef
+	Page   Page
+}
+
 // --- shares --------------------------------------------------------------
 
 // ShareManager exposes share links and presigned URLs to the console and
@@ -613,9 +761,18 @@ type ShareManager interface {
 	// Get returns a share of the requester (any share with
 	// admin:ManageShares).
 	Get(ctx context.Context, req Requester, id string) (*share.Share, error)
-	// List lists the active shares: the requester's own, or with
-	// admin:ManageShares every share matching the filter.
-	List(ctx context.Context, in ListSharesInput) ([]share.Share, error)
+	// List lists the active shares, newest first, one page at a time: the
+	// requester's own, or with admin:ManageShares every share matching the
+	// filter.
+	List(ctx context.Context, in ListSharesInput) (*Paged[share.Share], error)
+	// Links hands out a prefix download share one object at a time, as
+	// `nexoctl share download --recursive` does: a page of the objects
+	// under the shared prefix, each with a URL signed by the share (so
+	// revoking the share revokes them all) valid until the share expires.
+	// The requester must see the share (Get) and may list the prefix
+	// (s3:ListBucket with s3:prefix); other shares are
+	// domain.ErrInvalidArgument.
+	Links(ctx context.Context, in ShareLinksInput) (*ShareLinks, error)
 	// Revoke revokes one share.
 	Revoke(ctx context.Context, req Requester, id string) error
 	// RevokeAll revokes every share of owner ("" is the requester) and
@@ -650,6 +807,29 @@ type ListSharesInput struct {
 	Requester Requester
 	Owner     string
 	Bucket    string
+	Page      Page
+}
+
+// ShareLinksInput are the parameters of ShareManager.Links.
+type ShareLinksInput struct {
+	Requester Requester
+	ID        string
+	Page      Page
+}
+
+// ShareLinks is a page of the per-object links of a prefix share.
+type ShareLinks struct {
+	Share *share.Share
+	Items []ShareLink
+	// NextCursor resumes the listing (Page.Cursor); "" on the last page.
+	NextCursor string
+}
+
+// ShareLink is the link of one object of a prefix share.
+type ShareLink struct {
+	Key  string
+	Size int64
+	URL  string
 }
 
 // SignedURL is a presigned URL.
@@ -741,6 +921,12 @@ type PostCondition struct {
 // that combine several IAM calls. Each change is authorized with its own
 // admin action before anything is applied.
 type IdentityManager interface {
+	// ListUsers lists the users sorted by access key, one page at a time;
+	// the route authorizes admin:ListUsers.
+	ListUsers(ctx context.Context, page Page) (*Paged[iam.User], error)
+	// ListGroups lists the groups sorted by name, one page at a time; the
+	// route authorizes admin:ListGroups.
+	ListGroups(ctx context.Context, page Page) (*Paged[iam.Group], error)
 	// CreateUser creates a user (admin:CreateUser) and adds it to Groups
 	// (admin:AddUserToGroup); attaching policies requires
 	// admin:AttachUserOrGroupPolicy.
@@ -750,6 +936,14 @@ type IdentityManager interface {
 	// (admin:AttachUserOrGroupPolicy) and the group memberships
 	// (admin:AddUserToGroup / admin:RemoveUserFromGroup) of a user.
 	UpdateUser(ctx context.Context, in UpdateUserInput) (*iam.User, error)
+	// DeleteUser deletes a user (admin:DeleteUser) with its access keys
+	// and STS credentials, then removes the records of its managed share
+	// links (docs/09 §9.1): their service accounts went with the user, so
+	// they no longer work and must not be listed as active, nor be
+	// inherited by a user later created with the same name. Root cannot
+	// be deleted and a missing user is domain.ErrUserNotFound; in both
+	// cases nothing is changed.
+	DeleteUser(ctx context.Context, req Requester, user string) error
 	// CreateGroup creates a group with its members (admin:AddUserToGroup)
 	// and policies (admin:AttachUserOrGroupPolicy).
 	CreateGroup(ctx context.Context, in CreateGroupInput) (*iam.Group, error)
@@ -808,8 +1002,9 @@ type UpdateGroupInput struct {
 // STS) manage no key, as iam.Service enforces.
 type AccessKeyManager interface {
 	// List lists the keys of parent ("" is the requester's own keys, or
-	// every key for an administrator).
-	List(ctx context.Context, req Requester, parent string) ([]iam.AccessKey, error)
+	// every key for an administrator), sorted by access key, one page at
+	// a time.
+	List(ctx context.Context, req Requester, parent string, page Page) (*Paged[iam.AccessKey], error)
 	// Get returns a key without its secret.
 	Get(ctx context.Context, req Requester, accessKey string) (*iam.AccessKey, error)
 	// Create creates a key; the result carries the secret, returned only
@@ -826,6 +1021,9 @@ type AccessKeyManager interface {
 // from their JSON text (errors located by line and column) and the
 // simulator.
 type PolicyManager interface {
+	// List lists the named policies (built-in and stored) sorted by name,
+	// one page at a time; the route authorizes admin:ListUserPolicies.
+	List(ctx context.Context, page Page) (*Paged[policy.Named], error)
 	// Get returns the record of a named policy (built-in or stored).
 	Get(ctx context.Context, name string) (*policy.Named, error)
 	// Save parses Document (errors wrap domain.ErrMalformedPolicy with a
@@ -883,10 +1081,17 @@ type SimulateInput struct {
 	Action policy.Action
 	Bucket string
 	Object string
-	// Conditions are the request condition values (aws:SourceIp,
-	// aws:SecureTransport, aws:CurrentTime...).
+	// SourceIP and SecureTransport describe the client of the simulated
+	// request (aws:SourceIp, aws:SecureTransport), with the definition of
+	// the condition keys the S3 and Admin APIs use
+	// (policy.RequestConditions); "" and nil leave the key unset.
+	SourceIP        string
+	SecureTransport *bool
+	// Conditions are the other condition values (aws:Referer,
+	// s3:prefix...); the client keys above take precedence.
 	Conditions map[string][]string
-	// Now is the evaluation time (zero: the clock).
+	// Now is the evaluation time, which gives aws:CurrentTime and
+	// aws:EpochTime (zero: the clock).
 	Now time.Time
 }
 
@@ -964,4 +1169,8 @@ type KeySchema struct {
 	Values []string
 	// Sensitive marks secrets (tokens, keys).
 	Sensitive bool
+	// Applied reports a key the server applies, on the next request
+	// (settings.Applied); the others are validated and stored but have no
+	// effect yet, and the console and nexoctl say so.
+	Applied bool
 }

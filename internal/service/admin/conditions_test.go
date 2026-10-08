@@ -48,14 +48,23 @@ func TestObjectConditions(t *testing.T) {
 		{name: "malformed tagging", in: admin.ObjectRequest{Headers: map[string]string{"x-amz-tagging": "%zz"}},
 			want: map[string][]string{"s3:x-amz-tagging": {"%zz"}}},
 		{name: "presigned use", in: admin.ObjectRequest{VersionID: "v2", AuthType: domain.AuthTypeQuery},
-			want: map[string][]string{"s3:versionid": {"v2"}, "s3:authType": {"REST-QUERY-STRING"}}},
-		{name: "POST policy", in: admin.ObjectRequest{AuthType: domain.AuthTypePost}, want: map[string][]string{"s3:authType": {"POST"}}},
+			want: map[string][]string{"s3:versionid": {"v2"}, "s3:authType": {"REST-QUERY-STRING"}, "s3:signatureversion": {"AWS4-HMAC-SHA256"}}},
+		{name: "POST policy", in: admin.ObjectRequest{AuthType: domain.AuthTypePost},
+			want: map[string][]string{"s3:authType": {"POST"}, "s3:signatureversion": {"AWS4-HMAC-SHA256"}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, admin.ObjectConditions(tt.in))
 		})
 	}
+}
+
+// covers: docs/12 §12.7 (the listings of the console are evaluated with
+// the keys of the S3 listing)
+func TestListingConditions(t *testing.T) {
+	assert.Equal(t, map[string][]string{"s3:prefix": {""}}, admin.ListingConditions("", "", 0))
+	assert.Equal(t, map[string][]string{"s3:prefix": {"home/gina/"}, "s3:delimiter": {"/"}, "s3:max-keys": {"50"}},
+		admin.ListingConditions("home/gina/", "/", 50))
 }
 
 func TestParseTagging(t *testing.T) {
@@ -69,4 +78,9 @@ func TestParseTagging(t *testing.T) {
 		_, err = admin.ParseTagging(bad)
 		assert.ErrorIs(t, err, domain.ErrInvalidArgument, bad)
 	}
+}
+
+func TestCopySourceOf(t *testing.T) {
+	assert.Equal(t, "bkt/dir/a%20b.txt", admin.CopySourceOf("bkt", "dir/a b.txt", ""))
+	assert.Equal(t, "bkt/k?versionId=v%2B1", admin.CopySourceOf("bkt", "k", "v+1"))
 }

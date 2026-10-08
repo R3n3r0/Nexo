@@ -143,6 +143,172 @@ func (_c *IdentityManager_CreateUser_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
+// DeleteUser provides a mock function with given fields: ctx, req, user
+func (_m *IdentityManager) DeleteUser(ctx context.Context, req admin.Requester, user string) error {
+	ret := _m.Called(ctx, req, user)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteUser")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, admin.Requester, string) error); ok {
+		r0 = rf(ctx, req, user)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// IdentityManager_DeleteUser_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteUser'
+type IdentityManager_DeleteUser_Call struct {
+	*mock.Call
+}
+
+// DeleteUser is a helper method to define mock.On call
+//   - ctx context.Context
+//   - req admin.Requester
+//   - user string
+func (_e *IdentityManager_Expecter) DeleteUser(ctx interface{}, req interface{}, user interface{}) *IdentityManager_DeleteUser_Call {
+	return &IdentityManager_DeleteUser_Call{Call: _e.mock.On("DeleteUser", ctx, req, user)}
+}
+
+func (_c *IdentityManager_DeleteUser_Call) Run(run func(ctx context.Context, req admin.Requester, user string)) *IdentityManager_DeleteUser_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(admin.Requester), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *IdentityManager_DeleteUser_Call) Return(_a0 error) *IdentityManager_DeleteUser_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *IdentityManager_DeleteUser_Call) RunAndReturn(run func(context.Context, admin.Requester, string) error) *IdentityManager_DeleteUser_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListGroups provides a mock function with given fields: ctx, page
+func (_m *IdentityManager) ListGroups(ctx context.Context, page admin.Page) (*admin.Paged[iam.Group], error) {
+	ret := _m.Called(ctx, page)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListGroups")
+	}
+
+	var r0 *admin.Paged[iam.Group]
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, admin.Page) (*admin.Paged[iam.Group], error)); ok {
+		return rf(ctx, page)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, admin.Page) *admin.Paged[iam.Group]); ok {
+		r0 = rf(ctx, page)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*admin.Paged[iam.Group])
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, admin.Page) error); ok {
+		r1 = rf(ctx, page)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// IdentityManager_ListGroups_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListGroups'
+type IdentityManager_ListGroups_Call struct {
+	*mock.Call
+}
+
+// ListGroups is a helper method to define mock.On call
+//   - ctx context.Context
+//   - page admin.Page
+func (_e *IdentityManager_Expecter) ListGroups(ctx interface{}, page interface{}) *IdentityManager_ListGroups_Call {
+	return &IdentityManager_ListGroups_Call{Call: _e.mock.On("ListGroups", ctx, page)}
+}
+
+func (_c *IdentityManager_ListGroups_Call) Run(run func(ctx context.Context, page admin.Page)) *IdentityManager_ListGroups_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(admin.Page))
+	})
+	return _c
+}
+
+func (_c *IdentityManager_ListGroups_Call) Return(_a0 *admin.Paged[iam.Group], _a1 error) *IdentityManager_ListGroups_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *IdentityManager_ListGroups_Call) RunAndReturn(run func(context.Context, admin.Page) (*admin.Paged[iam.Group], error)) *IdentityManager_ListGroups_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListUsers provides a mock function with given fields: ctx, page
+func (_m *IdentityManager) ListUsers(ctx context.Context, page admin.Page) (*admin.Paged[iam.User], error) {
+	ret := _m.Called(ctx, page)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListUsers")
+	}
+
+	var r0 *admin.Paged[iam.User]
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, admin.Page) (*admin.Paged[iam.User], error)); ok {
+		return rf(ctx, page)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, admin.Page) *admin.Paged[iam.User]); ok {
+		r0 = rf(ctx, page)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*admin.Paged[iam.User])
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, admin.Page) error); ok {
+		r1 = rf(ctx, page)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// IdentityManager_ListUsers_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListUsers'
+type IdentityManager_ListUsers_Call struct {
+	*mock.Call
+}
+
+// ListUsers is a helper method to define mock.On call
+//   - ctx context.Context
+//   - page admin.Page
+func (_e *IdentityManager_Expecter) ListUsers(ctx interface{}, page interface{}) *IdentityManager_ListUsers_Call {
+	return &IdentityManager_ListUsers_Call{Call: _e.mock.On("ListUsers", ctx, page)}
+}
+
+func (_c *IdentityManager_ListUsers_Call) Run(run func(ctx context.Context, page admin.Page)) *IdentityManager_ListUsers_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(admin.Page))
+	})
+	return _c
+}
+
+func (_c *IdentityManager_ListUsers_Call) Return(_a0 *admin.Paged[iam.User], _a1 error) *IdentityManager_ListUsers_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *IdentityManager_ListUsers_Call) RunAndReturn(run func(context.Context, admin.Page) (*admin.Paged[iam.User], error)) *IdentityManager_ListUsers_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // UpdateGroup provides a mock function with given fields: ctx, in
 func (_m *IdentityManager) UpdateGroup(ctx context.Context, in admin.UpdateGroupInput) (*iam.Group, error) {
 	ret := _m.Called(ctx, in)

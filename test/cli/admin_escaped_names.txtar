@@ -1,0 +1,60 @@
+# Regression: names that need escaping in the Admin API path (a space, "/",
+# "@", "+", ",") are sent escaped once and managed like any other name
+# (C-ADM-03 admin group, C-ADM-02 admin user, C-ADM-04 admin policy).
+# Removing a user removes its managed share links (docs/09 §9.1).
+
+# A group whose name has a space: info, disable, enable, remove.
+exec nexoctl admin group add local 'dev team'
+stdout 'Created group "dev team"'
+exec nexoctl admin group info local 'dev team'
+stdout 'dev team'
+exec nexoctl admin group disable local 'dev team'
+exec nexoctl admin group list local
+stdout '^dev team +disabled '
+exec nexoctl admin group enable local 'dev team'
+exec nexoctl admin group remove local 'dev team'
+expectcode 3 nexoctl admin group info local 'dev team'
+
+# A group whose name has a slash stays one segment.
+exec nexoctl admin group add local eng/backend
+exec nexoctl admin group info local eng/backend
+stdout 'eng/backend'
+exec nexoctl admin group remove local eng/backend
+expectcode 3 nexoctl admin group info local eng/backend
+
+# A user whose access key has "@" and "+".
+exec nexoctl admin user add local a+b@example.com plus-at-secret-1
+exec nexoctl admin user info local a+b@example.com
+stdout 'a\+b@example.com'
+exec nexoctl admin user disable local a+b@example.com
+stdout '^User "a\+b@example.com" is disabled\.$'
+exec nexoctl admin user remove local a+b@example.com
+expectcode 3 nexoctl admin user info local a+b@example.com
+
+# A policy whose name has "+" and ",".
+exec nexoctl admin policy create local read+write,v2 pol.json
+exec nexoctl admin policy info local read+write,v2
+stdout '"s3:GetObject"'
+exec nexoctl admin policy remove local read+write,v2
+expectcode 3 nexoctl admin policy info local read+write,v2
+
+# The share links of a removed user are not listed any more.
+exec nexoctl mb local/team
+exec nexoctl cp note.txt local/team/note.txt
+exec nexoctl admin user add local carol carol-secret-1 --policy readwrite
+exec nexoctl alias set carol $NEXO_URL carol carol-secret-1 --admin-url $NEXO_ADMIN_URL
+exec nexoctl share download --expire 1h --json carol/team/note.txt
+jsonfield stdout url URL
+http -o got.txt $URL
+cmp got.txt note.txt
+exec nexoctl share list --user carol local
+stdout ' carol +download '
+exec nexoctl admin user remove local carol
+http -status 403 $URL
+exec nexoctl share list --user carol local
+! stdout 'carol'
+
+-- note.txt --
+team note
+-- pol.json --
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"arn:aws:s3:::team/*"}]}

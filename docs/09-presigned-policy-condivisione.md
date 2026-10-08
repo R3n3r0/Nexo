@@ -37,7 +37,14 @@ Un URL presigned SigV4 non è revocabile singolarmente per natura. Nexo fornisce
    scadenza uguale al link). Revocare il link = eliminare quel service account → effetto immediato su tutto il cluster.
 2. Elenco delle condivisioni attive per utente/bucket (`nexoctl share list`, pagina "Condivisioni" in dashboard), con
    creatore, oggetto, permessi, scadenza, revoca.
-3. Revoca di massa: disabilitare l'utente o ruotare le sue chiavi invalida tutti i suoi link.
+3. Revoca di massa: disabilitare l'utente o ruotare le sue chiavi invalida tutti i suoi link. La rotazione del
+   segreto dalla console o dalla CLI (`PUT /users/{u}` con `secretKey`) revoca gli share gestiti dell'utente
+   (i presigned raw firmati col vecchio segreto smettono di verificare da soli) e chiude le sue sessioni console:
+   ogni sessione è legata al segreto con cui è stata aperta. Le revoche delle sessioni (logout) sono persistite
+   nello store IAM, quindi sopravvivono al riavvio e valgono su ogni nodo. L'eliminazione dell'utente
+   (`DELETE /users/{u}`, `nexoctl admin user remove`) rimuove anche i record dei suoi share gestiti: i loro
+   service account spariscono con l'utente, quindi non restano elencati come attivi né passano a un utente
+   ricreato con lo stesso nome.
 
 ## 9.2 POST policy (upload da form HTML)
 
@@ -92,7 +99,7 @@ Supporto policy:
 
 | Codice | Funzionalità |
 |--------|--------------|
-| D-SHR-01 | Dialog "Condividi" su oggetto/versione/prefix: permessi (download, upload), scadenza (preset + data), content-disposition, QR code, copia link |
+| D-SHR-01 | Dialog "Condividi" su oggetto/versione/prefix: permessi (download, upload), scadenza (preset + data), content-disposition, QR code, copia link. Un prefix in download produce un solo share gestito e un link per oggetto (`GET /shares/{id}/links`, paginato, copia singola o di tutti i link), tutti firmati dallo share e revocati con esso, come `nexoctl share download --recursive` |
 | D-SHR-02 | Generatore upload: URL PUT, POST policy con condizioni (dimensione max, prefix, content-type) e snippet HTML/curl/JS |
 | D-SHR-03 | Pagina "Condivisioni": elenco link attivi (miei / di tutti per admin), filtro, revoca singola o multipla |
 | D-POL-01 | Tab "Accesso" del bucket: private/public/custom, regole anonime per prefix, editor bucket policy JSON con validazione |
@@ -131,7 +138,7 @@ Supporto policy:
 | ID | Caso |
 |----|------|
 | TCL-P-01 | `share download` → `curl` scarica contenuto identico; `--expire 1s` → dopo 2 s 403 |
-| TCL-P-02 | `share upload` → `curl -T` carica; `--post` → upload via form con curl `-F` |
+| TCL-P-02 | `share upload` → `curl -T` carica; `--post` → upload via form con curl (campi con `--form-string`, mai letti come file locali anche se iniziano con `@` o `<`; il file con `-F file=@...`) |
 | TCL-P-03 | `share list` / `share revoke` / `share revoke --all --user` |
 | TCL-P-04 | `anonymous set download` su prefix → `curl` anonimo OK solo su quel prefix |
 | TCL-P-05 | `admin policy simulate` coerente con un'operazione reale |

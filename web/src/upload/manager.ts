@@ -555,6 +555,13 @@ export function createUploadManager(options: UploadManagerOptions): UploadManage
       if (!task || (!activeStatuses.has(task.status) && task.status !== 'failed')) {
         return;
       }
+      if (task.completing || task.status === 'completing') {
+        // CompleteMultipartUpload is in flight: the object is (about to
+        // be) created, an abort would only fail with NoSuchUpload and the
+        // queue would claim a canceled upload that exists. The outcome of
+        // the completion decides.
+        return;
+      }
       task.status = 'canceled';
       stopRequests(task);
       changed();

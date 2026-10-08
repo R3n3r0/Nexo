@@ -60,7 +60,8 @@ func TestBrowserListDelimiterAndAuthorization(t *testing.T) {
 		conds     map[string][]string
 	}{
 		{name: "default folder view", want: "/", conds: map[string][]string{"s3:prefix": {"p/"}, "s3:delimiter": {"/"}}},
-		{name: "flat listing", delimiter: &empty, want: "", conds: map[string][]string{"s3:prefix": {"p/"}, "s3:delimiter": {""}}},
+		// The S3 request of a flat listing names no delimiter.
+		{name: "flat listing", delimiter: &empty, want: "", conds: map[string][]string{"s3:prefix": {"p/"}}},
 		{name: "other delimiter and limit", delimiter: &comma, limit: 5, want: ",", conds: map[string][]string{"s3:prefix": {"p/"}, "s3:delimiter": {","}, "s3:max-keys": {"5"}}},
 	}
 	for _, tt := range tests {
@@ -85,24 +86,6 @@ func TestBrowserListDelimiterAndAuthorization(t *testing.T) {
 		_, err := b.List(ctx, admin.ListObjectsInput{Requester: req("bob"), Bucket: "bkt", Prefix: "private/"})
 		assert.ErrorIs(t, err, domain.ErrAccessDenied)
 	})
-}
-
-// TestBrowserUploadDefaultContentType: an upload without a type is stored
-// as application/octet-stream; a given type is kept.
-func TestBrowserUploadDefaultContentType(t *testing.T) {
-	ctx := context.Background()
-	for _, tt := range []struct{ given, want string }{{"", admin.DefaultContentType}, {"image/png", "image/png"}} {
-		b, objects := newBrowser(t, allowAll(t))
-		objects.EXPECT().PutObject(mock.Anything, mock.MatchedBy(func(in object.PutObjectInput) bool { return in.ContentType == tt.want })).
-			Return(domain.ObjectInfo{Key: "k"}, nil)
-		_, err := b.Upload(ctx, object.PutObjectInput{Bucket: "bkt", Key: "k", ContentType: tt.given})
-		require.NoError(t, err)
-		objects.EXPECT().NewMultipartUpload(mock.Anything, object.NewMultipartInput{Bucket: "bkt", Key: "k", ContentType: tt.want}).
-			Return(domain.MultipartUpload{UploadID: "u"}, nil)
-		up, err := b.CreateUpload(ctx, object.NewMultipartInput{Bucket: "bkt", Key: "k", ContentType: tt.given})
-		require.NoError(t, err)
-		assert.Equal(t, "u", up.UploadID)
-	}
 }
 
 func TestBrowserStat(t *testing.T) {
@@ -253,6 +236,95 @@ func TestBrowserBulkPrefixNeedsList(t *testing.T) {
 			assert.Equal(t, map[string][]string{"s3:prefix": {tt.prefix}}, asked[0].Conditions)
 		})
 	}
+}
+
+// siblingStore makes the object layer mock list the keys of a bucket with
+// sibling prefixes (photos/, photos2/, photosx.txt) by string prefix, the
+// way the object layer does.
+func siblingStore(objects *objectmock.Service) []string {
+	keys := []string{"photos/a.txt", "photos2/b.txt", "photosx.txt"}
+	objects.EXPECT().ListObjects(mock.Anything, mock.Anything).RunAndReturn(
+		func(_ context.Context, in domain.ListObjectsInput) (domain.ListObjectsResult, error) {
+			var out domain.ListObjectsResult
+			for _, k := range keys {
+				if strings.HasPrefix(k, in.Prefix) {
+					out.Objects = append(out.Objects, domain.ObjectInfo{Key: k})
+				}
+			}
+			return out, nil
+		}).Maybe()
+	return keys
+}
+
+// TestBrowserPrefixesAreFolders: the prefixes of the bulk operations
+// name folders, as in the CLI: "photos" is "photos/", never photos2/ nor
+// photosx.txt (regression: a prefix without its trailing slash deleted,
+// moved and archived the siblings too).
+func TestBrowserPrefixesAreFolders(t *testing.T) {
+	ctx := context.Background()
+	for _, prefix := range []string{"photos", "photos/"} {
+		t.Run("delete "+prefix, func(t *testing.T) {
+			var asked []admin.AuthorizeInput
+			b, objects := newBrowser(t, allowing(t, func(in admin.AuthorizeInput) bool {
+				asked = append(asked, in)
+				return true
+			}))
+			siblingStore(objects)
+			var deleted []string
+			objects.EXPECT().DeleteObjects(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, in object.DeleteObjectsInput) (object.DeleteObjectsResult, error) {
+				var out object.DeleteObjectsResult
+				for _, o := range in.Objects {
+					deleted = append(deleted, o.Key)
+					out.Deleted = append(out.Deleted, object.DeletedObject{Key: o.Key})
+				}
+				return out, nil
+			})
+			_, err := b.Delete(ctx, admin.DeleteObjectsInput{Requester: req("bob"), Bucket: "bkt", Prefixes: []string{prefix}})
+			require.NoError(t, err)
+			assert.Equal(t, []string{"photos/a.txt"}, deleted)
+			require.NotEmpty(t, asked)
+			assert.Equal(t, map[string][]string{"s3:prefix": {"photos/"}}, asked[0].Conditions, "the listing is authorized on the folder")
+		})
+		t.Run("rename "+prefix, func(t *testing.T) {
+			b, objects := newBrowser(t, allowAll(t))
+			siblingStore(objects)
+			objects.EXPECT().GetObjectInfo(mock.Anything, "bkt", mock.Anything, object.GetObjectOptions{}).RunAndReturn(
+				func(_ context.Context, _, key string, _ object.GetObjectOptions) (domain.ObjectInfo, error) {
+					if strings.HasPrefix(key, "pics") {
+						return domain.ObjectInfo{}, domain.ErrObjectNotFound
+					}
+					return domain.ObjectInfo{Key: key}, nil
+				})
+			objects.EXPECT().CopyObject(mock.Anything, object.CopyObjectInput{SrcBucket: "bkt", SrcKey: "photos/a.txt", DstBucket: "bkt", DstKey: "pics/a.txt"}).Return(domain.ObjectInfo{}, nil).Once()
+			objects.EXPECT().DeleteObject(mock.Anything, "bkt", "photos/a.txt", object.DeleteObjectOptions{}).Return(object.DeletedObject{}, nil).Once()
+			res, err := b.Rename(ctx, admin.RenameInput{Requester: req("bob"), Bucket: "bkt", Source: prefix, Destination: "pics", Prefix: true})
+			require.NoError(t, err)
+			assert.Equal(t, []admin.RenamedObject{{Source: "photos/a.txt", Destination: "pics/a.txt"}}, res.Renamed)
+		})
+		t.Run("zip "+prefix, func(t *testing.T) {
+			b, objects := newBrowser(t, allowAll(t))
+			siblingStore(objects)
+			zipObjects(objects, map[string]string{"photos/a.txt": "A", "photos2/b.txt": "B", "photosx.txt": "X"})
+			var buf bytes.Buffer
+			var name string
+			_, err := b.Zip(ctx, admin.ZipInput{Requester: req("bob"), Bucket: "bkt", Base: "photos", Prefixes: []string{prefix}},
+				func(filename string) (io.Writer, error) { name = filename; return &buf, nil })
+			require.NoError(t, err)
+			assert.Equal(t, "photos.zip", name)
+			assert.Equal(t, map[string]string{"a.txt": "A"}, readZip(t, buf.Bytes()))
+		})
+	}
+	t.Run("a sibling destination is not under the source", func(t *testing.T) {
+		b, objects := newBrowser(t, allowAll(t))
+		siblingStore(objects)
+		objects.EXPECT().GetObjectInfo(mock.Anything, "bkt", "photos2/a.txt", object.GetObjectOptions{}).Return(domain.ObjectInfo{}, domain.ErrObjectNotFound)
+		objects.EXPECT().GetObjectInfo(mock.Anything, "bkt", "photos/a.txt", object.GetObjectOptions{}).Return(domain.ObjectInfo{Key: "photos/a.txt"}, nil)
+		objects.EXPECT().CopyObject(mock.Anything, mock.Anything).Return(domain.ObjectInfo{}, nil).Once()
+		objects.EXPECT().DeleteObject(mock.Anything, "bkt", "photos/a.txt", object.DeleteObjectOptions{}).Return(object.DeletedObject{}, nil).Once()
+		res, err := b.Rename(ctx, admin.RenameInput{Requester: req("bob"), Bucket: "bkt", Source: "photos", Destination: "photos2", Prefix: true})
+		require.NoError(t, err)
+		assert.Equal(t, []admin.RenamedObject{{Source: "photos/a.txt", Destination: "photos2/a.txt"}}, res.Renamed)
+	})
 }
 
 func TestBrowserDeleteAllVersionsInBatches(t *testing.T) {
@@ -539,7 +611,7 @@ func TestObjectAuthorizationsCarryS3Conditions(t *testing.T) {
 		require.ErrorIs(t, err, domain.ErrAccessDenied)
 		require.Len(t, asked, 1)
 		assert.Equal(t, []policy.Action{policy.ActionGetObjectVersion}, asked[0].Actions)
-		assert.Equal(t, map[string][]string{"s3:versionid": {"v1"}, "s3:authType": {"REST-QUERY-STRING"}}, asked[0].Conditions)
+		assert.Equal(t, map[string][]string{"s3:versionid": {"v1"}, "s3:authType": {"REST-QUERY-STRING"}, "s3:signatureversion": {"AWS4-HMAC-SHA256"}}, asked[0].Conditions)
 	})
 
 	t.Run("presigned URL", func(t *testing.T) {
@@ -550,8 +622,45 @@ func TestObjectAuthorizationsCarryS3Conditions(t *testing.T) {
 		require.ErrorIs(t, err, domain.ErrAccessDenied)
 		require.Len(t, asked, 1)
 		assert.Equal(t, map[string][]string{
-			"s3:authType": {"REST-QUERY-STRING"}, "s3:x-amz-tagging": {"class=secret"},
+			"s3:authType": {"REST-QUERY-STRING"}, "s3:signatureversion": {"AWS4-HMAC-SHA256"}, "s3:x-amz-tagging": {"class=secret"},
 			"s3:RequestObjectTag/class": {"secret"}, "s3:RequestObjectTagKeys": {"class"},
 		}, asked[0].Conditions)
+	})
+}
+
+// covers: D-OBJ-06 (restoring a version copies it onto its key, authorized
+// as the S3 CopyObject it stands for)
+func TestBrowserRestoreVersion(t *testing.T) {
+	ctx := context.Background()
+	t.Run("copies the version onto its key", func(t *testing.T) {
+		var asked []admin.AuthorizeInput
+		b, objects := newBrowser(t, allowing(t, func(in admin.AuthorizeInput) bool { asked = append(asked, in); return true }))
+		objects.EXPECT().GetObjectInfo(mock.Anything, "bkt", "doc.txt", object.GetObjectOptions{VersionID: "v1"}).Return(domain.ObjectInfo{Key: "doc.txt", VersionID: "v1", Size: 2}, nil)
+		objects.EXPECT().CopyObject(mock.Anything, object.CopyObjectInput{SrcBucket: "bkt", SrcKey: "doc.txt", SrcVersionID: "v1", DstBucket: "bkt", DstKey: "doc.txt"}).
+			Return(domain.ObjectInfo{Key: "doc.txt", VersionID: "v3", IsLatest: true}, nil)
+		got, err := b.RestoreVersion(ctx, admin.RestoreVersionInput{Requester: req("bob"), Bucket: "bkt", Key: "doc.txt", VersionID: "v1"})
+		require.NoError(t, err)
+		assert.Equal(t, "v3", got.VersionID)
+		require.Len(t, asked, 2)
+		assert.Equal(t, []policy.Action{policy.ActionGetObjectVersion}, asked[0].Actions)
+		assert.Equal(t, []string{"v1"}, asked[0].Conditions["s3:versionid"])
+		assert.Equal(t, []policy.Action{policy.ActionPutObject}, asked[1].Actions)
+		assert.Equal(t, []string{"bkt/doc.txt?versionId=v1"}, asked[1].Conditions["s3:x-amz-copy-source"])
+	})
+	t.Run("a denied version is not read", func(t *testing.T) {
+		b, _ := newBrowser(t, allowing(t, func(in admin.AuthorizeInput) bool { return in.Actions[0] != policy.ActionGetObjectVersion }))
+		_, err := b.RestoreVersion(ctx, admin.RestoreVersionInput{Requester: req("bob"), Bucket: "bkt", Key: "doc.txt", VersionID: "v1"})
+		assert.ErrorIs(t, err, domain.ErrAccessDenied)
+	})
+	t.Run("a delete marker cannot be restored", func(t *testing.T) {
+		b, objects := newBrowser(t, allowAll(t))
+		objects.EXPECT().GetObjectInfo(mock.Anything, "bkt", "doc.txt", object.GetObjectOptions{VersionID: "dm"}).Return(domain.ObjectInfo{Key: "doc.txt", VersionID: "dm", IsDeleteMarker: true}, nil)
+		_, err := b.RestoreVersion(ctx, admin.RestoreVersionInput{Requester: req("bob"), Bucket: "bkt", Key: "doc.txt", VersionID: "dm"})
+		assert.ErrorIs(t, err, domain.ErrMethodNotAllowed)
+	})
+	t.Run("the version is required", func(t *testing.T) {
+		b, _ := newBrowser(t, allowAll(t))
+		_, err := b.RestoreVersion(ctx, admin.RestoreVersionInput{Requester: req("bob"), Bucket: "bkt", Key: "doc.txt"})
+		assert.ErrorIs(t, err, domain.ErrInvalidArgument)
 	})
 }

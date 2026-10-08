@@ -194,12 +194,13 @@ Setup: global setup avvia `nexo server` su directory temporanea (e, per la suite
 | ID | Caso | Atteso |
 |----|------|--------|
 | TD-S-01 | Richiesta mutante senza token CSRF | 403 |
-| TD-S-02 | Cookie sessione: `HttpOnly`, `Secure` (con TLS), `SameSite=Strict` | Verificato |
+| TD-S-02 | Cookie sessione: `HttpOnly`, `Secure` (con TLS), `SameSite=Strict`; il token CSRF non sta in alcun cookie | Verificato |
 | TD-S-03 | Chiave oggetto con `<script>` mostrata nel browser | Nessuna esecuzione (escaping + CSP) |
 | TD-S-04 | Anteprima di file HTML/SVG caricato | Servito con `Content-Disposition: attachment` o sandbox, mai eseguito nell'origine della console |
 | TD-S-05 | Header `Content-Security-Policy`, `X-Frame-Options: DENY`, `Referrer-Policy` | Presenti su index.html |
 | TD-S-06 | Utente non admin chiama direttamente `/api/v1/users` | 403 (autorizzazione sempre lato server) |
 | TD-S-07 | Path traversal su asset statici (`/../../etc/passwd`, encoded) | 404 |
+| TD-S-08 | Pagina HTML servita dalla porta S3 dello stesso host (link presigned) che invia POST form `no-cors` all'Admin API con il cookie di sessione e un token CSRF trapelato (`/service/stop`, `/auth/logout`, `download-zip`) | Tutte rifiutate (403 `invalid_csrf_token`: `Sec-Fetch-Site` non `same-origin`); nessun cookie leggibile con il token; server e sessione intatti |
 
 ### Prestazioni dashboard
 - Bundle iniziale ≤ 300 KiB gzip (Monaco e grafici lazy-loaded) — controllo `size-limit` in CI.

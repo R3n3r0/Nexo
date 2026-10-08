@@ -2,10 +2,8 @@ package s3
 
 import (
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -43,13 +41,6 @@ const (
 	// actionForceDeleteBucket is required on top of s3:DeleteBucket to
 	// delete a non-empty bucket (force-delete header).
 	actionForceDeleteBucket policy.Action = "s3:ForceDeleteBucket"
-)
-
-// Values of the s3:authType condition key.
-const (
-	authTypeHeader = "REST-HEADER"
-	authTypeQuery  = "REST-QUERY-STRING"
-	authTypePOST   = "POST"
 )
 
 // presignedPrefix prefixes the names of the operations reached through a
@@ -211,74 +202,46 @@ func (a *authorizer) prepare(r *http.Request, bucketName string) checker {
 	}
 }
 
-// requestConditions builds the condition values of a request (docs/09
-// §9.3): the aws:* global keys, the s3:* listing keys, every x-amz-* header
-// as s3:x-amz-*, the authentication type and signature age, and the tags
-// requested with x-amz-tagging. aws:CurrentTime, aws:username and the other
-// identity keys are filled in by the policy engine.
+// requestConditions builds the condition values of a request with the
+// shared definition of the condition keys (policy.RequestConditions): the
+// client, the time, the listing and version parameters, the x-amz-*
+// headers, the requested tags, the authentication type and the signature
+// age. The Admin API describes the S3 requests of the console with the
+// same definition, so a policy decides alike through both. The client
+// (aws:SourceIp, aws:SecureTransport) is the one behind the trusted
+// proxies (middleware.NewForwarded, mounted on both listeners), or the
+// peer of the connection without the middleware.
 func requestConditions(r *http.Request, now time.Time) map[string][]string {
-	conds := map[string][]string{}
-	set := func(k, v string) {
-		if v != "" {
-			conds[k] = []string{v}
-		}
-	}
-	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-		set("aws:SourceIp", host)
-	} else {
-		set("aws:SourceIp", r.RemoteAddr)
-	}
-	set("aws:SecureTransport", strconv.FormatBool(r.TLS != nil))
-	set("aws:CurrentTime", now.UTC().Format(time.RFC3339))
-	set("aws:EpochTime", strconv.FormatInt(now.Unix(), 10))
-	set("aws:UserAgent", r.UserAgent())
-	set("aws:Referer", r.Referer())
+	client := middleware.ClientOf(r)
 	q := r.URL.Query()
-	for _, p := range []struct{ param, key string }{
-		{"prefix", "s3:prefix"}, {"delimiter", "s3:delimiter"}, {"max-keys", "s3:max-keys"}, {"versionId", "s3:versionid"},
-	} {
-		if q.Has(p.param) {
-			conds[p.key] = []string{q.Get(p.param)}
+	params := map[string]string{}
+	for _, name := range []string{"prefix", "delimiter", "max-keys", "versionId"} {
+		if q.Has(name) {
+			params[name] = q.Get(name)
 		}
-	}
-	for name, values := range r.Header {
-		lname := strings.ToLower(name)
-		if strings.HasPrefix(lname, "x-amz-") && !strings.HasPrefix(lname, httpx.HeaderAmzMetaPrefix) && lname != httpx.HeaderAmzSecurityToken {
-			conds["s3:"+lname] = append([]string(nil), values...)
-		}
-	}
-	if tags, err := url.ParseQuery(r.Header.Get(httpx.HeaderAmzTagging)); err == nil && len(tags) > 0 {
-		keys := make([]string, 0, len(tags))
-		for k, vs := range tags {
-			keys = append(keys, k)
-			if len(vs) > 0 {
-				conds["s3:RequestObjectTag/"+k] = []string{vs[0]}
-			}
-		}
-		conds["s3:RequestObjectTagKeys"] = keys
 	}
 	authType, signedAt := authInfo(r, q)
-	set("s3:authType", authType)
-	if authType != "" {
-		set("s3:signatureversion", "AWS4-HMAC-SHA256")
-	}
-	if !signedAt.IsZero() {
-		set("s3:signatureAge", strconv.FormatInt(now.Sub(signedAt).Milliseconds(), 10))
-	}
-	return conds
+	return policy.RequestConditions(policy.Request{
+		Client:   &policy.RequestClient{IP: client.IP, Secure: client.Secure, UserAgent: r.UserAgent(), Referer: r.Referer()},
+		Now:      now,
+		Params:   params,
+		Headers:  r.Header,
+		AuthType: authType,
+		SignedAt: signedAt,
+	})
 }
 
 // authInfo returns the s3:authType of a request and the time it was
 // signed at (zero for anonymous requests).
-func authInfo(r *http.Request, q url.Values) (string, time.Time) {
+func authInfo(r *http.Request, q url.Values) (domain.AuthType, time.Time) {
 	if op, ok := OperationFromContext(r.Context()); ok && op.Name == "PostObject" {
-		return authTypePOST, time.Time{}
+		return domain.AuthTypePost, time.Time{}
 	}
 	switch {
 	case auth.IsPresigned(q):
-		return authTypeQuery, parseAmzDate(q.Get("X-Amz-Date"))
+		return domain.AuthTypeQuery, parseAmzDate(q.Get("X-Amz-Date"))
 	case auth.IsSigned(r):
-		return authTypeHeader, parseAmzDate(r.Header.Get(httpx.HeaderAmzDate))
+		return domain.AuthTypeHeader, parseAmzDate(r.Header.Get(httpx.HeaderAmzDate))
 	default:
 		return "", time.Time{}
 	}

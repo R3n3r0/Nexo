@@ -290,12 +290,24 @@ export function BucketsPage() {
                           ) : null}
                         </Group>
                       </Table.Td>
-                      <Table.Td style={{ textAlign: 'right' }}>
-                        {formatBytes(bucket.size, locale)}
-                      </Table.Td>
-                      <Table.Td style={{ textAlign: 'right' }}>
-                        {formatNumber(bucket.objects, locale)}
-                      </Table.Td>
+                      {bucket.partial === true ? (
+                        // Only a part of the bucket may be listed: the
+                        // server leaves its usage out.
+                        <Table.Td colSpan={2} style={{ textAlign: 'right' }}>
+                          <Text size="sm" c="dimmed">
+                            {t('bucket.limitedAccess')}
+                          </Text>
+                        </Table.Td>
+                      ) : (
+                        <>
+                          <Table.Td style={{ textAlign: 'right' }}>
+                            {formatBytes(bucket.size, locale)}
+                          </Table.Td>
+                          <Table.Td style={{ textAlign: 'right' }}>
+                            {formatNumber(bucket.objects, locale)}
+                          </Table.Td>
+                        </>
+                      )}
                       <Table.Td>
                         <time dateTime={bucket.created}>
                           {new Date(bucket.created).toLocaleDateString(locale)}

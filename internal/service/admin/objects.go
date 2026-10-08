@@ -3,15 +3,12 @@ package admin
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"mime"
 	"net/http"
 	"path"
-	"strconv"
 	"strings"
 
 	"github.com/r3n3r0/nexo/internal/clock"
@@ -125,10 +122,7 @@ func (b *objectBrowser) List(ctx context.Context, in ListObjectsInput) (*ObjectL
 		delimiter = *in.Delimiter
 	}
 	// The conditions of the S3 listing: s3:delimiter is the effective one.
-	conds := map[string][]string{"s3:prefix": {in.Prefix}, "s3:delimiter": {delimiter}}
-	if in.Limit != 0 {
-		conds["s3:max-keys"] = []string{strconv.Itoa(in.Limit)}
-	}
+	conds := ListingConditions(in.Prefix, delimiter, in.Limit)
 	d, err := b.deps.Authz.Authorize(ctx, AuthorizeInput{Requester: in.Requester, Actions: []policy.Action{policy.ActionListBucket}, Bucket: in.Bucket, Conditions: conds})
 	if err != nil {
 		return nil, err
@@ -177,7 +171,7 @@ func (b *objectBrowser) Stat(ctx context.Context, in StatInput) (*ObjectDetails,
 			out.Tags = map[string]string{}
 		}
 	}
-	if b.allowed(ctx, in.Requester, in.Bucket, "", map[string][]string{"s3:prefix": {in.Key}}, policy.ActionListBucketVersions) {
+	if b.allowed(ctx, in.Requester, in.Bucket, "", ListingConditions(in.Key, "", 0), policy.ActionListBucketVersions) {
 		versions, err := b.Versions(ctx, VersionsInput{Bucket: in.Bucket, Key: in.Key, Limit: statVersions})
 		if err != nil {
 			return nil, err
@@ -204,19 +198,12 @@ type versionCursor struct {
 	VersionID string `json:"v"`
 }
 
-func encodeVersionCursor(c versionCursor) string {
-	raw, _ := json.Marshal(c)
-	return base64.RawURLEncoding.EncodeToString(raw)
-}
+func encodeVersionCursor(c versionCursor) string { return encodeJSONCursor(c) }
 
 func decodeVersionCursor(s string) (versionCursor, error) {
 	var c versionCursor
-	raw, err := base64.RawURLEncoding.DecodeString(s)
-	if err == nil {
-		err = json.Unmarshal(raw, &c)
-	}
-	if err != nil {
-		return versionCursor{}, fmt.Errorf("%w: invalid cursor", domain.ErrInvalidArgument)
+	if err := decodeJSONCursor(s, &c); err != nil {
+		return versionCursor{}, err
 	}
 	return c, nil
 }
@@ -281,11 +268,36 @@ func (b *objectBrowser) CreateFolder(ctx context.Context, in FolderInput) (domai
 	})
 }
 
+// folderPrefix returns a prefix of the object browser as the folder it
+// names: a non-empty prefix without a trailing slash is the folder of
+// that name ("photos" is "photos/", never "photos2/" nor "photosx.txt"),
+// as for the CLI (nexoctl rm -r alias/bucket/photos). "" is the whole
+// bucket.
+func folderPrefix(prefix string) string {
+	if prefix == "" || strings.HasSuffix(prefix, "/") {
+		return prefix
+	}
+	return prefix + "/"
+}
+
+// folderPrefixes applies folderPrefix to every prefix (a new slice).
+func folderPrefixes(prefixes []string) []string {
+	if prefixes == nil {
+		return nil
+	}
+	out := make([]string, len(prefixes))
+	for i, p := range prefixes {
+		out[i] = folderPrefix(p)
+	}
+	return out
+}
+
 // Delete implements ObjectBrowser.
 func (b *objectBrowser) Delete(ctx context.Context, in DeleteObjectsInput) (*DeleteObjectsResult, error) {
 	if len(in.Objects) == 0 && len(in.Prefixes) == 0 {
 		return nil, fmt.Errorf("%w: no object or prefix to delete", domain.ErrInvalidArgument)
 	}
+	in.Prefixes = folderPrefixes(in.Prefixes)
 	if len(in.Objects) > maxExplicitObjects {
 		return nil, fmt.Errorf("%w: at most %d objects per request", domain.ErrInvalidArgument, maxExplicitObjects)
 	}
@@ -399,7 +411,7 @@ func (b *objectBrowser) authorizeWalk(ctx context.Context, req Requester, bucket
 	}
 	d, err := b.deps.Authz.Authorize(ctx, AuthorizeInput{
 		Requester: req, Actions: []policy.Action{action}, Bucket: bucket,
-		Conditions: map[string][]string{"s3:prefix": {prefix}},
+		Conditions: ListingConditions(prefix, "", 0),
 	})
 	if err != nil {
 		return err
@@ -485,6 +497,7 @@ func (b *objectBrowser) Rename(ctx context.Context, in RenameInput) (*RenameResu
 		}
 		return out, nil
 	}
+	in.Source, in.Destination = folderPrefix(in.Source), folderPrefix(in.Destination)
 	if err := domain.ValidateObjectPrefix(in.Source); err != nil {
 		return nil, err
 	}
@@ -516,11 +529,16 @@ func (b *objectBrowser) renameOne(ctx context.Context, in RenameInput, src, dst 
 		fail(err)
 		return
 	}
+	// The S3 requests a move stands for: GetObject and DeleteObject of the
+	// source, CopyObject (PutObject with x-amz-copy-source) of the
+	// destination.
+	copySource := ObjectRequest{Headers: map[string]string{"x-amz-copy-source": copySourceOf(in.Bucket, src, "")}}
 	for _, check := range []struct {
 		key    string
+		or     ObjectRequest
 		action policy.Action
-	}{{src, policy.ActionGetObject}, {dst, policy.ActionPutObject}, {src, policy.ActionDeleteObject}} {
-		if err := authorizeObject(ctx, b.deps.Authz, in.Requester, in.Bucket, check.key, ObjectRequest{}, check.action); err != nil {
+	}{{src, ObjectRequest{}, policy.ActionGetObject}, {dst, copySource, policy.ActionPutObject}, {src, ObjectRequest{}, policy.ActionDeleteObject}} {
+		if err := authorizeObject(ctx, b.deps.Authz, in.Requester, in.Bucket, check.key, check.or, check.action); err != nil {
 			fail(err)
 			return
 		}
@@ -598,20 +616,36 @@ func (b *objectBrowser) abort(ctx context.Context, bucket, key, uploadID string)
 	}
 }
 
-// Upload implements ObjectBrowser.
-func (b *objectBrowser) Upload(ctx context.Context, in object.PutObjectInput) (domain.ObjectInfo, error) {
-	if in.ContentType == "" {
-		in.ContentType = DefaultContentType
+// RestoreVersion implements ObjectBrowser.
+func (b *objectBrowser) RestoreVersion(ctx context.Context, in RestoreVersionInput) (domain.ObjectInfo, error) {
+	if err := domain.ValidateObjectKey(in.Key); err != nil {
+		return domain.ObjectInfo{}, err
 	}
-	return b.deps.Objects.PutObject(ctx, in)
-}
-
-// CreateUpload implements ObjectBrowser.
-func (b *objectBrowser) CreateUpload(ctx context.Context, in object.NewMultipartInput) (domain.MultipartUpload, error) {
-	if in.ContentType == "" {
-		in.ContentType = DefaultContentType
+	if in.VersionID == "" {
+		return domain.ObjectInfo{}, fmt.Errorf("%w: the version to restore is required", domain.ErrInvalidArgument)
 	}
-	return b.deps.Objects.NewMultipartUpload(ctx, in)
+	// The S3 request it stands for: CopyObject of key?versionId onto key.
+	if err := authorizeObject(ctx, b.deps.Authz, in.Requester, in.Bucket, in.Key, ObjectRequest{VersionID: in.VersionID}, policy.ActionGetObjectVersion); err != nil {
+		return domain.ObjectInfo{}, err
+	}
+	copySource := ObjectRequest{Headers: map[string]string{"x-amz-copy-source": copySourceOf(in.Bucket, in.Key, in.VersionID)}}
+	if err := authorizeObject(ctx, b.deps.Authz, in.Requester, in.Bucket, in.Key, copySource, policy.ActionPutObject); err != nil {
+		return domain.ObjectInfo{}, err
+	}
+	src, err := b.deps.Objects.GetObjectInfo(ctx, in.Bucket, in.Key, object.GetObjectOptions{VersionID: in.VersionID})
+	if err != nil {
+		return domain.ObjectInfo{}, err
+	}
+	if src.IsDeleteMarker {
+		return domain.ObjectInfo{}, fmt.Errorf("%w: a delete marker cannot be restored", domain.ErrMethodNotAllowed)
+	}
+	if src.Size > maxCopySize {
+		if err := b.copyMultipart(ctx, in.Bucket, src, in.Key); err != nil {
+			return domain.ObjectInfo{}, err
+		}
+		return b.deps.Objects.GetObjectInfo(ctx, in.Bucket, in.Key, object.GetObjectOptions{})
+	}
+	return b.deps.Objects.CopyObject(ctx, object.CopyObjectInput{SrcBucket: in.Bucket, SrcKey: in.Key, SrcVersionID: in.VersionID, DstBucket: in.Bucket, DstKey: in.Key})
 }
 
 // SetTags implements ObjectBrowser.

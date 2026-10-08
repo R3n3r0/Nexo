@@ -528,6 +528,53 @@ func (_c *AdminClient_DeleteAccessKey_Call) RunAndReturn(run func(context.Contex
 	return _c
 }
 
+// DeleteBucketEncryption provides a mock function with given fields: ctx, bucket
+func (_m *AdminClient) DeleteBucketEncryption(ctx context.Context, bucket string) error {
+	ret := _m.Called(ctx, bucket)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteBucketEncryption")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, bucket)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_DeleteBucketEncryption_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteBucketEncryption'
+type AdminClient_DeleteBucketEncryption_Call struct {
+	*mock.Call
+}
+
+// DeleteBucketEncryption is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+func (_e *AdminClient_Expecter) DeleteBucketEncryption(ctx interface{}, bucket interface{}) *AdminClient_DeleteBucketEncryption_Call {
+	return &AdminClient_DeleteBucketEncryption_Call{Call: _e.mock.On("DeleteBucketEncryption", ctx, bucket)}
+}
+
+func (_c *AdminClient_DeleteBucketEncryption_Call) Run(run func(ctx context.Context, bucket string)) *AdminClient_DeleteBucketEncryption_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_DeleteBucketEncryption_Call) Return(_a0 error) *AdminClient_DeleteBucketEncryption_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_DeleteBucketEncryption_Call) RunAndReturn(run func(context.Context, string) error) *AdminClient_DeleteBucketEncryption_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // DeleteConfig provides a mock function with given fields: ctx, subsystem, keys
 func (_m *AdminClient) DeleteConfig(ctx context.Context, subsystem string, keys ...string) error {
 	var tmpRet mock.Arguments
@@ -890,6 +937,124 @@ func (_c *AdminClient_GetAccessKey_Call) Return(_a0 *nexoadmin.AccessKey, _a1 er
 }
 
 func (_c *AdminClient_GetAccessKey_Call) RunAndReturn(run func(context.Context, string) (*nexoadmin.AccessKey, error)) *AdminClient_GetAccessKey_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetBucketEncryption provides a mock function with given fields: ctx, bucket
+func (_m *AdminClient) GetBucketEncryption(ctx context.Context, bucket string) (*nexoadmin.BucketEncryption, error) {
+	ret := _m.Called(ctx, bucket)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetBucketEncryption")
+	}
+
+	var r0 *nexoadmin.BucketEncryption
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*nexoadmin.BucketEncryption, error)); ok {
+		return rf(ctx, bucket)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *nexoadmin.BucketEncryption); ok {
+		r0 = rf(ctx, bucket)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.BucketEncryption)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, bucket)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_GetBucketEncryption_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetBucketEncryption'
+type AdminClient_GetBucketEncryption_Call struct {
+	*mock.Call
+}
+
+// GetBucketEncryption is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+func (_e *AdminClient_Expecter) GetBucketEncryption(ctx interface{}, bucket interface{}) *AdminClient_GetBucketEncryption_Call {
+	return &AdminClient_GetBucketEncryption_Call{Call: _e.mock.On("GetBucketEncryption", ctx, bucket)}
+}
+
+func (_c *AdminClient_GetBucketEncryption_Call) Run(run func(ctx context.Context, bucket string)) *AdminClient_GetBucketEncryption_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_GetBucketEncryption_Call) Return(_a0 *nexoadmin.BucketEncryption, _a1 error) *AdminClient_GetBucketEncryption_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_GetBucketEncryption_Call) RunAndReturn(run func(context.Context, string) (*nexoadmin.BucketEncryption, error)) *AdminClient_GetBucketEncryption_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetBucketQuota provides a mock function with given fields: ctx, bucket
+func (_m *AdminClient) GetBucketQuota(ctx context.Context, bucket string) (*nexoadmin.BucketQuota, error) {
+	ret := _m.Called(ctx, bucket)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetBucketQuota")
+	}
+
+	var r0 *nexoadmin.BucketQuota
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*nexoadmin.BucketQuota, error)); ok {
+		return rf(ctx, bucket)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *nexoadmin.BucketQuota); ok {
+		r0 = rf(ctx, bucket)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.BucketQuota)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, bucket)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_GetBucketQuota_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetBucketQuota'
+type AdminClient_GetBucketQuota_Call struct {
+	*mock.Call
+}
+
+// GetBucketQuota is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+func (_e *AdminClient_Expecter) GetBucketQuota(ctx interface{}, bucket interface{}) *AdminClient_GetBucketQuota_Call {
+	return &AdminClient_GetBucketQuota_Call{Call: _e.mock.On("GetBucketQuota", ctx, bucket)}
+}
+
+func (_c *AdminClient_GetBucketQuota_Call) Run(run func(ctx context.Context, bucket string)) *AdminClient_GetBucketQuota_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_GetBucketQuota_Call) Return(_a0 *nexoadmin.BucketQuota, _a1 error) *AdminClient_GetBucketQuota_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_GetBucketQuota_Call) RunAndReturn(run func(context.Context, string) (*nexoadmin.BucketQuota, error)) *AdminClient_GetBucketQuota_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1971,6 +2136,126 @@ func (_c *AdminClient_ServerInfo_Call) Return(_a0 *nexoadmin.ServerInfo, _a1 err
 }
 
 func (_c *AdminClient_ServerInfo_Call) RunAndReturn(run func(context.Context) (*nexoadmin.ServerInfo, error)) *AdminClient_ServerInfo_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetBucketEncryption provides a mock function with given fields: ctx, bucket, enc
+func (_m *AdminClient) SetBucketEncryption(ctx context.Context, bucket string, enc nexoadmin.BucketEncryption) (*nexoadmin.BucketEncryption, error) {
+	ret := _m.Called(ctx, bucket, enc)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetBucketEncryption")
+	}
+
+	var r0 *nexoadmin.BucketEncryption
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, nexoadmin.BucketEncryption) (*nexoadmin.BucketEncryption, error)); ok {
+		return rf(ctx, bucket, enc)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, nexoadmin.BucketEncryption) *nexoadmin.BucketEncryption); ok {
+		r0 = rf(ctx, bucket, enc)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.BucketEncryption)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, nexoadmin.BucketEncryption) error); ok {
+		r1 = rf(ctx, bucket, enc)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_SetBucketEncryption_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetBucketEncryption'
+type AdminClient_SetBucketEncryption_Call struct {
+	*mock.Call
+}
+
+// SetBucketEncryption is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - enc nexoadmin.BucketEncryption
+func (_e *AdminClient_Expecter) SetBucketEncryption(ctx interface{}, bucket interface{}, enc interface{}) *AdminClient_SetBucketEncryption_Call {
+	return &AdminClient_SetBucketEncryption_Call{Call: _e.mock.On("SetBucketEncryption", ctx, bucket, enc)}
+}
+
+func (_c *AdminClient_SetBucketEncryption_Call) Run(run func(ctx context.Context, bucket string, enc nexoadmin.BucketEncryption)) *AdminClient_SetBucketEncryption_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(nexoadmin.BucketEncryption))
+	})
+	return _c
+}
+
+func (_c *AdminClient_SetBucketEncryption_Call) Return(_a0 *nexoadmin.BucketEncryption, _a1 error) *AdminClient_SetBucketEncryption_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_SetBucketEncryption_Call) RunAndReturn(run func(context.Context, string, nexoadmin.BucketEncryption) (*nexoadmin.BucketEncryption, error)) *AdminClient_SetBucketEncryption_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetBucketQuota provides a mock function with given fields: ctx, bucket, quota
+func (_m *AdminClient) SetBucketQuota(ctx context.Context, bucket string, quota nexoadmin.BucketQuota) (*nexoadmin.BucketQuota, error) {
+	ret := _m.Called(ctx, bucket, quota)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetBucketQuota")
+	}
+
+	var r0 *nexoadmin.BucketQuota
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, nexoadmin.BucketQuota) (*nexoadmin.BucketQuota, error)); ok {
+		return rf(ctx, bucket, quota)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, nexoadmin.BucketQuota) *nexoadmin.BucketQuota); ok {
+		r0 = rf(ctx, bucket, quota)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.BucketQuota)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, nexoadmin.BucketQuota) error); ok {
+		r1 = rf(ctx, bucket, quota)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_SetBucketQuota_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetBucketQuota'
+type AdminClient_SetBucketQuota_Call struct {
+	*mock.Call
+}
+
+// SetBucketQuota is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - quota nexoadmin.BucketQuota
+func (_e *AdminClient_Expecter) SetBucketQuota(ctx interface{}, bucket interface{}, quota interface{}) *AdminClient_SetBucketQuota_Call {
+	return &AdminClient_SetBucketQuota_Call{Call: _e.mock.On("SetBucketQuota", ctx, bucket, quota)}
+}
+
+func (_c *AdminClient_SetBucketQuota_Call) Run(run func(ctx context.Context, bucket string, quota nexoadmin.BucketQuota)) *AdminClient_SetBucketQuota_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(nexoadmin.BucketQuota))
+	})
+	return _c
+}
+
+func (_c *AdminClient_SetBucketQuota_Call) Return(_a0 *nexoadmin.BucketQuota, _a1 error) *AdminClient_SetBucketQuota_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_SetBucketQuota_Call) RunAndReturn(run func(context.Context, string, nexoadmin.BucketQuota) (*nexoadmin.BucketQuota, error)) *AdminClient_SetBucketQuota_Call {
 	_c.Call.Return(run)
 	return _c
 }

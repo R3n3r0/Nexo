@@ -193,29 +193,29 @@ func (_c *AccessKeyManager_Get_Call) RunAndReturn(run func(context.Context, admi
 	return _c
 }
 
-// List provides a mock function with given fields: ctx, req, parent
-func (_m *AccessKeyManager) List(ctx context.Context, req admin.Requester, parent string) ([]iam.AccessKey, error) {
-	ret := _m.Called(ctx, req, parent)
+// List provides a mock function with given fields: ctx, req, parent, page
+func (_m *AccessKeyManager) List(ctx context.Context, req admin.Requester, parent string, page admin.Page) (*admin.Paged[iam.AccessKey], error) {
+	ret := _m.Called(ctx, req, parent, page)
 
 	if len(ret) == 0 {
 		panic("no return value specified for List")
 	}
 
-	var r0 []iam.AccessKey
+	var r0 *admin.Paged[iam.AccessKey]
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, admin.Requester, string) ([]iam.AccessKey, error)); ok {
-		return rf(ctx, req, parent)
+	if rf, ok := ret.Get(0).(func(context.Context, admin.Requester, string, admin.Page) (*admin.Paged[iam.AccessKey], error)); ok {
+		return rf(ctx, req, parent, page)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, admin.Requester, string) []iam.AccessKey); ok {
-		r0 = rf(ctx, req, parent)
+	if rf, ok := ret.Get(0).(func(context.Context, admin.Requester, string, admin.Page) *admin.Paged[iam.AccessKey]); ok {
+		r0 = rf(ctx, req, parent, page)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]iam.AccessKey)
+			r0 = ret.Get(0).(*admin.Paged[iam.AccessKey])
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, admin.Requester, string) error); ok {
-		r1 = rf(ctx, req, parent)
+	if rf, ok := ret.Get(1).(func(context.Context, admin.Requester, string, admin.Page) error); ok {
+		r1 = rf(ctx, req, parent, page)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -232,23 +232,24 @@ type AccessKeyManager_List_Call struct {
 //   - ctx context.Context
 //   - req admin.Requester
 //   - parent string
-func (_e *AccessKeyManager_Expecter) List(ctx interface{}, req interface{}, parent interface{}) *AccessKeyManager_List_Call {
-	return &AccessKeyManager_List_Call{Call: _e.mock.On("List", ctx, req, parent)}
+//   - page admin.Page
+func (_e *AccessKeyManager_Expecter) List(ctx interface{}, req interface{}, parent interface{}, page interface{}) *AccessKeyManager_List_Call {
+	return &AccessKeyManager_List_Call{Call: _e.mock.On("List", ctx, req, parent, page)}
 }
 
-func (_c *AccessKeyManager_List_Call) Run(run func(ctx context.Context, req admin.Requester, parent string)) *AccessKeyManager_List_Call {
+func (_c *AccessKeyManager_List_Call) Run(run func(ctx context.Context, req admin.Requester, parent string, page admin.Page)) *AccessKeyManager_List_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(admin.Requester), args[2].(string))
+		run(args[0].(context.Context), args[1].(admin.Requester), args[2].(string), args[3].(admin.Page))
 	})
 	return _c
 }
 
-func (_c *AccessKeyManager_List_Call) Return(_a0 []iam.AccessKey, _a1 error) *AccessKeyManager_List_Call {
+func (_c *AccessKeyManager_List_Call) Return(_a0 *admin.Paged[iam.AccessKey], _a1 error) *AccessKeyManager_List_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *AccessKeyManager_List_Call) RunAndReturn(run func(context.Context, admin.Requester, string) ([]iam.AccessKey, error)) *AccessKeyManager_List_Call {
+func (_c *AccessKeyManager_List_Call) RunAndReturn(run func(context.Context, admin.Requester, string, admin.Page) (*admin.Paged[iam.AccessKey], error)) *AccessKeyManager_List_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -1,4 +1,8 @@
-Generate download links (managed by default, --raw for presigned GET)
+Generate download links: managed, revocable links signed by the server (the
+default), or with --raw presigned GET URLs signed locally with the credentials of
+the alias, which cannot be revoked. A raw URL is signed after checking the
+object (HEAD): a missing object exits with code 3 and one the alias may not read
+with code 4. --recursive generates one link per object under a prefix.
 
 Usage:
   nexoctl share download [flags] ALIAS/BUCKET/OBJECT
