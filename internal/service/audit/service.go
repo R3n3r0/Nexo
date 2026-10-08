@@ -16,7 +16,7 @@ type Service interface {
 	Log(ctx context.Context, e Entry) error
 }
 
-// Entry is one audit record, modelled on the MinIO audit log format.
+// Entry is one audit record, modeled on the MinIO audit log format.
 type Entry struct {
 	Version      string            `json:"version"`
 	DeploymentID string            `json:"deploymentId,omitempty"`

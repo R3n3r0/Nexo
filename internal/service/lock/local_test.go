@@ -83,7 +83,7 @@ func TestLocalContextCancellation(t *testing.T) {
 	}()
 	err := l.Lock(ctx, "c", time.Second)
 	assert.ErrorIs(t, err, context.Canceled)
-	// No timeout: waits until the context is cancelled.
+	// No timeout: waits until the context is canceled.
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel2()
 	assert.ErrorIs(t, l.RLock(ctx2, "c", 0), context.DeadlineExceeded)

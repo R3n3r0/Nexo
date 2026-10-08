@@ -7,12 +7,14 @@ import (
 	"net"
 	"strconv"
 	"strings"
+
+	"github.com/r3n3r0/nexo/internal/domain"
 )
 
 // Layout is the validated deployment topology produced by Service.Parse.
 type Layout struct {
 	// Mode is the detected deployment mode.
-	Mode Mode
+	Mode domain.Mode
 	// Pools lists the server pools in command line order.
 	Pools []Pool
 	// Nodes lists the distinct nodes in order of first appearance across pools.
@@ -27,7 +29,7 @@ type Pool struct {
 	Args []string
 	// Endpoints lists the drives of the pool in set order: the drives of set s
 	// are Endpoints[s*SetDriveCount:(s+1)*SetDriveCount], sorted by DiskIdx.
-	Endpoints []Endpoint
+	Endpoints []domain.Endpoint
 	// NodeCount is the number of distinct nodes in the pool.
 	NodeCount int
 	// SetCount is the number of erasure sets.
@@ -40,15 +42,15 @@ type Pool struct {
 
 // Node is a server of the deployment with the drives it exposes.
 type Node struct {
-	// Host is the lower-cased host name or IP of the node; empty for the local
-	// node of a single-node deployment.
+	// Host is the lower-cased host name or IP of the node; empty for the
+	// implicit local node of a single-node deployment.
 	Host string
 	// Port is the TCP port of the node; zero for a single-node deployment.
 	Port int
 	// Local is true when the node is the one running this process.
 	Local bool
 	// Endpoints lists the drives of the node across all pools.
-	Endpoints []Endpoint
+	Endpoints []domain.Endpoint
 }
 
 // String returns "host:port" for a network node and "local" for the implicit
@@ -56,6 +58,14 @@ type Node struct {
 func (n Node) String() string {
 	if n.Host == "" && n.Port == 0 {
 		return "local"
+	}
+	return net.JoinHostPort(n.Host, strconv.Itoa(n.Port))
+}
+
+// key returns the node identifier matching nodeKey of its endpoints.
+func (n Node) key() string {
+	if n.Host == "" && n.Port == 0 {
+		return ""
 	}
 	return net.JoinHostPort(n.Host, strconv.Itoa(n.Port))
 }
@@ -68,7 +78,7 @@ func (p Pool) DataShards() int { return p.SetDriveCount - p.Parity }
 
 // Set returns the drives of erasure set i, ordered by DiskIdx. It returns nil
 // when i is out of range.
-func (p Pool) Set(i int) []Endpoint {
+func (p Pool) Set(i int) []domain.Endpoint {
 	if i < 0 || i >= p.SetCount || p.SetDriveCount <= 0 {
 		return nil
 	}
@@ -80,8 +90,8 @@ func (p Pool) Set(i int) []Endpoint {
 }
 
 // Sets returns all the erasure sets of the pool.
-func (p Pool) Sets() [][]Endpoint {
-	out := make([][]Endpoint, 0, p.SetCount)
+func (p Pool) Sets() [][]domain.Endpoint {
+	out := make([][]domain.Endpoint, 0, p.SetCount)
 	for i := 0; i < p.SetCount; i++ {
 		out = append(out, p.Set(i))
 	}
@@ -98,8 +108,8 @@ func (l *Layout) DriveCount() int {
 }
 
 // Endpoints returns every drive of the deployment in pool and set order.
-func (l *Layout) Endpoints() []Endpoint {
-	out := make([]Endpoint, 0, l.DriveCount())
+func (l *Layout) Endpoints() []domain.Endpoint {
+	out := make([]domain.Endpoint, 0, l.DriveCount())
 	for _, p := range l.Pools {
 		out = append(out, p.Endpoints...)
 	}
@@ -107,8 +117,8 @@ func (l *Layout) Endpoints() []Endpoint {
 }
 
 // LocalEndpoints returns the drives that belong to the local node.
-func (l *Layout) LocalEndpoints() []Endpoint {
-	var out []Endpoint
+func (l *Layout) LocalEndpoints() []domain.Endpoint {
+	var out []domain.Endpoint
 	for _, p := range l.Pools {
 		for _, ep := range p.Endpoints {
 			if ep.IsLocal {
@@ -142,7 +152,7 @@ func (l *Layout) String() string {
 			for _, ep := range p.Set(s) {
 				sb.WriteByte(' ')
 				sb.WriteString(ep.String())
-				if ep.IsLocal && l.Mode == ModeDistributed {
+				if ep.IsLocal && l.Mode == domain.ModeDistributed {
 					sb.WriteString("(local)")
 				}
 			}
@@ -191,31 +201,41 @@ func (l *Layout) Hash() string {
 
 // Validate checks the internal consistency of the layout: known mode, pools
 // with complete erasure sets, admissible parity, correct placement indexes,
-// endpoints compatible with the mode, no duplicates, sets spread uniformly
-// across nodes and a node list that covers every endpoint exactly once.
+// endpoints compatible with the mode, a single URL scheme, no duplicates, sets
+// spread uniformly across nodes and a node list that covers every endpoint
+// exactly once.
 func (l *Layout) Validate() error {
 	if l == nil {
 		return fmt.Errorf("%w: nil layout", ErrInvalidLayout)
 	}
-	if !l.Mode.Valid() {
+	if !validMode(l.Mode) {
 		return fmt.Errorf("%w: unknown mode %q", ErrInvalidLayout, l.Mode)
 	}
 	if len(l.Pools) == 0 {
 		return fmt.Errorf("%w: no pools", ErrInvalidLayout)
 	}
-	if l.Mode == ModeSNSD && (len(l.Pools) != 1 || len(l.Pools[0].Endpoints) != 1) {
+	if l.Mode == domain.ModeSNSD && (len(l.Pools) != 1 || len(l.Pools[0].Endpoints) != 1) {
 		return fmt.Errorf("%w: snsd requires exactly one pool with one drive", ErrInvalidLayout)
 	}
 
 	seen := make(map[string]struct{}, l.DriveCount())
-	localNodes := 0
 	for i, p := range l.Pools {
 		if err := l.validatePool(i, p, seen); err != nil {
 			return err
 		}
 	}
+	schemes := make(map[string]struct{})
+	for _, ep := range l.Endpoints() {
+		if ep.IsURL() {
+			schemes[ep.Scheme] = struct{}{}
+		}
+	}
+	if len(schemes) > 1 {
+		return fmt.Errorf("%w: %w", ErrInvalidLayout, ErrMixedSchemes)
+	}
 
 	covered := make(map[string]struct{}, l.DriveCount())
+	localNodes := 0
 	for _, n := range l.Nodes {
 		if len(n.Endpoints) == 0 {
 			return fmt.Errorf("%w: node %s has no drives", ErrInvalidLayout, n)
@@ -224,7 +244,7 @@ func (l *Layout) Validate() error {
 			localNodes++
 		}
 		for _, ep := range n.Endpoints {
-			if ep.NodeKey() != nodeKeyOf(n) {
+			if nodeKey(ep) != n.key() {
 				return fmt.Errorf("%w: endpoint %s listed under node %s", ErrInvalidLayout, ep, n)
 			}
 			if ep.IsLocal != n.Local {
@@ -246,13 +266,6 @@ func (l *Layout) Validate() error {
 	return nil
 }
 
-func nodeKeyOf(n Node) string {
-	if n.Host == "" && n.Port == 0 {
-		return ""
-	}
-	return net.JoinHostPort(n.Host, strconv.Itoa(n.Port))
-}
-
 func (l *Layout) validatePool(i int, p Pool, seen map[string]struct{}) error {
 	if p.Index != i {
 		return fmt.Errorf("%w: pool at position %d has index %d", ErrInvalidLayout, i, p.Index)
@@ -263,7 +276,7 @@ func (l *Layout) validatePool(i int, p Pool, seen map[string]struct{}) error {
 	if p.SetCount < 1 || p.SetDriveCount < 1 || p.SetCount*p.SetDriveCount != len(p.Endpoints) {
 		return fmt.Errorf("%w: pool %d has %d drives but %d set(s) x %d", ErrInvalidLayout, i, len(p.Endpoints), p.SetCount, p.SetDriveCount)
 	}
-	if l.Mode == ModeSNSD {
+	if l.Mode == domain.ModeSNSD {
 		if p.SetDriveCount != 1 {
 			return fmt.Errorf("%w: snsd pool with %d drives per set", ErrInvalidLayout, p.SetDriveCount)
 		}
@@ -271,15 +284,15 @@ func (l *Layout) validatePool(i int, p Pool, seen map[string]struct{}) error {
 		return fmt.Errorf("%w: pool %d set size %d outside [%d..%d]", ErrInvalidLayout, i, p.SetDriveCount, MinSetDriveCount, MaxSetDriveCount)
 	}
 	if err := validateParity(p.Parity, p.SetDriveCount); err != nil {
-		return fmt.Errorf("%w: pool %d: %v", ErrInvalidLayout, i, err)
+		return fmt.Errorf("%w: pool %d: %w", ErrInvalidLayout, i, err)
 	}
 
 	nodes := make(map[string]struct{})
 	for j, ep := range p.Endpoints {
 		if err := validateEndpoint(ep); err != nil {
-			return fmt.Errorf("%w: pool %d: %v", ErrInvalidLayout, i, err)
+			return fmt.Errorf("%w: pool %d: %w", ErrInvalidLayout, i, err)
 		}
-		if ep.IsURL() != (l.Mode == ModeDistributed) {
+		if ep.IsURL() != (l.Mode == domain.ModeDistributed) {
 			return fmt.Errorf("%w: endpoint %s is incompatible with mode %s", ErrInvalidLayout, ep, l.Mode)
 		}
 		if ep.PoolIdx != i || ep.SetIdx != j/p.SetDriveCount || ep.DiskIdx != j%p.SetDriveCount {
@@ -291,7 +304,7 @@ func (l *Layout) validatePool(i int, p Pool, seen map[string]struct{}) error {
 			return fmt.Errorf("%w: %s", ErrDuplicateEndpoint, ep)
 		}
 		seen[key] = struct{}{}
-		nodes[ep.NodeKey()] = struct{}{}
+		nodes[nodeKey(ep)] = struct{}{}
 	}
 	if p.NodeCount != len(nodes) {
 		return fmt.Errorf("%w: pool %d declares %d nodes, found %d", ErrInvalidLayout, i, p.NodeCount, len(nodes))
@@ -306,10 +319,10 @@ func (l *Layout) validatePool(i int, p Pool, seen map[string]struct{}) error {
 
 // validateSetSymmetry checks that a set takes the same number of drives from
 // every node it touches and touches min(len(set), nodeCount) distinct nodes.
-func validateSetSymmetry(set []Endpoint, nodeCount int) error {
+func validateSetSymmetry(set []domain.Endpoint, nodeCount int) error {
 	perNode := make(map[string]int)
 	for _, ep := range set {
-		perNode[ep.NodeKey()]++
+		perNode[nodeKey(ep)]++
 	}
 	want := min(len(set), nodeCount)
 	if len(perNode) != want {
@@ -326,14 +339,14 @@ func validateSetSymmetry(set []Endpoint, nodeCount int) error {
 	return nil
 }
 
-// validateEndpoint checks the fields of a single endpoint.
-func validateEndpoint(ep Endpoint) error {
+// validateEndpoint checks the fields of a single canonical endpoint.
+func validateEndpoint(ep domain.Endpoint) error {
 	if ep.Path == "" {
 		return fmt.Errorf("%w: empty path", ErrInvalidEndpoint)
 	}
 	if !ep.IsURL() {
-		if ep.Host != "" || ep.Port != 0 {
-			return fmt.Errorf("%w: local path %q with host or port", ErrInvalidEndpoint, ep.Path)
+		if ep.Host != "" {
+			return fmt.Errorf("%w: local path %q with host", ErrInvalidEndpoint, ep.Path)
 		}
 		if !strings.HasPrefix(ep.Path, "/") {
 			return fmt.Errorf("%w: %q", ErrRelativePath, ep.Path)
@@ -346,11 +359,11 @@ func validateEndpoint(ep Endpoint) error {
 	if ep.Scheme != "http" && ep.Scheme != "https" {
 		return fmt.Errorf("%w: %q", ErrInvalidScheme, ep.Scheme)
 	}
-	if ep.Host == "" {
+	if ep.Hostname() == "" {
 		return fmt.Errorf("%w: missing host in %s", ErrInvalidEndpoint, ep)
 	}
-	if ep.Port < 1 || ep.Port > 65535 {
-		return fmt.Errorf("%w: port %d out of range", ErrInvalidEndpoint, ep.Port)
+	if port := endpointPort(ep); port < 1 || port > 65535 {
+		return fmt.Errorf("%w: port %q out of range in %s", ErrInvalidEndpoint, ep.Port(), ep)
 	}
 	if !strings.HasPrefix(ep.Path, "/") {
 		return fmt.Errorf("%w: %q", ErrRelativePath, ep.Path)

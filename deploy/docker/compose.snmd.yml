@@ -1,0 +1,39 @@
+# Nexo single node, multi drive (SNMD): one container, four volumes, erasure
+# coding across the drives (tolerates drive failures, not node failures).
+#
+#   cp nexo.env.example nexo.env
+#   docker compose -f compose.snmd.yml up -d
+#
+# For real disks replace the named volumes with bind mounts of one mount
+# point per disk, e.g. "/mnt/disk1:/data1" (XFS, noatime, no RAID).
+# The ellipsis pattern is expanded by Nexo itself, not by the shell.
+name: nexo-snmd
+
+services:
+  nexo:
+    image: ${NEXO_IMAGE:-ghcr.io/r3n3r0/nexo:latest}
+    command: ["server", "/data{1...4}"]
+    env_file:
+      - nexo.env
+    ports:
+      - "${NEXO_S3_PORT:-9000}:9000"
+      - "${NEXO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - data1:/data1
+      - data2:/data2
+      - data3:/data3
+      - data4:/data4
+    healthcheck:
+      test: ["CMD", "/nexo", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+volumes:
+  data1: {}
+  data2: {}
+  data3: {}
+  data4: {}

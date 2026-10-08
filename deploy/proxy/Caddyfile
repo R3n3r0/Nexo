@@ -1,0 +1,71 @@
+# Caddy in front of a Nexo server with automatic HTTPS.
+#
+#   https://s3.example.com       -> S3 API        (127.0.0.1:9000)
+#   https://*.s3.example.com     -> S3 API, virtual-host style buckets
+#   https://console.example.com  -> console + Admin API (127.0.0.1:9001)
+#
+# Caddy's reverse_proxy already preserves the Host header and sets
+# X-Forwarded-For / X-Forwarded-Proto / X-Forwarded-Host, which is what
+# SigV4 and presigned URLs need. There is no request body limit by default.
+#
+# In nexo.env:
+#   NEXO_SERVER_URL=https://s3.example.com
+#   NEXO_BROWSER_REDIRECT_URL=https://console.example.com
+#   NEXO_TRUSTED_PROXIES=127.0.0.1
+#   NEXO_DOMAIN=s3.example.com      # only for virtual-host style buckets
+
+{
+	# email admin@example.com
+}
+
+# S3 API. The wildcard needs a DNS challenge: build Caddy with a DNS
+# provider module (e.g. xcaddy --with github.com/caddy-dns/cloudflare) and
+# uncomment the tls block; without wildcard buckets keep only s3.example.com.
+s3.example.com, *.s3.example.com {
+	# tls {
+	# 	dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	# }
+
+	reverse_proxy 127.0.0.1:9000 {
+		# add the other nodes of a cluster: reverse_proxy 10.0.0.1:9000 10.0.0.2:9000 ...
+		lb_policy least_conn
+		lb_try_duration 5s
+		fail_duration 10s
+
+		# stream request and response bodies (large uploads/downloads)
+		flush_interval -1
+		transport http {
+			read_timeout 0
+			write_timeout 0
+			dial_timeout 5s
+			keepalive 65s
+		}
+	}
+
+	log {
+		output stdout
+	}
+}
+
+# Console + Admin API (SSE/WebSocket for live logs and traces).
+console.example.com {
+	reverse_proxy 127.0.0.1:9001 {
+		flush_interval -1
+		transport http {
+			read_timeout 0
+			write_timeout 0
+			dial_timeout 5s
+		}
+	}
+
+	# Hardening headers for the SPA (CSP is set by Nexo itself).
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	log {
+		output stdout
+	}
+}

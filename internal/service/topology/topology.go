@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/r3n3r0/nexo/internal/domain"
 )
 
 // service is the default implementation of Service.
@@ -54,10 +56,11 @@ func (s *service) Parse(ctx context.Context, args []string) (*Layout, error) {
 	// Expand and parse every pool, checking duplicates and kind consistency globally.
 	type rawPool struct {
 		args []string
-		eps  []Endpoint
+		eps  []domain.Endpoint
 	}
 	pools := make([]rawPool, 0, len(groups))
 	seen := make(map[string]struct{})
+	schemes := make(map[string]struct{})
 	urlCount, pathCount := 0, 0
 	for _, group := range groups {
 		rp := rawPool{args: group}
@@ -78,6 +81,7 @@ func (s *service) Parse(ctx context.Context, args []string) (*Layout, error) {
 				seen[key] = struct{}{}
 				if ep.IsURL() {
 					urlCount++
+					schemes[ep.Scheme] = struct{}{}
 				} else {
 					pathCount++
 				}
@@ -88,6 +92,9 @@ func (s *service) Parse(ctx context.Context, args []string) (*Layout, error) {
 	}
 	if urlCount > 0 && pathCount > 0 {
 		return nil, ErrMixedEndpoints
+	}
+	if len(schemes) > 1 {
+		return nil, fmt.Errorf("%w: %v", ErrMixedSchemes, sortedKeys(schemes))
 	}
 
 	layout := &Layout{Mode: detectMode(urlCount, pathCount)}
@@ -108,7 +115,7 @@ func (s *service) Parse(ctx context.Context, args []string) (*Layout, error) {
 		return nil, err
 	}
 	s.deps.Logger.LogAttrs(ctx, slog.LevelInfo, "topology parsed",
-		slog.String("mode", string(layout.Mode)),
+		slog.String("mode", layout.Mode.String()),
 		slog.Int("pools", len(layout.Pools)),
 		slog.Int("nodes", len(layout.Nodes)),
 		slog.Int("drives", layout.DriveCount()),
@@ -141,81 +148,83 @@ func groupPools(args []string) ([][]string, error) {
 }
 
 // detectMode applies the rules of docs/08 §8.1.
-func detectMode(urlCount, pathCount int) Mode {
+func detectMode(urlCount, pathCount int) domain.Mode {
 	switch {
 	case urlCount > 0:
-		return ModeDistributed
+		return domain.ModeDistributed
 	case pathCount == 1:
-		return ModeSNSD
+		return domain.ModeSNSD
 	default:
-		return ModeSNMD
+		return domain.ModeSNMD
 	}
 }
 
-// parseEndpoint parses one expanded argument into an Endpoint.
-func (s *service) parseEndpoint(raw string) (Endpoint, error) {
+// parseEndpoint parses one expanded argument into a canonical endpoint. It is
+// stricter than domain.ParseEndpoint: local paths must be absolute and URL
+// endpoints get a lower-cased host and an explicit port.
+func (s *service) parseEndpoint(raw string) (domain.Endpoint, error) {
 	if strings.Contains(raw, "://") {
 		return s.parseURLEndpoint(raw)
 	}
 	if !filepath.IsAbs(raw) {
-		return Endpoint{}, fmt.Errorf("%w: %q (use an absolute path or a http(s):// URL)", ErrRelativePath, raw)
+		return domain.Endpoint{}, fmt.Errorf("%w: %q (use an absolute path or a http(s):// URL)", ErrRelativePath, raw)
 	}
 	clean := filepath.Clean(raw)
 	if clean == string(filepath.Separator) {
-		return Endpoint{}, fmt.Errorf("%w: %q", ErrRootPath, raw)
+		return domain.Endpoint{}, fmt.Errorf("%w: %q", ErrRootPath, raw)
 	}
-	return Endpoint{Path: clean}, nil
+	return domain.Endpoint{Path: clean, IsLocal: true}, nil
 }
 
-func (s *service) parseURLEndpoint(raw string) (Endpoint, error) {
+func (s *service) parseURLEndpoint(raw string) (domain.Endpoint, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
-		return Endpoint{}, fmt.Errorf("%w: %q: %v", ErrInvalidEndpoint, raw, err)
+		return domain.Endpoint{}, fmt.Errorf("%w: %q: %v", ErrInvalidEndpoint, raw, err)
 	}
 	scheme := strings.ToLower(u.Scheme)
 	if scheme != "http" && scheme != "https" {
-		return Endpoint{}, fmt.Errorf("%w: %q", ErrInvalidScheme, raw)
+		return domain.Endpoint{}, fmt.Errorf("%w: %q", ErrInvalidScheme, raw)
 	}
 	if u.User != nil {
-		return Endpoint{}, fmt.Errorf("%w: %q: user info is not allowed", ErrInvalidEndpoint, raw)
+		return domain.Endpoint{}, fmt.Errorf("%w: %q: user info is not allowed", ErrInvalidEndpoint, raw)
 	}
 	if u.RawQuery != "" || u.Fragment != "" || u.ForceQuery {
-		return Endpoint{}, fmt.Errorf("%w: %q: query and fragment are not allowed", ErrInvalidEndpoint, raw)
+		return domain.Endpoint{}, fmt.Errorf("%w: %q: query and fragment are not allowed", ErrInvalidEndpoint, raw)
 	}
-	host := strings.ToLower(u.Hostname())
+	host := u.Hostname()
 	if host == "" {
-		return Endpoint{}, fmt.Errorf("%w: %q: missing host", ErrInvalidEndpoint, raw)
+		return domain.Endpoint{}, fmt.Errorf("%w: %q: missing host", ErrInvalidEndpoint, raw)
 	}
 	port := s.opts.defaultPort
 	if p := u.Port(); p != "" {
 		port, err = strconv.Atoi(p)
 		if err != nil {
-			return Endpoint{}, fmt.Errorf("%w: %q: invalid port %q", ErrInvalidEndpoint, raw, p)
+			return domain.Endpoint{}, fmt.Errorf("%w: %q: invalid port %q", ErrInvalidEndpoint, raw, p)
 		}
 	}
 	if port < 1 || port > 65535 {
-		return Endpoint{}, fmt.Errorf("%w: %q: port %d out of range", ErrInvalidEndpoint, raw, port)
+		return domain.Endpoint{}, fmt.Errorf("%w: %q: port %d out of range", ErrInvalidEndpoint, raw, port)
 	}
 	if u.Path == "" || u.Path == "/" {
-		return Endpoint{}, fmt.Errorf("%w: %q: a drive path is required after the host", ErrRootPath, raw)
+		return domain.Endpoint{}, fmt.Errorf("%w: %q: a drive path is required after the host", ErrRootPath, raw)
 	}
 	clean := path.Clean(u.Path)
 	if !strings.HasPrefix(clean, "/") {
-		return Endpoint{}, fmt.Errorf("%w: %q", ErrRelativePath, raw)
+		return domain.Endpoint{}, fmt.Errorf("%w: %q", ErrRelativePath, raw)
 	}
 	if clean == "/" {
-		return Endpoint{}, fmt.Errorf("%w: %q", ErrRootPath, raw)
+		return domain.Endpoint{}, fmt.Errorf("%w: %q", ErrRootPath, raw)
 	}
-	return Endpoint{Scheme: scheme, Host: host, Port: port, Path: clean}, nil
+	return newURLEndpoint(scheme, host, port, clean), nil
 }
 
 // buildPool splits the drives of a pool into erasure sets spread across nodes.
-func (s *service) buildPool(idx int, args []string, eps []Endpoint, mode Mode) (Pool, error) {
+func (s *service) buildPool(idx int, args []string, eps []domain.Endpoint, mode domain.Mode) (Pool, error) {
 	ordered, nodeKeys, perNode := distributeRoundRobin(eps)
 	total, nodeCount := len(ordered), len(nodeKeys)
 
 	setSize, parity := 1, 0
-	if mode != ModeSNSD {
+	if mode != domain.ModeSNSD {
 		var err error
 		if s.opts.setDriveCount > 0 {
 			setSize = s.opts.setDriveCount
@@ -261,7 +270,7 @@ func (s *service) buildPool(idx int, args []string, eps []Endpoint, mode Mode) (
 // markLocal sets Endpoint.IsLocal on every endpoint and, for distributed
 // deployments, checks that exactly one node is local.
 func (s *service) markLocal(ctx context.Context, layout *Layout) error {
-	if layout.Mode != ModeDistributed {
+	if layout.Mode != domain.ModeDistributed {
 		for i := range layout.Pools {
 			for j := range layout.Pools[i].Endpoints {
 				layout.Pools[i].Endpoints[j].IsLocal = true
@@ -281,7 +290,7 @@ func (s *service) markLocal(ctx context.Context, layout *Layout) error {
 			}
 			ep.IsLocal = local
 			if local {
-				localNodes[ep.NodeKey()] = struct{}{}
+				localNodes[nodeKey(*ep)] = struct{}{}
 			}
 		}
 	}
@@ -297,7 +306,7 @@ func (s *service) markLocal(ctx context.Context, layout *Layout) error {
 }
 
 // IsLocal implements Service.
-func (s *service) IsLocal(ctx context.Context, ep Endpoint) (bool, error) {
+func (s *service) IsLocal(ctx context.Context, ep domain.Endpoint) (bool, error) {
 	if !ep.IsURL() {
 		return true, nil
 	}
@@ -361,14 +370,14 @@ func (s *service) newLocalityChecker(ctx context.Context) *localityChecker {
 // equal localPort and its host must be the local hostname, a loopback or
 // unspecified address, or an address of a local interface (directly or after
 // DNS resolution). Resolution failures make the endpoint non-local.
-func (c *localityChecker) isLocal(ctx context.Context, ep Endpoint, localPort int) (bool, error) {
+func (c *localityChecker) isLocal(ctx context.Context, ep domain.Endpoint, localPort int) (bool, error) {
 	if !ep.IsURL() {
 		return true, nil
 	}
-	if ep.Port != localPort {
+	if endpointPort(ep) != localPort {
 		return false, nil
 	}
-	host := strings.ToLower(ep.Host)
+	host := endpointHostname(ep)
 	if host == "localhost" || (c.hostname != "" && host == c.hostname) {
 		return true, nil
 	}
@@ -408,11 +417,7 @@ func (c *localityChecker) isLocalIP(ip net.IP) bool {
 }
 
 func (c *localityChecker) localIPList() []string {
-	keys := make(map[string]struct{}, len(c.localIPs))
-	for k := range c.localIPs {
-		keys[k] = struct{}{}
-	}
-	return sortedKeys(keys)
+	return sortedKeys(c.localIPs)
 }
 
 // buildNodes groups the endpoints of every pool by node, in order of first appearance.
@@ -421,12 +426,12 @@ func buildNodes(layout *Layout) []Node {
 	var nodes []Node
 	for _, p := range layout.Pools {
 		for _, ep := range p.Endpoints {
-			key := ep.NodeKey()
+			key := nodeKey(ep)
 			i, ok := index[key]
 			if !ok {
 				i = len(nodes)
 				index[key] = i
-				nodes = append(nodes, Node{Host: ep.Host, Port: ep.Port, Local: ep.IsLocal})
+				nodes = append(nodes, Node{Host: endpointHostname(ep), Port: endpointPort(ep), Local: ep.IsLocal})
 			}
 			nodes[i].Endpoints = append(nodes[i].Endpoints, ep)
 		}

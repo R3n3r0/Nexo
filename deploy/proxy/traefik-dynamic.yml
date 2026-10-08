@@ -1,0 +1,62 @@
+# Traefik v3 dynamic configuration (file provider) for Nexo.
+#
+#   https://s3.example.com       -> S3 API        (127.0.0.1:9000)
+#   https://*.s3.example.com     -> S3 API, virtual-host style buckets
+#   https://console.example.com  -> console + Admin API (127.0.0.1:9001)
+#
+# In nexo.env:
+#   NEXO_SERVER_URL=https://s3.example.com
+#   NEXO_BROWSER_REDIRECT_URL=https://console.example.com
+#   NEXO_TRUSTED_PROXIES=127.0.0.1
+#   NEXO_DOMAIN=s3.example.com      # only for virtual-host style buckets
+
+http:
+  routers:
+    nexo-s3:
+      entryPoints: ["websecure"]
+      rule: "Host(`s3.example.com`) || HostRegexp(`^[a-z0-9.-]+\\.s3\\.example\\.com$`)"
+      service: nexo-s3
+      tls:
+        certResolver: letsencrypt
+        domains:
+          - main: s3.example.com
+            # sans: ["*.s3.example.com"]   # requires the DNS challenge
+
+    nexo-console:
+      entryPoints: ["websecure"]
+      rule: "Host(`console.example.com`)"
+      service: nexo-console
+      middlewares: ["console-headers"]
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    nexo-s3:
+      loadBalancer:
+        # Host must reach Nexo unchanged: SigV4 signs it.
+        passHostHeader: true
+        servers:
+          - url: "http://127.0.0.1:9000"
+          # Cluster: list every node; Traefik balances and health-checks them.
+          # - url: "http://10.0.0.2:9000"
+        healthCheck:
+          path: /nexo/health/ready
+          interval: 10s
+          timeout: 3s
+
+    nexo-console:
+      loadBalancer:
+        passHostHeader: true
+        servers:
+          - url: "http://127.0.0.1:9001"
+        healthCheck:
+          path: /nexo/health/live
+          interval: 10s
+          timeout: 3s
+
+  middlewares:
+    console-headers:
+      headers:
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        contentTypeNosniff: true

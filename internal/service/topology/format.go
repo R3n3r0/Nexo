@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+
+	"github.com/r3n3r0/nexo/internal/domain"
 )
 
 // FormatVersion is the current version of the format.json document.
@@ -46,8 +48,8 @@ type FormatErasure struct {
 }
 
 // FormatModeFor returns the format.json mode recorded for a deployment mode.
-func FormatModeFor(mode Mode) string {
-	if mode == ModeSNSD {
+func FormatModeFor(mode domain.Mode) string {
+	if mode == domain.ModeSNSD {
 		return FormatModeSNSD
 	}
 	return FormatModeErasure
@@ -199,7 +201,7 @@ func (f *FormatV1) SameTopology(o *FormatV1) bool {
 // MatchesPool checks that the document is compatible with a pool of a
 // deployment running in mode: same mode family (snsd vs erasure), same set
 // count and same set drive count.
-func (f *FormatV1) MatchesPool(mode Mode, p Pool) error {
+func (f *FormatV1) MatchesPool(mode domain.Mode, p Pool) error {
 	if err := f.Validate(); err != nil {
 		return err
 	}
@@ -247,7 +249,7 @@ func CheckFormats(formats []*FormatV1) (*FormatV1, error) {
 
 // NewFormats builds one document per drive of pool, in Pool.Endpoints order,
 // sharing deploymentID and a set map filled with identifiers from ids.
-func NewFormats(mode Mode, p Pool, deploymentID string, ids IDGenerator) ([]*FormatV1, error) {
+func NewFormats(mode domain.Mode, p Pool, deploymentID string, ids IDGenerator) ([]*FormatV1, error) {
 	if deploymentID == "" {
 		return nil, fmt.Errorf("%w: empty deployment id", ErrInvalidFormat)
 	}

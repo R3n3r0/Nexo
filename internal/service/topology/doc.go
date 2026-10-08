@@ -6,6 +6,9 @@
 // across nodes, identifies the endpoints that belong to the local node and
 // defines the on-disk format.json document (FormatV1) that records the layout.
 //
+// The shared vocabulary (domain.Mode, domain.Endpoint, domain.ErrInvalidArgument)
+// comes from internal/domain; this package only adds the layout types.
+//
 // The package follows the service convention of docs/12-architettura-servizi.md:
 // the Service interface lives in service.go, the implementation is unexported
 // and created through New, and every dependency is injected through Deps.

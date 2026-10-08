@@ -1,6 +1,10 @@
 package topology
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/r3n3r0/nexo/internal/domain"
+)
 
 // DefaultParity returns the default number of parity shards for an erasure set
 // of n drives: n <= 5 -> 2, 6..7 -> 3, >= 8 -> 4, capped at n/2 so that there is
@@ -81,16 +85,16 @@ func validateParity(parity, n int) error {
 // drives belong to different nodes: the first drive of every node (in order of
 // first appearance), then the second drive of every node, and so on. Slicing
 // the result into sets of setSize drives spreads every set across nodes.
-func distributeRoundRobin(eps []Endpoint) (ordered []Endpoint, nodeKeys []string, perNode map[string][]Endpoint) {
-	perNode = make(map[string][]Endpoint)
+func distributeRoundRobin(eps []domain.Endpoint) (ordered []domain.Endpoint, nodeKeys []string, perNode map[string][]domain.Endpoint) {
+	perNode = make(map[string][]domain.Endpoint)
 	for _, ep := range eps {
-		key := ep.NodeKey()
+		key := nodeKey(ep)
 		if _, seen := perNode[key]; !seen {
 			nodeKeys = append(nodeKeys, key)
 		}
 		perNode[key] = append(perNode[key], ep)
 	}
-	ordered = make([]Endpoint, 0, len(eps))
+	ordered = make([]domain.Endpoint, 0, len(eps))
 	for d := 0; len(ordered) < len(eps); d++ {
 		for _, key := range nodeKeys {
 			if d < len(perNode[key]) {

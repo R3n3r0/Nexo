@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/r3n3r0/nexo/internal/domain"
 )
 
 func sampleFormat() *FormatV1 {
@@ -207,34 +209,34 @@ func TestFormat_SameTopology(t *testing.T) {
 
 func TestFormatModeFor(t *testing.T) {
 	t.Parallel()
-	assert.Equal(t, FormatModeSNSD, FormatModeFor(ModeSNSD))
-	assert.Equal(t, FormatModeErasure, FormatModeFor(ModeSNMD))
-	assert.Equal(t, FormatModeErasure, FormatModeFor(ModeDistributed))
+	assert.Equal(t, FormatModeSNSD, FormatModeFor(domain.ModeSNSD))
+	assert.Equal(t, FormatModeErasure, FormatModeFor(domain.ModeSNMD))
+	assert.Equal(t, FormatModeErasure, FormatModeFor(domain.ModeDistributed))
 }
 
 func TestFormat_MatchesPool(t *testing.T) {
 	t.Parallel()
 	f := sampleFormat()
 	pool := Pool{SetCount: 2, SetDriveCount: 4}
-	assert.NoError(t, f.MatchesPool(ModeSNMD, pool))
-	assert.NoError(t, f.MatchesPool(ModeDistributed, pool))
-	assert.ErrorIs(t, f.MatchesPool(ModeSNSD, pool), ErrFormatModeMismatch)
-	assert.ErrorIs(t, f.MatchesPool(ModeSNMD, Pool{SetCount: 1, SetDriveCount: 8}), ErrFormatLayoutMismatch)
-	assert.ErrorIs(t, f.MatchesPool(ModeSNMD, Pool{SetCount: 2, SetDriveCount: 8}), ErrFormatLayoutMismatch)
+	assert.NoError(t, f.MatchesPool(domain.ModeSNMD, pool))
+	assert.NoError(t, f.MatchesPool(domain.ModeDistributed, pool))
+	assert.ErrorIs(t, f.MatchesPool(domain.ModeSNSD, pool), ErrFormatModeMismatch)
+	assert.ErrorIs(t, f.MatchesPool(domain.ModeSNMD, Pool{SetCount: 1, SetDriveCount: 8}), ErrFormatLayoutMismatch)
+	assert.ErrorIs(t, f.MatchesPool(domain.ModeSNMD, Pool{SetCount: 2, SetDriveCount: 8}), ErrFormatLayoutMismatch)
 	bad := f.Clone()
 	bad.ID = ""
-	assert.ErrorIs(t, bad.MatchesPool(ModeSNMD, pool), ErrInvalidFormat)
+	assert.ErrorIs(t, bad.MatchesPool(domain.ModeSNMD, pool), ErrInvalidFormat)
 
 	snsd := &FormatV1{Version: 1, ID: "x", Mode: FormatModeSNSD, Erasure: FormatErasure{This: "a", Sets: [][]string{{"a"}}, DistributionAlgo: DistributionAlgoV1}}
-	assert.NoError(t, snsd.MatchesPool(ModeSNSD, Pool{SetCount: 1, SetDriveCount: 1}))
-	assert.ErrorIs(t, snsd.MatchesPool(ModeSNMD, Pool{SetCount: 1, SetDriveCount: 4}), ErrFormatModeMismatch)
+	assert.NoError(t, snsd.MatchesPool(domain.ModeSNSD, Pool{SetCount: 1, SetDriveCount: 1}))
+	assert.ErrorIs(t, snsd.MatchesPool(domain.ModeSNMD, Pool{SetCount: 1, SetDriveCount: 4}), ErrFormatModeMismatch)
 }
 
 func TestCheckFormats(t *testing.T) {
 	t.Parallel()
 	ids := &counterIDs{}
-	pool := Pool{Index: 0, SetCount: 2, SetDriveCount: 4, Endpoints: make([]Endpoint, 8)}
-	formats, err := NewFormats(ModeSNMD, pool, "dep", ids)
+	pool := Pool{Index: 0, SetCount: 2, SetDriveCount: 4, Endpoints: make([]domain.Endpoint, 8)}
+	formats, err := NewFormats(domain.ModeSNMD, pool, "dep", ids)
 	require.NoError(t, err)
 	require.Len(t, formats, 8)
 
@@ -297,12 +299,13 @@ func TestCheckFormats(t *testing.T) {
 func TestNewFormats(t *testing.T) {
 	t.Parallel()
 	ids := &counterIDs{}
-	pool := Pool{Index: 2, SetCount: 2, SetDriveCount: 4, Endpoints: make([]Endpoint, 8)}
-	formats, err := NewFormats(ModeDistributed, pool, "dep", ids)
+	pool := Pool{Index: 2, SetCount: 2, SetDriveCount: 4, Endpoints: make([]domain.Endpoint, 8)}
+	formats, err := NewFormats(domain.ModeDistributed, pool, "dep", ids)
 	require.NoError(t, err)
 	require.Len(t, formats, 8)
 	assert.Equal(t, 8, ids.n, "one id per drive")
 	seen := map[string]struct{}{}
+	pristine := formats[0].Clone()
 	for i, f := range formats {
 		require.NoError(t, f.Validate())
 		assert.Equal(t, FormatModeErasure, f.Mode)
@@ -312,23 +315,23 @@ func TestNewFormats(t *testing.T) {
 		assert.Equal(t, i/4, set)
 		assert.Equal(t, i%4, disk)
 		seen[f.Erasure.This] = struct{}{}
-		assert.True(t, formats[0].SameTopology(f))
+		assert.True(t, pristine.SameTopology(f))
 		// Sets are deep copies: mutating one document does not leak into the others.
 		f.Erasure.Sets[0][0] = "mutated-" + f.Erasure.This
 	}
 	assert.Len(t, seen, 8)
 	assert.NotEqual(t, formats[0].Erasure.Sets[0][0], formats[1].Erasure.Sets[0][0])
 
-	single, err := NewFormats(ModeSNSD, Pool{SetCount: 1, SetDriveCount: 1, Endpoints: make([]Endpoint, 1)}, "dep", ids)
+	single, err := NewFormats(domain.ModeSNSD, Pool{SetCount: 1, SetDriveCount: 1, Endpoints: make([]domain.Endpoint, 1)}, "dep", ids)
 	require.NoError(t, err)
 	require.Len(t, single, 1)
 	assert.Equal(t, FormatModeSNSD, single[0].Mode)
 	require.NoError(t, single[0].Validate())
 
-	_, err = NewFormats(ModeSNMD, pool, "", ids)
+	_, err = NewFormats(domain.ModeSNMD, pool, "", ids)
 	assert.ErrorIs(t, err, ErrInvalidFormat)
-	_, err = NewFormats(ModeSNMD, Pool{SetCount: 1, SetDriveCount: 4, Endpoints: make([]Endpoint, 3)}, "dep", ids)
+	_, err = NewFormats(domain.ModeSNMD, Pool{SetCount: 1, SetDriveCount: 4, Endpoints: make([]domain.Endpoint, 3)}, "dep", ids)
 	assert.ErrorIs(t, err, ErrInvalidLayout)
-	_, err = NewFormats(ModeSNMD, Pool{}, "dep", ids)
+	_, err = NewFormats(domain.ModeSNMD, Pool{}, "dep", ids)
 	assert.ErrorIs(t, err, ErrInvalidLayout)
 }

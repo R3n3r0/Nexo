@@ -1,0 +1,115 @@
+import {
+  Anchor,
+  AppShell,
+  Burger,
+  Group,
+  Menu,
+  NavLink,
+  ScrollArea,
+  Text,
+  Title,
+  UnstyledButton,
+} from '@mantine/core';
+import { useDisclosure } from '@mantine/hooks';
+import { IconChevronDown, IconLogout, IconUserCircle } from '@tabler/icons-react';
+import { useTranslation } from 'react-i18next';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router';
+
+import { useSession } from '@/auth/SessionProvider';
+import { ColorSchemeToggle } from '@/components/ColorSchemeToggle';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
+
+import { isNavItemActive, navigation } from './navigation';
+
+/** Header + sidebar frame of every authenticated page. */
+export function AppShellLayout() {
+  const { t } = useTranslation();
+  const [opened, navbar] = useDisclosure(false);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { session, logout } = useSession();
+
+  const handleLogout = async () => {
+    await logout();
+    await navigate('/login', { replace: true });
+  };
+
+  return (
+    <AppShell
+      header={{ height: 56 }}
+      navbar={{ width: 240, breakpoint: 'sm', collapsed: { mobile: !opened } }}
+      padding="md"
+    >
+      <AppShell.Header>
+        <Group h="100%" px="md" justify="space-between" wrap="nowrap">
+          <Group gap="sm" wrap="nowrap">
+            <Burger
+              opened={opened}
+              onClick={() => {
+                navbar.toggle();
+              }}
+              hiddenFrom="sm"
+              size="sm"
+              aria-label={opened ? t('common.closeNavigation') : t('common.openNavigation')}
+            />
+            <Anchor component={Link} to="/" underline="never" c="inherit">
+              <Title order={3}>{t('app.name')}</Title>
+            </Anchor>
+            <Text size="sm" c="dimmed" visibleFrom="md">
+              {t('app.tagline')}
+            </Text>
+          </Group>
+          <Group gap="sm" wrap="nowrap">
+            <LanguageSwitcher />
+            <ColorSchemeToggle />
+            <Menu position="bottom-end" withinPortal>
+              <Menu.Target>
+                <UnstyledButton
+                  aria-label={t('common.signedInAs', { user: session?.accessKey ?? '' })}
+                >
+                  <Group gap={6} wrap="nowrap">
+                    <IconUserCircle size={20} />
+                    <Text size="sm" visibleFrom="xs">
+                      {session?.accessKey}
+                    </Text>
+                    <IconChevronDown size={14} />
+                  </Group>
+                </UnstyledButton>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Label>
+                  {t('common.signedInAs', { user: session?.accessKey ?? '' })}
+                </Menu.Label>
+                <Menu.Item leftSection={<IconLogout size={16} />} onClick={handleLogout}>
+                  {t('common.signOut')}
+                </Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
+          </Group>
+        </Group>
+      </AppShell.Header>
+
+      <AppShell.Navbar p="xs" component="nav" aria-label={t('common.openNavigation')}>
+        <ScrollArea type="auto" style={{ flex: 1 }}>
+          {navigation.map((item) => (
+            <NavLink
+              key={item.key}
+              component={Link}
+              to={item.path}
+              label={t(`nav.${item.key}`)}
+              leftSection={<item.icon size={18} stroke={1.6} />}
+              active={isNavItemActive(item, location.pathname)}
+              onClick={() => {
+                navbar.close();
+              }}
+            />
+          ))}
+        </ScrollArea>
+      </AppShell.Navbar>
+
+      <AppShell.Main>
+        <Outlet />
+      </AppShell.Main>
+    </AppShell>
+  );
+}

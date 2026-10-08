@@ -37,6 +37,9 @@ var (
 	ErrInvalidAccessKey  = errors.New("invalid access key")
 	ErrSignatureMismatch = errors.New("signature does not match")
 	ErrRequestExpired    = errors.New("request expired")
+	// ErrUnauthenticated reports a request that needs a valid session or
+	// signature and has none (HTTP 401); ErrAccessDenied is the 403 flavor.
+	ErrUnauthenticated = errors.New("unauthenticated")
 
 	// IAM.
 	ErrUserNotFound      = errors.New("user not found")
@@ -54,18 +57,30 @@ var (
 	ErrLockTimeout    = errors.New("lock timeout")
 	ErrQuotaExceeded  = errors.New("quota exceeded")
 	ErrObjectLocked   = errors.New("object locked")
+	// ErrInvalidFormat reports a malformed or unsupported on-disk document
+	// (format.json, xl.meta); ErrFormatMismatch reports drives whose formats
+	// disagree with each other or with the deployment layout.
+	ErrInvalidFormat  = errors.New("invalid on-disk format")
+	ErrFormatMismatch = errors.New("on-disk format mismatch")
+	// ErrInvalidLayout reports an inconsistent deployment topology.
+	ErrInvalidLayout = errors.New("invalid deployment layout")
 
 	// Requests.
-	ErrInvalidArgument = errors.New("invalid argument")
-	ErrMalformedXML    = errors.New("malformed xml")
-	ErrConflict        = errors.New("conflict")
+	ErrInvalidArgument  = errors.New("invalid argument")
+	ErrMalformedXML     = errors.New("malformed xml")
+	ErrConflict         = errors.New("conflict")
+	ErrMethodNotAllowed = errors.New("method not allowed")
+	// ErrChecksumMismatch reports that the uploaded content does not match
+	// the checksum declared by the client (Content-MD5, x-amz-content-sha256,
+	// x-amz-checksum-*).
+	ErrChecksumMismatch = errors.New("checksum mismatch")
 )
 
 // S3Error decorates a sentinel error with an explicit S3 error code, a
 // human-readable message and the resource the error refers to. Services use
 // it when the generic mapping of a sentinel is not specific enough, for
 // example to report which part of a multipart upload is invalid. Transports
-// honour Code when set and fall back to the sentinel mapping otherwise.
+// honor Code when set and fall back to the sentinel mapping otherwise.
 type S3Error struct {
 	// Code is the S3 error code (e.g. "InvalidPart"). Optional.
 	Code string

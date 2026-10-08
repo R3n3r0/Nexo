@@ -35,12 +35,12 @@ type Service interface {
 	Delete(ctx context.Context, subsystem string, keys ...string) error
 	// List returns the names of the configured subsystems.
 	List(ctx context.Context) ([]string, error)
-	// Export serialises the whole configuration as JSON.
+	// Export serializes the whole configuration as JSON.
 	Export(ctx context.Context) ([]byte, error)
 	// Import replaces the whole configuration with the JSON produced by Export.
 	Import(ctx context.Context, data []byte) error
 	// Watch returns a channel that receives a Change for every mutation
-	// until ctx is cancelled, when it is closed. Slow consumers may miss
+	// until ctx is canceled, when it is closed. Slow consumers may miss
 	// intermediate changes; they should re-read the subsystem.
 	Watch(ctx context.Context) <-chan Change
 }
