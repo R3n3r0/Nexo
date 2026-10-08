@@ -26,13 +26,6 @@ type catalogEntry struct {
 // admin:* action of every Admin API endpoint and the s3:* actions of the
 // bucket and object operations. Permissions evaluates exactly these.
 func catalog() []catalogEntry {
-	global := func(actions ...policy.Action) []catalogEntry {
-		out := make([]catalogEntry, 0, len(actions))
-		for _, a := range actions {
-			out = append(out, catalogEntry{action: a, scope: scopeGlobal})
-		}
-		return out
-	}
 	scoped := func(scope actionScope, actions ...policy.Action) []catalogEntry {
 		out := make([]catalogEntry, 0, len(actions))
 		for _, a := range actions {
@@ -41,10 +34,10 @@ func catalog() []catalogEntry {
 		return out
 	}
 	var out []catalogEntry
-	out = append(out, global(
+	out = append(out, scoped(scopeGlobal,
 		policy.ActionAdminServerInfo, policy.ActionAdminDataUsage, policy.ActionAdminHeal,
-		policy.ActionAdminServiceRestart, policy.ActionAdminServerTrace, policy.ActionAdminConsoleLog,
-		policy.ActionAdminConfigWrite,
+		policy.ActionAdminServiceRestart, policy.ActionAdminServiceStop, policy.ActionAdminServerTrace,
+		policy.ActionAdminConsoleLog, policy.ActionAdminConfigWrite,
 		policy.ActionAdminCreateUser, policy.ActionAdminDeleteUser, policy.ActionAdminListUsers, policy.ActionAdminGetUser,
 		policy.ActionAdminEnableUser, policy.ActionAdminDisableUser,
 		policy.ActionAdminCreatePolicy, policy.ActionAdminDeletePolicy, policy.ActionAdminGetPolicy,
@@ -66,11 +59,13 @@ func catalog() []catalogEntry {
 		policy.ActionGetBucketObjectLock, policy.ActionPutBucketObjectLock,
 		policy.ActionGetLifecycle, policy.ActionPutLifecycle,
 		policy.ActionGetBucketNotification, policy.ActionPutBucketNotification,
+		policy.ActionGetReplication, policy.ActionPutReplication,
 	)...)
 	out = append(out, scoped(scopeObject,
 		policy.ActionGetObject, policy.ActionGetObjectVersion, policy.ActionPutObject,
 		policy.ActionDeleteObject, policy.ActionDeleteObjectVersion,
 		policy.ActionGetObjectTagging, policy.ActionPutObjectTagging,
+		policy.ActionGetObjectVersionTagging, policy.ActionPutObjectVersionTagging,
 		policy.ActionAbortMultipart, policy.ActionListMultipartParts,
 	)...)
 	return out
@@ -78,7 +73,8 @@ func catalog() []catalogEntry {
 
 // CatalogActions returns the actions evaluated by
 // Authorizer.Permissions, in catalog order. The transport checks that
-// every action an Admin API route declares belongs to it.
+// every action an Admin API route declares belongs to it, so that the
+// permission-aware console knows about every action it may be denied.
 func CatalogActions() []policy.Action {
 	entries := catalog()
 	out := make([]policy.Action, 0, len(entries))

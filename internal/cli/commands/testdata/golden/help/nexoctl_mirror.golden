@@ -1,0 +1,34 @@
+Copy to TARGET the files and objects of SOURCE that are missing or different
+there (same size and ETag, or a target not older than the source, means up to
+date): a second run transfers nothing. Different targets are replaced only with
+--overwrite; --remove deletes what is not in SOURCE. --watch keeps a local
+SOURCE synchronized until Ctrl-C.
+
+Usage:
+  nexoctl mirror [flags] SOURCE TARGET
+
+Examples:
+  nexoctl mirror ./site/ local/website
+  nexoctl mirror --remove --overwrite local/photos ./backup/photos
+  nexoctl mirror --watch --remove --overwrite ./docs local/docs
+
+Flags:
+      --attr string             user metadata of the uploaded objects: "key1=value1;key2=value2"
+      --content-type string     content type of the uploaded objects (default: from the file extension)
+      --dry-run                 print what would be done without doing it
+  -h, --help                    help for mirror
+      --limit-download string   cap the download bandwidth (e.g. 10MiB, per second)
+      --limit-upload string     cap the upload bandwidth (e.g. 10MiB, per second)
+      --overwrite               replace the different files and objects of TARGET
+      --parallel int            parts of a multipart upload sent at once (default 4)
+      --part-size string        part size of the multipart uploads, 5MiB-5GiB (default: computed from the size)
+      --remove                  remove from TARGET what is not in SOURCE
+      --tags string             tags of the uploaded objects: "key1=value1&key2=value2"
+  -w, --watch                   keep watching a local SOURCE and synchronize its changes
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

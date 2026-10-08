@@ -1,0 +1,150 @@
+$ nexoctl cp page.html mem/bkt/
+`page.html` -> `mem/bkt/page.html` (13B)
+Copied 1 object (13B).
+
+$ nexoctl cp --attr owner=ops;env=prod --tags team=web notes.json mem/bkt/data/notes.json
+`notes.json` -> `mem/bkt/data/notes.json` (8B)
+Copied 1 object (8B).
+
+$ nexoctl cp --recursive site mem/bkt/
+`site/css/main.css` -> `mem/bkt/site/css/main.css` (7B)
+`site/index.html` -> `mem/bkt/site/index.html` (15B)
+`site/js/app.js` -> `mem/bkt/site/js/app.js` (11B)
+Copied 3 objects (33B).
+
+$ nexoctl cp --recursive site/ mem/dst/copy/
+`site/css/main.css` -> `mem/dst/copy/css/main.css` (7B)
+`site/index.html` -> `mem/dst/copy/index.html` (15B)
+`site/js/app.js` -> `mem/dst/copy/js/app.js` (11B)
+Copied 3 objects (33B).
+
+$ nexoctl cp site mem/bkt/
+! nexoctl: error: site is a directory: use --recursive
+! Run 'nexoctl cp --help' for usage.
+[exit 2]
+
+$ nexoctl cp missing.txt mem/bkt/
+! nexoctl: error: stat missing.txt: no such file or directory
+[exit 3]
+
+$ nexoctl cp page.html
+! nexoctl: error: nexoctl cp takes at least 2 argument(s), got 1
+! Run 'nexoctl cp --help' for usage.
+[exit 2]
+
+$ nexoctl cp --part-size 1MiB page.html mem/bkt/
+! nexoctl: error: part size 1.0MiB must be between 5.0MiB and 5.0GiB
+! Run 'nexoctl cp --help' for usage.
+[exit 2]
+
+$ nexoctl cp --parallel 0 page.html mem/bkt/
+! nexoctl: error: --parallel must be between 1 and 64
+! Run 'nexoctl cp --help' for usage.
+[exit 2]
+
+$ nexoctl ls mem/bkt
+                              PRE data/
+[2026-01-02 03:04:05 UTC]     13B STANDARD page.html
+                              PRE site/
+
+$ nexoctl ls mem/bkt/site
+                              PRE css/
+[2026-01-02 03:04:05 UTC]     15B STANDARD index.html
+                              PRE js/
+
+$ nexoctl ls --recursive mem/bkt
+[2026-01-02 03:04:05 UTC]      8B STANDARD data/notes.json
+[2026-01-02 03:04:05 UTC]     13B STANDARD page.html
+[2026-01-02 03:04:05 UTC]      7B STANDARD site/css/main.css
+[2026-01-02 03:04:05 UTC]     15B STANDARD site/index.html
+[2026-01-02 03:04:05 UTC]     11B STANDARD site/js/app.js
+
+$ nexoctl ls mem/bkt/page.html
+[2026-01-02 03:04:05 UTC]     13B STANDARD page.html
+
+$ nexoctl stat mem/bkt/data/notes.json
+Name        : notes.json
+Date        : 2026-01-02 03:04:05 UTC
+Size        : 8B (8 bytes)
+Type        : file
+ETag        : 4588ff3797b78d819d858fa3bdd82b09
+Content-Type: application/json
+Class       : STANDARD
+Metadata    :
+  env: prod
+  owner: ops
+Tags        : team=web
+
+$ nexoctl stat mem/bkt/site
+Name        : site/
+Type        : folder
+
+$ nexoctl stat mem/bkt/nope
+! nexoctl: error: mem/bkt/nope: object not found: nope
+[exit 3]
+
+$ nexoctl cat mem/bkt/page.html mem/bkt/site/css/main.css
+<p>hello</p>
+body{}
+
+$ nexoctl head -n 1 mem/bkt/data/notes.json
+{"a":1}
+
+$ nexoctl cat mem/bkt/site/
+! nexoctl: error: mem/bkt/site/ is not an object
+! Run 'nexoctl cat --help' for usage.
+[exit 2]
+
+$ nexoctl cp mem/bkt/page.html downloaded.html
+`mem/bkt/page.html` -> `downloaded.html` (13B)
+Copied 1 object (13B).
+
+$ nexoctl cp --recursive mem/bkt/site/ out/
+`mem/bkt/site/css/main.css` -> `out/css/main.css` (7B)
+`mem/bkt/site/index.html` -> `out/index.html` (15B)
+`mem/bkt/site/js/app.js` -> `out/js/app.js` (11B)
+Copied 3 objects (33B).
+
+$ nexoctl cp mem/bkt/page.html mem/dst/remote.html
+`mem/bkt/page.html` -> `mem/dst/remote.html` (13B)
+Copied 1 object (13B).
+
+$ nexoctl mv mem/dst/remote.html mem/dst/moved.html
+`mem/dst/remote.html` -> `mem/dst/moved.html` (13B)
+Moved 1 object (13B).
+
+$ nexoctl ls --recursive mem/dst
+[2026-01-02 03:04:05 UTC]      7B STANDARD copy/css/main.css
+[2026-01-02 03:04:05 UTC]     15B STANDARD copy/index.html
+[2026-01-02 03:04:05 UTC]     11B STANDARD copy/js/app.js
+[2026-01-02 03:04:05 UTC]     13B STANDARD moved.html
+
+$ nexoctl mv downloaded.html mem/dst/up.html
+`downloaded.html` -> `mem/dst/up.html` (13B)
+Moved 1 object (13B).
+
+$ nexoctl rm mem/dst/up.html
+Removed `mem/dst/up.html`.
+
+$ nexoctl rm mem/dst/up.html
+! nexoctl: error: mem/dst/up.html: object not found: up.html
+[exit 3]
+
+$ nexoctl rm --recursive mem/dst/copy
+! nexoctl: error: removing recursively needs --force
+! Run 'nexoctl rm --help' for usage.
+[exit 2]
+
+$ nexoctl rm --recursive --force --dry-run mem/dst/copy
+Would remove `mem/dst/copy/css/main.css`.
+Would remove `mem/dst/copy/index.html`.
+Would remove `mem/dst/copy/js/app.js`.
+
+$ nexoctl rm --recursive --force mem/dst/copy
+Removed `mem/dst/copy/css/main.css`.
+Removed `mem/dst/copy/index.html`.
+Removed `mem/dst/copy/js/app.js`.
+
+$ nexoctl ls --recursive mem/dst
+[2026-01-02 03:04:05 UTC]     13B STANDARD moved.html
+

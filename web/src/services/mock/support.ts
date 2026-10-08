@@ -1,4 +1,4 @@
-import { ApiError } from '../errors';
+import { ApiError, type ProblemDetails } from '../errors';
 
 /** Options shared by every mock service. */
 export interface MockBehaviour {
@@ -34,15 +34,26 @@ export function createMockContext(behaviour: MockBehaviour = {}): MockContext {
 }
 
 /** Builds an ApiError the way the Go transport would for a sentinel error. */
-export function problem(status: number, code: string, detail: string): ApiError {
-  return new ApiError({ title: statusTitle(status), status, code, detail });
+export function problem(
+  status: number,
+  code: string,
+  detail: string,
+  extra: Pick<ProblemDetails, 'errors'> = {},
+): ApiError {
+  return new ApiError({ title: statusTitle(status), status, code, detail, ...extra });
 }
 
+/** No valid session (the Go session middleware: 401 unauthenticated). */
 export const unauthorized = (): ApiError =>
-  problem(401, 'invalid_access_key', 'Authentication required.');
+  problem(401, 'unauthenticated', 'Authentication required.');
 
-export const accessDenied = (): ApiError =>
-  problem(403, 'access_denied', 'The credentials are not valid.');
+/** Wrong credentials at the login (POST /auth/login: 401 invalid_credentials). */
+export const invalidCredentials = (): ApiError =>
+  problem(401, 'invalid_credentials', 'invalid access key or secret key');
+
+/** A login refused after too many failures (POST /auth/login: 429). */
+export const tooManyRequests = (): ApiError =>
+  problem(429, 'too_many_requests', 'too many failed login attempts, retry later');
 
 function statusTitle(status: number): string {
   switch (status) {
@@ -56,6 +67,8 @@ function statusTitle(status: number): string {
       return 'Not Found';
     case 409:
       return 'Conflict';
+    case 429:
+      return 'Too Many Requests';
     default:
       return `HTTP ${status}`;
   }

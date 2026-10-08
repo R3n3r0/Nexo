@@ -1,0 +1,44 @@
+# TCL-E-15 (single node): admin info shows the mode, the node and its drives
+# online, exit 0; C-ADM-01, C-ADM-07, C-ADM-09.
+
+exec nexoctl admin info local
+stdout '^local  Nexo '
+stdout '^Mode: snsd '
+stdout '^Nodes: 1 online, 0 offline$'
+stdout '^  local  online  '
+stdout '^    .*  online  used '
+
+exec nexoctl admin info --json local
+jsonlines stdout
+jsonfield stdout mode MODE
+stdout '"state":"online"'
+exec nexoctl admin info local/
+stdout '^Mode: snsd '
+expectcode 2 nexoctl admin info local/bucket
+expectcode 3 nexoctl admin info missing
+
+# Usage, total and per bucket.
+exec nexoctl mb local/data
+exec nexoctl cp report.txt local/data/report.txt
+exec nexoctl admin usage local
+stdout '^SIZE +OBJECTS +VERSIONS +BUCKET$'
+stdout ' 1 +[0-9]+  data$'
+stdout 'total \(1 bucket\(s\)\)$'
+exec nexoctl admin usage --json local
+jsonlines stdout
+stdout '"buckets":\{"data":\{'
+
+# Healing is not implemented on a single drive yet (501): exit 1.
+! exec nexoctl admin heal --recursive --dry-run local/data
+stderr 'not implemented'
+
+# Service control needs a confirmation; the in-process server of the tests
+# cannot restart itself (501).
+! exec nexoctl admin service restart local
+stderr 'not confirmed'
+expectcode 2 nexoctl admin service stop --json local
+! exec nexoctl admin service restart --yes local
+stderr 'not implemented'
+
+-- report.txt --
+quarterly report

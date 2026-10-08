@@ -1,0 +1,75 @@
+import { Center, Loader } from '@mantine/core';
+import { lazy, Suspense, type ComponentType, type LazyExoticComponent } from 'react';
+import { Navigate, type RouteObject } from 'react-router';
+
+/** Lazily loads a named page export, so that each section is its own chunk. */
+function lazyPage<M>(load: () => Promise<M>, pick: (module: M) => ComponentType) {
+  return lazy(async () => ({ default: pick(await load()) }));
+}
+
+const BucketsPage = lazyPage(
+  () => import('./buckets/BucketsPage'),
+  (m) => m.BucketsPage,
+);
+const BucketDetailPage = lazyPage(
+  () => import('./buckets/BucketDetailPage'),
+  (m) => m.BucketDetailPage,
+);
+const ObjectBrowser = lazyPage(
+  () => import('./objects/ObjectBrowser'),
+  (m) => m.ObjectBrowser,
+);
+const BucketSettingsTab = lazyPage(
+  () => import('./buckets/BucketSettingsTab'),
+  (m) => m.BucketSettingsTab,
+);
+const BucketAccessTab = lazyPage(
+  () => import('./buckets/BucketAccessTab'),
+  (m) => m.BucketAccessTab,
+);
+const ObjectsPage = lazyPage(
+  () => import('./objects/ObjectsPage'),
+  (m) => m.ObjectsPage,
+);
+const InfoPage = lazyPage(
+  () => import('./InfoPage'),
+  (m) => m.InfoPage,
+);
+
+function page(Page: LazyExoticComponent<ComponentType>) {
+  return (
+    <Suspense
+      fallback={
+        <Center py="xl">
+          <Loader />
+        </Center>
+      }
+    >
+      <Page />
+    </Suspense>
+  );
+}
+
+/**
+ * Routes of the storage sections (buckets, object browser, server info),
+ * children of the authenticated layout. The prefix of the object browser
+ * is the splat of /buckets/:bucket/browse/*. The pages are loaded on demand
+ * to keep them out of the initial bundle (docs/06 §6.5).
+ */
+export function storageRoutes(): RouteObject[] {
+  return [
+    { path: 'buckets', element: page(BucketsPage) },
+    {
+      path: 'buckets/:bucket',
+      element: page(BucketDetailPage),
+      children: [
+        { index: true, element: <Navigate to="browse/" replace /> },
+        { path: 'browse/*', element: page(ObjectBrowser) },
+        { path: 'settings', element: page(BucketSettingsTab) },
+        { path: 'access', element: page(BucketAccessTab) },
+      ],
+    },
+    { path: 'objects', element: page(ObjectsPage) },
+    { path: 'info', element: page(InfoPage) },
+  ];
+}

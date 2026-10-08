@@ -1,0 +1,59 @@
+# TCL-E-03: cp of a file, recursive, remote to remote, stdin to remote
+# (pipe), with metadata and tags: the contents are identical.
+
+mkfile big.bin 12MiB
+exec nexoctl mb local/data local/copy
+
+# Multipart upload with parallel parts, and download.
+exec nexoctl cp --part-size 5MiB --parallel 3 --json big.bin local/data/big.bin
+jsonlines stdout
+stdout '"parts":3'
+exec nexoctl cp local/data/big.bin big.out
+cmp big.bin big.out
+
+# Recursive copies both ways.
+exec nexoctl cp --recursive dir local/data/
+stdout 'Copied 2 objects'
+exec nexoctl ls --recursive local/data
+stdout 'dir/a.txt'
+stdout 'dir/sub/b.txt'
+exec nexoctl cp --recursive local/data/dir/ out/
+cmp out/a.txt dir/a.txt
+cmp out/sub/b.txt dir/sub/b.txt
+
+# Metadata, tags and content type.
+exec nexoctl cp --attr 'owner=ops;env=prod' --tags 'team=web' --content-type text/plain dir/a.txt local/data/meta.txt
+exec nexoctl stat local/data/meta.txt
+stdout 'owner: ops'
+stdout 'env: prod'
+stdout 'Tags        : team=web'
+stdout 'Content-Type: text/plain'
+
+# Server-side copy keeps them.
+exec nexoctl cp local/data/meta.txt local/copy/meta.txt
+exec nexoctl stat --json local/copy/meta.txt
+jsonlines stdout
+stdout '"metadata":\{"env":"prod","owner":"ops"\}'
+exec nexoctl cat local/copy/meta.txt
+cmp stdout dir/a.txt
+exec nexoctl cp --recursive local/data/dir local/copy/
+exec nexoctl cat local/copy/dir/sub/b.txt
+cmp stdout dir/sub/b.txt
+
+# stdin to remote, streamed in parts.
+stdin big.bin
+exec nexoctl pipe --part-size 5MiB local/data/piped.bin
+stdout '`stdin` -> `local/data/piped.bin` \(12.0MiB\)'
+exec nexoctl cp local/data/piped.bin piped.out
+cmp big.bin piped.out
+
+# Errors.
+expectcode 2 nexoctl cp dir local/data/
+expectcode 3 nexoctl cp missing.txt local/data/
+expectcode 3 nexoctl cp local/data/missing.txt .
+expectcode 2 nexoctl cp --part-size 1MiB big.bin local/data/
+
+-- dir/a.txt --
+first file
+-- dir/sub/b.txt --
+second file

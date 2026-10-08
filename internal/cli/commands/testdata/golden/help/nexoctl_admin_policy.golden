@@ -1,0 +1,30 @@
+Manage the named IAM policies, attach them to users and groups and simulate their
+effect. The built-in policies are readonly, readwrite, writeonly, diagnostics and
+consoleAdmin.
+
+Usage:
+  nexoctl admin policy [flags]
+  nexoctl admin policy [command]
+
+Available Commands:
+  attach      Attach policies to a user or a group
+  create      Create a policy from a JSON document (FILE, or - for stdin)
+  detach      Detach policies from a user or a group
+  entities    List the users and groups a policy is attached to
+  info        Print the document of a policy
+  list        List the policies
+  remove      Remove policies (built-in policies cannot be removed)
+  simulate    Simulate a request: allowed or denied, and by which statement
+  validate    Validate a policy document without saving it
+
+Flags:
+  -h, --help   help for policy
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl admin policy [command] --help" for more information about a command.

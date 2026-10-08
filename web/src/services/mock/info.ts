@@ -1,5 +1,6 @@
 import type { InfoService } from '../interfaces';
-import type { ServerInfo } from '../types';
+import type { BucketUsage, DataUsage, ServerInfo } from '../types';
+import type { MockStorage } from './storage';
 import { clone, type MockContext } from './support';
 
 /** A single-node, single-drive server as the demo baseline. */
@@ -52,12 +53,40 @@ export interface MockInfoOptions {
 export function createMockInfoService(
   ctx: MockContext,
   options: MockInfoOptions = {},
+  storage?: MockStorage,
 ): InfoService {
   const info = options.info ?? sampleServerInfo();
   return {
     async serverInfo() {
       await ctx.delay();
       return clone(info);
+    },
+    async usage() {
+      await ctx.delay();
+      const buckets: Record<string, BucketUsage> = {};
+      let objects = 0;
+      let versions = 0;
+      let size = 0;
+      for (const { bucket } of storage?.buckets.values() ?? []) {
+        buckets[bucket.name] = {
+          size: bucket.size,
+          objectsCount: bucket.objects,
+          versionsCount: bucket.versions,
+          deleteMarkers: bucket.deleteMarkers ?? 0,
+        };
+        objects += bucket.objects;
+        versions += bucket.versions;
+        size += bucket.size;
+      }
+      const usage: DataUsage = {
+        lastUpdate: ctx.nowIso(),
+        objectsCount: objects,
+        versionsCount: versions,
+        totalSize: size,
+        bucketsCount: Object.keys(buckets).length,
+        buckets,
+      };
+      return usage;
     },
   };
 }

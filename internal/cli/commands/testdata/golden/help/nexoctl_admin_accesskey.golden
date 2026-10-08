@@ -1,0 +1,29 @@
+Manage access keys: additional credentials of a user (service accounts), with an
+optional expiration and an optional inline policy that restricts what the
+key can do (the permissions are the intersection with those of the user).
+
+Usage:
+  nexoctl admin accesskey [flags]
+  nexoctl admin accesskey [command]
+
+Aliases:
+  accesskey, access-key, svcacct
+
+Available Commands:
+  create      Create an access key (the secret key is printed only once)
+  edit        Change an access key: secret, status, expiration, inline policy
+  info        Show an access key (never its secret)
+  list        List access keys (of the user of the alias, or of --user)
+  remove      Remove access keys (their requests fail immediately)
+
+Flags:
+  -h, --help   help for accesskey
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl admin accesskey [command] --help" for more information about a command.

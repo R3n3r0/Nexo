@@ -3,6 +3,7 @@ package console_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"testing/fstest"
 
@@ -46,7 +47,11 @@ func get(h http.Handler, method, target string) *httptest.ResponseRecorder {
 
 func TestSPAFallbackAndIndex(t *testing.T) {
 	h := newSPA(t, testFS())
-	for _, p := range []string{"/", "/index.html", "/buckets", "/buckets/photos/objects", "/deep/nested/route"} {
+	for _, p := range []string{
+		"/", "/index.html", "/buckets", "/buckets/photos/objects", "/deep/nested/route",
+		// Dotted folders of the object browser are routes, not files.
+		"/buckets/b/browse/v1.2/", "/buckets/b/browse/v1.2", "/buckets/b/browse/site.js/", "/static/",
+	} {
 		rec := get(h, http.MethodGet, p)
 		assert.Equal(t, http.StatusOK, rec.Code, p)
 		assert.Equal(t, "<html>app</html>", rec.Body.String(), p)
@@ -88,9 +93,51 @@ func TestSPAAssets(t *testing.T) {
 	rec = get(h, http.MethodGet, "/assets/missing-abcdefgh.js")
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
-	// Path traversal is neutralized.
-	rec = get(h, http.MethodGet, "/../index.html")
-	assert.Equal(t, http.StatusOK, rec.Code)
+	// Nothing but files lives under /assets.
+	rec = get(h, http.MethodGet, "/assets/missing")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	rec = get(h, http.MethodGet, "/assets/%252e%252e/%252e%252e/etc/passwd")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	rec = get(h, http.MethodGet, "/static/missing.css")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	rec = get(h, http.MethodGet, "/robots.txt")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// TestSPAPathTraversal: a path with ".." segments (raw or percent-encoded)
+// is a 404, never a file outside the assets nor the SPA shell (TD-S-07).
+func TestSPAPathTraversal(t *testing.T) {
+	h := newSPA(t, testFS())
+	for _, target := range []string{
+		"/../index.html",
+		"/../../etc/passwd",
+		"/assets/../../../etc/passwd",
+		"/%2e%2e/%2e%2e/etc/passwd",
+		"/assets/..%2f..%2f..%2fetc%2fpasswd",
+		"/static/..%5c..%5cwindows%5cwin.ini",
+		"/buckets/b/browse/../../favicon.ico",
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.URL.Path = ""
+		require.NoError(t, setRawPath(req, target))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusNotFound, rec.Code, target)
+		assert.NotContains(t, rec.Body.String(), "<html>app</html>", target)
+		assert.Equal(t, "DENY", rec.Header().Get("X-Frame-Options"), target)
+	}
+}
+
+// setRawPath sets the path of a request as a client sending it verbatim
+// would (httptest.NewRequest cleans nothing, but url.Parse decodes).
+func setRawPath(r *http.Request, target string) error {
+	u, err := url.ParseRequestURI(target)
+	if err != nil {
+		return err
+	}
+	r.URL = u
+	r.RequestURI = target
+	return nil
 }
 
 func TestSPADoesNotShadowAPI(t *testing.T) {

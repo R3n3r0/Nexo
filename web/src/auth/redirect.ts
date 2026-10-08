@@ -27,3 +27,12 @@ export function sanitizeRedirect(path: string): string {
   }
   return path;
 }
+
+/** True when AuthGuard sent the user to the login page because the session expired. */
+export function sessionExpiredFromState(state: unknown): boolean {
+  return (
+    typeof state === 'object' &&
+    state !== null &&
+    (state as { reason?: unknown }).reason === 'expired'
+  );
+}

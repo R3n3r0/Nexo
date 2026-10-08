@@ -1,0 +1,27 @@
+Change an access key: secret, status, expiration, inline policy
+
+Usage:
+  nexoctl admin accesskey edit [flags] ALIAS ACCESS_KEY
+
+Examples:
+  nexoctl admin accesskey edit local AKIA0001 --disable
+  nexoctl admin accesskey edit local AKIA0001 --expiry 7d --policy narrower.json
+
+Flags:
+      --clear-expiry         remove the expiration
+      --clear-policy         remove the inline policy (the key inherits the user's permissions)
+      --description string   new description
+      --disable              disable the key
+      --enable               enable the key
+      --expiry string        new expiration: a duration (30d) or a date (2026-12-31)
+  -h, --help                 help for edit
+      --name string          new name
+      --policy string        new inline policy document (FILE, or - for stdin)
+      --secret-key string    new secret key
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

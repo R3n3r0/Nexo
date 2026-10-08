@@ -1,14 +1,21 @@
 import '@testing-library/jest-dom/vitest';
 
 import { cleanup } from '@testing-library/react';
-import { afterAll, afterEach, beforeAll } from 'vitest';
+import { afterAll, afterEach, beforeAll, vi } from 'vitest';
 
 import { initI18n } from '@/i18n';
 
 import { server } from './server';
 
-// Tests assert on English copy.
-initI18n({ lng: 'en' });
+// Tests assert on English copy (bundled: ready without waiting).
+void initI18n({ lng: 'en' });
+
+// Monaco cannot run in jsdom: code editors use their plain textarea
+// implementation, which has the same props and markers.
+vi.mock('@/components/code/MonacoCodeEditor', async () => {
+  const plain = await import('@/components/code/PlainCodeEditor');
+  return { default: plain.PlainCodeEditor, MonacoCodeEditor: plain.PlainCodeEditor };
+});
 
 // Browser APIs used by Mantine that jsdom does not implement. Plain
 // functions, not vi.fn(): restoreMocks would wipe a mock before each test.

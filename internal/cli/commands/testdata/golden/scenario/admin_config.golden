@@ -1,0 +1,66 @@
+$ nexoctl admin config get mem
+logger (defaults)
+notify_webhook (defaults)
+region (defaults)
+
+$ nexoctl admin config set mem region name=eu-south-1 comment=Milan DC
+Updated region: comment, name.
+
+$ nexoctl admin config set mem notify_webhook endpoint=http://hook.test/x auth_token=t0ken
+Updated notify_webhook: auth_token, endpoint.
+
+$ nexoctl admin config set mem logger level=verbose
+! nexoctl: error: config "logger": logger.level: "verbose" is not one of debug, info, warn, error (invalid_argument)
+[exit 1]
+
+$ nexoctl admin config set mem region name
+! nexoctl: error: invalid setting "name" (use key=value)
+! Run 'nexoctl admin config set --help' for usage.
+[exit 2]
+
+$ nexoctl admin config get mem region notify_webhook
+region comment="Milan DC" name=eu-south-1
+notify_webhook auth_token=******** endpoint=http://hook.test/x
+
+$ nexoctl admin config get --json mem notify_webhook
+{"status":"success","alias":"mem","subsystem":"notify_webhook","settings":{"auth_token":"********","endpoint":"http://hook.test/x"}}
+
+$ nexoctl admin config export mem
+{
+  "notify_webhook": {
+    "auth_token": "t0ken",
+    "endpoint": "http://hook.test/x"
+  },
+  "region": {
+    "comment": "Milan DC",
+    "name": "eu-south-1"
+  }
+}
+
+$ nexoctl admin config export mem --output backup.json
+Exported the configuration of "mem" to backup.json.
+
+$ nexoctl admin config reset mem region comment
+Reset region (comment) to the defaults.
+
+$ nexoctl admin config get mem region
+region name=eu-south-1
+
+$ nexoctl admin config reset mem region
+Reset region to the defaults.
+
+$ nexoctl admin config import mem backup.json
+Imported the configuration of "mem" from backup.json.
+
+$ nexoctl admin config get mem region
+region comment="Milan DC" name=eu-south-1
+
+$ nexoctl admin config get mem nope
+! nexoctl: error: config "nope": unknown configuration subsystem "nope" (invalid_argument)
+[exit 1]
+
+$ nexoctl admin config import mem broken.json
+! nexoctl: error: broken.json: invalid JSON document
+!   line 1, column 21: invalid character '}' looking for beginning of value
+[exit 1]
+

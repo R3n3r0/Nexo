@@ -14,6 +14,9 @@ import type { components } from './http/schema';
 
 type Schemas = components['schemas'];
 
+/** T with the keys K optional. */
+type WithOptional<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>;
+
 /** Deployment mode as reported by GET /info (see domain.Mode). */
 export type DeploymentMode = Schemas['DeploymentMode'];
 
@@ -39,24 +42,81 @@ export type PoolInfo = Schemas['PoolInfo'];
 /** Aggregated server/cluster information (GET /info). */
 export type ServerInfo = Schemas['ServerInfo'];
 
-export type Bucket = Schemas['Bucket'];
+/**
+ * A bucket. The server always sends `deleteMarkers` and `public`; they are
+ * optional on the console side until every mock provides them.
+ */
+export type Bucket = WithOptional<Schemas['Bucket'], 'deleteMarkers' | 'public'>;
 export type CreateBucketInput = Schemas['CreateBucketRequest'];
 
 export type User = Schemas['User'];
 export type CreateUserInput = Schemas['CreateUserRequest'];
+export type UpdateUserInput = Schemas['UpdateUserRequest'];
 
 export type Group = Schemas['Group'];
 export type CreateGroupInput = Schemas['CreateGroupRequest'];
+export type UpdateGroupInput = Schemas['UpdateGroupRequest'];
 
 /** An IAM policy with its JSON document (AWS format). */
 export type Policy = Schemas['Policy'];
 export type PolicyDocument = Schemas['PolicyDocument'];
 export type PolicyStatement = Schemas['PolicyStatement'];
+/** A policy document, or its JSON text (server errors are then located in that text). */
+export type PolicyDocumentOrText = Schemas['PolicyDocumentOrText'];
+/** A located error of a malformed policy (problem code malformed_policy). */
+export type PolicyError = Schemas['PolicyError'];
+export type CreatePolicyInput = Schemas['CreatePolicyRequest'];
+/** POST /policies/attach and /policies/detach: exactly one of user and group. */
+export type AttachPolicyInput = Schemas['AttachRequest'];
+export type PolicyEntities = Schemas['PolicyEntities'];
+export type ValidatePolicyInput = Schemas['ValidatePolicyRequest'];
+export type ValidationReport = Schemas['ValidationReport'];
+export type SimulateInput = Schemas['SimulateRequest'];
+export type Simulation = Schemas['Simulation'];
+export type EvaluatedStatement = Schemas['EvaluatedStatement'];
+/** Where an evaluated statement comes from (root, iam, group, inline, bucket). */
+export type PolicySource = EvaluatedStatement['source'];
+
+/** Effective permissions of a principal (GET /me/permissions). */
+export type Permissions = Schemas['Permissions'];
+
+/* Share links, presigned URLs and POST policies. */
+
+export type SharePermission = Schemas['SharePermission'];
+/** A managed, revocable share link. */
+export type Share = Schemas['Share'];
+export type CreateShareInput = Schemas['CreateShareRequest'];
+export type RevokeAllResult = Schemas['RevokeAllResult'];
+export type PresignInput = Schemas['PresignRequest'];
+/** A raw presigned URL: not revocable, valid until it expires. */
+export type PresignedUrl = Schemas['PresignedURL'];
+export type PostPolicyInput = Schemas['PostPolicyRequest'];
+export type PostPolicy = Schemas['PostPolicy'];
+export type PostCondition = Schemas['PostCondition'];
+
+/* Dynamic configuration (GET/PUT /config...). */
+
+export type ConfigSettings = Schemas['ConfigSettings'];
+export type ConfigSubsystem = Schemas['ConfigSubsystem'];
+export type ConfigDocument = Schemas['ConfigDocument'];
+export type ConfigKey = Schemas['ConfigKey'];
+export type ConfigKeyType = ConfigKey['type'];
+export type ConfigSubsystemSchema = Schemas['ConfigSubsystemSchema'];
 
 export type AccessKey = Schemas['AccessKey'];
 /** The access key just created: the only time the secret is visible. */
-export type CreatedAccessKey = Schemas['CreatedAccessKey'];
+export type CreatedAccessKey = AccessKey & { secretKey: string };
 export type CreateAccessKeyInput = Schemas['CreateAccessKeyRequest'];
+export type UpdateAccessKeyInput = Schemas['UpdateAccessKeyRequest'];
+
+/* Pages of the list endpoints ({items, nextCursor}). */
+
+export type BucketList = Schemas['BucketList'];
+export type UserList = Schemas['UserList'];
+export type GroupList = Schemas['GroupList'];
+export type PolicyList = Schemas['PolicyList'];
+export type AccessKeyList = Schemas['AccessKeyList'];
+export type ShareList = Schemas['ShareList'];
 
 /* Console-side inputs composed from the wire types. */
 
@@ -65,8 +125,127 @@ export interface RemoveBucketOptions {
   force?: boolean;
 }
 
-/** PUT /policies/{name}: the name travels in the path, the document in the body. */
+/**
+ * PUT /policies/{name}: the name travels in the path, the document in the
+ * body. Send the JSON text to have malformed_policy errors located in it.
+ */
 export interface SavePolicyInput {
   name: string;
-  document: PolicyDocument;
+  document: PolicyDocumentOrText;
+}
+
+/** GET /access-keys filter: the caller's keys by default. */
+export interface AccessKeyFilter {
+  /** Keys of this user (admin:ListServiceAccounts for another user). */
+  user?: string;
+}
+
+/** GET /shares filter: the caller's links by default. */
+export interface ShareFilter {
+  /** Links of this owner (admin:ManageShares for another owner). */
+  owner?: string;
+  bucket?: string;
+}
+
+/** GET /me/permissions query. */
+export interface PermissionsQuery {
+  /** Another user (admin:GetUser); the caller by default. */
+  user?: string;
+  /** Evaluate bucket actions on this bucket and object actions on prefix*. */
+  bucket?: string;
+  prefix?: string;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Storage: usage, bucket settings, anonymous access, objects and uploads.  */
+/* ------------------------------------------------------------------------ */
+
+/** Data usage, total and per bucket (GET /usage). */
+export type DataUsage = Schemas['DataUsage'];
+export type BucketUsage = Schemas['BucketUsage'];
+
+export type BucketVersioning = Schemas['BucketVersioning'];
+export type BucketQuota = Schemas['BucketQuota'];
+/** Tag set of a bucket or an object (key -> value). */
+export type TagSet = Schemas['Tags']['tags'];
+export type BucketObjectLock = Schemas['BucketObjectLock'];
+export type BucketEncryption = Schemas['BucketEncryption'];
+
+/** Anonymous access preset of a prefix ("custom" when the policy is hand written). */
+export type AccessPreset = Schemas['AccessPreset'];
+export type AccessRule = Schemas['AccessRule'];
+export type BucketAccess = Schemas['BucketAccess'];
+export type SetAccessInput = Schemas['SetAccessRequest'];
+
+/** An object (version) of the object browser. */
+export type ObjectEntry = Schemas['ObjectEntry'];
+/** A page of the folder view of a bucket. */
+export type ObjectList = Schemas['ObjectList'];
+/** Metadata, tags and first versions of an object (GET objects/stat). */
+export type ObjectDetails = Schemas['ObjectDetails'];
+export type VersionList = Schemas['VersionList'];
+export type ObjectRef = Schemas['ObjectRef'];
+export type DeleteObjectsInput = Schemas['DeleteObjectsRequest'];
+export type DeleteObjectsResult = Schemas['DeleteObjectsResult'];
+export type RenameInput = Schemas['RenameRequest'];
+export type RenameResult = Schemas['RenameResult'];
+export type ZipInput = Schemas['ZipRequest'];
+
+/** A multipart upload proxied by the console, with the limits of its parts. */
+export type Upload = Schemas['Upload'];
+export type PendingUpload = Schemas['PendingUpload'];
+export type UploadList = Schemas['UploadList'];
+export type Part = Schemas['Part'];
+export type PartList = Schemas['PartList'];
+export type CompletedPart = Schemas['CompleteUploadRequest']['parts'][number];
+export type CreateUploadInput = Schemas['CreateUploadRequest'];
+
+/** Query of the folder view (GET /buckets/{bucket}/objects). */
+export interface ListObjectsQuery {
+  prefix?: string;
+  /** "/" by default; "" lists recursively. */
+  delimiter?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+/** Cursor pagination of the list endpoints. */
+export interface PageQuery {
+  cursor?: string;
+  limit?: number;
+}
+
+/** Cancellation and progress of a transfer. */
+export interface TransferOptions {
+  signal?: AbortSignal;
+  /** Bytes sent so far out of total. */
+  onProgress?: (loaded: number, total: number) => void;
+}
+
+/** POST /buckets/{bucket}/objects/upload: a small object in one request. */
+export interface PutObjectInput {
+  bucket: string;
+  key: string;
+  body: Blob;
+  /** Defaults to the type of the blob, then application/octet-stream. */
+  contentType?: string;
+}
+
+/** PUT /buckets/{bucket}/uploads/{uploadId}/parts/{n}. */
+export interface UploadPartInput {
+  bucket: string;
+  key: string;
+  uploadId: string;
+  partNumber: number;
+  body: Blob;
+}
+
+/** The head of a text object, for the preview. */
+export interface TextPreview {
+  text: string;
+  /** The object is larger than the bytes read. */
+  truncated: boolean;
+  /** Size of the whole object, when known. */
+  size?: number;
+  contentType: string;
 }

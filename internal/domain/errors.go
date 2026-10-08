@@ -37,6 +37,9 @@ var (
 	ErrInvalidAccessKey  = errors.New("invalid access key")
 	ErrSignatureMismatch = errors.New("signature does not match")
 	ErrRequestExpired    = errors.New("request expired")
+	// ErrTooManyRequests reports a caller throttled after too many attempts
+	// (failed console logins): HTTP 429, S3 SlowDown.
+	ErrTooManyRequests = errors.New("too many requests")
 	// ErrUnauthenticated reports a request that needs a valid session or
 	// signature and has none (HTTP 401); ErrAccessDenied is the 403 flavor.
 	ErrUnauthenticated = errors.New("unauthenticated")

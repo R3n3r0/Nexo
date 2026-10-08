@@ -1,0 +1,56 @@
+# TCL-E-13: admin accesskey create --expiry: the key works, then expires.
+# C-ADM-05: inline policy, edit, remove; the secret is printed once.
+
+exec nexoctl mb local/keys
+exec nexoctl cp a.txt local/keys/a.txt
+
+# The expiry leaves a wide margin for a loaded machine (-race): the key is
+# valid at least 10 s (--expiry rounds up to the second), and the script
+# waits for the expiration instead of sleeping a fixed time.
+exec nexoctl admin accesskey create --expiry 10s --json local
+jsonlines stdout
+jsonfield stdout accessKey AK
+jsonfield stdout secretKey SK
+exec nexoctl alias set short $NEXO_URL $AK $SK --admin-url $NEXO_ADMIN_URL
+exec nexoctl cat short/keys/a.txt
+cmp stdout a.txt
+eventually 30s ! nexoctl cat short/keys/a.txt
+expectcode 4 nexoctl cat short/keys/a.txt
+
+# An inline policy restricts the key to reading.
+exec nexoctl admin accesskey create --name reader --policy readonly.json --expiry 1d local
+stdout '^Secret Key: '
+stdout '^Policy: inline'
+stdout 'shown only once'
+exec nexoctl admin accesskey list --json local
+jsonlines stdout
+exec nexoctl admin accesskey list local
+stdout ' reader$'
+exec nexoctl admin accesskey create --access-key READERKEY01 --secret-key reader-secret-01 --policy readonly.json local
+exec nexoctl alias set reader $NEXO_URL READERKEY01 reader-secret-01
+exec nexoctl cat reader/keys/a.txt
+expectcode 4 nexoctl cp a.txt reader/keys/b.txt
+exec nexoctl admin accesskey info local READERKEY01
+stdout '^Parent User: '
+! stdout 'reader-secret-01'
+
+exec nexoctl admin accesskey edit local READERKEY01 --disable
+expectcode 4 nexoctl cat reader/keys/a.txt
+exec nexoctl admin accesskey edit local READERKEY01 --enable --clear-policy
+exec nexoctl cp a.txt reader/keys/b.txt
+
+exec nexoctl admin accesskey remove local READERKEY01
+expectcode 4 nexoctl cat reader/keys/a.txt
+expectcode 3 nexoctl admin accesskey info local READERKEY01
+expectcode 2 nexoctl admin accesskey create --expiry yesterday local
+! exec nexoctl admin accesskey create --policy broken.json local
+stderr 'line 3, column 1'
+
+-- a.txt --
+key test
+-- readonly.json --
+{"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Action": ["s3:GetObject", "s3:ListBucket"], "Resource": ["arn:aws:s3:::*"]}]}
+-- broken.json --
+{
+  "Statement": [
+}

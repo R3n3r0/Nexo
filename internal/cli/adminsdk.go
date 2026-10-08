@@ -1,0 +1,603 @@
+package cli
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/r3n3r0/nexo/internal/clock"
+	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/version"
+	"github.com/r3n3r0/nexo/pkg/nexoadmin"
+)
+
+// adminTimeout bounds one request of the Admin API (the admin commands
+// never stream data).
+const adminTimeout = 60 * time.Second
+
+// AdminFactoryDeps are the dependencies of the AdminFactory of nexoctl.
+type AdminFactoryDeps struct {
+	// Clock dates the signatures (nil: the wall clock).
+	Clock clock.Clock
+	// Transport is the base HTTP transport of the clients (nil: a clone of
+	// http.DefaultTransport).
+	Transport http.RoundTripper
+	// Logger receives the diagnostics of the clients (nil: discarded).
+	Logger *slog.Logger
+}
+
+type adminFactory struct {
+	deps AdminFactoryDeps
+}
+
+var _ AdminFactory = (*adminFactory)(nil)
+
+// NewAdminFactory returns the AdminFactory of nexoctl, built on
+// pkg/nexoadmin: the endpoint is AdminURL of the alias, the requests are
+// signed with SigV4 with the credentials and the region of the alias.
+func NewAdminFactory(deps AdminFactoryDeps) AdminFactory {
+	if deps.Clock == nil {
+		deps.Clock = clock.NewReal()
+	}
+	if deps.Transport == nil {
+		deps.Transport = http.DefaultTransport.(*http.Transport).Clone()
+	}
+	if deps.Logger == nil {
+		deps.Logger = slog.New(slog.DiscardHandler)
+	}
+	return &adminFactory{deps: deps}
+}
+
+// Client implements AdminFactory.
+func (f *adminFactory) Client(_ context.Context, a Alias, opts ClientOptions) (AdminClient, error) {
+	if err := ValidateAlias(a); err != nil {
+		return nil, err
+	}
+	endpoint, err := AdminURL(a)
+	if err != nil {
+		return nil, err
+	}
+	rt := f.deps.Transport
+	if opts.Debug != nil {
+		rt = newDebugTransport(rt, opts.Debug)
+	}
+	api, err := nexoadmin.New(nexoadmin.Config{
+		Endpoint:   endpoint,
+		AccessKey:  a.AccessKey,
+		SecretKey:  a.SecretKey,
+		Region:     a.Region,
+		HTTPClient: &http.Client{Transport: rt, Timeout: adminTimeout},
+		UserAgent:  "nexoctl/" + version.Get().Version,
+		Now:        f.deps.Clock.Now,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: alias %q: %v", domain.ErrInvalidArgument, a.Name, err)
+	}
+	f.deps.Logger.Debug("admin client", "alias", a.Name, "endpoint", endpoint)
+	return &adminClient{api: api, alias: a.Name, endpoint: endpoint}, nil
+}
+
+// AdminURL returns the base URL of the Admin API of an alias (the console
+// listener of the server, docs/04 §4.1): Alias.AdminURL when set,
+// otherwise the S3 URL of the alias with the next port (9000 → 9001, the
+// defaults of nexo server), or the S3 URL itself when it names no port (a
+// reverse proxy that routes /api/v1 to the console listener).
+func AdminURL(a Alias) (string, error) {
+	raw := strings.TrimRight(strings.TrimSpace(a.AdminURL), "/")
+	if raw != "" {
+		if err := checkHTTPURL(raw); err != nil {
+			return "", fmt.Errorf("%w: alias %q: admin URL %q must be an http(s) URL", domain.ErrInvalidArgument, a.Name, a.AdminURL)
+		}
+		return raw, nil
+	}
+	u, err := url.Parse(strings.TrimRight(strings.TrimSpace(a.URL), "/"))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return "", fmt.Errorf("%w: alias %q: URL %q must be an http(s) URL", domain.ErrInvalidArgument, a.Name, a.URL)
+	}
+	if port := u.Port(); port != "" {
+		n, err := strconv.Atoi(port)
+		if err != nil || n <= 0 || n >= 65535 {
+			return "", fmt.Errorf("%w: alias %q: invalid port in %q", domain.ErrInvalidArgument, a.Name, a.URL)
+		}
+		u.Host = net.JoinHostPort(u.Hostname(), strconv.Itoa(n+1))
+	}
+	u.RawQuery, u.Fragment = "", ""
+	return u.String(), nil
+}
+
+// checkHTTPURL checks an absolute http(s) URL.
+func checkHTTPURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("%w: %q is not an http(s) URL", domain.ErrInvalidArgument, raw)
+	}
+	return nil
+}
+
+// AdminError is a failure answered by the Admin API (an RFC 9457 problem
+// document). It wraps the sentinel of domain matching its code (or its
+// HTTP status) and the *nexoadmin.APIError.
+type AdminError struct {
+	// API is the problem answered by the server.
+	API *nexoadmin.APIError
+	// Endpoint is the Admin API URL of the alias.
+	Endpoint string
+	// sentinel is the domain error selected by the code or the status.
+	sentinel error
+}
+
+// Error implements error: the detail of the problem with its stable code,
+// then one line per located error of a malformed policy document.
+func (e *AdminError) Error() string {
+	if strings.HasPrefix(strings.TrimSpace(e.API.Detail), "<") {
+		// An XML (S3) or HTML answer: the URL is not the Admin API.
+		return fmt.Sprintf("%s did not answer as the Admin API of a Nexo server (HTTP %d): set the URL of its console listener with \"nexoctl alias set --admin-url\"",
+			e.Endpoint, e.API.Status)
+	}
+	text := e.API.Detail
+	if text == "" {
+		text = e.API.Title
+	}
+	if text == "" {
+		text = http.StatusText(e.API.Status)
+	}
+	var b strings.Builder
+	b.WriteString(text)
+	if e.API.Code != "" {
+		fmt.Fprintf(&b, " (%s)", e.API.Code)
+	}
+	for _, d := range e.Details() {
+		if d.Message != "" && strings.Contains(text, d.Message) {
+			continue // the detail already reports it
+		}
+		b.WriteString("\n  ")
+		b.WriteString(d.String())
+	}
+	return b.String()
+}
+
+// Unwrap returns the domain sentinel and the problem of the server.
+func (e *AdminError) Unwrap() []error {
+	if e.sentinel == nil {
+		return []error{e.API}
+	}
+	return []error{e.sentinel, e.API}
+}
+
+// Details returns the located errors of a malformed policy document.
+func (e *AdminError) Details() []ErrorDetail {
+	out := make([]ErrorDetail, 0, len(e.API.Errors))
+	for _, pe := range e.API.Errors {
+		out = append(out, ErrorDetail{
+			Statement: pe.Statement, Sid: pe.Sid, Element: pe.Element,
+			Line: pe.Line, Column: pe.Column, Message: pe.Message,
+		})
+	}
+	return out
+}
+
+// ErrorDetail locates one error of a document (a policy rejected by the
+// server, TCL-E-11). Line and Column are 1-based (0: unknown).
+type ErrorDetail struct {
+	Statement int    `json:"statement"`
+	Sid       string `json:"sid,omitempty"`
+	Element   string `json:"element,omitempty"`
+	Line      int    `json:"line,omitempty"`
+	Column    int    `json:"column,omitempty"`
+	Message   string `json:"message"`
+}
+
+// String renders "line L, column C: statement N (Sid), Element: message".
+func (d ErrorDetail) String() string {
+	var parts []string
+	if d.Line > 0 {
+		parts = append(parts, fmt.Sprintf("line %d, column %d", d.Line, d.Column))
+	}
+	where := ""
+	if d.Statement > 0 {
+		where = fmt.Sprintf("statement %d", d.Statement)
+		if d.Sid != "" {
+			where += fmt.Sprintf(" (%s)", d.Sid)
+		}
+	}
+	if d.Element != "" {
+		if where != "" {
+			where += ", "
+		}
+		where += d.Element
+	}
+	if where != "" {
+		parts = append(parts, where)
+	}
+	if len(parts) == 0 {
+		return d.Message
+	}
+	return strings.Join(parts, ": ") + ": " + d.Message
+}
+
+// detailedError is implemented by the errors that carry located details
+// (AdminError).
+type detailedError interface {
+	Details() []ErrorDetail
+}
+
+// ErrorDetails returns the located details of err (nil when it has none).
+func ErrorDetails(err error) []ErrorDetail {
+	var d detailedError
+	if errors.As(err, &d) {
+		if out := d.Details(); len(out) > 0 {
+			return out
+		}
+	}
+	return nil
+}
+
+// adminCodeSentinel maps the stable problem codes of the Admin API to the
+// sentinels of domain.
+func adminCodeSentinel(code string) error {
+	switch code {
+	case "access_denied", "invalid_csrf_token":
+		return domain.ErrAccessDenied
+	case "unauthenticated":
+		return domain.ErrUnauthenticated
+	case "invalid_access_key":
+		return domain.ErrInvalidAccessKey
+	case "signature_mismatch":
+		return domain.ErrSignatureMismatch
+	case "request_expired":
+		return domain.ErrRequestExpired
+	case "user_not_found":
+		return domain.ErrUserNotFound
+	case "group_not_found":
+		return domain.ErrGroupNotFound
+	case "policy_not_found":
+		return domain.ErrPolicyNotFound
+	case "share_not_found":
+		return domain.ErrShareNotFound
+	case "bucket_not_found":
+		return domain.ErrBucketNotFound
+	case "object_not_found":
+		return domain.ErrObjectNotFound
+	case "version_not_found":
+		return domain.ErrNoSuchVersion
+	case "upload_not_found":
+		return domain.ErrNoSuchUpload
+	case "user_already_exists":
+		return domain.ErrUserAlreadyExists
+	case "bucket_already_exists":
+		return domain.ErrBucketAlreadyExists
+	case "bucket_not_empty":
+		return domain.ErrBucketNotEmpty
+	case "malformed_policy":
+		return domain.ErrMalformedPolicy
+	case "invalid_argument":
+		return domain.ErrInvalidArgument
+	case "conflict":
+		return domain.ErrConflict
+	case "not_implemented":
+		return domain.ErrNotImplemented
+	case "quota_exceeded":
+		return domain.ErrQuotaExceeded
+	case "entity_too_large":
+		return domain.ErrEntityTooLarge
+	}
+	return nil
+}
+
+// adminStatusSentinel maps an HTTP status without a known code.
+func adminStatusSentinel(status int) error {
+	switch status {
+	case http.StatusUnauthorized:
+		return domain.ErrUnauthenticated
+	case http.StatusForbidden:
+		return domain.ErrAccessDenied
+	case http.StatusNotFound:
+		return ErrAdminNotFound
+	case http.StatusConflict:
+		return domain.ErrConflict
+	case http.StatusNotImplemented:
+		return domain.ErrNotImplemented
+	case http.StatusBadRequest:
+		return domain.ErrInvalidArgument
+	}
+	return nil
+}
+
+// ErrAdminNotFound reports a resource of the Admin API that does not exist
+// and has no more specific code (exit code 3); it wraps
+// domain.ErrObjectNotFound.
+var ErrAdminNotFound = fmt.Errorf("admin resource not found: %w", domain.ErrObjectNotFound)
+
+// MapAdminError converts an error of pkg/nexoadmin: a problem answered by
+// the server becomes an *AdminError wrapping the matching domain sentinel;
+// a transport failure names the Admin API endpoint (with a hint about
+// --admin-url); an interruption is reported as context.Canceled.
+func MapAdminError(err error, endpoint string) error {
+	if err == nil {
+		return nil
+	}
+	var api *nexoadmin.APIError
+	if errors.As(err, &api) {
+		sentinel := adminCodeSentinel(api.Code)
+		if sentinel == nil {
+			sentinel = adminStatusSentinel(api.Status)
+		}
+		return &AdminError{API: api, Endpoint: endpoint, sentinel: sentinel}
+	}
+	if errors.Is(err, context.Canceled) {
+		return err
+	}
+	var netErr net.Error
+	var urlErr *url.Error
+	if errors.As(err, &netErr) || errors.As(err, &urlErr) {
+		return fmt.Errorf("%w (cannot reach the Admin API at %s: set it with \"nexoctl alias set --admin-url\")", err, endpoint)
+	}
+	return err
+}
+
+// adminClient is the AdminClient of one alias: pkg/nexoadmin with the
+// errors mapped by MapAdminError.
+type adminClient struct {
+	api      nexoadmin.AdminClient
+	alias    string
+	endpoint string
+}
+
+var _ AdminClient = (*adminClient)(nil)
+
+// mapped returns v and err converted by MapAdminError.
+func mapped[T any](c *adminClient, v T, err error) (T, error) {
+	if err != nil {
+		var zero T
+		return zero, MapAdminError(err, c.endpoint)
+	}
+	return v, nil
+}
+
+// ServerInfo implements AdminClient.
+func (c *adminClient) ServerInfo(ctx context.Context) (*nexoadmin.ServerInfo, error) {
+	v, err := c.api.ServerInfo(ctx)
+	return mapped(c, v, err)
+}
+
+// DataUsage implements AdminClient.
+func (c *adminClient) DataUsage(ctx context.Context) (*nexoadmin.DataUsage, error) {
+	v, err := c.api.DataUsage(ctx)
+	return mapped(c, v, err)
+}
+
+// Heal implements AdminClient.
+func (c *adminClient) Heal(ctx context.Context, in nexoadmin.HealRequest) (*nexoadmin.HealResult, error) {
+	v, err := c.api.Heal(ctx, in)
+	return mapped(c, v, err)
+}
+
+// RestartService implements AdminClient.
+func (c *adminClient) RestartService(ctx context.Context) error {
+	return MapAdminError(c.api.RestartService(ctx), c.endpoint)
+}
+
+// StopService implements AdminClient.
+func (c *adminClient) StopService(ctx context.Context) error {
+	return MapAdminError(c.api.StopService(ctx), c.endpoint)
+}
+
+// ListUsers implements AdminClient.
+func (c *adminClient) ListUsers(ctx context.Context, opts nexoadmin.ListOptions) (*nexoadmin.UserList, error) {
+	v, err := c.api.ListUsers(ctx, opts)
+	return mapped(c, v, err)
+}
+
+// CreateUser implements AdminClient.
+func (c *adminClient) CreateUser(ctx context.Context, in nexoadmin.CreateUserRequest) (*nexoadmin.User, error) {
+	v, err := c.api.CreateUser(ctx, in)
+	return mapped(c, v, err)
+}
+
+// GetUser implements AdminClient.
+func (c *adminClient) GetUser(ctx context.Context, accessKey string) (*nexoadmin.User, error) {
+	v, err := c.api.GetUser(ctx, accessKey)
+	return mapped(c, v, err)
+}
+
+// UpdateUser implements AdminClient.
+func (c *adminClient) UpdateUser(ctx context.Context, accessKey string, in nexoadmin.UpdateUserRequest) (*nexoadmin.User, error) {
+	v, err := c.api.UpdateUser(ctx, accessKey, in)
+	return mapped(c, v, err)
+}
+
+// DeleteUser implements AdminClient.
+func (c *adminClient) DeleteUser(ctx context.Context, accessKey string) error {
+	return MapAdminError(c.api.DeleteUser(ctx, accessKey), c.endpoint)
+}
+
+// ListGroups implements AdminClient.
+func (c *adminClient) ListGroups(ctx context.Context, opts nexoadmin.ListOptions) (*nexoadmin.GroupList, error) {
+	v, err := c.api.ListGroups(ctx, opts)
+	return mapped(c, v, err)
+}
+
+// CreateGroup implements AdminClient.
+func (c *adminClient) CreateGroup(ctx context.Context, in nexoadmin.CreateGroupRequest) (*nexoadmin.Group, error) {
+	v, err := c.api.CreateGroup(ctx, in)
+	return mapped(c, v, err)
+}
+
+// GetGroup implements AdminClient.
+func (c *adminClient) GetGroup(ctx context.Context, name string) (*nexoadmin.Group, error) {
+	v, err := c.api.GetGroup(ctx, name)
+	return mapped(c, v, err)
+}
+
+// UpdateGroup implements AdminClient.
+func (c *adminClient) UpdateGroup(ctx context.Context, name string, in nexoadmin.UpdateGroupRequest) (*nexoadmin.Group, error) {
+	v, err := c.api.UpdateGroup(ctx, name, in)
+	return mapped(c, v, err)
+}
+
+// DeleteGroup implements AdminClient.
+func (c *adminClient) DeleteGroup(ctx context.Context, name string) error {
+	return MapAdminError(c.api.DeleteGroup(ctx, name), c.endpoint)
+}
+
+// ListAccessKeys implements AdminClient.
+func (c *adminClient) ListAccessKeys(ctx context.Context, opts nexoadmin.ListAccessKeysOptions) (*nexoadmin.AccessKeyList, error) {
+	v, err := c.api.ListAccessKeys(ctx, opts)
+	return mapped(c, v, err)
+}
+
+// CreateAccessKey implements AdminClient.
+func (c *adminClient) CreateAccessKey(ctx context.Context, in nexoadmin.CreateAccessKeyRequest) (*nexoadmin.CreatedAccessKey, error) {
+	v, err := c.api.CreateAccessKey(ctx, in)
+	return mapped(c, v, err)
+}
+
+// GetAccessKey implements AdminClient.
+func (c *adminClient) GetAccessKey(ctx context.Context, accessKey string) (*nexoadmin.AccessKey, error) {
+	v, err := c.api.GetAccessKey(ctx, accessKey)
+	return mapped(c, v, err)
+}
+
+// UpdateAccessKey implements AdminClient.
+func (c *adminClient) UpdateAccessKey(ctx context.Context, accessKey string, in nexoadmin.UpdateAccessKeyRequest) (*nexoadmin.AccessKey, error) {
+	v, err := c.api.UpdateAccessKey(ctx, accessKey, in)
+	return mapped(c, v, err)
+}
+
+// DeleteAccessKey implements AdminClient.
+func (c *adminClient) DeleteAccessKey(ctx context.Context, accessKey string) error {
+	return MapAdminError(c.api.DeleteAccessKey(ctx, accessKey), c.endpoint)
+}
+
+// ListPolicies implements AdminClient.
+func (c *adminClient) ListPolicies(ctx context.Context, opts nexoadmin.ListOptions) (*nexoadmin.PolicyList, error) {
+	v, err := c.api.ListPolicies(ctx, opts)
+	return mapped(c, v, err)
+}
+
+// CreatePolicy implements AdminClient.
+func (c *adminClient) CreatePolicy(ctx context.Context, name string, document []byte) (*nexoadmin.Policy, error) {
+	v, err := c.api.CreatePolicy(ctx, name, document)
+	return mapped(c, v, err)
+}
+
+// GetPolicy implements AdminClient.
+func (c *adminClient) GetPolicy(ctx context.Context, name string) (*nexoadmin.Policy, error) {
+	v, err := c.api.GetPolicy(ctx, name)
+	return mapped(c, v, err)
+}
+
+// SavePolicy implements AdminClient.
+func (c *adminClient) SavePolicy(ctx context.Context, name string, document []byte) (*nexoadmin.Policy, error) {
+	v, err := c.api.SavePolicy(ctx, name, document)
+	return mapped(c, v, err)
+}
+
+// DeletePolicy implements AdminClient.
+func (c *adminClient) DeletePolicy(ctx context.Context, name string) error {
+	return MapAdminError(c.api.DeletePolicy(ctx, name), c.endpoint)
+}
+
+// AttachPolicy implements AdminClient.
+func (c *adminClient) AttachPolicy(ctx context.Context, in nexoadmin.AttachRequest) error {
+	return MapAdminError(c.api.AttachPolicy(ctx, in), c.endpoint)
+}
+
+// DetachPolicy implements AdminClient.
+func (c *adminClient) DetachPolicy(ctx context.Context, in nexoadmin.AttachRequest) error {
+	return MapAdminError(c.api.DetachPolicy(ctx, in), c.endpoint)
+}
+
+// PolicyEntities implements AdminClient.
+func (c *adminClient) PolicyEntities(ctx context.Context, name string) (*nexoadmin.PolicyEntities, error) {
+	v, err := c.api.PolicyEntities(ctx, name)
+	return mapped(c, v, err)
+}
+
+// SimulatePolicy implements AdminClient.
+func (c *adminClient) SimulatePolicy(ctx context.Context, in nexoadmin.SimulateRequest) (*nexoadmin.Simulation, error) {
+	v, err := c.api.SimulatePolicy(ctx, in)
+	return mapped(c, v, err)
+}
+
+// ValidatePolicy implements AdminClient.
+func (c *adminClient) ValidatePolicy(ctx context.Context, document []byte, bucket string) (*nexoadmin.ValidationReport, error) {
+	v, err := c.api.ValidatePolicy(ctx, document, bucket)
+	return mapped(c, v, err)
+}
+
+// ListConfig implements AdminClient.
+func (c *adminClient) ListConfig(ctx context.Context) ([]nexoadmin.ConfigSubsystem, error) {
+	v, err := c.api.ListConfig(ctx)
+	return mapped(c, v, err)
+}
+
+// ConfigSchema implements AdminClient.
+func (c *adminClient) ConfigSchema(ctx context.Context) ([]nexoadmin.ConfigSubsystemSchema, error) {
+	v, err := c.api.ConfigSchema(ctx)
+	return mapped(c, v, err)
+}
+
+// GetConfig implements AdminClient.
+func (c *adminClient) GetConfig(ctx context.Context, subsystem string) (*nexoadmin.ConfigSubsystem, error) {
+	v, err := c.api.GetConfig(ctx, subsystem)
+	return mapped(c, v, err)
+}
+
+// SetConfig implements AdminClient.
+func (c *adminClient) SetConfig(ctx context.Context, subsystem string, settings map[string]string) (*nexoadmin.ConfigSubsystem, error) {
+	v, err := c.api.SetConfig(ctx, subsystem, settings)
+	return mapped(c, v, err)
+}
+
+// DeleteConfig implements AdminClient.
+func (c *adminClient) DeleteConfig(ctx context.Context, subsystem string, keys ...string) error {
+	return MapAdminError(c.api.DeleteConfig(ctx, subsystem, keys...), c.endpoint)
+}
+
+// ExportConfig implements AdminClient.
+func (c *adminClient) ExportConfig(ctx context.Context) ([]byte, error) {
+	v, err := c.api.ExportConfig(ctx)
+	return mapped(c, v, err)
+}
+
+// ImportConfig implements AdminClient.
+func (c *adminClient) ImportConfig(ctx context.Context, data []byte) error {
+	return MapAdminError(c.api.ImportConfig(ctx, data), c.endpoint)
+}
+
+// CreateShare implements AdminClient.
+func (c *adminClient) CreateShare(ctx context.Context, in nexoadmin.CreateShareRequest) (*nexoadmin.Share, error) {
+	v, err := c.api.CreateShare(ctx, in)
+	return mapped(c, v, err)
+}
+
+// ListShares implements AdminClient.
+func (c *adminClient) ListShares(ctx context.Context, opts nexoadmin.ListSharesOptions) (*nexoadmin.ShareList, error) {
+	v, err := c.api.ListShares(ctx, opts)
+	return mapped(c, v, err)
+}
+
+// GetShare implements AdminClient.
+func (c *adminClient) GetShare(ctx context.Context, id string) (*nexoadmin.Share, error) {
+	v, err := c.api.GetShare(ctx, id)
+	return mapped(c, v, err)
+}
+
+// RevokeShare implements AdminClient.
+func (c *adminClient) RevokeShare(ctx context.Context, id string) error {
+	return MapAdminError(c.api.RevokeShare(ctx, id), c.endpoint)
+}
+
+// RevokeAllShares implements AdminClient.
+func (c *adminClient) RevokeAllShares(ctx context.Context, owner string) (int, error) {
+	v, err := c.api.RevokeAllShares(ctx, owner)
+	return mapped(c, v, err)
+}

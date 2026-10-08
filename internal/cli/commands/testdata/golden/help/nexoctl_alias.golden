@@ -1,0 +1,24 @@
+An alias names a server endpoint and its credentials. The configuration file
+is ~/.nexoctl/config.json (or $NEXOCTL_CONFIG_DIR/config.json, or --config-dir),
+written with owner-only permissions (0600).
+
+Usage:
+  nexoctl alias [flags]
+  nexoctl alias [command]
+
+Available Commands:
+  list        List aliases (secret keys are never shown)
+  remove      Remove an alias
+  set         Add or update an alias
+
+Flags:
+  -h, --help   help for alias
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl alias [command] --help" for more information about a command.

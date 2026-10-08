@@ -1,0 +1,23 @@
+$ nexoctl ls --incomplete mem/up
+[2026-01-02 03:04:05 UTC] upload-1 big/a.bin
+[2026-01-02 03:04:05 UTC] upload-2 big/b.bin
+
+$ nexoctl rm --incomplete mem/up/big/a.bin
+Removed `mem/up/big/a.bin` (upload upload-1).
+
+$ nexoctl rm --incomplete --recursive --force mem/up/big/
+Removed `mem/up/big/b.bin` (upload upload-2).
+
+$ nexoctl ls --incomplete mem/up
+
+$ nexoctl pipe --content-type text/plain mem/up/stream.txt
+`stdin` -> `mem/up/stream.txt` (20B)
+
+$ nexoctl cat mem/up/stream.txt
+streamed from stdin
+
+$ nexoctl pipe mem/up/
+! nexoctl: error: mem/up/: pipe needs an object name
+! Run 'nexoctl pipe --help' for usage.
+[exit 2]
+

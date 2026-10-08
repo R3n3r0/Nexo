@@ -69,7 +69,13 @@ jobs:
       - name: go test -race
         env:
           CGO_ENABLED: "1"
-        run: go test -race -count=1 -shuffle=on -coverprofile=coverage.txt -covermode=atomic ./...
+        # The CLI end-to-end scripts run in their own step below.
+        run: go test -race -count=1 -shuffle=on -coverprofile=coverage.txt -covermode=atomic $(go list ./... | grep -v '/test/cli$')
+
+      - name: CLI end-to-end (testscript, test/cli)
+        env:
+          CGO_ENABLED: "1"
+        run: go test -race -count=1 ./test/cli/...
 
       - name: Coverage summary
         if: always()
@@ -121,6 +127,9 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Bundle size budget (initial bundle <= 300 KiB gzip, docs/06 §6.5)
+        run: npm run size
 
       - uses: actions/upload-artifact@v4
         with:
@@ -189,6 +198,48 @@ jobs:
           name: nexo-linux-amd64
           path: bin/
           if-no-files-found: error
+          retention-days: 7
+
+  e2e:
+    name: End-to-end (Playwright, Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # npm ci + vite build + bin/nexo with the embedded dashboard.
+      - name: make build
+        run: make build
+
+      - name: Install Chromium for Playwright
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: npm run e2e
+        working-directory: web
+        env:
+          CI: "true"
+        run: npm run e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            web/playwright-report
+            web/test-results
+          if-no-files-found: ignore
           retention-days: 7
 
   docker:

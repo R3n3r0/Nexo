@@ -1,0 +1,29 @@
+# TCL-E-19 / C-UX-01: completion scripts and dynamic completion of the
+# aliases, buckets and objects.
+
+exec nexoctl completion bash
+stdout '__start_nexoctl'
+exec nexoctl completion zsh
+stdout '#compdef nexoctl'
+exec nexoctl completion fish
+stdout 'complete -c nexoctl'
+exec nexoctl completion powershell
+stdout 'Register-ArgumentCompleter'
+
+exec nexoctl mb local/photos local/logs
+exec nexoctl cp a.jpg local/photos/2026/a.jpg
+
+exec nexoctl __complete ls lo
+stdout '^local/$'
+exec nexoctl __complete ls local/
+stdout '^local/logs/$'
+stdout '^local/photos/$'
+exec nexoctl __complete cp a.jpg local/photos/2
+stdout '^local/photos/2026/$'
+exec nexoctl __complete cat local/photos/2026/
+stdout '^local/photos/2026/a.jpg$'
+exec nexoctl __complete alias remove ''
+stdout '^local$'
+
+-- a.jpg --
+not really a jpeg

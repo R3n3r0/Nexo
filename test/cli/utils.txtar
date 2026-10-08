@@ -1,0 +1,63 @@
+# TCL-E-09: stat, cat, head -n, find --name "*.log" --older-than 1d, du,
+# tree, diff.
+
+exec nexoctl mb local/logs
+exec nexoctl cp --recursive logs/ local/logs/
+stdout 'Copied 3 objects'
+
+exec nexoctl stat local/logs/app.log
+stdout '^Name        : app.log$'
+stdout '^Size        : 36B \(36 bytes\)$'
+stdout '^Type        : file$'
+exec nexoctl stat local/logs
+stdout '^Type        : bucket$'
+stdout '^Versioning  : Unversioned$'
+
+exec nexoctl cat local/logs/app.log
+cmp stdout logs/app.log
+exec nexoctl head -n 2 local/logs/app.log
+cmp stdout head2.txt
+
+# The objects are fresh: none is older than one day...
+exec nexoctl find local/logs --name '*.log' --older-than 1d
+! stdout .
+exec nexoctl find local/logs --name '*.log' --newer-than 1d
+stdout -count=2 '\.log$'
+# ...until the clock of nexoctl moves two days ahead.
+env NEXOCTL_TEST_CLOCK_OFFSET=48h
+exec nexoctl find local/logs --name '*.log' --older-than 1d
+stdout '^local/logs/app.log$'
+stdout '^local/logs/old/archive.log$'
+! stdout notes.txt
+env NEXOCTL_TEST_CLOCK_OFFSET=
+exec nexoctl find local/logs --larger 30B
+stdout -count=1 '^local/logs/app.log$'
+
+exec nexoctl du local/logs
+stdout '^ +[0-9]+B +3 objects local/logs$'
+exec nexoctl du --depth 1 local/logs
+stdout '1 object  local/logs/old/'
+
+exec nexoctl tree local/logs
+cmp stdout tree.txt
+exec nexoctl diff logs local/logs
+! stdout .
+
+-- logs/app.log --
+line one
+line two
+line three
+line 4
+-- logs/notes.txt --
+not a log
+-- logs/old/archive.log --
+archived
+-- head2.txt --
+line one
+line two
+-- tree.txt --
+local/logs
+├─ app.log
+├─ notes.txt
+└─ old/
+   └─ archive.log

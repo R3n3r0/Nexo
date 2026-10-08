@@ -37,13 +37,8 @@ export default defineConfig({
         assetFileNames: 'assets/[name]-[hash][extname]',
         manualChunks: {
           react: ['react', 'react-dom', 'react-router'],
-          mantine: [
-            '@mantine/core',
-            '@mantine/hooks',
-            '@mantine/notifications',
-            '@mantine/modals',
-            '@mantine/dates',
-          ],
+          // @mantine/dates stays out: only the pages with date pickers load it.
+          mantine: ['@mantine/core', '@mantine/hooks', '@mantine/notifications', '@mantine/modals'],
           query: ['@tanstack/react-query'],
           i18n: ['i18next', 'react-i18next'],
         },

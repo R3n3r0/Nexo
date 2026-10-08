@@ -19,15 +19,19 @@ PKGS        := ./...
 
 export CGO_ENABLED ?= 0
 
-.PHONY: all build build-go build-web test test-race lint web-lint web-test generate fmt clean \
+.PHONY: all build build-go build-web build-embedded e2e test test-race lint web-lint web-test generate fmt clean \
         run-single run-snmd docker help
 
 all: build
 
 ## build: build the web dashboard and both binaries with the dashboard embedded
 build: build-web
-	$(GO) build $(GOFLAGS) -tags embedui -trimpath -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/nexo ./cmd/nexo
+	$(MAKE) build-embedded
 	$(GO) build $(GOFLAGS) -trimpath -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/nexoctl ./cmd/nexoctl
+
+## build-embedded: build bin/nexo embedding the dashboard already built in web/dist (no npm ci)
+build-embedded:
+	$(GO) build $(GOFLAGS) -tags embedui -trimpath -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/nexo ./cmd/nexo
 
 ## build-go: build both binaries without the embedded dashboard
 build-go:
@@ -60,6 +64,10 @@ web-lint:
 ## web-test: run the dashboard unit tests
 web-test:
 	cd $(WEB_DIR) && $(NPM) test
+
+## e2e: run the Playwright suite against bin/nexo (run make build first)
+e2e:
+	cd $(WEB_DIR) && $(NPM) run e2e
 
 ## generate: run go generate (mocks via mockery)
 generate:

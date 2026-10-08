@@ -25,10 +25,18 @@ const (
 	ExitInterrupted = 130
 )
 
-// UsageError returns an error wrapping ErrUsage.
+// UsageError returns an error wrapping ErrUsage whose message is the
+// formatted text only.
 func UsageError(format string, args ...any) error {
-	return fmt.Errorf("%w: %s", ErrUsage, fmt.Sprintf(format, args...))
+	return &usageError{msg: fmt.Sprintf(format, args...)}
 }
+
+// usageError is the error of UsageError.
+type usageError struct{ msg string }
+
+func (e *usageError) Error() string { return e.msg }
+
+func (e *usageError) Unwrap() error { return ErrUsage }
 
 // ExitCode maps an error to the exit code of the process: 0 for nil, 2 for
 // usage errors, 3 for missing buckets, objects, versions, aliases or local
@@ -85,7 +93,8 @@ func isAccessError(err error) bool {
 func isNotFound(err error) bool {
 	for _, target := range []error{
 		domain.ErrBucketNotFound, domain.ErrObjectNotFound, domain.ErrNoSuchVersion,
-		domain.ErrNoSuchUpload, domain.ErrPolicyNotFound, domain.ErrUserNotFound, fs.ErrNotExist,
+		domain.ErrNoSuchUpload, domain.ErrPolicyNotFound, domain.ErrUserNotFound, domain.ErrGroupNotFound,
+		domain.ErrShareNotFound, fs.ErrNotExist,
 	} {
 		if errors.Is(err, target) {
 			return true

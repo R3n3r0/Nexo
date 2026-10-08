@@ -1,0 +1,92 @@
+# TCL-E-11: a policy file with a JSON error is rejected with its line and
+# column. TCL-E-12: attach/detach change the permissions of the user at
+# once. TCL-P-05: admin policy simulate agrees with the real operations.
+
+exec nexoctl mb local/pub
+exec nexoctl cp a.txt local/pub/a.txt
+exec nexoctl admin user add local carol carol-secret-1
+exec nexoctl alias set carol $NEXO_URL carol carol-secret-1 --admin-url $NEXO_ADMIN_URL
+
+! exec nexoctl admin policy create local pub-read bad.json
+stderr 'line 6, column 7'
+expectcode 1 nexoctl admin policy create local pub-read bad.json
+! exec nexoctl admin policy create --json local pub-read bad.json
+stderr '"details":\[\{"statement":0,"line":6,"column":7,'
+! exec nexoctl admin policy validate local unknown-action.json
+stderr 'line 4, column 5: statement 1, Action: unknown S3 action'
+exec nexoctl admin policy validate local pub-read.json
+stdout 'valid policy'
+
+exec nexoctl admin policy create local pub-read pub-read.json
+stdout '^Created policy "pub-read"\.$'
+exec nexoctl admin policy list local
+stdout '^pub-read +custom '
+stdout '^readonly +built-in '
+exec nexoctl admin policy info local pub-read
+stdout '"s3:GetObject"'
+
+# Before the attachment: denied, in the simulator and for real.
+exec nexoctl admin policy simulate --user carol --action s3:GetObject local/pub/a.txt
+stdout '^Decision: deny$'
+expectcode 4 nexoctl cat carol/pub/a.txt
+
+exec nexoctl admin policy attach local pub-read --user carol
+exec nexoctl admin policy entities local pub-read
+stdout '^Users: carol$'
+exec nexoctl admin policy simulate --user carol --action s3:GetObject local/pub/a.txt
+stdout '^Decision: allow$'
+stdout '^Statement: Allow, statement 1 \(ReadPub\) of policy pub-read$'
+exec nexoctl cat carol/pub/a.txt
+cmp stdout a.txt
+
+# Writing is still denied, in both.
+exec nexoctl admin policy simulate --user carol --action s3:PutObject --json local/pub/b.txt
+stdout '"allowed":false,"decision":"deny"'
+expectcode 4 nexoctl cp a.txt carol/pub/b.txt
+
+# The simulation of the caller itself (root) allows everything.
+exec nexoctl admin policy simulate --action s3:PutObject local/pub/b.txt
+stdout '^Decision: allow$'
+
+exec nexoctl admin policy detach local pub-read --user carol
+expectcode 4 nexoctl cat carol/pub/a.txt
+exec nexoctl admin policy simulate --user carol --action s3:GetObject local/pub/a.txt
+stdout '^Decision: deny$'
+
+exec nexoctl admin policy remove local pub-read
+expectcode 3 nexoctl admin policy info local pub-read
+
+-- a.txt --
+public text
+-- pub-read.json --
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadPub",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject"],
+      "Resource": ["arn:aws:s3:::pub/*"]
+    }
+  ]
+}
+-- bad.json --
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow"
+      "Action": ["s3:GetObject"],
+      "Resource": ["arn:aws:s3:::pub/*"]
+    }
+  ]
+}
+-- unknown-action.json --
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow", "Action": ["s3:GetObjectz"], "Resource": ["arn:aws:s3:::pub/*"]
+    }
+  ]
+}

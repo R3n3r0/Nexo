@@ -5,24 +5,47 @@ info:
   description: |
     Administration API of the Nexo object storage server, served on the console
     listener under `/api/v1`. JSON in, JSON out; failures are RFC 9457
-    `application/problem+json` documents with a stable `code`.
+    `application/problem+json` documents with a stable snake_case `code`
+    (`unauthenticated`, `access_denied`, `invalid_csrf_token`, `invalid_argument`,
+    `bucket_not_found`, `object_not_found`, `user_not_found`, `policy_not_found`,
+    `conflict`, `malformed_policy`, `entity_too_large`, `not_implemented`...).
 
-    Authentication: the console session cookie (`nexo_session`, issued by
-    `POST /auth/login`) plus the `X-CSRF-Token` header on state-changing
-    requests. Every endpoint maps to an `admin:*` policy action evaluated by
-    the policy engine (docs/04 §4.4).
+    Authentication, one of:
+    - the console session: the `nexo_session` cookie (HttpOnly, issued by
+      `POST /auth/login`) plus the `X-CSRF-Token` header on state-changing
+      requests (double submit of the `nexo_csrf` cookie);
+    - AWS Signature Version 4 in the `Authorization` header (CLI, SDKs), with the
+      service `s3` and the region of the server in the credential scope. Presigned
+      URLs are not accepted.
+
+    Authorization: every operation lists in `x-nexo-actions` the `admin:*` and
+    `s3:*` policy actions it requires, evaluated by the policy engine (docs/04
+    §4.4). Operations marked `x-nexo-authorized-by: service` are authorized by the
+    service object by object (resources in the body) or with the self-service rule
+    (a user always manages its own access keys and share links).
+
+    Lists answer `{items, nextCursor}` and accept `cursor` (opaque) and `limit`
+    (1-1000, default 1000).
 
     This document is the source of the TypeScript types of the web console
-    (`web/src/services/http/schema.d.ts`, generated with `npm run gen:api`);
-    the Go transport (`internal/transport/http/admin`) is the reference
-    implementation.
+    (`web/src/services/http/schema.d.ts`, generated with `npm run gen:api`); the Go
+    transport (`internal/transport/http/admin`) is the reference implementation and
+    `pkg/nexoadmin` its Go client.
 servers:
   - url: /api/v1
+
+security:
+  - session: []
+    csrf: []
+  - sigv4: []
 
 tags:
   - name: session
   - name: server
   - name: buckets
+  - name: objects
+  - name: uploads
+  - name: shares
   - name: users
   - name: groups
   - name: access-keys
@@ -35,7 +58,16 @@ paths:
       tags: [session]
       operationId: login
       summary: Open a console session
-      description: Public endpoint. Sets the `nexo_session` (HttpOnly) and `nexo_csrf` cookies.
+      description: >-
+        Public endpoint. Sets the `nexo_session` (HttpOnly) and `nexo_csrf` cookies. After 5 failed
+        attempts of a client on an access key (or 20 of a client on any key) within 5 minutes, the
+        attempts are refused for a minute (429 `too_many_requests` with Retry-After), even with the
+        right secret; the client is the peer of the connection or, behind the `--trusted-proxies`,
+        the address they forward. Against login CSRF the body must be `application/json` (415
+        `unsupported_media_type`) and a browser request must not be cross-site (`Sec-Fetch-Site`
+        `cross-site` or `same-site`: 403 `cross_site_request`).
+      security: []
+      x-nexo-actions: []
       requestBody:
         required: true
         content:
@@ -48,58 +80,98 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Session" }
         "401": { $ref: "#/components/responses/Problem" }
+        "403": { $ref: "#/components/responses/Problem" }
+        "415": { $ref: "#/components/responses/Problem" }
+        "429":
+          description: Too many failed attempts.
+          headers:
+            Retry-After:
+              description: Seconds before the next attempt is verified.
+              schema: { type: integer }
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
   /auth/logout:
     post:
       tags: [session]
       operationId: logout
       summary: Revoke the current session and clear the cookies
+      x-nexo-actions: []
       responses:
         "204": { description: Logged out. }
         "401": { $ref: "#/components/responses/Problem" }
         "403": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
   /auth/session:
     get:
       tags: [session]
       operationId: currentSession
-      summary: Return the current session
+      summary: Return the current console session
+      description: Signed (SigV4) requests have no session and receive 401.
+      x-nexo-actions: []
       responses:
         "200":
-          description: The session.
+          description: The session, with the effective policies and the expiration.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Session" }
         "401": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /me/permissions:
+    get:
+      tags: [session]
+      operationId: myPermissions
+      summary: Effective permissions of the caller (or of a user)
+      description: |
+        Evaluates the catalog of console actions (`admin:*` and `s3:*`) with the policy
+        engine, globally or on `bucket` (object actions on `prefix*`). Naming another
+        `user` requires `admin:GetUser`.
+      x-nexo-actions: ["admin:GetUser"]
+      parameters:
+        - { name: bucket, in: query, schema: { type: string } }
+        - { name: prefix, in: query, schema: { type: string } }
+        - { name: user, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Allowed and denied actions.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Permissions" }
+        default: { $ref: "#/components/responses/Problem" }
 
   /info:
     get:
       tags: [server]
       operationId: serverInfo
       summary: Server and cluster information
+      x-nexo-actions: ["admin:ServerInfo"]
       responses:
         "200":
           description: Server information.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ServerInfo" }
-        "401": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
   /usage:
     get:
       tags: [server]
       operationId: dataUsage
-      summary: Data usage per bucket
+      summary: Data usage, total and per bucket
+      x-nexo-actions: ["admin:DataUsageInfo"]
       responses:
         "200":
           description: Data usage.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/DataUsage" }
-        "403": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
   /heal:
     post:
       tags: [server]
       operationId: startHeal
       summary: Start a healing operation
+      x-nexo-actions: ["admin:Heal"]
       requestBody:
         content:
           application/json:
@@ -110,13 +182,14 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/HealResult" }
-        "403": { $ref: "#/components/responses/Problem" }
         "501": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
   /heal/{id}:
     get:
       tags: [server]
       operationId: healStatus
       summary: Query a healing operation
+      x-nexo-actions: ["admin:Heal"]
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
       responses:
@@ -125,42 +198,81 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/HealResult" }
-        "404": { $ref: "#/components/responses/Problem" }
-  /service/{action}:
+        default: { $ref: "#/components/responses/Problem" }
+  /service/restart:
     post:
       tags: [server]
-      operationId: serviceAction
-      summary: Restart or stop the server
-      parameters:
-        - name: action
-          in: path
-          required: true
-          schema: { type: string, enum: [restart, stop] }
+      operationId: restartService
+      summary: Restart the server
+      description: The response is sent before the process restarts (SIGHUP to the server process).
+      x-nexo-actions: ["admin:ServiceRestart"]
       responses:
-        "202": { description: Action accepted. }
-        "400": { $ref: "#/components/responses/Problem" }
-        "403": { $ref: "#/components/responses/Problem" }
+        "202":
+          description: Restart accepted.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServiceAction" }
+        "501": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /service/stop:
+    post:
+      tags: [server]
+      operationId: stopService
+      summary: Stop the server
+      x-nexo-actions: ["admin:ServiceStop"]
+      responses:
+        "202":
+          description: Stop accepted.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServiceAction" }
+        "501": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /trace:
+    get:
+      tags: [server]
+      operationId: serverTrace
+      summary: Live trace of the requests (SSE, not implemented yet)
+      x-nexo-actions: ["admin:ServerTrace"]
+      responses:
+        "501": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /logs:
+    get:
+      tags: [server]
+      operationId: serverLogs
+      summary: Live server logs (SSE, not implemented yet)
+      x-nexo-actions: ["admin:ConsoleLog"]
+      responses:
+        "501": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
 
   /buckets:
     get:
       tags: [buckets]
       operationId: listBuckets
-      summary: List the buckets with their usage
+      summary: List the buckets visible to the caller, with usage and public flag
+      description: Every bucket with s3:ListAllMyBuckets, otherwise those the caller may list (s3:ListBucket).
+      x-nexo-actions: ["s3:ListAllMyBuckets", "s3:ListBucket"]
+      x-nexo-authorized-by: service
       parameters:
         - { name: prefix, in: query, schema: { type: string } }
+        - { $ref: "#/components/parameters/cursor" }
+        - { $ref: "#/components/parameters/limit" }
       responses:
         "200":
-          description: The buckets.
+          description: A page of buckets.
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/Bucket" }
-        "403": { $ref: "#/components/responses/Problem" }
+              schema: { $ref: "#/components/schemas/BucketList" }
+        default: { $ref: "#/components/responses/Problem" }
     post:
       tags: [buckets]
       operationId: createBucket
-      summary: Create a bucket
+      summary: Create a bucket with its initial settings
+      description: Versioning, object lock and quota need their own actions on top of s3:CreateBucket.
+      x-nexo-actions: ["s3:CreateBucket", "s3:PutBucketVersioning", "s3:PutBucketObjectLockConfiguration", "admin:SetBucketQuota"]
+      x-nexo-authorized-by: service
       requestBody:
         required: true
         content:
@@ -174,13 +286,15 @@ paths:
               schema: { $ref: "#/components/schemas/Bucket" }
         "400": { $ref: "#/components/responses/Problem" }
         "409": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
   /buckets/{bucket}:
     parameters:
       - { $ref: "#/components/parameters/bucket" }
     get:
       tags: [buckets]
       operationId: getBucket
-      summary: Get a bucket
+      summary: Get a bucket with its usage
+      x-nexo-actions: ["s3:ListBucket"]
       responses:
         "200":
           description: The bucket.
@@ -188,36 +302,43 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Bucket" }
         "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
     delete:
       tags: [buckets]
       operationId: deleteBucket
       summary: Delete a bucket
+      description: |
+        With `force=true` (and s3:ForceDeleteBucket) the bucket is emptied first through the
+        object layer: every version, delete marker and pending upload; object lock is
+        honored, a protected version keeps the bucket (409 bucket_not_empty).
+      x-nexo-actions: ["s3:DeleteBucket", "s3:ForceDeleteBucket"]
       parameters:
         - name: force
           in: query
-          description: Delete the bucket even when it still contains objects.
+          description: Empty the bucket before deleting it.
           schema: { type: boolean }
       responses:
         "204": { description: Deleted. }
-        "404": { $ref: "#/components/responses/Problem" }
         "409": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
   /buckets/{bucket}/versioning:
     parameters:
       - { $ref: "#/components/parameters/bucket" }
     get:
       tags: [buckets]
       operationId: getBucketVersioning
-      summary: Get the versioning state
+      x-nexo-actions: ["s3:GetBucketVersioning"]
       responses:
         "200":
           description: The versioning state.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BucketVersioning" }
+        default: { $ref: "#/components/responses/Problem" }
     put:
       tags: [buckets]
       operationId: setBucketVersioning
-      summary: Set the versioning state
+      x-nexo-actions: ["s3:PutBucketVersioning"]
       requestBody:
         required: true
         content:
@@ -229,25 +350,27 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BucketVersioning" }
-        "400": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
   /buckets/{bucket}/policy:
     parameters:
       - { $ref: "#/components/parameters/bucket" }
     get:
       tags: [buckets]
       operationId: getBucketPolicy
-      summary: Get the bucket policy document
+      x-nexo-actions: ["s3:GetBucketPolicy"]
       responses:
         "200":
-          description: The policy document.
+          description: The bucket policy document.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/PolicyDocument" }
         "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
     put:
       tags: [buckets]
       operationId: setBucketPolicy
-      summary: Replace the bucket policy document
+      description: The body is the policy document; errors are malformed_policy problems located by line and column.
+      x-nexo-actions: ["s3:PutBucketPolicy"]
       requestBody:
         required: true
         content:
@@ -256,29 +379,32 @@ paths:
       responses:
         "204": { description: Stored. }
         "400": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
     delete:
       tags: [buckets]
       operationId: deleteBucketPolicy
-      summary: Remove the bucket policy
+      x-nexo-actions: ["s3:DeleteBucketPolicy"]
       responses:
-        "204": { description: Removed. }
+        "204": { description: Deleted. }
+        default: { $ref: "#/components/responses/Problem" }
   /buckets/{bucket}/quota:
     parameters:
       - { $ref: "#/components/parameters/bucket" }
     get:
       tags: [buckets]
       operationId: getBucketQuota
-      summary: Get the bucket quota
+      x-nexo-actions: ["admin:GetBucketQuota"]
       responses:
         "200":
           description: The quota.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BucketQuota" }
+        default: { $ref: "#/components/responses/Problem" }
     put:
       tags: [buckets]
       operationId: setBucketQuota
-      summary: Set the bucket quota (size 0 disables it)
+      x-nexo-actions: ["admin:SetBucketQuota"]
       requestBody:
         required: true
         content:
@@ -290,51 +416,58 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BucketQuota" }
+        default: { $ref: "#/components/responses/Problem" }
   /buckets/{bucket}/tags:
     parameters:
       - { $ref: "#/components/parameters/bucket" }
     get:
       tags: [buckets]
       operationId: getBucketTags
-      summary: Get the bucket tags
+      description: The tags; a bucket without tags answers an empty set.
+      x-nexo-actions: ["s3:GetBucketTagging"]
       responses:
         "200":
           description: The tags.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/BucketTags" }
+              schema: { $ref: "#/components/schemas/Tags" }
+        default: { $ref: "#/components/responses/Problem" }
     put:
       tags: [buckets]
       operationId: setBucketTags
-      summary: Replace the bucket tags (an empty set removes them)
+      description: Replaces the tags; an empty set removes them.
+      x-nexo-actions: ["s3:PutBucketTagging"]
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/BucketTags" }
+            schema: { $ref: "#/components/schemas/Tags" }
       responses:
         "200":
           description: The tags.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/BucketTags" }
+              schema: { $ref: "#/components/schemas/Tags" }
+        default: { $ref: "#/components/responses/Problem" }
   /buckets/{bucket}/objectlock:
     parameters:
       - { $ref: "#/components/parameters/bucket" }
     get:
       tags: [buckets]
       operationId: getBucketObjectLock
-      summary: Get the object lock configuration
+      description: The object lock configuration; a bucket without object lock answers {"enabled":false}.
+      x-nexo-actions: ["s3:GetBucketObjectLockConfiguration"]
       responses:
         "200":
-          description: The configuration.
+          description: The object lock configuration.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BucketObjectLock" }
+        default: { $ref: "#/components/responses/Problem" }
     put:
       tags: [buckets]
       operationId: setBucketObjectLock
-      summary: Set the object lock configuration
+      x-nexo-actions: ["s3:PutBucketObjectLockConfiguration"]
       requestBody:
         required: true
         content:
@@ -342,27 +475,29 @@ paths:
             schema: { $ref: "#/components/schemas/BucketObjectLock" }
       responses:
         "200":
-          description: The configuration.
+          description: The object lock configuration.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BucketObjectLock" }
+        default: { $ref: "#/components/responses/Problem" }
   /buckets/{bucket}/encryption:
     parameters:
       - { $ref: "#/components/parameters/bucket" }
     get:
       tags: [buckets]
       operationId: getBucketEncryption
-      summary: Get the default encryption
+      x-nexo-actions: ["s3:GetEncryptionConfiguration"]
       responses:
         "200":
-          description: The configuration.
+          description: The default encryption.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BucketEncryption" }
+        default: { $ref: "#/components/responses/Problem" }
     put:
       tags: [buckets]
       operationId: setBucketEncryption
-      summary: Set the default encryption
+      x-nexo-actions: ["s3:PutEncryptionConfiguration"]
       requestBody:
         required: true
         content:
@@ -370,56 +505,683 @@ paths:
             schema: { $ref: "#/components/schemas/BucketEncryption" }
       responses:
         "200":
-          description: The configuration.
+          description: The default encryption.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BucketEncryption" }
+        default: { $ref: "#/components/responses/Problem" }
     delete:
       tags: [buckets]
       operationId: deleteBucketEncryption
-      summary: Remove the default encryption
+      x-nexo-actions: ["s3:PutEncryptionConfiguration"]
       responses:
-        "204": { description: Removed. }
-  /buckets/{bucket}/objects:
+        "204": { description: Deleted. }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/access:
     parameters:
       - { $ref: "#/components/parameters/bucket" }
     get:
       tags: [buckets]
-      operationId: listObjects
-      summary: List objects for the object browser
-      parameters:
-        - { name: prefix, in: query, schema: { type: string } }
-        - { name: delimiter, in: query, schema: { type: string } }
-        - name: cursor
-          in: query
-          description: The `nextCursor` of a previous truncated listing.
-          schema: { type: string }
-        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000 } }
+      operationId: getBucketAccess
+      summary: Anonymous access rules (presets per prefix) of the bucket policy
+      x-nexo-actions: ["s3:GetBucketPolicy"]
       responses:
         "200":
-          description: The listing.
+          description: The anonymous access.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BucketAccess" }
+        default: { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [buckets]
+      operationId: setBucketAccess
+      summary: Apply an anonymous access preset to a prefix
+      description: private removes the rule of the prefix; the other statements of the bucket policy are kept.
+      x-nexo-actions: ["s3:PutBucketPolicy"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SetAccessRequest" }
+      responses:
+        "200":
+          description: The anonymous access.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BucketAccess" }
+        default: { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [buckets]
+      operationId: removeBucketAccess
+      summary: Remove the anonymous access of a prefix (private)
+      x-nexo-actions: ["s3:PutBucketPolicy"]
+      parameters:
+        - { name: prefix, in: query, description: The prefix; the whole bucket when absent., schema: { type: string } }
+      responses:
+        "200":
+          description: The anonymous access.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BucketAccess" }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/lifecycle:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    get:
+      tags: [buckets]
+      operationId: getBucketLifecycle
+      summary: Lifecycle configuration (not implemented yet)
+      x-nexo-actions: ["s3:GetLifecycleConfiguration"]
+      responses:
+        "501": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [buckets]
+      operationId: setBucketLifecycle
+      summary: Lifecycle configuration (not implemented yet)
+      x-nexo-actions: ["s3:PutLifecycleConfiguration"]
+      responses:
+        "501": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/events:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    get:
+      tags: [buckets]
+      operationId: getBucketEvents
+      summary: Notification configuration (not implemented yet)
+      x-nexo-actions: ["s3:GetBucketNotification"]
+      responses:
+        "501": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [buckets]
+      operationId: setBucketEvents
+      summary: Notification configuration (not implemented yet)
+      x-nexo-actions: ["s3:PutBucketNotification"]
+      responses:
+        "501": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/replication:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    get:
+      tags: [buckets]
+      operationId: getBucketReplication
+      summary: Replication configuration (not implemented yet)
+      x-nexo-actions: ["s3:GetReplicationConfiguration"]
+      responses:
+        "501": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [buckets]
+      operationId: setBucketReplication
+      summary: Replication configuration (not implemented yet)
+      x-nexo-actions: ["s3:PutReplicationConfiguration"]
+      responses:
+        "501": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /buckets/{bucket}/objects:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    get:
+      tags: [objects]
+      operationId: listObjects
+      summary: Folder view of a bucket
+      description: |
+        Objects and common prefixes ("folders") directly under `prefix`, without the
+        folder placeholder object `prefix` itself. `delimiter` defaults to "/"; an empty
+        delimiter lists recursively. The object browser authorizes s3:ListBucket with the
+        conditions s3:prefix, s3:delimiter (the effective one) and s3:max-keys.
+      x-nexo-actions: ["s3:ListBucket"]
+      x-nexo-authorized-by: service
+      parameters:
+        - { name: prefix, in: query, schema: { type: string } }
+        - { name: delimiter, in: query, allowEmptyValue: true, description: 'Default "/"; empty lists recursively.', schema: { type: string } }
+        - { $ref: "#/components/parameters/cursor" }
+        - { $ref: "#/components/parameters/limit" }
+      responses:
+        "200":
+          description: A page of the listing.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ObjectList" }
+        default: { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [objects]
+      operationId: deleteObjects
+      summary: Delete objects, versions and prefixes (recursive)
+      description: |
+        Synchronous; every object is authorized and reported (s3:DeleteObject, s3:DeleteObjectVersion with a version).
+        Every prefix needs s3:ListBucket (s3:ListBucketVersions with `allVersions`) with the `s3:prefix` condition:
+        otherwise the whole request is denied before deleting anything.
+      x-nexo-actions: ["s3:DeleteObject", "s3:DeleteObjectVersion", "s3:ListBucket", "s3:ListBucketVersions"]
+      x-nexo-authorized-by: service
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeleteObjectsRequest" }
+      responses:
+        "200":
+          description: The result of every object.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeleteObjectsResult" }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/stat:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+      - { $ref: "#/components/parameters/versionId" }
+    get:
+      tags: [objects]
+      operationId: statObject
+      summary: Metadata, tags and first versions of an object
+      description: Tags and versions are included only when the caller may read them.
+      x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
+      responses:
+        "200":
+          description: The object.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ObjectDetails" }
         "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/versions:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+    get:
+      tags: [objects]
+      operationId: listObjectVersions
+      summary: Versions and delete markers of one key, newest first
+      x-nexo-actions: ["s3:ListBucketVersions"]
+      parameters:
+        - { $ref: "#/components/parameters/cursor" }
+        - { $ref: "#/components/parameters/limit" }
+      responses:
+        "200":
+          description: A page of versions.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VersionList" }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/folder:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    post:
+      tags: [objects]
+      operationId: createFolder
+      summary: Create a folder (the empty object "prefix/")
+      x-nexo-actions: ["s3:PutObject"]
+      x-nexo-authorized-by: service
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FolderRequest" }
+      responses:
+        "201":
+          description: The folder object.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ObjectEntry" }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/rename:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    post:
+      tags: [objects]
+      operationId: renameObjects
+      summary: Move an object, or every object under a prefix (copy then delete)
+      description: |
+        Moving a prefix needs s3:ListBucket on the source prefix (`s3:prefix` condition): otherwise the
+        whole request is denied before moving anything.
+      x-nexo-actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"]
+      x-nexo-authorized-by: service
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RenameRequest" }
+      responses:
+        "200":
+          description: The result of every object.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RenameResult" }
+        "409": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/tags:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+      - { $ref: "#/components/parameters/versionId" }
+    put:
+      tags: [objects]
+      operationId: setObjectTags
+      summary: Replace the tags of an object (version); an empty set removes them
+      x-nexo-actions: ["s3:PutObjectTagging", "s3:PutObjectVersionTagging"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Tags" }
+      responses:
+        "200":
+          description: The tags.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Tags" }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/download:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+      - { $ref: "#/components/parameters/versionId" }
+    get:
+      tags: [objects]
+      operationId: downloadObject
+      summary: Download an object (Content-Disposition attachment, Range supported)
+      x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
+      parameters:
+        - { name: Range, in: header, schema: { type: string } }
+      responses:
+        "200":
+          description: The object.
+          content:
+            "*/*": {}
+        "206":
+          description: A range of the object.
+          content:
+            "*/*": {}
+        "304": { description: Not modified. }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/preview:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+      - { $ref: "#/components/parameters/versionId" }
+    get:
+      tags: [objects]
+      operationId: previewObject
+      summary: Preview an object
+      description: |
+        Inline only for types that cannot run scripts in the console origin (raster
+        images, PDF, text/plain, JSON, audio, video), with a sandboxing
+        Content-Security-Policy; everything else (SVG, HTML, XML...) is served as an
+        `application/octet-stream` attachment.
+      x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
+      parameters:
+        - { name: Range, in: header, schema: { type: string } }
+      responses:
+        "200":
+          description: The object.
+          content:
+            "*/*": {}
+        "206":
+          description: A range of the object.
+          content:
+            "*/*": {}
+        "304": { description: Not modified. }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/download-zip:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    post:
+      tags: [objects]
+      operationId: downloadZip
+      summary: Zip archive of objects and prefixes, streamed
+      description: |
+        Names are relative to `base`. Explicit keys are checked before streaming; every prefix
+        needs s3:ListBucket (`s3:prefix` condition), otherwise the request is denied before
+        streaming. Objects of the prefixes the caller may not read are listed in `nexo-zip-errors.txt`.
+        The console submits the request as a form (`application/x-www-form-urlencoded`: the JSON
+        `ZipRequest` in the field `request`, the CSRF token in the field `csrfToken`) so that the
+        browser streams the archive to disk instead of holding it in memory.
+      x-nexo-actions: ["s3:GetObject", "s3:ListBucket"]
+      x-nexo-authorized-by: service
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ZipRequest" }
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [request]
+              properties:
+                request:
+                  type: string
+                  description: The ZipRequest as a JSON document.
+                csrfToken:
+                  type: string
+                  description: The CSRF token of the console session (instead of the X-CSRF-Token header).
+                downloadToken:
+                  type: string
+                  pattern: "^[A-Za-z0-9]{16,64}$"
+                  description: >-
+                    Set by the console to learn that the archive started: the answer then sets the
+                    cookie `nexo_dl_<downloadToken>` (a download never loads the frame of the form).
+      responses:
+        "200":
+          description: The archive.
+          content:
+            application/zip: {}
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/upload:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+    post:
+      tags: [uploads]
+      operationId: uploadObject
+      summary: Upload a small object in one request (raw body, streamed)
+      description: |
+        The body is the content; its Content-Type is stored. Larger files use the
+        multipart endpoints (limit: 64 MiB by default, 413 entity_too_large beyond).
+        The policies see the condition values of the equivalent S3 PutObject
+        (s3:x-amz-tagging, s3:RequestObjectTag/<key>).
+      x-nexo-actions: ["s3:PutObject"]
+      parameters:
+        - { $ref: "#/components/parameters/tagging" }
+      requestBody:
+        required: true
+        content:
+          "*/*":
+            schema: { type: string, format: binary }
+      responses:
+        "201":
+          description: The object.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ObjectEntry" }
+        "413": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/share:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    post:
+      tags: [shares]
+      operationId: shareObject
+      summary: Create a managed share link in the bucket of the path (see POST /shares)
+      x-nexo-actions: ["s3:GetObject", "s3:PutObject"]
+      x-nexo-authorized-by: service
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateShareRequest" }
+      responses:
+        "201":
+          description: The share link.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Share" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /buckets/{bucket}/uploads:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    get:
+      tags: [uploads]
+      operationId: listUploads
+      summary: Pending multipart uploads
+      x-nexo-actions: ["s3:ListBucketMultipartUploads"]
+      parameters:
+        - { name: prefix, in: query, schema: { type: string } }
+        - { $ref: "#/components/parameters/cursor" }
+        - { $ref: "#/components/parameters/limit" }
+      responses:
+        "200":
+          description: A page of uploads.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UploadList" }
+        default: { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [uploads]
+      operationId: createUpload
+      summary: Start a multipart upload proxied by the console
+      x-nexo-actions: ["s3:PutObject"]
+      parameters:
+        - { $ref: "#/components/parameters/key" }
+        - { $ref: "#/components/parameters/tagging" }
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateUploadRequest" }
+      responses:
+        "201":
+          description: The upload and the limits of its parts.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Upload" }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/uploads/{uploadId}:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/uploadId" }
+      - { $ref: "#/components/parameters/key" }
+    delete:
+      tags: [uploads]
+      operationId: abortUpload
+      summary: Abort a multipart upload
+      x-nexo-actions: ["s3:AbortMultipartUpload"]
+      responses:
+        "204": { description: Aborted. }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/uploads/{uploadId}/parts:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/uploadId" }
+      - { $ref: "#/components/parameters/key" }
+    get:
+      tags: [uploads]
+      operationId: listUploadParts
+      summary: Uploaded parts (to resume an upload)
+      x-nexo-actions: ["s3:ListMultipartUploadParts"]
+      parameters:
+        - { $ref: "#/components/parameters/cursor" }
+        - { $ref: "#/components/parameters/limit" }
+      responses:
+        "200":
+          description: A page of parts.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PartList" }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/uploads/{uploadId}/parts/{partNumber}:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/uploadId" }
+      - name: partNumber
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1, maximum: 10000 }
+      - { $ref: "#/components/parameters/key" }
+    put:
+      tags: [uploads]
+      operationId: uploadPart
+      summary: Upload one part (raw body, streamed; Content-Length required)
+      x-nexo-actions: ["s3:PutObject"]
+      requestBody:
+        required: true
+        content:
+          "*/*":
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: The part.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Part" }
+        "413": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/uploads/{uploadId}/complete:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/uploadId" }
+      - { $ref: "#/components/parameters/key" }
+    post:
+      tags: [uploads]
+      operationId: completeUpload
+      summary: Complete a multipart upload
+      x-nexo-actions: ["s3:PutObject"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CompleteUploadRequest" }
+      responses:
+        "200":
+          description: The object.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ObjectEntry" }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /shares:
+    get:
+      tags: [shares]
+      operationId: listShares
+      summary: Active share links
+      description: The caller's own links; every link (filtered by owner/bucket) with admin:ManageShares.
+      x-nexo-actions: ["admin:ManageShares"]
+      x-nexo-authorized-by: service
+      parameters:
+        - { name: owner, in: query, schema: { type: string } }
+        - { name: bucket, in: query, schema: { type: string } }
+        - { $ref: "#/components/parameters/cursor" }
+        - { $ref: "#/components/parameters/limit" }
+      responses:
+        "200":
+          description: A page of share links.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ShareList" }
+        default: { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [shares]
+      operationId: createShare
+      summary: Create a managed, revocable share link
+      description: Signed by a dedicated service account (docs/09 §9.1); the caller needs the shared action (s3:GetObject or s3:PutObject).
+      x-nexo-actions: ["s3:GetObject", "s3:PutObject"]
+      x-nexo-authorized-by: service
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateShareRequest" }
+      responses:
+        "201":
+          description: The share link.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Share" }
+        default: { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [shares]
+      operationId: revokeAllShares
+      summary: Revoke every share link of an owner (the caller by default)
+      x-nexo-actions: ["admin:ManageShares"]
+      x-nexo-authorized-by: service
+      parameters:
+        - { name: owner, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: How many links were revoked.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RevokeAllResult" }
+        default: { $ref: "#/components/responses/Problem" }
+  /shares/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [shares]
+      operationId: getShare
+      x-nexo-actions: ["admin:ManageShares"]
+      x-nexo-authorized-by: service
+      responses:
+        "200":
+          description: The share link.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Share" }
+        "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [shares]
+      operationId: revokeShare
+      summary: Revoke a share link (immediate)
+      x-nexo-actions: ["admin:ManageShares"]
+      x-nexo-authorized-by: service
+      responses:
+        "204": { description: Revoked. }
+        "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /presign:
+    post:
+      tags: [shares]
+      operationId: presign
+      summary: Raw presigned URL (not revocable), signed on the server with the caller's credentials
+      x-nexo-actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+      x-nexo-authorized-by: service
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PresignRequest" }
+      responses:
+        "200":
+          description: The presigned URL.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PresignedURL" }
+        default: { $ref: "#/components/responses/Problem" }
+  /post-policy:
+    post:
+      tags: [shares]
+      operationId: postPolicy
+      summary: Signed POST policy form for browser uploads
+      x-nexo-actions: ["s3:PutObject"]
+      x-nexo-authorized-by: service
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PostPolicyRequest" }
+      responses:
+        "200":
+          description: The form.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PostPolicy" }
+        default: { $ref: "#/components/responses/Problem" }
 
   /users:
     get:
       tags: [users]
       operationId: listUsers
-      summary: List the IAM users
+      x-nexo-actions: ["admin:ListUsers"]
+      parameters:
+        - { $ref: "#/components/parameters/cursor" }
+        - { $ref: "#/components/parameters/limit" }
       responses:
         "200":
-          description: The users.
+          description: A page of users.
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/User" }
+              schema: { $ref: "#/components/schemas/UserList" }
+        default: { $ref: "#/components/responses/Problem" }
     post:
       tags: [users]
       operationId: createUser
-      summary: Create a user
+      x-nexo-actions: ["admin:CreateUser", "admin:AddUserToGroup", "admin:AttachUserOrGroupPolicy"]
+      x-nexo-authorized-by: service
       requestBody:
         required: true
         content:
@@ -431,15 +1193,15 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/User" }
-        "400": { $ref: "#/components/responses/Problem" }
         "409": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
   /users/{user}:
     parameters:
-      - { name: user, in: path, required: true, schema: { type: string }, description: The access key. }
+      - { name: user, in: path, required: true, schema: { type: string } }
     get:
       tags: [users]
       operationId: getUser
-      summary: Get a user
+      x-nexo-actions: ["admin:GetUser"]
       responses:
         "200":
           description: The user.
@@ -447,10 +1209,17 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/User" }
         "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
     put:
       tags: [users]
       operationId: updateUser
-      summary: Update a user (absent fields are unchanged)
+      description: |
+        Each change needs its action: secretKey admin:CreateUser, status
+        admin:EnableUser/admin:DisableUser, policyNames admin:AttachUserOrGroupPolicy,
+        groups admin:GetUser plus admin:AddUserToGroup/admin:RemoveUserFromGroup.
+      x-nexo-actions:
+        ["admin:CreateUser", "admin:EnableUser", "admin:DisableUser", "admin:AttachUserOrGroupPolicy", "admin:AddUserToGroup", "admin:RemoveUserFromGroup", "admin:GetUser"]
+      x-nexo-authorized-by: service
       requestBody:
         required: true
         content:
@@ -462,32 +1231,34 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/User" }
-        "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
     delete:
       tags: [users]
       operationId: deleteUser
-      summary: Delete a user
+      x-nexo-actions: ["admin:DeleteUser"]
       responses:
         "204": { description: Deleted. }
-        "404": { $ref: "#/components/responses/Problem" }
-
+        default: { $ref: "#/components/responses/Problem" }
   /groups:
     get:
       tags: [groups]
       operationId: listGroups
-      summary: List the IAM groups
+      x-nexo-actions: ["admin:ListGroups"]
+      parameters:
+        - { $ref: "#/components/parameters/cursor" }
+        - { $ref: "#/components/parameters/limit" }
       responses:
         "200":
-          description: The groups.
+          description: A page of groups.
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/Group" }
+              schema: { $ref: "#/components/schemas/GroupList" }
+        default: { $ref: "#/components/responses/Problem" }
     post:
       tags: [groups]
       operationId: createGroup
-      summary: Create a group
+      x-nexo-actions: ["admin:AddUserToGroup", "admin:AttachUserOrGroupPolicy"]
+      x-nexo-authorized-by: service
       requestBody:
         required: true
         content:
@@ -500,13 +1271,14 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Group" }
         "409": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
   /groups/{group}:
     parameters:
       - { name: group, in: path, required: true, schema: { type: string } }
     get:
       tags: [groups]
       operationId: getGroup
-      summary: Get a group
+      x-nexo-actions: ["admin:GetGroup"]
       responses:
         "200":
           description: The group.
@@ -514,10 +1286,13 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Group" }
         "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
     put:
       tags: [groups]
       operationId: updateGroup
-      summary: Update a group (absent fields are unchanged)
+      x-nexo-actions:
+        ["admin:EnableGroup", "admin:DisableGroup", "admin:AttachUserOrGroupPolicy", "admin:AddUserToGroup", "admin:RemoveUserFromGroup", "admin:GetGroup"]
+      x-nexo-authorized-by: service
       requestBody:
         required: true
         content:
@@ -529,37 +1304,40 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Group" }
-        "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
     delete:
       tags: [groups]
       operationId: deleteGroup
-      summary: Delete a group
+      x-nexo-actions: ["admin:RemoveUserFromGroup"]
       responses:
         "204": { description: Deleted. }
-        "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
 
   /access-keys:
     get:
       tags: [access-keys]
       operationId: listAccessKeys
-      summary: List the service accounts
+      summary: Access keys of a user (the caller by default)
+      description: The caller's own keys always; those of other users (or every key, without user) with admin:ListServiceAccounts.
+      x-nexo-actions: ["admin:ListServiceAccounts"]
+      x-nexo-authorized-by: service
       parameters:
-        - name: parent
-          in: query
-          description: Owner of the keys; root may omit it to list every key, other callers only see their own.
-          schema: { type: string }
+        - { name: user, in: query, schema: { type: string } }
+        - { $ref: "#/components/parameters/cursor" }
+        - { $ref: "#/components/parameters/limit" }
       responses:
         "200":
-          description: The access keys (secrets are never listed).
+          description: A page of access keys.
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/AccessKey" }
+              schema: { $ref: "#/components/schemas/AccessKeyList" }
+        default: { $ref: "#/components/responses/Problem" }
     post:
       tags: [access-keys]
       operationId: createAccessKey
-      summary: Create a service account
+      summary: Create an access key; the secret is returned only here
+      x-nexo-actions: ["admin:CreateServiceAccount"]
+      x-nexo-authorized-by: service
       requestBody:
         required: true
         content:
@@ -567,18 +1345,19 @@ paths:
             schema: { $ref: "#/components/schemas/CreateAccessKeyRequest" }
       responses:
         "201":
-          description: The access key with its secret, shown only once.
+          description: The access key with its secret.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/CreatedAccessKey" }
-        "403": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
   /access-keys/{key}:
     parameters:
       - { name: key, in: path, required: true, schema: { type: string } }
     get:
       tags: [access-keys]
       operationId: getAccessKey
-      summary: Get a service account
+      x-nexo-actions: ["admin:ListServiceAccounts"]
+      x-nexo-authorized-by: service
       responses:
         "200":
           description: The access key.
@@ -586,10 +1365,12 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/AccessKey" }
         "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
     put:
       tags: [access-keys]
       operationId: updateAccessKey
-      summary: Update a service account (absent fields are unchanged)
+      x-nexo-actions: ["admin:UpdateServiceAccount"]
+      x-nexo-authorized-by: service
       requestBody:
         required: true
         content:
@@ -601,32 +1382,37 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/AccessKey" }
-        "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
     delete:
       tags: [access-keys]
       operationId: deleteAccessKey
-      summary: Delete a service account
+      x-nexo-actions: ["admin:RemoveServiceAccount"]
+      x-nexo-authorized-by: service
       responses:
         "204": { description: Deleted. }
-        "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
 
   /policies:
     get:
       tags: [policies]
       operationId: listPolicies
-      summary: List the IAM policies (built-ins first)
+      summary: Built-in and stored policies
+      x-nexo-actions: ["admin:ListUserPolicies"]
+      parameters:
+        - { $ref: "#/components/parameters/cursor" }
+        - { $ref: "#/components/parameters/limit" }
       responses:
         "200":
-          description: The policies.
+          description: A page of policies.
           content:
             application/json:
-              schema:
-                type: array
-                items: { $ref: "#/components/schemas/Policy" }
+              schema: { $ref: "#/components/schemas/PolicyList" }
+        default: { $ref: "#/components/responses/Problem" }
     post:
       tags: [policies]
       operationId: createPolicy
-      summary: Create a policy
+      description: 409 conflict when the name exists; malformed documents are malformed_policy problems with their position.
+      x-nexo-actions: ["admin:CreatePolicy"]
       requestBody:
         required: true
         content:
@@ -639,11 +1425,13 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Policy" }
         "400": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
   /policies/attach:
     post:
       tags: [policies]
       operationId: attachPolicy
-      summary: Attach policies to a user or a group
+      x-nexo-actions: ["admin:AttachUserOrGroupPolicy"]
       requestBody:
         required: true
         content:
@@ -651,13 +1439,12 @@ paths:
             schema: { $ref: "#/components/schemas/AttachRequest" }
       responses:
         "204": { description: Attached. }
-        "400": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
   /policies/detach:
     post:
       tags: [policies]
       operationId: detachPolicy
-      summary: Detach policies from a user or a group
+      x-nexo-actions: ["admin:AttachUserOrGroupPolicy"]
       requestBody:
         required: true
         content:
@@ -665,14 +1452,50 @@ paths:
             schema: { $ref: "#/components/schemas/AttachRequest" }
       responses:
         "204": { description: Detached. }
-        "400": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /policies/simulate:
+    post:
+      tags: [policies]
+      operationId: simulatePolicy
+      summary: Evaluate a request with the enforcement engine
+      x-nexo-actions: ["admin:SimulatePolicy"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SimulateRequest" }
+      responses:
+        "200":
+          description: The decision, the deciding statement and every statement considered.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Simulation" }
+        default: { $ref: "#/components/responses/Problem" }
+  /policies/validate:
+    post:
+      tags: [policies]
+      operationId: validatePolicy
+      summary: Validate an IAM policy, or a bucket policy of `bucket`, without storing it
+      x-nexo-actions: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ValidatePolicyRequest" }
+      responses:
+        "200":
+          description: The validation report.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ValidationReport" }
+        default: { $ref: "#/components/responses/Problem" }
   /policies/{policy}:
     parameters:
       - { name: policy, in: path, required: true, schema: { type: string } }
     get:
       tags: [policies]
       operationId: getPolicy
-      summary: Get a policy
+      x-nexo-actions: ["admin:GetPolicy"]
       responses:
         "200":
           description: The policy.
@@ -680,10 +1503,11 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Policy" }
         "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
     put:
       tags: [policies]
       operationId: savePolicy
-      summary: Create or replace a policy document
+      x-nexo-actions: ["admin:CreatePolicy"]
       requestBody:
         required: true
         content:
@@ -696,55 +1520,92 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Policy" }
         "400": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
     delete:
       tags: [policies]
       operationId: deletePolicy
-      summary: Delete a policy (built-ins are read-only)
+      x-nexo-actions: ["admin:DeletePolicy"]
       responses:
         "204": { description: Deleted. }
-        "400": { $ref: "#/components/responses/Problem" }
-        "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /policies/{policy}/entities:
+    parameters:
+      - { name: policy, in: path, required: true, schema: { type: string } }
+    get:
+      tags: [policies]
+      operationId: policyEntities
+      summary: Users and groups a policy is attached to
+      x-nexo-actions: ["admin:GetPolicy"]
+      responses:
+        "200":
+          description: The entities.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PolicyEntities" }
+        default: { $ref: "#/components/responses/Problem" }
 
   /config:
     get:
       tags: [config]
       operationId: listConfig
-      summary: List every configured subsystem with its settings
+      summary: Every known subsystem with its settings (sensitive values masked)
+      x-nexo-actions: ["admin:ConfigUpdate"]
       responses:
         "200":
-          description: The subsystems, sorted by name.
+          description: The subsystems.
           content:
             application/json:
               schema:
                 type: array
                 items: { $ref: "#/components/schemas/ConfigSubsystem" }
+        default: { $ref: "#/components/responses/Problem" }
     put:
       tags: [config]
       operationId: mergeConfig
-      summary: Merge the settings of several subsystems
+      summary: Merge the settings of several subsystems (validated first)
+      x-nexo-actions: ["admin:ConfigUpdate"]
       requestBody:
         required: true
         content:
           application/json:
             schema: { $ref: "#/components/schemas/ConfigDocument" }
       responses:
-        "204": { description: Stored. }
+        "204": { description: Merged. }
+        default: { $ref: "#/components/responses/Problem" }
+  /config/schema:
+    get:
+      tags: [config]
+      operationId: configSchema
+      summary: Known subsystems and keys
+      x-nexo-actions: ["admin:ConfigUpdate"]
+      responses:
+        "200":
+          description: The schema.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ConfigSubsystemSchema" }
+        default: { $ref: "#/components/responses/Problem" }
   /config/export:
     get:
       tags: [config]
       operationId: exportConfig
-      summary: Export the whole configuration
+      summary: Export the whole configuration (secrets included)
+      x-nexo-actions: ["admin:ConfigUpdate"]
       responses:
         "200":
-          description: The configuration document.
+          description: The configuration document (attachment).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ConfigDocument" }
+        default: { $ref: "#/components/responses/Problem" }
   /config/import:
     post:
       tags: [config]
       operationId: importConfig
-      summary: Replace the whole configuration with an exported document
+      summary: Replace the whole configuration (validated first)
+      x-nexo-actions: ["admin:ConfigUpdate"]
       requestBody:
         required: true
         content:
@@ -752,24 +1613,30 @@ paths:
             schema: { $ref: "#/components/schemas/ConfigDocument" }
       responses:
         "204": { description: Imported. }
-        "400": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
   /config/{subsys}:
     parameters:
-      - { name: subsys, in: path, required: true, schema: { type: string } }
+      - name: subsys
+        in: path
+        required: true
+        description: A subsystem of GET /config/schema (api, browser, logger, notify_webhook, region, scanner).
+        schema: { type: string }
     get:
       tags: [config]
       operationId: getConfigSubsystem
-      summary: Get the settings of a subsystem (empty when unset)
+      x-nexo-actions: ["admin:ConfigUpdate"]
       responses:
         "200":
           description: The subsystem.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ConfigSubsystem" }
+        default: { $ref: "#/components/responses/Problem" }
     put:
       tags: [config]
       operationId: setConfigSubsystem
-      summary: Merge settings into a subsystem
+      description: Merges the settings; a masked sensitive value keeps the stored secret.
+      x-nexo-actions: ["admin:ConfigUpdate"]
       requestBody:
         required: true
         content:
@@ -781,10 +1648,11 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ConfigSubsystem" }
+        default: { $ref: "#/components/responses/Problem" }
     delete:
       tags: [config]
       operationId: deleteConfigSubsystem
-      summary: Delete a subsystem, or only some of its keys
+      x-nexo-actions: ["admin:ConfigUpdate"]
       parameters:
         - name: keys
           in: query
@@ -792,14 +1660,67 @@ paths:
           schema: { type: string }
       responses:
         "204": { description: Deleted. }
+        default: { $ref: "#/components/responses/Problem" }
 
 components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: nexo_session
+      description: Console session cookie issued by POST /auth/login.
+    csrf:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: CSRF token of the session (csrfToken), required on state-changing requests.
+    sigv4:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: AWS Signature Version 4 (service s3, region of the server).
+
   parameters:
     bucket:
       name: bucket
       in: path
       required: true
       schema: { type: string }
+    key:
+      name: key
+      in: query
+      required: true
+      description: Object key.
+      schema: { type: string }
+    versionId:
+      name: versionId
+      in: query
+      description: |
+        Version of the object; the policies see it as s3:versionid, as for the
+        S3 request with the same versionId.
+      schema: { type: string }
+    tagging:
+      name: x-amz-tagging
+      in: header
+      description: |
+        Tags of the new object, URL-encoded (k1=v1&k2=v2) as the S3 header of the
+        same name; authorized with s3:RequestObjectTag/<key>.
+      schema: { type: string }
+    uploadId:
+      name: uploadId
+      in: path
+      required: true
+      schema: { type: string }
+    cursor:
+      name: cursor
+      in: query
+      description: Opaque cursor of the next page (nextCursor of the previous one).
+      schema: { type: string }
+    limit:
+      name: limit
+      in: query
+      description: Page size, 1 to 1000 (default 1000).
+      schema: { type: integer, minimum: 1, maximum: 1000 }
 
   responses:
     Problem:
@@ -822,6 +1743,22 @@ components:
           type: string
           description: Stable machine-readable error code (snake_case).
         requestId: { type: string }
+        errors:
+          type: array
+          description: Located errors of a malformed policy (code malformed_policy).
+          items: { $ref: "#/components/schemas/PolicyError" }
+    PolicyError:
+      type: object
+      required: [statement, line, column, message]
+      properties:
+        statement:
+          type: integer
+          description: 1-based statement index, 0 for document-level errors.
+        sid: { type: string }
+        element: { type: string }
+        line: { type: integer, description: "1-based, 0 when unknown." }
+        column: { type: integer, description: "1-based, 0 when unknown." }
+        message: { type: string }
 
     DeploymentMode:
       type: string
@@ -835,6 +1772,12 @@ components:
     VersioningState:
       type: string
       enum: ["off", enabled, suspended]
+    AccessPreset:
+      type: string
+      enum: [private, download, upload, public, custom]
+    SharePermission:
+      type: string
+      enum: [download, upload]
 
     LoginRequest:
       type: object
@@ -850,9 +1793,11 @@ components:
         isRoot: { type: boolean }
         groups:
           type: array
+          description: Enabled groups of the user.
           items: { type: string }
         policyNames:
           type: array
+          description: Effective policies, attached to the user and to its enabled groups.
           items: { type: string }
     Session:
       type: object
@@ -866,6 +1811,20 @@ components:
         csrfToken:
           type: string
           description: Token the browser echoes in the X-CSRF-Token header on mutating requests.
+    Permissions:
+      type: object
+      required: [user, isRoot, allowed, denied]
+      properties:
+        user: { type: string }
+        isRoot: { type: boolean }
+        bucket: { type: string }
+        prefix: { type: string }
+        allowed:
+          type: array
+          items: { type: string }
+        denied:
+          type: array
+          items: { type: string }
 
     DiskInfo:
       type: object
@@ -965,10 +1924,17 @@ components:
         scanned: { type: integer, format: int64 }
         healed: { type: integer, format: int64 }
         failed: { type: integer, format: int64 }
+    ServiceAction:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [restart, stop]
 
     Bucket:
       type: object
-      required: [name, created, region, versioning, objectLockEnabled, objects, versions, size, quotaBytes, tags]
+      required: [name, created, region, versioning, objectLockEnabled, objects, versions, deleteMarkers, size, quotaBytes, public, tags]
       properties:
         name: { type: string }
         created: { type: string, format: date-time }
@@ -977,21 +1943,40 @@ components:
         objectLockEnabled: { type: boolean }
         objects: { type: integer, format: int64 }
         versions: { type: integer, format: int64 }
+        deleteMarkers: { type: integer, format: int64 }
         size: { type: integer, format: int64 }
         quotaBytes:
           type: integer
           format: int64
           description: Hard quota in bytes, 0 when unset.
+        public:
+          type: boolean
+          description: The bucket policy grants access to everyone.
         tags:
           type: object
           additionalProperties: { type: string }
+    BucketList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Bucket" }
+        nextCursor: { type: string }
     CreateBucketRequest:
       type: object
       required: [name]
       properties:
         name: { type: string }
         region: { type: string }
+        versioning:
+          type: boolean
+          description: Enable versioning (implied by objectLock).
         objectLock: { type: boolean }
+        quotaBytes:
+          type: integer
+          format: int64
+          description: Hard quota in bytes (0 none).
     BucketVersioning:
       type: object
       required: [status]
@@ -1008,7 +1993,7 @@ components:
           type: integer
           format: int64
           description: Limit in bytes; 0 disables the quota.
-    BucketTags:
+    Tags:
       type: object
       required: [tags]
       properties:
@@ -1033,6 +2018,33 @@ components:
           type: string
           description: '"AES256" (SSE-S3) or "aws:kms" (SSE-KMS).'
         kmsKeyId: { type: string }
+    AccessRule:
+      type: object
+      required: [prefix, preset]
+      properties:
+        prefix:
+          type: string
+          description: The prefix, "" for the whole bucket.
+        preset: { $ref: "#/components/schemas/AccessPreset" }
+    BucketAccess:
+      type: object
+      required: [bucket, rules, public, hasPolicy]
+      properties:
+        bucket: { type: string }
+        rules:
+          type: array
+          items: { $ref: "#/components/schemas/AccessRule" }
+        public: { type: boolean }
+        hasPolicy: { type: boolean }
+    SetAccessRequest:
+      type: object
+      required: [preset]
+      properties:
+        prefix: { type: string }
+        preset:
+          type: string
+          enum: [private, download, upload, public]
+
     ObjectEntry:
       type: object
       required: [key, size, etag, lastModified, isDeleteMarker, isLatest]
@@ -1045,6 +2057,7 @@ components:
         contentType: { type: string }
         isDeleteMarker: { type: boolean }
         isLatest: { type: boolean }
+        storageClass: { type: string }
     ObjectList:
       type: object
       required: [objects, prefixes, isTruncated]
@@ -1059,6 +2072,359 @@ components:
         nextCursor:
           type: string
           description: Resumes a truncated listing through the cursor query parameter.
+    ObjectDetails:
+      allOf:
+        - $ref: "#/components/schemas/ObjectEntry"
+        - type: object
+          required: [userMetadata]
+          properties:
+            contentEncoding: { type: string }
+            contentDisposition: { type: string }
+            contentLanguage: { type: string }
+            cacheControl: { type: string }
+            expires: { type: string, format: date-time }
+            userMetadata:
+              type: object
+              additionalProperties: { type: string }
+            parts: { type: integer }
+            checksumAlgorithm: { type: string }
+            checksum: { type: string }
+            tags:
+              type: object
+              description: Absent when the caller may not read the tags.
+              additionalProperties: { type: string }
+            versions:
+              type: array
+              description: First versions of the key; absent when the caller may not list them.
+              items: { $ref: "#/components/schemas/ObjectEntry" }
+            versionsTruncated: { type: boolean }
+    VersionList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/ObjectEntry" }
+        nextCursor: { type: string }
+    FolderRequest:
+      type: object
+      required: [prefix]
+      properties:
+        prefix:
+          type: string
+          description: The folder key; a trailing "/" is added when missing.
+    ObjectRef:
+      type: object
+      required: [key]
+      properties:
+        key: { type: string }
+        versionId: { type: string }
+    DeleteObjectsRequest:
+      type: object
+      properties:
+        objects:
+          type: array
+          items: { $ref: "#/components/schemas/ObjectRef" }
+        prefixes:
+          type: array
+          description: Deleted recursively ("" is the whole bucket).
+          items: { type: string }
+        allVersions:
+          type: boolean
+          description: Delete every version under the prefixes permanently.
+    DeletedObject:
+      type: object
+      required: [key, deleteMarker]
+      properties:
+        key: { type: string }
+        versionId: { type: string }
+        deleteMarker: { type: boolean }
+        deleteMarkerVersionId: { type: string }
+    ObjectError:
+      type: object
+      required: [key, code, message]
+      properties:
+        key: { type: string }
+        versionId: { type: string }
+        code: { type: string }
+        message: { type: string }
+    DeleteObjectsResult:
+      type: object
+      required: [deleted, errors]
+      properties:
+        deleted:
+          type: array
+          items: { $ref: "#/components/schemas/DeletedObject" }
+        errors:
+          type: array
+          items: { $ref: "#/components/schemas/ObjectError" }
+    RenameRequest:
+      type: object
+      required: [source, destination]
+      properties:
+        source: { type: string }
+        destination: { type: string }
+        prefix:
+          type: boolean
+          description: Move every object under source (destination may not lie under it).
+        overwrite:
+          type: boolean
+          description: Replace existing destination objects (otherwise conflict).
+    RenamedObject:
+      type: object
+      required: [source, destination]
+      properties:
+        source: { type: string }
+        destination: { type: string }
+    RenameError:
+      type: object
+      required: [source, destination, code, message]
+      properties:
+        source: { type: string }
+        destination: { type: string }
+        code: { type: string }
+        message: { type: string }
+    RenameResult:
+      type: object
+      required: [renamed, errors]
+      properties:
+        renamed:
+          type: array
+          items: { $ref: "#/components/schemas/RenamedObject" }
+        errors:
+          type: array
+          items: { $ref: "#/components/schemas/RenameError" }
+    ZipRequest:
+      type: object
+      properties:
+        keys:
+          type: array
+          items: { type: string }
+        prefixes:
+          type: array
+          items: { type: string }
+        base:
+          type: string
+          description: Folder the archive names are relative to.
+
+    CreateUploadRequest:
+      type: object
+      properties:
+        contentType: { type: string }
+        userMetadata:
+          type: object
+          additionalProperties: { type: string }
+    Upload:
+      type: object
+      required: [bucket, key, uploadId, initiated, partSize, minPartSize, maxPartSize, maxParts]
+      properties:
+        bucket: { type: string }
+        key: { type: string }
+        uploadId: { type: string }
+        initiated: { type: string, format: date-time }
+        partSize:
+          type: integer
+          format: int64
+          description: Recommended part size.
+        minPartSize:
+          type: integer
+          format: int64
+          description: Minimum size of every part but the last.
+        maxPartSize: { type: integer, format: int64 }
+        maxParts: { type: integer }
+    PendingUpload:
+      type: object
+      required: [key, uploadId, initiated]
+      properties:
+        key: { type: string }
+        uploadId: { type: string }
+        initiated: { type: string, format: date-time }
+    UploadList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/PendingUpload" }
+        nextCursor: { type: string }
+    Part:
+      type: object
+      required: [partNumber, etag, size]
+      properties:
+        partNumber: { type: integer }
+        etag: { type: string }
+        size: { type: integer, format: int64 }
+        lastModified: { type: string, format: date-time }
+    PartList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Part" }
+        nextCursor: { type: string }
+    CompleteUploadRequest:
+      type: object
+      required: [parts]
+      properties:
+        parts:
+          type: array
+          items:
+            type: object
+            required: [partNumber, etag]
+            properties:
+              partNumber: { type: integer }
+              etag: { type: string }
+
+    Share:
+      type: object
+      required: [id, owner, bucket, key, prefix, permission, expiresAt, createdAt, accessKey]
+      properties:
+        id: { type: string }
+        owner: { type: string }
+        bucket: { type: string }
+        key:
+          type: string
+          description: The object key, or the prefix of a prefix share.
+        prefix: { type: boolean }
+        permission: { $ref: "#/components/schemas/SharePermission" }
+        versionId: { type: string }
+        contentType: { type: string }
+        contentDisposition: { type: string }
+        expiresAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        url:
+          type: string
+          description: GET/PUT URL of the object, ListObjectsV2 URL of a prefix download share, absent for prefix upload shares.
+        accessKey:
+          type: string
+          description: Service account signing the link (share-<id>).
+    ShareList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Share" }
+        nextCursor: { type: string }
+    CreateShareRequest:
+      type: object
+      required: [key]
+      properties:
+        bucket:
+          type: string
+          description: Required by POST /shares; taken from the path by POST /buckets/{bucket}/objects/share.
+        key: { type: string }
+        prefix: { type: boolean }
+        permission: { $ref: "#/components/schemas/SharePermission" }
+        expiresIn:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 604800
+          description: Validity in seconds (default and maximum 7 days).
+        contentType: { type: string }
+        contentDisposition: { type: string }
+        versionId: { type: string }
+    RevokeAllResult:
+      type: object
+      required: [revoked]
+      properties:
+        revoked: { type: integer }
+    PresignRequest:
+      type: object
+      required: [bucket, key]
+      properties:
+        method:
+          type: string
+          enum: [GET, PUT, HEAD, DELETE]
+        bucket: { type: string }
+        key: { type: string }
+        versionId: { type: string }
+        expiresIn:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 604800
+          description: Validity in seconds (default and maximum 7 days), capped at the expiration of the credentials.
+        contentType:
+          type: string
+          description: Signed Content-Type of PUT URLs, response-content-type of GET URLs.
+        contentDisposition:
+          type: string
+          description: response-content-disposition of GET URLs.
+        headers:
+          type: object
+          description: Additional signed headers (x-amz-meta-*...).
+          additionalProperties: { type: string }
+    PresignedURL:
+      type: object
+      required: [url, method, expiresAt, headers]
+      properties:
+        url: { type: string }
+        method: { type: string }
+        expiresAt: { type: string, format: date-time }
+        headers:
+          type: object
+          description: Signed headers the client must send unchanged.
+          additionalProperties: { type: string }
+    PostPolicyRequest:
+      type: object
+      required: [bucket]
+      properties:
+        bucket: { type: string }
+        key:
+          type: string
+          description: Exact key ("${filename}" is replaced by the file name).
+        keyPrefix:
+          type: string
+          description: Any key under this prefix.
+        expiresIn:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 604800
+          description: Validity in seconds (default 1 hour).
+        minSize: { type: integer, format: int64 }
+        maxSize:
+          type: integer
+          format: int64
+          description: content-length-range upper bound when positive.
+        contentType: { type: string }
+        contentTypePrefix: { type: string }
+        successActionStatus:
+          type: integer
+          enum: [200, 201, 204]
+        successActionRedirect: { type: string }
+        fields:
+          type: object
+          additionalProperties: { type: string }
+    PostCondition:
+      type: object
+      required: [operator]
+      properties:
+        operator:
+          type: string
+          enum: [eq, starts-with, content-length-range]
+        key: { type: string }
+        value: { type: string }
+        min: { type: integer, format: int64 }
+        max: { type: integer, format: int64 }
+    PostPolicy:
+      type: object
+      required: [url, fields, expiresAt, conditions]
+      properties:
+        url:
+          type: string
+          description: Where the multipart/form-data is posted (the bucket URL).
+        fields:
+          type: object
+          description: Form fields to send before the "file" field.
+          additionalProperties: { type: string }
+        expiresAt: { type: string, format: date-time }
+        conditions:
+          type: array
+          items: { $ref: "#/components/schemas/PostCondition" }
 
     User:
       type: object
@@ -1074,6 +2440,14 @@ components:
           items: { type: string }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+    UserList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/User" }
+        nextCursor: { type: string }
     CreateUserRequest:
       type: object
       required: [accessKey, secretKey]
@@ -1082,6 +2456,10 @@ components:
         secretKey: { type: string }
         policyNames:
           type: array
+          items: { type: string }
+        groups:
+          type: array
+          description: Existing groups the user joins.
           items: { type: string }
         status: { $ref: "#/components/schemas/CredentialStatus" }
     UpdateUserRequest:
@@ -1092,10 +2470,14 @@ components:
         policyNames:
           type: array
           items: { type: string }
+        groups:
+          type: array
+          description: Replaces the group memberships.
+          items: { type: string }
 
     Group:
       type: object
-      required: [name, status, members, policyNames, createdAt]
+      required: [name, status, members, policyNames, createdAt, updatedAt]
       properties:
         name: { type: string }
         status: { $ref: "#/components/schemas/CredentialStatus" }
@@ -1106,6 +2488,15 @@ components:
           type: array
           items: { type: string }
         createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    GroupList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Group" }
+        nextCursor: { type: string }
     CreateGroupRequest:
       type: object
       required: [name]
@@ -1133,7 +2524,7 @@ components:
 
     AccessKey:
       type: object
-      required: [accessKey, parentUser, name, description, status, createdAt]
+      required: [accessKey, parentUser, name, description, status, createdAt, updatedAt]
       properties:
         accessKey: { type: string }
         parentUser: { type: string }
@@ -1146,6 +2537,15 @@ components:
           description: Absent for non-expiring keys.
         policy: { $ref: "#/components/schemas/PolicyDocument" }
         createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    AccessKeyList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AccessKey" }
+        nextCursor: { type: string }
     CreatedAccessKey:
       description: The access key just created; the only time the secret is visible.
       allOf:
@@ -1159,7 +2559,7 @@ components:
       properties:
         parentUser:
           type: string
-          description: Owner of the key; defaults to the caller. Only root may name another user.
+          description: Owner of the key; defaults to the caller. Naming another user requires admin:CreateServiceAccount.
         accessKey: { type: string, description: Generated when empty. }
         secretKey: { type: string, description: Generated when empty. }
         name: { type: string }
@@ -1174,6 +2574,9 @@ components:
         description: { type: string }
         status: { $ref: "#/components/schemas/CredentialStatus" }
         expiration: { type: string, format: date-time }
+        clearExpiration:
+          type: boolean
+          description: Remove the expiration.
         policy: { $ref: "#/components/schemas/PolicyDocument" }
         clearPolicy:
           type: boolean
@@ -1223,6 +2626,11 @@ components:
         Statement:
           type: array
           items: { $ref: "#/components/schemas/PolicyStatement" }
+    PolicyDocumentOrText:
+      description: A policy document, or its JSON text (errors are then located in that text).
+      oneOf:
+        - $ref: "#/components/schemas/PolicyDocument"
+        - type: string
     Policy:
       type: object
       required: [name, document, builtIn, updatedAt]
@@ -1233,17 +2641,25 @@ components:
           type: boolean
           description: Shipped with Nexo; read-only.
         updatedAt: { type: string, format: date-time }
+    PolicyList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Policy" }
+        nextCursor: { type: string }
     CreatePolicyRequest:
       type: object
       required: [name, document]
       properties:
         name: { type: string }
-        document: { $ref: "#/components/schemas/PolicyDocument" }
+        document: { $ref: "#/components/schemas/PolicyDocumentOrText" }
     SavePolicyRequest:
       type: object
       required: [document]
       properties:
-        document: { $ref: "#/components/schemas/PolicyDocument" }
+        document: { $ref: "#/components/schemas/PolicyDocumentOrText" }
     AttachRequest:
       type: object
       description: Exactly one of user and group is set.
@@ -1254,6 +2670,95 @@ components:
           items: { type: string }
         user: { type: string }
         group: { type: string }
+    PolicyEntities:
+      type: object
+      required: [policy, users, groups]
+      properties:
+        policy: { type: string }
+        users:
+          type: array
+          items: { type: string }
+        groups:
+          type: array
+          items: { type: string }
+    ValidatePolicyRequest:
+      type: object
+      required: [document]
+      properties:
+        document: { $ref: "#/components/schemas/PolicyDocumentOrText" }
+        bucket:
+          type: string
+          description: Validate a bucket policy of this bucket.
+    ValidationReport:
+      type: object
+      required: [valid, errors]
+      properties:
+        valid: { type: boolean }
+        errors:
+          type: array
+          items: { $ref: "#/components/schemas/PolicyError" }
+    SimulateRequest:
+      type: object
+      required: [action]
+      properties:
+        user:
+          type: string
+          description: Access key to simulate (user or service account); the caller by default.
+        action: { type: string }
+        bucket: { type: string }
+        object: { type: string }
+        sourceIp: { type: string }
+        secureTransport: { type: boolean }
+        time: { type: string, format: date-time }
+        conditions:
+          type: object
+          description: Other condition values (aws:Referer, s3:prefix...).
+          additionalProperties:
+            type: array
+            items: { type: string }
+    EvaluatedStatement:
+      type: object
+      required: [source, index, effect, matched]
+      properties:
+        source:
+          type: string
+          enum: [root, iam, group, inline, bucket]
+        policyName: { type: string }
+        group: { type: string }
+        index:
+          type: integer
+          description: 0-based position of the statement in its document.
+        sid: { type: string }
+        effect:
+          type: string
+          enum: [Allow, Deny]
+        matched: { type: boolean }
+        mismatch:
+          type: string
+          enum: [principal, action, resource, condition]
+        statement: { $ref: "#/components/schemas/PolicyStatement" }
+    Simulation:
+      type: object
+      required: [user, action, allowed, decision, reason, evaluated]
+      properties:
+        user: { type: string }
+        action: { type: string }
+        bucket: { type: string }
+        object: { type: string }
+        allowed: { type: boolean }
+        decision:
+          type: string
+          enum: [allow, deny]
+        reason: { type: string }
+        source:
+          type: string
+          enum: [root, iam, group, inline, bucket]
+        policyName: { type: string }
+        group: { type: string }
+        statement: { $ref: "#/components/schemas/EvaluatedStatement" }
+        evaluated:
+          type: array
+          items: { $ref: "#/components/schemas/EvaluatedStatement" }
 
     ConfigSettings:
       type: object
@@ -1273,3 +2778,26 @@ components:
       type: object
       description: The whole configuration, keyed by subsystem.
       additionalProperties: { $ref: "#/components/schemas/ConfigSettings" }
+    ConfigKey:
+      type: object
+      required: [name, type, description, sensitive]
+      properties:
+        name: { type: string }
+        type:
+          type: string
+          enum: [string, bool, int, duration, url, enum, list]
+        description: { type: string }
+        default: { type: string }
+        values:
+          type: array
+          items: { type: string }
+        sensitive: { type: boolean }
+    ConfigSubsystemSchema:
+      type: object
+      required: [name, description, keys]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        keys:
+          type: array
+          items: { $ref: "#/components/schemas/ConfigKey" }

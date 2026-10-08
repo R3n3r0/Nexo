@@ -1,0 +1,19 @@
+Print the first lines of objects and files
+
+Usage:
+  nexoctl head [flags] TARGET...
+
+Examples:
+  nexoctl head -n 5 local/logs/app.log
+
+Flags:
+  -h, --help                help for head
+  -n, --lines int           number of lines (default 10)
+      --version-id string   print this version of the object
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

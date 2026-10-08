@@ -1,0 +1,45 @@
+# TCL-E-14: admin config set/get/export/import round-trip identically.
+# C-ADM-06.
+
+exec nexoctl admin config get local
+stdout '^region'
+stdout '^logger'
+
+exec nexoctl admin config set local region name=eu-south-1 'comment=Milan DC'
+stdout '^Updated region: comment, name\.$'
+exec nexoctl admin config set local notify_webhook endpoint=http://hook.example/x auth_token=t0ken-1
+exec nexoctl admin config get local region notify_webhook
+stdout '^region comment="Milan DC" name=eu-south-1$'
+stdout '^notify_webhook auth_token=\*\*\*\*\*\*\*\* endpoint=http://hook.example/x$'
+! stdout 't0ken-1'
+exec nexoctl admin config get --json local region
+jsonlines stdout
+stdout '"subsystem":"region","settings":\{"comment":"Milan DC","name":"eu-south-1"\}'
+
+# Export, reset, import: the second export is identical to the first.
+exec nexoctl admin config export --output first.json local
+exec nexoctl admin config export local
+cmp stdout first.json
+exec nexoctl admin config reset local region
+exec nexoctl admin config reset local notify_webhook auth_token
+exec nexoctl admin config get local region
+stdout '^region \(defaults\)$'
+exec nexoctl admin config import local first.json
+exec nexoctl admin config export --output second.json local
+cmp first.json second.json
+exec nexoctl admin config get local region
+stdout '^region comment="Milan DC" name=eu-south-1$'
+
+# Setting the mask keeps the stored secret.
+exec nexoctl admin config set local notify_webhook 'auth_token=********'
+exec nexoctl admin config export --output third.json local
+cmp first.json third.json
+
+! exec nexoctl admin config set local region bogus=1
+stderr 'unknown key "bogus"'
+expectcode 2 nexoctl admin config set local region name
+! exec nexoctl admin config import local broken.json
+stderr 'line 1, column 25'
+
+-- broken.json --
+{"region": {"name": "x",}}

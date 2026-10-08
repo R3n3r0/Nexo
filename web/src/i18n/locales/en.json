@@ -9,6 +9,7 @@
     "retry": "Retry",
     "cancel": "Cancel",
     "close": "Close",
+    "toggleSecret": "Show or hide the secret",
     "save": "Save",
     "delete": "Delete",
     "create": "Create",
@@ -26,7 +27,10 @@
     "signOut": "Sign out",
     "signedInAs": "Signed in as {{user}}",
     "openNavigation": "Open navigation",
-    "closeNavigation": "Close navigation"
+    "closeNavigation": "Close navigation",
+    "mainNavigation": "Main navigation",
+    "copy": "Copy",
+    "copied": "Copied"
   },
   "theme": {
     "toggle": "Toggle colour scheme",
@@ -52,7 +56,8 @@
     "cluster": "Cluster",
     "monitoring": "Monitoring",
     "configuration": "Configuration",
-    "info": "Info"
+    "info": "Info",
+    "simulator": "Policy simulator"
   },
   "login": {
     "title": "Sign in to Nexo",
@@ -64,6 +69,7 @@
     "submit": "Sign in",
     "submitting": "Signing in…",
     "invalidCredentials": "Invalid access key or secret key.",
+    "tooManyAttempts": "Too many failed attempts: wait a minute before signing in again.",
     "failed": "Sign-in failed: {{message}}",
     "validation": {
       "accessKeyRequired": "Enter your access key.",
@@ -71,7 +77,8 @@
       "secretKeyRequired": "Enter your secret key.",
       "secretKeyTooShort": "The secret key must be at least {{min}} characters."
     },
-    "demoHint": "Demo mode: sign in with {{accessKey}} / {{secretKey}}."
+    "demoHint": "Demo mode: sign in with {{accessKey}} / {{secretKey}}.",
+    "sessionExpired": "Your session has expired. Sign in again to continue where you left off."
   },
   "overview": {
     "title": "Overview",
@@ -87,7 +94,37 @@
       "nodes": "Nodes online",
       "drives": "Drives online"
     },
-    "ofTotal": "{{online}} of {{total}}"
+    "ofTotal": "{{online}} of {{total}}",
+    "capacity": {
+      "title": "Capacity",
+      "meter": "Used capacity of the drives",
+      "percentUsed": "{{percent}}% used",
+      "used": "Used",
+      "free": "Free",
+      "total": "Total"
+    },
+    "charts": {
+      "perBucket": "Storage per bucket",
+      "perBucketHint": "The ten largest buckets.",
+      "size": "Size",
+      "unavailable": "Usage data is not available.",
+      "noBuckets": "No buckets yet."
+    },
+    "nodes": {
+      "title": "Nodes and drives",
+      "drive": "Node / drive",
+      "usage": "Usage",
+      "driveUsage": "Usage of drive {{path}}",
+      "usedOf": "{{used}} of {{total}}"
+    },
+    "states": {
+      "online": "Online",
+      "offline": "Offline",
+      "healing": "Healing",
+      "unknown": "Unknown"
+    },
+    "forbidden": "Your account cannot read the server status (admin:ServerInfo). The buckets you may use are listed in Buckets.",
+    "goToBuckets": "Go to the buckets"
   },
   "modes": {
     "snsd": "Single node, single drive",
@@ -101,6 +138,18 @@
     "minutes": "{{count}}m",
     "seconds": "{{count}}s"
   },
+  "dates": {
+    "previousMonth": "Previous month",
+    "nextMonth": "Next month",
+    "previousYear": "Previous year",
+    "nextYear": "Next year",
+    "previousDecade": "Previous decade",
+    "nextDecade": "Next decade",
+    "monthLevel": "Choose the month",
+    "yearLevel": "Choose the year",
+    "time": "Time",
+    "submit": "Confirm the date"
+  },
   "notFound": {
     "title": "Page not found",
     "message": "The page {{path}} does not exist."
@@ -111,5 +160,781 @@
     "reload": "Reload",
     "tryAgain": "Try again",
     "details": "Technical details"
+  },
+  "buckets": {
+    "title": "Buckets",
+    "subtitle": "Create, search and manage buckets.",
+    "create": "Create bucket",
+    "createTitle": "Create a bucket",
+    "search": "Search buckets",
+    "searchPlaceholder": "Search by name",
+    "size": "Size",
+    "objects": "Objects",
+    "public": "Public",
+    "versioned": "Versioned",
+    "locked": "Object lock",
+    "browse": "Browse objects",
+    "settings": "Settings",
+    "actionsFor": "Actions for {{name}}",
+    "deleteDenied": "Delete (not allowed)",
+    "loadError": "Could not load the buckets.",
+    "empty": "No buckets yet.",
+    "emptyHint": "Create a bucket to start storing objects.",
+    "noMatch": "No bucket matches “{{search}}”.",
+    "name": "Name",
+    "nameHint": "3-63 lowercase letters, digits, dots and hyphens.",
+    "nameIssues": {
+      "required": "Enter a bucket name.",
+      "length": "The name must be 3 to 63 characters long.",
+      "characters": "Use only lowercase letters, digits, dots and hyphens.",
+      "edges": "The name must start and end with a letter or a digit.",
+      "dots": "No consecutive dots and no dot next to a hyphen.",
+      "ipAddress": "The name cannot look like an IP address.",
+      "reserved": "This name is reserved."
+    },
+    "versioning": "Versioning",
+    "versioningHint": "Keep every version of the objects.",
+    "objectLock": "Object lock",
+    "objectLockHint": "Protect versions from deletion (enables versioning; cannot be disabled later).",
+    "quota": "Quota",
+    "quotaHint": "Hard limit; leave empty for no quota.",
+    "quotaUnit": "Quota unit",
+    "quotaInvalid": "Enter a positive size.",
+    "created": "Bucket {{name}} created.",
+    "deleted": "Bucket {{name}} deleted.",
+    "deleteTitle": "Delete bucket {{name}}",
+    "deleteEmpty": "The bucket and its settings will be deleted.",
+    "deleteNotEmpty": "The bucket contains {{objects}} objects.",
+    "forceDelete": "Delete all objects too",
+    "forceDeleteHint": "Every version, delete marker and pending upload is removed first; locked versions keep the bucket.",
+    "typeToConfirm": "Type <code>{{name}}</code> to confirm",
+    "notEmptyUseForce": "The bucket is not empty: select “Delete all objects too” to empty it first."
+  },
+  "bucket": {
+    "tabs": {
+      "objects": "Objects",
+      "settings": "Settings",
+      "access": "Access"
+    },
+    "summary": "{{size}} · {{objects}} objects",
+    "delete": "Delete bucket",
+    "notFound": "The bucket {{name}} does not exist.",
+    "loadError": "Could not load the bucket.",
+    "backToList": "Back to the buckets",
+    "limitedAccess": "You may use part of this bucket only."
+  },
+  "bucketSettings": {
+    "saved": "Settings saved.",
+    "versioning": {
+      "title": "Versioning",
+      "description": "Keep the previous versions of overwritten and deleted objects.",
+      "current": "Current state:",
+      "states": {
+        "off": "Never enabled",
+        "enabled": "Enabled",
+        "suspended": "Suspended"
+      },
+      "enable": "Enabled",
+      "suspend": "Suspended",
+      "lockedHint": "Versioning cannot be suspended on a bucket with object lock."
+    },
+    "quota": {
+      "title": "Quota",
+      "description": "Writes beyond the hard quota are refused.",
+      "limit": "Hard quota",
+      "hint": "0 or empty removes the quota.",
+      "usage": "Quota usage",
+      "usedOf": "{{used}} used of {{total}}"
+    },
+    "tags": {
+      "title": "Tags",
+      "description": "Key/value pairs attached to the bucket.",
+      "empty": "No tags.",
+      "key": "Key",
+      "value": "Value",
+      "keyN": "Key of tag {{n}}",
+      "valueN": "Value of tag {{n}}",
+      "remove": "Remove tag {{key}}",
+      "add": "Add tag",
+      "save": "Save tags",
+      "duplicate": "Every key must be unique and not empty."
+    },
+    "encryption": {
+      "title": "Encryption",
+      "description": "Default server-side encryption of new objects.",
+      "none": "Not configured",
+      "sse": "SSE-S3 (AES-256)",
+      "kms": "SSE-KMS ({{key}})",
+      "unavailable": "The encryption settings are not available.",
+      "comingSoon": "Configuring encryption from the console arrives in a later release."
+    },
+    "objectLock": {
+      "title": "Object lock",
+      "description": "Write-once-read-many protection, set when the bucket is created.",
+      "status": "Status",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "mode": "Default mode",
+      "retention": "Default retention",
+      "noDefault": "None",
+      "days": "{{n}} days",
+      "years": "{{n}} years",
+      "unavailable": "The object lock settings are not available."
+    }
+  },
+  "bucketAccess": {
+    "anonymousTitle": "Anonymous access",
+    "anonymousDescription": "Grant access without credentials to the whole bucket or to a prefix.",
+    "statePublic": "Public",
+    "statePrivate": "Private",
+    "noRules": "The bucket is private: anonymous requests are denied.",
+    "rulesTitle": "Anonymous access rules",
+    "prefix": "Prefix",
+    "prefixHint": "Empty for the whole bucket, e.g. public/ for a folder.",
+    "prefixInvalid": "The prefix cannot start with “/”.",
+    "preset": "Access",
+    "apply": "Apply",
+    "wholeBucket": "Whole bucket",
+    "removeRule": "Make {{prefix}} private",
+    "applied": "{{preset}} access applied to {{prefix}}.",
+    "presets": {
+      "private": "Private",
+      "download": "Download",
+      "upload": "Upload",
+      "public": "Public",
+      "custom": "Custom"
+    },
+    "presetHelp": {
+      "private": "Private: removes the anonymous access of the prefix.",
+      "download": "Download: anyone can list and read the objects of the prefix.",
+      "upload": "Upload: anyone can write objects under the prefix.",
+      "public": "Public: anyone can list, read and write objects under the prefix."
+    },
+    "policyTitle": "Bucket policy",
+    "policyDescription": "The policy document (AWS format) evaluated with the IAM policies. The presets above edit it too.",
+    "policyEditor": "Bucket policy (JSON)",
+    "noPolicy": "The bucket has no policy.",
+    "useTemplate": "Start from a template",
+    "savePolicy": "Save policy",
+    "deletePolicy": "Delete policy",
+    "revert": "Revert",
+    "policySaved": "Bucket policy saved.",
+    "policyDeleted": "Bucket policy deleted."
+  },
+  "objects": {
+    "title": "Objects",
+    "pickBucket": "Pick a bucket to browse its objects.",
+    "listing": "Objects",
+    "breadcrumb": "Folder path",
+    "selectAll": "Select all loaded rows",
+    "select": "Select {{name}}",
+    "size": "Size",
+    "modified": "Last modified",
+    "selectedOf": "{{selected}} of {{total}} selected",
+    "loadedCount": "{{total}} items loaded",
+    "loadMore": "Load more",
+    "upload": "Upload",
+    "uploadFiles": "Upload files",
+    "uploadFolder": "Upload folder",
+    "newFolder": "New folder",
+    "downloadSelected": "Download ({{n}})",
+    "downloadFolder": "Download folder as zip",
+    "deleteSelected": "Delete ({{n}})",
+    "filter": "Filter loaded objects",
+    "filterPlaceholder": "Filter by name",
+    "refresh": "Refresh",
+    "dropHere": "Drop files or folders to upload to {{prefix}}",
+    "empty": "This folder is empty.",
+    "emptyHint": "Drag and drop files or folders here, or use Upload.",
+    "noMatch": "No loaded object matches the filter.",
+    "actionsFor": "Actions for {{name}}",
+    "details": "Details",
+    "download": "Download",
+    "downloadZip": "Download as zip",
+    "share": "Share",
+    "rename": "Rename or move",
+    "zipFailed": "The archive could not be created",
+    "folderName": "Folder name",
+    "folderNameHint": "Use “/” to create nested folders.",
+    "folderPreview": "Creates {{bucket}}/{{key}}",
+    "folderCreated": "Folder {{name}} created.",
+    "folderIssues": {
+      "required": "Enter a folder name.",
+      "slash": "The name cannot start with “/”.",
+      "dots": "Empty, “.” and “..” segments are not allowed."
+    },
+    "renameTitle": "Move {{name}}",
+    "destinationKey": "New key",
+    "destinationFolder": "New folder path",
+    "destinationHint": "The full path inside the bucket; folders move with everything they contain.",
+    "destinationIssues": {
+      "required": "Enter the destination.",
+      "same": "The destination is the current path.",
+      "inside": "A folder cannot be moved inside itself.",
+      "slash": "The path cannot start with “/”."
+    },
+    "overwrite": "Overwrite existing objects",
+    "move": "Move",
+    "destinationExists": "The destination already exists: select “Overwrite existing objects” to replace it.",
+    "renamed": "Moved {{n}} objects.",
+    "renamePartial": "Moved {{done}} objects, {{failed}} failed.",
+    "deleteTitle": "Delete {{n}} items",
+    "deleteIntro": "These items will be deleted:",
+    "recursive": "folder, recursive",
+    "andMore": "…and {{n}} more",
+    "allVersions": "Delete every version permanently",
+    "allVersionsHint": "Without it, versioned objects keep their versions behind a delete marker.",
+    "typeToConfirm": "Folders are deleted with everything they contain. Type",
+    "deletedN": "Deleted {{n}} objects.",
+    "deletePartialTitle": "Some objects were not deleted",
+    "deletePartial": "Deleted {{done}}, failed {{failed}}: {{first}}",
+    "forbiddenFolder": "You may not list this folder. Open a folder you have access to, such as your home directory.",
+    "goToFolder": "Folder path",
+    "goToFolderHint": "For example home/{{user}}/",
+    "goToFolderSubmit": "Open folder"
+  },
+  "objectDetails": {
+    "tabs": {
+      "details": "Details",
+      "preview": "Preview",
+      "tags": "Tags",
+      "versions": "Versions"
+    },
+    "key": "Key",
+    "contentType": "Content type",
+    "etag": "ETag",
+    "versionId": "Version ID",
+    "storageClass": "Storage class",
+    "cacheControl": "Cache-Control",
+    "contentDisposition": "Content-Disposition",
+    "contentEncoding": "Content-Encoding",
+    "parts": "Parts",
+    "checksum": "Checksum",
+    "tagsHidden": "You may not read the tags of this object."
+  },
+  "objectVersions": {
+    "title": "Versions",
+    "latest": "Latest",
+    "deleteMarker": "Delete marker",
+    "download": "Download this version",
+    "downloadVersion": "Download version {{version}}",
+    "delete": "Delete this version",
+    "deleteVersion": "Delete version {{version}}",
+    "confirmDelete": "Confirm the deletion of version {{version}}",
+    "deleted": "Version deleted."
+  },
+  "objectPreview": {
+    "imageAlt": "Preview of {{name}}",
+    "pdfTitle": "PDF preview of {{name}}",
+    "openInTab": "Open in a new tab",
+    "audioLabel": "Audio preview of {{name}}",
+    "videoLabel": "Video preview of {{name}}",
+    "empty": "The object is empty.",
+    "truncated": "Only the first {{size}} are shown.",
+    "unavailable": "No preview for {{type}}: download the object to open it."
+  },
+  "uploadQueue": {
+    "panelTitle": "Uploads",
+    "activeCount": "{{n}} active",
+    "clearFinished": "Clear finished",
+    "expand": "Show the uploads",
+    "collapse": "Hide the uploads",
+    "totalProgress": "Total upload progress",
+    "bytesOf": "{{loaded}} of {{total}}",
+    "parts": "parts {{done}}/{{total}}",
+    "pause": "Pause",
+    "resume": "Resume",
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "pauseFile": "Pause {{name}}",
+    "resumeFile": "Resume {{name}}",
+    "retryFile": "Retry {{name}}",
+    "cancelFile": "Cancel {{name}}",
+    "progressOf": "Upload progress of {{name}}",
+    "failedWith": "Failed: {{message}}",
+    "queued": "{{n}} files queued for upload.",
+    "status": {
+      "queued": "Queued",
+      "uploading": "Uploading",
+      "paused": "Paused",
+      "completing": "Completing",
+      "completed": "Completed",
+      "failed": "Failed",
+      "canceled": "Canceled"
+    }
+  },
+  "infoPage": {
+    "title": "Server information",
+    "subtitle": "Version, build and deployment of this server.",
+    "version": "Version",
+    "commit": "Commit",
+    "buildDate": "Build date",
+    "deploymentId": "Deployment ID",
+    "copy": "Copy",
+    "copied": "Copied",
+    "copyDeploymentId": "Copy the deployment ID",
+    "mode": "Mode",
+    "region": "Region",
+    "startedAt": "Started",
+    "uptime": "Uptime",
+    "topology": "Topology",
+    "topologySummary": "{{pools}} pools, {{nodes}} nodes, {{drives}} drives",
+    "pools": "Pools",
+    "pool": "Pool",
+    "sets": "Erasure sets",
+    "drivesPerSet": "Drives per set",
+    "parity": "Parity",
+    "noParity": "None (single drive)"
+  },
+  "storageErrors": {
+    "access_denied": "You do not have the permission to do this.",
+    "bucket_already_exists": "A bucket with this name already exists.",
+    "bucket_not_empty": "The bucket is not empty.",
+    "bucket_not_found": "The bucket does not exist.",
+    "conflict": "The operation conflicts with the current state.",
+    "entity_too_large": "The file is too large.",
+    "invalid_bucket_name": "The bucket name is not valid.",
+    "invalid_object_name": "The object name is not valid.",
+    "malformed_policy": "The policy is not valid.",
+    "network_error": "The server could not be reached.",
+    "object_locked": "The object is protected by object lock.",
+    "object_not_found": "The object does not exist.",
+    "quota_exceeded": "The bucket quota is exceeded."
+  },
+  "iam": {
+    "status": {
+      "enabled": "Enabled",
+      "disabled": "Disabled"
+    }
+  },
+  "permissions": {
+    "missing": "You do not have the permission {{action}}.",
+    "sources": "Where the permissions come from",
+    "direct": "Direct policies:",
+    "viaGroup": "Through group {{group}}:",
+    "none": "None",
+    "bucket": "Bucket",
+    "bucketHint": "Evaluate on a bucket, including its bucket policy.",
+    "prefix": "Prefix",
+    "filter": "Filter actions",
+    "loadError": "Could not load the effective permissions.",
+    "root": "Root user: every action is allowed.",
+    "allowed": "Allowed ({{count}})",
+    "denied": "Denied ({{count}})"
+  },
+  "codeEditor": {
+    "problems": "Problems",
+    "position": "Line {{line}}, column {{column}}"
+  },
+  "users": {
+    "title": "Users",
+    "subtitle": "IAM users, their status, policies and groups.",
+    "searchPlaceholder": "Access key, policy or group",
+    "loadError": "Could not load the users.",
+    "empty": "No users yet.",
+    "noMatch": "No user matches the search.",
+    "actionsFor": "Actions for {{user}}",
+    "enable": "Enable",
+    "disable": "Disable",
+    "saved": "User {{user}} saved.",
+    "fields": {
+      "accessKey": "Access key",
+      "secretKey": "Secret key",
+      "policies": "Policies",
+      "groups": "Groups",
+      "enabled": "Enabled"
+    },
+    "create": {
+      "button": "Create user",
+      "title": "Create user",
+      "accessKeyHint": "{{min}} to {{max}} characters: letters, digits and - _ . @ +",
+      "secretKeyHint": "{{secretMin}} to {{secretMax}} characters. Keep it safe: it is not shown again.",
+      "generate": "Generate",
+      "generateAccessKey": "Generate an access key",
+      "generateSecretKey": "Generate a secret key",
+      "copySecretKey": "Copy the secret key"
+    },
+    "validation": {
+      "accessKey": {
+        "required": "Enter an access key.",
+        "length": "The access key must be {{min}} to {{max}} characters.",
+        "characters": "Use only letters, digits and - _ . @ +"
+      },
+      "secretKey": {
+        "required": "Enter a secret key.",
+        "length": "The secret key must be {{secretMin}} to {{secretMax}} characters.",
+        "characters": "The secret key must not contain control characters."
+      }
+    },
+    "delete": {
+      "title": "Delete user",
+      "message": "Delete the user {{user}}? Its access keys and share links stop working immediately."
+    },
+    "drawer": {
+      "title": "User {{user}}",
+      "settings": "Settings",
+      "permissions": "Effective permissions",
+      "accessKeys": "Show access keys"
+    }
+  },
+  "groups": {
+    "title": "Groups",
+    "subtitle": "Groups share policies with their members.",
+    "searchPlaceholder": "Group or member",
+    "loadError": "Could not load the groups.",
+    "empty": "No groups yet.",
+    "noMatch": "No group matches the search.",
+    "memberCount_one": "{{count}} member",
+    "memberCount_other": "{{count}} members",
+    "saved": "Group {{group}} saved.",
+    "fields": {
+      "members": "Members",
+      "policies": "Policies",
+      "enabled": "Enabled"
+    },
+    "create": {
+      "button": "Create group",
+      "title": "Create group"
+    },
+    "validation": {
+      "required": "Enter a group name.",
+      "invalid": "The name must be 1 to 128 characters, without commas."
+    },
+    "delete": {
+      "title": "Delete group",
+      "action": "Delete group {{group}}",
+      "message": "Delete the group {{group}}? Its members lose the policies of the group."
+    },
+    "drawer": {
+      "title": "Group {{group}}"
+    }
+  },
+  "policies": {
+    "title": "Policies",
+    "subtitle": "IAM policies in the AWS JSON format. Built-in policies are read-only.",
+    "searchPlaceholder": "Policy name",
+    "loadError": "Could not load the policies.",
+    "empty": "No policy matches.",
+    "create": "Create policy",
+    "simulate": "Simulator",
+    "builtIn": "Built-in",
+    "statements": "Statements",
+    "updated": "Updated",
+    "delete": {
+      "title": "Delete policy",
+      "action": "Delete policy {{policy}}",
+      "message": "Delete the policy {{policy}}? It is detached from every user and group."
+    }
+  },
+  "policyEditor": {
+    "newTitle": "New policy",
+    "loadError": "Could not load the policy {{policy}}.",
+    "nameHint": "Letters, digits and + = , . @ _ - (at most 128).",
+    "nameInvalid": "Enter a valid policy name.",
+    "document": "Policy document",
+    "documentHint": "AWS policy JSON. Ctrl+Space suggests actions, operators and condition keys.",
+    "validate": "Validate",
+    "valid": "The policy is valid.",
+    "invalid_one": "The policy has 1 problem: see the highlighted line.",
+    "invalid_other": "The policy has {{count}} problems: see the highlighted lines.",
+    "saved": "Policy {{policy}} saved.",
+    "saveError": "Could not save the policy.",
+    "syntaxError": "Invalid JSON at line {{line}}, column {{column}}: {{message}}",
+    "builtInNotice": "Built-in policies cannot be changed. Create a new policy to customise it.",
+    "tabs": {
+      "json": "JSON",
+      "builder": "Visual builder"
+    },
+    "entities": {
+      "title": "Attached to",
+      "users": "Users:",
+      "groups": "Groups:",
+      "kind": "Attach to a user or a group",
+      "user": "User",
+      "group": "Group",
+      "attachTo": "Attach to",
+      "attach": "Attach",
+      "detach": "Detach from {{name}}"
+    }
+  },
+  "policyBuilder": {
+    "invalidJson": "Fix the JSON document to use the visual builder.",
+    "empty": "The policy has no statements yet.",
+    "addStatement": "Add statement",
+    "statement": "Statement {{number}}",
+    "removeStatement": "Remove statement {{number}}",
+    "hasCondition": "Has conditions",
+    "advanced": "This statement uses NotAction, NotResource or Principal: edit it in the JSON tab.",
+    "effect": "Effect",
+    "allow": "Allow",
+    "deny": "Deny",
+    "actions": "Actions",
+    "actionsPlaceholder": "Pick actions",
+    "noAction": "No action found",
+    "resources": "Resources",
+    "resourcesHint": "S3 ARNs; type and press Enter, or add a bucket below.",
+    "bucket": "Bucket",
+    "prefix": "Prefix",
+    "addBucket": "Add bucket and prefix",
+    "presets": {
+      "label": "Quick add:",
+      "readOnly": "Read only",
+      "readWrite": "Read and write",
+      "writeOnly": "Write only",
+      "fullS3": "All S3"
+    }
+  },
+  "simulator": {
+    "title": "Policy simulator",
+    "subtitle": "Evaluate a request with the enforcement engine: who, what, on which resource and in which context.",
+    "user": "User or access key",
+    "userHint": "Empty: yourself.",
+    "action": "Action",
+    "actionRequired": "Enter an action.",
+    "bucket": "Bucket",
+    "object": "Object",
+    "context": "Context",
+    "sourceIp": "Source IP",
+    "tls": "TLS (aws:SecureTransport)",
+    "tlsUnset": "Not set",
+    "tlsOn": "Yes",
+    "tlsOff": "No",
+    "time": "Time",
+    "timeNow": "Now",
+    "conditions": "Other condition values",
+    "conditionKey": "Key",
+    "conditionValue": "Value",
+    "addCondition": "Add a condition value",
+    "removeCondition": "Remove the condition value",
+    "run": "Simulate",
+    "allowed": "Allowed",
+    "denied": "Denied",
+    "summary": "{{user}} → {{action}} on {{resource}}",
+    "reason": "Reason: {{reason}}",
+    "decidedBy": "Decided by {{source}}",
+    "decidingStatement": "Deciding statement",
+    "evaluated": "Evaluated statements",
+    "noStatements": "No statement applies to this principal.",
+    "matched": "Matches",
+    "mismatch": "No match ({{element}})",
+    "deciding": "deciding",
+    "mismatchOf": {
+      "principal": "principal",
+      "action": "action",
+      "resource": "resource",
+      "condition": "condition"
+    },
+    "columns": {
+      "source": "Source",
+      "statement": "Statement",
+      "effect": "Effect",
+      "result": "Result"
+    },
+    "source": {
+      "root": "the root user",
+      "iam": "policy {{policy}}",
+      "group": "policy {{policy}} of group {{group}}",
+      "inline": "the inline policy of the access key",
+      "bucket": "the bucket policy"
+    }
+  },
+  "accessKeys": {
+    "title": "Access keys",
+    "subtitle": "Service accounts derived from a user, with an optional inline policy and expiration.",
+    "create": "Create access key",
+    "loadError": "Could not load the access keys.",
+    "empty": "No access keys.",
+    "inline": "Inline policy",
+    "never": "Never",
+    "expired": "Expired",
+    "edit": "Edit {{key}}",
+    "filter": {
+      "label": "Owner",
+      "all": "All users",
+      "mine": "My access keys"
+    },
+    "fields": {
+      "accessKey": "Access key",
+      "secretKey": "Secret key",
+      "name": "Name",
+      "description": "Description",
+      "owner": "Owner",
+      "enabled": "Enabled",
+      "expiration": "Expiration",
+      "policy": "Inline policy"
+    },
+    "form": {
+      "createTitle": "Create access key",
+      "editTitle": "Edit access key {{key}}",
+      "ownerHint": "Empty: the key is yours.",
+      "expires": "Expires",
+      "inlinePolicy": "Restrict with an inline policy",
+      "inlinePolicyHint": "The key can never do more than its owner: the inline policy only narrows it.",
+      "expiration": {
+        "required": "Pick the expiration date.",
+        "past": "The expiration must be in the future."
+      }
+    },
+    "secret": {
+      "title": "Access key created",
+      "once": "This is the only time the secret key is shown. Copy it or download the credentials now.",
+      "copy": "Copy {{field}}",
+      "download": "Download credentials (JSON)",
+      "acknowledge": "I have saved the secret key",
+      "done": "Done"
+    },
+    "delete": {
+      "title": "Delete access key",
+      "action": "Delete {{key}}",
+      "message": "Delete the access key {{key}}? Clients using it are rejected immediately."
+    }
+  },
+  "shareDialog": {
+    "title": "Share {{name}}",
+    "formLabel": "Share settings",
+    "version": "Version {{version}}",
+    "permission": "Permission",
+    "download": "Download",
+    "upload": "Upload",
+    "prefixUploadHint": "To let others upload into a folder, use the",
+    "uploadGenerator": "upload generator",
+    "expiry": {
+      "label": "Valid for",
+      "1h": "1 hour",
+      "1d": "1 day",
+      "7d": "7 days",
+      "custom": "Until…",
+      "date": "Expiration date",
+      "max": "At most 7 days from now.",
+      "problem": {
+        "required": "Pick the expiration date.",
+        "past": "The expiration must be in the future.",
+        "tooFar": "A link can be valid for at most 7 days."
+      }
+    },
+    "disposition": {
+      "label": "When opened",
+      "hint": "Content-Disposition of the download.",
+      "default": "Browser default",
+      "inline": "Show in the browser",
+      "attachment": "Download as a file"
+    },
+    "contentType": "Content type",
+    "contentTypeHint": "Optional: the uploader must send exactly this Content-Type.",
+    "raw": {
+      "label": "Raw presigned link",
+      "hint": "Signed with your own credentials instead of a managed share.",
+      "warning": "A raw presigned link cannot be revoked: it stays valid until it expires, unless your credentials are disabled."
+    },
+    "create": "Create link",
+    "result": {
+      "managed": "Share link created. You can revoke it at any time from the Shares page.",
+      "raw": "Raw presigned link created. It cannot be revoked.",
+      "expires": "Valid until {{date}}.",
+      "url": "Link",
+      "copy": "Copy link",
+      "qr": "QR code of the link",
+      "curl": "Upload with curl",
+      "noUrl": "Prefix upload shares have no direct URL.",
+      "another": "Create another link"
+    }
+  },
+  "shares": {
+    "title": "Shares",
+    "subtitle": "Active share links and upload links.",
+    "tabs": {
+      "links": "Active links",
+      "upload": "Upload generator"
+    },
+    "loadError": "Could not load the share links.",
+    "empty": "No active share links.",
+    "prefix": "Prefix",
+    "expired": "Expired",
+    "createdAt": "Created {{date}}",
+    "copy": "Copy link",
+    "copyFor": "Copy the link of {{name}}",
+    "selectAll": "Select all links",
+    "select": "Select {{name}}",
+    "filter": {
+      "bucket": "Bucket",
+      "owner": "Owner",
+      "everyone": "Everyone"
+    },
+    "columns": {
+      "object": "Object",
+      "permission": "Permission",
+      "owner": "Owner",
+      "expires": "Expires"
+    },
+    "permission": {
+      "download": "Download",
+      "upload": "Upload"
+    },
+    "revoke": {
+      "title": "Revoke share links",
+      "confirm": "Revoke",
+      "action": "Revoke the link of {{name}}",
+      "one": "Revoke the link of {{name}}? It stops working immediately.",
+      "selected_one": "Revoke the selected link? It stops working immediately.",
+      "selected_other": "Revoke {{count}} selected links? They stop working immediately.",
+      "allMine": "Revoke all your share links?",
+      "allOf": "Revoke all the share links of {{owner}}?",
+      "selectedButton": "Revoke selected ({{count}})",
+      "allMineButton": "Revoke all my links",
+      "allOfButton": "Revoke all links of {{owner}}"
+    }
+  },
+  "uploadGenerator": {
+    "title": "Upload link generator",
+    "mode": "Kind of link",
+    "post": "HTML form (POST policy)",
+    "put": "Single URL (PUT)",
+    "bucket": "Bucket",
+    "key": "Object key",
+    "keyPrefix": "Key prefix",
+    "keyPrefixHint": "Uploaded files are stored under this prefix with their own name.",
+    "expiry": "Valid for",
+    "maxSize": "Maximum size",
+    "maxSizeHint": "0: no limit.",
+    "typeRule": "Content type",
+    "typeAny": "Any",
+    "typeExact": "Exactly",
+    "typePrefix": "Starting with",
+    "contentType": "Content type value",
+    "generate": "Generate",
+    "snippets": {
+      "title": "Snippets",
+      "notice": "These snippets carry a signature: whoever has them can upload until they expire.",
+      "html": "HTML",
+      "curl": "curl",
+      "js": "JavaScript",
+      "copy": "Copy the {{kind}} snippet"
+    }
+  },
+  "configuration": {
+    "title": "Configuration",
+    "subtitle": "Dynamic settings of the server, by subsystem.",
+    "loadError": "Could not load the configuration.",
+    "export": "Export",
+    "import": "Import",
+    "exportWarning": "The export contains the secrets in clear text: store it safely.",
+    "imported": "Configuration imported.",
+    "importTitle": "Import configuration",
+    "importConfirm": "Replace the whole configuration with {{file}}?",
+    "importInvalid": "{{file}} is not a configuration document.",
+    "saved": "Settings of {{subsystem}} saved.",
+    "reset": "Reset to defaults",
+    "resetTitle": "Reset subsystem",
+    "resetConfirm": "Remove every setting of {{subsystem}} and go back to the defaults?",
+    "default": "default {{value}}",
+    "secretSet": "a secret is stored; leave it to keep it",
+    "problems": {
+      "bool": "Use on or off.",
+      "int": "Enter a non-negative integer.",
+      "duration": "Enter a duration such as 30s, 5m or 12h.",
+      "url": "Enter an http(s) URL.",
+      "enum": "Pick one of {{values}}.",
+      "list": "Separate the values with commas, without empty items."
+    }
   }
 }

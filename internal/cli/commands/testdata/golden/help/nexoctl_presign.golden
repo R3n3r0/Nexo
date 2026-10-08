@@ -1,0 +1,26 @@
+Generate a raw presigned URL (GET, HEAD, PUT or DELETE), signed locally with the
+credentials of the alias: it is neither managed nor revocable.
+Signed headers (--header) must be sent unchanged with the request.
+
+Usage:
+  nexoctl presign [flags] ALIAS/BUCKET/OBJECT
+
+Examples:
+  nexoctl presign --method DELETE --expire 10m local/tmp/old.bin
+  nexoctl presign --method PUT --header "Content-Type: image/png" local/img/logo.png
+
+Flags:
+      --content-disposition string   GET: Content-Disposition of the response; PUT: of the object
+      --content-type string          GET: Content-Type of the response; PUT: of the object
+  -E, --expire string                validity of the URL (1s to 7d) (default "7d")
+  -H, --header stringArray           signed header "Name: value" (PUT: Content-Type, Cache-Control, x-amz-meta-*, ...)
+  -h, --help                         help for presign
+  -X, --method string                HTTP method: GET, HEAD, PUT or DELETE (default "GET")
+      --version-id string            version of the object (GET, HEAD, DELETE)
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

@@ -1,0 +1,16 @@
+# TCL-E-04: Ctrl-C during a multipart cp aborts the upload: nothing is
+# left on the server.
+
+[windows] skip 'SIGINT cannot be sent to a process on Windows'
+
+mkfile big.bin 40MiB
+exec nexoctl mb local/bkt
+! exec nexoctl cp --part-size 5MiB --parallel 2 --limit-upload 4MiB big.bin local/bkt/big.bin &cp&
+eventually 20s -match 'big.bin' nexoctl ls --incomplete local/bkt
+kill -INT cp
+wait cp
+stderr 'interrupted: the multipart upload .* of bkt/big.bin was aborted'
+
+exec nexoctl ls --incomplete local/bkt
+! stdout .
+expectcode 3 nexoctl stat local/bkt/big.bin

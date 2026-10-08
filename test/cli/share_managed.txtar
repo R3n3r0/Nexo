@@ -1,0 +1,63 @@
+# TCL-P-01: a managed share link downloads the object (curl-like client).
+# TCL-P-03: share list / share revoke / share revoke --all --user: a
+# revoked link answers 403 at once. S-OBJ-08c, C-OBJ-07.
+
+exec nexoctl mb local/shared
+exec nexoctl cp report.txt local/shared/report.txt
+exec nexoctl cp report.txt local/shared/other.txt
+
+exec nexoctl share download --expire 1h --json local/shared/report.txt
+jsonlines stdout
+jsonfield stdout url URL
+jsonfield stdout id ID
+stdout '"managed":true'
+http -o got.txt $URL
+cmp got.txt report.txt
+
+exec nexoctl share list local
+stdout '^'$ID' +'$NEXO_ROOT_USER' +download '
+exec nexoctl share list --json local/shared
+jsonlines stdout
+stdout '"id":"'$ID'"'
+
+exec nexoctl share revoke local $ID
+stdout '^Revoked share '$ID'\.$'
+http -status 403 $URL
+expectcode 3 nexoctl share revoke local $ID
+
+# Upload link (managed PUT).
+exec nexoctl share upload --expire 1h --json local/shared/inbox/up.txt
+jsonfield stdout url PUTURL
+http -X PUT -T upload.txt $PUTURL
+exec nexoctl cat local/shared/inbox/up.txt
+cmp stdout upload.txt
+
+# The links of another user: listed and revoked by the administrator.
+exec nexoctl admin user add local dora dora-secret-1 --policy readwrite
+exec nexoctl alias set dora $NEXO_URL dora dora-secret-1 --admin-url $NEXO_ADMIN_URL
+exec nexoctl share download --expire 1h --json dora/shared/other.txt
+jsonfield stdout url DORAURL
+exec nexoctl share download --expire 1h --json dora/shared/report.txt
+jsonfield stdout url DORAURL2
+http -o d.txt $DORAURL
+exec nexoctl share list dora
+stdout -count=2 ' dora +download '
+expectcode 4 nexoctl share list --user $NEXO_ROOT_USER dora
+exec nexoctl share list --user dora local
+stdout -count=2 ' dora +download '
+exec nexoctl share revoke --all --user dora local
+stdout '^Revoked 2 share link\(s\) of user "dora"\.$'
+http -status 403 $DORAURL
+http -status 403 $DORAURL2
+exec nexoctl share list dora
+stdout '^No active share links\.$'
+
+# --all without --user revokes the caller's own links.
+exec nexoctl share revoke --all local
+stdout '^Revoked 1 of your share link\(s\)\.$'
+http -status 403 $PUTURL
+
+-- report.txt --
+managed report
+-- upload.txt --
+uploaded through a managed link

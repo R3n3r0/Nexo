@@ -1,0 +1,22 @@
+Generate the autocompletion script for powershell.
+
+To load completions in your current shell session:
+
+	nexoctl completion powershell | Out-String | Invoke-Expression
+
+To load completions for every new session, add the output of the above command
+to your powershell profile.
+
+Usage:
+  nexoctl completion powershell [flags]
+
+Flags:
+  -h, --help              help for powershell
+      --no-descriptions   disable completion descriptions
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

@@ -1,0 +1,18 @@
+Replace the tags of a bucket or object
+
+Usage:
+  nexoctl tag set ALIAS/BUCKET[/OBJECT] "KEY1=VALUE1&KEY2=VALUE2" [flags]
+
+Examples:
+  nexoctl tag set local/docs/report.pdf "project=nexo&status=final"
+
+Flags:
+  -h, --help                help for set
+      --version-id string   tag this version of the object
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

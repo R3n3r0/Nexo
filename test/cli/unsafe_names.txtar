@@ -1,0 +1,35 @@
+# covers: C-OBJ-03, C-OBJ-06 (regression: "zip slip" of cp -r and mirror)
+# A bucket of any S3-compatible endpoint (AWS S3 accepts keys with ".."
+# segments) must never make nexoctl write outside the local destination:
+# the unsafe objects are reported one by one, nothing is written for them,
+# the others are copied and the exit code is 1.
+foreigns3 EVIL_URL bkt ../../escaped-cp.txt a/../../../escaped-deep.txt ok.txt sub/ok.txt
+exec nexoctl alias set evil $EVIL_URL AKIAFOREIGN foreignsecret
+
+mkdir a/b
+expectcode 1 nexoctl cp -r evil/bkt/ a/b/out/
+stderr 'skipping `evil/bkt/../../escaped-cp.txt`: unsafe local file name'
+stderr 'skipping `evil/bkt/a/../../../escaped-deep.txt`: unsafe local file name'
+stderr '2 of 4 copy operations failed'
+! exists a/escaped-cp.txt
+! exists escaped-deep.txt
+grep '^data of ok.txt$' a/b/out/ok.txt
+exists a/b/out/sub/ok.txt
+
+mkdir m/n
+expectcode 1 nexoctl mirror evil/bkt m/n/dst
+stderr 'skipping `evil/bkt/../../escaped-cp.txt`: unsafe local file name'
+stdout 'Mirrored 2 objects'
+! exists m/escaped-cp.txt
+! exists escaped-deep.txt
+grep '^data of ok.txt$' m/n/dst/ok.txt
+
+# A single object is written under its base name only.
+exec nexoctl cp evil/bkt/../../escaped-cp.txt a/b/single/
+exists a/b/single/escaped-cp.txt
+! exists a/escaped-cp.txt
+
+# JSON: one "error" line per rejected object.
+expectcode 1 nexoctl --json cp -r evil/bkt/ j/
+stderr '"status":"error","action":"copy","source":"evil/bkt/../../escaped-cp.txt"'
+exists j/ok.txt

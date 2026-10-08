@@ -1,0 +1,124 @@
+$ nexoctl admin accesskey list mem
+
+$ nexoctl admin accesskey create mem --user alice --expiry 30d --policy inline.json --name ci --description CI uploads
+Access Key: AKMEM0001
+Secret Key: SKMEM0001secret
+Parent User: alice
+Expiration: 2026-02-01 03:04:05 UTC
+Policy: inline (restricts the parent user)
+The secret key is shown only once: store it now.
+
+$ nexoctl admin accesskey create mem --access-key AKFIXED --secret-key fixed-secret-key --expiry 2026-03-01
+Access Key: AKFIXED
+Secret Key: fixed-secret-key
+Parent User: MEMKEY
+Expiration: 2026-03-01 00:00:00 UTC
+Policy: inherited from the parent user
+The secret key is shown only once: store it now.
+
+$ nexoctl admin accesskey create mem --json --user alice
+{"status":"success","alias":"mem","accessKey":"AKMEM0003","secretKey":"SKMEM0003secret","parentUser":"alice","state":"enabled","createdAt":"2026-01-02T03:04:05Z","updatedAt":"2026-01-02T03:04:05Z"}
+
+$ nexoctl admin accesskey create mem --expiry soon
+! nexoctl: error: invalid --expiry "soon": use a duration (30d, 12h) or a date (2026-12-31, RFC 3339)
+! Run 'nexoctl admin accesskey create --help' for usage.
+[exit 2]
+
+$ nexoctl admin accesskey create mem --expiry 2020-01-01
+! nexoctl: error: --expiry "2020-01-01" must be in the future
+! Run 'nexoctl admin accesskey create --help' for usage.
+[exit 2]
+
+$ nexoctl admin accesskey create mem --policy broken.json
+! nexoctl: error: broken.json: invalid JSON document
+!   line 3, column 1: invalid character '}' looking for beginning of value
+[exit 1]
+
+$ nexoctl admin accesskey list mem
+ACCESS KEY               PARENT           STATUS    EXPIRATION              NAME
+AKFIXED                  MEMKEY           enabled   2026-03-01 00:00:00 UTC
+AKMEM0001                alice            enabled   2026-02-01 03:04:05 UTC ci
+AKMEM0003                alice            enabled   never
+
+$ nexoctl admin accesskey list mem --user alice
+ACCESS KEY               PARENT           STATUS    EXPIRATION              NAME
+AKMEM0001                alice            enabled   2026-02-01 03:04:05 UTC ci
+AKMEM0003                alice            enabled   never
+
+$ nexoctl admin accesskey info mem AKMEM0001
+Access Key: AKMEM0001
+Parent User: alice
+Status: enabled
+Name: ci
+Description: CI uploads
+Expiration: 2026-02-01 03:04:05 UTC
+Created: 2026-01-02 03:04:05 UTC
+Policy: inline (restricts the parent user)
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadPub",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::pub/*"
+      ]
+    }
+  ]
+}
+
+$ nexoctl admin accesskey edit mem AKMEM0001
+! nexoctl: error: nothing to change: give at least one flag
+! Run 'nexoctl admin accesskey edit --help' for usage.
+[exit 2]
+
+$ nexoctl admin accesskey edit mem AKMEM0001 --enable --disable
+! nexoctl: error: --enable excludes --disable
+! Run 'nexoctl admin accesskey edit --help' for usage.
+[exit 2]
+
+$ nexoctl admin accesskey edit mem AKMEM0001 --disable --clear-expiry --clear-policy --name ci-old
+Updated access key "AKMEM0001" (disabled, expiration never).
+
+$ nexoctl admin accesskey edit mem AKMEM0001 --expiry 7d --policy inline.json
+Updated access key "AKMEM0001" (disabled, expiration 2026-01-09 03:04:05 UTC).
+
+$ nexoctl admin accesskey info mem AKMEM0001
+Access Key: AKMEM0001
+Parent User: alice
+Status: disabled
+Name: ci-old
+Description: CI uploads
+Expiration: 2026-01-09 03:04:05 UTC
+Created: 2026-01-02 03:04:05 UTC
+Policy: inline (restricts the parent user)
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadPub",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::pub/*"
+      ]
+    }
+  ]
+}
+
+$ nexoctl admin accesskey remove mem AKMEM0001 AKMEM0001
+Removed access key "AKMEM0001".
+! nexoctl: error: remove access key "AKMEM0001": access key not found: "AKMEM0001" (user_not_found)
+[exit 3]
+
+$ nexoctl admin accesskey info mem AKMEM0001
+! nexoctl: error: access key "AKMEM0001": access key not found: "AKMEM0001" (user_not_found)
+[exit 3]
+

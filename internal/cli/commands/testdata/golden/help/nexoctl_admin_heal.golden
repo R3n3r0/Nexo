@@ -1,0 +1,20 @@
+Start a healing operation on the whole server, a bucket or a prefix and print its
+outcome. With --dry-run the objects are checked and nothing is repaired.
+
+Usage:
+  nexoctl admin heal [flags] ALIAS[/BUCKET[/PREFIX]]
+
+Examples:
+  nexoctl admin heal --recursive --dry-run local/photos
+
+Flags:
+      --dry-run     only report what would be healed
+  -h, --help        help for heal
+  -r, --recursive   heal every object under the bucket or prefix
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

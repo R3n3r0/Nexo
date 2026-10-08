@@ -1,0 +1,237 @@
+$ nexoctl share download --raw mem/pub/docs/report.pdf
+URL: mem/pub/docs/report.pdf
+Expire: 7d0s
+Share: https://s3.mem.test/pub/docs/report.pdf?X-Amz-Expires=604800&X-Amz-Signature=fake
+
+$ nexoctl share download --raw --expire 2h --content-disposition attachment mem/pub/docs/report.pdf
+URL: mem/pub/docs/report.pdf
+Expire: 2h0m0s
+Share: https://s3.mem.test/pub/docs/report.pdf?X-Amz-Expires=7200&X-Amz-Signature=fake&response-content-disposition=attachment
+
+$ nexoctl share download --raw --recursive --expire 1h mem/pub/docs/
+URL: mem/pub/docs/2026/a.txt
+Expire: 1h0m0s
+Share: https://s3.mem.test/pub/docs/2026/a.txt?X-Amz-Expires=3600&X-Amz-Signature=fake
+URL: mem/pub/docs/report.pdf
+Expire: 1h0m0s
+Share: https://s3.mem.test/pub/docs/report.pdf?X-Amz-Expires=3600&X-Amz-Signature=fake
+
+$ nexoctl share download --raw mem/pub/docs/
+! nexoctl: error: mem/pub/docs/ is a bucket or a prefix: use --recursive
+! Run 'nexoctl share download --help' for usage.
+[exit 2]
+
+$ nexoctl share download --raw --expire 8d mem/pub/docs/report.pdf
+! nexoctl: error: expiry 8d0s must be between 1s and 7d0s
+! Run 'nexoctl share download --help' for usage.
+[exit 2]
+
+$ nexoctl share upload --raw --expire 1h --content-type application/pdf mem/pub/inbox/new.pdf
+URL: mem/pub/inbox/new.pdf
+Expire: 1h0m0s
+Share: https://s3.mem.test/pub/inbox/new.pdf?X-Amz-Expires=3600&X-Amz-Signature=fake
+Command: curl -X PUT -H 'Content-Type: application/pdf' --upload-file <FILE> 'https://s3.mem.test/pub/inbox/new.pdf?X-Amz-Expires=3600&X-Amz-Signature=fake'
+
+$ nexoctl share upload --raw mem/pub/inbox/
+! nexoctl: error: mem/pub/inbox/: an upload URL needs an object name (or use --post with a prefix)
+! Run 'nexoctl share upload --help' for usage.
+[exit 2]
+
+$ nexoctl share upload --post --max-size 10MiB --prefix uploads/ --expire 1h mem/pub
+URL: mem/pub
+Expire: 1h0m0s
+POST: https://s3.mem.test/pub
+Fields:
+  key: uploads/${filename}
+  policy: eyJidWNrZXQiOiJwdWIiLCJleHBpcmF0aW9uIjoiMjAyNi0wMS0wMlQwNDowNDowNVoiLCJrZXkiOiJ1cGxvYWRzLyR7ZmlsZW5hbWV9IiwibWF4U2l6ZSI6MTA0ODU3NjB9
+  x-amz-algorithm: AWS4-HMAC-SHA256
+  x-amz-credential: MEM/20260102/us-east-1/s3/aws4_request
+  x-amz-date: 20260102T030405Z
+  x-amz-signature: fake
+Command: curl -F 'key=uploads/${filename}' -F 'policy=eyJidWNrZXQiOiJwdWIiLCJleHBpcmF0aW9uIjoiMjAyNi0wMS0wMlQwNDowNDowNVoiLCJrZXkiOiJ1cGxvYWRzLyR7ZmlsZW5hbWV9IiwibWF4U2l6ZSI6MTA0ODU3NjB9' -F 'x-amz-algorithm=AWS4-HMAC-SHA256' -F 'x-amz-credential=MEM/20260102/us-east-1/s3/aws4_request' -F 'x-amz-date=20260102T030405Z' -F 'x-amz-signature=fake' -F file=@<FILE> 'https://s3.mem.test/pub'
+HTML:
+<form action="https://s3.mem.test/pub" method="post" enctype="multipart/form-data">
+  <input type="hidden" name="key" value="uploads/${filename}">
+  <input type="hidden" name="policy" value="eyJidWNrZXQiOiJwdWIiLCJleHBpcmF0aW9uIjoiMjAyNi0wMS0wMlQwNDowNDowNVoiLCJrZXkiOiJ1cGxvYWRzLyR7ZmlsZW5hbWV9IiwibWF4U2l6ZSI6MTA0ODU3NjB9">
+  <input type="hidden" name="x-amz-algorithm" value="AWS4-HMAC-SHA256">
+  <input type="hidden" name="x-amz-credential" value="MEM/20260102/us-east-1/s3/aws4_request">
+  <input type="hidden" name="x-amz-date" value="20260102T030405Z">
+  <input type="hidden" name="x-amz-signature" value="fake">
+  <input type="file" name="file">
+  <input type="submit" value="Upload">
+</form>
+
+$ nexoctl share upload --post --expire 1h mem/pub/exact.bin
+URL: mem/pub/exact.bin
+Expire: 1h0m0s
+POST: https://s3.mem.test/pub
+Fields:
+  key: exact.bin
+  policy: eyJidWNrZXQiOiJwdWIiLCJleHBpcmF0aW9uIjoiMjAyNi0wMS0wMlQwNDowNDowNVoiLCJrZXkiOiJleGFjdC5iaW4iLCJtYXhTaXplIjowfQ==
+  x-amz-algorithm: AWS4-HMAC-SHA256
+  x-amz-credential: MEM/20260102/us-east-1/s3/aws4_request
+  x-amz-date: 20260102T030405Z
+  x-amz-signature: fake
+Command: curl -F 'key=exact.bin' -F 'policy=eyJidWNrZXQiOiJwdWIiLCJleHBpcmF0aW9uIjoiMjAyNi0wMS0wMlQwNDowNDowNVoiLCJrZXkiOiJleGFjdC5iaW4iLCJtYXhTaXplIjowfQ==' -F 'x-amz-algorithm=AWS4-HMAC-SHA256' -F 'x-amz-credential=MEM/20260102/us-east-1/s3/aws4_request' -F 'x-amz-date=20260102T030405Z' -F 'x-amz-signature=fake' -F file=@<FILE> 'https://s3.mem.test/pub'
+HTML:
+<form action="https://s3.mem.test/pub" method="post" enctype="multipart/form-data">
+  <input type="hidden" name="key" value="exact.bin">
+  <input type="hidden" name="policy" value="eyJidWNrZXQiOiJwdWIiLCJleHBpcmF0aW9uIjoiMjAyNi0wMS0wMlQwNDowNDowNVoiLCJrZXkiOiJleGFjdC5iaW4iLCJtYXhTaXplIjowfQ==">
+  <input type="hidden" name="x-amz-algorithm" value="AWS4-HMAC-SHA256">
+  <input type="hidden" name="x-amz-credential" value="MEM/20260102/us-east-1/s3/aws4_request">
+  <input type="hidden" name="x-amz-date" value="20260102T030405Z">
+  <input type="hidden" name="x-amz-signature" value="fake">
+  <input type="file" name="file">
+  <input type="submit" value="Upload">
+</form>
+
+$ nexoctl share upload --max-size 1MiB mem/pub/x
+! nexoctl: error: --max-size, --min-size and --prefix need --post
+! Run 'nexoctl share upload --help' for usage.
+[exit 2]
+
+$ nexoctl presign --method DELETE --expire 10m mem/pub/docs/report.pdf
+https://s3.mem.test/pub/docs/report.pdf?X-Amz-Expires=600&X-Amz-Signature=fake
+
+$ nexoctl presign -X PUT -H Content-Type: image/png -H x-amz-meta-origin: cli mem/pub/img.png
+https://s3.mem.test/pub/img.png?X-Amz-Expires=604800&X-Amz-Signature=fake
+Header: Content-Type: image/png
+Header: x-amz-meta-origin: cli
+
+$ nexoctl presign --method PATCH mem/pub/x
+! nexoctl: error: unsupported method "PATCH" (GET, HEAD, PUT, DELETE)
+! Run 'nexoctl presign --help' for usage.
+[exit 2]
+
+$ nexoctl presign -H bad mem/pub/x
+! nexoctl: error: invalid header "bad" (use "Name: value")
+! Run 'nexoctl presign --help' for usage.
+[exit 2]
+
+$ nexoctl anonymous get mem/pub
+Access permission for `mem/pub` is `private`.
+
+$ nexoctl anonymous set download mem/pub/docs/
+Access permission for `mem/pub/docs/` is set to `download`.
+
+$ nexoctl anonymous set upload mem/pub/inbox/
+Access permission for `mem/pub/inbox/` is set to `upload`.
+
+$ nexoctl anonymous get mem/pub/docs/
+Access permission for `mem/pub/docs/` is `download`.
+
+$ nexoctl anonymous get mem/pub/inbox/
+Access permission for `mem/pub/inbox/` is `upload`.
+
+$ nexoctl anonymous get mem/pub/other/
+Access permission for `mem/pub/other/` is `private`.
+
+$ nexoctl anonymous list mem/pub
+download mem/pub/docs/
+upload   mem/pub/inbox/
+
+$ nexoctl anonymous get-json mem/pub
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "NexoAnonymousBucket756dcfcddff9",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "*"
+      },
+      "Action": "s3:GetBucketLocation",
+      "Resource": "arn:aws:s3:::pub"
+    },
+    {
+      "Sid": "NexoAnonymousList756dcfcddff9",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "*"
+      },
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::pub",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "docs/*"
+        }
+      }
+    },
+    {
+      "Sid": "NexoAnonymousObjects756dcfcddff9",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "*"
+      },
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::pub/docs/*"
+    },
+    {
+      "Sid": "NexoAnonymousBucketd6e3b3543e83",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "*"
+      },
+      "Action": [
+        "s3:GetBucketLocation",
+        "s3:ListBucketMultipartUploads"
+      ],
+      "Resource": "arn:aws:s3:::pub"
+    },
+    {
+      "Sid": "NexoAnonymousObjectsd6e3b3543e83",
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "*"
+      },
+      "Action": [
+        "s3:PutObject",
+        "s3:AbortMultipartUpload",
+        "s3:ListMultipartUploadParts"
+      ],
+      "Resource": "arn:aws:s3:::pub/inbox/*"
+    }
+  ]
+}
+
+$ nexoctl anonymous set private mem/pub/docs/
+Access permission for `mem/pub/docs/` is set to `private`.
+
+$ nexoctl anonymous set private mem/pub/inbox/
+Access permission for `mem/pub/inbox/` is set to `private`.
+
+$ nexoctl anonymous get-json mem/pub
+{
+  "Version": "2012-10-17",
+  "Statement": []
+}
+
+$ nexoctl anonymous set readonly mem/pub
+! nexoctl: error: unknown access "readonly" (private, download, upload, public)
+! Run 'nexoctl anonymous set --help' for usage.
+[exit 2]
+
+$ nexoctl anonymous set download mem/pub/a*
+! nexoctl: error: invalid prefix "a*" (no wildcards, variables or leading slash)
+! Run 'nexoctl anonymous set --help' for usage.
+[exit 2]
+
+$ nexoctl anonymous set-json policy.json mem/pub
+Bucket policy of `mem/pub` updated.
+
+$ nexoctl anonymous get mem/pub
+Access permission for `mem/pub` is `custom`.
+
+$ nexoctl anonymous list mem/pub
+custom   mem/pub
+
+$ nexoctl anonymous set-json bad.json mem/pub
+! nexoctl: error: malformed policy: invalid argument: bucket policy: unexpected end of JSON input
+[exit 1]
+
+$ nexoctl anonymous set-json empty.json mem/pub
+Bucket policy of `mem/pub` removed.
+
+$ nexoctl anonymous get mem/pub
+Access permission for `mem/pub` is `private`.
+

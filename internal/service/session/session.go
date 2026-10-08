@@ -80,6 +80,11 @@ type service struct {
 
 	mu      sync.Mutex
 	revoked map[string]time.Time
+
+	// limits configure the throttle, built by New.
+	limits throttleLimits
+	// throttle locks out the clients that fail too many logins.
+	throttle *throttle
 }
 
 var _ Service = (*service)(nil)
@@ -95,10 +100,14 @@ func New(deps Deps, opts ...Option) (Service, error) {
 	if deps.Logger == nil {
 		deps.Logger = slog.Default()
 	}
-	s := &service{deps: deps, ttl: 12 * time.Hour, issuer: "nexo", revoked: make(map[string]time.Time)}
+	s := &service{
+		deps: deps, ttl: 12 * time.Hour, issuer: "nexo", revoked: make(map[string]time.Time),
+		limits: defaultThrottleLimits(),
+	}
 	for _, o := range opts {
 		o(s)
 	}
+	s.throttle = newThrottle(s.limits)
 	if len(s.key) == 0 {
 		key, err := randomBytes(32)
 		if err != nil {
@@ -109,33 +118,27 @@ func New(deps Deps, opts ...Option) (Service, error) {
 	return s, nil
 }
 
-// Login implements Service.
-func (s *service) Login(ctx context.Context, accessKey, secretKey string) (*Session, error) {
-	if accessKey == "" || secretKey == "" {
-		return nil, fmt.Errorf("%w: missing credentials", domain.ErrAccessDenied)
-	}
-	creds, identity, err := s.deps.IAM.LookupCredentials(ctx, accessKey)
-	if err != nil {
-		if errors.Is(err, domain.ErrInvalidAccessKey) || errors.Is(err, domain.ErrUserNotFound) {
-			return nil, fmt.Errorf("%w: invalid credentials", domain.ErrAccessDenied)
-		}
-		return nil, fmt.Errorf("session: lookup credentials: %w", err)
-	}
+// Login implements Service. Failed attempts count against the (client,
+// access key) pair and against the client; a locked-out pair or client is
+// refused before its credentials are checked, so that guessing stays
+// throttled.
+func (s *service) Login(ctx context.Context, in LoginInput) (*Session, error) {
 	now := s.deps.Clock.Now()
-	if subtle.ConstantTimeCompare([]byte(creds.SecretKey), []byte(secretKey)) != 1 {
-		return nil, fmt.Errorf("%w: invalid credentials", domain.ErrAccessDenied)
+	if wait := s.throttle.check(in.Client, in.AccessKey, now); wait > 0 {
+		return nil, fmt.Errorf("session: %w", &ThrottledError{RetryAfter: wait})
 	}
-	if !creds.IsEnabled() {
-		return nil, fmt.Errorf("%w: account disabled", domain.ErrAccessDenied)
+	accessKey := in.AccessKey
+	identity, err := s.verify(ctx, in, now)
+	if err != nil {
+		if errors.Is(err, domain.ErrAccessDenied) {
+			if lockout := s.throttle.fail(in.Client, in.AccessKey, now); lockout > 0 {
+				s.deps.Logger.WarnContext(ctx, "session: console login locked out after repeated failures",
+					"access_key", accessKey, "client", in.Client, "lockout", lockout)
+			}
+		}
+		return nil, err
 	}
-	if creds.IsExpired(now) {
-		return nil, fmt.Errorf("%w: credentials expired", domain.ErrAccessDenied)
-	}
-	if creds.SessionToken != "" {
-		// STS credentials are only valid with their session token, which
-		// the console login does not carry.
-		return nil, fmt.Errorf("%w: temporary credentials cannot open a console session", domain.ErrAccessDenied)
-	}
+	s.throttle.reset(in.Client, in.AccessKey)
 
 	id, err := randomHex(16)
 	if err != nil {
@@ -172,6 +175,36 @@ func (s *service) Login(ctx context.Context, accessKey, secretKey string) (*Sess
 		CSRFToken: csrf,
 		Token:     token,
 	}, nil
+}
+
+// verify checks the credentials of a login: unknown, wrong, disabled,
+// expired and temporary credentials are domain.ErrAccessDenied.
+func (s *service) verify(ctx context.Context, in LoginInput, now time.Time) (domain.Identity, error) {
+	if in.AccessKey == "" || in.SecretKey == "" {
+		return domain.Identity{}, fmt.Errorf("%w: missing credentials", domain.ErrAccessDenied)
+	}
+	creds, identity, err := s.deps.IAM.LookupCredentials(ctx, in.AccessKey)
+	if err != nil {
+		if errors.Is(err, domain.ErrInvalidAccessKey) || errors.Is(err, domain.ErrUserNotFound) {
+			return domain.Identity{}, fmt.Errorf("%w: invalid credentials", domain.ErrAccessDenied)
+		}
+		return domain.Identity{}, fmt.Errorf("session: lookup credentials: %w", err)
+	}
+	if subtle.ConstantTimeCompare([]byte(creds.SecretKey), []byte(in.SecretKey)) != 1 {
+		return domain.Identity{}, fmt.Errorf("%w: invalid credentials", domain.ErrAccessDenied)
+	}
+	if !creds.IsEnabled() {
+		return domain.Identity{}, fmt.Errorf("%w: account disabled", domain.ErrAccessDenied)
+	}
+	if creds.IsExpired(now) {
+		return domain.Identity{}, fmt.Errorf("%w: credentials expired", domain.ErrAccessDenied)
+	}
+	if creds.SessionToken != "" {
+		// STS credentials are only valid with their session token, which
+		// the console login does not carry.
+		return domain.Identity{}, fmt.Errorf("%w: temporary credentials cannot open a console session", domain.ErrAccessDenied)
+	}
+	return identity, nil
 }
 
 // Validate implements Service. The token only proves who logged in: the

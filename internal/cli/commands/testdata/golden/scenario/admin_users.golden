@@ -1,0 +1,119 @@
+$ nexoctl admin user list mem
+
+$ nexoctl admin user add mem alice alice-secret --policy readwrite
+Added user "alice" (enabled).
+
+$ nexoctl admin user add mem bob bob-secret-1 --policy readonly,diagnostics
+Added user "bob" (enabled).
+
+$ nexoctl admin user add mem carol carol-secret --disabled
+Added user "carol" (disabled).
+
+$ nexoctl admin user add mem alice alice-secret
+! nexoctl: error: add user "alice": user already exists: "alice" (user_already_exists)
+[exit 1]
+
+$ nexoctl admin user add mem dave dave-secret --policy missing
+! nexoctl: error: add user "dave": policy not found: "missing" (policy_not_found)
+[exit 3]
+
+$ nexoctl admin user list mem
+ACCESS KEY               STATUS    POLICIES                       GROUPS
+alice                    enabled   readwrite                      -
+bob                      enabled   diagnostics,readonly           -
+carol                    disabled  -                              -
+
+$ nexoctl admin user info mem alice
+Access Key: alice
+Status: enabled
+Policies: readwrite
+Groups: -
+Created: 2026-01-02 03:04:05 UTC
+Updated: 2026-01-02 03:04:05 UTC
+
+$ nexoctl admin user disable mem alice bob
+User "alice" is disabled.
+User "bob" is disabled.
+
+$ nexoctl admin user enable mem alice
+User "alice" is enabled.
+
+$ nexoctl admin user info mem ghost
+! nexoctl: error: user "ghost": user not found: "ghost" (user_not_found)
+[exit 3]
+
+$ nexoctl admin group add mem devs alice bob --policy writeonly
+Created group "devs" with 2 member(s).
+
+$ nexoctl admin group add mem devs carol
+Updated group "devs": 3 member(s), policies writeonly.
+
+$ nexoctl admin group add mem devs
+! nexoctl: error: group "devs" exists: name the members to add (or --policy)
+! Run 'nexoctl admin group add --help' for usage.
+[exit 2]
+
+$ nexoctl admin group add mem ops
+Created group "ops" with 0 member(s).
+
+$ nexoctl admin group list mem
+GROUP                    STATUS    MEMBERS  POLICIES
+devs                     enabled         3  writeonly
+ops                      enabled         0  -
+
+$ nexoctl admin group info mem devs
+Group: devs
+Status: enabled
+Policies: writeonly
+Members: alice,bob,carol
+Created: 2026-01-02 03:04:05 UTC
+Updated: 2026-01-02 03:04:05 UTC
+
+$ nexoctl admin group members mem devs
+alice
+bob
+carol
+
+$ nexoctl admin group members mem ops
+Group "ops" has no members.
+
+$ nexoctl admin user policy mem alice
+User alice: readwrite
+Group devs: writeonly
+Effective: readwrite,writeonly
+
+$ nexoctl admin group disable mem devs
+Group "devs" is disabled.
+
+$ nexoctl admin user policy mem alice
+User alice: readwrite
+Group devs: writeonly (disabled, not applied)
+Effective: readwrite
+
+$ nexoctl admin group enable mem devs
+Group "devs" is enabled.
+
+$ nexoctl admin group remove mem devs carol
+Removed 1 member(s) from group "devs".
+
+$ nexoctl admin group remove mem ops
+Removed group "ops".
+
+$ nexoctl admin group info mem ops
+! nexoctl: error: group "ops": group not found: "ops" (group_not_found)
+[exit 3]
+
+$ nexoctl admin user remove mem carol ghost
+Removed user "carol".
+! nexoctl: error: remove user "ghost": user not found: "ghost" (user_not_found)
+[exit 3]
+
+$ nexoctl admin user list mem
+ACCESS KEY               STATUS    POLICIES                       GROUPS
+alice                    enabled   readwrite                      devs
+bob                      disabled  diagnostics,readonly           devs
+
+$ nexoctl admin user list bob
+! nexoctl: error: admin:ListUsers: no policy allows admin:ListUsers (access_denied)
+[exit 4]
+

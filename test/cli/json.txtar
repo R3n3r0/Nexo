@@ -1,0 +1,85 @@
+# TCL-E-18: every command prints valid JSON Lines with --json (a "status"
+# member first), errors included.
+
+exec nexoctl mb --json local/bkt
+jsonlines stdout
+exec nexoctl cp --json --recursive dir/ local/bkt/dir/
+jsonlines stdout
+exec nexoctl ls --json local
+jsonlines stdout
+exec nexoctl ls --json --recursive --versions local/bkt
+jsonlines stdout
+exec nexoctl ls --json local/bkt/dir
+jsonlines stdout
+exec nexoctl stat --json local/bkt/dir/a.txt
+jsonlines stdout
+exec nexoctl stat --json local/bkt
+jsonlines stdout
+exec nexoctl cat --json local/bkt/dir/a.txt
+jsonlines stdout
+stdout '"content":"alpha\\n"'
+exec nexoctl head --json -n 1 local/bkt/dir/a.txt
+jsonlines stdout
+stdin dir/a.txt
+exec nexoctl pipe --json local/bkt/piped.txt
+jsonlines stdout
+exec nexoctl mv --json local/bkt/piped.txt local/bkt/moved.txt
+jsonlines stdout
+exec nexoctl mirror --json dir local/bkt/mirror
+jsonlines stdout
+exec nexoctl find --json local/bkt --name '*.txt'
+jsonlines stdout
+exec nexoctl du --json --depth 1 local/bkt
+jsonlines stdout
+exec nexoctl tree --json local/bkt
+jsonlines stdout
+exec nexoctl diff --json dir local/bkt/other
+jsonlines stdout
+exec nexoctl share download --json local/bkt/dir/a.txt
+jsonlines stdout
+exec nexoctl share upload --json local/bkt/up.txt
+jsonlines stdout
+exec nexoctl share upload --post --json local/bkt/inbox/
+jsonlines stdout
+exec nexoctl presign --json -X HEAD local/bkt/dir/a.txt
+jsonlines stdout
+exec nexoctl anonymous set --json download local/bkt/dir/
+jsonlines stdout
+exec nexoctl anonymous get --json local/bkt/dir/
+jsonlines stdout
+exec nexoctl anonymous list --json local/bkt
+jsonlines stdout
+exec nexoctl anonymous get-json --json local/bkt
+jsonlines stdout
+exec nexoctl version enable --json local/bkt
+jsonlines stdout
+exec nexoctl version info --json local/bkt
+jsonlines stdout
+exec nexoctl version --json
+jsonlines stdout
+exec nexoctl tag set --json local/bkt/dir/a.txt 'k=v'
+jsonlines stdout
+exec nexoctl tag list --json local/bkt/dir/a.txt
+jsonlines stdout
+exec nexoctl tag remove --json local/bkt/dir/a.txt
+jsonlines stdout
+exec nexoctl alias list --json
+jsonlines stdout
+exec nexoctl rm --json --recursive --force local/bkt/dir
+jsonlines stdout
+exec nexoctl rb --json --force local/bkt
+jsonlines stdout
+
+# Errors are JSON lines on stderr.
+expectcode 3 nexoctl stat --json local/bkt/missing
+! stdout .
+jsonlines stderr
+stderr '"status":"error","error":\{"code":"NotFound"'
+expectcode 2 nexoctl ls --json
+jsonlines stderr
+stderr '"code":"UsageError"'
+
+-- dir/a.txt --
+alpha
+-- dir/b.txt --
+beta

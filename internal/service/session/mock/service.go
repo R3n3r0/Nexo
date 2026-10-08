@@ -22,9 +22,9 @@ func (_m *Service) EXPECT() *Service_Expecter {
 	return &Service_Expecter{mock: &_m.Mock}
 }
 
-// Login provides a mock function with given fields: ctx, accessKey, secretKey
-func (_m *Service) Login(ctx context.Context, accessKey string, secretKey string) (*session.Session, error) {
-	ret := _m.Called(ctx, accessKey, secretKey)
+// Login provides a mock function with given fields: ctx, in
+func (_m *Service) Login(ctx context.Context, in session.LoginInput) (*session.Session, error) {
+	ret := _m.Called(ctx, in)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Login")
@@ -32,19 +32,19 @@ func (_m *Service) Login(ctx context.Context, accessKey string, secretKey string
 
 	var r0 *session.Session
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) (*session.Session, error)); ok {
-		return rf(ctx, accessKey, secretKey)
+	if rf, ok := ret.Get(0).(func(context.Context, session.LoginInput) (*session.Session, error)); ok {
+		return rf(ctx, in)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) *session.Session); ok {
-		r0 = rf(ctx, accessKey, secretKey)
+	if rf, ok := ret.Get(0).(func(context.Context, session.LoginInput) *session.Session); ok {
+		r0 = rf(ctx, in)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*session.Session)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
-		r1 = rf(ctx, accessKey, secretKey)
+	if rf, ok := ret.Get(1).(func(context.Context, session.LoginInput) error); ok {
+		r1 = rf(ctx, in)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -59,15 +59,14 @@ type Service_Login_Call struct {
 
 // Login is a helper method to define mock.On call
 //   - ctx context.Context
-//   - accessKey string
-//   - secretKey string
-func (_e *Service_Expecter) Login(ctx interface{}, accessKey interface{}, secretKey interface{}) *Service_Login_Call {
-	return &Service_Login_Call{Call: _e.mock.On("Login", ctx, accessKey, secretKey)}
+//   - in session.LoginInput
+func (_e *Service_Expecter) Login(ctx interface{}, in interface{}) *Service_Login_Call {
+	return &Service_Login_Call{Call: _e.mock.On("Login", ctx, in)}
 }
 
-func (_c *Service_Login_Call) Run(run func(ctx context.Context, accessKey string, secretKey string)) *Service_Login_Call {
+func (_c *Service_Login_Call) Run(run func(ctx context.Context, in session.LoginInput)) *Service_Login_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string))
+		run(args[0].(context.Context), args[1].(session.LoginInput))
 	})
 	return _c
 }
@@ -77,7 +76,7 @@ func (_c *Service_Login_Call) Return(_a0 *session.Session, _a1 error) *Service_L
 	return _c
 }
 
-func (_c *Service_Login_Call) RunAndReturn(run func(context.Context, string, string) (*session.Session, error)) *Service_Login_Call {
+func (_c *Service_Login_Call) RunAndReturn(run func(context.Context, session.LoginInput) (*session.Session, error)) *Service_Login_Call {
 	_c.Call.Return(run)
 	return _c
 }

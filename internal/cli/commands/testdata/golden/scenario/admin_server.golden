@@ -1,0 +1,59 @@
+$ nexoctl admin info mem
+mem  Nexo dev (commit abc1234, built 2026-01-01)
+Mode: snsd  Region: us-east-1  Deployment: d-0001
+Uptime: 1h30m0s  Buckets: 2  Objects: 3  Usage: 3.0MiB
+Pool 1: 1 set(s) of 1 drive(s), parity 0
+Nodes: 1 online, 0 offline
+  local  online  uptime 1h30m0s  1 drive(s)
+    /data  online  used 40.0GiB of 100.0GiB (free 60.0GiB)
+
+$ nexoctl admin info mem/bucket
+! nexoctl: error: mem/bucket: expected an alias name (ALIAS), not a bucket or an object
+! Run 'nexoctl admin info --help' for usage.
+[exit 2]
+
+$ nexoctl admin info nope
+! nexoctl: error: unknown alias "nope" (see "nexoctl alias list")
+[exit 3]
+
+$ nexoctl admin info mem
+mem  Nexo dev (commit -, built -)
+Mode: distributed  Region: eu-1  Deployment: d-2
+Uptime: 1m0s  Buckets: 0  Objects: 0  Usage: 0B
+Pool 1: 1 set(s) of 4 drive(s), parity 2
+Nodes: 1 online, 1 offline
+  http://node1:9000  online  uptime 1m0s  2 drive(s)
+    /data1  online  used 1.0GiB of 10.0GiB (free 9.0GiB)
+    /data2  online  used 1.0GiB of 10.0GiB (free 9.0GiB)  healing
+  http://node2:9000  offline  uptime -  1 drive(s)
+    http://node2:9000/data1  offline  error: connection refused
+
+$ nexoctl admin usage mem
+SIZE          OBJECTS   VERSIONS  BUCKET
+1.0MiB              1          1  logs
+2.0MiB              2          3  photos
+3.0MiB              3          4  total (2 bucket(s))
+
+$ nexoctl admin heal --recursive --dry-run mem/photos
+Heal heal-0001 (dry run): finished, scanned 3, healed 0, failed 0
+
+$ nexoctl admin heal mem
+! nexoctl: error: heal mem: admin: heal: not implemented (not_implemented)
+[exit 1]
+
+$ nexoctl admin service restart mem
+! Restart the server of alias "mem"? [y/N] 
+! nexoctl: error: not confirmed: nothing done (add --yes to skip the question)
+[exit 1]
+
+$ nexoctl admin service restart mem
+The server of "mem" is restarting.
+! Restart the server of alias "mem"? [y/N] 
+
+$ nexoctl admin service stop --yes mem
+The server of "mem" is stopping.
+
+$ nexoctl admin service stop --json mem
+! {"status":"error","error":{"code":"UsageError","message":"confirmation required: add --yes","exitCode":2}}
+[exit 2]
+

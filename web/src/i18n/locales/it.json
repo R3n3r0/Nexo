@@ -9,6 +9,7 @@
     "retry": "Riprova",
     "cancel": "Annulla",
     "close": "Chiudi",
+    "toggleSecret": "Mostra o nascondi il segreto",
     "save": "Salva",
     "delete": "Elimina",
     "create": "Crea",
@@ -26,7 +27,10 @@
     "signOut": "Esci",
     "signedInAs": "Accesso come {{user}}",
     "openNavigation": "Apri il menu",
-    "closeNavigation": "Chiudi il menu"
+    "closeNavigation": "Chiudi il menu",
+    "mainNavigation": "Navigazione principale",
+    "copy": "Copia",
+    "copied": "Copiato"
   },
   "theme": {
     "toggle": "Cambia tema",
@@ -52,7 +56,8 @@
     "cluster": "Cluster",
     "monitoring": "Monitoraggio",
     "configuration": "Configurazione",
-    "info": "Info"
+    "info": "Info",
+    "simulator": "Simulatore policy"
   },
   "login": {
     "title": "Accedi a Nexo",
@@ -64,6 +69,7 @@
     "submit": "Accedi",
     "submitting": "Accesso in corso…",
     "invalidCredentials": "Access key o secret key non validi.",
+    "tooManyAttempts": "Troppi tentativi falliti: attendi un minuto prima di accedere di nuovo.",
     "failed": "Accesso non riuscito: {{message}}",
     "validation": {
       "accessKeyRequired": "Inserisci la access key.",
@@ -71,7 +77,8 @@
       "secretKeyRequired": "Inserisci la secret key.",
       "secretKeyTooShort": "La secret key deve avere almeno {{min}} caratteri."
     },
-    "demoHint": "Modalità demo: accedi con {{accessKey}} / {{secretKey}}."
+    "demoHint": "Modalità demo: accedi con {{accessKey}} / {{secretKey}}.",
+    "sessionExpired": "La sessione è scaduta. Accedi di nuovo per riprendere da dove eri rimasto."
   },
   "overview": {
     "title": "Panoramica",
@@ -87,7 +94,37 @@
       "nodes": "Nodi online",
       "drives": "Dischi online"
     },
-    "ofTotal": "{{online}} di {{total}}"
+    "ofTotal": "{{online}} di {{total}}",
+    "capacity": {
+      "title": "Capacità",
+      "meter": "Capacità usata dei dischi",
+      "percentUsed": "{{percent}}% usato",
+      "used": "Usata",
+      "free": "Libera",
+      "total": "Totale"
+    },
+    "charts": {
+      "perBucket": "Spazio per bucket",
+      "perBucketHint": "I dieci bucket più grandi.",
+      "size": "Dimensione",
+      "unavailable": "I dati di utilizzo non sono disponibili.",
+      "noBuckets": "Ancora nessun bucket."
+    },
+    "nodes": {
+      "title": "Nodi e dischi",
+      "drive": "Nodo / disco",
+      "usage": "Utilizzo",
+      "driveUsage": "Utilizzo del disco {{path}}",
+      "usedOf": "{{used}} di {{total}}"
+    },
+    "states": {
+      "online": "Online",
+      "offline": "Offline",
+      "healing": "In riparazione",
+      "unknown": "Sconosciuto"
+    },
+    "forbidden": "Il tuo account non può leggere lo stato del server (admin:ServerInfo). I bucket che puoi usare sono elencati in Bucket.",
+    "goToBuckets": "Vai ai bucket"
   },
   "modes": {
     "snsd": "Singolo nodo, singolo disco",
@@ -101,6 +138,18 @@
     "minutes": "{{count}}m",
     "seconds": "{{count}}s"
   },
+  "dates": {
+    "previousMonth": "Mese precedente",
+    "nextMonth": "Mese successivo",
+    "previousYear": "Anno precedente",
+    "nextYear": "Anno successivo",
+    "previousDecade": "Decennio precedente",
+    "nextDecade": "Decennio successivo",
+    "monthLevel": "Scegli il mese",
+    "yearLevel": "Scegli l'anno",
+    "time": "Ora",
+    "submit": "Conferma la data"
+  },
   "notFound": {
     "title": "Pagina non trovata",
     "message": "La pagina {{path}} non esiste."
@@ -111,5 +160,781 @@
     "reload": "Ricarica",
     "tryAgain": "Riprova",
     "details": "Dettagli tecnici"
+  },
+  "buckets": {
+    "title": "Bucket",
+    "subtitle": "Crea, cerca e gestisci i bucket.",
+    "create": "Crea bucket",
+    "createTitle": "Crea un bucket",
+    "search": "Cerca bucket",
+    "searchPlaceholder": "Cerca per nome",
+    "size": "Dimensione",
+    "objects": "Oggetti",
+    "public": "Pubblico",
+    "versioned": "Versionato",
+    "locked": "Object lock",
+    "browse": "Sfoglia oggetti",
+    "settings": "Impostazioni",
+    "actionsFor": "Azioni per {{name}}",
+    "deleteDenied": "Elimina (non consentito)",
+    "loadError": "Impossibile caricare i bucket.",
+    "empty": "Ancora nessun bucket.",
+    "emptyHint": "Crea un bucket per iniziare a salvare oggetti.",
+    "noMatch": "Nessun bucket corrisponde a «{{search}}».",
+    "name": "Nome",
+    "nameHint": "Da 3 a 63 tra lettere minuscole, cifre, punti e trattini.",
+    "nameIssues": {
+      "required": "Inserisci il nome del bucket.",
+      "length": "Il nome deve essere lungo da 3 a 63 caratteri.",
+      "characters": "Usa solo lettere minuscole, cifre, punti e trattini.",
+      "edges": "Il nome deve iniziare e finire con una lettera o una cifra.",
+      "dots": "Niente punti consecutivi né punti accanto a un trattino.",
+      "ipAddress": "Il nome non può sembrare un indirizzo IP.",
+      "reserved": "Questo nome è riservato."
+    },
+    "versioning": "Versioning",
+    "versioningHint": "Conserva tutte le versioni degli oggetti.",
+    "objectLock": "Object lock",
+    "objectLockHint": "Protegge le versioni dalla cancellazione (attiva il versioning; non si può disattivare).",
+    "quota": "Quota",
+    "quotaHint": "Limite rigido; lascia vuoto per nessuna quota.",
+    "quotaUnit": "Unità della quota",
+    "quotaInvalid": "Inserisci una dimensione positiva.",
+    "created": "Bucket {{name}} creato.",
+    "deleted": "Bucket {{name}} eliminato.",
+    "deleteTitle": "Elimina il bucket {{name}}",
+    "deleteEmpty": "Il bucket e le sue impostazioni saranno eliminati.",
+    "deleteNotEmpty": "Il bucket contiene {{objects}} oggetti.",
+    "forceDelete": "Elimina anche tutti gli oggetti",
+    "forceDeleteHint": "Vengono rimossi prima versioni, delete marker e upload in sospeso; le versioni bloccate mantengono il bucket.",
+    "typeToConfirm": "Digita <code>{{name}}</code> per confermare",
+    "notEmptyUseForce": "Il bucket non è vuoto: seleziona «Elimina anche tutti gli oggetti» per svuotarlo prima."
+  },
+  "bucket": {
+    "tabs": {
+      "objects": "Oggetti",
+      "settings": "Impostazioni",
+      "access": "Accesso"
+    },
+    "summary": "{{size}} · {{objects}} oggetti",
+    "delete": "Elimina bucket",
+    "notFound": "Il bucket {{name}} non esiste.",
+    "loadError": "Impossibile caricare il bucket.",
+    "backToList": "Torna ai bucket",
+    "limitedAccess": "Puoi usare solo una parte di questo bucket."
+  },
+  "bucketSettings": {
+    "saved": "Impostazioni salvate.",
+    "versioning": {
+      "title": "Versioning",
+      "description": "Conserva le versioni precedenti degli oggetti sovrascritti ed eliminati.",
+      "current": "Stato attuale:",
+      "states": {
+        "off": "Mai attivato",
+        "enabled": "Attivo",
+        "suspended": "Sospeso"
+      },
+      "enable": "Attivo",
+      "suspend": "Sospeso",
+      "lockedHint": "Il versioning non può essere sospeso su un bucket con object lock."
+    },
+    "quota": {
+      "title": "Quota",
+      "description": "Le scritture oltre la quota rigida vengono rifiutate.",
+      "limit": "Quota rigida",
+      "hint": "0 o vuoto rimuove la quota.",
+      "usage": "Utilizzo della quota",
+      "usedOf": "{{used}} usati di {{total}}"
+    },
+    "tags": {
+      "title": "Tag",
+      "description": "Coppie chiave/valore associate al bucket.",
+      "empty": "Nessun tag.",
+      "key": "Chiave",
+      "value": "Valore",
+      "keyN": "Chiave del tag {{n}}",
+      "valueN": "Valore del tag {{n}}",
+      "remove": "Rimuovi il tag {{key}}",
+      "add": "Aggiungi tag",
+      "save": "Salva tag",
+      "duplicate": "Ogni chiave deve essere unica e non vuota."
+    },
+    "encryption": {
+      "title": "Crittografia",
+      "description": "Crittografia lato server predefinita dei nuovi oggetti.",
+      "none": "Non configurata",
+      "sse": "SSE-S3 (AES-256)",
+      "kms": "SSE-KMS ({{key}})",
+      "unavailable": "Le impostazioni di crittografia non sono disponibili.",
+      "comingSoon": "La configurazione della crittografia dalla console arriverà in una versione successiva."
+    },
+    "objectLock": {
+      "title": "Object lock",
+      "description": "Protezione WORM, impostata alla creazione del bucket.",
+      "status": "Stato",
+      "enabled": "Attivo",
+      "disabled": "Disattivo",
+      "mode": "Modalità predefinita",
+      "retention": "Retention predefinita",
+      "noDefault": "Nessuna",
+      "days": "{{n}} giorni",
+      "years": "{{n}} anni",
+      "unavailable": "Le impostazioni di object lock non sono disponibili."
+    }
+  },
+  "bucketAccess": {
+    "anonymousTitle": "Accesso anonimo",
+    "anonymousDescription": "Concedi accesso senza credenziali a tutto il bucket o a un prefisso.",
+    "statePublic": "Pubblico",
+    "statePrivate": "Privato",
+    "noRules": "Il bucket è privato: le richieste anonime sono negate.",
+    "rulesTitle": "Regole di accesso anonimo",
+    "prefix": "Prefisso",
+    "prefixHint": "Vuoto per tutto il bucket, es. public/ per una cartella.",
+    "prefixInvalid": "Il prefisso non può iniziare con «/».",
+    "preset": "Accesso",
+    "apply": "Applica",
+    "wholeBucket": "Tutto il bucket",
+    "removeRule": "Rendi privato {{prefix}}",
+    "applied": "Accesso {{preset}} applicato a {{prefix}}.",
+    "presets": {
+      "private": "Privato",
+      "download": "Download",
+      "upload": "Upload",
+      "public": "Pubblico",
+      "custom": "Personalizzato"
+    },
+    "presetHelp": {
+      "private": "Privato: rimuove l'accesso anonimo del prefisso.",
+      "download": "Download: chiunque può elencare e leggere gli oggetti del prefisso.",
+      "upload": "Upload: chiunque può scrivere oggetti sotto il prefisso.",
+      "public": "Pubblico: chiunque può elencare, leggere e scrivere oggetti sotto il prefisso."
+    },
+    "policyTitle": "Bucket policy",
+    "policyDescription": "Il documento di policy (formato AWS) valutato insieme alle policy IAM. Anche i preset qui sopra lo modificano.",
+    "policyEditor": "Bucket policy (JSON)",
+    "noPolicy": "Il bucket non ha una policy.",
+    "useTemplate": "Parti da un modello",
+    "savePolicy": "Salva policy",
+    "deletePolicy": "Elimina policy",
+    "revert": "Annulla modifiche",
+    "policySaved": "Bucket policy salvata.",
+    "policyDeleted": "Bucket policy eliminata."
+  },
+  "objects": {
+    "title": "Oggetti",
+    "pickBucket": "Scegli un bucket per sfogliarne gli oggetti.",
+    "listing": "Oggetti",
+    "breadcrumb": "Percorso della cartella",
+    "selectAll": "Seleziona tutte le righe caricate",
+    "select": "Seleziona {{name}}",
+    "size": "Dimensione",
+    "modified": "Ultima modifica",
+    "selectedOf": "{{selected}} di {{total}} selezionati",
+    "loadedCount": "{{total}} elementi caricati",
+    "loadMore": "Carica altri",
+    "upload": "Carica",
+    "uploadFiles": "Carica file",
+    "uploadFolder": "Carica cartella",
+    "newFolder": "Nuova cartella",
+    "downloadSelected": "Scarica ({{n}})",
+    "downloadFolder": "Scarica la cartella come zip",
+    "deleteSelected": "Elimina ({{n}})",
+    "filter": "Filtra gli oggetti caricati",
+    "filterPlaceholder": "Filtra per nome",
+    "refresh": "Aggiorna",
+    "dropHere": "Rilascia file o cartelle da caricare in {{prefix}}",
+    "empty": "Questa cartella è vuota.",
+    "emptyHint": "Trascina qui file o cartelle, oppure usa Carica.",
+    "noMatch": "Nessun oggetto caricato corrisponde al filtro.",
+    "actionsFor": "Azioni per {{name}}",
+    "details": "Dettagli",
+    "download": "Scarica",
+    "downloadZip": "Scarica come zip",
+    "share": "Condividi",
+    "rename": "Rinomina o sposta",
+    "zipFailed": "Impossibile creare l'archivio",
+    "folderName": "Nome della cartella",
+    "folderNameHint": "Usa «/» per creare cartelle annidate.",
+    "folderPreview": "Crea {{bucket}}/{{key}}",
+    "folderCreated": "Cartella {{name}} creata.",
+    "folderIssues": {
+      "required": "Inserisci il nome della cartella.",
+      "slash": "Il nome non può iniziare con «/».",
+      "dots": "Non sono ammessi segmenti vuoti, «.» e «..»."
+    },
+    "renameTitle": "Sposta {{name}}",
+    "destinationKey": "Nuova chiave",
+    "destinationFolder": "Nuovo percorso della cartella",
+    "destinationHint": "Il percorso completo nel bucket; le cartelle vengono spostate con tutto il contenuto.",
+    "destinationIssues": {
+      "required": "Inserisci la destinazione.",
+      "same": "La destinazione coincide con il percorso attuale.",
+      "inside": "Una cartella non può essere spostata dentro sé stessa.",
+      "slash": "Il percorso non può iniziare con «/»."
+    },
+    "overwrite": "Sovrascrivi gli oggetti esistenti",
+    "move": "Sposta",
+    "destinationExists": "La destinazione esiste già: seleziona «Sovrascrivi gli oggetti esistenti» per sostituirla.",
+    "renamed": "Spostati {{n}} oggetti.",
+    "renamePartial": "Spostati {{done}} oggetti, {{failed}} non riusciti.",
+    "deleteTitle": "Elimina {{n}} elementi",
+    "deleteIntro": "Verranno eliminati questi elementi:",
+    "recursive": "cartella, ricorsivo",
+    "andMore": "…e altri {{n}}",
+    "allVersions": "Elimina definitivamente tutte le versioni",
+    "allVersionsHint": "Altrimenti gli oggetti versionati conservano le versioni dietro un delete marker.",
+    "typeToConfirm": "Le cartelle vengono eliminate con tutto il contenuto. Digita",
+    "deletedN": "Eliminati {{n}} oggetti.",
+    "deletePartialTitle": "Alcuni oggetti non sono stati eliminati",
+    "deletePartial": "Eliminati {{done}}, non riusciti {{failed}}: {{first}}",
+    "forbiddenFolder": "Non puoi elencare il contenuto di questa cartella. Apri una cartella a cui hai accesso, per esempio la tua cartella personale.",
+    "goToFolder": "Percorso della cartella",
+    "goToFolderHint": "Per esempio home/{{user}}/",
+    "goToFolderSubmit": "Apri la cartella"
+  },
+  "objectDetails": {
+    "tabs": {
+      "details": "Dettagli",
+      "preview": "Anteprima",
+      "tags": "Tag",
+      "versions": "Versioni"
+    },
+    "key": "Chiave",
+    "contentType": "Content type",
+    "etag": "ETag",
+    "versionId": "ID versione",
+    "storageClass": "Classe di storage",
+    "cacheControl": "Cache-Control",
+    "contentDisposition": "Content-Disposition",
+    "contentEncoding": "Content-Encoding",
+    "parts": "Parti",
+    "checksum": "Checksum",
+    "tagsHidden": "Non puoi leggere i tag di questo oggetto."
+  },
+  "objectVersions": {
+    "title": "Versioni",
+    "latest": "Ultima",
+    "deleteMarker": "Delete marker",
+    "download": "Scarica questa versione",
+    "downloadVersion": "Scarica la versione {{version}}",
+    "delete": "Elimina questa versione",
+    "deleteVersion": "Elimina la versione {{version}}",
+    "confirmDelete": "Conferma l'eliminazione della versione {{version}}",
+    "deleted": "Versione eliminata."
+  },
+  "objectPreview": {
+    "imageAlt": "Anteprima di {{name}}",
+    "pdfTitle": "Anteprima PDF di {{name}}",
+    "openInTab": "Apri in una nuova scheda",
+    "audioLabel": "Anteprima audio di {{name}}",
+    "videoLabel": "Anteprima video di {{name}}",
+    "empty": "L'oggetto è vuoto.",
+    "truncated": "Sono mostrati solo i primi {{size}}.",
+    "unavailable": "Nessuna anteprima per {{type}}: scarica l'oggetto per aprirlo."
+  },
+  "uploadQueue": {
+    "panelTitle": "Caricamenti",
+    "activeCount": "{{n}} attivi",
+    "clearFinished": "Rimuovi completati",
+    "expand": "Mostra i caricamenti",
+    "collapse": "Nascondi i caricamenti",
+    "totalProgress": "Avanzamento complessivo dei caricamenti",
+    "bytesOf": "{{loaded}} di {{total}}",
+    "parts": "parti {{done}}/{{total}}",
+    "pause": "Pausa",
+    "resume": "Riprendi",
+    "retry": "Riprova",
+    "cancel": "Annulla",
+    "pauseFile": "Metti in pausa {{name}}",
+    "resumeFile": "Riprendi {{name}}",
+    "retryFile": "Riprova {{name}}",
+    "cancelFile": "Annulla {{name}}",
+    "progressOf": "Avanzamento del caricamento di {{name}}",
+    "failedWith": "Non riuscito: {{message}}",
+    "queued": "{{n}} file in coda per il caricamento.",
+    "status": {
+      "queued": "In coda",
+      "uploading": "In caricamento",
+      "paused": "In pausa",
+      "completing": "In completamento",
+      "completed": "Completato",
+      "failed": "Non riuscito",
+      "canceled": "Annullato"
+    }
+  },
+  "infoPage": {
+    "title": "Informazioni sul server",
+    "subtitle": "Versione, build e deployment di questo server.",
+    "version": "Versione",
+    "commit": "Commit",
+    "buildDate": "Data di build",
+    "deploymentId": "Deployment ID",
+    "copy": "Copia",
+    "copied": "Copiato",
+    "copyDeploymentId": "Copia il deployment ID",
+    "mode": "Modalità",
+    "region": "Regione",
+    "startedAt": "Avviato",
+    "uptime": "Uptime",
+    "topology": "Topologia",
+    "topologySummary": "{{pools}} pool, {{nodes}} nodi, {{drives}} dischi",
+    "pools": "Pool",
+    "pool": "Pool",
+    "sets": "Erasure set",
+    "drivesPerSet": "Dischi per set",
+    "parity": "Parità",
+    "noParity": "Nessuna (disco singolo)"
+  },
+  "storageErrors": {
+    "access_denied": "Non hai il permesso per questa operazione.",
+    "bucket_already_exists": "Esiste già un bucket con questo nome.",
+    "bucket_not_empty": "Il bucket non è vuoto.",
+    "bucket_not_found": "Il bucket non esiste.",
+    "conflict": "L'operazione è in conflitto con lo stato attuale.",
+    "entity_too_large": "Il file è troppo grande.",
+    "invalid_bucket_name": "Il nome del bucket non è valido.",
+    "invalid_object_name": "Il nome dell'oggetto non è valido.",
+    "malformed_policy": "La policy non è valida.",
+    "network_error": "Impossibile raggiungere il server.",
+    "object_locked": "L'oggetto è protetto da object lock.",
+    "object_not_found": "L'oggetto non esiste.",
+    "quota_exceeded": "La quota del bucket è superata."
+  },
+  "iam": {
+    "status": {
+      "enabled": "Abilitato",
+      "disabled": "Disabilitato"
+    }
+  },
+  "permissions": {
+    "missing": "Non hai il permesso {{action}}.",
+    "sources": "Da dove arrivano i permessi",
+    "direct": "Policy dirette:",
+    "viaGroup": "Tramite il gruppo {{group}}:",
+    "none": "Nessuna",
+    "bucket": "Bucket",
+    "bucketHint": "Valuta su un bucket, inclusa la sua bucket policy.",
+    "prefix": "Prefisso",
+    "filter": "Filtra le azioni",
+    "loadError": "Impossibile caricare i permessi effettivi.",
+    "root": "Utente root: ogni azione è consentita.",
+    "allowed": "Consentite ({{count}})",
+    "denied": "Negate ({{count}})"
+  },
+  "codeEditor": {
+    "problems": "Problemi",
+    "position": "Riga {{line}}, colonna {{column}}"
+  },
+  "users": {
+    "title": "Utenti",
+    "subtitle": "Utenti IAM, con stato, policy e gruppi.",
+    "searchPlaceholder": "Access key, policy o gruppo",
+    "loadError": "Impossibile caricare gli utenti.",
+    "empty": "Ancora nessun utente.",
+    "noMatch": "Nessun utente corrisponde alla ricerca.",
+    "actionsFor": "Azioni per {{user}}",
+    "enable": "Abilita",
+    "disable": "Disabilita",
+    "saved": "Utente {{user}} salvato.",
+    "fields": {
+      "accessKey": "Access key",
+      "secretKey": "Secret key",
+      "policies": "Policy",
+      "groups": "Gruppi",
+      "enabled": "Abilitato"
+    },
+    "create": {
+      "button": "Crea utente",
+      "title": "Crea utente",
+      "accessKeyHint": "Da {{min}} a {{max}} caratteri: lettere, cifre e - _ . @ +",
+      "secretKeyHint": "Da {{secretMin}} a {{secretMax}} caratteri. Conservala: non verrà più mostrata.",
+      "generate": "Genera",
+      "generateAccessKey": "Genera una access key",
+      "generateSecretKey": "Genera una secret key",
+      "copySecretKey": "Copia la secret key"
+    },
+    "validation": {
+      "accessKey": {
+        "required": "Inserisci una access key.",
+        "length": "La access key deve avere da {{min}} a {{max}} caratteri.",
+        "characters": "Usa solo lettere, cifre e - _ . @ +"
+      },
+      "secretKey": {
+        "required": "Inserisci una secret key.",
+        "length": "La secret key deve avere da {{secretMin}} a {{secretMax}} caratteri.",
+        "characters": "La secret key non deve contenere caratteri di controllo."
+      }
+    },
+    "delete": {
+      "title": "Elimina utente",
+      "message": "Eliminare l'utente {{user}}? Le sue access key e i suoi link di condivisione smettono subito di funzionare."
+    },
+    "drawer": {
+      "title": "Utente {{user}}",
+      "settings": "Impostazioni",
+      "permissions": "Permessi effettivi",
+      "accessKeys": "Mostra le access key"
+    }
+  },
+  "groups": {
+    "title": "Gruppi",
+    "subtitle": "I gruppi condividono le policy con i loro membri.",
+    "searchPlaceholder": "Gruppo o membro",
+    "loadError": "Impossibile caricare i gruppi.",
+    "empty": "Ancora nessun gruppo.",
+    "noMatch": "Nessun gruppo corrisponde alla ricerca.",
+    "memberCount_one": "{{count}} membro",
+    "memberCount_other": "{{count}} membri",
+    "saved": "Gruppo {{group}} salvato.",
+    "fields": {
+      "members": "Membri",
+      "policies": "Policy",
+      "enabled": "Abilitato"
+    },
+    "create": {
+      "button": "Crea gruppo",
+      "title": "Crea gruppo"
+    },
+    "validation": {
+      "required": "Inserisci il nome del gruppo.",
+      "invalid": "Il nome deve avere da 1 a 128 caratteri, senza virgole."
+    },
+    "delete": {
+      "title": "Elimina gruppo",
+      "action": "Elimina il gruppo {{group}}",
+      "message": "Eliminare il gruppo {{group}}? I membri perdono le policy del gruppo."
+    },
+    "drawer": {
+      "title": "Gruppo {{group}}"
+    }
+  },
+  "policies": {
+    "title": "Policy",
+    "subtitle": "Policy IAM nel formato JSON di AWS. Le policy predefinite sono in sola lettura.",
+    "searchPlaceholder": "Nome della policy",
+    "loadError": "Impossibile caricare le policy.",
+    "empty": "Nessuna policy corrispondente.",
+    "create": "Crea policy",
+    "simulate": "Simulatore",
+    "builtIn": "Predefinita",
+    "statements": "Statement",
+    "updated": "Aggiornata",
+    "delete": {
+      "title": "Elimina policy",
+      "action": "Elimina la policy {{policy}}",
+      "message": "Eliminare la policy {{policy}}? Viene scollegata da tutti gli utenti e gruppi."
+    }
+  },
+  "policyEditor": {
+    "newTitle": "Nuova policy",
+    "loadError": "Impossibile caricare la policy {{policy}}.",
+    "nameHint": "Lettere, cifre e + = , . @ _ - (al massimo 128).",
+    "nameInvalid": "Inserisci un nome di policy valido.",
+    "document": "Documento della policy",
+    "documentHint": "JSON di una policy AWS. Ctrl+Spazio suggerisce azioni, operatori e chiavi di condizione.",
+    "validate": "Valida",
+    "valid": "La policy è valida.",
+    "invalid_one": "La policy ha 1 problema: vedi la riga evidenziata.",
+    "invalid_other": "La policy ha {{count}} problemi: vedi le righe evidenziate.",
+    "saved": "Policy {{policy}} salvata.",
+    "saveError": "Impossibile salvare la policy.",
+    "syntaxError": "JSON non valido alla riga {{line}}, colonna {{column}}: {{message}}",
+    "builtInNotice": "Le policy predefinite non si possono modificare. Crea una nuova policy per personalizzarla.",
+    "tabs": {
+      "json": "JSON",
+      "builder": "Builder visuale"
+    },
+    "entities": {
+      "title": "Collegata a",
+      "users": "Utenti:",
+      "groups": "Gruppi:",
+      "kind": "Collega a un utente o a un gruppo",
+      "user": "Utente",
+      "group": "Gruppo",
+      "attachTo": "Collega a",
+      "attach": "Collega",
+      "detach": "Scollega da {{name}}"
+    }
+  },
+  "policyBuilder": {
+    "invalidJson": "Correggi il documento JSON per usare il builder visuale.",
+    "empty": "La policy non ha ancora statement.",
+    "addStatement": "Aggiungi statement",
+    "statement": "Statement {{number}}",
+    "removeStatement": "Rimuovi lo statement {{number}}",
+    "hasCondition": "Con condizioni",
+    "advanced": "Questo statement usa NotAction, NotResource o Principal: modificalo nella scheda JSON.",
+    "effect": "Effetto",
+    "allow": "Consenti",
+    "deny": "Nega",
+    "actions": "Azioni",
+    "actionsPlaceholder": "Scegli le azioni",
+    "noAction": "Nessuna azione trovata",
+    "resources": "Risorse",
+    "resourcesHint": "ARN S3; scrivi e premi Invio, oppure aggiungi un bucket qui sotto.",
+    "bucket": "Bucket",
+    "prefix": "Prefisso",
+    "addBucket": "Aggiungi bucket e prefisso",
+    "presets": {
+      "label": "Aggiunta rapida:",
+      "readOnly": "Sola lettura",
+      "readWrite": "Lettura e scrittura",
+      "writeOnly": "Sola scrittura",
+      "fullS3": "Tutto S3"
+    }
+  },
+  "simulator": {
+    "title": "Simulatore policy",
+    "subtitle": "Valuta una richiesta con il motore di enforcement: chi, cosa, su quale risorsa e in quale contesto.",
+    "user": "Utente o access key",
+    "userHint": "Vuoto: te stesso.",
+    "action": "Azione",
+    "actionRequired": "Inserisci un'azione.",
+    "bucket": "Bucket",
+    "object": "Oggetto",
+    "context": "Contesto",
+    "sourceIp": "IP di origine",
+    "tls": "TLS (aws:SecureTransport)",
+    "tlsUnset": "Non impostato",
+    "tlsOn": "Sì",
+    "tlsOff": "No",
+    "time": "Ora",
+    "timeNow": "Adesso",
+    "conditions": "Altri valori di condizione",
+    "conditionKey": "Chiave",
+    "conditionValue": "Valore",
+    "addCondition": "Aggiungi un valore di condizione",
+    "removeCondition": "Rimuovi il valore di condizione",
+    "run": "Simula",
+    "allowed": "Consentito",
+    "denied": "Negato",
+    "summary": "{{user}} → {{action}} su {{resource}}",
+    "reason": "Motivo: {{reason}}",
+    "decidedBy": "Deciso da {{source}}",
+    "decidingStatement": "Statement determinante",
+    "evaluated": "Statement valutati",
+    "noStatements": "Nessuno statement si applica a questo principal.",
+    "matched": "Corrisponde",
+    "mismatch": "Non corrisponde ({{element}})",
+    "deciding": "determinante",
+    "mismatchOf": {
+      "principal": "principal",
+      "action": "azione",
+      "resource": "risorsa",
+      "condition": "condizione"
+    },
+    "columns": {
+      "source": "Origine",
+      "statement": "Statement",
+      "effect": "Effetto",
+      "result": "Esito"
+    },
+    "source": {
+      "root": "l'utente root",
+      "iam": "la policy {{policy}}",
+      "group": "la policy {{policy}} del gruppo {{group}}",
+      "inline": "la policy inline della access key",
+      "bucket": "la bucket policy"
+    }
+  },
+  "accessKeys": {
+    "title": "Access key",
+    "subtitle": "Service account derivati da un utente, con policy inline e scadenza facoltative.",
+    "create": "Crea access key",
+    "loadError": "Impossibile caricare le access key.",
+    "empty": "Nessuna access key.",
+    "inline": "Policy inline",
+    "never": "Mai",
+    "expired": "Scaduta",
+    "edit": "Modifica {{key}}",
+    "filter": {
+      "label": "Proprietario",
+      "all": "Tutti gli utenti",
+      "mine": "Le mie access key"
+    },
+    "fields": {
+      "accessKey": "Access key",
+      "secretKey": "Secret key",
+      "name": "Nome",
+      "description": "Descrizione",
+      "owner": "Proprietario",
+      "enabled": "Abilitata",
+      "expiration": "Scadenza",
+      "policy": "Policy inline"
+    },
+    "form": {
+      "createTitle": "Crea access key",
+      "editTitle": "Modifica la access key {{key}}",
+      "ownerHint": "Vuoto: la chiave è tua.",
+      "expires": "Scade",
+      "inlinePolicy": "Limita con una policy inline",
+      "inlinePolicyHint": "La chiave non può mai fare più del suo proprietario: la policy inline può solo restringerla.",
+      "expiration": {
+        "required": "Scegli la data di scadenza.",
+        "past": "La scadenza deve essere nel futuro."
+      }
+    },
+    "secret": {
+      "title": "Access key creata",
+      "once": "È l'unica volta in cui la secret key viene mostrata. Copiala o scarica subito le credenziali.",
+      "copy": "Copia {{field}}",
+      "download": "Scarica le credenziali (JSON)",
+      "acknowledge": "Ho salvato la secret key",
+      "done": "Fatto"
+    },
+    "delete": {
+      "title": "Elimina access key",
+      "action": "Elimina {{key}}",
+      "message": "Eliminare la access key {{key}}? I client che la usano vengono rifiutati subito."
+    }
+  },
+  "shareDialog": {
+    "title": "Condividi {{name}}",
+    "formLabel": "Impostazioni di condivisione",
+    "version": "Versione {{version}}",
+    "permission": "Permesso",
+    "download": "Download",
+    "upload": "Upload",
+    "prefixUploadHint": "Per far caricare file in una cartella usa il",
+    "uploadGenerator": "generatore di upload",
+    "expiry": {
+      "label": "Valido per",
+      "1h": "1 ora",
+      "1d": "1 giorno",
+      "7d": "7 giorni",
+      "custom": "Fino al…",
+      "date": "Data di scadenza",
+      "max": "Al massimo 7 giorni da adesso.",
+      "problem": {
+        "required": "Scegli la data di scadenza.",
+        "past": "La scadenza deve essere nel futuro.",
+        "tooFar": "Un link può valere al massimo 7 giorni."
+      }
+    },
+    "disposition": {
+      "label": "All'apertura",
+      "hint": "Content-Disposition del download.",
+      "default": "Predefinito del browser",
+      "inline": "Mostra nel browser",
+      "attachment": "Scarica come file"
+    },
+    "contentType": "Content type",
+    "contentTypeHint": "Facoltativo: chi carica deve inviare esattamente questo Content-Type.",
+    "raw": {
+      "label": "Link presigned grezzo",
+      "hint": "Firmato con le tue credenziali invece che come condivisione gestita.",
+      "warning": "Un link presigned grezzo non è revocabile: resta valido fino alla scadenza, a meno che le tue credenziali vengano disabilitate."
+    },
+    "create": "Crea link",
+    "result": {
+      "managed": "Link di condivisione creato. Puoi revocarlo in qualsiasi momento dalla pagina Condivisioni.",
+      "raw": "Link presigned grezzo creato. Non è revocabile.",
+      "expires": "Valido fino al {{date}}.",
+      "url": "Link",
+      "copy": "Copia il link",
+      "qr": "QR code del link",
+      "curl": "Carica con curl",
+      "noUrl": "Le condivisioni di upload su un prefisso non hanno un URL diretto.",
+      "another": "Crea un altro link"
+    }
+  },
+  "shares": {
+    "title": "Condivisioni",
+    "subtitle": "Link di condivisione attivi e link di upload.",
+    "tabs": {
+      "links": "Link attivi",
+      "upload": "Generatore di upload"
+    },
+    "loadError": "Impossibile caricare i link di condivisione.",
+    "empty": "Nessun link di condivisione attivo.",
+    "prefix": "Prefisso",
+    "expired": "Scaduto",
+    "createdAt": "Creato il {{date}}",
+    "copy": "Copia il link",
+    "copyFor": "Copia il link di {{name}}",
+    "selectAll": "Seleziona tutti i link",
+    "select": "Seleziona {{name}}",
+    "filter": {
+      "bucket": "Bucket",
+      "owner": "Proprietario",
+      "everyone": "Tutti"
+    },
+    "columns": {
+      "object": "Oggetto",
+      "permission": "Permesso",
+      "owner": "Proprietario",
+      "expires": "Scadenza"
+    },
+    "permission": {
+      "download": "Download",
+      "upload": "Upload"
+    },
+    "revoke": {
+      "title": "Revoca link di condivisione",
+      "confirm": "Revoca",
+      "action": "Revoca il link di {{name}}",
+      "one": "Revocare il link di {{name}}? Smette subito di funzionare.",
+      "selected_one": "Revocare il link selezionato? Smette subito di funzionare.",
+      "selected_other": "Revocare i {{count}} link selezionati? Smettono subito di funzionare.",
+      "allMine": "Revocare tutti i tuoi link di condivisione?",
+      "allOf": "Revocare tutti i link di condivisione di {{owner}}?",
+      "selectedButton": "Revoca selezionati ({{count}})",
+      "allMineButton": "Revoca tutti i miei link",
+      "allOfButton": "Revoca tutti i link di {{owner}}"
+    }
+  },
+  "uploadGenerator": {
+    "title": "Generatore di link di upload",
+    "mode": "Tipo di link",
+    "post": "Form HTML (POST policy)",
+    "put": "URL singolo (PUT)",
+    "bucket": "Bucket",
+    "key": "Chiave dell'oggetto",
+    "keyPrefix": "Prefisso della chiave",
+    "keyPrefixHint": "I file caricati vengono salvati sotto questo prefisso con il loro nome.",
+    "expiry": "Valido per",
+    "maxSize": "Dimensione massima",
+    "maxSizeHint": "0: nessun limite.",
+    "typeRule": "Content type",
+    "typeAny": "Qualsiasi",
+    "typeExact": "Esattamente",
+    "typePrefix": "Che inizia con",
+    "contentType": "Valore del content type",
+    "generate": "Genera",
+    "snippets": {
+      "title": "Snippet",
+      "notice": "Questi snippet contengono una firma: chi li possiede può caricare file fino alla scadenza.",
+      "html": "HTML",
+      "curl": "curl",
+      "js": "JavaScript",
+      "copy": "Copia lo snippet {{kind}}"
+    }
+  },
+  "configuration": {
+    "title": "Configurazione",
+    "subtitle": "Impostazioni dinamiche del server, per sottosistema.",
+    "loadError": "Impossibile caricare la configurazione.",
+    "export": "Esporta",
+    "import": "Importa",
+    "exportWarning": "L'esportazione contiene i segreti in chiaro: conservala al sicuro.",
+    "imported": "Configurazione importata.",
+    "importTitle": "Importa configurazione",
+    "importConfirm": "Sostituire l'intera configurazione con {{file}}?",
+    "importInvalid": "{{file}} non è un documento di configurazione.",
+    "saved": "Impostazioni di {{subsystem}} salvate.",
+    "reset": "Ripristina i predefiniti",
+    "resetTitle": "Ripristina sottosistema",
+    "resetConfirm": "Rimuovere tutte le impostazioni di {{subsystem}} e tornare ai valori predefiniti?",
+    "default": "predefinito {{value}}",
+    "secretSet": "è salvato un segreto; lascialo così per mantenerlo",
+    "problems": {
+      "bool": "Usa on oppure off.",
+      "int": "Inserisci un intero non negativo.",
+      "duration": "Inserisci una durata come 30s, 5m o 12h.",
+      "url": "Inserisci un URL http(s).",
+      "enum": "Scegli uno tra {{values}}.",
+      "list": "Separa i valori con virgole, senza elementi vuoti."
+    }
   }
 }

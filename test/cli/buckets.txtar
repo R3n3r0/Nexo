@@ -1,0 +1,33 @@
+# TCL-E-02: mb, ls and rb on an empty and on a non-empty bucket.
+
+exec nexoctl mb local/empty local/full
+stdout 'Bucket created successfully `local/empty`.'
+stdout 'Bucket created successfully `local/full`.'
+expectcode 1 nexoctl mb local/empty
+stderr 'bucket already exists'
+exec nexoctl mb --ignore-existing local/empty
+stdout 'already exists'
+
+exec nexoctl ls local
+stdout '^\[.*\] +0B empty/$'
+stdout '^\[.*\] +0B full/$'
+
+exec nexoctl cp hello.txt local/full/a/hello.txt
+exec nexoctl ls local/full
+stdout 'PRE a/'
+
+expectcode 1 nexoctl rb local/full
+stderr 'not empty'
+stderr 'use --force'
+
+exec nexoctl rb local/empty
+stdout 'Removed `local/empty` successfully.'
+exec nexoctl rb --force local/full
+stdout 'Removed `local/full` successfully.'
+exec nexoctl ls local
+! stdout .
+expectcode 3 nexoctl ls local/full
+expectcode 3 nexoctl rb local/full
+
+-- hello.txt --
+hello

@@ -4,13 +4,12 @@ import (
 	"context"
 	"io"
 	"iter"
-	"net/http"
 	"time"
 )
 
 // S3Client is the S3 surface used by the nexoctl commands (docs/12 §12.5).
 // The default implementation (NewS3Factory) is built on aws-sdk-go-v2;
-// internal/cli/s3mem is the deterministic in-memory implementation used by
+// internal/cli/clitest backs the generated mock with an in-memory store for
 // the unit tests of the commands. Errors wrap the sentinels of domain
 // (domain.ErrBucketNotFound, domain.ErrObjectNotFound,
 // domain.ErrAccessDenied, ...) so that the commands map them to stable
@@ -90,17 +89,15 @@ type S3Factory interface {
 	Client(ctx context.Context, a Alias, opts ClientOptions) (S3Client, error)
 }
 
-// HTTPDoer sends HTTP requests (*http.Client implements it); the context
-// travels in the request.
-type HTTPDoer interface {
-	Do(req *http.Request) (*http.Response, error)
-}
-
 // ClientOptions tune one client of S3Factory.
 type ClientOptions struct {
 	// Debug, when not nil, receives a dump of every HTTP request and
 	// response (headers only), with the credentials redacted.
 	Debug io.Writer
+	// LimitUpload and LimitDownload cap the bandwidth of the request and
+	// response bodies, in bytes per second (0: unlimited).
+	LimitUpload   int64
+	LimitDownload int64
 }
 
 // S3 limits (multipart uploads, presigned URLs).
@@ -226,6 +223,13 @@ type CopyOptions struct {
 	ContentType string
 	// Tags, when not nil, replaces the tags of the copy.
 	Tags map[string]string
+	// PartSize and Parallel tune the multipart copy of objects larger
+	// than MaxCopySize (see PutOptions).
+	PartSize int64
+	Parallel int
+	// Progress, when not nil, is called with the bytes copied (see
+	// PutOptions).
+	Progress func(n int64)
 }
 
 // ObjectVersion names an object (empty VersionID: the latest version) for

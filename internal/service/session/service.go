@@ -14,9 +14,13 @@ import (
 type Service interface {
 	// Login verifies the credentials and issues a session. Invalid
 	// credentials return domain.ErrAccessDenied; disabled, expired and
-	// temporary (STS, which need their session token) ones too. The
-	// returned Session carries the signed Token.
-	Login(ctx context.Context, accessKey, secretKey string) (*Session, error)
+	// temporary (STS, which need their session token) ones too. After too
+	// many failed attempts of the same client on the same access key, or
+	// of the same client on any access key, the attempts are refused
+	// without being verified with a *ThrottledError
+	// (domain.ErrTooManyRequests) until the lockout ends. The returned
+	// Session carries the signed Token.
+	Login(ctx context.Context, in LoginInput) (*Session, error)
 	// Validate parses and verifies a token and returns its session. Expired,
 	// tampered or revoked tokens return domain.ErrAccessDenied.
 	Validate(ctx context.Context, token string) (*Session, error)
@@ -25,6 +29,15 @@ type Service interface {
 	// ValidateCSRF checks that csrfToken (from the request header) matches
 	// the session's token; mismatches return domain.ErrAccessDenied.
 	ValidateCSRF(ctx context.Context, s *Session, csrfToken string) error
+}
+
+// LoginInput are the credentials of a console login.
+type LoginInput struct {
+	AccessKey string
+	SecretKey string
+	// Client identifies the caller (its IP address) for the throttling of
+	// failed attempts; empty throttles the access key alone.
+	Client string
 }
 
 // Session is an authenticated console session.
@@ -50,4 +63,8 @@ const (
 	CSRFCookieName = "nexo_csrf"
 	// CSRFHeader is the request header carrying the CSRF token.
 	CSRFHeader = "X-CSRF-Token"
+	// CSRFFormField is the form field carrying the CSRF token of the forms
+	// the console submits (application/x-www-form-urlencoded), for the
+	// downloads the browser streams to disk.
+	CSRFFormField = "csrfToken"
 )

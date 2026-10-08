@@ -6,7 +6,6 @@
  */
 import { createHttpServices } from './http';
 import type { Services } from './interfaces';
-import { createMockServices } from './mock';
 
 export interface ServicesConfig {
   /** Use the in-memory mocks instead of the Admin API. */
@@ -15,16 +14,21 @@ export interface ServicesConfig {
   apiBase: string;
 }
 
-/** Builds the service bundle for the given configuration. */
-export function createServices(config: ServicesConfig): Services {
+/**
+ * Builds the service bundle for the given configuration. The mocks of the
+ * demo mode are loaded on demand: they never weigh on the initial bundle
+ * of the console served by Nexo.
+ */
+export async function loadServices(config: ServicesConfig): Promise<Services> {
   if (config.demo) {
+    const { createMockServices } = await import('./mock');
     return createMockServices({ latencyMs: 150 });
   }
   return createHttpServices({ baseUrl: config.apiBase });
 }
 
-export { ApiError, isApiError, type ProblemDetails } from './errors';
-export { demoCredentials } from './mock';
+export { ApiError, isApiError, type LocatedError, type ProblemDetails } from './errors';
+export { demoCredentials } from './demo';
 export type * from './interfaces';
 export { ServicesProvider, useServices } from './ServicesProvider';
 export type * from './types';

@@ -1,0 +1,58 @@
+# Regression (escalation to root): a delegated administrator, a user whose
+# policy allows the admin:*ServiceAccount actions, manages the access keys
+# of other users but never those of root, which would act as root and
+# bypass every policy (docs/12 §12.7). Every attempt is denied (exit 4).
+
+exec nexoctl mb local/victim
+exec nexoctl admin user add local bob bob-secret-123 --policy readonly
+exec nexoctl admin accesskey create --access-key ROOTKEY0001 --secret-key root-key-secret-1 local
+stdout '^Parent User: '$NEXO_ROOT_USER'$'
+
+exec nexoctl admin policy create local saonly saonly.json
+exec nexoctl admin user add local mallory mallory-secret-1 --policy saonly
+exec nexoctl alias set mal $NEXO_URL mallory mallory-secret-1 --admin-url $NEXO_ADMIN_URL
+
+# The keys of root are out of reach.
+expectcode 4 nexoctl admin accesskey create mal --user $NEXO_ROOT_USER
+stderr 'only root manages the access keys of root'
+expectcode 4 nexoctl admin accesskey create mal --user ROOTKEY0001
+expectcode 4 nexoctl admin accesskey edit mal ROOTKEY0001 --secret-key stolen-secret-01
+expectcode 4 nexoctl admin accesskey edit mal ROOTKEY0001 --disable
+expectcode 4 nexoctl admin accesskey edit mal ROOTKEY0001 --policy readonly.json
+expectcode 4 nexoctl admin accesskey remove mal ROOTKEY0001
+expectcode 4 nexoctl admin accesskey info mal ROOTKEY0001
+expectcode 4 nexoctl admin accesskey list mal --user $NEXO_ROOT_USER
+exec nexoctl admin accesskey list mal
+! stdout ROOTKEY0001
+
+# The key of root is untouched.
+exec nexoctl alias set rk $NEXO_URL ROOTKEY0001 root-key-secret-1
+exec nexoctl ls rk
+stdout 'victim/'
+
+# The delegated administration of the other users still works.
+exec nexoctl admin accesskey create mal --user bob --access-key BOBKEY00001
+stdout '^Parent User: bob$'
+exec nexoctl admin accesskey edit mal BOBKEY00001 --disable
+exec nexoctl admin accesskey remove mal BOBKEY00001
+exec nexoctl admin accesskey create mal --access-key MALKEY00001
+stdout '^Parent User: mallory$'
+
+# The explicit deny of mallory holds for her keys, and she cannot
+# administer anything else.
+expectcode 4 nexoctl rb mal/victim
+expectcode 4 nexoctl admin user list mal
+exec nexoctl ls local
+stdout 'victim/'
+
+-- saonly.json --
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Effect": "Allow", "Action": ["admin:CreateServiceAccount", "admin:UpdateServiceAccount", "admin:RemoveServiceAccount", "admin:ListServiceAccounts"], "Resource": ["arn:aws:s3:::*"]},
+    {"Effect": "Allow", "Action": ["s3:*"], "Resource": ["arn:aws:s3:::*"]},
+    {"Effect": "Deny", "Action": ["s3:DeleteBucket"], "Resource": ["arn:aws:s3:::*"]}
+  ]
+}
+-- readonly.json --
+{"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Action": ["s3:GetObject"], "Resource": ["arn:aws:s3:::*"]}]}

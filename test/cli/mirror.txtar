@@ -1,0 +1,57 @@
+# TCL-E-06: a second mirror transfers nothing. TCL-E-07: mirror --remove
+# and --watch (file created, modified and removed) synchronize within 2 s.
+
+exec nexoctl mb local/site
+exec nexoctl mirror src local/site
+stdout 'Mirrored 3 objects'
+exec nexoctl mirror src local/site
+stdout 'Mirrored 0 objects \(0B\), removed 0, skipped 0.'
+exec nexoctl mirror --json src local/site
+! stdout .
+
+# Remote to local, twice.
+exec nexoctl mirror local/site back
+stdout 'Mirrored 3 objects'
+exec nexoctl mirror local/site back
+stdout 'Mirrored 0 objects'
+cmp back/index.html src/index.html
+cmp back/css/site.css src/css/site.css
+exec nexoctl diff src local/site
+! stdout .
+
+# --remove deletes what the source no longer has.
+rm src/old.txt
+exec nexoctl mirror src local/site
+stdout 'Mirrored 0 objects'
+exec nexoctl stat local/site/old.txt
+exec nexoctl mirror --remove src local/site
+stdout 'Removed `local/site/old.txt`.'
+expectcode 3 nexoctl stat local/site/old.txt
+
+# --watch keeps the bucket synchronized until Ctrl-C.
+[windows] stop 'the watch is stopped with SIGINT'
+exec nexoctl mirror --watch --remove --overwrite src local/site &watch&
+cp new.txt src/marker.txt
+eventually 2s nexoctl stat local/site/marker.txt
+mkdir src/sub
+cp new.txt src/sub/new.txt
+eventually 2s nexoctl stat local/site/sub/new.txt
+cp changed.html src/index.html
+eventually 2s -match 'changed' nexoctl cat local/site/index.html
+rm src/sub/new.txt
+eventually 2s ! nexoctl stat local/site/sub/new.txt
+kill -INT watch
+wait watch
+stdout 'Watching `src` for changes'
+stdout 'Removed `local/site/sub/new.txt`.'
+
+-- src/index.html --
+<h1>home</h1>
+-- src/css/site.css --
+body { margin: 0 }
+-- src/old.txt --
+obsolete
+-- new.txt --
+new file
+-- changed.html --
+<h1>changed home page</h1>
