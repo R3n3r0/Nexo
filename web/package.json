@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "@mantine/charts": "7.17.8",
-    "@mantine/core": "7.17.8",
+    "@mantine/core": "9.7.0",
     "@mantine/dates": "7.17.8",
     "@mantine/hooks": "7.17.8",
     "@mantine/modals": "7.17.8",
