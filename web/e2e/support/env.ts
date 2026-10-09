@@ -78,3 +78,18 @@ export function nexoBinary(): string {
   const explicit = process.env.NEXO_E2E_BINARY;
   return explicit !== undefined && explicit !== '' ? explicit : join(repoRoot, 'bin', 'nexo');
 }
+
+/**
+ * The nexoctl binary of the CLI checks: $NEXO_E2E_NEXOCTL, or bin/nexoctl,
+ * which the global setup rebuilt when it was stale.
+ */
+export function nexoctlBinary(): string {
+  const explicit = process.env.NEXO_E2E_NEXOCTL;
+  return explicit !== undefined && explicit !== '' ? explicit : join(repoRoot, 'bin', 'nexoctl');
+}
+
+/** Name of the master key of the builtin KMS of the single-drive server. */
+export const e2eKmsKeyName = 'e2e-master';
+
+/** NEXO_KMS_SECRET_KEY of the single-drive server: a fixed test key (32 bytes). */
+export const e2eKmsSecretKey = `${e2eKmsKeyName}:${Buffer.alloc(32, 7).toString('base64')}`;

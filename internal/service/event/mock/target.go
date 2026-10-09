@@ -69,18 +69,18 @@ func (_c *Target_Close_Call) RunAndReturn(run func(context.Context) error) *Targ
 }
 
 // ID provides a mock function with no fields
-func (_m *Target) ID() string {
+func (_m *Target) ID() event.TargetID {
 	ret := _m.Called()
 
 	if len(ret) == 0 {
 		panic("no return value specified for ID")
 	}
 
-	var r0 string
-	if rf, ok := ret.Get(0).(func() string); ok {
+	var r0 event.TargetID
+	if rf, ok := ret.Get(0).(func() event.TargetID); ok {
 		r0 = rf()
 	} else {
-		r0 = ret.Get(0).(string)
+		r0 = ret.Get(0).(event.TargetID)
 	}
 
 	return r0
@@ -103,12 +103,12 @@ func (_c *Target_ID_Call) Run(run func()) *Target_ID_Call {
 	return _c
 }
 
-func (_c *Target_ID_Call) Return(_a0 string) *Target_ID_Call {
+func (_c *Target_ID_Call) Return(_a0 event.TargetID) *Target_ID_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *Target_ID_Call) RunAndReturn(run func() string) *Target_ID_Call {
+func (_c *Target_ID_Call) RunAndReturn(run func() event.TargetID) *Target_ID_Call {
 	_c.Call.Return(run)
 	return _c
 }

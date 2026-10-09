@@ -18,6 +18,7 @@ import {
   IconCheck,
   IconDownload,
   IconHistory,
+  IconLock,
   IconShare,
   IconTrash,
   IconX,
@@ -33,9 +34,12 @@ import { formatBytes } from '@/lib/format';
 import { baseName } from '@/lib/objectPath';
 import { problemMessage } from '@/lib/problem';
 import { storageKeys } from '@/lib/storageKeys';
-import { useServices, type ObjectEntry, type TagSet } from '@/services';
+import { useServices, type ObjectEncryption, type ObjectEntry, type TagSet } from '@/services';
 
+import { ObjectAttributesPanel } from './ObjectAttributesPanel';
+import { ObjectLockPanel } from './ObjectLockPanel';
 import { ObjectPreview } from './ObjectPreview';
+import { VersionDeleteDialog } from './VersionDeleteDialog';
 
 export interface ObjectDrawerProps {
   bucket: string;
@@ -57,16 +61,39 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+/** The encryption of a version in words. */
+function EncryptionText({ encryption }: { encryption: ObjectEncryption | undefined }) {
+  const { t } = useTranslation();
+  if (encryption === undefined) {
+    return <>{t('objectDetails.notEncrypted')}</>;
+  }
+  return (
+    <Group gap="xs">
+      <Badge variant="light" color="teal">
+        {encryption.type}
+      </Badge>
+      {encryption.kmsKeyId !== undefined && encryption.kmsKeyId !== '' ? (
+        <Text size="sm" ff="monospace">
+          {t('objectDetails.kmsKey', { key: encryption.kmsKeyId })}
+        </Text>
+      ) : null}
+    </Group>
+  );
+}
+
 function VersionRow({
   bucket,
   version,
   canDelete,
   canRestore,
+  onDelete,
 }: {
   bucket: string;
   version: ObjectEntry;
   canDelete: boolean;
   canRestore: boolean;
+  /** Deletes through the Object Lock dialog instead of the inline confirmation. */
+  onDelete?: (() => void) | undefined;
 }) {
   const { t, i18n } = useTranslation();
   const { objects } = useServices();
@@ -113,7 +140,12 @@ function VersionRow({
   });
   const locale = i18n.resolvedLanguage;
   return (
-    <Table.Tr>
+    <Table.Tr
+      data-delete-marker={version.isDeleteMarker || undefined}
+      style={
+        version.isDeleteMarker ? { backgroundColor: 'var(--mantine-color-red-light)' } : undefined
+      }
+    >
       <Table.Td>
         <Stack gap={2}>
           <Group gap={4}>
@@ -219,7 +251,8 @@ function VersionRow({
                   disabled={!canDelete}
                   aria-label={t('objectVersions.deleteVersion', { version: versionId })}
                   onClick={() => {
-                    setConfirming(true);
+                    if (onDelete !== undefined) onDelete();
+                    else setConfirming(true);
                   }}
                 >
                   <IconTrash size={14} />
@@ -238,14 +271,20 @@ function VersionsPanel({
   objectKey,
   canDelete,
   canRestore,
+  locked,
+  perms,
 }: {
   bucket: string;
   objectKey: string;
   canDelete: boolean;
   canRestore: boolean;
+  /** The bucket has Object Lock: deletions go through the lock dialog. */
+  locked: boolean;
+  perms: PermissionCheck;
 }) {
   const { t } = useTranslation();
   const { objects } = useServices();
+  const [deleting, setDeleting] = useState<ObjectEntry | null>(null);
   const query = useInfiniteQuery({
     queryKey: storageKeys.versions(bucket, objectKey),
     queryFn: ({ pageParam }) =>
@@ -276,10 +315,30 @@ function VersionsPanel({
               version={version}
               canDelete={canDelete}
               canRestore={canRestore}
+              onDelete={
+                locked
+                  ? () => {
+                      setDeleting(version);
+                    }
+                  : undefined
+              }
             />
           ))}
         </Table.Tbody>
       </Table>
+      {locked ? (
+        <Text size="xs" c="dimmed">
+          {t('objectVersions.lockedHint')}
+        </Text>
+      ) : null}
+      <VersionDeleteDialog
+        bucket={bucket}
+        version={deleting}
+        perms={perms}
+        onClose={() => {
+          setDeleting(null);
+        }}
+      />
       {query.hasNextPage ? (
         <Button
           size="xs"
@@ -296,13 +355,22 @@ function VersionsPanel({
   );
 }
 
-/** D-OBJ-06: metadata, preview, tags and versions of an object. */
+/**
+ * D-OBJ-06: metadata and encryption, preview, tags, versions, Object Lock
+ * (retention and legal hold) and attributes (checksum, parts) of an object.
+ */
 export function ObjectDrawer({ bucket, objectKey, perms, onClose, onShare }: ObjectDrawerProps) {
   const { t, i18n } = useTranslation();
-  const { objects } = useServices();
+  const { objects, buckets } = useServices();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<string | null>('details');
   const key = objectKey ?? '';
+  const bucketInfo = useQuery({
+    queryKey: storageKeys.bucket(bucket),
+    queryFn: () => buckets.get(bucket),
+    enabled: objectKey !== null,
+  });
+  const locked = bucketInfo.data?.objectLockEnabled === true;
   const stat = useQuery({
     queryKey: storageKeys.object(bucket, key),
     queryFn: () => objects.stat(bucket, key),
@@ -382,6 +450,12 @@ export function ObjectDrawer({ bucket, objectKey, perms, onClose, onShare }: Obj
               <Tabs.Tab value="preview">{t('objectDetails.tabs.preview')}</Tabs.Tab>
               <Tabs.Tab value="tags">{t('objectDetails.tabs.tags')}</Tabs.Tab>
               <Tabs.Tab value="versions">{t('objectDetails.tabs.versions')}</Tabs.Tab>
+              {locked ? (
+                <Tabs.Tab value="lock" leftSection={<IconLock size={14} />}>
+                  {t('objectDetails.tabs.lock')}
+                </Tabs.Tab>
+              ) : null}
+              <Tabs.Tab value="attributes">{t('objectDetails.tabs.attributes')}</Tabs.Tab>
             </Tabs.List>
             <Tabs.Panel value="details" pt="md">
               <Table variant="vertical" layout="fixed" withTableBorder>
@@ -434,6 +508,9 @@ export function ObjectDrawer({ bucket, objectKey, perms, onClose, onShare }: Obj
                       {details.checksumAlgorithm ?? ''} {details.checksum}
                     </Field>
                   ) : null}
+                  <Field label={t('objectDetails.encryption')}>
+                    <EncryptionText encryption={details.encryption} />
+                  </Field>
                   {Object.entries(details.userMetadata).map(([name, value]) => (
                     <Field key={name} label={`x-amz-meta-${name}`}>
                       {value}
@@ -483,10 +560,35 @@ export function ObjectDrawer({ bucket, objectKey, perms, onClose, onShare }: Obj
                     perms.can(StorageActions.getObjectVersion) &&
                     perms.can(StorageActions.putObject)
                   }
+                  locked={locked}
+                  perms={perms}
                 />
               ) : (
                 <Text size="sm" c="dimmed">
                   {t('permissions.missing', { action: StorageActions.listVersions })}
+                </Text>
+              )}
+            </Tabs.Panel>
+            {locked ? (
+              <Tabs.Panel value="lock" pt="md">
+                <ObjectLockPanel
+                  bucket={bucket}
+                  objectKey={key}
+                  versionId={details.versionId}
+                  perms={perms}
+                />
+              </Tabs.Panel>
+            ) : null}
+            <Tabs.Panel value="attributes" pt="md">
+              {perms.can(StorageActions.getAttributes) ? (
+                <ObjectAttributesPanel
+                  bucket={bucket}
+                  objectKey={key}
+                  versionId={details.versionId}
+                />
+              ) : (
+                <Text size="sm" c="dimmed">
+                  {t('permissions.missing', { action: StorageActions.getAttributes })}
                 </Text>
               )}
             </Tabs.Panel>

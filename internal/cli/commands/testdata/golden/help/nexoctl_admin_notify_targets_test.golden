@@ -1,0 +1,19 @@
+Send a test event (s3:TestEvent) to a notification target, named by its ARN or
+by "ID:TYPE" (e.g. "_:webhook" for the default webhook). The command fails when
+the target does not receive it.
+
+Usage:
+  nexoctl admin notify targets test ALIAS TARGET [flags]
+
+Examples:
+  nexoctl admin notify targets test local arn:nexo:sqs:us-east-1:_:webhook
+
+Flags:
+  -h, --help   help for test
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

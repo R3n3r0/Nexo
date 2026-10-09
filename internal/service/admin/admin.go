@@ -12,6 +12,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/cluster"
 	"github.com/r3n3r0/nexo/internal/service/heal"
+	"github.com/r3n3r0/nexo/internal/service/kms"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/scanner"
 	"github.com/r3n3r0/nexo/internal/service/storage"
@@ -53,6 +54,9 @@ type Deps struct {
 	// The disks of this node are always the ones of Drives, with their
 	// healing progress.
 	Cluster cluster.Info
+	// KMS is the KMS of the server-side encryption, whose state and keys
+	// ServerInfo reports; nil leaves it out.
+	KMS kms.Service
 }
 
 // Option configures the facade.
@@ -94,6 +98,9 @@ func (s *service) ServerInfo(ctx context.Context) (*domain.ServerInfo, error) {
 	}
 	info.Uptime = now.Sub(info.StartedAt)
 	info.Nodes = s.nodes(ctx, info.Uptime)
+	if s.deps.KMS != nil {
+		info.KMS = kmsInfo(ctx, s.deps.KMS, s.deps.Logger)
+	}
 	info.Pools = poolStates(s.deps.Pools, info.Nodes)
 	if s.deps.Objects != nil {
 		buckets, err := s.deps.Objects.ListBuckets(ctx)

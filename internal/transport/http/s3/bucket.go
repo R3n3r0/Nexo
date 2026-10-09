@@ -6,6 +6,8 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -62,7 +64,7 @@ func newBucketRoutes(deps BucketDeps, opts ...Option) *bucketRoutes {
 	return &bucketRoutes{
 		deps:  deps,
 		opts:  newOptions(opts),
-		authz: authorizer{policy: deps.Policy, enc: deps.Enc, clock: deps.Clock},
+		authz: authorizer{policy: deps.Policy, enc: deps.Enc, clock: deps.Clock, objects: deps.Objects},
 	}
 }
 
@@ -94,11 +96,11 @@ func (h *bucketRoutes) bucketOperations() map[Operation]http.HandlerFunc {
 		{Name: "DeleteBucketTagging", Method: del, Scope: ScopeBucket, Query: "tagging"}:              h.deleteTagging,
 		{Name: "GetBucketCors", Method: get, Scope: ScopeBucket, Query: "cors"}:                       h.rawGetter(h.getCORS),
 		{Name: "DeleteBucketCors", Method: del, Scope: ScopeBucket, Query: "cors"}:                    h.deleter(h.deleteCORS),
-		{Name: "GetBucketLifecycle", Method: get, Scope: ScopeBucket, Query: "lifecycle"}:             h.rawGetter(h.getLifecycle),
-		{Name: "DeleteBucketLifecycle", Method: del, Scope: ScopeBucket, Query: "lifecycle"}:          h.deleter(h.deleteLifecycle),
-		{Name: "GetBucketNotification", Method: get, Scope: ScopeBucket, Query: "notification"}:       h.rawGetter(h.getNotification),
 		{Name: "GetObjectLockConfiguration", Method: get, Scope: ScopeBucket, Query: "object-lock"}:   h.getObjectLock,
+		{Name: "PutObjectLockConfiguration", Method: put, Scope: ScopeBucket, Query: "object-lock"}:   h.putObjectLock,
+		{Name: "PutBucketCors", Method: put, Scope: ScopeBucket, Query: "cors"}:                       h.putCORS,
 		{Name: "GetBucketEncryption", Method: get, Scope: ScopeBucket, Query: "encryption"}:           h.getEncryption,
+		{Name: "PutBucketEncryption", Method: put, Scope: ScopeBucket, Query: "encryption"}:           h.putEncryption,
 		{Name: "DeleteBucketEncryption", Method: del, Scope: ScopeBucket, Query: "encryption"}:        h.deleter(h.deleteEncryption),
 		{Name: "GetBucketAcl", Method: get, Scope: ScopeBucket, Query: "acl"}:                         h.getACL,
 		{Name: "PutBucketAcl", Method: put, Scope: ScopeBucket, Query: "acl"}:                         h.putACL,
@@ -131,15 +133,24 @@ func (h *bucketRoutes) listBuckets(w http.ResponseWriter, r *http.Request) {
 	if !h.authz.authorize(w, r, "", "") {
 		return
 	}
-	prefix := r.URL.Query().Get("prefix")
-	list, err := h.deps.Buckets.List(r.Context(), bucket.ListInput{Prefix: prefix})
+	q := r.URL.Query()
+	in := bucket.ListPageInput{Prefix: q.Get("prefix"), ContinuationToken: q.Get("continuation-token")}
+	if v := q.Get("max-buckets"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			h.fail(w, r, invalidArgument("max-buckets must be an integer between 1 and "+strconv.Itoa(bucket.MaxListBuckets)))
+			return
+		}
+		in.MaxBuckets = n
+	}
+	page, err := h.deps.Buckets.ListPage(r.Context(), in)
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	res := ListAllMyBucketsResult{Owner: ownerOf(r), Prefix: prefix}
-	res.Buckets.Bucket = make([]BucketEntry, 0, len(list))
-	for _, b := range list {
+	res := ListAllMyBucketsResult{Owner: ownerOf(r), Prefix: in.Prefix, ContinuationToken: page.ContinuationToken}
+	res.Buckets.Bucket = make([]BucketEntry, 0, len(page.Buckets))
+	for _, b := range page.Buckets {
 		res.Buckets.Bucket = append(res.Buckets.Bucket, BucketEntry{Name: b.Name, CreationDate: s3Time(b.Created), BucketRegion: b.Region})
 	}
 	h.deps.Enc.WriteXML(w, http.StatusOK, res)
@@ -154,11 +165,18 @@ func (h *bucketRoutes) createBucket(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	if r.Header.Get(httpx.HeaderAmzBucketObjectLock) == "true" {
-		h.fail(w, r, notImplemented("Object Lock is not supported yet"))
+	in := bucket.CreateInput{Name: name}
+	if v := strings.TrimSpace(r.Header.Get(httpx.HeaderAmzBucketObjectLock)); strings.EqualFold(v, "true") {
+		// Object locking needs the right to configure it (and implies
+		// versioning), as S3 requires.
+		if !h.authz.authorizeAction(w, r, actionPutBucketObjectLock, name, "") {
+			return
+		}
+		in.ObjectLock = true
+	} else if v != "" && !strings.EqualFold(v, "false") {
+		h.fail(w, r, invalidArgument("x-amz-bucket-object-lock-enabled must be true or false"))
 		return
 	}
-	in := bucket.CreateInput{Name: name}
 	if r.ContentLength != 0 && r.Body != nil && r.Body != http.NoBody {
 		var cfg CreateBucketConfiguration
 		if err := decodeXMLBody(r, h.deps.Enc, maxXMLBody, &cfg); err != nil {
@@ -255,6 +273,7 @@ func objectEntries(objects []domain.ObjectInfo, owner *Owner, enc listEncoder) [
 	for _, o := range objects {
 		out = append(out, ObjectEntry{
 			Key: enc.Encode(o.Key), LastModified: s3Time(o.ModTime), ETag: quoteETag(o.ETag), Size: o.Size,
+			ChecksumAlgorithm: string(o.Checksum.Algorithm), ChecksumType: string(o.Checksum.Type),
 			StorageClass: storageClassOrStandard(o.StorageClass), Owner: owner,
 		})
 	}
@@ -325,9 +344,13 @@ func (h *bucketRoutes) listObjectsV2(w http.ResponseWriter, r *http.Request) {
 		o := ownerOf(r)
 		owner = &o
 	}
+	var token *string
+	if q.Has("continuation-token") {
+		token = &p.in.ContinuationToken
+	}
 	out := ListBucketResultV2{
 		Name: bucketName, Prefix: p.enc.Encode(p.in.Prefix), StartAfter: p.enc.Encode(p.in.StartAfter),
-		ContinuationToken: p.in.ContinuationToken, NextContinuationToken: res.NextContinuationToken, MaxKeys: p.maxKeys,
+		ContinuationToken: token, NextContinuationToken: res.NextContinuationToken, MaxKeys: p.maxKeys,
 		Delimiter: p.enc.Encode(p.in.Delimiter), EncodingType: p.enc.Type(), IsTruncated: res.IsTruncated,
 		Contents: objectEntries(res.Objects, owner, p.enc), CommonPrefixes: commonPrefixes(res.CommonPrefixes, p.enc),
 	}
@@ -377,7 +400,8 @@ func (h *bucketRoutes) listObjectVersions(w http.ResponseWriter, r *http.Request
 		}
 		out.Versions = append(out.Versions, VersionEntry{
 			Key: p.enc.Encode(o.Key), VersionID: versionIDOrNull(o.VersionID), IsLatest: o.IsLatest, LastModified: s3Time(o.ModTime),
-			ETag: quoteETag(o.ETag), Size: o.Size, StorageClass: storageClassOrStandard(o.StorageClass), Owner: owner,
+			ETag: quoteETag(o.ETag), ChecksumAlgorithm: string(o.Checksum.Algorithm), ChecksumType: string(o.Checksum.Type),
+			Size: o.Size, StorageClass: storageClassOrStandard(o.StorageClass), Owner: owner,
 		})
 	}
 	h.deps.Enc.WriteXML(w, http.StatusOK, out)
@@ -547,18 +571,6 @@ func (h *bucketRoutes) deleteCORS(ctx context.Context, name string) error {
 	return h.deps.Buckets.DeleteCORS(ctx, name)
 }
 
-func (h *bucketRoutes) getLifecycle(ctx context.Context, name string) ([]byte, error) {
-	return h.deps.Buckets.GetLifecycle(ctx, name)
-}
-
-func (h *bucketRoutes) deleteLifecycle(ctx context.Context, name string) error {
-	return h.deps.Buckets.DeleteLifecycle(ctx, name)
-}
-
-func (h *bucketRoutes) getNotification(ctx context.Context, name string) ([]byte, error) {
-	return h.deps.Buckets.GetNotification(ctx, name)
-}
-
 func (h *bucketRoutes) deleteEncryption(ctx context.Context, name string) error {
 	return h.deps.Buckets.DeleteEncryption(ctx, name)
 }
@@ -627,6 +639,32 @@ func (h *bucketRoutes) getEncryption(w http.ResponseWriter, r *http.Request) {
 		ApplyServerSideEncryptionByDefault: EncryptionByDefault{SSEAlgorithm: cfg.Algorithm, KMSMasterKeyID: cfg.KMSKeyID},
 	}}}
 	h.deps.Enc.WriteXML(w, http.StatusOK, out)
+}
+
+// putEncryption sets the default encryption of a bucket (S-BKT-11): one
+// rule, SSE-S3 (AES256) or SSE-KMS (aws:kms, with an optional key).
+func (h *bucketRoutes) putEncryption(w http.ResponseWriter, r *http.Request) {
+	name := BucketName(r)
+	if !h.authz.authorize(w, r, name, "") {
+		return
+	}
+	var req encryptionRequest
+	if err := decodeXMLBody(r, h.deps.Enc, maxXMLBody, &req); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if len(req.Rules) != 1 || req.Rules[0].ApplyServerSideEncryptionByDefault == nil {
+		h.fail(w, r, domain.NewS3Error(domain.ErrMalformedXML, "MalformedXML",
+			"The XML you provided was not well-formed or did not validate against our published schema: one Rule with ApplyServerSideEncryptionByDefault is required."))
+		return
+	}
+	def := req.Rules[0].ApplyServerSideEncryptionByDefault
+	cfg := bucket.EncryptionConfig{Algorithm: strings.TrimSpace(def.SSEAlgorithm), KMSKeyID: kmsKeyID(def.KMSMasterKeyID)}
+	if err := h.deps.Buckets.SetEncryption(r.Context(), name, cfg); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 // cannedPrivateACL is the only ACL Nexo exposes: full control to the owner.

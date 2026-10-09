@@ -2,9 +2,13 @@ import { isApiError } from '../errors';
 import type { ObjectService } from '../interfaces';
 import type {
   DeleteObjectsResult,
+  LegalHoldStatus,
+  ObjectAttributes,
   ObjectDetails,
   ObjectEntry,
+  ObjectLegalHold,
   ObjectList,
+  ObjectRetention,
   RenameResult,
   TagSet,
   VersionList,
@@ -61,6 +65,42 @@ export function createHttpObjectService(client: HttpClient): ObjectService {
       });
       return body.tags;
     },
+    getRetention(bucket, key, versionId) {
+      return client.request<ObjectRetention>(path(bucket, 'retention'), {
+        query: { key, versionId },
+      });
+    },
+    setRetention(bucket, key, input, versionId) {
+      return client.request<ObjectRetention>(path(bucket, 'retention'), {
+        method: 'PUT',
+        query: { key, versionId },
+        body: input,
+      });
+    },
+    async getLegalHold(bucket, key, versionId) {
+      const body = await client.request<ObjectLegalHold>(path(bucket, 'legal-hold'), {
+        query: { key, versionId },
+      });
+      return legalHoldOf(body.status);
+    },
+    async setLegalHold(bucket, key, status, versionId) {
+      const body = await client.request<ObjectLegalHold>(path(bucket, 'legal-hold'), {
+        method: 'PUT',
+        query: { key, versionId },
+        body: { status } satisfies ObjectLegalHold,
+      });
+      return legalHoldOf(body.status);
+    },
+    attributes(bucket, key, query = {}) {
+      return client.request<ObjectAttributes>(path(bucket, 'attributes'), {
+        query: {
+          key,
+          versionId: query.versionId,
+          maxParts: query.maxParts,
+          partNumberMarker: query.partNumberMarker,
+        },
+      });
+    },
     downloadUrl(bucket, key, versionId) {
       return client.url(path(bucket, 'download'), { key, versionId });
     },
@@ -105,6 +145,11 @@ export function createHttpObjectService(client: HttpClient): ObjectService {
       );
     },
   };
+}
+
+/** The legal hold of an answer (ON or OFF, case-insensitive on the wire). */
+function legalHoldOf(status: string): LegalHoldStatus {
+  return status.toUpperCase() === 'ON' ? 'ON' : 'OFF';
 }
 
 /** Size of the whole object from Content-Range (206) or Content-Length (200). */

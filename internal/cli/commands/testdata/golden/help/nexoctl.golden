@@ -19,6 +19,7 @@ Buckets and objects:
   mirror      Synchronize a directory or prefix to another one
   mv          Move files and objects
   pipe        Stream the standard input to an object
+  put         Upload local files
   rb          Remove buckets
   rm          Remove objects, object versions and incomplete uploads
   stat        Show the metadata of objects, buckets and files
@@ -26,12 +27,17 @@ Buckets and objects:
 
 Sharing and access:
   anonymous   Manage the anonymous access of buckets and prefixes
+  cors        Manage the CORS configuration of buckets
   presign     Generate a raw presigned URL for any method
   share       Share objects with links that need no credentials
 
 Bucket and object settings:
   encrypt     Manage the default encryption of buckets
+  event       Manage the event notifications of buckets
+  ilm         Manage the lifecycle rules of buckets (expiration, noncurrent versions, uploads)
+  legalhold   Manage the Object Lock legal hold of objects
   quota       Manage the hard quota of buckets (Admin API)
+  retention   Manage the Object Lock retention of objects and buckets
   tag         Manage the tags of buckets and objects
   version     Print the nexoctl version, or manage bucket versioning
 

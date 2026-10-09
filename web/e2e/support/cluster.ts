@@ -4,6 +4,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { e2eKmsSecretKey } from './env';
 import { freePort, type NexoProcess, spawnNexo, stopNexo, waitReady } from './nexo';
 
 /**
@@ -11,13 +12,16 @@ import { freePort, type NexoProcess, spawnNexo, stopNexo, waitReady } from './ne
  * in seconds: an internode call gives up after 5 s, orphan locks expire
  * after 6 s (refreshed every 2 s), and the background healing retries an
  * object at least every 5 s (its 20 attempts span about 90 s), so that a
- * node coming back is healed at once.
+ * node coming back is healed at once. Every node has the same builtin
+ * KMS key of the SNSD server, so that the encryption specs run on the
+ * cluster too (cluster-full).
  */
 export const clusterEnv = {
   NEXO_RPC_CALL_TIMEOUT: '5s',
   NEXO_LOCK_STALE_AFTER: '6s',
   NEXO_LOCK_REFRESH_INTERVAL: '2s',
   NEXO_HEAL_RETRY_MAX_DELAY: '5s',
+  NEXO_KMS_SECRET_KEY: e2eKmsSecretKey,
 };
 
 /**

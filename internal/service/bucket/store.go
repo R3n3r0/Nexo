@@ -223,7 +223,14 @@ func (s *metadataStore) BucketConfig(ctx context.Context, bucket string) (object
 	if err != nil {
 		return object.BucketConfig{}, err
 	}
-	return object.BucketConfig{Versioning: m.Versioning, ObjectLock: m.ObjectLock.Enabled, QuotaBytes: m.Quota.Size}, nil
+	cfg := object.BucketConfig{
+		Versioning: m.Versioning, ObjectLock: m.ObjectLock.Enabled, QuotaBytes: m.Quota.Size,
+		Encryption: domain.BucketEncryption{Algorithm: m.Encryption.Algorithm, KMSKeyID: m.Encryption.KMSKeyID},
+	}
+	if m.ObjectLock.Enabled {
+		cfg.DefaultRetention = m.ObjectLock.DefaultRetention()
+	}
+	return cfg, nil
 }
 
 // each runs fn on every online drive and succeeds when a majority did.

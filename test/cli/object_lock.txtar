@@ -1,0 +1,80 @@
+# T-7.10, TS-U-12: retention, legalhold, mb --with-lock and rb --force
+# against a real server: protected versions cannot be removed, GOVERNANCE
+# yields to --bypass, COMPLIANCE never does (root included).
+
+exec nexoctl mb --with-lock local/vault
+stdout 'with Object Lock'
+exec nexoctl version info local/vault
+stdout 'is enabled'
+exec nexoctl stat local/vault
+stdout '^Object Lock : Enabled$'
+
+# The default retention of the bucket applies to the new versions.
+exec nexoctl retention info local/vault
+stdout 'has Object Lock, without default retention'
+exec nexoctl retention set --default --mode governance --validity 1d local/vault
+stdout 'Default retention of `local/vault`: GOVERNANCE for 1d'
+exec nexoctl retention info --json local/vault
+jsonlines stdout
+stdout '"default":true,"objectLock":\{"enabled":true,"mode":"GOVERNANCE","validity":"1d"\}'
+exec nexoctl cp doc.txt local/vault/doc.txt
+exec nexoctl retention info local/vault/doc.txt
+stdout 'GOVERNANCE until .* \(in force\)'
+exec nexoctl stat local/vault/doc.txt
+stdout '^Retention   : GOVERNANCE until '
+
+# GOVERNANCE: the removal is refused (exit 4), --bypass lifts it.
+expectcode 4 nexoctl rm --versions local/vault/doc.txt
+stderr 'failed'
+expectcode 4 nexoctl retention clear local/vault/doc.txt
+exec nexoctl retention clear --bypass local/vault/doc.txt
+stdout 'removed'
+exec nexoctl retention info local/vault/doc.txt
+stdout 'no retention'
+
+# COMPLIANCE: only extended, even by root.
+exec nexoctl retention set --mode compliance --validity 1d local/vault/doc.txt
+stdout 'COMPLIANCE until'
+expectcode 4 nexoctl retention clear --bypass local/vault/doc.txt
+expectcode 4 nexoctl retention set --mode governance --validity 1d --bypass local/vault/doc.txt
+exec nexoctl retention set --mode compliance --validity 2d local/vault/doc.txt
+expectcode 4 nexoctl rm --versions --bypass local/vault/doc.txt
+
+# Legal hold, on every version under a prefix.
+exec nexoctl retention clear --default local/vault
+exec nexoctl cp doc.txt local/vault/case/a.txt
+exec nexoctl cp doc.txt local/vault/case/b.txt
+exec nexoctl legalhold set -r local/vault/case/
+stdout -count=2 'Legal hold of .*: ON'
+exec nexoctl legalhold info --json -r local/vault/case
+jsonlines stdout
+stdout -count=2 '"legalHold":"ON"'
+exec nexoctl stat local/vault/case/a.txt
+stdout '^Legal hold  : ON$'
+expectcode 4 nexoctl rm --versions --bypass local/vault/case/a.txt
+
+# rb --force respects the lock: nothing is removed.
+expectcode 4 nexoctl rb --force local/vault
+stderr 'protected by Object Lock, nothing removed'
+stderr 'legal hold'
+exec nexoctl ls --recursive local/vault
+stdout -count=3 'txt'
+
+exec nexoctl legalhold clear local/vault/case/a.txt
+stdout 'OFF'
+exec nexoctl rm --versions local/vault/case/a.txt
+stdout 'Removed `local/vault/case/a.txt` \(version '
+exec nexoctl ls --versions --recursive local/vault
+! stdout 'case/a.txt'
+stdout 'PUT case/b.txt \(latest\)'
+
+# Object Lock needs a bucket created with it.
+exec nexoctl mb local/plain
+expectcode 1 nexoctl retention set --default --mode governance --validity 1d local/plain
+stderr 'mb --with-lock'
+exec nexoctl retention info local/plain
+stdout 'has no Object Lock'
+expectcode 2 nexoctl retention set --mode governance --validity 1w local/vault/doc.txt
+
+-- doc.txt --
+retained content

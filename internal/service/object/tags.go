@@ -7,6 +7,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/event"
+	"github.com/r3n3r0/nexo/internal/service/storage"
 )
 
 // PutObjectTags implements Service. The tag set replaces the existing one;
@@ -15,18 +16,22 @@ func (l *layer) PutObjectTags(ctx context.Context, bucket, key string, tags map[
 	if err := validateTags(tags); err != nil {
 		return domain.ObjectInfo{}, err
 	}
-	return l.updateTags(ctx, bucket, key, opts.VersionID, func(meta map[string]string) {
+	return l.updateMeta(ctx, bucket, key, opts.VersionID, func(_ storage.FileInfo, meta map[string]string) error {
 		if len(tags) == 0 {
 			delete(meta, metaTagging)
-			return
+			return nil
 		}
 		meta[metaTagging] = encodeTags(tags)
+		return nil
 	}, event.ObjectCreatedPutTagging)
 }
 
 // DeleteObjectTags implements Service.
 func (l *layer) DeleteObjectTags(ctx context.Context, bucket, key string, opts TagOptions) (domain.ObjectInfo, error) {
-	return l.updateTags(ctx, bucket, key, opts.VersionID, func(meta map[string]string) { delete(meta, metaTagging) }, event.ObjectCreatedDeleteTagging)
+	return l.updateMeta(ctx, bucket, key, opts.VersionID, func(_ storage.FileInfo, meta map[string]string) error {
+		delete(meta, metaTagging)
+		return nil
+	}, event.ObjectCreatedDeleteTagging)
 }
 
 // GetObjectTags implements Service. An object without tags yields an
@@ -42,9 +47,12 @@ func (l *layer) GetObjectTags(ctx context.Context, bucket, key string, opts TagO
 	return info.Tags, nil
 }
 
-// updateTags rewrites the metadata of one version in place under the
-// object write lock (the content and the modification time are kept).
-func (l *layer) updateTags(ctx context.Context, bucket, key, versionID string, mutate func(map[string]string), name event.Name) (domain.ObjectInfo, error) {
+// updateMeta rewrites the metadata of one version in place under the
+// object write lock (the content and the modification time are kept):
+// mutate receives the version and a copy of its metadata to change, and
+// fails to leave the version untouched. Tags and the Object Lock settings
+// are changed this way.
+func (l *layer) updateMeta(ctx context.Context, bucket, key, versionID string, mutate func(fi storage.FileInfo, meta map[string]string) error, name event.Name) (domain.ObjectInfo, error) {
 	if err := validObject(bucket, key); err != nil {
 		return domain.ObjectInfo{}, err
 	}
@@ -55,17 +63,19 @@ func (l *layer) updateTags(ctx context.Context, bucket, key, versionID string, m
 	defer unlock()
 	st, err := l.place.forVersion(ctx, bucket, key, versionID)
 	if err != nil {
-		return domain.ObjectInfo{}, fmt.Errorf("%s: tag %s/%s: %w", l.name, bucket, key, err)
+		return domain.ObjectInfo{}, fmt.Errorf("%s: update %s/%s: %w", l.name, bucket, key, err)
 	}
 	fi, err := l.readVersion(ctx, st, bucket, key, versionID, false)
 	if err != nil {
-		return domain.ObjectInfo{}, fmt.Errorf("%s: tag %s/%s: %w", l.name, bucket, key, err)
+		return domain.ObjectInfo{}, fmt.Errorf("%s: update %s/%s: %w", l.name, bucket, key, err)
 	}
 	meta := make(map[string]string, len(fi.Metadata)+1)
 	for k, v := range fi.Metadata {
 		meta[k] = v
 	}
-	mutate(meta)
+	if err := mutate(fi, meta); err != nil {
+		return domain.ObjectInfo{}, err
+	}
 	stamp := l.now().UnixNano()
 	if prev := metaStamp(fi.Metadata); stamp <= prev {
 		stamp = prev + 1
@@ -73,7 +83,7 @@ func (l *layer) updateTags(ctx context.Context, bucket, key, versionID string, m
 	meta[metaUpdated] = strconv.FormatInt(stamp, 10)
 	fi.Metadata = meta
 	if err := st.UpdateMetadata(ctx, bucket, key, fi); err != nil {
-		return domain.ObjectInfo{}, fmt.Errorf("%s: tag %s/%s: %w", l.name, bucket, key, err)
+		return domain.ObjectInfo{}, fmt.Errorf("%s: update %s/%s: %w", l.name, bucket, key, err)
 	}
 	info := objectInfo(bucket, key, fi)
 	l.publish(ctx, name, bucket, info)

@@ -317,6 +317,8 @@ func TestAPIWithoutServicesAnswersNotImplemented(t *testing.T) {
 		s3.NewMultipartRoutes(s3.MultipartDeps{Enc: enc}),
 		s3.NewPresignedRoutes(s3.PresignedDeps{Enc: enc}),
 		s3.NewPostPolicyRoutes(s3.PostPolicyDeps{Enc: enc}),
+		s3.NewLifecycleRoutes(s3.LifecycleDeps{Enc: enc}),
+		s3.NewNotificationRoutes(s3.NotificationDeps{Enc: enc}),
 		nil,
 	)
 	r := chi.NewRouter()
@@ -331,7 +333,7 @@ func TestAPIWithoutServicesAnswersNotImplemented(t *testing.T) {
 		{"PUT", "/bucket/key"}, {"GET", "/bucket/dir/key.txt"}, {"POST", "/bucket/key?uploads"},
 		{"PUT", "/bucket/key?uploadId=1&partNumber=2"}, {"GET", "/bucket/key?tagging"},
 		{"GET", "/bucket/key?X-Amz-Signature=abc&X-Amz-Algorithm=AWS4-HMAC-SHA256"}, {"GET", "/bucket/key?retention"},
-		{"GET", "/bucket?website"}, {"PUT", "/bucket?lifecycle"},
+		{"GET", "/bucket?website"}, {"PUT", "/bucket?lifecycle"}, {"GET", "/bucket?notification"},
 	} {
 		rec := serve(r, httptest.NewRequest(tc.method, tc.target, nil))
 		assert.Equal(t, http.StatusNotImplemented, rec.Code, "%s %s", tc.method, tc.target)
@@ -373,8 +375,7 @@ func TestUnsupportedSubResources(t *testing.T) {
 	for _, tc := range []struct{ method, target string }{
 		{"GET", "/b?website"}, {"PUT", "/b?website"}, {"DELETE", "/b?website"},
 		{"GET", "/b?logging"}, {"GET", "/b?replication"}, {"GET", "/b?accelerate"}, {"GET", "/b?publicAccessBlock"},
-		{"PUT", "/b?cors"}, {"PUT", "/b?lifecycle"}, {"PUT", "/b?encryption"}, {"PUT", "/b?object-lock"}, {"PUT", "/b?notification"},
-		{"GET", "/b/k?retention"}, {"PUT", "/b/k?legal-hold"}, {"GET", "/b/k?attributes"}, {"GET", "/b/k?torrent"},
+		{"GET", "/b/k?torrent"},
 		{"POST", "/b/k?restore"}, {"POST", "/b/k?select&select-type=2"},
 	} {
 		rec := f.do(tc.method, tc.target, "<x/>")

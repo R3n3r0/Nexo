@@ -1,0 +1,3 @@
+# Work directory of run-s3tests.sh (suite checkout, venv, data, report).
+/.work/
+__pycache__/

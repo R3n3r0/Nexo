@@ -73,6 +73,9 @@ type AdminClient interface {
 	ListLocks(ctx context.Context) ([]nexoadmin.Lock, error)
 	ForceUnlock(ctx context.Context, resources ...string) error
 
+	// GetBucket returns the summary of a bucket: usage, settings, tags
+	// (quota info reports the usage against the quota).
+	GetBucket(ctx context.Context, bucket string) (*nexoadmin.Bucket, error)
 	// Bucket settings of the Admin API (C-OBJ-09: quota, encrypt).
 	GetBucketQuota(ctx context.Context, bucket string) (*nexoadmin.BucketQuota, error)
 	SetBucketQuota(ctx context.Context, bucket string, quota nexoadmin.BucketQuota) (*nexoadmin.BucketQuota, error)
@@ -81,6 +84,21 @@ type AdminClient interface {
 	GetBucketEncryption(ctx context.Context, bucket string) (*nexoadmin.BucketEncryption, error)
 	SetBucketEncryption(ctx context.Context, bucket string, enc nexoadmin.BucketEncryption) (*nexoadmin.BucketEncryption, error)
 	DeleteBucketEncryption(ctx context.Context, bucket string) error
+	// ApplyBucketLifecycle applies the lifecycle rules of a bucket at once
+	// (ilm apply: s3:PutLifecycleConfiguration and admin:ApplyLifecycle).
+	ApplyBucketLifecycle(ctx context.Context, bucket string) (*nexoadmin.LifecycleApplyResult, error)
+
+	// Notification targets (admin notify targets ls|test): their delivery
+	// state on the answering node and a test event; target is
+	// "<id>:<type>" or the ARN of the target.
+	ListNotifyTargets(ctx context.Context) ([]nexoadmin.NotifyTarget, error)
+	TestNotifyTarget(ctx context.Context, target string) (*nexoadmin.NotifyTargetTest, error)
+
+	// KMS of the server-side encryption (admin kms status|key ls|key
+	// create).
+	KMSStatus(ctx context.Context) (*nexoadmin.KMSStatus, error)
+	ListKMSKeys(ctx context.Context, prefix string) ([]nexoadmin.KMSKey, error)
+	CreateKMSKey(ctx context.Context, id string) (*nexoadmin.KMSKey, error)
 
 	// Managed share links (docs/09 §9.1, S-OBJ-08c).
 	CreateShare(ctx context.Context, in nexoadmin.CreateShareRequest) (*nexoadmin.Share, error)

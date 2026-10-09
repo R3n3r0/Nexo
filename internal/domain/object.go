@@ -33,6 +33,9 @@ type Checksum struct {
 	Algorithm ChecksumAlgorithm
 	// Value is the base64-encoded checksum.
 	Value string
+	// Type tells a whole-content checksum from the composite checksum of
+	// a multipart object (empty when unknown or irrelevant).
+	Type ChecksumType `json:",omitempty"`
 }
 
 // IsZero reports whether no checksum is set.
@@ -68,6 +71,22 @@ type ObjectInfo struct {
 	Parts int
 	// Inlined reports whether the data is stored inline in the metadata file.
 	Inlined bool
+	// Retention and LegalHold are the Object Lock state of the version
+	// (zero when none was set).
+	Retention ObjectRetention
+	LegalHold LegalHoldStatus
+	// Encryption is the server-side encryption of the version (zero when
+	// not encrypted); Size is always the size of the plaintext.
+	Encryption EncryptionInfo
+}
+
+// ObjectPart describes one part of a multipart object, as reported by
+// GetObjectAttributes.
+type ObjectPart struct {
+	Number int
+	Size   int64
+	// Checksum is the additional checksum of the part, when uploaded with one.
+	Checksum Checksum
 }
 
 // Conditions are the HTTP conditional request headers.
@@ -134,6 +153,12 @@ type MultipartUpload struct {
 	UserMetadata map[string]string
 	Tags         map[string]string
 	Checksum     ChecksumAlgorithm
+	// ChecksumType is how the checksum of the completed object is
+	// computed (empty without a checksum algorithm).
+	ChecksumType ChecksumType
+	// Encryption is the server-side encryption of the upload (zero when
+	// not encrypted).
+	Encryption EncryptionInfo
 }
 
 // Part is an uploaded part of a multipart upload.
@@ -145,6 +170,9 @@ type Part struct {
 	// ActualSize is the size before any transparent compression/encryption.
 	ActualSize int64
 	Checksum   Checksum
+	// Encryption is the server-side encryption of the part (the one of
+	// its upload).
+	Encryption EncryptionInfo
 }
 
 // CompletePart is a part reference supplied to CompleteMultipartUpload.

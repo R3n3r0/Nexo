@@ -33,7 +33,7 @@ func (l *layer) DeleteObject(ctx context.Context, bucket, key string, opts Delet
 		return DeletedObject{}, err
 	}
 	if opts.VersionID != "" {
-		return l.deleteVersion(ctx, st, bucket, key, opts.VersionID)
+		return l.deleteVersion(ctx, st, bucket, key, opts.VersionID, opts.BypassGovernance)
 	}
 	cfg, err := l.bucketConfig(ctx, bucket)
 	if err != nil {
@@ -67,6 +67,9 @@ func (l *layer) DeleteObject(ctx context.Context, bucket, key string, opts Delet
 			}
 			return DeletedObject{}, fmt.Errorf("%s: delete %s/%s: %w", l.name, bucket, key, err)
 		}
+		if err := checkDeletable(objectInfo(bucket, key, cur), l.now(), opts.BypassGovernance); err != nil {
+			return DeletedObject{}, err
+		}
 		if err := checkLocks(ctx); err != nil {
 			return DeletedObject{}, fmt.Errorf("%s: delete %s/%s: %w", l.name, bucket, key, err)
 		}
@@ -80,8 +83,9 @@ func (l *layer) DeleteObject(ctx context.Context, bucket, key string, opts Delet
 
 // deleteVersion permanently removes one version or delete marker
 // ("null" is the null version); a missing version is not an error (S3
-// deletes are idempotent).
-func (l *layer) deleteVersion(ctx context.Context, st store, bucket, key, versionID string) (DeletedObject, error) {
+// deletes are idempotent). A version protected by Object Lock stays
+// (checkDeletable).
+func (l *layer) deleteVersion(ctx context.Context, st store, bucket, key, versionID string, bypassGovernance bool) (DeletedObject, error) {
 	stored := versionID
 	if versionID == nullVersion {
 		stored = ""
@@ -93,6 +97,9 @@ func (l *layer) deleteVersion(ctx context.Context, st store, bucket, key, versio
 			return gone, nil
 		}
 		return DeletedObject{}, fmt.Errorf("%s: delete %s/%s: %w", l.name, bucket, key, err)
+	}
+	if err := checkDeletable(objectInfo(bucket, key, cur), l.now(), bypassGovernance); err != nil {
+		return DeletedObject{}, err
 	}
 	if err := checkLocks(ctx); err != nil {
 		return DeletedObject{}, fmt.Errorf("%s: delete %s/%s: %w", l.name, bucket, key, err)

@@ -25,7 +25,8 @@ func newAdminCmd(e *env) *cobra.Command {
 	cmd := groupCmd("admin", "Administer a Nexo server (Admin API)")
 	cmd.Long = `Administer a Nexo server through its Admin API: server information and usage,
 users, groups, policies, access keys, configuration, service control, the export and
-import of the state of a deployment and the lock diagnostics.
+import of the state of a deployment, the lock diagnostics, the KMS of the
+server-side encryption and the notification targets.
 
 The Admin API is served by the console listener of the server: see --admin-url
 of "nexoctl alias set". Every subcommand takes the alias as its first argument.`
@@ -33,6 +34,7 @@ of "nexoctl alias set". Every subcommand takes the alias as its first argument.`
 		newAdminInfoCmd(e), newAdminUsageCmd(e), newAdminHealCmd(e),
 		newAdminUserCmd(e), newAdminGroupCmd(e), newAdminPolicyCmd(e), newAdminAccessKeyCmd(e),
 		newAdminConfigCmd(e), newAdminServiceCmd(e), newAdminClusterCmd(e), newAdminLockCmd(e),
+		newAdminKMSCmd(e), newAdminNotifyCmd(e),
 	)
 	return cmd
 }

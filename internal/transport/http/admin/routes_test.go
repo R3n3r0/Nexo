@@ -241,7 +241,8 @@ func TestBucketRoutes(t *testing.T) {
 	rec = c.do(http.MethodDelete, "/buckets/b/access?prefix=pub/", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	rec = c.do(http.MethodGet, "/buckets/b/lifecycle", nil)
+	// Bucket replication is P2.
+	rec = c.do(http.MethodGet, "/buckets/b/replication", nil)
 	assert.Equal(t, http.StatusNotImplemented, rec.Code)
 }
 
@@ -313,11 +314,19 @@ func TestObjectRoutes(t *testing.T) {
 	f.browser.EXPECT().Stat(mock.Anything, mock.Anything).Return(&adminsvc.ObjectDetails{
 		Info: domain.ObjectInfo{Key: "k", Size: 3, ModTime: mod, UserMetadata: map[string]string{"a": "b"}},
 		Tags: map[string]string{}, Versions: nil,
-	}, nil)
+	}, nil).Once()
 	rec = c.do(http.MethodGet, "/buckets/b/objects/stat?key=k", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), `"tags":{}`, "readable empty tags are present")
 	assert.NotContains(t, rec.Body.String(), `"versions"`, "versions the caller may not list are absent")
+	assert.NotContains(t, rec.Body.String(), `"encryption"`, "an unencrypted version has no encryption")
+
+	f.browser.EXPECT().Stat(mock.Anything, mock.MatchedBy(func(in adminsvc.StatInput) bool { return in.Key == "sealed" })).Return(&adminsvc.ObjectDetails{
+		Info: domain.ObjectInfo{Key: "sealed", ModTime: mod, Encryption: domain.EncryptionInfo{Type: domain.SSEKMS, KMSKeyID: "app-key"}},
+	}, nil)
+	rec = c.do(http.MethodGet, "/buckets/b/objects/stat?key=sealed", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, &admin.ObjectEncryptionResponse{Type: "SSE-KMS", KMSKeyID: "app-key"}, decode[admin.ObjectDetailsResponse](t, rec).Encryption)
 
 	f.browser.EXPECT().SetTags(mock.Anything, adminsvc.SetTagsInput{Bucket: "b", Key: "k", VersionID: "v2", Tags: map[string]string{"x": "y"}}).Return(map[string]string{"x": "y"}, nil)
 	rec = c.do(http.MethodPut, "/buckets/b/objects/tags?key=k&versionId=v2", `{"tags":{"x":"y"}}`)
@@ -539,6 +548,33 @@ func TestUploadRoutes(t *testing.T) {
 	rec = c.serve(req)
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "a malformed tag set is refused before storing anything")
 
+	// The server-side encryption of the S3 headers is forwarded and
+	// authorized as the S3 PutObject would (s3:x-amz-server-side-encryption*).
+	f.uploads.EXPECT().Upload(mock.Anything, mock.MatchedBy(func(in object.PutObjectInput) bool {
+		return in.Key == "sealed.txt" && in.SSE.Type == domain.SSEKMS && in.SSE.KMSKeyID == "app-key"
+	})).Return(domain.ObjectInfo{Key: "sealed.txt", ModTime: mod}, nil).Once()
+	f.resetChecks()
+	req = c.newRequest(http.MethodPost, "/buckets/b/objects/upload?key=sealed.txt", strings.NewReader("hi"))
+	req.Header.Set("X-Amz-Server-Side-Encryption", "aws:kms")
+	req.Header.Set("X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id", "app-key")
+	rec = c.serve(req)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	assert.Equal(t, map[string][]string{
+		"s3:x-amz-server-side-encryption": {"aws:kms"}, "s3:x-amz-server-side-encryption-aws-kms-key-id": {"app-key"},
+	}, f.lastCheck().Conditions)
+	for name, headers := range map[string]map[string]string{
+		"unknown algorithm": {"X-Amz-Server-Side-Encryption": "AES128"},
+		"key without kms":   {"X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id": "app-key"},
+		"key with sse-s3":   {"X-Amz-Server-Side-Encryption": "AES256", "X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id": "app-key"},
+	} {
+		req = c.newRequest(http.MethodPost, "/buckets/b/objects/upload?key=bad.txt", strings.NewReader("hi"))
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		rec = c.serve(req)
+		assert.Equal(t, http.StatusBadRequest, rec.Code, name)
+	}
+
 	// The limits are the service's; the transport maps the error.
 	f.uploads.EXPECT().Upload(mock.Anything, mock.MatchedBy(func(in object.PutObjectInput) bool { return in.Key == "big" && in.Size == -1 })).
 		Return(domain.ObjectInfo{}, fmt.Errorf("x: %w", domain.ErrEntityTooLarge)).Once()
@@ -558,6 +594,14 @@ func TestUploadRoutes(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	assert.Equal(t, admin.UploadResponse{Bucket: "b", Key: "big.bin", UploadID: "u1", Initiated: mod, PartSize: 6 << 20, MinPartSize: 5 << 20, MaxPartSize: 6 << 20, MaxParts: 10000},
 		decode[admin.UploadResponse](t, rec))
+
+	// A multipart upload asks for its encryption when it starts.
+	f.uploads.EXPECT().Create(mock.Anything, object.NewMultipartInput{Bucket: "b", Key: "sealed.bin", SSE: domain.SSERequest{Type: domain.SSES3}}).
+		Return(&adminsvc.NewUpload{Upload: domain.MultipartUpload{Bucket: "b", Key: "sealed.bin", UploadID: "u2", Initiated: mod}}, nil).Once()
+	req = c.newRequest(http.MethodPost, "/buckets/b/uploads?key=sealed.bin", nil)
+	req.Header.Set("X-Amz-Server-Side-Encryption", "AES256")
+	rec = c.serve(req)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
 	f.uploads.EXPECT().UploadPart(mock.Anything, mock.MatchedBy(func(in object.PutObjectPartInput) bool {
 		return in.UploadID == "u1" && in.PartNumber == 2 && in.Key == "big.bin" && in.Size == 4

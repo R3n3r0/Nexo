@@ -252,6 +252,14 @@ func TestCycleHooks(t *testing.T) {
 		}
 		return scanner.LifecycleNone, nil
 	})
+	var lifecycleBuckets []string
+	lc.EXPECT().AbortUploads(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, bucket string) (int, error) {
+		lifecycleBuckets = append(lifecycleBuckets, bucket)
+		if bucket == "plain" {
+			return 2, nil
+		}
+		return 0, nil
+	})
 	var busy atomic.Int32
 	busy.Store(3)
 	load := scannermock.NewLoadSampler(t)
@@ -267,7 +275,9 @@ func TestCycleHooks(t *testing.T) {
 	require.NoError(t, err)
 	stats, err := s.Scan(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, 1, stats.UploadsCleaned)
+	assert.Equal(t, 3, stats.UploadsCleaned, "the stale upload and those the lifecycle hook aborted")
+	assert.Contains(t, lifecycleBuckets, "plain", "the lifecycle hook sees the uploads of every bucket")
+	assert.Len(t, lifecycleBuckets, int(stats.Buckets))
 	assert.Equal(t, uint64(1), stats.LifecycleActions)
 	assert.Positive(t, stats.Paused)
 	assert.Positive(t, stats.Slept, "the fast speed sleeps as long as it worked")

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/r3n3r0/nexo/internal/domain"
@@ -21,6 +22,11 @@ func (h *objectRoutes) upload(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
+	sse, err := sseRequestOf(r)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
 	// The stored type is the Content-Type of the request: the browser
 	// sends the type of the file (the service defaults an empty one).
 	info, err := h.deps.Uploads.Upload(r.Context(), object.PutObjectInput{
@@ -33,12 +39,41 @@ func (h *objectRoutes) upload(w http.ResponseWriter, r *http.Request) {
 		UserMetadata:       httpx.UserMetadata(r.Header),
 		Tags:               tags,
 		Conditions:         domain.Conditions{IfNoneMatch: r.Header.Get("If-None-Match"), IfMatch: r.Header.Get("If-Match")},
+		SSE:                sse,
 	})
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
 	h.deps.Enc.WriteJSON(w, http.StatusCreated, newObjectResponse(info))
+}
+
+// sseRequestOf returns the server-side encryption an upload asks for with
+// the headers of the S3 API: none (the default encryption of the bucket
+// applies), SSE-S3 (x-amz-server-side-encryption: AES256) or SSE-KMS
+// (aws:kms, with the key of x-amz-server-side-encryption-aws-kms-key-id,
+// the default key of the KMS without one). The console offers no SSE-C:
+// any other value is domain.ErrInvalidArgument.
+func sseRequestOf(r *http.Request) (domain.SSERequest, error) {
+	algorithm := strings.TrimSpace(r.Header.Get(httpx.HeaderAmzSSE))
+	keyID := strings.TrimSpace(r.Header.Get(httpx.HeaderAmzSSEKMSKeyID))
+	switch algorithm {
+	case "":
+		if keyID != "" {
+			return domain.SSERequest{}, fmt.Errorf("%w: a KMS key requires %s: %s", domain.ErrInvalidArgument, httpx.HeaderAmzSSE, domain.SSEAlgorithmKMS)
+		}
+		return domain.SSERequest{}, nil
+	case domain.SSEAlgorithmAES256:
+		if keyID != "" {
+			return domain.SSERequest{}, fmt.Errorf("%w: a KMS key requires %s: %s", domain.ErrInvalidArgument, httpx.HeaderAmzSSE, domain.SSEAlgorithmKMS)
+		}
+		return domain.SSERequest{Type: domain.SSES3}, nil
+	case domain.SSEAlgorithmKMS:
+		return domain.SSERequest{Type: domain.SSEKMS, KMSKeyID: keyID}, nil
+	default:
+		return domain.SSERequest{}, fmt.Errorf("%w: unsupported server-side encryption %q (%s or %s)",
+			domain.ErrInvalidArgument, algorithm, domain.SSEAlgorithmAES256, domain.SSEAlgorithmKMS)
+	}
 }
 
 // CreateUploadRequest is the optional JSON body of POST
@@ -77,8 +112,13 @@ func (h *objectRoutes) createUpload(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
+	sse, err := sseRequestOf(r)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
 	up, err := h.deps.Uploads.Create(r.Context(), object.NewMultipartInput{
-		Bucket: bucketName(r), Key: r.URL.Query().Get("key"), ContentType: in.ContentType, UserMetadata: in.UserMetadata, Tags: tags,
+		Bucket: bucketName(r), Key: r.URL.Query().Get("key"), ContentType: in.ContentType, UserMetadata: in.UserMetadata, Tags: tags, SSE: sse,
 	})
 	if err != nil {
 		h.fail(w, r, err)

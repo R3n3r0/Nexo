@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -50,7 +51,7 @@ func newService(t *testing.T) (bucket.Service, *objectmock.Service, bucket.Metad
 	policies := policymock.NewService(t)
 	store := newDriveStore(t)
 	clk := clock.NewFake(time.Date(2026, 10, 8, 9, 0, 0, 0, time.UTC))
-	svc, err := bucket.New(bucket.Deps{Objects: objects, Store: store, Policy: policies, Clock: clk, Logger: slog.New(slog.DiscardHandler)}, bucket.WithRegion("eu-south-1"))
+	svc, err := bucket.New(bucket.Deps{Objects: objects, Store: store, Policy: policies, KMS: newTestKMS(t), Clock: clk, Logger: slog.New(slog.DiscardHandler)}, bucket.WithRegion("eu-south-1"))
 	require.NoError(t, err)
 	return svc, objects, store, policies, clk
 }
@@ -146,6 +147,33 @@ func TestCreateGetListDelete(t *testing.T) {
 	_, err = svc.List(ctx, bucket.ListInput{})
 	assert.Error(t, err)
 
+	// ListPage pages the names with an opaque continuation token.
+	objects.EXPECT().ListBuckets(ctx).Return([]domain.BucketInfo{
+		{Bucket: domain.Bucket{Name: "zzz"}}, {Bucket: domain.Bucket{Name: "locked"}}, {Bucket: domain.Bucket{Name: "photos"}},
+	}, nil).Times(3)
+	var names []string
+	token := ""
+	for pages := 0; ; pages++ {
+		require.Less(t, pages, 3)
+		page, err := svc.ListPage(ctx, bucket.ListPageInput{MaxBuckets: 2, ContinuationToken: token})
+		require.NoError(t, err)
+		for _, b := range page.Buckets {
+			names = append(names, b.Name)
+		}
+		if token = page.ContinuationToken; token == "" {
+			break
+		}
+	}
+	assert.Equal(t, []string{"locked", "photos", "zzz"}, names, "name order, no duplicate")
+	page, err := svc.ListPage(ctx, bucket.ListPageInput{MaxBuckets: 3})
+	require.NoError(t, err)
+	assert.Len(t, page.Buckets, 3)
+	assert.Empty(t, page.ContinuationToken, "an exactly full page is the last one")
+	for _, in := range []bucket.ListPageInput{{MaxBuckets: -1}, {MaxBuckets: bucket.MaxListBuckets + 1}, {ContinuationToken: "%%"}} {
+		_, err = svc.ListPage(ctx, in)
+		assert.ErrorIs(t, err, domain.ErrInvalidArgument, "%+v", in)
+	}
+
 	// Usage comes from a walk of the object layer.
 	objects.EXPECT().DataUsage(ctx, "").Return([]domain.BucketInfo{{Bucket: domain.Bucket{Name: "photos"}, Objects: 7, Size: 70}}, nil).Once()
 	list, err = svc.List(ctx, bucket.ListInput{WithUsage: true})
@@ -180,11 +208,20 @@ func TestVersioningAndObjectLock(t *testing.T) {
 	assert.ErrorIs(t, svc.SetVersioning(ctx, "bkt", domain.VersioningOff), domain.ErrInvalidArgument)
 	assert.ErrorIs(t, svc.SetVersioning(ctx, "missing", domain.VersioningEnabled), domain.ErrBucketNotFound)
 
-	// Object lock needs versioning first.
+	// Object lock is enabled at the creation of the bucket only.
 	_, err = svc.GetObjectLock(ctx, "bkt")
 	assert.ErrorIs(t, err, domain.ErrPolicyNotFound)
 	assert.ErrorIs(t, svc.SetObjectLock(ctx, "bkt", bucket.ObjectLockConfig{Enabled: true}), domain.ErrConflict)
 	require.NoError(t, svc.SetVersioning(ctx, "bkt", domain.VersioningEnabled))
+	err = svc.SetObjectLock(ctx, "bkt", bucket.ObjectLockConfig{Enabled: true})
+	assert.ErrorIs(t, err, domain.ErrConflict, "not even on a versioned bucket")
+	var s3err *domain.S3Error
+	require.ErrorAs(t, err, &s3err)
+	assert.Equal(t, "InvalidBucketState", s3err.Code)
+	// As CreateInput.ObjectLock records it.
+	m := doc(t, store, "bkt")
+	m.ObjectLock.Enabled = true
+	require.NoError(t, store.Save(ctx, "bkt", m))
 	assert.ErrorIs(t, svc.SetObjectLock(ctx, "bkt", bucket.ObjectLockConfig{Enabled: false}), domain.ErrMalformedXML)
 	assert.ErrorIs(t, svc.SetObjectLock(ctx, "bkt", bucket.ObjectLockConfig{Enabled: true, Mode: "WEIRD"}), domain.ErrMalformedXML)
 	assert.ErrorIs(t, svc.SetObjectLock(ctx, "bkt", bucket.ObjectLockConfig{Enabled: true, Mode: bucket.RetentionGovernance, Days: 1, Years: 1}), domain.ErrMalformedXML)
@@ -194,11 +231,12 @@ func TestVersioningAndObjectLock(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 30, lock.Days)
 	assert.Equal(t, bucket.RetentionCompliance, lock.Mode)
+	require.NoError(t, svc.SetObjectLock(ctx, "bkt", bucket.ObjectLockConfig{Enabled: true}), "the default retention can be removed")
+	require.NoError(t, svc.SetObjectLock(ctx, "bkt", bucket.ObjectLockConfig{Enabled: true, Mode: bucket.RetentionGovernance, Years: 1}))
 
 	// Versioning cannot be suspended while object lock is on.
 	err = svc.SetVersioning(ctx, "bkt", domain.VersioningSuspended)
 	assert.ErrorIs(t, err, domain.ErrConflict)
-	var s3err *domain.S3Error
 	require.ErrorAs(t, err, &s3err)
 	assert.Equal(t, "InvalidBucketState", s3err.Code)
 	assert.Equal(t, domain.VersioningEnabled, doc(t, store, "bkt").Versioning)
@@ -206,6 +244,7 @@ func TestVersioningAndObjectLock(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, domain.VersioningEnabled, cfg.Versioning)
 	assert.True(t, cfg.ObjectLock)
+	assert.Equal(t, domain.DefaultRetention{Mode: domain.RetentionGovernance, Years: 1}, cfg.DefaultRetention)
 }
 
 func TestConfigurationDocuments(t *testing.T) {
@@ -235,7 +274,37 @@ func TestConfigurationDocuments(t *testing.T) {
 	got, err = svc.GetCORS(ctx, "bkt")
 	require.NoError(t, err)
 	assert.Equal(t, string(cors), string(got))
+	cfg, err := svc.GetCORSConfig(ctx, "bkt")
+	require.NoError(t, err)
+	assert.Equal(t, domain.CORSConfiguration{Rules: []domain.CORSRule{{AllowedOrigins: []string{"*"}, AllowedMethods: []string{"GET"}}}}, cfg)
+	for name, bad := range map[string]string{
+		"no rule":       `<CORSConfiguration></CORSConfiguration>`,
+		"no method":     `<CORSConfiguration><CORSRule><AllowedOrigin>*</AllowedOrigin></CORSRule></CORSConfiguration>`,
+		"bad method":    `<CORSConfiguration><CORSRule><AllowedOrigin>*</AllowedOrigin><AllowedMethod>PATCH</AllowedMethod></CORSRule></CORSConfiguration>`,
+		"two wildcards": `<CORSConfiguration><CORSRule><AllowedOrigin>*.*</AllowedOrigin><AllowedMethod>GET</AllowedMethod></CORSRule></CORSConfiguration>`,
+		"too many rules": "<CORSConfiguration>" + strings.Repeat(`<CORSRule><AllowedOrigin>*</AllowedOrigin><AllowedMethod>GET</AllowedMethod></CORSRule>`, 101) +
+			"</CORSConfiguration>",
+	} {
+		err := svc.SetCORS(ctx, "bkt", []byte(bad))
+		var s3err *domain.S3Error
+		require.ErrorAs(t, err, &s3err, name)
+		assert.Contains(t, []string{"MalformedXML", "InvalidRequest"}, s3err.Code, name)
+	}
+	full := []byte(`<CORSConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><CORSRule><ID>web</ID>` +
+		`<AllowedOrigin>https://*.example.com</AllowedOrigin><AllowedMethod>PUT</AllowedMethod><AllowedMethod>GET</AllowedMethod>` +
+		`<AllowedHeader>*</AllowedHeader><ExposeHeader>ETag</ExposeHeader><MaxAgeSeconds>600</MaxAgeSeconds></CORSRule></CORSConfiguration>`)
+	require.NoError(t, svc.SetCORS(ctx, "bkt", full))
+	cfg, err = svc.GetCORSConfig(ctx, "bkt")
+	require.NoError(t, err)
+	require.Len(t, cfg.Rules, 1)
+	assert.Equal(t, "web", cfg.Rules[0].ID)
+	assert.Equal(t, []string{"PUT", "GET"}, cfg.Rules[0].AllowedMethods)
+	assert.Equal(t, []string{"ETag"}, cfg.Rules[0].ExposeHeaders)
+	require.NotNil(t, cfg.Rules[0].MaxAgeSeconds)
+	assert.Equal(t, 600, *cfg.Rules[0].MaxAgeSeconds)
 	require.NoError(t, svc.DeleteCORS(ctx, "bkt"))
+	_, err = svc.GetCORSConfig(ctx, "bkt")
+	assert.ErrorIs(t, err, domain.ErrPolicyNotFound)
 
 	got, err = svc.GetNotification(ctx, "bkt")
 	require.NoError(t, err)
@@ -281,6 +350,7 @@ func TestConfigurationDocuments(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrBucketNotFound)
 
 	// Tags.
+	var s3err *domain.S3Error
 	_, err = svc.GetTags(ctx, "bkt")
 	assert.ErrorIs(t, err, domain.ErrPolicyNotFound)
 	assert.ErrorIs(t, svc.SetTags(ctx, "bkt", map[string]string{"": "v"}), domain.ErrInvalidArgument)
@@ -289,6 +359,18 @@ func TestConfigurationDocuments(t *testing.T) {
 		big[string(rune('a'+i%26))+string(rune('a'+i/26))] = "v"
 	}
 	assert.ErrorIs(t, svc.SetTags(ctx, "bkt", big), domain.ErrInvalidArgument)
+	for name, bad := range map[string]map[string]string{
+		"reserved prefix":  {"aws:cloudformation": "x"},
+		"long key":         {strings.Repeat("k", 129): "v"},
+		"long value":       {"k": strings.Repeat("v", 257)},
+		"invalid key utf8": {"\xff": "v"},
+	} {
+		err := svc.SetTags(ctx, "bkt", bad)
+		require.ErrorAs(t, err, &s3err, name)
+		assert.Equal(t, "InvalidTag", s3err.Code, name)
+	}
+	require.NoError(t, svc.SetTags(ctx, "bkt", map[string]string{strings.Repeat("é", 128): strings.Repeat("ü", 256)}),
+		"lengths count Unicode characters")
 	require.NoError(t, svc.SetTags(ctx, "bkt", map[string]string{"env": "prod"}))
 	tags, err := svc.GetTags(ctx, "bkt")
 	require.NoError(t, err)

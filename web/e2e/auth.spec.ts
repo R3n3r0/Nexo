@@ -86,6 +86,9 @@ test.describe('authentication', () => {
       const route = `/buckets/${bucket}/browse/docs/`;
       await page.goto(route);
       await expect(page.getByRole('button', { name: 'readme.txt', exact: true })).toBeVisible();
+      // Every query of the page answered (permissions, KMS of the upload
+      // menu...): only the refresh below meets the expired session.
+      await page.waitForLoadState('networkidle');
 
       // The session ends while the console is open (the cookies are gone,
       // as when the token expires): the next request answers 401.

@@ -7,6 +7,8 @@
 // Applied keys (Applied reports them, the console and nexoctl show the
 // others as "not applied yet"):
 //
+//   - api.cors_allow_origin: the origins the S3 API allows for the
+//     buckets without a CORS configuration of their own;
 //   - api.root_access: "off" denies the root credentials on the S3 API
 //     (GuardRootAccess); the console, the Admin API and the credentials
 //     derived from root (service accounts, STS sessions) keep working, so
@@ -36,6 +38,11 @@ type API struct {
 	// RootAccess allows the root credentials on the S3 API
 	// (api.root_access, default on).
 	RootAccess bool
+	// CORSAllowOrigin are the origins of the deployment-wide CORS policy
+	// of the S3 API (api.cors_allow_origin, comma separated, "*" for
+	// every origin): it applies to the buckets without a CORS
+	// configuration. Nil (the key is not set) allows every origin.
+	CORSAllowOrigin []string
 }
 
 // Deps are the dependencies of the settings service.

@@ -67,6 +67,17 @@ func s3CodeSentinel(code string) error {
 		return domain.ErrQuotaExceeded
 	case "XNexoStorageFull":
 		return domain.ErrStorageFull
+	case "XNexoObjectLocked", "ObjectLocked":
+		return domain.ErrObjectLocked
+	case "NoSuchLifecycleConfiguration", "NoSuchCORSConfiguration", "NoSuchTagSet",
+		"ServerSideEncryptionConfigurationNotFoundError", "ObjectLockConfigurationNotFoundError", "NoSuchObjectLockConfiguration":
+		return domain.ErrNotFound
+	case "InvalidBucketState":
+		return domain.ErrConflict
+	case "BadDigest", "InvalidDigest", "XAmzContentSHA256Mismatch":
+		return domain.ErrBadDigest
+	case "KMS.NotFoundException":
+		return domain.ErrKMSKeyNotFound
 	}
 	return nil
 }
@@ -114,6 +125,10 @@ func codeError(code, message string, status int, bucket, key string) error {
 			sentinel = domain.ErrUnauthenticated
 		case http.StatusPreconditionFailed:
 			sentinel = domain.ErrPreconditionFailed
+		case http.StatusBadRequest:
+			// A HEAD answers without a body: the request was refused
+			// as invalid (an SSE-C object read without its key, ...).
+			sentinel = domain.ErrInvalidArgument
 		}
 	}
 	detail := message

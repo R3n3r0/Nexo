@@ -4,7 +4,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { repoRoot, stateVariable } from './support/env';
+import { e2eKmsSecretKey, nexoctlBinary, repoRoot, stateVariable } from './support/env';
 import { startNexo, stopNexo } from './support/nexo';
 import { seed } from './support/seed';
 
@@ -52,16 +52,46 @@ export function ensureBinary(): string {
   return binary;
 }
 
+/** Go sources of nexoctl: a newer file means bin/nexoctl is stale. */
+const cliSources = ['cmd', 'internal', 'pkg', 'go.mod', 'go.sum'];
+
 /**
- * Starts bin/nexo on free ports with a temporary drive and root
- * credentials, seeds the test identities through the Admin API (SigV4 as
+ * The CLI the specs check the console against (TD-E-14): $NEXO_E2E_NEXOCTL,
+ * or bin/nexoctl, rebuilt when missing or older than its sources.
+ */
+export function ensureCli(): string {
+  const binary = nexoctlBinary();
+  if (process.env.NEXO_E2E_NEXOCTL) {
+    return binary;
+  }
+  const built = statSync(binary, { throwIfNoEntry: false })?.mtimeMs ?? 0;
+  const newest = Math.max(...cliSources.map((s) => newestMtime(join(repoRoot, s))));
+  if (built === 0 || newest > built) {
+    console.warn(`[e2e] ${built === 0 ? 'building' : 'rebuilding stale'} bin/nexoctl`);
+    execFileSync('go', ['build', '-trimpath', '-o', binary, './cmd/nexoctl'], {
+      cwd: repoRoot,
+      stdio: 'inherit',
+    });
+  }
+  return binary;
+}
+
+/**
+ * Starts bin/nexo on free ports with a temporary drive, root credentials
+ * and the builtin KMS, seeds the test identities through the Admin API (SigV4 as
  * root), saves a root console session and publishes everything in the
  * state file named by $NEXO_E2E_STATE.
  */
 export default async function globalSetup(): Promise<void> {
   const binary = ensureBinary();
+  ensureCli();
   const workDir = await mkdtemp(join(tmpdir(), 'nexo-e2e-'));
-  const server = await startNexo({ binary, workDir });
+  // The builtin KMS serves SSE-S3 and SSE-KMS (D-OBJ-06, upload encryption).
+  const server = await startNexo({
+    binary,
+    workDir,
+    env: { NEXO_KMS_SECRET_KEY: e2eKmsSecretKey },
+  });
   try {
     const state = await seed(server, 'snsd', workDir);
     const file = join(workDir, 'state.json');

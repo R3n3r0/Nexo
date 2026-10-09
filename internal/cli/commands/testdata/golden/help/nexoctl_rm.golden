@@ -3,6 +3,10 @@ marker; --versions removes every version and delete marker, --version-id one
 version. Removing a prefix needs --recursive --force. --dry-run only prints what
 would be removed.
 
+Versions protected by Object Lock are not removed (exit code 4): --bypass lifts a
+GOVERNANCE retention for the users allowed to (s3:BypassGovernanceRetention);
+COMPLIANCE retentions and legal holds are never bypassed.
+
 Usage:
   nexoctl rm [flags] ALIAS/BUCKET/OBJECT...
 
@@ -10,9 +14,11 @@ Examples:
   nexoctl rm local/logs/app.log
   nexoctl rm --recursive --force --older-than 30d local/logs/
   nexoctl rm --versions local/docs/report.pdf
+  nexoctl rm --versions --bypass local/vault/draft.txt
   nexoctl rm --incomplete --recursive --force local/uploads/
 
 Flags:
+      --bypass              remove versions under a GOVERNANCE retention (s3:BypassGovernanceRetention)
       --dry-run             print what would be removed without removing it
       --force               confirm a recursive removal
   -h, --help                help for rm

@@ -1,0 +1,69 @@
+# T-7.10, TS-U-11: ilm rule add/edit/ls/rm/export/import through the S3
+# lifecycle API and ilm apply through the Admin API.
+
+exec nexoctl mb local/app
+exec nexoctl mb local/copy
+exec nexoctl ilm rule ls local/app
+stdout 'has no lifecycle rule'
+
+exec nexoctl ilm rule add --prefix logs/ --expire-days 30 local/app
+stdout 'Lifecycle rule "rule-1" added'
+exec nexoctl ilm rule add --id versions --noncurrent-expire-days 7 --newer-noncurrent 2 --tags 'tier=cold' local/app
+exec nexoctl ilm rule add --id mpu --abort-mpu-days 2 local/app
+exec nexoctl ilm rule ls local/app
+stdout '^rule-1 +Enabled +prefix=logs/ +expire after 30d$'
+stdout '^versions +Enabled +tags=tier=cold +noncurrent versions expire after 7d \(keep 2 newest\)$'
+stdout '^mpu +Enabled +- +abort uploads after 2d$'
+exec nexoctl ilm rule edit --id rule-1 --expire-days 90 --disable local/app
+exec nexoctl ilm rule ls --json local/app
+jsonlines stdout
+stdout '"id":"rule-1","enabled":false,"filter":\{"prefix":"logs/"\},"expiration":\{"days":90\}'
+expectcode 2 nexoctl ilm rule add --prefix x/ local/app
+expectcode 3 nexoctl ilm rule edit --id ghost --expire-days 1 local/app
+
+# Export and import, as JSON (the form of the console) and S3 XML.
+exec nexoctl ilm rule export local/app
+cp stdout app.json
+exec nexoctl ilm rule import local/copy app.json
+stdout 'Imported 3 lifecycle rules'
+exec nexoctl ilm rule export local/copy
+cmp stdout app.json
+exec nexoctl ilm rule export --xml local/app
+stdout '<LifecycleConfiguration'
+stdout '<NewerNoncurrentVersions>2</NewerNoncurrentVersions>'
+exec nexoctl ilm rule import local/copy lifecycle.xml
+exec nexoctl ilm rule ls local/copy
+stdout '^tmp +Enabled +prefix=tmp/ +expire on 2020-01-01$'
+! stdout 'rule-1'
+exec nexoctl ilm rule rm --id versions local/app
+exec nexoctl ilm rule ls local/app
+! stdout versions
+
+# ilm apply runs the rules at once: a date in the past expires tmp/.
+exec nexoctl cp a.txt local/copy/tmp/a.txt
+exec nexoctl cp a.txt local/copy/keep/a.txt
+exec nexoctl ilm apply local/copy
+stdout 'Lifecycle of `local/copy` applied: .* 1 deleted'
+exec nexoctl ls --recursive local/copy
+! stdout 'tmp/a.txt'
+stdout 'keep/a.txt'
+exec nexoctl ilm apply --json local/copy
+jsonlines stdout
+stdout '"buckets":1'
+
+exec nexoctl ilm rule rm --all local/copy
+exec nexoctl ilm rule ls local/copy
+stdout 'has no lifecycle rule'
+expectcode 3 nexoctl ilm rule ls local/missing-bucket
+
+-- a.txt --
+expiring
+-- lifecycle.xml --
+<LifecycleConfiguration>
+  <Rule>
+    <ID>tmp</ID>
+    <Filter><Prefix>tmp/</Prefix></Filter>
+    <Status>Enabled</Status>
+    <Expiration><Date>2020-01-01T00:00:00Z</Date></Expiration>
+  </Rule>
+</LifecycleConfiguration>

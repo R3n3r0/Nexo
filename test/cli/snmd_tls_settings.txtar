@@ -1,0 +1,59 @@
+# T-7.10 on an erasure-coded single node (SNMD) served over TLS: Object
+# Lock, lifecycle, events, CORS, SSE-S3/SSE-KMS/SSE-C and checksums of
+# multipart objects (the single-drive scripts object_lock, ilm, event,
+# cors and tls_encryption cover each command in detail).
+
+# Object Lock: retention, legal hold, rb --force.
+exec nexoctl mb --with-lock local/vault
+exec nexoctl retention set --default --mode governance --validity 1d local/vault
+exec nexoctl cp a.txt local/vault/a.txt
+exec nexoctl retention info local/vault/a.txt
+stdout 'GOVERNANCE until'
+expectcode 4 nexoctl rm --versions local/vault/a.txt
+exec nexoctl legalhold set local/vault/a.txt
+expectcode 4 nexoctl rb --force local/vault
+stderr 'nothing removed'
+exec nexoctl legalhold clear local/vault/a.txt
+exec nexoctl rm --versions --bypass local/vault/a.txt
+exec nexoctl rb --force local/vault
+
+# Lifecycle: a past date expires the objects at once with ilm apply.
+exec nexoctl mb local/app
+exec nexoctl cp a.txt local/app/tmp/a.txt
+exec nexoctl ilm rule add --prefix tmp/ --expire-date 2020-01-01 local/app
+exec nexoctl ilm apply local/app
+stdout '1 deleted'
+exec nexoctl ls --recursive local/app
+! stdout 'tmp/a.txt'
+
+# Events to a webhook.
+webhook HOOK
+exec nexoctl admin config set local notify_webhook enable=on endpoint=$HOOK
+eventually 15s -match ':_:webhook' nexoctl admin notify targets ls local
+exec nexoctl event add local/app arn:nexo:sqs:us-east-1:_:webhook --event put
+exec nexoctl cp a.txt local/app/new.txt
+webhookwait 15s '^s3:ObjectCreated:Put app/new.txt$'
+
+# CORS.
+exec nexoctl cors set local/app cors.json
+exec nexoctl cors get --json local/app
+stdout '"allowedOrigins":\["https://app.example.com"\]'
+
+# Encryption and checksums of multipart objects on the erasure sets.
+mkfile big.bin 11MiB
+exec nexoctl put --part-size 5MiB --checksum sha256 --enc-c local/app/c=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY= big.bin local/app/c/big.bin
+exec nexoctl cp --enc-c local/app/c=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY= local/app/c/big.bin out.bin
+cmp big.bin out.bin
+exec nexoctl stat --checksum --enc-c local/app/c=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY= local/app/c/big.bin
+stdout '^Encryption  : SSE-C$'
+stdout '^Checksum    : SHA256 '
+exec nexoctl put --part-size 5MiB --enc-kms local/app/kms=nexo-test-key big.bin local/app/kms/big.bin
+exec nexoctl cp local/app/kms/big.bin out2.bin
+cmp big.bin out2.bin
+exec nexoctl stat local/app/kms/big.bin
+stdout '^Encryption  : SSE-KMS \(nexo-test-key\)$'
+
+-- a.txt --
+some content
+-- cors.json --
+{"rules": [{"allowedOrigins": ["https://app.example.com"], "allowedMethods": ["GET"]}]}

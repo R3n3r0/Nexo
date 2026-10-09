@@ -1,0 +1,18 @@
+# Pins of the s3-tests venv (pip install -c): the suite only requires
+# "boto3 >= 1.0.0" and friends; pinning them keeps the nightly results
+# comparable (boto3 >= 1.36 sends CRC trailers by default: Nexo must and
+# does accept them). Bump deliberately, with a run of run-s3tests.sh.
+boto3==1.43.110
+botocore==1.43.110
+s3transfer==0.19.2
+urllib3==2.8.0
+requests==2.34.2
+pytest==9.1.1
+pluggy==1.6.0
+munch==4.0.0
+isodate==0.7.2
+lxml==6.1.3
+httplib2==0.32.0
+PyYAML==6.0.3
+pytz==2026.5
+gevent==26.9.0

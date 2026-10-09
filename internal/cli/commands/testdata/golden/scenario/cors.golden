@@ -1,0 +1,76 @@
+$ nexoctl cors get mem/site
+`mem/site` has no CORS configuration.
+
+$ nexoctl cors set mem/site cors.json
+CORS configuration of `mem/site` set (1 rule).
+
+$ nexoctl cors get mem/site
+{
+  "rules": [
+    {
+      "id": "web",
+      "allowedOrigins": [
+        "https://app.example.com"
+      ],
+      "allowedMethods": [
+        "GET",
+        "PUT"
+      ],
+      "maxAgeSeconds": 600
+    }
+  ]
+}
+
+$ nexoctl cors get --xml mem/site
+<?xml version="1.0" encoding="UTF-8"?>
+<CORSConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <CORSRule>
+    <ID>web</ID>
+    <AllowedOrigin>https://app.example.com</AllowedOrigin>
+    <AllowedMethod>GET</AllowedMethod>
+    <AllowedMethod>PUT</AllowedMethod>
+    <MaxAgeSeconds>600</MaxAgeSeconds>
+  </CORSRule>
+</CORSConfiguration>
+
+$ nexoctl cors set mem/site aws.json
+CORS configuration of `mem/site` set (1 rule).
+
+$ nexoctl cors get --json mem/site
+{"status":"success","target":"mem/site","bucket":"site","rules":[{"allowedOrigins":["*"],"allowedMethods":["GET"],"exposeHeaders":["ETag"]}]}
+
+$ nexoctl cors set mem/site cors.xml
+CORS configuration of `mem/site` set (1 rule).
+
+$ nexoctl cors get mem/site
+{
+  "rules": [
+    {
+      "allowedOrigins": [
+        "https://*.example.com"
+      ],
+      "allowedMethods": [
+        "HEAD"
+      ],
+      "allowedHeaders": [
+        "*"
+      ]
+    }
+  ]
+}
+
+$ nexoctl cors set mem/site bad.json
+! nexoctl: error: invalid CORS configuration: Found unsupported HTTP method in CORS config. Unsupported method is PATCH: invalid argument
+! Run 'nexoctl cors set --help' for usage.
+[exit 2]
+
+$ nexoctl cors set mem/site missing.json
+! nexoctl: error: open missing.json: no such file or directory
+[exit 3]
+
+$ nexoctl cors rm mem/site
+Removed the CORS configuration of `mem/site`.
+
+$ nexoctl cors get mem/site
+`mem/site` has no CORS configuration.
+

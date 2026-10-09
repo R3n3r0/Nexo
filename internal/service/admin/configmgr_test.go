@@ -38,6 +38,14 @@ func TestConfigManagerValidation(t *testing.T) {
 		{"notify_webhook", config.KV{"enable": "on", "endpoint": "https://hooks.example.com/x"}, true},
 		{"notify_webhook", config.KV{"endpoint": "ftp://x"}, false},
 		{"notify_webhook", config.KV{"unknown_key": "x"}, false},
+		{"notify_webhook:primary", config.KV{"enable": "on", "endpoint": "https://hooks.example.com/x", "tls_skip_verify": "on"}, true},
+		{"notify_webhook:", config.KV{"enable": "on"}, false},
+		{"notify_kafka:k1", config.KV{"brokers": "b1:9092,b2:9092", "topic": "events", "sasl_mechanism": "sha512"}, true},
+		{"notify_kafka", config.KV{"sasl_mechanism": "md5"}, false},
+		{"notify_nats", config.KV{"address": "127.0.0.1:4222", "subject": "nexo"}, true},
+		{"notify_amqp", config.KV{"url": "amqp://mq:5672", "delivery_mode": "2"}, true},
+		{"notify_redis:r", config.KV{"address": "127.0.0.1:6379", "key": "events", "format": "access"}, true},
+		{"notify_postgres", config.KV{"connection_string": "postgres://db/nexo", "table": "events", "format": "csv"}, false},
 		{"region", config.KV{"name": "eu-south-1", "comment": ""}, true},
 		{"scanner", config.KV{"speed": "slow", "cycle": "5m"}, true},
 		{"scanner", config.KV{"speed": "warp"}, false},
@@ -84,7 +92,8 @@ func TestConfigManagerListAndSchema(t *testing.T) {
 	for _, s := range schema {
 		names = append(names, s.Name)
 	}
-	assert.Equal(t, []string{"api", "browser", "logger", "notify_webhook", "region", "scanner"}, names)
+	assert.Equal(t, []string{"api", "browser", "logger", "notify_amqp", "notify_kafka", "notify_nats", "notify_postgres", "notify_redis",
+		"notify_webhook", "region", "scanner"}, names)
 	// Every key says whether the server applies it (regression: keys were
 	// shown as if they took effect while nothing read them).
 	applied := map[string]bool{}

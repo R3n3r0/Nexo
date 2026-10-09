@@ -18,6 +18,8 @@ import (
 	"github.com/r3n3r0/nexo/internal/domain"
 	authmock "github.com/r3n3r0/nexo/internal/service/auth/mock"
 	bucketmock "github.com/r3n3r0/nexo/internal/service/bucket/mock"
+	eventmock "github.com/r3n3r0/nexo/internal/service/event/mock"
+	ilmmock "github.com/r3n3r0/nexo/internal/service/ilm/mock"
 	objectmock "github.com/r3n3r0/nexo/internal/service/object/mock"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	policymock "github.com/r3n3r0/nexo/internal/service/policy/mock"
@@ -35,6 +37,8 @@ type fixture struct {
 	buckets  *bucketmock.Service
 	policy   *policymock.Service
 	verifier *authmock.Verifier
+	ilm      *ilmmock.Service
+	events   *eventmock.Service
 	enc      httpx.Codec
 	clock    *clock.Fake
 	// identity is injected in every request (the auth middleware's job);
@@ -89,6 +93,8 @@ func newFixture(t *testing.T, opts ...fixtureOption) *fixture {
 		buckets:  bucketmock.NewService(t),
 		policy:   policymock.NewService(t),
 		verifier: authmock.NewVerifier(t),
+		ilm:      ilmmock.NewService(t),
+		events:   eventmock.NewService(t),
 		enc:      httpx.New(),
 		clock:    clock.NewFake(now),
 	}
@@ -98,12 +104,16 @@ func newFixture(t *testing.T, opts ...fixtureOption) *fixture {
 	if !cfg.denyByDefault {
 		f.policy.EXPECT().Evaluate(mock.Anything, mock.Anything).Return(policy.Decision{Allowed: true}, nil).Maybe()
 	}
+	// The probe of the policies using s3:ExistingObjectTag finds none.
+	f.policy.EXPECT().Simulate(mock.Anything, mock.Anything).Return(policy.Decision{}, nil).Maybe()
 	api := s3.NewAPI(s3.APIDeps{Enc: f.enc, Domains: cfg.domains},
 		s3.NewBucketRoutes(s3.BucketDeps{Buckets: f.buckets, Objects: f.objects, Policy: f.policy, Enc: f.enc, Clock: f.clock}, cfg.opts...),
 		s3.NewObjectRoutes(s3.ObjectDeps{Objects: f.objects, Policy: f.policy, Enc: f.enc, Clock: f.clock}),
 		s3.NewMultipartRoutes(s3.MultipartDeps{Objects: f.objects, Policy: f.policy, Enc: f.enc, Clock: f.clock}),
 		s3.NewPresignedRoutes(s3.PresignedDeps{Verifier: f.verifier, Objects: f.objects, Buckets: f.buckets, Policy: f.policy, Enc: f.enc, Clock: f.clock}),
 		s3.NewPostPolicyRoutes(s3.PostPolicyDeps{Verifier: f.verifier, Objects: f.objects, Policy: f.policy, Enc: f.enc, Clock: f.clock}),
+		s3.NewLifecycleRoutes(s3.LifecycleDeps{Buckets: f.buckets, Lifecycle: f.ilm, Policy: f.policy, Enc: f.enc, Clock: f.clock}),
+		s3.NewNotificationRoutes(s3.NotificationDeps{Buckets: f.buckets, Events: f.events, Policy: f.policy, Enc: f.enc, Clock: f.clock}),
 	)
 	r := chi.NewRouter()
 	api.Register(r)

@@ -259,6 +259,26 @@ const (
 	// ActionForceDeleteBucket is required on top of s3:DeleteBucket to
 	// delete a non-empty bucket.
 	ActionForceDeleteBucket Action = "s3:ForceDeleteBucket"
+	// CORS, Object Lock and GetObjectAttributes actions of the S3 API
+	// (DeleteBucketCors is authorized as s3:PutBucketCORS, as in S3).
+	ActionGetBucketCORS              Action = "s3:GetBucketCORS"
+	ActionPutBucketCORS              Action = "s3:PutBucketCORS"
+	ActionGetObjectRetention         Action = "s3:GetObjectRetention"
+	ActionPutObjectRetention         Action = "s3:PutObjectRetention"
+	ActionGetObjectLegalHold         Action = "s3:GetObjectLegalHold"
+	ActionPutObjectLegalHold         Action = "s3:PutObjectLegalHold"
+	ActionBypassGovernanceRetention  Action = "s3:BypassGovernanceRetention"
+	ActionGetObjectAttributes        Action = "s3:GetObjectAttributes"
+	ActionGetObjectVersionAttributes Action = "s3:GetObjectVersionAttributes"
+	// ActionAdminApplyLifecycle authorizes the immediate application of
+	// the lifecycle of a bucket from the Admin API (the scanner applies it
+	// over its cycle), on top of s3:PutLifecycleConfiguration.
+	ActionAdminApplyLifecycle Action = "admin:ApplyLifecycle"
+	// ActionAdminKMSKeyStatus and ActionAdminKMSCreateKey authorize the KMS
+	// endpoints of the Admin API (status and keys), named after the MinIO
+	// admin actions.
+	ActionAdminKMSKeyStatus Action = "admin:KMSKeyStatus"
+	ActionAdminKMSCreateKey Action = "admin:KMSCreateKey"
 )
 
 // Service is the policy engine and the IAM policy store.

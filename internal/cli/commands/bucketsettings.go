@@ -19,6 +19,10 @@ type quotaRecord struct {
 	Type string `json:"type,omitempty"`
 	// Size is the limit in bytes, 0 without a quota.
 	Size uint64 `json:"size"`
+	// Used and Objects are the usage of the bucket (quota info, when the
+	// caller may read it).
+	Used    *uint64 `json:"used,omitempty"`
+	Objects *uint64 `json:"objects,omitempty"`
 }
 
 // encryptionRecord is the default encryption of a bucket (C-OBJ-09).
@@ -109,11 +113,25 @@ func newQuotaInfoCmd(e *env) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("%s: %w", t, err)
 			}
-			text := fmt.Sprintf("`%s` has no quota.", t)
-			if q.Size > 0 {
-				text = fmt.Sprintf("`%s` has a %s quota of %s.", t, q.Type, cli.HumanSize(int64(q.Size)))
+			rec := quotaRecord{Target: t.String(), Bucket: t.Bucket, Type: q.Type, Size: q.Size}
+			usage := ""
+			// The usage is informative: a caller that may read the quota
+			// but not the bucket summary still gets the quota.
+			if b, err := client.GetBucket(ctx, t.Bucket); err == nil && !b.Partial {
+				rec.Used, rec.Objects = &b.Size, &b.Objects
+				usage = fmt.Sprintf("used %s in %d %s", cli.HumanSize(int64(b.Size)), b.Objects, plural(int(b.Objects), "object", "objects"))
+				if q.Size > 0 {
+					usage += fmt.Sprintf(", %.1f%%", 100*float64(b.Size)/float64(q.Size))
+				}
 			}
-			return e.out.Result(quotaRecord{Target: t.String(), Bucket: t.Bucket, Type: q.Type, Size: q.Size}, text)
+			text := fmt.Sprintf("`%s` has no quota", t)
+			if q.Size > 0 {
+				text = fmt.Sprintf("`%s` has a %s quota of %s", t, q.Type, cli.HumanSize(int64(q.Size)))
+			}
+			if usage != "" {
+				text += " (" + usage + ")"
+			}
+			return e.out.Result(rec, text+".")
 		},
 	}
 }
@@ -176,21 +194,34 @@ func encryptionText(enc *nexoadmin.BucketEncryption) string {
 func newEncryptSetCmd(e *env) *cobra.Command {
 	var kmsKey string
 	cmd := &cobra.Command{
-		Use:   "set sse-s3|sse-kms ALIAS/BUCKET",
+		Use:   "set sse-s3|sse-kms [KEY] ALIAS/BUCKET",
 		Short: "Set the default encryption of a bucket",
+		Long: `Set the default encryption of a bucket: sse-s3, or sse-kms with an optional KMS
+key (the default key of the KMS without; "nexoctl admin kms key ls" lists them).`,
 		Example: `  nexoctl encrypt set sse-s3 local/docs
-  nexoctl encrypt set sse-kms local/docs --kms-key-id nexo-key`,
-		Args: exactArgs(2),
+  nexoctl encrypt set sse-kms app-key local/docs
+  nexoctl encrypt set sse-kms local/docs --kms-key-id app-key`,
+		Args: func(cmd *cobra.Command, args []string) error { return argsBetween(cmd, args, 2, 3) },
 		RunE: func(cmd *cobra.Command, args []string) error {
 			algorithm, err := encryptionAlgorithm(args[0])
 			if err != nil {
 				return err
 			}
+			target := args[len(args)-1]
+			if len(args) == 3 {
+				if algorithm != "aws:kms" {
+					return cli.UsageError("a KEY needs sse-kms: encrypt set sse-kms KEY ALIAS/BUCKET")
+				}
+				if kmsKey != "" && kmsKey != args[1] {
+					return cli.UsageError("give the KMS key once: as KEY or with --kms-key-id")
+				}
+				kmsKey = args[1]
+			}
 			if kmsKey != "" && algorithm != "aws:kms" {
 				return cli.UsageError("--kms-key-id needs sse-kms")
 			}
 			ctx := cmd.Context()
-			t, client, err := e.bucketAdmin(ctx, args[1], "encryption")
+			t, client, err := e.bucketAdmin(ctx, target, "encryption")
 			if err != nil {
 				return err
 			}

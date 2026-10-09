@@ -17,6 +17,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/bucket"
+	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 	"github.com/r3n3r0/nexo/internal/transport/http/s3"
 )
@@ -33,10 +34,10 @@ func hexMD5(body string) string {
 
 func TestListBuckets(t *testing.T) {
 	f := newFixture(t, asIdentity(&domain.Identity{AccessKey: "svc", Parent: "alice"}))
-	f.buckets.EXPECT().List(mock.Anything, bucket.ListInput{Prefix: "ph"}).Return([]domain.BucketInfo{
+	f.buckets.EXPECT().ListPage(mock.Anything, bucket.ListPageInput{Prefix: "ph"}).Return(bucket.ListPageResult{Buckets: []domain.BucketInfo{
 		{Bucket: domain.Bucket{Name: "photos", Created: now, Region: "us-east-1"}},
 		{Bucket: domain.Bucket{Name: "phones", Created: now.Add(time.Hour)}},
-	}, nil).Once()
+	}}, nil).Once()
 	rec := f.do(http.MethodGet, "/?prefix=ph", "")
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var list s3.ListAllMyBucketsResult
@@ -48,7 +49,22 @@ func TestListBuckets(t *testing.T) {
 	assert.Equal(t, "ph", list.Prefix)
 	assert.Contains(t, rec.Body.String(), `xmlns="http://s3.amazonaws.com/doc/2006-03-01/"`)
 
-	f.buckets.EXPECT().List(mock.Anything, bucket.ListInput{}).Return(nil, domain.ErrReadQuorum).Once()
+	assert.NotContains(t, rec.Body.String(), "<ContinuationToken>", "a single page")
+
+	// max-buckets and continuation-token page the listing.
+	f.buckets.EXPECT().ListPage(mock.Anything, bucket.ListPageInput{MaxBuckets: 1, ContinuationToken: "tok"}).Return(bucket.ListPageResult{
+		Buckets: []domain.BucketInfo{{Bucket: domain.Bucket{Name: "photos", Created: now}}}, ContinuationToken: "next",
+	}, nil).Once()
+	rec = f.do(http.MethodGet, "/?max-buckets=1&continuation-token=tok", "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	list = s3.ListAllMyBucketsResult{}
+	decodeXML(t, rec, &list)
+	assert.Equal(t, "next", list.ContinuationToken)
+	for _, bad := range []string{"0", "-1", "x"} {
+		requireError(t, f.do(http.MethodGet, "/?max-buckets="+bad, ""), http.StatusBadRequest, "InvalidArgument")
+	}
+
+	f.buckets.EXPECT().ListPage(mock.Anything, bucket.ListPageInput{}).Return(bucket.ListPageResult{}, domain.ErrReadQuorum).Once()
 	requireError(t, f.do(http.MethodGet, "/", ""), http.StatusServiceUnavailable, "SlowDown")
 }
 
@@ -75,7 +91,7 @@ func TestCreateBucket(t *testing.T) {
 		{"malformed", "<not xml", nil, 400, "MalformedXML"},
 		{"bad digest", cfg, []string{"Content-MD5", contentMD5("other")}, 400, "BadDigest"},
 		{"invalid digest", cfg, []string{"Content-MD5", "not-base64!"}, 400, "InvalidDigest"},
-		{"object lock", "", []string{"x-amz-bucket-object-lock-enabled", "true"}, 501, "NotImplemented"},
+		{"object lock flag", "", []string{"x-amz-bucket-object-lock-enabled", "maybe"}, 400, "InvalidArgument"},
 		{"public ACL", "", []string{"x-amz-acl", "public-read"}, 501, "NotImplemented"},
 		{"ACL grant", "", []string{"x-amz-grant-read", "uri=everyone"}, 501, "NotImplemented"},
 		{"oversized", "<CreateBucketConfiguration>" + strings.Repeat(" ", 1<<20) + "</CreateBucketConfiguration>", nil, 400, "MaxMessageLengthExceeded"},
@@ -85,6 +101,22 @@ func TestCreateBucket(t *testing.T) {
 			requireError(t, f.do(http.MethodPut, "/photos", tc.body, tc.headers...), tc.status, tc.code)
 		})
 	}
+}
+
+func TestCreateBucketWithObjectLock(t *testing.T) {
+	f := newFixture(t)
+	f.buckets.EXPECT().Create(mock.Anything, bucket.CreateInput{Name: "vault", ObjectLock: true}).Return(&domain.Bucket{Name: "vault"}, nil).Once()
+	rec := f.do(http.MethodPut, "/vault", "", "x-amz-bucket-object-lock-enabled", "True")
+	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	// Object locking needs s3:PutBucketObjectLockConfiguration too.
+	alice := &domain.Identity{AccessKey: "alice"}
+	f = newFixture(t, asIdentity(alice), withStrictPolicy())
+	f.policy.EXPECT().Evaluate(mock.Anything, mock.MatchedBy(func(a policy.Args) bool { return a.Action == policy.ActionCreateBucket })).
+		Return(policy.Decision{Allowed: true}, nil).Once()
+	f.policy.EXPECT().Evaluate(mock.Anything, mock.MatchedBy(func(a policy.Args) bool { return a.Action == "s3:PutBucketObjectLockConfiguration" })).
+		Return(policy.Decision{Allowed: false}, nil).Once()
+	requireError(t, f.do(http.MethodPut, "/vault", "", "x-amz-bucket-object-lock-enabled", "true"), http.StatusForbidden, "AccessDenied")
 }
 
 func TestCreateBucketWithoutRegionAcceptsAnyConstraint(t *testing.T) {
@@ -169,7 +201,8 @@ func TestListObjectsV2(t *testing.T) {
 	decodeXML(t, rec, &v2)
 	assert.Equal(t, 2, v2.KeyCount)
 	assert.True(t, v2.IsTruncated)
-	assert.Equal(t, "tok", v2.ContinuationToken)
+	require.NotNil(t, v2.ContinuationToken)
+	assert.Equal(t, "tok", *v2.ContinuationToken)
 	assert.Equal(t, "next", v2.NextContinuationToken)
 	assert.Equal(t, "2024/0", v2.StartAfter)
 	assert.Equal(t, "2024/raw+dir/", v2.CommonPrefixes[0].Prefix)
@@ -185,6 +218,12 @@ func TestListObjectsV2(t *testing.T) {
 	assert.Nil(t, v2.Contents[0].Owner, "the owner is reported with fetch-owner only")
 	assert.NotContains(t, rec.Body.String(), "<Owner>")
 	assert.NotContains(t, rec.Body.String(), "EncodingType")
+	assert.NotContains(t, rec.Body.String(), "<ContinuationToken>", "no token, none echoed")
+
+	// An empty token is echoed (S3 behaves the same).
+	f.objects.EXPECT().ListObjects(mock.Anything, domain.ListObjectsInput{Bucket: "photos", MaxKeys: 1000}).Return(domain.ListObjectsResult{}, nil).Once()
+	rec = f.do(http.MethodGet, "/photos?list-type=2&continuation-token=", "")
+	assert.Contains(t, rec.Body.String(), "<ContinuationToken></ContinuationToken>")
 }
 
 func TestListObjectVersions(t *testing.T) {

@@ -1,0 +1,68 @@
+$ nexoctl admin notify targets ls mem
+ARN                                      TYPE     STATE    QUEUED  ENDPOINT
+arn:nexo:sqs:us-east-1:_:webhook         webhook  online   0       http://hook.test/events
+arn:nexo:sqs:us-east-1:audit:kafka       kafka    offline  4       kafka:9092
+  last error: dial tcp: connection refused
+
+$ nexoctl admin notify targets test mem arn:nexo:sqs:us-east-1:_:webhook
+Test event delivered to arn:nexo:sqs:us-east-1:_:webhook.
+
+$ nexoctl admin notify targets test mem audit:kafka
+! nexoctl: error: target arn:nexo:sqs:us-east-1:audit:kafka did not receive the test event: dial tcp: connection refused
+[exit 1]
+
+$ nexoctl admin notify targets test mem ghost:webhook
+! nexoctl: error: target "ghost:webhook": notification target ghost:webhook does not exist (not_found)
+[exit 3]
+
+$ nexoctl event ls mem/photos
+`mem/photos` has no event subscription.
+
+$ nexoctl event add mem/photos arn:nexo:sqs:us-east-1:_:webhook --event put --suffix .jpg
+Subscribed `arn:nexo:sqs:us-east-1:_:webhook` to the s3:ObjectCreated:* events of `mem/photos`.
+
+$ nexoctl event add mem/photos arn:nexo:sqs:us-east-1:_:webhook --event put --suffix .jpg
+! nexoctl: error: mem/photos: the subscription of arn:nexo:sqs:us-east-1:_:webhook already exists: conflict
+[exit 1]
+
+$ nexoctl event add -p mem/photos arn:nexo:sqs:us-east-1:_:webhook --event put --suffix .jpg
+`arn:nexo:sqs:us-east-1:_:webhook` is already subscribed to mem/photos.
+
+$ nexoctl event add mem/photos arn:nexo:sqs:us-east-1:audit:kafka --prefix raw/
+Subscribed `arn:nexo:sqs:us-east-1:audit:kafka` to the s3:ObjectAccessed:*,s3:ObjectCreated:*,s3:ObjectRemoved:* events of `mem/photos`.
+
+$ nexoctl event ls mem/photos
+arn:nexo:sqs:us-east-1:_:webhook   s3:ObjectCreated:*   Filter: suffix=".jpg"   ID: sub-1
+arn:nexo:sqs:us-east-1:audit:kafka   s3:ObjectAccessed:*,s3:ObjectCreated:*,s3:ObjectRemoved:*   Filter: prefix="raw/"   ID: sub-2
+
+$ nexoctl event ls --json mem/photos arn:nexo:sqs:us-east-1:_:webhook
+{"status":"success","target":"mem/photos","bucket":"photos","id":"sub-1","arn":"arn:nexo:sqs:us-east-1:_:webhook","events":["s3:ObjectCreated:*"],"suffix":".jpg"}
+
+$ nexoctl event rm mem/photos arn:nexo:sqs:us-east-1:_:webhook --event delete
+! nexoctl: error: mem/photos: no subscription of arn:nexo:sqs:us-east-1:_:webhook matches: not found
+[exit 3]
+
+$ nexoctl event rm mem/photos arn:nexo:sqs:us-east-1:_:webhook
+Removed the subscription of `arn:nexo:sqs:us-east-1:_:webhook` (s3:ObjectCreated:*) from `mem/photos`.
+
+$ nexoctl event rm --force mem/photos
+Removed the subscription of `arn:nexo:sqs:us-east-1:audit:kafka` (s3:ObjectAccessed:*,s3:ObjectCreated:*,s3:ObjectRemoved:*) from `mem/photos`.
+
+$ nexoctl event ls mem/photos
+`mem/photos` has no event subscription.
+
+$ nexoctl event add mem/photos not-an-arn
+! nexoctl: error: invalid target ARN "not-an-arn" (arn:nexo:sqs:REGION:ID:TYPE, see "nexoctl admin notify targets ls")
+! Run 'nexoctl event add --help' for usage.
+[exit 2]
+
+$ nexoctl event add mem/photos arn:nexo:sqs:us-east-1:_:webhook --event teleport
+! nexoctl: error: unknown event "teleport" (put, delete, get, replica, ilm or an S3 event type such as s3:ObjectCreated:Put)
+! Run 'nexoctl event add --help' for usage.
+[exit 2]
+
+$ nexoctl event rm mem/photos
+! nexoctl: error: give the ARN of the subscriptions to remove, or --force to remove them all
+! Run 'nexoctl event remove --help' for usage.
+[exit 2]
+

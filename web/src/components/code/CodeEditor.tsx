@@ -19,7 +19,7 @@ export interface CodeEditorProps {
   readOnly?: boolean;
   /** Problems to highlight, also listed under the editor. */
   markers?: readonly CodeMarker[];
-  language?: 'json' | 'plaintext';
+  language?: 'json' | 'xml' | 'plaintext';
   /** JSON schema for validation and autocompletion. */
   schema?: CodeSchema;
   /** Field-level error shown under the label. */

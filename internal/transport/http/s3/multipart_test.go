@@ -41,7 +41,7 @@ func TestCreateMultipartUpload(t *testing.T) {
 		{"bad tags", []string{"x-amz-tagging", "a=1&a=2"}, 400, "InvalidTag"},
 		{"bad storage class", []string{"x-amz-storage-class", "DEEP_ARCHIVE"}, 400, "InvalidStorageClass"},
 		{"metadata too large", []string{"x-amz-meta-x", strings.Repeat("y", 2100)}, 400, "MetadataTooLarge"},
-		{"SSE", []string{"x-amz-server-side-encryption", "aws:kms"}, 501, "NotImplemented"},
+		{"SSE", []string{"x-amz-server-side-encryption", "ROT13"}, 400, "InvalidArgument"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -202,7 +202,7 @@ func TestListParts(t *testing.T) {
 	assert.Equal(t, "CRC32", res.ChecksumAlgorithm)
 	assert.Equal(t, "root", res.Owner.ID)
 	require.Len(t, res.Parts, 4)
-	assert.Equal(t, s3.PartEntry{PartNumber: 3, LastModified: "2026-10-08T12:00:00.000Z", ETag: `"e3"`, Size: 5 << 20, ChecksumCRC32: "c3"}, res.Parts[0])
+	assert.Equal(t, s3.PartEntry{PartNumber: 3, LastModified: "2026-10-08T12:00:00.000Z", ETag: `"e3"`, Size: 5 << 20, ChecksumFields: s3.ChecksumFields{ChecksumCRC32: "c3"}}, res.Parts[0])
 	assert.Equal(t, "c4", res.Parts[1].ChecksumSHA256)
 	assert.Equal(t, "c5", res.Parts[2].ChecksumCRC32C)
 	assert.Equal(t, "c6", res.Parts[3].ChecksumSHA1)

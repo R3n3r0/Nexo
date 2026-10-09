@@ -3,26 +3,59 @@ package event_test
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"sync/atomic"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/event"
 )
 
+var updateGolden = flag.Bool("update", false, "rewrite the golden files of testdata")
+
 func TestNameMatch(t *testing.T) {
-	assert.True(t, event.ObjectCreatedPut.Match(event.ObjectCreatedAll))
-	assert.True(t, event.ObjectCreatedPut.Match(event.ObjectCreatedPut))
-	assert.True(t, event.ObjectCreatedPut.Match("*"))
-	assert.False(t, event.ObjectCreatedPut.Match(event.ObjectRemovedAll))
-	assert.False(t, event.ObjectCreatedPut.Match(event.ObjectCreatedCopy))
+	tests := []struct {
+		name    event.Name
+		pattern event.Name
+		want    bool
+	}{
+		{event.ObjectCreatedPut, event.ObjectCreatedAll, true},
+		{event.ObjectCreatedPut, event.ObjectCreatedPut, true},
+		{event.ObjectCreatedPut, "*", true},
+		{event.ObjectCreatedPut, event.ObjectRemovedAll, false},
+		{event.ObjectCreatedPut, event.ObjectCreatedCopy, false},
+		{event.LifecycleExpirationDelete, event.LifecycleExpirationAll, true},
+		{event.ObjectTaggingPut, event.ObjectTaggingAll, true},
+		{event.ObjectTaggingPut, event.ObjectCreatedAll, false},
+		{event.ObjectCreatedPutTagging, event.ObjectTaggingAll, true},
+	}
+	for _, tc := range tests {
+		t.Run(string(tc.name)+"~"+string(tc.pattern), func(t *testing.T) {
+			assert.Equal(t, tc.want, tc.name.Match(tc.pattern))
+		})
+	}
+}
+
+func TestNameIsNotifiable(t *testing.T) {
+	for _, n := range []event.Name{
+		event.ObjectCreatedAll, event.ObjectCreatedPut, event.ObjectCreatedPost, event.ObjectCreatedCopy,
+		event.ObjectCreatedCompleteMultipartUpload, event.ObjectRemovedAll, event.ObjectRemovedDelete,
+		event.ObjectRemovedDeleteMarkerCreated, event.ObjectAccessedGet, event.ObjectAccessedHead,
+		event.LifecycleExpirationAll, event.LifecycleExpirationDelete, event.LifecycleExpirationDeleteMarkerCreated,
+		event.ObjectTaggingAll, event.ObjectTaggingPut, event.ObjectTaggingDelete,
+	} {
+		assert.True(t, n.IsNotifiable(), n)
+	}
+	for _, n := range []event.Name{event.BucketCreated, "s3:Replication:*", "", "*"} {
+		assert.False(t, n.IsNotifiable(), n)
+	}
 }
 
 func TestFilterMatches(t *testing.T) {
@@ -30,135 +63,129 @@ func TestFilterMatches(t *testing.T) {
 	e.S3.Bucket.Name = "photos"
 	e.S3.Object.Key = "2024/img.jpg"
 
-	assert.True(t, event.Filter{}.Matches(e))
-	assert.True(t, event.Filter{Bucket: "photos", Prefix: "2024/", Suffix: ".jpg", Events: []event.Name{event.ObjectCreatedAll}}.Matches(e))
-	assert.False(t, event.Filter{Bucket: "other"}.Matches(e))
-	assert.False(t, event.Filter{Prefix: "2023/"}.Matches(e))
-	assert.False(t, event.Filter{Suffix: ".png"}.Matches(e))
-	assert.False(t, event.Filter{Events: []event.Name{event.ObjectRemovedAll}}.Matches(e))
+	tests := []struct {
+		name   string
+		filter event.Filter
+		want   bool
+	}{
+		{"zero", event.Filter{}, true},
+		{"all criteria", event.Filter{Bucket: "photos", Prefix: "2024/", Suffix: ".jpg", Events: []event.Name{event.ObjectCreatedAll}}, true},
+		{"other bucket", event.Filter{Bucket: "other"}, false},
+		{"other prefix", event.Filter{Prefix: "2023/"}, false},
+		{"other suffix", event.Filter{Suffix: ".png"}, false},
+		{"other events", event.Filter{Events: []event.Name{event.ObjectRemovedAll}}, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, tc.filter.Matches(e))
+		})
+	}
+	assert.True(t, event.Filter{}.IsZero())
+	assert.False(t, event.Filter{Bucket: "photos"}.IsZero())
 }
 
-func TestDispatcherDeliversToWebhook(t *testing.T) {
-	received := make(chan event.Payload, 4)
-	var auth atomic.Value
+func TestTargetIDAndARN(t *testing.T) {
+	id := event.TargetConfig{ID: "primary", Type: event.TypeWebhook}.TargetID()
+	assert.Equal(t, event.TargetID{ID: "primary", Type: event.TypeWebhook}, id)
+	assert.Equal(t, "primary:webhook", id.String())
+	assert.Equal(t, "arn:nexo:sqs:eu-west-1:primary:webhook", id.ARN("eu-west-1"))
+	assert.Equal(t, "arn:nexo:sqs::primary:webhook", id.ARN(""))
+}
+
+// TestEventPayloadGolden pins the JSON document delivered for an event
+// (docs/06 TS-I-15: the S3 standard payload): eventVersion 2.0, the
+// request parameters and response elements of the request, the
+// configuration id of the rule and the URL-encoded key.
+func TestEventPayloadGolden(t *testing.T) {
+	bodies := make(chan []byte, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		auth.Store(r.Header.Get("Authorization"))
-		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
-		body, _ := io.ReadAll(r.Body)
-		var p event.Payload
-		require.NoError(t, json.Unmarshal(body, &p))
-		received <- p
-		w.WriteHeader(http.StatusOK)
+		b, _ := io.ReadAll(r.Body)
+		bodies <- b
 	}))
 	defer srv.Close()
 
 	ctx := context.Background()
-	d := event.NewDispatcher(event.Deps{Factory: event.NewWebhookFactory(event.WebhookDeps{Client: srv.Client()})}, event.WithQueueSize(8))
-	// Publishing before Start fails.
-	assert.ErrorIs(t, d.Publish(ctx, event.Event{}), domain.ErrConflict)
+	rules := bucketRules(t, map[string]string{"photos": `<NotificationConfiguration>
+  <QueueConfiguration><Id>new-photos</Id><Queue>arn:nexo:sqs:us-east-1:golden:webhook</Queue><Event>s3:ObjectCreated:*</Event></QueueConfiguration>
+</NotificationConfiguration>`})
+	d := event.NewDispatcher(event.Deps{Rules: rules, Factory: event.NewWebhookFactory(event.WebhookDeps{Client: srv.Client()})}, event.WithRegion("us-east-1"))
+	require.NoError(t, d.SetTarget(ctx, webhookTarget("golden", srv.URL)))
 	require.NoError(t, d.Start(ctx))
-	assert.Error(t, d.Start(ctx), "double start")
+	defer stop(t, d)
 
-	require.NoError(t, d.SetTarget(ctx, event.TargetConfig{
-		ID: "hook", Type: event.TypeWebhook, Endpoint: srv.URL, AuthToken: "secret", Enabled: true,
-		Filter: event.Filter{Events: []event.Name{event.ObjectCreatedAll}, Bucket: "photos"},
-	}))
-	require.NoError(t, d.SetTarget(ctx, event.TargetConfig{
-		ID: "disabled", Type: event.TypeWebhook, Endpoint: srv.URL, Enabled: false,
-	}))
+	e := event.NewEvent(event.ObjectCreatedPut, "us-east-1", time.Date(2026, 10, 9, 12, 30, 45, 123e6, time.UTC))
+	e.S3.Bucket = event.Bucket{Name: "photos", ARN: "arn:aws:s3:::photos"}
+	e.S3.Object = event.Object{
+		Key: "2026/summer holiday+1.jpg", Size: 1234, ETag: "d41d8cd98f00b204e9800998ecf8427e", ContentType: "image/jpeg",
+		UserMetadata: map[string]string{"camera": "x100"}, VersionID: "0193a1b2-c3d4", Sequencer: "18a2f3c4d5e6f701",
+	}
+	reqCtx := event.WithRequest(ctx, event.Request{
+		PrincipalID: "alice", SourceIP: "192.0.2.10", Port: "51234", RequestID: "17C2A3B4D5E6F708", HostID: "aG9zdC1pZA==",
+		UserAgent: "aws-sdk-go-v2/1.36.3",
+	})
+	require.NoError(t, d.Publish(reqCtx, e))
 
-	e := event.NewEvent(event.ObjectCreatedPut, "us-east-1", time.Now())
-	e.S3.Bucket.Name = "photos"
-	e.S3.Object.Key = "a.jpg"
-	e.S3.Object.Size = 3
-	require.NoError(t, d.Publish(ctx, e))
-
-	other := event.NewEvent(event.ObjectRemovedDelete, "us-east-1", time.Now())
-	other.S3.Bucket.Name = "photos"
-	require.NoError(t, d.Publish(ctx, other)) // filtered out
-
+	var body []byte
 	select {
-	case p := <-received:
-		assert.Equal(t, event.ObjectCreatedPut, p.EventName)
-		assert.Equal(t, "photos/a.jpg", p.Key)
-		require.Len(t, p.Records, 1)
-		assert.Equal(t, int64(3), p.Records[0].S3.Object.Size)
-		assert.Equal(t, event.Version, p.Records[0].EventVersion)
-	case <-time.After(2 * time.Second):
+	case body = <-bodies:
+	case <-time.After(5 * time.Second):
 		t.Fatal("webhook not called")
 	}
-	assert.Equal(t, "Bearer secret", auth.Load())
-
-	stopCtx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
-	require.NoError(t, d.Stop(stopCtx))
-	select {
-	case <-received:
-		t.Fatal("the filtered event must not be delivered")
-	default:
+	var pretty any
+	require.NoError(t, json.Unmarshal(body, &pretty))
+	got, err := json.MarshalIndent(pretty, "", "  ")
+	require.NoError(t, err)
+	got = append(got, '\n')
+	golden := filepath.Join("testdata", "webhook_payload.golden.json")
+	if *updateGolden {
+		require.NoError(t, os.MkdirAll("testdata", 0o755))
+		require.NoError(t, os.WriteFile(golden, got, 0o644))
 	}
-	assert.ErrorIs(t, d.Publish(ctx, e), domain.ErrConflict)
-	require.NoError(t, d.Stop(stopCtx), "stop is idempotent")
+	want, err := os.ReadFile(golden)
+	require.NoError(t, err)
+	assert.JSONEq(t, string(want), string(got))
+	assert.Equal(t, string(want), string(got))
 }
 
-func TestDispatcherTargetCRUD(t *testing.T) {
-	ctx := context.Background()
-	d := event.NewDispatcher(event.Deps{})
-	assert.ErrorIs(t, d.SetTarget(ctx, event.TargetConfig{Type: event.TypeWebhook}), domain.ErrInvalidArgument)
-	assert.ErrorIs(t, d.SetTarget(ctx, event.TargetConfig{ID: "x", Type: "kafka"}), domain.ErrInvalidArgument)
-	assert.ErrorIs(t, d.SetTarget(ctx, event.TargetConfig{ID: "x", Type: event.TypeWebhook, Endpoint: "not a url"}), domain.ErrInvalidArgument)
-
-	require.NoError(t, d.SetTarget(ctx, event.TargetConfig{ID: "b", Type: event.TypeWebhook, Endpoint: "http://b"}))
-	require.NoError(t, d.SetTarget(ctx, event.TargetConfig{ID: "a", Type: event.TypeWebhook, Endpoint: "http://a"}))
-	list, err := d.ListTargets(ctx)
-	require.NoError(t, err)
-	require.Len(t, list, 2)
-	assert.Equal(t, "a", list[0].ID)
-
-	got, err := d.GetTarget(ctx, "b")
-	require.NoError(t, err)
-	assert.Equal(t, "http://b", got.Endpoint)
-	// Replace keeps a single entry.
-	require.NoError(t, d.SetTarget(ctx, event.TargetConfig{ID: "b", Type: event.TypeWebhook, Endpoint: "http://b2"}))
-	got, _ = d.GetTarget(ctx, "b")
-	assert.Equal(t, "http://b2", got.Endpoint)
-
-	require.NoError(t, d.RemoveTarget(ctx, "b"))
-	_, err = d.GetTarget(ctx, "b")
-	assert.ErrorIs(t, err, domain.ErrPolicyNotFound)
-	assert.ErrorIs(t, d.RemoveTarget(ctx, "b"), domain.ErrPolicyNotFound)
-}
-
-func TestWebhookReportsHTTPErrors(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "nope", http.StatusBadGateway)
-	}))
-	defer srv.Close()
-	target, err := event.NewWebhookFactory(event.WebhookDeps{Client: srv.Client()}).New(context.Background(), event.TargetConfig{ID: "h", Type: event.TypeWebhook, Endpoint: srv.URL})
-	require.NoError(t, err)
-	assert.Equal(t, "h", target.ID())
-	err = target.Send(context.Background(), event.NewEvent(event.ObjectCreatedPut, "r", time.Now()))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "502")
-	assert.NoError(t, target.Close(context.Background()))
-}
-
-func TestDispatcherQueueFull(t *testing.T) {
-	ctx := context.Background()
-	block := make(chan struct{})
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-block }))
-	defer srv.Close()
-	defer close(block)
-
-	d := event.NewDispatcher(event.Deps{Factory: event.NewWebhookFactory(event.WebhookDeps{Client: srv.Client()})}, event.WithQueueSize(1), event.WithSendTimeout(5*time.Second))
-	require.NoError(t, d.Start(ctx))
-	require.NoError(t, d.SetTarget(ctx, event.TargetConfig{ID: "slow", Type: event.TypeWebhook, Endpoint: srv.URL, Enabled: true}))
-	e := event.NewEvent(event.ObjectCreatedPut, "r", time.Now())
-	// First event is picked by the worker and blocks; second fills the queue;
-	// the third must be rejected.
-	require.NoError(t, d.Publish(ctx, e))
-	require.Eventually(t, func() bool { return d.Publish(ctx, e) != nil }, time.Second, 5*time.Millisecond)
-	stopCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
-	defer cancel()
-	assert.ErrorIs(t, d.Stop(stopCtx), context.DeadlineExceeded)
+func TestPublishCompletesTheEventFromTheRequest(t *testing.T) {
+	tests := []struct {
+		name string
+		req  *event.Request
+		in   event.Name
+		want event.Name
+		who  string
+	}{
+		{name: "no request", in: event.ObjectCreatedPut, want: event.ObjectCreatedPut},
+		{name: "put", req: &event.Request{PrincipalID: "bob"}, in: event.ObjectCreatedPut, want: event.ObjectCreatedPut, who: "bob"},
+		{name: "post upload", req: &event.Request{Operation: func() string { return "PostObject" }}, in: event.ObjectCreatedPut, want: event.ObjectCreatedPost},
+		{name: "presigned put", req: &event.Request{Operation: func() string { return "PresignedPutObject" }}, in: event.ObjectCreatedPut, want: event.ObjectCreatedPut},
+		{name: "lifecycle delete", req: &event.Request{Lifecycle: true}, in: event.ObjectRemovedDelete, want: event.LifecycleExpirationDelete, who: event.LifecyclePrincipal},
+		{name: "lifecycle marker", req: &event.Request{Lifecycle: true}, in: event.ObjectRemovedDeleteMarkerCreated, want: event.LifecycleExpirationDeleteMarkerCreated, who: event.LifecyclePrincipal},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			got := make(chan event.Event, 1)
+			target := newCaptureTarget(t, "cap", got)
+			d := event.NewDispatcher(event.Deps{Factory: factoryOf(t, target)})
+			cfg := event.TargetConfig{ID: "cap", Type: event.TypeWebhook, Enabled: true, Filter: event.Filter{Bucket: "b"}}
+			require.NoError(t, d.SetTarget(ctx, cfg))
+			require.NoError(t, d.Start(ctx))
+			defer stop(t, d)
+			pubCtx := ctx
+			if tc.req != nil {
+				pubCtx = event.WithRequest(ctx, *tc.req)
+			}
+			e := event.NewEvent(tc.in, "r", time.Now())
+			e.S3.Bucket.Name = "b"
+			e.S3.Object.Key = "k"
+			require.NoError(t, d.Publish(pubCtx, e))
+			rec := receive(t, got)
+			assert.Equal(t, tc.want, rec.EventName)
+			assert.Equal(t, tc.who, rec.UserIdentity.PrincipalID)
+			assert.Equal(t, event.ConfigID, rec.S3.ConfigurationID)
+			assert.Equal(t, "arn:aws:s3:::b", rec.S3.Bucket.ARN)
+			assert.Equal(t, "nexo", rec.S3.Bucket.OwnerIdentity.PrincipalID)
+		})
+	}
 }

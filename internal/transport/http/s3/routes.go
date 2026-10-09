@@ -16,12 +16,16 @@
 package s3
 
 import (
+	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/auth"
+	"github.com/r3n3r0/nexo/internal/service/bucket"
+	"github.com/r3n3r0/nexo/internal/service/settings"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
 
@@ -158,13 +162,27 @@ type APIDeps struct {
 	// is an object key of its bucket ("bkt.{domain}/nexo/metrics/x" is the
 	// key "nexo/metrics/x"), which the Dispatcher serves.
 	System []Routes
+	// Buckets provides the CORS configurations of the buckets (S-BKT-06):
+	// the cross-origin requests of a bucket with one are decided by its
+	// rules. Nil applies the deployment-wide policy to every request.
+	Buckets bucket.Service
+	// Settings provides the deployment-wide CORS policy
+	// (api.cors_allow_origin) of the buckets without a CORS configuration,
+	// of the service-level requests and of the system routes. Nil allows
+	// every origin.
+	Settings settings.Service
+	// Logger reports the CORS configurations that cannot be read
+	// (default slog.Default()).
+	Logger *slog.Logger
 }
 
 // api is the composed S3 API: the system routes, guarded against
-// virtual-host requests, and the Dispatcher owning the rest of the URL space.
+// virtual-host requests, and the Dispatcher owning the rest of the URL
+// space, both behind the CORS handling.
 type api struct {
 	d      *dispatcher
 	system []Routes
+	cors   *corsHandler
 }
 
 // NewAPI composes the S3 API from its groups: a Dispatcher with every group
@@ -180,11 +198,27 @@ func NewAPI(deps APIDeps, groups ...Group) Routes {
 			g.Mount(d)
 		}
 	}
-	return &api{d: d, system: deps.System}
+	if deps.Logger == nil {
+		deps.Logger = slog.Default()
+	}
+	cors := &corsHandler{buckets: deps.Buckets, settings: deps.Settings, enc: deps.Enc, logger: deps.Logger, resolve: d.corsBucket}
+	return &api{d: d, system: deps.System, cors: cors}
+}
+
+// corsBucket returns the bucket whose CORS rules apply to a request: the
+// one it addresses, none for the service-level requests and the system
+// routes ("/nexo/..." in path-style).
+func (d *dispatcher) corsBucket(r *http.Request) string {
+	t := d.resolve(r)
+	if t.virtualHost || t.bucket != domain.ReservedBucket {
+		return t.bucket
+	}
+	return ""
 }
 
 // Register implements Routes.
 func (a *api) Register(r chi.Router) {
+	r = r.With(a.cors.wrap)
 	if len(a.system) > 0 {
 		guarded := r.With(a.pathStyleOnly)
 		for _, rt := range a.system {

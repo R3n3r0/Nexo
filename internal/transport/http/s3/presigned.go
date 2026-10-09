@@ -51,7 +51,7 @@ func NewPresignedRoutes(deps PresignedDeps, opts ...Option) PresignedRoutes {
 		deps: deps,
 		objects: newObjectRoutes(ObjectDeps{
 			Objects: deps.Objects, Policy: deps.Policy, Enc: deps.Enc, Clock: deps.Clock, Logger: deps.Logger,
-		}),
+		}, opts...),
 		buckets: newBucketRoutes(BucketDeps{
 			Buckets: deps.Buckets, Objects: deps.Objects, Policy: deps.Policy, Enc: deps.Enc, Clock: deps.Clock, Logger: deps.Logger,
 		}, opts...),

@@ -59,6 +59,13 @@ type memBucket struct {
 	// objects holds the versions of each key, the latest first.
 	objects map[string][]*memVersion
 	uploads []cli.UploadInfo
+	// objectLock and defaultRetention are the Object Lock configuration.
+	objectLock       bool
+	defaultRetention domain.DefaultRetention
+	// The bucket configurations of the S3 API (nil: none).
+	lifecycle     *cli.LifecycleConfiguration
+	cors          *cli.CORSConfiguration
+	notifications *cli.BucketNotifications
 }
 
 type memVersion struct {
@@ -70,6 +77,10 @@ type memVersion struct {
 	metadata     map[string]string
 	tags         map[string]string
 	deleteMarker bool
+	retention    domain.ObjectRetention
+	legalHold    domain.LegalHoldStatus
+	checksum     domain.Checksum
+	encryption   domain.EncryptionInfo
 }
 
 // NewMemS3 returns an empty store dated by clk (nil: a fake clock at
@@ -123,7 +134,7 @@ func (m *MemS3) Client(t TestingT) *climock.S3Client {
 	c.EXPECT().Get(x, x, x, x).RunAndReturn(m.get).Maybe()
 	c.EXPECT().Put(x, x, x, x, x).RunAndReturn(m.put).Maybe()
 	c.EXPECT().Copy(x, x, x, x).RunAndReturn(m.copy).Maybe()
-	c.EXPECT().Remove(x, x, x).RunAndReturn(m.remove).Maybe()
+	c.EXPECT().Remove(x, x, x, x).RunAndReturn(m.remove).Maybe()
 	c.EXPECT().ListUploads(x, x, x).RunAndReturn(m.listUploads).Maybe()
 	c.EXPECT().AbortUpload(x, x, x, x).RunAndReturn(m.abortUpload).Maybe()
 	c.EXPECT().Presign(x, x).RunAndReturn(m.presign).Maybe()
@@ -136,6 +147,18 @@ func (m *MemS3) Client(t TestingT) *climock.S3Client {
 	c.EXPECT().GetTags(x, x).RunAndReturn(m.getTags).Maybe()
 	c.EXPECT().PutTags(x, x, x).RunAndReturn(m.putTags).Maybe()
 	c.EXPECT().DeleteTags(x, x).RunAndReturn(m.deleteTags).Maybe()
+	c.EXPECT().GetObjectLock(x, x).RunAndReturn(m.getObjectLock).Maybe()
+	c.EXPECT().SetObjectLock(x, x, x).RunAndReturn(m.setObjectLock).Maybe()
+	c.EXPECT().GetRetention(x, x).RunAndReturn(m.getRetention).Maybe()
+	c.EXPECT().PutRetention(x, x, x, x).RunAndReturn(m.putRetention).Maybe()
+	c.EXPECT().GetLegalHold(x, x).RunAndReturn(m.getLegalHold).Maybe()
+	c.EXPECT().PutLegalHold(x, x, x).RunAndReturn(m.putLegalHold).Maybe()
+	c.EXPECT().GetLifecycle(x, x).RunAndReturn(m.getLifecycle).Maybe()
+	c.EXPECT().PutLifecycle(x, x, x).RunAndReturn(m.putLifecycle).Maybe()
+	c.EXPECT().GetCORS(x, x).RunAndReturn(m.getCORS).Maybe()
+	c.EXPECT().PutCORS(x, x, x).RunAndReturn(m.putCORS).Maybe()
+	c.EXPECT().GetNotifications(x, x).RunAndReturn(m.getNotifications).Maybe()
+	c.EXPECT().PutNotifications(x, x, x).RunAndReturn(m.putNotifications).Maybe()
 	return c
 }
 
@@ -148,6 +171,13 @@ type ObjectSpec struct {
 	Tags        map[string]string
 	// ModTime overrides the date of the version (zero: the clock).
 	ModTime time.Time
+	// Retention and LegalHold set the Object Lock state of the version
+	// (the bucket needs Object Lock, see MakeLockedBucket).
+	Retention domain.ObjectRetention
+	LegalHold domain.LegalHoldStatus
+	// SSE encrypts the version (SSE-C versions are then read with the
+	// same key only).
+	SSE domain.SSERequest
 }
 
 // MakeBucket creates a bucket (seeding helper); an existing one is kept.
@@ -173,8 +203,68 @@ func (m *MemS3) PutObject(bucket, key, data string, spec ObjectSpec) string {
 	if !spec.ModTime.IsZero() {
 		v.modTime = spec.ModTime.UTC()
 	}
+	if !spec.Retention.IsZero() {
+		v.retention = spec.Retention
+	}
+	if spec.LegalHold != "" {
+		v.legalHold = spec.LegalHold
+	}
+	v.encryption = memEncryption(spec.SSE)
 	m.addVersionLocked(b, key, v)
 	return outVersion(v.id)
+}
+
+// MakeLockedBucket creates a bucket with Object Lock (and versioning) and
+// an optional default retention (seeding helper).
+func (m *MemS3) MakeLockedBucket(name string, def domain.DefaultRetention) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	b := m.buckets[name]
+	if b == nil {
+		b = newMemBucket(m.clock.Now())
+		m.buckets[name] = b
+	}
+	b.objectLock, b.versioning, b.defaultRetention = true, cli.VersioningEnabled, def
+}
+
+// VersionState is the Object Lock state, checksum and encryption of an
+// object version (inspection helper).
+type VersionState struct {
+	Retention  domain.ObjectRetention
+	LegalHold  domain.LegalHoldStatus
+	Checksum   domain.Checksum
+	Encryption domain.EncryptionInfo
+}
+
+// State returns the state of a version ("" is the latest).
+func (m *MemS3) State(bucket, key, versionID string) (VersionState, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	v, err := m.versionLocked(bucket, key, versionID)
+	if err != nil {
+		return VersionState{}, false
+	}
+	return VersionState{Retention: v.retention, LegalHold: v.legalHold, Checksum: v.checksum, Encryption: v.encryption}, true
+}
+
+// Lifecycle returns the lifecycle configuration of a bucket (nil: none).
+func (m *MemS3) Lifecycle(bucket string) *cli.LifecycleConfiguration {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if b := m.buckets[bucket]; b != nil {
+		return b.lifecycle
+	}
+	return nil
+}
+
+// Notifications returns the event subscriptions of a bucket (nil: none).
+func (m *MemS3) Notifications(bucket string) *cli.BucketNotifications {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if b := m.buckets[bucket]; b != nil {
+		return b.notifications
+	}
+	return nil
 }
 
 // AddUpload registers an incomplete multipart upload.
@@ -262,9 +352,11 @@ func (m *MemS3) newVersionLocked(b *memBucket, data []byte, contentType string, 
 		id = fmt.Sprintf("v%04d", m.seq)
 	}
 	sum := md5.Sum(data)
+	now := m.clock.Now().UTC()
 	return &memVersion{
-		id: id, data: data, etag: hex.EncodeToString(sum[:]), modTime: m.clock.Now().UTC(),
+		id: id, data: data, etag: hex.EncodeToString(sum[:]), modTime: now,
 		contentType: contentType, metadata: cloneMap(meta), tags: cloneMap(tags),
+		retention: b.defaultRetention.RetentionAt(now.Truncate(time.Second)),
 	}
 }
 
@@ -337,7 +429,7 @@ func (m *MemS3) bucketExists(_ context.Context, bucket string) (bool, error) {
 	return m.buckets[bucket] != nil, nil
 }
 
-func (m *MemS3) makeBucket(_ context.Context, bucket string, _ cli.MakeBucketOptions) error {
+func (m *MemS3) makeBucket(_ context.Context, bucket string, opts cli.MakeBucketOptions) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := m.begin("MakeBucket"); err != nil {
@@ -349,7 +441,11 @@ func (m *MemS3) makeBucket(_ context.Context, bucket string, _ cli.MakeBucketOpt
 	if len(bucket) < 3 || strings.ToLower(bucket) != bucket || strings.ContainsAny(bucket, "_ /") {
 		return fmt.Errorf("%w: %s", domain.ErrInvalidBucketName, bucket)
 	}
-	m.buckets[bucket] = newMemBucket(m.clock.Now())
+	b := newMemBucket(m.clock.Now())
+	if opts.ObjectLock {
+		b.objectLock, b.versioning = true, cli.VersioningEnabled
+	}
+	m.buckets[bucket] = b
 	return nil
 }
 
@@ -429,6 +525,9 @@ func info(key string, v *memVersion, latest, versions bool) cli.ObjectInfo {
 		ContentType: v.contentType, VersionID: outVersion(v.id), IsLatest: latest,
 		DeleteMarker: v.deleteMarker, Metadata: cloneMap(v.metadata), StorageClass: "STANDARD",
 	}
+	if !versions {
+		o.Retention, o.LegalHold, o.Encryption = v.retention, v.legalHold, v.encryption
+	}
 	if versions {
 		o.VersionID = v.id
 	}
@@ -455,7 +554,13 @@ func (m *MemS3) stat(_ context.Context, bucket, key string, opts cli.StatOptions
 	if err != nil {
 		return nil, err
 	}
+	if err := checkCustomerKey(v, opts.SSE); err != nil {
+		return nil, err
+	}
 	o := info(key, v, opts.VersionID == "", false)
+	if opts.Checksum {
+		o.Checksum = v.checksum
+	}
 	return &o, nil
 }
 
@@ -467,6 +572,9 @@ func (m *MemS3) get(_ context.Context, bucket, key string, opts cli.GetOptions) 
 	}
 	v, err := m.versionLocked(bucket, key, opts.VersionID)
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := checkCustomerKey(v, opts.SSE); err != nil {
 		return nil, nil, err
 	}
 	data := v.data
@@ -512,6 +620,12 @@ func (m *MemS3) put(ctx context.Context, bucket, key string, body io.Reader, opt
 		return nil, err
 	}
 	v := m.newVersionLocked(b, data, opts.ContentType, opts.Metadata, opts.Tags)
+	v.encryption = memEncryption(opts.SSE)
+	if opts.Checksum != domain.ChecksumNone {
+		if v.checksum, err = memChecksum(opts.Checksum, data); err != nil {
+			return nil, err
+		}
+	}
 	m.addVersionLocked(b, key, v)
 	if opts.Progress != nil {
 		opts.Progress(int64(len(data)))
@@ -520,7 +634,7 @@ func (m *MemS3) put(ctx context.Context, bucket, key string, body io.Reader, opt
 	if size := int64(len(data)); size > cli.DefaultPartSize || (opts.PartSize > 0 && size > opts.PartSize) {
 		_, parts, _ = cli.PartSize(size, opts.PartSize)
 	}
-	return &cli.PutResult{ETag: v.etag, VersionID: outVersion(v.id), Size: int64(len(data)), Parts: parts}, nil
+	return &cli.PutResult{ETag: v.etag, VersionID: outVersion(v.id), Size: int64(len(data)), Parts: parts, Checksum: v.checksum}, nil
 }
 
 func (m *MemS3) copy(_ context.Context, src, dst cli.ObjectRef, opts cli.CopyOptions) (*cli.PutResult, error) {
@@ -531,6 +645,9 @@ func (m *MemS3) copy(_ context.Context, src, dst cli.ObjectRef, opts cli.CopyOpt
 	}
 	sv, err := m.versionLocked(src.Bucket, src.Key, src.VersionID)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkCustomerKey(sv, opts.SourceSSE); err != nil {
 		return nil, err
 	}
 	b, err := m.bucketLocked(dst.Bucket)
@@ -550,14 +667,20 @@ func (m *MemS3) copy(_ context.Context, src, dst cli.ObjectRef, opts cli.CopyOpt
 		tags = opts.Tags
 	}
 	v := m.newVersionLocked(b, bytes.Clone(sv.data), ct, meta, tags)
+	v.encryption = memEncryption(opts.SSE)
+	if opts.Checksum != domain.ChecksumNone {
+		if v.checksum, err = memChecksum(opts.Checksum, v.data); err != nil {
+			return nil, err
+		}
+	}
 	m.addVersionLocked(b, dst.Key, v)
 	if opts.Progress != nil {
 		opts.Progress(int64(len(v.data)))
 	}
-	return &cli.PutResult{ETag: v.etag, VersionID: outVersion(v.id), Size: int64(len(v.data))}, nil
+	return &cli.PutResult{ETag: v.etag, VersionID: outVersion(v.id), Size: int64(len(v.data)), Checksum: v.checksum}, nil
 }
 
-func (m *MemS3) remove(_ context.Context, bucket string, objects []cli.ObjectVersion) ([]cli.RemoveResult, error) {
+func (m *MemS3) remove(_ context.Context, bucket string, objects []cli.ObjectVersion, opts cli.DeleteOptions) ([]cli.RemoveResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := m.begin("Remove"); err != nil {
@@ -583,6 +706,10 @@ func (m *MemS3) remove(_ context.Context, bucket string, objects []cli.ObjectVer
 				r.Err = fmt.Errorf("%w: %s", domain.ErrNoSuchVersion, o.VersionID)
 				break
 			}
+			if err := m.lockedLocked(vs[idx], opts.BypassGovernance); err != nil {
+				r.Err = err
+				break
+			}
 			r.DeleteMarker = vs[idx].deleteMarker
 			vs = append(vs[:idx:idx], vs[idx+1:]...)
 			if len(vs) == 0 {
@@ -594,7 +721,7 @@ func (m *MemS3) remove(_ context.Context, bucket string, objects []cli.ObjectVer
 			delete(b.objects, o.Key)
 		default:
 			marker := m.newVersionLocked(b, nil, "", nil, nil)
-			marker.deleteMarker = true
+			marker.deleteMarker, marker.retention = true, domain.ObjectRetention{}
 			m.addVersionLocked(b, o.Key, marker)
 			r.DeleteMarker, r.DeleteMarkerVersionID = true, marker.id
 		}
@@ -774,6 +901,9 @@ func (m *MemS3) setVersioning(_ context.Context, bucket string, v cli.Versioning
 	b, err := m.bucketLocked(bucket)
 	if err != nil {
 		return err
+	}
+	if b.objectLock && v != cli.VersioningEnabled {
+		return fmt.Errorf("%w: versioning cannot be suspended on a bucket with Object Lock (InvalidBucketState)", domain.ErrConflict)
 	}
 	b.versioning = v
 	return nil

@@ -22,6 +22,65 @@ func (_m *AdminClient) EXPECT() *AdminClient_Expecter {
 	return &AdminClient_Expecter{mock: &_m.Mock}
 }
 
+// ApplyBucketLifecycle provides a mock function with given fields: ctx, bucket
+func (_m *AdminClient) ApplyBucketLifecycle(ctx context.Context, bucket string) (*nexoadmin.LifecycleApplyResult, error) {
+	ret := _m.Called(ctx, bucket)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ApplyBucketLifecycle")
+	}
+
+	var r0 *nexoadmin.LifecycleApplyResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*nexoadmin.LifecycleApplyResult, error)); ok {
+		return rf(ctx, bucket)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *nexoadmin.LifecycleApplyResult); ok {
+		r0 = rf(ctx, bucket)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.LifecycleApplyResult)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, bucket)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_ApplyBucketLifecycle_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ApplyBucketLifecycle'
+type AdminClient_ApplyBucketLifecycle_Call struct {
+	*mock.Call
+}
+
+// ApplyBucketLifecycle is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+func (_e *AdminClient_Expecter) ApplyBucketLifecycle(ctx interface{}, bucket interface{}) *AdminClient_ApplyBucketLifecycle_Call {
+	return &AdminClient_ApplyBucketLifecycle_Call{Call: _e.mock.On("ApplyBucketLifecycle", ctx, bucket)}
+}
+
+func (_c *AdminClient_ApplyBucketLifecycle_Call) Run(run func(ctx context.Context, bucket string)) *AdminClient_ApplyBucketLifecycle_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_ApplyBucketLifecycle_Call) Return(_a0 *nexoadmin.LifecycleApplyResult, _a1 error) *AdminClient_ApplyBucketLifecycle_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_ApplyBucketLifecycle_Call) RunAndReturn(run func(context.Context, string) (*nexoadmin.LifecycleApplyResult, error)) *AdminClient_ApplyBucketLifecycle_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // AttachPolicy provides a mock function with given fields: ctx, in
 func (_m *AdminClient) AttachPolicy(ctx context.Context, in nexoadmin.AttachRequest) error {
 	ret := _m.Called(ctx, in)
@@ -241,6 +300,65 @@ func (_c *AdminClient_CreateGroup_Call) Return(_a0 *nexoadmin.Group, _a1 error) 
 }
 
 func (_c *AdminClient_CreateGroup_Call) RunAndReturn(run func(context.Context, nexoadmin.CreateGroupRequest) (*nexoadmin.Group, error)) *AdminClient_CreateGroup_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// CreateKMSKey provides a mock function with given fields: ctx, id
+func (_m *AdminClient) CreateKMSKey(ctx context.Context, id string) (*nexoadmin.KMSKey, error) {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateKMSKey")
+	}
+
+	var r0 *nexoadmin.KMSKey
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*nexoadmin.KMSKey, error)); ok {
+		return rf(ctx, id)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *nexoadmin.KMSKey); ok {
+		r0 = rf(ctx, id)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.KMSKey)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_CreateKMSKey_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateKMSKey'
+type AdminClient_CreateKMSKey_Call struct {
+	*mock.Call
+}
+
+// CreateKMSKey is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+func (_e *AdminClient_Expecter) CreateKMSKey(ctx interface{}, id interface{}) *AdminClient_CreateKMSKey_Call {
+	return &AdminClient_CreateKMSKey_Call{Call: _e.mock.On("CreateKMSKey", ctx, id)}
+}
+
+func (_c *AdminClient_CreateKMSKey_Call) Run(run func(ctx context.Context, id string)) *AdminClient_CreateKMSKey_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_CreateKMSKey_Call) Return(_a0 *nexoadmin.KMSKey, _a1 error) *AdminClient_CreateKMSKey_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_CreateKMSKey_Call) RunAndReturn(run func(context.Context, string) (*nexoadmin.KMSKey, error)) *AdminClient_CreateKMSKey_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1059,6 +1177,65 @@ func (_c *AdminClient_GetAccessKey_Call) RunAndReturn(run func(context.Context, 
 	return _c
 }
 
+// GetBucket provides a mock function with given fields: ctx, bucket
+func (_m *AdminClient) GetBucket(ctx context.Context, bucket string) (*nexoadmin.Bucket, error) {
+	ret := _m.Called(ctx, bucket)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetBucket")
+	}
+
+	var r0 *nexoadmin.Bucket
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*nexoadmin.Bucket, error)); ok {
+		return rf(ctx, bucket)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *nexoadmin.Bucket); ok {
+		r0 = rf(ctx, bucket)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.Bucket)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, bucket)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_GetBucket_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetBucket'
+type AdminClient_GetBucket_Call struct {
+	*mock.Call
+}
+
+// GetBucket is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+func (_e *AdminClient_Expecter) GetBucket(ctx interface{}, bucket interface{}) *AdminClient_GetBucket_Call {
+	return &AdminClient_GetBucket_Call{Call: _e.mock.On("GetBucket", ctx, bucket)}
+}
+
+func (_c *AdminClient_GetBucket_Call) Run(run func(ctx context.Context, bucket string)) *AdminClient_GetBucket_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_GetBucket_Call) Return(_a0 *nexoadmin.Bucket, _a1 error) *AdminClient_GetBucket_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_GetBucket_Call) RunAndReturn(run func(context.Context, string) (*nexoadmin.Bucket, error)) *AdminClient_GetBucket_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetBucketEncryption provides a mock function with given fields: ctx, bucket
 func (_m *AdminClient) GetBucketEncryption(ctx context.Context, bucket string) (*nexoadmin.BucketEncryption, error) {
 	ret := _m.Called(ctx, bucket)
@@ -1697,6 +1874,64 @@ func (_c *AdminClient_ImportConfig_Call) RunAndReturn(run func(context.Context, 
 	return _c
 }
 
+// KMSStatus provides a mock function with given fields: ctx
+func (_m *AdminClient) KMSStatus(ctx context.Context) (*nexoadmin.KMSStatus, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for KMSStatus")
+	}
+
+	var r0 *nexoadmin.KMSStatus
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (*nexoadmin.KMSStatus, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) *nexoadmin.KMSStatus); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.KMSStatus)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_KMSStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'KMSStatus'
+type AdminClient_KMSStatus_Call struct {
+	*mock.Call
+}
+
+// KMSStatus is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) KMSStatus(ctx interface{}) *AdminClient_KMSStatus_Call {
+	return &AdminClient_KMSStatus_Call{Call: _e.mock.On("KMSStatus", ctx)}
+}
+
+func (_c *AdminClient_KMSStatus_Call) Run(run func(ctx context.Context)) *AdminClient_KMSStatus_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_KMSStatus_Call) Return(_a0 *nexoadmin.KMSStatus, _a1 error) *AdminClient_KMSStatus_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_KMSStatus_Call) RunAndReturn(run func(context.Context) (*nexoadmin.KMSStatus, error)) *AdminClient_KMSStatus_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListAccessKeys provides a mock function with given fields: ctx, opts
 func (_m *AdminClient) ListAccessKeys(ctx context.Context, opts nexoadmin.ListAccessKeysOptions) (*nexoadmin.AccessKeyList, error) {
 	ret := _m.Called(ctx, opts)
@@ -1931,6 +2166,65 @@ func (_c *AdminClient_ListHeals_Call) RunAndReturn(run func(context.Context) (*n
 	return _c
 }
 
+// ListKMSKeys provides a mock function with given fields: ctx, prefix
+func (_m *AdminClient) ListKMSKeys(ctx context.Context, prefix string) ([]nexoadmin.KMSKey, error) {
+	ret := _m.Called(ctx, prefix)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListKMSKeys")
+	}
+
+	var r0 []nexoadmin.KMSKey
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]nexoadmin.KMSKey, error)); ok {
+		return rf(ctx, prefix)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []nexoadmin.KMSKey); ok {
+		r0 = rf(ctx, prefix)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]nexoadmin.KMSKey)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, prefix)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_ListKMSKeys_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListKMSKeys'
+type AdminClient_ListKMSKeys_Call struct {
+	*mock.Call
+}
+
+// ListKMSKeys is a helper method to define mock.On call
+//   - ctx context.Context
+//   - prefix string
+func (_e *AdminClient_Expecter) ListKMSKeys(ctx interface{}, prefix interface{}) *AdminClient_ListKMSKeys_Call {
+	return &AdminClient_ListKMSKeys_Call{Call: _e.mock.On("ListKMSKeys", ctx, prefix)}
+}
+
+func (_c *AdminClient_ListKMSKeys_Call) Run(run func(ctx context.Context, prefix string)) *AdminClient_ListKMSKeys_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_ListKMSKeys_Call) Return(_a0 []nexoadmin.KMSKey, _a1 error) *AdminClient_ListKMSKeys_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_ListKMSKeys_Call) RunAndReturn(run func(context.Context, string) ([]nexoadmin.KMSKey, error)) *AdminClient_ListKMSKeys_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListLocks provides a mock function with given fields: ctx
 func (_m *AdminClient) ListLocks(ctx context.Context) ([]nexoadmin.Lock, error) {
 	ret := _m.Called(ctx)
@@ -1985,6 +2279,64 @@ func (_c *AdminClient_ListLocks_Call) Return(_a0 []nexoadmin.Lock, _a1 error) *A
 }
 
 func (_c *AdminClient_ListLocks_Call) RunAndReturn(run func(context.Context) ([]nexoadmin.Lock, error)) *AdminClient_ListLocks_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListNotifyTargets provides a mock function with given fields: ctx
+func (_m *AdminClient) ListNotifyTargets(ctx context.Context) ([]nexoadmin.NotifyTarget, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListNotifyTargets")
+	}
+
+	var r0 []nexoadmin.NotifyTarget
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]nexoadmin.NotifyTarget, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []nexoadmin.NotifyTarget); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]nexoadmin.NotifyTarget)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_ListNotifyTargets_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListNotifyTargets'
+type AdminClient_ListNotifyTargets_Call struct {
+	*mock.Call
+}
+
+// ListNotifyTargets is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) ListNotifyTargets(ctx interface{}) *AdminClient_ListNotifyTargets_Call {
+	return &AdminClient_ListNotifyTargets_Call{Call: _e.mock.On("ListNotifyTargets", ctx)}
+}
+
+func (_c *AdminClient_ListNotifyTargets_Call) Run(run func(ctx context.Context)) *AdminClient_ListNotifyTargets_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_ListNotifyTargets_Call) Return(_a0 []nexoadmin.NotifyTarget, _a1 error) *AdminClient_ListNotifyTargets_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_ListNotifyTargets_Call) RunAndReturn(run func(context.Context) ([]nexoadmin.NotifyTarget, error)) *AdminClient_ListNotifyTargets_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -2774,6 +3126,65 @@ func (_c *AdminClient_StopService_Call) Return(_a0 error) *AdminClient_StopServi
 }
 
 func (_c *AdminClient_StopService_Call) RunAndReturn(run func(context.Context) error) *AdminClient_StopService_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// TestNotifyTarget provides a mock function with given fields: ctx, target
+func (_m *AdminClient) TestNotifyTarget(ctx context.Context, target string) (*nexoadmin.NotifyTargetTest, error) {
+	ret := _m.Called(ctx, target)
+
+	if len(ret) == 0 {
+		panic("no return value specified for TestNotifyTarget")
+	}
+
+	var r0 *nexoadmin.NotifyTargetTest
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*nexoadmin.NotifyTargetTest, error)); ok {
+		return rf(ctx, target)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *nexoadmin.NotifyTargetTest); ok {
+		r0 = rf(ctx, target)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.NotifyTargetTest)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, target)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_TestNotifyTarget_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TestNotifyTarget'
+type AdminClient_TestNotifyTarget_Call struct {
+	*mock.Call
+}
+
+// TestNotifyTarget is a helper method to define mock.On call
+//   - ctx context.Context
+//   - target string
+func (_e *AdminClient_Expecter) TestNotifyTarget(ctx interface{}, target interface{}) *AdminClient_TestNotifyTarget_Call {
+	return &AdminClient_TestNotifyTarget_Call{Call: _e.mock.On("TestNotifyTarget", ctx, target)}
+}
+
+func (_c *AdminClient_TestNotifyTarget_Call) Run(run func(ctx context.Context, target string)) *AdminClient_TestNotifyTarget_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_TestNotifyTarget_Call) Return(_a0 *nexoadmin.NotifyTargetTest, _a1 error) *AdminClient_TestNotifyTarget_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_TestNotifyTarget_Call) RunAndReturn(run func(context.Context, string) (*nexoadmin.NotifyTargetTest, error)) *AdminClient_TestNotifyTarget_Call {
 	_c.Call.Return(run)
 	return _c
 }

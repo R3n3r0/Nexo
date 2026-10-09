@@ -11,9 +11,11 @@ import type {
   AccessKey,
   AccessKeyFilter,
   AttachPolicyInput,
+  AttributesQuery,
   Bucket,
   BucketAccess,
   BucketEncryption,
+  BucketNotifications,
   BucketObjectLock,
   BucketQuota,
   CompletedPart,
@@ -27,7 +29,8 @@ import type {
   CreateGroupInput,
   CreatePolicyInput,
   CreateShareInput,
-  CreateUploadInput,
+  CorsConfiguration,
+  CreateUploadOptions,
   CreateUserInput,
   DataUsage,
   DeleteObjectsInput,
@@ -35,10 +38,19 @@ import type {
   Group,
   HealJob,
   HealRequest,
+  KmsKey,
+  KmsStatus,
+  LegalHoldStatus,
+  LifecycleApplyResult,
+  LifecycleConfiguration,
   ListObjectsQuery,
+  NotifyTarget,
+  NotifyTargetTest,
+  ObjectAttributes,
   ObjectDetails,
   ObjectEntry,
   ObjectList,
+  ObjectRetention,
   PageQuery,
   Part,
   Permissions,
@@ -57,6 +69,7 @@ import type {
   ServerInfo,
   Session,
   SetAccessInput,
+  SetObjectRetentionInput,
   Share,
   ShareFilter,
   ShareLinkList,
@@ -154,6 +167,57 @@ export interface BucketService {
   setAccess(name: string, input: SetAccessInput): Promise<BucketAccess>;
   /** Removes the anonymous access of a prefix ("" is the whole bucket). */
   removeAccess(name: string, prefix: string): Promise<BucketAccess>;
+  /** CORS rules, evaluated in order; no rule when the bucket has none. */
+  getCors(name: string): Promise<CorsConfiguration>;
+  /**
+   * Replaces the CORS rules (no rule removes them). A rejected
+   * configuration fails with invalid_configuration and ApiError.ruleErrors.
+   */
+  setCors(name: string, config: CorsConfiguration): Promise<CorsConfiguration>;
+}
+
+/**
+ * Lifecycle rules of a bucket (D-BKT-03): the S3 LifecycleConfiguration
+ * in structured form, the document the S3 API reads and writes.
+ */
+export interface LifecycleService {
+  /** The rules; none when the bucket has no configuration. */
+  get(bucket: string): Promise<LifecycleConfiguration>;
+  /**
+   * Replaces the rules (none removes the configuration); resolves to the
+   * rules as stored (generated ids). Every rule is validated on its own: a
+   * rejected configuration fails with invalid_configuration and
+   * ApiError.ruleErrors (1-based rule index).
+   */
+  set(bucket: string, config: LifecycleConfiguration): Promise<LifecycleConfiguration>;
+  remove(bucket: string): Promise<void>;
+  /** Applies the rules at once (s3:PutLifecycleConfiguration + admin:ApplyLifecycle). */
+  apply(bucket: string): Promise<LifecycleApplyResult>;
+}
+
+/** Event subscriptions of a bucket and notification targets (D-BKT-04). */
+export interface NotificationService {
+  /** The subscriptions; none when the bucket has no configuration. */
+  get(bucket: string): Promise<BucketNotifications>;
+  /** Replaces the subscriptions, validated one by one like the lifecycle rules. */
+  set(bucket: string, config: BucketNotifications): Promise<BucketNotifications>;
+  remove(bucket: string): Promise<void>;
+  /** Configured targets with their delivery state (admin:ConfigUpdate). */
+  targets(): Promise<NotifyTarget[]>;
+  /**
+   * Sends an s3:TestEvent to a target ("<id>:<type>" or its ARN); a
+   * failed delivery resolves with delivered false.
+   */
+  test(target: string): Promise<NotifyTargetTest>;
+}
+
+/** KMS of the server-side encryption (/kms). */
+export interface KmsService {
+  /** Rejects with 501 when the server has no KMS service. */
+  status(): Promise<KmsStatus>;
+  keys(prefix?: string): Promise<KmsKey[]>;
+  /** Creates a key usable for SSE-KMS; 409 when it exists. */
+  createKey(id: string): Promise<KmsKey>;
 }
 
 /** Object browser operations (GET/DELETE /buckets/{bucket}/objects...). */
@@ -170,6 +234,29 @@ export interface ObjectService {
   /** Moves an object or a prefix (copy then delete). */
   rename(bucket: string, input: RenameInput): Promise<RenameResult>;
   setTags(bucket: string, key: string, tags: TagSet, versionId?: string): Promise<TagSet>;
+  /** Object Lock retention of a version: no mode when it has none. */
+  getRetention(bucket: string, key: string, versionId?: string): Promise<ObjectRetention>;
+  /**
+   * Sets or removes the retention of a version. Shortening or removing a
+   * GOVERNANCE retention needs input.bypassGovernance
+   * (s3:BypassGovernanceRetention); a COMPLIANCE one never shortens.
+   */
+  setRetention(
+    bucket: string,
+    key: string,
+    input: SetObjectRetentionInput,
+    versionId?: string,
+  ): Promise<ObjectRetention>;
+  /** Legal hold of a version (OFF when never set). */
+  getLegalHold(bucket: string, key: string, versionId?: string): Promise<LegalHoldStatus>;
+  setLegalHold(
+    bucket: string,
+    key: string,
+    status: LegalHoldStatus,
+    versionId?: string,
+  ): Promise<LegalHoldStatus>;
+  /** Checksum and a page of the parts of a version (S3 GetObjectAttributes). */
+  attributes(bucket: string, key: string, query?: AttributesQuery): Promise<ObjectAttributes>;
   /**
    * Makes a previous version the latest again (a copy of the version onto
    * its key, the history is kept); resolves to the new latest version.
@@ -197,8 +284,11 @@ export interface ObjectService {
 export interface UploadService {
   /** Uploads a small object in one request. */
   putObject(input: PutObjectInput, options?: TransferOptions): Promise<ObjectEntry>;
-  /** Starts a multipart upload; the answer carries the part size limits. */
-  create(bucket: string, key: string, input?: CreateUploadInput): Promise<Upload>;
+  /**
+   * Starts a multipart upload, with the encryption of the object; the
+   * answer carries the part size limits.
+   */
+  create(bucket: string, key: string, input?: CreateUploadOptions): Promise<Upload>;
   uploadPart(input: UploadPartInput, options?: TransferOptions): Promise<Part>;
   complete(
     bucket: string,
@@ -325,6 +415,9 @@ export interface Services {
   readonly info: InfoService;
   readonly heal: HealService;
   readonly buckets: BucketService;
+  readonly lifecycle: LifecycleService;
+  readonly notifications: NotificationService;
+  readonly kms: KmsService;
   readonly objects: ObjectService;
   readonly uploads: UploadService;
   readonly users: UserService;

@@ -13,6 +13,20 @@ export interface LocatedError {
 }
 
 /**
+ * An invalid rule of a bucket configuration (lifecycle, event
+ * subscriptions, CORS): schema RuleError of the invalid_configuration
+ * problems.
+ */
+export interface RuleProblem {
+  /** 1-based index of the rule, 0 for the whole configuration. */
+  rule: number;
+  id?: string;
+  /** S3 error code (InvalidArgument, MalformedXML, NotImplemented...). */
+  code: string;
+  message: string;
+}
+
+/**
  * RFC 9457 problem details document as produced by the Admin API
  * (httpx.Problem in the Go transport).
  */
@@ -28,6 +42,8 @@ export interface ProblemDetails {
   requestId?: string;
   /** Located errors of a malformed policy (code malformed_policy). */
   errors?: LocatedError[];
+  /** Invalid rules of a bucket configuration (code invalid_configuration). */
+  ruleErrors?: RuleProblem[];
 }
 
 /** Codes used by the client for failures that never reached a problem document. */
@@ -53,6 +69,8 @@ export class ApiError extends Error {
   readonly requestId: string | undefined;
   /** Located errors of a malformed policy; empty for every other problem. */
   readonly errors: readonly LocatedError[];
+  /** Invalid rules of a bucket configuration; empty for every other problem. */
+  readonly ruleErrors: readonly RuleProblem[];
 
   constructor(problem: ProblemDetails, options?: ErrorOptions) {
     super(problem.detail ?? problem.title, options);
@@ -64,6 +82,7 @@ export class ApiError extends Error {
     this.instance = problem.instance;
     this.requestId = problem.requestId;
     this.errors = problem.errors ?? [];
+    this.ruleErrors = problem.ruleErrors ?? [];
   }
 
   /** Builds an error from a parsed problem+json body, defaulting the status. */
@@ -78,6 +97,9 @@ export class ApiError extends Error {
       code: body.code ?? ClientErrorCode.Http,
       requestId: body.requestId,
       errors: Array.isArray(body.errors) ? body.errors.filter(isLocatedError) : undefined,
+      ruleErrors: Array.isArray(body.ruleErrors)
+        ? body.ruleErrors.filter(isRuleProblem)
+        : undefined,
     });
   }
 
@@ -155,6 +177,14 @@ function isLocatedError(value: unknown): value is LocatedError {
     typeof v.column === 'number' &&
     typeof v.statement === 'number'
   );
+}
+
+function isRuleProblem(value: unknown): value is RuleProblem {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const v = value as Record<string, unknown>;
+  return typeof v.rule === 'number' && typeof v.code === 'string' && typeof v.message === 'string';
 }
 
 export function isApiError(value: unknown): value is ApiError {

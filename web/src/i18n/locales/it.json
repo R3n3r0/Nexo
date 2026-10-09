@@ -216,13 +216,16 @@
     "forceDelete": "Elimina anche tutti gli oggetti",
     "forceDeleteHint": "Vengono rimossi prima versioni, delete marker e upload in sospeso; le versioni bloccate mantengono il bucket.",
     "typeToConfirm": "Digita <code>{{name}}</code> per confermare",
-    "notEmptyUseForce": "Il bucket non è vuoto: seleziona «Elimina anche tutti gli oggetti» per svuotarlo prima."
+    "notEmptyUseForce": "Il bucket non è vuoto: seleziona «Elimina anche tutti gli oggetti» per svuotarlo prima.",
+    "objectLockWarning": "L'object lock è irreversibile: non può essere disattivato dopo la creazione del bucket e le versioni protette non possono essere eliminate prima della fine della retention."
   },
   "bucket": {
     "tabs": {
       "objects": "Oggetti",
       "settings": "Impostazioni",
-      "access": "Accesso"
+      "access": "Accesso",
+      "lifecycle": "Ciclo di vita",
+      "events": "Eventi"
     },
     "summary": "{{size}} · {{objects}} oggetti",
     "delete": "Elimina bucket",
@@ -279,7 +282,8 @@
       "kmsOption": "SSE-KMS",
       "kmsKey": "ID della chiave KMS",
       "kmsKeyHint": "Vuoto: la chiave predefinita del server.",
-      "newObjects": "Si applica agli oggetti scritti da ora in poi; gli oggetti esistenti non vengono riscritti."
+      "newObjects": "Si applica agli oggetti scritti da ora in poi; gli oggetti esistenti non vengono riscritti.",
+      "noKms": "Il server non ha un KMS configurato: SSE-S3 e SSE-KMS vengono rifiutate (imposta NEXO_KMS_SECRET_KEY o NEXO_KMS_ENDPOINT)."
     },
     "objectLock": {
       "title": "Object lock",
@@ -293,14 +297,12 @@
       "days": "{{n}} giorni",
       "years": "{{n}} anni",
       "unavailable": "Le impostazioni di object lock non sono disponibili.",
-      "enable": "Abilita object lock",
       "unit": "Unità di conservazione",
       "unitDays": "giorni",
       "unitYears": "anni",
       "periodInvalid": "Inserisci un numero intero di almeno 1.",
       "permanent": "Object lock non può essere disabilitato; la conservazione predefinita si applica ai nuovi oggetti.",
-      "enableHint": "Abilitare object lock è definitivo.",
-      "needsVersioning": "Object lock richiede il versioning abilitato."
+      "onlyAtCreation": "L'object lock può essere attivato solo alla creazione del bucket."
     }
   },
   "bucketAccess": {
@@ -412,14 +414,26 @@
     "forbiddenFolder": "Non puoi elencare il contenuto di questa cartella. Apri una cartella a cui hai accesso, per esempio la tua cartella personale.",
     "goToFolder": "Percorso della cartella",
     "goToFolderHint": "Per esempio home/{{user}}/",
-    "goToFolderSubmit": "Apri la cartella"
+    "goToFolderSubmit": "Apri la cartella",
+    "deleteLocked": "{{done}} eliminati; {{n}} protetti dall'object lock sono stati mantenuti.",
+    "lockedVersionsKept": "Le versioni sotto retention o legal hold vengono mantenute.",
+    "encryption": {
+      "label": "Crittografia dei caricamenti",
+      "bucketDefault": "Predefinita del bucket",
+      "sseS3": "SSE-S3 (AES-256)",
+      "sseKmsDefault": "SSE-KMS (chiave predefinita)",
+      "sseKmsKey": "SSE-KMS: {{key}}",
+      "active": "Caricamenti cifrati con {{mode}}"
+    }
   },
   "objectDetails": {
     "tabs": {
       "details": "Dettagli",
       "preview": "Anteprima",
       "tags": "Tag",
-      "versions": "Versioni"
+      "versions": "Versioni",
+      "lock": "Object lock",
+      "attributes": "Attributi"
     },
     "key": "Chiave",
     "contentType": "Content type",
@@ -431,7 +445,10 @@
     "contentEncoding": "Content-Encoding",
     "parts": "Parti",
     "checksum": "Checksum",
-    "tagsHidden": "Non puoi leggere i tag di questo oggetto."
+    "tagsHidden": "Non puoi leggere i tag di questo oggetto.",
+    "encryption": "Crittografia",
+    "kmsKey": "chiave {{key}}",
+    "notEncrypted": "Non cifrato"
   },
   "objectVersions": {
     "title": "Versioni",
@@ -445,7 +462,12 @@
     "deleted": "Versione eliminata.",
     "restore": "Ripristina questa versione",
     "restoreVersion": "Ripristina la versione {{version}}",
-    "restored": "Versione {{version}} ripristinata: ora è di nuovo la più recente."
+    "restored": "Versione {{version}} ripristinata: ora è di nuovo la più recente.",
+    "deleteTitle": "Elimina la versione {{version}}",
+    "deleteIntro": "La versione viene eliminata definitivamente.",
+    "deleteMarkerIntro": "Eliminare il delete marker rende di nuovo la versione precedente la più recente.",
+    "deletePermanently": "Elimina definitivamente",
+    "lockedHint": "L'object lock è attivo: le versioni sotto retention o legal hold non possono essere eliminate."
   },
   "objectPreview": {
     "imageAlt": "Anteprima di {{name}}",
@@ -1153,5 +1175,319 @@
       "enum": "Scegli uno tra {{values}}.",
       "list": "Separa i valori con virgole, senza elementi vuoti."
     }
+  },
+  "lifecycle": {
+    "title": "Regole del ciclo di vita",
+    "description": "Fai scadere oggetti e versioni non correnti, rimuovi i delete marker scaduti e annulla i caricamenti incompleti. Lo scanner applica le regole in background.",
+    "add": "Aggiungi regola",
+    "applyNow": "Applica ora",
+    "applyTitle": "Applica subito le regole",
+    "applyConfirm": "Applicare subito le regole di {{bucket}} a tutte le versioni e ai caricamenti incompleti? Gli oggetti scaduti vengono eliminati immediatamente.",
+    "applied": "Regole del ciclo di vita applicate",
+    "appliedDetail": "{{versions}} versioni valutate: {{deleted}} rimosse, {{markers}} delete marker creati, {{uploads}} caricamenti annullati, {{locked}} mantenute dall'object lock.",
+    "viewAs": "Mostra le regole come",
+    "views": {
+      "rules": "Regole"
+    },
+    "empty": "Nessuna regola: gli oggetti restano finché non vengono eliminati.",
+    "rules": "Regole del ciclo di vita",
+    "columns": {
+      "id": "Regola",
+      "status": "Stato",
+      "scope": "Oggetti",
+      "actions": "Azioni",
+      "edit": "Modifica"
+    },
+    "status": {
+      "enabled": "Attiva",
+      "disabled": "Disattivata"
+    },
+    "toggle": "Attiva la regola {{id}}",
+    "edit": "Modifica la regola {{id}}",
+    "view": "Mostra la regola {{id}}",
+    "remove": "Elimina la regola {{id}}",
+    "deleteTitle": "Elimina la regola",
+    "deleteConfirm": "Eliminare la regola del ciclo di vita {{id}}?",
+    "saved": "Regole del ciclo di vita salvate.",
+    "unavailable": "Non puoi leggere le regole del ciclo di vita di questo bucket.",
+    "serverRefused": "Il server ha rifiutato la configurazione",
+    "ruleProblem": "Regola {{n}}{{id}}: {{message}}",
+    "scope": {
+      "wholeBucket": "Tutto il bucket",
+      "prefix": "Prefisso {{prefix}}",
+      "tags": "Tag {{tags}}",
+      "sizeGreater": "Più grandi di {{size}}",
+      "sizeLess": "Più piccoli di {{size}}"
+    },
+    "summary": {
+      "expireDays_one": "Le versioni correnti scadono dopo {{count}} giorno",
+      "expireDays_other": "Le versioni correnti scadono dopo {{count}} giorni",
+      "expireDate": "Le versioni correnti scadono il {{date}}",
+      "deleteMarkers": "I delete marker scaduti vengono rimossi",
+      "noncurrent_one": "Le versioni non correnti scadono dopo {{count}} giorno",
+      "noncurrent_other": "Le versioni non correnti scadono dopo {{count}} giorni",
+      "noncurrentKeep_one": "Le versioni non correnti scadono dopo {{count}} giorno, le {{keep}} più recenti vengono mantenute",
+      "noncurrentKeep_other": "Le versioni non correnti scadono dopo {{count}} giorni, le {{keep}} più recenti vengono mantenute",
+      "abort_one": "I caricamenti incompleti vengono annullati dopo {{count}} giorno",
+      "abort_other": "I caricamenti incompleti vengono annullati dopo {{count}} giorni",
+      "transition": "Transizione a {{storageClass}}"
+    },
+    "code": {
+      "jsonLabel": "Regole del ciclo di vita (JSON)",
+      "xmlLabel": "LifecycleConfiguration (XML S3)",
+      "hint": "L'intera configurazione, come la leggono e la scrivono l'Admin API (JSON) e l'API S3 (XML). Il salvataggio sostituisce tutte le regole.",
+      "save": "Salva la configurazione",
+      "reset": "Annulla le modifiche"
+    },
+    "editor": {
+      "titleNew": "Nuova regola del ciclo di vita",
+      "titleEdit": "Regola del ciclo di vita {{id}}",
+      "view": "Modifica la regola come",
+      "form": "Modulo",
+      "id": "ID della regola",
+      "idHint": "Generato se vuoto.",
+      "enabled": "Attiva",
+      "filter": "Oggetti",
+      "filterHint": "Tutti i criteri impostati devono corrispondere; senza criteri la regola vale per tutto il bucket.",
+      "prefix": "Prefisso",
+      "tags": "Tag",
+      "tagKey": "Chiave del tag {{n}}",
+      "tagValue": "Valore del tag {{n}}",
+      "tagKeyPlaceholder": "chiave",
+      "tagValuePlaceholder": "valore",
+      "removeTag": "Rimuovi il tag {{n}}",
+      "addTag": "Aggiungi tag",
+      "sizeGreater": "Più grandi di",
+      "sizeLess": "Più piccoli di",
+      "sizeUnit": "Unità di {{field}}",
+      "current": "Versioni correnti",
+      "expiration": "Scadenza",
+      "expirationKinds": {
+        "none": "Mai",
+        "days": "Dopo un numero di giorni",
+        "date": "A una data",
+        "deleteMarker": "Rimuovi i delete marker scaduti"
+      },
+      "days": "Giorni dalla creazione",
+      "date": "Data",
+      "dateHint": "A mezzanotte UTC.",
+      "deleteMarkerHint": "I delete marker rimasti senza versioni vengono rimossi.",
+      "noncurrentTitle": "Versioni non correnti",
+      "noncurrent": "Fai scadere le versioni non correnti",
+      "noncurrentDays": "Giorni da quando non sono più correnti",
+      "newerVersions": "Versioni più recenti da mantenere",
+      "newerVersionsHint": "Da 1 a 100; vuoto non ne mantiene.",
+      "abortTitle": "Caricamenti multipart incompleti",
+      "abortUploads": "Annulla i caricamenti incompleti",
+      "abortDays": "Giorni dall'avvio",
+      "transitionsKept": "Le transizioni di questa regola (tier remoti) restano invariate.",
+      "jsonLabel": "Regola (JSON)",
+      "xmlLabel": "Regola (XML S3)",
+      "codeHint": "Il modulo segue il documento appena è valido.",
+      "fixInForm": "Correggi i problemi indicati nel modulo.",
+      "save": "Salva la regola"
+    },
+    "issues": {
+      "idTooLong": "Al massimo 255 caratteri.",
+      "idDuplicate": "Un'altra regola ha questo ID.",
+      "prefixTooLong": "Al massimo 1024 caratteri.",
+      "tagKey": "Ogni tag richiede una chiave.",
+      "tagDuplicate": "Le chiavi dei tag devono essere uniche.",
+      "tagTooLong": "Chiavi fino a 128 caratteri, valori fino a 256.",
+      "sizeNegative": "Inserisci una dimensione maggiore o uguale a 0.",
+      "sizeRange": "Deve essere maggiore del limite inferiore.",
+      "positive": "Inserisci un numero intero di almeno 1.",
+      "date": "Inserisci una data valida.",
+      "expirationOne": "Scegli una sola scadenza.",
+      "newerRange": "Tra 1 e 100.",
+      "noAction": "Scegli almeno un'azione.",
+      "abortWithFilter": "I caricamenti incompleti non possono essere filtrati per tag o dimensione.",
+      "deleteMarkerWithTags": "I delete marker scaduti non possono essere filtrati per tag."
+    }
+  },
+  "bucketEvents": {
+    "title": "Sottoscrizioni agli eventi",
+    "description": "Notifica ai target configurati le operazioni sugli oggetti di questo bucket.",
+    "add": "Aggiungi sottoscrizione",
+    "addTitle": "Nuova sottoscrizione agli eventi",
+    "editTitle": "Modifica la sottoscrizione",
+    "empty": "Nessuna sottoscrizione.",
+    "subscriptions": "Sottoscrizioni agli eventi",
+    "columns": {
+      "id": "Sottoscrizione",
+      "target": "Target",
+      "events": "Eventi",
+      "filter": "Oggetti",
+      "state": "Stato",
+      "pending": "Eventi in coda",
+      "test": "Prova"
+    },
+    "target": "Target",
+    "targetHint": "Un target della configurazione notify_*.",
+    "targetPlaceholder": "Scegli un target",
+    "noTargets": "Nessun target configurato.",
+    "targetArn": "ARN del target",
+    "targetArnHint": "arn:nexo:sqs:<region>:<id>:<type>, come elencato nella configurazione dei target.",
+    "events": "Eventi",
+    "eventsHint": "Nomi di eventi o intere famiglie (*).",
+    "allOf": "{{family}} (tutti gli eventi)",
+    "prefix": "Prefisso della chiave",
+    "suffix": "Suffisso della chiave",
+    "prefixIs": "Prefisso {{prefix}}",
+    "suffixIs": "Suffisso {{suffix}}",
+    "everyObject": "Tutti gli oggetti",
+    "id": "ID della sottoscrizione",
+    "idHint": "Generato se vuoto.",
+    "save": "Salva la sottoscrizione",
+    "saved": "Sottoscrizioni agli eventi salvate.",
+    "edit": "Modifica la sottoscrizione {{id}}",
+    "remove": "Elimina la sottoscrizione {{id}}",
+    "deleteTitle": "Elimina la sottoscrizione",
+    "deleteConfirm": "Eliminare la sottoscrizione agli eventi {{id}}?",
+    "serverRefused": "Il server ha rifiutato la sottoscrizione",
+    "unavailable": "Non puoi leggere le sottoscrizioni agli eventi di questo bucket.",
+    "targetsHidden": "Lo stato dei target è visibile agli amministratori (admin:ConfigUpdate).",
+    "targetsTitle": "Target delle notifiche",
+    "targetsDescription": "Come li vede questo nodo: un target è offline da una consegna fallita alla successiva riuscita, nel frattempo la sua coda conserva gli eventi.",
+    "manageTargets": "Configura i target",
+    "state": {
+      "online": "Online",
+      "offline": "Offline",
+      "disabled": "Disattivato"
+    },
+    "sendTest": "Invia evento di prova",
+    "sendTestTo": "Invia un evento di prova a {{target}}",
+    "testDelivered": "Evento di prova consegnato a {{target}}.",
+    "testFailed": "Impossibile consegnare l'evento di prova a {{target}}: {{error}}",
+    "issues": {
+      "arn": "Inserisci l'ARN di un target (arn:nexo:sqs:<region>:<id>:<type>).",
+      "unknownTarget": "Nessun target configurato ha questo ARN.",
+      "events": "Scegli almeno un evento.",
+      "unknownEvent": "Nome di evento sconosciuto.",
+      "idTooLong": "Al massimo 255 caratteri."
+    }
+  },
+  "cors": {
+    "title": "CORS",
+    "description": "Le richieste cross-origin che l'API S3 accetta su questo bucket: si applica la prima regola che corrisponde a origine, metodo e intestazioni.",
+    "empty": "Nessuna regola CORS: i browser di altre origini vengono rifiutati.",
+    "rule": "Regola {{n}}",
+    "removeRule": "Rimuovi la regola {{n}}",
+    "origins": "Origini consentite",
+    "originsHint": "Una per riga; * consente qualsiasi origine, al massimo un * per origine.",
+    "methods": "Metodi consentiti",
+    "allowedHeaders": "Intestazioni consentite",
+    "exposeHeaders": "Intestazioni esposte",
+    "headersHint": "Una per riga.",
+    "maxAge": "Durata della cache (secondi)",
+    "id": "ID della regola",
+    "idHint": "Facoltativo.",
+    "addRule": "Aggiungi regola",
+    "save": "Salva le regole CORS",
+    "saved": "Regole CORS salvate.",
+    "unavailable": "Non puoi leggere le regole CORS di questo bucket.",
+    "issues": {
+      "idTooLong": "Al massimo 255 caratteri.",
+      "origins": "Inserisci almeno un'origine.",
+      "wildcards": "Al massimo un * per origine.",
+      "methods": "Scegli almeno un metodo.",
+      "headers": "Al massimo un * per intestazione.",
+      "maxAge": "Inserisci un numero intero di secondi."
+    }
+  },
+  "kms": {
+    "title": "Gestione delle chiavi (KMS)",
+    "description": "Il KMS sigilla le chiavi degli oggetti SSE-S3 e SSE-KMS.",
+    "notConfigured": "Nessun KMS configurato: SSE-S3 e SSE-KMS vengono rifiutate, SSE-C funziona comunque. Imposta NEXO_KMS_SECRET_KEY (interno) o NEXO_KMS_ENDPOINT (KES).",
+    "backend": "Backend",
+    "backends": {
+      "builtin": "Interno (chiave master dall'ambiente)",
+      "kes": "KES esterno"
+    },
+    "state": "Stato",
+    "online": "Online",
+    "offline": "Offline",
+    "defaultKey": "Chiave predefinita",
+    "endpoint": "Server",
+    "keys": "Chiavi",
+    "noKeys": "Nessuna chiave.",
+    "keyId": "Chiave",
+    "default": "predefinita",
+    "newKey": "Nuova chiave",
+    "newKeyHint": "Lettere, cifre, punti, trattini bassi e trattini.",
+    "keyInvalid": "Usa lettere, cifre, punti, trattini bassi e trattini (al massimo 80).",
+    "createKey": "Crea chiave",
+    "created": "Chiave {{key}} creata.",
+    "keysList": "Chiavi: {{keys}}"
+  },
+  "notifyTargets": {
+    "title": "Target delle notifiche",
+    "description": "I target delle sottoscrizioni agli eventi dei bucket (sottosistemi notify_*), applicati subito.",
+    "add": "Aggiungi target",
+    "addTitle": "Nuovo target di notifica",
+    "editTitle": "Target {{target}}",
+    "empty": "Nessun target configurato.",
+    "type": "Tipo",
+    "types": {
+      "webhook": "Webhook",
+      "kafka": "Kafka",
+      "nats": "NATS",
+      "amqp": "AMQP (RabbitMQ)",
+      "redis": "Redis",
+      "postgresql": "PostgreSQL"
+    },
+    "id": "ID del target",
+    "idHint": "Identifica il target nel suo ARN; vuoto o _ è il target predefinito del tipo.",
+    "idInvalid": "Usa lettere, cifre, punti, trattini bassi e trattini (al massimo 64).",
+    "subsystem": "Sottosistema di configurazione: {{subsystem}}",
+    "save": "Salva il target",
+    "saved": "Target {{target}} salvato.",
+    "arn": "ARN",
+    "edit": "Modifica il target {{target}}",
+    "remove": "Rimuovi il target {{target}}",
+    "removeTitle": "Rimuovi il target",
+    "removeConfirm": "Rimuovere il target {{target}}? Le sottoscrizioni che lo indicano non consegnano più eventi."
+  },
+  "objectAttributes": {
+    "checksum": "Checksum",
+    "noChecksum": "Nessuno",
+    "parts": "Parti",
+    "singlePart": "Scritto in una sola richiesta",
+    "partsTable": "Parti dell'oggetto",
+    "partNumber": "Parte",
+    "partSize": "Dimensione",
+    "moreParts": "Mostra altre parti"
+  },
+  "objectLock": {
+    "retention": "Retention",
+    "currentRetention": "Retention attuale:",
+    "retainedUntil": "{{mode}} fino al {{date}}",
+    "noRetention": "Nessuna",
+    "mode": "Modalità",
+    "modeNone": "Nessuna retention",
+    "retainUntil": "Conserva fino al",
+    "dateInPast": "Scegli una data futura.",
+    "quick": "Rapido:",
+    "presets": {
+      "day": "+1 giorno",
+      "week": "+7 giorni",
+      "month": "+30 giorni",
+      "year": "+1 anno"
+    },
+    "complianceLocked": "Una retention COMPLIANCE può solo essere estesa: non può essere ridotta, indebolita o rimossa, nemmeno da root.",
+    "bypass": "Ignora la retention governance",
+    "bypassHint": "Ridurre o rimuovere una retention GOVERNANCE richiede s3:BypassGovernanceRetention.",
+    "bypassMissing": "Ridurre o rimuovere una retention GOVERNANCE richiede il permesso {{action}}.",
+    "saveRetention": "Salva la retention",
+    "retentionSaved": "Retention salvata.",
+    "legalHold": "Legal hold",
+    "legalHoldHint": "Una versione sotto legal hold non può essere eliminata finché il blocco non viene rimosso, qualunque sia la sua retention.",
+    "legalHoldSwitch": "Legal hold attivo",
+    "holdOn": "Legal hold impostato.",
+    "holdOff": "Legal hold rimosso.",
+    "blockedLegalHold": "Questa versione è sotto legal hold: non può essere eliminata finché il blocco non viene rimosso.",
+    "blockedCompliance": "Questa versione è protetta da una retention COMPLIANCE fino al {{date}}: non può essere eliminata prima, nemmeno da root.",
+    "blockedGovernance": "Questa versione è protetta da una retention GOVERNANCE fino al {{date}}.",
+    "deleteRefused": "La versione è protetta dall'object lock: non è stata eliminata."
   }
 }

@@ -27,7 +27,10 @@ func secretQueryParams() []string {
 // secretHeaders are the headers hidden in the debug output (Authorization
 // keeps its scope and signed headers, only the signature is hidden).
 func secretHeaders() []string {
-	return []string{"X-Amz-Security-Token", "Cookie", "Set-Cookie", "X-Amz-Server-Side-Encryption-Customer-Key"}
+	return []string{
+		"X-Amz-Security-Token", "Cookie", "Set-Cookie",
+		"X-Amz-Server-Side-Encryption-Customer-Key", "X-Amz-Copy-Source-Server-Side-Encryption-Customer-Key",
+	}
 }
 
 // debugTransport dumps the requests and responses (headers only) with the

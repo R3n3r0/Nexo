@@ -38,6 +38,9 @@ func TestExitCode(t *testing.T) {
 		{"interrupted", context.Canceled, cli.ExitInterrupted, "Interrupted"},
 		{"aborted upload", &cli.AbortedUploadError{Bucket: "b", Key: "k", UploadID: "u", Err: context.Canceled}, cli.ExitInterrupted, "Interrupted"},
 		{"invalid argument (server)", domain.ErrInvalidBucketName, cli.ExitError, "Error"},
+		{"object locked", fmt.Errorf("rb: %w", domain.ErrObjectLocked), cli.ExitAccess, "AccessDenied"},
+		{"missing configuration", domain.ErrNotFound, cli.ExitNotFound, "NotFound"},
+		{"kms key", domain.ErrKMSKeyNotFound, cli.ExitError, "Error"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

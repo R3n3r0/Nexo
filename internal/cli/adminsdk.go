@@ -289,6 +289,10 @@ func adminCodeSentinel(code string) error {
 		return domain.ErrQuotaExceeded
 	case "entity_too_large":
 		return domain.ErrEntityTooLarge
+	case nexoadmin.CodeInvalidConfiguration:
+		return domain.ErrInvalidArgument
+	case nexoadmin.CodeObjectLocked:
+		return domain.ErrObjectLocked
 	}
 	return nil
 }
@@ -608,6 +612,48 @@ func (c *adminClient) ListLocks(ctx context.Context) ([]nexoadmin.Lock, error) {
 // ForceUnlock implements AdminClient.
 func (c *adminClient) ForceUnlock(ctx context.Context, resources ...string) error {
 	return MapAdminError(c.api.ForceUnlock(ctx, resources...), c.endpoint)
+}
+
+// GetBucket implements AdminClient.
+func (c *adminClient) GetBucket(ctx context.Context, bucket string) (*nexoadmin.Bucket, error) {
+	v, err := c.api.GetBucket(ctx, bucket)
+	return mapped(c, v, err)
+}
+
+// ApplyBucketLifecycle implements AdminClient.
+func (c *adminClient) ApplyBucketLifecycle(ctx context.Context, bucket string) (*nexoadmin.LifecycleApplyResult, error) {
+	v, err := c.api.ApplyBucketLifecycle(ctx, bucket)
+	return mapped(c, v, err)
+}
+
+// ListNotifyTargets implements AdminClient.
+func (c *adminClient) ListNotifyTargets(ctx context.Context) ([]nexoadmin.NotifyTarget, error) {
+	v, err := c.api.ListNotifyTargets(ctx)
+	return mapped(c, v, err)
+}
+
+// TestNotifyTarget implements AdminClient.
+func (c *adminClient) TestNotifyTarget(ctx context.Context, target string) (*nexoadmin.NotifyTargetTest, error) {
+	v, err := c.api.TestNotifyTarget(ctx, target)
+	return mapped(c, v, err)
+}
+
+// KMSStatus implements AdminClient.
+func (c *adminClient) KMSStatus(ctx context.Context) (*nexoadmin.KMSStatus, error) {
+	v, err := c.api.KMSStatus(ctx)
+	return mapped(c, v, err)
+}
+
+// ListKMSKeys implements AdminClient.
+func (c *adminClient) ListKMSKeys(ctx context.Context, prefix string) ([]nexoadmin.KMSKey, error) {
+	v, err := c.api.ListKMSKeys(ctx, prefix)
+	return mapped(c, v, err)
+}
+
+// CreateKMSKey implements AdminClient.
+func (c *adminClient) CreateKMSKey(ctx context.Context, id string) (*nexoadmin.KMSKey, error) {
+	v, err := c.api.CreateKMSKey(ctx, id)
+	return mapped(c, v, err)
 }
 
 // GetBucketQuota implements AdminClient.

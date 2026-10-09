@@ -228,8 +228,9 @@ func TestListMultipartUploadsMarkers(t *testing.T) {
 
 		_, err = svc.ListMultipartUploads(ctx, domain.ListMultipartUploadsInput{Bucket: "nobucket"})
 		assert.ErrorIs(t, err, domain.ErrBucketNotFound)
-		_, err = svc.ListMultipartUploads(ctx, domain.ListMultipartUploadsInput{Bucket: "bkt", Prefix: "../"})
-		assert.ErrorIs(t, err, domain.ErrInvalidObjectName)
+		res, err = svc.ListMultipartUploads(ctx, domain.ListMultipartUploadsInput{Bucket: "bkt", Prefix: "../"})
+		require.NoError(t, err, "the prefix only filters the keys")
+		assert.Empty(t, res.Uploads)
 	})
 }
 
@@ -348,6 +349,9 @@ func TestCompleteMultipartChecksum(t *testing.T) {
 	raw2, _ := base64.StdEncoding.DecodeString(sum2)
 	composite := crc32B64(append(append([]byte{}, raw1...), raw2...))
 	crc := func(v string) domain.Checksum { return domain.Checksum{Algorithm: domain.ChecksumCRC32, Value: v} }
+	whole := func(v string) domain.Checksum {
+		return domain.Checksum{Algorithm: domain.ChecksumCRC32, Value: v, Type: domain.ChecksumTypeComposite}
+	}
 
 	tests := []struct {
 		name       string
@@ -358,10 +362,10 @@ func TestCompleteMultipartChecksum(t *testing.T) {
 		wantCode   string
 		want       domain.Checksum
 	}{
-		{name: "composite of the parts", uploadAlgo: domain.ChecksumCRC32, want: crc(composite + "-2")},
-		{name: "part checksums in the request", uploadAlgo: domain.ChecksumCRC32, partSums: [2]domain.Checksum{crc(sum1), crc(sum2)}, want: crc(composite + "-2")},
-		{name: "declared composite", uploadAlgo: domain.ChecksumCRC32, declared: crc(composite + "-2"), want: crc(composite + "-2")},
-		{name: "declared without the suffix", uploadAlgo: domain.ChecksumCRC32, declared: crc(composite), want: crc(composite + "-2")},
+		{name: "composite of the parts", uploadAlgo: domain.ChecksumCRC32, want: whole(composite + "-2")},
+		{name: "part checksums in the request", uploadAlgo: domain.ChecksumCRC32, partSums: [2]domain.Checksum{crc(sum1), crc(sum2)}, want: whole(composite + "-2")},
+		{name: "declared composite", uploadAlgo: domain.ChecksumCRC32, declared: crc(composite + "-2"), want: whole(composite + "-2")},
+		{name: "declared without the suffix", uploadAlgo: domain.ChecksumCRC32, declared: crc(composite), want: whole(composite + "-2")},
 		{name: "declared value chosen by the client", uploadAlgo: domain.ChecksumCRC32, declared: crc("AAAAAA=="),
 			wantErr: domain.ErrBadDigest, wantCode: "BadDigest"},
 		{name: "declared with another algorithm", uploadAlgo: domain.ChecksumCRC32,

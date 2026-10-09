@@ -18,12 +18,15 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/bucket"
 	"github.com/r3n3r0/nexo/internal/service/cluster"
 	configsvc "github.com/r3n3r0/nexo/internal/service/config"
+	"github.com/r3n3r0/nexo/internal/service/crypto"
 	"github.com/r3n3r0/nexo/internal/service/erasure"
 	"github.com/r3n3r0/nexo/internal/service/event"
 	"github.com/r3n3r0/nexo/internal/service/health"
 	"github.com/r3n3r0/nexo/internal/service/iam"
+	"github.com/r3n3r0/nexo/internal/service/ilm"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
+	"github.com/r3n3r0/nexo/internal/service/quota"
 	"github.com/r3n3r0/nexo/internal/service/session"
 	"github.com/r3n3r0/nexo/internal/service/settings"
 	"github.com/r3n3r0/nexo/internal/service/share"
@@ -47,6 +50,7 @@ type services struct {
 	shares       share.Service
 	signer       auth.Signer
 	events       event.Dispatcher
+	lifecycle    ilm.Service
 	// s3Srv and consSrv are the composed servers: started as is in the
 	// single-node modes, behind the gates of the listeners in a cluster.
 	s3Srv   server.Service
@@ -80,6 +84,8 @@ type sharedStores struct {
 	// (nil in SNSD, where the file store is the only writer).
 	sharedPolicies policy.SharedStore
 	buckets        bucket.MetadataStore
+	// docs are the replicated system documents (nil in SNSD).
+	docs sysstore.Store
 }
 
 // openStores opens the stores of the system documents of the deployment
@@ -113,6 +119,7 @@ func openStores(ctx context.Context, d composeDeps, coh cluster.Coherence) (shar
 	if err != nil {
 		return out, err
 	}
+	out.docs = docs
 	cfgStore, err := configsvc.NewDocsStore(docs)
 	if err != nil {
 		return out, err
@@ -139,13 +146,14 @@ func openStores(ctx context.Context, d composeDeps, coh cluster.Coherence) (shar
 
 // newObjectLayer builds the object layer of the deployment mode: the
 // filesystem layer on the single drive (SNSD), the erasure-coded server
-// pools otherwise, which report the objects to heal to mrf.
-func newObjectLayer(d composeDeps, buckets object.BucketConfigSource, events event.Service, mrf object.HealNotifier) (object.Service, error) {
+// pools otherwise, which report the objects to heal to mrf. sse seals the
+// keys of the encrypted objects.
+func newObjectLayer(d composeDeps, buckets object.BucketConfigSource, events event.Service, mrf object.HealNotifier, sse crypto.Service) (object.Service, error) {
 	f := d.f
 	opts := []object.Option{object.WithRegion(d.cfg.Region)}
 	if f.layout.Mode == domain.ModeSNSD {
 		return object.NewFS(object.Deps{
-			Store: f.local[0], Buckets: buckets, Locks: f.locks, Events: events, DeploymentID: d.deploymentID,
+			Store: f.local[0], Buckets: buckets, Locks: f.locks, Events: events, Crypto: sse, DeploymentID: d.deploymentID,
 			Clock: d.clock, Logger: d.logger,
 		}, opts...)
 	}
@@ -163,7 +171,7 @@ func newObjectLayer(d composeDeps, buckets object.BucketConfigSource, events eve
 	codecs := erasure.NewFactory(erasure.Deps{Logger: d.logger}, erasure.WithDeploymentID(d.deploymentID))
 	return object.NewServerPools(object.PoolsDeps{
 		Pools: pools, DeploymentID: d.deploymentID, Locks: f.locks, Buckets: buckets, Events: events, Heal: mrf,
-		Codecs: codecs, Clock: d.clock, Logger: d.logger,
+		Codecs: codecs, Crypto: sse, Clock: d.clock, Logger: d.logger,
 	}, opts...)
 }
 
@@ -187,7 +195,12 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	registry := d.f.registry
 	auditor := audit.NewSlog(audit.Deps{Logger: logger.With("component", "audit"), Clock: d.clock})
 	dynConfig := configsvc.New(configsvc.Deps{Store: stores.config, Logger: logger})
-	events := event.NewDispatcher(event.Deps{Logger: logger.With("component", "events")})
+	// Bucket notifications: the targets of the notify_* subsystems, routed
+	// by the notification configurations of the buckets, queued on a
+	// local drive of this node.
+	events := event.NewDispatcher(event.Deps{
+		Rules: notificationRules{store: stores.buckets}, Config: dynConfig, Logger: logger.With("component", "events"),
+	}, event.WithRegion(cfg.Region), event.WithQueueRoot(eventQueueRoot(f)))
 
 	// Object layer and the bucket metadata it reads the bucket
 	// configuration from; the MRF queue receives the objects it finds
@@ -197,11 +210,28 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	if mrf != nil {
 		notifier = mrf
 	}
-	objects, err := newObjectLayer(d, stores.buckets, events, notifier)
+	// Server-side encryption: the KMS of the configuration seals the data
+	// keys of SSE-S3 and SSE-KMS (SSE-C needs none).
+	localRoot := ""
+	if len(f.local) > 0 && f.local[0] != nil {
+		localRoot = f.local[0].Endpoint().Path
+	}
+	keys, err := newKMS(kmsDeps{cfg: cfg, localRoot: localRoot, docs: stores.docs, clock: d.clock, logger: logger})
+	if err != nil {
+		return nil, err
+	}
+	sse := crypto.New(crypto.Deps{KMS: keys, Logger: logger.With("component", "crypto")})
+	objects, err := newObjectLayer(d, stores.buckets, events, notifier, sse)
 	if err != nil {
 		return nil, fmt.Errorf("object layer: %w", err)
 	}
-	healing, err := newHealing(d, objects, mrf, dynConfig)
+	// Bucket lifecycle (ILM): applied by the scanner of the leader, read
+	// by the S3 API for x-amz-expiration.
+	lifecycle, err := ilm.New(ilm.Deps{Objects: objects, Buckets: stores.buckets, Clock: d.clock, Logger: logger.With("component", "ilm")})
+	if err != nil {
+		return nil, fmt.Errorf("lifecycle: %w", err)
+	}
+	healing, err := newHealing(d, objects, mrf, dynConfig, lifecycle)
 	if err != nil {
 		return nil, fmt.Errorf("healing: %w", err)
 	}
@@ -210,6 +240,22 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		// of the deployment (failures are logged by the service and
 		// healed later by the jobs and the scanner).
 		_, _ = healing.heal.HealPools(ctx)
+	}
+	// The hard quotas of the buckets decorate the object layer the APIs
+	// write through (the healing, the scanner and the lifecycle keep the
+	// bare layer): the usage of the scanner plus the recent writes.
+	var usage quota.UsageSource
+	if healing.scanner != nil {
+		usage = healing.scanner
+	}
+	var quotaOpts []quota.Option
+	if f.layout.Mode == domain.ModeDistributed {
+		// The other nodes write too: every write to a bucket with a quota
+		// counts them with a fresh walk once the base is stale.
+		quotaOpts = append(quotaOpts, quota.WithRefreshRatio(0))
+	}
+	if objects, err = quota.New(quota.Deps{Objects: objects, Buckets: stores.buckets, Usage: usage, Clock: d.clock, Logger: logger.With("component", "quota")}, quotaOpts...); err != nil {
+		return nil, fmt.Errorf("quota: %w", err)
 	}
 
 	// Identities, policies and buckets. IAM is the source of truth of the
@@ -227,7 +273,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		Clock:       d.clock,
 		Logger:      logger,
 	})
-	buckets, err := bucket.New(bucket.Deps{Objects: objects, Store: stores.buckets, Policy: policies, Locks: f.locks, Clock: d.clock, Logger: logger},
+	buckets, err := bucket.New(bucket.Deps{Objects: objects, Store: stores.buckets, Policy: policies, Locks: f.locks, KMS: keys, Clock: d.clock, Logger: logger},
 		bucket.WithRegion(cfg.Region))
 	if err != nil {
 		return nil, err
@@ -269,6 +315,8 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		// Every node of the deployment (this one only on a single node),
 		// with its background healing and clock offset.
 		Cluster: f.info,
+		// The state of the KMS and its keys.
+		KMS: keys,
 	})
 	healthSvc := health.New(health.Deps{Readiness: map[string]health.Check{
 		"storage": object.ReadinessCheck(objects),
@@ -302,22 +350,32 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	if err != nil {
 		return nil, err
 	}
+	lifecycleRoutes := s3.NewLifecycleRoutes(s3.LifecycleDeps{Buckets: buckets, Lifecycle: lifecycle, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger},
+		s3.WithDomains(domainsOf(cfg)...))
+	notificationRoutes := s3.NewNotificationRoutes(s3.NotificationDeps{Buckets: buckets, Events: events, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger},
+		s3.WithRegion(cfg.Region), s3.WithDomains(domainsOf(cfg)...))
+	// SSE-C keys need TLS (or a trusted proxy that terminated it), unless
+	// the configuration allows them in clear (tests).
+	ssecOpt := s3.WithInsecureSSEC(cfg.SSECAllowInsecure)
 	s3API := s3.NewAPI(s3.APIDeps{Enc: codec, Domains: domainsOf(cfg), System: []httpx.Routes{
 		s3.NewHealthRoutes(s3.HealthDeps{Health: healthSvc, Enc: codec}),
 		metricsRoutes,
-	}},
+	}, Buckets: buckets, Settings: applied, Logger: logger},
 		s3.NewBucketRoutes(s3.BucketDeps{Buckets: buckets, Objects: objects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger},
 			s3.WithRegion(cfg.Region)),
-		s3.NewObjectRoutes(s3.ObjectDeps{Objects: objects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger}),
-		s3.NewMultipartRoutes(s3.MultipartDeps{Objects: objects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger}),
+		s3.NewObjectRoutes(s3.ObjectDeps{Objects: objects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger}, ssecOpt),
+		s3.NewMultipartRoutes(s3.MultipartDeps{Objects: objects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger}, ssecOpt),
 		s3.NewPresignedRoutes(s3.PresignedDeps{Verifier: verifier, Objects: objects, Buckets: buckets, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger},
-			s3.WithRegion(cfg.Region)),
-		s3.NewPostPolicyRoutes(s3.PostPolicyDeps{Verifier: verifier, Objects: objects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger}),
+			s3.WithRegion(cfg.Region), ssecOpt),
+		s3.NewPostPolicyRoutes(s3.PostPolicyDeps{Verifier: verifier, Objects: objects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger}, ssecOpt),
 		s3.NewSTSRoutes(s3.STSDeps{IAM: identities, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger}),
+		// The ?lifecycle and ?notification sub-resources.
+		lifecycleRoutes,
+		notificationRoutes,
 	)
 	s3Srv := server.New(server.Deps{
 		Routes:      []httpx.Routes{s3API},
-		Middlewares: s3Middlewares,
+		Middlewares: append(s3Middlewares, lifecycleRoutes, notificationRoutes),
 		Logger:      logger,
 	}, serverOptions(cfg, cfg.Address, "s3")...)
 
@@ -332,7 +390,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		codec: codec, clock: d.clock, logger: logger, region: cfg.Region, s3URL: publicS3URL(cfg),
 		sessions: sessions, verifier: verifier, signer: signer, admin: adminSvc, iam: identities, policy: policies,
 		buckets: buckets, objects: objects, shares: shares, config: dynConfig, locks: f.lockManager, secureCookies: secureConsole(cfg),
-		consoleURL: cfg.BrowserRedirectURL,
+		consoleURL: cfg.BrowserRedirectURL, lifecycle: lifecycle, events: events, kms: keys,
 	})
 	if err != nil {
 		return nil, err
@@ -361,6 +419,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		shares:       shares,
 		signer:       signer,
 		events:       events,
+		lifecycle:    lifecycle,
 		s3Srv:        s3Srv,
 		consSrv:      consSrv,
 		healing:      healing,

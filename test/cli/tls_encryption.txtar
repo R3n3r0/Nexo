@@ -1,0 +1,81 @@
+# T-7.10, TS-U-13, S-OBJ-09, S-OBJ-13: server-side encryption (SSE-S3,
+# SSE-KMS with a key created with admin kms, SSE-C over TLS) and checksums
+# with cp, put, cat, stat, and the KMS of the server.
+
+exec nexoctl admin kms status local
+stdout '^KMS: builtin \(online\)$'
+stdout '^Default key: nexo-test-key$'
+exec nexoctl admin kms key create local app-key
+stdout 'Created the KMS key "app-key"'
+expectcode 1 nexoctl admin kms key create local app-key
+exec nexoctl admin kms key ls local
+stdout '^app-key '
+stdout '^nexo-test-key .* yes$'
+exec nexoctl admin kms key ls --json local app
+jsonlines stdout
+stdout -count=1 '"id":"app-key"'
+
+exec nexoctl mb local/enc
+exec nexoctl cp --enc-s3 local/enc/s3 a.txt local/enc/s3/a.txt
+exec nexoctl stat local/enc/s3/a.txt
+stdout '^Encryption  : SSE-S3$'
+exec nexoctl put --enc-kms local/enc/kms=app-key a.txt local/enc/kms/a.txt
+exec nexoctl stat local/enc/kms/a.txt
+stdout '^Encryption  : SSE-KMS \(app-key\)$'
+exec nexoctl cat local/enc/kms/a.txt
+cmp stdout a.txt
+
+# SSE-C: the key travels with every request (TLS only), single and multipart.
+mkfile big.bin 12MiB
+exec nexoctl cp --enc-c local/enc/c=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY= a.txt local/enc/c/a.txt
+exec nexoctl put --part-size 5MiB --enc-c local/enc/c=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY= big.bin local/enc/c/big.bin
+! exec nexoctl cat local/enc/c/a.txt
+stderr 'enc-c'
+expectcode 4 nexoctl cat --enc-c local/enc/c=ZmVkY2JhOTg3NjU0MzIxMGZlZGNiYTk4NzY1NDMyMTA= local/enc/c/a.txt
+exec nexoctl cat --enc-c local/enc/c=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY= local/enc/c/a.txt
+cmp stdout a.txt
+exec nexoctl stat --enc-c local/enc/c=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY= local/enc/c/big.bin
+stdout '^Encryption  : SSE-C$'
+stdout '12582912 bytes'
+exec nexoctl cp --enc-c local/enc/c=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY= local/enc/c/big.bin big.out
+cmp big.bin big.out
+exec nexoctl head -n 1 --enc-c local/enc/c=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY= local/enc/c/a.txt
+stdout '^encrypt me$'
+
+# A server-side copy decrypts the SSE-C source and re-encrypts with SSE-S3.
+exec nexoctl cp --enc-c local/enc/c=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY= --enc-s3 local/enc/copy local/enc/c/a.txt local/enc/copy/a.txt
+exec nexoctl cat local/enc/copy/a.txt
+cmp stdout a.txt
+exec nexoctl stat --json local/enc/copy/a.txt
+jsonlines stdout
+stdout '"encryption":\{"type":"SSE-S3"'
+
+# Default encryption of a bucket with a KMS key.
+exec nexoctl encrypt set sse-kms app-key local/enc
+stdout 'SSE-KMS with key app-key'
+exec nexoctl cp a.txt local/enc/default/a.txt
+exec nexoctl stat local/enc/default/a.txt
+stdout '^Encryption  : SSE-KMS \(app-key\)$'
+exec nexoctl encrypt clear local/enc
+
+# Checksums computed by nexoctl, verified and stored by the server.
+exec nexoctl cp --checksum sha256 a.txt local/enc/sum/a.txt
+stdout 'SHA256 '
+exec nexoctl put --checksum crc32c --part-size 5MiB --json big.bin local/enc/sum/big.bin
+jsonlines stdout
+stdout '"checksum":\{"algorithm":"CRC32C"'
+exec nexoctl stat --checksum local/enc/sum/a.txt
+stdout '^Checksum    : SHA256 [A-Za-z0-9+/=]+'
+exec nexoctl stat --checksum --json local/enc/sum/big.bin
+stdout '"checksum":\{"algorithm":"CRC32C"'
+exec nexoctl stat local/enc/sum/a.txt
+! stdout Checksum
+expectcode 2 nexoctl cp --checksum md5 a.txt local/enc/sum/x.txt
+
+# Quota info reports the usage.
+exec nexoctl quota set local/enc --size 1GiB
+exec nexoctl quota info local/enc
+stdout 'has a hard quota of 1(\.0)?GiB \(used .* in [0-9]+ objects?, '
+
+-- a.txt --
+encrypt me

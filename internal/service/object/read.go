@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/crypto"
 	"github.com/r3n3r0/nexo/internal/service/event"
 	"github.com/r3n3r0/nexo/internal/service/storage"
 )
@@ -32,12 +33,37 @@ func (l *layer) readVersion(ctx context.Context, st store, bucket, key, versionI
 		return storage.FileInfo{}, err
 	}
 	if fi.Deleted {
+		marker := &domain.DeleteMarkerError{VersionID: objectInfo(bucket, key, fi).VersionID, ModTime: fi.ModTime.UTC()}
 		if versionID == "" {
-			return fi, domain.NewS3Error(domain.ErrObjectNotFound, "NoSuchKey", "The specified key does not exist.").WithResource(bucket + "/" + key)
+			marker.Err = domain.NewS3Error(domain.ErrObjectNotFound, "NoSuchKey", "The specified key does not exist.").WithResource(bucket + "/" + key)
+		} else {
+			marker.Err = fmt.Errorf("%w: version %s of %s/%s is a delete marker", domain.ErrMethodNotAllowed, versionID, bucket, key)
 		}
-		return fi, fmt.Errorf("%w: version %s of %s/%s is a delete marker", domain.ErrMethodNotAllowed, versionID, bucket, key)
+		return fi, marker
 	}
 	return fi, nil
+}
+
+// partChecksum returns the additional checksum of part n (1-based) of a
+// multipart version, zero when the part has none.
+func partChecksum(fi storage.FileInfo, n int) domain.Checksum {
+	if n < 1 || n > len(fi.Parts) {
+		return domain.Checksum{}
+	}
+	for algo, value := range fi.Parts[n-1].Checksums {
+		return domain.Checksum{Algorithm: domain.ChecksumAlgorithm(algo), Value: value}
+	}
+	return domain.Checksum{}
+}
+
+// infoForRead describes the version a read serves: the read of one part
+// of a multipart object (partNumber) reports the checksum of that part.
+func infoForRead(bucket, key string, fi storage.FileInfo, opts GetObjectOptions) domain.ObjectInfo {
+	info := objectInfo(bucket, key, fi)
+	if opts.PartNumber > 0 && info.Parts > 0 {
+		info.Checksum = partChecksum(fi, opts.PartNumber)
+	}
+	return info
 }
 
 // GetObjectInfo implements Service.
@@ -61,7 +87,12 @@ func (l *layer) GetObjectInfo(ctx context.Context, bucket, key string, opts GetO
 	if err != nil {
 		return domain.ObjectInfo{}, fmt.Errorf("%s: head %s/%s: %w", l.name, bucket, key, err)
 	}
-	info := objectInfo(bucket, key, fi)
+	info := infoForRead(bucket, key, fi, opts)
+	enc, err := l.checkCustomerKey(ctx, bucket, key, fi, opts.SSECustomerKey)
+	if err != nil {
+		return domain.ObjectInfo{}, err
+	}
+	info.Encryption = enc
 	if opts.PartNumber > 0 {
 		if _, _, err := resolveRange(fi, opts); err != nil {
 			return info, err
@@ -118,7 +149,15 @@ func (l *layer) openObject(ctx context.Context, bucket, key string, opts GetObje
 		release()
 		return nil, storage.FileInfo{}, fmt.Errorf("%s: get %s/%s: %w", l.name, bucket, key, err)
 	}
-	info := objectInfo(bucket, key, fi)
+	info := infoForRead(bucket, key, fi, opts)
+	okey, err := l.unsealFor(ctx, bucket, key, fi.Metadata, opts.SSECustomerKey)
+	if err != nil {
+		release()
+		return nil, storage.FileInfo{}, err
+	}
+	if okey != nil {
+		info.Encryption = okey.Info()
+	}
 	if err := checkReadConditions(info, opts.Conditions); err != nil {
 		release()
 		return nil, storage.FileInfo{}, err
@@ -128,8 +167,10 @@ func (l *layer) openObject(ctx context.Context, bucket, key string, opts GetObje
 		release()
 		return nil, storage.FileInfo{}, err
 	}
-	rc, err := l.openData(ctx, st, bucket, key, fi, offset, length)
-	if err != nil {
+	var rc io.ReadCloser
+	if okey != nil {
+		rc = l.openEncrypted(ctx, st, bucket, key, fi, okey, offset, length)
+	} else if rc, err = l.openData(ctx, st, bucket, key, fi, offset, length); err != nil {
 		release()
 		return nil, storage.FileInfo{}, fmt.Errorf("%s: read %s/%s: %w", l.name, bucket, key, err)
 	}
@@ -140,7 +181,9 @@ func (l *layer) openObject(ctx context.Context, bucket, key string, opts GetObje
 	return &Reader{ReadCloser: rc, Info: info, Offset: offset, Length: length}, fi, nil
 }
 
-// resolveRange turns the range or part number of a read into offset/length.
+// resolveRange turns the range or part number of a read into the
+// offset/length of the plaintext (of the content of an unencrypted
+// version).
 func resolveRange(fi storage.FileInfo, opts GetObjectOptions) (int64, int64, error) {
 	if opts.PartNumber > 0 {
 		if opts.Range != nil {
@@ -148,17 +191,22 @@ func resolveRange(fi storage.FileInfo, opts GetObjectOptions) (int64, int64, err
 		}
 		var start int64
 		for i, p := range fi.Parts {
-			if i+1 == opts.PartNumber {
-				return start, p.Size, nil
+			size := p.Size
+			if crypto.IsEncrypted(fi.Metadata) {
+				size = p.ActualSize
 			}
-			start += p.Size
+			if i+1 == opts.PartNumber {
+				return start, size, nil
+			}
+			start += size
 		}
 		return 0, 0, domain.NewS3Error(domain.ErrInvalidRange, "InvalidPartNumber", "The requested partnumber is not satisfiable")
 	}
+	size := actualSize(fi)
 	if opts.Range == nil {
-		return 0, fi.Size, nil
+		return 0, size, nil
 	}
-	return opts.Range.Resolve(fi.Size)
+	return opts.Range.Resolve(size)
 }
 
 // openData returns a reader over [offset, offset+length) of a version.

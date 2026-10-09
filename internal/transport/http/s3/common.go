@@ -271,18 +271,27 @@ func metadataFromHeaders(h http.Header) (objectMetadata, error) {
 	return m, checkMetadataSize(m.user)
 }
 
-// stripAWSChunked removes aws-chunked from a Content-Encoding list.
+// stripAWSChunked removes aws-chunked from a Content-Encoding list; a list
+// without it is kept verbatim (S3 returns the stored value as sent).
 func stripAWSChunked(v string) string {
 	if v == "" {
 		return ""
 	}
 	var kept []string
+	stripped := false
 	for _, coding := range strings.Split(v, ",") {
-		if coding = strings.TrimSpace(coding); coding != "" && !strings.EqualFold(coding, awsChunkedEncoding) {
+		coding = strings.TrimSpace(coding)
+		switch {
+		case strings.EqualFold(coding, awsChunkedEncoding):
+			stripped = true
+		case coding != "":
 			kept = append(kept, coding)
 		}
 	}
-	return strings.Join(kept, ",")
+	if !stripped {
+		return v
+	}
+	return strings.Join(kept, ", ")
 }
 
 // checkMetadataSize enforces the 2 KiB S3 limit of the user metadata.
@@ -338,32 +347,6 @@ func contentMD5Hex(h http.Header) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(raw), nil
-}
-
-// checksumAlgorithms are the x-amz-checksum-* algorithms, in header order.
-func checksumAlgorithms() []domain.ChecksumAlgorithm {
-	return []domain.ChecksumAlgorithm{domain.ChecksumCRC32, domain.ChecksumCRC32C, domain.ChecksumSHA1, domain.ChecksumSHA256}
-}
-
-// checksumFromHeaders reads the x-amz-checksum-* header or the algorithm
-// announced for a trailing checksum (x-amz-sdk-checksum-algorithm with
-// x-amz-trailer): the object layer computes and stores it.
-func checksumFromHeaders(h http.Header) (domain.Checksum, error) {
-	var found domain.Checksum
-	for _, algo := range checksumAlgorithms() {
-		if v := h.Get(httpx.HeaderAmzChecksumPrefix + strings.ToLower(string(algo))); v != "" {
-			if !found.IsZero() {
-				return domain.Checksum{}, invalidRequest("Expecting a single x-amz-checksum- header. Multiple checksum Types are not allowed.")
-			}
-			found = domain.Checksum{Algorithm: algo, Value: v}
-		}
-	}
-	if found.IsZero() && h.Get(httpx.HeaderAmzTrailer) != "" {
-		if algo := h.Get(httpx.HeaderAmzSDKChecksumAlgorithm); algo != "" {
-			found = domain.Checksum{Algorithm: domain.ChecksumAlgorithm(strings.ToUpper(algo))}
-		}
-	}
-	return found, nil
 }
 
 // unsignedPayloadSHA256 returns the hex x-amz-content-sha256 of a request
@@ -430,10 +413,10 @@ func checkStorageClass(sc string) error {
 }
 
 // checkUnsupportedHeaders refuses the request headers that ask for a
-// feature Nexo does not provide yet (ACL grants, server-side encryption,
-// object lock): failing loudly beats storing data without the protection
-// the client asked for. The private canned ACLs are accepted: access is
-// governed by policies.
+// feature Nexo does not provide (ACL grants): failing loudly beats storing
+// data without the protection the client asked for. The private canned
+// ACLs are accepted: access is governed by policies. The server-side
+// encryption headers are read by sseFromHeaders.
 func checkUnsupportedHeaders(h http.Header) error {
 	switch acl := h.Get(httpx.HeaderAmzACL); acl {
 	case "", "private", "bucket-owner-full-control":
@@ -445,10 +428,6 @@ func checkUnsupportedHeaders(h http.Header) error {
 		switch {
 		case strings.HasPrefix(lname, httpx.HeaderAmzGrantPrefix):
 			return notImplemented("ACL grants are not supported: use bucket policies")
-		case strings.HasPrefix(lname, httpx.HeaderAmzSSE):
-			return notImplemented("Server-side encryption is not supported yet")
-		case lname == httpx.HeaderAmzObjectLockMode, lname == httpx.HeaderAmzObjectLockRetainUntil, lname == httpx.HeaderAmzObjectLockLegalHold:
-			return notImplemented("Object Lock is not supported yet")
 		}
 	}
 	return nil
@@ -456,7 +435,8 @@ func checkUnsupportedHeaders(h http.Header) error {
 
 // writeObjectHeaders sets the response headers describing an object.
 // Checksums are returned only when the client asks for them
-// (x-amz-checksum-mode: ENABLED) on a whole-object read.
+// (x-amz-checksum-mode: ENABLED) on a whole-object or whole-part read
+// (whole).
 func writeObjectHeaders(w http.ResponseWriter, r *http.Request, info domain.ObjectInfo, whole bool) {
 	h := w.Header()
 	set := func(name, v string) {
@@ -478,6 +458,7 @@ func writeObjectHeaders(w http.ResponseWriter, r *http.Request, info domain.Obje
 	if info.IsDeleteMarker {
 		h.Set(httpx.HeaderAmzDeleteMarker, "true")
 	}
+	writeSSEHeaders(w, info.Encryption)
 	set(headerContentEncoding, info.ContentEncoding)
 	set(headerCacheControl, info.CacheControl)
 	set(headerContentDisposition, info.ContentDisposition)
@@ -493,7 +474,7 @@ func writeObjectHeaders(w http.ResponseWriter, r *http.Request, info domain.Obje
 		h.Set(httpx.HeaderAmzTaggingCount, strconv.Itoa(len(info.Tags)))
 	}
 	if whole && info.Checksum.Value != "" && strings.EqualFold(r.Header.Get(httpx.HeaderAmzChecksumMode), "ENABLED") {
-		h.Set(httpx.HeaderAmzChecksumPrefix+strings.ToLower(string(info.Checksum.Algorithm)), info.Checksum.Value)
+		writeChecksum(w, info.Checksum)
 	}
 	h.Set("Accept-Ranges", "bytes")
 }

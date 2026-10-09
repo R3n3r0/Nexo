@@ -60,9 +60,18 @@ type MemAdmin struct {
 	usage      nexoadmin.DataUsage
 	heals      []*nexoadmin.HealJob
 	locks      []nexoadmin.Lock
-	seq        int
-	fail       map[string]error
-	calls      map[string]int
+	// buckets are the bucket summaries of GetBucket (SetBucket).
+	buckets map[string]nexoadmin.Bucket
+	// lifecycleApply is the outcome of ApplyBucketLifecycle.
+	lifecycleApply nexoadmin.LifecycleApplyResult
+	// targets are the notification targets (SetNotifyTargets).
+	targets []nexoadmin.NotifyTarget
+	// kms is the KMS state (nil: no KMS configured) and kmsKeys its keys.
+	kms     *nexoadmin.KMSStatus
+	kmsKeys []nexoadmin.KMSKey
+	seq     int
+	fail    map[string]error
+	calls   map[string]int
 }
 
 // memConfigSchema is the configuration schema of MemAdmin.
@@ -100,7 +109,9 @@ func NewMemAdmin(clk clock.Clock) *MemAdmin {
 		clock: clk, users: map[string]*nexoadmin.User{}, secrets: map[string]string{}, groups: map[string]*nexoadmin.Group{},
 		policies: map[string]*nexoadmin.Policy{}, keys: map[string]*nexoadmin.AccessKey{}, config: map[string]map[string]string{},
 		quotas: map[string]nexoadmin.BucketQuota{}, encryption: map[string]nexoadmin.BucketEncryption{},
-		fail: map[string]error{}, calls: map[string]int{},
+		buckets: map[string]nexoadmin.Bucket{}, fail: map[string]error{}, calls: map[string]int{},
+		kms:     &nexoadmin.KMSStatus{Configured: true, Backend: nexoadmin.KMSBackendBuiltin, DefaultKeyID: "mem-kms-key", Online: true},
+		kmsKeys: []nexoadmin.KMSKey{{ID: "mem-kms-key", Default: true}},
 	}
 	builtins := map[string]string{
 		"consoleAdmin": `{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["admin:*","s3:*"],"Resource":["arn:aws:s3:::*"]}]}`,
@@ -277,6 +288,13 @@ func (m *MemAdmin) Client(t TestingT, caller string) *climock.AdminClient {
 	c.EXPECT().GetShare(x, x).RunAndReturn(s.getShare).Maybe()
 	c.EXPECT().RevokeShare(x, x).RunAndReturn(s.revokeShare).Maybe()
 	c.EXPECT().RevokeAllShares(x, x).RunAndReturn(s.revokeAllShares).Maybe()
+	c.EXPECT().GetBucket(x, x).RunAndReturn(s.getBucket).Maybe()
+	c.EXPECT().ApplyBucketLifecycle(x, x).RunAndReturn(s.applyBucketLifecycle).Maybe()
+	c.EXPECT().ListNotifyTargets(x).RunAndReturn(s.listNotifyTargets).Maybe()
+	c.EXPECT().TestNotifyTarget(x, x).RunAndReturn(s.testNotifyTarget).Maybe()
+	c.EXPECT().KMSStatus(x).RunAndReturn(s.kmsStatus).Maybe()
+	c.EXPECT().ListKMSKeys(x, x).RunAndReturn(s.listKMSKeys).Maybe()
+	c.EXPECT().CreateKMSKey(x, x).RunAndReturn(s.createKMSKey).Maybe()
 	return c
 }
 

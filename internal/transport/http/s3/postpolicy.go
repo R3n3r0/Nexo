@@ -53,13 +53,15 @@ type PostPolicyDeps struct {
 
 type postPolicyRoutes struct {
 	deps  PostPolicyDeps
+	opts  options
 	authz authorizer
 }
 
 var _ PostPolicyRoutes = (*postPolicyRoutes)(nil)
 
-// NewPostPolicyRoutes returns the POST policy route group.
-func NewPostPolicyRoutes(deps PostPolicyDeps, _ ...Option) PostPolicyRoutes {
+// NewPostPolicyRoutes returns the POST policy route group
+// (WithInsecureSSEC).
+func NewPostPolicyRoutes(deps PostPolicyDeps, opts ...Option) PostPolicyRoutes {
 	if deps.Enc == nil {
 		deps.Enc = httpx.New()
 	}
@@ -69,7 +71,7 @@ func NewPostPolicyRoutes(deps PostPolicyDeps, _ ...Option) PostPolicyRoutes {
 	if deps.Logger == nil {
 		deps.Logger = slog.Default()
 	}
-	return &postPolicyRoutes{deps: deps, authz: authorizer{policy: deps.Policy, enc: deps.Enc, clock: deps.Clock}}
+	return &postPolicyRoutes{deps: deps, opts: newOptions(opts), authz: authorizer{policy: deps.Policy, enc: deps.Enc, clock: deps.Clock, objects: deps.Objects}}
 }
 
 // postObjectOperation is the browser upload: POST on the bucket without a
@@ -126,7 +128,7 @@ func (h *postPolicyRoutes) postObject(w http.ResponseWriter, r *http.Request) {
 	if !h.authz.authorize(w, r, bucketName, key) {
 		return
 	}
-	in, err := h.postInput(form, bucketName, key, file)
+	in, err := h.postInput(r, form, bucketName, key, file)
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -203,8 +205,9 @@ func (h *postPolicyRoutes) authenticate(r *http.Request, form auth.PostForm) (*d
 }
 
 // postInput maps the form fields to the PutObject input: they follow the
-// rules of the request headers (metadata, unsupported features).
-func (h *postPolicyRoutes) postInput(form auth.PostForm, bucketName, key string, file io.Reader) (object.PutObjectInput, error) {
+// rules of the request headers (metadata, encryption, unsupported
+// features).
+func (h *postPolicyRoutes) postInput(r *http.Request, form auth.PostForm, bucketName, key string, file io.Reader) (object.PutObjectInput, error) {
 	hdr := http.Header{}
 	for name, value := range form.Fields {
 		if name == postFieldACL {
@@ -227,6 +230,12 @@ func (h *postPolicyRoutes) postInput(form auth.PostForm, bucketName, key string,
 	if err != nil {
 		return object.PutObjectInput{}, err
 	}
+	fields := r.Clone(r.Context())
+	fields.Header = hdr
+	sse, err := sseFromHeaders(fields, h.opts.insecureSSEC)
+	if err != nil {
+		return object.PutObjectInput{}, err
+	}
 	var tags map[string]string
 	if tagging := form.Fields[postFieldTagging]; tagging != "" {
 		var doc taggingRequest
@@ -241,7 +250,7 @@ func (h *postPolicyRoutes) postInput(form auth.PostForm, bucketName, key string,
 		Bucket: bucketName, Key: key, Reader: file, Size: -1, Checksum: checksum,
 		ContentType: meta.contentType, ContentEncoding: meta.contentEncoding, ContentDisposition: meta.contentDisposition,
 		ContentLanguage: meta.contentLanguage, CacheControl: meta.cacheControl, Expires: meta.expires,
-		UserMetadata: meta.user, Tags: tags, StorageClass: storageClass,
+		UserMetadata: meta.user, Tags: tags, StorageClass: storageClass, SSE: sse,
 	}, nil
 }
 
@@ -256,6 +265,7 @@ func (h *postPolicyRoutes) respond(w http.ResponseWriter, r *http.Request, form 
 	if info.VersionID != "" {
 		w.Header().Set(httpx.HeaderAmzVersionID, info.VersionID)
 	}
+	writeSSEHeaders(w, info.Encryption)
 	if redirect, ok := successRedirect(form.Fields, bucketName, key, etag); ok {
 		w.Header().Set("Location", redirect)
 		w.WriteHeader(http.StatusSeeOther)

@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/erasure"
@@ -32,6 +33,9 @@ type erasureSet struct {
 	blockSize       int64
 	heal            HealNotifier
 	logger          *slog.Logger
+	// now is the clock of the layer (Object Lock decisions of the
+	// healing); nil means the wall clock.
+	now func() time.Time
 }
 
 var _ store = (*erasureSet)(nil)

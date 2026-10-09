@@ -16,6 +16,8 @@ type options struct {
 	domains []string
 	// publicMetrics serves the metrics endpoints without authentication.
 	publicMetrics bool
+	// insecureSSEC accepts SSE-C keys over plain HTTP.
+	insecureSSEC bool
 }
 
 func newOptions(opts []Option) options {
@@ -57,4 +59,13 @@ func normalizeHost(host string) string {
 		host = h
 	}
 	return strings.Trim(strings.ToLower(host), ".")
+}
+
+// WithInsecureSSEC accepts the requests carrying SSE-C keys
+// (x-amz-server-side-encryption-customer-*) over plain HTTP; by default
+// they need TLS, or a trusted proxy that terminated it, as S3 requires.
+// For tests and development only. Used by NewObjectRoutes,
+// NewMultipartRoutes, NewPresignedRoutes and NewPostPolicyRoutes.
+func WithInsecureSSEC(allow bool) Option {
+	return func(o *options) { o.insecureSSEC = allow }
 }

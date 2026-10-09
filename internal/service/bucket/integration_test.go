@@ -49,7 +49,7 @@ func newStack(t *testing.T) *stack {
 	locks := lock.NewLocal(lock.Deps{})
 	objects, err := object.NewFS(object.Deps{Store: drive, Buckets: store, Locks: locks, Clock: clk, Logger: logger})
 	require.NoError(t, err)
-	svc, err := bucket.New(bucket.Deps{Objects: objects, Store: store, Policy: policymock.NewService(t), Locks: locks, Clock: clk, Logger: logger})
+	svc, err := bucket.New(bucket.Deps{Objects: objects, Store: store, Policy: policymock.NewService(t), Locks: locks, KMS: newTestKMS(t), Clock: clk, Logger: logger})
 	require.NoError(t, err)
 	return &stack{svc: svc, objects: objects, store: store, root: root, clk: clk}
 }
@@ -129,7 +129,9 @@ func TestConcurrentConfigurationUpdates(t *testing.T) {
 		func() error { return s.svc.SetVersioning(ctx, "bkt", domain.VersioningEnabled) },
 		func() error { _, err := s.svc.SetQuota(ctx, "bkt", bucket.Quota{Size: 10}); return err },
 		func() error { return s.svc.SetTags(ctx, "bkt", map[string]string{"a": "1"}) },
-		func() error { return s.svc.SetCORS(ctx, "bkt", []byte("<CORSConfiguration/>")) },
+		func() error {
+			return s.svc.SetCORS(ctx, "bkt", []byte("<CORSConfiguration><CORSRule><AllowedOrigin>*</AllowedOrigin><AllowedMethod>GET</AllowedMethod></CORSRule></CORSConfiguration>"))
+		},
 		func() error { return s.svc.SetLifecycle(ctx, "bkt", []byte("<LifecycleConfiguration/>")) },
 		func() error { return s.svc.SetEncryption(ctx, "bkt", bucket.EncryptionConfig{Algorithm: "AES256"}) },
 		func() error { return s.svc.SetNotification(ctx, "bkt", []byte("<NotificationConfiguration/>")) },

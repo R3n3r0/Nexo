@@ -19,6 +19,7 @@ type rmFlags struct {
 	newerThan  string
 	dryRun     bool
 	incomplete bool
+	bypass     bool
 }
 
 func newRmCmd(e *env) *cobra.Command {
@@ -29,10 +30,15 @@ func newRmCmd(e *env) *cobra.Command {
 		Long: `Remove objects. In a versioned bucket removing an object adds a delete
 marker; --versions removes every version and delete marker, --version-id one
 version. Removing a prefix needs --recursive --force. --dry-run only prints what
-would be removed.`,
+would be removed.
+
+Versions protected by Object Lock are not removed (exit code 4): --bypass lifts a
+GOVERNANCE retention for the users allowed to (s3:BypassGovernanceRetention);
+COMPLIANCE retentions and legal holds are never bypassed.`,
 		Example: `  nexoctl rm local/logs/app.log
   nexoctl rm --recursive --force --older-than 30d local/logs/
   nexoctl rm --versions local/docs/report.pdf
+  nexoctl rm --versions --bypass local/vault/draft.txt
   nexoctl rm --incomplete --recursive --force local/uploads/`,
 		Args:              minArgs(1),
 		ValidArgsFunction: completeTargets(e),
@@ -49,6 +55,7 @@ would be removed.`,
 	f.StringVar(&flags.newerThan, "newer-than", "", "remove only the objects newer than the duration")
 	f.BoolVar(&flags.dryRun, "dry-run", false, "print what would be removed without removing it")
 	f.BoolVarP(&flags.incomplete, "incomplete", "I", false, "abort the incomplete multipart uploads instead")
+	f.BoolVar(&flags.bypass, "bypass", false, "remove versions under a GOVERNANCE retention (s3:BypassGovernanceRetention)")
 	return cmd
 }
 
@@ -56,9 +63,12 @@ func (e *env) rm(ctx context.Context, args []string, flags rmFlags) error {
 	if flags.recursive && !flags.force {
 		return cli.UsageError("removing recursively needs --force")
 	}
+	if flags.bypass && flags.incomplete {
+		return cli.UsageError("--bypass applies to object versions, not to incomplete uploads")
+	}
 	opts := cli.RemoveOptions{
 		Recursive: flags.recursive, Versions: flags.versions, VersionID: flags.versionID,
-		DryRun: flags.dryRun, Now: e.deps.Clock.Now(),
+		DryRun: flags.dryRun, Now: e.deps.Clock.Now(), BypassGovernance: flags.bypass,
 	}
 	var err error
 	if flags.olderThan != "" {
@@ -89,7 +99,7 @@ func (e *env) rm(ctx context.Context, args []string, flags rmFlags) error {
 				if rerr != nil && first == nil {
 					first = fmt.Errorf("%s: %w", t.Child(u.Key), rerr)
 				}
-				return e.reportRemoval(t, cli.RemoveResult{Key: u.Key, Err: rerr}, u.UploadID, flags.dryRun)
+				return e.reportRemoval(t, cli.RemoveResult{Key: u.Key, Err: rerr}, u.UploadID, flags.dryRun, false)
 			})
 			if err != nil {
 				return fmt.Errorf("%s: %w", t, err)
@@ -101,7 +111,7 @@ func (e *env) rm(ctx context.Context, args []string, flags rmFlags) error {
 			if r.Err != nil && first == nil {
 				first = fmt.Errorf("%s: %w", t.Child(r.Key), r.Err)
 			}
-			return e.reportRemoval(t, r, "", flags.dryRun)
+			return e.reportRemoval(t, r, "", flags.dryRun, flags.bypass)
 		})
 		failed, total = failed+sum.Failed, total+sum.Removed+sum.Failed
 		if err != nil {
@@ -112,11 +122,11 @@ func (e *env) rm(ctx context.Context, args []string, flags rmFlags) error {
 }
 
 // reportRemoval prints one removed (or failed) object, version or upload.
-func (e *env) reportRemoval(t cli.Target, r cli.RemoveResult, uploadID string, dryRun bool) error {
+func (e *env) reportRemoval(t cli.Target, r cli.RemoveResult, uploadID string, dryRun, bypass bool) error {
 	target := t.Child(r.Key)
 	rec := removeRecord{
 		Target: target.String(), Key: r.Key, VersionID: r.VersionID, DeleteMarker: r.DeleteMarker,
-		DeleteMarkerVersionID: r.DeleteMarkerVersionID, UploadID: uploadID, DryRun: dryRun,
+		DeleteMarkerVersionID: r.DeleteMarkerVersionID, UploadID: uploadID, DryRun: dryRun, BypassGovernance: bypass,
 	}
 	if r.Err != nil {
 		rec.Error = r.Err.Error()

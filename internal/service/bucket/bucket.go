@@ -3,12 +3,14 @@ package bucket
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"sort"
 	"strings"
 
 	"github.com/r3n3r0/nexo/internal/clock"
@@ -146,6 +148,37 @@ func (s *service) List(ctx context.Context, in ListInput) ([]domain.BucketInfo, 
 		out = append(out, merge(info, m))
 	}
 	return out, nil
+}
+
+// ListPage implements Service. The continuation token is the URL-safe
+// base64 of the last name of the previous page.
+func (s *service) ListPage(ctx context.Context, in ListPageInput) (ListPageResult, error) {
+	if in.MaxBuckets < 0 || in.MaxBuckets > MaxListBuckets {
+		return ListPageResult{}, domain.NewS3Error(domain.ErrInvalidArgument, "InvalidArgument",
+			fmt.Sprintf("max-buckets must be between 1 and %d", MaxListBuckets))
+	}
+	after := ""
+	if in.ContinuationToken != "" {
+		raw, err := base64.RawURLEncoding.DecodeString(in.ContinuationToken)
+		if err != nil || len(raw) == 0 {
+			return ListPageResult{}, domain.NewS3Error(domain.ErrInvalidArgument, "InvalidArgument", "The continuation token provided is incorrect")
+		}
+		after = string(raw)
+	}
+	all, err := s.List(ctx, ListInput{Prefix: in.Prefix})
+	if err != nil {
+		return ListPageResult{}, err
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].Name < all[j].Name })
+	start := sort.Search(len(all), func(i int) bool { return all[i].Name > after })
+	page := all[start:]
+	var res ListPageResult
+	if in.MaxBuckets > 0 && len(page) > in.MaxBuckets {
+		page = page[:in.MaxBuckets]
+		res.ContinuationToken = base64.RawURLEncoding.EncodeToString([]byte(page[len(page)-1].Name))
+	}
+	res.Buckets = page
+	return res, nil
 }
 
 // merge overlays the stored configuration on the object layer's view.
@@ -378,25 +411,27 @@ func (s *service) GetObjectLock(ctx context.Context, name string) (ObjectLockCon
 
 // SetObjectLock implements Service.
 func (s *service) SetObjectLock(ctx context.Context, name string, cfg ObjectLockConfig) error {
-	if cfg.Mode != "" && cfg.Mode != RetentionGovernance && cfg.Mode != RetentionCompliance {
-		return domain.NewS3Error(domain.ErrMalformedXML, "MalformedXML", "Invalid retention mode "+string(cfg.Mode))
+	if !cfg.Enabled {
+		return domain.NewS3Error(domain.ErrMalformedXML, "MalformedXML", "ObjectLockEnabled must be Enabled")
 	}
-	if (cfg.Days > 0 && cfg.Years > 0) || cfg.Days < 0 || cfg.Years < 0 {
-		return domain.NewS3Error(domain.ErrMalformedXML, "MalformedXML", "Specify either Days or Years, not both")
-	}
-	if (cfg.Days > 0 || cfg.Years > 0) && cfg.Mode == "" {
-		return domain.NewS3Error(domain.ErrMalformedXML, "MalformedXML", "A default retention period requires a Mode")
+	if err := cfg.DefaultRetention().Validate(); err != nil {
+		return domain.NewS3Error(domain.ErrMalformedXML, "MalformedXML",
+			"The XML you provided was not well-formed or did not validate against our published schema: "+err.Error())
 	}
 	return s.update(ctx, name, func(m *Metadata) error {
-		if !cfg.Enabled {
-			return domain.NewS3Error(domain.ErrMalformedXML, "MalformedXML", "ObjectLockEnabled must be Enabled")
-		}
-		if m.Versioning != domain.VersioningEnabled {
-			return domain.NewS3Error(domain.ErrConflict, "InvalidBucketState", "Object Lock configuration cannot be enabled on buckets without versioning")
+		if !m.ObjectLock.Enabled {
+			return domain.NewS3Error(domain.ErrConflict, "InvalidBucketState",
+				"Object Lock can only be enabled when the bucket is created (x-amz-bucket-object-lock-enabled)")
 		}
 		m.ObjectLock = cfg
 		return nil
 	})
+}
+
+// DefaultRetention returns the default retention of the configuration
+// (zero when none).
+func (c ObjectLockConfig) DefaultRetention() domain.DefaultRetention {
+	return domain.DefaultRetention{Mode: c.Mode, Days: c.Days, Years: c.Years}
 }
 
 // GetEncryption implements Service.
@@ -414,18 +449,49 @@ func (s *service) GetEncryption(ctx context.Context, name string) (EncryptionCon
 // SetEncryption implements Service.
 func (s *service) SetEncryption(ctx context.Context, name string, cfg EncryptionConfig) error {
 	switch cfg.Algorithm {
-	case "AES256":
+	case domain.SSEAlgorithmAES256:
 		if cfg.KMSKeyID != "" {
 			return domain.NewS3Error(domain.ErrInvalidArgument, "InvalidArgument", "KMSMasterKeyID is only valid with aws:kms")
 		}
-	case "aws:kms":
+	case domain.SSEAlgorithmKMS:
 	default:
 		return domain.NewS3Error(domain.ErrMalformedXML, "MalformedXML", "SSEAlgorithm must be AES256 or aws:kms")
+	}
+	if err := s.checkKMS(ctx, cfg.KMSKeyID); err != nil {
+		return err
 	}
 	return s.update(ctx, name, func(m *Metadata) error {
 		m.Encryption = cfg
 		return nil
 	})
+}
+
+// checkKMS verifies that the KMS can serve a default encryption: it is
+// configured and, for a key id, knows the key.
+func (s *service) checkKMS(ctx context.Context, keyID string) error {
+	if s.deps.KMS == nil {
+		return domain.NewS3Error(domain.ErrKMSNotConfigured, "NotImplemented", "Server side encryption specified but KMS is not configured")
+	}
+	st, err := s.deps.KMS.Status(ctx)
+	if err != nil {
+		return fmt.Errorf("bucket: kms status: %w", err)
+	}
+	if !st.Configured {
+		return domain.NewS3Error(domain.ErrKMSNotConfigured, "NotImplemented", "Server side encryption specified but KMS is not configured")
+	}
+	if keyID == "" || keyID == st.DefaultKey {
+		return nil
+	}
+	keys, err := s.deps.KMS.ListKeys(ctx, keyID)
+	if err != nil {
+		return fmt.Errorf("bucket: kms keys: %w", err)
+	}
+	for _, k := range keys {
+		if k.Name == keyID {
+			return nil
+		}
+	}
+	return domain.NewS3Error(domain.ErrKMSKeyNotFound, "KMS.NotFoundException", "Invalid keyId "+keyID)
 }
 
 // DeleteEncryption implements Service.
@@ -480,13 +546,8 @@ func (s *service) GetTags(ctx context.Context, name string) (map[string]string, 
 
 // SetTags implements Service.
 func (s *service) SetTags(ctx context.Context, name string, tags map[string]string) error {
-	if len(tags) > maxBucketTags {
-		return domain.NewS3Error(domain.ErrInvalidArgument, "BadRequest", "Bucket tag count cannot be greater than 50")
-	}
-	for k, v := range tags {
-		if k == "" || len(k) > maxTagKeyLength || len(v) > maxTagValueLength {
-			return domain.NewS3Error(domain.ErrInvalidArgument, "InvalidTag", "The TagKey or TagValue you have provided is invalid")
-		}
+	if err := validateTags(tags); err != nil {
+		return err
 	}
 	return s.update(ctx, name, func(m *Metadata) error {
 		if len(tags) == 0 {
@@ -526,10 +587,30 @@ func (s *service) SetCORS(ctx context.Context, name string, xmlDoc []byte) error
 	if err := s.validateXML(xmlDoc, "CORSConfiguration"); err != nil {
 		return err
 	}
+	cfg, err := parseCORS(xmlDoc)
+	if err != nil {
+		return err
+	}
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
 	return s.update(ctx, name, func(m *Metadata) error {
 		m.CORS = append([]byte(nil), xmlDoc...)
 		return nil
 	})
+}
+
+// GetCORSConfig implements Service.
+func (s *service) GetCORSConfig(ctx context.Context, name string) (domain.CORSConfiguration, error) {
+	doc, err := s.GetCORS(ctx, name)
+	if err != nil {
+		return domain.CORSConfiguration{}, err
+	}
+	cfg, err := parseCORS(doc)
+	if err != nil {
+		return domain.CORSConfiguration{}, fmt.Errorf("bucket: stored CORS configuration of %s: %w", name, err)
+	}
+	return cfg, nil
 }
 
 // DeleteCORS implements Service.

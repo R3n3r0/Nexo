@@ -12,6 +12,8 @@ import {
 } from '@mantine/core';
 import {
   IconAlertCircle,
+  IconBell,
+  IconClockHour4,
   IconFolder,
   IconLock,
   IconSettings,
@@ -31,15 +33,14 @@ import { isApiError, useServices } from '@/services';
 
 import { DeleteBucketDialog } from './DeleteBucketDialog';
 
-type BucketTab = 'browse' | 'settings' | 'access';
+const tabs = ['browse', 'settings', 'lifecycle', 'events', 'access'] as const;
+type BucketTab = (typeof tabs)[number];
 
-/** The tab of a bucket route: /buckets/:bucket/{browse/*,settings,access}. */
+/** The tab of a bucket route: /buckets/:bucket/{browse/*,settings,lifecycle,events,access}. */
 function tabOf(pathname: string, bucket: string): BucketTab {
   const base = `/buckets/${encodeURIComponent(bucket)}/`;
   const rest = pathname.startsWith(base) ? pathname.slice(base.length) : '';
-  if (rest.startsWith('settings')) return 'settings';
-  if (rest.startsWith('access')) return 'access';
-  return 'browse';
+  return tabs.find((tab) => tab !== 'browse' && rest.startsWith(tab)) ?? 'browse';
 }
 
 /** Header and tabs of a bucket (objects, settings, access); the tab is a child route. */
@@ -155,7 +156,7 @@ export function BucketDetailPage() {
         onChange={(value) => {
           const base = `/buckets/${encodeURIComponent(name)}`;
           if (value === 'browse') void navigate(browsePath(name));
-          else if (value === 'settings' || value === 'access') void navigate(`${base}/${value}`);
+          else if (tabs.includes(value as BucketTab)) void navigate(`${base}/${String(value)}`);
         }}
         keepMounted={false}
       >
@@ -166,12 +167,18 @@ export function BucketDetailPage() {
           <Tabs.Tab value="settings" leftSection={<IconSettings size={16} />}>
             {t('bucket.tabs.settings')}
           </Tabs.Tab>
+          <Tabs.Tab value="lifecycle" leftSection={<IconClockHour4 size={16} />}>
+            {t('bucket.tabs.lifecycle')}
+          </Tabs.Tab>
+          <Tabs.Tab value="events" leftSection={<IconBell size={16} />}>
+            {t('bucket.tabs.events')}
+          </Tabs.Tab>
           <Tabs.Tab value="access" leftSection={<IconLock size={16} />}>
             {t('bucket.tabs.access')}
           </Tabs.Tab>
         </Tabs.List>
         {/* Every tab controls a panel; the route renders in the active one. */}
-        {(['browse', 'settings', 'access'] as const).map((value) => (
+        {tabs.map((value) => (
           <Tabs.Panel key={value} value={value} pt="md">
             {value === tab ? <Outlet /> : null}
           </Tabs.Panel>

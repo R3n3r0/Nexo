@@ -487,6 +487,63 @@ func (_c *Service_GetCORS_Call) RunAndReturn(run func(context.Context, string) (
 	return _c
 }
 
+// GetCORSConfig provides a mock function with given fields: ctx, name
+func (_m *Service) GetCORSConfig(ctx context.Context, name string) (domain.CORSConfiguration, error) {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetCORSConfig")
+	}
+
+	var r0 domain.CORSConfiguration
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (domain.CORSConfiguration, error)); ok {
+		return rf(ctx, name)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) domain.CORSConfiguration); ok {
+		r0 = rf(ctx, name)
+	} else {
+		r0 = ret.Get(0).(domain.CORSConfiguration)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, name)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_GetCORSConfig_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCORSConfig'
+type Service_GetCORSConfig_Call struct {
+	*mock.Call
+}
+
+// GetCORSConfig is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+func (_e *Service_Expecter) GetCORSConfig(ctx interface{}, name interface{}) *Service_GetCORSConfig_Call {
+	return &Service_GetCORSConfig_Call{Call: _e.mock.On("GetCORSConfig", ctx, name)}
+}
+
+func (_c *Service_GetCORSConfig_Call) Run(run func(ctx context.Context, name string)) *Service_GetCORSConfig_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *Service_GetCORSConfig_Call) Return(_a0 domain.CORSConfiguration, _a1 error) *Service_GetCORSConfig_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_GetCORSConfig_Call) RunAndReturn(run func(context.Context, string) (domain.CORSConfiguration, error)) *Service_GetCORSConfig_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetEncryption provides a mock function with given fields: ctx, name
 func (_m *Service) GetEncryption(ctx context.Context, name string) (bucket.EncryptionConfig, error) {
 	ret := _m.Called(ctx, name)
@@ -1097,6 +1154,63 @@ func (_c *Service_List_Call) Return(_a0 []domain.BucketInfo, _a1 error) *Service
 }
 
 func (_c *Service_List_Call) RunAndReturn(run func(context.Context, bucket.ListInput) ([]domain.BucketInfo, error)) *Service_List_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListPage provides a mock function with given fields: ctx, in
+func (_m *Service) ListPage(ctx context.Context, in bucket.ListPageInput) (bucket.ListPageResult, error) {
+	ret := _m.Called(ctx, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListPage")
+	}
+
+	var r0 bucket.ListPageResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, bucket.ListPageInput) (bucket.ListPageResult, error)); ok {
+		return rf(ctx, in)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, bucket.ListPageInput) bucket.ListPageResult); ok {
+		r0 = rf(ctx, in)
+	} else {
+		r0 = ret.Get(0).(bucket.ListPageResult)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, bucket.ListPageInput) error); ok {
+		r1 = rf(ctx, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_ListPage_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListPage'
+type Service_ListPage_Call struct {
+	*mock.Call
+}
+
+// ListPage is a helper method to define mock.On call
+//   - ctx context.Context
+//   - in bucket.ListPageInput
+func (_e *Service_Expecter) ListPage(ctx interface{}, in interface{}) *Service_ListPage_Call {
+	return &Service_ListPage_Call{Call: _e.mock.On("ListPage", ctx, in)}
+}
+
+func (_c *Service_ListPage_Call) Run(run func(ctx context.Context, in bucket.ListPageInput)) *Service_ListPage_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(bucket.ListPageInput))
+	})
+	return _c
+}
+
+func (_c *Service_ListPage_Call) Return(_a0 bucket.ListPageResult, _a1 error) *Service_ListPage_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_ListPage_Call) RunAndReturn(run func(context.Context, bucket.ListPageInput) (bucket.ListPageResult, error)) *Service_ListPage_Call {
 	_c.Call.Return(run)
 	return _c
 }

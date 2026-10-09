@@ -7,6 +7,7 @@ import type {
   BucketObjectLock,
   BucketQuota,
   BucketVersioning,
+  CorsConfiguration,
   TagSet,
 } from '../types';
 import type { HttpClient } from './client';
@@ -137,6 +138,17 @@ export function createHttpBucketService(client: HttpClient): BucketService {
         method: 'DELETE',
         query: { prefix },
       });
+    },
+    getCors(name) {
+      // A bucket without configuration answers no rule.
+      return client.request<CorsConfiguration>(path(name, 'cors'));
+    },
+    async setCors(name, config) {
+      if (config.rules.length === 0) {
+        await client.request<void>(path(name, 'cors'), { method: 'DELETE' });
+        return { rules: [] };
+      }
+      return client.request<CorsConfiguration>(path(name, 'cors'), { method: 'PUT', body: config });
     },
   };
 }

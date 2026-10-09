@@ -57,7 +57,7 @@ versions of the source.`,
 }
 
 func (e *env) mirror(ctx context.Context, args []string, flags mirrorFlags) error {
-	opts, err := flags.options(e)
+	opts, err := flags.options(ctx, e)
 	if err != nil {
 		return err
 	}

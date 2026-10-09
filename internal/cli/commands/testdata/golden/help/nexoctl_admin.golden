@@ -1,6 +1,7 @@
 Administer a Nexo server through its Admin API: server information and usage,
 users, groups, policies, access keys, configuration, service control, the export and
-import of the state of a deployment and the lock diagnostics.
+import of the state of a deployment, the lock diagnostics, the KMS of the
+server-side encryption and the notification targets.
 
 The Admin API is served by the console listener of the server: see --admin-url
 of "nexoctl alias set". Every subcommand takes the alias as its first argument.
@@ -16,7 +17,9 @@ Available Commands:
   group       Manage the IAM groups and their members
   heal        Heal the drives of the server (erasure-coded deployments)
   info        Show the server: version, mode, nodes and drives
+  kms         Show the KMS of the server-side encryption and manage its keys
   lock        List and release the namespace locks of a cluster
+  notify      Inspect and test the notification targets
   policy      Manage the IAM policies (AWS policy language)
   service     Restart or stop the server
   usage       Show the data usage of the server and of each bucket

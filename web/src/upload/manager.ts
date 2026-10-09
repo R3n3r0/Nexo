@@ -1,4 +1,10 @@
-import { isApiError, type CompletedPart, type Upload, type UploadService } from '@/services';
+import {
+  isApiError,
+  type CompletedPart,
+  type Upload,
+  type UploadEncryption,
+  type UploadService,
+} from '@/services';
 
 import { FileTooLargeError, partRanges, planParts, type PartRange } from './plan';
 
@@ -12,6 +18,8 @@ export interface UploadSource {
   file: Blob;
   /** Defaults to the type of the blob. */
   contentType?: string;
+  /** Server-side encryption of the object; the bucket default without. */
+  encryption?: UploadEncryption;
 }
 
 /** Immutable view of a queued file, for the UI. */
@@ -103,6 +111,7 @@ interface Task {
   key: string;
   blob: Blob;
   contentType: string;
+  encryption?: UploadEncryption;
   status: UploadStatus;
   multipart: boolean;
   upload?: Upload;
@@ -320,7 +329,13 @@ export function createUploadManager(options: UploadManagerOptions): UploadManage
     begin(task);
     service
       .putObject(
-        { bucket: task.bucket, key: task.key, body: task.blob, contentType: task.contentType },
+        {
+          bucket: task.bucket,
+          key: task.key,
+          body: task.blob,
+          contentType: task.contentType,
+          ...(task.encryption ? { encryption: task.encryption } : {}),
+        },
         {
           signal: controller.signal,
           onProgress: (loaded) => {
@@ -356,7 +371,10 @@ export function createUploadManager(options: UploadManagerOptions): UploadManage
     task.creating = true;
     begin(task);
     service
-      .create(task.bucket, task.key, { contentType: task.contentType })
+      .create(task.bucket, task.key, {
+        contentType: task.contentType,
+        ...(task.encryption ? { encryption: task.encryption } : {}),
+      })
       .then(
         (upload) => {
           task.upload = upload;
@@ -519,6 +537,7 @@ export function createUploadManager(options: UploadManagerOptions): UploadManage
           key: source.key,
           blob: source.file,
           contentType: type !== '' ? type : 'application/octet-stream',
+          ...(source.encryption ? { encryption: source.encryption } : {}),
           status: 'queued',
           multipart: source.file.size > threshold,
           creating: false,

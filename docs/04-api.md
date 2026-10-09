@@ -57,7 +57,12 @@ decodifica una volta sola.
 | GET | `/info` | Info server/cluster (pool con quorum e stato degli erasure set, nodi con versione, uptime, sfasamento dell'orologio e riparazione in background, dischi) |
 | GET | `/usage` | Uso dati per cluster/bucket |
 | GET/POST/DELETE | `/buckets`, `/buckets/{b}` | Gestione bucket (estende S3 con stat, quota, ecc.); chi può elencare solo una parte del bucket (home directory) ne vede nome, data di creazione e regione (`partial: true`) |
-| GET/PUT | `/buckets/{b}/{versioning,policy,lifecycle,encryption,objectlock,quota,tags,events,replication}` | Impostazioni bucket |
+| GET/PUT | `/buckets/{b}/{versioning,policy,lifecycle,encryption,objectlock,quota,tags,events,cors,replication}` | Impostazioni bucket |
+| GET/PUT/DELETE | `/buckets/{b}/lifecycle` · POST `/buckets/{b}/lifecycle/apply` | Regole lifecycle in JSON strutturato ↔ `LifecycleConfiguration` S3 (lo stesso documento dell'API S3), validate regola per regola: `400 invalid_configuration` con `ruleErrors` (indice, id, codice S3, messaggio). `apply` esegue subito le regole (`s3:PutLifecycleConfiguration` + `admin:ApplyLifecycle`) |
+| GET/PUT/DELETE | `/buckets/{b}/events` · `/buckets/{b}/cors` | Sottoscrizioni eventi (ARN del target, eventi, prefix/suffix) e regole CORS, validate come il lifecycle |
+| GET | `/notify/targets` · POST `/notify/targets/{id}/test` | Target di notifica (sottosistemi `notify_*`) con stato online/offline ed eventi in coda visti dal nodo che risponde; evento di prova `s3:TestEvent` (`admin:ConfigUpdate`) |
+| GET/PUT | `/buckets/{b}/objects/{retention,legal-hold}?key=&versionId=` · GET `/attributes` | Retention (mode, retainUntil, `bypassGovernance` con `s3:BypassGovernanceRetention`), legal hold e attributi (checksum, parti) di una versione |
+| GET/POST | `/kms/status`, `/kms/keys` | KMS (segnaposto `501` fino al collegamento del servizio KMS) |
 | GET | `/buckets/{b}/objects?prefix=&delimiter=&cursor=` | Listing per object browser |
 | POST | `/buckets/{b}/objects/upload` · GET `/download` · POST `/download-zip` · DELETE `/objects` | Operazioni oggetti dalla console |
 | POST | `/buckets/{b}/objects/restore?key=&versionId=` | Ripristina una versione (copia della versione sulla sua chiave, autorizzata come la `CopyObject` S3) |
@@ -87,6 +92,11 @@ equivalente (`s3:versionid`, `s3:x-amz-*`, `s3:RequestObjectTag/*`, `s3:authType
 definizione (`policy.RequestConditions`): una policy decide allo stesso modo via S3 e via console. Il client di
 `aws:SourceIp` e `aws:SecureTransport` è, su entrambi i listener, quello inoltrato dai proxy fidati
 (`--trusted-proxies`, `X-Forwarded-For`/`X-Forwarded-Proto`), altrimenti il peer della connessione.
+
+Le operazioni della console su oggetti protetti da Object Lock si comportano come le richieste S3 equivalenti:
+l'eliminazione di una versione sotto retention o legal hold fallisce (`object_locked`, anche per root in COMPLIANCE),
+`bypassGovernance` vale solo dove il chiamante ha `s3:BypassGovernanceRetention`; rinomina e ripristino creano nuove
+versioni e lasciano intatte quelle protette.
 
 Le operazioni sugli oggetti per prefisso (eliminazione, rinomina e zip) trattano ogni prefisso come una cartella,
 come la CLI: un prefisso non vuoto senza `/` finale indica la cartella omonima (`photos` è `photos/`, mai

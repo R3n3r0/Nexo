@@ -22,6 +22,8 @@ import { problemMessage } from '@/lib/problem';
 import { serverInfoQueryKey } from '@/lib/serverInfo';
 import { useServices } from '@/services';
 
+import { KmsStatusTable } from './config/KmsStatusTable';
+
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <Table.Tr>
@@ -31,7 +33,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-/** D-CFG-02: version, build, deployment ID and mode of the server. */
+/** D-CFG-02: version, build, deployment ID, mode and KMS of the server. */
 export function InfoPage() {
   const { t, i18n } = useTranslation();
   const { info } = useServices();
@@ -117,6 +119,19 @@ export function InfoPage() {
           </Table>
         ) : null}
       </Paper>
+      {data?.kms !== undefined ? (
+        <Paper withBorder radius="md" p="md" component="section" aria-label={t('kms.title')}>
+          <Title order={4} mb="sm">
+            {t('kms.title')}
+          </Title>
+          <KmsStatusTable status={data.kms} />
+          {data.kms.configured && (data.kms.keys ?? []).length > 0 ? (
+            <Text size="sm" mt="sm">
+              {t('kms.keysList', { keys: (data.kms.keys ?? []).join(', ') })}
+            </Text>
+          ) : null}
+        </Paper>
+      ) : null}
       {data && data.pools.length > 0 ? (
         <Paper withBorder radius="md" p="md">
           <Title order={4} mb="sm">

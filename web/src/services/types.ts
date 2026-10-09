@@ -256,6 +256,8 @@ export interface PutObjectInput {
   body: Blob;
   /** Defaults to the type of the blob, then application/octet-stream. */
   contentType?: string;
+  /** Server-side encryption of the object (the bucket default without). */
+  encryption?: UploadEncryption;
 }
 
 /** PUT /buckets/{bucket}/uploads/{uploadId}/parts/{n}. */
@@ -275,4 +277,87 @@ export interface TextPreview {
   /** Size of the whole object, when known. */
   size?: number;
   contentType: string;
+}
+
+/* ------------------------------------------------------------------------ */
+/* M7: lifecycle, event notifications, CORS, object lock, checksums, KMS.  */
+/* ------------------------------------------------------------------------ */
+
+/** The lifecycle rules of a bucket (S3 LifecycleConfiguration, D-BKT-03). */
+export type LifecycleConfiguration = Schemas['LifecycleConfiguration'];
+export type LifecycleRule = Schemas['LifecycleRule'];
+/** The objects of a rule: every criterion set must match (none: the whole bucket). */
+export type LifecycleFilter = Schemas['LifecycleFilter'];
+/** Exactly one of days, date and expiredObjectDeleteMarker. */
+export type LifecycleExpiration = Schemas['LifecycleExpiration'];
+export type LifecycleNoncurrentExpiration = Schemas['LifecycleNoncurrentExpiration'];
+export type LifecycleAbortUpload = Schemas['LifecycleAbortUpload'];
+export type LifecycleTransition = Schemas['LifecycleTransition'];
+export type LifecycleNoncurrentTransition = Schemas['LifecycleNoncurrentTransition'];
+/** What POST /buckets/{bucket}/lifecycle/apply did. */
+export type LifecycleApplyResult = Schemas['LifecycleApplyResult'];
+
+/** The event subscriptions of a bucket (S3 NotificationConfiguration, D-BKT-04). */
+export type BucketNotifications = Schemas['BucketNotifications'];
+export type EventSubscription = Schemas['EventSubscription'];
+/** A notification target (notify_* subsystem) with its delivery state. */
+export type NotifyTarget = Schemas['NotifyTarget'];
+export type NotifyTargetType = NotifyTarget['type'];
+/** The outcome of a test event sent to a target. */
+export type NotifyTargetTest = Schemas['NotifyTargetTest'];
+
+/** The CORS rules of a bucket, evaluated in order. */
+export type CorsConfiguration = Schemas['CorsConfiguration'];
+export type CorsRule = Schemas['CorsRule'];
+
+/** Object Lock retention mode. */
+export type RetentionMode = NonNullable<Schemas['ObjectRetention']['mode']>;
+/** The retention of a version: no mode when it has none. */
+export type ObjectRetention = Schemas['ObjectRetention'];
+/**
+ * PUT objects/retention: a mode with a future date, or neither to remove
+ * it; bypassGovernance shortens or removes a GOVERNANCE retention.
+ */
+export type SetObjectRetentionInput = Schemas['SetObjectRetentionRequest'];
+export type ObjectLegalHold = Schemas['ObjectLegalHold'];
+export type LegalHoldStatus = 'ON' | 'OFF';
+
+/** An S3 additional checksum (base64 value). */
+export type ObjectChecksum = Schemas['Checksum'];
+export type ObjectPart = Schemas['ObjectPart'];
+/** Checksum and parts of a version (GET objects/attributes). */
+export type ObjectAttributes = Schemas['ObjectAttributes'];
+/** Server-side encryption of a version. */
+export type ObjectEncryption = Schemas['ObjectEncryption'];
+
+/** State of the KMS of the server-side encryption (GET /kms/status). */
+export type KmsStatus = Schemas['KmsStatus'];
+/** The KMS as GET /info reports it, with the names of its first keys. */
+export type KmsInfo = Schemas['KmsInfo'];
+export type KmsKey = Schemas['KmsKey'];
+
+/** Query of GET objects/attributes. */
+export interface AttributesQuery {
+  versionId?: string;
+  /** Parts per page, 1 to 1000. */
+  maxParts?: number;
+  /** The parts after this number. */
+  partNumberMarker?: number;
+}
+
+/**
+ * Server-side encryption asked for by an upload (the S3 headers
+ * x-amz-server-side-encryption[-aws-kms-key-id]); none lets the default
+ * encryption of the bucket apply.
+ */
+export interface UploadEncryption {
+  /** AES256 (SSE-S3) or aws:kms (SSE-KMS). */
+  algorithm: 'AES256' | 'aws:kms';
+  /** The key of SSE-KMS; the default key of the KMS when absent. */
+  kmsKeyId?: string;
+}
+
+/** POST /buckets/{bucket}/uploads: the body plus the encryption of the object. */
+export interface CreateUploadOptions extends CreateUploadInput {
+  encryption?: UploadEncryption;
 }

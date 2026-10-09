@@ -1,6 +1,13 @@
 import { saveBlob } from '@/lib/download';
+import { isApiError } from '../errors';
 import type { ObjectService } from '../interfaces';
-import type { DeleteObjectsResult, ObjectDetails, ObjectList, RenameResult } from '../types';
+import type {
+  DeleteObjectsResult,
+  ObjectDetails,
+  ObjectList,
+  ObjectRetention,
+  RenameResult,
+} from '../types';
 import { toEntry, type MockBucketState, type MockStorage, type MockVersion } from './storage';
 import { clone, problem } from './support';
 
@@ -85,14 +92,42 @@ async function readText(version: MockVersion, maxBytes: number) {
 export function createMockObjectService(storage: MockStorage): ObjectService {
   const { ctx } = storage;
 
+  /** The bucket with object lock, or 400 invalid_request like the server. */
+  function lockedBucket(bucket: string): MockBucketState {
+    const state = storage.bucket(bucket);
+    if (!state.bucket.objectLockEnabled) {
+      throw problem(400, 'invalid_request', 'Bucket is missing Object Lock Configuration.');
+    }
+    return state;
+  }
+
+  /** The version addressed by an Object Lock operation (never a delete marker). */
+  function lockTarget(state: MockBucketState, key: string, versionId?: string): MockVersion {
+    const version = findVersion(state, key, versionId);
+    if (version.isDeleteMarker) {
+      throw problem(405, 'method_not_allowed', 'The version is a delete marker.');
+    }
+    return version;
+  }
+
+  function retentionOf(version: MockVersion): ObjectRetention {
+    return {
+      ...(version.versionId !== 'null' ? { versionId: version.versionId } : {}),
+      ...(version.retention
+        ? { mode: version.retention.mode, retainUntil: version.retention.retainUntil }
+        : {}),
+    };
+  }
+
   function deleteKey(
     state: MockBucketState,
     key: string,
     versionId: string | undefined,
     result: DeleteObjectsResult,
+    bypassGovernance: boolean,
   ) {
     try {
-      const marker = storage.remove(state, key, versionId);
+      const marker = storage.remove(state, key, versionId, { bypassGovernance });
       result.deleted.push({
         key,
         ...(versionId ? { versionId } : {}),
@@ -104,7 +139,7 @@ export function createMockObjectService(storage: MockStorage): ObjectService {
       result.errors.push({
         key,
         ...(versionId ? { versionId } : {}),
-        code: 'internal_error',
+        code: isApiError(error) ? error.code : 'internal_error',
         message,
       });
     }
@@ -163,6 +198,11 @@ export function createMockObjectService(storage: MockStorage): ObjectService {
       const details: ObjectDetails = {
         ...toEntry(version, all[0] === version),
         userMetadata: { ...version.userMetadata },
+        ...(version.parts !== undefined ? { parts: version.parts.length } : {}),
+        ...(version.checksum
+          ? { checksumAlgorithm: version.checksum.algorithm, checksum: version.checksum.value }
+          : {}),
+        ...(version.encryption ? { encryption: clone(version.encryption) } : {}),
         tags: { ...version.tags },
         versions: all.slice(0, 10).map((v, i) => toEntry(v, i === 0)),
         versionsTruncated: all.length > 10,
@@ -200,17 +240,18 @@ export function createMockObjectService(storage: MockStorage): ObjectService {
       await ctx.delay();
       const state = storage.bucket(bucket);
       const result: DeleteObjectsResult = { deleted: [], errors: [] };
+      const bypass = input.bypassGovernance === true;
       for (const ref of input.objects ?? []) {
-        deleteKey(state, ref.key, ref.versionId, result);
+        deleteKey(state, ref.key, ref.versionId, result, bypass);
       }
       for (const prefix of (input.prefixes ?? []).map(folderPrefix)) {
         for (const key of [...state.keys.keys()].filter((k) => k.startsWith(prefix)).sort()) {
           if (input.allVersions === true) {
             for (const v of [...(state.keys.get(key) ?? [])]) {
-              deleteKey(state, key, v.versionId, result);
+              deleteKey(state, key, v.versionId, result, bypass);
             }
           } else {
-            deleteKey(state, key, undefined, result);
+            deleteKey(state, key, undefined, result, bypass);
           }
         }
       }
@@ -275,6 +316,92 @@ export function createMockObjectService(storage: MockStorage): ObjectService {
       const version = findVersion(storage.bucket(bucket), key, versionId);
       version.tags = { ...tags };
       return clone(version.tags);
+    },
+    async getRetention(bucket, key, versionId) {
+      await ctx.delay();
+      return retentionOf(lockTarget(lockedBucket(bucket), key, versionId));
+    },
+    async setRetention(bucket, key, input, versionId) {
+      await ctx.delay();
+      const version = lockTarget(lockedBucket(bucket), key, versionId);
+      const mode = input.mode?.toUpperCase() ?? '';
+      const until = input.retainUntil ?? '';
+      const now = ctx.now().getTime();
+      const current = version.retention;
+      const active = current !== undefined && Date.parse(current.retainUntil) > now;
+      if (mode === '' && until === '') {
+        if (active) {
+          if (current.mode === 'COMPLIANCE') {
+            throw problem(403, 'object_locked', 'A COMPLIANCE retention cannot be removed.');
+          }
+          if (input.bypassGovernance !== true) {
+            throw problem(
+              403,
+              'object_locked',
+              'Removing a GOVERNANCE retention needs the governance bypass.',
+            );
+          }
+        }
+        delete version.retention;
+        return retentionOf(version);
+      }
+      if (mode !== 'GOVERNANCE' && mode !== 'COMPLIANCE') {
+        throw problem(400, 'malformed_xml', 'The retention mode must be GOVERNANCE or COMPLIANCE.');
+      }
+      const target = Date.parse(until);
+      if (Number.isNaN(target) || target <= now) {
+        throw problem(400, 'invalid_argument', 'The retain until date must be in the future.');
+      }
+      if (active) {
+        const shorter = target < Date.parse(current.retainUntil);
+        const weaker = current.mode === 'COMPLIANCE' && mode === 'GOVERNANCE';
+        if (current.mode === 'COMPLIANCE' && (shorter || weaker)) {
+          throw problem(403, 'object_locked', 'A COMPLIANCE retention cannot be shortened.');
+        }
+        if (current.mode === 'GOVERNANCE' && shorter && input.bypassGovernance !== true) {
+          throw problem(
+            403,
+            'object_locked',
+            'Shortening a GOVERNANCE retention needs the governance bypass.',
+          );
+        }
+      }
+      version.retention = { mode, retainUntil: new Date(target).toISOString() };
+      return retentionOf(version);
+    },
+    async getLegalHold(bucket, key, versionId) {
+      await ctx.delay();
+      return lockTarget(lockedBucket(bucket), key, versionId).legalHold ?? 'OFF';
+    },
+    async setLegalHold(bucket, key, status, versionId) {
+      await ctx.delay();
+      const version = lockTarget(lockedBucket(bucket), key, versionId);
+      version.legalHold = status;
+      return status;
+    },
+    async attributes(bucket, key, query = {}) {
+      await ctx.delay();
+      const state = storage.bucket(bucket);
+      const version = lockTarget(state, key, query.versionId);
+      const all = version.parts ?? [];
+      const marker = query.partNumberMarker ?? 0;
+      const max = Math.min(Math.max(query.maxParts ?? 1000, 1), 1000);
+      const after = all.filter((p) => p.partNumber > marker);
+      const page = after.slice(0, max);
+      const truncated = after.length > page.length;
+      return {
+        key: version.key,
+        ...(version.versionId !== 'null' ? { versionId: version.versionId } : {}),
+        etag: version.etag,
+        size: version.size,
+        lastModified: version.lastModified,
+        storageClass: 'STANDARD',
+        ...(version.checksum ? { checksum: clone(version.checksum) } : {}),
+        partsCount: all.length,
+        parts: clone(page),
+        isTruncated: truncated,
+        ...(truncated ? { nextPartNumberMarker: page[page.length - 1]?.partNumber ?? marker } : {}),
+      };
     },
     downloadUrl(bucket, key, versionId) {
       const version = storage.buckets

@@ -2,6 +2,7 @@ package testutil
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"hash/fnv"
 	"io"
@@ -39,6 +40,10 @@ type lbSettings struct {
 	sticky   bool
 	health   string
 	interval time.Duration
+	// serverTLS and clientTLS serve the balancer and reach the targets
+	// over TLS (LBTLS).
+	serverTLS *tls.Config
+	clientTLS *tls.Config
 }
 
 // LBOption customizes NewLoadBalancer.
@@ -74,15 +79,25 @@ func NewLoadBalancer(t testing.TB, targets func() []string, opts ...LBOption) *L
 	if err != nil {
 		t.Fatalf("testutil: load balancer: %v", err)
 	}
+	scheme := "http"
+	if st.serverTLS != nil {
+		ln = tls.NewListener(ln, st.serverTLS)
+		scheme = "https"
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	transport := &http.Transport{
 		Proxy:               nil,
 		DialContext:         (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
 		MaxIdleConnsPerHost: 64,
 		IdleConnTimeout:     30 * time.Second,
+		TLSClientConfig:     st.clientTLS,
+	}
+	targetScheme := "http"
+	if st.clientTLS != nil {
+		targetScheme = "https"
 	}
 	b := &balancer{targets: targets, sticky: st.sticky, next: transport}
-	lb := &LoadBalancer{URL: "http://" + ln.Addr().String(), cancel: cancel}
+	lb := &LoadBalancer{URL: scheme + "://" + ln.Addr().String(), cancel: cancel}
 	if st.health != "" {
 		b.down = &sync.Map{}
 		lb.wg.Add(1)
@@ -93,7 +108,7 @@ func NewLoadBalancer(t testing.TB, targets func() []string, opts ...LBOption) *L
 	}
 	proxy := &httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
-			r.Out.URL.Scheme = "http"
+			r.Out.URL.Scheme = targetScheme
 			r.Out.URL.Host = "balanced" // chosen by the balancer
 			r.Out.Host = r.In.Host
 			// Transparent: the forwarding headers of the client go
@@ -135,7 +150,7 @@ func (lb *LoadBalancer) Close() {
 // and the console listeners of the nodes: round robin for S3, sticky for
 // the console (its login throttle counts per node). S3URL and ConsoleURL
 // point to them.
-func (s *Server) startLB(t testing.TB, s3Addr, consoleAddr string, nodes int) {
+func (s *Server) startLB(t testing.TB, s3Addr, consoleAddr string, nodes int, opts ...LBOption) {
 	t.Helper()
 	targets := func(console bool) func() []string {
 		return func() []string {
@@ -152,8 +167,8 @@ func (s *Server) startLB(t testing.TB, s3Addr, consoleAddr string, nodes int) {
 			return out
 		}
 	}
-	s3LB := NewLoadBalancer(t, targets(false), LBAddr(s3Addr))
-	consLB := NewLoadBalancer(t, targets(true), LBAddr(consoleAddr), LBSticky())
+	s3LB := NewLoadBalancer(t, targets(false), append([]LBOption{LBAddr(s3Addr)}, opts...)...)
+	consLB := NewLoadBalancer(t, targets(true), append([]LBOption{LBAddr(consoleAddr), LBSticky()}, opts...)...)
 	s.lb = append(s.lb, s3LB, consLB)
 	s.S3URL, s.ConsoleURL = s3LB.URL, consLB.URL
 }

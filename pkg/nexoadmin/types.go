@@ -432,6 +432,9 @@ type DeleteObjectsRequest struct {
 	// never "photos2/" ("" is the whole bucket).
 	Prefixes    []string `json:"prefixes,omitempty"`
 	AllVersions bool     `json:"allVersions,omitempty"`
+	// BypassGovernance deletes the versions a GOVERNANCE retention
+	// protects, where the caller has s3:BypassGovernanceRetention.
+	BypassGovernance bool `json:"bypassGovernance,omitempty"`
 }
 
 // DeletedObject is a successful deletion.

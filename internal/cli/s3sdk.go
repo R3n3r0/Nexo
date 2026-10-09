@@ -193,6 +193,9 @@ func (c *sdkClient) MakeBucket(ctx context.Context, bucket string, opts MakeBuck
 	if region != "" && region != DefaultRegion {
 		in.CreateBucketConfiguration = &types.CreateBucketConfiguration{LocationConstraint: types.BucketLocationConstraint(region)}
 	}
+	if opts.ObjectLock {
+		in.ObjectLockEnabledForBucket = aws.Bool(true)
+	}
 	_, err := c.api.CreateBucket(ctx, in)
 	return mapS3Error(err, bucket, "")
 }
@@ -327,6 +330,11 @@ func (c *sdkClient) Stat(ctx context.Context, bucket, key string, opts StatOptio
 	if opts.VersionID != "" {
 		in.VersionId = aws.String(opts.VersionID)
 	}
+	if opts.Checksum {
+		in.ChecksumMode = types.ChecksumModeEnabled
+	}
+	ck := customerKeyOf(opts.SSE)
+	in.SSECustomerAlgorithm, in.SSECustomerKey, in.SSECustomerKeyMD5 = ck.algorithm, ck.key, ck.keyMD5
 	out, err := c.api.HeadObject(ctx, in)
 	if err != nil {
 		return nil, mapS3Error(err, bucket, key)
@@ -342,6 +350,11 @@ func (c *sdkClient) Stat(ctx context.Context, bucket, key string, opts StatOptio
 		DeleteMarker: aws.ToBool(out.DeleteMarker),
 		Metadata:     lowerKeys(out.Metadata),
 		StorageClass: string(out.StorageClass),
+		Retention:    retentionOf(out.ObjectLockMode, out.ObjectLockRetainUntilDate),
+		LegalHold:    domain.LegalHoldStatus(out.ObjectLockLegalHoldStatus),
+		Checksum: checksumOf(checksumValues{out.ChecksumCRC32, out.ChecksumCRC32C, out.ChecksumCRC64NVME, out.ChecksumSHA1, out.ChecksumSHA256},
+			out.ChecksumType),
+		Encryption: encryptionOf(out.ServerSideEncryption, out.SSEKMSKeyId, out.SSECustomerAlgorithm, out.SSECustomerKeyMD5),
 	}, nil
 }
 
@@ -351,6 +364,8 @@ func (c *sdkClient) Get(ctx context.Context, bucket, key string, opts GetOptions
 	if opts.VersionID != "" {
 		in.VersionId = aws.String(opts.VersionID)
 	}
+	ck := customerKeyOf(opts.SSE)
+	in.SSECustomerAlgorithm, in.SSECustomerKey, in.SSECustomerKeyMD5 = ck.algorithm, ck.key, ck.keyMD5
 	if r := opts.Range; r != nil {
 		if r.Offset < 0 || r.Length < 0 {
 			return nil, nil, fmt.Errorf("%w: invalid range %d+%d", domain.ErrInvalidArgument, r.Offset, r.Length)
@@ -375,6 +390,9 @@ func (c *sdkClient) Get(ctx context.Context, bucket, key string, opts GetOptions
 		IsLatest:     opts.VersionID == "",
 		Metadata:     lowerKeys(out.Metadata),
 		StorageClass: string(out.StorageClass),
+		Retention:    retentionOf(out.ObjectLockMode, out.ObjectLockRetainUntilDate),
+		LegalHold:    domain.LegalHoldStatus(out.ObjectLockLegalHoldStatus),
+		Encryption:   encryptionOf(out.ServerSideEncryption, out.SSEKMSKeyId, out.SSECustomerAlgorithm, out.SSECustomerKeyMD5),
 	}
 	return out.Body, info, nil
 }
@@ -439,6 +457,12 @@ func (c *sdkClient) putSingle(ctx context.Context, bucket, key string, body io.R
 	if len(opts.Tags) > 0 {
 		in.Tagging = aws.String(FormatTags(opts.Tags))
 	}
+	sse := sseOf(opts.SSE)
+	in.ServerSideEncryption, in.SSEKMSKeyId = sse.algorithm, sse.kmsKeyID
+	in.SSECustomerAlgorithm, in.SSECustomerKey, in.SSECustomerKeyMD5 = sse.customer.algorithm, sse.customer.key, sse.customer.keyMD5
+	if opts.Checksum != domain.ChecksumNone {
+		in.ChecksumAlgorithm = types.ChecksumAlgorithm(opts.Checksum)
+	}
 	out, err := c.api.PutObject(ctx, in)
 	if err != nil {
 		return nil, mapS3Error(err, bucket, key)
@@ -446,7 +470,11 @@ func (c *sdkClient) putSingle(ctx context.Context, bucket, key string, body io.R
 	if opts.Progress != nil {
 		opts.Progress(size)
 	}
-	return &PutResult{ETag: trimETag(aws.ToString(out.ETag)), VersionID: aws.ToString(out.VersionId), Size: size}, nil
+	res := &PutResult{ETag: trimETag(aws.ToString(out.ETag)), VersionID: aws.ToString(out.VersionId), Size: size}
+	if opts.Checksum != domain.ChecksumNone {
+		res.Checksum = checksumOf(checksumValues{out.ChecksumCRC32, out.ChecksumCRC32C, out.ChecksumCRC64NVME, out.ChecksumSHA1, out.ChecksumSHA256}, out.ChecksumType)
+	}
+	return res, nil
 }
 
 // putMultipart runs a multipart upload and aborts it on failure.
@@ -458,20 +486,35 @@ func (c *sdkClient) putMultipart(ctx context.Context, bucket, key string, src pa
 	if len(opts.Tags) > 0 {
 		in.Tagging = aws.String(FormatTags(opts.Tags))
 	}
+	sse := sseOf(opts.SSE)
+	in.ServerSideEncryption, in.SSEKMSKeyId = sse.algorithm, sse.kmsKeyID
+	in.SSECustomerAlgorithm, in.SSECustomerKey, in.SSECustomerKeyMD5 = sse.customer.algorithm, sse.customer.key, sse.customer.keyMD5
+	if opts.Checksum != domain.ChecksumNone {
+		in.ChecksumAlgorithm = types.ChecksumAlgorithm(opts.Checksum)
+	}
 	created, err := c.createUpload(ctx, in)
 	if err != nil {
 		return nil, mapS3Error(err, bucket, key)
 	}
 	uploadID := aws.ToString(created.UploadId)
 	upload := func(ctx context.Context, p part) (types.CompletedPart, error) {
-		out, err := c.api.UploadPart(ctx, &s3.UploadPartInput{
+		pin := &s3.UploadPartInput{
 			Bucket: aws.String(bucket), Key: aws.String(key), UploadId: aws.String(uploadID),
 			PartNumber: aws.Int32(p.number), Body: p.body, ContentLength: aws.Int64(p.size),
-		})
+			SSECustomerAlgorithm: sse.customer.algorithm, SSECustomerKey: sse.customer.key, SSECustomerKeyMD5: sse.customer.keyMD5,
+		}
+		if opts.Checksum != domain.ChecksumNone {
+			pin.ChecksumAlgorithm = types.ChecksumAlgorithm(opts.Checksum)
+		}
+		out, err := c.api.UploadPart(ctx, pin)
 		if err != nil {
 			return types.CompletedPart{}, mapS3Error(err, bucket, key)
 		}
-		return types.CompletedPart{PartNumber: aws.Int32(p.number), ETag: out.ETag}, nil
+		done := types.CompletedPart{PartNumber: aws.Int32(p.number), ETag: out.ETag}
+		if opts.Checksum != domain.ChecksumNone {
+			setPartChecksum(&done, checksumValues{out.ChecksumCRC32, out.ChecksumCRC32C, out.ChecksumCRC64NVME, out.ChecksumSHA1, out.ChecksumSHA256})
+		}
+		return done, nil
 	}
 	parts, size, err := runParts(ctx, src, opts.Parallel, opts.Progress, upload)
 	if err == nil {
@@ -481,7 +524,11 @@ func (c *sdkClient) putMultipart(ctx context.Context, bucket, key string, src pa
 			MultipartUpload: &types.CompletedMultipartUpload{Parts: parts},
 		})
 		if err == nil {
-			return &PutResult{ETag: trimETag(aws.ToString(done.ETag)), VersionID: aws.ToString(done.VersionId), Size: size, Parts: len(parts)}, nil
+			res := &PutResult{ETag: trimETag(aws.ToString(done.ETag)), VersionID: aws.ToString(done.VersionId), Size: size, Parts: len(parts)}
+			if opts.Checksum != domain.ChecksumNone {
+				res.Checksum = checksumOf(checksumValues{done.ChecksumCRC32, done.ChecksumCRC32C, done.ChecksumCRC64NVME, done.ChecksumSHA1, done.ChecksumSHA256}, done.ChecksumType)
+			}
+			return res, nil
 		}
 		err = mapS3Error(err, bucket, key)
 	}
@@ -518,7 +565,7 @@ func (c *sdkClient) abort(ctx context.Context, bucket, key, uploadID string, cau
 
 // Copy implements S3Client.
 func (c *sdkClient) Copy(ctx context.Context, src, dst ObjectRef, opts CopyOptions) (*PutResult, error) {
-	info, err := c.Stat(ctx, src.Bucket, src.Key, StatOptions{VersionID: src.VersionID})
+	info, err := c.Stat(ctx, src.Bucket, src.Key, StatOptions{VersionID: src.VersionID, SSE: opts.SourceSSE})
 	if err != nil {
 		return nil, err
 	}
@@ -529,6 +576,13 @@ func (c *sdkClient) Copy(ctx context.Context, src, dst ObjectRef, opts CopyOptio
 		Bucket:     aws.String(dst.Bucket),
 		Key:        aws.String(dst.Key),
 		CopySource: aws.String(CopySource(src)),
+	}
+	sse, srcKey := sseOf(opts.SSE), customerKeyOf(opts.SourceSSE)
+	in.ServerSideEncryption, in.SSEKMSKeyId = sse.algorithm, sse.kmsKeyID
+	in.SSECustomerAlgorithm, in.SSECustomerKey, in.SSECustomerKeyMD5 = sse.customer.algorithm, sse.customer.key, sse.customer.keyMD5
+	in.CopySourceSSECustomerAlgorithm, in.CopySourceSSECustomerKey, in.CopySourceSSECustomerKeyMD5 = srcKey.algorithm, srcKey.key, srcKey.keyMD5
+	if opts.Checksum != domain.ChecksumNone {
+		in.ChecksumAlgorithm = types.ChecksumAlgorithm(opts.Checksum)
 	}
 	if opts.Metadata != nil || opts.ContentType != "" {
 		in.MetadataDirective = types.MetadataDirectiveReplace
@@ -556,8 +610,11 @@ func (c *sdkClient) Copy(ctx context.Context, src, dst ObjectRef, opts CopyOptio
 		opts.Progress(info.Size)
 	}
 	res := &PutResult{VersionID: aws.ToString(out.VersionId), Size: info.Size}
-	if out.CopyObjectResult != nil {
-		res.ETag = trimETag(aws.ToString(out.CopyObjectResult.ETag))
+	if r := out.CopyObjectResult; r != nil {
+		res.ETag = trimETag(aws.ToString(r.ETag))
+		if opts.Checksum != domain.ChecksumNone {
+			res.Checksum = checksumOf(checksumValues{r.ChecksumCRC32, r.ChecksumCRC32C, r.ChecksumCRC64NVME, r.ChecksumSHA1, r.ChecksumSHA256}, r.ChecksumType)
+		}
 	}
 	return res, nil
 }
@@ -593,6 +650,12 @@ func (c *sdkClient) copyMultipart(ctx context.Context, src, dst ObjectRef, info 
 	if len(tags) > 0 {
 		in.Tagging = aws.String(FormatTags(tags))
 	}
+	sse, srcKey := sseOf(opts.SSE), customerKeyOf(opts.SourceSSE)
+	in.ServerSideEncryption, in.SSEKMSKeyId = sse.algorithm, sse.kmsKeyID
+	in.SSECustomerAlgorithm, in.SSECustomerKey, in.SSECustomerKeyMD5 = sse.customer.algorithm, sse.customer.key, sse.customer.keyMD5
+	if opts.Checksum != domain.ChecksumNone {
+		in.ChecksumAlgorithm = types.ChecksumAlgorithm(opts.Checksum)
+	}
 	created, err := c.createUpload(ctx, in)
 	if err != nil {
 		return nil, mapS3Error(err, dst.Bucket, dst.Key)
@@ -603,16 +666,21 @@ func (c *sdkClient) copyMultipart(ctx context.Context, src, dst ObjectRef, info 
 		out, err := c.api.UploadPartCopy(ctx, &s3.UploadPartCopyInput{
 			Bucket: aws.String(dst.Bucket), Key: aws.String(dst.Key), UploadId: aws.String(uploadID),
 			PartNumber: aws.Int32(p.number), CopySource: aws.String(source),
-			CopySourceRange: aws.String(fmt.Sprintf("bytes=%d-%d", p.offset, p.offset+p.size-1)),
+			CopySourceRange:      aws.String(fmt.Sprintf("bytes=%d-%d", p.offset, p.offset+p.size-1)),
+			SSECustomerAlgorithm: sse.customer.algorithm, SSECustomerKey: sse.customer.key, SSECustomerKeyMD5: sse.customer.keyMD5,
+			CopySourceSSECustomerAlgorithm: srcKey.algorithm, CopySourceSSECustomerKey: srcKey.key, CopySourceSSECustomerKeyMD5: srcKey.keyMD5,
 		})
 		if err != nil {
 			return types.CompletedPart{}, mapS3Error(err, dst.Bucket, dst.Key)
 		}
-		var etag *string
-		if out.CopyPartResult != nil {
-			etag = out.CopyPartResult.ETag
+		done := types.CompletedPart{PartNumber: aws.Int32(p.number)}
+		if r := out.CopyPartResult; r != nil {
+			done.ETag = r.ETag
+			if opts.Checksum != domain.ChecksumNone {
+				setPartChecksum(&done, checksumValues{r.ChecksumCRC32, r.ChecksumCRC32C, r.ChecksumCRC64NVME, r.ChecksumSHA1, r.ChecksumSHA256})
+			}
 		}
-		return types.CompletedPart{PartNumber: aws.Int32(p.number), ETag: etag}, nil
+		return done, nil
 	}
 	ranges := &rangeParts{size: info.Size, partSize: partSize, parts: parts}
 	completed, size, err := runParts(ctx, ranges, opts.Parallel, opts.Progress, upload)
@@ -645,7 +713,7 @@ func CopySource(ref ObjectRef) string {
 }
 
 // Remove implements S3Client.
-func (c *sdkClient) Remove(ctx context.Context, bucket string, objects []ObjectVersion) ([]RemoveResult, error) {
+func (c *sdkClient) Remove(ctx context.Context, bucket string, objects []ObjectVersion, opts DeleteOptions) ([]RemoveResult, error) {
 	out := make([]RemoveResult, 0, len(objects))
 	for start := 0; start < len(objects); start += deleteBatch {
 		batch := objects[start:min(start+deleteBatch, len(objects))]
@@ -657,10 +725,14 @@ func (c *sdkClient) Remove(ctx context.Context, bucket string, objects []ObjectV
 			}
 			ids = append(ids, id)
 		}
-		res, err := c.api.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+		in := &s3.DeleteObjectsInput{
 			Bucket: aws.String(bucket),
 			Delete: &types.Delete{Objects: ids, Quiet: aws.Bool(false)},
-		})
+		}
+		if opts.BypassGovernance {
+			in.BypassGovernanceRetention = aws.Bool(true)
+		}
+		res, err := c.api.DeleteObjects(ctx, in)
 		if err != nil {
 			return out, mapS3Error(err, bucket, "")
 		}

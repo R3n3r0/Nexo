@@ -1,15 +1,19 @@
-Make buckets
+Make buckets. --with-lock creates them with Object Lock (WORM retention and
+legal holds, see "nexoctl retention" and "nexoctl legalhold"), which implies
+versioning and can only be enabled at creation.
 
 Usage:
   nexoctl mb [flags] ALIAS/BUCKET...
 
 Examples:
   nexoctl mb --with-versioning local/photos
+  nexoctl mb --with-lock local/vault
 
 Flags:
   -h, --help              help for mb
   -p, --ignore-existing   do not fail when the bucket already exists
       --region string     location constraint (default: the region of the alias)
+  -l, --with-lock         create the bucket with Object Lock (implies versioning)
       --with-versioning   enable versioning on the new bucket
 
 Global Flags:

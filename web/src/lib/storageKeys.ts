@@ -16,4 +16,13 @@ export const storageKeys = {
   versions: (bucket: string, key: string) => ['objects', bucket, 'versions', key] as const,
   preview: (bucket: string, key: string, versionId?: string) =>
     ['objects', bucket, 'preview', key, versionId ?? ''] as const,
+  /** Object Lock state and attributes of a version (retention, legal hold, attributes). */
+  objectLock: (bucket: string, key: string, versionId?: string) =>
+    ['objects', bucket, 'lock', key, versionId ?? ''] as const,
+  attributes: (bucket: string, key: string, versionId?: string) =>
+    ['objects', bucket, 'attributes', key, versionId ?? ''] as const,
+  /** Notification targets with their state (GET /notify/targets). */
+  notifyTargets: ['notify', 'targets'] as const,
+  kmsStatus: ['kms', 'status'] as const,
+  kmsKeys: ['kms', 'keys'] as const,
 };

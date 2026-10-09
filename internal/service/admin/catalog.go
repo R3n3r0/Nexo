@@ -48,6 +48,7 @@ func catalog() []catalogEntry {
 		policy.ActionAdminListAccessKeys, policy.ActionAdminManageShares,
 		policy.ActionAdminExportCluster, policy.ActionAdminImportCluster,
 		policy.ActionAdminListLocks, policy.ActionAdminForceUnlock,
+		policy.ActionAdminKMSKeyStatus, policy.ActionAdminKMSCreateKey,
 		policy.ActionListAllMyBuckets, policy.ActionCreateBucket,
 	)...)
 	out = append(out, scoped(scopeBucket,
@@ -59,8 +60,9 @@ func catalog() []catalogEntry {
 		policy.ActionGetBucketTagging, policy.ActionPutBucketTagging,
 		policy.ActionGetEncryption, policy.ActionPutEncryption,
 		policy.ActionGetBucketObjectLock, policy.ActionPutBucketObjectLock,
-		policy.ActionGetLifecycle, policy.ActionPutLifecycle,
+		policy.ActionGetLifecycle, policy.ActionPutLifecycle, policy.ActionAdminApplyLifecycle,
 		policy.ActionGetBucketNotification, policy.ActionPutBucketNotification,
+		policy.ActionGetBucketCORS, policy.ActionPutBucketCORS,
 		policy.ActionGetReplication, policy.ActionPutReplication,
 	)...)
 	out = append(out, scoped(scopeObject,
@@ -69,6 +71,10 @@ func catalog() []catalogEntry {
 		policy.ActionGetObjectTagging, policy.ActionPutObjectTagging,
 		policy.ActionGetObjectVersionTagging, policy.ActionPutObjectVersionTagging,
 		policy.ActionAbortMultipart, policy.ActionListMultipartParts,
+		policy.ActionGetObjectRetention, policy.ActionPutObjectRetention,
+		policy.ActionGetObjectLegalHold, policy.ActionPutObjectLegalHold,
+		policy.ActionBypassGovernanceRetention,
+		policy.ActionGetObjectAttributes, policy.ActionGetObjectVersionAttributes,
 	)...)
 	return out
 }

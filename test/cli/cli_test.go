@@ -9,7 +9,11 @@
 // named snmd_*.txtar run against a single node of 4 drives (SNMD) whose
 // drive directories are $NEXO_DRIVE1 ... $NEXO_DRIVE4, the ones named
 // cluster_*.txtar against a cluster of 4 nodes of 2 drives in the test
-// process, the alias "local" pointing at the first node.
+// process, the alias "local" pointing at the first node. The scripts
+// named tls_*.txtar (or snmd_tls_*, cluster_tls_*) run against a
+// deployment served over TLS (SSE-C needs it): $SSL_CERT_FILE is the test
+// CA, trusted by nexoctl. Every deployment has the builtin KMS (key
+// nexo-test-key).
 //
 // Custom commands available to the scripts:
 //
@@ -35,6 +39,11 @@
 //	sleep DURATION                   wait
 //	stopnode N / startnode N         stop or start again node N (1-based)
 //	                                 of a cluster_*.txtar deployment
+//	webhook VAR                      start a webhook receiving the bucket
+//	                                 notifications; VAR gets its URL
+//	webhookwait DURATION RE          wait until the webhook received an
+//	                                 event "EVENTNAME BUCKET/KEY" matching RE
+//	webhookevents                    print the events received, one per line
 package cli_test
 
 import (
@@ -49,12 +58,14 @@ import (
 	"math/rand/v2"
 	"mime/multipart"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -111,17 +122,20 @@ func TestScripts(t *testing.T) {
 			return false, fmt.Errorf("unknown condition %q", cond)
 		},
 		Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){
-			"expectcode": cmdExpectCode,
-			"eventually": cmdEventually,
-			"foreigns3":  cmdForeignS3,
-			"http":       cmdHTTP,
-			"postpolicy": cmdPostPolicy,
-			"jsonfield":  cmdJSONField,
-			"jsonlines":  cmdJSONLines,
-			"mkfile":     cmdMkfile,
-			"sleep":      cmdSleep,
-			"stopnode":   cmdNode(false),
-			"startnode":  cmdNode(true),
+			"expectcode":    cmdExpectCode,
+			"eventually":    cmdEventually,
+			"foreigns3":     cmdForeignS3,
+			"http":          cmdHTTP,
+			"postpolicy":    cmdPostPolicy,
+			"jsonfield":     cmdJSONField,
+			"jsonlines":     cmdJSONLines,
+			"mkfile":        cmdMkfile,
+			"sleep":         cmdSleep,
+			"stopnode":      cmdNode(false),
+			"startnode":     cmdNode(true),
+			"webhook":       cmdWebhook,
+			"webhookwait":   cmdWebhookWait,
+			"webhookevents": cmdWebhookEvents,
 		},
 	})
 }
@@ -133,6 +147,10 @@ const (
 	snmdPrefix = "snmd_"
 	snmdDrives = 4
 )
+
+// tlsPrefix marks the scripts run against a deployment served over TLS
+// (after the snmd_ or cluster_ prefix, if any).
+const tlsPrefix = "tls_"
 
 // clusterPrefix marks the scripts run against an in-process cluster of
 // clusterNodes nodes of clusterDrives drives each.
@@ -162,20 +180,29 @@ func setup(env *testscript.Env) error {
 		return errors.New("the testscript T is not a testing.TB")
 	}
 	name := strings.TrimPrefix(filepath.Base(env.WorkDir), "script-")
+	opts := []testutil.Option{testutil.WithKMS()}
+	if strings.HasPrefix(strings.TrimPrefix(strings.TrimPrefix(name, snmdPrefix), clusterPrefix), tlsPrefix) {
+		opts = append(opts, testutil.WithTLS())
+	}
 	var srv *testutil.Server
 	switch {
 	case strings.HasPrefix(name, clusterPrefix), !strings.HasPrefix(name, snmdPrefix) && os.Getenv(envCLIMode) == modeCluster:
-		srv = testutil.StartCluster(tb, clusterNodes, clusterDrives)
+		srv = testutil.StartCluster(tb, clusterNodes, clusterDrives, opts...)
 	case strings.HasPrefix(name, snmdPrefix):
-		srv = testutil.StartServer(tb, testutil.Drives(snmdDrives))
+		srv = testutil.StartServer(tb, append(opts, testutil.Drives(snmdDrives))...)
 		for i, dir := range srv.DriveDirs() {
 			env.Setenv(fmt.Sprintf("NEXO_DRIVE%d", i+1), dir)
 		}
 	default:
-		srv = testutil.StartServer(tb)
+		srv = testutil.StartServer(tb, opts...)
+	}
+	if srv.TLS != nil {
+		// nexoctl trusts the test CA through the system roots.
+		env.Setenv("SSL_CERT_FILE", filepath.Join(srv.Config.CertsDir, "CAs", "ca.crt"))
 	}
 	env.Values[serverKey{}] = srv
 	env.Values[tbKey{}] = tb
+	env.Values[webhookKey{}] = &webhookSink{}
 	s3URL, consoleURL := srv.S3URL, srv.ConsoleURL
 	if len(srv.Nodes) > 1 {
 		// The first node answers, so that its view of the others is the
@@ -482,4 +509,93 @@ func cmdSleep(ts *testscript.TestScript, neg bool, args []string) {
 	d, err := time.ParseDuration(args[0])
 	ts.Check(err)
 	time.Sleep(d)
+}
+
+// webhookKey is the key of the webhook of a script in its Env values.
+type webhookKey struct{}
+
+// webhookSink is the webhook of a script: it records the event name and
+// the "BUCKET/KEY" of every notification it receives.
+type webhookSink struct {
+	mu     sync.Mutex
+	srv    *httptest.Server
+	events []string
+}
+
+func (w *webhookSink) received() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]string(nil), w.events...)
+}
+
+// sinkOf returns the webhook of a script.
+func sinkOf(ts *testscript.TestScript) *webhookSink {
+	w, ok := ts.Value(webhookKey{}).(*webhookSink)
+	if !ok {
+		ts.Fatalf("no webhook for this script")
+	}
+	return w
+}
+
+func cmdWebhook(ts *testscript.TestScript, neg bool, args []string) {
+	if neg || len(args) != 1 {
+		ts.Fatalf("usage: webhook VAR")
+	}
+	w := sinkOf(ts)
+	tb, ok := ts.Value(tbKey{}).(testing.TB)
+	if !ok {
+		ts.Fatalf("no testing.TB for this script")
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.srv == nil {
+		w.srv = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+			var payload struct {
+				EventName string `json:"EventName"`
+				Key       string `json:"Key"`
+			}
+			if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&payload); err != nil {
+				http.Error(rw, err.Error(), http.StatusBadRequest)
+				return
+			}
+			w.mu.Lock()
+			w.events = append(w.events, payload.EventName+" "+payload.Key)
+			w.mu.Unlock()
+		}))
+		tb.Cleanup(w.srv.Close)
+	}
+	ts.Setenv(args[0], w.srv.URL)
+}
+
+func cmdWebhookWait(ts *testscript.TestScript, neg bool, args []string) {
+	if neg || len(args) != 2 {
+		ts.Fatalf("usage: webhookwait DURATION RE")
+	}
+	timeout, err := time.ParseDuration(args[0])
+	ts.Check(err)
+	re, err := regexp.Compile(args[1])
+	ts.Check(err)
+	w := sinkOf(ts)
+	deadline := time.Now().Add(timeout)
+	for {
+		for _, e := range w.received() {
+			if re.MatchString(e) {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			ts.Fatalf("the webhook did not receive an event matching %q within %s (received: %q)", args[1], timeout, w.received())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func cmdWebhookEvents(ts *testscript.TestScript, neg bool, args []string) {
+	if neg || len(args) != 0 {
+		ts.Fatalf("usage: webhookevents")
+	}
+	for _, e := range sinkOf(ts).received() {
+		_, err := fmt.Fprintln(ts.Stdout(), e)
+		ts.Check(err)
+	}
 }

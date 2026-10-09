@@ -84,10 +84,15 @@ func NewServerPools(deps PoolsDeps, opts ...Option) (Service, error) {
 		pools = append(pools, pl)
 	}
 	l := newLayer(Deps{
-		Buckets: deps.Buckets, Locks: deps.Locks, Events: deps.Events, Heal: deps.Heal,
+		Buckets: deps.Buckets, Locks: deps.Locks, Events: deps.Events, Heal: deps.Heal, Crypto: deps.Crypto,
 		DeploymentID: deps.DeploymentID, IDs: deps.IDs, Clock: deps.Clock, Logger: deps.Logger,
 	}, opts, stores, "erasure")
 	l.place = &poolPlacement{pools: pools, spaceTTL: o.poolSpaceTTL, now: l.now, randN: rand.Uint64N}
+	for _, pl := range pools {
+		for _, set := range pl.sets {
+			set.now = l.now
+		}
+	}
 	return &erasureServerPools{layer: l, pools: pools}, nil
 }
 
@@ -111,6 +116,7 @@ func NewErasure(deps Deps, opts ...Option) (Service, error) {
 		Buckets:      deps.Buckets,
 		Events:       deps.Events,
 		Codecs:       deps.Codecs,
+		Crypto:       deps.Crypto,
 		IDs:          deps.IDs,
 		Clock:        deps.Clock,
 		Logger:       deps.Logger,

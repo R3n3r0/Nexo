@@ -150,6 +150,28 @@ func TestHealVersionsAndDangling(t *testing.T) {
 	versions, err := c.svc.ListObjectVersions(ctx, domain.ListObjectsInput{Bucket: "bkt"})
 	require.NoError(t, err)
 	assert.Len(t, versions.Objects, 3)
+
+	// Object Lock binds the healing too: a dangling version under legal
+	// hold or retention is kept.
+	until := time.Now().Add(time.Hour).UTC().Format("2006-01-02T15:04:05.000Z07:00")
+	for _, tc := range []struct {
+		name, versionID string
+		meta            map[string]string
+	}{
+		{"legal hold", "0192f0f0-0000-7000-8000-000000000002", map[string]string{"x-amz-object-lock-legal-hold": "ON"}},
+		{"retention", "0192f0f0-0000-7000-8000-000000000003", map[string]string{"x-amz-object-lock-mode": "GOVERNANCE", "x-amz-object-lock-retain-until-date": until}},
+	} {
+		name := tc.name
+		tc.meta["etag"] = "x"
+		locked := storage.FileInfo{VersionID: tc.versionID, ModTime: time.Now().UTC(), Size: 5, Data: []byte("ghost"), Metadata: tc.meta, Versioned: true}
+		require.NoError(t, c.drives[2].WriteMetadata(ctx, "bkt", "k", locked), name)
+		res, err = h.HealObject(ctx, "bkt", "k", locked.VersionID, object.HealOptions{Remove: true})
+		require.NoError(t, err, name)
+		assert.Equal(t, 1, res.Dangling, name)
+		assert.Zero(t, res.Removed, name)
+		_, err = c.drives[2].ReadVersion(ctx, "bkt", "k", locked.VersionID, storage.ReadOptions{})
+		require.NoError(t, err, "%s: the locked version is kept", name)
+	}
 }
 
 // TestHealReplacedDrive is TS-E-05 at the object layer: a drive emptied

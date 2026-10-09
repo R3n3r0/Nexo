@@ -187,7 +187,7 @@ func TestSDKClientObjects(t *testing.T) {
 	}
 
 	// Batch removal.
-	results, err := c.Remove(ctx, "objects", []cli.ObjectVersion{{Key: "big/section"}, {Key: "big/sequential"}, {Key: "never-existed"}})
+	results, err := c.Remove(ctx, "objects", []cli.ObjectVersion{{Key: "big/section"}, {Key: "big/sequential"}, {Key: "never-existed"}}, cli.DeleteOptions{})
 	require.NoError(t, err)
 	require.Len(t, results, 3)
 	for _, r := range results {
@@ -218,7 +218,7 @@ func TestSDKClientVersionsTagsPolicies(t *testing.T) {
 	r2, err := c.Put(ctx, "vers", "doc", strings.NewReader("two"), cli.PutOptions{Size: 3})
 	require.NoError(t, err)
 	require.NotEqual(t, r1.VersionID, r2.VersionID)
-	removed, err := c.Remove(ctx, "vers", []cli.ObjectVersion{{Key: "doc"}})
+	removed, err := c.Remove(ctx, "vers", []cli.ObjectVersion{{Key: "doc"}}, cli.DeleteOptions{})
 	require.NoError(t, err)
 	require.Len(t, removed, 1)
 	assert.True(t, removed[0].DeleteMarker)

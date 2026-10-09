@@ -4,6 +4,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
@@ -91,7 +92,38 @@ type Static struct {
 	// without invalidation: the safety net of the invalidations a node
 	// missed (environment only; zero keeps the default 2m).
 	CacheResyncInterval time.Duration `json:"-"`
+
+	// KMS of the server-side encryption (docs/07 §7.2): the builtin KMS
+	// keyed by KMSSecretKey, or the external KES servers of KMSEndpoints;
+	// without either SSE-S3 and SSE-KMS are refused (SSE-C works).
+	//
+	// KMSSecretKey is the master key of the builtin KMS,
+	// "<key-name>:<base64 of 32 bytes>" (NEXO_KMS_SECRET_KEY or _FILE,
+	// environment only); the key name is the default key of SSE-S3.
+	KMSSecretKey string `json:"-"`
+	// KMSPreviousSecretKeys are the master keys KMSSecretKey replaced
+	// (NEXO_KMS_SECRET_KEY_PREVIOUS, comma separated, environment only):
+	// they still unseal the objects they sealed (master key rotation).
+	KMSPreviousSecretKeys []string `json:"-"`
+	// KMSEndpoints are the URLs of the KES servers (NEXO_KMS_ENDPOINT,
+	// comma separated), KMSKeyName the default key there
+	// (NEXO_KMS_KEY_NAME), reached with mutual TLS: the client
+	// certificate KMSCertFile/KMSKeyFile (NEXO_KMS_CLIENT_CERT,
+	// NEXO_KMS_CLIENT_KEY) and the CA certificates of KMSCAPath (a file or
+	// a directory, NEXO_KMS_CAPATH; the system roots when empty).
+	KMSEndpoints []string `json:"kmsEndpoints,omitempty"`
+	KMSKeyName   string   `json:"kmsKeyName,omitempty"`
+	KMSCertFile  string   `json:"kmsCertFile,omitempty"`
+	KMSKeyFile   string   `json:"kmsKeyFile,omitempty"`
+	KMSCAPath    string   `json:"kmsCAPath,omitempty"`
+	// SSECAllowInsecure accepts the SSE-C keys over plain HTTP
+	// (NEXO_SSEC_ALLOW_INSECURE, environment only): S3 requires TLS for
+	// them; only for tests and development.
+	SSECAllowInsecure bool `json:"-"`
 }
+
+// KMSConfigured reports whether a KMS is configured (builtin or external).
+func (s Static) KMSConfigured() bool { return s.KMSSecretKey != "" || len(s.KMSEndpoints) > 0 }
 
 // Default returns the configuration defaults.
 func Default() Static {
@@ -177,10 +209,64 @@ func (s Static) Validate() error {
 			errs = append(errs, fmt.Errorf("%s %s must not be negative", name, d))
 		}
 	}
+	errs = append(errs, s.validateKMS()...)
 	if s.LockStaleAfter > 0 && s.LockRefreshInterval > 0 && s.LockRefreshInterval >= s.LockStaleAfter {
 		errs = append(errs, fmt.Errorf("lock refresh interval %s must be shorter than the lock stale delay %s", s.LockRefreshInterval, s.LockStaleAfter))
 	}
 	return errors.Join(errs...)
+}
+
+// validateKMS checks the KMS settings: one KMS at most, master keys of the
+// form "<name>:<base64 of 32 bytes>", a default key and http(s) URLs for
+// KES, the client certificate with its key.
+func (s Static) validateKMS() []error {
+	var errs []error
+	if s.KMSSecretKey != "" && len(s.KMSEndpoints) > 0 {
+		errs = append(errs, errors.New("kms: set either the builtin master key (NEXO_KMS_SECRET_KEY) or the KES endpoints (NEXO_KMS_ENDPOINT), not both"))
+	}
+	for i, k := range append([]string{s.KMSSecretKey}, s.KMSPreviousSecretKeys...) {
+		if k == "" {
+			continue
+		}
+		if err := validateMasterKey(k); err != nil {
+			name := "NEXO_KMS_SECRET_KEY"
+			if i > 0 {
+				name = "NEXO_KMS_SECRET_KEY_PREVIOUS"
+			}
+			errs = append(errs, fmt.Errorf("kms: %s: %w", name, err))
+		}
+	}
+	if len(s.KMSPreviousSecretKeys) > 0 && s.KMSSecretKey == "" {
+		errs = append(errs, errors.New("kms: previous master keys need the current one (NEXO_KMS_SECRET_KEY)"))
+	}
+	if len(s.KMSEndpoints) > 0 {
+		if s.KMSKeyName == "" {
+			errs = append(errs, errors.New("kms: the KES default key is required (NEXO_KMS_KEY_NAME)"))
+		}
+		for _, e := range s.KMSEndpoints {
+			if u, err := url.Parse(e); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+				errs = append(errs, fmt.Errorf("kms: endpoint %q must be an http(s) URL", e))
+			}
+		}
+	}
+	if (s.KMSCertFile == "") != (s.KMSKeyFile == "") {
+		errs = append(errs, errors.New("kms: the client certificate (NEXO_KMS_CLIENT_CERT) and its key (NEXO_KMS_CLIENT_KEY) go together"))
+	}
+	return errs
+}
+
+// validateMasterKey checks the form of a master key: "<name>:<base64 of
+// 32 bytes>", the name made of letters, digits, '-', '_' and '.'.
+func validateMasterKey(v string) error {
+	name, encoded, ok := strings.Cut(strings.TrimSpace(v), ":")
+	if !ok || name == "" || strings.Trim(name, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.") != "" {
+		return errors.New("must be <key-name>:<base64 of 32 bytes>")
+	}
+	key, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || len(key) != 32 {
+		return errors.New("the key must be the base64 encoding of 32 bytes")
+	}
+	return nil
 }
 
 // validateStorageClass checks a storage class parity setting: empty, or

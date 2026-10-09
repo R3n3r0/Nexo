@@ -27,6 +27,10 @@ export interface DeleteObjectsDialogProps {
   rows: readonly BrowserRow[];
   /** The bucket keeps versions: offer to delete them permanently. */
   versioned: boolean;
+  /** The bucket has Object Lock: protected versions are kept. */
+  locked?: boolean;
+  /** The user may bypass GOVERNANCE retentions (s3:BypassGovernanceRetention). */
+  canBypass?: boolean;
   onClose: () => void;
   onDeleted?: () => void;
 }
@@ -47,6 +51,8 @@ export function DeleteObjectsDialog({
   bucket,
   rows,
   versioned,
+  locked = false,
+  canBypass = false,
   onClose,
   onDeleted,
 }: DeleteObjectsDialogProps) {
@@ -55,20 +61,25 @@ export function DeleteObjectsDialog({
   const queryClient = useQueryClient();
   const [typed, setTyped] = useState('');
   const [allVersions, setAllVersions] = useState(false);
+  const [bypass, setBypass] = useState(false);
   const mutation = useMutation({
     mutationFn: (input: DeleteObjectsInput) => objects.remove(bucket, input),
     onSuccess: async (result) => {
       await queryClient.invalidateQueries({ queryKey: storageKeys.objects(bucket) });
       await queryClient.invalidateQueries({ queryKey: storageKeys.buckets });
+      const lockedErrors = result.errors.filter((e) => e.code === 'object_locked').length;
       if (result.errors.length > 0) {
         notifications.show({
           color: 'yellow',
           title: t('objects.deletePartialTitle'),
-          message: t('objects.deletePartial', {
-            done: result.deleted.length,
-            failed: result.errors.length,
-            first: result.errors[0]?.message ?? '',
-          }),
+          message:
+            lockedErrors === result.errors.length
+              ? t('objects.deleteLocked', { done: result.deleted.length, n: lockedErrors })
+              : t('objects.deletePartial', {
+                  done: result.deleted.length,
+                  failed: result.errors.length,
+                  first: result.errors[0]?.message ?? '',
+                }),
         });
       } else {
         notifications.show({
@@ -84,6 +95,7 @@ export function DeleteObjectsDialog({
   function close() {
     setTyped('');
     setAllVersions(false);
+    setBypass(false);
     mutation.reset();
     onClose();
   }
@@ -102,6 +114,7 @@ export function DeleteObjectsDialog({
       objects: rows.filter((r) => r.kind === 'object').map((r) => ({ key: r.key })),
       prefixes: rows.filter((r) => r.kind === 'folder').map((r) => r.key),
       ...(allVersions ? { allVersions: true } : {}),
+      ...(allVersions && bypass ? { bypassGovernance: true } : {}),
     });
   };
 
@@ -130,6 +143,22 @@ export function DeleteObjectsDialog({
                 setAllVersions(event.currentTarget.checked);
               }}
             />
+          ) : null}
+          {locked && allVersions ? (
+            <Alert color="orange" variant="light">
+              <Stack gap="xs">
+                <Text size="sm">{t('objects.lockedVersionsKept')}</Text>
+                {canBypass ? (
+                  <Checkbox
+                    label={t('objectLock.bypass')}
+                    checked={bypass}
+                    onChange={(event) => {
+                      setBypass(event.currentTarget.checked);
+                    }}
+                  />
+                ) : null}
+              </Stack>
+            </Alert>
           ) : null}
           {expected !== null ? (
             <TextInput

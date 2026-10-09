@@ -11,22 +11,26 @@ import (
 
 // Subsystems and keys of the dynamic configuration applied by the server.
 const (
-	SubsystemAPI  = "api"
-	KeyRootAccess = "root_access"
+	SubsystemAPI       = "api"
+	KeyRootAccess      = "root_access"
+	KeyCORSAllowOrigin = "cors_allow_origin"
 )
 
 // Applied reports whether the server applies a key of the dynamic
 // configuration; the other keys of the schema are stored and validated
 // but have no effect yet. The scanner reads scanner.speed and
-// scanner.cycle at the start of every cycle (internal/service/scanner).
+// scanner.cycle at the start of every cycle (internal/service/scanner),
+// the event dispatcher the notify_* targets (internal/service/event).
 func Applied(subsystem, key string) bool {
 	switch subsystem {
 	case SubsystemAPI:
-		return key == KeyRootAccess
+		return key == KeyRootAccess || key == KeyCORSAllowOrigin
 	case "scanner":
 		return key == "speed" || key == "cycle"
 	}
-	return false
+	// The notification targets (notify_<kind>[:<id>]) are applied by the
+	// event dispatcher, which reloads them when they change.
+	return strings.HasPrefix(subsystem, "notify_") && key != "comment"
 }
 
 // Option configures the settings service.
@@ -60,7 +64,21 @@ func (s *service) API(ctx context.Context) (API, error) {
 	if err != nil {
 		return API{}, fmt.Errorf("settings: %s: %w", SubsystemAPI, err)
 	}
-	return API{RootAccess: s.flag(ctx, SubsystemAPI, KeyRootAccess, kv[KeyRootAccess], true)}, nil
+	return API{
+		RootAccess:      s.flag(ctx, SubsystemAPI, KeyRootAccess, kv[KeyRootAccess], true),
+		CORSAllowOrigin: list(kv[KeyCORSAllowOrigin]),
+	}, nil
+}
+
+// list parses a comma-separated setting; nil when empty.
+func list(value string) []string {
+	var out []string
+	for _, v := range strings.Split(value, ",") {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // flag parses a boolean setting ("on", "off", "true", "false"); empty is

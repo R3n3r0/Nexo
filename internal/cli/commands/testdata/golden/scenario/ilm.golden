@@ -1,0 +1,196 @@
+$ nexoctl ilm rule ls mem/app
+`mem/app` has no lifecycle rule.
+
+$ nexoctl ilm rule add --prefix logs/ --expire-days 30 mem/app
+Lifecycle rule "rule-1" added to `mem/app`.
+
+$ nexoctl ilm rule add --id versions --noncurrent-expire-days 7 --newer-noncurrent 3 mem/app
+Lifecycle rule "versions" added to `mem/app`.
+
+$ nexoctl ilm rule add --tags tier=cold&team=ops --size-gt 1MiB --expire-date 2030-01-02 mem/app
+Lifecycle rule "rule-2" added to `mem/app`.
+
+$ nexoctl ilm rule add --abort-mpu-days 2 --expired-delete-marker --disable mem/app
+Lifecycle rule "rule-3" added to `mem/app`.
+
+$ nexoctl ilm rule ls mem/app
+ID               STATUS   FILTER                         ACTIONS
+rule-1           Enabled  prefix=logs/                   expire after 30d
+versions         Enabled  -                              noncurrent versions expire after 7d (keep 3 newest)
+rule-2           Enabled  tags=team=ops&tier=cold size>1.0MiB expire on 2030-01-02
+rule-3           Disabled -                              remove expired delete markers, abort uploads after 2d
+
+$ nexoctl ilm rule edit --id rule-1 --expire-days 90 --prefix  mem/app
+Lifecycle rule "rule-1" of `mem/app` updated.
+
+$ nexoctl ilm rule edit --id rule-3 --enable --abort-mpu-days 0 mem/app
+Lifecycle rule "rule-3" of `mem/app` updated.
+
+$ nexoctl ilm rule ls --json mem/app
+{"status":"success","target":"mem/app","bucket":"app","id":"rule-1","enabled":true,"expiration":{"days":90}}
+{"status":"success","target":"mem/app","bucket":"app","id":"versions","enabled":true,"noncurrentExpiration":{"noncurrentDays":7,"newerNoncurrentVersions":3}}
+{"status":"success","target":"mem/app","bucket":"app","id":"rule-2","enabled":true,"filter":{"tags":{"team":"ops","tier":"cold"},"sizeGreaterThan":1048576},"expiration":{"date":"2030-01-02"}}
+{"status":"success","target":"mem/app","bucket":"app","id":"rule-3","enabled":true,"expiration":{"expiredObjectDeleteMarker":true}}
+
+$ nexoctl ilm rule export mem/app
+{
+  "rules": [
+    {
+      "id": "rule-1",
+      "enabled": true,
+      "expiration": {
+        "days": 90
+      }
+    },
+    {
+      "id": "versions",
+      "enabled": true,
+      "noncurrentExpiration": {
+        "noncurrentDays": 7,
+        "newerNoncurrentVersions": 3
+      }
+    },
+    {
+      "id": "rule-2",
+      "enabled": true,
+      "filter": {
+        "tags": {
+          "team": "ops",
+          "tier": "cold"
+        },
+        "sizeGreaterThan": 1048576
+      },
+      "expiration": {
+        "date": "2030-01-02"
+      }
+    },
+    {
+      "id": "rule-3",
+      "enabled": true,
+      "expiration": {
+        "expiredObjectDeleteMarker": true
+      }
+    }
+  ]
+}
+
+$ nexoctl ilm rule export --xml mem/app
+<?xml version="1.0" encoding="UTF-8"?>
+<LifecycleConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <Rule>
+    <ID>rule-1</ID>
+    <Filter>
+      <Prefix></Prefix>
+    </Filter>
+    <Status>Enabled</Status>
+    <Expiration>
+      <Days>90</Days>
+    </Expiration>
+  </Rule>
+  <Rule>
+    <ID>versions</ID>
+    <Filter>
+      <Prefix></Prefix>
+    </Filter>
+    <Status>Enabled</Status>
+    <NoncurrentVersionExpiration>
+      <NoncurrentDays>7</NoncurrentDays>
+      <NewerNoncurrentVersions>3</NewerNoncurrentVersions>
+    </NoncurrentVersionExpiration>
+  </Rule>
+  <Rule>
+    <ID>rule-2</ID>
+    <Filter>
+      <And>
+        <Tag>
+          <Key>team</Key>
+          <Value>ops</Value>
+        </Tag>
+        <Tag>
+          <Key>tier</Key>
+          <Value>cold</Value>
+        </Tag>
+        <ObjectSizeGreaterThan>1048576</ObjectSizeGreaterThan>
+      </And>
+    </Filter>
+    <Status>Enabled</Status>
+    <Expiration>
+      <Date>2030-01-02T00:00:00Z</Date>
+    </Expiration>
+  </Rule>
+  <Rule>
+    <ID>rule-3</ID>
+    <Filter>
+      <Prefix></Prefix>
+    </Filter>
+    <Status>Enabled</Status>
+    <Expiration>
+      <ExpiredObjectDeleteMarker>true</ExpiredObjectDeleteMarker>
+    </Expiration>
+  </Rule>
+</LifecycleConfiguration>
+
+$ nexoctl ilm rule rm --id versions mem/app
+Lifecycle rule "versions" removed from `mem/app`.
+
+$ nexoctl ilm rule rm --id ghost mem/app
+! nexoctl: error: mem/app: lifecycle rule "ghost": not found
+[exit 3]
+
+$ nexoctl ilm rule import mem/copy lifecycle.xml
+Imported 2 lifecycle rules into `mem/copy`.
+
+$ nexoctl ilm rule ls mem/copy
+ID               STATUS   FILTER                         ACTIONS
+tmp              Enabled  prefix=tmp/                    expire after 1d
+old              Disabled prefix=old/ tags=a=1           noncurrent versions expire after 5d
+
+$ nexoctl ilm rule rm --all mem/copy
+Lifecycle rule "tmp" removed from `mem/copy`.
+Lifecycle rule "old" removed from `mem/copy`.
+
+$ nexoctl ilm rule ls mem/copy
+`mem/copy` has no lifecycle rule.
+
+$ nexoctl ilm apply mem/app
+Lifecycle of `mem/app` applied: 12 versions checked, 3 deleted, 1 delete marker removed, 2 uploads aborted, 1 kept by Object Lock.
+
+$ nexoctl ilm rule add --prefix x/ mem/app
+! nexoctl: error: a rule needs an action: --expire-days, --expire-date, --expired-delete-marker, --noncurrent-expire-days, --newer-noncurrent or --abort-mpu-days
+! Run 'nexoctl ilm rule add --help' for usage.
+[exit 2]
+
+$ nexoctl ilm rule add --id rule-1 --expire-days 1 mem/app
+! nexoctl: error: mem/app: rule "rule-1" already exists (use "ilm rule edit")
+! Run 'nexoctl ilm rule add --help' for usage.
+[exit 2]
+
+$ nexoctl ilm rule add --expire-date tomorrow mem/app
+! nexoctl: error: invalid date "tomorrow" (YYYY-MM-DD)
+! Run 'nexoctl ilm rule add --help' for usage.
+[exit 2]
+
+$ nexoctl ilm rule edit --expire-days 1 mem/app
+! nexoctl: error: --id is required
+! Run 'nexoctl ilm rule edit --help' for usage.
+[exit 2]
+
+$ nexoctl ilm rule edit --id nope --expire-days 1 mem/app
+! nexoctl: error: mem/app: lifecycle rule "nope": not found
+[exit 3]
+
+$ nexoctl ilm rule rm mem/app
+! nexoctl: error: give either --id or --all
+! Run 'nexoctl ilm rule remove --help' for usage.
+[exit 2]
+
+$ nexoctl ilm rule import mem/app bad.json
+! nexoctl: error: invalid lifecycle JSON: json: cannot unmarshal string into Go struct field LifecycleExpiration.rules.expiration.days of type int
+! Run 'nexoctl ilm rule import --help' for usage.
+[exit 2]
+
+$ nexoctl ilm rule ls mem/app/key
+! nexoctl: error: mem/app/key: ilm applies to ALIAS/BUCKET
+! Run 'nexoctl ilm rule list --help' for usage.
+[exit 2]
+

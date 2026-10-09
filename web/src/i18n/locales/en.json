@@ -216,13 +216,16 @@
     "forceDelete": "Delete all objects too",
     "forceDeleteHint": "Every version, delete marker and pending upload is removed first; locked versions keep the bucket.",
     "typeToConfirm": "Type <code>{{name}}</code> to confirm",
-    "notEmptyUseForce": "The bucket is not empty: select “Delete all objects too” to empty it first."
+    "notEmptyUseForce": "The bucket is not empty: select “Delete all objects too” to empty it first.",
+    "objectLockWarning": "Object lock is irreversible: it cannot be disabled once the bucket exists, and the protected versions cannot be deleted before their retention ends."
   },
   "bucket": {
     "tabs": {
       "objects": "Objects",
       "settings": "Settings",
-      "access": "Access"
+      "access": "Access",
+      "lifecycle": "Lifecycle",
+      "events": "Events"
     },
     "summary": "{{size}} · {{objects}} objects",
     "delete": "Delete bucket",
@@ -279,7 +282,8 @@
       "kmsOption": "SSE-KMS",
       "kmsKey": "KMS key ID",
       "kmsKeyHint": "Empty: the default key of the server.",
-      "newObjects": "Applies to the objects written from now on; existing objects are not rewritten."
+      "newObjects": "Applies to the objects written from now on; existing objects are not rewritten.",
+      "noKms": "The server has no KMS configured: SSE-S3 and SSE-KMS are refused (set NEXO_KMS_SECRET_KEY or NEXO_KMS_ENDPOINT)."
     },
     "objectLock": {
       "title": "Object lock",
@@ -293,14 +297,12 @@
       "days": "{{n}} days",
       "years": "{{n}} years",
       "unavailable": "The object lock settings are not available.",
-      "enable": "Enable object lock",
       "unit": "Retention unit",
       "unitDays": "days",
       "unitYears": "years",
       "periodInvalid": "Enter a whole number of at least 1.",
       "permanent": "Object lock cannot be disabled; the default retention applies to the new objects.",
-      "enableHint": "Enabling object lock is permanent.",
-      "needsVersioning": "Object lock needs versioning enabled."
+      "onlyAtCreation": "Object lock can only be enabled when the bucket is created."
     }
   },
   "bucketAccess": {
@@ -412,14 +414,26 @@
     "forbiddenFolder": "You may not list this folder. Open a folder you have access to, such as your home directory.",
     "goToFolder": "Folder path",
     "goToFolderHint": "For example home/{{user}}/",
-    "goToFolderSubmit": "Open folder"
+    "goToFolderSubmit": "Open folder",
+    "deleteLocked": "{{done}} deleted; {{n}} protected by object lock were kept.",
+    "lockedVersionsKept": "The versions under retention or legal hold are kept.",
+    "encryption": {
+      "label": "Encryption of the uploads",
+      "bucketDefault": "Bucket default",
+      "sseS3": "SSE-S3 (AES-256)",
+      "sseKmsDefault": "SSE-KMS (default key)",
+      "sseKmsKey": "SSE-KMS: {{key}}",
+      "active": "Uploads encrypted with {{mode}}"
+    }
   },
   "objectDetails": {
     "tabs": {
       "details": "Details",
       "preview": "Preview",
       "tags": "Tags",
-      "versions": "Versions"
+      "versions": "Versions",
+      "lock": "Object lock",
+      "attributes": "Attributes"
     },
     "key": "Key",
     "contentType": "Content type",
@@ -431,7 +445,10 @@
     "contentEncoding": "Content-Encoding",
     "parts": "Parts",
     "checksum": "Checksum",
-    "tagsHidden": "You may not read the tags of this object."
+    "tagsHidden": "You may not read the tags of this object.",
+    "encryption": "Encryption",
+    "kmsKey": "key {{key}}",
+    "notEncrypted": "Not encrypted"
   },
   "objectVersions": {
     "title": "Versions",
@@ -445,7 +462,12 @@
     "deleted": "Version deleted.",
     "restore": "Restore this version",
     "restoreVersion": "Restore version {{version}}",
-    "restored": "Version {{version}} restored: it is the latest again."
+    "restored": "Version {{version}} restored: it is the latest again.",
+    "deleteTitle": "Delete version {{version}}",
+    "deleteIntro": "The version is deleted permanently.",
+    "deleteMarkerIntro": "Deleting the delete marker makes the previous version the latest again.",
+    "deletePermanently": "Delete permanently",
+    "lockedHint": "Object lock is enabled: the versions under retention or legal hold cannot be deleted."
   },
   "objectPreview": {
     "imageAlt": "Preview of {{name}}",
@@ -1153,5 +1175,319 @@
       "enum": "Pick one of {{values}}.",
       "list": "Separate the values with commas, without empty items."
     }
+  },
+  "lifecycle": {
+    "title": "Lifecycle rules",
+    "description": "Expire objects and noncurrent versions, remove expired delete markers and abort incomplete uploads. The scanner applies the rules in the background.",
+    "add": "Add rule",
+    "applyNow": "Apply now",
+    "applyTitle": "Apply the lifecycle rules now",
+    "applyConfirm": "Apply the rules of {{bucket}} to every version and incomplete upload now? Expired objects are deleted at once.",
+    "applied": "Lifecycle rules applied",
+    "appliedDetail": "{{versions}} versions evaluated: {{deleted}} removed, {{markers}} delete markers created, {{uploads}} uploads aborted, {{locked}} kept by object lock.",
+    "viewAs": "Show the rules as",
+    "views": {
+      "rules": "Rules"
+    },
+    "empty": "No lifecycle rule: the objects are kept until they are deleted.",
+    "rules": "Lifecycle rules",
+    "columns": {
+      "id": "Rule",
+      "status": "Status",
+      "scope": "Objects",
+      "actions": "Actions",
+      "edit": "Edit"
+    },
+    "status": {
+      "enabled": "Enabled",
+      "disabled": "Disabled"
+    },
+    "toggle": "Enable rule {{id}}",
+    "edit": "Edit rule {{id}}",
+    "view": "Show rule {{id}}",
+    "remove": "Delete rule {{id}}",
+    "deleteTitle": "Delete the rule",
+    "deleteConfirm": "Delete the lifecycle rule {{id}}?",
+    "saved": "Lifecycle rules saved.",
+    "unavailable": "You may not read the lifecycle rules of this bucket.",
+    "serverRefused": "The server refused the configuration",
+    "ruleProblem": "Rule {{n}}{{id}}: {{message}}",
+    "scope": {
+      "wholeBucket": "The whole bucket",
+      "prefix": "Prefix {{prefix}}",
+      "tags": "Tags {{tags}}",
+      "sizeGreater": "Larger than {{size}}",
+      "sizeLess": "Smaller than {{size}}"
+    },
+    "summary": {
+      "expireDays_one": "Current versions expire after {{count}} day",
+      "expireDays_other": "Current versions expire after {{count}} days",
+      "expireDate": "Current versions expire on {{date}}",
+      "deleteMarkers": "Expired delete markers are removed",
+      "noncurrent_one": "Noncurrent versions expire after {{count}} day",
+      "noncurrent_other": "Noncurrent versions expire after {{count}} days",
+      "noncurrentKeep_one": "Noncurrent versions expire after {{count}} day, the {{keep}} newest are kept",
+      "noncurrentKeep_other": "Noncurrent versions expire after {{count}} days, the {{keep}} newest are kept",
+      "abort_one": "Incomplete uploads are aborted after {{count}} day",
+      "abort_other": "Incomplete uploads are aborted after {{count}} days",
+      "transition": "Transition to {{storageClass}}"
+    },
+    "code": {
+      "jsonLabel": "Lifecycle rules (JSON)",
+      "xmlLabel": "LifecycleConfiguration (S3 XML)",
+      "hint": "The whole configuration, as the Admin API (JSON) and the S3 API (XML) read and write it. Saving replaces every rule.",
+      "save": "Save the configuration",
+      "reset": "Discard the changes"
+    },
+    "editor": {
+      "titleNew": "New lifecycle rule",
+      "titleEdit": "Lifecycle rule {{id}}",
+      "view": "Edit the rule as",
+      "form": "Form",
+      "id": "Rule ID",
+      "idHint": "Generated when empty.",
+      "enabled": "Enabled",
+      "filter": "Objects",
+      "filterHint": "Every criterion set must match; with none the rule applies to the whole bucket.",
+      "prefix": "Prefix",
+      "tags": "Tags",
+      "tagKey": "Key of tag {{n}}",
+      "tagValue": "Value of tag {{n}}",
+      "tagKeyPlaceholder": "key",
+      "tagValuePlaceholder": "value",
+      "removeTag": "Remove tag {{n}}",
+      "addTag": "Add tag",
+      "sizeGreater": "Larger than",
+      "sizeLess": "Smaller than",
+      "sizeUnit": "Unit of {{field}}",
+      "current": "Current versions",
+      "expiration": "Expiration",
+      "expirationKinds": {
+        "none": "Never",
+        "days": "After a number of days",
+        "date": "On a date",
+        "deleteMarker": "Remove the expired delete markers"
+      },
+      "days": "Days after the creation",
+      "date": "Date",
+      "dateHint": "At midnight UTC.",
+      "deleteMarkerHint": "The delete markers left without any version are removed.",
+      "noncurrentTitle": "Noncurrent versions",
+      "noncurrent": "Expire the noncurrent versions",
+      "noncurrentDays": "Days after becoming noncurrent",
+      "newerVersions": "Newer versions to keep",
+      "newerVersionsHint": "1 to 100; empty keeps none.",
+      "abortTitle": "Incomplete multipart uploads",
+      "abortUploads": "Abort the incomplete uploads",
+      "abortDays": "Days after the start",
+      "transitionsKept": "The transitions of this rule (remote tiers) are kept as they are.",
+      "jsonLabel": "Rule (JSON)",
+      "xmlLabel": "Rule (S3 XML)",
+      "codeHint": "The form follows the document as soon as it is valid.",
+      "fixInForm": "Fix the problems shown in the form.",
+      "save": "Save rule"
+    },
+    "issues": {
+      "idTooLong": "At most 255 characters.",
+      "idDuplicate": "Another rule has this ID.",
+      "prefixTooLong": "At most 1024 characters.",
+      "tagKey": "Every tag needs a key.",
+      "tagDuplicate": "The tag keys must be unique.",
+      "tagTooLong": "Keys up to 128 characters, values up to 256.",
+      "sizeNegative": "Enter a size of 0 or more.",
+      "sizeRange": "Must be larger than the lower bound.",
+      "positive": "Enter a whole number of at least 1.",
+      "date": "Enter a valid date.",
+      "expirationOne": "Choose exactly one expiration.",
+      "newerRange": "Between 1 and 100.",
+      "noAction": "Choose at least one action.",
+      "abortWithFilter": "Incomplete uploads cannot be filtered by tags or size.",
+      "deleteMarkerWithTags": "Expired delete markers cannot be filtered by tags."
+    }
+  },
+  "bucketEvents": {
+    "title": "Event subscriptions",
+    "description": "Notify the configured targets of the operations on the objects of this bucket.",
+    "add": "Add subscription",
+    "addTitle": "New event subscription",
+    "editTitle": "Edit the subscription",
+    "empty": "No subscription.",
+    "subscriptions": "Event subscriptions",
+    "columns": {
+      "id": "Subscription",
+      "target": "Target",
+      "events": "Events",
+      "filter": "Objects",
+      "state": "State",
+      "pending": "Queued events",
+      "test": "Test"
+    },
+    "target": "Target",
+    "targetHint": "A target of the notify_* configuration.",
+    "targetPlaceholder": "Choose a target",
+    "noTargets": "No target is configured.",
+    "targetArn": "Target ARN",
+    "targetArnHint": "arn:nexo:sqs:<region>:<id>:<type>, as listed in the configuration of the targets.",
+    "events": "Events",
+    "eventsHint": "Event names or whole families (*).",
+    "allOf": "{{family}} (every event)",
+    "prefix": "Key prefix",
+    "suffix": "Key suffix",
+    "prefixIs": "Prefix {{prefix}}",
+    "suffixIs": "Suffix {{suffix}}",
+    "everyObject": "Every object",
+    "id": "Subscription ID",
+    "idHint": "Generated when empty.",
+    "save": "Save subscription",
+    "saved": "Event subscriptions saved.",
+    "edit": "Edit subscription {{id}}",
+    "remove": "Delete subscription {{id}}",
+    "deleteTitle": "Delete the subscription",
+    "deleteConfirm": "Delete the event subscription {{id}}?",
+    "serverRefused": "The server refused the subscription",
+    "unavailable": "You may not read the event subscriptions of this bucket.",
+    "targetsHidden": "The state of the targets is visible to the administrators (admin:ConfigUpdate).",
+    "targetsTitle": "Notification targets",
+    "targetsDescription": "As this node sees them: a target is offline from a failed delivery to the next successful one, its queue keeps the events meanwhile.",
+    "manageTargets": "Configure the targets",
+    "state": {
+      "online": "Online",
+      "offline": "Offline",
+      "disabled": "Disabled"
+    },
+    "sendTest": "Send test event",
+    "sendTestTo": "Send a test event to {{target}}",
+    "testDelivered": "Test event delivered to {{target}}.",
+    "testFailed": "The test event could not be delivered to {{target}}: {{error}}",
+    "issues": {
+      "arn": "Enter the ARN of a target (arn:nexo:sqs:<region>:<id>:<type>).",
+      "unknownTarget": "No target with this ARN is configured.",
+      "events": "Choose at least one event.",
+      "unknownEvent": "Unknown event name.",
+      "idTooLong": "At most 255 characters."
+    }
+  },
+  "cors": {
+    "title": "CORS",
+    "description": "The cross-origin requests the S3 API allows on this bucket: the first rule matching the origin, the method and the headers applies.",
+    "empty": "No CORS rule: the browsers of other origins are refused.",
+    "rule": "Rule {{n}}",
+    "removeRule": "Remove rule {{n}}",
+    "origins": "Allowed origins",
+    "originsHint": "One per line; * allows any origin, at most one * per origin.",
+    "methods": "Allowed methods",
+    "allowedHeaders": "Allowed headers",
+    "exposeHeaders": "Exposed headers",
+    "headersHint": "One per line.",
+    "maxAge": "Max age (seconds)",
+    "id": "Rule ID",
+    "idHint": "Optional.",
+    "addRule": "Add rule",
+    "save": "Save CORS rules",
+    "saved": "CORS rules saved.",
+    "unavailable": "You may not read the CORS rules of this bucket.",
+    "issues": {
+      "idTooLong": "At most 255 characters.",
+      "origins": "Enter at least one origin.",
+      "wildcards": "At most one * per origin.",
+      "methods": "Choose at least one method.",
+      "headers": "At most one * per header.",
+      "maxAge": "Enter a whole number of seconds."
+    }
+  },
+  "kms": {
+    "title": "Key management (KMS)",
+    "description": "The KMS seals the keys of the SSE-S3 and SSE-KMS objects.",
+    "notConfigured": "No KMS is configured: SSE-S3 and SSE-KMS are refused, SSE-C still works. Set NEXO_KMS_SECRET_KEY (builtin) or NEXO_KMS_ENDPOINT (KES).",
+    "backend": "Backend",
+    "backends": {
+      "builtin": "Builtin (master key from the environment)",
+      "kes": "External KES"
+    },
+    "state": "State",
+    "online": "Online",
+    "offline": "Offline",
+    "defaultKey": "Default key",
+    "endpoint": "Server",
+    "keys": "Keys",
+    "noKeys": "No key.",
+    "keyId": "Key",
+    "default": "default",
+    "newKey": "New key",
+    "newKeyHint": "Letters, digits, dots, underscores and hyphens.",
+    "keyInvalid": "Use letters, digits, dots, underscores and hyphens (at most 80).",
+    "createKey": "Create key",
+    "created": "Key {{key}} created.",
+    "keysList": "Keys: {{keys}}"
+  },
+  "notifyTargets": {
+    "title": "Notification targets",
+    "description": "The targets of the bucket event subscriptions (notify_* subsystems), applied at once.",
+    "add": "Add target",
+    "addTitle": "New notification target",
+    "editTitle": "Target {{target}}",
+    "empty": "No target is configured.",
+    "type": "Type",
+    "types": {
+      "webhook": "Webhook",
+      "kafka": "Kafka",
+      "nats": "NATS",
+      "amqp": "AMQP (RabbitMQ)",
+      "redis": "Redis",
+      "postgresql": "PostgreSQL"
+    },
+    "id": "Target ID",
+    "idHint": "Names the target in its ARN; empty or _ is the default target of the type.",
+    "idInvalid": "Use letters, digits, dots, underscores and hyphens (at most 64).",
+    "subsystem": "Configuration subsystem: {{subsystem}}",
+    "save": "Save target",
+    "saved": "Target {{target}} saved.",
+    "arn": "ARN",
+    "edit": "Edit target {{target}}",
+    "remove": "Remove target {{target}}",
+    "removeTitle": "Remove the target",
+    "removeConfirm": "Remove the target {{target}}? The subscriptions naming it no longer deliver."
+  },
+  "objectAttributes": {
+    "checksum": "Checksum",
+    "noChecksum": "None",
+    "parts": "Parts",
+    "singlePart": "Written in one request",
+    "partsTable": "Parts of the object",
+    "partNumber": "Part",
+    "partSize": "Size",
+    "moreParts": "Show more parts"
+  },
+  "objectLock": {
+    "retention": "Retention",
+    "currentRetention": "Current retention:",
+    "retainedUntil": "{{mode}} until {{date}}",
+    "noRetention": "None",
+    "mode": "Mode",
+    "modeNone": "No retention",
+    "retainUntil": "Retain until",
+    "dateInPast": "Choose a date in the future.",
+    "quick": "Quick:",
+    "presets": {
+      "day": "+1 day",
+      "week": "+7 days",
+      "month": "+30 days",
+      "year": "+1 year"
+    },
+    "complianceLocked": "A COMPLIANCE retention can only be extended: it cannot be shortened, weakened or removed, not even by root.",
+    "bypass": "Bypass the governance retention",
+    "bypassHint": "Shortening or removing a GOVERNANCE retention needs s3:BypassGovernanceRetention.",
+    "bypassMissing": "Shortening or removing a GOVERNANCE retention needs the permission {{action}}.",
+    "saveRetention": "Save retention",
+    "retentionSaved": "Retention saved.",
+    "legalHold": "Legal hold",
+    "legalHoldHint": "A version under legal hold cannot be deleted until the hold is removed, whatever its retention.",
+    "legalHoldSwitch": "Legal hold active",
+    "holdOn": "Legal hold set.",
+    "holdOff": "Legal hold removed.",
+    "blockedLegalHold": "This version is under legal hold: it cannot be deleted until the hold is removed.",
+    "blockedCompliance": "This version is protected by a COMPLIANCE retention until {{date}}: it cannot be deleted before then, not even by root.",
+    "blockedGovernance": "This version is protected by a GOVERNANCE retention until {{date}}.",
+    "deleteRefused": "The version is protected by object lock: it was not deleted."
   }
 }

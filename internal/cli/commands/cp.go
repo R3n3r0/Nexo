@@ -10,9 +10,10 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/r3n3r0/nexo/internal/cli"
+	"github.com/r3n3r0/nexo/internal/domain"
 )
 
-// transferFlags are the flags shared by cp, mv, mirror and pipe.
+// transferFlags are the flags shared by cp, mv, put, mirror and pipe.
 type transferFlags struct {
 	attr          string
 	tags          string
@@ -21,6 +22,39 @@ type transferFlags struct {
 	partSize      string
 	limitUpload   string
 	limitDownload string
+	checksum      string
+	enc           encryptionFlags
+}
+
+// encryptionFlags are the server-side encryption flags of the commands
+// that write or read objects (docs/02 S-OBJ-13).
+type encryptionFlags struct {
+	s3, kms, c []string
+}
+
+// registerSSEC registers --enc-c only (the commands that read objects).
+func (f *encryptionFlags) registerSSEC(fs *pflag.FlagSet) {
+	fs.StringArrayVar(&f.c, "enc-c", nil, `SSE-C key of the objects under a location: "ALIAS/BUCKET[/PREFIX]=BASE64KEY" (32 bytes; repeatable)`)
+}
+
+// register registers --enc-s3, --enc-kms and --enc-c.
+func (f *encryptionFlags) register(fs *pflag.FlagSet) {
+	fs.StringArrayVar(&f.s3, "enc-s3", nil, `encrypt the objects written under a location with SSE-S3: "ALIAS/BUCKET[/PREFIX]" (repeatable)`)
+	fs.StringArrayVar(&f.kms, "enc-kms", nil, `encrypt the objects written under a location with SSE-KMS: "ALIAS/BUCKET[/PREFIX][=KEY]" (repeatable)`)
+	f.registerSSEC(fs)
+}
+
+// rules parses the encryption flags against the configured aliases.
+func (f *encryptionFlags) rules(ctx context.Context, e *env) (cli.EncryptionRules, error) {
+	flags := cli.EncryptionFlags{S3: f.s3, KMS: f.kms, C: f.c}
+	if flags.IsZero() {
+		return nil, nil
+	}
+	p, err := e.parser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return flags.Rules(p.Parse)
 }
 
 func (f *transferFlags) register(fs *pflag.FlagSet) {
@@ -31,11 +65,13 @@ func (f *transferFlags) register(fs *pflag.FlagSet) {
 	fs.StringVar(&f.partSize, "part-size", "", "part size of the multipart uploads, 5MiB-5GiB (default: computed from the size)")
 	fs.StringVar(&f.limitUpload, "limit-upload", "", "cap the upload bandwidth (e.g. 10MiB, per second)")
 	fs.StringVar(&f.limitDownload, "limit-download", "", "cap the download bandwidth (e.g. 10MiB, per second)")
+	fs.StringVar(&f.checksum, "checksum", "", "additional checksum of the uploaded objects, verified by the server: crc32, crc32c, crc64nvme, sha1, sha256")
+	f.enc.register(fs)
 }
 
 // options validates the flags and returns the transfer options; it also
 // sets the bandwidth limits of the clients.
-func (f *transferFlags) options(e *env) (cli.TransferOptions, error) {
+func (f *transferFlags) options(ctx context.Context, e *env) (cli.TransferOptions, error) {
 	var opts cli.TransferOptions
 	if f.parallel < 1 || f.parallel > 64 {
 		return opts, cli.UsageError("--parallel must be between 1 and 64")
@@ -83,6 +119,18 @@ func (f *transferFlags) options(e *env) (cli.TransferOptions, error) {
 		}
 		*l.dst = rate
 	}
+	if f.checksum != "" {
+		algo, err := domain.ParseChecksumAlgorithm(f.checksum)
+		if err != nil {
+			return opts, cli.UsageError("invalid --checksum %q (crc32, crc32c, crc64nvme, sha1, sha256)", f.checksum)
+		}
+		opts.Checksum = algo
+	}
+	rules, err := f.enc.rules(ctx, e)
+	if err != nil {
+		return opts, err
+	}
+	opts.Encryption = rules
 	return opts, nil
 }
 
@@ -139,7 +187,27 @@ copy succeeded.`
 }
 
 func (e *env) copy(ctx context.Context, args []string, flags transferFlags, recursive bool, versionID string, move bool) error {
-	opts, err := flags.options(e)
+	return e.copyAs(ctx, args, flags, recursive, versionID, actionCopy(move))
+}
+
+// copyAction is the transfer of cp, mv or put.
+type copyAction struct {
+	name, verb string
+	move       bool
+	// uploadOnly restricts the sources to local files and the target to a
+	// remote location (put).
+	uploadOnly bool
+}
+
+func actionCopy(move bool) copyAction {
+	if move {
+		return copyAction{name: "move", verb: "Moved", move: true}
+	}
+	return copyAction{name: "copy", verb: "Copied"}
+}
+
+func (e *env) copyAs(ctx context.Context, args []string, flags transferFlags, recursive bool, versionID string, act copyAction) error {
+	opts, err := flags.options(ctx, e)
 	if err != nil {
 		return err
 	}
@@ -148,7 +216,17 @@ func (e *env) copy(ctx context.Context, args []string, flags transferFlags, recu
 		return err
 	}
 	sources, dest := targets[:len(targets)-1], targets[len(targets)-1]
-	items, err := cli.PlanCopy(ctx, e.resolver(), sources, dest, cli.PlanOptions{Recursive: recursive, VersionID: versionID})
+	if act.uploadOnly {
+		if !dest.IsRemote() {
+			return cli.UsageError("%s: put uploads to a remote location (ALIAS/BUCKET[/OBJECT])", dest)
+		}
+		for _, src := range sources {
+			if src.IsRemote() {
+				return cli.UsageError("%s: put uploads local files (use cp for remote sources)", src)
+			}
+		}
+	}
+	items, err := cli.PlanCopy(ctx, e.resolver(), sources, dest, cli.PlanOptions{Recursive: recursive, VersionID: versionID, Encryption: opts.Encryption})
 	if err != nil {
 		return err
 	}
@@ -161,10 +239,7 @@ func (e *env) copy(ctx context.Context, args []string, flags transferFlags, recu
 	bar := e.progress(total)
 	opts.Progress = bar
 	tr := e.transfer()
-	action, verb := "copy", "Copied"
-	if move {
-		action, verb = "move", "Moved"
-	}
+	action, verb, move := act.name, act.verb, act.move
 	var (
 		bytes          int64
 		copied, failed int
@@ -197,11 +272,16 @@ func (e *env) copy(ctx context.Context, args []string, flags transferFlags, recu
 		}
 		bytes += res.Size
 		copied++
-		rec := transferRecord{Action: action, Source: it.Source.String(), Target: it.Dest.String(), Size: res.Size, ETag: res.ETag, VersionID: res.VersionID, Parts: res.Parts}
+		rec := transferRecord{Action: action, Source: it.Source.String(), Target: it.Dest.String(), Size: res.Size, ETag: res.ETag, VersionID: res.VersionID, Parts: res.Parts,
+			Checksum: checksumOf(res.Checksum)}
 		if bar.Enabled() && !e.out.JSON() {
 			continue
 		}
-		if err := e.out.Info(rec, fmt.Sprintf("`%s` -> `%s` (%s)", it.Source, it.Dest, cli.HumanSize(res.Size))); err != nil {
+		text := fmt.Sprintf("`%s` -> `%s` (%s)", it.Source, it.Dest, cli.HumanSize(res.Size))
+		if !res.Checksum.IsZero() {
+			text += fmt.Sprintf(" %s %s", res.Checksum.Algorithm, res.Checksum.Value)
+		}
+		if err := e.out.Info(rec, text); err != nil {
 			return err
 		}
 	}
@@ -236,7 +316,7 @@ aborts the upload on the server.`,
 		ValidArgsFunction: completeTargets(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			opts, err := flags.options(e)
+			opts, err := flags.options(ctx, e)
 			if err != nil {
 				return err
 			}
@@ -255,7 +335,8 @@ aborts the upload on the server.`,
 			if err != nil {
 				return err
 			}
-			rec := transferRecord{Action: "upload", Source: "-", Target: t.String(), Size: res.Size, ETag: res.ETag, VersionID: res.VersionID, Parts: res.Parts}
+			rec := transferRecord{Action: "upload", Source: "-", Target: t.String(), Size: res.Size, ETag: res.ETag, VersionID: res.VersionID, Parts: res.Parts,
+				Checksum: checksumOf(res.Checksum)}
 			return e.out.Info(rec, fmt.Sprintf("`stdin` -> `%s` (%s)", t, cli.HumanSize(res.Size)))
 		},
 	}
@@ -276,4 +357,32 @@ func plural(n int, one, many string) string {
 		return one
 	}
 	return many
+}
+
+// newPutCmd returns put: the upload of local files to a remote location,
+// with the transfer flags of cp.
+func newPutCmd(e *env) *cobra.Command {
+	var (
+		flags     transferFlags
+		recursive bool
+	)
+	cmd := &cobra.Command{
+		Use:   "put [flags] FILE... ALIAS/BUCKET[/OBJECT]",
+		Short: "Upload local files",
+		Long: `Upload local files (directories with --recursive) to a bucket: the uploads of
+cp, with its flags (multipart in parallel, metadata, tags, checksums, server-side
+encryption).`,
+		Example: `  nexoctl put report.pdf local/docs/
+  nexoctl put --checksum sha256 --enc-s3 local/vault backup.tar local/vault/2026/
+  nexoctl put --enc-c "local/private=$(cat key.b64)" secret.txt local/private/`,
+		Args:              minArgs(2),
+		ValidArgsFunction: completeTargets(e),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return e.copyAs(cmd.Context(), args, flags, recursive, "", copyAction{name: "upload", verb: "Uploaded", uploadOnly: true})
+		},
+	}
+	f := cmd.Flags()
+	f.BoolVarP(&recursive, "recursive", "r", false, "upload directories")
+	flags.register(f)
+	return cmd
 }

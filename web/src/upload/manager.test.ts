@@ -424,3 +424,48 @@ describe('createUploadManager (TD-U-06)', () => {
     expect(manager.getSnapshot().items).toEqual([]);
   });
 });
+
+describe('upload encryption (D-OBJ-02, SSE per upload)', () => {
+  it('asks for the encryption of every file, single or multipart', async () => {
+    const services = smallPartServices();
+    const put = vi.spyOn(services.uploads, 'putObject');
+    const create = vi.spyOn(services.uploads, 'create');
+    const manager = createUploadManager({
+      uploads: services.uploads,
+      singleUploadThreshold: KiB,
+    });
+    const encryption = { algorithm: 'aws:kms', kmsKeyId: 'nexo-default-key' } as const;
+    manager.enqueue('media', [
+      { key: 'small.bin', file: blob(10), encryption },
+      { key: 'big.bin', file: blob(3 * KiB), encryption },
+      { key: 'plain.bin', file: blob(10) },
+    ]);
+    await until(manager, () => manager.getSnapshot().items.every((i) => i.status === 'completed'));
+    expect(put).toHaveBeenCalledWith(
+      expect.objectContaining({ key: 'small.bin', encryption }),
+      expect.anything(),
+    );
+    expect(put).toHaveBeenCalledWith(
+      expect.not.objectContaining({ encryption: expect.anything() as unknown }),
+      expect.anything(),
+    );
+    expect(create).toHaveBeenCalledWith('media', 'big.bin', {
+      contentType: 'application/octet-stream',
+      encryption,
+    });
+    const big = await services.objects.stat('media', 'big.bin');
+    expect(big.encryption).toEqual({ type: 'SSE-KMS', kmsKeyId: 'nexo-default-key' });
+    const plain = await services.objects.stat('media', 'plain.bin');
+    expect(plain.encryption).toBeUndefined();
+  });
+
+  it('fails the files when the server has no KMS', async () => {
+    const services = createMockServices({ kms: { configured: false, online: false } });
+    const manager = createUploadManager({ uploads: services.uploads, maxAttempts: 1 });
+    manager.enqueue('media', [
+      { key: 'x.bin', file: blob(10), encryption: { algorithm: 'AES256' } },
+    ]);
+    await until(manager, () => manager.getSnapshot().items[0]?.status === 'failed');
+    expect(manager.getSnapshot().items[0]?.errorCode).toBe('not_implemented');
+  });
+});

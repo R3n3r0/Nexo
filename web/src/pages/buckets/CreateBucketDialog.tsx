@@ -10,6 +10,7 @@ import {
   TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
+import { IconAlertTriangle } from '@tabler/icons-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -134,6 +135,11 @@ export function CreateBucketDialog({ opened, onClose }: CreateBucketDialogProps)
               setObjectLock(event.currentTarget.checked);
             }}
           />
+          {objectLock ? (
+            <Alert color="orange" variant="light" icon={<IconAlertTriangle size={18} />}>
+              {t('buckets.objectLockWarning')}
+            </Alert>
+          ) : null}
           <Group align="flex-end" gap="xs" wrap="nowrap">
             <NumberInput
               label={t('buckets.quota')}

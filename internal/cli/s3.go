@@ -5,6 +5,8 @@ import (
 	"io"
 	"iter"
 	"time"
+
+	"github.com/r3n3r0/nexo/internal/domain"
 )
 
 // S3Client is the S3 surface used by the nexoctl commands (docs/12 §12.5).
@@ -45,8 +47,10 @@ type S3Client interface {
 	Copy(ctx context.Context, src, dst ObjectRef, opts CopyOptions) (*PutResult, error)
 	// Remove deletes objects or object versions in batches (DeleteObjects).
 	// The per-object outcome is in the results; the error reports a failure
-	// of the whole request.
-	Remove(ctx context.Context, bucket string, objects []ObjectVersion) ([]RemoveResult, error)
+	// of the whole request. A version protected by Object Lock fails with
+	// an error wrapping domain.ErrAccessDenied (or domain.ErrObjectLocked)
+	// unless opts.BypassGovernance lifts a GOVERNANCE retention.
+	Remove(ctx context.Context, bucket string, objects []ObjectVersion, opts DeleteOptions) ([]RemoveResult, error)
 
 	// ListUploads iterates over the multipart uploads in progress under
 	// prefix.
@@ -81,6 +85,45 @@ type S3Client interface {
 	PutTags(ctx context.Context, ref ObjectRef, tags map[string]string) error
 	// DeleteTags removes the tags of a bucket or object.
 	DeleteTags(ctx context.Context, ref ObjectRef) error
+
+	// GetObjectLock returns the Object Lock configuration of a bucket
+	// (S-BKT-08): Enabled is false for a bucket created without Object
+	// Lock.
+	GetObjectLock(ctx context.Context, bucket string) (*ObjectLockConfig, error)
+	// SetObjectLock sets the default retention of the new versions of a
+	// bucket with Object Lock; the zero retention removes it.
+	SetObjectLock(ctx context.Context, bucket string, def domain.DefaultRetention) error
+	// GetRetention returns the retention of an object version (S-OBJ-12):
+	// the zero retention when it has none.
+	GetRetention(ctx context.Context, ref ObjectRef) (domain.ObjectRetention, error)
+	// PutRetention sets the retention of an object version, or removes it
+	// with the zero retention; bypass shortens or removes a GOVERNANCE
+	// retention (s3:BypassGovernanceRetention).
+	PutRetention(ctx context.Context, ref ObjectRef, retention domain.ObjectRetention, bypass bool) error
+	// GetLegalHold returns the legal hold of an object version: OFF when it
+	// never had one.
+	GetLegalHold(ctx context.Context, ref ObjectRef) (domain.LegalHoldStatus, error)
+	// PutLegalHold sets the legal hold of an object version (ON or OFF).
+	PutLegalHold(ctx context.Context, ref ObjectRef, hold domain.LegalHoldStatus) error
+
+	// GetLifecycle returns the lifecycle configuration of a bucket
+	// (S-BKT-07): no rules when it has none.
+	GetLifecycle(ctx context.Context, bucket string) (*LifecycleConfiguration, error)
+	// PutLifecycle replaces the lifecycle configuration of a bucket; a
+	// configuration without rules removes it.
+	PutLifecycle(ctx context.Context, bucket string, cfg LifecycleConfiguration) error
+	// GetCORS returns the CORS configuration of a bucket (S-BKT-06): no
+	// rules when it has none.
+	GetCORS(ctx context.Context, bucket string) (*CORSConfiguration, error)
+	// PutCORS replaces the CORS configuration of a bucket; a configuration
+	// without rules removes it.
+	PutCORS(ctx context.Context, bucket string, cfg CORSConfiguration) error
+	// GetNotifications returns the event subscriptions of a bucket
+	// (S-BKT-10): none when it has no notification configuration.
+	GetNotifications(ctx context.Context, bucket string) (*BucketNotifications, error)
+	// PutNotifications replaces the event subscriptions of a bucket; no
+	// subscription removes them.
+	PutNotifications(ctx context.Context, bucket string, cfg BucketNotifications) error
 }
 
 // S3Factory builds the S3 client of an alias: the commands receive it in
@@ -133,6 +176,9 @@ type BucketInfo struct {
 type MakeBucketOptions struct {
 	// Region is the location constraint ("" uses the alias region).
 	Region string
+	// ObjectLock creates the bucket with Object Lock (and versioning): it
+	// can only be enabled at creation.
+	ObjectLock bool
 }
 
 // ListOptions select the objects of List.
@@ -159,11 +205,27 @@ type ObjectInfo struct {
 	// lower-case keys) returned by Stat and Get.
 	Metadata     map[string]string
 	StorageClass string
+	// Retention and LegalHold are the Object Lock state of the version,
+	// returned by Stat and Get to the callers allowed to read them.
+	Retention domain.ObjectRetention
+	LegalHold domain.LegalHoldStatus
+	// Checksum is the additional checksum of the object, returned by Stat
+	// with StatOptions.Checksum.
+	Checksum domain.Checksum
+	// Encryption is the server-side encryption of the version (Stat and
+	// Get).
+	Encryption domain.EncryptionInfo
 }
 
 // StatOptions tune Stat.
 type StatOptions struct {
 	VersionID string
+	// Checksum asks for the additional checksum of the object
+	// (x-amz-checksum-mode: ENABLED).
+	Checksum bool
+	// SSE carries the key of an object encrypted with SSE-C (the other
+	// encryptions need nothing to be read).
+	SSE domain.SSERequest
 }
 
 // ByteRange is a range of an object: Length 0 reads up to the end.
@@ -176,6 +238,8 @@ type ByteRange struct {
 type GetOptions struct {
 	VersionID string
 	Range     *ByteRange
+	// SSE carries the key of an object encrypted with SSE-C.
+	SSE domain.SSERequest
 }
 
 // PutOptions tune Put.
@@ -195,6 +259,13 @@ type PutOptions struct {
 	// part (or of the whole object) once uploaded. It may be called from
 	// several goroutines.
 	Progress func(n int64)
+	// SSE is the server-side encryption of the object (zero: the default
+	// encryption of the bucket, if any).
+	SSE domain.SSERequest
+	// Checksum is the additional checksum algorithm the client computes
+	// and the server verifies and stores (S-OBJ-09); a multipart upload
+	// checksums every part.
+	Checksum domain.ChecksumAlgorithm
 }
 
 // PutResult describes an uploaded or copied object.
@@ -204,6 +275,9 @@ type PutResult struct {
 	Size      int64
 	// Parts is the number of parts of a multipart upload (0: single PUT).
 	Parts int
+	// Checksum is the additional checksum the server stored, when one was
+	// requested.
+	Checksum domain.Checksum
 }
 
 // ObjectRef names a bucket, an object or an object version.
@@ -230,6 +304,22 @@ type CopyOptions struct {
 	// Progress, when not nil, is called with the bytes copied (see
 	// PutOptions).
 	Progress func(n int64)
+	// SourceSSE carries the key of a source encrypted with SSE-C.
+	SourceSSE domain.SSERequest
+	// SSE is the server-side encryption of the copy (zero: the default
+	// encryption of the destination bucket, if any).
+	SSE domain.SSERequest
+	// Checksum is the additional checksum algorithm of the copy.
+	Checksum domain.ChecksumAlgorithm
+}
+
+// DeleteOptions tune Remove.
+type DeleteOptions struct {
+	// BypassGovernance removes the versions a GOVERNANCE retention
+	// protects (x-amz-bypass-governance-retention), where the caller has
+	// s3:BypassGovernanceRetention. COMPLIANCE retentions and legal holds
+	// are never bypassed.
+	BypassGovernance bool
 }
 
 // ObjectVersion names an object (empty VersionID: the latest version) for
@@ -318,3 +408,11 @@ const (
 	VersioningEnabled   Versioning = "Enabled"
 	VersioningSuspended Versioning = "Suspended"
 )
+
+// ObjectLockConfig is the Object Lock configuration of a bucket.
+type ObjectLockConfig struct {
+	// Enabled reports a bucket created with Object Lock.
+	Enabled bool
+	// Default is the retention of the new versions (zero: none).
+	Default domain.DefaultRetention
+}

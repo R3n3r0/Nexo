@@ -1,0 +1,53 @@
+$ nexoctl admin kms status mem
+KMS: builtin (online)
+Default key: mem-kms-key
+
+$ nexoctl admin kms key ls mem
+KEY                              CREATED                 DEFAULT
+mem-kms-key                      -                       yes
+
+$ nexoctl admin kms key create mem app-key
+Created the KMS key "app-key".
+
+$ nexoctl admin kms key create mem app-key
+! nexoctl: error: create KMS key "app-key": kms key app-key already exists (conflict)
+[exit 1]
+
+$ nexoctl admin kms key ls --json mem app
+{"status":"success","alias":"mem","id":"app-key","createdAt":"2026-01-02T03:04:05Z"}
+
+$ nexoctl encrypt set sse-kms app-key mem/docs
+Default encryption of `mem/docs`: SSE-KMS with key app-key.
+
+$ nexoctl encrypt info mem/docs
+`mem/docs`: SSE-KMS with key app-key.
+
+$ nexoctl encrypt set sse-s3 app-key mem/docs
+! nexoctl: error: a KEY needs sse-kms: encrypt set sse-kms KEY ALIAS/BUCKET
+! Run 'nexoctl encrypt set --help' for usage.
+[exit 2]
+
+$ nexoctl encrypt set sse-kms app-key --kms-key-id other mem/docs
+! nexoctl: error: give the KMS key once: as KEY or with --kms-key-id
+! Run 'nexoctl encrypt set --help' for usage.
+[exit 2]
+
+$ nexoctl quota set mem/docs --size 1MiB
+Set a hard quota of 1.0MiB on `mem/docs`.
+
+$ nexoctl quota info mem/docs
+`mem/docs` has a hard quota of 1.0MiB (used 768.0KiB in 3 objects, 75.0%).
+
+$ nexoctl quota info --json mem/docs
+{"status":"success","target":"mem/docs","bucket":"docs","type":"hard","size":1048576,"used":786432,"objects":3}
+
+$ nexoctl admin kms status mem
+! nexoctl: error: server side encryption specified but KMS is not configured (not_implemented)
+[exit 1]
+
+$ nexoctl admin kms status mem
+KMS: kes (offline)
+Default key: kes-key
+Endpoint: https://kes.test:7373 (offline)
+Error: connection refused
+
