@@ -1,0 +1,50 @@
+{
+  "EventName": "s3:ObjectCreated:Put",
+  "Key": "photos/2026/summer holiday+1.jpg",
+  "Records": [
+    {
+      "awsRegion": "us-east-1",
+      "eventName": "s3:ObjectCreated:Put",
+      "eventSource": "nexo:s3",
+      "eventTime": "2026-10-09T12:30:45.123Z",
+      "eventVersion": "2.0",
+      "requestParameters": {
+        "sourceIPAddress": "192.0.2.10"
+      },
+      "responseElements": {
+        "x-amz-id-2": "aG9zdC1pZA==",
+        "x-amz-request-id": "17C2A3B4D5E6F708"
+      },
+      "s3": {
+        "bucket": {
+          "arn": "arn:aws:s3:::photos",
+          "name": "photos",
+          "ownerIdentity": {
+            "principalId": "nexo"
+          }
+        },
+        "configurationId": "new-photos",
+        "object": {
+          "contentType": "image/jpeg",
+          "eTag": "d41d8cd98f00b204e9800998ecf8427e",
+          "key": "2026/summer+holiday%2B1.jpg",
+          "sequencer": "18a2f3c4d5e6f701",
+          "size": 1234,
+          "userMetadata": {
+            "camera": "x100"
+          },
+          "versionId": "0193a1b2-c3d4"
+        },
+        "s3SchemaVersion": "1.0"
+      },
+      "source": {
+        "host": "192.0.2.10",
+        "port": "51234",
+        "userAgent": "aws-sdk-go-v2/1.36.3"
+      },
+      "userIdentity": {
+        "principalId": "alice"
+      }
+    }
+  ]
+}

@@ -158,4 +158,24 @@ type ServerInfo struct {
 	Buckets uint64
 	Objects uint64
 	Usage   uint64
+	// KMS is the state of the KMS of the server-side encryption (nil when
+	// the server does not report it).
+	KMS *KMSInfo
+}
+
+// KMSInfo is the state of the KMS of the server-side encryption.
+type KMSInfo struct {
+	// Configured is false without KMS (SSE-S3 and SSE-KMS refused).
+	Configured bool
+	// Backend is "builtin" (master key from the environment) or "kes".
+	Backend    string
+	DefaultKey string
+	// Endpoints are the servers of an external KMS.
+	Endpoints []string
+	// Online reports that the KMS answers; Error why it does not.
+	Online bool
+	Error  string
+	// Keys are the names of the keys of the KMS (the first ones), nil when
+	// they cannot be listed.
+	Keys []string
 }

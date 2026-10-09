@@ -112,9 +112,12 @@ func TestPutObjectRejectsInvalidHeaders(t *testing.T) {
 		{"bad tagging", []string{"x-amz-tagging", "a=%zz"}, 400, "InvalidTag"},
 		{"two checksums", []string{"x-amz-checksum-crc32", "a", "x-amz-checksum-sha256", "b"}, 400, "InvalidRequest"},
 		{"public ACL", []string{"x-amz-acl", "public-read"}, 501, "NotImplemented"},
-		{"SSE", []string{"x-amz-server-side-encryption", "AES256"}, 501, "NotImplemented"},
-		{"SSE-C", []string{"x-amz-server-side-encryption-customer-algorithm", "AES256"}, 501, "NotImplemented"},
-		{"object lock", []string{"x-amz-object-lock-mode", "GOVERNANCE"}, 501, "NotImplemented"},
+		{"SSE", []string{"x-amz-server-side-encryption", "ROT13"}, 400, "InvalidArgument"},
+		{"SSE-C over plain HTTP", []string{"x-amz-server-side-encryption-customer-algorithm", "AES256"}, 400, "InvalidRequest"},
+		{"object lock mode without date", []string{"x-amz-object-lock-mode", "GOVERNANCE"}, 400, "InvalidArgument"},
+		{"object lock bad mode", []string{"x-amz-object-lock-mode", "LOOSE", "x-amz-object-lock-retain-until-date", "2030-01-01T00:00:00Z"}, 400, "InvalidArgument"},
+		{"object lock bad date", []string{"x-amz-object-lock-mode", "GOVERNANCE", "x-amz-object-lock-retain-until-date", "tomorrow"}, 400, "InvalidArgument"},
+		{"legal hold", []string{"x-amz-object-lock-legal-hold", "MAYBE"}, 400, "InvalidArgument"},
 		{"grant", []string{"x-amz-grant-full-control", "id=x"}, 501, "NotImplemented"},
 	}
 	for _, tc := range tests {
@@ -252,17 +255,29 @@ func TestGetObjectConditionsAndMarkers(t *testing.T) {
 	f.objects.EXPECT().GetObject(mock.Anything, "b", "k", mock.Anything).Return(nil, domain.ErrPreconditionFailed).Once()
 	requireError(t, f.do(http.MethodGet, "/b/k", "", "If-Match", `"x"`), http.StatusPreconditionFailed, "PreconditionFailed")
 
-	// The latest version is a delete marker.
+	// The latest version is a delete marker: its version id and time.
 	f.objects.EXPECT().GetObject(mock.Anything, "b", "gone", mock.Anything).
-		Return(nil, domain.NewS3Error(domain.ErrObjectNotFound, "NoSuchKey", "The specified key does not exist.")).Once()
+		Return(nil, &domain.DeleteMarkerError{VersionID: "m1", ModTime: now,
+			Err: domain.NewS3Error(domain.ErrObjectNotFound, "NoSuchKey", "The specified key does not exist.")}).Once()
 	rec = f.do(http.MethodGet, "/b/gone", "")
 	requireError(t, rec, http.StatusNotFound, "NoSuchKey")
 	assert.Equal(t, "true", rec.Header().Get("x-amz-delete-marker"))
+	assert.Equal(t, "m1", rec.Header().Get("x-amz-version-id"))
+	assert.Equal(t, "Thu, 08 Oct 2026 12:00:00 GMT", rec.Header().Get("Last-Modified"))
 	// An explicit version that is a delete marker.
-	f.objects.EXPECT().GetObject(mock.Anything, "b", "gone", mock.Anything).Return(nil, domain.ErrMethodNotAllowed).Once()
+	f.objects.EXPECT().GetObject(mock.Anything, "b", "gone", mock.Anything).
+		Return(nil, &domain.DeleteMarkerError{VersionID: "m1", ModTime: now, Err: domain.ErrMethodNotAllowed}).Once()
 	rec = f.do(http.MethodGet, "/b/gone?versionId=m1", "")
 	requireError(t, rec, http.StatusMethodNotAllowed, "MethodNotAllowed")
 	assert.Equal(t, "true", rec.Header().Get("x-amz-delete-marker"))
+	assert.Equal(t, "m1", rec.Header().Get("x-amz-version-id"))
+	// HEAD answers the same headers without a body.
+	f.objects.EXPECT().GetObjectInfo(mock.Anything, "b", "gone", mock.Anything).
+		Return(domain.ObjectInfo{}, &domain.DeleteMarkerError{VersionID: "m2", ModTime: now, Err: domain.ErrObjectNotFound}).Once()
+	rec = f.do(http.MethodHead, "/b/gone", "")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Equal(t, "true", rec.Header().Get("x-amz-delete-marker"))
+	assert.Equal(t, "m2", rec.Header().Get("x-amz-version-id"))
 	// A plain missing key.
 	f.objects.EXPECT().GetObject(mock.Anything, "b", "none", mock.Anything).Return(nil, domain.ErrObjectNotFound).Once()
 	rec = f.do(http.MethodGet, "/b/none", "")
@@ -455,7 +470,7 @@ func TestCopyObject(t *testing.T) {
 		{"bad directive", []string{"x-amz-copy-source", "/src/k", "x-amz-metadata-directive", "MERGE"}, 400, "InvalidArgument"},
 		{"bad tagging directive", []string{"x-amz-copy-source", "/src/k", "x-amz-tagging-directive", "MERGE"}, 400, "InvalidArgument"},
 		{"bad storage class", []string{"x-amz-copy-source", "/src/k", "x-amz-storage-class", "X"}, 400, "InvalidStorageClass"},
-		{"SSE", []string{"x-amz-copy-source", "/src/k", "x-amz-server-side-encryption", "AES256"}, 501, "NotImplemented"},
+		{"SSE", []string{"x-amz-copy-source", "/src/k", "x-amz-server-side-encryption", "ROT13"}, 400, "InvalidArgument"},
 		{"metadata too large", []string{"x-amz-copy-source", "/src/k", "x-amz-metadata-directive", "REPLACE", "x-amz-meta-x", strings.Repeat("y", 3000)}, 400, "MetadataTooLarge"},
 		{"bad tags", []string{"x-amz-copy-source", "/src/k", "x-amz-tagging-directive", "REPLACE", "x-amz-tagging", "a=1&a=2"}, 400, "InvalidTag"},
 	}

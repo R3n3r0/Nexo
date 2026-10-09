@@ -1,0 +1,22 @@
+Inspect the notification targets of the server (the notify_* subsystems of the
+configuration, see "nexoctl admin config set"): their ARN for "nexoctl event
+add", their state and the events waiting in their queue on the answering node.
+
+Usage:
+  nexoctl admin notify [flags]
+  nexoctl admin notify [command]
+
+Available Commands:
+  targets     List and test the notification targets
+
+Flags:
+  -h, --help   help for notify
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl admin notify [command] --help" for more information about a command.

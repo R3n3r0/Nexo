@@ -1,0 +1,29 @@
+Manage the Object Lock retention (S3 WORM) of object versions and the default
+retention of buckets. The bucket must have been created with Object Lock
+("nexoctl mb --with-lock").
+
+A GOVERNANCE retention can be shortened or removed with --bypass by the users
+allowed to (s3:BypassGovernanceRetention); a COMPLIANCE retention can only be
+extended, by anyone, root included. The versions under retention cannot be
+deleted until it expires.
+
+Usage:
+  nexoctl retention [flags]
+  nexoctl retention [command]
+
+Available Commands:
+  clear       Remove the retention of objects, or the default retention of a bucket
+  info        Show the retention of objects, or the default retention of a bucket
+  set         Set the retention of objects, or the default retention of a bucket
+
+Flags:
+  -h, --help   help for retention
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl retention [command] --help" for more information about a command.

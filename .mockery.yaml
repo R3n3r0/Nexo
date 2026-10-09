@@ -41,6 +41,10 @@ packages:
       PolicyManager:
       ConfigManager:
       ClusterManager:
+      LifecycleManager:
+      NotificationManager:
+      CORSManager:
+      KMSManager:
   github.com/r3n3r0/nexo/internal/service/audit:
     interfaces:
       Service:
@@ -70,6 +74,9 @@ packages:
     interfaces:
       Service:
       Store:
+  github.com/r3n3r0/nexo/internal/service/crypto:
+    interfaces:
+      Service:
   github.com/r3n3r0/nexo/internal/service/erasure:
     interfaces:
       Codec:
@@ -81,7 +88,18 @@ packages:
       Dispatcher:
       Target:
       TargetFactory:
+      BucketRules:
       HTTPDoer:
+      KafkaProducer:
+      KafkaDialer:
+      NATSConn:
+      NATSDialer:
+      AMQPChannel:
+      AMQPDialer:
+      RedisConn:
+      RedisDialer:
+      PostgresConn:
+      PostgresDialer:
   github.com/r3n3r0/nexo/internal/service/heal:
     interfaces:
       Service:
@@ -89,10 +107,19 @@ packages:
   github.com/r3n3r0/nexo/internal/service/health:
     interfaces:
       Service:
+  github.com/r3n3r0/nexo/internal/service/ilm:
+    interfaces:
+      Service:
+      BucketSettings:
   github.com/r3n3r0/nexo/internal/service/iam:
     interfaces:
       Service:
       Store:
+  github.com/r3n3r0/nexo/internal/service/kms:
+    interfaces:
+      Service:
+      KeyStore:
+      HTTPDoer:
   github.com/r3n3r0/nexo/internal/service/lock:
     interfaces:
       Locker:
@@ -122,6 +149,10 @@ packages:
   github.com/r3n3r0/nexo/internal/service/preflight:
     interfaces:
       Service:
+  github.com/r3n3r0/nexo/internal/service/quota:
+    interfaces:
+      Service:
+      UsageSource:
   github.com/r3n3r0/nexo/internal/service/scanner:
     interfaces:
       Service:
@@ -182,6 +213,8 @@ packages:
       STSRoutes:
       HealthRoutes:
       MetricsRoutes:
+      LifecycleRoutes:
+      NotificationRoutes:
   github.com/r3n3r0/nexo/internal/transport/http/admin:
     interfaces:
       PublicRoutes:
@@ -194,6 +227,10 @@ packages:
       ShareRoutes:
       ConfigRoutes:
       ClusterRoutes:
+      LifecycleRoutes:
+      NotificationRoutes:
+      CORSRoutes:
+      KMSRoutes:
   github.com/r3n3r0/nexo/internal/transport/rpc:
     interfaces:
       Routes:

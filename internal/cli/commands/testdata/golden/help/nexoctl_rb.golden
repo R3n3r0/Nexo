@@ -1,6 +1,9 @@
 Remove empty buckets. With --force every object, version, delete marker and
 incomplete upload of the bucket is removed first.
 
+--force respects Object Lock: a bucket that holds versions under retention or
+legal hold is left untouched (exit code 4), nothing is removed.
+
 Usage:
   nexoctl rb [flags] ALIAS/BUCKET...
 

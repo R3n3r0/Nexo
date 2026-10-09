@@ -71,9 +71,11 @@ func TestStripAWSChunked(t *testing.T) {
 		"":                       "",
 		"aws-chunked":            "",
 		"AWS-CHUNKED, gzip":      "gzip",
-		"gzip,aws-chunked,br":    "gzip,br",
+		"gzip,aws-chunked,br":    "gzip, br",
 		"identity":               "identity",
 		" , aws-chunked , gzip ": "gzip",
+		"deflate, gzip":          "deflate, gzip",
+		"deflate,gzip":           "deflate,gzip",
 	}
 	for in, want := range tests {
 		assert.Equal(t, want, stripAWSChunked(in), in)
@@ -193,24 +195,40 @@ func TestContentLength(t *testing.T) {
 }
 
 func TestChecksumFromHeaders(t *testing.T) {
-	h := http.Header{}
-	c, err := checksumFromHeaders(h)
-	require.NoError(t, err)
-	assert.True(t, c.IsZero())
-	h.Set(httpx.HeaderAmzTrailer, "x-amz-checksum-crc32c")
-	h.Set(httpx.HeaderAmzSDKChecksumAlgorithm, "crc32c")
-	c, err = checksumFromHeaders(h)
-	require.NoError(t, err)
-	assert.Equal(t, domain.Checksum{Algorithm: domain.ChecksumCRC32C}, c, "a trailing checksum announces its algorithm only")
-	h = http.Header{}
-	h.Set(httpx.HeaderAmzSDKChecksumAlgorithm, "crc32")
-	c, err = checksumFromHeaders(h)
-	require.NoError(t, err)
-	assert.True(t, c.IsZero(), "the SDK algorithm without a trailer is not a checksum")
-	h.Set("x-amz-checksum-sha1", "s")
-	c, err = checksumFromHeaders(h)
-	require.NoError(t, err)
-	assert.Equal(t, domain.Checksum{Algorithm: domain.ChecksumSHA1, Value: "s"}, c)
+	tests := []struct {
+		name    string
+		headers map[string]string
+		want    domain.Checksum
+		code    string
+	}{
+		{name: "none", headers: map[string]string{}},
+		{name: "header", headers: map[string]string{"x-amz-checksum-sha1": "s"}, want: domain.Checksum{Algorithm: domain.ChecksumSHA1, Value: "s"}},
+		{name: "crc64nvme header", headers: map[string]string{"x-amz-checksum-crc64nvme": "n", httpx.HeaderAmzSDKChecksumAlgorithm: "CRC64NVME"},
+			want: domain.Checksum{Algorithm: domain.ChecksumCRC64NVME, Value: "n"}},
+		{name: "trailer announces its algorithm only", headers: map[string]string{httpx.HeaderAmzTrailer: "x-amz-checksum-crc32c", httpx.HeaderAmzSDKChecksumAlgorithm: "crc32c"},
+			want: domain.Checksum{Algorithm: domain.ChecksumCRC32C}},
+		{name: "trailer without sdk algorithm", headers: map[string]string{httpx.HeaderAmzTrailer: "x-amz-checksum-sha256"},
+			want: domain.Checksum{Algorithm: domain.ChecksumSHA256}},
+		{name: "sdk algorithm alone is not a checksum", headers: map[string]string{httpx.HeaderAmzSDKChecksumAlgorithm: "crc32"}},
+		{name: "sdk algorithm disagreeing", headers: map[string]string{"x-amz-checksum-sha1": "s", httpx.HeaderAmzSDKChecksumAlgorithm: "crc32"}, code: "InvalidRequest"},
+		{name: "two headers", headers: map[string]string{"x-amz-checksum-sha1": "s", "x-amz-checksum-crc32": "c"}, code: "InvalidRequest"},
+		{name: "unsupported trailer", headers: map[string]string{httpx.HeaderAmzTrailer: "x-amz-checksum-md5"}, code: "InvalidRequest"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := http.Header{}
+			for k, v := range tt.headers {
+				h.Set(k, v)
+			}
+			c, err := checksumFromHeaders(h)
+			if tt.code != "" {
+				assert.Equal(t, tt.code, s3Code(err))
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, c)
+		})
+	}
 }
 
 func TestUnsignedPayloadSHA256(t *testing.T) {

@@ -1,0 +1,19 @@
+Print the lifecycle configuration of a bucket (JSON or S3 XML)
+
+Usage:
+  nexoctl ilm rule export [--xml] ALIAS/BUCKET [flags]
+
+Examples:
+  nexoctl ilm rule export local/app > lifecycle.json
+  nexoctl ilm rule export --xml local/app
+
+Flags:
+  -h, --help   help for export
+      --xml    print the S3 LifecycleConfiguration XML
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

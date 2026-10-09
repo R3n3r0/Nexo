@@ -38,7 +38,7 @@ export function problem(
   status: number,
   code: string,
   detail: string,
-  extra: Pick<ProblemDetails, 'errors'> = {},
+  extra: Pick<ProblemDetails, 'errors' | 'ruleErrors'> = {},
 ): ApiError {
   return new ApiError({ title: statusTitle(status), status, code, detail, ...extra });
 }
@@ -65,13 +65,34 @@ function statusTitle(status: number): string {
       return 'Forbidden';
     case 404:
       return 'Not Found';
+    case 405:
+      return 'Method Not Allowed';
     case 409:
       return 'Conflict';
     case 429:
       return 'Too Many Requests';
+    case 501:
+      return 'Not Implemented';
     default:
       return `HTTP ${status}`;
   }
+}
+
+/**
+ * The invalid_configuration problem of a bucket configuration (lifecycle,
+ * subscriptions, CORS) with its invalid rules, like the Admin API.
+ */
+export function invalidConfiguration(
+  ruleErrors: NonNullable<ProblemDetails['ruleErrors']>,
+): ApiError {
+  return problem(
+    400,
+    'invalid_configuration',
+    ruleErrors.length === 1
+      ? (ruleErrors[0]?.message ?? 'The configuration is not valid.')
+      : `${String(ruleErrors.length)} rules are not valid.`,
+    { ruleErrors },
+  );
 }
 
 /** Deep copy to keep callers from mutating the mock store. */

@@ -38,6 +38,14 @@ const (
 	EnvHealRetryMaxDelay  = "NEXO_HEAL_RETRY_MAX_DELAY"
 	EnvCacheResync        = "NEXO_CACHE_RESYNC_INTERVAL"
 	EnvTLSInternodeVerify = "NEXO_TLS_INTERNODE_VERIFY"
+	EnvKMSSecretKey       = "NEXO_KMS_SECRET_KEY"
+	EnvKMSSecretKeyPrev   = "NEXO_KMS_SECRET_KEY_PREVIOUS"
+	EnvKMSEndpoint        = "NEXO_KMS_ENDPOINT"
+	EnvKMSKeyName         = "NEXO_KMS_KEY_NAME"
+	EnvKMSClientCert      = "NEXO_KMS_CLIENT_CERT"
+	EnvKMSClientKey       = "NEXO_KMS_CLIENT_KEY"
+	EnvKMSCAPath          = "NEXO_KMS_CAPATH"
+	EnvSSECAllowInsecure  = "NEXO_SSEC_ALLOW_INSECURE"
 	// FileSuffix is appended to a variable name to read its value from a file.
 	FileSuffix = "_FILE"
 )
@@ -205,13 +213,22 @@ func (l *loader) applyEnv(cfg *Static) error {
 	}
 	set(EnvStorageClassStd, &cfg.StorageClassStandard)
 	set(EnvStorageClassRRS, &cfg.StorageClassRRS)
-	if v, ok := l.env(EnvTLSInternodeVerify); ok && strings.TrimSpace(v) != "" {
-		b, err := strconv.ParseBool(strings.TrimSpace(v))
-		if err != nil {
-			return fmt.Errorf("%s: %w", EnvTLSInternodeVerify, err)
+	for key, dst := range map[string]*bool{EnvTLSInternodeVerify: &cfg.TLSInternodeVerify, EnvSSECAllowInsecure: &cfg.SSECAllowInsecure} {
+		if v, ok := l.env(key); ok && strings.TrimSpace(v) != "" {
+			b, err := strconv.ParseBool(strings.TrimSpace(v))
+			if err != nil {
+				return fmt.Errorf("%s: %w", key, err)
+			}
+			*dst = b
 		}
-		cfg.TLSInternodeVerify = b
 	}
+	if v, ok := l.env(EnvKMSEndpoint); ok {
+		cfg.KMSEndpoints = splitList(v)
+	}
+	set(EnvKMSKeyName, &cfg.KMSKeyName)
+	set(EnvKMSClientCert, &cfg.KMSCertFile)
+	set(EnvKMSClientKey, &cfg.KMSKeyFile)
+	set(EnvKMSCAPath, &cfg.KMSCAPath)
 	for key, dst := range map[string]*time.Duration{
 		EnvLockStaleAfter: &cfg.LockStaleAfter, EnvLockRefresh: &cfg.LockRefreshInterval, EnvRPCCallTimeout: &cfg.RPCCallTimeout,
 		EnvHealRetryMaxDelay: &cfg.HealRetryMaxDelay, EnvCacheResync: &cfg.CacheResyncInterval,
@@ -230,6 +247,16 @@ func (l *loader) applyEnv(cfg *Static) error {
 	}
 	if cfg.RootPassword, err = l.secret(EnvRootPassword, cfg.RootPassword); err != nil {
 		return err
+	}
+	if cfg.KMSSecretKey, err = l.secret(EnvKMSSecretKey, cfg.KMSSecretKey); err != nil {
+		return err
+	}
+	previous, err := l.secret(EnvKMSSecretKeyPrev, "")
+	if err != nil {
+		return err
+	}
+	if previous != "" {
+		cfg.KMSPreviousSecretKeys = splitList(previous)
 	}
 	return nil
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/kms"
 	"github.com/r3n3r0/nexo/internal/service/lock"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
@@ -28,7 +29,11 @@ type Deps struct {
 	// Locks serializes the read-modify-write cycles of a bucket's
 	// configuration (default: a local locker; pass the deployment's
 	// locker so that every node serializes on the same locks).
-	Locks  lock.Locker
+	Locks lock.Locker
+	// KMS validates the default encryption of the buckets (SetEncryption):
+	// SSE-S3 and SSE-KMS need a configured KMS, and SSE-KMS an existing
+	// key. Nil refuses every default encryption (no KMS).
+	KMS    kms.Service
 	Clock  clock.Clock
 	Logger *slog.Logger
 }
@@ -79,6 +84,10 @@ type Service interface {
 	Create(ctx context.Context, in CreateInput) (*domain.Bucket, error)
 	Get(ctx context.Context, name string) (*domain.BucketInfo, error)
 	List(ctx context.Context, in ListInput) ([]domain.BucketInfo, error)
+	// ListPage returns a page of the buckets in name order (ListBuckets
+	// with max-buckets and continuation-token); an invalid token or page
+	// size fails with domain.ErrInvalidArgument.
+	ListPage(ctx context.Context, in ListPageInput) (ListPageResult, error)
 	Delete(ctx context.Context, name string, opts DeleteOptions) error
 
 	GetVersioning(ctx context.Context, name string) (domain.Versioning, error)
@@ -105,10 +114,24 @@ type Service interface {
 	SetLifecycle(ctx context.Context, name string, xmlDoc []byte) error
 	DeleteLifecycle(ctx context.Context, name string) error
 
+	// GetObjectLock returns the object lock configuration of a bucket
+	// created with object locking (S3 ObjectLockConfigurationNotFoundError
+	// otherwise).
 	GetObjectLock(ctx context.Context, name string) (ObjectLockConfig, error)
+	// SetObjectLock sets the default retention of a bucket created with
+	// object locking: object locking can only be enabled at the creation
+	// of a bucket (CreateInput.ObjectLock, S3 InvalidBucketState
+	// otherwise), and stays enabled.
 	SetObjectLock(ctx context.Context, name string, cfg ObjectLockConfig) error
 
+	// GetEncryption returns the default encryption of a bucket (S3
+	// ServerSideEncryptionConfigurationNotFoundError when none).
 	GetEncryption(ctx context.Context, name string) (EncryptionConfig, error)
+	// SetEncryption sets the default encryption of a bucket (S-BKT-11),
+	// applied by the object layer to the writes that ask for none. It
+	// needs a configured KMS (domain.ErrKMSNotConfigured, S3
+	// NotImplemented) and, for aws:kms with a key id, an existing key
+	// (domain.ErrKMSKeyNotFound, S3 KMS.NotFoundException).
 	SetEncryption(ctx context.Context, name string, cfg EncryptionConfig) error
 	DeleteEncryption(ctx context.Context, name string) error
 
@@ -117,13 +140,26 @@ type Service interface {
 	// without a type is a hard quota, a zero size clears the quota.
 	SetQuota(ctx context.Context, name string, q Quota) (Quota, error)
 
+	// GetTags returns the bucket tags (S3 NoSuchTagSet when none).
 	GetTags(ctx context.Context, name string) (map[string]string, error)
+	// SetTags replaces the bucket tags, validated with the S3 rules: at
+	// most 50 tags, keys of 1-128 and values of 0-256 Unicode characters,
+	// no key in the reserved "aws:" namespace (S3 InvalidTag, BadRequest).
 	SetTags(ctx context.Context, name string, tags map[string]string) error
 	DeleteTags(ctx context.Context, name string) error
 
+	// GetCORS returns the CORS configuration as stored (S3
+	// NoSuchCORSConfiguration when none).
 	GetCORS(ctx context.Context, name string) ([]byte, error)
+	// SetCORS validates a CORSConfiguration document (domain
+	// CORSConfiguration.Validate: 1-100 rules, ...) and stores it.
 	SetCORS(ctx context.Context, name string, xmlDoc []byte) error
 	DeleteCORS(ctx context.Context, name string) error
+	// GetCORSConfig returns the parsed CORS configuration of a bucket,
+	// evaluated by the S3 API for the cross-origin requests (S3
+	// NoSuchCORSConfiguration, wrapping domain.ErrPolicyNotFound, when
+	// none).
+	GetCORSConfig(ctx context.Context, name string) (domain.CORSConfiguration, error)
 
 	GetNotification(ctx context.Context, name string) ([]byte, error)
 	SetNotification(ctx context.Context, name string, xmlDoc []byte) error
@@ -150,6 +186,28 @@ type ListInput struct {
 	WithUsage bool
 }
 
+// MaxListBuckets is the largest page of ListPage (max-buckets of S3).
+const MaxListBuckets = 10000
+
+// ListPageInput are the parameters of ListPage.
+type ListPageInput struct {
+	// Prefix filters bucket names.
+	Prefix string
+	// MaxBuckets bounds the page, 1..MaxListBuckets; 0 returns every
+	// bucket after the token.
+	MaxBuckets int
+	// ContinuationToken resumes the listing after the page that returned
+	// it (opaque).
+	ContinuationToken string
+}
+
+// ListPageResult is a page of ListPage.
+type ListPageResult struct {
+	Buckets []domain.BucketInfo
+	// ContinuationToken resumes the listing; empty on the last page.
+	ContinuationToken string
+}
+
 // DeleteOptions tunes Delete.
 type DeleteOptions struct {
 	// Force deletes the bucket even when it is not empty.
@@ -157,12 +215,12 @@ type DeleteOptions struct {
 }
 
 // RetentionMode is the object lock retention mode.
-type RetentionMode string
+type RetentionMode = domain.RetentionMode
 
 // Retention modes.
 const (
-	RetentionGovernance RetentionMode = "GOVERNANCE"
-	RetentionCompliance RetentionMode = "COMPLIANCE"
+	RetentionGovernance = domain.RetentionGovernance
+	RetentionCompliance = domain.RetentionCompliance
 )
 
 // ObjectLockConfig is the bucket object lock configuration.

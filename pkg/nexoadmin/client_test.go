@@ -34,7 +34,7 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	srv := testutil.StartServer(t)
+	srv := testutil.StartServer(t, testutil.WithKMS())
 	h := &harness{t: t, ctx: context.Background(), srv: srv, contract: newContractTransport(t, srv.ConsoleURL)}
 	h.root = h.client(srv.RootUser, srv.RootPassword)
 	h.s3 = s3.NewFromConfig(aws.Config{
@@ -197,11 +197,11 @@ func TestClientAgainstServer(t *testing.T) {
 		enc, err := c.GetBucketEncryption(ctx, "photos")
 		require.NoError(t, err)
 		assert.Nil(t, enc, "no default encryption")
-		_, err = c.SetBucketEncryption(ctx, "photos", nexoadmin.BucketEncryption{Algorithm: "aws:kms", KMSKeyID: "k1"})
+		_, err = c.SetBucketEncryption(ctx, "photos", nexoadmin.BucketEncryption{Algorithm: "aws:kms", KMSKeyID: testutil.KMSKeyName})
 		require.NoError(t, err)
 		enc, err = c.GetBucketEncryption(ctx, "photos")
 		require.NoError(t, err)
-		assert.Equal(t, &nexoadmin.BucketEncryption{Algorithm: "aws:kms", KMSKeyID: "k1"}, enc)
+		assert.Equal(t, &nexoadmin.BucketEncryption{Algorithm: "aws:kms", KMSKeyID: testutil.KMSKeyName}, enc)
 		require.NoError(t, c.DeleteBucketEncryption(ctx, "photos"))
 		enc, err = c.GetBucketEncryption(ctx, "photos")
 		require.NoError(t, err)

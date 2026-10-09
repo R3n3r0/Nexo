@@ -704,6 +704,65 @@ func (_c *Service_GetObject_Call) RunAndReturn(run func(context.Context, string,
 	return _c
 }
 
+// GetObjectAttributes provides a mock function with given fields: ctx, bucket, key, opts
+func (_m *Service) GetObjectAttributes(ctx context.Context, bucket string, key string, opts object.AttributesOptions) (object.ObjectAttributes, error) {
+	ret := _m.Called(ctx, bucket, key, opts)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetObjectAttributes")
+	}
+
+	var r0 object.ObjectAttributes
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, object.AttributesOptions) (object.ObjectAttributes, error)); ok {
+		return rf(ctx, bucket, key, opts)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, object.AttributesOptions) object.ObjectAttributes); ok {
+		r0 = rf(ctx, bucket, key, opts)
+	} else {
+		r0 = ret.Get(0).(object.ObjectAttributes)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, object.AttributesOptions) error); ok {
+		r1 = rf(ctx, bucket, key, opts)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_GetObjectAttributes_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetObjectAttributes'
+type Service_GetObjectAttributes_Call struct {
+	*mock.Call
+}
+
+// GetObjectAttributes is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - key string
+//   - opts object.AttributesOptions
+func (_e *Service_Expecter) GetObjectAttributes(ctx interface{}, bucket interface{}, key interface{}, opts interface{}) *Service_GetObjectAttributes_Call {
+	return &Service_GetObjectAttributes_Call{Call: _e.mock.On("GetObjectAttributes", ctx, bucket, key, opts)}
+}
+
+func (_c *Service_GetObjectAttributes_Call) Run(run func(ctx context.Context, bucket string, key string, opts object.AttributesOptions)) *Service_GetObjectAttributes_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(object.AttributesOptions))
+	})
+	return _c
+}
+
+func (_c *Service_GetObjectAttributes_Call) Return(_a0 object.ObjectAttributes, _a1 error) *Service_GetObjectAttributes_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_GetObjectAttributes_Call) RunAndReturn(run func(context.Context, string, string, object.AttributesOptions) (object.ObjectAttributes, error)) *Service_GetObjectAttributes_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetObjectInfo provides a mock function with given fields: ctx, bucket, key, opts
 func (_m *Service) GetObjectInfo(ctx context.Context, bucket string, key string, opts object.GetObjectOptions) (domain.ObjectInfo, error) {
 	ret := _m.Called(ctx, bucket, key, opts)
@@ -759,6 +818,124 @@ func (_c *Service_GetObjectInfo_Call) Return(_a0 domain.ObjectInfo, _a1 error) *
 }
 
 func (_c *Service_GetObjectInfo_Call) RunAndReturn(run func(context.Context, string, string, object.GetObjectOptions) (domain.ObjectInfo, error)) *Service_GetObjectInfo_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetObjectLegalHold provides a mock function with given fields: ctx, bucket, key, opts
+func (_m *Service) GetObjectLegalHold(ctx context.Context, bucket string, key string, opts object.LockOptions) (domain.LegalHoldStatus, error) {
+	ret := _m.Called(ctx, bucket, key, opts)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetObjectLegalHold")
+	}
+
+	var r0 domain.LegalHoldStatus
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, object.LockOptions) (domain.LegalHoldStatus, error)); ok {
+		return rf(ctx, bucket, key, opts)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, object.LockOptions) domain.LegalHoldStatus); ok {
+		r0 = rf(ctx, bucket, key, opts)
+	} else {
+		r0 = ret.Get(0).(domain.LegalHoldStatus)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, object.LockOptions) error); ok {
+		r1 = rf(ctx, bucket, key, opts)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_GetObjectLegalHold_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetObjectLegalHold'
+type Service_GetObjectLegalHold_Call struct {
+	*mock.Call
+}
+
+// GetObjectLegalHold is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - key string
+//   - opts object.LockOptions
+func (_e *Service_Expecter) GetObjectLegalHold(ctx interface{}, bucket interface{}, key interface{}, opts interface{}) *Service_GetObjectLegalHold_Call {
+	return &Service_GetObjectLegalHold_Call{Call: _e.mock.On("GetObjectLegalHold", ctx, bucket, key, opts)}
+}
+
+func (_c *Service_GetObjectLegalHold_Call) Run(run func(ctx context.Context, bucket string, key string, opts object.LockOptions)) *Service_GetObjectLegalHold_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(object.LockOptions))
+	})
+	return _c
+}
+
+func (_c *Service_GetObjectLegalHold_Call) Return(_a0 domain.LegalHoldStatus, _a1 error) *Service_GetObjectLegalHold_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_GetObjectLegalHold_Call) RunAndReturn(run func(context.Context, string, string, object.LockOptions) (domain.LegalHoldStatus, error)) *Service_GetObjectLegalHold_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetObjectRetention provides a mock function with given fields: ctx, bucket, key, opts
+func (_m *Service) GetObjectRetention(ctx context.Context, bucket string, key string, opts object.LockOptions) (domain.ObjectRetention, error) {
+	ret := _m.Called(ctx, bucket, key, opts)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetObjectRetention")
+	}
+
+	var r0 domain.ObjectRetention
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, object.LockOptions) (domain.ObjectRetention, error)); ok {
+		return rf(ctx, bucket, key, opts)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, object.LockOptions) domain.ObjectRetention); ok {
+		r0 = rf(ctx, bucket, key, opts)
+	} else {
+		r0 = ret.Get(0).(domain.ObjectRetention)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, object.LockOptions) error); ok {
+		r1 = rf(ctx, bucket, key, opts)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_GetObjectRetention_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetObjectRetention'
+type Service_GetObjectRetention_Call struct {
+	*mock.Call
+}
+
+// GetObjectRetention is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - key string
+//   - opts object.LockOptions
+func (_e *Service_Expecter) GetObjectRetention(ctx interface{}, bucket interface{}, key interface{}, opts interface{}) *Service_GetObjectRetention_Call {
+	return &Service_GetObjectRetention_Call{Call: _e.mock.On("GetObjectRetention", ctx, bucket, key, opts)}
+}
+
+func (_c *Service_GetObjectRetention_Call) Run(run func(ctx context.Context, bucket string, key string, opts object.LockOptions)) *Service_GetObjectRetention_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(object.LockOptions))
+	})
+	return _c
+}
+
+func (_c *Service_GetObjectRetention_Call) Return(_a0 domain.ObjectRetention, _a1 error) *Service_GetObjectRetention_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_GetObjectRetention_Call) RunAndReturn(run func(context.Context, string, string, object.LockOptions) (domain.ObjectRetention, error)) *Service_GetObjectRetention_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1319,6 +1496,66 @@ func (_c *Service_PutObject_Call) RunAndReturn(run func(context.Context, object.
 	return _c
 }
 
+// PutObjectLegalHold provides a mock function with given fields: ctx, bucket, key, hold, opts
+func (_m *Service) PutObjectLegalHold(ctx context.Context, bucket string, key string, hold domain.LegalHoldStatus, opts object.LockOptions) (domain.ObjectInfo, error) {
+	ret := _m.Called(ctx, bucket, key, hold, opts)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PutObjectLegalHold")
+	}
+
+	var r0 domain.ObjectInfo
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, domain.LegalHoldStatus, object.LockOptions) (domain.ObjectInfo, error)); ok {
+		return rf(ctx, bucket, key, hold, opts)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, domain.LegalHoldStatus, object.LockOptions) domain.ObjectInfo); ok {
+		r0 = rf(ctx, bucket, key, hold, opts)
+	} else {
+		r0 = ret.Get(0).(domain.ObjectInfo)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, domain.LegalHoldStatus, object.LockOptions) error); ok {
+		r1 = rf(ctx, bucket, key, hold, opts)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_PutObjectLegalHold_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PutObjectLegalHold'
+type Service_PutObjectLegalHold_Call struct {
+	*mock.Call
+}
+
+// PutObjectLegalHold is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - key string
+//   - hold domain.LegalHoldStatus
+//   - opts object.LockOptions
+func (_e *Service_Expecter) PutObjectLegalHold(ctx interface{}, bucket interface{}, key interface{}, hold interface{}, opts interface{}) *Service_PutObjectLegalHold_Call {
+	return &Service_PutObjectLegalHold_Call{Call: _e.mock.On("PutObjectLegalHold", ctx, bucket, key, hold, opts)}
+}
+
+func (_c *Service_PutObjectLegalHold_Call) Run(run func(ctx context.Context, bucket string, key string, hold domain.LegalHoldStatus, opts object.LockOptions)) *Service_PutObjectLegalHold_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(domain.LegalHoldStatus), args[4].(object.LockOptions))
+	})
+	return _c
+}
+
+func (_c *Service_PutObjectLegalHold_Call) Return(_a0 domain.ObjectInfo, _a1 error) *Service_PutObjectLegalHold_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_PutObjectLegalHold_Call) RunAndReturn(run func(context.Context, string, string, domain.LegalHoldStatus, object.LockOptions) (domain.ObjectInfo, error)) *Service_PutObjectLegalHold_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // PutObjectPart provides a mock function with given fields: ctx, in
 func (_m *Service) PutObjectPart(ctx context.Context, in object.PutObjectPartInput) (domain.Part, error) {
 	ret := _m.Called(ctx, in)
@@ -1372,6 +1609,66 @@ func (_c *Service_PutObjectPart_Call) Return(_a0 domain.Part, _a1 error) *Servic
 }
 
 func (_c *Service_PutObjectPart_Call) RunAndReturn(run func(context.Context, object.PutObjectPartInput) (domain.Part, error)) *Service_PutObjectPart_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// PutObjectRetention provides a mock function with given fields: ctx, bucket, key, retention, opts
+func (_m *Service) PutObjectRetention(ctx context.Context, bucket string, key string, retention domain.ObjectRetention, opts object.LockOptions) (domain.ObjectInfo, error) {
+	ret := _m.Called(ctx, bucket, key, retention, opts)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PutObjectRetention")
+	}
+
+	var r0 domain.ObjectInfo
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, domain.ObjectRetention, object.LockOptions) (domain.ObjectInfo, error)); ok {
+		return rf(ctx, bucket, key, retention, opts)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, domain.ObjectRetention, object.LockOptions) domain.ObjectInfo); ok {
+		r0 = rf(ctx, bucket, key, retention, opts)
+	} else {
+		r0 = ret.Get(0).(domain.ObjectInfo)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, domain.ObjectRetention, object.LockOptions) error); ok {
+		r1 = rf(ctx, bucket, key, retention, opts)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_PutObjectRetention_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PutObjectRetention'
+type Service_PutObjectRetention_Call struct {
+	*mock.Call
+}
+
+// PutObjectRetention is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - key string
+//   - retention domain.ObjectRetention
+//   - opts object.LockOptions
+func (_e *Service_Expecter) PutObjectRetention(ctx interface{}, bucket interface{}, key interface{}, retention interface{}, opts interface{}) *Service_PutObjectRetention_Call {
+	return &Service_PutObjectRetention_Call{Call: _e.mock.On("PutObjectRetention", ctx, bucket, key, retention, opts)}
+}
+
+func (_c *Service_PutObjectRetention_Call) Run(run func(ctx context.Context, bucket string, key string, retention domain.ObjectRetention, opts object.LockOptions)) *Service_PutObjectRetention_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(domain.ObjectRetention), args[4].(object.LockOptions))
+	})
+	return _c
+}
+
+func (_c *Service_PutObjectRetention_Call) Return(_a0 domain.ObjectInfo, _a1 error) *Service_PutObjectRetention_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_PutObjectRetention_Call) RunAndReturn(run func(context.Context, string, string, domain.ObjectRetention, object.LockOptions) (domain.ObjectInfo, error)) *Service_PutObjectRetention_Call {
 	_c.Call.Return(run)
 	return _c
 }

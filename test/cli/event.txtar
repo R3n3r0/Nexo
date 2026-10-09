@@ -1,0 +1,48 @@
+# T-7.10, TS-I-15: a webhook target configured with admin config set, its
+# ARN from admin notify targets ls, event add/ls/rm on a bucket and the
+# notifications received by the webhook.
+
+webhook HOOK
+exec nexoctl admin config set local notify_webhook enable=on endpoint=$HOOK
+eventually 15s -match 'arn:nexo:sqs:[^:]*:_:webhook +webhook' nexoctl admin notify targets ls local
+exec nexoctl admin notify targets ls --json local
+jsonlines stdout
+jsonfield stdout arn ARN
+exec nexoctl admin notify targets test local $ARN
+stdout 'Test event delivered'
+webhookwait 10s '^s3:TestEvent '
+exec nexoctl admin notify targets test local _:webhook
+expectcode 3 nexoctl admin notify targets test local ghost:webhook
+
+exec nexoctl mb local/photos
+exec nexoctl event ls local/photos
+stdout 'has no event subscription'
+exec nexoctl event add local/photos $ARN --event put,delete --suffix .jpg
+stdout 'Subscribed'
+expectcode 1 nexoctl event add local/photos $ARN --event put,delete --suffix .jpg
+exec nexoctl event add -p local/photos $ARN --event put,delete --suffix .jpg
+exec nexoctl event ls local/photos
+stdout 's3:ObjectCreated:\*,s3:ObjectRemoved:\*'
+stdout 'suffix=".jpg"'
+exec nexoctl event ls --json local/photos
+jsonlines stdout
+stdout '"events":\["s3:ObjectCreated:\*","s3:ObjectRemoved:\*"\],"suffix":".jpg"'
+
+# The webhook receives the events of the subscribed keys only.
+exec nexoctl cp a.jpg local/photos/a.jpg
+exec nexoctl cp a.jpg local/photos/a.txt
+exec nexoctl rm local/photos/a.jpg
+webhookwait 15s '^s3:ObjectCreated:Put photos/a.jpg$'
+webhookwait 15s '^s3:ObjectRemoved:Delete photos/a.jpg$'
+webhookevents
+! stdout 'a.txt'
+
+exec nexoctl event rm local/photos $ARN
+stdout 'Removed the subscription'
+exec nexoctl event ls local/photos
+stdout 'has no event subscription'
+expectcode 2 nexoctl event add local/photos not-an-arn
+expectcode 1 nexoctl event add local/photos arn:nexo:sqs:us-east-1:ghost:webhook
+
+-- a.jpg --
+not really a picture

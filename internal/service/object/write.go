@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/crypto"
 	"github.com/r3n3r0/nexo/internal/service/event"
 	"github.com/r3n3r0/nexo/internal/service/storage"
 )
@@ -48,6 +49,13 @@ type writeInput struct {
 	withinLock bool
 	// lengthRange bounds the body length (POST policy); nil means unbounded.
 	lengthRange *LengthRange
+	// retention and legalHold are the Object Lock settings requested for
+	// the new version (zero: the bucket default retention, no legal hold).
+	retention domain.ObjectRetention
+	legalHold domain.LegalHoldStatus
+	// sse is the encryption requested for the new version (zero: the
+	// default encryption of the bucket, if any).
+	sse domain.SSERequest
 }
 
 // writeObject stores one stream as a new version of bucket/key. The body
@@ -77,6 +85,12 @@ func (l *layer) writeObject(ctx context.Context, bucket, key string, body io.Rea
 	if err != nil {
 		return domain.ObjectInfo{}, err
 	}
+	// The key of an encrypted version is sealed before the body is read:
+	// a KMS that is missing or failing refuses the write up front.
+	okey, err := l.sealFor(ctx, cfg, bucket, key, in.sse)
+	if err != nil {
+		return domain.ObjectInfo{}, err
+	}
 	if lr := in.lengthRange; lr != nil {
 		// A declared size is checked up front; a streamed body is cut as
 		// soon as it exceeds the maximum and checked against the minimum
@@ -94,6 +108,20 @@ func (l *layer) writeObject(ctx context.Context, bucket, key string, body io.Rea
 	if err != nil {
 		return domain.ObjectInfo{}, err
 	}
+	// The store receives the plaintext, or its encryption: the hashes,
+	// the checksums and the lengths checked below are those of the
+	// plaintext, which hr counts.
+	data, storedSize := io.Reader(hr), in.size
+	if okey != nil {
+		plain := io.Reader(hr)
+		if in.size >= 0 {
+			plain = io.LimitReader(hr, in.size)
+		}
+		if data, err = okey.EncryptPart(1, plain); err != nil {
+			return domain.ObjectInfo{}, err
+		}
+		storedSize = crypto.EncryptedSize(in.size)
+	}
 	fi := storage.FileInfo{
 		Volume:   bucket,
 		Name:     key,
@@ -101,35 +129,43 @@ func (l *layer) writeObject(ctx context.Context, bucket, key string, body io.Rea
 		Erasure:  st.ErasureInfo(key, in.meta[metaStorageClass]),
 	}
 	tmpDir := ""
-	if in.size >= 0 && in.size <= l.opts.inlineLimit {
-		data, err := io.ReadAll(io.LimitReader(hr, in.size+1))
+	if storedSize >= 0 && storedSize <= l.opts.inlineLimit {
+		buf, err := io.ReadAll(io.LimitReader(data, storedSize+1))
 		if err != nil {
 			return domain.ObjectInfo{}, fmt.Errorf("%s: read body: %w", l.name, mapBodyErr(err))
 		}
-		if int64(len(data)) != in.size {
-			return domain.ObjectInfo{}, incompleteBody(in.size, int64(len(data)))
+		if hr.n != in.size || int64(len(buf)) != storedSize {
+			return domain.ObjectInfo{}, incompleteBody(in.size, hr.n)
 		}
-		fi.Data = data
-		fi.Size = in.size
+		fi.Data = buf
+		fi.Size = storedSize
 	} else {
 		tmpDir = l.newTmpDir()
 		fi.DataDir = uuid.NewString()
-		n, err := st.WriteData(ctx, tmpDir, 1, in.size, hr, fi.Erasure)
+		n, err := st.WriteData(ctx, tmpDir, 1, storedSize, data, fi.Erasure)
 		if err != nil {
 			l.cleanupTmp(ctx, st, tmpDir)
 			return domain.ObjectInfo{}, fmt.Errorf("%s: write %s/%s: %w", l.name, bucket, key, mapBodyErr(err))
 		}
-		if in.size >= 0 && n != in.size {
+		plainN := n
+		if okey != nil {
+			plainN = hr.n
+		}
+		if in.size >= 0 && plainN != in.size {
 			l.cleanupTmp(ctx, st, tmpDir)
-			return domain.ObjectInfo{}, incompleteBody(in.size, n)
+			return domain.ObjectInfo{}, incompleteBody(in.size, plainN)
 		}
 		if in.lengthRange != nil {
-			if err := checkLength(in.lengthRange, n); err != nil {
+			if err := checkLength(in.lengthRange, plainN); err != nil {
 				l.cleanupTmp(ctx, st, tmpDir)
 				return domain.ObjectInfo{}, err
 			}
 		}
 		fi.Size = n
+	}
+	plainSize := fi.Size
+	if okey != nil {
+		plainSize = hr.n
 	}
 	checksum, err := hr.verify(in.md5Hex, in.sha256Hex, in.checksum)
 	if err != nil {
@@ -139,9 +175,18 @@ func (l *layer) writeObject(ctx context.Context, bucket, key string, body io.Rea
 	if fi.Metadata == nil {
 		fi.Metadata = map[string]string{metaContentType: defaultContentType}
 	}
-	fi.Metadata[metaETag] = hr.etag()
+	etag := hr.etag()
+	if okey != nil {
+		etag = okey.ETag(etag)
+		for k, v := range okey.Metadata() {
+			fi.Metadata[k] = v
+		}
+		setActualSize(fi.Metadata, plainSize)
+	}
+	fi.Metadata[metaETag] = etag
 	if !checksum.IsZero() {
 		fi.Metadata[metaChecksumPrefix+strings.ToLower(string(checksum.Algorithm))] = checksum.Value
+		fi.Metadata[metaChecksumType] = string(domain.ChecksumTypeFullObject)
 	}
 
 	// Commit: under the object write lock, with the checks repeated
@@ -159,9 +204,9 @@ func (l *layer) writeObject(ctx context.Context, bucket, key string, body io.Rea
 			return domain.ObjectInfo{}, err
 		}
 	}
-	if cfg.QuotaBytes > 0 && uint64(fi.Size) > cfg.QuotaBytes {
+	if cfg.QuotaBytes > 0 && uint64(plainSize) > cfg.QuotaBytes {
 		l.cleanupTmp(ctx, st, tmpDir)
-		return domain.ObjectInfo{}, fmt.Errorf("%w: object of %d bytes exceeds the bucket quota of %d bytes", domain.ErrQuotaExceeded, fi.Size, cfg.QuotaBytes)
+		return domain.ObjectInfo{}, fmt.Errorf("%w: object of %d bytes exceeds the bucket quota of %d bytes", domain.ErrQuotaExceeded, plainSize, cfg.QuotaBytes)
 	}
 	// The version and its time are decided at the commit, so that the
 	// latest version is always the last one committed.
@@ -170,12 +215,18 @@ func (l *layer) writeObject(ctx context.Context, bucket, key string, body io.Rea
 	if fi.ModTime.IsZero() {
 		fi.ModTime = l.commitTime(ctx, bucket, key)
 	}
-	fi.Parts = []storage.PartInfo{{Number: 1, ETag: hr.etag(), Size: fi.Size, ActualSize: fi.Size, ModTime: fi.ModTime}}
+	fi.Parts = []storage.PartInfo{{Number: 1, ETag: etag, Size: fi.Size, ActualSize: plainSize, ModTime: fi.ModTime}}
+	setRetentionMeta(fi.Metadata, in.retention)
+	setLegalHoldMeta(fi.Metadata, in.legalHold)
+	applyDefaultRetention(fi.Metadata, cfg, fi.ModTime)
 	if err := l.commitVersion(ctx, st, bucket, key, fi, tmpDir); err != nil {
 		return domain.ObjectInfo{}, fmt.Errorf("%s: commit %s/%s: %w", l.name, bucket, key, err)
 	}
 	fi.IsLatest = true
 	info := objectInfo(bucket, key, fi)
+	if okey != nil {
+		info.Encryption = okey.Info()
+	}
 	if in.eventName != "" {
 		l.publish(ctx, in.eventName, bucket, info)
 	}
@@ -191,6 +242,9 @@ func (l *layer) checkWrite(ctx context.Context, st store, bucket, key string, in
 	}
 	cfg, err := l.bucketConfig(ctx, bucket)
 	if err != nil {
+		return BucketConfig{}, err
+	}
+	if err := checkLockRequest(cfg, in.retention, in.legalHold, l.now()); err != nil {
 		return BucketConfig{}, err
 	}
 	if err := l.checkCurrent(ctx, bucket, key, in.conditions); err != nil {
@@ -335,6 +389,9 @@ func (l *layer) PutObject(ctx context.Context, in PutObjectInput) (domain.Object
 	if err := validateTags(in.Tags); err != nil {
 		return domain.ObjectInfo{}, err
 	}
+	if (!in.Retention.IsZero() || in.LegalHold != "") && in.MD5Hex == "" && in.Checksum.IsZero() {
+		return domain.ObjectInfo{}, errLockMD5Required()
+	}
 	meta := httpMeta{
 		contentType:        in.ContentType,
 		contentEncoding:    in.ContentEncoding,
@@ -355,6 +412,9 @@ func (l *layer) PutObject(ctx context.Context, in PutObjectInput) (domain.Object
 		modTime:     in.ModTime,
 		eventName:   event.ObjectCreatedPut,
 		lengthRange: in.LengthRange,
+		retention:   in.Retention,
+		legalHold:   in.LegalHold,
+		sse:         in.SSE,
 	})
 }
 
@@ -380,9 +440,9 @@ func (l *layer) CopyObject(ctx context.Context, in CopyObjectInput) (domain.Obje
 	if err := l.statBucket(ctx, l.place.home(in.DstKey), in.DstBucket); err != nil {
 		return domain.ObjectInfo{}, err
 	}
-	src, fi, err := l.openObject(ctx, in.SrcBucket, in.SrcKey, GetObjectOptions{VersionID: in.SrcVersionID}, nil)
+	src, fi, err := l.openObject(ctx, in.SrcBucket, in.SrcKey, GetObjectOptions{VersionID: in.SrcVersionID, SSECustomerKey: in.SrcSSECustomerKey}, nil)
 	if err != nil {
-		return domain.ObjectInfo{}, err
+		return domain.ObjectInfo{}, copySourceErr(err)
 	}
 	defer func() { _ = src.Close() }()
 	if err := checkSourceConditions(src.Info, in.SrcConditions); err != nil {
@@ -393,7 +453,16 @@ func (l *layer) CopyObject(ctx context.Context, in CopyObjectInput) (domain.Obje
 	if storageClass == "" {
 		storageClass = src.Info.StorageClass
 	}
-	if same && in.SrcVersionID == "" && !in.ReplaceMetadata && !in.ReplaceTags && storageClass == src.Info.StorageClass {
+	checksumAlgo := in.ChecksumAlgorithm
+	if checksumAlgo == domain.ChecksumNone {
+		checksumAlgo = src.Info.Checksum.Algorithm
+	}
+	lockChange := !in.Retention.IsZero() || in.LegalHold != ""
+	// A copy that asks for an encryption re-keys the object: a legal
+	// self-copy (key rotation, SSE-C to SSE-S3...).
+	sseChange := !in.SSE.IsZero()
+	if same && in.SrcVersionID == "" && !in.ReplaceMetadata && !in.ReplaceTags && storageClass == src.Info.StorageClass &&
+		checksumAlgo == src.Info.Checksum.Algorithm && !lockChange && !sseChange {
 		return domain.ObjectInfo{}, domain.NewS3Error(domain.ErrInvalidArgument, "InvalidRequest",
 			"This copy request is illegal because it is trying to copy an object to itself without changing the object's metadata, storage class, website redirect location or encryption attributes.")
 	}
@@ -426,8 +495,28 @@ func (l *layer) CopyObject(ctx context.Context, in CopyObjectInput) (domain.Obje
 	}
 	return l.writeObject(ctx, in.DstBucket, in.DstKey, src, writeInput{
 		size:       src.Length,
+		checksum:   domain.Checksum{Algorithm: checksumAlgo},
 		meta:       meta,
 		eventName:  event.ObjectCreatedCopy,
 		withinLock: true,
+		retention:  in.Retention,
+		legalHold:  in.LegalHold,
+		sse:        in.SSE,
 	})
+}
+
+// copySourceErr maps the failure to open the source of a copy: a source
+// version that is a delete marker cannot be copied (S3 InvalidRequest),
+// while a source whose latest version is a delete marker does not exist
+// (NoSuchKey, without the delete marker details of a read).
+func copySourceErr(err error) error {
+	var marker *domain.DeleteMarkerError
+	if !errors.As(err, &marker) {
+		return err
+	}
+	if errors.Is(err, domain.ErrMethodNotAllowed) {
+		return domain.NewS3Error(domain.ErrInvalidArgument, "InvalidRequest",
+			"The source of a copy request may not specifically refer to a delete marker by version id.")
+	}
+	return marker.Err
 }

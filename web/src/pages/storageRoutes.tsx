@@ -23,6 +23,14 @@ const BucketSettingsTab = lazyPage(
   () => import('./buckets/BucketSettingsTab'),
   (m) => m.BucketSettingsTab,
 );
+const BucketLifecycleTab = lazyPage(
+  () => import('./buckets/BucketLifecycleTab'),
+  (m) => m.BucketLifecycleTab,
+);
+const BucketEventsTab = lazyPage(
+  () => import('./buckets/BucketEventsTab'),
+  (m) => m.BucketEventsTab,
+);
 const BucketAccessTab = lazyPage(
   () => import('./buckets/BucketAccessTab'),
   (m) => m.BucketAccessTab,
@@ -66,6 +74,8 @@ export function storageRoutes(): RouteObject[] {
         { index: true, element: <Navigate to="browse/" replace /> },
         { path: 'browse/*', element: page(ObjectBrowser) },
         { path: 'settings', element: page(BucketSettingsTab) },
+        { path: 'lifecycle', element: page(BucketLifecycleTab) },
+        { path: 'events', element: page(BucketEventsTab) },
         { path: 'access', element: page(BucketAccessTab) },
       ],
     },

@@ -129,7 +129,10 @@ func TestSmallHelpers(t *testing.T) {
 	h.Add("Content-Encoding", "gzip, AWS-CHUNKED")
 	h.Add("Content-Encoding", "br")
 	removeAWSChunked(h)
-	assert.Equal(t, "gzip,br", h.Get("Content-Encoding"))
+	assert.Equal(t, "gzip, br", h.Get("Content-Encoding"))
+	h.Set("Content-Encoding", "deflate,  gzip")
+	removeAWSChunked(h)
+	assert.Equal(t, "deflate,  gzip", h.Get("Content-Encoding"), "kept verbatim without aws-chunked")
 
 	trailers, err := declaredTrailers([]string{" , x-amz-checksum-crc32 ", "X-Amz-Checksum-SHA256"})
 	require.NoError(t, err)

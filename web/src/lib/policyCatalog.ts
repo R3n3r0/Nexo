@@ -138,6 +138,9 @@ export const adminActions: readonly string[] = [
   'admin:ManageShares',
   'admin:GetBucketQuota',
   'admin:SetBucketQuota',
+  'admin:ApplyLifecycle',
+  'admin:KMSKeyStatus',
+  'admin:KMSCreateKey',
   'admin:Prometheus',
 ];
 

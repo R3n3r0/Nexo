@@ -11,6 +11,8 @@ export interface RequestOptions {
   /** JSON-serialised request body. */
   body?: unknown;
   query?: QueryParams;
+  /** Extra request headers (e.g. the x-amz-* headers of an upload). */
+  headers?: Record<string, string>;
   signal?: AbortSignal;
   /**
    * When false, a 401 response does not raise the global unauthorized event.
@@ -38,6 +40,8 @@ export interface UploadRequestOptions {
   body: Blob;
   /** Content-Type of the body; defaults to the type of the blob. */
   contentType?: string;
+  /** Extra request headers (e.g. the x-amz-* headers of an upload). */
+  headers?: Record<string, string>;
   signal?: AbortSignal;
   /** Bytes sent so far out of total. */
   onProgress?: (loaded: number, total: number) => void;
@@ -184,7 +188,7 @@ export function createHttpClient(options: HttpClientOptions = {}): HttpClient {
         'Content-Type',
         contentType !== '' ? contentType : 'application/octet-stream',
       );
-      const headers: Record<string, string> = {};
+      const headers: Record<string, string> = { ...uploadOptions.headers };
       csrfHeader(method, headers);
       for (const [name, value] of Object.entries(headers)) {
         xhr.setRequestHeader(name, value);

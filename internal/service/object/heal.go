@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -475,6 +476,19 @@ func (e *erasureSet) healDangling(ctx context.Context, bucket, key string, infos
 	res.Dangling = 1
 	if !opts.Remove || opts.DryRun {
 		return res, nil
+	}
+	now := time.Now
+	if e.now != nil {
+		now = e.now
+	}
+	for _, i := range holders {
+		// Object Lock applies to the healing too: a version under legal
+		// hold or retention is never removed, readable or not.
+		if isLocked(objectInfo(bucket, key, infos[i]), now()) {
+			e.logger.WarnContext(ctx, "object: dangling version kept: protected by object lock",
+				"bucket", bucket, "key", key, "version", infos[i].VersionID)
+			return res, nil
+		}
 	}
 	for _, i := range holders {
 		err := e.drives[i].DeleteVersion(ctx, bucket, key, storage.FileInfo{VersionID: infos[i].VersionID}, storage.DeleteOptions{})

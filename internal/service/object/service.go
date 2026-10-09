@@ -15,6 +15,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/crypto"
 	"github.com/r3n3r0/nexo/internal/service/erasure"
 	"github.com/r3n3r0/nexo/internal/service/event"
 	"github.com/r3n3r0/nexo/internal/service/lock"
@@ -48,6 +49,9 @@ type Deps struct {
 	// Codecs builds the erasure codecs of NewErasure (required there, see
 	// PoolsDeps.Codecs).
 	Codecs erasure.Factory
+	// Crypto seals the object keys of the encrypted objects (see
+	// PoolsDeps.Crypto); nil refuses server-side encryption.
+	Crypto crypto.Service
 	// IDs generates version identifiers and temporary directory names
 	// (default: time-ordered UUID v7). Upload ids embed one of its ids when
 	// it is a UUID.
@@ -171,6 +175,11 @@ type PoolsDeps struct {
 	// keyed with the same DeploymentID (erasure.WithDeploymentID), whose
 	// bitrot hashes the shards carry.
 	Codecs erasure.Factory
+	// Crypto seals and unseals the object keys of the encrypted objects
+	// (server-side encryption, S-OBJ-13): the data is encrypted before
+	// the erasure coding. Nil refuses every encryption request (S3
+	// NotImplemented) and every read of an encrypted object.
+	Crypto crypto.Service
 	// IDs generates version identifiers and temporary directory names
 	// (default: time-ordered UUID v7).
 	IDs    topology.IDGenerator
@@ -199,6 +208,12 @@ type BucketConfig struct {
 	ObjectLock bool
 	// QuotaBytes is the hard quota in bytes, 0 when unset.
 	QuotaBytes uint64
+	// DefaultRetention is the default retention of the versions written
+	// to an object lock bucket (zero when none).
+	DefaultRetention domain.DefaultRetention
+	// Encryption is the default encryption of the bucket (S-BKT-11),
+	// applied to the writes that ask for none (zero when none).
+	Encryption domain.BucketEncryption
 }
 
 // BucketConfigSource provides the bucket settings. The bucket service's
@@ -219,8 +234,19 @@ type HealNotifier interface {
 
 // Service is the object layer. ETags are returned unquoted (transports
 // quote them): the hex MD5 of the content, or "<md5 of the part md5s>-N"
-// for an object assembled from N parts. Writes are atomic: a reader sees
+// for an object assembled from N parts (an opaque value of the same form
+// for the SSE-C and SSE-KMS objects). Writes are atomic: a reader sees
 // the previous version or the new one, never a partial object.
+//
+// Server-side encryption (S-OBJ-13): a write encrypts the new version with
+// the encryption it requests (SSE fields of the inputs) or, without one,
+// the default encryption of the bucket (BucketConfig.Encryption); sizes,
+// ranges, checksums and listings are those of the plaintext. Reading an
+// SSE-C version (GetObject, GetObjectInfo, the source of a copy) needs its
+// key: without it the read fails with S3 InvalidRequest, with another key
+// with S3 AccessDenied; an SSE-C key sent for another version is S3
+// InvalidRequest. SSE-S3 and SSE-KMS need a KMS (domain.ErrKMSNotConfigured
+// otherwise).
 type Service interface {
 	// Buckets. Names follow the S3 (DNS) rules; the system volume
 	// (domain.SystemBucket) is reserved. Buckets are listed by name, with
@@ -260,6 +286,35 @@ type Service interface {
 	PutObjectTags(ctx context.Context, bucket, key string, tags map[string]string, opts TagOptions) (domain.ObjectInfo, error)
 	GetObjectTags(ctx context.Context, bucket, key string, opts TagOptions) (map[string]string, error)
 	DeleteObjectTags(ctx context.Context, bucket, key string, opts TagOptions) (domain.ObjectInfo, error)
+
+	// Object Lock (docs/02 S-BKT-08, S-OBJ-12). The retention and the
+	// legal hold of a version are set when it is written (the request's
+	// or, for the retention, the bucket default) and changed in place;
+	// both need a bucket created with object locking (S3 InvalidRequest
+	// otherwise). A version under an active retention or a legal hold
+	// cannot be deleted (DeleteObject, DeleteObjects, DeleteBucket with
+	// Force, the healing of dangling versions): COMPLIANCE never, not even
+	// for root, GOVERNANCE only with opts.BypassGovernance; such failures
+	// wrap domain.ErrObjectLocked (S3 AccessDenied). A retention may always
+	// be extended; shortening or removing an active one is allowed in
+	// GOVERNANCE mode with opts.BypassGovernance only. The callers decide
+	// whether a request may bypass the governance mode
+	// (s3:BypassGovernanceRetention).
+	//
+	// GetObjectRetention and GetObjectLegalHold fail with an S3
+	// NoSuchObjectLockConfiguration error (wrapping
+	// domain.ErrPolicyNotFound) when the version has none.
+	GetObjectRetention(ctx context.Context, bucket, key string, opts LockOptions) (domain.ObjectRetention, error)
+	// PutObjectRetention sets the retention of a version; the zero
+	// retention removes it. A new retention must end in the future.
+	PutObjectRetention(ctx context.Context, bucket, key string, retention domain.ObjectRetention, opts LockOptions) (domain.ObjectInfo, error)
+	GetObjectLegalHold(ctx context.Context, bucket, key string, opts LockOptions) (domain.LegalHoldStatus, error)
+	PutObjectLegalHold(ctx context.Context, bucket, key string, hold domain.LegalHoldStatus, opts LockOptions) (domain.ObjectInfo, error)
+
+	// GetObjectAttributes describes a version without reading its content
+	// (docs/02 S-OBJ-15): the object description and, for a multipart
+	// object, a page of its parts with their sizes and checksums.
+	GetObjectAttributes(ctx context.Context, bucket, key string, opts AttributesOptions) (ObjectAttributes, error)
 
 	// CleanupStaleUploads aborts the multipart uploads of bucket (every
 	// bucket when empty) initiated more than olderThan ago, and removes the
@@ -337,6 +392,16 @@ type PutObjectInput struct {
 	// fails with domain.ErrEntityTooSmall or domain.ErrEntityTooLarge and
 	// nothing is committed.
 	LengthRange *LengthRange
+	// Retention and LegalHold are the Object Lock settings of the new
+	// version (x-amz-object-lock-*): the bucket must have object locking,
+	// the retention must end in the future, and the request must carry a
+	// Content-MD5 or an additional checksum (as S3 requires). Without a
+	// Retention the bucket default retention applies.
+	Retention domain.ObjectRetention
+	LegalHold domain.LegalHoldStatus
+	// SSE is the server-side encryption of the new version (zero: the
+	// default encryption of the bucket, if any).
+	SSE domain.SSERequest
 }
 
 // LengthRange is an inclusive range of content lengths, in bytes.
@@ -355,6 +420,8 @@ type GetObjectOptions struct {
 	PartNumber int
 	// NoLock skips the read lock (internal callers).
 	NoLock bool
+	// SSECustomerKey is the SSE-C key of the request.
+	SSECustomerKey domain.SSECustomerKey
 }
 
 // Reader is an object body with its metadata. Callers must Close it.
@@ -441,6 +508,21 @@ type CopyObjectInput struct {
 	ReplaceTags  bool
 	Tags         map[string]string
 	StorageClass string
+	// ChecksumAlgorithm is the additional checksum of the copy
+	// (x-amz-checksum-algorithm); empty keeps the algorithm of the source.
+	// The checksum is computed over the copied content.
+	ChecksumAlgorithm domain.ChecksumAlgorithm
+	// Retention and LegalHold are the Object Lock settings of the copy,
+	// as for PutObjectInput (the source's are never copied).
+	Retention domain.ObjectRetention
+	LegalHold domain.LegalHoldStatus
+	// SrcSSECustomerKey is the SSE-C key of the source
+	// (x-amz-copy-source-server-side-encryption-customer-*).
+	SrcSSECustomerKey domain.SSECustomerKey
+	// SSE is the encryption of the copy, as for PutObjectInput: the
+	// encryption of the source is never copied, so that a copy re-keys an
+	// object (SSE-C to SSE-S3, a new SSE-C key...).
+	SSE domain.SSERequest
 }
 
 // NewMultipartInput are the parameters of NewMultipartUpload. The metadata
@@ -458,6 +540,18 @@ type NewMultipartInput struct {
 	Tags               map[string]string
 	StorageClass       string
 	Checksum           domain.ChecksumAlgorithm
+	// ChecksumType is how the checksum of the completed object is
+	// computed: COMPOSITE (the default, every algorithm but CRC64NVME) or
+	// FULL_OBJECT (the CRC algorithms, the default of CRC64NVME).
+	ChecksumType domain.ChecksumType
+	// Retention and LegalHold are the Object Lock settings of the
+	// completed object, as for PutObjectInput.
+	Retention domain.ObjectRetention
+	LegalHold domain.LegalHoldStatus
+	// SSE is the encryption of the completed object, as for
+	// PutObjectInput: every part is encrypted with it, and the parts of an
+	// SSE-C upload need its key (PutObjectPartInput.SSECustomerKey).
+	SSE domain.SSERequest
 }
 
 // PutObjectPartInput are the parameters of PutObjectPart.
@@ -471,6 +565,8 @@ type PutObjectPartInput struct {
 	MD5Hex     string
 	SHA256Hex  string
 	Checksum   domain.Checksum
+	// SSECustomerKey is the SSE-C key of the upload.
+	SSECustomerKey domain.SSECustomerKey
 }
 
 // CopyObjectPartInput are the parameters of CopyObjectPart.
@@ -486,6 +582,10 @@ type CopyObjectPartInput struct {
 	DstKey        string
 	UploadID      string
 	PartNumber    int
+	// SrcSSECustomerKey is the SSE-C key of the source, SSECustomerKey
+	// the one of the upload.
+	SrcSSECustomerKey domain.SSECustomerKey
+	SSECustomerKey    domain.SSECustomerKey
 }
 
 // CompleteMultipartInput are the parameters of CompleteMultipartUpload.
@@ -495,12 +595,47 @@ type CompleteMultipartInput struct {
 	UploadID   string
 	Parts      []domain.CompletePart
 	Conditions domain.Conditions
-	Checksum   domain.Checksum
+	// Checksum, when set, is the checksum the client computed for the
+	// object: verified against the one of the upload (BadDigest).
+	Checksum domain.Checksum
+	// ChecksumType, when set, must be the checksum type of the upload.
+	ChecksumType domain.ChecksumType
 }
 
 // TagOptions tunes the tag operations.
 type TagOptions struct {
 	VersionID string
+}
+
+// LockOptions tunes the Object Lock operations.
+type LockOptions struct {
+	// VersionID selects the version ("" is the latest).
+	VersionID string
+	// BypassGovernance allows shortening or removing an active GOVERNANCE
+	// retention (PutObjectRetention).
+	BypassGovernance bool
+}
+
+// AttributesOptions tunes GetObjectAttributes.
+type AttributesOptions struct {
+	VersionID string
+	// MaxParts limits the parts returned, as MaxKeys does (0 for the
+	// default of 1000, domain.ListLimitNone for none).
+	MaxParts int
+	// PartNumberMarker lists the parts after this part number.
+	PartNumberMarker int
+}
+
+// ObjectAttributes is the result of GetObjectAttributes.
+type ObjectAttributes struct {
+	Info domain.ObjectInfo
+	// PartsCount is the number of parts of a multipart object, 0 for an
+	// object written in a single request.
+	PartsCount int
+	// Parts is the page of parts selected by AttributesOptions.
+	Parts                []domain.ObjectPart
+	IsTruncated          bool
+	NextPartNumberMarker int
 }
 
 // HealthOptions tunes Health.

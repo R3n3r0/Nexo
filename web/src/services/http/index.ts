@@ -12,6 +12,9 @@ import {
   createHttpUserService,
 } from './iam';
 import { createHttpInfoService } from './info';
+import { createHttpKmsService } from './kms';
+import { createHttpLifecycleService } from './lifecycle';
+import { createHttpNotificationService } from './notifications';
 import { createHttpObjectService } from './objects';
 import { createHttpSessionService } from './session';
 import { createHttpShareService } from './shares';
@@ -36,6 +39,9 @@ export function createHttpServices(options: HttpServicesOptions = {}): Services 
     info: createHttpInfoService(client),
     heal: createHttpHealService(client),
     buckets: createHttpBucketService(client),
+    lifecycle: createHttpLifecycleService(client),
+    notifications: createHttpNotificationService(client),
+    kms: createHttpKmsService(client),
     objects: createHttpObjectService(client),
     uploads: createHttpUploadService(client),
     users: createHttpUserService(client),

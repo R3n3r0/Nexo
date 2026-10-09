@@ -20,7 +20,9 @@ type ListAllMyBucketsResult struct {
 	Buckets struct {
 		Bucket []BucketEntry `xml:"Bucket"`
 	} `xml:"Buckets"`
-	Prefix string `xml:"Prefix,omitempty"`
+	// ContinuationToken resumes a listing paged with max-buckets.
+	ContinuationToken string `xml:"ContinuationToken,omitempty"`
+	Prefix            string `xml:"Prefix,omitempty"`
 }
 
 // BucketEntry is one bucket of ListBuckets.
@@ -44,12 +46,14 @@ type LocationConstraint struct {
 
 // ObjectEntry is one object of a listing.
 type ObjectEntry struct {
-	Key          string `xml:"Key"`
-	LastModified string `xml:"LastModified"`
-	ETag         string `xml:"ETag"`
-	Size         int64  `xml:"Size"`
-	StorageClass string `xml:"StorageClass"`
-	Owner        *Owner `xml:"Owner,omitempty"`
+	Key               string `xml:"Key"`
+	LastModified      string `xml:"LastModified"`
+	ETag              string `xml:"ETag"`
+	ChecksumAlgorithm string `xml:"ChecksumAlgorithm,omitempty"`
+	ChecksumType      string `xml:"ChecksumType,omitempty"`
+	Size              int64  `xml:"Size"`
+	StorageClass      string `xml:"StorageClass"`
+	Owner             *Owner `xml:"Owner,omitempty"`
 }
 
 // CommonPrefix is one common prefix of a listing.
@@ -74,11 +78,13 @@ type ListBucketResultV1 struct {
 
 // ListBucketResultV2 is the body of ListObjectsV2.
 type ListBucketResultV2 struct {
-	XMLName               xml.Name       `xml:"http://s3.amazonaws.com/doc/2006-03-01/ ListBucketResult"`
-	Name                  string         `xml:"Name"`
-	Prefix                string         `xml:"Prefix"`
-	StartAfter            string         `xml:"StartAfter,omitempty"`
-	ContinuationToken     string         `xml:"ContinuationToken,omitempty"`
+	XMLName    xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ ListBucketResult"`
+	Name       string   `xml:"Name"`
+	Prefix     string   `xml:"Prefix"`
+	StartAfter string   `xml:"StartAfter,omitempty"`
+	// ContinuationToken echoes the token of the request, even empty; nil
+	// when the request has none.
+	ContinuationToken     *string        `xml:"ContinuationToken,omitempty"`
 	NextContinuationToken string         `xml:"NextContinuationToken,omitempty"`
 	KeyCount              int            `xml:"KeyCount"`
 	MaxKeys               int            `xml:"MaxKeys"`
@@ -91,14 +97,16 @@ type ListBucketResultV2 struct {
 
 // VersionEntry is one version of ListObjectVersions.
 type VersionEntry struct {
-	Key          string `xml:"Key"`
-	VersionID    string `xml:"VersionId"`
-	IsLatest     bool   `xml:"IsLatest"`
-	LastModified string `xml:"LastModified"`
-	ETag         string `xml:"ETag"`
-	Size         int64  `xml:"Size"`
-	StorageClass string `xml:"StorageClass"`
-	Owner        Owner  `xml:"Owner"`
+	Key               string `xml:"Key"`
+	VersionID         string `xml:"VersionId"`
+	IsLatest          bool   `xml:"IsLatest"`
+	LastModified      string `xml:"LastModified"`
+	ETag              string `xml:"ETag"`
+	ChecksumAlgorithm string `xml:"ChecksumAlgorithm,omitempty"`
+	ChecksumType      string `xml:"ChecksumType,omitempty"`
+	Size              int64  `xml:"Size"`
+	StorageClass      string `xml:"StorageClass"`
+	Owner             Owner  `xml:"Owner"`
 }
 
 // DeleteMarkerEntry is one delete marker of ListObjectVersions.
@@ -207,6 +215,19 @@ type ServerSideEncryptionConfiguration struct {
 	Rules   []EncryptionRule `xml:"Rule"`
 }
 
+// encryptionRequest is the body of PutBucketEncryption (any namespace).
+type encryptionRequest struct {
+	Rules []struct {
+		ApplyServerSideEncryptionByDefault *struct {
+			SSEAlgorithm   string `xml:"SSEAlgorithm"`
+			KMSMasterKeyID string `xml:"KMSMasterKeyID"`
+		} `xml:"ApplyServerSideEncryptionByDefault"`
+		// BucketKeyEnabled is accepted and ignored: every object has its
+		// own key.
+		BucketKeyEnabled bool `xml:"BucketKeyEnabled"`
+	} `xml:"Rule"`
+}
+
 // Grantee is the grantee of an ACL grant.
 type Grantee struct {
 	XMLNS       string `xml:"xmlns:xsi,attr"`
@@ -235,6 +256,8 @@ type CopyObjectResult struct {
 	XMLName      xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ CopyObjectResult"`
 	ETag         string   `xml:"ETag"`
 	LastModified string   `xml:"LastModified"`
+	ChecksumFields
+	ChecksumType string `xml:"ChecksumType,omitempty"`
 }
 
 // CopyPartResult is the body of UploadPartCopy.
@@ -242,6 +265,7 @@ type CopyPartResult struct {
 	XMLName      xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ CopyPartResult"`
 	ETag         string   `xml:"ETag"`
 	LastModified string   `xml:"LastModified"`
+	ChecksumFields
 }
 
 // ObjectIdentifier is one object of a DeleteObjects request.
@@ -290,12 +314,9 @@ type InitiateMultipartUploadResult struct {
 
 // CompletedPart is one part of a CompleteMultipartUpload request.
 type CompletedPart struct {
-	PartNumber     int    `xml:"PartNumber"`
-	ETag           string `xml:"ETag"`
-	ChecksumCRC32  string `xml:"ChecksumCRC32,omitempty"`
-	ChecksumCRC32C string `xml:"ChecksumCRC32C,omitempty"`
-	ChecksumSHA1   string `xml:"ChecksumSHA1,omitempty"`
-	ChecksumSHA256 string `xml:"ChecksumSHA256,omitempty"`
+	PartNumber int    `xml:"PartNumber"`
+	ETag       string `xml:"ETag"`
+	ChecksumFields
 }
 
 // CompleteMultipartUploadRequest is the body of CompleteMultipartUpload.
@@ -306,27 +327,22 @@ type CompleteMultipartUploadRequest struct {
 
 // CompleteMultipartUploadResult is the body of CompleteMultipartUpload.
 type CompleteMultipartUploadResult struct {
-	XMLName        xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ CompleteMultipartUploadResult"`
-	Location       string   `xml:"Location"`
-	Bucket         string   `xml:"Bucket"`
-	Key            string   `xml:"Key"`
-	ETag           string   `xml:"ETag"`
-	ChecksumCRC32  string   `xml:"ChecksumCRC32,omitempty"`
-	ChecksumCRC32C string   `xml:"ChecksumCRC32C,omitempty"`
-	ChecksumSHA1   string   `xml:"ChecksumSHA1,omitempty"`
-	ChecksumSHA256 string   `xml:"ChecksumSHA256,omitempty"`
+	XMLName  xml.Name `xml:"http://s3.amazonaws.com/doc/2006-03-01/ CompleteMultipartUploadResult"`
+	Location string   `xml:"Location"`
+	Bucket   string   `xml:"Bucket"`
+	Key      string   `xml:"Key"`
+	ETag     string   `xml:"ETag"`
+	ChecksumFields
+	ChecksumType string `xml:"ChecksumType,omitempty"`
 }
 
 // PartEntry is one part of ListParts.
 type PartEntry struct {
-	PartNumber     int    `xml:"PartNumber"`
-	LastModified   string `xml:"LastModified"`
-	ETag           string `xml:"ETag"`
-	Size           int64  `xml:"Size"`
-	ChecksumCRC32  string `xml:"ChecksumCRC32,omitempty"`
-	ChecksumCRC32C string `xml:"ChecksumCRC32C,omitempty"`
-	ChecksumSHA1   string `xml:"ChecksumSHA1,omitempty"`
-	ChecksumSHA256 string `xml:"ChecksumSHA256,omitempty"`
+	PartNumber   int    `xml:"PartNumber"`
+	LastModified string `xml:"LastModified"`
+	ETag         string `xml:"ETag"`
+	Size         int64  `xml:"Size"`
+	ChecksumFields
 }
 
 // ListPartsResult is the body of ListParts.
@@ -343,6 +359,7 @@ type ListPartsResult struct {
 	MaxParts             int         `xml:"MaxParts"`
 	IsTruncated          bool        `xml:"IsTruncated"`
 	ChecksumAlgorithm    string      `xml:"ChecksumAlgorithm,omitempty"`
+	ChecksumType         string      `xml:"ChecksumType,omitempty"`
 	Parts                []PartEntry `xml:"Part"`
 }
 

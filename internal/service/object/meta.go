@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/crypto"
 	"github.com/r3n3r0/nexo/internal/service/storage"
 )
 
@@ -26,11 +27,17 @@ const (
 	metaTagging            = "x-amz-tagging"
 	metaUserPrefix         = "x-amz-meta-"
 	metaChecksumPrefix     = "x-amz-checksum-"
+	// metaChecksumType is the checksum type (FULL_OBJECT or COMPOSITE)
+	// of the additional checksum of the version.
+	metaChecksumType = "x-amz-checksum-type"
 	// metaUpdated is the stamp (Unix nanoseconds, increasing) of the last
 	// in-place update of the metadata of a version (tags): when the
 	// drives disagree on the metadata with no majority, the newest wins.
 	// It is internal: never exposed, never copied.
 	metaUpdated = "x-nexo-internal-meta-updated"
+	// metaActualSize is the plaintext size of an encrypted version (its
+	// stored size is the one of the ciphertext). It is internal.
+	metaActualSize = "x-nexo-internal-actual-size"
 )
 
 // metaStamp returns the in-place update stamp of a version's metadata, 0
@@ -164,7 +171,7 @@ func objectInfo(bucket, key string, fi storage.FileInfo) domain.ObjectInfo {
 		Bucket:         bucket,
 		Key:            key,
 		VersionID:      fi.VersionID,
-		Size:           fi.Size,
+		Size:           actualSize(fi),
 		ModTime:        fi.ModTime.UTC(),
 		IsDeleteMarker: fi.Deleted,
 		IsLatest:       fi.IsLatest,
@@ -201,10 +208,24 @@ func objectInfo(bucket, key string, fi storage.FileInfo) domain.ObjectInfo {
 			info.Tags = decodeTags(v)
 		case strings.HasPrefix(k, metaUserPrefix):
 			info.UserMetadata[strings.TrimPrefix(k, metaUserPrefix)] = v
+		case k == metaChecksumType:
+			// Read with the checksum, below.
 		case strings.HasPrefix(k, metaChecksumPrefix):
 			info.Checksum = domain.Checksum{Algorithm: domain.ChecksumAlgorithm(strings.ToUpper(strings.TrimPrefix(k, metaChecksumPrefix))), Value: v}
+		case k == metaLockMode:
+			info.Retention.Mode = domain.RetentionMode(v)
+		case k == metaLockRetainUntil:
+			if t, ok := parseRetainUntil(v); ok {
+				info.Retention.RetainUntil = t
+			}
+		case k == metaLockLegalHold:
+			info.LegalHold = domain.LegalHoldStatus(v)
 		}
 	}
+	if !info.Checksum.IsZero() {
+		info.Checksum.Type = checksumTypeOf(info.Checksum.Value, fi.Metadata[metaChecksumType])
+	}
+	info.Encryption = crypto.InfoOf(fi.Metadata)
 	if isMultipartETag(info.ETag) {
 		info.Parts = len(fi.Parts)
 	}

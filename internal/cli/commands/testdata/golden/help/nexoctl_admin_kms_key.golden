@@ -1,0 +1,21 @@
+Create and list the keys of the KMS
+
+Usage:
+  nexoctl admin kms key [flags]
+  nexoctl admin kms key [command]
+
+Available Commands:
+  create      Create a key of the KMS
+  list        List the keys of the KMS
+
+Flags:
+  -h, --help   help for key
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl admin kms key [command] --help" for more information about a command.

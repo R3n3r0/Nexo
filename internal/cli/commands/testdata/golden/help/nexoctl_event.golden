@@ -1,0 +1,27 @@
+Manage the event subscriptions of buckets: the object events (put, delete, get,
+or S3 event types such as s3:ObjectCreated:Put) sent to a notification target,
+optionally filtered by key prefix and suffix.
+
+The targets are configured on the server (notify_webhook, notify_kafka, ... with
+"nexoctl admin config set"); "nexoctl admin notify targets ls" prints their ARN.
+
+Usage:
+  nexoctl event [flags]
+  nexoctl event [command]
+
+Available Commands:
+  add         Subscribe a notification target to the events of a bucket
+  list        List the event subscriptions of a bucket
+  remove      Remove event subscriptions of a bucket
+
+Flags:
+  -h, --help   help for event
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl event [command] --help" for more information about a command.

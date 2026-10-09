@@ -96,13 +96,9 @@ func (h *bucketRoutes) routes() []route {
 		{http.MethodPut, "/buckets/{bucket}/access", onBucket(policy.ActionPutBucketPolicy), h.putAccess},
 		{http.MethodDelete, "/buckets/{bucket}/access", onBucket(policy.ActionPutBucketPolicy), h.deleteAccess},
 
-		// Lifecycle, notification and replication documents are parsed by
-		// the ilm/event services of M7; until then the console cannot edit
-		// them.
-		{http.MethodGet, "/buckets/{bucket}/lifecycle", onBucket(policy.ActionGetLifecycle), ni},
-		{http.MethodPut, "/buckets/{bucket}/lifecycle", onBucket(policy.ActionPutLifecycle), ni},
-		{http.MethodGet, "/buckets/{bucket}/events", onBucket(policy.ActionGetBucketNotification), ni},
-		{http.MethodPut, "/buckets/{bucket}/events", onBucket(policy.ActionPutBucketNotification), ni},
+		// The lifecycle, notification and CORS configurations have their
+		// own route groups (LifecycleRoutes, NotificationRoutes,
+		// CORSRoutes); bucket replication is P2.
 		{http.MethodGet, "/buckets/{bucket}/replication", onBucket(policy.ActionGetReplication), ni},
 		{http.MethodPut, "/buckets/{bucket}/replication", onBucket(policy.ActionPutReplication), ni},
 	}

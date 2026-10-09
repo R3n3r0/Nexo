@@ -1,0 +1,26 @@
+Manage the CORS (cross-origin resource sharing) rules of buckets: the origins,
+methods and headers that browsers of other sites may use. The configuration is a
+JSON document ({"rules": [{"allowedOrigins": [...], "allowedMethods": [...]}]},
+the form of "cors get" and of the console; the {"CORSRules": [...]} form of the
+AWS CLI is accepted too) or the S3 CORSConfiguration XML.
+
+Usage:
+  nexoctl cors [flags]
+  nexoctl cors [command]
+
+Available Commands:
+  get         Print the CORS configuration of a bucket (JSON or S3 XML)
+  remove      Remove the CORS configuration of a bucket
+  set         Replace the CORS configuration of a bucket (JSON or S3 XML)
+
+Flags:
+  -h, --help   help for cors
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl cors [command] --help" for more information about a command.

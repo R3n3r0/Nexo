@@ -1,0 +1,46 @@
+$ nexoctl mb --with-versioning mem/ver
+Bucket created successfully `mem/ver`.
+
+$ nexoctl rm mem/ver/doc.txt
+Removed `mem/ver/doc.txt` (delete marker v0003).
+
+$ nexoctl stat --versions mem/ver/doc.txt
+Name        : doc.txt
+Date        : 2026-01-02 03:06:05 UTC
+Type        : file
+VersionID   : v0003
+Deleted     : yes (delete marker)
+
+Name        : doc.txt
+Date        : 2026-01-02 03:05:05 UTC
+Size        : 4B (4 bytes)
+Type        : file
+ETag        : 9f5b6d9a034d175868bf593885b7dc4e
+Content-Type: text/plain
+Class       : STANDARD
+VersionID   : v0002
+Tags        : v=2
+
+Name        : doc.txt
+Date        : 2026-01-02 03:04:05 UTC
+Size        : 3B (3 bytes)
+Type        : file
+ETag        : f97c5d29941bfb1b2fdab0874906ab82
+Content-Type: text/plain
+Class       : STANDARD
+VersionID   : v0001
+
+$ nexoctl stat --versions --json mem/ver/doc.txt
+{"status":"success","type":"file","target":"mem/ver/doc.txt","key":"doc.txt","name":"doc.txt","size":0,"lastModified":"2026-01-02T03:06:05Z","versionId":"v0003","isLatest":true,"deleteMarker":true}
+{"status":"success","type":"file","target":"mem/ver/doc.txt","key":"doc.txt","name":"doc.txt","size":4,"lastModified":"2026-01-02T03:05:05Z","etag":"9f5b6d9a034d175868bf593885b7dc4e","storageClass":"STANDARD","contentType":"text/plain","versionId":"v0002","tags":{"v":"2"}}
+{"status":"success","type":"file","target":"mem/ver/doc.txt","key":"doc.txt","name":"doc.txt","size":3,"lastModified":"2026-01-02T03:04:05Z","etag":"f97c5d29941bfb1b2fdab0874906ab82","storageClass":"STANDARD","contentType":"text/plain","versionId":"v0001"}
+
+$ nexoctl stat --versions mem/ver/missing.txt
+! nexoctl: error: mem/ver/missing.txt: object not found
+[exit 3]
+
+$ nexoctl stat --versions --version-id v0001 mem/ver/doc.txt
+! nexoctl: error: --version-id excludes --versions
+! Run 'nexoctl stat --help' for usage.
+[exit 2]
+

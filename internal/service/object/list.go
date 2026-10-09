@@ -65,18 +65,26 @@ func splitPrefix(prefix string) (baseDir, filter string) {
 	return "", prefix
 }
 
+// listablePrefix reports whether a valid key can start with prefix: the
+// directory part of the prefix (up to its last slash), which the listing
+// walks, must be a valid key itself; the rest only filters the names. S3
+// accepts any prefix: one no key can match lists nothing, and is never
+// walked (no path outside the bucket is reachable through it).
+func listablePrefix(prefix string) bool {
+	baseDir, _ := splitPrefix(prefix)
+	return baseDir == "" || domain.ValidateObjectKey(baseDir) == nil
+}
+
 // listEntries walks every store (merged in S3 order) and collects the
 // entries of the listing. The returned slice holds at most limit items
 // plus one extra entry when the listing is truncated.
 func (l *layer) listEntries(ctx context.Context, p listParams) ([]listEntry, bool, error) {
-	if err := domain.ValidateObjectPrefix(p.prefix); err != nil {
-		return nil, false, err
-	}
 	if _, err := l.sets[0].StatVol(ctx, p.bucket); err != nil {
 		return nil, false, fmt.Errorf("%s: list %s: %w", l.name, p.bucket, err)
 	}
-	if p.limit == 0 {
-		// max-keys=0: an empty listing, not truncated (as S3 answers).
+	if p.limit == 0 || !listablePrefix(p.prefix) {
+		// max-keys=0, or a prefix no key matches: an empty listing, not
+		// truncated (as S3 answers).
 		return nil, false, nil
 	}
 	all, err := l.collect(ctx, p)

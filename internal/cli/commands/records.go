@@ -4,6 +4,8 @@ import (
 	"time"
 
 	"github.com/r3n3r0/nexo/internal/cli"
+	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/pkg/nexoadmin"
 )
 
 // The JSON records of the commands (--json): one per line, each preceded
@@ -37,9 +39,19 @@ type entryRecord struct {
 	Metadata     map[string]string `json:"metadata,omitempty"`
 	Tags         map[string]string `json:"tags,omitempty"`
 	UploadID     string            `json:"uploadId,omitempty"`
+	// Object Lock state, checksum and encryption of an object version
+	// (stat).
+	Retention  *retentionInfo  `json:"retention,omitempty"`
+	LegalHold  string          `json:"legalHold,omitempty"`
+	Checksum   *checksumInfo   `json:"checksum,omitempty"`
+	Encryption *encryptionInfo `json:"encryption,omitempty"`
+	// Versions is the number of versions and delete markers of the object
+	// (stat of an object of a versioned bucket).
+	Versions int `json:"versions,omitempty"`
 	// Bucket settings (stat of a bucket).
-	Versioning string `json:"versioning,omitempty"`
-	Anonymous  string `json:"anonymous,omitempty"`
+	Versioning string          `json:"versioning,omitempty"`
+	Anonymous  string          `json:"anonymous,omitempty"`
+	ObjectLock *objectLockInfo `json:"objectLock,omitempty"`
 }
 
 // transferRecord is a copy, a move, an upload or a mirror action.
@@ -52,6 +64,9 @@ type transferRecord struct {
 	VersionID string `json:"versionId,omitempty"`
 	Parts     int    `json:"parts,omitempty"`
 	DryRun    bool   `json:"dryRun,omitempty"`
+	// Checksum is the additional checksum of the uploaded object
+	// (--checksum).
+	Checksum *checksumInfo `json:"checksum,omitempty"`
 	// Error is set on the "error" lines of the transfers not attempted.
 	Error string `json:"error,omitempty"`
 }
@@ -65,7 +80,9 @@ type removeRecord struct {
 	DeleteMarkerVersionID string `json:"deleteMarkerVersionId,omitempty"`
 	UploadID              string `json:"uploadId,omitempty"`
 	DryRun                bool   `json:"dryRun,omitempty"`
-	Error                 string `json:"error,omitempty"`
+	// BypassGovernance reports a removal with rm --bypass.
+	BypassGovernance bool   `json:"bypassGovernance,omitempty"`
+	Error            string `json:"error,omitempty"`
 }
 
 // bucketRecord is a created or removed bucket.
@@ -76,6 +93,8 @@ type bucketRecord struct {
 	Removed    bool   `json:"removed,omitempty"`
 	Versioning string `json:"versioning,omitempty"`
 	Objects    int    `json:"removedObjects,omitempty"`
+	// ObjectLock reports a bucket created with Object Lock (mb --with-lock).
+	ObjectLock bool `json:"objectLock,omitempty"`
 }
 
 // shareRecord is a presigned URL (share download/upload, presign).
@@ -205,4 +224,157 @@ func objectEntry(t cli.Target, o cli.ObjectInfo, name string, versions bool) ent
 		r.DeleteMarker = o.DeleteMarker
 	}
 	return r
+}
+
+// retentionInfo is the retention of an object version.
+type retentionInfo struct {
+	Mode        string     `json:"mode"`
+	RetainUntil *time.Time `json:"retainUntil,omitempty"`
+}
+
+// checksumInfo is the additional checksum of an object.
+type checksumInfo struct {
+	Algorithm string `json:"algorithm"`
+	Type      string `json:"type,omitempty"`
+	Value     string `json:"value"`
+}
+
+// encryptionInfo is the server-side encryption of an object version.
+type encryptionInfo struct {
+	// Type is SSE-S3, SSE-KMS or SSE-C.
+	Type     string `json:"type"`
+	KMSKeyID string `json:"kmsKeyId,omitempty"`
+	// CustomerKeyMD5 is the MD5 of the SSE-C key (base64).
+	CustomerKeyMD5 string `json:"customerKeyMd5,omitempty"`
+}
+
+// objectLockInfo is the Object Lock configuration of a bucket.
+type objectLockInfo struct {
+	Enabled bool `json:"enabled"`
+	// Mode and Validity are the default retention ("30d", "1y").
+	Mode     string `json:"mode,omitempty"`
+	Validity string `json:"validity,omitempty"`
+}
+
+// retentionRecord is the retention of an object version, or the default
+// retention of a bucket (Default).
+type retentionRecord struct {
+	Target    string `json:"target"`
+	Key       string `json:"key,omitempty"`
+	VersionID string `json:"versionId,omitempty"`
+	// Default reports the default retention of a bucket (ObjectLock).
+	Default     bool            `json:"default,omitempty"`
+	ObjectLock  *objectLockInfo `json:"objectLock,omitempty"`
+	Mode        string          `json:"mode,omitempty"`
+	RetainUntil *time.Time      `json:"retainUntil,omitempty"`
+	// Error is set on the "error" lines of the versions that failed.
+	Error string `json:"error,omitempty"`
+}
+
+// legalHoldRecord is the legal hold of an object version.
+type legalHoldRecord struct {
+	Target    string `json:"target"`
+	Key       string `json:"key"`
+	VersionID string `json:"versionId,omitempty"`
+	// LegalHold is ON or OFF.
+	LegalHold string `json:"legalHold,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+// ilmRuleRecord is a lifecycle rule of a bucket (ilm rule ls).
+type ilmRuleRecord struct {
+	Target string `json:"target"`
+	Bucket string `json:"bucket"`
+	cli.LifecycleRule
+}
+
+// ilmConfigRecord is the lifecycle configuration of a bucket (ilm rule
+// export --json, import).
+type ilmConfigRecord struct {
+	Target string              `json:"target"`
+	Bucket string              `json:"bucket"`
+	Rules  []cli.LifecycleRule `json:"rules"`
+}
+
+// ilmApplyRecord is the outcome of ilm apply.
+type ilmApplyRecord struct {
+	Target string `json:"target"`
+	Bucket string `json:"bucket"`
+	nexoadmin.LifecycleApplyResult
+}
+
+// eventRecord is an event subscription of a bucket.
+type eventRecord struct {
+	Target string `json:"target"`
+	Bucket string `json:"bucket"`
+	cli.EventSubscription
+	// Removed reports a subscription removed by event rm.
+	Removed bool `json:"removed,omitempty"`
+}
+
+// corsRecord is the CORS configuration of a bucket.
+type corsRecord struct {
+	Target string         `json:"target"`
+	Bucket string         `json:"bucket"`
+	Rules  []cli.CORSRule `json:"rules"`
+}
+
+// kmsStatusRecord is the state of the KMS of a server.
+type kmsStatusRecord struct {
+	Alias string `json:"alias"`
+	nexoadmin.KMSStatus
+}
+
+// kmsKeyRecord is a key of the KMS of a server.
+type kmsKeyRecord struct {
+	Alias string `json:"alias"`
+	nexoadmin.KMSKey
+}
+
+// notifyTargetRecord is a notification target of a server.
+type notifyTargetRecord struct {
+	Alias string `json:"alias"`
+	nexoadmin.NotifyTarget
+}
+
+// notifyTestRecord is the outcome of a test event.
+type notifyTestRecord struct {
+	Alias string `json:"alias"`
+	nexoadmin.NotifyTargetTest
+}
+
+// retentionOf converts a retention (nil when none).
+func retentionOf(r domain.ObjectRetention) *retentionInfo {
+	if r.IsZero() {
+		return nil
+	}
+	return &retentionInfo{Mode: string(r.Mode), RetainUntil: timePtr(r.RetainUntil)}
+}
+
+// checksumOf converts a checksum (nil when none).
+func checksumOf(c domain.Checksum) *checksumInfo {
+	if c.IsZero() {
+		return nil
+	}
+	return &checksumInfo{Algorithm: string(c.Algorithm), Type: string(c.Type), Value: c.Value}
+}
+
+// encryptionOf converts an encryption (nil when not encrypted).
+func encryptionOf(e domain.EncryptionInfo) *encryptionInfo {
+	if e.IsZero() {
+		return nil
+	}
+	return &encryptionInfo{Type: string(e.Type), KMSKeyID: e.KMSKeyID, CustomerKeyMD5: e.CustomerKeyMD5}
+}
+
+// objectLockOf converts the Object Lock configuration of a bucket.
+func objectLockOf(cfg *cli.ObjectLockConfig) *objectLockInfo {
+	if cfg == nil {
+		return nil
+	}
+	out := &objectLockInfo{Enabled: cfg.Enabled}
+	if !cfg.Default.IsZero() {
+		out.Mode, out.Validity = string(cfg.Default.Mode), cli.Validity{Days: cfg.Default.Days, Years: cfg.Default.Years}.String()
+	}
+	return out
 }

@@ -7,6 +7,7 @@ Examples:
   nexoctl head -n 5 local/logs/app.log
 
 Flags:
+      --enc-c stringArray   SSE-C key of the objects under a location: "ALIAS/BUCKET[/PREFIX]=BASE64KEY" (32 bytes; repeatable)
   -h, --help                help for head
   -n, --lines int           number of lines (default 10)
       --version-id string   print this version of the object

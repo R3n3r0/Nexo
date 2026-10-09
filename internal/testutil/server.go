@@ -12,6 +12,7 @@ package testutil
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -31,7 +32,9 @@ import (
 	"github.com/r3n3r0/nexo/internal/config"
 	"github.com/r3n3r0/nexo/internal/service/auth"
 	"github.com/r3n3r0/nexo/internal/service/bucket"
+	"github.com/r3n3r0/nexo/internal/service/event"
 	"github.com/r3n3r0/nexo/internal/service/iam"
+	"github.com/r3n3r0/nexo/internal/service/ilm"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/service/share"
 )
@@ -97,9 +100,16 @@ type Server struct {
 	Buckets  bucket.Service
 	Shares   share.Service
 	Signer   auth.Signer
+	// ILM applies the bucket lifecycle at once (ApplyNow) and Events
+	// manages the notification targets.
+	ILM    ilm.Service
+	Events event.Service
 	// Clock is the clock of the application (WithClock); nil means the
 	// wall clock.
 	Clock clock.Clock
+	// TLS is the configuration of the clients of a deployment served
+	// over TLS (WithTLS): it trusts the test CA. Nil without TLS.
+	TLS *tls.Config
 
 	logger *slog.Logger
 	mu     sync.Mutex
@@ -115,6 +125,10 @@ type settings struct {
 	dir    string
 	drives int
 	nodes  int
+	// tls serves the deployment over TLS (WithTLS), with the certificates
+	// of pki.
+	tls bool
+	pki *testPKI
 }
 
 // Option customizes StartServer.
@@ -156,6 +170,7 @@ func WithDir(dir string) Option {
 func StartServer(t testing.TB, opts ...Option) *Server {
 	t.Helper()
 	st := newSettings(opts)
+	setupTLS(t, &st)
 	if st.nodes > 0 {
 		return startCluster(t, st)
 	}
@@ -215,14 +230,34 @@ func newSettings(opts []Option) settings {
 	return st
 }
 
+// setupTLS creates the certificates of a TLS deployment and points the
+// configuration to them.
+func setupTLS(t testing.TB, st *settings) {
+	t.Helper()
+	if !st.tls || st.pki != nil {
+		return
+	}
+	pki := newTestPKI(t)
+	st.pki = &pki
+	st.cfg.CertsDir = pki.dir
+}
+
 func newServer(t testing.TB, st settings) *Server {
 	t.Helper()
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		t.Fatalf("testutil: cookie jar: %v", err)
 	}
+	setupTLS(t, &st)
+	client := &http.Client{Timeout: 10 * time.Second, Jar: jar}
+	var clientTLS *tls.Config
+	if st.pki != nil {
+		clientTLS = st.pki.client
+		client.Transport = tlsTransport(clientTLS)
+	}
 	srv := &Server{
-		Client:       &http.Client{Timeout: 10 * time.Second, Jar: jar},
+		TLS:          clientTLS,
+		Client:       client,
 		Dir:          st.dir,
 		RootUser:     st.cfg.RootUser,
 		RootPassword: st.cfg.RootPassword,
@@ -256,11 +291,17 @@ func startCluster(t testing.TB, st settings) *Server {
 			base = st.dir
 		}
 		ports := reservePorts(t, 2*st.nodes+2)
-		srv.startLB(t, ports[2*st.nodes], ports[2*st.nodes+1], st.nodes)
+		var lbOpts []LBOption
+		scheme := "http"
+		if st.pki != nil {
+			lbOpts = append(lbOpts, LBTLS(st.pki.server, st.pki.client))
+			scheme = "https"
+		}
+		srv.startLB(t, ports[2*st.nodes], ports[2*st.nodes+1], st.nodes, lbOpts...)
 		var endpoints []string
 		for n := range st.nodes {
 			for d := 1; d <= st.drives; d++ {
-				endpoints = append(endpoints, fmt.Sprintf("http://%s%s/n%d/d%d", ports[n], filepath.ToSlash(base), n+1, d))
+				endpoints = append(endpoints, fmt.Sprintf("%s://%s%s/n%d/d%d", scheme, ports[n], filepath.ToSlash(base), n+1, d))
 			}
 		}
 		srv.Nodes = nil
@@ -373,6 +414,8 @@ func (s *Server) start() error {
 	s.Buckets = first.App.Buckets()
 	s.Shares = first.App.Shares()
 	s.Signer = first.App.Signer()
+	s.ILM = first.App.ILM()
+	s.Events = first.App.Events()
 	s.running = true
 	return nil
 }
@@ -394,8 +437,12 @@ func (s *Server) startNode(ctx context.Context, n *Node) error {
 		return fmt.Errorf("start app: %w", err)
 	}
 	n.App = application
-	n.S3URL = "http://" + application.S3Addr()
-	n.ConsoleURL = "http://" + application.ConsoleAddr()
+	scheme := "http"
+	if n.Config.TLSEnabled() {
+		scheme = "https"
+	}
+	n.S3URL = scheme + "://" + application.S3Addr()
+	n.ConsoleURL = scheme + "://" + application.ConsoleAddr()
 	return nil
 }
 

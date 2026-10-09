@@ -104,7 +104,7 @@ func newFixture(t *testing.T, kind string, extra ...object.Option) *fixture {
 		fx.published = append(fx.published, e)
 		return nil
 	}).Maybe()
-	deps := object.Deps{Buckets: fx.buckets, Events: fx.events, Clock: fx.clk, Logger: slog.New(slog.DiscardHandler)}
+	deps := object.Deps{Buckets: fx.buckets, Events: fx.events, Crypto: newTestCrypto(t), Clock: fx.clk, Logger: slog.New(slog.DiscardHandler)}
 	opts := []object.Option{object.WithInlineLimit(testInlineLimit), object.WithBlockSize(testBlockSize), object.WithMinPartSize(16), object.WithLockTimeout(5 * time.Second)}
 	opts = append(opts, extra...)
 	var err error
@@ -130,6 +130,7 @@ func newFixture(t *testing.T, kind string, extra ...object.Option) *fixture {
 			Codecs:       testCodecs("deployment-test"),
 			Buckets:      deps.Buckets,
 			Events:       deps.Events,
+			Crypto:       deps.Crypto,
 			Clock:        deps.Clock,
 			Logger:       deps.Logger,
 		}, opts...)
@@ -264,15 +265,17 @@ func TestBuckets(t *testing.T) {
 		assert.ErrorIs(t, err, domain.ErrBucketNotFound)
 		assert.ErrorIs(t, svc.DeleteBucket(ctx, "docs", object.DeleteBucketOptions{}), domain.ErrBucketNotFound)
 
-		// An in-progress upload also blocks deletion.
-		_, err = svc.NewMultipartUpload(ctx, object.NewMultipartInput{Bucket: "photos", Key: "big"})
-		require.NoError(t, err)
-		assert.ErrorIs(t, svc.DeleteBucket(ctx, "photos", object.DeleteBucketOptions{}), domain.ErrBucketNotEmpty)
-		require.NoError(t, svc.DeleteBucket(ctx, "photos", object.DeleteBucketOptions{Force: true}))
-		require.NoError(t, svc.MakeBucket(ctx, "photos", object.MakeBucketOptions{}))
-		uploads, err := svc.ListMultipartUploads(ctx, domain.ListMultipartUploadsInput{Bucket: "photos"})
-		require.NoError(t, err)
-		assert.Empty(t, uploads.Uploads, "forced deletion aborts the uploads")
+		// An in-progress upload does not keep the bucket (as in S3): the
+		// deletion aborts it, forced or not.
+		for _, force := range []bool{false, true} {
+			_, err = svc.NewMultipartUpload(ctx, object.NewMultipartInput{Bucket: "photos", Key: "big"})
+			require.NoError(t, err)
+			require.NoError(t, svc.DeleteBucket(ctx, "photos", object.DeleteBucketOptions{Force: force}))
+			require.NoError(t, svc.MakeBucket(ctx, "photos", object.MakeBucketOptions{}))
+			uploads, err := svc.ListMultipartUploads(ctx, domain.ListMultipartUploadsInput{Bucket: "photos"})
+			require.NoError(t, err)
+			assert.Empty(t, uploads.Uploads, "the deletion aborts the uploads (force=%v)", force)
+		}
 
 		assert.Contains(t, fx.eventNames(), event.BucketCreated)
 		assert.Contains(t, fx.eventNames(), event.BucketRemoved)

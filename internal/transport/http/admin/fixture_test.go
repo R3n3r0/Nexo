@@ -69,6 +69,9 @@ type fixture struct {
 	policy     *policymock.Service
 	config     *adminmock.ConfigManager
 	cluster    *adminmock.ClusterManager
+	lifecycle  *adminmock.LifecycleManager
+	notify     *adminmock.NotificationManager
+	cors       *adminmock.CORSManager
 	locks      *lockmock.Manager
 	sessions   session.Service
 
@@ -87,6 +90,7 @@ func newFixture(t *testing.T) *fixture {
 		uploads: adminmock.NewUploadManager(t), shares: adminmock.NewShareManager(t), identities: adminmock.NewIdentityManager(t),
 		accessKeys: adminmock.NewAccessKeyManager(t), policies: adminmock.NewPolicyManager(t), policy: policymock.NewService(t),
 		config: adminmock.NewConfigManager(t), cluster: adminmock.NewClusterManager(t), locks: lockmock.NewManager(t),
+		lifecycle: adminmock.NewLifecycleManager(t), notify: adminmock.NewNotificationManager(t), cors: adminmock.NewCORSManager(t),
 		catalog: adminsvc.CatalogActions(),
 	}
 	f.iam.EXPECT().LookupCredentials(mock.Anything, mock.Anything).RunAndReturn(
@@ -140,7 +144,16 @@ func newFixture(t *testing.T) *fixture {
 	require.NoError(t, err)
 	clusterRoutes, err := admin.NewClusterRoutes(admin.ClusterDeps{Cluster: f.cluster, Locks: f.locks, Authz: f.authz, Enc: enc})
 	require.NoError(t, err)
-	f.groups = []admin.Routes{sessionRoutes, infoRoutes, userRoutes, policyRoutes, bucketRoutes, objectRoutes, shareRoutes, configRoutes, clusterRoutes}
+	lifecycleRoutes, err := admin.NewLifecycleRoutes(admin.LifecycleDeps{Lifecycle: f.lifecycle, Authz: f.authz, Enc: enc})
+	require.NoError(t, err)
+	notificationRoutes, err := admin.NewNotificationRoutes(admin.NotificationDeps{Notifications: f.notify, Authz: f.authz, Enc: enc})
+	require.NoError(t, err)
+	corsRoutes, err := admin.NewCORSRoutes(admin.CORSDeps{CORS: f.cors, Authz: f.authz, Enc: enc})
+	require.NoError(t, err)
+	kmsRoutes, err := admin.NewKMSRoutes(admin.KMSDeps{Authz: f.authz, Enc: enc})
+	require.NoError(t, err)
+	f.groups = []admin.Routes{sessionRoutes, infoRoutes, userRoutes, policyRoutes, bucketRoutes, objectRoutes, shareRoutes, configRoutes, clusterRoutes,
+		lifecycleRoutes, notificationRoutes, corsRoutes, kmsRoutes}
 
 	r := chi.NewRouter()
 	api, err := admin.NewAPI(admin.APIDeps{Enc: enc, Auth: authn}, f.groups...)

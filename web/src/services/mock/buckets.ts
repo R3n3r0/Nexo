@@ -1,8 +1,10 @@
+import { corsLimits, validateCorsRule, type CorsIssue } from '@/lib/cors';
+
 import type { BucketService } from '../interfaces';
 import type { Bucket, PolicyError } from '../types';
-import { ApiError } from '../errors';
+import { ApiError, type RuleProblem } from '../errors';
 import { applyPreset, presetPolicy, type MockStorage } from './storage';
-import { clone, problem } from './support';
+import { clone, invalidConfiguration, problem } from './support';
 
 export function sampleBuckets(): Bucket[] {
   return [
@@ -172,8 +174,12 @@ export function createMockBucketService(storage: MockStorage): BucketService {
       if (!config.enabled) {
         throw problem(400, 'malformed_xml', 'ObjectLockEnabled must be Enabled.');
       }
-      if (state.bucket.versioning !== 'enabled') {
-        throw problem(409, 'conflict', 'Object lock needs versioning enabled.');
+      if (!state.bucket.objectLockEnabled) {
+        throw problem(
+          409,
+          'conflict',
+          'Object Lock can only be enabled when the bucket is created (x-amz-bucket-object-lock-enabled).',
+        );
       }
       const hasPeriod = (config.days ?? 0) > 0 || (config.years ?? 0) > 0;
       if (
@@ -266,6 +272,48 @@ export function createMockBucketService(storage: MockStorage): BucketService {
     },
     removeAccess(name, prefix) {
       return service.setAccess(name, { prefix, preset: 'private' });
+    },
+    async getCors(name) {
+      await ctx.delay();
+      return { rules: clone(storage.bucket(name).cors ?? []) };
+    },
+    async setCors(name, config) {
+      await ctx.delay();
+      const state = storage.bucket(name);
+      const problems: RuleProblem[] = [];
+      if (config.rules.length > corsLimits.rules) {
+        problems.push({
+          rule: 0,
+          code: 'InvalidRequest',
+          message: `The CORS configuration must have at most ${String(corsLimits.rules)} rules`,
+        });
+      }
+      config.rules.forEach((rule, i) => {
+        const issues = validateCorsRule(rule);
+        const issue: CorsIssue | undefined =
+          issues.id ??
+          issues.origins ??
+          issues.methods ??
+          issues.allowedHeaders ??
+          issues.maxAgeSeconds;
+        if (issue !== undefined) {
+          problems.push({
+            rule: i + 1,
+            ...(rule.id !== undefined ? { id: rule.id } : {}),
+            code: issue === 'origins' || issue === 'methods' ? 'MalformedXML' : 'InvalidArgument',
+            message: `CORSRule ${String(i + 1)}: ${issue}`,
+          });
+        }
+      });
+      if (problems.length > 0) {
+        throw invalidConfiguration(problems);
+      }
+      if (config.rules.length === 0) {
+        delete state.cors;
+      } else {
+        state.cors = clone(config.rules);
+      }
+      return { rules: clone(config.rules) };
     },
   };
   return service;

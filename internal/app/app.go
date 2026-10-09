@@ -31,7 +31,10 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/bucket"
 	"github.com/r3n3r0/nexo/internal/service/cluster"
 	configsvc "github.com/r3n3r0/nexo/internal/service/config"
+	"github.com/r3n3r0/nexo/internal/service/event"
 	"github.com/r3n3r0/nexo/internal/service/iam"
+	"github.com/r3n3r0/nexo/internal/service/ilm"
+	"github.com/r3n3r0/nexo/internal/service/kms"
 	"github.com/r3n3r0/nexo/internal/service/lock"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
 	"github.com/r3n3r0/nexo/internal/service/object"
@@ -421,7 +424,7 @@ type middlewareDeps struct {
 
 // s3Middlewares returns the middleware chain of the S3 listener, outermost
 // first: request ids, forwarded client, panic recovery, access log,
-// metrics, CORS, audit and SigV4 authentication. Audit wraps the
+// metrics, audit and SigV4 authentication (the S3 API applies CORS). Audit wraps the
 // authentication so that rejected requests are recorded too; it learns the
 // identity through its holder. The client behind the trusted proxies is
 // the one of the console listener too, so that aws:SourceIp and
@@ -453,7 +456,8 @@ func s3Middlewares(d middlewareDeps) ([]middleware.Middleware, error) {
 		middleware.NewRecover(middleware.RecoverDeps{Logger: d.logger, OnError: middleware.S3ErrorWriter(d.codec)}),
 		middleware.NewLogging(middleware.LoggingDeps{Logger: d.logger.With("server", "s3"), Clock: d.clock}, middleware.WithLogLevel(slog.LevelDebug)),
 		httpMetrics,
-		middleware.NewCORS(middleware.CORSDeps{}),
+		// CORS is applied by the S3 API itself (s3.APIDeps.Buckets and
+		// Settings): bucket CORS configurations, api.cors_allow_origin.
 		auditing,
 		authn,
 	}, nil
@@ -504,6 +508,12 @@ type adminDeps struct {
 	config   configsvc.Service
 	// locks exposes the namespace locks of the deployment (diagnostics).
 	locks lock.Manager
+	// lifecycle and events back the lifecycle, notification and target
+	// endpoints of the console.
+	lifecycle ilm.Service
+	events    event.Service
+	// kms is the KMS of the server-side encryption (/kms endpoints).
+	kms kms.Service
 	// secureCookies forces the Secure flag of the session cookies (the
 	// console is served over HTTPS, possibly by a proxy terminating TLS).
 	secureCookies bool
@@ -525,6 +535,13 @@ type adminServices struct {
 	policies   adminsvc.PolicyManager
 	config     adminsvc.ConfigManager
 	cluster    adminsvc.ClusterManager
+	// lifecycle, notifications and cors edit the bucket configurations of
+	// the console.
+	lifecycle     adminsvc.LifecycleManager
+	notifications adminsvc.NotificationManager
+	cors          adminsvc.CORSManager
+	// kms manages the keys of the KMS (nil without one wired).
+	kms adminsvc.KMSManager
 }
 
 // buildAdminServices composes the console services around the
@@ -562,9 +579,25 @@ func buildAdminServices(d adminDeps) (adminServices, error) {
 	if out.config, err = adminsvc.NewConfigManager(adminsvc.ConfigManagerDeps{Config: d.config, Logger: d.logger}); err != nil {
 		return out, err
 	}
-	out.cluster, err = adminsvc.NewClusterManager(adminsvc.ClusterManagerDeps{
+	if out.cluster, err = adminsvc.NewClusterManager(adminsvc.ClusterManagerDeps{
 		IAM: d.iam, Policy: d.policy, Config: out.config, Buckets: d.buckets, Clock: d.clock, Logger: d.logger,
-	}, adminsvc.WithServerVersion(version.Get().Version))
+	}, adminsvc.WithServerVersion(version.Get().Version)); err != nil {
+		return out, err
+	}
+	if out.lifecycle, err = adminsvc.NewLifecycleManager(adminsvc.LifecycleManagerDeps{Buckets: d.buckets, Lifecycle: d.lifecycle, Logger: d.logger}); err != nil {
+		return out, err
+	}
+	if out.notifications, err = adminsvc.NewNotificationManager(adminsvc.NotificationManagerDeps{
+		Buckets: d.buckets, Events: d.events, Config: d.config, Logger: d.logger,
+	}, adminsvc.WithARNRegion(d.region)); err != nil {
+		return out, err
+	}
+	if out.cors, err = adminsvc.NewCORSManager(adminsvc.CORSManagerDeps{Buckets: d.buckets, Logger: d.logger}); err != nil {
+		return out, err
+	}
+	if d.kms != nil {
+		out.kms, err = adminsvc.NewKMSManager(adminsvc.KMSManagerDeps{KMS: d.kms, Logger: d.logger})
+	}
 	return out, err
 }
 
@@ -623,8 +656,25 @@ func buildAdminAPI(d adminDeps) (httpx.Routes, error) {
 	if err != nil {
 		return nil, err
 	}
+	lifecycleRoutes, err := adminhttp.NewLifecycleRoutes(adminhttp.LifecycleDeps{Lifecycle: svc.lifecycle, Authz: svc.authz, Enc: d.codec})
+	if err != nil {
+		return nil, err
+	}
+	notificationRoutes, err := adminhttp.NewNotificationRoutes(adminhttp.NotificationDeps{Notifications: svc.notifications, Authz: svc.authz, Enc: d.codec})
+	if err != nil {
+		return nil, err
+	}
+	corsRoutes, err := adminhttp.NewCORSRoutes(adminhttp.CORSDeps{CORS: svc.cors, Authz: svc.authz, Enc: d.codec})
+	if err != nil {
+		return nil, err
+	}
+	kmsRoutes, err := adminhttp.NewKMSRoutes(adminhttp.KMSDeps{KMS: svc.kms, Authz: svc.authz, Enc: d.codec})
+	if err != nil {
+		return nil, err
+	}
 	return adminhttp.NewAPI(adminhttp.APIDeps{Enc: d.codec, Auth: authn},
-		sessionRoutes, infoRoutes, userRoutes, policyRoutes, bucketRoutes, objectRoutes, shareRoutes, configRoutes, clusterRoutes)
+		sessionRoutes, infoRoutes, userRoutes, policyRoutes, bucketRoutes, objectRoutes, shareRoutes, configRoutes, clusterRoutes,
+		lifecycleRoutes, notificationRoutes, corsRoutes, kmsRoutes)
 }
 
 // processActions implements the service control of the Admin API (POST
@@ -809,6 +859,23 @@ func (a *App) Objects() object.Service {
 func (a *App) Shares() share.Service {
 	if s := a.services(); s != nil {
 		return s.shares
+	}
+	return nil
+}
+
+// ILM returns the bucket lifecycle service (integration tests apply the
+// lifecycle at once with ApplyNow instead of waiting for the scanner).
+func (a *App) ILM() ilm.Service {
+	if s := a.services(); s != nil {
+		return s.lifecycle
+	}
+	return nil
+}
+
+// Events returns the bucket notification service (integration tests).
+func (a *App) Events() event.Service {
+	if s := a.services(); s != nil {
+		return s.events
 	}
 	return nil
 }

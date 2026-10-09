@@ -5,8 +5,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -31,17 +31,20 @@ type ObjectDeps struct {
 
 type objectRoutes struct {
 	deps  ObjectDeps
+	opts  options
 	authz authorizer
 }
 
 var _ ObjectRoutes = (*objectRoutes)(nil)
 
-// NewObjectRoutes returns the object route group.
-func NewObjectRoutes(deps ObjectDeps, _ ...Option) ObjectRoutes { return newObjectRoutes(deps) }
+// NewObjectRoutes returns the object route group (WithInsecureSSEC).
+func NewObjectRoutes(deps ObjectDeps, opts ...Option) ObjectRoutes {
+	return newObjectRoutes(deps, opts...)
+}
 
 // newObjectRoutes builds the concrete group, which the presigned routes
 // reuse for the object operations.
-func newObjectRoutes(deps ObjectDeps) *objectRoutes {
+func newObjectRoutes(deps ObjectDeps, opts ...Option) *objectRoutes {
 	if deps.Enc == nil {
 		deps.Enc = httpx.New()
 	}
@@ -51,7 +54,7 @@ func newObjectRoutes(deps ObjectDeps) *objectRoutes {
 	if deps.Logger == nil {
 		deps.Logger = slog.Default()
 	}
-	return &objectRoutes{deps: deps, authz: authorizer{policy: deps.Policy, enc: deps.Enc, clock: deps.Clock}}
+	return &objectRoutes{deps: deps, opts: newOptions(opts), authz: authorizer{policy: deps.Policy, enc: deps.Enc, clock: deps.Clock, objects: deps.Objects}}
 }
 
 // available reports whether the services the handlers need are wired.
@@ -72,6 +75,11 @@ func (h *objectRoutes) objectOperations() map[Operation]http.HandlerFunc {
 		{Name: "DeleteObjectTagging", Method: http.MethodDelete, Scope: ScopeObject, Query: "tagging"}: h.deleteTagging,
 		{Name: "GetObjectAcl", Method: http.MethodGet, Scope: ScopeObject, Query: "acl"}:               h.getACL,
 		{Name: "PutObjectAcl", Method: http.MethodPut, Scope: ScopeObject, Query: "acl"}:               h.putACL,
+		{Name: "GetObjectRetention", Method: http.MethodGet, Scope: ScopeObject, Query: "retention"}:   h.getRetention,
+		{Name: "PutObjectRetention", Method: http.MethodPut, Scope: ScopeObject, Query: "retention"}:   h.putRetention,
+		{Name: "GetObjectLegalHold", Method: http.MethodGet, Scope: ScopeObject, Query: "legal-hold"}:  h.getLegalHold,
+		{Name: "PutObjectLegalHold", Method: http.MethodPut, Scope: ScopeObject, Query: "legal-hold"}:  h.putLegalHold,
+		{Name: "GetObjectAttributes", Method: http.MethodGet, Scope: ScopeObject, Query: "attributes"}: h.getAttributes,
 	}
 }
 
@@ -90,7 +98,7 @@ func (h *objectRoutes) fail(w http.ResponseWriter, r *http.Request, err error) {
 
 // putInput assembles the PutObject input from the request headers; the
 // body streams to the object layer.
-func putInput(r *http.Request, bucketName, key string) (object.PutObjectInput, error) {
+func putInput(r *http.Request, bucketName, key string, allowInsecureSSEC bool) (object.PutObjectInput, error) {
 	if err := checkUnsupportedHeaders(r.Header); err != nil {
 		return object.PutObjectInput{}, err
 	}
@@ -114,8 +122,16 @@ func putInput(r *http.Request, bucketName, key string) (object.PutObjectInput, e
 	if err != nil {
 		return object.PutObjectInput{}, err
 	}
+	retention, hold, err := lockFromHeaders(r.Header)
+	if err != nil {
+		return object.PutObjectInput{}, err
+	}
 	storageClass := r.Header.Get(httpx.HeaderAmzStorageClass)
 	if err := checkStorageClass(storageClass); err != nil {
+		return object.PutObjectInput{}, err
+	}
+	sse, err := sseFromHeaders(r, allowInsecureSSEC)
+	if err != nil {
 		return object.PutObjectInput{}, err
 	}
 	var body io.Reader = http.NoBody
@@ -129,14 +145,9 @@ func putInput(r *http.Request, bucketName, key string) (object.PutObjectInput, e
 		ContentLanguage: meta.contentLanguage, CacheControl: meta.cacheControl, Expires: meta.expires,
 		UserMetadata: meta.user, Tags: tags, StorageClass: storageClass,
 		Conditions: parseConditions(r.Header, "If-"),
+		Retention:  retention, LegalHold: hold,
+		SSE: sse,
 	}, nil
-}
-
-// writeChecksum echoes the checksum computed for a write.
-func writeChecksum(w http.ResponseWriter, c domain.Checksum) {
-	if c.Value != "" && c.Algorithm != domain.ChecksumNone {
-		w.Header().Set(httpx.HeaderAmzChecksumPrefix+strings.ToLower(string(c.Algorithm)), c.Value)
-	}
 }
 
 // putObject stores a new version; with x-amz-copy-source it is a CopyObject.
@@ -149,9 +160,12 @@ func (h *objectRoutes) putObject(w http.ResponseWriter, r *http.Request) {
 	if !h.authz.authorize(w, r, bucketName, key) {
 		return
 	}
-	in, err := putInput(r, bucketName, key)
+	in, err := putInput(r, bucketName, key, h.opts.insecureSSEC)
 	if err != nil {
 		h.fail(w, r, err)
+		return
+	}
+	if !h.authz.authorizeLockHeaders(w, r, bucketName, key, in.Retention, in.LegalHold) {
 		return
 	}
 	info, err := h.deps.Objects.PutObject(r.Context(), in)
@@ -164,6 +178,7 @@ func (h *objectRoutes) putObject(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(httpx.HeaderAmzVersionID, info.VersionID)
 	}
 	writeChecksum(w, info.Checksum)
+	writeSSEHeaders(w, info.Encryption)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -180,13 +195,16 @@ func (h *objectRoutes) copyObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	readAction := ActionOf("GetObject", srcVersion != "")
-	if !h.authz.authorizeAction(w, r, readAction, srcBucket, srcKey) ||
+	if !h.authz.authorizeVersion(w, r, readAction, srcBucket, srcKey, srcVersion, nil) ||
 		!h.authz.authorizeAction(w, r, policy.ActionPutObject, dstBucket, dstKey) {
 		return
 	}
-	in, err := copyInput(r)
+	in, err := copyInput(r, h.opts.insecureSSEC)
 	if err != nil {
 		h.fail(w, r, err)
+		return
+	}
+	if !h.authz.authorizeLockHeaders(w, r, dstBucket, dstKey, in.Retention, in.LegalHold) {
 		return
 	}
 	in.SrcBucket, in.SrcKey, in.SrcVersionID = srcBucket, srcKey, srcVersion
@@ -202,12 +220,17 @@ func (h *objectRoutes) copyObject(w http.ResponseWriter, r *http.Request) {
 	if srcVersion != "" {
 		w.Header().Set(httpx.HeaderAmzCopySourceVersionID, srcVersion)
 	}
-	h.deps.Enc.WriteXML(w, http.StatusOK, CopyObjectResult{ETag: quoteETag(info.ETag), LastModified: s3Time(info.ModTime)})
+	writeSSEHeaders(w, info.Encryption)
+	out := CopyObjectResult{ETag: quoteETag(info.ETag), LastModified: s3Time(info.ModTime), ChecksumFields: checksumFields(info.Checksum)}
+	if !info.Checksum.IsZero() {
+		out.ChecksumType = string(info.Checksum.Type)
+	}
+	h.deps.Enc.WriteXML(w, http.StatusOK, out)
 }
 
 // copyInput reads the CopyObject headers (source and destination are
 // filled in by the caller).
-func copyInput(r *http.Request) (object.CopyObjectInput, error) {
+func copyInput(r *http.Request, allowInsecureSSEC bool) (object.CopyObjectInput, error) {
 	if err := checkUnsupportedHeaders(r.Header); err != nil {
 		return object.CopyObjectInput{}, err
 	}
@@ -223,11 +246,32 @@ func copyInput(r *http.Request) (object.CopyObjectInput, error) {
 	if err := checkStorageClass(storageClass); err != nil {
 		return object.CopyObjectInput{}, err
 	}
+	algo, err := checksumAlgorithmHeader(r.Header)
+	if err != nil {
+		return object.CopyObjectInput{}, err
+	}
+	retention, hold, err := lockFromHeaders(r.Header)
+	if err != nil {
+		return object.CopyObjectInput{}, err
+	}
+	sse, err := sseFromHeaders(r, allowInsecureSSEC)
+	if err != nil {
+		return object.CopyObjectInput{}, err
+	}
+	srcKey, err := customerKeyFromHeaders(r, headerCopySSECustomerPrefix, allowInsecureSSEC)
+	if err != nil {
+		return object.CopyObjectInput{}, err
+	}
 	in := object.CopyObjectInput{
-		SrcConditions:   parseConditions(r.Header, httpx.HeaderAmzCopySourceIfPrefix),
-		ReplaceMetadata: metaDirective == directiveReplace,
-		ReplaceTags:     tagDirective == directiveReplace,
-		StorageClass:    storageClass,
+		SSE:               sse,
+		SrcSSECustomerKey: srcKey,
+		SrcConditions:     parseConditions(r.Header, httpx.HeaderAmzCopySourceIfPrefix),
+		ReplaceMetadata:   metaDirective == directiveReplace,
+		ReplaceTags:       tagDirective == directiveReplace,
+		StorageClass:      storageClass,
+		ChecksumAlgorithm: algo,
+		Retention:         retention,
+		LegalHold:         hold,
 	}
 	if in.ReplaceMetadata {
 		meta, err := metadataFromHeaders(r.Header)
@@ -248,9 +292,14 @@ func copyInput(r *http.Request) (object.CopyObjectInput, error) {
 }
 
 // getOptions reads the GetObject/HeadObject parameters.
-func getOptions(r *http.Request) (object.GetObjectOptions, error) {
+func getOptions(r *http.Request, allowInsecureSSEC bool) (object.GetObjectOptions, error) {
 	q := r.URL.Query()
 	opts := object.GetObjectOptions{VersionID: q.Get("versionId"), Range: parseRange(r.Header), Conditions: parseConditions(r.Header, "If-")}
+	ckey, err := customerKeyFromHeaders(r, headerSSECustomerPrefix, allowInsecureSSEC)
+	if err != nil {
+		return object.GetObjectOptions{}, err
+	}
+	opts.SSECustomerKey = ckey
 	if q.Has("partNumber") {
 		n, err := strconv.Atoi(q.Get("partNumber"))
 		if err != nil || n < minPartNumber || n > maxPartNumber {
@@ -266,7 +315,7 @@ func (h *objectRoutes) getObject(w http.ResponseWriter, r *http.Request) {
 	if !h.authz.authorize(w, r, bucketName, key) {
 		return
 	}
-	opts, err := getOptions(r)
+	opts, err := getOptions(r, h.opts.insecureSSEC)
 	if err == nil {
 		err = checkResponseOverrides(r)
 	}
@@ -283,7 +332,8 @@ func (h *objectRoutes) getObject(w http.ResponseWriter, r *http.Request) {
 	// A 206 describes the bytes it carries: an empty part is answered 200
 	// without Content-Range ("bytes */N" belongs to the 416).
 	partial := (opts.Range != nil || opts.PartNumber > 0) && rd.Length > 0
-	writeObjectHeaders(w, r, rd.Info, !partial)
+	writeObjectHeaders(w, r, rd.Info, opts.Range == nil)
+	h.authz.writeLockHeaders(w, r, rd.Info)
 	applyResponseOverrides(w, r.URL.Query())
 	w.Header().Set("Content-Length", strconv.FormatInt(rd.Length, 10))
 	if opts.PartNumber > 0 && rd.Info.Parts > 0 {
@@ -306,7 +356,7 @@ func (h *objectRoutes) headObject(w http.ResponseWriter, r *http.Request) {
 	if !h.authz.authorize(w, r, bucketName, key) {
 		return
 	}
-	opts, err := getOptions(r)
+	opts, err := getOptions(r, h.opts.insecureSSEC)
 	if err == nil {
 		err = checkResponseOverrides(r)
 	}
@@ -359,7 +409,8 @@ func (h *objectRoutes) headObject(w http.ResponseWriter, r *http.Request) {
 
 // writeHeadResponse sets the headers of a HEAD answer.
 func (h *objectRoutes) writeHeadResponse(w http.ResponseWriter, r *http.Request, info domain.ObjectInfo, offset, length int64, partial bool) {
-	writeObjectHeaders(w, r, info, !partial)
+	writeObjectHeaders(w, r, info, !partial || r.URL.Query().Has("partNumber"))
+	h.authz.writeLockHeaders(w, r, info)
 	applyResponseOverrides(w, r.URL.Query())
 	w.Header().Set("Content-Length", strconv.FormatInt(length, 10))
 	if partial {
@@ -368,9 +419,25 @@ func (h *objectRoutes) writeHeadResponse(w http.ResponseWriter, r *http.Request,
 }
 
 // writeReadError writes the error of a read: a 304 carries the ETag and
-// Last-Modified of the object, a delete marker the x-amz-delete-marker
-// header.
+// Last-Modified of the object, a delete marker (404 NoSuchKey for the
+// latest version, 405 MethodNotAllowed for an explicit one) its
+// x-amz-delete-marker, x-amz-version-id and Last-Modified headers.
 func (h *objectRoutes) writeReadError(w http.ResponseWriter, r *http.Request, err error, bucketName, key string, opts object.GetObjectOptions) {
+	var marker *domain.DeleteMarkerError
+	if errors.As(err, &marker) {
+		w.Header().Set(httpx.HeaderAmzDeleteMarker, "true")
+		if marker.VersionID != "" {
+			w.Header().Set(httpx.HeaderAmzVersionID, marker.VersionID)
+		}
+		if !marker.ModTime.IsZero() {
+			w.Header().Set("Last-Modified", marker.ModTime.UTC().Format(http.TimeFormat))
+		}
+		if errors.Is(err, domain.ErrMethodNotAllowed) {
+			w.Header().Set("Allow", "DELETE")
+		}
+		h.fail(w, r, err)
+		return
+	}
 	switch {
 	case errors.Is(err, domain.ErrNotModified):
 		info, ierr := h.deps.Objects.GetObjectInfo(r.Context(), bucketName, key, opts)
@@ -382,17 +449,8 @@ func (h *objectRoutes) writeReadError(w http.ResponseWriter, r *http.Request, er
 				w.Header().Set("Last-Modified", info.ModTime.UTC().Format(http.TimeFormat))
 			}
 		}
-	case errors.Is(err, domain.ErrMethodNotAllowed), errors.Is(err, domain.ErrObjectNotFound) && isMarkerError(err):
-		w.Header().Set(httpx.HeaderAmzDeleteMarker, "true")
 	}
 	h.fail(w, r, err)
-}
-
-// isMarkerError recognizes the NoSuchKey raised by a latest delete marker
-// (the object layer reports it with an explicit S3 code).
-func isMarkerError(err error) bool {
-	var s3err *domain.S3Error
-	return errors.As(err, &s3err) && s3err.Code == "NoSuchKey"
 }
 
 func (h *objectRoutes) deleteObject(w http.ResponseWriter, r *http.Request) {
@@ -400,8 +458,9 @@ func (h *objectRoutes) deleteObject(w http.ResponseWriter, r *http.Request) {
 	if !h.authz.authorize(w, r, bucketName, key) {
 		return
 	}
+	versionID := r.URL.Query().Get("versionId")
 	del, err := h.deps.Objects.DeleteObject(r.Context(), bucketName, key, object.DeleteObjectOptions{
-		VersionID: r.URL.Query().Get("versionId"), BypassGovernance: r.Header.Get(httpx.HeaderAmzBypassGovernance) == "true",
+		VersionID: versionID, BypassGovernance: h.authz.bypassGovernance(r, bucketName, key, versionID),
 	})
 	if err != nil {
 		h.fail(w, r, err)
@@ -438,7 +497,13 @@ func (h *objectRoutes) deleteObjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	check := h.authz.prepare(r, bucketName)
-	in := object.DeleteObjectsInput{Bucket: bucketName, Quiet: req.Quiet, BypassGovernance: r.Header.Get(httpx.HeaderAmzBypassGovernance) == "true"}
+	// The governance bypass is decided object by object
+	// (s3:BypassGovernanceRetention on each key): the objects allowed it
+	// and the others are deleted in two batches.
+	batches := [2]object.DeleteObjectsInput{
+		{Bucket: bucketName, Quiet: req.Quiet},
+		{Bucket: bucketName, Quiet: req.Quiet, BypassGovernance: true},
+	}
 	var out DeleteResult
 	for _, o := range req.Objects {
 		if err := check(ActionOf("DeleteObject", o.VersionID != ""), o.Key); err != nil {
@@ -446,9 +511,16 @@ func (h *objectRoutes) deleteObjects(w http.ResponseWriter, r *http.Request) {
 			out.Errors = append(out.Errors, DeleteErrorEntry{Key: o.Key, VersionID: o.VersionID, Code: code.Code, Message: msg})
 			continue
 		}
-		in.Objects = append(in.Objects, object.ObjectToDelete{Key: o.Key, VersionID: o.VersionID})
+		b := 0
+		if o.VersionID != "" && h.authz.bypassGovernance(r, bucketName, o.Key, o.VersionID) {
+			b = 1
+		}
+		batches[b].Objects = append(batches[b].Objects, object.ObjectToDelete{Key: o.Key, VersionID: o.VersionID})
 	}
-	if len(in.Objects) > 0 {
+	for _, in := range batches {
+		if len(in.Objects) == 0 {
+			continue
+		}
 		res, err := h.deps.Objects.DeleteObjects(r.Context(), in)
 		if err != nil {
 			h.fail(w, r, err)
@@ -484,22 +556,31 @@ func (h *objectRoutes) getTagging(w http.ResponseWriter, r *http.Request) {
 	h.deps.Enc.WriteXML(w, http.StatusOK, tagsToXML(tags))
 }
 
+// putTagging replaces the tags of a version. The tags of the body are the
+// s3:RequestObjectTag/<key> and s3:RequestObjectTagKeys condition values
+// of the request, as S3 evaluates PutObjectTagging: the body is read
+// before the authorization.
 func (h *objectRoutes) putTagging(w http.ResponseWriter, r *http.Request) {
 	bucketName, key := BucketName(r), ObjectKey(r)
-	if !h.authz.authorize(w, r, bucketName, key) {
-		return
-	}
+	versionID := r.URL.Query().Get("versionId")
 	var doc taggingRequest
 	if err := decodeXMLBody(r, h.deps.Enc, maxXMLBody, &doc); err != nil {
-		h.fail(w, r, err)
+		if h.authz.authorizeVersion(w, r, ActionOf("PutObjectTagging", versionID != ""), bucketName, key, versionID, nil) {
+			h.fail(w, r, err)
+		}
 		return
 	}
 	tags, err := tagsFromXML(doc.TagSet)
 	if err != nil {
-		h.fail(w, r, err)
+		if h.authz.authorizeVersion(w, r, ActionOf("PutObjectTagging", versionID != ""), bucketName, key, versionID, nil) {
+			h.fail(w, r, err)
+		}
 		return
 	}
-	info, err := h.deps.Objects.PutObjectTags(r.Context(), bucketName, key, tags, object.TagOptions{VersionID: r.URL.Query().Get("versionId")})
+	if !h.authz.authorizeVersion(w, r, ActionOf("PutObjectTagging", versionID != ""), bucketName, key, versionID, requestTagConditions(tags)) {
+		return
+	}
+	info, err := h.deps.Objects.PutObjectTags(r.Context(), bucketName, key, tags, object.TagOptions{VersionID: versionID})
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -552,4 +633,20 @@ func (h *objectRoutes) putACL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// requestTagConditions returns the s3:RequestObjectTag/<key> and
+// s3:RequestObjectTagKeys condition values of a tag set sent in a request
+// body (PutObjectTagging); the x-amz-tagging header gives them for the
+// uploads (policy.RequestConditions).
+func requestTagConditions(tags map[string]string) map[string][]string {
+	conds := make(map[string][]string, len(tags)+1)
+	keys := make([]string, 0, len(tags))
+	for k, v := range tags {
+		conds[policy.KeyRequestObjectTagPrefix+k] = []string{v}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	conds[policy.KeyRequestObjectTagKeys] = keys
+	return conds
 }

@@ -1,0 +1,21 @@
+List and test the notification targets
+
+Usage:
+  nexoctl admin notify targets [flags]
+  nexoctl admin notify targets [command]
+
+Available Commands:
+  list        List the notification targets with their state
+  test        Send a test event (s3:TestEvent) to a notification target
+
+Flags:
+  -h, --help   help for targets
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl admin notify targets [command] --help" for more information about a command.

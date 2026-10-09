@@ -26,9 +26,9 @@ exec nexoctl encrypt set sse-s3 local/settings
 stdout 'SSE-S3 \(AES256\)'
 exec nexoctl encrypt info --json local/settings
 stdout '"algorithm":"AES256"'
-exec nexoctl encrypt set sse-kms local/settings --kms-key-id nexo-key
+exec nexoctl encrypt set sse-kms local/settings --kms-key-id nexo-test-key
 exec nexoctl encrypt info local/settings
-stdout 'SSE-KMS with key nexo-key'
+stdout 'SSE-KMS with key nexo-test-key'
 exec nexoctl encrypt clear local/settings
 exec nexoctl encrypt info local/settings
 stdout 'no default encryption'

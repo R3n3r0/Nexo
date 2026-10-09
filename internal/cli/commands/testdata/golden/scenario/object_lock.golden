@@ -1,0 +1,137 @@
+$ nexoctl mb --with-lock mem/vault
+Bucket created successfully `mem/vault` (with Object Lock).
+
+$ nexoctl mb mem/plain
+Bucket created successfully `mem/plain`.
+
+$ nexoctl stat mem/vault
+Name        : vault
+Date        : 2026-01-02 03:04:05 UTC
+Type        : bucket
+Versioning  : Enabled
+Object Lock : Enabled
+Anonymous   : private
+
+$ nexoctl retention info mem/vault
+`mem/vault` has Object Lock, without default retention.
+
+$ nexoctl retention info mem/plain
+`mem/plain` has no Object Lock (create the bucket with "nexoctl mb --with-lock").
+
+$ nexoctl retention set --default --mode governance --validity 7d mem/vault
+Default retention of `mem/vault`: GOVERNANCE for 7d.
+
+$ nexoctl retention info --default mem/vault
+`mem/vault` has Object Lock, default retention GOVERNANCE for 7d.
+
+$ nexoctl retention set --default --mode governance --validity 7d mem/plain
+! nexoctl: error: mem/plain: conflict: Object Lock can only be enabled at the creation of a bucket (InvalidBucketState) (Object Lock is enabled when the bucket is created: nexoctl mb --with-lock)
+[exit 1]
+
+$ nexoctl cp doc.txt draft.txt mem/vault/
+`doc.txt` -> `mem/vault/doc.txt` (15B)
+`draft.txt` -> `mem/vault/draft.txt` (6B)
+Copied 2 objects (21B).
+
+$ nexoctl retention info mem/vault/doc.txt
+`mem/vault/doc.txt`: GOVERNANCE until 2026-01-09 03:04:05 UTC (in force).
+
+$ nexoctl stat mem/vault/doc.txt
+Name        : doc.txt
+Date        : 2026-01-02 03:04:05 UTC
+Size        : 15B (15 bytes)
+Type        : file
+ETag        : a71cbb8265bb341e45e2f37e33b1bb47
+Content-Type: text/plain; charset=utf-8
+Class       : STANDARD
+VersionID   : v0001
+Retention   : GOVERNANCE until 2026-01-09 03:04:05 UTC
+
+$ nexoctl retention set --mode compliance --validity 1y mem/vault/doc.txt
+Retention of `mem/vault/doc.txt`: COMPLIANCE until 2027-01-02 03:04:05 UTC.
+
+$ nexoctl retention clear --bypass mem/vault/doc.txt
+! nexoctl: error: mem/vault/doc.txt: access denied: a COMPLIANCE retention can only be extended
+[exit 4]
+
+$ nexoctl legalhold set mem/vault/draft.txt
+Legal hold of `mem/vault/draft.txt`: ON.
+
+$ nexoctl legalhold info -r mem/vault/
+`mem/vault/doc.txt`: legal hold OFF.
+`mem/vault/draft.txt`: legal hold ON.
+
+$ nexoctl retention info -r --json mem/vault
+{"status":"success","target":"mem/vault/doc.txt","key":"doc.txt","mode":"COMPLIANCE","retainUntil":"2027-01-02T03:04:05Z"}
+{"status":"success","target":"mem/vault/draft.txt","key":"draft.txt","mode":"GOVERNANCE","retainUntil":"2026-01-09T03:04:05Z"}
+
+$ nexoctl rm --versions mem/vault/draft.txt
+! warning: failed to remove `mem/vault/draft.txt`: access denied: the version is under legal hold
+! nexoctl: error: 1 of 1 removals failed: mem/vault/draft.txt: access denied: the version is under legal hold
+[exit 4]
+
+$ nexoctl rb --force mem/vault
+! warning: `mem/vault/doc.txt` (version v0001) is protected: COMPLIANCE retention until 2027-01-02 03:04:05 UTC
+! warning: `mem/vault/draft.txt` (version v0002) is protected: GOVERNANCE retention until 2026-01-09 03:04:05 UTC, legal hold
+! nexoctl: error: mem/vault: 2 versions protected by Object Lock, nothing removed (release the legal holds, wait for the retentions or remove the GOVERNANCE ones with "rm --versions --bypass"): object locked
+[exit 4]
+
+$ nexoctl legalhold clear mem/vault/draft.txt
+Legal hold of `mem/vault/draft.txt`: OFF.
+
+$ nexoctl rm --versions mem/vault/draft.txt
+! warning: failed to remove `mem/vault/draft.txt`: access denied: the version is protected by a GOVERNANCE retention
+! nexoctl: error: 1 of 1 removals failed: mem/vault/draft.txt: access denied: the version is protected by a GOVERNANCE retention
+[exit 4]
+
+$ nexoctl rm --versions --bypass mem/vault/draft.txt
+Removed `mem/vault/draft.txt` (version v0002).
+
+$ nexoctl ls --versions --recursive mem/vault
+[2026-01-02 03:04:05 UTC]     15B v0001 PUT doc.txt (latest)
+
+$ nexoctl retention clear --default mem/vault
+Removed the default retention of `mem/vault`.
+
+$ nexoctl retention info mem/vault
+`mem/vault` has Object Lock, without default retention.
+
+$ nexoctl retention set --mode governance mem/vault/doc.txt
+! nexoctl: error: --mode and --validity are required
+! Run 'nexoctl retention set --help' for usage.
+[exit 2]
+
+$ nexoctl retention set --mode forever --validity 1d mem/vault/doc.txt
+! nexoctl: error: invalid --mode "forever" (governance, compliance)
+! Run 'nexoctl retention set --help' for usage.
+[exit 2]
+
+$ nexoctl retention set --mode governance --validity 3w mem/vault/doc.txt
+! nexoctl: error: invalid validity "3w": the unit is d (days) or y (years)
+! Run 'nexoctl retention set --help' for usage.
+[exit 2]
+
+$ nexoctl retention set --mode governance --validity 1d mem/vault
+! nexoctl: error: mem/vault is a bucket: use --default for its default retention or --recursive for its objects
+! Run 'nexoctl retention set --help' for usage.
+[exit 2]
+
+$ nexoctl retention set --default --bypass --mode governance --validity 1d mem/vault
+! nexoctl: error: --default sets the default retention of a bucket: it excludes --bypass, --version-id, --recursive and --versions
+! Run 'nexoctl retention set --help' for usage.
+[exit 2]
+
+$ nexoctl legalhold set mem/vault
+! nexoctl: error: mem/vault is a bucket: use --recursive for its objects
+! Run 'nexoctl legalhold set --help' for usage.
+[exit 2]
+
+$ nexoctl legalhold set --version-id v1 -r mem/vault/
+! nexoctl: error: mem/vault: --version-id selects one version: it excludes --recursive and --versions
+! Run 'nexoctl legalhold set --help' for usage.
+[exit 2]
+
+$ nexoctl legalhold info mem/plain/missing
+! nexoctl: error: mem/plain/missing: invalid argument: bucket plain is missing Object Lock configuration (InvalidRequest)
+[exit 1]
+

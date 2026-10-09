@@ -1,0 +1,20 @@
+Apply the lifecycle rules of a bucket at once instead of waiting for the
+background scanner: expired versions and delete markers are removed and stale
+uploads aborted. Versions protected by Object Lock are kept. Needs
+s3:PutLifecycleConfiguration and admin:ApplyLifecycle.
+
+Usage:
+  nexoctl ilm apply ALIAS/BUCKET [flags]
+
+Examples:
+  nexoctl ilm apply local/app
+
+Flags:
+  -h, --help   help for apply
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

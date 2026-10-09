@@ -77,7 +77,7 @@ func TestMirrorerPreserve(t *testing.T) {
 	f.mem.PutObject("old", "docs/a.txt", "v1", clitest.ObjectSpec{ContentType: "text/plain", Metadata: map[string]string{"rev": "1"}})
 	f.mem.PutObject("old", "docs/a.txt", "v2", clitest.ObjectSpec{ContentType: "text/markdown", Tags: map[string]string{"stage": "final"}})
 	f.mem.PutObject("old", "docs/gone.txt", "bye", clitest.ObjectSpec{})
-	_, err = client.Remove(ctx, "old", []cli.ObjectVersion{{Key: "docs/gone.txt"}})
+	_, err = client.Remove(ctx, "old", []cli.ObjectVersion{{Key: "docs/gone.txt"}}, cli.DeleteOptions{})
 	require.NoError(t, err)
 
 	m, err := cli.NewMirrorer(cli.MirrorDeps{Resolve: f.resolve})

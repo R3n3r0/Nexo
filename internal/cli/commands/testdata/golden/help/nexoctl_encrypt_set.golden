@@ -1,11 +1,13 @@
-Set the default encryption of a bucket
+Set the default encryption of a bucket: sse-s3, or sse-kms with an optional KMS
+key (the default key of the KMS without; "nexoctl admin kms key ls" lists them).
 
 Usage:
-  nexoctl encrypt set sse-s3|sse-kms ALIAS/BUCKET [flags]
+  nexoctl encrypt set sse-s3|sse-kms [KEY] ALIAS/BUCKET [flags]
 
 Examples:
   nexoctl encrypt set sse-s3 local/docs
-  nexoctl encrypt set sse-kms local/docs --kms-key-id nexo-key
+  nexoctl encrypt set sse-kms app-key local/docs
+  nexoctl encrypt set sse-kms local/docs --kms-key-id app-key
 
 Flags:
   -h, --help                help for set

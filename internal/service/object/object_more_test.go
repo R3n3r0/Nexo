@@ -122,8 +122,14 @@ func TestListObjects(t *testing.T) {
 		assert.ErrorIs(t, err, domain.ErrInvalidArgument)
 		_, err = svc.ListObjects(ctx, domain.ListObjectsInput{Bucket: "nobucket"})
 		assert.ErrorIs(t, err, domain.ErrBucketNotFound)
-		_, err = svc.ListObjects(ctx, domain.ListObjectsInput{Bucket: "bkt", Prefix: "../x"})
-		assert.ErrorIs(t, err, domain.ErrInvalidObjectName)
+		// A prefix no valid key can start with lists nothing (S3 accepts
+		// any prefix) and is never walked.
+		for _, prefix := range []string{"../x", "a/../", "/", "//", "a//b", "./"} {
+			res, err = svc.ListObjects(ctx, domain.ListObjectsInput{Bucket: "bkt", Prefix: prefix, Delimiter: "/"})
+			require.NoError(t, err, prefix)
+			assert.Empty(t, res.Objects, prefix)
+			assert.Empty(t, res.CommonPrefixes, prefix)
+		}
 		res, err = svc.ListObjects(ctx, domain.ListObjectsInput{Bucket: "bkt", Prefix: "nothing/here"})
 		require.NoError(t, err)
 		assert.Empty(t, res.Objects)

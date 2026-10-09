@@ -69,7 +69,8 @@ type CycleStats struct {
 	HealFailed   uint64 `json:"healFailed"`
 	// LifecycleActions counts the versions the lifecycle hook acted on.
 	LifecycleActions uint64 `json:"lifecycleActions"`
-	// UploadsCleaned counts the stale multipart uploads aborted.
+	// UploadsCleaned counts the multipart uploads aborted: the stale
+	// ones and those the lifecycle rules expire.
 	UploadsCleaned int `json:"uploadsCleaned"`
 	// Slept is the time spent throttling, Paused the time waiting for the
 	// API load to drop.
@@ -133,8 +134,14 @@ const (
 )
 
 // Lifecycle applies the lifecycle rules of the buckets (ILM, M7) to the
-// versions the scanner meets, latest first for every key. The default
-// does nothing.
+// versions the scanner meets, latest first for every key, and to the
+// incomplete multipart uploads of every bucket. The default does nothing;
+// the ilm service implements it.
 type Lifecycle interface {
 	Apply(ctx context.Context, obj domain.ObjectInfo) (LifecycleAction, error)
+	// AbortUploads aborts the incomplete multipart uploads of bucket that
+	// its rules expire (AbortIncompleteMultipartUpload) and returns how
+	// many; the scanner calls it once per bucket and cycle, after the
+	// versions.
+	AbortUploads(ctx context.Context, bucket string) (int, error)
 }

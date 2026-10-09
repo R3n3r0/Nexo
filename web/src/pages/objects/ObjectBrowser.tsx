@@ -2,6 +2,7 @@ import {
   ActionIcon,
   Alert,
   Anchor,
+  Badge,
   Box,
   Breadcrumbs,
   Button,
@@ -17,6 +18,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import {
   IconAlertCircle,
+  IconCheck,
   IconChevronDown,
   IconDots,
   IconDownload,
@@ -24,6 +26,7 @@ import {
   IconFileZip,
   IconFolderPlus,
   IconInfoCircle,
+  IconLock,
   IconRefresh,
   IconSearch,
   IconShare,
@@ -43,7 +46,8 @@ import { downloadUrl } from '@/lib/download';
 import { browsePath, prefixFromPathname, prefixSegments } from '@/lib/objectPath';
 import { problemMessage } from '@/lib/problem';
 import { storageKeys } from '@/lib/storageKeys';
-import { isApiError, useServices } from '@/services';
+import { useKms } from '@/lib/kms';
+import { isApiError, useServices, type UploadEncryption } from '@/services';
 import { filesFromDataTransfer, filesFromInput, keyFor, type PickedFile } from '@/upload/files';
 import { useUploadManager } from '@/upload/UploadProvider';
 
@@ -54,6 +58,16 @@ import { ObjectTable } from './ObjectTable';
 import { RenameDialog } from './RenameDialog';
 import { buildRows, type BrowserRow } from './rows';
 import { useObjectListing } from './useObjectListing';
+
+/** The encryption choices of the uploads: the bucket default, SSE-S3, SSE-KMS per key. */
+function encryptionChoices(keys: readonly string[]) {
+  return [
+    { id: 'default', value: undefined },
+    { id: 'sse-s3', value: { algorithm: 'AES256' } },
+    { id: 'sse-kms', value: { algorithm: 'aws:kms' } },
+    ...keys.map((key) => ({ id: `kms-${key}`, value: { algorithm: 'aws:kms', kmsKeyId: key } })),
+  ] as { id: string; value: UploadEncryption | undefined }[];
+}
 
 interface ShareTarget {
   key: string;
@@ -103,6 +117,11 @@ export function ObjectBrowser() {
   const selectedRows = useMemo(() => rows.filter((r) => selection.has(r.id)), [rows, selection]);
 
   const canUpload = perms.can(StorageActions.putObject);
+  // SSE-S3/SSE-KMS of the next uploads, offered unless the KMS is known
+  // to be missing (the server authorizes s3:x-amz-server-side-encryption).
+  const kms = useKms(canUpload && perms.can(StorageActions.kmsStatus));
+  const [encryption, setEncryption] = useState<UploadEncryption | undefined>(undefined);
+  const canEncrypt = canUpload && kms.configured !== false;
   const canDownload = perms.can(StorageActions.getObject);
   const canDelete = perms.can(StorageActions.deleteObject);
   const versioned =
@@ -139,13 +158,18 @@ export function ObjectBrowser() {
   const enqueue = useCallback(
     (files: readonly PickedFile[]) => {
       if (files.length === 0) return;
+      const sse = canEncrypt ? encryption : undefined;
       manager.enqueue(
         bucket,
-        files.map((f) => ({ key: keyFor(prefix, f.path), file: f.file })),
+        files.map((f) => ({
+          key: keyFor(prefix, f.path),
+          file: f.file,
+          ...(sse !== undefined ? { encryption: sse } : {}),
+        })),
       );
       notifications.show({ message: t('uploadQueue.queued', { n: files.length }) });
     },
-    [manager, bucket, prefix, t],
+    [manager, bucket, prefix, t, canEncrypt, encryption],
   );
 
   const downloadRows = (targets: readonly BrowserRow[]) => {
@@ -309,8 +333,56 @@ export function ObjectBrowser() {
                 >
                   {t('objects.uploadFolder')}
                 </Menu.Item>
+                {canEncrypt ? (
+                  <>
+                    <Menu.Divider />
+                    <Menu.Label>{t('objects.encryption.label')}</Menu.Label>
+                    {encryptionChoices(kms.keys).map((choice) => {
+                      const checked =
+                        choice.value?.algorithm === encryption?.algorithm &&
+                        (choice.value?.kmsKeyId ?? '') === (encryption?.kmsKeyId ?? '');
+                      return (
+                        <Menu.Item
+                          key={choice.id}
+                          aria-current={checked ? 'true' : undefined}
+                          closeMenuOnClick={false}
+                          leftSection={
+                            checked ? <IconCheck size={14} /> : <Box w={14} aria-hidden />
+                          }
+                          onClick={() => {
+                            setEncryption(choice.value);
+                          }}
+                        >
+                          {choice.value === undefined
+                            ? t('objects.encryption.bucketDefault')
+                            : choice.value.algorithm === 'AES256'
+                              ? t('objects.encryption.sseS3')
+                              : choice.value.kmsKeyId === undefined
+                                ? t('objects.encryption.sseKmsDefault')
+                                : t('objects.encryption.sseKmsKey', {
+                                    key: choice.value.kmsKeyId,
+                                  })}
+                        </Menu.Item>
+                      );
+                    })}
+                  </>
+                ) : null}
               </Menu.Dropdown>
             </Menu>
+          ) : null}
+          {canEncrypt && encryption !== undefined ? (
+            <Badge
+              variant="light"
+              color="teal"
+              leftSection={<IconLock size={12} />}
+              aria-label={t('objects.encryption.active', {
+                mode: encryption.algorithm === 'AES256' ? 'SSE-S3' : 'SSE-KMS',
+              })}
+            >
+              {encryption.algorithm === 'AES256'
+                ? 'SSE-S3'
+                : `SSE-KMS${encryption.kmsKeyId !== undefined ? ` · ${encryption.kmsKeyId}` : ''}`}
+            </Badge>
           ) : null}
           {canUpload ? (
             <Button
@@ -530,6 +602,8 @@ export function ObjectBrowser() {
         bucket={bucket}
         rows={deleting}
         versioned={versioned}
+        locked={details.data?.objectLockEnabled === true}
+        canBypass={perms.can(StorageActions.bypassGovernance)}
         onClose={() => {
           setDeleting([]);
         }}

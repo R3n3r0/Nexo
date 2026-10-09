@@ -54,6 +54,9 @@ func (noLifecycle) Apply(context.Context, domain.ObjectInfo) (LifecycleAction, e
 	return LifecycleNone, nil
 }
 
+// AbortUploads implements Lifecycle.
+func (noLifecycle) AbortUploads(context.Context, string) (int, error) { return 0, nil }
+
 // New returns the scanner. Objects is required (a wiring error
 // otherwise, domain.ErrInvalidArgument).
 func New(deps Deps, opts ...Option) (Service, error) {
@@ -420,7 +423,7 @@ func (c *cycle) run(ctx context.Context) error {
 			}
 			c.s.deps.Logger.Warn("scanner: stale uploads cleanup", "err", err)
 		}
-		c.stats.UploadsCleaned = n
+		c.stats.UploadsCleaned += n
 	}
 	return nil
 }
@@ -452,6 +455,11 @@ func (c *cycle) scanBucket(ctx context.Context, bucket string) error {
 		in.Marker, in.VersionIDMarker = page.NextMarker, page.NextVersionIDMarker
 	}
 	c.usage.Buckets[bucket] = usage
+	n, err := c.s.deps.Lifecycle.AbortUploads(ctx, bucket)
+	if err != nil && ctx.Err() == nil {
+		c.s.deps.Logger.Warn("scanner: lifecycle of the multipart uploads", "bucket", bucket, "err", err)
+	}
+	c.stats.UploadsCleaned += n
 	return nil
 }
 

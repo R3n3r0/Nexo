@@ -437,11 +437,48 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Lifecycle configuration (not implemented yet) */
+        /**
+         * Lifecycle rules of the bucket
+         * @description The rules of the S3 LifecycleConfiguration of the bucket in structured form (what
+         *     the S3 API stores and reads). A bucket without configuration answers no rule.
+         */
         get: operations["getBucketLifecycle"];
-        /** Lifecycle configuration (not implemented yet) */
+        /**
+         * Replace the lifecycle rules of the bucket
+         * @description Every rule is validated on its own with the rules of the S3 API: a rejected
+         *     configuration answers 400 `invalid_configuration` with every invalid rule in
+         *     `ruleErrors` (index, id, S3 code, message) and nothing is stored. Rules without
+         *     id get one. No rule removes the configuration. Transitions need a remote tier
+         *     (P2): without one they are refused (code NotImplemented).
+         */
         put: operations["setBucketLifecycle"];
         post?: never;
+        /** Remove the lifecycle configuration */
+        delete: operations["deleteBucketLifecycle"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/lifecycle/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apply the lifecycle rules now
+         * @description Applies the rules to every version and incomplete upload of the bucket at once,
+         *     as the scanner does over its cycle: the expired versions are removed (those
+         *     Object Lock protects only get a delete marker, counted in `locked`). A bucket
+         *     without configuration is left as is.
+         */
+        post: operations["applyBucketLifecycle"];
         delete?: never;
         options?: never;
         head?: never;
@@ -457,12 +494,52 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Notification configuration (not implemented yet) */
+        /**
+         * Event subscriptions of the bucket
+         * @description The S3 NotificationConfiguration of the bucket in structured form; a bucket
+         *     without configuration answers no subscription.
+         */
         get: operations["getBucketEvents"];
-        /** Notification configuration (not implemented yet) */
+        /**
+         * Replace the event subscriptions of the bucket
+         * @description Every subscription is validated on its own (known events, prefix/suffix filters, an
+         *     ARN naming a configured target, see `GET /notify/targets`): a rejected
+         *     configuration answers 400 `invalid_configuration` with every invalid subscription in
+         *     `ruleErrors`. Subscriptions without id get one. No subscription removes them all.
+         */
         put: operations["setBucketEvents"];
         post?: never;
-        delete?: never;
+        /** Remove every event subscription of the bucket */
+        delete: operations["deleteBucketEvents"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/cors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * CORS rules of the bucket
+         * @description The rules of the S3 CORSConfiguration, evaluated in order; a bucket without configuration answers no rule.
+         */
+        get: operations["getBucketCors"];
+        /**
+         * Replace the CORS rules of the bucket
+         * @description 1 to 100 rules, each validated on its own: a rejected configuration answers 400
+         *     `invalid_configuration` with every invalid rule in `ruleErrors`. No rule removes
+         *     the configuration.
+         */
+        put: operations["setBucketCors"];
+        post?: never;
+        /** Remove the CORS configuration */
+        delete: operations["deleteBucketCors"];
         options?: never;
         head?: never;
         patch?: never;
@@ -511,7 +588,10 @@ export interface paths {
          * Delete objects, versions and prefixes (recursive)
          * @description Synchronous; every object is authorized and reported (s3:DeleteObject, s3:DeleteObjectVersion with a version).
          *     Every prefix needs s3:ListBucket (s3:ListBucketVersions with `allVersions`) with the `s3:prefix` condition:
-         *     otherwise the whole request is denied before deleting anything.
+         *     otherwise the whole request is denied before deleting anything. Object Lock is honored: a version under
+         *     retention or legal hold fails with `object_locked`; with `bypassGovernance` the versions under a GOVERNANCE
+         *     retention are deleted where the caller has s3:BypassGovernanceRetention (on the version, with the condition
+         *     values of the S3 x-amz-bypass-governance-retention header).
          */
         delete: operations["deleteObjects"];
         options?: never;
@@ -773,9 +853,109 @@ export interface paths {
          * @description The body is the content; its Content-Type is stored. Larger files use the
          *     multipart endpoints (limit: 64 MiB by default, 413 entity_too_large beyond).
          *     The policies see the condition values of the equivalent S3 PutObject
-         *     (s3:x-amz-tagging, s3:RequestObjectTag/<key>).
+         *     (s3:x-amz-tagging, s3:RequestObjectTag/<key>, s3:x-amz-server-side-encryption*).
          */
         post: operations["uploadObject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/retention": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Object Lock retention of a version
+         * @description A version without retention answers no mode. A bucket without Object Lock answers 400.
+         */
+        get: operations["getObjectRetention"];
+        /**
+         * Set or remove the retention of a version
+         * @description A mode with a future retain-until date, or neither to remove the retention. A
+         *     retention can always be extended; a GOVERNANCE one is shortened or removed only with
+         *     `bypassGovernance` (s3:BypassGovernanceRetention, asked explicitly: 403 when denied),
+         *     a COMPLIANCE one never, not even by root (403 `object_locked`). Authorized as the S3
+         *     PutObjectRetention (s3:versionid, x-amz-bypass-governance-retention).
+         */
+        put: operations["setObjectRetention"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/legal-hold": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Legal hold of a version
+         * @description A version whose legal hold was never set answers OFF.
+         */
+        get: operations["getObjectLegalHold"];
+        /** Set the legal hold of a version */
+        put: operations["setObjectLegalHold"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/attributes": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Checksum and parts of a version
+         * @description Describes a version without reading it (S3 GetObjectAttributes): its checksum and,
+         *     for a multipart object, a page of its parts with their sizes and checksums.
+         */
+        get: operations["getObjectAttributes"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -813,7 +993,10 @@ export interface paths {
         /** Pending multipart uploads */
         get: operations["listUploads"];
         put?: never;
-        /** Start a multipart upload proxied by the console */
+        /**
+         * Start a multipart upload proxied by the console
+         * @description The encryption of the object is asked for here, as in the S3 CreateMultipartUpload.
+         */
         post: operations["createUpload"];
         delete?: never;
         options?: never;
@@ -1252,6 +1435,95 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/notify/targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Notification targets with their delivery state
+         * @description The targets of the notify_* subsystems of the configuration (disabled ones included),
+         *     with the state the answering node sees: online (no failed delivery since the last
+         *     success) and the events pending in its persistent queue. The ARN is what the event
+         *     subscriptions name.
+         */
+        get: operations["listNotifyTargets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/notify/targets/{id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description "<id>:<type>" of the target ("_" is the id of the default target of a subsystem) or its ARN. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a test event to a target
+         * @description Delivers an s3:TestEvent at once, outside of the queue of the target, and reports the
+         *     outcome (a failed delivery is a 200 with `delivered: false`), which also updates the
+         *     state of the target. A namespace target (Redis, PostgreSQL) gets no entry.
+         */
+        post: operations["testNotifyTarget"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kms/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Status of the KMS of the server-side encryption
+         * @description The KMS that seals the keys of the SSE-S3 and SSE-KMS objects: the builtin KMS (master key NEXO_KMS_SECRET_KEY) or the external KES servers (NEXO_KMS_ENDPOINT). Without KMS configured is false and SSE-S3/SSE-KMS are refused (SSE-C still works).
+         */
+        get: operations["getKmsStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/kms/keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Keys of the KMS */
+        get: operations["listKmsKeys"];
+        put?: never;
+        /**
+         * Create a KMS key (SSE-KMS)
+         * @description Creates a key usable as SSE-KMS key id (x-amz-server-side-encryption-aws-kms-key-id) and as default key of a bucket encryption; 409 when it exists, 501 without KMS.
+         */
+        post: operations["createKmsKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/config": {
         parameters: {
             query?: never;
@@ -1417,6 +1689,16 @@ export interface components {
             requestId?: string;
             /** @description Located errors of a malformed policy (code malformed_policy). */
             errors?: components["schemas"]["PolicyError"][];
+            /** @description Invalid rules of a bucket configuration (code invalid_configuration). */
+            ruleErrors?: components["schemas"]["RuleError"][];
+        };
+        RuleError: {
+            /** @description 1-based index of the rule (subscription), 0 for the whole configuration. */
+            rule: number;
+            id?: string;
+            /** @description S3 error code (InvalidArgument, InvalidRequest, MalformedXML, NotImplemented...). */
+            code: string;
+            message: string;
         };
         PolicyError: {
             /** @description 1-based statement index, 0 for document-level errors. */
@@ -1642,6 +1924,7 @@ export interface components {
             usage: number;
             pools: components["schemas"]["PoolInfo"][];
             nodes: components["schemas"]["NodeInfo"][];
+            kms?: components["schemas"]["KmsInfo"];
         };
         BucketUsage: {
             /** Format: int64 */
@@ -1921,6 +2204,7 @@ export interface components {
             parts?: number;
             checksumAlgorithm?: string;
             checksum?: string;
+            encryption?: components["schemas"]["ObjectEncryption"];
             /** @description Absent when the caller may not read the tags. */
             tags?: {
                 [key: string]: string;
@@ -1928,6 +2212,13 @@ export interface components {
             /** @description First versions of the key; absent when the caller may not list them. */
             versions?: components["schemas"]["ObjectEntry"][];
             versionsTruncated?: boolean;
+        };
+        /** @description Server-side encryption of a version; absent from an unencrypted one. */
+        ObjectEncryption: {
+            /** @enum {string} */
+            type: "SSE-S3" | "SSE-KMS" | "SSE-C";
+            /** @description The KMS key of SSE-S3 and SSE-KMS. */
+            kmsKeyId?: string;
         };
         VersionList: {
             items: components["schemas"]["ObjectEntry"][];
@@ -1947,6 +2238,11 @@ export interface components {
             prefixes?: string[];
             /** @description Delete every version under the prefixes permanently. */
             allVersions?: boolean;
+            /**
+             * @description Delete the versions a GOVERNANCE retention protects, where the caller has
+             *     s3:BypassGovernanceRetention.
+             */
+            bypassGovernance?: boolean;
         };
         DeletedObject: {
             key: string;
@@ -2438,6 +2734,222 @@ export interface components {
             description: string;
             keys: components["schemas"]["ConfigKey"][];
         };
+        LifecycleConfiguration: {
+            rules: components["schemas"]["LifecycleRule"][];
+        };
+        /**
+         * @description One lifecycle rule (S3 Rule). A number sent as 0 is validated as such (S3 rejects a
+         *     zero `days`), never taken for an absent one.
+         */
+        LifecycleRule: {
+            /** @description Generated from the content of the rule when empty. */
+            id?: string;
+            /** @description Status of the rule; true when absent. */
+            enabled?: boolean;
+            filter?: components["schemas"]["LifecycleFilter"];
+            expiration?: components["schemas"]["LifecycleExpiration"];
+            noncurrentExpiration?: components["schemas"]["LifecycleNoncurrentExpiration"];
+            abortIncompleteUpload?: components["schemas"]["LifecycleAbortUpload"];
+            transitions?: components["schemas"]["LifecycleTransition"][];
+            noncurrentTransitions?: components["schemas"]["LifecycleNoncurrentTransition"][];
+        };
+        /** @description The objects of the rule; every criterion set must match (none - the whole bucket). */
+        LifecycleFilter: {
+            prefix?: string;
+            tags?: {
+                [key: string]: string;
+            };
+            /**
+             * Format: int64
+             * @description Exclusive bound in bytes.
+             */
+            sizeGreaterThan?: number;
+            /**
+             * Format: int64
+             * @description Exclusive bound in bytes.
+             */
+            sizeLessThan?: number;
+        };
+        /** @description Exactly one of days, date and expiredObjectDeleteMarker. */
+        LifecycleExpiration: {
+            /** @description Days after the creation of the current version. */
+            days?: number;
+            /** @description ISO 8601 date at midnight UTC ("2030-01-01" or "2030-01-01T00:00:00Z"); answered as the date only. */
+            date?: string;
+            /** @description Remove the delete markers left without versions. */
+            expiredObjectDeleteMarker?: boolean;
+        };
+        LifecycleNoncurrentExpiration: {
+            /** @description Days after the version became noncurrent. */
+            noncurrentDays?: number;
+            /** @description Noncurrent versions kept (1-100). */
+            newerNoncurrentVersions?: number;
+        };
+        LifecycleAbortUpload: {
+            daysAfterInitiation?: number;
+        };
+        LifecycleTransition: {
+            days?: number;
+            date?: string;
+            /** @description Storage class of a remote tier (P2). */
+            storageClass: string;
+        };
+        LifecycleNoncurrentTransition: {
+            noncurrentDays?: number;
+            newerNoncurrentVersions?: number;
+            storageClass: string;
+        };
+        LifecycleApplyResult: {
+            /** @description 1 when the bucket has a configuration. */
+            buckets: number;
+            /** @description Versions evaluated. */
+            versions: number;
+            /** @description Versions and delete markers removed. */
+            deleted: number;
+            /** @description Delete markers created. */
+            deleteMarkers: number;
+            uploadsAborted: number;
+            /** @description Expirations Object Lock prevented. */
+            locked: number;
+        };
+        BucketNotifications: {
+            subscriptions: components["schemas"]["EventSubscription"][];
+        };
+        EventSubscription: {
+            /** @description Generated from the content of the subscription when empty. */
+            id?: string;
+            /** @description ARN of the target, arn:nexo:sqs:<region>:<id>:<type> (NotifyTarget.arn). */
+            arn: string;
+            /** @description Event names or families: s3:ObjectCreated:*, s3:ObjectRemoved:Delete... */
+            events: string[];
+            prefix?: string;
+            suffix?: string;
+        };
+        NotifyTarget: {
+            /** @description "_" for the default target of a subsystem. */
+            id: string;
+            /** @enum {string} */
+            type: "webhook" | "kafka" | "nats" | "amqp" | "redis" | "postgresql";
+            arn: string;
+            enabled: boolean;
+            /** @description The destination, without credentials. */
+            endpoint?: string;
+            /** @description False from a failed delivery to the next successful one. */
+            online: boolean;
+            /** @description Events waiting in the queue of the target. */
+            pendingEvents: number;
+            lastError?: string;
+        };
+        NotifyTargetList: {
+            items: components["schemas"]["NotifyTarget"][];
+        };
+        NotifyTargetTest: {
+            /** @description "<id>:<type>". */
+            target: string;
+            delivered: boolean;
+            error?: string;
+        };
+        CorsConfiguration: {
+            rules: components["schemas"]["CorsRule"][];
+        };
+        CorsRule: {
+            id?: string;
+            /** @description Origins with at most one "*" each ("*" alone allows any origin). */
+            allowedOrigins: string[];
+            allowedMethods: string[];
+            allowedHeaders?: string[];
+            exposeHeaders?: string[];
+            maxAgeSeconds?: number;
+        };
+        ObjectRetention: {
+            versionId?: string;
+            /** @enum {string} */
+            mode?: "GOVERNANCE" | "COMPLIANCE";
+            /** Format: date-time */
+            retainUntil?: string;
+        };
+        SetObjectRetentionRequest: {
+            /** @description GOVERNANCE or COMPLIANCE (case-insensitive); empty with no date removes the retention. */
+            mode?: string;
+            /** Format: date-time */
+            retainUntil?: string;
+            /** @description Shorten or remove a GOVERNANCE retention (s3:BypassGovernanceRetention). */
+            bypassGovernance?: boolean;
+        };
+        ObjectLegalHold: {
+            versionId?: string;
+            /** @description ON or OFF (case-insensitive in requests). */
+            status: string;
+        };
+        Checksum: {
+            /** @enum {string} */
+            algorithm: "CRC32" | "CRC32C" | "CRC64NVME" | "SHA1" | "SHA256";
+            /** @enum {string} */
+            type?: "FULL_OBJECT" | "COMPOSITE";
+            /** @description Base64-encoded. */
+            value: string;
+        };
+        ObjectPart: {
+            partNumber: number;
+            /** Format: int64 */
+            size: number;
+            checksum?: components["schemas"]["Checksum"];
+        };
+        ObjectAttributes: {
+            key: string;
+            versionId?: string;
+            etag: string;
+            /** Format: int64 */
+            size: number;
+            /** Format: date-time */
+            lastModified: string;
+            storageClass?: string;
+            checksum?: components["schemas"]["Checksum"];
+            /** @description 0 for an object written in one request. */
+            partsCount: number;
+            parts: components["schemas"]["ObjectPart"][];
+            isTruncated: boolean;
+            nextPartNumberMarker?: number;
+        };
+        /** @description State of the KMS of the server-side encryption. Without KMS configured is false: SSE-S3 and SSE-KMS are refused, SSE-C still works. */
+        KmsStatus: {
+            configured: boolean;
+            /**
+             * @description "builtin" (master key from the environment) or "kes" (external KES servers).
+             * @enum {string}
+             */
+            backend?: "builtin" | "kes";
+            /** @description The key of SSE-S3 and of the SSE-KMS requests without key id. */
+            defaultKeyId?: string;
+            /** @description The servers of an external KMS. */
+            endpoints?: {
+                url: string;
+                online: boolean;
+            }[];
+            /** @description The KMS answers. */
+            online: boolean;
+            /** @description Why the KMS does not answer. */
+            error?: string;
+            /** @description Version of the external KMS. */
+            version?: string;
+        };
+        /** @description The KMS in the server information, with the names of its first keys. */
+        KmsInfo: components["schemas"]["KmsStatus"] & {
+            keys?: string[];
+        };
+        KmsKey: {
+            id: string;
+            /** Format: date-time */
+            createdAt?: string;
+            /** @description The key of SSE-S3. */
+            default?: boolean;
+        };
+        KmsKeyList: {
+            items: components["schemas"]["KmsKey"][];
+        };
+        CreateKmsKeyRequest: {
+            id: string;
+        };
     };
     responses: {
         /** @description An error, as an RFC 9457 problem document. */
@@ -2464,6 +2976,18 @@ export interface components {
          *     same name; authorized with s3:RequestObjectTag/<key>.
          */
         tagging: string;
+        /**
+         * @description Server-side encryption of the new object, as the S3 header of the same name:
+         *     AES256 (SSE-S3) or aws:kms (SSE-KMS). Without it the default encryption of the
+         *     bucket applies. Authorized with s3:x-amz-server-side-encryption; without a KMS
+         *     configured the upload is refused (501 not_implemented).
+         */
+        sse: "AES256" | "aws:kms";
+        /**
+         * @description The KMS key of an SSE-KMS upload (the default key of the KMS when absent);
+         *     authorized with s3:x-amz-server-side-encryption-aws-kms-key-id.
+         */
+        sseKmsKeyId: string;
         uploadId: string;
         /** @description Opaque cursor of the next page (nextCursor of the previous one). */
         cursor: string;
@@ -3300,7 +3824,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            501: components["responses"]["Problem"];
+            /** @description The lifecycle rules. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LifecycleConfiguration"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -3313,9 +3845,65 @@ export interface operations {
             };
             cookie?: never;
         };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LifecycleConfiguration"];
+            };
+        };
+        responses: {
+            /** @description The rules as stored. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LifecycleConfiguration"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    deleteBucketLifecycle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
         requestBody?: never;
         responses: {
-            501: components["responses"]["Problem"];
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    applyBucketLifecycle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description What was applied. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LifecycleApplyResult"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -3330,7 +3918,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            501: components["responses"]["Problem"];
+            /** @description The subscriptions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BucketNotifications"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -3343,9 +3939,113 @@ export interface operations {
             };
             cookie?: never;
         };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BucketNotifications"];
+            };
+        };
+        responses: {
+            /** @description The subscriptions as stored. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BucketNotifications"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    deleteBucketEvents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
         requestBody?: never;
         responses: {
-            501: components["responses"]["Problem"];
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getBucketCors: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The CORS rules. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorsConfiguration"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    setBucketCors: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CorsConfiguration"];
+            };
+        };
+        responses: {
+            /** @description The CORS rules as stored. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorsConfiguration"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    deleteBucketCors: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -3763,6 +4463,18 @@ export interface operations {
                  *     same name; authorized with s3:RequestObjectTag/<key>.
                  */
                 "x-amz-tagging"?: components["parameters"]["tagging"];
+                /**
+                 * @description Server-side encryption of the new object, as the S3 header of the same name:
+                 *     AES256 (SSE-S3) or aws:kms (SSE-KMS). Without it the default encryption of the
+                 *     bucket applies. Authorized with s3:x-amz-server-side-encryption; without a KMS
+                 *     configured the upload is refused (501 not_implemented).
+                 */
+                "x-amz-server-side-encryption"?: components["parameters"]["sse"];
+                /**
+                 * @description The KMS key of an SSE-KMS upload (the default key of the KMS when absent);
+                 *     authorized with s3:x-amz-server-side-encryption-aws-kms-key-id.
+                 */
+                "x-amz-server-side-encryption-aws-kms-key-id"?: components["parameters"]["sseKmsKeyId"];
             };
             path: {
                 bucket: components["parameters"]["bucket"];
@@ -3785,6 +4497,173 @@ export interface operations {
                 };
             };
             413: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    getObjectRetention: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The retention. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectRetention"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    setObjectRetention: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetObjectRetentionRequest"];
+            };
+        };
+        responses: {
+            /** @description The retention of the version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectRetention"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getObjectLegalHold: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The legal hold. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectLegalHold"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    setObjectLegalHold: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ObjectLegalHold"];
+            };
+        };
+        responses: {
+            /** @description The legal hold of the version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectLegalHold"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getObjectAttributes: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+                /** @description Parts per page, 1 to 1000 (default 1000). */
+                maxParts?: number;
+                /** @description The parts after this number. */
+                partNumberMarker?: number;
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The attributes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectAttributes"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -3856,6 +4735,18 @@ export interface operations {
                  *     same name; authorized with s3:RequestObjectTag/<key>.
                  */
                 "x-amz-tagging"?: components["parameters"]["tagging"];
+                /**
+                 * @description Server-side encryption of the new object, as the S3 header of the same name:
+                 *     AES256 (SSE-S3) or aws:kms (SSE-KMS). Without it the default encryption of the
+                 *     bucket applies. Authorized with s3:x-amz-server-side-encryption; without a KMS
+                 *     configured the upload is refused (501 not_implemented).
+                 */
+                "x-amz-server-side-encryption"?: components["parameters"]["sse"];
+                /**
+                 * @description The KMS key of an SSE-KMS upload (the default key of the KMS when absent);
+                 *     authorized with s3:x-amz-server-side-encryption-aws-kms-key-id.
+                 */
+                "x-amz-server-side-encryption-aws-kms-key-id"?: components["parameters"]["sseKmsKeyId"];
             };
             path: {
                 bucket: components["parameters"]["bucket"];
@@ -4817,6 +5708,125 @@ export interface operations {
                     "application/json": components["schemas"]["PolicyEntities"];
                 };
             };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listNotifyTargets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The targets, sorted by id and type. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotifyTargetList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    testNotifyTarget: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description "<id>:<type>" of the target ("_" is the id of the default target of a subsystem) or its ARN. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The outcome of the delivery. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotifyTargetTest"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getKmsStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The status of the KMS. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KmsStatus"];
+                };
+            };
+            501: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    listKmsKeys: {
+        parameters: {
+            query?: {
+                /** @description Only the keys whose name starts with the prefix. */
+                prefix?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The keys. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KmsKeyList"];
+                };
+            };
+            501: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    createKmsKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateKmsKeyRequest"];
+            };
+        };
+        responses: {
+            /** @description The key. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KmsKey"];
+                };
+            };
+            409: components["responses"]["Problem"];
+            501: components["responses"]["Problem"];
             default: components["responses"]["Problem"];
         };
     };

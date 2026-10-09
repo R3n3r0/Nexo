@@ -28,6 +28,9 @@ type RemoveOptions struct {
 	DryRun bool
 	// Now is the reference time of OlderThan and NewerThan.
 	Now time.Time
+	// BypassGovernance removes the versions a GOVERNANCE retention
+	// protects (rm --bypass), where the caller is allowed to.
+	BypassGovernance bool
 }
 
 // RemoveSummary counts the outcome of RemoveObjects.
@@ -50,7 +53,7 @@ func RemoveObjects(ctx context.Context, client S3Client, bucket, key string, opt
 	}
 	if opts.VersionID != "" {
 		// One version: the server reports a missing version.
-		return sum, removeBatch(ctx, client, bucket, []ObjectVersion{{Key: key, VersionID: opts.VersionID}}, opts.DryRun, &sum, report)
+		return sum, removeBatch(ctx, client, bucket, []ObjectVersion{{Key: key, VersionID: opts.VersionID}}, opts, &sum, report)
 	}
 	if !opts.Recursive && !opts.Versions && opts.OlderThan == 0 && opts.NewerThan == 0 {
 		// A single object: removing a missing object is not an error in
@@ -58,7 +61,7 @@ func RemoveObjects(ctx context.Context, client S3Client, bucket, key string, opt
 		if _, err := client.Stat(ctx, bucket, key, StatOptions{}); err != nil {
 			return sum, err
 		}
-		return sum, removeBatch(ctx, client, bucket, []ObjectVersion{{Key: key}}, opts.DryRun, &sum, report)
+		return sum, removeBatch(ctx, client, bucket, []ObjectVersion{{Key: key}}, opts, &sum, report)
 	}
 	listPrefix := key
 	match := func(k string) bool { return true }
@@ -87,14 +90,14 @@ func RemoveObjects(ctx context.Context, client S3Client, bucket, key string, opt
 		}
 		batch = append(batch, v)
 		if len(batch) == deleteBatch {
-			if err := removeBatch(ctx, client, bucket, batch, opts.DryRun, &sum, report); err != nil {
+			if err := removeBatch(ctx, client, bucket, batch, opts, &sum, report); err != nil {
 				return sum, err
 			}
 			batch = batch[:0]
 		}
 	}
 	if len(batch) > 0 {
-		if err := removeBatch(ctx, client, bucket, batch, opts.DryRun, &sum, report); err != nil {
+		if err := removeBatch(ctx, client, bucket, batch, opts, &sum, report); err != nil {
 			return sum, err
 		}
 	}
@@ -115,15 +118,15 @@ func (o RemoveOptions) keep(info ObjectInfo) bool {
 	return true
 }
 
-func removeBatch(ctx context.Context, client S3Client, bucket string, batch []ObjectVersion, dryRun bool, sum *RemoveSummary, report func(RemoveResult) error) error {
+func removeBatch(ctx context.Context, client S3Client, bucket string, batch []ObjectVersion, opts RemoveOptions, sum *RemoveSummary, report func(RemoveResult) error) error {
 	var results []RemoveResult
-	if dryRun {
+	if opts.DryRun {
 		for _, v := range batch {
 			results = append(results, RemoveResult{Key: v.Key, VersionID: v.VersionID})
 		}
 	} else {
 		var err error
-		if results, err = client.Remove(ctx, bucket, batch); err != nil {
+		if results, err = client.Remove(ctx, bucket, batch, DeleteOptions{BypassGovernance: opts.BypassGovernance}); err != nil {
 			return err
 		}
 	}
@@ -172,7 +175,8 @@ func RemoveUploads(ctx context.Context, client S3Client, bucket, key string, rec
 }
 
 // EmptyBucket removes every object version, delete marker and incomplete
-// upload of a bucket (rb --force).
+// upload of a bucket (rb --force). Versions protected by Object Lock are
+// reported as failures, never bypassed.
 func EmptyBucket(ctx context.Context, client S3Client, bucket string, report func(RemoveResult) error) (RemoveSummary, error) {
 	sum, err := RemoveObjects(ctx, client, bucket, "", RemoveOptions{Recursive: true, Versions: true}, report)
 	if err != nil {

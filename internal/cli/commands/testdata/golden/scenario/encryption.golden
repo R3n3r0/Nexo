@@ -1,0 +1,118 @@
+$ nexoctl cp --enc-s3 mem/enc/s3/ plain.txt mem/enc/s3/plain.txt
+`plain.txt` -> `mem/enc/s3/plain.txt` (6B)
+Copied 1 object (6B).
+
+$ nexoctl cp --enc-kms mem/enc/kms=app-key plain.txt mem/enc/kms/plain.txt
+`plain.txt` -> `mem/enc/kms/plain.txt` (6B)
+Copied 1 object (6B).
+
+$ nexoctl put --enc-c mem/enc/c=a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s= secret.txt mem/enc/c/secret.txt
+`secret.txt` -> `mem/enc/c/secret.txt` (11B)
+Uploaded 1 object (11B).
+
+$ nexoctl stat mem/enc/s3/plain.txt
+Name        : plain.txt
+Date        : 2026-01-02 03:04:05 UTC
+Size        : 6B (6 bytes)
+Type        : file
+ETag        : 5839145a19c13f3ffb0a3b9527e0a912
+Content-Type: text/plain; charset=utf-8
+Class       : STANDARD
+Encryption  : SSE-S3
+
+$ nexoctl stat mem/enc/kms/plain.txt
+Name        : plain.txt
+Date        : 2026-01-02 03:04:05 UTC
+Size        : 6B (6 bytes)
+Type        : file
+ETag        : 5839145a19c13f3ffb0a3b9527e0a912
+Content-Type: text/plain; charset=utf-8
+Class       : STANDARD
+Encryption  : SSE-KMS (app-key)
+
+$ nexoctl stat mem/enc/c/secret.txt
+! nexoctl: error: mem/enc/c/secret.txt: invalid argument: the object was stored using SSE-C: the key is required (InvalidRequest) (an object encrypted with SSE-C is read with its key: --enc-c ALIAS/BUCKET[/PREFIX]=KEY)
+[exit 1]
+
+$ nexoctl cat mem/enc/c/secret.txt
+! nexoctl: error: mem/enc/c/secret.txt: invalid argument: the object was stored using SSE-C: the key is required (InvalidRequest) (an object encrypted with SSE-C is read with its key: --enc-c ALIAS/BUCKET[/PREFIX]=KEY)
+[exit 1]
+
+$ nexoctl cat --enc-c mem/enc/c=b29vb29vb29vb29vb29vb29vb29vb29vb29vb29vb28= mem/enc/c/secret.txt
+! nexoctl: error: mem/enc/c/secret.txt: access denied: the SSE-C key does not match
+[exit 4]
+
+$ nexoctl cat --enc-c mem/enc/c=a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s= mem/enc/c/secret.txt
+top secret
+
+$ nexoctl stat --json --enc-c mem/enc/c=a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s= mem/enc/c/secret.txt
+{"status":"success","type":"file","target":"mem/enc/c/secret.txt","key":"c/secret.txt","name":"secret.txt","size":11,"lastModified":"2026-01-02T03:04:05Z","etag":"841e085171c01d5591602e6aff1701d8","storageClass":"STANDARD","contentType":"text/plain; charset=utf-8","encryption":{"type":"SSE-C","customerKeyMd5":"mT2HRsMGJ5IX5C+0rreZ8Q=="}}
+
+$ nexoctl cp --enc-c mem/enc/c=a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s= mem/enc/c/secret.txt out/secret.txt
+`mem/enc/c/secret.txt` -> `out/secret.txt` (11B)
+Copied 1 object (11B).
+
+$ nexoctl cp --enc-c mem/enc/c=a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s= --enc-s3 mem/enc/copy mem/enc/c/secret.txt mem/enc/copy/secret.txt
+`mem/enc/c/secret.txt` -> `mem/enc/copy/secret.txt` (11B)
+Copied 1 object (11B).
+
+$ nexoctl cat mem/enc/copy/secret.txt
+top secret
+
+$ nexoctl cp --checksum sha256 plain.txt mem/enc/sum/plain.txt
+`plain.txt` -> `mem/enc/sum/plain.txt` (6B) SHA256 2s82VHx3dKChcIBjY7XUEpkfvA1iYLLACx06gKgWwj8=
+Copied 1 object (6B).
+
+$ nexoctl put --checksum crc32c --json plain.txt mem/enc/sum/crc.txt
+{"status":"success","action":"upload","source":"plain.txt","target":"mem/enc/sum/crc.txt","size":6,"etag":"5839145a19c13f3ffb0a3b9527e0a912","checksum":{"algorithm":"CRC32C","type":"FULL_OBJECT","value":"EF/CHA=="}}
+
+$ nexoctl stat --checksum mem/enc/sum/plain.txt
+Name        : plain.txt
+Date        : 2026-01-02 03:04:05 UTC
+Size        : 6B (6 bytes)
+Type        : file
+ETag        : 5839145a19c13f3ffb0a3b9527e0a912
+Content-Type: text/plain; charset=utf-8
+Class       : STANDARD
+Checksum    : SHA256 2s82VHx3dKChcIBjY7XUEpkfvA1iYLLACx06gKgWwj8= (FULL_OBJECT)
+
+$ nexoctl cp --enc-c mem/enc/c=short plain.txt mem/enc/c/x.txt
+! nexoctl: error: invalid SSE-C key: expected 32 bytes in base64 (or 64 hexadecimal digits)
+! Run 'nexoctl cp --help' for usage.
+[exit 2]
+
+$ nexoctl cp --enc-c mem/enc/c plain.txt mem/enc/c/x.txt
+! nexoctl: error: --enc-c "mem/enc/c" needs a key: ALIAS/BUCKET[/PREFIX]=BASE64KEY
+! Run 'nexoctl cp --help' for usage.
+[exit 2]
+
+$ nexoctl cp --enc-s3 mem/enc/c=key plain.txt mem/enc/c/x.txt
+! nexoctl: error: --enc-s3 "mem/enc/c=key" takes no key: ALIAS/BUCKET[/PREFIX]
+! Run 'nexoctl cp --help' for usage.
+[exit 2]
+
+$ nexoctl cp --enc-s3 mem/enc/c --enc-c mem/enc/c=a2tra2tra2tra2tra2tra2tra2tra2tra2tra2tra2s= plain.txt mem/enc/c/x.txt
+! nexoctl: error: --enc-c "mem/enc/c": the location already has an encryption (--enc-s3)
+! Run 'nexoctl cp --help' for usage.
+[exit 2]
+
+$ nexoctl cp --enc-s3 ghost/enc plain.txt mem/enc/c/x.txt
+! nexoctl: error: --enc-s3 "ghost/enc": expected ALIAS/BUCKET[/PREFIX] of a configured alias
+! Run 'nexoctl cp --help' for usage.
+[exit 2]
+
+$ nexoctl cp --checksum md5 plain.txt mem/enc/c/x.txt
+! nexoctl: error: invalid --checksum "md5" (crc32, crc32c, crc64nvme, sha1, sha256)
+! Run 'nexoctl cp --help' for usage.
+[exit 2]
+
+$ nexoctl put mem/enc/s3/plain.txt mem/enc/other.txt
+! nexoctl: error: mem/enc/s3/plain.txt: put uploads local files (use cp for remote sources)
+! Run 'nexoctl put --help' for usage.
+[exit 2]
+
+$ nexoctl put plain.txt local-copy.txt
+! nexoctl: error: local-copy.txt: put uploads to a remote location (ALIAS/BUCKET[/OBJECT])
+! Run 'nexoctl put --help' for usage.
+[exit 2]
+

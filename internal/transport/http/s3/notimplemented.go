@@ -56,9 +56,8 @@ func registerStandalone(r chi.Router, enc httpx.Encoder, g Group) {
 // unsupportedBucketOperations are the bucket sub-resources Nexo does not
 // serve: they answer NotImplemented instead of falling back to the
 // default operation of their method (a GET ?website must not list the
-// bucket). The configurations Nexo stores but does not enforce yet
-// (lifecycle, CORS, encryption, object lock, notifications) refuse their
-// PUT for the same reason (M7).
+// bucket). The ?lifecycle and ?notification sub-resources belong to
+// LifecycleRoutes and NotificationRoutes.
 func unsupportedBucketOperations() []Operation {
 	var ops []Operation
 	for _, sub := range []struct{ query, name string }{
@@ -80,24 +79,13 @@ func unsupportedBucketOperations() []Operation {
 			Operation{Name: "Delete" + sub.name, Method: http.MethodDelete, Scope: ScopeBucket, Query: sub.query},
 		)
 	}
-	return append(ops,
-		Operation{Name: "PutBucketCors", Method: http.MethodPut, Scope: ScopeBucket, Query: "cors"},
-		Operation{Name: "PutBucketLifecycle", Method: http.MethodPut, Scope: ScopeBucket, Query: "lifecycle"},
-		Operation{Name: "PutBucketEncryption", Method: http.MethodPut, Scope: ScopeBucket, Query: "encryption"},
-		Operation{Name: "PutObjectLockConfiguration", Method: http.MethodPut, Scope: ScopeBucket, Query: "object-lock"},
-		Operation{Name: "PutBucketNotification", Method: http.MethodPut, Scope: ScopeBucket, Query: "notification"},
-	)
+	return ops
 }
 
 // unsupportedObjectOperations are the object sub-resources Nexo does not
-// serve yet (retention and legal hold come with object lock, M7).
+// serve.
 func unsupportedObjectOperations() []Operation {
 	return []Operation{
-		{Name: "GetObjectRetention", Method: http.MethodGet, Scope: ScopeObject, Query: "retention"},
-		{Name: "PutObjectRetention", Method: http.MethodPut, Scope: ScopeObject, Query: "retention"},
-		{Name: "GetObjectLegalHold", Method: http.MethodGet, Scope: ScopeObject, Query: "legal-hold"},
-		{Name: "PutObjectLegalHold", Method: http.MethodPut, Scope: ScopeObject, Query: "legal-hold"},
-		{Name: "GetObjectAttributes", Method: http.MethodGet, Scope: ScopeObject, Query: "attributes"},
 		{Name: "GetObjectTorrent", Method: http.MethodGet, Scope: ScopeObject, Query: "torrent"},
 		{Name: "RestoreObject", Method: http.MethodPost, Scope: ScopeObject, Query: "restore"},
 		{Name: "SelectObjectContent", Method: http.MethodPost, Scope: ScopeObject, Query: "select"},

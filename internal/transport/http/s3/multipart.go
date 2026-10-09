@@ -4,7 +4,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -29,13 +28,14 @@ type MultipartDeps struct {
 
 type multipartRoutes struct {
 	deps  MultipartDeps
+	opts  options
 	authz authorizer
 }
 
 var _ MultipartRoutes = (*multipartRoutes)(nil)
 
-// NewMultipartRoutes returns the multipart route group.
-func NewMultipartRoutes(deps MultipartDeps, _ ...Option) MultipartRoutes {
+// NewMultipartRoutes returns the multipart route group (WithInsecureSSEC).
+func NewMultipartRoutes(deps MultipartDeps, opts ...Option) MultipartRoutes {
 	if deps.Enc == nil {
 		deps.Enc = httpx.New()
 	}
@@ -45,7 +45,7 @@ func NewMultipartRoutes(deps MultipartDeps, _ ...Option) MultipartRoutes {
 	if deps.Logger == nil {
 		deps.Logger = slog.Default()
 	}
-	return &multipartRoutes{deps: deps, authz: authorizer{policy: deps.Policy, enc: deps.Enc, clock: deps.Clock}}
+	return &multipartRoutes{deps: deps, opts: newOptions(opts), authz: authorizer{policy: deps.Policy, enc: deps.Enc, clock: deps.Clock, objects: deps.Objects}}
 }
 
 func (h *multipartRoutes) operations() map[Operation]http.HandlerFunc {
@@ -76,9 +76,12 @@ func (h *multipartRoutes) createUpload(w http.ResponseWriter, r *http.Request) {
 	if !h.authz.authorize(w, r, bucketName, key) {
 		return
 	}
-	in, err := newMultipartInput(r, bucketName, key)
+	in, err := newMultipartInput(r, bucketName, key, h.opts.insecureSSEC)
 	if err != nil {
 		h.fail(w, r, err)
+		return
+	}
+	if !h.authz.authorizeLockHeaders(w, r, bucketName, key, in.Retention, in.LegalHold) {
 		return
 	}
 	up, err := h.deps.Objects.NewMultipartUpload(r.Context(), in)
@@ -89,11 +92,15 @@ func (h *multipartRoutes) createUpload(w http.ResponseWriter, r *http.Request) {
 	if up.Checksum != domain.ChecksumNone {
 		w.Header().Set(httpx.HeaderAmzChecksumAlgorithm, string(up.Checksum))
 	}
+	if up.ChecksumType != domain.ChecksumTypeNone {
+		w.Header().Set(headerAmzChecksumType, string(up.ChecksumType))
+	}
+	writeSSEHeaders(w, up.Encryption)
 	h.deps.Enc.WriteXML(w, http.StatusOK, InitiateMultipartUploadResult{Bucket: bucketName, Key: key, UploadID: up.UploadID})
 }
 
 // newMultipartInput reads the CreateMultipartUpload headers.
-func newMultipartInput(r *http.Request, bucketName, key string) (object.NewMultipartInput, error) {
+func newMultipartInput(r *http.Request, bucketName, key string, allowInsecureSSEC bool) (object.NewMultipartInput, error) {
 	if err := checkUnsupportedHeaders(r.Header); err != nil {
 		return object.NewMultipartInput{}, err
 	}
@@ -109,12 +116,29 @@ func newMultipartInput(r *http.Request, bucketName, key string) (object.NewMulti
 	if err := checkStorageClass(storageClass); err != nil {
 		return object.NewMultipartInput{}, err
 	}
+	algo, err := checksumAlgorithmHeader(r.Header)
+	if err != nil {
+		return object.NewMultipartInput{}, err
+	}
+	typ, err := checksumTypeHeader(r.Header)
+	if err != nil {
+		return object.NewMultipartInput{}, err
+	}
+	retention, hold, err := lockFromHeaders(r.Header)
+	if err != nil {
+		return object.NewMultipartInput{}, err
+	}
+	sse, err := sseFromHeaders(r, allowInsecureSSEC)
+	if err != nil {
+		return object.NewMultipartInput{}, err
+	}
 	return object.NewMultipartInput{
+		SSE:    sse,
 		Bucket: bucketName, Key: key,
 		ContentType: meta.contentType, ContentEncoding: meta.contentEncoding, ContentDisposition: meta.contentDisposition,
 		ContentLanguage: meta.contentLanguage, CacheControl: meta.cacheControl, Expires: meta.expires,
 		UserMetadata: meta.user, Tags: tags, StorageClass: storageClass,
-		Checksum: domain.ChecksumAlgorithm(strings.ToUpper(r.Header.Get(httpx.HeaderAmzChecksumAlgorithm))),
+		Checksum: algo, ChecksumType: typ, Retention: retention, LegalHold: hold,
 	}, nil
 }
 
@@ -157,9 +181,15 @@ func (h *multipartRoutes) uploadPart(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
+	ckey, err := customerKeyFromHeaders(r, headerSSECustomerPrefix, h.opts.insecureSSEC)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
 	part, err := h.deps.Objects.PutObjectPart(r.Context(), object.PutObjectPartInput{
 		Bucket: bucketName, Key: key, UploadID: r.URL.Query().Get("uploadId"), PartNumber: number,
 		Reader: r.Body, Size: size, MD5Hex: md5Hex, SHA256Hex: unsignedPayloadSHA256(r), Checksum: checksum,
+		SSECustomerKey: ckey,
 	})
 	if err != nil {
 		h.fail(w, r, err)
@@ -167,6 +197,7 @@ func (h *multipartRoutes) uploadPart(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("ETag", quoteETag(part.ETag))
 	writeChecksum(w, part.Checksum)
+	writeSSEHeaders(w, part.Encryption)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -182,7 +213,7 @@ func (h *multipartRoutes) copyPart(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	if !h.authz.authorizeAction(w, r, ActionOf("GetObject", srcVersion != ""), srcBucket, srcKey) ||
+	if !h.authz.authorizeVersion(w, r, ActionOf("GetObject", srcVersion != ""), srcBucket, srcKey, srcVersion, nil) ||
 		!h.authz.authorizeAction(w, r, policy.ActionPutObject, bucketName, key) {
 		return
 	}
@@ -196,10 +227,21 @@ func (h *multipartRoutes) copyPart(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
+	srcCKey, err := customerKeyFromHeaders(r, headerCopySSECustomerPrefix, h.opts.insecureSSEC)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	ckey, err := customerKeyFromHeaders(r, headerSSECustomerPrefix, h.opts.insecureSSEC)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
 	part, err := h.deps.Objects.CopyObjectPart(r.Context(), object.CopyObjectPartInput{
 		SrcBucket: srcBucket, SrcKey: srcKey, SrcVersionID: srcVersion, SrcRange: rg,
 		SrcConditions: parseConditions(r.Header, httpx.HeaderAmzCopySourceIfPrefix),
 		DstBucket:     bucketName, DstKey: key, UploadID: r.URL.Query().Get("uploadId"), PartNumber: number,
+		SrcSSECustomerKey: srcCKey, SSECustomerKey: ckey,
 	})
 	if err != nil {
 		h.fail(w, r, err)
@@ -208,23 +250,8 @@ func (h *multipartRoutes) copyPart(w http.ResponseWriter, r *http.Request) {
 	if srcVersion != "" {
 		w.Header().Set(httpx.HeaderAmzCopySourceVersionID, srcVersion)
 	}
-	h.deps.Enc.WriteXML(w, http.StatusOK, CopyPartResult{ETag: quoteETag(part.ETag), LastModified: s3Time(part.ModTime)})
-}
-
-// completedPartChecksum returns the checksum declared for a part.
-func completedPartChecksum(p CompletedPart) domain.Checksum {
-	switch {
-	case p.ChecksumCRC32 != "":
-		return domain.Checksum{Algorithm: domain.ChecksumCRC32, Value: p.ChecksumCRC32}
-	case p.ChecksumCRC32C != "":
-		return domain.Checksum{Algorithm: domain.ChecksumCRC32C, Value: p.ChecksumCRC32C}
-	case p.ChecksumSHA1 != "":
-		return domain.Checksum{Algorithm: domain.ChecksumSHA1, Value: p.ChecksumSHA1}
-	case p.ChecksumSHA256 != "":
-		return domain.Checksum{Algorithm: domain.ChecksumSHA256, Value: p.ChecksumSHA256}
-	default:
-		return domain.Checksum{}
-	}
+	writeSSEHeaders(w, part.Encryption)
+	h.deps.Enc.WriteXML(w, http.StatusOK, CopyPartResult{ETag: quoteETag(part.ETag), LastModified: s3Time(part.ModTime), ChecksumFields: checksumFields(part.Checksum)})
 }
 
 func (h *multipartRoutes) completeUpload(w http.ResponseWriter, r *http.Request) {
@@ -246,12 +273,17 @@ func (h *multipartRoutes) completeUpload(w http.ResponseWriter, r *http.Request)
 		h.fail(w, r, err)
 		return
 	}
+	typ, err := checksumTypeHeader(r.Header)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
 	in := object.CompleteMultipartInput{
 		Bucket: bucketName, Key: key, UploadID: r.URL.Query().Get("uploadId"),
-		Conditions: parseConditions(r.Header, "If-"), Checksum: checksum,
+		Conditions: parseConditions(r.Header, "If-"), Checksum: checksum, ChecksumType: typ,
 	}
 	for _, p := range req.Parts {
-		in.Parts = append(in.Parts, domain.CompletePart{Number: p.PartNumber, ETag: trimETag(p.ETag), Checksum: completedPartChecksum(p)})
+		in.Parts = append(in.Parts, domain.CompletePart{Number: p.PartNumber, ETag: trimETag(p.ETag), Checksum: p.checksum()})
 	}
 	info, err := h.deps.Objects.CompleteMultipartUpload(r.Context(), in)
 	if err != nil {
@@ -261,16 +293,11 @@ func (h *multipartRoutes) completeUpload(w http.ResponseWriter, r *http.Request)
 	if info.VersionID != "" {
 		w.Header().Set(httpx.HeaderAmzVersionID, info.VersionID)
 	}
-	out := CompleteMultipartUploadResult{Location: objectURL(r, bucketName, key), Bucket: bucketName, Key: key, ETag: quoteETag(info.ETag)}
-	switch info.Checksum.Algorithm {
-	case domain.ChecksumCRC32:
-		out.ChecksumCRC32 = info.Checksum.Value
-	case domain.ChecksumCRC32C:
-		out.ChecksumCRC32C = info.Checksum.Value
-	case domain.ChecksumSHA1:
-		out.ChecksumSHA1 = info.Checksum.Value
-	case domain.ChecksumSHA256:
-		out.ChecksumSHA256 = info.Checksum.Value
+	writeSSEHeaders(w, info.Encryption)
+	out := CompleteMultipartUploadResult{Location: objectURL(r, bucketName, key), Bucket: bucketName, Key: key, ETag: quoteETag(info.ETag),
+		ChecksumFields: checksumFields(info.Checksum)}
+	if !info.Checksum.IsZero() {
+		out.ChecksumType = string(info.Checksum.Type)
 	}
 	h.deps.Enc.WriteXML(w, http.StatusOK, out)
 }
@@ -315,21 +342,11 @@ func (h *multipartRoutes) listParts(w http.ResponseWriter, r *http.Request) {
 		Bucket: bucketName, Key: key, UploadID: q.Get("uploadId"), Initiator: owner, Owner: owner,
 		StorageClass: storageClassOrStandard(res.Upload.StorageClass), PartNumberMarker: marker,
 		NextPartNumberMarker: res.NextPartNumberMarker, MaxParts: maxParts, IsTruncated: res.IsTruncated,
-		ChecksumAlgorithm: string(res.Upload.Checksum),
+		ChecksumAlgorithm: string(res.Upload.Checksum), ChecksumType: string(res.Upload.ChecksumType),
 	}
 	for _, p := range res.Parts {
-		entry := PartEntry{PartNumber: p.Number, LastModified: s3Time(p.ModTime), ETag: quoteETag(p.ETag), Size: p.Size}
-		switch p.Checksum.Algorithm {
-		case domain.ChecksumCRC32:
-			entry.ChecksumCRC32 = p.Checksum.Value
-		case domain.ChecksumCRC32C:
-			entry.ChecksumCRC32C = p.Checksum.Value
-		case domain.ChecksumSHA1:
-			entry.ChecksumSHA1 = p.Checksum.Value
-		case domain.ChecksumSHA256:
-			entry.ChecksumSHA256 = p.Checksum.Value
-		}
-		out.Parts = append(out.Parts, entry)
+		out.Parts = append(out.Parts, PartEntry{PartNumber: p.Number, LastModified: s3Time(p.ModTime), ETag: quoteETag(p.ETag), Size: p.Size,
+			ChecksumFields: checksumFields(p.Checksum)})
 	}
 	h.deps.Enc.WriteXML(w, http.StatusOK, out)
 }

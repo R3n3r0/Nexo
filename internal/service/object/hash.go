@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"hash"
 	"hash/crc32"
+	"hash/crc64"
 	"io"
 	"strconv"
 	"strings"
@@ -49,6 +50,8 @@ func newChecksumHash(algo domain.ChecksumAlgorithm) (hash.Hash, error) {
 		return crc32.New(crc32.IEEETable), nil
 	case domain.ChecksumCRC32C:
 		return crc32.New(crc32.MakeTable(crc32.Castagnoli)), nil
+	case domain.ChecksumCRC64NVME:
+		return crc64.New(crc64.MakeTable(crc64NVMEPoly)), nil
 	case domain.ChecksumSHA1:
 		return sha1.New(), nil
 	case domain.ChecksumSHA256:
@@ -58,44 +61,134 @@ func newChecksumHash(algo domain.ChecksumAlgorithm) (hash.Hash, error) {
 	}
 }
 
+// checksumTypeOf returns the checksum type of a stored checksum: the
+// recorded one, or (versions written before the type was recorded) the
+// type its form tells: "<value>-N" is the composite checksum of N parts.
+func checksumTypeOf(value, stored string) domain.ChecksumType {
+	switch t := domain.ChecksumType(stored); t {
+	case domain.ChecksumTypeFullObject, domain.ChecksumTypeComposite:
+		return t
+	}
+	if i := strings.LastIndexByte(value, '-'); i >= 0 {
+		if _, err := strconv.Atoi(value[i+1:]); err == nil {
+			return domain.ChecksumTypeComposite
+		}
+	}
+	return domain.ChecksumTypeFullObject
+}
+
+// uploadChecksumType resolves the checksum type of a new multipart upload
+// (CreateMultipartUpload): COMPOSITE by default, FULL_OBJECT for
+// CRC64NVME, which supports nothing else; FULL_OBJECT needs a CRC
+// algorithm and a type needs an algorithm.
+func uploadChecksumType(algo domain.ChecksumAlgorithm, typ domain.ChecksumType) (domain.ChecksumType, error) {
+	switch {
+	case algo == domain.ChecksumNone && typ != domain.ChecksumTypeNone:
+		return "", domain.NewS3Error(domain.ErrInvalidArgument, "InvalidRequest",
+			"The x-amz-checksum-type header can only be used with the x-amz-checksum-algorithm header.")
+	case algo == domain.ChecksumNone:
+		return domain.ChecksumTypeNone, nil
+	case typ == domain.ChecksumTypeNone && algo == domain.ChecksumCRC64NVME:
+		return domain.ChecksumTypeFullObject, nil
+	case typ == domain.ChecksumTypeNone:
+		return domain.ChecksumTypeComposite, nil
+	case typ == domain.ChecksumTypeFullObject && !algo.IsCRC():
+		return "", domain.NewS3Error(domain.ErrInvalidArgument, "InvalidRequest",
+			fmt.Sprintf("The FULL_OBJECT checksum type cannot be used with the %s checksum algorithm.", strings.ToLower(string(algo))))
+	case typ == domain.ChecksumTypeComposite && algo == domain.ChecksumCRC64NVME:
+		return "", domain.NewS3Error(domain.ErrInvalidArgument, "InvalidRequest",
+			"The COMPOSITE checksum type cannot be used with the crc64nvme checksum algorithm.")
+	default:
+		return typ, nil
+	}
+}
+
+// partSum is the checksum of one part of a completed upload with
+// the length of the content it covers.
+type partSum struct {
+	sum  domain.Checksum
+	size int64
+}
+
 // compositeChecksum returns the checksum of a multipart object as S3
 // computes it (checksum type COMPOSITE): the algorithm applied to the
 // concatenated binary checksums of the parts, base64-encoded, followed by
 // "-" and the number of parts. ok is false when a part has no checksum of
 // that algorithm.
-func compositeChecksum(algo domain.ChecksumAlgorithm, parts []domain.Checksum) (sum domain.Checksum, ok bool, err error) {
+func compositeChecksum(algo domain.ChecksumAlgorithm, parts []partSum) (sum domain.Checksum, ok bool, err error) {
 	h, err := newChecksumHash(algo)
 	if err != nil {
 		return domain.Checksum{}, false, err
 	}
 	for _, p := range parts {
-		if p.Algorithm != algo {
-			return domain.Checksum{}, false, nil
-		}
-		raw, err := base64.StdEncoding.DecodeString(p.Value)
-		if err != nil || len(raw) == 0 {
+		raw, valid := decodePartChecksum(algo, p.sum)
+		if !valid {
 			return domain.Checksum{}, false, nil
 		}
 		_, _ = h.Write(raw)
 	}
 	value := base64.StdEncoding.EncodeToString(h.Sum(nil)) + "-" + strconv.Itoa(len(parts))
-	return domain.Checksum{Algorithm: algo, Value: value}, true, nil
+	return domain.Checksum{Algorithm: algo, Value: value, Type: domain.ChecksumTypeComposite}, true, nil
+}
+
+// fullObjectChecksum returns the CRC of the whole content of a multipart
+// object (checksum type FULL_OBJECT), combined from the CRCs of its parts
+// and their lengths. ok is false when a part has no checksum of that
+// algorithm.
+func fullObjectChecksum(algo domain.ChecksumAlgorithm, parts []partSum) (sum domain.Checksum, ok bool, err error) {
+	c, err := newCRCCombiner(algo)
+	if err != nil {
+		return domain.Checksum{}, false, err
+	}
+	var crc uint64
+	for i, p := range parts {
+		raw, valid := decodePartChecksum(algo, p.sum)
+		if !valid || len(raw) != c.size {
+			return domain.Checksum{}, false, nil
+		}
+		part := c.decode(raw)
+		if i == 0 {
+			crc = part
+			continue
+		}
+		crc = c.combine(crc, part, p.size)
+	}
+	if len(parts) == 0 {
+		crc = 0
+	}
+	return domain.Checksum{Algorithm: algo, Value: base64.StdEncoding.EncodeToString(c.encode(crc)), Type: domain.ChecksumTypeFullObject}, true, nil
+}
+
+// decodePartChecksum decodes the checksum of a part, when it is one of
+// algo.
+func decodePartChecksum(algo domain.ChecksumAlgorithm, c domain.Checksum) ([]byte, bool) {
+	if c.Algorithm != algo {
+		return nil, false
+	}
+	raw, err := base64.StdEncoding.DecodeString(c.Value)
+	if err != nil || len(raw) == 0 {
+		return nil, false
+	}
+	return raw, true
 }
 
 // multipartChecksum returns the additional checksum of a completed upload:
-// the composite checksum of its parts, in the algorithm of the upload (or,
-// without one, of the declared checksum or of the parts). A checksum
-// declared on the completion is verified against it (BadDigest when it
-// differs, with or without the "-N" suffix) and refused when it cannot be
-// verified: a value chosen by the client is never stored as is. The zero
-// checksum means the object has none.
-func multipartChecksum(uploadAlgo domain.ChecksumAlgorithm, parts []domain.Checksum, declared domain.Checksum) (domain.Checksum, error) {
+// the composite or full-object checksum (typ, the type of the upload) of
+// its parts, in the algorithm of the upload (or, without one, of the
+// declared checksum or of the parts, composite). A checksum declared on
+// the completion is verified against it (BadDigest when it differs; a
+// composite one with or without the "-N" suffix) and refused when it
+// cannot be verified: a value chosen by the client is never stored as is.
+// The zero checksum means the object has none.
+func multipartChecksum(uploadAlgo domain.ChecksumAlgorithm, typ domain.ChecksumType, parts []partSum, declared domain.Checksum) (domain.Checksum, error) {
 	algo := uploadAlgo
 	if algo == domain.ChecksumNone {
 		algo = declared.Algorithm
+		typ = domain.ChecksumTypeComposite
 	}
 	if algo == domain.ChecksumNone && len(parts) > 0 {
-		algo = parts[0].Algorithm
+		algo = parts[0].sum.Algorithm
+		typ = domain.ChecksumTypeComposite
 	}
 	if !declared.IsZero() && declared.Algorithm != algo {
 		return domain.Checksum{}, domain.NewS3Error(domain.ErrInvalidArgument, "InvalidRequest",
@@ -104,7 +197,16 @@ func multipartChecksum(uploadAlgo domain.ChecksumAlgorithm, parts []domain.Check
 	if algo == domain.ChecksumNone {
 		return domain.Checksum{}, nil
 	}
-	sum, ok, err := compositeChecksum(algo, parts)
+	var (
+		sum domain.Checksum
+		ok  bool
+		err error
+	)
+	if typ == domain.ChecksumTypeFullObject {
+		sum, ok, err = fullObjectChecksum(algo, parts)
+	} else {
+		sum, ok, err = compositeChecksum(algo, parts)
+	}
 	if err != nil {
 		return domain.Checksum{}, err
 	}

@@ -524,17 +524,24 @@ func removeAWSChunked(h http.Header) {
 		return
 	}
 	var kept []string
+	stripped := false
 	for _, v := range values {
 		for _, enc := range strings.Split(v, ",") {
 			enc = strings.TrimSpace(enc)
-			if enc != "" && !strings.EqualFold(enc, awsChunkedEncoding) {
+			switch {
+			case strings.EqualFold(enc, awsChunkedEncoding):
+				stripped = true
+			case enc != "":
 				kept = append(kept, enc)
 			}
 		}
 	}
-	if len(kept) == 0 {
+	switch {
+	case !stripped:
+		// Nothing to remove: the header stays as sent.
+	case len(kept) == 0:
 		h.Del(headerContentEncoding)
-		return
+	default:
+		h.Set(headerContentEncoding, strings.Join(kept, ", "))
 	}
-	h.Set(headerContentEncoding, strings.Join(kept, ","))
 }

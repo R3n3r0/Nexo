@@ -65,11 +65,41 @@ type AdminClient interface {
 	// upload, public) to a prefix ("" for the whole bucket).
 	SetBucketAccess(ctx context.Context, name, prefix, preset string) (*BucketAccess, error)
 
+	// Bucket configurations in structured form, stored as the S3
+	// documents of the S3 API. A rejected configuration is an *APIError
+	// with Code invalid_configuration listing every invalid rule in
+	// RuleErrors; no rule removes the configuration.
+	GetBucketLifecycle(ctx context.Context, bucket string) (*LifecycleConfiguration, error)
+	SetBucketLifecycle(ctx context.Context, bucket string, cfg LifecycleConfiguration) (*LifecycleConfiguration, error)
+	DeleteBucketLifecycle(ctx context.Context, bucket string) error
+	// ApplyBucketLifecycle applies the lifecycle rules of a bucket at once
+	// (s3:PutLifecycleConfiguration and admin:ApplyLifecycle).
+	ApplyBucketLifecycle(ctx context.Context, bucket string) (*LifecycleApplyResult, error)
+	GetBucketEvents(ctx context.Context, bucket string) (*BucketNotifications, error)
+	SetBucketEvents(ctx context.Context, bucket string, cfg BucketNotifications) (*BucketNotifications, error)
+	DeleteBucketEvents(ctx context.Context, bucket string) error
+	GetBucketCORS(ctx context.Context, bucket string) (*CORSConfiguration, error)
+	SetBucketCORS(ctx context.Context, bucket string, cfg CORSConfiguration) (*CORSConfiguration, error)
+	DeleteBucketCORS(ctx context.Context, bucket string) error
+
+	// Notification targets (admin:ConfigUpdate): their delivery state on
+	// the answering node and a test event. target is "<id>:<type>" or the
+	// ARN of the target.
+	ListNotifyTargets(ctx context.Context) ([]NotifyTarget, error)
+	TestNotifyTarget(ctx context.Context, target string) (*NotifyTargetTest, error)
+
 	// Objects (the S3 API is the way to transfer data; these are the
 	// management operations of the console).
 	ListObjects(ctx context.Context, bucket string, opts ListObjectsOptions) (*ObjectList, error)
 	StatObject(ctx context.Context, bucket, key, versionID string) (*ObjectDetails, error)
 	DeleteObjects(ctx context.Context, bucket string, in DeleteObjectsRequest) (*DeleteObjectsResult, error)
+	// Object Lock of a version ("" is the latest) and its attributes.
+	GetObjectRetention(ctx context.Context, bucket, key, versionID string) (*ObjectRetention, error)
+	SetObjectRetention(ctx context.Context, bucket, key, versionID string, in SetObjectRetentionRequest) (*ObjectRetention, error)
+	GetObjectLegalHold(ctx context.Context, bucket, key, versionID string) (*ObjectLegalHold, error)
+	// SetObjectLegalHold sets the legal hold (ON or OFF).
+	SetObjectLegalHold(ctx context.Context, bucket, key, versionID, status string) (*ObjectLegalHold, error)
+	GetObjectAttributes(ctx context.Context, bucket, key string, opts ObjectAttributesOptions) (*ObjectAttributes, error)
 
 	// Share links, presigned URLs and POST policies.
 	CreateShare(ctx context.Context, in CreateShareRequest) (*Share, error)
@@ -135,6 +165,16 @@ type AdminClient interface {
 	// Namespace locks (admin lock list/clear).
 	ListLocks(ctx context.Context) ([]Lock, error)
 	ForceUnlock(ctx context.Context, resources ...string) error
+
+	// KMS of the server-side encryption (admin:KMSKeyStatus,
+	// admin:KMSCreateKey): without KMS configured the server answers 501.
+	KMSStatus(ctx context.Context) (*KMSStatus, error)
+	// ListKMSKeys lists the keys whose name starts with prefix ("" for
+	// all).
+	ListKMSKeys(ctx context.Context, prefix string) ([]KMSKey, error)
+	// CreateKMSKey creates a key usable as SSE-KMS key id and as default
+	// key of a bucket encryption; an existing key is a conflict.
+	CreateKMSKey(ctx context.Context, id string) (*KMSKey, error)
 }
 
 // DefaultRegion is the signing region when Config.Region is empty.

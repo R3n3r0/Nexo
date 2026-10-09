@@ -34,11 +34,13 @@ export function createMockUploadService(storage: MockStorage): UploadService {
       if (input.key === '' || input.key.startsWith('/')) {
         throw problem(400, 'invalid_object_name', `Object name ${input.key} is not valid.`);
       }
+      const encryption = storage.encryptionFor(state, input.encryption);
       options.onProgress?.(input.body.size, input.body.size);
       const contentType =
         input.contentType ??
         (input.body.type !== '' ? input.body.type : 'application/octet-stream');
       const stored = storage.put(state, {
+        ...(encryption ? { encryption } : {}),
         key: input.key,
         size: input.body.size,
         etag: storage.nextId('e'),
@@ -52,7 +54,7 @@ export function createMockUploadService(storage: MockStorage): UploadService {
     },
     async create(bucket, key, input = {}) {
       await ctx.delay();
-      storage.bucket(bucket);
+      const encryption = storage.encryptionFor(storage.bucket(bucket), input.encryption);
       const uploadId = storage.nextId('upload-');
       const initiated = ctx.nowIso();
       storage.uploads.set(uploadId, {
@@ -63,6 +65,7 @@ export function createMockUploadService(storage: MockStorage): UploadService {
         contentType: input.contentType ?? 'application/octet-stream',
         userMetadata: { ...input.userMetadata },
         parts: new Map(),
+        ...(encryption ? { encryption } : {}),
       });
       return { bucket, key, uploadId, initiated, ...storage.uploadLimits };
     },
@@ -119,6 +122,11 @@ export function createMockUploadService(storage: MockStorage): UploadService {
       });
       const content = new Blob(bodies, { type: state.contentType });
       const stored = storage.put(storage.bucket(bucket), {
+        ...(state.encryption ? { encryption: state.encryption } : {}),
+        parts: parts.map((p) => ({
+          partNumber: p.partNumber,
+          size: state.parts.get(p.partNumber)?.size ?? 0,
+        })),
         key,
         size: content.size,
         etag: `${storage.nextId('e')}-${String(parts.length)}`,

@@ -1,0 +1,23 @@
+Remove lifecycle rules of a bucket
+
+Usage:
+  nexoctl ilm rule remove --id ID... | --all ALIAS/BUCKET [flags]
+
+Aliases:
+  remove, rm
+
+Examples:
+  nexoctl ilm rule rm --id rule-1 local/app
+  nexoctl ilm rule rm --all local/app
+
+Flags:
+      --all          remove every rule (the lifecycle configuration)
+  -h, --help         help for remove
+      --id strings   IDs of the rules to remove (repeatable or comma-separated)
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

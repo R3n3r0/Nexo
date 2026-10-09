@@ -1,4 +1,6 @@
 import {
+  Alert,
+  Autocomplete,
   Badge,
   Button,
   Group,
@@ -10,7 +12,6 @@ import {
   Skeleton,
   Stack,
   Text,
-  TextInput,
   Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -26,7 +27,10 @@ import { formatBytes } from '@/lib/format';
 import { problemMessage } from '@/lib/problem';
 import { storageKeys } from '@/lib/storageKeys';
 import { fromBytes, sizeUnits, toBytes, type SizeUnit } from '@/lib/units';
+import { useKms } from '@/lib/kms';
 import { useServices, type TagSet } from '@/services';
+
+import { CorsSection } from './CorsSection';
 
 function Section({
   title,
@@ -273,11 +277,20 @@ function TagsSection({ bucket, canEdit }: { bucket: string; canEdit: boolean }) 
 
 type EncryptionChoice = 'none' | 'AES256' | 'aws:kms';
 
-function EncryptionSection({ bucket, canEdit }: { bucket: string; canEdit: boolean }) {
+function EncryptionSection({
+  bucket,
+  canEdit,
+  canSeeKms,
+}: {
+  bucket: string;
+  canEdit: boolean;
+  canSeeKms: boolean;
+}) {
   const { t } = useTranslation();
   const { buckets } = useServices();
   const queryClient = useQueryClient();
   const notifyError = useNotifyError();
+  const kms = useKms(canSeeKms);
   const encryption = useQuery({
     queryKey: storageKeys.bucketSetting(bucket, 'encryption'),
     queryFn: () => buckets.getEncryption(bucket),
@@ -355,14 +368,14 @@ function EncryptionSection({ bucket, canEdit }: { bucket: string; canEdit: boole
                 w={220}
               />
               {choice === 'aws:kms' ? (
-                <TextInput
+                <Autocomplete
                   label={t('bucketSettings.encryption.kmsKey')}
                   description={t('bucketSettings.encryption.kmsKeyHint')}
+                  placeholder={kms.defaultKeyId}
+                  data={kms.keys}
                   value={kmsKey}
                   disabled={!canEdit}
-                  onChange={(event) => {
-                    setKmsKey(event.currentTarget.value);
-                  }}
+                  onChange={setKmsKey}
                   w={260}
                 />
               ) : null}
@@ -377,6 +390,11 @@ function EncryptionSection({ bucket, canEdit }: { bucket: string; canEdit: boole
             <Text size="xs" c="dimmed">
               {t('bucketSettings.encryption.newObjects')}
             </Text>
+            {kms.configured === false ? (
+              <Alert color="yellow" variant="light">
+                {t('bucketSettings.encryption.noKms')}
+              </Alert>
+            ) : null}
           </Stack>
         </form>
       )}
@@ -391,10 +409,6 @@ function ObjectLockSection({ bucket, canEdit }: { bucket: string; canEdit: boole
   const { buckets } = useServices();
   const queryClient = useQueryClient();
   const notifyError = useNotifyError();
-  const details = useQuery({
-    queryKey: storageKeys.bucket(bucket),
-    queryFn: () => buckets.get(bucket),
-  });
   const lock = useQuery({
     queryKey: storageKeys.bucketSetting(bucket, 'objectlock'),
     queryFn: () => buckets.getObjectLock(bucket),
@@ -432,7 +446,6 @@ function ObjectLockSection({ bucket, canEdit }: { bucket: string; canEdit: boole
     onError: notifyError,
   });
   const data = lock.data;
-  const versioned = details.data?.versioning === 'enabled';
   return (
     <Section
       title={t('bucketSettings.objectLock.title')}
@@ -444,6 +457,15 @@ function ObjectLockSection({ bucket, canEdit }: { bucket: string; canEdit: boole
         <Text size="sm" c="dimmed">
           {t('bucketSettings.objectLock.unavailable')}
         </Text>
+      ) : !data.enabled ? (
+        <Group gap="sm">
+          <Badge variant="light" color="gray">
+            {t('bucketSettings.objectLock.disabled')}
+          </Badge>
+          <Text size="sm" c="dimmed">
+            {t('bucketSettings.objectLock.onlyAtCreation')}
+          </Text>
+        </Group>
       ) : (
         <form
           onSubmit={(event) => {
@@ -454,22 +476,18 @@ function ObjectLockSection({ bucket, canEdit }: { bucket: string; canEdit: boole
           <Stack gap="xs">
             <Group gap="sm">
               <Text size="sm">{t('bucketSettings.objectLock.status')}</Text>
-              <Badge variant="light" color={data.enabled ? 'green' : 'gray'}>
-                {data.enabled
-                  ? t('bucketSettings.objectLock.enabled')
-                  : t('bucketSettings.objectLock.disabled')}
+              <Badge variant="light" color="green">
+                {t('bucketSettings.objectLock.enabled')}
               </Badge>
-              {data.enabled ? (
-                <Text size="sm" c="dimmed">
-                  {data.mode === undefined
-                    ? t('bucketSettings.objectLock.noDefault')
-                    : `${data.mode} · ${
-                        data.years !== undefined && data.years > 0
-                          ? t('bucketSettings.objectLock.years', { n: data.years })
-                          : t('bucketSettings.objectLock.days', { n: data.days ?? 0 })
-                      }`}
-                </Text>
-              ) : null}
+              <Text size="sm" c="dimmed">
+                {data.mode === undefined
+                  ? t('bucketSettings.objectLock.noDefault')
+                  : `${data.mode} · ${
+                      data.years !== undefined && data.years > 0
+                        ? t('bucketSettings.objectLock.years', { n: data.years })
+                        : t('bucketSettings.objectLock.days', { n: data.days ?? 0 })
+                    }`}
+              </Text>
             </Group>
             <Group gap="sm" align="flex-end" wrap="wrap">
               <Select
@@ -518,23 +536,16 @@ function ObjectLockSection({ bucket, canEdit }: { bucket: string; canEdit: boole
                   />
                 </>
               ) : null}
-              <PermissionGuard
-                allowed={canEdit && (data.enabled || versioned)}
-                action={StorageActions.putObjectLock}
-              >
+              <PermissionGuard allowed={canEdit} action={StorageActions.putObjectLock}>
                 {(disabled) => (
                   <Button type="submit" disabled={disabled || invalid} loading={mutation.isPending}>
-                    {data.enabled ? t('common.save') : t('bucketSettings.objectLock.enable')}
+                    {t('common.save')}
                   </Button>
                 )}
               </PermissionGuard>
             </Group>
             <Text size="xs" c="dimmed">
-              {data.enabled
-                ? t('bucketSettings.objectLock.permanent')
-                : versioned
-                  ? t('bucketSettings.objectLock.enableHint')
-                  : t('bucketSettings.objectLock.needsVersioning')}
+              {t('bucketSettings.objectLock.permanent')}
             </Text>
           </Stack>
         </form>
@@ -543,7 +554,7 @@ function ObjectLockSection({ bucket, canEdit }: { bucket: string; canEdit: boole
   );
 }
 
-/** D-BKT-02: versioning, quota, tags, default encryption, object lock. */
+/** D-BKT-02: versioning, quota, tags, default encryption, object lock, CORS. */
 export function BucketSettingsTab() {
   const { bucket = '' } = useParams();
   const perms = usePermissions({ bucket });
@@ -552,8 +563,13 @@ export function BucketSettingsTab() {
       <VersioningSection bucket={bucket} canEdit={perms.can(StorageActions.putVersioning)} />
       <QuotaSection bucket={bucket} canEdit={perms.can(StorageActions.setQuota)} />
       <TagsSection bucket={bucket} canEdit={perms.can(StorageActions.putTagging)} />
-      <EncryptionSection bucket={bucket} canEdit={perms.can(StorageActions.putEncryption)} />
+      <EncryptionSection
+        bucket={bucket}
+        canEdit={perms.can(StorageActions.putEncryption)}
+        canSeeKms={perms.can(StorageActions.kmsStatus)}
+      />
       <ObjectLockSection bucket={bucket} canEdit={perms.can(StorageActions.putObjectLock)} />
+      <CorsSection bucket={bucket} canEdit={perms.can(StorageActions.putCors)} />
     </Stack>
   );
 }

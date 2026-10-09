@@ -183,7 +183,7 @@ func TestPostObjectErrors(t *testing.T) {
 		{"missing key", signedFields(map[string]string{"key": ""}), 400, "InvalidArgument"},
 		{"key too long", signedFields(map[string]string{"key": strings.Repeat("k", 1025)}), 400, "KeyTooLongError"},
 		{"public ACL", signedFields(map[string]string{"acl": "public-read"}), 501, "NotImplemented"},
-		{"SSE", signedFields(map[string]string{"x-amz-server-side-encryption": "AES256"}), 501, "NotImplemented"},
+		{"SSE", signedFields(map[string]string{"x-amz-server-side-encryption": "ROT13"}), 400, "InvalidArgument"},
 		{"bad storage class", signedFields(map[string]string{"x-amz-storage-class": "COLD"}), 400, "InvalidStorageClass"},
 		{"bad tagging", signedFields(map[string]string{"tagging": "<Tagging>"}), 400, "MalformedXML"},
 		{"duplicate tags", signedFields(map[string]string{"tagging": `<Tagging><TagSet><Tag><Key>a</Key></Tag><Tag><Key>a</Key></Tag></TagSet></Tagging>`}), 400, "InvalidTag"},

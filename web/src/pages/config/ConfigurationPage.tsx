@@ -6,13 +6,8 @@ import {
   FileButton,
   Group,
   Loader,
-  NumberInput,
-  PasswordInput,
-  Select,
   Stack,
-  Switch,
   Text,
-  TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconDownload, IconUpload } from '@tabler/icons-react';
@@ -21,17 +16,20 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ConfirmDialog, ErrorAlert, PageHeader } from '@/components/iam/common';
-import { checkConfigValue, isConfigTrue, sensitiveMask } from '@/lib/config';
+import { checkConfigValue } from '@/lib/config';
 import { iamKeys, useInvalidatingMutation } from '@/lib/iamQueries';
 import { parseJson } from '@/lib/json';
 import { readTextFile, saveJsonFile } from '@/lib/saveFile';
 import {
   useServices,
   type ConfigDocument,
-  type ConfigKey,
   type ConfigSettings,
   type ConfigSubsystemSchema,
 } from '@/services';
+
+import { ConfigField } from './ConfigField';
+import { KmsSection } from './KmsSection';
+import { NotifyTargetsSection } from './NotifyTargetsSection';
 
 /** Validates an imported document: subsystems of string settings. */
 function asConfigDocument(value: unknown): ConfigDocument | undefined {
@@ -51,7 +49,8 @@ function asConfigDocument(value: unknown): ConfigDocument | undefined {
 }
 
 /**
- * Configuration page (D-CFG-01, base): one generic key/value form per
+ * Configuration page (D-CFG-01): the notification targets (notify_*) with
+ * a form per type and their state, the KMS, one generic key/value form per
  * subsystem from GET /config/schema, export and import of the whole
  * configuration.
  */
@@ -145,6 +144,8 @@ export function ConfigurationPage() {
           }}
         />
       ) : null}
+      <NotifyTargetsSection schema={schema.data} />
+      <KmsSection />
       {schema.isPending || values.isPending ? <Loader aria-label={t('common.loading')} /> : null}
       {schema.data && values.data ? (
         <Accordion multiple variant="separated" defaultValue={['region']}>
@@ -301,104 +302,4 @@ function SubsystemForm({
       />
     </Stack>
   );
-}
-
-function ConfigField({
-  configKey,
-  value,
-  error,
-  onChange,
-}: {
-  configKey: ConfigKey;
-  value: string;
-  error: string | undefined;
-  onChange: (value: string) => void;
-}) {
-  const { t } = useTranslation();
-  const label = configKey.name;
-  const description = [
-    configKey.applied ? '' : t('configuration.notAppliedHint'),
-    configKey.description,
-    configKey.default !== undefined && configKey.default !== ''
-      ? t('configuration.default', { value: configKey.default })
-      : '',
-  ]
-    .filter((s) => s !== '')
-    .join(' · ');
-
-  switch (configKey.type) {
-    case 'bool':
-      return (
-        <Switch
-          label={label}
-          description={description}
-          checked={value === '' ? isConfigTrue(configKey.default) : isConfigTrue(value)}
-          onChange={(event) => {
-            onChange(event.currentTarget.checked ? 'on' : 'off');
-          }}
-        />
-      );
-    case 'enum':
-      return (
-        <Select
-          label={label}
-          description={description}
-          data={configKey.values ?? []}
-          value={value === '' ? null : value}
-          placeholder={configKey.default}
-          onChange={(next) => {
-            onChange(next ?? '');
-          }}
-          clearable
-          error={error}
-        />
-      );
-    case 'int':
-      return (
-        <NumberInput
-          label={label}
-          description={description}
-          value={value === '' ? '' : Number(value)}
-          placeholder={configKey.default}
-          min={0}
-          allowDecimal={false}
-          allowNegative={false}
-          onChange={(next) => {
-            onChange(next === '' ? '' : String(next));
-          }}
-          error={error}
-        />
-      );
-    default:
-      if (configKey.sensitive) {
-        return (
-          <PasswordInput
-            label={label}
-            description={
-              value === sensitiveMask
-                ? `${description} · ${t('configuration.secretSet')}`
-                : description
-            }
-            value={value}
-            autoComplete="off"
-            onChange={(event) => {
-              onChange(event.currentTarget.value);
-            }}
-            error={error}
-          />
-        );
-      }
-      return (
-        <TextInput
-          label={label}
-          description={description}
-          value={value}
-          placeholder={configKey.default}
-          onChange={(event) => {
-            onChange(event.currentTarget.value);
-          }}
-          error={error}
-        />
-      );
-  }
 }

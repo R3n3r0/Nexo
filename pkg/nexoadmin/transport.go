@@ -165,6 +165,10 @@ type APIError struct {
 	// Errors locate the problems of a malformed policy document
 	// (Code malformed_policy).
 	Errors []PolicyError `json:"errors"`
+	// RuleErrors locate the invalid rules of a bucket configuration
+	// (Code invalid_configuration): lifecycle rules, event subscriptions,
+	// CORS rules.
+	RuleErrors []RuleError `json:"ruleErrors"`
 }
 
 // Error implements error.
@@ -177,6 +181,9 @@ func (e *APIError) Error() string {
 		if pe.Line > 0 {
 			msg += fmt.Sprintf(" (line %d, column %d)", pe.Line, pe.Column)
 		}
+	}
+	for _, re := range e.RuleErrors {
+		msg += fmt.Sprintf("; rule %d: %s", re.Rule, re.Message)
 	}
 	return msg
 }
@@ -200,6 +207,11 @@ const (
 	CodeAccessDenied    = "access_denied"
 	CodeUnauthenticated = "unauthenticated"
 	CodeMalformedPolicy = "malformed_policy"
+	// CodeInvalidConfiguration reports invalid rules of a bucket
+	// configuration (APIError.RuleErrors).
+	CodeInvalidConfiguration = "invalid_configuration"
+	// CodeObjectLocked reports a change Object Lock forbids.
+	CodeObjectLocked    = "object_locked"
 	CodeInvalidArgument = "invalid_argument"
 	CodeConflict        = "conflict"
 )

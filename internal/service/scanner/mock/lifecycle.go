@@ -24,6 +24,63 @@ func (_m *Lifecycle) EXPECT() *Lifecycle_Expecter {
 	return &Lifecycle_Expecter{mock: &_m.Mock}
 }
 
+// AbortUploads provides a mock function with given fields: ctx, bucket
+func (_m *Lifecycle) AbortUploads(ctx context.Context, bucket string) (int, error) {
+	ret := _m.Called(ctx, bucket)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AbortUploads")
+	}
+
+	var r0 int
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (int, error)); ok {
+		return rf(ctx, bucket)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) int); ok {
+		r0 = rf(ctx, bucket)
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, bucket)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Lifecycle_AbortUploads_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AbortUploads'
+type Lifecycle_AbortUploads_Call struct {
+	*mock.Call
+}
+
+// AbortUploads is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+func (_e *Lifecycle_Expecter) AbortUploads(ctx interface{}, bucket interface{}) *Lifecycle_AbortUploads_Call {
+	return &Lifecycle_AbortUploads_Call{Call: _e.mock.On("AbortUploads", ctx, bucket)}
+}
+
+func (_c *Lifecycle_AbortUploads_Call) Run(run func(ctx context.Context, bucket string)) *Lifecycle_AbortUploads_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *Lifecycle_AbortUploads_Call) Return(_a0 int, _a1 error) *Lifecycle_AbortUploads_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Lifecycle_AbortUploads_Call) RunAndReturn(run func(context.Context, string) (int, error)) *Lifecycle_AbortUploads_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Apply provides a mock function with given fields: ctx, obj
 func (_m *Lifecycle) Apply(ctx context.Context, obj domain.ObjectInfo) (scanner.LifecycleAction, error) {
 	ret := _m.Called(ctx, obj)

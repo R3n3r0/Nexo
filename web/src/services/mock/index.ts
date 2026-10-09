@@ -6,6 +6,9 @@ import { createMockConfigService, type MockConfigOptions } from './config';
 import { createMockHealService, type MockHealOptions } from './heal';
 import { createMockIam, type MockIamOptions } from './iam';
 import { createMockInfoService, sampleServerInfo, type MockInfoOptions } from './info';
+import { createMockKmsService } from './kms';
+import { createMockLifecycleService } from './lifecycle';
+import { createMockNotificationService, type MockNotificationOptions } from './notifications';
 import { createMockObjectService } from './objects';
 import {
   createMockSessionService,
@@ -28,7 +31,8 @@ export interface MockServicesOptions
     MockStorageOptions,
     MockIamOptions,
     MockShareOptions,
-    MockConfigOptions {
+    MockConfigOptions,
+    MockNotificationOptions {
   /** Accepted logins; defaults to the demo credentials. */
   accounts?: Record<string, string>;
   /** Start authenticated as this account (tests of protected pages). */
@@ -67,12 +71,19 @@ export function createMockServices(options: MockServicesOptions = {}): MockServi
   };
   const session = createMockSessionService(ctx, sessionOptions);
   const objects = createMockObjectService(storage);
-  const serverInfo = options.info ?? sampleServerInfo();
+  const serverInfo =
+    options.info ??
+    sampleServerInfo({
+      kms: { ...storage.kms.status, keys: storage.kms.keys.map((k) => k.id) },
+    });
   return {
     session,
     info: createMockInfoService(ctx, { ...options, info: serverInfo }, storage),
     heal: createMockHealService(ctx, () => serverInfo, options),
     buckets: createMockBucketService(storage),
+    lifecycle: createMockLifecycleService(storage),
+    notifications: createMockNotificationService(storage, options),
+    kms: createMockKmsService(storage),
     objects,
     uploads: createMockUploadService(storage),
     users: iam.users,
@@ -91,5 +102,5 @@ export { sampleConfigSchema } from './config';
 export { sampleAccessKeys, sampleGroups, samplePolicies, sampleUsers } from './iam';
 export { maxExpirySeconds, sampleShares } from './shares';
 export { sampleClusterInfo, sampleServerInfo } from './info';
-export { sampleObjects, type MockObjectSeed } from './storage';
+export { sampleNotifyTargets, sampleObjects, type MockObjectSeed } from './storage';
 export type { MockSessionService } from './session';

@@ -23,7 +23,7 @@ export interface EditorImplProps {
   height: number;
   readOnly: boolean;
   markers: readonly CodeMarker[];
-  language: 'json' | 'plaintext';
+  language: 'json' | 'xml' | 'plaintext';
   schema?: CodeSchema;
   id?: string;
   /** Called with the editor's focus function once it is mounted. */

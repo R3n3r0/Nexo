@@ -70,13 +70,14 @@ func healQueueReporter(q heal.Queue) cluster.HealQueueReporter {
 }
 
 // newHealing builds the healing service (erasure-coded modes) and the
-// scanner over the object layer. The usage of the scanner is saved on the
+// scanner over the object layer, which applies the lifecycle of the
+// buckets over its cycles. The usage of the scanner is saved on the
 // single drive (SNSD) or on the drives of the first erasure set, which
 // every node reads.
-func newHealing(d composeDeps, objects object.Service, queue heal.Queue, dyn configsvc.Service) (healingServices, error) {
+func newHealing(d composeDeps, objects object.Service, queue heal.Queue, dyn configsvc.Service, lifecycle scanner.Lifecycle) (healingServices, error) {
 	out := healingServices{queue: queue}
 	scanDeps := scanner.Deps{
-		Objects: objects, Leader: d.f.leader, Config: dyn, Clock: d.clock, Logger: d.logger.With("component", "scanner"),
+		Objects: objects, Leader: d.f.leader, Config: dyn, Lifecycle: lifecycle, Clock: d.clock, Logger: d.logger.With("component", "scanner"),
 	}
 	if d.f.layout.Mode == domain.ModeSNSD {
 		scanDeps.Drives = d.f.local

@@ -24,7 +24,12 @@
 //     IAM calls or depend on the caller, the policy validator (with
 //     positions) and the simulator;
 //   - ConfigManager: the dynamic configuration with its schema of known
-//     subsystems, validated before it reaches config.Service.
+//     subsystems, validated before it reaches config.Service;
+//   - LifecycleManager, NotificationManager and CORSManager: the lifecycle,
+//     notification and CORS configurations of the buckets in the
+//     structured form of the console, converted to and from the S3 XML
+//     documents and validated rule by rule, and the notification targets
+//     with their delivery state.
 //
 // Every implementation is created by its New* constructor from a Deps
 // struct of interfaces; the transport never applies these rules itself.
@@ -41,6 +46,8 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/config"
 	"github.com/r3n3r0/nexo/internal/service/heal"
 	"github.com/r3n3r0/nexo/internal/service/iam"
+	"github.com/r3n3r0/nexo/internal/service/ilm"
+	"github.com/r3n3r0/nexo/internal/service/kms"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/service/share"
@@ -436,6 +443,68 @@ type ObjectBrowser interface {
 	// requester may not read are skipped and listed in a final
 	// "nexo-zip-errors.txt" entry.
 	Zip(ctx context.Context, in ZipInput, open ZipOpener) (*ZipResult, error)
+
+	// Retention returns the Object Lock retention of a version: the zero
+	// retention when it has none (unlike S3,
+	// NoSuchObjectLockConfiguration). A bucket without object locking is
+	// domain.ErrInvalidArgument (S3 InvalidRequest). The route authorizes
+	// s3:GetObjectRetention.
+	Retention(ctx context.Context, ref VersionRef) (domain.ObjectRetention, error)
+	// SetRetention sets the retention of a version, or removes it (the
+	// zero retention), as the S3 PutObjectRetention: it authorizes
+	// s3:PutObjectRetention and, with BypassGovernance,
+	// s3:BypassGovernanceRetention (with the conditions of the S3 request
+	// carrying x-amz-bypass-governance-retention), which a GOVERNANCE
+	// retention needs to be shortened or removed; a COMPLIANCE retention
+	// can only be extended, by anyone (domain.ErrObjectLocked).
+	SetRetention(ctx context.Context, in SetRetentionInput) (domain.ObjectInfo, error)
+	// LegalHold returns the legal hold of a version: domain.LegalHoldOff
+	// when none was ever set. The route authorizes s3:GetObjectLegalHold.
+	LegalHold(ctx context.Context, ref VersionRef) (domain.LegalHoldStatus, error)
+	// SetLegalHold sets the legal hold of a version (ON or OFF); the
+	// route authorizes s3:PutObjectLegalHold.
+	SetLegalHold(ctx context.Context, in SetLegalHoldInput) (domain.ObjectInfo, error)
+	// Attributes describes a version without reading its content (S3
+	// GetObjectAttributes): its checksum and, for a multipart object, a
+	// page of its parts. The route authorizes s3:GetObjectAttributes, or
+	// s3:GetObjectVersionAttributes for a version.
+	Attributes(ctx context.Context, in AttributesInput) (*object.ObjectAttributes, error)
+}
+
+// VersionRef names a version of an object ("" is the latest).
+type VersionRef struct {
+	Bucket    string
+	Key       string
+	VersionID string
+}
+
+// SetRetentionInput are the parameters of ObjectBrowser.SetRetention.
+type SetRetentionInput struct {
+	Requester Requester
+	Object    VersionRef
+	// Retention is the new retention: a mode (GOVERNANCE or COMPLIANCE,
+	// case-insensitive) with a retain-until date in the future, or the
+	// zero retention to remove it.
+	Retention domain.ObjectRetention
+	// BypassGovernance shortens or removes a GOVERNANCE retention, when
+	// the requester may (s3:BypassGovernanceRetention).
+	BypassGovernance bool
+}
+
+// SetLegalHoldInput are the parameters of ObjectBrowser.SetLegalHold.
+type SetLegalHoldInput struct {
+	Object VersionRef
+	// Hold is ON or OFF (case-insensitive).
+	Hold domain.LegalHoldStatus
+}
+
+// AttributesInput are the parameters of ObjectBrowser.Attributes.
+type AttributesInput struct {
+	Object VersionRef
+	// MaxParts limits the parts returned (1 to 1000, 0 for 1000);
+	// PartNumberMarker lists the parts after that number.
+	MaxParts         int
+	PartNumberMarker int
 }
 
 // Defaults of the object browser.
@@ -531,6 +600,12 @@ type DeleteObjectsInput struct {
 	// prefixes permanently, instead of the latest versions (which leaves
 	// delete markers in versioned buckets).
 	AllVersions bool
+	// BypassGovernance deletes the versions a GOVERNANCE retention
+	// protects, as the S3 x-amz-bypass-governance-retention header: for
+	// each version the requester may bypass (s3:BypassGovernanceRetention
+	// on the version), the others failing with domain.ErrObjectLocked. A
+	// COMPLIANCE retention or a legal hold always protects the version.
+	BypassGovernance bool
 }
 
 // DeletedObject is a successful deletion.
@@ -668,6 +743,231 @@ type ZipResult struct {
 	Bytes int64
 	// Skipped are the objects left out (access denied, vanished).
 	Skipped []ObjectError
+}
+
+// --- bucket configurations ----------------------------------------------
+
+// RuleProblem locates an invalid rule of a bucket configuration: a
+// lifecycle rule, a notification subscription or a CORS rule (see
+// ConfigError).
+type RuleProblem struct {
+	// Rule is the 1-based index of the rule, 0 for a problem of the whole
+	// configuration.
+	Rule int
+	// ID is the id of the rule, when it has one.
+	ID string
+	// Code is the S3 error code of the problem (InvalidArgument,
+	// InvalidRequest, MalformedXML, NotImplemented...).
+	Code    string
+	Message string
+}
+
+// LifecycleManager edits the lifecycle configurations of the buckets
+// (D-BKT-03, S-BKT-07) in the structured form of the console. The
+// configurations are stored as the S3 LifecycleConfiguration documents of
+// the bucket service, the very documents of the S3 API: what one API
+// writes the other reads. Every rule is validated on its own with the
+// rules of the S3 API (ilm.Service.Parse), so that a rejected configuration
+// reports every invalid rule. The routes authorize
+// s3:GetLifecycleConfiguration and s3:PutLifecycleConfiguration.
+type LifecycleManager interface {
+	// Get returns the lifecycle rules of a bucket; a bucket without
+	// configuration has none (unlike S3, NoSuchLifecycleConfiguration).
+	Get(ctx context.Context, bucket string) (*LifecycleConfig, error)
+	// Set validates every rule (a *ConfigError wrapping
+	// domain.ErrInvalidArgument lists the invalid ones; nothing is stored
+	// then), stores the configuration and returns it as stored: the rules
+	// without ID get one. No rule removes the configuration.
+	Set(ctx context.Context, bucket string, cfg LifecycleConfig) (*LifecycleConfig, error)
+	// Delete removes the configuration of a bucket.
+	Delete(ctx context.Context, bucket string) error
+	// Apply applies the lifecycle of a bucket at once, as the scanner
+	// does over its cycle (ilm.Service.ApplyNow): the expired versions are
+	// removed (those Object Lock protects only get a delete marker), the
+	// incomplete uploads aborted. A bucket without configuration is left
+	// as is (zero result). The route also authorizes admin:ApplyLifecycle.
+	Apply(ctx context.Context, bucket string) (ilm.ApplyResult, error)
+}
+
+// LifecycleConfig is a lifecycle configuration in the form of the console.
+type LifecycleConfig struct {
+	Rules []LifecycleRule
+}
+
+// LifecycleRule is one lifecycle rule (S3 Rule). The optional numbers are
+// pointers: a number sent as 0 is validated as such (S3 rejects a zero
+// Days), never taken for an absent one.
+type LifecycleRule struct {
+	// ID identifies the rule (at most 255 characters); one is generated
+	// from the content of a rule without.
+	ID      string
+	Enabled bool
+	// Filter selects the objects of the rule; the zero filter selects the
+	// whole bucket.
+	Filter                LifecycleFilter
+	Expiration            *LifecycleExpiration
+	NoncurrentExpiration  *LifecycleNoncurrentExpiration
+	AbortIncompleteUpload *LifecycleAbortUpload
+	// Transitions and NoncurrentTransitions move versions to the storage
+	// class of a remote tier (P2): refused (NotImplemented) without one.
+	Transitions           []LifecycleTransition
+	NoncurrentTransitions []LifecycleNoncurrentTransition
+}
+
+// LifecycleFilter selects the objects of a rule: every criterion set must
+// match.
+type LifecycleFilter struct {
+	Prefix string
+	Tags   map[string]string
+	// SizeGreaterThan and SizeLessThan bound the object size in bytes
+	// (exclusive).
+	SizeGreaterThan *int64
+	SizeLessThan    *int64
+}
+
+// LifecycleExpiration expires the current versions Days after their
+// creation or on Date, or (ExpiredObjectDeleteMarker) removes the delete
+// markers left without versions: exactly one of them.
+type LifecycleExpiration struct {
+	Days *int
+	// Date is an ISO 8601 date at midnight UTC ("2030-01-01" or
+	// "2030-01-01T00:00:00Z"); Get returns the date only.
+	Date                      string
+	ExpiredObjectDeleteMarker bool
+}
+
+// LifecycleNoncurrentExpiration removes the noncurrent versions
+// NoncurrentDays after they became noncurrent, keeping the
+// NewerNoncurrentVersions newest ones.
+type LifecycleNoncurrentExpiration struct {
+	NoncurrentDays          *int
+	NewerNoncurrentVersions *int
+}
+
+// LifecycleAbortUpload aborts the multipart uploads DaysAfterInitiation
+// days after they started.
+type LifecycleAbortUpload struct {
+	DaysAfterInitiation *int
+}
+
+// LifecycleTransition moves the current versions to StorageClass Days
+// after their creation or on Date.
+type LifecycleTransition struct {
+	Days         *int
+	Date         string
+	StorageClass string
+}
+
+// LifecycleNoncurrentTransition moves the noncurrent versions to
+// StorageClass.
+type LifecycleNoncurrentTransition struct {
+	NoncurrentDays          *int
+	NewerNoncurrentVersions *int
+	StorageClass            string
+}
+
+// NotificationManager edits the event subscriptions of the buckets
+// (D-BKT-04, S-BKT-10) in the form of the console, stored as the S3
+// NotificationConfiguration documents of the bucket service (those of the
+// S3 API), and exposes the notification targets of the deployment (the
+// notify_* subsystems of the configuration) with their delivery state.
+// The bucket routes authorize s3:GetBucketNotification and
+// s3:PutBucketNotification, the target routes admin:ConfigUpdate.
+type NotificationManager interface {
+	// Get returns the subscriptions of a bucket (none without
+	// configuration).
+	Get(ctx context.Context, bucket string) (*NotificationConfig, error)
+	// Set validates every subscription (known event names, prefix and
+	// suffix filters, a destination ARN naming a configured target: a
+	// *ConfigError wrapping domain.ErrInvalidArgument lists the invalid
+	// ones), stores the configuration and returns it as stored: the
+	// subscriptions without ID get one. No subscription removes them all.
+	Set(ctx context.Context, bucket string, cfg NotificationConfig) (*NotificationConfig, error)
+	// Delete removes every subscription of a bucket.
+	Delete(ctx context.Context, bucket string) error
+	// Targets lists the configured targets, sorted by id and type, with
+	// the delivery state this node sees: online or offline (the last
+	// delivery failed) and the events pending in its queue.
+	Targets(ctx context.Context) ([]NotifyTarget, error)
+	// TestTarget sends a test event (s3:TestEvent) to a target at once and
+	// reports the outcome. target is "<id>:<type>" (the default target of a
+	// subsystem has the id "_") or the ARN of the target; an unknown target
+	// is domain.ErrNotFound.
+	TestTarget(ctx context.Context, target string) (*TargetTest, error)
+}
+
+// NotificationConfig are the event subscriptions of a bucket.
+type NotificationConfig struct {
+	Subscriptions []Subscription
+}
+
+// Subscription routes the events of a bucket to a target.
+type Subscription struct {
+	// ID identifies the subscription (at most 255 characters); one is
+	// generated from the content of a subscription without.
+	ID string
+	// ARN names the target: arn:nexo:sqs:<region>:<id>:<type>
+	// (NotifyTarget.ARN).
+	ARN string
+	// Events are event names or families ("s3:ObjectCreated:*").
+	Events []string
+	// Prefix and Suffix filter the object keys.
+	Prefix string
+	Suffix string
+}
+
+// NotifyTarget is a notification target with its delivery state.
+type NotifyTarget struct {
+	// ID is the id of the target ("_" for the default target of its
+	// subsystem), Type its type (webhook, kafka, nats, amqp, redis,
+	// postgresql).
+	ID   string
+	Type string
+	// ARN is what the subscriptions name.
+	ARN     string
+	Enabled bool
+	// Endpoint describes the destination without its credentials (the
+	// webhook URL, the brokers and topic...).
+	Endpoint string
+	// Online is false from a failed delivery to the next successful one.
+	Online bool
+	// Pending counts the events waiting in the queue of the target.
+	Pending int
+	// LastError is the error of the last failed delivery.
+	LastError string
+}
+
+// TargetTest is the outcome of NotificationManager.TestTarget.
+type TargetTest struct {
+	// Target is "<id>:<type>".
+	Target    string
+	Delivered bool
+	// Error is the reason of a failed delivery.
+	Error string
+}
+
+// CORSManager edits the CORS configurations of the buckets (S-BKT-06) in
+// the form of the console, stored as the S3 CORSConfiguration documents of
+// the bucket service (those of the S3 API) and validated rule by rule
+// (domain.CORSConfiguration.Validate). The routes authorize
+// s3:GetBucketCORS and s3:PutBucketCORS.
+type CORSManager interface {
+	// Get returns the CORS rules of a bucket (none without configuration,
+	// unlike S3: NoSuchCORSConfiguration).
+	Get(ctx context.Context, bucket string) (*CORSConfig, error)
+	// Set validates every rule (a *ConfigError wrapping
+	// domain.ErrInvalidArgument lists the invalid ones), stores the
+	// configuration and returns it as stored. No rule removes the
+	// configuration.
+	Set(ctx context.Context, bucket string, cfg CORSConfig) (*CORSConfig, error)
+	// Delete removes the configuration of a bucket.
+	Delete(ctx context.Context, bucket string) error
+}
+
+// CORSConfig is the CORS configuration of a bucket, its rules evaluated
+// in order.
+type CORSConfig struct {
+	Rules []domain.CORSRule
 }
 
 // --- proxied uploads -----------------------------------------------------
@@ -1257,4 +1557,21 @@ type KeySchema struct {
 	// (settings.Applied); the others are validated and stored but have no
 	// effect yet, and the console and nexoctl say so.
 	Applied bool
+}
+
+// --- KMS -------------------------------------------------------------------
+
+// KMSManager is the key management of the Admin API (/kms): the state of
+// the KMS of the server-side encryption (docs/07 §7.2) and its keys.
+// Without a configured KMS the key operations fail with
+// domain.ErrKMSNotConfigured (501 not_implemented); an invalid key name is
+// domain.ErrInvalidArgument, an existing one domain.ErrKMSKeyExists (409).
+type KMSManager interface {
+	// Status reports the state of the KMS (its backend, default key and
+	// reachability).
+	Status(ctx context.Context) (kms.Status, error)
+	// ListKeys lists the keys whose name starts with prefix.
+	ListKeys(ctx context.Context, prefix string) ([]kms.KeyInfo, error)
+	// CreateKey creates a named key and returns it.
+	CreateKey(ctx context.Context, name string) (kms.KeyInfo, error)
 }

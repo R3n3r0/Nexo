@@ -7,6 +7,8 @@ import (
 
 	cli "github.com/r3n3r0/nexo/internal/cli"
 
+	domain "github.com/r3n3r0/nexo/internal/domain"
+
 	io "io"
 
 	iter "iter"
@@ -411,6 +413,356 @@ func (_c *S3Client_GetBucketPolicy_Call) Return(_a0 string, _a1 error) *S3Client
 }
 
 func (_c *S3Client_GetBucketPolicy_Call) RunAndReturn(run func(context.Context, string) (string, error)) *S3Client_GetBucketPolicy_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetCORS provides a mock function with given fields: ctx, bucket
+func (_m *S3Client) GetCORS(ctx context.Context, bucket string) (*cli.CORSConfiguration, error) {
+	ret := _m.Called(ctx, bucket)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetCORS")
+	}
+
+	var r0 *cli.CORSConfiguration
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*cli.CORSConfiguration, error)); ok {
+		return rf(ctx, bucket)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *cli.CORSConfiguration); ok {
+		r0 = rf(ctx, bucket)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*cli.CORSConfiguration)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, bucket)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// S3Client_GetCORS_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetCORS'
+type S3Client_GetCORS_Call struct {
+	*mock.Call
+}
+
+// GetCORS is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+func (_e *S3Client_Expecter) GetCORS(ctx interface{}, bucket interface{}) *S3Client_GetCORS_Call {
+	return &S3Client_GetCORS_Call{Call: _e.mock.On("GetCORS", ctx, bucket)}
+}
+
+func (_c *S3Client_GetCORS_Call) Run(run func(ctx context.Context, bucket string)) *S3Client_GetCORS_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *S3Client_GetCORS_Call) Return(_a0 *cli.CORSConfiguration, _a1 error) *S3Client_GetCORS_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *S3Client_GetCORS_Call) RunAndReturn(run func(context.Context, string) (*cli.CORSConfiguration, error)) *S3Client_GetCORS_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetLegalHold provides a mock function with given fields: ctx, ref
+func (_m *S3Client) GetLegalHold(ctx context.Context, ref cli.ObjectRef) (domain.LegalHoldStatus, error) {
+	ret := _m.Called(ctx, ref)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetLegalHold")
+	}
+
+	var r0 domain.LegalHoldStatus
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, cli.ObjectRef) (domain.LegalHoldStatus, error)); ok {
+		return rf(ctx, ref)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, cli.ObjectRef) domain.LegalHoldStatus); ok {
+		r0 = rf(ctx, ref)
+	} else {
+		r0 = ret.Get(0).(domain.LegalHoldStatus)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, cli.ObjectRef) error); ok {
+		r1 = rf(ctx, ref)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// S3Client_GetLegalHold_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetLegalHold'
+type S3Client_GetLegalHold_Call struct {
+	*mock.Call
+}
+
+// GetLegalHold is a helper method to define mock.On call
+//   - ctx context.Context
+//   - ref cli.ObjectRef
+func (_e *S3Client_Expecter) GetLegalHold(ctx interface{}, ref interface{}) *S3Client_GetLegalHold_Call {
+	return &S3Client_GetLegalHold_Call{Call: _e.mock.On("GetLegalHold", ctx, ref)}
+}
+
+func (_c *S3Client_GetLegalHold_Call) Run(run func(ctx context.Context, ref cli.ObjectRef)) *S3Client_GetLegalHold_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(cli.ObjectRef))
+	})
+	return _c
+}
+
+func (_c *S3Client_GetLegalHold_Call) Return(_a0 domain.LegalHoldStatus, _a1 error) *S3Client_GetLegalHold_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *S3Client_GetLegalHold_Call) RunAndReturn(run func(context.Context, cli.ObjectRef) (domain.LegalHoldStatus, error)) *S3Client_GetLegalHold_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetLifecycle provides a mock function with given fields: ctx, bucket
+func (_m *S3Client) GetLifecycle(ctx context.Context, bucket string) (*cli.LifecycleConfiguration, error) {
+	ret := _m.Called(ctx, bucket)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetLifecycle")
+	}
+
+	var r0 *cli.LifecycleConfiguration
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*cli.LifecycleConfiguration, error)); ok {
+		return rf(ctx, bucket)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *cli.LifecycleConfiguration); ok {
+		r0 = rf(ctx, bucket)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*cli.LifecycleConfiguration)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, bucket)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// S3Client_GetLifecycle_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetLifecycle'
+type S3Client_GetLifecycle_Call struct {
+	*mock.Call
+}
+
+// GetLifecycle is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+func (_e *S3Client_Expecter) GetLifecycle(ctx interface{}, bucket interface{}) *S3Client_GetLifecycle_Call {
+	return &S3Client_GetLifecycle_Call{Call: _e.mock.On("GetLifecycle", ctx, bucket)}
+}
+
+func (_c *S3Client_GetLifecycle_Call) Run(run func(ctx context.Context, bucket string)) *S3Client_GetLifecycle_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *S3Client_GetLifecycle_Call) Return(_a0 *cli.LifecycleConfiguration, _a1 error) *S3Client_GetLifecycle_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *S3Client_GetLifecycle_Call) RunAndReturn(run func(context.Context, string) (*cli.LifecycleConfiguration, error)) *S3Client_GetLifecycle_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetNotifications provides a mock function with given fields: ctx, bucket
+func (_m *S3Client) GetNotifications(ctx context.Context, bucket string) (*cli.BucketNotifications, error) {
+	ret := _m.Called(ctx, bucket)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetNotifications")
+	}
+
+	var r0 *cli.BucketNotifications
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*cli.BucketNotifications, error)); ok {
+		return rf(ctx, bucket)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *cli.BucketNotifications); ok {
+		r0 = rf(ctx, bucket)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*cli.BucketNotifications)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, bucket)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// S3Client_GetNotifications_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetNotifications'
+type S3Client_GetNotifications_Call struct {
+	*mock.Call
+}
+
+// GetNotifications is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+func (_e *S3Client_Expecter) GetNotifications(ctx interface{}, bucket interface{}) *S3Client_GetNotifications_Call {
+	return &S3Client_GetNotifications_Call{Call: _e.mock.On("GetNotifications", ctx, bucket)}
+}
+
+func (_c *S3Client_GetNotifications_Call) Run(run func(ctx context.Context, bucket string)) *S3Client_GetNotifications_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *S3Client_GetNotifications_Call) Return(_a0 *cli.BucketNotifications, _a1 error) *S3Client_GetNotifications_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *S3Client_GetNotifications_Call) RunAndReturn(run func(context.Context, string) (*cli.BucketNotifications, error)) *S3Client_GetNotifications_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetObjectLock provides a mock function with given fields: ctx, bucket
+func (_m *S3Client) GetObjectLock(ctx context.Context, bucket string) (*cli.ObjectLockConfig, error) {
+	ret := _m.Called(ctx, bucket)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetObjectLock")
+	}
+
+	var r0 *cli.ObjectLockConfig
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*cli.ObjectLockConfig, error)); ok {
+		return rf(ctx, bucket)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *cli.ObjectLockConfig); ok {
+		r0 = rf(ctx, bucket)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*cli.ObjectLockConfig)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, bucket)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// S3Client_GetObjectLock_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetObjectLock'
+type S3Client_GetObjectLock_Call struct {
+	*mock.Call
+}
+
+// GetObjectLock is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+func (_e *S3Client_Expecter) GetObjectLock(ctx interface{}, bucket interface{}) *S3Client_GetObjectLock_Call {
+	return &S3Client_GetObjectLock_Call{Call: _e.mock.On("GetObjectLock", ctx, bucket)}
+}
+
+func (_c *S3Client_GetObjectLock_Call) Run(run func(ctx context.Context, bucket string)) *S3Client_GetObjectLock_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *S3Client_GetObjectLock_Call) Return(_a0 *cli.ObjectLockConfig, _a1 error) *S3Client_GetObjectLock_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *S3Client_GetObjectLock_Call) RunAndReturn(run func(context.Context, string) (*cli.ObjectLockConfig, error)) *S3Client_GetObjectLock_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetRetention provides a mock function with given fields: ctx, ref
+func (_m *S3Client) GetRetention(ctx context.Context, ref cli.ObjectRef) (domain.ObjectRetention, error) {
+	ret := _m.Called(ctx, ref)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetRetention")
+	}
+
+	var r0 domain.ObjectRetention
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, cli.ObjectRef) (domain.ObjectRetention, error)); ok {
+		return rf(ctx, ref)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, cli.ObjectRef) domain.ObjectRetention); ok {
+		r0 = rf(ctx, ref)
+	} else {
+		r0 = ret.Get(0).(domain.ObjectRetention)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, cli.ObjectRef) error); ok {
+		r1 = rf(ctx, ref)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// S3Client_GetRetention_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetRetention'
+type S3Client_GetRetention_Call struct {
+	*mock.Call
+}
+
+// GetRetention is a helper method to define mock.On call
+//   - ctx context.Context
+//   - ref cli.ObjectRef
+func (_e *S3Client_Expecter) GetRetention(ctx interface{}, ref interface{}) *S3Client_GetRetention_Call {
+	return &S3Client_GetRetention_Call{Call: _e.mock.On("GetRetention", ctx, ref)}
+}
+
+func (_c *S3Client_GetRetention_Call) Run(run func(ctx context.Context, ref cli.ObjectRef)) *S3Client_GetRetention_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(cli.ObjectRef))
+	})
+	return _c
+}
+
+func (_c *S3Client_GetRetention_Call) Return(_a0 domain.ObjectRetention, _a1 error) *S3Client_GetRetention_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *S3Client_GetRetention_Call) RunAndReturn(run func(context.Context, cli.ObjectRef) (domain.ObjectRetention, error)) *S3Client_GetRetention_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -965,6 +1317,247 @@ func (_c *S3Client_PutBucketPolicy_Call) RunAndReturn(run func(context.Context, 
 	return _c
 }
 
+// PutCORS provides a mock function with given fields: ctx, bucket, cfg
+func (_m *S3Client) PutCORS(ctx context.Context, bucket string, cfg cli.CORSConfiguration) error {
+	ret := _m.Called(ctx, bucket, cfg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PutCORS")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, cli.CORSConfiguration) error); ok {
+		r0 = rf(ctx, bucket, cfg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// S3Client_PutCORS_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PutCORS'
+type S3Client_PutCORS_Call struct {
+	*mock.Call
+}
+
+// PutCORS is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - cfg cli.CORSConfiguration
+func (_e *S3Client_Expecter) PutCORS(ctx interface{}, bucket interface{}, cfg interface{}) *S3Client_PutCORS_Call {
+	return &S3Client_PutCORS_Call{Call: _e.mock.On("PutCORS", ctx, bucket, cfg)}
+}
+
+func (_c *S3Client_PutCORS_Call) Run(run func(ctx context.Context, bucket string, cfg cli.CORSConfiguration)) *S3Client_PutCORS_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(cli.CORSConfiguration))
+	})
+	return _c
+}
+
+func (_c *S3Client_PutCORS_Call) Return(_a0 error) *S3Client_PutCORS_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *S3Client_PutCORS_Call) RunAndReturn(run func(context.Context, string, cli.CORSConfiguration) error) *S3Client_PutCORS_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// PutLegalHold provides a mock function with given fields: ctx, ref, hold
+func (_m *S3Client) PutLegalHold(ctx context.Context, ref cli.ObjectRef, hold domain.LegalHoldStatus) error {
+	ret := _m.Called(ctx, ref, hold)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PutLegalHold")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, cli.ObjectRef, domain.LegalHoldStatus) error); ok {
+		r0 = rf(ctx, ref, hold)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// S3Client_PutLegalHold_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PutLegalHold'
+type S3Client_PutLegalHold_Call struct {
+	*mock.Call
+}
+
+// PutLegalHold is a helper method to define mock.On call
+//   - ctx context.Context
+//   - ref cli.ObjectRef
+//   - hold domain.LegalHoldStatus
+func (_e *S3Client_Expecter) PutLegalHold(ctx interface{}, ref interface{}, hold interface{}) *S3Client_PutLegalHold_Call {
+	return &S3Client_PutLegalHold_Call{Call: _e.mock.On("PutLegalHold", ctx, ref, hold)}
+}
+
+func (_c *S3Client_PutLegalHold_Call) Run(run func(ctx context.Context, ref cli.ObjectRef, hold domain.LegalHoldStatus)) *S3Client_PutLegalHold_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(cli.ObjectRef), args[2].(domain.LegalHoldStatus))
+	})
+	return _c
+}
+
+func (_c *S3Client_PutLegalHold_Call) Return(_a0 error) *S3Client_PutLegalHold_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *S3Client_PutLegalHold_Call) RunAndReturn(run func(context.Context, cli.ObjectRef, domain.LegalHoldStatus) error) *S3Client_PutLegalHold_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// PutLifecycle provides a mock function with given fields: ctx, bucket, cfg
+func (_m *S3Client) PutLifecycle(ctx context.Context, bucket string, cfg cli.LifecycleConfiguration) error {
+	ret := _m.Called(ctx, bucket, cfg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PutLifecycle")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, cli.LifecycleConfiguration) error); ok {
+		r0 = rf(ctx, bucket, cfg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// S3Client_PutLifecycle_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PutLifecycle'
+type S3Client_PutLifecycle_Call struct {
+	*mock.Call
+}
+
+// PutLifecycle is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - cfg cli.LifecycleConfiguration
+func (_e *S3Client_Expecter) PutLifecycle(ctx interface{}, bucket interface{}, cfg interface{}) *S3Client_PutLifecycle_Call {
+	return &S3Client_PutLifecycle_Call{Call: _e.mock.On("PutLifecycle", ctx, bucket, cfg)}
+}
+
+func (_c *S3Client_PutLifecycle_Call) Run(run func(ctx context.Context, bucket string, cfg cli.LifecycleConfiguration)) *S3Client_PutLifecycle_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(cli.LifecycleConfiguration))
+	})
+	return _c
+}
+
+func (_c *S3Client_PutLifecycle_Call) Return(_a0 error) *S3Client_PutLifecycle_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *S3Client_PutLifecycle_Call) RunAndReturn(run func(context.Context, string, cli.LifecycleConfiguration) error) *S3Client_PutLifecycle_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// PutNotifications provides a mock function with given fields: ctx, bucket, cfg
+func (_m *S3Client) PutNotifications(ctx context.Context, bucket string, cfg cli.BucketNotifications) error {
+	ret := _m.Called(ctx, bucket, cfg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PutNotifications")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, cli.BucketNotifications) error); ok {
+		r0 = rf(ctx, bucket, cfg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// S3Client_PutNotifications_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PutNotifications'
+type S3Client_PutNotifications_Call struct {
+	*mock.Call
+}
+
+// PutNotifications is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - cfg cli.BucketNotifications
+func (_e *S3Client_Expecter) PutNotifications(ctx interface{}, bucket interface{}, cfg interface{}) *S3Client_PutNotifications_Call {
+	return &S3Client_PutNotifications_Call{Call: _e.mock.On("PutNotifications", ctx, bucket, cfg)}
+}
+
+func (_c *S3Client_PutNotifications_Call) Run(run func(ctx context.Context, bucket string, cfg cli.BucketNotifications)) *S3Client_PutNotifications_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(cli.BucketNotifications))
+	})
+	return _c
+}
+
+func (_c *S3Client_PutNotifications_Call) Return(_a0 error) *S3Client_PutNotifications_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *S3Client_PutNotifications_Call) RunAndReturn(run func(context.Context, string, cli.BucketNotifications) error) *S3Client_PutNotifications_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// PutRetention provides a mock function with given fields: ctx, ref, retention, bypass
+func (_m *S3Client) PutRetention(ctx context.Context, ref cli.ObjectRef, retention domain.ObjectRetention, bypass bool) error {
+	ret := _m.Called(ctx, ref, retention, bypass)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PutRetention")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, cli.ObjectRef, domain.ObjectRetention, bool) error); ok {
+		r0 = rf(ctx, ref, retention, bypass)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// S3Client_PutRetention_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PutRetention'
+type S3Client_PutRetention_Call struct {
+	*mock.Call
+}
+
+// PutRetention is a helper method to define mock.On call
+//   - ctx context.Context
+//   - ref cli.ObjectRef
+//   - retention domain.ObjectRetention
+//   - bypass bool
+func (_e *S3Client_Expecter) PutRetention(ctx interface{}, ref interface{}, retention interface{}, bypass interface{}) *S3Client_PutRetention_Call {
+	return &S3Client_PutRetention_Call{Call: _e.mock.On("PutRetention", ctx, ref, retention, bypass)}
+}
+
+func (_c *S3Client_PutRetention_Call) Run(run func(ctx context.Context, ref cli.ObjectRef, retention domain.ObjectRetention, bypass bool)) *S3Client_PutRetention_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(cli.ObjectRef), args[2].(domain.ObjectRetention), args[3].(bool))
+	})
+	return _c
+}
+
+func (_c *S3Client_PutRetention_Call) Return(_a0 error) *S3Client_PutRetention_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *S3Client_PutRetention_Call) RunAndReturn(run func(context.Context, cli.ObjectRef, domain.ObjectRetention, bool) error) *S3Client_PutRetention_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // PutTags provides a mock function with given fields: ctx, ref, tags
 func (_m *S3Client) PutTags(ctx context.Context, ref cli.ObjectRef, tags map[string]string) error {
 	ret := _m.Called(ctx, ref, tags)
@@ -1013,9 +1606,9 @@ func (_c *S3Client_PutTags_Call) RunAndReturn(run func(context.Context, cli.Obje
 	return _c
 }
 
-// Remove provides a mock function with given fields: ctx, bucket, objects
-func (_m *S3Client) Remove(ctx context.Context, bucket string, objects []cli.ObjectVersion) ([]cli.RemoveResult, error) {
-	ret := _m.Called(ctx, bucket, objects)
+// Remove provides a mock function with given fields: ctx, bucket, objects, opts
+func (_m *S3Client) Remove(ctx context.Context, bucket string, objects []cli.ObjectVersion, opts cli.DeleteOptions) ([]cli.RemoveResult, error) {
+	ret := _m.Called(ctx, bucket, objects, opts)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Remove")
@@ -1023,19 +1616,19 @@ func (_m *S3Client) Remove(ctx context.Context, bucket string, objects []cli.Obj
 
 	var r0 []cli.RemoveResult
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, []cli.ObjectVersion) ([]cli.RemoveResult, error)); ok {
-		return rf(ctx, bucket, objects)
+	if rf, ok := ret.Get(0).(func(context.Context, string, []cli.ObjectVersion, cli.DeleteOptions) ([]cli.RemoveResult, error)); ok {
+		return rf(ctx, bucket, objects, opts)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, []cli.ObjectVersion) []cli.RemoveResult); ok {
-		r0 = rf(ctx, bucket, objects)
+	if rf, ok := ret.Get(0).(func(context.Context, string, []cli.ObjectVersion, cli.DeleteOptions) []cli.RemoveResult); ok {
+		r0 = rf(ctx, bucket, objects, opts)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]cli.RemoveResult)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, []cli.ObjectVersion) error); ok {
-		r1 = rf(ctx, bucket, objects)
+	if rf, ok := ret.Get(1).(func(context.Context, string, []cli.ObjectVersion, cli.DeleteOptions) error); ok {
+		r1 = rf(ctx, bucket, objects, opts)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -1052,13 +1645,14 @@ type S3Client_Remove_Call struct {
 //   - ctx context.Context
 //   - bucket string
 //   - objects []cli.ObjectVersion
-func (_e *S3Client_Expecter) Remove(ctx interface{}, bucket interface{}, objects interface{}) *S3Client_Remove_Call {
-	return &S3Client_Remove_Call{Call: _e.mock.On("Remove", ctx, bucket, objects)}
+//   - opts cli.DeleteOptions
+func (_e *S3Client_Expecter) Remove(ctx interface{}, bucket interface{}, objects interface{}, opts interface{}) *S3Client_Remove_Call {
+	return &S3Client_Remove_Call{Call: _e.mock.On("Remove", ctx, bucket, objects, opts)}
 }
 
-func (_c *S3Client_Remove_Call) Run(run func(ctx context.Context, bucket string, objects []cli.ObjectVersion)) *S3Client_Remove_Call {
+func (_c *S3Client_Remove_Call) Run(run func(ctx context.Context, bucket string, objects []cli.ObjectVersion, opts cli.DeleteOptions)) *S3Client_Remove_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].([]cli.ObjectVersion))
+		run(args[0].(context.Context), args[1].(string), args[2].([]cli.ObjectVersion), args[3].(cli.DeleteOptions))
 	})
 	return _c
 }
@@ -1068,7 +1662,7 @@ func (_c *S3Client_Remove_Call) Return(_a0 []cli.RemoveResult, _a1 error) *S3Cli
 	return _c
 }
 
-func (_c *S3Client_Remove_Call) RunAndReturn(run func(context.Context, string, []cli.ObjectVersion) ([]cli.RemoveResult, error)) *S3Client_Remove_Call {
+func (_c *S3Client_Remove_Call) RunAndReturn(run func(context.Context, string, []cli.ObjectVersion, cli.DeleteOptions) ([]cli.RemoveResult, error)) *S3Client_Remove_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1116,6 +1710,54 @@ func (_c *S3Client_RemoveBucket_Call) Return(_a0 error) *S3Client_RemoveBucket_C
 }
 
 func (_c *S3Client_RemoveBucket_Call) RunAndReturn(run func(context.Context, string) error) *S3Client_RemoveBucket_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetObjectLock provides a mock function with given fields: ctx, bucket, def
+func (_m *S3Client) SetObjectLock(ctx context.Context, bucket string, def domain.DefaultRetention) error {
+	ret := _m.Called(ctx, bucket, def)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetObjectLock")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, domain.DefaultRetention) error); ok {
+		r0 = rf(ctx, bucket, def)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// S3Client_SetObjectLock_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetObjectLock'
+type S3Client_SetObjectLock_Call struct {
+	*mock.Call
+}
+
+// SetObjectLock is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - def domain.DefaultRetention
+func (_e *S3Client_Expecter) SetObjectLock(ctx interface{}, bucket interface{}, def interface{}) *S3Client_SetObjectLock_Call {
+	return &S3Client_SetObjectLock_Call{Call: _e.mock.On("SetObjectLock", ctx, bucket, def)}
+}
+
+func (_c *S3Client_SetObjectLock_Call) Run(run func(ctx context.Context, bucket string, def domain.DefaultRetention)) *S3Client_SetObjectLock_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(domain.DefaultRetention))
+	})
+	return _c
+}
+
+func (_c *S3Client_SetObjectLock_Call) Return(_a0 error) *S3Client_SetObjectLock_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *S3Client_SetObjectLock_Call) RunAndReturn(run func(context.Context, string, domain.DefaultRetention) error) *S3Client_SetObjectLock_Call {
 	_c.Call.Return(run)
 	return _c
 }

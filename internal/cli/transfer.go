@@ -40,6 +40,9 @@ type PlanOptions struct {
 	Recursive bool
 	// VersionID selects the version of a single remote source.
 	VersionID string
+	// Encryption carries the SSE-C keys needed to read the remote sources
+	// (--enc-c).
+	Encryption EncryptionRules
 }
 
 // plannedSource is a source expanded by PlanCopy: rel is the path of the
@@ -179,7 +182,7 @@ func planRemote(ctx context.Context, resolve ClientResolver, src Target, opts Pl
 		if isPrefix {
 			return nil, UsageError("%s is a bucket or a prefix: use --recursive", src)
 		}
-		info, err := client.Stat(ctx, src.Bucket, src.Key, StatOptions{VersionID: opts.VersionID})
+		info, err := client.Stat(ctx, src.Bucket, src.Key, StatOptions{VersionID: opts.VersionID, SSE: opts.Encryption.CustomerKeyFor(src)})
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", src, err)
 		}
@@ -210,7 +213,7 @@ func planRemote(ctx context.Context, resolve ClientResolver, src Target, opts Pl
 	}
 	if !isPrefix {
 		// "alias/bucket/name" also designates the object "name" itself.
-		info, err := client.Stat(ctx, src.Bucket, src.Key, StatOptions{})
+		info, err := client.Stat(ctx, src.Bucket, src.Key, StatOptions{SSE: opts.Encryption.CustomerKeyFor(src)})
 		switch {
 		case err == nil:
 			out = append([]plannedSource{{
@@ -242,6 +245,13 @@ type TransferOptions struct {
 	Parallel int
 	// Progress receives the transferred bytes (nil: none).
 	Progress *Progress
+	// Encryption selects the server-side encryption of the uploaded
+	// objects and the SSE-C keys of the remote sources (--enc-s3,
+	// --enc-kms, --enc-c).
+	Encryption EncryptionRules
+	// Checksum is the additional checksum of the uploaded objects
+	// (--checksum).
+	Checksum domain.ChecksumAlgorithm
 }
 
 // Transfer runs the transfers of cp, mv, mirror and pipe between local
@@ -289,6 +299,7 @@ func (t Transfer) Upload(ctx context.Context, body io.Reader, size int64, dst Ta
 	res, err := client.Put(ctx, dst.Bucket, dst.Key, body, PutOptions{
 		Size: size, ContentType: opts.ContentType, Metadata: opts.Metadata, Tags: opts.Tags,
 		PartSize: opts.PartSize, Parallel: opts.Parallel, Progress: progressFunc(opts.Progress),
+		SSE: opts.Encryption.For(dst), Checksum: opts.Checksum,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", dst, err)
@@ -311,13 +322,14 @@ func (t Transfer) copyRemote(ctx context.Context, item CopyItem, opts TransferOp
 			CopyOptions{
 				Metadata: opts.Metadata, ContentType: opts.ContentType, Tags: opts.Tags,
 				PartSize: opts.PartSize, Parallel: opts.Parallel, Progress: progressFunc(opts.Progress),
+				SourceSSE: opts.Encryption.CustomerKeyFor(src), SSE: opts.Encryption.For(dst), Checksum: opts.Checksum,
 			})
 		if err != nil {
 			return nil, fmt.Errorf("%s -> %s: %w", src, dst, err)
 		}
 		return res, nil
 	}
-	body, info, err := srcClient.Get(ctx, src.Bucket, src.Key, GetOptions{VersionID: item.SourceVersion})
+	body, info, err := srcClient.Get(ctx, src.Bucket, src.Key, GetOptions{VersionID: item.SourceVersion, SSE: opts.Encryption.CustomerKeyFor(src)})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", src, err)
 	}
@@ -338,7 +350,7 @@ func (t Transfer) download(ctx context.Context, item CopyItem, opts TransferOpti
 	if err != nil {
 		return nil, err
 	}
-	body, info, err := client.Get(ctx, src.Bucket, src.Key, GetOptions{VersionID: item.SourceVersion})
+	body, info, err := client.Get(ctx, src.Bucket, src.Key, GetOptions{VersionID: item.SourceVersion, SSE: opts.Encryption.CustomerKeyFor(src)})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", src, err)
 	}
@@ -395,7 +407,7 @@ func (t Transfer) Delete(ctx context.Context, target Target, versionID string) e
 	if err != nil {
 		return err
 	}
-	res, err := client.Remove(ctx, target.Bucket, []ObjectVersion{{Key: target.Key, VersionID: versionID}})
+	res, err := client.Remove(ctx, target.Bucket, []ObjectVersion{{Key: target.Key, VersionID: versionID}}, DeleteOptions{})
 	if err != nil {
 		return fmt.Errorf("%s: %w", target, err)
 	}

@@ -1,0 +1,20 @@
+List the keys of the KMS
+
+Usage:
+  nexoctl admin kms key list ALIAS [PREFIX] [flags]
+
+Aliases:
+  list, ls
+
+Examples:
+  nexoctl admin kms key ls local
+
+Flags:
+  -h, --help   help for list
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

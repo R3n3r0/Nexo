@@ -40,8 +40,9 @@ func (e *usageError) Unwrap() error { return ErrUsage }
 
 // ExitCode maps an error to the exit code of the process: 0 for nil, 2 for
 // usage errors, 3 for missing buckets, objects, versions, aliases or local
-// files, 4 for authentication and authorization failures, 130 for an
-// interruption (Ctrl-C) and 1 for everything else.
+// files, 4 for authentication and authorization failures (an object
+// version protected by Object Lock included), 130 for an interruption
+// (Ctrl-C) and 1 for everything else.
 func ExitCode(err error) int {
 	switch {
 	case err == nil:
@@ -96,7 +97,7 @@ func IsAuthorizationDenial(err error) bool {
 func isAccessError(err error) bool {
 	for _, target := range []error{
 		domain.ErrAccessDenied, domain.ErrInvalidAccessKey, domain.ErrSignatureMismatch,
-		domain.ErrRequestExpired, domain.ErrUnauthenticated, fs.ErrPermission,
+		domain.ErrRequestExpired, domain.ErrUnauthenticated, domain.ErrObjectLocked, fs.ErrPermission,
 	} {
 		if errors.Is(err, target) {
 			return true

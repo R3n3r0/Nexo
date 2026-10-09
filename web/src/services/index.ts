@@ -27,7 +27,13 @@ export async function loadServices(config: ServicesConfig): Promise<Services> {
   return createHttpServices({ baseUrl: config.apiBase });
 }
 
-export { ApiError, isApiError, type LocatedError, type ProblemDetails } from './errors';
+export {
+  ApiError,
+  isApiError,
+  type LocatedError,
+  type ProblemDetails,
+  type RuleProblem,
+} from './errors';
 export { demoCredentials } from './demo';
 export type * from './interfaces';
 export { ServicesProvider, useServices } from './ServicesProvider';

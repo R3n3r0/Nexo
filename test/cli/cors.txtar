@@ -1,0 +1,61 @@
+# T-7.10, S-BKT-06: cors set (JSON or S3 XML), get, rm, and the preflight
+# requests the server answers after them (without a bucket configuration
+# the server-wide api.cors_allow_origin applies).
+
+exec nexoctl mb local/site
+exec nexoctl cors get local/site
+stdout 'has no CORS configuration'
+exec nexoctl cors set local/site cors.json
+stdout 'set \(1 rule\)'
+exec nexoctl cors get local/site
+cmp stdout cors.json
+exec nexoctl cors get --xml local/site
+stdout '<AllowedOrigin>https://app.example.com</AllowedOrigin>'
+exec nexoctl cors get --json local/site
+jsonlines stdout
+stdout '"allowedMethods":\["GET","PUT"\]'
+
+# The server applies the rules to the preflight requests.
+http -X OPTIONS -H 'Origin: https://app.example.com' -H 'Access-Control-Request-Method: PUT' $NEXO_URL/site/index.html
+http -X OPTIONS -H 'Origin: https://evil.example.com' -H 'Access-Control-Request-Method: PUT' -status 403 $NEXO_URL/site/index.html
+
+exec nexoctl cors set local/site cors.xml
+exec nexoctl cors get local/site
+stdout '"allowedOrigins": \['
+stdout '"https://\*.example.com"'
+http -X OPTIONS -H 'Origin: https://other.example.com' -H 'Access-Control-Request-Method: GET' $NEXO_URL/site/index.html
+expectcode 2 nexoctl cors set local/site bad.json
+stderr 'PATCH'
+
+exec nexoctl cors rm local/site
+exec nexoctl cors get local/site
+stdout 'has no CORS configuration'
+
+-- cors.json --
+{
+  "rules": [
+    {
+      "id": "app",
+      "allowedOrigins": [
+        "https://app.example.com"
+      ],
+      "allowedMethods": [
+        "GET",
+        "PUT"
+      ],
+      "allowedHeaders": [
+        "*"
+      ],
+      "maxAgeSeconds": 600
+    }
+  ]
+}
+-- cors.xml --
+<CORSConfiguration>
+  <CORSRule>
+    <AllowedOrigin>https://*.example.com</AllowedOrigin>
+    <AllowedMethod>GET</AllowedMethod>
+  </CORSRule>
+</CORSConfiguration>
+-- bad.json --
+{"rules": [{"allowedOrigins": ["*"], "allowedMethods": ["PATCH"]}]}

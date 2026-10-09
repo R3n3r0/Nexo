@@ -225,6 +225,8 @@ func (l *layer) DeleteBucket(ctx context.Context, bucket string, opts DeleteBuck
 		if err := l.checkEmpty(ctx, bucket); err != nil {
 			return err
 		}
+	} else if err := l.checkNoLockedVersion(ctx, bucket); err != nil {
+		return err
 	}
 	errs := parallel(len(l.sets), func(i int) error { return l.sets[i].DeleteVol(ctx, bucket, opts.Force) })
 	for _, err := range errs {
@@ -257,7 +259,8 @@ func (l *layer) DeleteBucket(ctx context.Context, bucket string, opts DeleteBuck
 }
 
 // checkEmpty fails with domain.ErrBucketNotEmpty when the bucket holds an
-// object, a version, a delete marker or an in-progress multipart upload.
+// object, a version or a delete marker. The in-progress multipart uploads
+// do not keep a bucket: as in S3, they are aborted with it.
 func (l *layer) checkEmpty(ctx context.Context, bucket string) error {
 	empty := true
 	err := l.walkAll(ctx, storage.WalkDirOptions{Bucket: bucket, Recursive: true}, func(e walkEntry) error {
@@ -273,13 +276,37 @@ func (l *layer) checkEmpty(ctx context.Context, bucket string) error {
 	if !empty {
 		return domain.NewS3Error(domain.ErrBucketNotEmpty, "BucketNotEmpty", "The bucket you tried to delete is not empty").WithResource(bucket)
 	}
-	uploads, err := l.uploadsOf(ctx, bucket)
+	return nil
+}
+
+// checkNoLockedVersion fails with domain.ErrObjectLocked when a bucket
+// with object locking holds a version under legal hold or an active
+// retention: a forced deletion would remove it.
+func (l *layer) checkNoLockedVersion(ctx context.Context, bucket string) error {
+	cfg, err := l.bucketConfig(ctx, bucket)
 	if err != nil {
 		return err
 	}
-	if len(uploads) > 0 {
-		return domain.NewS3Error(domain.ErrBucketNotEmpty, "BucketNotEmpty",
-			fmt.Sprintf("The bucket you tried to delete has %d multipart upload(s) in progress", len(uploads))).WithResource(bucket)
+	if !cfg.ObjectLock {
+		return nil
+	}
+	now := l.now()
+	var locked string
+	err = l.walkAll(ctx, storage.WalkDirOptions{Bucket: bucket, Recursive: true}, func(e walkEntry) error {
+		for _, fi := range e.Versions {
+			if isLocked(objectInfo(bucket, e.Name, fi), now) {
+				locked = e.Name
+				return errListDone
+			}
+		}
+		return nil
+	})
+	if err != nil && !errors.Is(err, errListDone) {
+		return fmt.Errorf("%s: delete bucket %s: %w", l.name, bucket, err)
+	}
+	if locked != "" {
+		return domain.NewS3Error(domain.ErrObjectLocked, "AccessDenied",
+			fmt.Sprintf("The bucket cannot be force deleted: object %q has a version protected by object lock.", locked)).WithResource(bucket)
 	}
 	return nil
 }
@@ -323,8 +350,8 @@ func (l *layer) usage(ctx context.Context, info *domain.BucketInfo) error {
 			default:
 				info.Versions++
 			}
-			if fi.Size > 0 {
-				info.Size += uint64(fi.Size)
+			if size := actualSize(fi); size > 0 {
+				info.Size += uint64(size)
 			}
 		}
 		return nil

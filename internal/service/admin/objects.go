@@ -309,7 +309,8 @@ func (b *objectBrowser) Delete(ctx context.Context, in DeleteObjectsInput) (*Del
 	if err := b.authorizeWalks(ctx, in.Requester, in.Bucket, in.Prefixes, in.AllVersions); err != nil {
 		return nil, err
 	}
-	d := &deleter{b: b, ctx: ctx, req: in.Requester, bucket: in.Bucket, out: &DeleteObjectsResult{Deleted: []DeletedObject{}, Errors: []ObjectError{}}}
+	d := &deleter{b: b, ctx: ctx, req: in.Requester, bucket: in.Bucket, bypass: in.BypassGovernance,
+		out: &DeleteObjectsResult{Deleted: []DeletedObject{}, Errors: []ObjectError{}}}
 	for _, ref := range in.Objects {
 		if err := domain.ValidateObjectKey(ref.Key); err != nil {
 			d.fail(ref, err)
@@ -345,11 +346,16 @@ func (b *objectBrowser) Delete(ctx context.Context, in DeleteObjectsInput) (*Del
 
 // deleter authorizes and batches the deletions of Delete.
 type deleter struct {
-	b       *objectBrowser
-	ctx     context.Context
-	req     Requester
-	bucket  string
-	pending []object.ObjectToDelete
+	b      *objectBrowser
+	ctx    context.Context
+	req    Requester
+	bucket string
+	// bypass asks to bypass the governance retention (decided version by
+	// version, as the S3 DeleteObjects does).
+	bypass bool
+	// pending are the queued deletions; pending[1] those allowed to
+	// bypass the governance retention.
+	pending [2][]object.ObjectToDelete
 	out     *DeleteObjectsResult
 }
 
@@ -358,13 +364,18 @@ func (d *deleter) fail(ref ObjectRef, err error) {
 }
 
 // add authorizes one deletion as the S3 DeleteObject of the same version
-// (s3:versionid) and queues it, flushing full batches.
+// (s3:versionid, and the x-amz-bypass-governance-retention header when
+// the bypass is asked) and queues it, flushing full batches. A version
+// is deleted bypassing its governance retention when the requester may
+// (s3:BypassGovernanceRetention on the version); otherwise the object
+// layer refuses a locked version (domain.ErrObjectLocked).
 func (d *deleter) add(ref ObjectRef) error {
 	action := policy.ActionDeleteObject
 	if ref.VersionID != "" {
 		action = policy.ActionDeleteObjectVersion
 	}
-	err := authorizeObject(d.ctx, d.b.deps.Authz, d.req, d.bucket, ref.Key, ObjectRequest{VersionID: ref.VersionID}, action)
+	or := bypassRequest(ref.VersionID, d.bypass)
+	err := authorizeObject(d.ctx, d.b.deps.Authz, d.req, d.bucket, ref.Key, or, action)
 	if errors.Is(err, domain.ErrAccessDenied) {
 		d.fail(ref, err)
 		return nil
@@ -372,23 +383,38 @@ func (d *deleter) add(ref ObjectRef) error {
 	if err != nil {
 		return err
 	}
-	d.pending = append(d.pending, object.ObjectToDelete{Key: ref.Key, VersionID: ref.VersionID})
-	if len(d.pending) >= deleteBatch {
-		return d.flush()
+	batch := 0
+	if d.bypass && ref.VersionID != "" &&
+		d.b.allowed(d.ctx, d.req, d.bucket, ref.Key, ObjectConditions(or), policy.ActionBypassGovernanceRetention) {
+		batch = 1
+	}
+	d.pending[batch] = append(d.pending[batch], object.ObjectToDelete{Key: ref.Key, VersionID: ref.VersionID})
+	if len(d.pending[batch]) >= deleteBatch {
+		return d.flushBatch(batch)
 	}
 	return nil
 }
 
 // flush deletes the queued objects.
 func (d *deleter) flush() error {
-	if len(d.pending) == 0 {
+	for batch := range d.pending {
+		if err := d.flushBatch(batch); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// flushBatch deletes the objects of one batch.
+func (d *deleter) flushBatch(batch int) error {
+	if len(d.pending[batch]) == 0 {
 		return nil
 	}
-	res, err := d.b.deps.Objects.DeleteObjects(d.ctx, object.DeleteObjectsInput{Bucket: d.bucket, Objects: d.pending})
+	res, err := d.b.deps.Objects.DeleteObjects(d.ctx, object.DeleteObjectsInput{Bucket: d.bucket, Objects: d.pending[batch], BypassGovernance: batch == 1})
 	if err != nil {
 		return err
 	}
-	d.pending = d.pending[:0]
+	d.pending[batch] = d.pending[batch][:0]
 	for _, o := range res.Deleted {
 		d.out.Deleted = append(d.out.Deleted, DeletedObject(o))
 	}

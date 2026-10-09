@@ -56,6 +56,7 @@ func NewConfigManager(deps ConfigManagerDeps, opts ...ConfigManagerOption) (Conf
 // each key marked with whether the server applies it (settings.Applied).
 func configSchema() []SubsystemSchema {
 	schema := knownSubsystems()
+	sort.Slice(schema, func(i, j int) bool { return schema[i].Name < schema[j].Name })
 	for i := range schema {
 		for j := range schema[i].Keys {
 			schema[i].Keys[j].Applied = settings.Applied(schema[i].Name, schema[i].Keys[j].Name)
@@ -81,13 +82,56 @@ func knownSubsystems() []SubsystemSchema {
 			{Name: "level", Type: KeyEnum, Default: "info", Values: []string{"debug", "info", "warn", "error"}, Description: "Minimum level"},
 			{Name: "format", Type: KeyEnum, Default: "text", Values: []string{"text", "json"}, Description: "Output format"},
 		}},
-		{Name: "notify_webhook", Description: "Bucket notifications to a webhook", Keys: []KeySchema{
-			{Name: "enable", Type: KeyBool, Default: "off", Description: "Enable the target"},
-			{Name: "endpoint", Type: KeyURL, Description: "URL receiving the events"},
-			{Name: "auth_token", Type: KeyString, Description: "Bearer token sent to the endpoint", Sensitive: true},
-			{Name: "queue_dir", Type: KeyString, Description: "Directory of the persistent event queue"},
-			{Name: "queue_limit", Type: KeyInt, Default: "100000", Description: "Maximum queued events"},
-		}},
+		{Name: "notify_webhook", Description: "Bucket notifications to a webhook", Keys: notifyKeys(
+			KeySchema{Name: "endpoint", Type: KeyURL, Description: "URL receiving the events"},
+			KeySchema{Name: "auth_token", Type: KeyString, Description: "Bearer token sent to the endpoint (or \"<scheme> <credentials>\")", Sensitive: true},
+			KeySchema{Name: "client_cert", Type: KeyString, Description: "PEM file of the client certificate"},
+			KeySchema{Name: "client_key", Type: KeyString, Description: "PEM file of the client key"},
+			KeySchema{Name: "tls_skip_verify", Type: KeyBool, Default: "off", Description: "Accept any server certificate"},
+		)},
+		{Name: "notify_kafka", Description: "Bucket notifications to Kafka", Keys: notifyKeys(
+			KeySchema{Name: "brokers", Type: KeyList, Description: "Brokers (host:port), comma separated"},
+			KeySchema{Name: "topic", Type: KeyString, Description: "Topic of the events"},
+			KeySchema{Name: "sasl", Type: KeyBool, Default: "off", Description: "Authenticate with SASL"},
+			KeySchema{Name: "sasl_username", Type: KeyString, Description: "SASL user name"},
+			KeySchema{Name: "sasl_password", Type: KeyString, Description: "SASL password", Sensitive: true},
+			KeySchema{Name: "sasl_mechanism", Type: KeyEnum, Default: "plain", Values: []string{"plain", "sha256", "sha512"}, Description: "SASL mechanism"},
+			KeySchema{Name: "tls", Type: KeyBool, Default: "off", Description: "Connect with TLS"},
+			KeySchema{Name: "tls_skip_verify", Type: KeyBool, Default: "off", Description: "Accept any server certificate"},
+		)},
+		{Name: "notify_nats", Description: "Bucket notifications to NATS", Keys: notifyKeys(
+			KeySchema{Name: "address", Type: KeyString, Description: "Server address (host:port or nats:// URL)"},
+			KeySchema{Name: "subject", Type: KeyString, Description: "Subject of the events"},
+			KeySchema{Name: "username", Type: KeyString, Description: "User name"},
+			KeySchema{Name: "password", Type: KeyString, Description: "Password", Sensitive: true},
+			KeySchema{Name: "token", Type: KeyString, Description: "Authentication token", Sensitive: true},
+			KeySchema{Name: "tls", Type: KeyBool, Default: "off", Description: "Connect with TLS"},
+			KeySchema{Name: "tls_skip_verify", Type: KeyBool, Default: "off", Description: "Accept any server certificate"},
+		)},
+		{Name: "notify_amqp", Description: "Bucket notifications to AMQP (RabbitMQ)", Keys: notifyKeys(
+			KeySchema{Name: "url", Type: KeyString, Description: "amqp:// or amqps:// URL of the broker", Sensitive: true},
+			KeySchema{Name: "exchange", Type: KeyString, Description: "Exchange (declared when set)"},
+			KeySchema{Name: "exchange_type", Type: KeyEnum, Default: "fanout", Values: []string{"direct", "fanout", "topic", "headers"}, Description: "Exchange type"},
+			KeySchema{Name: "routing_key", Type: KeyString, Description: "Routing key"},
+			KeySchema{Name: "mandatory", Type: KeyBool, Default: "off", Description: "Publish mandatory messages"},
+			KeySchema{Name: "durable", Type: KeyBool, Default: "off", Description: "Declare a durable exchange"},
+			KeySchema{Name: "delivery_mode", Type: KeyEnum, Default: "1", Values: []string{"1", "2"}, Description: "1 transient, 2 persistent"},
+			KeySchema{Name: "tls_skip_verify", Type: KeyBool, Default: "off", Description: "Accept any server certificate"},
+		)},
+		{Name: "notify_redis", Description: "Bucket notifications to Redis", Keys: notifyKeys(
+			KeySchema{Name: "address", Type: KeyString, Description: "Server address (host:port)"},
+			KeySchema{Name: "key", Type: KeyString, Description: "Hash (namespace) or list (access) of the events"},
+			KeySchema{Name: "format", Type: KeyEnum, Default: "namespace", Values: []string{"namespace", "access"}, Description: "namespace: one entry per object; access: every event"},
+			KeySchema{Name: "user", Type: KeyString, Description: "User name (ACL)"},
+			KeySchema{Name: "password", Type: KeyString, Description: "Password", Sensitive: true},
+			KeySchema{Name: "tls", Type: KeyBool, Default: "off", Description: "Connect with TLS"},
+			KeySchema{Name: "tls_skip_verify", Type: KeyBool, Default: "off", Description: "Accept any server certificate"},
+		)},
+		{Name: "notify_postgres", Description: "Bucket notifications to PostgreSQL", Keys: notifyKeys(
+			KeySchema{Name: "connection_string", Type: KeyString, Description: "Connection string (postgres:// URL or key=value)", Sensitive: true},
+			KeySchema{Name: "table", Type: KeyString, Description: "Table of the events (created when missing)"},
+			KeySchema{Name: "format", Type: KeyEnum, Default: "namespace", Values: []string{"namespace", "access"}, Description: "namespace: one row per object; access: every event"},
+		)},
 		{Name: "region", Description: "Server location", Keys: []KeySchema{
 			{Name: "name", Type: KeyString, Default: "us-east-1", Description: "Region name reported to clients"},
 			{Name: "comment", Type: KeyString, Description: "Free text"},
@@ -99,10 +143,32 @@ func knownSubsystems() []SubsystemSchema {
 	}
 }
 
-// subsystem returns the schema of a known subsystem.
+// notifyKeys returns the keys of a notification target subsystem: the
+// common ones and those of its kind.
+func notifyKeys(specific ...KeySchema) []KeySchema {
+	keys := []KeySchema{
+		{Name: "enable", Type: KeyBool, Default: "off", Description: "Enable the target"},
+	}
+	keys = append(keys, specific...)
+	return append(keys,
+		KeySchema{Name: "queue_dir", Type: KeyString, Description: "Directory of the persistent event queue (default: the system volume of a local drive)"},
+		KeySchema{Name: "queue_limit", Type: KeyInt, Default: "100000", Description: "Maximum queued events"},
+		KeySchema{Name: "comment", Type: KeyString, Description: "Free text"},
+	)
+}
+
+// subsystem returns the schema of a known subsystem. A notification target
+// subsystem may name a target id (notify_webhook:<id>, ARN
+// arn:nexo:sqs:<region>:<id>:webhook); without one it configures the
+// target "_".
 func subsystem(name string) (SubsystemSchema, error) {
+	base := name
+	if prefix, id, ok := strings.Cut(name, ":"); ok && strings.HasPrefix(prefix, "notify_") && id != "" && !strings.ContainsAny(id, ":/\\ ") {
+		base = prefix
+	}
 	for _, s := range configSchema() {
-		if s.Name == name {
+		if s.Name == base {
+			s.Name = name
 			return s, nil
 		}
 	}

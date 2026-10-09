@@ -43,16 +43,27 @@ test.describe('TD-E-19 accessibility (axe-core: no serious or critical violation
 
   test.describe('signed in', () => {
     let bucket: string;
+    let locked: string;
 
     test.beforeAll(async ({ api }) => {
       bucket = uniqueName('e2e-a11y');
       await api.createBucket(bucket, { versioning: true });
       await api.putObject(bucket, 'docs/readme.txt', 'accessible', 'text/plain');
       await api.putObject(bucket, 'image.png', Buffer.from('not really a png'), 'image/png');
+      await api.call('PUT', `/buckets/${bucket}/lifecycle`, {
+        json: { rules: [{ id: 'a11y', filter: { prefix: 'tmp/' }, expiration: { days: 7 } }] },
+      });
+      await api.call('PUT', `/buckets/${bucket}/cors`, {
+        json: { rules: [{ allowedOrigins: ['*'], allowedMethods: ['GET'] }] },
+      });
+      locked = uniqueName('e2e-a11y-lock');
+      await api.call('POST', '/buckets', { json: { name: locked, objectLock: true } });
+      await api.putObject(locked, 'kept.txt', 'kept', 'text/plain');
     });
 
     test.afterAll(async ({ api }) => {
       await api.deleteBucket(bucket);
+      await api.deleteBucket(locked);
     });
 
     const pages = (b: () => string) =>
@@ -62,6 +73,8 @@ test.describe('TD-E-19 accessibility (axe-core: no serious or critical violation
         ['object browser', () => `/buckets/${b()}/browse/`],
         ['object browser folder', () => `/buckets/${b()}/browse/docs/`],
         ['bucket settings', () => `/buckets/${b()}/settings`],
+        ['bucket lifecycle', () => `/buckets/${b()}/lifecycle`],
+        ['bucket events', () => `/buckets/${b()}/events`],
         ['bucket access', () => `/buckets/${b()}/access`],
         ['objects', '/objects'],
         ['users', '/users'],
@@ -113,6 +126,45 @@ test.describe('TD-E-19 accessibility (axe-core: no serious or critical violation
       await page.getByRole('menuitem', { name: 'Share' }).click();
       await expect(page.getByRole('dialog', { name: /^Share / })).toBeVisible();
       expect(await seriousViolations(page), 'share dialog').toEqual([]);
+      await page.keyboard.press('Escape');
+
+      await page.goto(`/buckets/${bucket}/lifecycle`);
+      await settle(page);
+      await page.getByRole('button', { name: 'Edit rule a11y' }).click();
+      await expect(page.getByRole('dialog', { name: 'Lifecycle rule a11y' })).toBeVisible();
+      expect(await seriousViolations(page), 'lifecycle rule editor').toEqual([]);
+      await page.keyboard.press('Escape');
+
+      await page.goto(`/buckets/${bucket}/events`);
+      await settle(page);
+      await page.getByRole('button', { name: 'Add subscription' }).click();
+      await expect(page.getByRole('dialog', { name: 'New event subscription' })).toBeVisible();
+      expect(await seriousViolations(page), 'subscription editor').toEqual([]);
+      await page.keyboard.press('Escape');
+
+      await page.goto(`/buckets/${locked}/browse/`);
+      await settle(page);
+      await page.getByRole('button', { name: 'kept.txt', exact: true }).click();
+      const drawer = page.getByRole('dialog', { name: 'kept.txt' });
+      await drawer.getByRole('tab', { name: 'Object lock' }).click();
+      await settle(page);
+      expect(await seriousViolations(page), 'object lock tab').toEqual([]);
+      await drawer.getByRole('tab', { name: 'Attributes' }).click();
+      await settle(page);
+      expect(await seriousViolations(page), 'attributes tab').toEqual([]);
+      await drawer.getByRole('tab', { name: 'Versions' }).click();
+      await settle(page);
+      await drawer.getByRole('button', { name: /^Delete version / }).click();
+      await expect(page.getByRole('dialog', { name: /^Delete version / })).toBeVisible();
+      await settle(page);
+      expect(await seriousViolations(page), 'version delete dialog').toEqual([]);
+      await page.keyboard.press('Escape');
+
+      await page.goto('/configuration');
+      await settle(page);
+      await page.getByRole('button', { name: 'Add target' }).click();
+      await expect(page.getByRole('dialog', { name: 'New notification target' })).toBeVisible();
+      expect(await seriousViolations(page), 'notification target form').toEqual([]);
       await page.keyboard.press('Escape');
 
       await page.goto('/users');

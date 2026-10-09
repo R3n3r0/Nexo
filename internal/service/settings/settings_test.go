@@ -123,3 +123,15 @@ func TestGuardRootAccess(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+func TestAPICORSAllowOrigin(t *testing.T) {
+	cfg := configmock.NewService(t)
+	cfg.EXPECT().Get(mock.Anything, "api").Return(config.KV{"cors_allow_origin": " https://a.example.com, ,https://*.b.example.com "}, nil)
+	svc, err := settings.New(settings.Deps{Config: cfg})
+	require.NoError(t, err)
+	api, err := svc.API(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"https://a.example.com", "https://*.b.example.com"}, api.CORSAllowOrigin)
+	assert.True(t, api.RootAccess)
+	assert.True(t, settings.Applied("api", "cors_allow_origin"))
+}

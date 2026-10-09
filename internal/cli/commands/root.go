@@ -118,12 +118,13 @@ anything else is a local path.`,
 		}
 	}
 	add(groupObjects,
-		newLsCmd(e), newMbCmd(e), newRbCmd(e), newCpCmd(e), newMvCmd(e), newRmCmd(e),
+		newLsCmd(e), newMbCmd(e), newRbCmd(e), newCpCmd(e), newMvCmd(e), newPutCmd(e), newRmCmd(e),
 		newCatCmd(e), newHeadCmd(e), newPipeCmd(e), newStatCmd(e), newMirrorCmd(e),
 		newFindCmd(e), newDuCmd(e), newTreeCmd(e), newDiffCmd(e),
 	)
-	add(groupSharing, newShareCmd(e), newPresignCmd(e), newAnonymousCmd(e))
-	add(groupSettings, newVersionCmd(e), newTagCmd(e), newQuotaCmd(e), newEncryptCmd(e))
+	add(groupSharing, newShareCmd(e), newPresignCmd(e), newAnonymousCmd(e), newCORSCmd(e))
+	add(groupSettings, newVersionCmd(e), newTagCmd(e), newRetentionCmd(e), newLegalHoldCmd(e),
+		newILMCmd(e), newEventCmd(e), newQuotaCmd(e), newEncryptCmd(e))
 	add(groupAdmin, newAdminCmd(e))
 	add(groupConfig, newAliasCmd(e))
 	root.SetCompletionCommandGroupID(groupConfig)

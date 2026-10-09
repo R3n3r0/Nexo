@@ -1,0 +1,25 @@
+Add, edit, list, remove, export and import lifecycle rules
+
+Usage:
+  nexoctl ilm rule [flags]
+  nexoctl ilm rule [command]
+
+Available Commands:
+  add         Add a lifecycle rule to a bucket
+  edit        Change a lifecycle rule of a bucket
+  export      Print the lifecycle configuration of a bucket (JSON or S3 XML)
+  import      Replace the lifecycle configuration of a bucket (JSON or S3 XML)
+  list        List the lifecycle rules of a bucket
+  remove      Remove lifecycle rules of a bucket
+
+Flags:
+  -h, --help   help for rule
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl ilm rule [command] --help" for more information about a command.

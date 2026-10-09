@@ -7,6 +7,7 @@
  */
 import 'monaco-editor/esm/vs/editor/edcore.main';
 import 'monaco-editor/esm/vs/language/json/monaco.contribution';
+import 'monaco-editor/esm/vs/basic-languages/xml/xml.contribution';
 
 import { Box, useComputedColorScheme } from '@mantine/core';
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';

@@ -23,7 +23,7 @@ func (_m *Service) EXPECT() *Service_Expecter {
 }
 
 // GetTarget provides a mock function with given fields: ctx, id
-func (_m *Service) GetTarget(ctx context.Context, id string) (event.TargetConfig, error) {
+func (_m *Service) GetTarget(ctx context.Context, id event.TargetID) (event.TargetConfig, error) {
 	ret := _m.Called(ctx, id)
 
 	if len(ret) == 0 {
@@ -32,16 +32,16 @@ func (_m *Service) GetTarget(ctx context.Context, id string) (event.TargetConfig
 
 	var r0 event.TargetConfig
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) (event.TargetConfig, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, event.TargetID) (event.TargetConfig, error)); ok {
 		return rf(ctx, id)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) event.TargetConfig); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, event.TargetID) event.TargetConfig); ok {
 		r0 = rf(ctx, id)
 	} else {
 		r0 = ret.Get(0).(event.TargetConfig)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, event.TargetID) error); ok {
 		r1 = rf(ctx, id)
 	} else {
 		r1 = ret.Error(1)
@@ -57,14 +57,14 @@ type Service_GetTarget_Call struct {
 
 // GetTarget is a helper method to define mock.On call
 //   - ctx context.Context
-//   - id string
+//   - id event.TargetID
 func (_e *Service_Expecter) GetTarget(ctx interface{}, id interface{}) *Service_GetTarget_Call {
 	return &Service_GetTarget_Call{Call: _e.mock.On("GetTarget", ctx, id)}
 }
 
-func (_c *Service_GetTarget_Call) Run(run func(ctx context.Context, id string)) *Service_GetTarget_Call {
+func (_c *Service_GetTarget_Call) Run(run func(ctx context.Context, id event.TargetID)) *Service_GetTarget_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
+		run(args[0].(context.Context), args[1].(event.TargetID))
 	})
 	return _c
 }
@@ -74,7 +74,7 @@ func (_c *Service_GetTarget_Call) Return(_a0 event.TargetConfig, _a1 error) *Ser
 	return _c
 }
 
-func (_c *Service_GetTarget_Call) RunAndReturn(run func(context.Context, string) (event.TargetConfig, error)) *Service_GetTarget_Call {
+func (_c *Service_GetTarget_Call) RunAndReturn(run func(context.Context, event.TargetID) (event.TargetConfig, error)) *Service_GetTarget_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -185,7 +185,7 @@ func (_c *Service_Publish_Call) RunAndReturn(run func(context.Context, event.Eve
 }
 
 // RemoveTarget provides a mock function with given fields: ctx, id
-func (_m *Service) RemoveTarget(ctx context.Context, id string) error {
+func (_m *Service) RemoveTarget(ctx context.Context, id event.TargetID) error {
 	ret := _m.Called(ctx, id)
 
 	if len(ret) == 0 {
@@ -193,7 +193,7 @@ func (_m *Service) RemoveTarget(ctx context.Context, id string) error {
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, event.TargetID) error); ok {
 		r0 = rf(ctx, id)
 	} else {
 		r0 = ret.Error(0)
@@ -209,14 +209,14 @@ type Service_RemoveTarget_Call struct {
 
 // RemoveTarget is a helper method to define mock.On call
 //   - ctx context.Context
-//   - id string
+//   - id event.TargetID
 func (_e *Service_Expecter) RemoveTarget(ctx interface{}, id interface{}) *Service_RemoveTarget_Call {
 	return &Service_RemoveTarget_Call{Call: _e.mock.On("RemoveTarget", ctx, id)}
 }
 
-func (_c *Service_RemoveTarget_Call) Run(run func(ctx context.Context, id string)) *Service_RemoveTarget_Call {
+func (_c *Service_RemoveTarget_Call) Run(run func(ctx context.Context, id event.TargetID)) *Service_RemoveTarget_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
+		run(args[0].(context.Context), args[1].(event.TargetID))
 	})
 	return _c
 }
@@ -226,7 +226,7 @@ func (_c *Service_RemoveTarget_Call) Return(_a0 error) *Service_RemoveTarget_Cal
 	return _c
 }
 
-func (_c *Service_RemoveTarget_Call) RunAndReturn(run func(context.Context, string) error) *Service_RemoveTarget_Call {
+func (_c *Service_RemoveTarget_Call) RunAndReturn(run func(context.Context, event.TargetID) error) *Service_RemoveTarget_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -274,6 +274,180 @@ func (_c *Service_SetTarget_Call) Return(_a0 error) *Service_SetTarget_Call {
 }
 
 func (_c *Service_SetTarget_Call) RunAndReturn(run func(context.Context, event.TargetConfig) error) *Service_SetTarget_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// TargetsStatus provides a mock function with given fields: ctx
+func (_m *Service) TargetsStatus(ctx context.Context) ([]event.TargetStatus, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for TargetsStatus")
+	}
+
+	var r0 []event.TargetStatus
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]event.TargetStatus, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []event.TargetStatus); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]event.TargetStatus)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_TargetsStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TargetsStatus'
+type Service_TargetsStatus_Call struct {
+	*mock.Call
+}
+
+// TargetsStatus is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *Service_Expecter) TargetsStatus(ctx interface{}) *Service_TargetsStatus_Call {
+	return &Service_TargetsStatus_Call{Call: _e.mock.On("TargetsStatus", ctx)}
+}
+
+func (_c *Service_TargetsStatus_Call) Run(run func(ctx context.Context)) *Service_TargetsStatus_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *Service_TargetsStatus_Call) Return(_a0 []event.TargetStatus, _a1 error) *Service_TargetsStatus_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_TargetsStatus_Call) RunAndReturn(run func(context.Context) ([]event.TargetStatus, error)) *Service_TargetsStatus_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// TestTarget provides a mock function with given fields: ctx, id
+func (_m *Service) TestTarget(ctx context.Context, id event.TargetID) (event.TestResult, error) {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for TestTarget")
+	}
+
+	var r0 event.TestResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, event.TargetID) (event.TestResult, error)); ok {
+		return rf(ctx, id)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, event.TargetID) event.TestResult); ok {
+		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Get(0).(event.TestResult)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, event.TargetID) error); ok {
+		r1 = rf(ctx, id)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_TestTarget_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TestTarget'
+type Service_TestTarget_Call struct {
+	*mock.Call
+}
+
+// TestTarget is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id event.TargetID
+func (_e *Service_Expecter) TestTarget(ctx interface{}, id interface{}) *Service_TestTarget_Call {
+	return &Service_TestTarget_Call{Call: _e.mock.On("TestTarget", ctx, id)}
+}
+
+func (_c *Service_TestTarget_Call) Run(run func(ctx context.Context, id event.TargetID)) *Service_TestTarget_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(event.TargetID))
+	})
+	return _c
+}
+
+func (_c *Service_TestTarget_Call) Return(_a0 event.TestResult, _a1 error) *Service_TestTarget_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_TestTarget_Call) RunAndReturn(run func(context.Context, event.TargetID) (event.TestResult, error)) *Service_TestTarget_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ValidateBucketConfig provides a mock function with given fields: ctx, doc
+func (_m *Service) ValidateBucketConfig(ctx context.Context, doc []byte) ([]byte, error) {
+	ret := _m.Called(ctx, doc)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ValidateBucketConfig")
+	}
+
+	var r0 []byte
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, []byte) ([]byte, error)); ok {
+		return rf(ctx, doc)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, []byte) []byte); ok {
+		r0 = rf(ctx, doc)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]byte)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, []byte) error); ok {
+		r1 = rf(ctx, doc)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_ValidateBucketConfig_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ValidateBucketConfig'
+type Service_ValidateBucketConfig_Call struct {
+	*mock.Call
+}
+
+// ValidateBucketConfig is a helper method to define mock.On call
+//   - ctx context.Context
+//   - doc []byte
+func (_e *Service_Expecter) ValidateBucketConfig(ctx interface{}, doc interface{}) *Service_ValidateBucketConfig_Call {
+	return &Service_ValidateBucketConfig_Call{Call: _e.mock.On("ValidateBucketConfig", ctx, doc)}
+}
+
+func (_c *Service_ValidateBucketConfig_Call) Run(run func(ctx context.Context, doc []byte)) *Service_ValidateBucketConfig_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]byte))
+	})
+	return _c
+}
+
+func (_c *Service_ValidateBucketConfig_Call) Return(_a0 []byte, _a1 error) *Service_ValidateBucketConfig_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_ValidateBucketConfig_Call) RunAndReturn(run func(context.Context, []byte) ([]byte, error)) *Service_ValidateBucketConfig_Call {
 	_c.Call.Return(run)
 	return _c
 }

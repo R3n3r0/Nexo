@@ -25,12 +25,15 @@ const maxJSONBody = 1 << 20
 // Problem codes specific to the Admin API (the others come from
 // httpx.Codec.ProblemFromError).
 const (
-	codeUnauthenticated  = "unauthenticated"
-	codeAccessDenied     = "access_denied"
-	codeInvalidArgument  = "invalid_argument"
-	codeMalformedPolicy  = "malformed_policy"
-	codeNotImplemented   = "not_implemented"
-	codeInvalidCSRFToken = "invalid_csrf_token"
+	codeUnauthenticated = "unauthenticated"
+	codeAccessDenied    = "access_denied"
+	codeInvalidArgument = "invalid_argument"
+	codeMalformedPolicy = "malformed_policy"
+	// codeInvalidConfiguration reports the invalid rules of a bucket
+	// configuration (lifecycle, notifications, CORS) in ruleErrors.
+	codeInvalidConfiguration = "invalid_configuration"
+	codeNotImplemented       = "not_implemented"
+	codeInvalidCSRFToken     = "invalid_csrf_token"
 )
 
 // caller returns the authenticated identity, or the anonymous identity
@@ -61,12 +64,19 @@ func requestConditions(r *http.Request) map[string][]string {
 
 // objectRequestOf describes the S3 request an object route stands for
 // (adminsvc.ObjectConditions): the version of the versionId query
-// parameter and the x-amz-tagging header, the only x-amz-* header the
-// console forwards to the object layer (the tags of an upload).
+// parameter and the x-amz-* headers the console forwards to the object
+// layer: x-amz-tagging (the tags of an upload) and the server-side
+// encryption an upload asks for (x-amz-server-side-encryption and its
+// KMS key, s3:x-amz-server-side-encryption* as for the S3 PutObject).
 func objectRequestOf(r *http.Request) adminsvc.ObjectRequest {
 	or := adminsvc.ObjectRequest{VersionID: r.URL.Query().Get("versionId")}
-	if v := r.Header.Get(adminsvc.HeaderTagging); v != "" {
-		or.Headers = map[string]string{adminsvc.HeaderTagging: v}
+	for _, name := range []string{adminsvc.HeaderTagging, httpx.HeaderAmzSSE, httpx.HeaderAmzSSEKMSKeyID} {
+		if v := r.Header.Get(name); v != "" {
+			if or.Headers == nil {
+				or.Headers = map[string]string{}
+			}
+			or.Headers[name] = v
+		}
 	}
 	return or
 }
@@ -184,20 +194,46 @@ func newPolicyErrorResponse(p adminsvc.PolicyProblem) PolicyErrorResponse {
 	return PolicyErrorResponse{Statement: p.Statement, Sid: p.Sid, Element: p.Element, Line: p.Line, Column: p.Column, Message: p.Message}
 }
 
+// RuleErrorResponse locates the problem of one rule of a bucket
+// configuration (lifecycle rule, notification subscription, CORS rule).
+type RuleErrorResponse struct {
+	// Rule is the 1-based index of the rule, 0 for the whole
+	// configuration.
+	Rule int    `json:"rule"`
+	ID   string `json:"id,omitempty"`
+	// Code is the S3 error code (InvalidArgument, MalformedXML...).
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
 // problemDocument is a problem with the extension members of the Admin
 // API.
 type problemDocument struct {
 	httpx.Problem
 	// Errors locates the errors of a malformed policy document.
 	Errors []PolicyErrorResponse `json:"errors,omitempty"`
+	// RuleErrors locates the invalid rules of a bucket configuration.
+	RuleErrors []RuleErrorResponse `json:"ruleErrors,omitempty"`
 }
 
 // writeError maps err to a problem+json response. Policy validation
-// errors are reported as malformed_policy with their position.
+// errors are reported as malformed_policy with their position, the
+// invalid rules of a bucket configuration as invalid_configuration with
+// their index.
 func writeError(enc httpx.Encoder, w http.ResponseWriter, r *http.Request, err error) {
 	if p, ok := adminsvc.ProblemOf(err); ok {
 		doc := problemDocument{Problem: enc.ProblemFromError(err), Errors: []PolicyErrorResponse{newPolicyErrorResponse(p)}}
 		doc.Status, doc.Code = http.StatusBadRequest, codeMalformedPolicy
+		doc.Title = http.StatusText(http.StatusBadRequest)
+		writeProblemDocument(w, r, doc)
+		return
+	}
+	if problems, ok := adminsvc.RuleProblemsOf(err); ok {
+		doc := problemDocument{Problem: enc.ProblemFromError(err), RuleErrors: make([]RuleErrorResponse, 0, len(problems))}
+		for _, p := range problems {
+			doc.RuleErrors = append(doc.RuleErrors, RuleErrorResponse(p))
+		}
+		doc.Status, doc.Code = http.StatusBadRequest, codeInvalidConfiguration
 		doc.Title = http.StatusText(http.StatusBadRequest)
 		writeProblemDocument(w, r, doc)
 		return

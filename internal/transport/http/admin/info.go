@@ -10,6 +10,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/domain"
 	adminsvc "github.com/r3n3r0/nexo/internal/service/admin"
 	"github.com/r3n3r0/nexo/internal/service/heal"
+	"github.com/r3n3r0/nexo/internal/service/kms"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
@@ -84,6 +85,16 @@ type ServerInfoResponse struct {
 	Usage        uint64         `json:"usage"`
 	Pools        []PoolResponse `json:"pools"`
 	Nodes        []NodeResponse `json:"nodes"`
+	// KMS is the state of the KMS of the server-side encryption, with
+	// its first keys.
+	KMS *KMSInfoResponse `json:"kms,omitempty"`
+}
+
+// KMSInfoResponse is the KMS in ServerInfoResponse.
+type KMSInfoResponse struct {
+	KMSStatusResponse
+	// Keys are the names of the first keys of the KMS.
+	Keys []string `json:"keys,omitempty"`
 }
 
 // PoolResponse is an erasure pool in ServerInfoResponse.
@@ -196,6 +207,11 @@ func newServerInfoResponse(info *domain.ServerInfo) ServerInfoResponse {
 		Usage:        info.Usage,
 		Pools:        make([]PoolResponse, 0, len(info.Pools)),
 		Nodes:        make([]NodeResponse, 0, len(info.Nodes)),
+	}
+	if k := info.KMS; k != nil {
+		resp.KMS = &KMSInfoResponse{Keys: k.Keys, KMSStatusResponse: newKMSStatusResponse(kms.Status{
+			Configured: k.Configured, Backend: k.Backend, DefaultKey: k.DefaultKey, Endpoints: k.Endpoints, Online: k.Online, Error: k.Error,
+		})}
 	}
 	for _, p := range info.Pools {
 		pool := PoolResponse{Index: p.Index, Sets: p.Sets, DrivesPerSet: p.DrivesPerSet, Parity: p.Parity,

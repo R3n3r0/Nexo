@@ -204,13 +204,15 @@ describe('BucketSettingsTab (D-BKT-02)', () => {
     });
   });
 
-  it('needs versioning to enable object lock', async () => {
-    renderRoutes(routes, { initialEntries: ['/buckets/media/settings'], services: admin() });
+  it('enables object lock only at the creation of the bucket', async () => {
+    renderRoutes(routes, { initialEntries: ['/buckets/backups/settings'], services: admin() });
     const lock = await screen.findByRole('region', { name: 'Object lock' });
     expect(
-      await within(lock).findByText('Object lock needs versioning enabled.'),
+      await within(lock).findByText('Object lock can only be enabled when the bucket is created.'),
     ).toBeInTheDocument();
-    expect(within(lock).getByRole('button', { name: 'Enable object lock' })).toBeDisabled();
+    expect(
+      within(lock).queryByRole('button', { name: 'Enable object lock' }),
+    ).not.toBeInTheDocument();
   });
 
   it('disables the changes for a read-only user', async () => {

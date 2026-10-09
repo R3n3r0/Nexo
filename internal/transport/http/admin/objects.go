@@ -74,7 +74,8 @@ func (h *objectRoutes) routes() []route {
 	read := onObject(policy.ActionGetObject).orVersion(policy.ActionGetObjectVersion)
 	return []route{
 		{http.MethodGet, "/buckets/{bucket}/objects", byService(policy.ActionListBucket), h.list},
-		{http.MethodDelete, "/buckets/{bucket}/objects", byService(policy.ActionDeleteObject, policy.ActionDeleteObjectVersion, policy.ActionListBucket, policy.ActionListBucketVersions), h.remove},
+		{http.MethodDelete, "/buckets/{bucket}/objects", byService(policy.ActionDeleteObject, policy.ActionDeleteObjectVersion, policy.ActionListBucket,
+			policy.ActionListBucketVersions, policy.ActionBypassGovernanceRetention), h.remove},
 		{http.MethodGet, "/buckets/{bucket}/objects/stat", read, h.stat},
 		{http.MethodGet, "/buckets/{bucket}/objects/versions", onBucket(policy.ActionListBucketVersions).when(prefixConditions("key")), h.versions},
 		{http.MethodPost, "/buckets/{bucket}/objects/folder", byService(policy.ActionPutObject), h.folder},
@@ -85,6 +86,15 @@ func (h *objectRoutes) routes() []route {
 		{http.MethodGet, "/buckets/{bucket}/objects/preview", read, h.preview},
 		{http.MethodPost, zipDownloadPattern, byService(policy.ActionGetObject, policy.ActionListBucket), h.zip},
 		{http.MethodPost, "/buckets/{bucket}/objects/upload", onObject(policy.ActionPutObject), h.upload},
+		// Object Lock and attributes of a version (?key=&versionId=). The
+		// governance bypass of a retention change is asked in the body:
+		// the service authorizes it.
+		{http.MethodGet, "/buckets/{bucket}/objects/retention", onObject(policy.ActionGetObjectRetention), h.getRetention},
+		{http.MethodPut, "/buckets/{bucket}/objects/retention", byService(policy.ActionPutObjectRetention, policy.ActionBypassGovernanceRetention), h.putRetention},
+		{http.MethodGet, "/buckets/{bucket}/objects/legal-hold", onObject(policy.ActionGetObjectLegalHold), h.getLegalHold},
+		{http.MethodPut, "/buckets/{bucket}/objects/legal-hold", onObject(policy.ActionPutObjectLegalHold), h.putLegalHold},
+		{http.MethodGet, "/buckets/{bucket}/objects/attributes",
+			onObject(policy.ActionGetObjectAttributes).orVersion(policy.ActionGetObjectVersionAttributes), h.attributes},
 
 		{http.MethodGet, "/buckets/{bucket}/uploads", onBucket(policy.ActionListMultipart).when(prefixConditions("prefix")), h.listUploads},
 		{http.MethodPost, "/buckets/{bucket}/uploads", onObject(policy.ActionPutObject), h.createUpload},
@@ -167,6 +177,14 @@ func (h *objectRoutes) list(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ObjectEncryptionResponse is the server-side encryption of a version.
+type ObjectEncryptionResponse struct {
+	// Type is SSE-S3, SSE-KMS or SSE-C.
+	Type string `json:"type"`
+	// KMSKeyID is the KMS key of SSE-S3 and SSE-KMS.
+	KMSKeyID string `json:"kmsKeyId,omitempty"`
+}
+
 // ObjectDetailsResponse is the body of GET /buckets/{bucket}/objects/stat.
 type ObjectDetailsResponse struct {
 	ObjectResponse
@@ -180,6 +198,9 @@ type ObjectDetailsResponse struct {
 	Parts             int    `json:"parts,omitempty"`
 	ChecksumAlgorithm string `json:"checksumAlgorithm,omitempty"`
 	Checksum          string `json:"checksum,omitempty"`
+	// Encryption is the server-side encryption of the version, absent
+	// for an unencrypted one.
+	Encryption *ObjectEncryptionResponse `json:"encryption,omitempty"`
 	// Tags is absent when the requester may not read them.
 	Tags *map[string]string `json:"tags,omitempty"`
 	// Versions are the first versions of the key, absent when the
@@ -207,6 +228,9 @@ func (h *objectRoutes) stat(w http.ResponseWriter, r *http.Request) {
 		ChecksumAlgorithm:  string(d.Info.Checksum.Algorithm),
 		Checksum:           d.Info.Checksum.Value,
 		VersionsTruncated:  d.VersionsTruncated,
+	}
+	if e := d.Info.Encryption; !e.IsZero() {
+		out.Encryption = &ObjectEncryptionResponse{Type: string(e.Type), KMSKeyID: e.KMSKeyID}
 	}
 	if d.Tags != nil {
 		out.Tags = &d.Tags
@@ -287,6 +311,9 @@ type DeleteObjectsRequest struct {
 	Prefixes []string `json:"prefixes,omitempty"`
 	// AllVersions deletes every version under the prefixes permanently.
 	AllVersions bool `json:"allVersions,omitempty"`
+	// BypassGovernance deletes the versions a GOVERNANCE retention
+	// protects, where the caller may (s3:BypassGovernanceRetention).
+	BypassGovernance bool `json:"bypassGovernance,omitempty"`
 }
 
 // DeletedObjectResponse is a successful deletion.
@@ -329,6 +356,7 @@ func (h *objectRoutes) remove(w http.ResponseWriter, r *http.Request) {
 	}
 	res, err := h.deps.Browser.Delete(r.Context(), adminsvc.DeleteObjectsInput{
 		Requester: requesterOf(r), Bucket: bucketName(r), Objects: refs, Prefixes: in.Prefixes, AllVersions: in.AllVersions,
+		BypassGovernance: in.BypassGovernance,
 	})
 	if err != nil {
 		h.fail(w, r, err)

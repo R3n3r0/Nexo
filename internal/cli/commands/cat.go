@@ -12,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/spf13/cobra"
@@ -21,7 +22,10 @@ import (
 )
 
 func newCatCmd(e *env) *cobra.Command {
-	var versionID string
+	var (
+		versionID string
+		enc       encryptionFlags
+	)
 	cmd := &cobra.Command{
 		Use:               "cat [flags] TARGET...",
 		Short:             "Print the content of objects and files",
@@ -37,8 +41,12 @@ func newCatCmd(e *env) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			keys, err := enc.rules(ctx, e)
+			if err != nil {
+				return err
+			}
 			for _, t := range targets {
-				r, err := e.open(ctx, t, versionID)
+				r, err := e.open(ctx, t, versionID, keys)
 				if err != nil {
 					return err
 				}
@@ -52,6 +60,7 @@ func newCatCmd(e *env) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&versionID, "version-id", "", "print this version of the object")
+	enc.registerSSEC(cmd.Flags())
 	return cmd
 }
 
@@ -59,6 +68,7 @@ func newHeadCmd(e *env) *cobra.Command {
 	var (
 		versionID string
 		lines     int
+		enc       encryptionFlags
 	)
 	cmd := &cobra.Command{
 		Use:               "head [flags] TARGET...",
@@ -78,8 +88,12 @@ func newHeadCmd(e *env) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			keys, err := enc.rules(ctx, e)
+			if err != nil {
+				return err
+			}
 			for _, t := range targets {
-				r, err := e.open(ctx, t, versionID)
+				r, err := e.open(ctx, t, versionID, keys)
 				if err != nil {
 					return err
 				}
@@ -94,11 +108,12 @@ func newHeadCmd(e *env) *cobra.Command {
 	}
 	cmd.Flags().IntVarP(&lines, "lines", "n", 10, "number of lines")
 	cmd.Flags().StringVar(&versionID, "version-id", "", "print this version of the object")
+	enc.registerSSEC(cmd.Flags())
 	return cmd
 }
 
-// open opens a remote object or a local file.
-func (e *env) open(ctx context.Context, t cli.Target, versionID string) (io.ReadCloser, error) {
+// open opens a remote object (with its SSE-C key, if any) or a local file.
+func (e *env) open(ctx context.Context, t cli.Target, versionID string, keys cli.EncryptionRules) (io.ReadCloser, error) {
 	if !t.IsRemote() {
 		if versionID != "" {
 			return nil, cli.UsageError("--version-id applies to remote objects")
@@ -112,11 +127,21 @@ func (e *env) open(ctx context.Context, t cli.Target, versionID string) (io.Read
 	if err != nil {
 		return nil, err
 	}
-	body, _, err := client.Get(ctx, t.Bucket, t.Key, cli.GetOptions{VersionID: versionID})
+	sse := keys.CustomerKeyFor(t)
+	body, _, err := client.Get(ctx, t.Bucket, t.Key, cli.GetOptions{VersionID: versionID, SSE: sse})
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", t, err)
+		return nil, fmt.Errorf("%s: %w", t, sseHint(err, sse))
 	}
 	return body, nil
+}
+
+// sseHint adds a hint to the refusal of a read without SSE-C key: the
+// server answers 400 for an object encrypted with SSE-C.
+func sseHint(err error, sse domain.SSERequest) error {
+	if sse.Type == domain.SSEC || !errors.Is(err, domain.ErrInvalidArgument) {
+		return err
+	}
+	return fmt.Errorf("%w (an object encrypted with SSE-C is read with its key: --enc-c ALIAS/BUCKET[/PREFIX]=KEY)", err)
 }
 
 // writeContent copies r to stdout: all of it (lines < 0) or the first
@@ -178,22 +203,46 @@ func (l *lineLimitReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
+// statOptions are the flags of stat.
+type statOptions struct {
+	versionID string
+	versions  bool
+	checksum  bool
+	keys      cli.EncryptionRules
+}
+
 func newStatCmd(e *env) *cobra.Command {
-	var versionID string
+	var (
+		opts statOptions
+		enc  encryptionFlags
+	)
 	cmd := &cobra.Command{
 		Use:   "stat [flags] TARGET...",
 		Short: "Show the metadata of objects, buckets and files",
+		Long: `Show the metadata of objects (size, ETag, content type, user metadata, tags,
+version, Object Lock retention and legal hold, server-side encryption, and with
+--checksum the additional checksum), of buckets (versioning, Object Lock,
+anonymous access, tags) and of local files. --versions shows every version of
+an object.`,
 		Example: `  nexoctl stat local/docs/report.pdf
+  nexoctl stat --checksum --versions local/docs/report.pdf
+  nexoctl stat --enc-c "local/private=$(cat key.b64)" local/private/secret.txt
   nexoctl stat --json local/docs`,
 		Args:              minArgs(1),
 		ValidArgsFunction: completeTargets(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			if versionID != "" && len(args) != 1 {
+			if opts.versionID != "" && len(args) != 1 {
 				return cli.UsageError("--version-id needs exactly one object")
+			}
+			if opts.versionID != "" && opts.versions {
+				return cli.UsageError("--version-id excludes --versions")
 			}
 			targets, err := e.targets(ctx, args, true)
 			if err != nil {
+				return err
+			}
+			if opts.keys, err = enc.rules(ctx, e); err != nil {
 				return err
 			}
 			for i, t := range targets {
@@ -202,18 +251,22 @@ func newStatCmd(e *env) *cobra.Command {
 						return err
 					}
 				}
-				if err := e.stat(ctx, t, versionID); err != nil {
+				if err := e.stat(ctx, t, opts); err != nil {
 					return err
 				}
 			}
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&versionID, "version-id", "", "show this version of the object")
+	f := cmd.Flags()
+	f.StringVar(&opts.versionID, "version-id", "", "show this version of the object")
+	f.BoolVar(&opts.versions, "versions", false, "show every version of the object")
+	f.BoolVar(&opts.checksum, "checksum", false, "show the additional checksum of the object")
+	enc.registerSSEC(f)
 	return cmd
 }
 
-func (e *env) stat(ctx context.Context, t cli.Target, versionID string) error {
+func (e *env) stat(ctx context.Context, t cli.Target, opts statOptions) error {
 	if !t.IsRemote() {
 		st, err := os.Stat(t.Path)
 		if err != nil {
@@ -223,7 +276,7 @@ func (e *env) stat(ctx context.Context, t cli.Target, versionID string) error {
 		if st.IsDir() {
 			rec.Type = typeFolder
 		}
-		return e.out.Result(rec, statText(rec))
+		return e.out.Result(rec, statText(rec, e.deps.Clock.Now()))
 	}
 	if t.Bucket == "" {
 		return cli.UsageError("%s: stat needs a bucket or an object", t)
@@ -235,28 +288,82 @@ func (e *env) stat(ctx context.Context, t cli.Target, versionID string) error {
 	if t.Key == "" {
 		return e.statBucket(ctx, client, t)
 	}
-	info, err := client.Stat(ctx, t.Bucket, t.Key, cli.StatOptions{VersionID: versionID})
+	if opts.versions {
+		return e.statVersions(ctx, client, t, opts)
+	}
+	return e.statObject(ctx, client, t, opts.versionID, opts, true)
+}
+
+// statObject prints one version of an object (the latest for an empty
+// versionID); a missing object that is a prefix is printed as a folder
+// when folders is set.
+func (e *env) statObject(ctx context.Context, client cli.S3Client, t cli.Target, versionID string, opts statOptions, folders bool) error {
+	sse := opts.keys.CustomerKeyFor(t)
+	info, err := client.Stat(ctx, t.Bucket, t.Key, cli.StatOptions{VersionID: versionID, Checksum: opts.checksum, SSE: sse})
 	if err != nil {
-		if errors.Is(err, domain.ErrObjectNotFound) && versionID == "" {
+		if folders && errors.Is(err, domain.ErrObjectNotFound) && versionID == "" {
 			// A prefix ("folder") has no metadata of its own.
 			if found, _ := hasObjectsUnder(ctx, client, t.Bucket, cli.DirPrefix(t.Key)); found {
 				rec := entryRecord{Type: typeFolder, Target: t.String(), Key: cli.DirPrefix(t.Key), Name: path.Base(t.Key) + "/"}
-				return e.out.Result(rec, statText(rec))
+				return e.out.Result(rec, statText(rec, e.deps.Clock.Now()))
 			}
 		}
-		return fmt.Errorf("%s: %w", t, err)
+		return fmt.Errorf("%s: %w", t, sseHint(err, sse))
 	}
 	tags, err := client.GetTags(ctx, cli.ObjectRef{Bucket: t.Bucket, Key: t.Key, VersionID: versionID})
-	if err != nil && !errors.Is(err, domain.ErrNotImplemented) {
+	// The tags are informative: a server that refuses to read them
+	// without the SSE-C key of the object does not fail stat.
+	sseCTags := info.Encryption.Type == domain.SSEC && errors.Is(err, domain.ErrInvalidArgument)
+	if err != nil && !errors.Is(err, domain.ErrNotImplemented) && !sseCTags {
 		return fmt.Errorf("%s: tags: %w", t, err)
 	}
 	rec := objectEntry(t.Child(""), *info, path.Base(t.Key), false)
 	rec.Target = t.String()
 	rec.Key = t.Key
+	if versionID != "" {
+		rec.VersionID = versionID
+	}
 	if len(tags) > 0 {
 		rec.Tags = tags
 	}
-	return e.out.Result(rec, statText(rec))
+	rec.Retention, rec.LegalHold = retentionOf(info.Retention), string(info.LegalHold)
+	rec.Checksum, rec.Encryption = checksumOf(info.Checksum), encryptionOf(info.Encryption)
+	return e.out.Result(rec, statText(rec, e.deps.Clock.Now()))
+}
+
+// statVersions prints every version of an object, the latest first; the
+// delete markers are printed as such.
+func (e *env) statVersions(ctx context.Context, client cli.S3Client, t cli.Target, opts statOptions) error {
+	found := 0
+	for o, err := range client.List(ctx, t.Bucket, cli.ListOptions{Prefix: t.Key, Recursive: true, Versions: true}) {
+		if err != nil {
+			return fmt.Errorf("%s: %w", t, err)
+		}
+		if o.Key != t.Key {
+			continue
+		}
+		if found > 0 && !e.out.JSON() {
+			if err := e.out.Result(nil, ""); err != nil {
+				return err
+			}
+		}
+		found++
+		if o.DeleteMarker {
+			rec := objectEntry(t.Child(""), o, path.Base(t.Key), true)
+			rec.Target, rec.Key = t.String(), t.Key
+			if err := e.out.Result(rec, statText(rec, e.deps.Clock.Now())); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := e.statObject(ctx, client, t, o.VersionID, opts, false); err != nil {
+			return err
+		}
+	}
+	if found == 0 {
+		return fmt.Errorf("%s: %w", t, domain.ErrObjectNotFound)
+	}
+	return nil
 }
 
 func (e *env) statBucket(ctx context.Context, client cli.S3Client, t cli.Target) error {
@@ -293,7 +400,12 @@ func (e *env) statBucket(ctx context.Context, client cli.S3Client, t cli.Target)
 	if len(tags) > 0 {
 		rec.Tags = tags
 	}
-	return e.out.Result(rec, statText(rec))
+	// Object Lock is reported when enabled; an endpoint without it (or
+	// that refuses to tell) is not an error of stat.
+	if lock, err := client.GetObjectLock(ctx, t.Bucket); err == nil && lock.Enabled {
+		rec.ObjectLock = objectLockOf(lock)
+	}
+	return e.out.Result(rec, statText(rec, e.deps.Clock.Now()))
 }
 
 // hasObjectsUnder reports whether a prefix holds at least one object.
@@ -315,7 +427,7 @@ func (e *env) bucketsOf(ctx context.Context, client cli.S3Client) []cli.BucketIn
 }
 
 // statText renders the human-readable form of stat.
-func statText(r entryRecord) string {
+func statText(r entryRecord, now time.Time) string {
 	var b bytes.Buffer
 	row := func(k, v string) {
 		if v != "" {
@@ -326,7 +438,7 @@ func statText(r entryRecord) string {
 	if r.LastModified != nil {
 		row("Date", cli.FormatTime(*r.LastModified))
 	}
-	if r.Type == typeFile {
+	if r.Type == typeFile && !r.DeleteMarker {
 		row("Size", fmt.Sprintf("%s (%d bytes)", cli.HumanSize(r.Size), r.Size))
 	}
 	row("Type", r.Type)
@@ -334,8 +446,38 @@ func statText(r entryRecord) string {
 	row("Content-Type", r.ContentType)
 	row("Class", r.StorageClass)
 	row("VersionID", r.VersionID)
+	if r.DeleteMarker {
+		row("Deleted", "yes (delete marker)")
+	}
 	row("Versioning", r.Versioning)
+	if l := r.ObjectLock; l != nil {
+		lock := "Enabled"
+		if l.Mode != "" {
+			lock += fmt.Sprintf(", default %s for %s", l.Mode, l.Validity)
+		}
+		row("Object Lock", lock)
+	}
 	row("Anonymous", r.Anonymous)
+	if r.Retention != nil {
+		ret := domain.ObjectRetention{Mode: domain.RetentionMode(r.Retention.Mode)}
+		if r.Retention.RetainUntil != nil {
+			ret.RetainUntil = *r.Retention.RetainUntil
+		}
+		row("Retention", lockState(ret, "", now))
+	}
+	if r.LegalHold != "" {
+		row("Legal hold", r.LegalHold)
+	}
+	if c := r.Checksum; c != nil {
+		sum := c.Algorithm + " " + c.Value
+		if c.Type != "" {
+			sum += " (" + c.Type + ")"
+		}
+		row("Checksum", sum)
+	}
+	if enc := r.Encryption; enc != nil {
+		row("Encryption", cli.EncryptionName(domain.EncryptionInfo{Type: domain.SSEType(enc.Type), KMSKeyID: enc.KMSKeyID}))
+	}
 	if len(r.Metadata) > 0 {
 		fmt.Fprintf(&b, "%-12s:\n", "Metadata")
 		for _, k := range cli.SortedKeys(r.Metadata) {

@@ -1,6 +1,24 @@
 import type { UploadService } from '../interfaces';
-import type { ObjectEntry, Part, Upload, UploadList } from '../types';
+import type { ObjectEntry, Part, Upload, UploadEncryption, UploadList } from '../types';
 import type { HttpClient } from './client';
+
+/**
+ * The S3 headers of the server-side encryption of an upload
+ * (x-amz-server-side-encryption[-aws-kms-key-id]); none without one.
+ */
+export function encryptionHeaders(encryption?: UploadEncryption): Record<string, string> {
+  if (encryption === undefined) {
+    return {};
+  }
+  const headers: Record<string, string> = {
+    'X-Amz-Server-Side-Encryption': encryption.algorithm,
+  };
+  const keyId = encryption.kmsKeyId?.trim() ?? '';
+  if (encryption.algorithm === 'aws:kms' && keyId !== '') {
+    headers['X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id'] = keyId;
+  }
+  return headers;
+}
 
 /**
  * UploadService over the uploads proxied by the console: the browser never
@@ -19,16 +37,19 @@ export function createHttpUploadService(client: HttpClient): UploadService {
           query: { key: input.key },
           body: input.body,
           ...(input.contentType !== undefined ? { contentType: input.contentType } : {}),
+          headers: encryptionHeaders(input.encryption),
           ...(options.signal ? { signal: options.signal } : {}),
           ...(options.onProgress ? { onProgress: options.onProgress } : {}),
         },
       );
     },
     create(bucket, key, input = {}) {
+      const { encryption, ...body } = input;
       return client.request<Upload>(uploads(bucket), {
         method: 'POST',
         query: { key },
-        body: input,
+        headers: encryptionHeaders(encryption),
+        body,
       });
     },
     uploadPart(input, options = {}) {

@@ -203,7 +203,8 @@ func q(key string) string { return "?key=" + url.QueryEscape(key) }
 // CSRF token) against a real server, every exchange validated against
 // api/openapi.yaml.
 func TestConsoleContract(t *testing.T) {
-	srv := testutil.StartServer(t)
+	// The default encryption of a bucket needs a KMS.
+	srv := testutil.StartServer(t, testutil.WithKMS())
 	c := newConsole(t, srv, srv.RootUser, srv.RootPassword)
 
 	sess := decodeAs[admin.SessionResponse](t, c.call(http.MethodGet, "/auth/session", nil, http.StatusOK))
@@ -230,7 +231,9 @@ func TestConsoleContract(t *testing.T) {
 	c.call(http.MethodGet, "/buckets/docs/encryption", nil, http.StatusOK)
 	c.call(http.MethodDelete, "/buckets/docs/encryption", nil, http.StatusNoContent)
 	c.call(http.MethodGet, "/buckets/docs/quota", nil, http.StatusOK)
-	c.call(http.MethodGet, "/buckets/docs/lifecycle", nil, http.StatusNotImplemented)
+	c.call(http.MethodGet, "/buckets/docs/lifecycle", nil, http.StatusOK)
+	c.call(http.MethodGet, "/buckets/docs/cors", nil, http.StatusOK)
+	c.call(http.MethodGet, "/buckets/docs/events", nil, http.StatusOK)
 
 	// Upload in one request: the Content-Type is preserved.
 	resp = c.request(http.MethodPost, "/buckets/docs/objects/upload"+q("dir/a b#1.txt"), strings.NewReader("hello world"), http.Header{"Content-Type": {"text/plain"}})
