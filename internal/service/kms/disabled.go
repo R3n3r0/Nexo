@@ -15,7 +15,8 @@ var _ Service = (*disabled)(nil)
 // NewDisabled returns the KMS of a deployment without KMS: Status reports
 // it as not configured and every key operation fails with
 // domain.ErrKMSNotConfigured (SSE-S3 and SSE-KMS are refused, SSE-C does
-// not need a KMS).
+// not need a KMS). It has neither dependencies nor options: the documented
+// exception to New(deps Deps, opts ...Option) of docs/12.
 func NewDisabled() Service { return disabled{} }
 
 func errNotConfigured() error {

@@ -226,7 +226,7 @@ anonymous access, tags) and of local files. --versions shows every version of
 an object.`,
 		Example: `  nexoctl stat local/docs/report.pdf
   nexoctl stat --checksum --versions local/docs/report.pdf
-  nexoctl stat --enc-c "local/private=$(cat key.b64)" local/private/secret.txt
+  nexoctl stat --enc-c-file keys.txt local/private/secret.txt
   nexoctl stat --json local/docs`,
 		Args:              minArgs(1),
 		ValidArgsFunction: completeTargets(e),

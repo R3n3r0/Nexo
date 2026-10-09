@@ -1733,6 +1733,63 @@ func (_c *Service_PutObjectTags_Call) RunAndReturn(run func(context.Context, str
 	return _c
 }
 
+// ResealKeys provides a mock function with given fields: ctx, bucket
+func (_m *Service) ResealKeys(ctx context.Context, bucket string) (object.ResealResult, error) {
+	ret := _m.Called(ctx, bucket)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ResealKeys")
+	}
+
+	var r0 object.ResealResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (object.ResealResult, error)); ok {
+		return rf(ctx, bucket)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) object.ResealResult); ok {
+		r0 = rf(ctx, bucket)
+	} else {
+		r0 = ret.Get(0).(object.ResealResult)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, bucket)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_ResealKeys_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ResealKeys'
+type Service_ResealKeys_Call struct {
+	*mock.Call
+}
+
+// ResealKeys is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+func (_e *Service_Expecter) ResealKeys(ctx interface{}, bucket interface{}) *Service_ResealKeys_Call {
+	return &Service_ResealKeys_Call{Call: _e.mock.On("ResealKeys", ctx, bucket)}
+}
+
+func (_c *Service_ResealKeys_Call) Run(run func(ctx context.Context, bucket string)) *Service_ResealKeys_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *Service_ResealKeys_Call) Return(_a0 object.ResealResult, _a1 error) *Service_ResealKeys_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_ResealKeys_Call) RunAndReturn(run func(context.Context, string) (object.ResealResult, error)) *Service_ResealKeys_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewService creates a new instance of Service. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewService(t interface {

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateObjectKey(t *testing.T) {
@@ -45,4 +46,34 @@ func TestValidateObjectPrefix(t *testing.T) {
 	assert.NoError(t, ValidateObjectPrefix(""))
 	assert.NoError(t, ValidateObjectPrefix("photos/2024/"))
 	assert.ErrorIs(t, ValidateObjectPrefix("../x"), ErrInvalidObjectName)
+}
+
+func TestValidateVersionID(t *testing.T) {
+	tests := []struct {
+		id string
+		ok bool
+	}{
+		{"", true},
+		{"null", true},
+		{"0192f0f0-0000-7000-8000-000000000001", true},
+		{"0192F0F0-0000-7000-8000-00000000ABCD", true},
+		{"notavalid", false},
+		{"zzz", false},
+		{"0192f0f0-0000-7000-8000-00000000000", false},
+		{"0192f0f0-0000-7000-8000-0000000000012", false},
+		{"0192f0f0x0000-7000-8000-000000000001", false},
+		{"0192f0f0-0000-7000-8000-00000000000g", false},
+		{"NULL", false},
+	}
+	for _, tt := range tests {
+		err := ValidateVersionID(tt.id)
+		if tt.ok {
+			assert.NoError(t, err, tt.id)
+			continue
+		}
+		assert.ErrorIs(t, err, ErrInvalidArgument, tt.id)
+		var s3err *S3Error
+		require.ErrorAs(t, err, &s3err)
+		assert.Equal(t, "InvalidArgument", s3err.Code)
+	}
 }

@@ -16,6 +16,17 @@ $ nexoctl admin kms key create mem app-key
 $ nexoctl admin kms key ls --json mem app
 {"status":"success","alias":"mem","id":"app-key","createdAt":"2026-01-02T03:04:05Z"}
 
+$ nexoctl admin kms reseal mem
+Re-sealed 3 of 3 data keys (3 versions, 0 pending uploads) in 2 buckets.
+
+$ nexoctl admin kms reseal --json mem --bucket docs
+{"status":"success","alias":"mem","bucket":"docs","buckets":2,"versions":3,"uploads":0,"resealed":3,"failed":0}
+
+$ nexoctl admin kms reseal mem
+Re-sealed 1 of 2 data keys (2 versions, 0 pending uploads) in 1 bucket. 1 failed, first: docs/a.txt: kms: key not found
+! nexoctl: error: 1 data key could not be re-sealed
+[exit 1]
+
 $ nexoctl encrypt set sse-kms app-key mem/docs
 Default encryption of `mem/docs`: SSE-KMS with key app-key.
 

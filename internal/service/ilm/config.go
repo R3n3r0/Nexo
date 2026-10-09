@@ -55,6 +55,10 @@ type Rule struct {
 // Filter selects the objects of a rule: every set criterion must match.
 type Filter struct {
 	Prefix string
+	// Legacy reports a rule written with the deprecated top-level Prefix
+	// instead of a Filter: the stored document keeps that form, as S3
+	// returns the rules as they were set.
+	Legacy bool
 	Tags   map[string]string
 	// SizeGreaterThan and SizeLessThan bound the object size (exclusive);
 	// nil means no bound.
@@ -306,10 +310,12 @@ func parseFilter(rx ruleXML) (Filter, error) {
 		return Filter{}, malformed("a rule cannot have both a Filter and a Prefix")
 	}
 	if rx.Filter == nil {
-		f := Filter{}
-		if rx.Prefix != nil {
-			f.Prefix = *rx.Prefix
+		// As S3: a rule names the objects it applies to, if only with an
+		// empty prefix (a typo must not expire a whole bucket).
+		if rx.Prefix == nil {
+			return Filter{}, malformed("a rule must have a Filter or a Prefix")
 		}
+		f := Filter{Legacy: true, Prefix: *rx.Prefix}
 		return f, checkPrefix(f.Prefix)
 	}
 	fx := rx.Filter
@@ -473,7 +479,12 @@ func ruleID(r Rule) string {
 func encodeConfiguration(cfg *Configuration) ([]byte, error) {
 	x := lifecycleXML{Xmlns: s3Namespace}
 	for _, r := range cfg.Rules {
-		rx := ruleXML{ID: r.ID, Status: statusDisabled, Filter: encodeFilter(r.Filter)}
+		rx := ruleXML{ID: r.ID, Status: statusDisabled}
+		if r.Filter.Legacy {
+			rx.Prefix = ptr(r.Filter.Prefix)
+		} else {
+			rx.Filter = encodeFilter(r.Filter)
+		}
 		if r.Enabled {
 			rx.Status = statusEnabled
 		}

@@ -7,9 +7,10 @@ Examples:
   nexoctl cat local/logs/app.log
 
 Flags:
-      --enc-c stringArray   SSE-C key of the objects under a location: "ALIAS/BUCKET[/PREFIX]=BASE64KEY" (32 bytes; repeatable)
-  -h, --help                help for cat
-      --version-id string   print this version of the object
+      --enc-c stringArray        SSE-C key of the objects under a location: "ALIAS/BUCKET[/PREFIX]=BASE64KEY" (32 bytes; repeatable). Prefer --enc-c-file or NEXOCTL_ENC_C: a key in the arguments is visible to other local users and in the shell history
+      --enc-c-file stringArray   file of SSE-C keys, one "ALIAS/BUCKET[/PREFIX]=BASE64KEY" per line ("#" comments; repeatable)
+  -h, --help                     help for cat
+      --version-id string        print this version of the object
 
 Global Flags:
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)

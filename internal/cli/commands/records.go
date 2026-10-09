@@ -325,6 +325,13 @@ type kmsStatusRecord struct {
 	nexoadmin.KMSStatus
 }
 
+// kmsResealRecord is the outcome of admin kms reseal.
+type kmsResealRecord struct {
+	Alias  string `json:"alias"`
+	Bucket string `json:"bucket,omitempty"`
+	nexoadmin.KMSResealResult
+}
+
 // kmsKeyRecord is a key of the KMS of a server.
 type kmsKeyRecord struct {
 	Alias string `json:"alias"`

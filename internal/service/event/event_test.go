@@ -93,7 +93,9 @@ func TestTargetIDAndARN(t *testing.T) {
 }
 
 // TestEventPayloadGolden pins the JSON document delivered for an event
-// (docs/06 TS-I-15: the S3 standard payload): eventVersion 2.0, the
+// (docs/06 TS-I-15: the S3 standard payload): eventVersion 2.1 and the
+// eventName without the "s3:" prefix in the records (the top-level
+// EventName keeps it, as MinIO does), the
 // request parameters and response elements of the request, the
 // configuration id of the rule and the URL-encoded key.
 func TestEventPayloadGolden(t *testing.T) {
@@ -188,4 +190,32 @@ func TestPublishCompletesTheEventFromTheRequest(t *testing.T) {
 			assert.Equal(t, "nexo", rec.S3.Bucket.OwnerIdentity.PrincipalID)
 		})
 	}
+}
+
+// TestEventRecordJSON: the records carry the eventName as S3 does
+// ("ObjectCreated:Put"); reading a record restores the configuration event
+// type, whatever the form it was queued in.
+func TestEventRecordJSON(t *testing.T) {
+	e := event.NewEvent(event.ObjectRemovedDeleteMarkerCreated, "us-east-1", time.Date(2026, 10, 9, 0, 0, 0, 0, time.UTC))
+	data, err := json.Marshal(e)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `"eventName":"ObjectRemoved:DeleteMarkerCreated"`)
+	assert.Contains(t, string(data), `"eventVersion":"2.1"`)
+	tests := []struct {
+		name, json string
+		want       event.Name
+	}{
+		{"S3 form", `{"eventName":"ObjectCreated:Put"}`, event.ObjectCreatedPut},
+		{"queued by an earlier build", `{"eventName":"s3:ObjectCreated:Put"}`, event.ObjectCreatedPut},
+		{"no name", `{}`, ""},
+	}
+	for _, tt := range tests {
+		var got event.Event
+		require.NoError(t, json.Unmarshal([]byte(tt.json), &got), tt.name)
+		assert.Equal(t, tt.want, got.EventName, tt.name)
+	}
+	var back event.Event
+	require.NoError(t, json.Unmarshal(data, &back))
+	assert.Equal(t, e.EventName, back.EventName)
+	assert.True(t, back.EventName.Match(event.ObjectRemovedAll))
 }

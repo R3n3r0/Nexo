@@ -302,7 +302,7 @@
       "unitYears": "anni",
       "periodInvalid": "Inserisci un numero intero di almeno 1.",
       "permanent": "Object lock non può essere disabilitato; la conservazione predefinita si applica ai nuovi oggetti.",
-      "onlyAtCreation": "L'object lock può essere attivato solo alla creazione del bucket."
+      "onlyAtCreation": "L'object lock si attiva alla creazione del bucket; un bucket esistente può attivarlo tramite l'API S3 solo con il versioning abilitato."
     }
   },
   "bucketAccess": {

@@ -35,6 +35,13 @@ func (e *env) consoleLogin(c creds) *console {
 	jar, err := cookiejar.New(nil)
 	require.NoError(e.t, err)
 	client := &http.Client{Timeout: 30 * time.Second, Jar: jar, CheckRedirect: noRedirect}
+	if e.srv.TLS != nil {
+		// A deployment served over TLS (testutil.WithTLS): trust its CA.
+		tr, _ := http.DefaultTransport.(*http.Transport)
+		tr = tr.Clone()
+		tr.TLSClientConfig = e.srv.TLS.Clone()
+		client.Transport = tr
+	}
 	body := fmt.Sprintf(`{"accessKey":%q,"secretKey":%q}`, c.AccessKey, c.SecretKey)
 	req := newRequest(e.t, http.MethodPost, e.srv.ConsoleURL+"/api/v1/auth/login", []byte(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -558,4 +565,50 @@ func TestConsoleRestoreVersion(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode, "%s", resp.Body)
 	resp = frank.do(http.MethodPost, "/buckets/hist/objects/restore?key=doc.txt&versionId="+v1, "")
 	assert.Equal(t, http.StatusCreated, resp.StatusCode, "%s", resp.Body)
+}
+
+// TestConsoleNullVersionDeletes: in a bucket versioned after its first
+// writes, the version written before versioning is the null version: the
+// console delete of every version of a prefix and the forced deletion of
+// the bucket remove it for good, without leaving it behind under a new
+// delete marker (regression).
+func TestConsoleNullVersionDeletes(t *testing.T) {
+	e := newEnv(t)
+	root := e.consoleLogin(e.rootCreds())
+	for _, b := range []string{"late-prefix", "late-force"} {
+		e.mkBucket(b)
+		e.put(b, "dir/pre", []byte("before versioning"))
+		e.setVersioning(b, types.BucketVersioningStatusEnabled)
+		e.putVersion(b, "dir/ver", "one")
+		e.putVersion(b, "dir/ver", "two")
+	}
+
+	resp := root.do(http.MethodDelete, "/buckets/late-prefix/objects", `{"prefixes":["dir/"],"allVersions":true}`)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "%s", resp.Body)
+	var out struct {
+		Deleted []struct {
+			Key          string `json:"key"`
+			VersionID    string `json:"versionId"`
+			DeleteMarker bool   `json:"deleteMarker"`
+		} `json:"deleted"`
+		Errors []json.RawMessage `json:"errors"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Body, &out))
+	assert.Empty(t, out.Errors)
+	require.Len(t, out.Deleted, 3)
+	for _, d := range out.Deleted {
+		assert.False(t, d.DeleteMarker, "%s@%s: no delete marker is created", d.Key, d.VersionID)
+		if d.Key == "dir/pre" {
+			assert.Equal(t, "null", d.VersionID)
+		}
+	}
+	versions, err := e.root.ListObjectVersions(e.ctx, &s3.ListObjectVersionsInput{Bucket: aws.String("late-prefix")})
+	require.NoError(t, err)
+	assert.Empty(t, versions.Versions, "every version is gone")
+	assert.Empty(t, versions.DeleteMarkers, "no delete marker is left")
+
+	resp = root.do(http.MethodDelete, "/buckets/late-force?force=true", "")
+	require.Equal(t, http.StatusNoContent, resp.StatusCode, "%s", resp.Body)
+	_, err = e.root.HeadBucket(e.ctx, &s3.HeadBucketInput{Bucket: aws.String("late-force")})
+	assert.Equal(t, http.StatusNotFound, httpStatus(err), "the bucket is gone")
 }

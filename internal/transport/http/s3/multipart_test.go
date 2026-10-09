@@ -153,6 +153,31 @@ func TestCompleteMultipartUpload(t *testing.T) {
 		http.StatusBadRequest, "EntityTooSmall")
 }
 
+// TestCompleteMultipartUploadObjectSize: x-amz-mp-object-size reaches the
+// object layer, which checks it against the parts; a malformed value is
+// refused before.
+func TestCompleteMultipartUploadObjectSize(t *testing.T) {
+	f := newFixture(t)
+	doc := `<CompleteMultipartUpload><Part><PartNumber>1</PartNumber><ETag>x</ETag></Part></CompleteMultipartUpload>`
+	size := int64(1024)
+	f.objects.EXPECT().CompleteMultipartUpload(mock.Anything, mock.MatchedBy(func(in object.CompleteMultipartInput) bool {
+		return in.ObjectSize != nil && *in.ObjectSize == size
+	})).Return(domain.ObjectInfo{ETag: "e-1"}, nil).Once()
+	rec := f.do(http.MethodPost, "/b/k?uploadId=u1", doc, "x-amz-mp-object-size", "1024")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	f.objects.EXPECT().CompleteMultipartUpload(mock.Anything, mock.MatchedBy(func(in object.CompleteMultipartInput) bool {
+		return in.ObjectSize == nil
+	})).Return(domain.ObjectInfo{ETag: "e-1"}, nil).Once()
+	rec = f.do(http.MethodPost, "/b/k?uploadId=u1", doc)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	for _, bad := range []string{"-1", "five", "1.5"} {
+		requireError(t, f.do(http.MethodPost, "/b/k?uploadId=u1", doc, "x-amz-mp-object-size", bad), http.StatusBadRequest, "InvalidArgument")
+	}
+	f.objects.EXPECT().CompleteMultipartUpload(mock.Anything, mock.Anything).
+		Return(domain.ObjectInfo{}, domain.NewS3Error(domain.ErrInvalidArgument, "InvalidRequest", "size mismatch")).Once()
+	requireError(t, f.do(http.MethodPost, "/b/k?uploadId=u1", doc, "x-amz-mp-object-size", "5"), http.StatusBadRequest, "InvalidRequest")
+}
+
 func TestCompleteMultipartUploadVirtualHost(t *testing.T) {
 	f := newFixture(t, withDomains("s3.example.com"))
 	f.objects.EXPECT().CompleteMultipartUpload(mock.Anything, mock.MatchedBy(func(in object.CompleteMultipartInput) bool {
@@ -226,13 +251,13 @@ func TestListMultipartUploads(t *testing.T) {
 	var res s3.ListMultipartUploadsResult
 	decodeXML(t, rec, &res)
 	assert.Equal(t, "url", res.EncodingType)
-	assert.Equal(t, "a+b/", res.Prefix)
-	assert.Equal(t, "a+b/0", res.KeyMarker)
-	assert.Equal(t, "a+b/k", res.NextKeyMarker)
+	assert.Equal(t, "a%20b/", res.Prefix)
+	assert.Equal(t, "a%20b/0", res.KeyMarker)
+	assert.Equal(t, "a%20b/k", res.NextKeyMarker)
 	assert.Equal(t, "u1", res.NextUploadIDMarker)
-	assert.Equal(t, "a+b/sub+dir/", res.CommonPrefixes[0].Prefix)
+	assert.Equal(t, "a%20b/sub%20dir/", res.CommonPrefixes[0].Prefix)
 	require.Len(t, res.Uploads, 1)
-	assert.Equal(t, s3.UploadEntry{Key: "a+b/k", UploadID: "u1", Initiator: res.Uploads[0].Owner, Owner: res.Uploads[0].Owner,
+	assert.Equal(t, s3.UploadEntry{Key: "a%20b/k", UploadID: "u1", Initiator: res.Uploads[0].Owner, Owner: res.Uploads[0].Owner,
 		StorageClass: "STANDARD", Initiated: "2026-10-08T12:00:00.000Z"}, res.Uploads[0])
 
 	requireError(t, f.do(http.MethodGet, "/b?uploads&max-uploads=x", ""), http.StatusBadRequest, "InvalidArgument")

@@ -3,6 +3,9 @@ package s3
 import (
 	"net"
 	"strings"
+	"time"
+
+	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
 
 // Option configures the S3 route groups and the Dispatcher. An option that
@@ -18,10 +21,12 @@ type options struct {
 	publicMetrics bool
 	// insecureSSEC accepts SSE-C keys over plain HTTP.
 	insecureSSEC bool
+	// sendTimeout bounds the stalls of an object body (<= 0: unbounded).
+	sendTimeout time.Duration
 }
 
 func newOptions(opts []Option) options {
-	var o options
+	o := options{sendTimeout: httpx.DefaultSendTimeout}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&o)
@@ -68,4 +73,13 @@ func normalizeHost(host string) string {
 // NewMultipartRoutes, NewPresignedRoutes and NewPostPolicyRoutes.
 func WithInsecureSSEC(allow bool) Option {
 	return func(o *options) { o.insecureSSEC = allow }
+}
+
+// WithSendTimeout bounds how long the body of a GetObject may stall
+// (default httpx.DefaultSendTimeout; <= 0 disables the bound): a client
+// that stops reading has its response aborted, which releases the read
+// lock of the object that the download holds (see httpx.SendGuard). Used
+// by NewObjectRoutes.
+func WithSendTimeout(d time.Duration) Option {
+	return func(o *options) { o.sendTimeout = d }
 }

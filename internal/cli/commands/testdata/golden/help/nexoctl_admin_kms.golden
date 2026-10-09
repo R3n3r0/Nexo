@@ -9,6 +9,7 @@ Usage:
 
 Available Commands:
   key         Create and list the keys of the KMS
+  reseal      Re-seal the data keys of the objects under the current master key
   status      Show the state of the KMS
 
 Flags:

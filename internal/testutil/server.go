@@ -129,6 +129,8 @@ type settings struct {
 	// of pki.
 	tls bool
 	pki *testPKI
+	// kes starts a simulated KES server as the KMS (WithKES).
+	kes bool
 }
 
 // Option customizes StartServer.
@@ -171,6 +173,7 @@ func StartServer(t testing.TB, opts ...Option) *Server {
 	t.Helper()
 	st := newSettings(opts)
 	setupTLS(t, &st)
+	setupKES(t, &st)
 	if st.nodes > 0 {
 		return startCluster(t, st)
 	}

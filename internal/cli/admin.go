@@ -95,10 +95,11 @@ type AdminClient interface {
 	TestNotifyTarget(ctx context.Context, target string) (*nexoadmin.NotifyTargetTest, error)
 
 	// KMS of the server-side encryption (admin kms status|key ls|key
-	// create).
+	// create|reseal).
 	KMSStatus(ctx context.Context) (*nexoadmin.KMSStatus, error)
 	ListKMSKeys(ctx context.Context, prefix string) ([]nexoadmin.KMSKey, error)
 	CreateKMSKey(ctx context.Context, id string) (*nexoadmin.KMSKey, error)
+	ResealKMSKeys(ctx context.Context, bucket string) (*nexoadmin.KMSResealResult, error)
 
 	// Managed share links (docs/09 §9.1, S-OBJ-08c).
 	CreateShare(ctx context.Context, in nexoadmin.CreateShareRequest) (*nexoadmin.Share, error)

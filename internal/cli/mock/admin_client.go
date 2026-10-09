@@ -2577,6 +2577,65 @@ func (_c *AdminClient_PolicyEntities_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
+// ResealKMSKeys provides a mock function with given fields: ctx, bucket
+func (_m *AdminClient) ResealKMSKeys(ctx context.Context, bucket string) (*nexoadmin.KMSResealResult, error) {
+	ret := _m.Called(ctx, bucket)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ResealKMSKeys")
+	}
+
+	var r0 *nexoadmin.KMSResealResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*nexoadmin.KMSResealResult, error)); ok {
+		return rf(ctx, bucket)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *nexoadmin.KMSResealResult); ok {
+		r0 = rf(ctx, bucket)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.KMSResealResult)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, bucket)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_ResealKMSKeys_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ResealKMSKeys'
+type AdminClient_ResealKMSKeys_Call struct {
+	*mock.Call
+}
+
+// ResealKMSKeys is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+func (_e *AdminClient_Expecter) ResealKMSKeys(ctx interface{}, bucket interface{}) *AdminClient_ResealKMSKeys_Call {
+	return &AdminClient_ResealKMSKeys_Call{Call: _e.mock.On("ResealKMSKeys", ctx, bucket)}
+}
+
+func (_c *AdminClient_ResealKMSKeys_Call) Run(run func(ctx context.Context, bucket string)) *AdminClient_ResealKMSKeys_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_ResealKMSKeys_Call) Return(_a0 *nexoadmin.KMSResealResult, _a1 error) *AdminClient_ResealKMSKeys_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_ResealKMSKeys_Call) RunAndReturn(run func(context.Context, string) (*nexoadmin.KMSResealResult, error)) *AdminClient_ResealKMSKeys_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // RestartService provides a mock function with given fields: ctx
 func (_m *AdminClient) RestartService(ctx context.Context) error {
 	ret := _m.Called(ctx)

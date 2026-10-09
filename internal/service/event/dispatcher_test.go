@@ -6,7 +6,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -179,8 +181,11 @@ func TestDispatcherQueuesWhileTargetOffline(t *testing.T) {
 	ctx := context.Background()
 	cfg := webhookTarget("hook", h.srv.URL)
 	cfg.Filter = event.Filter{Bucket: "b"}
-	cfg.QueueDir = t.TempDir()
-	d := event.NewDispatcher(event.Deps{Factory: event.NewWebhookFactory(event.WebhookDeps{Client: h.srv.Client()})}, fastRetry())
+	cfg.QueueDir = "hooks/primary"
+	root := t.TempDir()
+	queue := filepath.Join(root, "queue_dir", "hooks", "primary")
+	d := event.NewDispatcher(event.Deps{Factory: event.NewWebhookFactory(event.WebhookDeps{Client: h.srv.Client()})}, fastRetry(),
+		event.WithQueueRoot(root))
 	require.NoError(t, d.SetTarget(ctx, cfg))
 	require.NoError(t, d.Start(ctx))
 	defer stop(t, d)
@@ -189,13 +194,16 @@ func TestDispatcherQueuesWhileTargetOffline(t *testing.T) {
 	}
 	time.Sleep(100 * time.Millisecond)
 	assert.Empty(t, h.keys(), "offline")
+	files, err := filepath.Glob(filepath.Join(queue, "*.event"))
+	require.NoError(t, err)
+	assert.Len(t, files, 3, "the queue_dir is a directory of the queue root")
 	h.offline.Store(false)
 	h.waitFor(t, 3)
 	assert.Equal(t, []string{"b/1", "b/2", "b/3"}, h.keys(), "order preserved")
 	// The endpoint has the last event before the sender removes it from
 	// the queue.
 	require.Eventually(t, func() bool {
-		files, err := filepath.Glob(filepath.Join(cfg.QueueDir, "*.event"))
+		files, err := filepath.Glob(filepath.Join(queue, "*.event"))
 		return err == nil && len(files) == 0
 	}, 5*time.Second, 5*time.Millisecond, "delivered events leave the queue")
 }
@@ -297,6 +305,12 @@ func TestDispatcherTargetCRUD(t *testing.T) {
 		{"unknown type", event.TargetConfig{ID: "x", Type: "mysql"}},
 		{"kafka without brokers", event.TargetConfig{ID: "x", Type: event.TypeKafka}},
 		{"bad webhook url", event.TargetConfig{ID: "x", Type: event.TypeWebhook, Webhook: event.WebhookConfig{Endpoint: "not a url"}}},
+		// queue_dir stays inside the queue root: the queue consumes and
+		// removes the files of its directory.
+		{"absolute queue_dir", event.TargetConfig{ID: "x", Type: event.TypeWebhook, QueueDir: "/etc", Webhook: event.WebhookConfig{Endpoint: "http://h"}}},
+		{"queue_dir escaping", event.TargetConfig{ID: "x", Type: event.TypeWebhook, QueueDir: "a/../../drive1", Webhook: event.WebhookConfig{Endpoint: "http://h"}}},
+		{"queue_dir parent", event.TargetConfig{ID: "x", Type: event.TypeWebhook, QueueDir: "..", Webhook: event.WebhookConfig{Endpoint: "http://h"}}},
+		{"queue_dir root", event.TargetConfig{ID: "x", Type: event.TypeWebhook, QueueDir: ".", Webhook: event.WebhookConfig{Endpoint: "http://h"}}},
 	}
 	for _, tc := range tests {
 		assert.ErrorIs(t, d.SetTarget(ctx, tc.cfg), domain.ErrInvalidArgument, tc.name)
@@ -397,6 +411,74 @@ func TestWebhookReportsHTTPErrors(t *testing.T) {
 	_, err = event.NewWebhookFactory(event.WebhookDeps{}).New(context.Background(), event.TargetConfig{ID: "k", Type: event.TypeKafka,
 		Kafka: event.KafkaConfig{Brokers: []string{"b:1"}, Topic: "t"}})
 	assert.ErrorIs(t, err, domain.ErrInvalidArgument, "the webhook factory builds webhooks only")
+}
+
+// TestWebhookRedactsEndpointCredentials: the errors of a webhook (failed
+// request, invalid configuration) never carry the token of an endpoint in
+// its query or user info: they reach the logs and the Admin API.
+func TestWebhookRedactsEndpointCredentials(t *testing.T) {
+	ctx := context.Background()
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	addr := srv.Listener.Addr().String()
+	srv.Close() // the endpoint refuses the connections
+
+	f := event.NewTargetFactory(event.FactoryDeps{})
+	for _, endpoint := range []string{
+		"http://" + addr + "/ingest?token=s3cret-token",
+		"http://user:s3cret-token@" + addr + "/ingest",
+	} {
+		target, err := f.New(ctx, webhookTarget("h", endpoint))
+		require.NoError(t, err)
+		err = target.Send(ctx, objectEvent(event.ObjectCreatedPut, "b", "k"))
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), "s3cret-token", endpoint)
+		assert.Contains(t, err.Error(), addr, "the host stays to identify the endpoint")
+		var ue *url.Error
+		assert.ErrorAs(t, err, &ue, "the cause is kept")
+	}
+
+	_, err := f.New(ctx, webhookTarget("bad", "ftp://h/x?token=s3cret-token"))
+	require.ErrorIs(t, err, domain.ErrInvalidArgument)
+	assert.NotContains(t, err.Error(), "s3cret-token")
+	_, err = f.New(ctx, webhookTarget("bad", "http://h x/?token=s3cret-token"))
+	require.ErrorIs(t, err, domain.ErrInvalidArgument)
+	assert.NotContains(t, err.Error(), "s3cret-token")
+}
+
+// TestWebhookNeverFollowsRedirects: a webhook receiver that answers with a
+// redirect cannot bounce the POST of Nexo, its body and the auth_token of
+// the target, to another host (a blind SSRF to internal services): the
+// redirect is not followed and the delivery fails, with the per-target
+// client and with an injected *http.Client alike.
+func TestWebhookNeverFollowsRedirects(t *testing.T) {
+	ctx := context.Background()
+	var internalCalls atomic.Int32
+	var leaked atomic.Value
+	internal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		internalCalls.Add(1)
+		leaked.Store(r.Header.Get("Authorization"))
+	}))
+	defer internal.Close()
+	for _, code := range []int{http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther, http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		external := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, internal.URL+"/admin/secret-action", code)
+		}))
+		for name, f := range map[string]event.TargetFactory{
+			"per-target client": event.NewTargetFactory(event.FactoryDeps{}),
+			"injected client":   event.NewWebhookFactory(event.WebhookDeps{Client: &http.Client{Timeout: 5 * time.Second}}),
+		} {
+			cfg := webhookTarget("h", external.URL)
+			cfg.Webhook.AuthToken = "s3cr3t"
+			target, err := f.New(ctx, cfg)
+			require.NoError(t, err)
+			err = target.Send(ctx, objectEvent(event.ObjectCreatedPut, "b", "k"))
+			require.Error(t, err, "%s, %d: a redirect is a failed delivery", name, code)
+			assert.Contains(t, err.Error(), strconv.Itoa(code), name)
+		}
+		external.Close()
+	}
+	assert.Zero(t, internalCalls.Load(), "the redirect target is never called")
+	assert.Nil(t, leaked.Load(), "the token never reaches another host")
 }
 
 // TestWebhookTLSSkipVerify: the per-target client verifies the server

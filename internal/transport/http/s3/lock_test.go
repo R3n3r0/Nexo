@@ -132,7 +132,7 @@ func TestPutObjectLockConfiguration(t *testing.T) {
 	f := newFixture(t)
 	f.buckets.EXPECT().SetObjectLock(mock.Anything, "vault", bucket.ObjectLockConfig{Enabled: true, Mode: domain.RetentionGovernance, Days: 7}).Return(nil).Once()
 	rec := f.do(http.MethodPut, "/vault?object-lock", `<ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled>
-		<Rule><DefaultRetention><Mode>governance</Mode><Days>7</Days></DefaultRetention></Rule></ObjectLockConfiguration>`)
+		<Rule><DefaultRetention><Mode>GOVERNANCE</Mode><Days>7</Days></DefaultRetention></Rule></ObjectLockConfiguration>`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	f.buckets.EXPECT().SetObjectLock(mock.Anything, "vault", bucket.ObjectLockConfig{Enabled: true}).Return(nil).Once()
@@ -144,13 +144,25 @@ func TestPutObjectLockConfiguration(t *testing.T) {
 	requireError(t, f.do(http.MethodPut, "/plain?object-lock", `<ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration>`),
 		http.StatusConflict, "InvalidBucketState")
 
-	for name, body := range map[string]string{
-		"disabled":            `<ObjectLockConfiguration><ObjectLockEnabled>Disabled</ObjectLockEnabled></ObjectLockConfiguration>`,
-		"rule without period": `<ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled><Rule><DefaultRetention/></Rule></ObjectLockConfiguration>`,
-		"malformed":           `<ObjectLockConfiguration>`,
+	rule := func(retention string) string {
+		return `<ObjectLockConfiguration><ObjectLockEnabled>Enabled</ObjectLockEnabled><Rule><DefaultRetention>` + retention +
+			`</DefaultRetention></Rule></ObjectLockConfiguration>`
+	}
+	for _, tt := range []struct {
+		name, body, code string
+	}{
+		{"disabled", `<ObjectLockConfiguration><ObjectLockEnabled>Disabled</ObjectLockEnabled></ObjectLockConfiguration>`, "MalformedXML"},
+		{"rule without period", rule(""), "MalformedXML"},
+		{"mode in lowercase", rule(`<Mode>governance</Mode><Days>1</Days>`), "MalformedXML"},
+		{"unknown mode", rule(`<Mode>abc</Mode><Days>1</Days>`), "MalformedXML"},
+		{"days and years", rule(`<Mode>GOVERNANCE</Mode><Days>1</Days><Years>1</Years>`), "MalformedXML"},
+		{"no period", rule(`<Mode>GOVERNANCE</Mode>`), "MalformedXML"},
+		{"zero days", rule(`<Mode>GOVERNANCE</Mode><Days>0</Days>`), "InvalidRetentionPeriod"},
+		{"negative years", rule(`<Mode>COMPLIANCE</Mode><Years>-1</Years>`), "InvalidRetentionPeriod"},
+		{"malformed", `<ObjectLockConfiguration>`, "MalformedXML"},
 	} {
-		t.Run(name, func(t *testing.T) {
-			requireError(t, f.do(http.MethodPut, "/vault?object-lock", body), http.StatusBadRequest, "MalformedXML")
+		t.Run(tt.name, func(t *testing.T) {
+			requireError(t, f.do(http.MethodPut, "/vault?object-lock", tt.body), http.StatusBadRequest, tt.code)
 		})
 	}
 }

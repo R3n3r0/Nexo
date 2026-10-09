@@ -8,8 +8,10 @@
 #   1. fetches github.com/ceph/s3-tests at the pinned commit (S3TESTS_COMMIT);
 #   2. creates a Python venv and installs requirements.txt of the suite,
 #      constrained by test/compat/constraints.txt (reproducible boto3);
-#   3. starts bin/nexo in SNMD mode (4 drives) over TLS (SSE-C needs it)
-#      with the builtin KMS (SSE-S3, SSE-KMS);
+#   3. starts bin/nexo over TLS (SSE-C needs it) with the builtin KMS
+#      (SSE-S3, SSE-KMS): SNMD with 4 drives by default, NEXO_S3TESTS_MODE
+#      selects SNSD (1 drive) or a cluster of 4 processes of 2 drives
+#      (Linux; the suite talks to the first node);
 #   4. creates the users of the suite with nexoctl admin: "main" (every S3
 #      action), "alt" and "tenant" (list and create buckets only: Nexo has
 #      a single account, the grants of another account are modeled with
@@ -35,6 +37,7 @@
 #   NEXO_S3TESTS_REQUIRE_NETWORK=1  fail instead of skipping without network
 #   NEXO_S3TESTS_STRICT=1           fail on any failed test
 #   NEXO_S3TESTS_TIMEOUT            timeout of the pytest run (default 90m)
+#   NEXO_S3TESTS_MODE               snmd (default), snsd or cluster
 #   PYTHON                          interpreter of the venv (default python3)
 set -euo pipefail
 
@@ -49,6 +52,7 @@ NEXOCTL_BIN="${NEXOCTL_BIN:-$ROOT/bin/nexoctl}"
 REQUIRE_NETWORK="${NEXO_S3TESTS_REQUIRE_NETWORK:-0}"
 STRICT="${NEXO_S3TESTS_STRICT:-0}"
 TIMEOUT="${NEXO_S3TESTS_TIMEOUT:-90m}"
+MODE="${NEXO_S3TESTS_MODE:-snmd}"
 PYTHON="${PYTHON:-python3}"
 
 if [[ "${1:-}" == "--" ]]; then
@@ -71,6 +75,11 @@ skip() {
 	log "SKIPPED: $*"
 	exit 0
 }
+
+case "$MODE" in
+snsd | snmd | cluster) ;;
+*) log "unknown NEXO_S3TESTS_MODE: $MODE (snsd, snmd or cluster)"; exit 2 ;;
+esac
 
 for tool in git curl openssl "$PYTHON"; do
 	command -v "$tool" >/dev/null || { log "missing tool: $tool"; exit 2; }
@@ -109,7 +118,7 @@ if [[ "$(cat "$VENV/.nexo-stamp" 2>/dev/null || true)" != "$stamp" ]]; then
 	echo "$stamp" >"$VENV/.nexo-stamp"
 fi
 
-# 3. The server: SNMD (4 drives), TLS, builtin KMS.
+# 3. The server (NEXO_S3TESTS_MODE), TLS, builtin KMS.
 if [[ "${NEXO_S3TESTS_BUILD:-0}" == "1" || ! -x "$NEXO_BIN" || ! -x "$NEXOCTL_BIN" ]]; then
 	log "building bin/nexo and bin/nexoctl"
 	(cd "$ROOT" && CGO_ENABLED=0 go build -trimpath -o "$NEXO_BIN" ./cmd/nexo && CGO_ENABLED=0 go build -trimpath -o "$NEXOCTL_BIN" ./cmd/nexoctl)
@@ -124,15 +133,35 @@ if [[ ! -s "$CERTS/public.crt" ]]; then
 fi
 
 free_port() { "$PYTHON" -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'; }
-S3_PORT="$(free_port)"
-CONSOLE_PORT="$(free_port)"
-while [[ "$CONSOLE_PORT" == "$S3_PORT" ]]; do CONSOLE_PORT="$(free_port)"; done
-S3_URL="https://127.0.0.1:$S3_PORT"
-ADMIN_URL="https://127.0.0.1:$CONSOLE_PORT"
+# free_ports N prints the first of N consecutive free ports (the cluster
+# endpoints span them with an ellipsis).
+free_ports() {
+	"$PYTHON" - "$1" <<'PY'
+import random, socket, sys
+n = int(sys.argv[1])
+for _ in range(200):
+    base = random.randrange(20000, 60000 - n)
+    socks = []
+    try:
+        for p in range(base, base + n):
+            s = socket.socket()
+            s.bind(("127.0.0.1", p))
+            socks.append(s)
+    except OSError:
+        continue
+    finally:
+        for s in socks:
+            s.close()
+    print(base)
+    sys.exit(0)
+sys.exit("no free port range")
+PY
+}
 
 rand() { openssl rand -hex "$1"; }
 ROOT_USER="s3tests-root"
 ROOT_PASSWORD="$(rand 16)"
+KMS_KEY="s3tests-default:$(openssl rand -base64 32)"
 # The access keys of the sample configuration of the suite; the secret
 # keys have the AWS length (40) and the main one contains '/' and '+'
 # (signature canonicalization).
@@ -145,34 +174,80 @@ TENANT_SK="opqrstuvwxyzabcdefghijklmnopqrstuvwxyzab"
 
 DATA="$WORK/data"
 rm -rf "$DATA"
-mkdir -p "$DATA"/d{1,2,3,4}
-log "starting bin/nexo (SNMD, 4 drives) on $S3_URL"
-NEXO_ROOT_USER="$ROOT_USER" NEXO_ROOT_PASSWORD="$ROOT_PASSWORD" \
-	NEXO_KMS_SECRET_KEY="s3tests-default:$(openssl rand -base64 32)" \
-	"$NEXO_BIN" server --address "127.0.0.1:$S3_PORT" --console-address "127.0.0.1:$CONSOLE_PORT" \
-	--certs-dir "$CERTS" --log-format text --log-level warn "$DATA/d{1...4}" \
-	>"$REPORT_DIR/nexo.log" 2>&1 &
-NEXO_PID=$!
+NODES=()
+PIDS=()
 cleanup() {
-	if kill -0 "$NEXO_PID" 2>/dev/null; then
-		kill "$NEXO_PID" 2>/dev/null || true
-		wait "$NEXO_PID" 2>/dev/null || true
-	fi
+	local pid
+	for pid in "${PIDS[@]}"; do
+		kill "$pid" 2>/dev/null || true
+	done
+	for pid in "${PIDS[@]}"; do
+		wait "$pid" 2>/dev/null || true
+	done
 }
 trap cleanup EXIT
 
-ready=0
-for _ in $(seq 1 120); do
-	if ! kill -0 "$NEXO_PID" 2>/dev/null; then
-		log "bin/nexo exited:"; tail -n 50 "$REPORT_DIR/nexo.log" >&2; exit 1
-	fi
-	if curl -sfk -o /dev/null "$S3_URL/nexo/health/ready"; then
-		ready=1
-		break
-	fi
-	sleep 0.5
+# start_node NAME S3_PORT CONSOLE_PORT ENDPOINT... starts a node in
+# $DATA/NAME (its working directory, see the cluster endpoints).
+start_node() {
+	local name="$1" s3="$2" console="$3"
+	shift 3
+	mkdir -p "$DATA/$name"
+	(
+		cd "$DATA/$name"
+		NEXO_ROOT_USER="$ROOT_USER" NEXO_ROOT_PASSWORD="$ROOT_PASSWORD" NEXO_KMS_SECRET_KEY="$KMS_KEY" \
+			exec "$NEXO_BIN" server --address "127.0.0.1:$s3" --console-address "127.0.0.1:$console" \
+			--certs-dir "$CERTS" --log-format text --log-level warn "$@"
+	) >"$REPORT_DIR/nexo-$name.log" 2>&1 &
+	NODES+=("$name:$s3")
+	PIDS+=("$!")
+}
+
+case "$MODE" in
+snsd)
+	S3_PORT="$(free_port)"
+	CONSOLE_PORT="$(free_port)"
+	start_node n1 "$S3_PORT" "$CONSOLE_PORT" "$DATA/n1/d1"
+	;;
+snmd)
+	S3_PORT="$(free_port)"
+	CONSOLE_PORT="$(free_port)"
+	start_node n1 "$S3_PORT" "$CONSOLE_PORT" "$DATA/n1/d{1...4}"
+	;;
+cluster)
+	# 4 nodes of 2 drives on consecutive ports; every node runs the same
+	# endpoints, /proc/self/cwd being its own directory (Linux).
+	S3_PORT="$(free_ports 4)"
+	CONSOLE_PORT="$(free_port)"
+	for i in 1 2 3 4; do
+		console="$CONSOLE_PORT"
+		[[ "$i" == "1" ]] || console="$(free_port)"
+		start_node "n$i" "$((S3_PORT + i - 1))" "$console" \
+			"https://127.0.0.1:{$S3_PORT...$((S3_PORT + 3))}/proc/self/cwd/d{1...2}"
+	done
+	;;
+esac
+S3_URL="https://127.0.0.1:$S3_PORT"
+ADMIN_URL="https://127.0.0.1:$CONSOLE_PORT"
+log "starting bin/nexo ($MODE, ${#NODES[@]} node(s)) on $S3_URL"
+
+node_logs() {
+	local n
+	for n in "${NODES[@]}"; do
+		log "--- ${n%%:*}:"
+		tail -n 30 "$REPORT_DIR/nexo-${n%%:*}.log" >&2 || true
+	done
+}
+deadline=$((SECONDS + 120))
+for n in "${NODES[@]}"; do
+	until curl -sfk -o /dev/null "https://127.0.0.1:${n##*:}/nexo/health/ready"; do
+		for pid in "${PIDS[@]}"; do
+			kill -0 "$pid" 2>/dev/null || { log "bin/nexo exited"; node_logs; exit 1; }
+		done
+		((SECONDS < deadline)) || { log "bin/nexo not ready after 120s"; node_logs; exit 1; }
+		sleep 0.5
+	done
 done
-[[ "$ready" == "1" ]] || { log "bin/nexo not ready after 60s"; tail -n 50 "$REPORT_DIR/nexo.log" >&2; exit 1; }
 
 # 4. Users, policies and KMS keys with nexoctl.
 export NEXOCTL_CONFIG_DIR="$WORK/nexoctl"
@@ -258,8 +333,13 @@ log "running test_s3.py (report in $REPORT_DIR)"
 status=0
 (
 	cd "$SUITE"
-	S3TEST_CONF="$CONF" PYTHONPATH="$COMPAT" \
-		NEXO_S3TESTS_SUITE="ceph/s3-tests" NEXO_S3TESTS_COMMIT="$S3TESTS_COMMIT" NEXO_S3TESTS_MODE="snmd" \
+	# The boto3 clients of the suite skip the verification (ssl_verify =
+	# False); the tests that open their own connections (requests without
+	# verify=, raw sockets) verify the server against the self-signed
+	# certificate of the run.
+	export REQUESTS_CA_BUNDLE="$CERTS/public.crt" SSL_CERT_FILE="$CERTS/public.crt"
+	S3TEST_CONF="$CONF" PYTHONPATH="$COMPAT" PYTHONDONTWRITEBYTECODE=1 \
+		NEXO_S3TESTS_SUITE="ceph/s3-tests" NEXO_S3TESTS_COMMIT="$S3TESTS_COMMIT" NEXO_S3TESTS_MODE="$MODE" \
 		timeout "$TIMEOUT" "$VENV/bin/python" -m pytest s3tests/functional/test_s3.py \
 		-p nexo_s3tests --nexo-excluded "$COMPAT/excluded.txt" --nexo-report-dir "$REPORT_DIR" \
 		--junitxml "$REPORT_DIR/junit.xml" -p no:cacheprovider -q -rN --tb=short "$@" \

@@ -363,7 +363,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	}, Buckets: buckets, Settings: applied, Logger: logger},
 		s3.NewBucketRoutes(s3.BucketDeps{Buckets: buckets, Objects: objects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger},
 			s3.WithRegion(cfg.Region)),
-		s3.NewObjectRoutes(s3.ObjectDeps{Objects: objects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger}, ssecOpt),
+		s3.NewObjectRoutes(s3.ObjectDeps{Objects: objects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger}, ssecOpt, sendTimeoutOpt(cfg)),
 		s3.NewMultipartRoutes(s3.MultipartDeps{Objects: objects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger}, ssecOpt),
 		s3.NewPresignedRoutes(s3.PresignedDeps{Verifier: verifier, Objects: objects, Buckets: buckets, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger},
 			s3.WithRegion(cfg.Region), ssecOpt),
@@ -452,4 +452,13 @@ func (s *services) runners() lifecycle.Runner {
 			return herr
 		},
 	}
+}
+
+// sendTimeoutOpt bounds the stalls of the object downloads
+// (NEXO_SEND_TIMEOUT; the default of the S3 routes when zero).
+func sendTimeoutOpt(cfg config.Static) s3.Option {
+	if cfg.SendTimeout <= 0 {
+		return nil
+	}
+	return s3.WithSendTimeout(cfg.SendTimeout)
 }

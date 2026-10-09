@@ -387,6 +387,15 @@ func (s *xlStorage) StatVol(ctx context.Context, volume string) (VolInfo, error)
 
 // DeleteVol implements StorageAPI. Without force a volume holding only
 // empty directories (leftovers of deleted objects) counts as empty.
+//
+// The volume is first renamed into the system tmp directory, atomically:
+// from then on concurrent writes fail cleanly (a drive never recreates a
+// vanished volume, see mkdirAll) instead of racing with the removal of the
+// tree. Without force the moved tree is checked again: a write committed
+// between the first emptiness check and the rename puts the volume back
+// and fails with domain.ErrBucketNotEmpty, so that a removal without force
+// never destroys data. The moved tree is then removed; what a failure
+// leaves behind is swept from tmp at the next start.
 func (s *xlStorage) DeleteVol(ctx context.Context, volume string, force bool) error {
 	if err := s.checkOpen(ctx); err != nil {
 		return err
@@ -399,18 +408,68 @@ func (s *xlStorage) DeleteVol(ctx context.Context, volume string, force bool) er
 		return err
 	}
 	if !force {
-		empty, err := onlyEmptyDirs(dir)
-		if err != nil {
-			return s.fsErr(volume, "", err)
-		}
-		if !empty {
-			return fmt.Errorf("%w: %s", domain.ErrBucketNotEmpty, volume)
+		if err := s.checkVolEmpty(volume, dir); err != nil {
+			return err
 		}
 	}
-	if err := os.RemoveAll(dir); err != nil {
+	trash, err := s.moveToTrash(dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return s.fsErr(volume, "", err)
+		}
 		return fmt.Errorf("storage: delete volume %s: %w", volume, mapErr(err))
 	}
 	s.syncDir(s.root)
+	if !force {
+		if err := s.checkVolEmpty(volume, trash); err != nil {
+			if rerr := s.rename(trash, dir); rerr != nil {
+				s.deps.Logger.Error("storage: cannot put back a volume written during its removal",
+					"volume", volume, "from", trash, "err", rerr)
+				return fmt.Errorf("storage: delete volume %s: restore: %w", volume, mapErr(rerr))
+			}
+			s.syncDir(s.root)
+			return err
+		}
+	}
+	if err := os.RemoveAll(trash); err != nil {
+		s.deps.Logger.Warn("storage: cannot remove a deleted volume, it is swept at the next start",
+			"volume", volume, "path", trash, "err", err)
+	}
+	return nil
+}
+
+// moveToTrash renames dir to a fresh path of the system tmp directory
+// (recreated when it was removed) and returns that path.
+func (s *xlStorage) moveToTrash(dir string) (string, error) {
+	var err error
+	for range 2 {
+		trash := s.tmpPath()
+		if err = s.rename(dir, trash); err == nil {
+			return trash, nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
+		if _, serr := os.Lstat(dir); serr != nil {
+			return "", serr // the source is gone
+		}
+		if merr := s.mkdirAll(filepath.Dir(trash), s.root); merr != nil {
+			return "", merr
+		}
+	}
+	return "", err
+}
+
+// checkVolEmpty fails with domain.ErrBucketNotEmpty when the tree at dir
+// (volume or its moved copy) holds a file.
+func (s *xlStorage) checkVolEmpty(volume, dir string) error {
+	empty, err := onlyEmptyDirs(dir)
+	if err != nil {
+		return s.fsErr(volume, "", err)
+	}
+	if !empty {
+		return fmt.Errorf("%w: %s", domain.ErrBucketNotEmpty, volume)
+	}
 	return nil
 }
 

@@ -32,7 +32,7 @@ func TestS3URLEncode(t *testing.T) {
 	tests := map[string]string{
 		"":                "",
 		"plain/key.txt":   "plain/key.txt",
-		"a b":             "a+b",
+		"a b":             "a%20b",
 		"a+b":             "a%2Bb",
 		"x*y-z_w.v":       "x*y-z_w.v",
 		"~tilde":          "%7Etilde",
@@ -47,6 +47,9 @@ func TestS3URLEncode(t *testing.T) {
 		decoded, err := url.QueryUnescape(got)
 		require.NoError(t, err)
 		assert.Equal(t, in, decoded, "clients decode with a query unescape")
+		decoded, err = url.PathUnescape(got)
+		require.NoError(t, err)
+		assert.Equal(t, in, decoded, "or with a path unescape")
 	}
 }
 

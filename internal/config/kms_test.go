@@ -55,7 +55,11 @@ func TestLoadKMS(t *testing.T) {
 		{name: "short key", env: map[string]string{config.EnvKMSSecretKey: "k:" + base64.StdEncoding.EncodeToString([]byte("short"))}, wantErr: "32 bytes"},
 		{name: "both KMS", env: map[string]string{config.EnvKMSSecretKey: key, config.EnvKMSEndpoint: "https://kes:7373", config.EnvKMSKeyName: "k"}, wantErr: "not both"},
 		{name: "KES without key name", env: map[string]string{config.EnvKMSEndpoint: "https://kes:7373"}, wantErr: "NEXO_KMS_KEY_NAME"},
-		{name: "KES bad URL", env: map[string]string{config.EnvKMSEndpoint: "kes:7373", config.EnvKMSKeyName: "k"}, wantErr: "http(s) URL"},
+		{name: "KES bad URL", env: map[string]string{config.EnvKMSEndpoint: "kes:7373", config.EnvKMSKeyName: "k"}, wantErr: "https URL"},
+		{name: "KES over plain HTTP", env: map[string]string{config.EnvKMSEndpoint: "https://kes1:7373,http://kes2:7373", config.EnvKMSKeyName: "k"}, wantErr: "must use https"},
+		{name: "KES URL with credentials", env: map[string]string{config.EnvKMSEndpoint: "https://u:s3cr3t-pass@kes:7373", config.EnvKMSKeyName: "k"}, wantErr: "credentials"},
+		{name: "KES credentials over plain HTTP", env: map[string]string{config.EnvKMSEndpoint: "http://u:s3cr3t-pass@kes:7373?token=s3cr3t-pass", config.EnvKMSKeyName: "k"}, wantErr: "must use https"},
+		{name: "KES credentials in a malformed URL", env: map[string]string{config.EnvKMSEndpoint: "https://u:s3cr3t-pass@kes host", config.EnvKMSKeyName: "k"}, wantErr: "https URL"},
 		{name: "certificate without key", env: map[string]string{config.EnvKMSEndpoint: "https://kes:7373", config.EnvKMSKeyName: "k", config.EnvKMSClientCert: "/c.crt"}, wantErr: "go together"},
 		{name: "previous without current", env: map[string]string{config.EnvKMSSecretKeyPrev: old}, wantErr: "need the current one"},
 		{name: "bad insecure flag", env: map[string]string{config.EnvSSECAllowInsecure: "maybe"}, wantErr: config.EnvSSECAllowInsecure},
@@ -74,6 +78,7 @@ func TestLoadKMS(t *testing.T) {
 			if tt.wantErr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tt.wantErr)
+				assert.NotContains(t, err.Error(), "s3cr3t-pass", "the errors reach stderr and the logs: no credentials")
 				return
 			}
 			require.NoError(t, err)

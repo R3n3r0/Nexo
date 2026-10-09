@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/event"
 	"github.com/r3n3r0/nexo/internal/service/object"
 )
 
@@ -232,6 +234,16 @@ func TestObjectLockPutRetention(t *testing.T) {
 		assert.Equal(t, domain.LegalHoldOn, hold)
 		_, err = fx.svc.PutObjectLegalHold(ctx, "vault", "k", "MAYBE", object.LockOptions{})
 		assert.Equal(t, "MalformedXML", s3Code(err))
+
+		// The Object Lock changes publish no event (S3 has none): above
+		// all no s3:ObjectCreated:* record for a metadata change.
+		var created []event.Name
+		for _, n := range fx.eventNames() {
+			if n.Match(event.ObjectCreatedAll) {
+				created = append(created, n)
+			}
+		}
+		assert.Equal(t, []event.Name{event.ObjectCreatedPut}, created, "only the upload is notified")
 	})
 }
 
@@ -245,6 +257,63 @@ func TestObjectLockForcedBucketDeletion(t *testing.T) {
 		_, err = fx.svc.GetBucketInfo(ctx, "vault")
 		require.NoError(t, err, "the bucket stays")
 		fx.clk.Advance(48 * time.Hour)
+		// Several versions and delete markers per key go with the bucket.
+		put(t, fx.svc, "vault", "dir/k", []byte("y"))
+		_, err = fx.svc.DeleteObject(ctx, "vault", "dir/k", object.DeleteObjectOptions{})
+		require.NoError(t, err)
+		_, err = fx.svc.DeleteObject(ctx, "vault", "gone", object.DeleteObjectOptions{})
+		require.NoError(t, err)
+		fx.clk.Advance(48 * time.Hour)
 		require.NoError(t, fx.svc.DeleteBucket(ctx, "vault", object.DeleteBucketOptions{Force: true}))
+		_, err = fx.svc.GetBucketInfo(ctx, "vault")
+		assert.ErrorIs(t, err, domain.ErrBucketNotFound)
 	})
+}
+
+// TestObjectLockForcedBucketDeletionRace writes COMPLIANCE versions while
+// a forced deletion purges a bucket with object locking (T-7.4): a
+// version written on a key the purge has already passed keeps the bucket
+// (BucketNotEmpty), one written on a key ahead of it stops the purge
+// (ObjectLocked); in both cases the locked version survives.
+func TestObjectLockForcedBucketDeletionRace(t *testing.T) {
+	tests := []struct {
+		name string
+		// lockedKey is written when the purge removes "b".
+		lockedKey string
+		wantErr   error
+	}{
+		{name: "behind the purge", lockedKey: "a", wantErr: domain.ErrBucketNotEmpty},
+		{name: "ahead of the purge", lockedKey: "c", wantErr: domain.ErrObjectLocked},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			forEachImpl(t, func(t *testing.T, fx *fixture) {
+				ctx := context.Background()
+				lockedBucket(t, fx, "vault", domain.DefaultRetention{})
+				for _, k := range []string{"a", "b", "c"} {
+					put(t, fx.svc, "vault", k, []byte(k))
+				}
+				var locked domain.ObjectInfo
+				var once sync.Once
+				fx.mu.Lock()
+				fx.onPublish = func(e event.Event) {
+					if e.EventName != event.ObjectRemovedDelete || e.S3.Object.Key != "b" {
+						return
+					}
+					once.Do(func() {
+						locked = put(t, fx.svc, "vault", tt.lockedKey, []byte("locked"), withLock(domain.ObjectRetention{
+							Mode: domain.RetentionCompliance, RetainUntil: fx.clk.Now().Add(time.Hour)}, ""))
+					})
+				}
+				fx.mu.Unlock()
+
+				err := fx.svc.DeleteBucket(ctx, "vault", object.DeleteBucketOptions{Force: true})
+				require.ErrorIs(t, err, tt.wantErr)
+				require.NotEmpty(t, locked.VersionID, "the concurrent write happened")
+				info, err := fx.svc.GetObjectInfo(ctx, "vault", tt.lockedKey, object.GetObjectOptions{VersionID: locked.VersionID})
+				require.NoError(t, err, "the COMPLIANCE version survives")
+				assert.Equal(t, domain.RetentionCompliance, info.Retention.Mode)
+			})
+		})
+	}
 }

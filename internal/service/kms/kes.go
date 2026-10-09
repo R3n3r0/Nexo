@@ -68,8 +68,8 @@ func NewKES(deps KESDeps, opts ...Option) (Service, error) {
 		return nil, fmt.Errorf("%w: kes: at least one endpoint is required (NEXO_KMS_ENDPOINT)", domain.ErrInvalidArgument)
 	}
 	for _, e := range o.endpoints {
-		if u, err := url.Parse(e); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-			return nil, fmt.Errorf("%w: kes: endpoint %q must be an http(s) URL", domain.ErrInvalidArgument, e)
+		if err := validKESEndpoint(e); err != nil {
+			return nil, err
 		}
 	}
 	if err := validKeyName(o.defaultKey); err != nil {
@@ -84,10 +84,33 @@ func NewKES(deps KESDeps, opts ...Option) (Service, error) {
 	return &kes{deps: deps, endpoints: o.endpoints, defaultKey: o.defaultKey}, nil
 }
 
+// validKESEndpoint checks the URL of a KES server: https only. The KES
+// API returns the data keys in clear (/v1/key/generate, /v1/key/decrypt):
+// over plain HTTP every data key of SSE-S3 and SSE-KMS would cross the
+// network readable, and mutual TLS could not authenticate the server.
+func validKESEndpoint(endpoint string) error {
+	// The errors are logged: the endpoint is shown without its user info
+	// and query, which may carry credentials.
+	shown := domain.RedactURL(endpoint)
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return fmt.Errorf("%w: kes: endpoint %q must be an https URL", domain.ErrInvalidArgument, shown)
+	}
+	if u.Scheme != "https" {
+		return fmt.Errorf("%w: kes: endpoint %q must use https: the KES API returns the data keys in clear", domain.ErrInvalidArgument, shown)
+	}
+	if u.User != nil {
+		return fmt.Errorf("%w: kes: endpoint %q must not carry credentials: KES authenticates the client certificate", domain.ErrInvalidArgument, shown)
+	}
+	return nil
+}
+
 // NewKESClient returns the HTTP client of a KES server: mutual TLS with
 // the client certificate certFile/keyFile (both or none), the server
 // verified with the CA certificates of caPath (a PEM file, or a directory
-// of them; the system roots when empty).
+// of them; the system roots when empty). Redirects are never followed: a
+// request carrying a data key, or asking for one, goes to the configured
+// server only.
 func NewKESClient(certFile, keyFile, caPath string) (*http.Client, error) {
 	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
 	switch {
@@ -109,7 +132,13 @@ func NewKESClient(certFile, keyFile, caPath string) (*http.Client, error) {
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = cfg
-	return &http.Client{Transport: transport, Timeout: 30 * time.Second}, nil
+	return &http.Client{
+		Transport: transport,
+		Timeout:   30 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}, nil
 }
 
 // loadCAs reads the PEM certificates of a file or of every file of a

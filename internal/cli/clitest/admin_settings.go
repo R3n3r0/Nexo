@@ -30,6 +30,13 @@ func (m *MemAdmin) SetNotifyTargets(targets ...nexoadmin.NotifyTarget) {
 	m.targets = append([]nexoadmin.NotifyTarget(nil), targets...)
 }
 
+// SetKMSReseal sets the outcome of ResealKMSKeys.
+func (m *MemAdmin) SetKMSReseal(res nexoadmin.KMSResealResult) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.kmsReseal = res
+}
+
 // SetKMS sets the KMS state and its keys; nil means no KMS configured
 // (the KMS methods answer 501).
 func (m *MemAdmin) SetKMS(status *nexoadmin.KMSStatus, keys ...nexoadmin.KMSKey) {
@@ -175,4 +182,22 @@ func (s *memSession) createKMSKey(_ context.Context, id string) (*nexoadmin.KMSK
 	key := nexoadmin.KMSKey{ID: id, CreatedAt: &created}
 	s.m.kmsKeys = append(s.m.kmsKeys, key)
 	return &key, nil
+}
+
+func (s *memSession) resealKMSKeys(_ context.Context, bucket string) (*nexoadmin.KMSResealResult, error) {
+	if err := s.begin("ResealKMSKeys"); err != nil {
+		return nil, err
+	}
+	if err := s.requireAdminLocked("admin:KMSCreateKey"); err != nil {
+		return nil, err
+	}
+	if _, err := s.kmsLocked(); err != nil {
+		return nil, err
+	}
+	defer s.m.mu.Unlock()
+	if _, ok := s.m.buckets[bucket]; bucket != "" && !ok && len(s.m.buckets) > 0 {
+		return nil, notFound("bucket_not_found", "bucket %s does not exist", bucket)
+	}
+	res := s.m.kmsReseal
+	return &res, nil
 }

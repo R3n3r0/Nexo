@@ -117,7 +117,8 @@ func (l *layer) writeObject(ctx context.Context, bucket, key string, body io.Rea
 		if in.size >= 0 {
 			plain = io.LimitReader(hr, in.size)
 		}
-		if data, err = okey.EncryptPart(1, plain); err != nil {
+		// The object key is fresh: its single part needs no salt.
+		if data, err = okey.EncryptPart(1, nil, plain); err != nil {
 			return domain.ObjectInfo{}, err
 		}
 		storedSize = crypto.EncryptedSize(in.size)
@@ -219,11 +220,19 @@ func (l *layer) writeObject(ctx context.Context, bucket, key string, body io.Rea
 	setRetentionMeta(fi.Metadata, in.retention)
 	setLegalHoldMeta(fi.Metadata, in.legalHold)
 	applyDefaultRetention(fi.Metadata, cfg, fi.ModTime)
+	// The response reports the checksum computed above; the drives only
+	// receive it sealed when the version is encrypted.
+	clearInfo := objectInfo(bucket, key, fi)
+	if err := sealChecksums(okey, &fi); err != nil {
+		l.cleanupTmp(ctx, st, tmpDir)
+		return domain.ObjectInfo{}, fmt.Errorf("%s: seal the checksum of %s/%s: %w", l.name, bucket, key, err)
+	}
 	if err := l.commitVersion(ctx, st, bucket, key, fi, tmpDir); err != nil {
 		return domain.ObjectInfo{}, fmt.Errorf("%s: commit %s/%s: %w", l.name, bucket, key, err)
 	}
 	fi.IsLatest = true
 	info := objectInfo(bucket, key, fi)
+	info.Checksum = clearInfo.Checksum
 	if okey != nil {
 		info.Encryption = okey.Info()
 	}
@@ -293,11 +302,12 @@ func (l *layer) commitVersion(ctx context.Context, st store, bucket, key string,
 
 // commitTime returns the modification time of a new version (or delete
 // marker) of bucket/key, decided under its write lock: the local clock,
-// but always after the latest version already there. Versions are
+// but always after the latest version already there and after the last
+// metadata update of that version (tags, Object Lock). Versions are
 // ordered by modification time, and the nodes of a cluster do not share
 // a clock: a write coordinated by a node whose clock lags behind the one
 // of the previous writer must still become the latest version (docs/06
-// TC-13).
+// TC-13). The same time orders the events of the key (their sequencer).
 func (l *layer) commitTime(ctx context.Context, bucket, key string) time.Time {
 	now := l.now()
 	st, err := l.place.forRead(ctx, bucket, key)
@@ -305,10 +315,17 @@ func (l *layer) commitTime(ctx context.Context, bucket, key string) time.Time {
 		return now
 	}
 	cur, err := st.ReadVersion(ctx, bucket, key, "", false)
-	if err != nil || cur.ModTime.Before(now) {
+	if err != nil {
 		return now
 	}
-	return cur.ModTime.Add(time.Nanosecond).UTC()
+	after := cur.ModTime
+	if stamp := metaStamp(cur.Metadata); stamp > after.UnixNano() {
+		after = time.Unix(0, stamp)
+	}
+	if after.Before(now) {
+		return now
+	}
+	return after.Add(time.Nanosecond).UTC()
 }
 
 // dropElsewhere keeps an object in a single pool: a commit of the null

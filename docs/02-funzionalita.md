@@ -15,12 +15,12 @@ Ogni funzionalità ha un codice (es. `S-OBJ-01`) richiamato nella [roadmap](05-r
 | S-BKT-05 | Tagging del bucket | P1 |
 | S-BKT-06 | CORS per bucket | P1 |
 | S-BKT-07 | Lifecycle (expiration, noncurrent expiration, abort multipart incompleti, transition a tier remoto P2) | P1 |
-| S-BKT-08 | Object Lock (governance/compliance, retention di default, legal hold) | P1 |
+| S-BKT-08 | Object Lock (governance/compliance, retention di default, legal hold), attivabile alla creazione del bucket o in seguito su un bucket con versioning abilitato | P1 |
 | S-BKT-09 | Quota per bucket (hard) | P1 |
 | S-BKT-10 | Notifiche eventi bucket | P1 |
 | S-BKT-11 | Crittografia di default del bucket (SSE-S3 / SSE-KMS) | P1 |
 | S-BKT-12 | Replica bucket verso altro cluster (attiva-attiva) | P2 |
-| S-BKT-13 | ACL canned di base (private, public-read) solo per compatibilità | P2 |
+| S-BKT-13 | ACL canned di base (private, public-read) solo per compatibilità; fino ad allora vale l'Object Ownership "BucketOwnerEnforced" (vedi §2.4) | P2 |
 
 ### Oggetti
 | Codice | Funzionalità | Priorità |
@@ -41,7 +41,7 @@ Ogni funzionalità ha un codice (es. `S-OBJ-01`) richiamato nella [roadmap](05-r
 | S-OBJ-12 | Retention / legal hold per oggetto | P1 |
 | S-OBJ-13 | SSE-S3, SSE-C, SSE-KMS | P1 |
 | S-OBJ-14 | Compressione trasparente (S2) per content-type configurati | P2 |
-| S-OBJ-15 | GetObjectAttributes | P2 |
+| S-OBJ-15 | GetObjectAttributes (anticipata in M7) | P1 |
 | S-OBJ-16 | SelectObjectContent (CSV/JSON/Parquet) | P2 |
 
 ### Regole di accesso, domini e distribuzioni (vedi [10](10-domini-accessi-distribuzioni.md))
@@ -188,3 +188,21 @@ Sintassi: `nexoctl <gruppo> <comando> [ALIAS/BUCKET/PREFIX] [flag]`. Output `--j
 | C-ADM-12 | `admin speedtest`, `admin prometheus generate` | Diagnostica/integrazione | P2 |
 | C-UX-00 | Distribuzione | Binario statico per Linux/macOS/Windows e immagine Docker `nexoctl` | P0 |
 | C-UX-01 | Autocompletamento bash/zsh/fish/powershell, `--quiet`, `--no-color`, `--debug` (dump HTTP) | | P0 |
+
+## 2.4 Differenze note rispetto ad Amazon S3
+
+Scelte di progetto verificate con la suite Ceph `s3-tests` (`test/compat`, [06 §6.1](06-piano-test.md)); ogni
+test escluso per questi motivi è elencato con la sua motivazione in `test/compat/excluded.txt`.
+
+| Area | Comportamento di Nexo | Motivo |
+|------|-----------------------|--------|
+| Chiavi e prefissi | Una chiave non può essere anche il prefisso di altre chiavi (`a/b` e `a/b/c`): la seconda scrittura è rifiutata con `XNexoParentIsObject` (400) | Gli oggetti sono directory dei dischi con `xl.meta` accanto ai dati ([01 §1.5](01-architettura.md)), come in MinIO |
+| ACL | Ogni bucket si comporta come un bucket S3 con Object Ownership `BucketOwnerEnforced` (il default di AWS dal 2023): ACL diverse da `private`, grant espliciti e proprietà dell'oggetto per chi lo scrive sono rifiutati (`NotImplemented`); l'accesso si concede con bucket policy e regole di accesso anonimo | S-BKT-13 (P2) |
+| Account | Un solo account: gli utenti IAM hanno i diritti delle loro policy, non quelli di "proprietario" dei bucket che creano; un bucket esistente risponde sempre `BucketAlreadyOwnedByYou`, anche in `us-east-1` | Modello IAM di Nexo (S-IAM-*) |
+| Firme | Solo SigV4 (header, query, chunked, POST policy); niente SigV2 | [01 §1.1](01-architettura.md), non obiettivi |
+| Risposte | Come S3: `x-amz-meta-*` in minuscolo, nessun `x-amz-version-id` per la versione `null` nelle risposte di scrittura, `If-Match` su chiave assente → 404 `NoSuchKey`, `partNumber` oltre le parti → 416 `InvalidPartNumber`, chiave SSE-C diversa → 403, header SSE-S3/KMS su GET/HEAD → 400, ripetizione di una `CompleteMultipartUpload` già riuscita → stesso esito, lista delle parti strettamente crescente (`InvalidPartOrder`), `x-amz-delete-marker` assente quando sarebbe `false`, `GetBucketPolicyStatus` senza policy → 404 `NoSuchBucketPolicy`, la versione scritta prima dell'attivazione del versioning è la versione `null` del bucket (riportata e indirizzabile come `null` da letture, listing, lifecycle e console), `CompleteMultipartUpload` di un upload COMPOSITE senza il checksum di ogni parte → 400 `InvalidRequest`, `x-amz-mp-object-size` diverso dalla somma delle parti → 400 `InvalidRequest` | Compatibilità con gli SDK |
+| Autorizzazione | Una richiesta su un oggetto è autorizzata (es. `s3:GetObject`) prima di cercare la chiave: chi ha solo `s3:ListBucket` riceve 403 anche per chiavi assenti; chi ha `s3:GetObject` riceve 404 per una chiave assente anche senza `s3:ListBucket` | Valutazione delle policy indipendente dallo stato dei dati |
+| Metadati non ASCII | I valori `x-amz-meta-*` sono restituiti con i byte ricevuti (UTF-8), senza codifica RFC 2047 né transcodifica in ISO-8859-1 | Gli SDK Go e JavaScript leggono gli header in UTF-8 |
+| Download lenti | Un client che smette di leggere il corpo di una GET per più di 20 s (`NEXO_SEND_TIMEOUT`, default `httpx.DefaultSendTimeout`) vede la risposta interrotta: il lock di lettura dell'oggetto non blocca le scritture oltre il timeout dei lock (30 s) | Robustezza (lock per oggetto) |
+| CORS | Un bucket **senza** configurazione CORS segue la politica dell'intero deployment `api.cors_allow_origin` (default `*`, [07 §7.6](07-sicurezza-operativita.md)): la preflight risponde 200 con le origini ammesse invece del 403 `CORSResponse: CORS is not enabled for this bucket` di S3. Un bucket con configurazione CORS si comporta come in S3 (solo le sue regole decidono, 403 se nessuna corrisponde) | Console e applicazioni web servite da altri domini funzionano senza configurare ogni bucket (come MinIO); restringibile per deployment |
+| Notifiche eventi | I record (`Records[]`) hanno la forma di S3 (`eventVersion` `2.1`, `eventName` senza prefisso `s3:`, es. `ObjectCreated:Put`, chiave URL-encoded, `sequencer`), con `eventSource` `nexo:s3`; il payload dei webhook aggiunge in testa `EventName` (con prefisso, `s3:ObjectCreated:Put`) e `Key` (`bucket/chiave`) come MinIO. Configurazioni sovrapposte (stesso tipo di evento e filtri prefix/suffix che si intersecano) sono rifiutate con `400 InvalidArgument` come in S3. Il `sequencer` è il tempo di commit della versione (o della rimozione), monotono per chiave anche tra nodi con orologi sfasati. Le modifiche Object Lock (retention, legal hold) non generano eventi, come in S3: MinIO pubblica `s3:ObjectCreated:PutRetention`/`PutLegalHold`, che un consumer di `s3:ObjectCreated:*` leggerebbe come nuovi oggetti | Compatibilità con i consumer scritti per S3 e per MinIO |

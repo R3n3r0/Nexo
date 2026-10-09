@@ -20,7 +20,7 @@ func (l *layer) GetObjectAttributes(ctx context.Context, bucket, key string, opt
 		return ObjectAttributes{}, err
 	}
 	defer unlock()
-	st, err := l.place.forVersion(ctx, bucket, key, opts.VersionID)
+	st, err := l.storeFor(ctx, bucket, key, opts.VersionID)
 	if err != nil {
 		return ObjectAttributes{}, fmt.Errorf("%s: attributes of %s/%s: %w", l.name, bucket, key, err)
 	}
@@ -28,7 +28,18 @@ func (l *layer) GetObjectAttributes(ctx context.Context, bucket, key string, opt
 	if err != nil {
 		return ObjectAttributes{}, fmt.Errorf("%s: attributes of %s/%s: %w", l.name, bucket, key, err)
 	}
+	// As HEAD: an SSE-C version is described to the holder of its key;
+	// the sealed checksums of an encrypted version are opened.
+	okey, enc, err := l.describeKey(ctx, bucket, key, fi.Metadata, opts.SSECustomerKey, hasSealedChecksums(fi))
+	if err != nil {
+		return ObjectAttributes{}, err
+	}
+	if fi, err = openChecksums(okey, fi); err != nil {
+		return ObjectAttributes{}, fmt.Errorf("%s: attributes of %s/%s: %w", l.name, bucket, key, err)
+	}
 	res := ObjectAttributes{Info: objectInfo(bucket, key, fi)}
+	res.Info.Encryption = enc
+	l.labelNull(ctx, bucket, &res.Info)
 	if res.Info.Parts == 0 {
 		return res, nil
 	}

@@ -43,7 +43,7 @@ exec nexoctl ilm rule ls local/app
 exec nexoctl cp a.txt local/copy/tmp/a.txt
 exec nexoctl cp a.txt local/copy/keep/a.txt
 exec nexoctl ilm apply local/copy
-stdout 'Lifecycle of `local/copy` applied: .* 1 deleted'
+stdout 'Lifecycle of `local/copy` applied: .* 1 deleted, 0 delete markers created'
 exec nexoctl ls --recursive local/copy
 ! stdout 'tmp/a.txt'
 stdout 'keep/a.txt'

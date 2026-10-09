@@ -1,7 +1,9 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -99,4 +101,32 @@ func TestBucketPoliciesAdapter(t *testing.T) {
 			tc.check(t, p)
 		})
 	}
+}
+
+// TestKMSFingerprint: the nodes of a distributed deployment announce the
+// fingerprint of their KMS configuration; it follows the configuration and
+// fails on an invalid master key.
+func TestKMSFingerprint(t *testing.T) {
+	key := func(name string, b byte) string {
+		return name + ":" + base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{b}, 32))
+	}
+	none, err := kmsFingerprint(config.Static{})
+	require.NoError(t, err)
+	assert.Empty(t, none)
+
+	builtin, err := kmsFingerprint(config.Static{KMSSecretKey: key("k", 1)})
+	require.NoError(t, err)
+	assert.NotEmpty(t, builtin)
+	same, err := kmsFingerprint(config.Static{KMSSecretKey: key("k", 1)})
+	require.NoError(t, err)
+	assert.Equal(t, builtin, same)
+	rotated, err := kmsFingerprint(config.Static{KMSSecretKey: key("k", 2), KMSPreviousSecretKeys: []string{key("k", 1)}})
+	require.NoError(t, err)
+	assert.NotEqual(t, builtin, rotated)
+	kes, err := kmsFingerprint(config.Static{KMSEndpoints: []string{"https://kes:7373"}, KMSKeyName: "k"})
+	require.NoError(t, err)
+	assert.NotEqual(t, builtin, kes)
+
+	_, err = kmsFingerprint(config.Static{KMSSecretKey: "k:not-base64"})
+	require.Error(t, err)
 }

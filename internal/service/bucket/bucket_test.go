@@ -208,20 +208,20 @@ func TestVersioningAndObjectLock(t *testing.T) {
 	assert.ErrorIs(t, svc.SetVersioning(ctx, "bkt", domain.VersioningOff), domain.ErrInvalidArgument)
 	assert.ErrorIs(t, svc.SetVersioning(ctx, "missing", domain.VersioningEnabled), domain.ErrBucketNotFound)
 
-	// Object lock is enabled at the creation of the bucket only.
+	// Object lock is enabled at the creation of the bucket, or later once
+	// its versioning is Enabled.
 	_, err = svc.GetObjectLock(ctx, "bkt")
 	assert.ErrorIs(t, err, domain.ErrPolicyNotFound)
-	assert.ErrorIs(t, svc.SetObjectLock(ctx, "bkt", bucket.ObjectLockConfig{Enabled: true}), domain.ErrConflict)
-	require.NoError(t, svc.SetVersioning(ctx, "bkt", domain.VersioningEnabled))
 	err = svc.SetObjectLock(ctx, "bkt", bucket.ObjectLockConfig{Enabled: true})
-	assert.ErrorIs(t, err, domain.ErrConflict, "not even on a versioned bucket")
+	assert.ErrorIs(t, err, domain.ErrConflict, "not on an unversioned bucket")
 	var s3err *domain.S3Error
 	require.ErrorAs(t, err, &s3err)
 	assert.Equal(t, "InvalidBucketState", s3err.Code)
-	// As CreateInput.ObjectLock records it.
-	m := doc(t, store, "bkt")
-	m.ObjectLock.Enabled = true
-	require.NoError(t, store.Save(ctx, "bkt", m))
+	require.NoError(t, svc.SetVersioning(ctx, "bkt", domain.VersioningSuspended))
+	assert.ErrorIs(t, svc.SetObjectLock(ctx, "bkt", bucket.ObjectLockConfig{Enabled: true}), domain.ErrConflict, "nor with versioning suspended")
+	require.NoError(t, svc.SetVersioning(ctx, "bkt", domain.VersioningEnabled))
+	require.NoError(t, svc.SetObjectLock(ctx, "bkt", bucket.ObjectLockConfig{Enabled: true}), "a versioned bucket can enable it")
+	assert.True(t, doc(t, store, "bkt").ObjectLock.Enabled)
 	assert.ErrorIs(t, svc.SetObjectLock(ctx, "bkt", bucket.ObjectLockConfig{Enabled: false}), domain.ErrMalformedXML)
 	assert.ErrorIs(t, svc.SetObjectLock(ctx, "bkt", bucket.ObjectLockConfig{Enabled: true, Mode: "WEIRD"}), domain.ErrMalformedXML)
 	assert.ErrorIs(t, svc.SetObjectLock(ctx, "bkt", bucket.ObjectLockConfig{Enabled: true, Mode: bucket.RetentionGovernance, Days: 1, Years: 1}), domain.ErrMalformedXML)

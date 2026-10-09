@@ -122,7 +122,8 @@ export function sampleConfigSchema(): ConfigSubsystemSchema[] {
         {
           name: 'queue_dir',
           type: 'string',
-          description: 'Directory of the persistent event queue',
+          description:
+            'Sub-directory of the persistent event queue, relative to the event queue root',
           sensitive: false,
           applied: false,
         },

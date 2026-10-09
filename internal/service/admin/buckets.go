@@ -256,7 +256,14 @@ func (m *bucketManager) empty(ctx context.Context, name string) error {
 		}
 		refs := make([]object.ObjectToDelete, 0, len(res.Objects))
 		for _, o := range res.Objects {
-			refs = append(refs, object.ObjectToDelete{Key: o.Key, VersionID: o.VersionID})
+			// Every version goes for good: one listed without id is the
+			// null version (a delete without version id would add a
+			// delete marker to a versioned bucket).
+			vid := o.VersionID
+			if vid == "" {
+				vid = domain.NullVersionID
+			}
+			refs = append(refs, object.ObjectToDelete{Key: o.Key, VersionID: vid})
 		}
 		if len(refs) > 0 {
 			out, err := m.deps.Objects.DeleteObjects(ctx, object.DeleteObjectsInput{Bucket: name, Objects: refs, Quiet: true})

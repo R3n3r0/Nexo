@@ -16,7 +16,6 @@ suite itself (a test that skips, e.g. for a missing configuration, does
 not count); the pass rate is passed / applicable.
 """
 
-import fnmatch
 import json
 import os
 import re
@@ -65,11 +64,16 @@ class Rule:
         self.reason = reason
         self.lineno = lineno
         self.used = 0
+        # "*" and "?" are the only wildcards: brackets are literal, as in
+        # the names of parametrized tests (test_x[sse-c-...]).
+        self.regex = re.compile("^" + re.escape(selector).replace(r"\*", ".*").replace(r"\?", ".") + "$")
 
-    def matches(self, name, markers):
+    def matches(self, names, markers):
+        """names: the test name and, for a parametrized test, its full name
+        with the parameters (test_x[a-b])."""
         if self.selector.startswith("marker:"):
             return self.selector[len("marker:"):] in markers
-        return fnmatch.fnmatchcase(name, self.selector)
+        return any(self.regex.match(n) for n in names)
 
 
 def load_rules(path):
@@ -107,10 +111,13 @@ class NexoCompat:
             name = getattr(item, "originalname", None) or item.name
             markers = {m.name for m in item.iter_markers()}
             rec = {"name": item.name, "group": group_of(name), "outcome": None, "reason": "", "duration": 0.0}
-            rule = next((r for r in self.rules if r.matches(name, markers)), None)
-            if rule is not None:
-                rule.used += 1
-                rec["outcome"], rec["reason"] = "excluded", rule.reason
+            # The first matching rule gives the reason; every matching rule
+            # counts as used, so that the report lists only stale ones.
+            matching = [r for r in self.rules if r.matches((name, item.name), markers)]
+            for r in matching:
+                r.used += 1
+            if matching:
+                rec["outcome"], rec["reason"] = "excluded", matching[0].reason
                 drop.append(item)
             else:
                 keep.append(item)
@@ -210,7 +217,7 @@ def render_text(doc):
             _pct(g["rate"])))
     if doc["unused_exclusions"]:
         out.append("")
-        out.append("Exclusions matching no test: " + ", ".join(doc["unused_exclusions"]))
+        out.append("Exclusions matching no collected test (markers of other suite files, or stale): " + ", ".join(doc["unused_exclusions"]))
     out.append("")
     order = {"failed": 0, "error": 1, "passed": 2, "skipped": 3, "not-run": 4, "excluded": 5}
     for nodeid, rec in sorted(doc["tests"].items(), key=lambda kv: (order.get(kv[1]["outcome"], 9), kv[1]["group"], kv[0])):

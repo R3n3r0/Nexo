@@ -96,7 +96,34 @@ func readAll(t *testing.T, out *s3.GetObjectOutput) []byte {
 // the plaintext sizes in HEAD and listings, and no plaintext on the drives.
 func TestServerSideEncryptionKMS(t *testing.T) {
 	t.Parallel()
-	e := newEnv(t, testutil.WithKMS())
+	testServerSideEncryption(t, newEnv(t, testutil.WithKMS()))
+}
+
+// TestServerSideEncryptionKES (docs/05 T-7.5, docs/07 §7.2): the same with
+// an external KMS speaking the KES API over mutual TLS (a simulated KES
+// server shared by the nodes): the data keys come from it, the nodes read
+// each other's objects.
+func TestServerSideEncryptionKES(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, testutil.WithKES())
+	resp := e.consoleLogin(e.rootCreds()).do(http.MethodGet, "/kms/status", "")
+	require.Equal(t, http.StatusOK, resp.StatusCode, "%s", resp.Body)
+	var status struct {
+		Backend      string `json:"backend"`
+		DefaultKeyID string `json:"defaultKeyId"`
+		Online       bool   `json:"online"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Body, &status))
+	assert.Equal(t, "kes", status.Backend)
+	assert.True(t, status.Online, "the KES server accepts the client certificate of the nodes")
+	assert.Equal(t, testutil.KMSKeyName, status.DefaultKeyID)
+	testServerSideEncryption(t, e)
+}
+
+// testServerSideEncryption runs the SSE-S3 and SSE-KMS checks against a
+// deployment with a KMS whose default key is testutil.KMSKeyName.
+func testServerSideEncryption(t *testing.T, e *env) {
+	t.Helper()
 	const bucket = "sse-kms"
 	e.mkBucket(bucket)
 	ctx := e.ctx
@@ -180,6 +207,21 @@ func TestServerSideEncryptionKMS(t *testing.T) {
 	// The scan finds the plaintext of an unencrypted object.
 	e.put(bucket, "plain.bin", markedData("NEXO-PLAINTEXT-CONTROL", 300<<10))
 	assert.True(t, drivesContain(t, e.srv, "NEXO-PLAINTEXT-CONTROL"))
+
+	// Re-sealing the data keys (master key rotation, docs/07 §7.2) keeps
+	// every encrypted object readable; the plaintext object is left alone.
+	resp := e.consoleLogin(e.rootCreds()).do(http.MethodPost, "/kms/reseal?bucket="+bucket, "")
+	require.Equal(t, http.StatusOK, resp.StatusCode, "%s", resp.Body)
+	var resealed struct {
+		Buckets, Versions, Resealed, Failed int
+	}
+	require.NoError(t, json.Unmarshal(resp.Body, &resealed))
+	assert.Equal(t, struct{ Buckets, Versions, Resealed, Failed int }{1, 3, 3, 0}, resealed)
+	for key, want := range map[string][]byte{"s3.bin": data, "kms.bin": data, "mpu.bin": whole} {
+		got, err := e.root.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
+		require.NoError(t, err, key)
+		assert.True(t, bytes.Equal(want, readAll(t, got)), "%s readable after the re-seal", key)
+	}
 }
 
 // TestServerSideEncryptionCustomerKeys (docs/05 T-7.5): SSE-C over TLS:
@@ -425,4 +467,117 @@ func TestKMSAdminAPI(t *testing.T) {
 	require.NoError(t, put("after"), "the created key survives a restart")
 	assert.Equal(t, []byte("tenant data"), e.get(bucket, "before"))
 	assert.Equal(t, []byte("tenant data"), e.get(bucket, "after"))
+}
+
+// TestSSESealedChecksumsAndPartKeys (docs/05 T-7.5): the drives hold no
+// digest of the plaintext of an encrypted object (the checksums of the
+// objects and of their parts are sealed under the object key, yet
+// reported to the clients that can unseal it), and a part uploaded twice
+// is encrypted under a fresh key each time: the two ciphertexts never
+// reveal the XOR of the two plaintexts (checked on the drive of the
+// single-drive mode, where a part is one file), and the completed object
+// reads back the last upload of the part.
+//
+// covers: S-OBJ-13, S-OBJ-09
+func TestSSESealedChecksumsAndPartKeys(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, testutil.WithKMS(), testutil.WithTLS())
+	c := e.tlsClient()
+	ctx := e.ctx
+	const bucket = "sse-sums"
+	_, err := c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
+	require.NoError(t, err)
+	k1 := newSSECKey(7)
+	var secrets []string
+
+	// SSE-C of a tiny object: its SHA-256 would identify it.
+	pin, err := c.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(bucket), Key: aws.String("pin"), Body: strings.NewReader("1234"),
+		ChecksumAlgorithm:    types.ChecksumAlgorithmSha256,
+		SSECustomerAlgorithm: aws.String("AES256"), SSECustomerKey: aws.String(k1.key), SSECustomerKeyMD5: aws.String(k1.md5)})
+	require.NoError(t, err)
+	require.NotEmpty(t, aws.ToString(pin.ChecksumSHA256))
+	secrets = append(secrets, aws.ToString(pin.ChecksumSHA256))
+	head, err := c.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(bucket), Key: aws.String("pin"), ChecksumMode: types.ChecksumModeEnabled,
+		SSECustomerAlgorithm: aws.String("AES256"), SSECustomerKey: aws.String(k1.key), SSECustomerKeyMD5: aws.String(k1.md5)})
+	require.NoError(t, err)
+	assert.Equal(t, aws.ToString(pin.ChecksumSHA256), aws.ToString(head.ChecksumSHA256))
+
+	// SSE-S3 with a CRC32 computed by the SDK.
+	s3obj, err := c.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(bucket), Key: aws.String("s3obj"), Body: bytes.NewReader(markedData("NEXO-SUMS", 5000)),
+		ChecksumAlgorithm: types.ChecksumAlgorithmCrc32, ServerSideEncryption: types.ServerSideEncryptionAes256})
+	require.NoError(t, err)
+	secrets = append(secrets, aws.ToString(s3obj.ChecksumCRC32))
+	head, err = c.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(bucket), Key: aws.String("s3obj"), ChecksumMode: types.ChecksumModeEnabled})
+	require.NoError(t, err)
+	assert.Equal(t, aws.ToString(s3obj.ChecksumCRC32), aws.ToString(head.ChecksumCRC32), "HEAD with the checksum mode opens the checksum")
+
+	// SSE-KMS multipart with SHA-256 part checksums; part 1 uploaded twice.
+	up, err := c.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{Bucket: aws.String(bucket), Key: aws.String("mpu"),
+		ServerSideEncryption: types.ServerSideEncryptionAwsKms, SSEKMSKeyId: aws.String(testutil.KMSKeyName), ChecksumAlgorithm: types.ChecksumAlgorithmSha256})
+	require.NoError(t, err)
+	p1 := bytes.Repeat([]byte("A"), partSize)
+	p2 := markedData("secret-plaintext", partSize)
+	tail := markedData("NEXO-TAIL", 1000)
+	uploadPart := func(n int32, data []byte) types.CompletedPart {
+		out, err := c.UploadPart(ctx, &s3.UploadPartInput{Bucket: aws.String(bucket), Key: aws.String("mpu"), UploadId: up.UploadId,
+			PartNumber: aws.Int32(n), Body: bytes.NewReader(data), ChecksumAlgorithm: types.ChecksumAlgorithmSha256})
+		require.NoError(t, err)
+		require.NotEmpty(t, aws.ToString(out.ChecksumSHA256))
+		secrets = append(secrets, aws.ToString(out.ChecksumSHA256))
+		return types.CompletedPart{PartNumber: aws.Int32(n), ETag: out.ETag, ChecksumSHA256: out.ChecksumSHA256}
+	}
+	partFile := func() []byte {
+		files, err := filepath.Glob(filepath.Join(e.srv.DriveDirs()[0], ".nexo.sys", "multipart", bucket, aws.ToString(up.UploadId), "part.1.*"))
+		require.NoError(t, err)
+		for _, f := range files {
+			if !strings.HasSuffix(f, ".meta") {
+				data, err := os.ReadFile(f)
+				require.NoError(t, err)
+				return data
+			}
+		}
+		t.Fatal("no data file for part 1")
+		return nil
+	}
+	single := modeOf(t) == modeSNSD
+	uploadPart(1, p1)
+	var c1 []byte
+	if single {
+		c1 = partFile()
+	}
+	first := uploadPart(1, p2)
+	if single {
+		c2 := partFile()
+		x := make([]byte, 4096)
+		for i := range x {
+			x[i] = c1[i] ^ c2[i] ^ p1[i]
+		}
+		assert.False(t, bytes.Contains(x, []byte("secret-plaintext")), "the second upload of part 1 is not recoverable from the two ciphertexts")
+	}
+	second := uploadPart(2, tail)
+	listed, err := c.ListParts(ctx, &s3.ListPartsInput{Bucket: aws.String(bucket), Key: aws.String("mpu"), UploadId: up.UploadId})
+	require.NoError(t, err)
+	require.Len(t, listed.Parts, 2)
+	assert.Equal(t, aws.ToString(first.ChecksumSHA256), aws.ToString(listed.Parts[0].ChecksumSHA256), "ListParts opens the part checksums")
+	done, err := c.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{Bucket: aws.String(bucket), Key: aws.String("mpu"), UploadId: up.UploadId,
+		MultipartUpload: &types.CompletedMultipartUpload{Parts: []types.CompletedPart{first, second}}})
+	require.NoError(t, err)
+	require.NotEmpty(t, aws.ToString(done.ChecksumSHA256), "the completion reports the checksum of the object")
+	secrets = append(secrets, aws.ToString(done.ChecksumSHA256))
+	got, err := c.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String("mpu"), PartNumber: aws.Int32(1)})
+	require.NoError(t, err)
+	require.True(t, bytes.Equal(p2, readAll(t, got)), "part 1 is its last upload")
+	attrs, err := c.GetObjectAttributes(ctx, &s3.GetObjectAttributesInput{Bucket: aws.String(bucket), Key: aws.String("mpu"),
+		ObjectAttributes: []types.ObjectAttributes{types.ObjectAttributesChecksum, types.ObjectAttributesObjectParts}})
+	require.NoError(t, err)
+	require.NotNil(t, attrs.Checksum)
+	assert.Equal(t, aws.ToString(done.ChecksumSHA256), aws.ToString(attrs.Checksum.ChecksumSHA256))
+	require.NotNil(t, attrs.ObjectParts)
+	require.Len(t, attrs.ObjectParts.Parts, 2)
+	assert.Equal(t, aws.ToString(second.ChecksumSHA256), aws.ToString(attrs.ObjectParts.Parts[1].ChecksumSHA256))
+
+	for _, s := range secrets {
+		assert.False(t, drivesContain(t, e.srv, s), "checksum %s of the plaintext in clear on the drives", s)
+	}
+	assert.False(t, drivesContain(t, e.srv, "secret-plaintext"), "no plaintext on the drives")
 }

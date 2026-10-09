@@ -283,6 +283,45 @@ func parseRule(raw rawRule, region string) (Rule, error) {
 	return rule, nil
 }
 
+// checkOverlaps refuses, as S3 does, two configurations that could both
+// route the same event of the same object: a common event type (a family
+// such as s3:ObjectCreated:* covers its members) and key filters that
+// overlap. The routing would otherwise be ambiguous (which configuration
+// id the record carries). It applies to the configurations being set
+// (Service.ValidateBucketConfig): a stored configuration of an earlier
+// build keeps routing (its events are delivered once per target).
+func checkOverlaps(rules []Rule) error {
+	for i := range rules {
+		for j := i + 1; j < len(rules); j++ {
+			if sharesEvent(rules[i], rules[j]) && filtersOverlap(rules[i], rules[j]) {
+				return invalidConfig("Configurations overlap. Configurations on the same bucket cannot share a common event type.")
+			}
+		}
+	}
+	return nil
+}
+
+// sharesEvent reports whether two rules subscribe to a common event type.
+func sharesEvent(a, b Rule) bool {
+	for _, x := range a.Events {
+		for _, y := range b.Events {
+			if x.Match(y) || y.Match(x) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// filtersOverlap reports whether a key can pass the filters of both rules:
+// their prefixes are prefixes of one another and their suffixes suffixes
+// of one another (an empty filter value matches every key).
+func filtersOverlap(a, b Rule) bool {
+	prefixes := strings.HasPrefix(a.Prefix, b.Prefix) || strings.HasPrefix(b.Prefix, a.Prefix)
+	suffixes := strings.HasSuffix(a.Suffix, b.Suffix) || strings.HasSuffix(b.Suffix, a.Suffix)
+	return prefixes && suffixes
+}
+
 // ruleID derives a stable id from the content of a rule without one.
 func ruleID(r Rule) string {
 	h := sha256.New()

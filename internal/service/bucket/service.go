@@ -118,10 +118,11 @@ type Service interface {
 	// created with object locking (S3 ObjectLockConfigurationNotFoundError
 	// otherwise).
 	GetObjectLock(ctx context.Context, name string) (ObjectLockConfig, error)
-	// SetObjectLock sets the default retention of a bucket created with
-	// object locking: object locking can only be enabled at the creation
-	// of a bucket (CreateInput.ObjectLock, S3 InvalidBucketState
-	// otherwise), and stays enabled.
+	// SetObjectLock sets the object lock configuration and default
+	// retention of a bucket. Object locking is enabled at the creation of
+	// a bucket (CreateInput.ObjectLock) or later on a bucket whose
+	// versioning is Enabled (S3 InvalidBucketState otherwise), and stays
+	// enabled.
 	SetObjectLock(ctx context.Context, name string, cfg ObjectLockConfig) error
 
 	// GetEncryption returns the default encryption of a bucket (S3

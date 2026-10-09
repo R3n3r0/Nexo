@@ -118,7 +118,7 @@ func (h *bucketRoutes) Mount(d Dispatcher) {
 func (h *bucketRoutes) Register(r chi.Router) { registerStandalone(r, h.deps.Enc, h) }
 
 func (h *bucketRoutes) fail(w http.ResponseWriter, r *http.Request, err error) {
-	h.deps.Enc.WriteS3Error(w, r, err)
+	writeError(h.deps.Enc, h.deps.Logger, w, r, err)
 }
 
 // region is the region of the deployment.
@@ -305,8 +305,10 @@ func (h *bucketRoutes) listObjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	owner := ownerOf(r)
+	// S3 leaves the Prefix of a V1 listing as sent, even with
+	// encoding-type=url (the SDKs decode it in V2 listings only).
 	out := ListBucketResultV1{
-		Name: bucketName, Prefix: p.enc.Encode(p.in.Prefix), Marker: p.enc.Encode(p.in.Marker), MaxKeys: p.maxKeys,
+		Name: bucketName, Prefix: p.in.Prefix, Marker: p.enc.Encode(p.in.Marker), MaxKeys: p.maxKeys,
 		Delimiter: p.enc.Encode(p.in.Delimiter), EncodingType: p.enc.Type(), IsTruncated: res.IsTruncated,
 		Contents: objectEntries(res.Objects, &owner, p.enc), CommonPrefixes: commonPrefixes(res.CommonPrefixes, p.enc),
 	}

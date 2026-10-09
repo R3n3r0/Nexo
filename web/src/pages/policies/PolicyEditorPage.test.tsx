@@ -99,7 +99,9 @@ describe('Policy editor (TD-U-07)', () => {
     );
   });
 
-  it('keeps the visual builder and the JSON in sync', async () => {
+  // Many interactions with the builder and the editor: a loaded machine
+  // (the Go race tests running alongside) slows them past the default 5 s.
+  it('keeps the visual builder and the JSON in sync', { timeout: 15_000 }, async () => {
     const user = userEvent.setup();
     renderEditor();
     await screen.findByRole('textbox', { name: 'Policy document' });

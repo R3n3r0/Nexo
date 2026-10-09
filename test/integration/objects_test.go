@@ -321,7 +321,8 @@ func TestConditionalRequests(t *testing.T) {
 	assert.Equal(t, []byte("v2"), e.get("cond", "doc"))
 	_, err = e.root.PutObject(e.ctx, &s3.PutObjectInput{Bucket: aws.String("cond"), Key: aws.String("absent"),
 		Body: strings.NewReader("v2"), IfMatch: aws.String(quoted)})
-	assert.Error(t, err, "If-Match on a missing object fails")
+	assert.Equal(t, http.StatusNotFound, httpStatus(err), "If-Match on a missing object fails as S3 does")
+	assert.Equal(t, "NoSuchKey", apiCode(err))
 }
 
 // listV2Raw is the ListObjectsV2 document, decoded independently.
@@ -727,6 +728,19 @@ func TestVersioning(t *testing.T) {
 	// Versioning cannot go back to unversioned.
 	_, err = e.root.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String("doc"), VersionId: aws.String("not-a-version")})
 	assert.Error(t, err)
+	// A malformed version id is an invalid request (S3: 400 InvalidArgument
+	// "Invalid version id specified"); a well-formed unknown one is
+	// missing on a read, and deleting it succeeds (S3 deletes are
+	// idempotent).
+	resp = e.signedDo(http.MethodGet, "/"+bucket+"/doc?versionId=notavalid", e.rootCreds(), nil, nil)
+	requireS3Error(t, resp, http.StatusBadRequest, "InvalidArgument")
+	resp = e.signedDo(http.MethodDelete, "/"+bucket+"/doc?versionId=zzz", e.rootCreds(), nil, nil)
+	requireS3Error(t, resp, http.StatusBadRequest, "InvalidArgument")
+	const unknown = "0192f0f0-0000-7000-8000-00000000dead"
+	resp = e.signedDo(http.MethodGet, "/"+bucket+"/doc?versionId="+unknown, e.rootCreds(), nil, nil)
+	requireS3Error(t, resp, http.StatusNotFound, "NoSuchVersion")
+	resp = e.signedDo(http.MethodDelete, "/"+bucket+"/doc?versionId="+unknown, e.rootCreds(), nil, nil)
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode, "%s", resp.Body)
 }
 
 func uniq(s []string) []string {

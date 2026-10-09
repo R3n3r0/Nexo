@@ -137,6 +137,49 @@ func splitFlagValues(values []string) []string {
 	return out
 }
 
+// EnvEncC is the environment variable of the SSE-C keys of nexoctl: the
+// entries of --enc-c (ALIAS/BUCKET[/PREFIX]=BASE64KEY), comma-separated. A
+// key given on the command line is readable by the other local users
+// (/proc/<pid>/cmdline) and stays in the shell history: the environment and
+// key files (--enc-c-file) keep it out of the process arguments.
+const EnvEncC = "NEXOCTL_ENC_C"
+
+// ParseKeyFile returns the entries of an SSE-C key file (--enc-c-file):
+// one ALIAS/BUCKET[/PREFIX]=BASE64KEY per line (or comma-separated), blank
+// lines and lines starting with "#" ignored.
+func ParseKeyFile(data []byte) []string {
+	var lines []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	return splitFlagValues(lines)
+}
+
+// CustomerKeys merges the SSE-C entries of the command line (flags, key
+// files) with those of the environment (EnvEncC, comma-separated): a
+// location the command line names takes its key from there, the
+// environment completes the others.
+func CustomerKeys(given []string, env string) []string {
+	given = splitFlagValues(given)
+	named := map[string]bool{}
+	for _, v := range given {
+		location, _, _ := strings.Cut(v, "=")
+		named[strings.TrimSpace(location)] = true
+	}
+	out := given
+	for _, v := range splitFlagValues([]string{env}) {
+		location, _, _ := strings.Cut(v, "=")
+		if !named[strings.TrimSpace(location)] {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
 // ParseSSECustomerKey parses an SSE-C key: 32 bytes encoded in base64
 // (standard or URL alphabet, padded or not) or as 64 hexadecimal digits.
 func ParseSSECustomerKey(s string) (domain.SSECustomerKey, error) {

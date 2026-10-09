@@ -1,9 +1,15 @@
 package kms_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,6 +19,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/kms"
+	sysmock "github.com/r3n3r0/nexo/internal/service/sysstore/mock"
 )
 
 // newMasterKey returns a random master key named name.
@@ -130,7 +137,7 @@ func TestBuiltinKeys(t *testing.T) {
 	stores := map[string]func(t *testing.T) kms.KeyStore{
 		"memory": func(*testing.T) kms.KeyStore { return nil },
 		"file": func(t *testing.T) kms.KeyStore {
-			s, err := kms.NewFileKeyStore(t.TempDir())
+			s, err := kms.NewKeyStore(kms.KeyStoreDeps{}, kms.WithKeyStorePath(t.TempDir()))
 			require.NoError(t, err)
 			return s
 		},
@@ -259,4 +266,108 @@ func TestDisabled(t *testing.T) {
 			require.ErrorIs(t, err, domain.ErrNotImplemented)
 		})
 	}
+}
+
+// TestMasterKeyRedacted checks that a master key printed or logged by
+// mistake shows its name and fingerprint, never its secret.
+func TestMasterKeyRedacted(t *testing.T) {
+	secret := bytes.Repeat([]byte{0x5A}, 32)
+	k, err := kms.ParseMasterKey("master:" + base64.StdEncoding.EncodeToString(secret))
+	require.NoError(t, err)
+	opts := struct{ Master kms.MasterKey }{k}
+
+	var logs bytes.Buffer
+	slog.New(slog.NewTextHandler(&logs, nil)).Info("kms", "master", k, "opts", opts)
+	slog.New(slog.NewJSONHandler(&logs, nil)).Info("kms", "master", k, "opts", opts)
+	outputs := []string{
+		fmt.Sprintf("%v", k), fmt.Sprintf("%+v", k), fmt.Sprintf("%#v", k), fmt.Sprintf("%x", k), fmt.Sprintf("%d", k),
+		fmt.Sprintf("%+v", opts), fmt.Sprintf("%#v", opts), logs.String(),
+	}
+	for _, out := range outputs {
+		for _, leak := range []string{base64.StdEncoding.EncodeToString(secret), hex.EncodeToString(secret), "90 90 90", "5a5a5a", string(secret)} {
+			assert.NotContains(t, out, leak)
+		}
+		assert.Contains(t, out, "master")
+	}
+	assert.Contains(t, k.String(), "Fingerprint:")
+}
+
+// TestDEKRedacted (docs/07 §7.2): a data key printed, logged or encoded
+// in JSON by mistake shows its key id and the size of its sealed form,
+// never the plaintext key.
+func TestDEKRedacted(t *testing.T) {
+	k := newBuiltin(t, kms.BuiltinDeps{}, kms.WithMasterKey(newMasterKey(t, "master")))
+	dek, err := k.GenerateKey(context.Background(), "", kms.Context{"bucket": "b"})
+	require.NoError(t, err)
+	require.Len(t, dek.Plaintext, 32)
+	holder := struct{ DEK kms.DEK }{dek}
+	var logs bytes.Buffer
+	slog.New(slog.NewTextHandler(&logs, nil)).Info("kms", "dek", dek, "holder", holder)
+	slog.New(slog.NewJSONHandler(&logs, nil)).Info("kms", "dek", dek, "holder", holder)
+	asJSON, err := json.Marshal(holder)
+	require.NoError(t, err)
+	outputs := []string{
+		fmt.Sprintf("%v", dek), fmt.Sprintf("%+v", dek), fmt.Sprintf("%#v", dek), fmt.Sprintf("%x", dek), fmt.Sprintf("%d", dek),
+		fmt.Sprintf("%+v", holder), fmt.Sprintf("%#v", holder), logs.String(), string(asJSON),
+	}
+	for _, out := range outputs {
+		for _, leak := range []string{hex.EncodeToString(dek.Plaintext), base64.StdEncoding.EncodeToString(dek.Plaintext), fmt.Sprintf("%d %d %d %d", dek.Plaintext[0], dek.Plaintext[1], dek.Plaintext[2], dek.Plaintext[3]), string(dek.Plaintext)} {
+			assert.NotContains(t, out, leak)
+		}
+		assert.Contains(t, out, dek.KeyID)
+	}
+}
+
+// TestNewKeyStore: the registry is on the document store or in a
+// directory, exactly one of them.
+func TestNewKeyStore(t *testing.T) {
+	_, err := kms.NewKeyStore(kms.KeyStoreDeps{})
+	assert.ErrorIs(t, err, domain.ErrInvalidArgument, "neither")
+	_, err = kms.NewKeyStore(kms.KeyStoreDeps{Docs: sysmock.NewStore(t)}, kms.WithKeyStorePath(t.TempDir()))
+	assert.ErrorIs(t, err, domain.ErrInvalidArgument, "both")
+
+	dir := filepath.Join(t.TempDir(), "keys")
+	s, err := kms.NewKeyStore(kms.KeyStoreDeps{}, kms.WithKeyStorePath(dir))
+	require.NoError(t, err)
+	assert.DirExists(t, dir, "created when missing")
+	require.NoError(t, s.Create(context.Background(), kms.KeyInfo{Name: "k"}))
+	got, err := s.Get(context.Background(), "k")
+	require.NoError(t, err)
+	assert.Equal(t, "k", got.Name)
+}
+
+// TestFingerprint: the fingerprint of a KMS configuration tells the
+// configurations that read each other's objects (same master keys, same
+// KES servers and default key, in any order) from the others, without
+// revealing the master key.
+func TestFingerprint(t *testing.T) {
+	secret := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+	a, err := kms.ParseMasterKey("master:" + secret)
+	require.NoError(t, err)
+	aRenamed, err := kms.ParseMasterKey("renamed:" + secret)
+	require.NoError(t, err)
+	b, c := newMasterKey(t, "master"), newMasterKey(t, "old")
+	kes := func(key string, endpoints ...string) []kms.Option {
+		return []kms.Option{kms.WithEndpoints(endpoints...), kms.WithDefaultKey(key)}
+	}
+	assert.Empty(t, kms.Fingerprint(), "no KMS")
+
+	base := kms.Fingerprint(kms.WithMasterKey(a), kms.WithPreviousKeys(b, c))
+	assert.Len(t, base, 64)
+	assert.Equal(t, base, kms.Fingerprint(kms.WithMasterKey(a), kms.WithPreviousKeys(c, b)), "previous keys in any order")
+	for name, other := range map[string]string{
+		"other master":         kms.Fingerprint(kms.WithMasterKey(b), kms.WithPreviousKeys(a, c)),
+		"missing previous":     kms.Fingerprint(kms.WithMasterKey(a), kms.WithPreviousKeys(b)),
+		"no previous":          kms.Fingerprint(kms.WithMasterKey(a)),
+		"kes":                  kms.Fingerprint(kes("k", "https://kes1:7373")...),
+		"same secret new name": kms.Fingerprint(kms.WithMasterKey(aRenamed), kms.WithPreviousKeys(b, c)),
+	} {
+		assert.NotEqual(t, base, other, name)
+	}
+	assert.NotContains(t, base, hex.EncodeToString(bytes.Repeat([]byte{7}, 8)), "the secret does not show")
+
+	k := kms.Fingerprint(kes("k", "https://kes1:7373", "https://kes2:7373")...)
+	assert.Equal(t, k, kms.Fingerprint(kes("k", "https://kes2:7373/", "https://kes1:7373")...), "endpoints in any order")
+	assert.NotEqual(t, k, kms.Fingerprint(kes("other", "https://kes1:7373", "https://kes2:7373")...), "default key")
+	assert.NotEqual(t, k, kms.Fingerprint(kes("k", "https://kes1:7373")...), "endpoints")
 }

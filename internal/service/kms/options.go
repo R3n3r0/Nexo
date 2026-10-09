@@ -3,7 +3,11 @@ package kms
 import (
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
+	"io"
+	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/r3n3r0/nexo/internal/domain"
@@ -50,6 +54,33 @@ func (m MasterKey) fingerprint() [fingerprintSize]byte {
 	return out
 }
 
+// String implements fmt.Stringer without the secret: the name and the
+// fingerprint of the key identify it in logs and errors.
+func (m MasterKey) String() string {
+	if len(m.secret) == 0 {
+		return "MasterKey{Name:" + m.Name + "}"
+	}
+	fp := m.fingerprint()
+	return "MasterKey{Name:" + m.Name + " Fingerprint:" + hex.EncodeToString(fp[:]) + "}"
+}
+
+// GoString implements fmt.GoStringer (%#v) without the secret.
+func (m MasterKey) GoString() string { return m.String() }
+
+// Format implements fmt.Formatter: every verb prints the redacted form
+// (%+v would otherwise print the unexported secret).
+func (m MasterKey) Format(f fmt.State, _ rune) { _, _ = io.WriteString(f, m.String()) }
+
+// LogValue implements slog.LogValuer without the secret.
+func (m MasterKey) LogValue() slog.Value {
+	attrs := []slog.Attr{slog.String("name", m.Name)}
+	if len(m.secret) > 0 {
+		fp := m.fingerprint()
+		attrs = append(attrs, slog.String("fingerprint", hex.EncodeToString(fp[:])))
+	}
+	return slog.GroupValue(attrs...)
+}
+
 // validKeyName checks a key name: 1-128 letters, digits, '-', '_' or '.'
 // ('.' not first), so that it is safe in a path and in an URL.
 func validKeyName(name string) error {
@@ -77,6 +108,9 @@ type options struct {
 	// endpoints and defaultKey configure the KES client.
 	endpoints  []string
 	defaultKey string
+	// keyStorePath is the directory of the file key registry
+	// (NewKeyStore).
+	keyStorePath string
 }
 
 func newOptions(opts []Option) options {
@@ -87,6 +121,12 @@ func newOptions(opts []Option) options {
 		}
 	}
 	return o
+}
+
+// WithKeyStorePath keeps the key registry of NewKeyStore in the files of
+// dir (SNSD, where no replicated document store exists).
+func WithKeyStorePath(dir string) Option {
+	return func(o *options) { o.keyStorePath = dir }
 }
 
 // WithMasterKey sets the master key of the builtin KMS (required there).
@@ -117,4 +157,34 @@ func WithEndpoints(urls ...string) Option {
 // NewKES): the key of SSE-S3, NEXO_KMS_KEY_NAME.
 func WithDefaultKey(name string) Option {
 	return func(o *options) { o.defaultKey = strings.TrimSpace(name) }
+}
+
+// Fingerprint identifies the KMS configuration that opts describe without
+// revealing it, so that the nodes of a deployment can check at startup
+// that they share it: for the builtin KMS (WithMasterKey) the name and
+// fingerprint of the master key and the fingerprints of the previous ones
+// (in any order); for KES (WithEndpoints) the endpoints (in any order)
+// and the default key. It is empty without KMS.
+func Fingerprint(opts ...Option) string {
+	o := newOptions(opts)
+	h := sha256.New()
+	switch {
+	case o.master != nil:
+		fp := o.master.fingerprint()
+		_, _ = fmt.Fprintf(h, "nexo-kms-config-v1\nbuiltin\n%s\n%x\n", o.master.Name, fp)
+		prev := make([]string, 0, len(o.previous))
+		for _, p := range o.previous {
+			pfp := p.fingerprint()
+			prev = append(prev, hex.EncodeToString(pfp[:]))
+		}
+		slices.Sort(prev)
+		_, _ = fmt.Fprintf(h, "%s\n", strings.Join(slices.Compact(prev), ","))
+	case len(o.endpoints) > 0:
+		endpoints := slices.Clone(o.endpoints)
+		slices.Sort(endpoints)
+		_, _ = fmt.Fprintf(h, "nexo-kms-config-v1\nkes\n%s\n%s\n", strings.Join(slices.Compact(endpoints), ","), o.defaultKey)
+	default:
+		return ""
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }

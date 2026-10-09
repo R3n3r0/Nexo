@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"sync"
 	"testing"
@@ -104,6 +105,14 @@ func (w *world) bucket(name string, versioning domain.Versioning, lifecycle stri
 	w.settings[name] = &bucket.Metadata{Name: name, Versioning: versioning, Lifecycle: canonical}
 }
 
+// setVersioning changes the versioning of a bucket, for the object layer
+// and the lifecycle.
+func (w *world) setVersioning(name string, versioning domain.Versioning) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.settings[name].Versioning = versioning
+}
+
 func (w *world) put(bucket, key string) domain.ObjectInfo {
 	w.t.Helper()
 	info, err := w.objects.PutObject(context.Background(), object.PutObjectInput{Bucket: bucket, Key: key, Reader: bytes.NewReader([]byte(key)), Size: int64(len(key))})
@@ -149,7 +158,7 @@ func TestApplyNowUnversioned(t *testing.T) {
 	w.put("plain", "logs/a")
 	w.put("plain", "logs/b")
 	w.put("plain", "data/c")
-	w.bucket("nolc", domain.VersioningOff, doc(`<Rule><ID>off</ID><Status>Disabled</Status><Expiration><Days>1</Days></Expiration></Rule>`))
+	w.bucket("nolc", domain.VersioningOff, doc(`<Rule><ID>off</ID><Status>Disabled</Status><Filter></Filter><Expiration><Days>1</Days></Expiration></Rule>`))
 	w.put("nolc", "logs/a")
 
 	res, err := w.svc.ApplyNow(ctx, "")
@@ -176,9 +185,9 @@ func TestApplyNowVersioned(t *testing.T) {
 	w := newWorld(t)
 	ctx := context.Background()
 	w.bucket("ver", domain.VersioningEnabled, doc(
-		`<Rule><ID>current</ID><Status>Enabled</Status><Expiration><Days>10</Days></Expiration></Rule>`,
-		`<Rule><ID>noncurrent</ID><Status>Enabled</Status><NoncurrentVersionExpiration><NoncurrentDays>2</NoncurrentDays></NoncurrentVersionExpiration></Rule>`,
-		`<Rule><ID>markers</ID><Status>Enabled</Status><Expiration><ExpiredObjectDeleteMarker>true</ExpiredObjectDeleteMarker></Expiration></Rule>`,
+		`<Rule><ID>current</ID><Status>Enabled</Status><Filter></Filter><Expiration><Days>10</Days></Expiration></Rule>`,
+		`<Rule><ID>noncurrent</ID><Status>Enabled</Status><Filter></Filter><NoncurrentVersionExpiration><NoncurrentDays>2</NoncurrentDays></NoncurrentVersionExpiration></Rule>`,
+		`<Rule><ID>markers</ID><Status>Enabled</Status><Filter></Filter><Expiration><ExpiredObjectDeleteMarker>true</ExpiredObjectDeleteMarker></Expiration></Rule>`,
 	))
 	v1 := w.put("ver", "k")
 	w.clk.Advance(24 * time.Hour)
@@ -219,7 +228,7 @@ func TestScannerHook(t *testing.T) {
 	ctx := context.Background()
 	w.bucket("ver", domain.VersioningEnabled, doc(
 		`<Rule><ID>nc</ID><Filter><Prefix>a/</Prefix></Filter><Status>Enabled</Status><NoncurrentVersionExpiration><NoncurrentDays>1</NoncurrentDays></NoncurrentVersionExpiration></Rule>`,
-		`<Rule><ID>mpu</ID><Status>Enabled</Status><AbortIncompleteMultipartUpload><DaysAfterInitiation>1</DaysAfterInitiation></AbortIncompleteMultipartUpload></Rule>`,
+		`<Rule><ID>mpu</ID><Status>Enabled</Status><Filter></Filter><AbortIncompleteMultipartUpload><DaysAfterInitiation>1</DaysAfterInitiation></AbortIncompleteMultipartUpload></Rule>`,
 	))
 	for range 3 {
 		w.put("ver", "a/x")
@@ -288,33 +297,197 @@ func TestNewRequiresDependencies(t *testing.T) {
 }
 
 // TestApplyRespectsTheObjectLayer: a removal the object layer refuses
-// because of Object Lock is skipped and counted; an unversioned object
-// overwritten since it was listed is kept.
+// because of Object Lock is skipped and counted; a version that changed
+// since it was listed (the object layer refuses the conditional delete)
+// is kept; a null version listed without id is removed as "null".
 func TestApplyRespectsTheObjectLayer(t *testing.T) {
-	ctx := context.Background()
 	clk := clock.NewFake(time.Date(2026, 3, 10, 0, 0, 0, 0, time.UTC))
-	objects := objectmock.NewService(t)
-	settings := ilmmock.NewBucketSettings(t)
-	lc := doc(`<Rule><ID>r</ID><Status>Enabled</Status><Expiration><Days>1</Days></Expiration></Rule>`)
-	settings.EXPECT().Load(mock.Anything, "b").Return(&bucket.Metadata{Name: "b", Lifecycle: []byte(lc)}, nil)
-	listed := []domain.ObjectInfo{
-		{Bucket: "b", Key: "locked", ModTime: created, IsLatest: true},
-		{Bucket: "b", Key: "rewritten", ModTime: created, IsLatest: true},
+	expire := `<Rule><ID>r</ID><Status>Enabled</Status><Filter></Filter><Expiration><Days>1</Days></Expiration></Rule>`
+	noncurrent := `<Rule><ID>nc</ID><Status>Enabled</Status><Filter></Filter><NoncurrentVersionExpiration><NoncurrentDays>1</NoncurrentDays></NoncurrentVersionExpiration></Rule>`
+	tests := []struct {
+		name       string
+		versioning domain.Versioning
+		rule       string
+		listed     []domain.ObjectInfo
+		// deletes are the deletions expected, with the error each gets.
+		deletes []object.DeleteObjectOptions
+		errs    []error
+		want    ilm.ApplyResult
+	}{
+		{
+			name: "unversioned: locked", rule: expire,
+			listed:  []domain.ObjectInfo{{Bucket: "b", Key: "k", ModTime: created, IsLatest: true}},
+			deletes: []object.DeleteObjectOptions{{VersionID: "null", IfModTime: created}},
+			errs:    []error{domain.ErrObjectLocked},
+			want:    ilm.ApplyResult{Buckets: 1, Versions: 1, Locked: 1},
+		},
+		{
+			name: "unversioned: overwritten since the listing", rule: expire,
+			listed:  []domain.ObjectInfo{{Bucket: "b", Key: "k", ModTime: created, IsLatest: true}},
+			deletes: []object.DeleteObjectOptions{{VersionID: "null", IfModTime: created}},
+			errs:    []error{domain.ErrPreconditionFailed},
+			want:    ilm.ApplyResult{Buckets: 1, Versions: 1},
+		},
+		{
+			name: "unversioned: removed", rule: expire,
+			listed:  []domain.ObjectInfo{{Bucket: "b", Key: "k", ModTime: created, IsLatest: true}},
+			deletes: []object.DeleteObjectOptions{{VersionID: "null", IfModTime: created}},
+			errs:    []error{nil},
+			want:    ilm.ApplyResult{Buckets: 1, Versions: 1, Deleted: 1},
+		},
+		{
+			name: "suspended: the null version replaced since the listing", versioning: domain.VersioningSuspended, rule: expire,
+			listed:  []domain.ObjectInfo{{Bucket: "b", Key: "k", VersionID: "null", ModTime: created, IsLatest: true}},
+			deletes: []object.DeleteObjectOptions{{IfModTime: created}},
+			errs:    []error{domain.ErrPreconditionFailed},
+			want:    ilm.ApplyResult{Buckets: 1, Versions: 1},
+		},
+		{
+			name: "enabled: a delete marker over the version evaluated", versioning: domain.VersioningEnabled, rule: expire,
+			listed:  []domain.ObjectInfo{{Bucket: "b", Key: "k", VersionID: "v1", ModTime: created, IsLatest: true}},
+			deletes: []object.DeleteObjectOptions{{IfModTime: created}},
+			errs:    []error{nil},
+			want:    ilm.ApplyResult{Buckets: 1, Versions: 1, DeleteMarkers: 1},
+		},
+		{
+			name: "enabled: an unlabeled noncurrent null version", versioning: domain.VersioningEnabled, rule: noncurrent,
+			listed: []domain.ObjectInfo{
+				{Bucket: "b", Key: "k", VersionID: "v1", ModTime: created, IsLatest: true},
+				{Bucket: "b", Key: "k", ModTime: created.Add(-time.Hour)},
+			},
+			deletes: []object.DeleteObjectOptions{{VersionID: "null", IfModTime: created.Add(-time.Hour)}},
+			errs:    []error{nil},
+			want:    ilm.ApplyResult{Buckets: 1, Versions: 2, Deleted: 1},
+		},
 	}
-	objects.EXPECT().ListObjectVersions(mock.Anything, mock.Anything).Return(domain.ListObjectsResult{Objects: listed}, nil)
-	objects.EXPECT().GetObjectInfo(mock.Anything, "b", "locked", mock.Anything).Return(listed[0], nil)
-	objects.EXPECT().GetObjectInfo(mock.Anything, "b", "rewritten", mock.Anything).Return(domain.ObjectInfo{Key: "rewritten", ModTime: clk.Now()}, nil)
-	objects.EXPECT().DeleteObject(mock.Anything, "b", "locked", object.DeleteObjectOptions{}).RunAndReturn(
-		func(ctx context.Context, _, _ string, _ object.DeleteObjectOptions) (object.DeletedObject, error) {
-			req, ok := event.RequestFrom(ctx)
-			assert.True(t, ok && req.Lifecycle, "the removal carries the lifecycle request")
-			return object.DeletedObject{}, domain.ErrObjectLocked
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			objects := objectmock.NewService(t)
+			settings := ilmmock.NewBucketSettings(t)
+			settings.EXPECT().Load(mock.Anything, "b").Return(&bucket.Metadata{Name: "b", Versioning: tc.versioning, Lifecycle: []byte(doc(tc.rule))}, nil)
+			objects.EXPECT().ListObjectVersions(mock.Anything, mock.Anything).Return(domain.ListObjectsResult{Objects: tc.listed}, nil)
+			for i, opts := range tc.deletes {
+				objects.EXPECT().DeleteObject(mock.Anything, "b", "k", opts).RunAndReturn(
+					func(ctx context.Context, _, _ string, _ object.DeleteObjectOptions) (object.DeletedObject, error) {
+						req, ok := event.RequestFrom(ctx)
+						assert.True(t, ok && req.Lifecycle, "the removal carries the lifecycle request")
+						return object.DeletedObject{Key: "k"}, tc.errs[i]
+					}).Once()
+			}
+			svc, err := ilm.New(ilm.Deps{Objects: objects, Buckets: settings, Clock: clk, Logger: quiet()})
+			require.NoError(t, err)
+			res, err := svc.ApplyNow(ctx, "b")
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, res)
 		})
-	svc, err := ilm.New(ilm.Deps{Objects: objects, Buckets: settings, Clock: clk, Logger: quiet()})
-	require.NoError(t, err)
-	res, err := svc.ApplyNow(ctx, "b")
-	require.NoError(t, err)
-	assert.Equal(t, ilm.ApplyResult{Buckets: 1, Versions: 2, Locked: 1}, res)
+	}
+}
+
+// TestApplyNeverRemovesALaterWrite interleaves a write of the key between
+// the evaluation of the lifecycle and its deletion (the object layer is
+// the real one): the version written meanwhile is never removed nor
+// hidden, whatever the versioning of the bucket.
+func TestApplyNeverRemovesALaterWrite(t *testing.T) {
+	expire := `<Rule><ID>r</ID><Status>Enabled</Status><Filter></Filter><Expiration><Days>1</Days></Expiration></Rule>`
+	noncurrent := `<Rule><ID>nc</ID><Status>Enabled</Status><Filter></Filter><NoncurrentVersionExpiration><NoncurrentDays>1</NoncurrentDays></NoncurrentVersionExpiration></Rule>`
+	tests := []struct {
+		name string
+		rule string
+		// setup writes the key and leaves the bucket in its final state.
+		setup func(w *world)
+	}{
+		{name: "unversioned", rule: expire, setup: func(w *world) {
+			w.bucket("bkt", domain.VersioningOff, doc(expire))
+			w.put("bkt", "k")
+		}},
+		{name: "enabled", rule: expire, setup: func(w *world) {
+			w.bucket("bkt", domain.VersioningEnabled, doc(expire))
+			w.put("bkt", "k")
+		}},
+		{name: "suspended: current null version", rule: expire, setup: func(w *world) {
+			w.bucket("bkt", domain.VersioningSuspended, doc(expire))
+			w.put("bkt", "k")
+		}},
+		{name: "suspended: noncurrent null version", rule: noncurrent, setup: func(w *world) {
+			w.bucket("bkt", domain.VersioningSuspended, doc(noncurrent))
+			w.put("bkt", "k")
+			w.setVersioning("bkt", domain.VersioningEnabled)
+			w.put("bkt", "k")
+			w.setVersioning("bkt", domain.VersioningSuspended)
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			w := newWorld(t)
+			tc.setup(w)
+			w.clk.Advance(72 * time.Hour)
+			objects := objectmock.NewService(t)
+			objects.EXPECT().ListObjectVersions(mock.Anything, mock.Anything).RunAndReturn(w.objects.ListObjectVersions)
+			objects.EXPECT().DeleteObject(mock.Anything, "bkt", "k", mock.Anything).RunAndReturn(
+				func(ctx context.Context, b, k string, opts object.DeleteObjectOptions) (object.DeletedObject, error) {
+					// A client writes the key between the listing and the
+					// deletion.
+					_, err := w.objects.PutObject(ctx, object.PutObjectInput{Bucket: b, Key: k, Reader: bytes.NewReader([]byte("new")), Size: 3})
+					require.NoError(t, err)
+					return w.objects.DeleteObject(ctx, b, k, opts)
+				})
+			settings := ilmmock.NewBucketSettings(t)
+			settings.EXPECT().Load(mock.Anything, "bkt").RunAndReturn(func(_ context.Context, b string) (*bucket.Metadata, error) {
+				w.mu.Lock()
+				defer w.mu.Unlock()
+				cp := *w.settings[b]
+				return &cp, nil
+			})
+			svc, err := ilm.New(ilm.Deps{Objects: objects, Buckets: settings, Clock: w.clk, Logger: quiet()})
+			require.NoError(t, err)
+			res, err := svc.ApplyNow(ctx, "bkt")
+			require.NoError(t, err)
+			assert.Zero(t, res.Deleted+res.DeleteMarkers, "nothing removed nor hidden: %+v", res)
+			r, err := w.objects.GetObject(ctx, "bkt", "k", object.GetObjectOptions{})
+			require.NoError(t, err, "the version written meanwhile is the current one")
+			body, err := io.ReadAll(r)
+			require.NoError(t, r.Close())
+			require.NoError(t, err)
+			assert.Equal(t, "new", string(body))
+		})
+	}
+}
+
+// TestApplyNowVersionedAfterWrites: the null version written before
+// versioning was enabled is the null version of the bucket: listed as
+// "null" and removed by NoncurrentVersionExpiration, through ApplyNow and
+// through the scanner hook.
+func TestApplyNowVersionedAfterWrites(t *testing.T) {
+	noncurrent := doc(`<Rule><ID>nc</ID><Status>Enabled</Status><Filter></Filter><NoncurrentVersionExpiration><NoncurrentDays>1</NoncurrentDays></NoncurrentVersionExpiration></Rule>`)
+	for _, viaScanner := range []bool{false, true} {
+		t.Run(map[bool]string{false: "ApplyNow", true: "scanner"}[viaScanner], func(t *testing.T) {
+			ctx := context.Background()
+			w := newWorld(t)
+			w.bucket("late", domain.VersioningOff, noncurrent)
+			w.put("late", "pre")
+			w.setVersioning("late", domain.VersioningEnabled)
+			pre := w.put("late", "pre")
+			w.put("late", "ver")
+			ver := w.put("late", "ver")
+			got := w.versions("late")
+			assert.Contains(t, got, "pre@null", "the version written before versioning is the null version")
+			w.clk.Advance(72 * time.Hour)
+			if viaScanner {
+				s, err := scanner.New(scanner.Deps{Objects: w.objects, Lifecycle: w.svc, Clock: w.clk, Logger: quiet()},
+					scanner.WithPageSize(10), scanner.WithStaleUploads(0), scanner.WithSpeed(scanner.SpeedFastest))
+				require.NoError(t, err)
+				_, err = s.Scan(ctx)
+				require.NoError(t, err)
+			} else {
+				res, err := w.svc.ApplyNow(ctx, "late")
+				require.NoError(t, err)
+				assert.Equal(t, ilm.ApplyResult{Buckets: 1, Versions: 4, Deleted: 2}, res)
+			}
+			assert.Equal(t, []string{"pre@" + pre.VersionID, "ver@" + ver.VersionID}, w.versions("late"))
+		})
+	}
 }
 
 func TestApplyNowReportsErrors(t *testing.T) {

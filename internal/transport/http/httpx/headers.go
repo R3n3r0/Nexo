@@ -68,10 +68,15 @@ func UserMetadata(h http.Header) map[string]string {
 	return out
 }
 
-// SetUserMetadata writes user metadata as x-amz-meta-* headers.
+// SetUserMetadata writes user metadata as x-amz-meta-* headers. The names
+// are sent as S3 sends them, lowercase and not canonicalized
+// ("x-amz-meta-foo", not "X-Amz-Meta-Foo"): the SDKs derive the metadata
+// keys from the header names as received.
 func SetUserMetadata(h http.Header, meta map[string]string) {
 	for k, v := range meta {
-		h.Set(HeaderAmzMetaPrefix+k, v)
+		name := HeaderAmzMetaPrefix + strings.ToLower(k)
+		h.Del(name)
+		h[name] = []string{v}
 	}
 }
 

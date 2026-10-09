@@ -69,6 +69,7 @@ type bootstrapOptions struct {
 	timeout                time.Duration
 	version                string
 	skew                   time.Duration
+	kmsFingerprint         string
 }
 
 // WithBootstrapBackoff sets the bounds of the pause between two rounds
@@ -98,6 +99,13 @@ func WithBootstrapVersion(v string) BootstrapOption {
 			o.version = v
 		}
 	}
+}
+
+// WithBootstrapKMSFingerprint sets the fingerprint of the KMS
+// configuration this node announces and compares (kms.Fingerprint; empty,
+// the default, without KMS).
+func WithBootstrapKMSFingerprint(fp string) BootstrapOption {
+	return func(o *bootstrapOptions) { o.kmsFingerprint = fp }
 }
 
 // WithBootstrapSkewThreshold sets the clock offset of a peer reported at
@@ -210,8 +218,16 @@ func localConfig(ctx context.Context, nodeID string, deps BootstrapDeps, opts bo
 	}
 	return NodeConfig{
 		NodeID: nodeID, TopologyHash: deps.Layout.Hash(), Mode: deps.Layout.Mode, Version: opts.version,
-		DeploymentID: deploymentID, Time: deps.Clock.Now(),
+		DeploymentID: deploymentID, KMSFingerprint: opts.kmsFingerprint, Time: deps.Clock.Now(),
 	}, nil
+}
+
+// kmsLabel shows a KMS fingerprint in the messages ("none" without KMS).
+func kmsLabel(fp string) string {
+	if fp == "" {
+		return "none"
+	}
+	return shortHash(fp)
 }
 
 func (b *bootstrapper) currentID() string {
@@ -270,8 +286,8 @@ func (w *waiter) wait(ctx context.Context, msg string, attrs ...slog.Attr) error
 }
 
 // verifyPeers waits until a quorum of the nodes (this one included) runs
-// the same topology and compatible versions. A node at odds with the
-// majority of the deployment refuses to start.
+// the same topology, compatible versions and the same KMS configuration. A
+// node at odds with the majority of the deployment refuses to start.
 func (b *bootstrapper) verifyPeers(ctx context.Context) error {
 	peers := b.deps.Peers
 	total := len(peers) + 1
@@ -306,7 +322,7 @@ func (b *bootstrapper) verifyPeers(ctx context.Context) error {
 			return fmt.Errorf("cluster: bootstrap interrupted while verifying the peers: %w", err)
 		}
 		verified := 1
-		var offline, topoDiff, versionDiff []string
+		var offline, topoDiff, versionDiff, kmsDiff []string
 		for i, a := range answers {
 			id := peers[i].NodeID()
 			switch {
@@ -316,6 +332,8 @@ func (b *bootstrapper) verifyPeers(ctx context.Context) error {
 				topoDiff = append(topoDiff, fmt.Sprintf("%s (topology %s, mode %s)", id, shortHash(a.cfg.TopologyHash), a.cfg.Mode))
 			case !domain.CompatibleVersions(a.cfg.Version, ours.Version):
 				versionDiff = append(versionDiff, fmt.Sprintf("%s (version %s)", id, a.cfg.Version))
+			case a.cfg.KMSFingerprint != ours.KMSFingerprint:
+				kmsDiff = append(kmsDiff, fmt.Sprintf("%s (kms %s)", id, kmsLabel(a.cfg.KMSFingerprint)))
 			default:
 				verified++
 				rtt := a.recv.Sub(a.sent)
@@ -327,16 +345,20 @@ func (b *bootstrapper) verifyPeers(ctx context.Context) error {
 				}
 			}
 		}
-		if differ := len(topoDiff) + len(versionDiff); differ > total/2 {
+		all := slices.Concat(topoDiff, versionDiff, kmsDiff)
+		if differ := len(all); differ > total/2 {
 			sentinel := ErrTopologyMismatch
-			if len(versionDiff) > len(topoDiff) {
+			switch {
+			case len(versionDiff) > len(topoDiff) && len(versionDiff) >= len(kmsDiff):
 				sentinel = ErrIncompatibleVersion
+			case len(kmsDiff) > len(topoDiff) && len(kmsDiff) > len(versionDiff):
+				sentinel = ErrKMSMismatch
 			}
-			return fmt.Errorf("%w: this node %s (topology %s, mode %s, version %s) disagrees with %d of the %d nodes: %s; start every node with the same server arguments and release",
-				sentinel, b.nodeID, shortHash(ours.TopologyHash), ours.Mode, ours.Version, differ, total, strings.Join(append(topoDiff, versionDiff...), ", "))
+			return fmt.Errorf("%w: this node %s (topology %s, mode %s, version %s, kms %s) disagrees with %d of the %d nodes: %s; start every node with the same server arguments, release and KMS configuration",
+				sentinel, b.nodeID, shortHash(ours.TopologyHash), ours.Mode, ours.Version, kmsLabel(ours.KMSFingerprint), differ, total, strings.Join(all, ", "))
 		}
 		if verified >= need {
-			if differ := append(topoDiff, versionDiff...); len(differ) > 0 {
+			if differ := all; len(differ) > 0 {
 				b.deps.Logger.Error("cluster: nodes started with another configuration are left out", "nodes", differ)
 			}
 			b.deps.Logger.Info("cluster: peers verified", "verified", verified, "nodes", total, "offline", offline)

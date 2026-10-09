@@ -32,7 +32,8 @@ func deleteVersionAs(e *env, c *s3.Client, bucket, key, versionID string, bypass
 }
 
 // TestObjectLockBucket checks the bucket side of Object Lock: enabled at
-// creation only, with versioning that cannot be suspended, and a default
+// creation (or later on a versioned bucket), with versioning that cannot
+// be suspended, and a default
 // retention applied to the new versions.
 //
 // covers: S-BKT-08, TS-U-12
@@ -52,11 +53,26 @@ func TestObjectLockBucket(t *testing.T) {
 	assert.Equal(t, types.ObjectLockEnabledEnabled, cfg.ObjectLockConfiguration.ObjectLockEnabled)
 	assert.Nil(t, cfg.ObjectLockConfiguration.Rule)
 
-	// Only at creation: an existing bucket, even versioned, cannot get it.
+	// An existing bucket gets it only once its versioning is Enabled, as
+	// in S3; then its versioning can no longer be suspended.
 	e.mkBucket("plain")
-	e.setVersioning("plain", types.BucketVersioningStatusEnabled)
-	_, err = e.root.PutObjectLockConfiguration(ctx, &s3.PutObjectLockConfigurationInput{Bucket: aws.String("plain"),
-		ObjectLockConfiguration: &types.ObjectLockConfiguration{ObjectLockEnabled: types.ObjectLockEnabledEnabled}})
+	enable := &s3.PutObjectLockConfigurationInput{Bucket: aws.String("plain"),
+		ObjectLockConfiguration: &types.ObjectLockConfiguration{ObjectLockEnabled: types.ObjectLockEnabledEnabled}}
+	_, err = e.root.PutObjectLockConfiguration(ctx, enable)
+	assert.Equal(t, "InvalidBucketState", apiCode(err), "not on an unversioned bucket")
+	e.mkBucket("later")
+	e.setVersioning("later", types.BucketVersioningStatusSuspended)
+	enable.Bucket = aws.String("later")
+	_, err = e.root.PutObjectLockConfiguration(ctx, enable)
+	assert.Equal(t, "InvalidBucketState", apiCode(err), "not with versioning suspended")
+	e.setVersioning("later", types.BucketVersioningStatusEnabled)
+	_, err = e.root.PutObjectLockConfiguration(ctx, enable)
+	require.NoError(t, err, "a versioned bucket can enable object locking")
+	cfg, err = e.root.GetObjectLockConfiguration(ctx, &s3.GetObjectLockConfigurationInput{Bucket: aws.String("later")})
+	require.NoError(t, err)
+	assert.Equal(t, types.ObjectLockEnabledEnabled, cfg.ObjectLockConfiguration.ObjectLockEnabled)
+	_, err = e.root.PutBucketVersioning(ctx, &s3.PutBucketVersioningInput{Bucket: aws.String("later"),
+		VersioningConfiguration: &types.VersioningConfiguration{Status: types.BucketVersioningStatusSuspended}})
 	assert.Equal(t, "InvalidBucketState", apiCode(err))
 	_, err = e.root.GetObjectLockConfiguration(ctx, &s3.GetObjectLockConfigurationInput{Bucket: aws.String("plain")})
 	assert.Equal(t, "ObjectLockConfigurationNotFoundError", apiCode(err))
@@ -243,4 +259,68 @@ func TestObjectLockRetentionAndLegalHold(t *testing.T) {
 		LegalHold: &types.ObjectLockLegalHold{Status: types.ObjectLockLegalHoldStatusOff}})
 	require.NoError(t, err)
 	require.NoError(t, deleteVersionAs(e, user, bucket, "hold", hold, false))
+}
+
+// TestObjectLockForceDeleteRace removes a bucket with object locking with
+// the forced deletion while a client keeps writing COMPLIANCE versions:
+// whatever the outcome of the deletion (refused because of a locked
+// version, refused because the bucket is no longer empty, or done before
+// the first locked version), no acknowledged locked version is lost and
+// the deletion never answers a server error.
+//
+// covers: S-BKT-08, T-7.4
+func TestObjectLockForceDeleteRace(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	ctx := e.ctx
+	const bucket = "racy"
+	e.mkLockedBucket(bucket)
+	// Unlocked objects sorting after the locked ones: the deletion spends
+	// its time on them once the locked keys' range has been walked.
+	unlocked := 300
+	if raceDetector || testing.Short() {
+		unlocked = 100
+	}
+	sem := make(chan struct{}, 16)
+	errc := make(chan error, unlocked)
+	for i := range unlocked {
+		sem <- struct{}{}
+		go func() {
+			defer func() { <-sem }()
+			_, err := e.root.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(bucket), Key: aws.String(fmt.Sprintf("u/%04d", i)), Body: strings.NewReader("x")})
+			errc <- err
+		}()
+	}
+	for range unlocked {
+		require.NoError(t, <-errc)
+	}
+
+	type version struct{ key, id string }
+	until := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	deleted := make(chan response, 1)
+	go func() {
+		deleted <- e.signedDo(http.MethodDelete, "/"+bucket, e.rootCreds(), nil, http.Header{"X-Nexo-Force-Delete": {"true"}})
+	}()
+	var acked []version
+	var resp response
+	for i := 0; ; i++ {
+		out, err := e.root.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(bucket), Key: aws.String(fmt.Sprintf("a/%d", i)),
+			Body: strings.NewReader("locked"), ObjectLockMode: types.ObjectLockModeCompliance, ObjectLockRetainUntilDate: aws.Time(until),
+			ChecksumAlgorithm: types.ChecksumAlgorithmCrc32})
+		if err == nil {
+			acked = append(acked, version{key: fmt.Sprintf("a/%d", i), id: aws.ToString(out.VersionId)})
+		}
+		select {
+		case resp = <-deleted:
+		default:
+			continue
+		}
+		break
+	}
+	t.Logf("deletion: %d, %d locked versions acknowledged", resp.StatusCode, len(acked))
+	assert.Contains(t, []int{http.StatusNoContent, http.StatusForbidden, http.StatusConflict}, resp.StatusCode, "%s", resp.Body)
+	for _, v := range acked {
+		_, err := e.root.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(bucket), Key: aws.String(v.key), VersionId: aws.String(v.id)})
+		assert.NoError(t, err, "acknowledged COMPLIANCE version %s of %s", v.id, v.key)
+	}
 }

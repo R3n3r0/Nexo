@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/iotest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -254,10 +255,15 @@ func TestEncryptedMultipart(t *testing.T) {
 			got, r := get(t, fx.svc, "mpb", "obj", object.GetObjectOptions{PartNumber: 2, SSECustomerKey: sse.CustomerKey})
 			assert.Equal(t, partData[3], got, "part 2 of the object is part 3 of the upload")
 			assert.Equal(t, int64(len(partData[1])), r.Offset)
-			attrs, err := fx.svc.GetObjectAttributes(ctx, "mpb", "obj", object.AttributesOptions{})
+			attrs, err := fx.svc.GetObjectAttributes(ctx, "mpb", "obj", object.AttributesOptions{SSECustomerKey: sse.CustomerKey})
 			require.NoError(t, err)
 			require.Len(t, attrs.Parts, 2)
 			assert.Equal(t, int64(len(partData[3])), attrs.Parts[1].Size)
+			assert.Equal(t, sse.Type, attrs.Info.Encryption.Type)
+			if sse.Type == domain.SSEC {
+				_, err = fx.svc.GetObjectAttributes(ctx, "mpb", "obj", object.AttributesOptions{})
+				assert.ErrorIs(t, err, domain.ErrInvalidArgument, "an SSE-C version is described to the holder of its key")
+			}
 		}
 		assertNoPlaintextOnDisk(t, fx.roots)
 	})
@@ -369,4 +375,78 @@ func TestEncryptedDataTampering(t *testing.T) {
 	_, err = io.ReadAll(r)
 	require.NoError(t, r.Close())
 	require.ErrorIs(t, err, domain.ErrDecryption)
+}
+
+// The subresources of an SSE-C version (tags, retention, legal hold) are
+// served without its key, as S3 does; its description (HEAD, attributes)
+// needs the key.
+func TestCustomerKeySubresources(t *testing.T) {
+	forEachImpl(t, func(t *testing.T, fx *fixture) {
+		ctx := context.Background()
+		require.NoError(t, fx.svc.MakeBucket(ctx, "ssec", object.MakeBucketOptions{LockEnabled: true}))
+		fx.cfgs["ssec"] = object.BucketConfig{Versioning: domain.VersioningEnabled, ObjectLock: true}
+		ckey := testCustomerKey(t)
+		put(t, fx.svc, "ssec", "k", []byte("secret"), func(in *object.PutObjectInput) {
+			in.SSE = domain.SSERequest{Type: domain.SSEC, CustomerKey: ckey}
+			in.Tags = map[string]string{"team": "a"}
+			in.LegalHold = domain.LegalHoldOn
+			in.MD5Hex = md5hex([]byte("secret"))
+		})
+		tags, err := fx.svc.GetObjectTags(ctx, "ssec", "k", object.TagOptions{})
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{"team": "a"}, tags)
+		hold, err := fx.svc.GetObjectLegalHold(ctx, "ssec", "k", object.LockOptions{})
+		require.NoError(t, err)
+		assert.Equal(t, domain.LegalHoldOn, hold)
+		_, err = fx.svc.GetObjectRetention(ctx, "ssec", "k", object.LockOptions{})
+		assert.ErrorIs(t, err, domain.ErrPolicyNotFound, "no retention, not a missing key")
+
+		_, err = fx.svc.GetObjectInfo(ctx, "ssec", "k", object.GetObjectOptions{})
+		assert.ErrorIs(t, err, domain.ErrInvalidArgument)
+		_, err = fx.svc.GetObjectAttributes(ctx, "ssec", "k", object.AttributesOptions{})
+		assert.ErrorIs(t, err, domain.ErrInvalidArgument)
+		attrs, err := fx.svc.GetObjectAttributes(ctx, "ssec", "k", object.AttributesOptions{SSECustomerKey: ckey})
+		require.NoError(t, err)
+		assert.Equal(t, domain.SSEC, attrs.Info.Encryption.Type)
+		_, err = fx.svc.PutObjectLegalHold(ctx, "ssec", "k", domain.LegalHoldOff, object.LockOptions{})
+		require.NoError(t, err)
+	})
+}
+
+// TestTruncatedBodyOfUnknownSize (anti-truncation): a body of unknown size
+// (POST policy, chunked uploads) whose source fails, even with
+// io.ErrUnexpectedEOF (a body cut short), is refused with IncompleteBody,
+// encrypted or not, in every implementation: no version is committed, no
+// part is stored and no temporary data is left.
+func TestTruncatedBodyOfUnknownSize(t *testing.T) {
+	forEachImpl(t, func(t *testing.T, fx *fixture) {
+		ctx := context.Background()
+		require.NoError(t, fx.svc.MakeBucket(ctx, "cut", object.MakeBucketOptions{}))
+		ckey := testCustomerKey(t)
+		for _, sse := range []domain.SSERequest{{}, {Type: domain.SSES3}, {Type: domain.SSEC, CustomerKey: ckey}} {
+			for _, size := range []int{10, 200 << 10} {
+				name := fmt.Sprintf("sse-%s/%d", sse.Type, size)
+				body := func() io.Reader {
+					return io.MultiReader(bytes.NewReader(marked(size)), iotest.ErrReader(io.ErrUnexpectedEOF))
+				}
+				_, err := fx.svc.PutObject(ctx, object.PutObjectInput{Bucket: "cut", Key: name, Reader: body(), Size: -1, SSE: sse})
+				require.Error(t, err, name)
+				assert.Equal(t, "IncompleteBody", s3Code(err), "%s: %v", name, err)
+				_, err = fx.svc.GetObjectInfo(ctx, "cut", name, object.GetObjectOptions{SSECustomerKey: sse.CustomerKey})
+				assert.ErrorIs(t, err, domain.ErrObjectNotFound, "%s: no version is committed", name)
+
+				up, err := fx.svc.NewMultipartUpload(ctx, object.NewMultipartInput{Bucket: "cut", Key: name, SSE: sse})
+				require.NoError(t, err)
+				_, err = fx.svc.PutObjectPart(ctx, object.PutObjectPartInput{Bucket: "cut", Key: name, UploadID: up.UploadID, PartNumber: 1,
+					Reader: body(), Size: -1, SSECustomerKey: sse.CustomerKey})
+				require.Error(t, err, name)
+				assert.Equal(t, "IncompleteBody", s3Code(err), "%s part: %v", name, err)
+				parts, err := fx.svc.ListObjectParts(ctx, domain.ListPartsInput{Bucket: "cut", Key: name, UploadID: up.UploadID})
+				require.NoError(t, err)
+				assert.Empty(t, parts.Parts, "%s: no part is stored", name)
+				require.NoError(t, fx.svc.AbortMultipartUpload(ctx, "cut", name, up.UploadID))
+			}
+		}
+		assertNoTmpLeft(t, fx)
+	})
 }

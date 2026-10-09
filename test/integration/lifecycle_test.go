@@ -65,6 +65,9 @@ func TestLifecycleExpiration(t *testing.T) {
 	err = e.putLifecycle(bucket, types.LifecycleRule{ID: aws.String("zero"), Status: types.ExpirationStatusEnabled,
 		Filter: &types.LifecycleRuleFilter{Prefix: aws.String("")}, Expiration: &types.LifecycleExpiration{Days: aws.Int32(0)}})
 	assert.Equal(t, "InvalidArgument", apiCode(err))
+	err = e.putLifecycle(bucket, types.LifecycleRule{ID: aws.String("everything"), Status: types.ExpirationStatusEnabled,
+		Expiration: &types.LifecycleExpiration{Days: aws.Int32(1)}})
+	assert.Equal(t, "MalformedXML", apiCode(err), "a rule needs a Filter or a Prefix, as in S3")
 	_, err = e.root.GetBucketLifecycleConfiguration(ctx, &s3.GetBucketLifecycleConfigurationInput{Bucket: aws.String(bucket)})
 	assert.Equal(t, "NoSuchLifecycleConfiguration", apiCode(err))
 
@@ -136,6 +139,56 @@ func TestLifecycleExpiration(t *testing.T) {
 	require.Len(t, versions.Versions, 1)
 	assert.Equal(t, v2, aws.ToString(versions.Versions[0].VersionId))
 	assert.NotEqual(t, v1, v2)
+
+	// Later the noncurrent v2 goes, then the delete marker left alone is
+	// removed by the expiration in days, as S3 does, without
+	// ExpiredObjectDeleteMarker.
+	later := time.Now().Add(14 * 24 * time.Hour)
+	res = e.applyLifecycleAt(clk, later, versioned)
+	assert.Equal(t, 1, res.Deleted, "v2, noncurrent")
+	res = e.applyLifecycleAt(clk, later, versioned)
+	assert.Equal(t, 1, res.Deleted, "the expired object delete marker")
+	versions, err = e.root.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{Bucket: aws.String(versioned)})
+	require.NoError(t, err)
+	assert.Empty(t, versions.Versions)
+	assert.Empty(t, versions.DeleteMarkers, "no expired object delete marker piles up")
+
+	// A bucket versioned after its first writes: the version written
+	// before versioning is its null version, reported and addressed as
+	// "null", and NoncurrentVersionExpiration removes it like the other
+	// noncurrent versions (regression: it was left behind).
+	const late = "expiring-late"
+	e.mkBucket(late)
+	e.put(late, "pre", []byte("before versioning"))
+	e.setVersioning(late, types.BucketVersioningStatusEnabled)
+	for _, vid := range []string{"", "null"} {
+		in := &s3.HeadObjectInput{Bucket: aws.String(late), Key: aws.String("pre")}
+		if vid != "" {
+			in.VersionId = aws.String(vid)
+		}
+		head, err := e.root.HeadObject(ctx, in)
+		require.NoError(t, err)
+		assert.Equal(t, "null", aws.ToString(head.VersionId), "HEAD ?versionId=%q", vid)
+		get, err := e.root.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(late), Key: aws.String("pre"), VersionId: in.VersionId})
+		require.NoError(t, err)
+		_ = get.Body.Close()
+		assert.Equal(t, "null", aws.ToString(get.VersionId), "GET ?versionId=%q", vid)
+	}
+	preCur := e.putVersion(late, "pre", "after")
+	e.putVersion(late, "ver", "one")
+	verCur := e.putVersion(late, "ver", "two")
+	require.NoError(t, e.putLifecycle(late,
+		types.LifecycleRule{ID: aws.String("noncurrent"), Status: types.ExpirationStatusEnabled, Filter: &types.LifecycleRuleFilter{Prefix: aws.String("")},
+			NoncurrentVersionExpiration: &types.NoncurrentVersionExpiration{NoncurrentDays: aws.Int32(1)}},
+	))
+	res = e.applyLifecycleAt(clk, time.Now().Add(72*time.Hour), late)
+	assert.Equal(t, ilm.ApplyResult{Buckets: 1, Versions: 4, Deleted: 2}, res, "the noncurrent null version and the noncurrent ver")
+	versions, err = e.root.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{Bucket: aws.String(late)})
+	require.NoError(t, err)
+	require.Len(t, versions.Versions, 2, "%+v", versions.Versions)
+	assert.Equal(t, preCur, aws.ToString(versions.Versions[0].VersionId))
+	assert.Equal(t, verCur, aws.ToString(versions.Versions[1].VersionId))
+	assert.Empty(t, versions.DeleteMarkers)
 
 	_, err = e.root.DeleteBucketLifecycle(ctx, &s3.DeleteBucketLifecycleInput{Bucket: aws.String(versioned)})
 	require.NoError(t, err)

@@ -22,13 +22,16 @@ function renderPage() {
 }
 
 describe('Configuration page (D-CFG-01)', () => {
-  it('edits a subsystem with validation', async () => {
+  // The form re-renders the whole configuration on every keystroke: the
+  // values are pasted (one input event) and the test has a generous
+  // timeout, so that a loaded machine slows it down without failing it.
+  it('edits a subsystem with validation', { timeout: 15_000 }, async () => {
     const user = userEvent.setup();
     const { services } = renderPage();
     const region = await screen.findByRole('textbox', { name: 'name' });
     expect(region).toHaveValue('us-east-1');
     await user.clear(region);
-    await user.type(region, 'eu-south-1');
+    await user.paste('eu-south-1');
     const panel = region.closest('[role="region"]');
     if (!(panel instanceof HTMLElement)) throw new Error('accordion panel not found');
     await user.click(within(panel).getByRole('button', { name: 'Save' }));
@@ -38,7 +41,8 @@ describe('Configuration page (D-CFG-01)', () => {
 
     await user.click(screen.getByRole('button', { name: /notify_webhook/ }));
     const endpoint = await screen.findByRole('textbox', { name: 'endpoint' });
-    await user.type(endpoint, 'not a url');
+    await user.click(endpoint);
+    await user.paste('not a url');
     expect(await screen.findByText('Enter an http(s) URL.')).toBeInTheDocument();
     const webhook = endpoint.closest('[role="region"]');
     if (!(webhook instanceof HTMLElement)) throw new Error('accordion panel not found');

@@ -45,7 +45,7 @@ func TestSDKClientObjectLock(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, def, cfg.Default)
 	assert.ErrorIs(t, c.SetObjectLock(ctx, "vault", domain.DefaultRetention{Mode: domain.RetentionGovernance, Days: 1, Years: 1}), cli.ErrUsage)
-	assert.ErrorIs(t, c.SetObjectLock(ctx, "plain", def), domain.ErrConflict, "only at creation (InvalidBucketState)")
+	assert.ErrorIs(t, c.SetObjectLock(ctx, "plain", def), domain.ErrConflict, "not on an unversioned bucket (InvalidBucketState)")
 
 	// The default retention applies to the new versions.
 	put, err := c.Put(ctx, "vault", "doc", strings.NewReader("data"), cli.PutOptions{Size: 4})

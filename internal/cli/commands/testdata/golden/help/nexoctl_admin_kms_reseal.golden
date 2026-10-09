@@ -1,0 +1,22 @@
+Re-seal the data key of every SSE-S3 and SSE-KMS object under the current master
+key of the KMS, after a rotation of the master key (NEXO_KMS_SECRET_KEY, the
+previous one in NEXO_KMS_SECRET_KEY_PREVIOUS): the data is not rewritten. Once
+every bucket is re-sealed, the previous master keys can be removed.
+
+Usage:
+  nexoctl admin kms reseal ALIAS [flags]
+
+Examples:
+  nexoctl admin kms reseal local
+  nexoctl admin kms reseal local --bucket photos
+
+Flags:
+      --bucket string   re-seal the objects of this bucket only
+  -h, --help            help for reseal
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

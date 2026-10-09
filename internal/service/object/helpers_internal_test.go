@@ -169,10 +169,11 @@ func TestConditionPrecedence(t *testing.T) {
 		writeNone error
 	}{
 		{name: "none"},
-		{name: "if-match ok", c: domain.Conditions{IfMatch: `"abc"`}, writeNone: domain.ErrPreconditionFailed},
-		{name: "if-match list and weak", c: domain.Conditions{IfMatch: `"x", W/"abc"`}, writeNone: domain.ErrPreconditionFailed},
-		{name: "if-match fails", c: domain.Conditions{IfMatch: "x"}, read: domain.ErrPreconditionFailed, source: domain.ErrPreconditionFailed, writeHave: domain.ErrPreconditionFailed, writeNone: domain.ErrPreconditionFailed},
-		{name: "if-match wins over if-unmodified-since", c: domain.Conditions{IfMatch: "abc", IfUnmodifiedSince: before}, writeNone: domain.ErrPreconditionFailed},
+		{name: "if-match ok", c: domain.Conditions{IfMatch: `"abc"`}, writeNone: domain.ErrObjectNotFound},
+		{name: "if-match list and weak", c: domain.Conditions{IfMatch: `"x", W/"abc"`}, writeNone: domain.ErrObjectNotFound},
+		{name: "if-match fails", c: domain.Conditions{IfMatch: "x"}, read: domain.ErrPreconditionFailed, source: domain.ErrPreconditionFailed, writeHave: domain.ErrPreconditionFailed, writeNone: domain.ErrObjectNotFound},
+		{name: "if-match star", c: domain.Conditions{IfMatch: "*"}, writeNone: domain.ErrObjectNotFound},
+		{name: "if-match wins over if-unmodified-since", c: domain.Conditions{IfMatch: "abc", IfUnmodifiedSince: before}, writeNone: domain.ErrObjectNotFound},
 		{name: "if-unmodified-since fails", c: domain.Conditions{IfUnmodifiedSince: before}, read: domain.ErrPreconditionFailed, source: domain.ErrPreconditionFailed},
 		{name: "if-unmodified-since same second", c: domain.Conditions{IfUnmodifiedSince: mod.Truncate(time.Second)}},
 		{name: "if-none-match matches", c: domain.Conditions{IfNoneMatch: "abc"}, read: domain.ErrNotModified, source: domain.ErrPreconditionFailed, writeHave: domain.ErrPreconditionFailed},
@@ -181,7 +182,7 @@ func TestConditionPrecedence(t *testing.T) {
 		{name: "if-modified-since not modified", c: domain.Conditions{IfModifiedSince: after}, read: domain.ErrNotModified, source: domain.ErrPreconditionFailed},
 		{name: "if-modified-since same second", c: domain.Conditions{IfModifiedSince: mod.Truncate(time.Second)}, read: domain.ErrNotModified, source: domain.ErrPreconditionFailed},
 		{name: "if-modified-since modified", c: domain.Conditions{IfModifiedSince: before}},
-		{name: "precondition before not modified", c: domain.Conditions{IfMatch: "x", IfNoneMatch: "abc"}, read: domain.ErrPreconditionFailed, source: domain.ErrPreconditionFailed, writeHave: domain.ErrPreconditionFailed, writeNone: domain.ErrPreconditionFailed},
+		{name: "precondition before not modified", c: domain.Conditions{IfMatch: "x", IfNoneMatch: "abc"}, read: domain.ErrPreconditionFailed, source: domain.ErrPreconditionFailed, writeHave: domain.ErrPreconditionFailed, writeNone: domain.ErrObjectNotFound},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

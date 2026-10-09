@@ -210,6 +210,9 @@ type ListPartsInput struct {
 	PartNumberMarker int
 	// MaxParts limits the parts returned, as MaxKeys does.
 	MaxParts int
+	// SSECustomerKey is the SSE-C key of an SSE-C upload: without it, the
+	// checksums of its parts (sealed under it) report their algorithm only.
+	SSECustomerKey SSECustomerKey
 }
 
 // ListPartsResult is the result of ListParts.
@@ -218,6 +221,44 @@ type ListPartsResult struct {
 	Parts                []Part
 	IsTruncated          bool
 	NextPartNumberMarker int
+}
+
+// ValidateVersionID checks the version id of a request: empty (the latest
+// version), "null" or a version id of Nexo (a UUID in its canonical
+// form). Anything else is the S3 InvalidArgument "Invalid version id
+// specified", as S3 answers, instead of a lookup that cannot succeed.
+func ValidateVersionID(id string) error {
+	if id == "" || id == NullVersionID || isCanonicalUUID(id) {
+		return nil
+	}
+	return NewS3Error(ErrInvalidArgument, "InvalidArgument", "Invalid version id specified")
+}
+
+// isCanonicalUUID reports a UUID in its canonical form
+// (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx, hexadecimal).
+func isCanonicalUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch i {
+		case 8, 13, 18, 23:
+			if c != '-' {
+				return false
+			}
+		default:
+			if !isHexDigit(c) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// isHexDigit reports whether c is a hexadecimal digit.
+func isHexDigit(c byte) bool {
+	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 }
 
 // ValidateObjectKey validates an object key: non-empty, at most

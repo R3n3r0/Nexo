@@ -34,13 +34,28 @@ type env struct {
 	walks   int
 	// walkSize is the usage a walk of the bucket measures.
 	walkSize uint64
+	// current are the sizes of the current versions of the keys of the
+	// bucket, which the decorator reads to credit an overwrite.
+	current map[string]int64
+	// versioning is the versioning of the bucket.
+	versioning domain.Versioning
 }
 
 func newEnv(t *testing.T, quotaBytes uint64, usage *scanner.Usage) *env {
 	t.Helper()
 	e := &env{objects: objectmock.NewService(t), clk: clock.NewFake(time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC))}
 	cfgs := objectmock.NewBucketConfigSource(t)
-	cfgs.EXPECT().BucketConfig(mock.Anything, mock.Anything).Return(object.BucketConfig{QuotaBytes: quotaBytes}, nil).Maybe()
+	cfgs.EXPECT().BucketConfig(mock.Anything, mock.Anything).RunAndReturn(func(context.Context, string) (object.BucketConfig, error) {
+		return object.BucketConfig{QuotaBytes: quotaBytes, Versioning: e.versioning}, nil
+	}).Maybe()
+	e.objects.EXPECT().GetObjectInfo(mock.Anything, bucket, mock.Anything, mock.Anything).RunAndReturn(
+		func(_ context.Context, _, key string, _ object.GetObjectOptions) (domain.ObjectInfo, error) {
+			size, ok := e.current[key]
+			if !ok {
+				return domain.ObjectInfo{}, domain.ErrObjectNotFound
+			}
+			return domain.ObjectInfo{Bucket: bucket, Key: key, Size: size}, nil
+		}).Maybe()
 	e.objects.EXPECT().DataUsage(mock.Anything, bucket).RunAndReturn(func(context.Context, string) ([]domain.BucketInfo, error) {
 		e.walks++
 		return []domain.BucketInfo{{Bucket: domain.Bucket{Name: bucket}, Size: e.walkSize}}, nil
@@ -280,4 +295,40 @@ func TestMultipart(t *testing.T) {
 	require.NoError(t, err)
 	_, err = e.svc.CompleteMultipartUpload(ctx, object.CompleteMultipartInput{Bucket: bucket, Key: "k", UploadID: "u", Parts: selected})
 	assertQuotaErr(t, err)
+}
+
+// TestOverwriteReplacesItsVersion (S-BKT-09): in a bucket without
+// versioning (or with versioning suspended, the null version) an
+// overwrite needs only the bytes it adds over the version it replaces; in
+// a versioned bucket the old version stays and the write counts in full.
+func TestOverwriteReplacesItsVersion(t *testing.T) {
+	tests := []struct {
+		name       string
+		versioning domain.Versioning
+		wantErr    bool
+	}{
+		{name: "unversioned", versioning: domain.VersioningOff},
+		{name: "suspended", versioning: domain.VersioningSuspended},
+		{name: "versioned", versioning: domain.VersioningEnabled, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newEnv(t, 1<<20, nil)
+			e.versioning = tt.versioning
+			e.expectPuts()
+			e.walkSize = 600 << 10
+			e.current = map[string]int64{"k": 600 << 10}
+			err := e.put(600 << 10)
+			if tt.wantErr {
+				assertQuotaErr(t, err)
+				return
+			}
+			require.NoError(t, err, "600 KiB over 600 KiB in a 1 MiB quota")
+			// A new key of the same size does not fit.
+			_, err = e.svc.PutObject(context.Background(), object.PutObjectInput{Bucket: bucket, Key: "other", Reader: bytes.NewReader(make([]byte, 600<<10)), Size: 600 << 10})
+			assertQuotaErr(t, err)
+			// Nor does an overwrite larger than the quota allows.
+			assertQuotaErr(t, e.put(1<<20+1))
+		})
+	}
 }

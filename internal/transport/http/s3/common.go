@@ -3,6 +3,7 @@ package s3
 import (
 	"encoding/base64"
 	"encoding/hex"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -599,4 +600,29 @@ func objectURL(r *http.Request, bucketName, key string) string {
 		u.Path = "/" + key
 	}
 	return u.String()
+}
+
+// setWrittenVersion sets the x-amz-version-id of a write response (PUT,
+// copy, multipart completion, POST): the id of the new version, none for
+// an unversioned bucket nor for the null version of a suspended one, as
+// S3 does.
+func setWrittenVersion(w http.ResponseWriter, versionID string) {
+	if versionID != "" && versionID != domain.NullVersionID {
+		w.Header().Set(httpx.HeaderAmzVersionID, versionID)
+	}
+}
+
+// writeError writes err as an S3 error document and logs the failures of
+// the server (5xx): the client only sees a generic description, the
+// cause is in the logs, with the request id of the response.
+func writeError(enc httpx.Encoder, logger *slog.Logger, w http.ResponseWriter, r *http.Request, err error) {
+	if code, _ := enc.MapS3Error(err); code.HTTPStatus >= http.StatusInternalServerError && logger != nil {
+		level := slog.LevelError
+		if code.HTTPStatus != http.StatusInternalServerError {
+			level = slog.LevelWarn // unavailable, quorum lost, slow down: transient
+		}
+		logger.Log(r.Context(), level, "s3: request failed", "method", r.Method, "path", r.URL.EscapedPath(),
+			"status", code.HTTPStatus, "code", code.Code, "request_id", httpx.RequestIDFrom(r.Context()), "err", err)
+	}
+	enc.WriteS3Error(w, r, err)
 }

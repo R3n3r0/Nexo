@@ -192,6 +192,11 @@ type NodeConfig struct {
 	Version string
 	// DeploymentID is empty until the node read or wrote its format.
 	DeploymentID string
+	// KMSFingerprint identifies the KMS configuration of the node without
+	// revealing it (empty without KMS): the nodes must share their master
+	// keys or KES servers, or the objects encrypted by one node would be
+	// unreadable on the others.
+	KMSFingerprint string
 	// Time is the clock of the node when it answered.
 	Time time.Time
 }
@@ -231,9 +236,10 @@ type Bootstrapper interface {
 	// LocalConfig returns the configuration this node announces to its
 	// peers (the server side of the bootstrap RPC).
 	LocalConfig(ctx context.Context) (NodeConfig, error)
-	// Bootstrap verifies that a quorum of the nodes run the same topology
-	// and compatible versions (a node whose topology differs from the
-	// majority fails with ErrTopologyMismatch), waits for a quorum of
+	// Bootstrap verifies that a quorum of the nodes run the same topology,
+	// compatible versions and the same KMS configuration (a node whose
+	// topology differs from the majority fails with ErrTopologyMismatch,
+	// whose KMS differs with ErrKMSMismatch), waits for a quorum of
 	// drives in every erasure set, formats a fresh deployment (only the
 	// node of the first endpoint does, the others wait for it), formats
 	// and marks for healing the empty local drives of an existing one, and

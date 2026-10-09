@@ -69,9 +69,11 @@ type MemAdmin struct {
 	// kms is the KMS state (nil: no KMS configured) and kmsKeys its keys.
 	kms     *nexoadmin.KMSStatus
 	kmsKeys []nexoadmin.KMSKey
-	seq     int
-	fail    map[string]error
-	calls   map[string]int
+	// kmsReseal is the outcome of ResealKMSKeys (SetKMSReseal).
+	kmsReseal nexoadmin.KMSResealResult
+	seq       int
+	fail      map[string]error
+	calls     map[string]int
 }
 
 // memConfigSchema is the configuration schema of MemAdmin.
@@ -295,6 +297,7 @@ func (m *MemAdmin) Client(t TestingT, caller string) *climock.AdminClient {
 	c.EXPECT().KMSStatus(x).RunAndReturn(s.kmsStatus).Maybe()
 	c.EXPECT().ListKMSKeys(x, x).RunAndReturn(s.listKMSKeys).Maybe()
 	c.EXPECT().CreateKMSKey(x, x).RunAndReturn(s.createKMSKey).Maybe()
+	c.EXPECT().ResealKMSKeys(x, x).RunAndReturn(s.resealKMSKeys).Maybe()
 	return c
 }
 

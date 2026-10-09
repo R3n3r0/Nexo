@@ -315,6 +315,7 @@ func (l *layer) ListObjects(ctx context.Context, in domain.ListObjectsInput) (do
 		}
 		res.Objects = append(res.Objects, objectInfo(in.Bucket, e.name, e.infos[0]))
 	}
+	l.labelNulls(ctx, in.Bucket, res.Objects)
 	if truncated && len(entries) > 0 {
 		last := entries[len(entries)-1].name
 		res.NextMarker = last
@@ -346,6 +347,7 @@ func (l *layer) ListObjectVersions(ctx context.Context, in domain.ListObjectsInp
 			res.Objects = append(res.Objects, objectInfo(in.Bucket, e.name, fi))
 		}
 	}
+	l.labelNulls(ctx, in.Bucket, res.Objects)
 	if truncated && len(entries) > 0 {
 		last := entries[len(entries)-1]
 		res.NextMarker = last.name

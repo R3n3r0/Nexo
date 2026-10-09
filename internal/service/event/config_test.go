@@ -31,8 +31,8 @@ func TestParseTargetConfig(t *testing.T) {
 		{
 			name:      "default webhook",
 			subsystem: "notify_webhook",
-			kv:        map[string]string{"enable": "on", "endpoint": "https://hooks.example.com/s3", "auth_token": "secret", "tls_skip_verify": "on", "queue_dir": "/q", "queue_limit": "10"},
-			want: event.TargetConfig{ID: "_", Type: event.TypeWebhook, Enabled: true, QueueDir: "/q", QueueLimit: 10,
+			kv:        map[string]string{"enable": "on", "endpoint": "https://hooks.example.com/s3", "auth_token": "secret", "tls_skip_verify": "on", "queue_dir": "q", "queue_limit": "10"},
+			want: event.TargetConfig{ID: "_", Type: event.TypeWebhook, Enabled: true, QueueDir: "q", QueueLimit: 10,
 				Webhook: event.WebhookConfig{Endpoint: "https://hooks.example.com/s3", AuthToken: "secret", TLSSkipVerify: true}},
 		},
 		{
@@ -81,6 +81,8 @@ func TestParseTargetConfig(t *testing.T) {
 		{name: "bad boolean", subsystem: "notify_webhook", kv: map[string]string{"enable": "maybe"}, wantErr: true},
 		{name: "bad queue limit", subsystem: "notify_webhook", kv: map[string]string{"enable": "on", "endpoint": "http://h", "queue_limit": "-1"}, wantErr: true},
 		{name: "webhook without endpoint", subsystem: "notify_webhook", kv: map[string]string{"enable": "on"}, wantErr: true},
+		{name: "absolute queue_dir", subsystem: "notify_webhook", kv: map[string]string{"enable": "on", "endpoint": "http://h", "queue_dir": "/var/lib/nexo/drive1"}, wantErr: true},
+		{name: "queue_dir with ..", subsystem: "notify_webhook", kv: map[string]string{"enable": "on", "endpoint": "http://h", "queue_dir": "../x"}, wantErr: true},
 		{name: "kafka without topic", subsystem: "notify_kafka", kv: map[string]string{"enable": "on", "brokers": "b:9092"}, wantErr: true},
 		{name: "kafka bad mechanism", subsystem: "notify_kafka", kv: map[string]string{"enable": "on", "brokers": "b:9092", "topic": "t", "sasl": "on", "sasl_mechanism": "md5"}, wantErr: true},
 		{name: "amqp bad url", subsystem: "notify_amqp", kv: map[string]string{"enable": "on", "url": "http://x"}, wantErr: true},

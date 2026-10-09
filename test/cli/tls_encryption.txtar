@@ -25,6 +25,14 @@ stdout '^Encryption  : SSE-KMS \(app-key\)$'
 exec nexoctl cat local/enc/kms/a.txt
 cmp stdout a.txt
 
+# Re-sealing the data keys under the current master key keeps the objects
+# readable.
+exec nexoctl admin kms reseal local --bucket enc
+stdout '^Re-sealed 2 of 2 data keys \(2 versions, 0 pending uploads\) in 1 bucket\.$'
+exec nexoctl cat local/enc/s3/a.txt
+cmp stdout a.txt
+expectcode 3 nexoctl admin kms reseal local --bucket missing
+
 # SSE-C: the key travels with every request (TLS only), single and multipart.
 mkfile big.bin 12MiB
 exec nexoctl cp --enc-c local/enc/c=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY= a.txt local/enc/c/a.txt

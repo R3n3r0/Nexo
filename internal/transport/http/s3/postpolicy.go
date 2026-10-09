@@ -90,7 +90,7 @@ func (h *postPolicyRoutes) Mount(d Dispatcher) {
 func (h *postPolicyRoutes) Register(r chi.Router) { registerStandalone(r, h.deps.Enc, h) }
 
 func (h *postPolicyRoutes) fail(w http.ResponseWriter, r *http.Request, err error) {
-	h.deps.Enc.WriteS3Error(w, r, err)
+	writeError(h.deps.Enc, h.deps.Logger, w, r, err)
 }
 
 func malformedPost(message string) error {
@@ -262,9 +262,7 @@ func (h *postPolicyRoutes) respond(w http.ResponseWriter, r *http.Request, form 
 	etag := quoteETag(info.ETag)
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Location", location)
-	if info.VersionID != "" {
-		w.Header().Set(httpx.HeaderAmzVersionID, info.VersionID)
-	}
+	setWrittenVersion(w, info.VersionID)
 	writeSSEHeaders(w, info.Encryption)
 	if redirect, ok := successRedirect(form.Fields, bucketName, key, etag); ok {
 		w.Header().Set("Location", redirect)

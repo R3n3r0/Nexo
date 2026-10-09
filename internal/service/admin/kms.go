@@ -8,16 +8,19 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/kms"
+	"github.com/r3n3r0/nexo/internal/service/object"
 )
 
 // maxInfoKeys bounds the key names reported by ServerInfo.
 const maxInfoKeys = 100
 
 // KMSManagerDeps are the dependencies of the KMS manager. KMS is required
-// (kms.NewDisabled without KMS).
+// (kms.NewDisabled without KMS); Objects, the object layer, re-seals the
+// keys of the objects (Reseal answers domain.ErrNotImplemented without).
 type KMSManagerDeps struct {
-	KMS    kms.Service
-	Logger *slog.Logger
+	KMS     kms.Service
+	Objects object.Service
+	Logger  *slog.Logger
 }
 
 // KMSManagerOption configures the KMS manager.
@@ -80,6 +83,49 @@ func (m *kmsManager) CreateKey(ctx context.Context, name string) (kms.KeyInfo, e
 		}
 	}
 	return kms.KeyInfo{Name: name}, nil
+}
+
+// Reseal implements KMSManager.
+func (m *kmsManager) Reseal(ctx context.Context, bucket string) (ResealReport, error) {
+	if m.deps.Objects == nil {
+		return ResealReport{}, fmt.Errorf("%w: admin: re-sealing needs the object layer", domain.ErrNotImplemented)
+	}
+	st, err := m.deps.KMS.Status(ctx)
+	if err != nil {
+		return ResealReport{}, fmt.Errorf("admin: kms status: %w", err)
+	}
+	if !st.Configured {
+		return ResealReport{}, fmt.Errorf("%w: admin: no KMS is configured", domain.ErrKMSNotConfigured)
+	}
+	buckets := []string{bucket}
+	if bucket == "" {
+		infos, err := m.deps.Objects.ListBuckets(ctx)
+		if err != nil {
+			return ResealReport{}, fmt.Errorf("admin: re-seal: list buckets: %w", err)
+		}
+		buckets = buckets[:0]
+		for _, b := range infos {
+			buckets = append(buckets, b.Name)
+		}
+	}
+	var out ResealReport
+	for _, name := range buckets {
+		res, err := m.deps.Objects.ResealKeys(ctx, name)
+		out.Versions += res.Versions
+		out.Uploads += res.Uploads
+		out.Resealed += res.Resealed
+		out.Failed += res.Failed
+		if out.FirstError == "" && res.FirstError != "" {
+			out.FirstError = name + "/" + res.FirstError
+		}
+		if err != nil {
+			return out, fmt.Errorf("admin: re-seal the keys of %s: %w", name, err)
+		}
+		out.Buckets++
+	}
+	m.deps.Logger.InfoContext(ctx, "admin: KMS data keys re-sealed", "buckets", out.Buckets, "versions", out.Versions,
+		"uploads", out.Uploads, "resealed", out.Resealed, "failed", out.Failed)
+	return out, nil
 }
 
 // kmsInfo describes the KMS in ServerInfo: its state and the first keys.

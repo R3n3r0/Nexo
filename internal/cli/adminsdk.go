@@ -656,6 +656,12 @@ func (c *adminClient) CreateKMSKey(ctx context.Context, id string) (*nexoadmin.K
 	return mapped(c, v, err)
 }
 
+// ResealKMSKeys implements AdminClient.
+func (c *adminClient) ResealKMSKeys(ctx context.Context, bucket string) (*nexoadmin.KMSResealResult, error) {
+	v, err := c.api.ResealKMSKeys(ctx, bucket)
+	return mapped(c, v, err)
+}
+
 // GetBucketQuota implements AdminClient.
 func (c *adminClient) GetBucketQuota(ctx context.Context, bucket string) (*nexoadmin.BucketQuota, error) {
 	v, err := c.api.GetBucketQuota(ctx, bucket)

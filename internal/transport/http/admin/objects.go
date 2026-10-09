@@ -500,7 +500,7 @@ func (h *objectRoutes) serve(w http.ResponseWriter, r *http.Request, preview boo
 	if r.Method == http.MethodHead {
 		return
 	}
-	if n, err := io.Copy(w, d.Reader); err != nil {
+	if n, err := httpx.CopyBody(w, d.Reader, httpx.DefaultSendTimeout); err != nil {
 		// The status is sent: the client sees a truncated body.
 		h.deps.Logger.DebugContext(r.Context(), "admin: download interrupted", "bucket", in.Bucket, "key", in.Key, "written", n, "err", err)
 	}
@@ -581,6 +581,9 @@ func (h *objectRoutes) zip(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	started := false
+	// Every entry holds the read lock of its object while it is written:
+	// a client that stops reading must not keep it.
+	guard := httpx.NewSendGuard(w, httpx.DefaultSendTimeout)
 	res, err := h.deps.Browser.Zip(r.Context(), adminsvc.ZipInput{Requester: requesterOf(r), Bucket: bucketName(r), Base: in.Base, Keys: in.Keys, Prefixes: in.Prefixes},
 		func(filename string) (io.Writer, error) {
 			hdr := w.Header()
@@ -593,8 +596,11 @@ func (h *objectRoutes) zip(w http.ResponseWriter, r *http.Request) {
 			}
 			w.WriteHeader(http.StatusOK)
 			started = true
-			return w, nil
+			return guard, nil
 		})
+	if cerr := guard.Close(); err == nil && started {
+		err = cerr
+	}
 	if err != nil {
 		if !started {
 			h.fail(w, r, err)

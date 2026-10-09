@@ -3,8 +3,11 @@ package domain
 import (
 	"crypto/md5"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 )
 
 // SSEType is the kind of server-side encryption of an object (docs/02
@@ -64,6 +67,35 @@ type SSECustomerKey struct {
 // IsZero reports whether no key is set.
 func (k SSECustomerKey) IsZero() bool { return len(k.Key) == 0 }
 
+// String implements fmt.Stringer without the key: only its MD5 is shown,
+// so that a key printed or logged by mistake is not disclosed.
+func (k SSECustomerKey) String() string {
+	if k.IsZero() {
+		return "SSECustomerKey{}"
+	}
+	return "SSECustomerKey{KeyMD5:" + k.KeyMD5 + "}"
+}
+
+// GoString implements fmt.GoStringer (%#v) without the key.
+func (k SSECustomerKey) GoString() string { return k.String() }
+
+// Format implements fmt.Formatter: every verb (%v, %+v, %#v, %x, %d...)
+// prints the redacted form.
+func (k SSECustomerKey) Format(f fmt.State, _ rune) { _, _ = io.WriteString(f, k.String()) }
+
+// LogValue implements slog.LogValuer without the key.
+func (k SSECustomerKey) LogValue() slog.Value {
+	return slog.GroupValue(slog.String("keyMD5", k.KeyMD5))
+}
+
+// MarshalJSON keeps the key out of any JSON form (a log record or an
+// audit entry): only its MD5 is written.
+func (k SSECustomerKey) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		KeyMD5 string `json:"keyMD5,omitempty"`
+	}{k.KeyMD5})
+}
+
 // NewSSECustomerKey validates an SSE-C key: 32 bytes whose MD5 is the one
 // the client declared (the MD5 is computed when declared is empty).
 func NewSSECustomerKey(key []byte, declaredMD5 string) (SSECustomerKey, error) {
@@ -96,6 +128,26 @@ type SSERequest struct {
 
 // IsZero reports whether no encryption is requested.
 func (r SSERequest) IsZero() bool { return r.Type == SSENone }
+
+// String implements fmt.Stringer without the SSE-C key.
+func (r SSERequest) String() string {
+	return fmt.Sprintf("SSERequest{Type:%q KMSKeyID:%q Context:%v CustomerKey:%s}", r.Type, r.KMSKeyID, r.Context, r.CustomerKey.String())
+}
+
+// GoString implements fmt.GoStringer (%#v) without the SSE-C key.
+func (r SSERequest) GoString() string { return r.String() }
+
+// LogValue implements slog.LogValuer without the SSE-C key.
+func (r SSERequest) LogValue() slog.Value {
+	attrs := []slog.Attr{slog.String("type", string(r.Type))}
+	if r.KMSKeyID != "" {
+		attrs = append(attrs, slog.String("kmsKeyID", r.KMSKeyID))
+	}
+	if !r.CustomerKey.IsZero() {
+		attrs = append(attrs, slog.String("customerKeyMD5", r.CustomerKey.KeyMD5))
+	}
+	return slog.GroupValue(attrs...)
+}
 
 // EncryptionInfo describes the encryption of a stored version, as the S3
 // responses report it.

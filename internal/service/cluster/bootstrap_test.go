@@ -66,6 +66,7 @@ type peerState struct {
 	online  atomic.Bool
 	hash    atomic.Value
 	version atomic.Value
+	kms     atomic.Value
 }
 
 // peers returns the bootstrap peers of node n, answering like nodes
@@ -82,6 +83,7 @@ func (d *deployment) peers(t *testing.T, n int, l *topology.Layout) ([]cluster.B
 		st.online.Store(true)
 		st.hash.Store(l.Hash())
 		st.version.Store("v1.2.0")
+		st.kms.Store("")
 		id := fmt.Sprintf("127.0.0.1:%d", port)
 		p := clustermock.NewBootstrapPeer(t)
 		p.EXPECT().NodeID().Return(id).Maybe()
@@ -90,7 +92,7 @@ func (d *deployment) peers(t *testing.T, n int, l *topology.Layout) ([]cluster.B
 				return cluster.NodeConfig{}, domain.ErrNodeOffline
 			}
 			return cluster.NodeConfig{NodeID: id, TopologyHash: st.hash.Load().(string), Mode: l.Mode,
-				Version: st.version.Load().(string), Time: time.Now()}, nil
+				Version: st.version.Load().(string), KMSFingerprint: st.kms.Load().(string), Time: time.Now()}, nil
 		}).Maybe()
 		out = append(out, p)
 		states = append(states, st)
@@ -345,6 +347,34 @@ func TestBootstrapIncompatibleVersion(t *testing.T) {
 	}
 	_, err := b.Bootstrap(ctx)
 	assert.ErrorIs(t, err, cluster.ErrIncompatibleVersion)
+}
+
+// TestBootstrapKMSMismatch: a node whose KMS configuration (master keys,
+// KES servers) differs from the majority refuses to start, since the
+// objects it encrypted would be unreadable on the other nodes; the
+// majority goes on without it.
+func TestBootstrapKMSMismatch(t *testing.T) {
+	ctx := context.Background()
+	d := newDeployment(t)
+	odd, states := d.bootstrapper(t, 3, d.drives(t, d.layout(t, 3)), cluster.WithBootstrapKMSFingerprint("fp-other"))
+	for _, st := range states {
+		st.kms.Store("fp-shared")
+	}
+	cfg, err := odd.LocalConfig(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "fp-other", cfg.KMSFingerprint, "announced to the peers")
+	_, err = odd.Bootstrap(ctx)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, cluster.ErrKMSMismatch)
+	assert.Contains(t, err.Error(), "KMS configuration")
+
+	first, states := d.bootstrapper(t, 0, d.drives(t, d.layout(t, 0)), cluster.WithBootstrapKMSFingerprint("fp-shared"))
+	for _, st := range states {
+		st.kms.Store("fp-shared")
+	}
+	states[2].kms.Store("") // a node started without KMS
+	_, err = first.Bootstrap(ctx)
+	require.NoError(t, err, "3 of 4 nodes agree")
 }
 
 // TestBootstrapWaitsForPeers: without a quorum of verified nodes the

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/event"
@@ -25,7 +26,7 @@ func (l *layer) DeleteObject(ctx context.Context, bucket, key string, opts Delet
 		return DeletedObject{}, err
 	}
 	defer unlock()
-	st, err := l.place.forVersion(ctx, bucket, key, opts.VersionID)
+	st, err := l.storeFor(ctx, bucket, key, opts.VersionID)
 	if err != nil {
 		return DeletedObject{}, fmt.Errorf("%s: delete %s/%s: %w", l.name, bucket, key, err)
 	}
@@ -33,11 +34,20 @@ func (l *layer) DeleteObject(ctx context.Context, bucket, key string, opts Delet
 		return DeletedObject{}, err
 	}
 	if opts.VersionID != "" {
-		return l.deleteVersion(ctx, st, bucket, key, opts.VersionID, opts.BypassGovernance)
+		return l.deleteVersion(ctx, st, bucket, key, opts.VersionID, opts.BypassGovernance, opts.IfModTime)
 	}
 	cfg, err := l.bucketConfig(ctx, bucket)
 	if err != nil {
 		return DeletedObject{}, err
+	}
+	if !opts.IfModTime.IsZero() {
+		cur, err := st.ReadVersion(ctx, bucket, key, "", false)
+		if err != nil && !isNotFound(err) {
+			return DeletedObject{}, fmt.Errorf("%s: delete %s/%s: %w", l.name, bucket, key, err)
+		}
+		if err := checkModTime(err == nil, cur, opts.IfModTime, bucket, key); err != nil {
+			return DeletedObject{}, err
+		}
 	}
 	modTime := opts.ModTime
 	if modTime.IsZero() {
@@ -57,7 +67,7 @@ func (l *layer) DeleteObject(ctx context.Context, bucket, key string, opts Delet
 		if err := st.DeleteVersion(ctx, bucket, key, marker); err != nil {
 			return DeletedObject{}, fmt.Errorf("%s: delete %s/%s: %w", l.name, bucket, key, lockErr(ctx, err))
 		}
-		l.publish(ctx, event.ObjectRemovedDeleteMarkerCreated, bucket, domain.ObjectInfo{Bucket: bucket, Key: key, VersionID: marker.VersionID, IsDeleteMarker: true})
+		l.publish(ctx, event.ObjectRemovedDeleteMarkerCreated, bucket, domain.ObjectInfo{Bucket: bucket, Key: key, VersionID: reported, IsDeleteMarker: true, ModTime: modTime})
 		return DeletedObject{Key: key, DeleteMarker: true, DeleteMarkerVersionID: reported}, nil
 	default:
 		cur, err := st.ReadVersion(ctx, bucket, key, "", false)
@@ -76,7 +86,8 @@ func (l *layer) DeleteObject(ctx context.Context, bucket, key string, opts Delet
 		if err := st.DeleteVersion(ctx, bucket, key, storage.FileInfo{VersionID: cur.VersionID}); err != nil && !errors.Is(err, domain.ErrNoSuchVersion) && !isNotFound(err) {
 			return DeletedObject{}, fmt.Errorf("%s: delete %s/%s: %w", l.name, bucket, key, lockErr(ctx, err))
 		}
-		l.publish(ctx, event.ObjectRemovedDelete, bucket, objectInfo(bucket, key, cur))
+		// The time of the removal orders its event after the version's.
+		l.publishAt(ctx, event.ObjectRemovedDelete, bucket, objectInfo(bucket, key, cur), modTime)
 		return DeletedObject{Key: key}, nil
 	}
 }
@@ -85,7 +96,7 @@ func (l *layer) DeleteObject(ctx context.Context, bucket, key string, opts Delet
 // ("null" is the null version); a missing version is not an error (S3
 // deletes are idempotent). A version protected by Object Lock stays
 // (checkDeletable).
-func (l *layer) deleteVersion(ctx context.Context, st store, bucket, key, versionID string, bypassGovernance bool) (DeletedObject, error) {
+func (l *layer) deleteVersion(ctx context.Context, st store, bucket, key, versionID string, bypassGovernance bool, ifModTime time.Time) (DeletedObject, error) {
 	stored := versionID
 	if versionID == nullVersion {
 		stored = ""
@@ -93,10 +104,17 @@ func (l *layer) deleteVersion(ctx context.Context, st store, bucket, key, versio
 	gone := DeletedObject{Key: key, VersionID: versionID}
 	cur, err := st.ReadVersion(ctx, bucket, key, versionID, false)
 	if err != nil {
-		if isNotFound(err) || errors.Is(err, domain.ErrNoSuchVersion) {
+		if !isNotFound(err) && !errors.Is(err, domain.ErrNoSuchVersion) {
+			return DeletedObject{}, fmt.Errorf("%s: delete %s/%s: %w", l.name, bucket, key, err)
+		}
+		if ifModTime.IsZero() {
 			return gone, nil
 		}
-		return DeletedObject{}, fmt.Errorf("%s: delete %s/%s: %w", l.name, bucket, key, err)
+	}
+	if !ifModTime.IsZero() {
+		if err := checkModTime(err == nil, cur, ifModTime, bucket, key); err != nil {
+			return DeletedObject{}, err
+		}
 	}
 	if err := checkDeletable(objectInfo(bucket, key, cur), l.now(), bypassGovernance); err != nil {
 		return DeletedObject{}, err
@@ -104,6 +122,7 @@ func (l *layer) deleteVersion(ctx context.Context, st store, bucket, key, versio
 	if err := checkLocks(ctx); err != nil {
 		return DeletedObject{}, fmt.Errorf("%s: delete %s/%s: %w", l.name, bucket, key, err)
 	}
+	at := l.commitTime(ctx, bucket, key)
 	if err := st.DeleteVersion(ctx, bucket, key, storage.FileInfo{VersionID: stored}); err != nil {
 		if isNotFound(err) || errors.Is(err, domain.ErrNoSuchVersion) {
 			return gone, nil
@@ -114,8 +133,20 @@ func (l *layer) deleteVersion(ctx context.Context, st store, bucket, key, versio
 	if cur.Deleted {
 		del.DeleteMarkerVersionID = versionID
 	}
-	l.publish(ctx, event.ObjectRemovedDelete, bucket, objectInfo(bucket, key, cur))
+	info := objectInfo(bucket, key, cur)
+	l.labelNull(ctx, bucket, &info)
+	l.publishAt(ctx, event.ObjectRemovedDelete, bucket, info, at)
 	return del, nil
+}
+
+// checkModTime fails a conditional delete (DeleteObjectOptions.IfModTime)
+// whose target version is missing or no longer has the modification time
+// want.
+func checkModTime(exists bool, cur storage.FileInfo, want time.Time, bucket, key string) error {
+	if exists && cur.ModTime.Equal(want) {
+		return nil
+	}
+	return fmt.Errorf("%w: %s/%s: the version to delete changed", domain.ErrPreconditionFailed, bucket, key)
 }
 
 // DeleteObjects implements Service.

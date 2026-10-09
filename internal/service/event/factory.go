@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -92,7 +93,7 @@ func (f *factory) New(_ context.Context, cfg TargetConfig) (Target, error) {
 	id := cfg.TargetID()
 	switch cfg.Type {
 	case TypeWebhook:
-		client := f.deps.HTTP
+		client := withoutRedirects(f.deps.HTTP)
 		if client == nil {
 			c, err := webhookClient(cfg.Webhook)
 			if err != nil {
@@ -133,11 +134,14 @@ func validateTarget(cfg TargetConfig) error {
 	invalid := func(format string, args ...any) error {
 		return fmt.Errorf("%w: %s target %s: %s", domain.ErrInvalidArgument, cfg.Type, cfg.ID, fmt.Sprintf(format, args...))
 	}
+	if err := ValidateQueueDir(cfg.QueueDir); err != nil {
+		return fmt.Errorf("%s target %s: %w", cfg.Type, cfg.ID, err)
+	}
 	switch cfg.Type {
 	case TypeWebhook:
 		u, err := url.Parse(cfg.Webhook.Endpoint)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			return invalid("endpoint %q must be an http(s) URL", cfg.Webhook.Endpoint)
+			return invalid("endpoint %q must be an http(s) URL", redactURL(cfg.Webhook.Endpoint))
 		}
 		if (cfg.Webhook.ClientCert == "") != (cfg.Webhook.ClientKey == "") {
 			return invalid("client_cert and client_key go together")
@@ -243,7 +247,29 @@ func webhookClient(cfg WebhookConfig) (*http.Client, error) {
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.TLSClientConfig = tc
-	return &http.Client{Timeout: defaultHTTPTimeout, Transport: transport}, nil
+	return &http.Client{Timeout: defaultHTTPTimeout, Transport: transport, CheckRedirect: noRedirects}, nil
+}
+
+// noRedirects is the redirect policy of the webhook clients: a redirect is
+// never followed, the 3xx answer is the response (a failed delivery). The
+// receiver of a webhook, often a third party, could otherwise send the
+// POST of Nexo, with its body and the auth_token of the target, to any
+// host the server reaches (127.0.0.1, 169.254.169.254: a blind SSRF),
+// which no administrator configured.
+func noRedirects(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+
+// withoutRedirects returns the client of a webhook target: an injected
+// *http.Client that would follow redirects (its default policy) is copied
+// with noRedirects; other HTTPDoer implementations must not follow them
+// (FactoryDeps.HTTP).
+func withoutRedirects(client HTTPDoer) HTTPDoer {
+	c, ok := client.(*http.Client)
+	if !ok || c == nil {
+		return client
+	}
+	cp := *c // http.Client holds no lock: a copy is a valid client
+	cp.CheckRedirect = noRedirects
+	return &cp
 }
 
 // closer is a connection of a target.
@@ -296,4 +322,19 @@ func (l *lazy[T]) close(ctx context.Context) error {
 	var zero T
 	l.conn, l.open = zero, false
 	return err
+}
+
+// ValidateQueueDir checks a queue_dir: empty (the default queue) or a
+// relative path that stays inside the queue root it is resolved against
+// (see WithQueueRoot); it fails with domain.ErrInvalidArgument. An
+// absolute path or ".." would let the holder of the configuration
+// permission make the dispatcher delete and send the files of any
+// directory (a queue consumes the *.event files it finds and removes the
+// *.tmp ones).
+func ValidateQueueDir(dir string) error {
+	if dir == "" || (filepath.IsLocal(dir) && filepath.Clean(dir) != "." && !strings.Contains(dir, "\\")) {
+		return nil
+	}
+	return fmt.Errorf("%w: queue_dir %q must be a relative directory inside the event queue root (no absolute path, no ..)",
+		domain.ErrInvalidArgument, dir)
 }

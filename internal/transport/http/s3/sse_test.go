@@ -98,6 +98,9 @@ func TestPutObjectEncryption(t *testing.T) {
 			"x-amz-server-side-encryption-customer-algorithm", "AES256",
 			"x-amz-server-side-encryption-customer-key", base64.StdEncoding.EncodeToString([]byte("short")),
 		}, status: 400, code: "InvalidArgument"},
+		{name: "SSE-C without the key MD5", headers: []string{
+			"x-amz-server-side-encryption-customer-algorithm", "AES256", "x-amz-server-side-encryption-customer-key", key.b64,
+		}, status: 400, code: "InvalidArgument"},
 		{name: "SSE-C without key", headers: []string{"x-amz-server-side-encryption-customer-algorithm", "AES256"}, status: 400, code: "InvalidArgument"},
 		{name: "SSE-C other algorithm", headers: []string{
 			"x-amz-server-side-encryption-customer-algorithm", "AES128", "x-amz-server-side-encryption-customer-key", key.b64,
@@ -171,6 +174,25 @@ func TestGetHeadWithCustomerKey(t *testing.T) {
 	f.objects.EXPECT().GetObject(mock.Anything, "b", "other", mock.Anything).
 		Return(nil, domain.NewS3Error(domain.ErrAccessDenied, "AccessDenied", "The SSE-C key provided does not match"))
 	requireError(t, f.serve(secure(request(http.MethodGet, "/b/other", "", ssecHeaders("x-amz-server-side-encryption-customer-", key)...))), 403, "AccessDenied")
+}
+
+// The SSE-S3/SSE-KMS headers are refused on a read (InvalidArgument), as
+// S3 does: they describe the encryption of a write.
+func TestReadWithWriteEncryptionHeaders(t *testing.T) {
+	f := newFixture(t)
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		for _, h := range [][]string{
+			{"x-amz-server-side-encryption", "aws:kms"},
+			{"x-amz-server-side-encryption", "AES256"},
+			{"x-amz-server-side-encryption-aws-kms-key-id", "k"},
+		} {
+			rec := f.serve(secure(request(method, "/b/k", "", h...)))
+			assert.Equal(t, http.StatusBadRequest, rec.Code, "%s %v", method, h)
+			if method == http.MethodGet {
+				requireError(t, rec, http.StatusBadRequest, "InvalidArgument")
+			}
+		}
+	}
 }
 
 func TestCopyObjectEncryption(t *testing.T) {

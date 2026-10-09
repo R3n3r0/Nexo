@@ -40,6 +40,9 @@ func TestConfigManagerValidation(t *testing.T) {
 		{"notify_webhook", config.KV{"unknown_key": "x"}, false},
 		{"notify_webhook:primary", config.KV{"enable": "on", "endpoint": "https://hooks.example.com/x", "tls_skip_verify": "on"}, true},
 		{"notify_webhook:", config.KV{"enable": "on"}, false},
+		{"notify_webhook:q", config.KV{"queue_dir": "webhooks/q"}, true},
+		{"notify_webhook:q", config.KV{"queue_dir": "/var/lib/nexo/drive1"}, false},
+		{"notify_webhook:q", config.KV{"queue_dir": "../../drive1"}, false},
 		{"notify_kafka:k1", config.KV{"brokers": "b1:9092,b2:9092", "topic": "events", "sasl_mechanism": "sha512"}, true},
 		{"notify_kafka", config.KV{"sasl_mechanism": "md5"}, false},
 		{"notify_nats", config.KV{"address": "127.0.0.1:4222", "subject": "nexo"}, true},
@@ -82,6 +85,77 @@ func TestConfigManagerMasksSecrets(t *testing.T) {
 	store.EXPECT().Set(mock.Anything, "notify_webhook", config.KV{"enable": "on"}).Return(nil)
 	_, err = m.Set(ctx, "notify_webhook", config.KV{"auth_token": admin.SensitiveMask, "enable": "on"})
 	require.NoError(t, err)
+}
+
+// TestConfigManagerMasksEndpointCredentials: a webhook endpoint whose
+// query or user info carries a token is masked like the other secrets, and
+// the mask written back keeps the stored URL.
+func TestConfigManagerMasksEndpointCredentials(t *testing.T) {
+	tests := []struct {
+		endpoint string
+		masked   bool
+	}{
+		{endpoint: "https://hooks.example.com/ingest", masked: false},
+		{endpoint: "https://hooks.example.com/ingest?token=s3cret", masked: true},
+		{endpoint: "https://user:s3cret@hooks.example.com/ingest", masked: true},
+		{endpoint: "https://hooks.example.com/ingest?", masked: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.endpoint, func(t *testing.T) {
+			ctx := context.Background()
+			m, store := newConfigManager(t)
+			store.EXPECT().Get(mock.Anything, "notify_webhook").Return(config.KV{"endpoint": tt.endpoint}, nil)
+			kv, err := m.Get(ctx, "notify_webhook")
+			require.NoError(t, err)
+			if !tt.masked {
+				assert.Equal(t, tt.endpoint, kv["endpoint"])
+				return
+			}
+			assert.Equal(t, admin.SensitiveMask, kv["endpoint"])
+			store.EXPECT().Set(mock.Anything, "notify_webhook", config.KV{"enable": "on"}).Return(nil)
+			_, err = m.Set(ctx, "notify_webhook", config.KV{"endpoint": admin.SensitiveMask, "enable": "on"})
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestConfigManagerMasksAddressCredentials: a NATS or Redis address given
+// as a URL with credentials (user info, query) is masked by GET /config
+// like the other secrets, a plain host:port is not, and the mask written
+// back keeps the stored address.
+func TestConfigManagerMasksAddressCredentials(t *testing.T) {
+	tests := []struct {
+		subsystem, address string
+		masked             bool
+	}{
+		{subsystem: "notify_nats", address: "nats.example.com:4222", masked: false},
+		{subsystem: "notify_nats", address: "nats://nats.example.com:4222", masked: false},
+		{subsystem: "notify_nats", address: "nats://user:s3cret@nats.example.com:4222", masked: true},
+		{subsystem: "notify_nats", address: "nats://s3cret-token@nats.example.com:4222", masked: true},
+		{subsystem: "notify_redis", address: "redis.example.com:6379", masked: false},
+		{subsystem: "notify_redis", address: "redis://:s3cret@redis.example.com:6379", masked: true},
+		{subsystem: "notify_redis", address: "rediss://redis.example.com:6379/0?password=s3cret", masked: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.subsystem+" "+tt.address, func(t *testing.T) {
+			ctx := context.Background()
+			m, store := newConfigManager(t)
+			store.EXPECT().Get(mock.Anything, tt.subsystem).Return(config.KV{"address": tt.address}, nil)
+			kv, err := m.Get(ctx, tt.subsystem)
+			require.NoError(t, err)
+			if !tt.masked {
+				assert.Equal(t, tt.address, kv["address"])
+				return
+			}
+			assert.Equal(t, admin.SensitiveMask, kv["address"])
+			for _, v := range kv {
+				assert.NotContains(t, v, "s3cret")
+			}
+			store.EXPECT().Set(mock.Anything, tt.subsystem, config.KV{"enable": "on"}).Return(nil)
+			_, err = m.Set(ctx, tt.subsystem, config.KV{"address": admin.SensitiveMask, "enable": "on"})
+			require.NoError(t, err, "the mask written back keeps the stored address")
+		})
+	}
 }
 
 func TestConfigManagerListAndSchema(t *testing.T) {

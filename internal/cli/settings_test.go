@@ -342,3 +342,27 @@ func TestLockTargetsAndLockedVersions(t *testing.T) {
 }
 
 func int64Ptr(n int64) *int64 { return &n }
+
+// TestCustomerKeySources: the SSE-C entries of a key file (one per line,
+// comments and blank lines ignored) and of the environment, the command
+// line taking precedence for a location it names.
+func TestCustomerKeySources(t *testing.T) {
+	assert.Equal(t, []string{"a/b=K1", "a/c=K2", "a/d=K3"}, cli.ParseKeyFile([]byte("# keys\n\n a/b=K1 \r\na/c=K2,a/d=K3\n#a/e=K4\n")))
+	assert.Empty(t, cli.ParseKeyFile(nil))
+	tests := []struct {
+		name  string
+		given []string
+		env   string
+		want  []string
+	}{
+		{name: "none"},
+		{name: "environment only", env: "a/b=K1, a/c=K2", want: []string{"a/b=K1", "a/c=K2"}},
+		{name: "command line only", given: []string{"a/b=K1"}, want: []string{"a/b=K1"}},
+		{name: "command line wins", given: []string{"a/b=K9"}, env: "a/b=K1,a/c=K2", want: []string{"a/b=K9", "a/c=K2"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, cli.CustomerKeys(tt.given, tt.env))
+		})
+	}
+}

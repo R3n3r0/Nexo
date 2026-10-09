@@ -189,7 +189,9 @@ type Deps struct {
 // dialers are replaced by the real ones.
 type FactoryDeps struct {
 	// HTTP performs the webhook calls (default: an http.Client per target,
-	// honoring its TLS settings).
+	// honoring its TLS settings). Redirects are never followed: an
+	// *http.Client is used with its redirect policy replaced, any other
+	// implementation must not follow them (a 3xx is a failed delivery).
 	HTTP     HTTPDoer
 	Kafka    KafkaDialer
 	NATS     NATSDialer
@@ -201,7 +203,8 @@ type FactoryDeps struct {
 
 // WebhookDeps are the dependencies of the webhook-only factory.
 type WebhookDeps struct {
-	// Client performs the HTTP calls (default: http.Client with a 10s timeout).
+	// Client performs the HTTP calls (default: http.Client with a 10s
+	// timeout); it never follows redirects (see FactoryDeps.HTTP).
 	Client HTTPDoer
 	Logger *slog.Logger
 }
@@ -240,10 +243,11 @@ type TargetConfig struct {
 	Type string `json:"type"`
 	// Enabled targets receive events; disabled ones keep their queue.
 	Enabled bool `json:"enabled"`
-	// QueueDir is the directory of the persistent queue of the target
-	// (default: a directory of the queue root of the dispatcher, in
-	// memory without one); QueueLimit bounds the queued events (default
-	// 100000): beyond it new events are dropped.
+	// QueueDir is the directory of the persistent queue of the target,
+	// relative to the queue root of the dispatcher (absolute paths and
+	// ".." are refused; default: a directory of the queue root per
+	// target, in memory without a queue root); QueueLimit bounds the
+	// queued events (default 100000): beyond it new events are dropped.
 	QueueDir   string `json:"queueDir,omitempty"`
 	QueueLimit int    `json:"queueLimit,omitempty"`
 	// Filter routes events to the target without a bucket notification

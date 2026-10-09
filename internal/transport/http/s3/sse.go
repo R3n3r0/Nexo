@@ -62,6 +62,10 @@ func customerKeyFromHeaders(r *http.Request, prefix string, allowInsecure bool) 
 		return domain.SSECustomerKey{}, domain.NewS3Error(domain.ErrInvalidArgument, "InvalidArgument",
 			"Requests specifying Server Side Encryption with Customer provided keys must provide an appropriate secret key and algorithm.")
 	}
+	if keyMD5 == "" {
+		return domain.SSECustomerKey{}, domain.NewS3Error(domain.ErrInvalidArgument, "InvalidArgument",
+			"Requests specifying Server Side Encryption with Customer provided keys must provide the client calculated MD5 of the secret key.")
+	}
 	if algo != domain.SSEAlgorithmAES256 {
 		return domain.SSECustomerKey{}, domain.NewS3Error(domain.ErrInvalidArgument, "InvalidArgument",
 			"The encryption algorithm specified is not valid: only AES256 is supported for customer provided keys.")

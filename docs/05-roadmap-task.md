@@ -166,6 +166,23 @@ M3/M4 (UI e CLI) e M5 (storage) possono procedere in parallelo grazie all'interf
 | T-7.9 | Dashboard: impostazioni bucket, lifecycle, eventi, dettaglio oggetto/versioni, anteprima, gruppi, access key (D-BKT-02..04, D-OBJ-05..06, D-IAM-02, 04). Già in M3/M4: impostazioni bucket (versioning, quota, tag, crittografia predefinita, object lock con retention predefinita), ripristino ed eliminazione versioni, anteprima, gruppi, access key. Restano per M7: lifecycle (D-BKT-03) ed eventi (D-BKT-04), oggi 501 nell'Admin API, retention e legal hold del singolo oggetto (D-OBJ-06) | T-7.1..T-7.7 | E2E per ogni pagina |
 | T-7.10 | CLI: `version`, `tag`, `retention`, `legalhold`, `ilm`, `event`, `quota`, `encrypt`, `anonymous`, `admin group`, `admin accesskey`, `admin config`. Già in M3/M4: `version`, `tag`, `quota`, `encrypt`, `anonymous`, `admin group/accesskey/config`. Restano per M7: `retention`, `legalhold`, `ilm`, `event` (con T-7.3, T-7.4, T-7.6) | T-7.1..T-7.7 | testscript per ogni comando |
 
+**Stato della compatibilità S3 (DoD di T-7.1, T-9.1 anticipata per `s3-tests`)** — `make test-s3compat`
+(`test/compat`, job notturno `s3tests-nightly` in tutte e tre le modalità, [06 §6.1](06-piano-test.md)) su
+`ceph/s3-tests@5522d1c` (`test_s3.py`, 838 test), misurato il 2026-10-09:
+
+- 415 test esclusi, ognuno con il motivo in `test/compat/excluded.txt`: 235 marcati `fails_on_aws` dalla suite
+  stessa (estensioni RGW, tra cui il logging), 83 ACL (S-BKT-13, P2), 37 firme V2, 9 PublicAccessBlock (S-ACC-03),
+  il resto comportamenti di RGW diversi da S3 o differenze note ([02 §2.4](02-funzionalita.md));
+- 422 applicabili: **422/422 in SNMD e cluster, 421/422 in SNSD**; `test_atomic_read_4mb` è fallito in 2 esecuzioni
+  SNSD su 4 (mai in SNMD e cluster): il client della suite scrive la chiave mentre non legge ancora la GET della stessa chiave,
+  e il lock di lettura tenuto durante il trasferimento (come in MinIO) blocca la PUT finché i buffer dei socket
+  non assorbono l'oggetto o scade `NEXO_SEND_TIMEOUT` (20 s);
+- gruppi obiettivo di M7 (soglia 90% per gruppo): versioning 28/28, object lock 39/39, multipart 31/31,
+  tagging 17/17, SSE-C 18/18, checksum 11/11, CORS 1/1 (13 dei 14 test CORS usano ACL pubbliche o firme V2; il
+  CORS è coperto da `TestBucketCORS` nella matrice di integrazione);
+- punto di partenza, con le sole esclusioni per marker: 393/592 (66%). Le correzioni (S3 in generale, non
+  specifiche della suite) sono coperte da unit test e da `test/integration/compat_test.go` nella matrice TM-01.
+
 ## M7b — Accessi, domini e distribuzioni
 
 | ID | Task | Dipende | DoD |
@@ -220,7 +237,7 @@ M3/M4 (UI e CLI) e M5 (storage) possono procedere in parallelo grazie all'interf
 
 | ID | Task | Dipende | DoD |
 |----|------|---------|-----|
-| T-9.1 | Suite di compatibilità Ceph `s3-tests` e MinIO `mint` in CI notturna | M7 | ≥ 95% dei test applicabili verdi, lista esclusioni motivata |
+| T-9.1 | Suite di compatibilità Ceph `s3-tests` e MinIO `mint` in CI notturna. `s3-tests` anticipata in M7 (vedi lo stato di M7); restano `mint` e la soglia del 95% su tutti i gruppi | M7 | ≥ 95% dei test applicabili verdi, lista esclusioni motivata |
 | T-9.2 | Benchmark con `warp` e profiling (pprof), ottimizzazioni (pool di buffer, O_DIRECT, zero-copy) | M6 | Report prestazioni in `docs/bench/` |
 | T-9.3 | Security review: threat model, `gosec`, `govulncheck`, `npm audit`, fuzzing esteso, pen test console | M8 | Nessuna vulnerabilità High aperta |
 | T-9.4 | TLS hot reload, SNI multipli (S-OPS-02) | M1 | — |
@@ -238,6 +255,6 @@ M3/M4 (UI e CLI) e M5 (storage) possono procedere in parallelo grazie all'interf
 | T-10.3 | Decommission pool (S-STO-09) e rebalance (S-STO-10) |
 | T-10.4 | OIDC (login console SSO + AssumeRoleWithWebIdentity) e LDAP (S-IAM-08, 09) |
 | T-10.5 | Tiering ILM verso S3 remoto (S-STO-12) |
-| T-10.6 | SelectObjectContent, compressione trasparente, GetObjectAttributes |
+| T-10.6 | SelectObjectContent, compressione trasparente (GetObjectAttributes anticipata in M7) |
 | T-10.7 | Rate limiting, speedtest, rolling upgrade orchestrato (`admin update`) |
 | T-10.8 | Operatore Kubernetes |

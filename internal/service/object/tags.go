@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/event"
@@ -37,7 +38,7 @@ func (l *layer) DeleteObjectTags(ctx context.Context, bucket, key string, opts T
 // GetObjectTags implements Service. An object without tags yields an
 // empty, non-nil map.
 func (l *layer) GetObjectTags(ctx context.Context, bucket, key string, opts TagOptions) (map[string]string, error) {
-	info, err := l.GetObjectInfo(ctx, bucket, key, GetObjectOptions{VersionID: opts.VersionID})
+	info, err := l.describe(ctx, bucket, key, opts.VersionID)
 	if err != nil {
 		return nil, err
 	}
@@ -47,11 +48,37 @@ func (l *layer) GetObjectTags(ctx context.Context, bucket, key string, opts TagO
 	return info.Tags, nil
 }
 
+// describe returns the description of a version for the subresources of
+// an object (tags, retention, legal hold). Unlike GetObjectInfo it needs
+// no SSE-C key: S3 serves them without one.
+func (l *layer) describe(ctx context.Context, bucket, key, versionID string) (domain.ObjectInfo, error) {
+	if err := validObject(bucket, key); err != nil {
+		return domain.ObjectInfo{}, err
+	}
+	ctx, unlock, err := l.lock(ctx, bucket, key, false)
+	if err != nil {
+		return domain.ObjectInfo{}, err
+	}
+	defer unlock()
+	st, err := l.storeFor(ctx, bucket, key, versionID)
+	if err != nil {
+		return domain.ObjectInfo{}, fmt.Errorf("%s: describe %s/%s: %w", l.name, bucket, key, err)
+	}
+	fi, err := l.readVersion(ctx, st, bucket, key, versionID, false)
+	if err != nil {
+		return domain.ObjectInfo{}, fmt.Errorf("%s: describe %s/%s: %w", l.name, bucket, key, err)
+	}
+	info := objectInfo(bucket, key, fi)
+	l.labelNull(ctx, bucket, &info)
+	return info, nil
+}
+
 // updateMeta rewrites the metadata of one version in place under the
 // object write lock (the content and the modification time are kept):
 // mutate receives the version and a copy of its metadata to change, and
 // fails to leave the version untouched. Tags and the Object Lock settings
-// are changed this way.
+// are changed this way; the event name is published after the change (""
+// publishes none).
 func (l *layer) updateMeta(ctx context.Context, bucket, key, versionID string, mutate func(fi storage.FileInfo, meta map[string]string) error, name event.Name) (domain.ObjectInfo, error) {
 	if err := validObject(bucket, key); err != nil {
 		return domain.ObjectInfo{}, err
@@ -61,7 +88,7 @@ func (l *layer) updateMeta(ctx context.Context, bucket, key, versionID string, m
 		return domain.ObjectInfo{}, err
 	}
 	defer unlock()
-	st, err := l.place.forVersion(ctx, bucket, key, versionID)
+	st, err := l.storeFor(ctx, bucket, key, versionID)
 	if err != nil {
 		return domain.ObjectInfo{}, fmt.Errorf("%s: update %s/%s: %w", l.name, bucket, key, err)
 	}
@@ -76,7 +103,14 @@ func (l *layer) updateMeta(ctx context.Context, bucket, key, versionID string, m
 	if err := mutate(fi, meta); err != nil {
 		return domain.ObjectInfo{}, err
 	}
-	stamp := l.now().UnixNano()
+	// The stamp orders the metadata updates of the version and, as the
+	// sequencer of the event, the events of the key: after the version
+	// itself and after the latest version of the key, whatever the clock
+	// of this node (commitTime).
+	stamp := l.commitTime(ctx, bucket, key).UnixNano()
+	if min := fi.ModTime.UnixNano() + 1; stamp < min {
+		stamp = min
+	}
 	if prev := metaStamp(fi.Metadata); stamp <= prev {
 		stamp = prev + 1
 	}
@@ -86,6 +120,7 @@ func (l *layer) updateMeta(ctx context.Context, bucket, key, versionID string, m
 		return domain.ObjectInfo{}, fmt.Errorf("%s: update %s/%s: %w", l.name, bucket, key, err)
 	}
 	info := objectInfo(bucket, key, fi)
-	l.publish(ctx, name, bucket, info)
+	l.labelNull(ctx, bucket, &info)
+	l.publishAt(ctx, name, bucket, info, time.Unix(0, stamp))
 	return info, nil
 }

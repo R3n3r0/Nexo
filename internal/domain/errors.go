@@ -124,6 +124,10 @@ var (
 	// (Content-MD5, x-amz-checksum-*): S3 BadDigest. It wraps
 	// ErrChecksumMismatch so that errors.Is matches both.
 	ErrBadDigest = fmt.Errorf("bad digest: %w", ErrChecksumMismatch)
+	// ErrSSECustomerKeyRequired is a request on an object encrypted with a
+	// customer-provided key (SSE-C) without that key. It wraps
+	// ErrInvalidArgument (S3 InvalidRequest).
+	ErrSSECustomerKeyRequired = fmt.Errorf("SSE-C key required: %w", ErrInvalidArgument)
 )
 
 // S3Error decorates a sentinel error with an explicit S3 error code, a

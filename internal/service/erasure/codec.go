@@ -191,15 +191,16 @@ func (c *codec) Encode(ctx context.Context, src io.Reader, writers []io.Writer, 
 		if err := ctx.Err(); err != nil {
 			return total, err
 		}
-		n, rerr := io.ReadFull(src, buf)
-		if n == 0 {
-			if rerr == nil || errors.Is(rerr, io.EOF) {
-				return total, nil
-			}
+		// Only the end of src (a plain io.EOF) ends the data: any other
+		// error, io.ErrUnexpectedEOF included (a body cut short), fails the
+		// encoding, so that a truncated stream is never stored as a
+		// complete one.
+		n, rerr := readFull(src, buf)
+		if rerr != nil && rerr != io.EOF {
 			return total, rerr
 		}
-		if rerr != nil && !errors.Is(rerr, io.ErrUnexpectedEOF) {
-			return total, rerr
+		if n == 0 {
+			return total, nil
 		}
 		total += int64(n)
 		per := ceilDiv(int64(n), int64(c.data))
@@ -214,10 +215,28 @@ func (c *codec) Encode(ctx context.Context, src io.Reader, writers []io.Writer, 
 		if err := writeShards(ctx, writers, block, quorum); err != nil {
 			return total, err
 		}
-		if rerr != nil { // short final block: the stream ended
+		if rerr != nil { // io.EOF: the stream ended with this block
 			return total, nil
 		}
 	}
+}
+
+// readFull reads into buf until it is full or src returns an error. Unlike
+// io.ReadFull it returns the error of src unchanged: io.EOF (with the
+// bytes read before it) is the end of the stream, any other error,
+// io.ErrUnexpectedEOF included, a failure of the source. io.ReadFull
+// turns an end after a partial read into io.ErrUnexpectedEOF, which a
+// source cut short returns too: the two must not be confused.
+func readFull(src io.Reader, buf []byte) (int, error) {
+	n := 0
+	for n < len(buf) {
+		m, err := src.Read(buf[n:])
+		n += m
+		if err != nil {
+			return n, err
+		}
+	}
+	return n, nil
 }
 
 // checkWriters fails with ErrWriteQuorum when fewer than quorum writers

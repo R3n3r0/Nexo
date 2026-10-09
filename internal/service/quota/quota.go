@@ -245,11 +245,16 @@ type reservation struct {
 	s    *service
 	st   *bucketState
 	size uint64
-	once sync.Once
+	// replaces reports a write admitted because it replaces a version
+	// (replacedSize): its commit frees space the estimate does not see.
+	replaces bool
+	once     sync.Once
 }
 
 // done releases the reservation and, when the write committed, records
-// the bytes it added.
+// the bytes it added. A committed write that replaced a version marks
+// the bucket dirty: the next decision near the quota walks it again, so
+// that the freed space is seen.
 func (r *reservation) done(committed uint64, ok bool) {
 	if r == nil {
 		return
@@ -261,12 +266,44 @@ func (r *reservation) done(committed uint64, ok bool) {
 		if ok && committed > 0 {
 			r.st.recent = append(r.st.recent, write{at: r.s.deps.Clock.Now(), size: committed})
 		}
+		if ok && r.replaces {
+			r.st.dirty = true
+		}
 	})
 }
 
+// replacedSize returns the bytes a write of bucket/key frees: the size of
+// the version it replaces, the current one in a bucket without
+// versioning, the null version in a bucket whose versioning is
+// suspended; 0 in a versioned bucket (the versions stay), for a new key or
+// an object this decorator cannot describe (SSE-C). It is read before the
+// write, without its lock: a concurrent write may change it, which the
+// walks of the bucket correct.
+func (s *service) replacedSize(ctx context.Context, bucket, key string) uint64 {
+	if key == "" {
+		return 0
+	}
+	cfg, err := s.deps.Buckets.BucketConfig(ctx, bucket)
+	if err != nil || cfg.Versioning == domain.VersioningEnabled {
+		return 0
+	}
+	opts := object.GetObjectOptions{}
+	if cfg.Versioning == domain.VersioningSuspended {
+		opts.VersionID = domain.NullVersionID
+	}
+	info, err := s.GetObjectInfo(ctx, bucket, key, opts)
+	if err != nil || info.IsDeleteMarker {
+		return 0
+	}
+	return uint64(max0(info.Size))
+}
+
 // reserve checks that size more bytes fit in the quota of bucket and
-// reserves them. A nil reservation means the bucket has no quota.
-func (s *service) reserve(ctx context.Context, bucket string, size uint64) (*reservation, error) {
+// reserves them. A write of key (empty for the parts of an upload) that
+// replaces a version needs only the bytes it adds over it (replacedSize),
+// looked up when the write would not fit otherwise. A nil reservation
+// means the bucket has no quota.
+func (s *service) reserve(ctx context.Context, bucket, key string, size uint64) (*reservation, error) {
 	quota, err := s.quotaOf(ctx, bucket)
 	if err != nil || quota == 0 {
 		return nil, err
@@ -291,19 +328,30 @@ func (s *service) reserve(ctx context.Context, bucket string, size uint64) (*res
 		return nil, err
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	total := u.Base + u.Recent + st.reserved
-	if total+size > quota || total+size < total {
+	if total+size <= quota && total+size >= total {
+		st.reserved += size
+		s.mu.Unlock()
+		return &reservation{s: s, st: st, size: size}, nil
+	}
+	s.mu.Unlock()
+	// An overwrite only adds the difference with the version it replaces.
+	replaced := s.replacedSize(ctx, bucket, key)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	total = u.Base + u.Recent + st.reserved
+	if replaced == 0 || total+size > quota+replaced || total+size < total {
 		return nil, errExceeded(bucket, total, size, quota)
 	}
-	st.reserved += size
-	return &reservation{s: s, st: st, size: size}, nil
+	st.reserved += size - min(size, replaced)
+	return &reservation{s: s, st: st, size: size - min(size, replaced), replaces: true}, nil
 }
 
-// allowance returns the bytes a write of unknown length may add to bucket
-// (refreshing a stale base first), and false when the bucket has no
-// quota.
-func (s *service) allowance(ctx context.Context, bucket string) (uint64, bool, error) {
+// allowance returns the bytes a write of unknown length of key (empty for
+// a part) may store in bucket (refreshing a stale base first): what is
+// left in the quota plus the size of the version the write replaces; false
+// when the bucket has no quota.
+func (s *service) allowance(ctx context.Context, bucket, key string) (uint64, bool, error) {
 	quota, err := s.quotaOf(ctx, bucket)
 	if err != nil || quota == 0 {
 		return 0, false, err
@@ -314,10 +362,11 @@ func (s *service) allowance(ctx context.Context, bucket string) (uint64, bool, e
 		return 0, false, err
 	}
 	used := u.Base + u.Recent + u.Reserved
-	if used >= quota {
+	limit := quota + s.replacedSize(ctx, bucket, key)
+	if used >= limit {
 		return 0, true, nil
 	}
-	return quota - used, true, nil
+	return limit - used, true, nil
 }
 
 // limitedReader fails with the quota error as soon as more than max bytes
@@ -364,7 +413,7 @@ func (s *service) BucketUsage(ctx context.Context, bucket string) (Usage, error)
 // PutObject implements object.Service.
 func (s *service) PutObject(ctx context.Context, in object.PutObjectInput) (domain.ObjectInfo, error) {
 	if in.Size < 0 {
-		max, limited, err := s.allowance(ctx, in.Bucket)
+		max, limited, err := s.allowance(ctx, in.Bucket, in.Key)
 		if err != nil {
 			return domain.ObjectInfo{}, err
 		}
@@ -378,7 +427,7 @@ func (s *service) PutObject(ctx context.Context, in object.PutObjectInput) (doma
 		}
 		return s.Service.PutObject(ctx, in)
 	}
-	res, err := s.reserve(ctx, in.Bucket, uint64(in.Size))
+	res, err := s.reserve(ctx, in.Bucket, in.Key, uint64(in.Size))
 	if err != nil {
 		return domain.ObjectInfo{}, err
 	}
@@ -423,7 +472,7 @@ func (s *service) CopyObject(ctx context.Context, in object.CopyObjectInput) (do
 	if !ok {
 		return s.Service.CopyObject(ctx, in)
 	}
-	res, err := s.reserve(ctx, in.DstBucket, size)
+	res, err := s.reserve(ctx, in.DstBucket, in.DstKey, size)
 	if err != nil {
 		return domain.ObjectInfo{}, err
 	}
@@ -436,7 +485,7 @@ func (s *service) CopyObject(ctx context.Context, in object.CopyObjectInput) (do
 // quota is refused (the parts are counted when the upload completes).
 func (s *service) PutObjectPart(ctx context.Context, in object.PutObjectPartInput) (domain.Part, error) {
 	if in.Size < 0 {
-		max, limited, err := s.allowance(ctx, in.Bucket)
+		max, limited, err := s.allowance(ctx, in.Bucket, "")
 		if err != nil {
 			return domain.Part{}, err
 		}
@@ -445,7 +494,7 @@ func (s *service) PutObjectPart(ctx context.Context, in object.PutObjectPartInpu
 		}
 		return s.Service.PutObjectPart(ctx, in)
 	}
-	res, err := s.reserve(ctx, in.Bucket, uint64(in.Size))
+	res, err := s.reserve(ctx, in.Bucket, "", uint64(in.Size))
 	if err != nil {
 		return domain.Part{}, err
 	}
@@ -460,7 +509,7 @@ func (s *service) CopyObjectPart(ctx context.Context, in object.CopyObjectPartIn
 	if !ok {
 		return s.Service.CopyObjectPart(ctx, in)
 	}
-	res, err := s.reserve(ctx, in.DstBucket, size)
+	res, err := s.reserve(ctx, in.DstBucket, "", size)
 	if err != nil {
 		return domain.Part{}, err
 	}
@@ -509,7 +558,7 @@ func (s *service) CompleteMultipartUpload(ctx context.Context, in object.Complet
 		// The layer reports the missing upload or bucket itself.
 		return s.Service.CompleteMultipartUpload(ctx, in)
 	}
-	res, err := s.reserve(ctx, in.Bucket, size)
+	res, err := s.reserve(ctx, in.Bucket, in.Key, size)
 	if err != nil {
 		return domain.ObjectInfo{}, err
 	}

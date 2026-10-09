@@ -2,6 +2,7 @@ package admin_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -44,9 +45,20 @@ func TestKMSContract(t *testing.T) {
 	assert.True(t, info.KMS.Configured)
 	assert.ElementsMatch(t, []string{testutil.KMSKeyName, "app-key"}, info.KMS.Keys)
 
+	// Re-sealing the data keys of the objects (master key rotation).
+	root.call(http.MethodPost, "/buckets", map[string]any{"name": "sealed"}, http.StatusCreated)
+	root.call(http.MethodPut, "/buckets/sealed/encryption", map[string]string{"algorithm": "AES256"}, http.StatusOK)
+	root.call(http.MethodPost, "/buckets/sealed/objects/upload?key=k", strings.NewReader("data"), http.StatusCreated)
+	res := decodeAs[admin.KMSResealResponse](t, root.call(http.MethodPost, "/kms/reseal", nil, http.StatusOK))
+	assert.Equal(t, admin.KMSResealResponse{Buckets: 1, Versions: 1, Resealed: 1}, res)
+	res = decodeAs[admin.KMSResealResponse](t, root.call(http.MethodPost, "/kms/reseal?bucket=sealed", nil, http.StatusOK))
+	assert.Equal(t, 1, res.Resealed)
+	root.call(http.MethodPost, "/kms/reseal?bucket=missing", nil, http.StatusNotFound)
+
 	// A user without the KMS actions reads nor creates keys.
 	root.call(http.MethodPost, "/users", map[string]any{"accessKey": "kms-reader", "secretKey": "kms-reader-secret", "policyNames": []string{"readonly"}}, http.StatusCreated)
 	reader := newConsole(t, srv, "kms-reader", "kms-reader-secret")
 	reader.call(http.MethodPost, "/kms/keys", map[string]string{"id": "other"}, http.StatusForbidden)
 	reader.call(http.MethodGet, "/kms/keys", nil, http.StatusForbidden)
+	reader.call(http.MethodPost, "/kms/reseal", nil, http.StatusForbidden)
 }

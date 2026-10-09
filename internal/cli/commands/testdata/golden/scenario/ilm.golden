@@ -153,7 +153,7 @@ $ nexoctl ilm rule ls mem/copy
 `mem/copy` has no lifecycle rule.
 
 $ nexoctl ilm apply mem/app
-Lifecycle of `mem/app` applied: 12 versions checked, 3 deleted, 1 delete marker removed, 2 uploads aborted, 1 kept by Object Lock.
+Lifecycle of `mem/app` applied: 12 versions checked, 3 deleted, 1 delete marker created, 2 uploads aborted, 1 kept by Object Lock.
 
 $ nexoctl ilm rule add --prefix x/ mem/app
 ! nexoctl: error: a rule needs an action: --expire-days, --expire-date, --expired-delete-marker, --noncurrent-expire-days, --newer-noncurrent or --abort-mpu-days

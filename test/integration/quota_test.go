@@ -91,4 +91,19 @@ func TestBucketQuota(t *testing.T) {
 		MultipartUpload: &types.CompletedMultipartUpload{Parts: parts}})
 	require.NoError(t, err)
 	assert.True(t, exists("mpu"))
+
+	// An overwrite in a bucket without versioning replaces its version:
+	// it needs only the bytes it adds over it.
+	const ob = "quota-overwrite"
+	e.mkBucket(ob)
+	_, err = e.srv.Buckets.SetQuota(ctx, ob, bucket.Quota{Type: bucket.QuotaHard, Size: 1 << 20})
+	require.NoError(t, err)
+	put := func(key string, n int) error {
+		_, err := e.root.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(ob), Key: aws.String(key), Body: bytes.NewReader(make([]byte, n))})
+		return err
+	}
+	require.NoError(t, put("a", 600<<10))
+	require.NoError(t, put("a", 600<<10), "600 KiB over 600 KiB: the usage stays 600 KiB")
+	requireQuota(put("b", 600<<10), "a new key does not fit")
+	requireQuota(put("a", 1100<<10), "nor an overwrite beyond the quota")
 }
