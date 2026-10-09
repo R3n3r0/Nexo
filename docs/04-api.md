@@ -26,7 +26,8 @@ altra richiesta.
 `ListObjectVersions`, `ListMultipartUploads`.
 
 **Oggetti**: `PutObject`, `GetObject`, `HeadObject`, `DeleteObject`, `DeleteObjects`, `CopyObject`,
-`Get/Put/DeleteObjectTagging`, `Get/PutObjectRetention`, `Get/PutObjectLegalHold`, `PostObject`.
+`GetObjectAttributes`, `Get/Put/DeleteObjectTagging`, `Get/PutObjectRetention`, `Get/PutObjectLegalHold`,
+`PostObject`.
 
 **Multipart**: `CreateMultipartUpload`, `UploadPart`, `UploadPartCopy`, `CompleteMultipartUpload`,
 `AbortMultipartUpload`, `ListParts`.
@@ -37,7 +38,7 @@ Le API non supportate restituiscono `501 NotImplemented` con codice S3 corretto.
 
 ### Errori
 Formato XML S3 standard (`<Error><Code/><Message/><Resource/><RequestId/></Error>`), mapping centralizzato
-(`internal/s3api/errors.go`) con tabella `ErrorCode → HTTP status`. Header `x-amz-request-id` e `x-amz-id-2` sempre presenti.
+(`internal/transport/http/httpx`, `errors.go`) con tabella `ErrorCode → HTTP status`. Header `x-amz-request-id` e `x-amz-id-2` sempre presenti.
 
 ## 4.3 Admin API (`/api/v1`)
 
@@ -62,7 +63,7 @@ decodifica una volta sola.
 | GET/PUT/DELETE | `/buckets/{b}/events` · `/buckets/{b}/cors` | Sottoscrizioni eventi (ARN del target, eventi, prefix/suffix) e regole CORS, validate come il lifecycle |
 | GET | `/notify/targets` · POST `/notify/targets/{id}/test` | Target di notifica (sottosistemi `notify_*`) con stato online/offline ed eventi in coda visti dal nodo che risponde; evento di prova `s3:TestEvent` (`admin:ConfigUpdate`) |
 | GET/PUT | `/buckets/{b}/objects/{retention,legal-hold}?key=&versionId=` · GET `/attributes` | Retention (mode, retainUntil, `bypassGovernance` con `s3:BypassGovernanceRetention`), legal hold e attributi (checksum, parti) di una versione |
-| GET/POST | `/kms/status`, `/kms/keys` | KMS (segnaposto `501` fino al collegamento del servizio KMS) |
+| GET/POST | `/kms/status`, `/kms/keys` · POST `/kms/reseal?bucket=` | KMS: stato, chiavi (creazione con `admin:KMSCreateKey`), ri-sigillatura delle chiavi dati degli oggetti SSE-S3/SSE-KMS con la master key corrente dopo una rotazione (`admin:KMSCreateKey`, esito per bucket/versioni: `resealed`, `failed`, `firstError`; vedi [07 §7.2](07-sicurezza-operativita.md)); `501` senza KMS |
 | GET | `/buckets/{b}/objects?prefix=&delimiter=&cursor=` | Listing per object browser |
 | POST | `/buckets/{b}/objects/upload` · GET `/download` · POST `/download-zip` · DELETE `/objects` | Operazioni oggetti dalla console |
 | POST | `/buckets/{b}/objects/restore?key=&versionId=` | Ripristina una versione (copia della versione sulla sua chiave, autorizzata come la `CopyObject` S3) |

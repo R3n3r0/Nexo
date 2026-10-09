@@ -32,9 +32,10 @@ func (n notificationRules) NotificationConfig(ctx context.Context, name string) 
 }
 
 // eventQueueRoot returns the directory of the persistent queues of the
-// notification targets without queue_dir: the system volume of the first
-// local drive of this node (each node queues the events of the requests
-// it serves); empty (in-memory queues) without a local drive.
+// notification targets (their queue_dir is relative to it): the system
+// volume of the first local drive of this node (each node queues the
+// events of the requests it serves); empty (in-memory queues) without a
+// local drive.
 func eventQueueRoot(f *foundation) string {
 	for _, d := range f.local {
 		if d != nil && d.Endpoint().Path != "" {

@@ -19,7 +19,7 @@ PKGS        := ./...
 
 export CGO_ENABLED ?= 0
 
-.PHONY: all build build-go build-web build-embedded e2e test test-race test-integration test-cluster test-compose bench-rpc lint web-lint \
+.PHONY: all build build-go build-web build-embedded e2e test test-race test-integration test-cluster test-compose test-s3compat bench-rpc lint web-lint \
         web-test generate fmt clean run-single run-snmd run-cluster docker help
 
 all: build
@@ -57,6 +57,10 @@ test-integration:
 ## test-cluster: run the multi-process cluster tests (TC-*, build tag "cluster") against a fresh bin/nexo
 test-cluster:
 	$(GO) test $(GOFLAGS) -tags cluster -count=1 -timeout 40m -v ./test/cluster/...
+
+## test-s3compat: run the Ceph s3-tests compatibility suite against a fresh bin/nexo (SNMD; NEXO_S3TESTS_MODE=snsd|cluster), test/compat, nightly CI
+test-s3compat: build-go
+	test/compat/run-s3tests.sh
 
 ## test-compose: run TM-06/TM-09 against a running deploy/docker/compose.cluster.yml (build tag "compose", nightly CI)
 test-compose:

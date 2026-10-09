@@ -21,7 +21,7 @@ import (
 // final object is one of the written versions.
 func TestConcurrentPutsOnOneKey(t *testing.T) {
 	t.Parallel()
-	forEachImpl(t, func(t *testing.T, fx *fixture) {
+	forEachImplWith(t, []object.Option{object.WithLockTimeout(contendedLockTimeout)}, func(t *testing.T, fx *fixture) {
 		ctx := context.Background()
 		require.NoError(t, fx.svc.MakeBucket(ctx, "bkt", object.MakeBucketOptions{}))
 		const writers = 100
@@ -164,7 +164,7 @@ func TestCrossedCopiesDoNotDeadlock(t *testing.T) {
 // Concurrent uploads of the same part number never mix the data of one
 // with the ETag of another.
 func TestConcurrentUploadsOfOnePart(t *testing.T) {
-	forEachImpl(t, func(t *testing.T, fx *fixture) {
+	forEachImplWith(t, []object.Option{object.WithLockTimeout(contendedLockTimeout)}, func(t *testing.T, fx *fixture) {
 		ctx := context.Background()
 		require.NoError(t, fx.svc.MakeBucket(ctx, "bkt", object.MakeBucketOptions{}))
 		up, err := fx.svc.NewMultipartUpload(ctx, object.NewMultipartInput{Bucket: "bkt", Key: "k"})
@@ -199,7 +199,7 @@ func TestConcurrentUploadsOfOnePart(t *testing.T) {
 // part of the drives and stay readable after failing its write quorum).
 // One write of each pair wins, and what is readable is what is listed.
 func TestConcurrentParentChildPuts(t *testing.T) {
-	forEachImpl(t, func(t *testing.T, fx *fixture) {
+	forEachImplWith(t, []object.Option{object.WithLockTimeout(contendedLockTimeout)}, func(t *testing.T, fx *fixture) {
 		ctx := context.Background()
 		require.NoError(t, fx.svc.MakeBucket(ctx, "bkt", object.MakeBucketOptions{}))
 		const pairs = 100

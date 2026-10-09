@@ -14,6 +14,9 @@ var (
 	ErrTopologyMismatch = fmt.Errorf("%w: cluster: the nodes run different topologies", domain.ErrInvalidLayout)
 	// ErrIncompatibleVersion reports nodes whose major versions differ.
 	ErrIncompatibleVersion = fmt.Errorf("%w: cluster: incompatible node versions", domain.ErrConflict)
+	// ErrKMSMismatch reports a node whose KMS configuration (master keys
+	// or KES servers) differs from the one of the majority of the nodes.
+	ErrKMSMismatch = fmt.Errorf("%w: cluster: the nodes run different KMS configurations", domain.ErrConflict)
 )
 
 // LocalNodeID is the id of the implicit node of a single-node deployment.

@@ -249,7 +249,9 @@ func TestBucketManagerForcedDelete(t *testing.T) {
 			Return(domain.ListObjectsResult{Objects: []domain.ObjectInfo{{Key: "b"}}}, nil)
 		e.objects.EXPECT().DeleteObjects(mock.Anything, object.DeleteObjectsInput{Bucket: "b", Quiet: true, Objects: []object.ObjectToDelete{{Key: "a", VersionID: "v1"}, {Key: "a", VersionID: "v2"}}}).
 			Return(object.DeleteObjectsResult{}, nil)
-		e.objects.EXPECT().DeleteObjects(mock.Anything, object.DeleteObjectsInput{Bucket: "b", Quiet: true, Objects: []object.ObjectToDelete{{Key: "b"}}}).
+		// The null version listed without id goes for good: as "null"
+		// (without a version id a versioned bucket would get a marker).
+		e.objects.EXPECT().DeleteObjects(mock.Anything, object.DeleteObjectsInput{Bucket: "b", Quiet: true, Objects: []object.ObjectToDelete{{Key: "b", VersionID: "null"}}}).
 			Return(object.DeleteObjectsResult{}, nil)
 		e.objects.EXPECT().ListMultipartUploads(mock.Anything, domain.ListMultipartUploadsInput{Bucket: "b"}).
 			Return(domain.ListMultipartUploadsResult{Uploads: []domain.MultipartUpload{{Key: "c", UploadID: "u1"}}}, nil)

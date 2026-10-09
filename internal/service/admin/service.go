@@ -1574,4 +1574,25 @@ type KMSManager interface {
 	ListKeys(ctx context.Context, prefix string) ([]kms.KeyInfo, error)
 	// CreateKey creates a named key and returns it.
 	CreateKey(ctx context.Context, name string) (kms.KeyInfo, error)
+	// Reseal re-seals the data keys of the SSE-S3 and SSE-KMS objects of
+	// bucket (every bucket when empty) under the current master key of the
+	// KMS, after a rotation of the master key (docs/07 §7.2): once done,
+	// the previous master keys can be removed. It needs the object layer
+	// (domain.ErrNotImplemented without).
+	Reseal(ctx context.Context, bucket string) (ResealReport, error)
+}
+
+// ResealReport is the outcome of KMSManager.Reseal.
+type ResealReport struct {
+	// Buckets counts the buckets walked.
+	Buckets int
+	// Versions counts the SSE-S3 and SSE-KMS versions met, Uploads the
+	// pending multipart uploads of such objects; Resealed counts the
+	// versions and uploads re-sealed, Failed those that could not be
+	// (FirstError tells why).
+	Versions   int
+	Uploads    int
+	Resealed   int
+	Failed     int
+	FirstError string
 }

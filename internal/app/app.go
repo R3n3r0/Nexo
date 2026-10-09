@@ -596,7 +596,7 @@ func buildAdminServices(d adminDeps) (adminServices, error) {
 		return out, err
 	}
 	if d.kms != nil {
-		out.kms, err = adminsvc.NewKMSManager(adminsvc.KMSManagerDeps{KMS: d.kms, Logger: d.logger})
+		out.kms, err = adminsvc.NewKMSManager(adminsvc.KMSManagerDeps{KMS: d.kms, Objects: d.objects, Logger: d.logger})
 	}
 	return out, err
 }

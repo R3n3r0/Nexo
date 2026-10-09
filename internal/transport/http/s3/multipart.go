@@ -1,6 +1,7 @@
 package s3
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -68,7 +69,7 @@ func (h *multipartRoutes) Mount(d Dispatcher) {
 func (h *multipartRoutes) Register(r chi.Router) { registerStandalone(r, h.deps.Enc, h) }
 
 func (h *multipartRoutes) fail(w http.ResponseWriter, r *http.Request, err error) {
-	h.deps.Enc.WriteS3Error(w, r, err)
+	writeError(h.deps.Enc, h.deps.Logger, w, r, err)
 }
 
 func (h *multipartRoutes) createUpload(w http.ResponseWriter, r *http.Request) {
@@ -278,9 +279,22 @@ func (h *multipartRoutes) completeUpload(w http.ResponseWriter, r *http.Request)
 		h.fail(w, r, err)
 		return
 	}
+	// The SSE-C key of an SSE-C upload opens the sealed checksums of its
+	// parts (needed when the completion computes or verifies a checksum).
+	ckey, err := customerKeyFromHeaders(r, headerSSECustomerPrefix, h.opts.insecureSSEC)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	size, err := objectSizeHeader(r.Header)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
 	in := object.CompleteMultipartInput{
 		Bucket: bucketName, Key: key, UploadID: r.URL.Query().Get("uploadId"),
-		Conditions: parseConditions(r.Header, "If-"), Checksum: checksum, ChecksumType: typ,
+		Conditions: parseConditions(r.Header, "If-"), Checksum: checksum, ChecksumType: typ, SSECustomerKey: ckey,
+		ObjectSize: size,
 	}
 	for _, p := range req.Parts {
 		in.Parts = append(in.Parts, domain.CompletePart{Number: p.PartNumber, ETag: trimETag(p.ETag), Checksum: p.checksum()})
@@ -290,9 +304,7 @@ func (h *multipartRoutes) completeUpload(w http.ResponseWriter, r *http.Request)
 		h.fail(w, r, err)
 		return
 	}
-	if info.VersionID != "" {
-		w.Header().Set(httpx.HeaderAmzVersionID, info.VersionID)
-	}
+	setWrittenVersion(w, info.VersionID)
 	writeSSEHeaders(w, info.Encryption)
 	out := CompleteMultipartUploadResult{Location: objectURL(r, bucketName, key), Bucket: bucketName, Key: key, ETag: quoteETag(info.ETag),
 		ChecksumFields: checksumFields(info.Checksum)}
@@ -300,6 +312,24 @@ func (h *multipartRoutes) completeUpload(w http.ResponseWriter, r *http.Request)
 		out.ChecksumType = string(info.Checksum.Type)
 	}
 	h.deps.Enc.WriteXML(w, http.StatusOK, out)
+}
+
+// headerMpObjectSize is the size of the object a completion expects.
+const headerMpObjectSize = "x-amz-mp-object-size"
+
+// objectSizeHeader returns the x-amz-mp-object-size of a completion (nil
+// when absent): a non-negative number of bytes.
+func objectSizeHeader(h http.Header) (*int64, error) {
+	raw := h.Get(headerMpObjectSize)
+	if raw == "" {
+		return nil, nil
+	}
+	n, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || n < 0 {
+		return nil, domain.NewS3Error(domain.ErrInvalidArgument, "InvalidArgument",
+			fmt.Sprintf("The value of the %s header must be a non-negative integer: %q", headerMpObjectSize, raw))
+	}
+	return &n, nil
 }
 
 func (h *multipartRoutes) abortUpload(w http.ResponseWriter, r *http.Request) {
@@ -330,8 +360,14 @@ func (h *multipartRoutes) listParts(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
+	ckey, err := customerKeyFromHeaders(r, headerSSECustomerPrefix, h.opts.insecureSSEC)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
 	res, err := h.deps.Objects.ListObjectParts(r.Context(), domain.ListPartsInput{
 		Bucket: bucketName, Key: key, UploadID: q.Get("uploadId"), PartNumberMarker: marker, MaxParts: serviceLimit(maxParts),
+		SSECustomerKey: ckey,
 	})
 	if err != nil {
 		h.fail(w, r, err)

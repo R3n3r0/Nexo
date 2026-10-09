@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -93,7 +94,7 @@ func (h *objectRoutes) Mount(d Dispatcher) {
 func (h *objectRoutes) Register(r chi.Router) { registerStandalone(r, h.deps.Enc, h) }
 
 func (h *objectRoutes) fail(w http.ResponseWriter, r *http.Request, err error) {
-	h.deps.Enc.WriteS3Error(w, r, err)
+	writeError(h.deps.Enc, h.deps.Logger, w, r, err)
 }
 
 // putInput assembles the PutObject input from the request headers; the
@@ -174,9 +175,7 @@ func (h *objectRoutes) putObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("ETag", quoteETag(info.ETag))
-	if info.VersionID != "" {
-		w.Header().Set(httpx.HeaderAmzVersionID, info.VersionID)
-	}
+	setWrittenVersion(w, info.VersionID)
 	writeChecksum(w, info.Checksum)
 	writeSSEHeaders(w, info.Encryption)
 	w.WriteHeader(http.StatusOK)
@@ -214,9 +213,7 @@ func (h *objectRoutes) copyObject(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	if info.VersionID != "" {
-		w.Header().Set(httpx.HeaderAmzVersionID, info.VersionID)
-	}
+	setWrittenVersion(w, info.VersionID)
 	if srcVersion != "" {
 		w.Header().Set(httpx.HeaderAmzCopySourceVersionID, srcVersion)
 	}
@@ -291,8 +288,14 @@ func copyInput(r *http.Request, allowInsecureSSEC bool) (object.CopyObjectInput,
 	return in, nil
 }
 
-// getOptions reads the GetObject/HeadObject parameters.
+// getOptions reads the GetObject/HeadObject parameters. The SSE-S3 and
+// SSE-KMS headers belong to writes: S3 refuses them on a read.
 func getOptions(r *http.Request, allowInsecureSSEC bool) (object.GetObjectOptions, error) {
+	for _, h := range []string{httpx.HeaderAmzSSE, httpx.HeaderAmzSSEKMSKeyID, headerSSEContext} {
+		if httpx.HasAmzHeader(r.Header, h) {
+			return object.GetObjectOptions{}, invalidArgument(h + " header is not supported for this operation.")
+		}
+	}
 	q := r.URL.Query()
 	opts := object.GetObjectOptions{VersionID: q.Get("versionId"), Range: parseRange(r.Header), Conditions: parseConditions(r.Header, "If-")}
 	ckey, err := customerKeyFromHeaders(r, headerSSECustomerPrefix, allowInsecureSSEC)
@@ -300,6 +303,9 @@ func getOptions(r *http.Request, allowInsecureSSEC bool) (object.GetObjectOption
 		return object.GetObjectOptions{}, err
 	}
 	opts.SSECustomerKey = ckey
+	// The value of the checksum of an encrypted version is sealed: HEAD
+	// opens it (a KMS call) only when the client asks for it.
+	opts.ChecksumMode = strings.EqualFold(r.Header.Get(httpx.HeaderAmzChecksumMode), "ENABLED")
 	if q.Has("partNumber") {
 		n, err := strconv.Atoi(q.Get("partNumber"))
 		if err != nil || n < minPartNumber || n > maxPartNumber {
@@ -345,8 +351,9 @@ func (h *objectRoutes) getObject(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusPartialContent
 	}
 	w.WriteHeader(status)
-	if n, err := io.Copy(w, rd); err != nil {
-		// The status is sent: the client sees a truncated body.
+	if n, err := httpx.CopyBody(w, rd, h.opts.sendTimeout); err != nil {
+		// The status is sent: the client sees a truncated body (or none,
+		// when it stopped reading for longer than the send timeout).
 		h.deps.Logger.DebugContext(r.Context(), "s3: GetObject body interrupted", "bucket", bucketName, "key", key, "written", n, "err", err)
 	}
 }
@@ -585,9 +592,7 @@ func (h *objectRoutes) putTagging(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	if info.VersionID != "" {
-		w.Header().Set(httpx.HeaderAmzVersionID, info.VersionID)
-	}
+	setWrittenVersion(w, info.VersionID)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -601,9 +606,7 @@ func (h *objectRoutes) deleteTagging(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	if info.VersionID != "" {
-		w.Header().Set(httpx.HeaderAmzVersionID, info.VersionID)
-	}
+	setWrittenVersion(w, info.VersionID)
 	w.WriteHeader(http.StatusNoContent)
 }
 

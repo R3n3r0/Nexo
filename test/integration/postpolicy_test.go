@@ -24,6 +24,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/auth"
+	"github.com/r3n3r0/nexo/internal/testutil"
 )
 
 func hmacSHA256(key []byte, data string) []byte {
@@ -107,6 +108,66 @@ func (e *env) postForm(bucket string, fields map[string]string, fileName string,
 	req := newRequest(e.t, http.MethodPost, e.srv.S3URL+"/"+bucket, body.Bytes())
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	return do(e.t, req)
+}
+
+// postTruncatedForm sends a browser upload cut short: the file part has
+// no closing boundary, as when the connection of the browser drops (the
+// request itself ends cleanly, so only the form is incomplete).
+func (e *env) postTruncatedForm(bucket string, fields map[string]string, content []byte) response {
+	e.t.Helper()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	names := make([]string, 0, len(fields))
+	for k := range fields {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	for _, k := range names {
+		require.NoError(e.t, mw.WriteField(k, fields[k]))
+	}
+	fw, err := mw.CreateFormFile("file", "cut.bin")
+	require.NoError(e.t, err)
+	_, err = fw.Write(content)
+	require.NoError(e.t, err)
+	req := newRequest(e.t, http.MethodPost, e.srv.S3URL+"/"+bucket, body.Bytes())
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	return do(e.t, req)
+}
+
+// TestPostPolicyTruncatedForm (anti-truncation): a POST policy upload
+// whose form ends without its closing boundary (a body of unknown size
+// cut short) is refused with 400 IncompleteBody in every mode, encrypted
+// or not: the truncated content is never stored (regression: it was
+// committed with SSE, and in the erasure-coded modes without it).
+func TestPostPolicyTruncatedForm(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, testutil.WithKMS())
+	const bucket = "cut-forms"
+	e.mkBucket(bucket)
+	content := bytes.Repeat([]byte("truncated-form-"), 200<<10/15)
+	for _, sse := range []string{"", "AES256"} {
+		key := "plain"
+		conds := []any{[]any{"starts-with", "$key", ""}}
+		fields := map[string]string{}
+		if sse != "" {
+			key = "encrypted"
+			conds = append(conds, map[string]string{"x-amz-server-side-encryption": sse})
+			fields["x-amz-server-side-encryption"] = sse
+		}
+		pol := postPolicy{creds: e.rootCreds(), region: e.srv.Config.Region, bucket: bucket, expiration: time.Now().Add(time.Hour), conditions: conds}
+		fields["key"] = key
+		resp := e.postTruncatedForm(bucket, merge(pol.fields(t), fields), content)
+		requireS3Error(t, resp, http.StatusBadRequest, "IncompleteBody")
+		_, err := e.root.HeadObject(e.ctx, &s3.HeadObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
+		assert.Equal(t, http.StatusNotFound, httpStatus(err), "%s: nothing is stored", key)
+
+		// The same form, complete, is stored.
+		ok := e.postForm(bucket, merge(pol.fields(t), fields), "ok.bin", content)
+		require.Equal(t, http.StatusNoContent, ok.StatusCode, "%s: %s", key, ok.Body)
+		head, err := e.root.HeadObject(e.ctx, &s3.HeadObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
+		require.NoError(t, err)
+		assert.Equal(t, int64(len(content)), aws.ToInt64(head.ContentLength))
+	}
 }
 
 func merge(maps ...map[string]string) map[string]string {

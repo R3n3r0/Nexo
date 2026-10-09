@@ -419,9 +419,11 @@ func (s *service) SetObjectLock(ctx context.Context, name string, cfg ObjectLock
 			"The XML you provided was not well-formed or did not validate against our published schema: "+err.Error())
 	}
 	return s.update(ctx, name, func(m *Metadata) error {
-		if !m.ObjectLock.Enabled {
+		// As in S3, a bucket created without object locking can enable it
+		// once its versioning is Enabled (it can never be suspended then).
+		if !m.ObjectLock.Enabled && m.Versioning != domain.VersioningEnabled {
 			return domain.NewS3Error(domain.ErrConflict, "InvalidBucketState",
-				"Object Lock can only be enabled when the bucket is created (x-amz-bucket-object-lock-enabled)")
+				"Versioning must be 'Enabled' on the bucket to apply a Object Lock configuration")
 		}
 		m.ObjectLock = cfg
 		return nil

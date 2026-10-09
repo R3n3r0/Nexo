@@ -1980,6 +1980,33 @@ paths:
         "409": { $ref: "#/components/responses/Problem" }
         "501": { $ref: "#/components/responses/Problem" }
         default: { $ref: "#/components/responses/Problem" }
+  /kms/reseal:
+    post:
+      tags: [kms]
+      operationId: resealKmsKeys
+      summary: Re-seal the data keys of the objects under the current master key
+      description: >-
+        After a rotation of the master key of the KMS (the previous key in
+        NEXO_KMS_SECRET_KEY_PREVIOUS), re-seals the data key of every SSE-S3 and SSE-KMS version of
+        the bucket (every bucket without one) under the current master key; the data is not
+        rewritten. Once every bucket is re-sealed the previous master keys can be removed. The
+        versions that cannot be re-sealed are counted. 501 without KMS.
+      x-nexo-actions: ["admin:KMSCreateKey"]
+      parameters:
+        - name: bucket
+          in: query
+          required: false
+          description: Only the objects of this bucket.
+          schema: { type: string }
+      responses:
+        "200":
+          description: The outcome.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KmsResealResult" }
+        "404": { $ref: "#/components/responses/Problem" }
+        "501": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
   /config:
     get:
       tags: [config]
@@ -3893,3 +3920,13 @@ components:
       required: [id]
       properties:
         id: { type: string }
+    KmsResealResult:
+      type: object
+      required: [buckets, versions, uploads, resealed, failed]
+      properties:
+        buckets: { type: integer, description: Buckets walked. }
+        versions: { type: integer, description: SSE-S3 and SSE-KMS versions met. }
+        uploads: { type: integer, description: Pending multipart uploads of SSE-S3 and SSE-KMS objects met (their description holds the sealed key). }
+        resealed: { type: integer, description: Versions and uploads whose data key is sealed under the current master key. }
+        failed: { type: integer, description: Versions and uploads that could not be re-sealed. }
+        firstError: { type: string, description: Why the first failed version or upload could not be re-sealed. }

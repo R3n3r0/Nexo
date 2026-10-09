@@ -267,20 +267,26 @@ func (s *service) execute(ctx context.Context, a Action, res *ApplyResult) scann
 	log := s.deps.Logger.With("bucket", a.Bucket, "key", a.Key, "version_id", a.VersionID, "rule", a.RuleID)
 	switch a.Type {
 	case ActionDeleteVersion:
-		if a.VersionID == "" {
-			// Unversioned: the key may have been overwritten since it was
-			// listed; only the expired content goes.
-			cur, err := s.deps.Objects.GetObjectInfo(ctx, a.Bucket, a.Key, object.GetObjectOptions{NoLock: true})
-			if err != nil || !cur.ModTime.Equal(a.ModTime) {
-				return scanner.LifecycleNone
-			}
+		// The version evaluated, if it is still the same: a version
+		// written since the listing (a PUT that replaced the null version
+		// of a suspended or unversioned bucket) is not expired. A version
+		// without id is the null version, whatever the versioning of the
+		// bucket: its removal is permanent and never adds a marker.
+		vid := a.VersionID
+		if vid == "" {
+			vid = domain.NullVersionID
 		}
-		if _, err := s.deps.Objects.DeleteObject(lctx, a.Bucket, a.Key, object.DeleteObjectOptions{VersionID: a.VersionID}); err != nil {
-			if errors.Is(err, domain.ErrObjectLocked) {
-				res.Locked++
-				log.DebugContext(ctx, "ilm: expired version protected by object lock")
-				return scanner.LifecycleNone
-			}
+		_, err := s.deps.Objects.DeleteObject(lctx, a.Bucket, a.Key, object.DeleteObjectOptions{VersionID: vid, IfModTime: a.ModTime})
+		switch {
+		case err == nil:
+		case errors.Is(err, domain.ErrPreconditionFailed):
+			log.DebugContext(ctx, "ilm: expired version changed since its evaluation")
+			return scanner.LifecycleNone
+		case errors.Is(err, domain.ErrObjectLocked):
+			res.Locked++
+			log.DebugContext(ctx, "ilm: expired version protected by object lock")
+			return scanner.LifecycleNone
+		default:
 			log.WarnContext(ctx, "ilm: cannot remove an expired version", "err", err)
 			return scanner.LifecycleNone
 		}
@@ -289,11 +295,13 @@ func (s *service) execute(ctx context.Context, a Action, res *ApplyResult) scann
 		return scanner.LifecycleDeleted
 	case ActionDeleteMarker:
 		// Only over the version evaluated: a newer one is not expired.
-		cur, err := s.deps.Objects.GetObjectInfo(ctx, a.Bucket, a.Key, object.GetObjectOptions{NoLock: true})
-		if err != nil || cur.VersionID != a.VersionID {
+		_, err := s.deps.Objects.DeleteObject(lctx, a.Bucket, a.Key, object.DeleteObjectOptions{IfModTime: a.ModTime})
+		switch {
+		case err == nil:
+		case errors.Is(err, domain.ErrPreconditionFailed):
+			log.DebugContext(ctx, "ilm: current version changed since its evaluation")
 			return scanner.LifecycleNone
-		}
-		if _, err := s.deps.Objects.DeleteObject(lctx, a.Bucket, a.Key, object.DeleteObjectOptions{}); err != nil {
+		default:
 			log.WarnContext(ctx, "ilm: cannot expire the current version", "err", err)
 			return scanner.LifecycleNone
 		}

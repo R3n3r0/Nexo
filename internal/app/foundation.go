@@ -305,9 +305,13 @@ func (f *foundation) openDistributed(d foundationDeps) error {
 	f.info = cluster.NewInfo(cluster.InfoDeps{NodeID: f.nodeID, Nodes: cluster.NodesOf(d.layout), Drives: f.local, Peers: peers,
 		HealQueue: healQueueReporter(f.mrf), Clock: d.clock, Logger: logger},
 		cluster.WithBuildInfo(build.Version, build.Commit))
+	kmsFP, err := kmsFingerprint(cfg)
+	if err != nil {
+		return err
+	}
 	f.bootstrapper, err = cluster.NewBootstrapper(cluster.BootstrapDeps{Layout: d.layout, Topology: d.topo, Drives: f.drives, Peers: bootPeers,
 		Binder: f.auth, Clock: d.clock, Logger: logger},
-		cluster.WithBootstrapVersion(build.Version))
+		cluster.WithBootstrapVersion(build.Version), cluster.WithBootstrapKMSFingerprint(kmsFP))
 	if err != nil {
 		return err
 	}

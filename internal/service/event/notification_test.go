@@ -173,3 +173,51 @@ func TestValidateBucketConfigResolvesTheDestinations(t *testing.T) {
 	_, err = d.ValidateBucketConfig(ctx, []byte(`<NotificationConfiguration><QueueConfiguration><Queue>arn:nexo:sqs:us-east-1:1:kafka</Queue><Event>s3:ObjectCreated:Put</Event></QueueConfiguration></NotificationConfiguration>`))
 	assert.ErrorIs(t, err, domain.ErrInvalidArgument, "same id, other type")
 }
+
+// TestValidateBucketConfigRefusesOverlaps: as S3, two configurations
+// sharing an event type (a family covers its members) with overlapping key
+// filters are refused; disjoint filters or event types are accepted.
+func TestValidateBucketConfigRefusesOverlaps(t *testing.T) {
+	ctx := context.Background()
+	d := event.NewDispatcher(event.Deps{}, event.WithRegion("us-east-1"))
+	require.NoError(t, d.SetTarget(ctx, webhookTarget("1", "http://127.0.0.1:1/hook")))
+	queue := func(id, ev, prefix, suffix string) string {
+		filter := ""
+		if prefix != "" || suffix != "" {
+			filter = "<Filter><S3Key>"
+			if prefix != "" {
+				filter += "<FilterRule><Name>prefix</Name><Value>" + prefix + "</Value></FilterRule>"
+			}
+			if suffix != "" {
+				filter += "<FilterRule><Name>suffix</Name><Value>" + suffix + "</Value></FilterRule>"
+			}
+			filter += "</S3Key></Filter>"
+		}
+		return "<QueueConfiguration><Id>" + id + "</Id><Queue>arn:nexo:sqs:us-east-1:1:webhook</Queue><Event>" + ev + "</Event>" + filter + "</QueueConfiguration>"
+	}
+	tests := []struct {
+		name    string
+		a, b    string
+		overlap bool
+	}{
+		{"family and member, nested prefixes", queue("q1", "s3:ObjectCreated:*", "a/", ""), queue("q2", "s3:ObjectCreated:Put", "a/b", ""), true},
+		{"same event, no filters", queue("q1", "s3:ObjectRemoved:*", "", ""), queue("q2", "s3:ObjectRemoved:*", "", ""), true},
+		{"prefix against suffix", queue("q1", "s3:ObjectCreated:Put", "images/", ""), queue("q2", "s3:ObjectCreated:Put", "", ".jpg"), true},
+		{"nested suffixes", queue("q1", "s3:ObjectCreated:Put", "", ".jpg"), queue("q2", "s3:ObjectCreated:Put", "", "thumb.jpg"), true},
+		{"disjoint prefixes", queue("q1", "s3:ObjectCreated:*", "a/", ""), queue("q2", "s3:ObjectCreated:*", "b/", ""), false},
+		{"disjoint suffixes", queue("q1", "s3:ObjectCreated:*", "", ".jpg"), queue("q2", "s3:ObjectCreated:*", "", ".png"), false},
+		{"other event types", queue("q1", "s3:ObjectCreated:*", "", ""), queue("q2", "s3:ObjectRemoved:*", "", ""), false},
+		{"sibling events", queue("q1", "s3:ObjectCreated:Put", "", ""), queue("q2", "s3:ObjectCreated:Copy", "", ""), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := d.ValidateBucketConfig(ctx, []byte("<NotificationConfiguration>"+tt.a+tt.b+"</NotificationConfiguration>"))
+			if !tt.overlap {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, domain.ErrInvalidArgument)
+			assert.Contains(t, err.Error(), "Configurations overlap")
+		})
+	}
+}

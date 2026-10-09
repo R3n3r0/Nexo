@@ -45,6 +45,9 @@ type fixture struct {
 	mu        sync.Mutex
 	cfgs      map[string]object.BucketConfig
 	published []event.Event
+	// onPublish, when set, runs (without fx.mu held) after each published
+	// event, in the goroutine of the operation that publishes it.
+	onPublish func(e event.Event)
 }
 
 // setBucketConfig sets the settings the mocked BucketConfigSource returns.
@@ -100,8 +103,12 @@ func newFixture(t *testing.T, kind string, extra ...object.Option) *fixture {
 	}).Maybe()
 	fx.events.EXPECT().Publish(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, e event.Event) error {
 		fx.mu.Lock()
-		defer fx.mu.Unlock()
 		fx.published = append(fx.published, e)
+		hook := fx.onPublish
+		fx.mu.Unlock()
+		if hook != nil {
+			hook(e)
+		}
 		return nil
 	}).Maybe()
 	deps := object.Deps{Buckets: fx.buckets, Events: fx.events, Crypto: newTestCrypto(t), Clock: fx.clk, Logger: slog.New(slog.DiscardHandler)}
@@ -157,10 +164,23 @@ func driveCount(kind string) int {
 // forEachImpl runs fn against every implementation (implKinds).
 func forEachImpl(t *testing.T, fn func(t *testing.T, fx *fixture)) {
 	t.Helper()
+	forEachImplWith(t, nil, fn)
+}
+
+// forEachImplWith runs fn against every implementation built with the
+// extra options.
+func forEachImplWith(t *testing.T, opts []object.Option, fn func(t *testing.T, fx *fixture)) {
+	t.Helper()
 	for _, kind := range implKinds() {
-		t.Run(kind, func(t *testing.T) { fn(t, newFixture(t, kind)) })
+		t.Run(kind, func(t *testing.T) { fn(t, newFixture(t, kind, opts...)) })
 	}
 }
+
+// contendedLockTimeout is the lock timeout of the tests whose writers
+// queue on one key: generous, so that a loaded machine (the race detector,
+// the parallel packages of go test ./...) slows them down without failing
+// them; the default of the fixtures (5 s) stays for the other tests.
+const contendedLockTimeout = 60 * time.Second
 
 func payload(n int) []byte {
 	b := make([]byte, n)
@@ -529,8 +549,15 @@ func TestVersioning(t *testing.T) {
 		data, r = get(t, svc, "ver", "k", object.GetObjectOptions{VersionID: v1.VersionID})
 		assert.Equal(t, "one", string(data))
 		assert.False(t, r.Info.IsLatest)
-		_, err := svc.GetObject(ctx, "ver", "k", object.GetObjectOptions{VersionID: "missing"})
+		_, err := svc.GetObject(ctx, "ver", "k", object.GetObjectOptions{VersionID: "0192f0f0-0000-7000-8000-00000000dead"})
 		assert.ErrorIs(t, err, domain.ErrNoSuchVersion)
+		// A malformed version id is an invalid request, as in S3.
+		for _, bad := range []string{"missing", "zzz", "0192f0f0-0000-7000-8000-00000000dea", "0192f0f0_0000-7000-8000-00000000dead"} {
+			_, err = svc.GetObject(ctx, "ver", "k", object.GetObjectOptions{VersionID: bad})
+			assert.Equal(t, "InvalidArgument", s3Code(err), bad)
+			_, err = svc.DeleteObject(ctx, "ver", "k", object.DeleteObjectOptions{VersionID: bad})
+			assert.Equal(t, "InvalidArgument", s3Code(err), bad)
+		}
 
 		// Delete creates a marker; the object disappears from plain reads.
 		fx.clk.Advance(time.Second)

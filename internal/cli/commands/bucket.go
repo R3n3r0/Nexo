@@ -19,7 +19,8 @@ func newMbCmd(e *env) *cobra.Command {
 		Short: "Make buckets",
 		Long: `Make buckets. --with-lock creates them with Object Lock (WORM retention and
 legal holds, see "nexoctl retention" and "nexoctl legalhold"), which implies
-versioning and can only be enabled at creation.`,
+versioning; an existing bucket can get it later only once its versioning is
+enabled.`,
 		Example: `  nexoctl mb --with-versioning local/photos
   nexoctl mb --with-lock local/vault`,
 		Args:              minArgs(1),

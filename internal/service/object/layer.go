@@ -338,6 +338,16 @@ func (l *layer) bucketConfig(ctx context.Context, bucket string) (BucketConfig, 
 	return cfg, nil
 }
 
+// storeFor returns the store of version versionID of bucket/key (see
+// placement.forVersion) once the version id of the request is checked: a
+// malformed one is InvalidArgument, as in S3, not a missing version.
+func (l *layer) storeFor(ctx context.Context, bucket, key, versionID string) (store, error) {
+	if err := domain.ValidateVersionID(versionID); err != nil {
+		return nil, err
+	}
+	return l.place.forVersion(ctx, bucket, key, versionID)
+}
+
 // statBucket fails with domain.ErrBucketNotFound when the bucket is missing
 // from the store st.
 func (l *layer) statBucket(ctx context.Context, st store, bucket string) error {
@@ -357,12 +367,26 @@ func validObject(bucket, key string) error {
 
 // --- events ------------------------------------------------------------------------
 
-// publish sends a notification; failures are logged, never returned.
+// publish sends a notification; failures are logged, never returned. The
+// sequencer of the event, which orders the events of a key (S3), is the
+// commit time of the version or delete marker it reports (info.ModTime,
+// monotonic per key under the write lock even across nodes with skewed
+// clocks), the time of now for the events of no version (buckets).
 func (l *layer) publish(ctx context.Context, name event.Name, bucket string, info domain.ObjectInfo) {
-	if l.deps.Events == nil {
+	l.publishAt(ctx, name, bucket, info, info.ModTime)
+}
+
+// publishAt is publish with the time of the sequencer given: the commit
+// time of a change that creates no version (a permanent removal, a tag
+// update), decided under the write lock of the key.
+func (l *layer) publishAt(ctx context.Context, name event.Name, bucket string, info domain.ObjectInfo, at time.Time) {
+	if l.deps.Events == nil || name == "" {
 		return
 	}
 	now := l.now()
+	if at.IsZero() {
+		at = now
+	}
 	e := event.NewEvent(name, l.opts.region, now)
 	e.S3.Bucket = event.Bucket{Name: bucket, ARN: "arn:aws:s3:::" + bucket}
 	e.S3.Object = event.Object{
@@ -372,11 +396,17 @@ func (l *layer) publish(ctx context.Context, name event.Name, bucket string, inf
 		ContentType:  info.ContentType,
 		UserMetadata: info.UserMetadata,
 		VersionID:    info.VersionID,
-		Sequencer:    strconv.FormatInt(now.UnixNano(), 16),
+		Sequencer:    sequencer(at),
 	}
 	if err := l.deps.Events.Publish(ctx, e); err != nil {
 		l.deps.Logger.DebugContext(ctx, "object: event not published", "event", name, "bucket", bucket, "key", info.Key, "err", err)
 	}
+}
+
+// sequencer returns the S3 sequencer of an event at t: its Unix
+// nanoseconds in hexadecimal.
+func sequencer(t time.Time) string {
+	return strconv.FormatInt(t.UnixNano(), 16)
 }
 
 // cleanupTmp removes a temporary directory of the system volume, logging

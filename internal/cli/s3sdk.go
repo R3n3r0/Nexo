@@ -519,9 +519,12 @@ func (c *sdkClient) putMultipart(ctx context.Context, bucket, key string, src pa
 	parts, size, err := runParts(ctx, src, opts.Parallel, opts.Progress, upload)
 	if err == nil {
 		var done *s3.CompleteMultipartUploadOutput
+		// The SSE-C key opens the checksums of the parts, which the server
+		// stores sealed under it (S3 requires it with a checksum).
 		done, err = c.api.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{
 			Bucket: aws.String(bucket), Key: aws.String(key), UploadId: aws.String(uploadID),
-			MultipartUpload: &types.CompletedMultipartUpload{Parts: parts},
+			MultipartUpload:      &types.CompletedMultipartUpload{Parts: parts},
+			SSECustomerAlgorithm: sse.customer.algorithm, SSECustomerKey: sse.customer.key, SSECustomerKeyMD5: sse.customer.keyMD5,
 		})
 		if err == nil {
 			res := &PutResult{ETag: trimETag(aws.ToString(done.ETag)), VersionID: aws.ToString(done.VersionId), Size: size, Parts: len(parts)}
@@ -688,7 +691,8 @@ func (c *sdkClient) copyMultipart(ctx context.Context, src, dst ObjectRef, info 
 		var done *s3.CompleteMultipartUploadOutput
 		done, err = c.api.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{
 			Bucket: aws.String(dst.Bucket), Key: aws.String(dst.Key), UploadId: aws.String(uploadID),
-			MultipartUpload: &types.CompletedMultipartUpload{Parts: completed},
+			MultipartUpload:      &types.CompletedMultipartUpload{Parts: completed},
+			SSECustomerAlgorithm: sse.customer.algorithm, SSECustomerKey: sse.customer.key, SSECustomerKeyMD5: sse.customer.keyMD5,
 		})
 		if err == nil {
 			return &PutResult{ETag: trimETag(aws.ToString(done.ETag)), VersionID: aws.ToString(done.VersionId), Size: size, Parts: len(completed)}, nil

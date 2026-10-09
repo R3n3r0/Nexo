@@ -3,6 +3,7 @@ package s3
 import (
 	"encoding/xml"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -50,10 +51,41 @@ type objectLockRequest struct {
 	Rule              *struct {
 		DefaultRetention struct {
 			Mode  string `xml:"Mode"`
-			Days  int    `xml:"Days"`
-			Years int    `xml:"Years"`
+			Days  *int   `xml:"Days"`
+			Years *int   `xml:"Years"`
 		} `xml:"DefaultRetention"`
 	} `xml:"Rule"`
+}
+
+// xmlRetentionMode reads the Mode of a retention document: GOVERNANCE or
+// COMPLIANCE, case-sensitive as in S3 (MalformedXML otherwise).
+func xmlRetentionMode(s string) (domain.RetentionMode, error) {
+	m := domain.RetentionMode(s)
+	if !m.IsValid() {
+		return "", domain.NewS3Error(domain.ErrMalformedXML, "MalformedXML",
+			"The XML you provided was not well-formed or did not validate against our published schema: unknown retention mode "+strconv.Quote(s))
+	}
+	return m, nil
+}
+
+// retentionPeriod reads the period of a default retention: exactly one of
+// Days and Years (MalformedXML otherwise), a positive number
+// (InvalidRetentionPeriod otherwise).
+func retentionPeriod(days, years *int) (int, int, error) {
+	if (days == nil) == (years == nil) {
+		return 0, 0, domain.NewS3Error(domain.ErrMalformedXML, "MalformedXML",
+			"The XML you provided was not well-formed or did not validate against our published schema: the DefaultRetention needs either Days or Years")
+	}
+	if days != nil {
+		if *days <= 0 {
+			return 0, 0, domain.NewS3Error(domain.ErrInvalidArgument, "InvalidRetentionPeriod", "Default retention period must be a positive integer value for 'Days'")
+		}
+		return *days, 0, nil
+	}
+	if *years <= 0 {
+		return 0, 0, domain.NewS3Error(domain.ErrInvalidArgument, "InvalidRetentionPeriod", "Default retention period must be a positive integer value for 'Years'")
+	}
+	return 0, *years, nil
 }
 
 // parseRetainUntil parses an ISO 8601 retain-until date.
@@ -153,9 +185,9 @@ func (h *objectRoutes) putRetention(w http.ResponseWriter, r *http.Request) {
 	}
 	var ret domain.ObjectRetention
 	if doc.Mode != "" || doc.RetainUntilDate != "" {
-		mode, err := domain.ParseRetentionMode(doc.Mode)
-		if err != nil && doc.Mode != "" {
-			h.fail(w, r, domain.NewS3Error(domain.ErrMalformedXML, "MalformedXML", "The XML you provided was not well-formed or did not validate against our published schema: unknown retention mode"))
+		mode, err := xmlRetentionMode(doc.Mode)
+		if err != nil {
+			h.fail(w, r, err)
 			return
 		}
 		until, ok := parseRetainUntil(doc.RetainUntilDate)
@@ -234,9 +266,13 @@ func (h *bucketRoutes) putObjectLock(w http.ResponseWriter, r *http.Request) {
 	cfg := bucket.ObjectLockConfig{Enabled: true}
 	if doc.Rule != nil {
 		d := doc.Rule.DefaultRetention
-		cfg.Mode, cfg.Days, cfg.Years = domain.RetentionMode(strings.ToUpper(strings.TrimSpace(d.Mode))), d.Days, d.Years
-		if cfg.Mode == "" && cfg.Days == 0 && cfg.Years == 0 {
-			h.fail(w, r, domain.NewS3Error(domain.ErrMalformedXML, "MalformedXML", "The XML you provided was not well-formed or did not validate against our published schema: the Rule needs a DefaultRetention"))
+		mode, err := xmlRetentionMode(d.Mode)
+		if err == nil {
+			cfg.Mode = mode
+			cfg.Days, cfg.Years, err = retentionPeriod(d.Days, d.Years)
+		}
+		if err != nil {
+			h.fail(w, r, err)
 			return
 		}
 	}

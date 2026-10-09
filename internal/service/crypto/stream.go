@@ -23,8 +23,9 @@ import (
 // PackageSize+TagSize bytes long; the last one holds the rest (possibly
 // nothing: an empty part is one empty final package) and is marked final
 // in its additional data. The nonce is the big-endian sequence number of
-// the package: the part key is unique (object key and part number), so a
-// nonce is never reused under a key.
+// the package: the part key is unique (object key, part number and the
+// random salt of the upload of the part, see NewPartSalt), so a nonce is
+// never reused under a key.
 const (
 	// PackageSize is the plaintext size of a full package (64 KiB).
 	PackageSize = 64 << 10
@@ -148,7 +149,28 @@ type encReader struct {
 	out     []byte
 	pending []byte
 	done    bool
-	err     error
+	// srcEOF records that the source reached its end along with the byte
+	// read ahead: the next package is the final one.
+	srcEOF bool
+	err    error
+}
+
+// readFull reads into buf until it is full or src returns an error. Unlike
+// io.ReadFull it returns the error of src unchanged: io.EOF (with the
+// bytes read before it, possibly a full buffer) is the end of the stream,
+// any other error, io.ErrUnexpectedEOF included, a failure of the source.
+// io.ReadFull turns an end after a partial read into io.ErrUnexpectedEOF,
+// which a source cut short returns too: the two must not be confused.
+func readFull(src io.Reader, buf []byte) (int, error) {
+	n := 0
+	for n < len(buf) {
+		m, err := src.Read(buf[n:])
+		n += m
+		if err != nil {
+			return n, err
+		}
+	}
+	return n, nil
 }
 
 func newEncReader(src io.Reader, aead cipher.AEAD) *encReader {
@@ -177,29 +199,36 @@ func (e *encReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-// next seals the next package into pending.
+// next seals the next package into pending. Only the end of the source
+// (a plain io.EOF) makes a package the final one: any other error of the
+// source, io.ErrUnexpectedEOF included (a body cut short), fails the
+// stream, so that a truncated plaintext is never sealed as a complete
+// one.
 func (e *encReader) next() error {
 	e.plain = append(e.plain[:0], e.ahead...)
 	e.ahead = e.ahead[:0]
-	n, err := io.ReadFull(e.src, e.plain[len(e.plain):PackageSize])
-	e.plain = e.plain[:len(e.plain)+n]
-	final := false
-	switch {
-	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
-		final = true
-	case err != nil:
-		return err
-	default:
-		// A full package: it is the last one when nothing follows.
-		var one [1]byte
-		m, err := io.ReadFull(e.src, one[:])
+	final := e.srcEOF
+	if !final {
+		n, err := readFull(e.src, e.plain[len(e.plain):PackageSize])
+		e.plain = e.plain[:len(e.plain)+n]
 		switch {
-		case m == 1:
-			e.ahead = append(e.ahead, one[0])
-		case errors.Is(err, io.EOF):
+		case err == io.EOF:
 			final = true
-		default:
+		case err != nil:
 			return err
+		default:
+			// A full package: it is the last one when nothing follows.
+			var one [1]byte
+			m, err := readFull(e.src, one[:])
+			switch {
+			case err != nil && err != io.EOF:
+				return err
+			case m == 1:
+				e.ahead = append(e.ahead, one[0])
+				e.srcEOF = err == io.EOF
+			default:
+				final = true
+			}
 		}
 	}
 	e.out = e.aead.Seal(e.out[:0], nonce(e.aead, e.seq), e.plain, aad(final))

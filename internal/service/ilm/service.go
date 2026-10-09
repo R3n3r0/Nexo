@@ -110,7 +110,9 @@ type Action struct {
 	Bucket string
 	Key    string
 	// VersionID and ModTime identify the version ("" in an unversioned
-	// bucket), UploadID the upload.
+	// bucket; "" and "null" both designate the null version), UploadID
+	// the upload. The action applies only while the version still has
+	// ModTime: a version written after the evaluation is never removed.
 	VersionID string
 	ModTime   time.Time
 	UploadID  string

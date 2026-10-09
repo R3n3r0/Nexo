@@ -19,7 +19,49 @@ key created here is usable as SSE-KMS key ("nexoctl encrypt set sse-kms KEY",
 "nexoctl cp --enc-kms").`
 	key := groupCmd("key", "Create and list the keys of the KMS")
 	key.AddCommand(newAdminKMSKeyCreateCmd(e), newAdminKMSKeyListCmd(e))
-	cmd.AddCommand(newAdminKMSStatusCmd(e), key)
+	cmd.AddCommand(newAdminKMSStatusCmd(e), key, newAdminKMSResealCmd(e))
+	return cmd
+}
+
+func newAdminKMSResealCmd(e *env) *cobra.Command {
+	var bucket string
+	cmd := &cobra.Command{
+		Use:   "reseal ALIAS",
+		Short: "Re-seal the data keys of the objects under the current master key",
+		Long: `Re-seal the data key of every SSE-S3 and SSE-KMS object under the current master
+key of the KMS, after a rotation of the master key (NEXO_KMS_SECRET_KEY, the
+previous one in NEXO_KMS_SECRET_KEY_PREVIOUS): the data is not rewritten. Once
+every bucket is re-sealed, the previous master keys can be removed.`,
+		Example:           "  nexoctl admin kms reseal local\n  nexoctl admin kms reseal local --bucket photos",
+		Args:              exactArgs(1),
+		ValidArgsFunction: completeAliasNames(e),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			alias, client, err := e.adminAlias(ctx, args[0])
+			if err != nil {
+				return err
+			}
+			res, err := client.ResealKMSKeys(ctx, bucket)
+			if err != nil {
+				return fmt.Errorf("re-seal the KMS data keys: %w", err)
+			}
+			keys := res.Versions + res.Uploads
+			text := fmt.Sprintf("Re-sealed %d of %d data %s (%d %s, %d pending %s) in %d %s.", res.Resealed, keys, plural(keys, "key", "keys"),
+				res.Versions, plural(res.Versions, "version", "versions"), res.Uploads, plural(res.Uploads, "upload", "uploads"),
+				res.Buckets, plural(res.Buckets, "bucket", "buckets"))
+			if res.Failed > 0 {
+				text += fmt.Sprintf(" %d failed, first: %s", res.Failed, res.FirstError)
+			}
+			if err := e.out.Info(kmsResealRecord{Alias: alias, Bucket: bucket, KMSResealResult: *res}, text); err != nil {
+				return err
+			}
+			if res.Failed > 0 {
+				return fmt.Errorf("%d data %s could not be re-sealed", res.Failed, plural(res.Failed, "key", "keys"))
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&bucket, "bucket", "", "re-seal the objects of this bucket only")
 	return cmd
 }
 

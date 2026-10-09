@@ -302,7 +302,7 @@
       "unitYears": "years",
       "periodInvalid": "Enter a whole number of at least 1.",
       "permanent": "Object lock cannot be disabled; the default retention applies to the new objects.",
-      "onlyAtCreation": "Object lock can only be enabled when the bucket is created."
+      "onlyAtCreation": "Object lock is enabled when the bucket is created; an existing bucket can enable it through the S3 API once its versioning is enabled."
     }
   },
   "bucketAccess": {

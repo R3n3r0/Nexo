@@ -92,7 +92,7 @@ func TestBrowserStat(t *testing.T) {
 	ctx := context.Background()
 	t.Run("tags and versions when allowed", func(t *testing.T) {
 		b, objects := newBrowser(t, allowAll(t))
-		objects.EXPECT().GetObjectInfo(mock.Anything, "bkt", "k", object.GetObjectOptions{}).Return(domain.ObjectInfo{Key: "k", Tags: map[string]string{"a": "1"}}, nil)
+		objects.EXPECT().GetObjectInfo(mock.Anything, "bkt", "k", object.GetObjectOptions{ChecksumMode: true}).Return(domain.ObjectInfo{Key: "k", Tags: map[string]string{"a": "1"}}, nil)
 		objects.EXPECT().ListObjectVersions(mock.Anything, domain.ListObjectsInput{Bucket: "bkt", Prefix: "k", MaxKeys: 10}).
 			Return(domain.ListObjectsResult{Objects: []domain.ObjectInfo{{Key: "k", VersionID: "v2"}, {Key: "k", VersionID: "v1"}, {Key: "k2"}}}, nil)
 		d, err := b.Stat(ctx, admin.StatInput{Requester: req("bob"), Bucket: "bkt", Key: "k"})
@@ -104,7 +104,7 @@ func TestBrowserStat(t *testing.T) {
 	})
 	t.Run("nothing beyond the metadata when denied", func(t *testing.T) {
 		b, objects := newBrowser(t, allowing(t, func(admin.AuthorizeInput) bool { return false }))
-		objects.EXPECT().GetObjectInfo(mock.Anything, "bkt", "k", object.GetObjectOptions{VersionID: "v1"}).Return(domain.ObjectInfo{Key: "k"}, nil)
+		objects.EXPECT().GetObjectInfo(mock.Anything, "bkt", "k", object.GetObjectOptions{VersionID: "v1", ChecksumMode: true}).Return(domain.ObjectInfo{Key: "k"}, nil)
 		d, err := b.Stat(ctx, admin.StatInput{Requester: req("bob"), Bucket: "bkt", Key: "k", VersionID: "v1"})
 		require.NoError(t, err)
 		assert.Nil(t, d.Tags)
@@ -350,6 +350,26 @@ func TestBrowserDeleteAllVersionsInBatches(t *testing.T) {
 	assert.Len(t, res.Deleted, 1500)
 }
 
+// TestBrowserDeleteAllVersionsNullVersion: a version listed without id
+// (the null version of a bucket that never had versioning) is deleted as
+// the version "null", never with a delete without version id that would
+// add a delete marker if the bucket had versioning; it is authorized as
+// the S3 DeleteObject that removes it there.
+func TestBrowserDeleteAllVersionsNullVersion(t *testing.T) {
+	ctx := context.Background()
+	var asked []policy.Action
+	b, objects := newBrowser(t, recordingAuthz(t, &asked))
+	objects.EXPECT().ListObjectVersions(mock.Anything, mock.Anything).Return(domain.ListObjectsResult{Objects: []domain.ObjectInfo{
+		{Key: "dir/pre"}, {Key: "dir/ver", VersionID: "v1"}, {Key: "dir/old", VersionID: "null"},
+	}}, nil)
+	objects.EXPECT().DeleteObjects(mock.Anything, object.DeleteObjectsInput{Bucket: "bkt", Objects: []object.ObjectToDelete{
+		{Key: "dir/pre", VersionID: "null"}, {Key: "dir/ver", VersionID: "v1"}, {Key: "dir/old", VersionID: "null"},
+	}}).Return(object.DeleteObjectsResult{}, nil)
+	_, err := b.Delete(ctx, admin.DeleteObjectsInput{Requester: req("bob"), Bucket: "bkt", Prefixes: []string{"dir/"}, AllVersions: true})
+	require.NoError(t, err)
+	assert.Equal(t, []policy.Action{policy.ActionListBucketVersions, policy.ActionDeleteObject, policy.ActionDeleteObjectVersion, policy.ActionDeleteObjectVersion}, asked)
+}
+
 func TestBrowserRename(t *testing.T) {
 	ctx := context.Background()
 	t.Run("single object", func(t *testing.T) {
@@ -413,6 +433,41 @@ func TestBrowserRename(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, ranges, 3)
 		assert.Equal(t, size-1, ranges[2].End)
+	})
+	t.Run("a renamed object keeps its encryption", func(t *testing.T) {
+		b, objects := newBrowser(t, allowAll(t), admin.WithCopyPartSize(2<<30))
+		kms := domain.SSERequest{Type: domain.SSEKMS, KMSKeyID: "tenant"}
+		objects.EXPECT().GetObjectInfo(mock.Anything, "bkt", "dst", object.GetObjectOptions{}).Return(domain.ObjectInfo{}, domain.ErrObjectNotFound)
+		objects.EXPECT().GetObjectInfo(mock.Anything, "bkt", "src", object.GetObjectOptions{}).
+			Return(domain.ObjectInfo{Key: "src", Size: 3, Encryption: domain.EncryptionInfo{Type: domain.SSEKMS, KMSKeyID: "tenant"}}, nil)
+		objects.EXPECT().CopyObject(mock.Anything, object.CopyObjectInput{SrcBucket: "bkt", SrcKey: "src", DstBucket: "bkt", DstKey: "dst", SSE: kms}).
+			Return(domain.ObjectInfo{Key: "dst"}, nil)
+		objects.EXPECT().DeleteObject(mock.Anything, "bkt", "src", object.DeleteObjectOptions{}).Return(object.DeletedObject{}, nil)
+		res, err := b.Rename(ctx, admin.RenameInput{Requester: req("bob"), Bucket: "bkt", Source: "src", Destination: "dst"})
+		require.NoError(t, err)
+		assert.Empty(t, res.Errors)
+
+		// Part by part too.
+		b, objects = newBrowser(t, allowAll(t), admin.WithCopyPartSize(2<<30))
+		size := int64(5<<30) + 1
+		objects.EXPECT().GetObjectInfo(mock.Anything, "bkt", "dst", object.GetObjectOptions{}).Return(domain.ObjectInfo{}, domain.ErrObjectNotFound)
+		objects.EXPECT().GetObjectInfo(mock.Anything, "bkt", "src", object.GetObjectOptions{}).
+			Return(domain.ObjectInfo{Key: "src", Size: size, Encryption: domain.EncryptionInfo{Type: domain.SSES3}}, nil)
+		objects.EXPECT().NewMultipartUpload(mock.Anything, mock.MatchedBy(func(in object.NewMultipartInput) bool { return in.SSE.Type == domain.SSES3 })).
+			Return(domain.MultipartUpload{UploadID: "u"}, nil)
+		objects.EXPECT().CopyObjectPart(mock.Anything, mock.Anything).Return(domain.Part{ETag: "e"}, nil).Times(3)
+		objects.EXPECT().CompleteMultipartUpload(mock.Anything, mock.Anything).Return(domain.ObjectInfo{}, nil)
+		objects.EXPECT().DeleteObject(mock.Anything, "bkt", "src", object.DeleteObjectOptions{}).Return(object.DeletedObject{}, nil)
+		_, err = b.Rename(ctx, admin.RenameInput{Requester: req("bob"), Bucket: "bkt", Source: "src", Destination: "dst"})
+		require.NoError(t, err)
+
+		// An SSE-C object stays where it is.
+		b, objects = newBrowser(t, allowAll(t))
+		objects.EXPECT().GetObjectInfo(mock.Anything, "bkt", "dst", object.GetObjectOptions{}).Return(domain.ObjectInfo{}, domain.ErrObjectNotFound)
+		objects.EXPECT().GetObjectInfo(mock.Anything, "bkt", "src", object.GetObjectOptions{}).
+			Return(domain.ObjectInfo{}, domain.NewS3Error(domain.ErrSSECustomerKeyRequired, "InvalidRequest", "key required"))
+		_, err = b.Rename(ctx, admin.RenameInput{Requester: req("bob"), Bucket: "bkt", Source: "src", Destination: "dst"})
+		assert.ErrorIs(t, err, domain.ErrSSECustomerKeyRequired)
 	})
 }
 
@@ -595,7 +650,7 @@ func TestObjectAuthorizationsCarryS3Conditions(t *testing.T) {
 	t.Run("stat tags", func(t *testing.T) {
 		var asked []admin.AuthorizeInput
 		b, objects := newBrowser(t, allowing(t, func(in admin.AuthorizeInput) bool { asked = append(asked, in); return denyV1(in) }))
-		objects.EXPECT().GetObjectInfo(mock.Anything, "bkt", "doc.txt", object.GetObjectOptions{VersionID: "v1"}).Return(domain.ObjectInfo{Key: "doc.txt", Tags: map[string]string{"a": "1"}}, nil)
+		objects.EXPECT().GetObjectInfo(mock.Anything, "bkt", "doc.txt", object.GetObjectOptions{VersionID: "v1", ChecksumMode: true}).Return(domain.ObjectInfo{Key: "doc.txt", Tags: map[string]string{"a": "1"}}, nil)
 		objects.EXPECT().ListObjectVersions(mock.Anything, mock.Anything).Return(domain.ListObjectsResult{}, nil).Maybe()
 		d, err := b.Stat(ctx, admin.StatInput{Requester: req("frank"), Bucket: "bkt", Key: "doc.txt", VersionID: "v1"})
 		require.NoError(t, err)
@@ -657,6 +712,45 @@ func TestBrowserRestoreVersion(t *testing.T) {
 		objects.EXPECT().GetObjectInfo(mock.Anything, "bkt", "doc.txt", object.GetObjectOptions{VersionID: "dm"}).Return(domain.ObjectInfo{Key: "doc.txt", VersionID: "dm", IsDeleteMarker: true}, nil)
 		_, err := b.RestoreVersion(ctx, admin.RestoreVersionInput{Requester: req("bob"), Bucket: "bkt", Key: "doc.txt", VersionID: "dm"})
 		assert.ErrorIs(t, err, domain.ErrMethodNotAllowed)
+	})
+	// The restored version keeps the encryption of the version it copies,
+	// never the default of the bucket (no downgrade to plaintext, no change
+	// of KMS key); an SSE-C version cannot be restored by the console.
+	encrypted := []struct {
+		name    string
+		enc     domain.EncryptionInfo
+		want    domain.SSERequest
+		wantErr error
+	}{
+		{name: "SSE-S3", enc: domain.EncryptionInfo{Type: domain.SSES3, KMSKeyID: "default"}, want: domain.SSERequest{Type: domain.SSES3}},
+		{name: "SSE-KMS", enc: domain.EncryptionInfo{Type: domain.SSEKMS, KMSKeyID: "tenant", Context: map[string]string{"dept": "x"}},
+			want: domain.SSERequest{Type: domain.SSEKMS, KMSKeyID: "tenant", Context: map[string]string{"dept": "x"}}},
+		{name: "SSE-C", enc: domain.EncryptionInfo{Type: domain.SSEC}, wantErr: domain.ErrSSECustomerKeyRequired},
+	}
+	for _, tt := range encrypted {
+		t.Run("keeps the encryption: "+tt.name, func(t *testing.T) {
+			b, objects := newBrowser(t, allowAll(t))
+			objects.EXPECT().GetObjectInfo(mock.Anything, "bkt", "doc.txt", object.GetObjectOptions{VersionID: "v1"}).
+				Return(domain.ObjectInfo{Key: "doc.txt", VersionID: "v1", Size: 2, Encryption: tt.enc}, nil)
+			if tt.wantErr == nil {
+				objects.EXPECT().CopyObject(mock.Anything, object.CopyObjectInput{SrcBucket: "bkt", SrcKey: "doc.txt", SrcVersionID: "v1", DstBucket: "bkt", DstKey: "doc.txt", SSE: tt.want}).
+					Return(domain.ObjectInfo{Key: "doc.txt", VersionID: "v3"}, nil)
+			}
+			_, err := b.RestoreVersion(ctx, admin.RestoreVersionInput{Requester: req("bob"), Bucket: "bkt", Key: "doc.txt", VersionID: "v1"})
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+	t.Run("an SSE-C version read without key is explained", func(t *testing.T) {
+		b, objects := newBrowser(t, allowAll(t))
+		objects.EXPECT().GetObjectInfo(mock.Anything, "bkt", "doc.txt", object.GetObjectOptions{VersionID: "v1"}).
+			Return(domain.ObjectInfo{}, domain.NewS3Error(domain.ErrSSECustomerKeyRequired, "InvalidRequest", "key required"))
+		_, err := b.RestoreVersion(ctx, admin.RestoreVersionInput{Requester: req("bob"), Bucket: "bkt", Key: "doc.txt", VersionID: "v1"})
+		require.ErrorIs(t, err, domain.ErrSSECustomerKeyRequired)
+		assert.Contains(t, err.Error(), "the console has no key")
 	})
 	t.Run("the version is required", func(t *testing.T) {
 		b, _ := newBrowser(t, allowAll(t))

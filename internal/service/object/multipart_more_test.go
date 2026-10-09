@@ -352,6 +352,7 @@ func TestCompleteMultipartChecksum(t *testing.T) {
 	whole := func(v string) domain.Checksum {
 		return domain.Checksum{Algorithm: domain.ChecksumCRC32, Value: v, Type: domain.ChecksumTypeComposite}
 	}
+	both := [2]domain.Checksum{crc(sum1), crc(sum2)}
 
 	tests := []struct {
 		name       string
@@ -362,13 +363,18 @@ func TestCompleteMultipartChecksum(t *testing.T) {
 		wantCode   string
 		want       domain.Checksum
 	}{
-		{name: "composite of the parts", uploadAlgo: domain.ChecksumCRC32, want: whole(composite + "-2")},
-		{name: "part checksums in the request", uploadAlgo: domain.ChecksumCRC32, partSums: [2]domain.Checksum{crc(sum1), crc(sum2)}, want: whole(composite + "-2")},
-		{name: "declared composite", uploadAlgo: domain.ChecksumCRC32, declared: crc(composite + "-2"), want: whole(composite + "-2")},
-		{name: "declared without the suffix", uploadAlgo: domain.ChecksumCRC32, declared: crc(composite), want: whole(composite + "-2")},
-		{name: "declared value chosen by the client", uploadAlgo: domain.ChecksumCRC32, declared: crc("AAAAAA=="),
+		// As S3, a COMPOSITE upload needs the checksum of every part in
+		// the completion (InvalidRequest without them).
+		{name: "part checksums missing from the request", uploadAlgo: domain.ChecksumCRC32,
+			wantErr: domain.ErrInvalidArgument, wantCode: "InvalidRequest"},
+		{name: "one part checksum missing", uploadAlgo: domain.ChecksumCRC32, partSums: [2]domain.Checksum{crc(sum1)},
+			wantErr: domain.ErrInvalidArgument, wantCode: "InvalidRequest"},
+		{name: "part checksums in the request", uploadAlgo: domain.ChecksumCRC32, partSums: both, want: whole(composite + "-2")},
+		{name: "declared composite", uploadAlgo: domain.ChecksumCRC32, partSums: both, declared: crc(composite + "-2"), want: whole(composite + "-2")},
+		{name: "declared without the suffix", uploadAlgo: domain.ChecksumCRC32, partSums: both, declared: crc(composite), want: whole(composite + "-2")},
+		{name: "declared value chosen by the client", uploadAlgo: domain.ChecksumCRC32, partSums: both, declared: crc("AAAAAA=="),
 			wantErr: domain.ErrBadDigest, wantCode: "BadDigest"},
-		{name: "declared with another algorithm", uploadAlgo: domain.ChecksumCRC32,
+		{name: "declared with another algorithm", uploadAlgo: domain.ChecksumCRC32, partSums: both,
 			declared: domain.Checksum{Algorithm: domain.ChecksumSHA256, Value: base64.StdEncoding.EncodeToString(make([]byte, 32))},
 			wantErr:  domain.ErrInvalidArgument, wantCode: "InvalidRequest"},
 		{name: "part checksum that does not match", uploadAlgo: domain.ChecksumCRC32, partSums: [2]domain.Checksum{crc(sum1), crc("AAAAAA==")},
@@ -406,5 +412,96 @@ func TestCompleteMultipartChecksum(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, stored.Checksum, "the stored checksum is the computed one")
 		})
+	}
+}
+
+// TestCompleteMultipartObjectSize: the x-amz-mp-object-size of a
+// completion must be the size of the object (the sum of the listed parts,
+// plaintext), or the completion fails with InvalidRequest and commits
+// nothing, in every implementation, encrypted or not.
+func TestCompleteMultipartObjectSize(t *testing.T) {
+	forEachImpl(t, func(t *testing.T, fx *fixture) {
+		ctx := context.Background()
+		require.NoError(t, fx.svc.MakeBucket(ctx, "bkt", object.MakeBucketOptions{}))
+		for _, sse := range []domain.SSERequest{{}, {Type: domain.SSES3}} {
+			key := "k-" + string(sse.Type)
+			up, err := fx.svc.NewMultipartUpload(ctx, object.NewMultipartInput{Bucket: "bkt", Key: key, SSE: sse})
+			require.NoError(t, err)
+			p1 := uploadPart(t, fx.svc, "bkt", key, up.UploadID, 1, bytes.Repeat([]byte("a"), 16))
+			p2 := uploadPart(t, fx.svc, "bkt", key, up.UploadID, 2, []byte("tail"))
+			parts := []domain.CompletePart{{Number: 1, ETag: p1.ETag}, {Number: 2, ETag: p2.ETag}}
+			for _, wrong := range []int64{0, 5, 19, 21} {
+				_, err = fx.svc.CompleteMultipartUpload(ctx, object.CompleteMultipartInput{Bucket: "bkt", Key: key, UploadID: up.UploadID, Parts: parts, ObjectSize: &wrong})
+				assert.Equal(t, "InvalidRequest", s3Code(err), "%s: declared %d", key, wrong)
+				_, err = fx.svc.GetObjectInfo(ctx, "bkt", key, object.GetObjectOptions{})
+				require.ErrorIs(t, err, domain.ErrObjectNotFound, "nothing is committed")
+			}
+			right := int64(20)
+			info, err := fx.svc.CompleteMultipartUpload(ctx, object.CompleteMultipartInput{Bucket: "bkt", Key: key, UploadID: up.UploadID, Parts: parts, ObjectSize: &right})
+			require.NoError(t, err)
+			assert.Equal(t, right, info.Size)
+		}
+	})
+}
+
+// A retried completion (its response lost) answers with the object the
+// upload created, as S3 does, as long as that object is the current
+// version of the key and the parts are the same.
+func TestCompleteMultipartRetry(t *testing.T) {
+	part1, part2 := bytes.Repeat([]byte("a"), 16), []byte("tail")
+	tests := []struct {
+		name    string
+		mutate  func(t *testing.T, fx *fixture)
+		parts   func(p1, p2 domain.Part) []domain.CompletePart
+		wantErr bool
+	}{
+		{name: "same parts"},
+		{name: "quoted etags", parts: func(p1, p2 domain.Part) []domain.CompletePart {
+			return []domain.CompletePart{{Number: 1, ETag: `"` + p1.ETag + `"`}, {Number: 2, ETag: `"` + p2.ETag + `"`}}
+		}},
+		{name: "other parts", wantErr: true, parts: func(p1, _ domain.Part) []domain.CompletePart {
+			return []domain.CompletePart{{Number: 1, ETag: p1.ETag}}
+		}},
+		{name: "key overwritten since", wantErr: true, mutate: func(t *testing.T, fx *fixture) {
+			_, err := fx.svc.PutObject(context.Background(), object.PutObjectInput{Bucket: "bkt", Key: "k", Reader: strings.NewReader("new"), Size: 3})
+			require.NoError(t, err)
+		}},
+		{name: "key deleted since", wantErr: true, mutate: func(t *testing.T, fx *fixture) {
+			_, err := fx.svc.DeleteObject(context.Background(), "bkt", "k", object.DeleteObjectOptions{})
+			require.NoError(t, err)
+		}},
+	}
+	for _, kind := range implKinds() {
+		for _, tt := range tests {
+			t.Run(kind+"/"+tt.name, func(t *testing.T) {
+				fx := newFixture(t, kind)
+				ctx := context.Background()
+				require.NoError(t, fx.svc.MakeBucket(ctx, "bkt", object.MakeBucketOptions{}))
+				up, err := fx.svc.NewMultipartUpload(ctx, object.NewMultipartInput{Bucket: "bkt", Key: "k"})
+				require.NoError(t, err)
+				p1 := uploadPart(t, fx.svc, "bkt", "k", up.UploadID, 1, part1)
+				p2 := uploadPart(t, fx.svc, "bkt", "k", up.UploadID, 2, part2)
+				in := object.CompleteMultipartInput{Bucket: "bkt", Key: "k", UploadID: up.UploadID,
+					Parts: []domain.CompletePart{{Number: 1, ETag: p1.ETag}, {Number: 2, ETag: p2.ETag}}}
+				first, err := fx.svc.CompleteMultipartUpload(ctx, in)
+				require.NoError(t, err)
+				if tt.mutate != nil {
+					tt.mutate(t, fx)
+				}
+				if tt.parts != nil {
+					in.Parts = tt.parts(p1, p2)
+				}
+				again, err := fx.svc.CompleteMultipartUpload(ctx, in)
+				if tt.wantErr {
+					require.ErrorIs(t, err, domain.ErrNoSuchUpload)
+					return
+				}
+				require.NoError(t, err)
+				assert.Equal(t, first.ETag, again.ETag)
+				assert.Equal(t, first.Size, again.Size)
+				assert.Equal(t, first.VersionID, again.VersionID)
+				assert.Empty(t, again.UserMetadata, "the upload id stays internal")
+			})
+		}
 	}
 }

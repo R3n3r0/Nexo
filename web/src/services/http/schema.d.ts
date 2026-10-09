@@ -1524,6 +1524,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/kms/reseal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-seal the data keys of the objects under the current master key
+         * @description After a rotation of the master key of the KMS (the previous key in NEXO_KMS_SECRET_KEY_PREVIOUS), re-seals the data key of every SSE-S3 and SSE-KMS version of the bucket (every bucket without one) under the current master key; the data is not rewritten. Once every bucket is re-sealed the previous master keys can be removed. The versions that cannot be re-sealed are counted. 501 without KMS.
+         */
+        post: operations["resealKmsKeys"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/config": {
         parameters: {
             query?: never;
@@ -2949,6 +2969,20 @@ export interface components {
         };
         CreateKmsKeyRequest: {
             id: string;
+        };
+        KmsResealResult: {
+            /** @description Buckets walked. */
+            buckets: number;
+            /** @description SSE-S3 and SSE-KMS versions met. */
+            versions: number;
+            /** @description Pending multipart uploads of SSE-S3 and SSE-KMS objects met (their description holds the sealed key). */
+            uploads: number;
+            /** @description Versions and uploads whose data key is sealed under the current master key. */
+            resealed: number;
+            /** @description Versions and uploads that could not be re-sealed. */
+            failed: number;
+            /** @description Why the first failed version or upload could not be re-sealed. */
+            firstError?: string;
         };
     };
     responses: {
@@ -5826,6 +5860,32 @@ export interface operations {
                 };
             };
             409: components["responses"]["Problem"];
+            501: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    resealKmsKeys: {
+        parameters: {
+            query?: {
+                /** @description Only the objects of this bucket. */
+                bucket?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KmsResealResult"];
+                };
+            };
+            404: components["responses"]["Problem"];
             501: components["responses"]["Problem"];
             default: components["responses"]["Problem"];
         };

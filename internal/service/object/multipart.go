@@ -104,8 +104,12 @@ type partMeta struct {
 	// DataFile is the name of the data file in the upload directory.
 	DataFile string `json:"dataFile"`
 	// Encrypted reports a part stored encrypted: Size is the size of the
-	// ciphertext, ActualSize the one of the plaintext.
+	// ciphertext, ActualSize the one of the plaintext; Checksum.Value is
+	// then sealed under the object key of the upload (sealPartChecksum).
 	Encrypted bool `json:"encrypted,omitempty"`
+	// Salt is the salt of the key the part was encrypted with
+	// (crypto.NewPartSalt; absent for the parts of earlier builds).
+	Salt []byte `json:"salt,omitempty"`
 }
 
 // plainSize returns the size of the content of the part (the plaintext
@@ -333,12 +337,19 @@ func (l *layer) PutObjectPart(ctx context.Context, in PutObjectPartInput) (domai
 		return domain.Part{}, err
 	}
 	payload, storedSize := io.Reader(hr), in.Size
+	var salt []byte
 	if okey != nil {
 		plain := io.Reader(hr)
 		if in.Size >= 0 {
 			plain = io.LimitReader(hr, in.Size)
 		}
-		if payload, err = okey.EncryptPart(in.PartNumber, plain); err != nil {
+		// Every upload of a part has its own key: a part number uploaded
+		// again (a retry, UploadPartCopy over UploadPart) never reuses the
+		// keystream of the previous upload under the key of the upload.
+		if salt, err = crypto.NewPartSalt(); err != nil {
+			return domain.Part{}, err
+		}
+		if payload, err = okey.EncryptPart(in.PartNumber, salt, plain); err != nil {
 			return domain.Part{}, err
 		}
 		storedSize = crypto.EncryptedSize(in.Size)
@@ -368,7 +379,13 @@ func (l *layer) PutObjectPart(ctx context.Context, in PutObjectPartInput) (domai
 	}
 	part := partMeta{
 		Number: in.PartNumber, ETag: etag, Size: n, ActualSize: plainN, ModTime: l.now(), Checksum: checksum,
-		DataFile: partName(in.PartNumber) + "." + uuid.NewString(), Encrypted: okey != nil,
+		DataFile: partName(in.PartNumber) + "." + uuid.NewString(), Encrypted: okey != nil, Salt: salt,
+	}
+	// The description on the drives holds the checksum of an encrypted
+	// part sealed; the response reports it in clear.
+	stored := part
+	if stored.Checksum, err = sealPartChecksum(okey, checksum); err != nil {
+		return domain.Part{}, err
 	}
 	// Concurrent uploads of the same part number commit one at a time: on
 	// an erasure set their descriptions would otherwise reach the drives
@@ -386,7 +403,7 @@ func (l *layer) PutObjectPart(ctx context.Context, in PutObjectPartInput) (domai
 		return domain.Part{}, fmt.Errorf("%s: store part %d of %s: %w", l.name, in.PartNumber, in.UploadID, err)
 	}
 	previous, hadPrevious := l.readPart(ctx, st, dir, in.PartNumber)
-	data, err := json.Marshal(part)
+	data, err := json.Marshal(stored)
 	if err != nil {
 		l.removeUploadFile(ctx, st, dir, part.DataFile)
 		return domain.Part{}, fmt.Errorf("%s: encode part: %w", l.name, err)
@@ -524,6 +541,24 @@ func (l *layer) ListObjectParts(ctx context.Context, in domain.ListPartsInput) (
 	if err != nil {
 		return domain.ListPartsResult{}, err
 	}
+	// The checksums of the parts of an encrypted upload are sealed: they
+	// are opened with its key (a KMS call for SSE-S3 and SSE-KMS); an
+	// SSE-C upload listed without its key reports their algorithms only.
+	sealed := false
+	for _, p := range parts {
+		sealed = sealed || crypto.IsSealedValue(p.Checksum.Value)
+	}
+	var okey *crypto.ObjectKey
+	if !in.SSECustomerKey.IsZero() || (sealed && crypto.InfoOf(m.Metadata).Type != domain.SSEC) {
+		if okey, err = l.unsealFor(ctx, in.Bucket, in.Key, m.Metadata, in.SSECustomerKey); err != nil {
+			return domain.ListPartsResult{}, err
+		}
+	}
+	for i := range parts {
+		if parts[i].Checksum, err = openPartChecksum(okey, parts[i].Checksum); err != nil {
+			return domain.ListPartsResult{}, fmt.Errorf("%s: checksum of part %d of %s: %w", l.name, parts[i].Number, in.UploadID, err)
+		}
+	}
 	for _, p := range parts {
 		if p.Number <= in.PartNumberMarker {
 			continue
@@ -604,6 +639,11 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 	}
 	m, dir, err := l.loadUpload(ctx, st, in.Bucket, in.Key, in.UploadID)
 	if err != nil {
+		if errors.Is(err, domain.ErrNoSuchUpload) {
+			if info, ok := l.completedFrom(ctx, in); ok {
+				return info, nil
+			}
+		}
 		return domain.ObjectInfo{}, err
 	}
 	if done, err := l.recoverCompletion(ctx, st, dir, in.Bucket, in.Key); err != nil || done != nil {
@@ -622,18 +662,40 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 	}
 
 	encrypted := crypto.IsEncrypted(m.Metadata)
+	// The checksums of the parts of an encrypted upload are sealed: they
+	// are opened with the key of the upload when the completion needs them
+	// (the checksum of the object, a part checksum or a whole checksum to
+	// verify), which takes the SSE-C key for an SSE-C upload, as in S3.
+	// Otherwise they move to the version as they are.
+	var okey *crypto.ObjectKey
+	if encrypted && (completionNeedsChecksums(m, in) || !in.SSECustomerKey.IsZero()) {
+		if okey, err = l.unsealFor(ctx, in.Bucket, in.Key, m.Metadata, in.SSECustomerKey); err != nil {
+			return domain.ObjectInfo{}, err
+		}
+	} else if !encrypted && !in.SSECustomerKey.IsZero() {
+		return domain.ObjectInfo{}, domain.NewS3Error(domain.ErrInvalidArgument, "InvalidRequest",
+			"The encryption parameters are not applicable to this object.")
+	}
 	var (
 		total      int64
 		plainTotal int64
 		etagSum    = md5.New()
 		parts      = make([]storage.PartInfo, 0, len(in.Parts))
 		selected   = make([]partMeta, 0, len(in.Parts))
+		uploadType = m.checksumType()
 	)
 	for i, cp := range in.Parts {
 		p, ok := byNumber[cp.Number]
 		if !ok || !strings.EqualFold(strings.Trim(cp.ETag, `"`), p.ETag) {
 			return domain.ObjectInfo{}, domain.NewS3Error(domain.ErrInvalidPart, "InvalidPart",
 				fmt.Sprintf("One or more of the specified parts could not be found. Part %d may not have been uploaded, or the specified entity tag may not match the part's entity tag.", cp.Number))
+		}
+		if uploadType == domain.ChecksumTypeComposite && m.Checksum != domain.ChecksumNone && cp.Checksum.IsZero() {
+			// As S3: the checksum of a COMPOSITE upload is the checksum of
+			// the part checksums, which the request must confirm.
+			return domain.ObjectInfo{}, domain.NewS3Error(domain.ErrInvalidArgument, "InvalidRequest",
+				fmt.Sprintf("The upload was created using a %s checksum. The complete request must include the checksum for each part. It was missing for part %d in the request.",
+					strings.ToLower(string(m.Checksum)), cp.Number))
 		}
 		if i < len(in.Parts)-1 && p.plainSize() < l.opts.minPartSize {
 			return domain.ObjectInfo{}, domain.NewS3Error(domain.ErrEntityTooSmall, "EntityTooSmall",
@@ -643,7 +705,11 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 			return domain.ObjectInfo{}, domain.NewS3Error(domain.ErrInvalidPart, "InvalidPart",
 				fmt.Sprintf("One or more of the specified parts could not be found. Part %d was not stored with the encryption of the upload.", cp.Number))
 		}
-		if !cp.Checksum.IsZero() && (cp.Checksum.Algorithm != p.Checksum.Algorithm || cp.Checksum.Value != p.Checksum.Value) {
+		sum, err := openPartChecksum(okey, p.Checksum)
+		if err != nil {
+			return domain.ObjectInfo{}, fmt.Errorf("%s: checksum of part %d of %s: %w", l.name, cp.Number, in.UploadID, err)
+		}
+		if !cp.Checksum.IsZero() && (cp.Checksum.Algorithm != sum.Algorithm || cp.Checksum.Value != sum.Value) {
 			return domain.ObjectInfo{}, domain.NewS3Error(domain.ErrInvalidPart, "InvalidPart",
 				fmt.Sprintf("One or more of the specified parts could not be found. The %s checksum of part %d does not match the checksum of the uploaded part.", cp.Checksum.Algorithm, cp.Number))
 		}
@@ -657,12 +723,17 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 		selected = append(selected, p)
 		info := storage.PartInfo{Number: i + 1, ETag: p.ETag, Size: p.Size, ActualSize: p.plainSize(), ModTime: p.ModTime, Checksums: checksumMap(p.Checksum)}
 		if encrypted {
-			// The part keeps the key of its number in the upload.
-			info.Index = encodePartIndex(p.Number)
+			// The part keeps the key of its number and salt in the upload.
+			info.Index = encodePartIndex(p.Number, p.Salt)
 		}
 		parts = append(parts, info)
+		p.Checksum = sum
+		selected[len(selected)-1] = p
 	}
-	uploadType := m.checksumType()
+	if in.ObjectSize != nil && *in.ObjectSize != plainTotal {
+		return domain.ObjectInfo{}, domain.NewS3Error(domain.ErrInvalidArgument, "InvalidRequest",
+			fmt.Sprintf("The provided x-amz-mp-object-size header value %d does not match the size of the object, %d bytes.", *in.ObjectSize, plainTotal))
+	}
 	if in.ChecksumType != domain.ChecksumTypeNone && in.ChecksumType != uploadType {
 		return domain.ObjectInfo{}, domain.NewS3Error(domain.ErrInvalidArgument, "InvalidRequest",
 			fmt.Sprintf("The upload was created using the %s checksum mode. The complete request must use the same checksum mode.", uploadType))
@@ -702,6 +773,7 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 		meta[k] = v
 	}
 	meta[metaETag] = hex.EncodeToString(etagSum.Sum(nil)) + "-" + strconv.Itoa(len(parts))
+	meta[metaUploadID] = in.UploadID
 	if encrypted {
 		setActualSize(meta, plainTotal)
 	}
@@ -722,6 +794,9 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 		Versioned: versioned,
 	}
 	applyDefaultRetention(fi.Metadata, cfg, fi.ModTime)
+	if err := sealChecksums(okey, &fi); err != nil {
+		return domain.ObjectInfo{}, fmt.Errorf("%s: seal the checksum of %s: %w", l.name, in.UploadID, err)
+	}
 	// Assemble the selected parts, renumbered, in a staging directory of
 	// the upload, the moves journaled first: a failure moves back every
 	// part wherever it went, and so does the next attempt after a crash,
@@ -760,7 +835,49 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 		}
 		return domain.ObjectInfo{}, fmt.Errorf("%s: complete %s: %w", l.name, in.UploadID, err)
 	}
-	return l.finishCompletion(ctx, st, dir, in.UploadID, fi), nil
+	info := l.finishCompletion(ctx, st, dir, in.UploadID, fi)
+	if !checksum.IsZero() {
+		// Sealed on the drives of an encrypted version: reported in clear.
+		info.Checksum = domain.Checksum{Algorithm: checksum.Algorithm, Value: checksum.Value, Type: checksum.Type}
+	}
+	return info, nil
+}
+
+// completionNeedsChecksums reports whether a completion reads the
+// checksums of the parts: to compute the checksum of the object or to
+// verify a checksum of the request.
+func completionNeedsChecksums(m uploadMeta, in CompleteMultipartInput) bool {
+	if m.Checksum != domain.ChecksumNone || !in.Checksum.IsZero() {
+		return true
+	}
+	for _, cp := range in.Parts {
+		if !cp.Checksum.IsZero() {
+			return true
+		}
+	}
+	return false
+}
+
+// completedFrom returns the current version of the key when the upload
+// of in was completed into it with the same parts: S3 answers a retried
+// completion (whose response was lost) with the object it created. It
+// runs under the write lock of the key.
+func (l *layer) completedFrom(ctx context.Context, in CompleteMultipartInput) (domain.ObjectInfo, bool) {
+	st, err := l.place.forVersion(ctx, in.Bucket, in.Key, "")
+	if err != nil {
+		return domain.ObjectInfo{}, false
+	}
+	fi, err := l.readVersion(ctx, st, in.Bucket, in.Key, "", false)
+	if err != nil || fi.Metadata[metaUploadID] != in.UploadID || len(fi.Parts) != len(in.Parts) {
+		return domain.ObjectInfo{}, false
+	}
+	for i, p := range in.Parts {
+		if !strings.EqualFold(strings.Trim(p.ETag, `"`), fi.Parts[i].ETag) {
+			return domain.ObjectInfo{}, false
+		}
+	}
+	fi.IsLatest = true
+	return objectInfo(in.Bucket, in.Key, fi), true
 }
 
 // finishCompletion removes the upload of a committed completion, drops the

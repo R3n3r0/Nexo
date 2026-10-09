@@ -578,7 +578,7 @@ s3:PutLifecycleConfiguration and admin:ApplyLifecycle.`,
 			if err != nil {
 				return fmt.Errorf("%s: %w", t, err)
 			}
-			text := fmt.Sprintf("Lifecycle of `%s` applied: %d %s checked, %d deleted, %d delete %s removed, %d %s aborted",
+			text := fmt.Sprintf("Lifecycle of `%s` applied: %d %s checked, %d deleted, %d delete %s created, %d %s aborted",
 				t, res.Versions, plural(res.Versions, "version", "versions"), res.Deleted, res.DeleteMarkers, plural(res.DeleteMarkers, "marker", "markers"),
 				res.UploadsAborted, plural(res.UploadsAborted, "upload", "uploads"))
 			if res.Locked > 0 {

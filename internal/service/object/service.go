@@ -316,6 +316,15 @@ type Service interface {
 	// object, a page of its parts with their sizes and checksums.
 	GetObjectAttributes(ctx context.Context, bucket, key string, opts AttributesOptions) (ObjectAttributes, error)
 
+	// ResealKeys re-seals the data keys of the SSE-S3 and SSE-KMS versions
+	// of bucket under the current master key of the KMS (master key
+	// rotation, docs/07 §7.2), version by version under its write lock:
+	// the object keys and the data are unchanged, only the sealed data key
+	// in the metadata is rewritten. Once every bucket is re-sealed, the
+	// previous master keys can be removed (NEXO_KMS_SECRET_KEY_PREVIOUS).
+	// The versions that cannot be re-sealed are counted, not fatal.
+	ResealKeys(ctx context.Context, bucket string) (ResealResult, error)
+
 	// CleanupStaleUploads aborts the multipart uploads of bucket (every
 	// bucket when empty) initiated more than olderThan ago, and removes the
 	// orphaned upload directories of the same age. It returns the number of
@@ -422,6 +431,13 @@ type GetObjectOptions struct {
 	NoLock bool
 	// SSECustomerKey is the SSE-C key of the request.
 	SSECustomerKey domain.SSECustomerKey
+	// ChecksumMode asks GetObjectInfo for the value of the additional
+	// checksum (x-amz-checksum-mode: ENABLED): the checksum of an
+	// encrypted version is sealed and its value is opened with the object
+	// key, which costs a KMS call for SSE-S3 and SSE-KMS. Without it, the
+	// checksum of such a version reports its algorithm only. GetObject
+	// always reports it.
+	ChecksumMode bool
 }
 
 // Reader is an object body with its metadata. Callers must Close it.
@@ -440,6 +456,16 @@ type DeleteObjectOptions struct {
 	BypassGovernance bool
 	// ModTime forces the delete marker time.
 	ModTime time.Time
+	// IfModTime, when set, makes the delete conditional on the version it
+	// targets still having this modification time: the version named by
+	// VersionID, or without one the latest version (the one a delete
+	// marker would cover, or an unversioned bucket would lose). The check
+	// runs under the object write lock, with the commit times monotonic
+	// per key: a version replaced or written meanwhile, or a missing one,
+	// fails the delete with domain.ErrPreconditionFailed and nothing
+	// changes. The lifecycle deletes this way the versions it evaluated,
+	// so that a write acknowledged after the evaluation is never lost.
+	IfModTime time.Time
 }
 
 // ObjectToDelete identifies one object in DeleteObjects.
@@ -600,6 +626,15 @@ type CompleteMultipartInput struct {
 	Checksum domain.Checksum
 	// ChecksumType, when set, must be the checksum type of the upload.
 	ChecksumType domain.ChecksumType
+	// ObjectSize, when set (x-amz-mp-object-size), is the size the client
+	// expects for the object: the sum of the listed parts (plaintext)
+	// must match it, or the completion fails with InvalidRequest before
+	// anything is committed.
+	ObjectSize *int64
+	// SSECustomerKey is the SSE-C key of an SSE-C upload: the checksums of
+	// its parts are sealed under it, so a completion that computes or
+	// verifies a checksum needs it (as in S3); it is optional otherwise.
+	SSECustomerKey domain.SSECustomerKey
 }
 
 // TagOptions tunes the tag operations.
@@ -624,6 +659,22 @@ type AttributesOptions struct {
 	MaxParts int
 	// PartNumberMarker lists the parts after this part number.
 	PartNumberMarker int
+	// SSECustomerKey is the key of an SSE-C version, which is described
+	// to the holder of its key only (as HEAD).
+	SSECustomerKey domain.SSECustomerKey
+}
+
+// ResealResult reports a ResealKeys run.
+type ResealResult struct {
+	// Versions counts the SSE-S3 and SSE-KMS versions met, Uploads the
+	// pending multipart uploads of such objects (their description holds
+	// the sealed key); Resealed counts the versions and uploads re-sealed
+	// and Failed those that could not be (FirstError tells why).
+	Versions   int
+	Uploads    int
+	Resealed   int
+	Failed     int
+	FirstError string
 }
 
 // ObjectAttributes is the result of GetObjectAttributes.

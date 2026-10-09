@@ -34,13 +34,24 @@ type docsKeyStore struct {
 
 var _ KeyStore = (*docsKeyStore)(nil)
 
-// NewDocsKeyStore returns the key registry on the system document store
-// (SNMD and cluster).
-func NewDocsKeyStore(docs sysstore.Store) (KeyStore, error) {
-	if docs == nil {
-		return nil, fmt.Errorf("%w: kms key store: the document store is required", domain.ErrInvalidArgument)
+// NewKeyStore returns the key registry of the builtin KMS: on the
+// replicated system documents of deps.Docs (SNMD and cluster), or in the
+// directory of WithKeyStorePath (SNSD: a directory of the system volume of
+// the drive, created when missing). Exactly one of them is required.
+func NewKeyStore(deps KeyStoreDeps, opts ...Option) (KeyStore, error) {
+	o := newOptions(opts)
+	switch {
+	case deps.Docs != nil && o.keyStorePath != "":
+		return nil, fmt.Errorf("%w: kms key store: a document store or a directory, not both", domain.ErrInvalidArgument)
+	case deps.Docs != nil:
+		return &docsKeyStore{docs: deps.Docs}, nil
+	case o.keyStorePath != "":
+		if err := os.MkdirAll(o.keyStorePath, 0o700); err != nil {
+			return nil, fmt.Errorf("kms key store: %w", err)
+		}
+		return &fileKeyStore{dir: o.keyStorePath}, nil
 	}
-	return &docsKeyStore{docs: docs}, nil
+	return nil, fmt.Errorf("%w: kms key store: a document store or a directory is required", domain.ErrInvalidArgument)
 }
 
 // keyDoc is the stored form of a key: the random id tells the document
@@ -136,18 +147,6 @@ type fileKeyStore struct {
 }
 
 var _ KeyStore = (*fileKeyStore)(nil)
-
-// NewFileKeyStore returns the key registry in dir (SNSD: a directory of
-// the system volume of the drive), created when missing.
-func NewFileKeyStore(dir string) (KeyStore, error) {
-	if dir == "" {
-		return nil, fmt.Errorf("%w: kms key store: empty directory", domain.ErrInvalidArgument)
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("kms key store: %w", err)
-	}
-	return &fileKeyStore{dir: dir}, nil
-}
 
 // Create implements KeyStore.
 func (s *fileKeyStore) Create(ctx context.Context, key KeyInfo) error {

@@ -51,17 +51,27 @@ func partChecksum(fi storage.FileInfo, n int) domain.Checksum {
 		return domain.Checksum{}
 	}
 	for algo, value := range fi.Parts[n-1].Checksums {
+		if crypto.IsSealedValue(value) {
+			// Sealed (encrypted version, openChecksums not applied): only
+			// the algorithm is known.
+			value = ""
+		}
 		return domain.Checksum{Algorithm: domain.ChecksumAlgorithm(algo), Value: value}
 	}
 	return domain.Checksum{}
 }
 
 // infoForRead describes the version a read serves: the read of one part
-// of a multipart object (partNumber) reports the checksum of that part.
+// of a multipart object (partNumber) reports the checksum of that part,
+// with the checksum type of the object (COMPOSITE or FULL_OBJECT).
 func infoForRead(bucket, key string, fi storage.FileInfo, opts GetObjectOptions) domain.ObjectInfo {
 	info := objectInfo(bucket, key, fi)
 	if opts.PartNumber > 0 && info.Parts > 0 {
+		typ := info.Checksum.Type
 		info.Checksum = partChecksum(fi, opts.PartNumber)
+		if !info.Checksum.IsZero() {
+			info.Checksum.Type = typ
+		}
 	}
 	return info
 }
@@ -79,7 +89,7 @@ func (l *layer) GetObjectInfo(ctx context.Context, bucket, key string, opts GetO
 		defer unlock()
 		ctx = lctx
 	}
-	st, err := l.place.forVersion(ctx, bucket, key, opts.VersionID)
+	st, err := l.storeFor(ctx, bucket, key, opts.VersionID)
 	if err != nil {
 		return domain.ObjectInfo{}, fmt.Errorf("%s: head %s/%s: %w", l.name, bucket, key, err)
 	}
@@ -87,12 +97,16 @@ func (l *layer) GetObjectInfo(ctx context.Context, bucket, key string, opts GetO
 	if err != nil {
 		return domain.ObjectInfo{}, fmt.Errorf("%s: head %s/%s: %w", l.name, bucket, key, err)
 	}
-	info := infoForRead(bucket, key, fi, opts)
-	enc, err := l.checkCustomerKey(ctx, bucket, key, fi, opts.SSECustomerKey)
+	okey, enc, err := l.describeKey(ctx, bucket, key, fi.Metadata, opts.SSECustomerKey, opts.ChecksumMode && hasSealedChecksums(fi))
 	if err != nil {
 		return domain.ObjectInfo{}, err
 	}
+	if fi, err = openChecksums(okey, fi); err != nil {
+		return domain.ObjectInfo{}, fmt.Errorf("%s: head %s/%s: %w", l.name, bucket, key, err)
+	}
+	info := infoForRead(bucket, key, fi, opts)
 	info.Encryption = enc
+	l.labelNull(ctx, bucket, &info)
 	if opts.PartNumber > 0 {
 		if _, _, err := resolveRange(fi, opts); err != nil {
 			return info, err
@@ -139,7 +153,7 @@ func (l *layer) openObject(ctx context.Context, bucket, key string, opts GetObje
 			unlock()
 		}
 	}
-	st, err := l.place.forVersion(ctx, bucket, key, opts.VersionID)
+	st, err := l.storeFor(ctx, bucket, key, opts.VersionID)
 	if err != nil {
 		release()
 		return nil, storage.FileInfo{}, fmt.Errorf("%s: get %s/%s: %w", l.name, bucket, key, err)
@@ -149,15 +163,20 @@ func (l *layer) openObject(ctx context.Context, bucket, key string, opts GetObje
 		release()
 		return nil, storage.FileInfo{}, fmt.Errorf("%s: get %s/%s: %w", l.name, bucket, key, err)
 	}
-	info := infoForRead(bucket, key, fi, opts)
 	okey, err := l.unsealFor(ctx, bucket, key, fi.Metadata, opts.SSECustomerKey)
 	if err != nil {
 		release()
 		return nil, storage.FileInfo{}, err
 	}
+	if fi, err = openChecksums(okey, fi); err != nil {
+		release()
+		return nil, storage.FileInfo{}, fmt.Errorf("%s: get %s/%s: %w", l.name, bucket, key, err)
+	}
+	info := infoForRead(bucket, key, fi, opts)
 	if okey != nil {
 		info.Encryption = okey.Info()
 	}
+	l.labelNull(ctx, bucket, &info)
 	if err := checkReadConditions(info, opts.Conditions); err != nil {
 		release()
 		return nil, storage.FileInfo{}, err

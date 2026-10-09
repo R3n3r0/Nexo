@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 	"strings"
 	"time"
@@ -83,10 +84,13 @@ func (n Name) isRemoval() bool {
 	return n.Match(ObjectRemovedAll) || n.Match(LifecycleExpirationAll)
 }
 
-// Event is one S3 notification record (eventVersion 2.0). Between the
+// Event is one S3 notification record (eventVersion 2.1). Between the
 // publisher and the router the object key is the raw key; the records
 // queued for the targets carry it URL-encoded as S3 does (spaces as "+",
-// slashes kept).
+// slashes kept). EventName is the configuration event type
+// ("s3:ObjectCreated:Put"); the JSON record carries it as S3 does, without
+// the "s3:" prefix ("ObjectCreated:Put", see MarshalJSON), while the
+// top-level EventName of the Payload keeps it (as MinIO does).
 type Event struct {
 	EventVersion      string            `json:"eventVersion"`
 	EventSource       string            `json:"eventSource"`
@@ -98,6 +102,36 @@ type Event struct {
 	ResponseElements  map[string]string `json:"responseElements"`
 	S3                Metadata          `json:"s3"`
 	Source            Source            `json:"source"`
+}
+
+// namePrefix starts the configuration event types; the S3 records carry
+// the names without it.
+const namePrefix = "s3:"
+
+// eventJSON is the JSON form of an Event (without its methods).
+type eventJSON Event
+
+// MarshalJSON writes the record as S3 does: the eventName without the
+// "s3:" prefix of the configuration event types ("ObjectCreated:Put").
+func (e Event) MarshalJSON() ([]byte, error) {
+	w := eventJSON(e)
+	w.EventName = Name(strings.TrimPrefix(string(e.EventName), namePrefix))
+	return json.Marshal(w)
+}
+
+// UnmarshalJSON reads a record, its eventName with or without the "s3:"
+// prefix (the records queued by earlier builds carry it): EventName is the
+// configuration event type again.
+func (e *Event) UnmarshalJSON(data []byte) error {
+	var w eventJSON
+	if err := json.Unmarshal(data, &w); err != nil {
+		return err
+	}
+	if w.EventName != "" && !strings.HasPrefix(string(w.EventName), namePrefix) {
+		w.EventName = namePrefix + w.EventName
+	}
+	*e = Event(w)
+	return nil
 }
 
 // Identity is the principal in an event.
@@ -140,7 +174,9 @@ type Source struct {
 
 // Defaults for new events.
 const (
-	Version       = "2.0"
+	// Version is the eventVersion of the records, as S3 (2.1 and later:
+	// the eventName without the "s3:" prefix).
+	Version       = "2.1"
 	SourceName    = "nexo:s3"
 	SchemaVersion = "1.0"
 	// ConfigID is the configurationId of the records routed by the filter

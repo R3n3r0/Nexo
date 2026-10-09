@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"mime"
 	"net/http"
 	"path"
@@ -155,9 +156,10 @@ func (b *objectBrowser) List(ctx context.Context, in ListObjectsInput) (*ObjectL
 
 // Stat implements ObjectBrowser.
 func (b *objectBrowser) Stat(ctx context.Context, in StatInput) (*ObjectDetails, error) {
-	info, err := b.deps.Objects.GetObjectInfo(ctx, in.Bucket, in.Key, object.GetObjectOptions{VersionID: in.VersionID})
+	// The checksum of an encrypted object is sealed: the details open it.
+	info, err := b.deps.Objects.GetObjectInfo(ctx, in.Bucket, in.Key, object.GetObjectOptions{VersionID: in.VersionID, ChecksumMode: true})
 	if err != nil {
-		return nil, err
+		return nil, consoleReadErr(err)
 	}
 	out := &ObjectDetails{Info: info}
 	out.Info.Tags = nil
@@ -324,9 +326,7 @@ func (b *objectBrowser) Delete(ctx context.Context, in DeleteObjectsInput) (*Del
 		var err error
 		if in.AllVersions {
 			err = b.walkVersions(ctx, in.Bucket, p, func(o domain.ObjectInfo) error {
-				// Unversioned objects list without a version id: deleting
-				// them is permanent already.
-				return d.add(ObjectRef{Key: o.Key, VersionID: o.VersionID})
+				return d.addVersion(o)
 			})
 		} else {
 			err = b.walkObjects(ctx, in.Bucket, p, func(o domain.ObjectInfo) error {
@@ -370,6 +370,12 @@ func (d *deleter) fail(ref ObjectRef, err error) {
 // (s3:BypassGovernanceRetention on the version); otherwise the object
 // layer refuses a locked version (domain.ErrObjectLocked).
 func (d *deleter) add(ref ObjectRef) error {
+	return d.queue(ref, ref.VersionID)
+}
+
+// queue authorizes the deletion of ref (see add) and queues the deletion
+// of version versionID of its key.
+func (d *deleter) queue(ref ObjectRef, versionID string) error {
 	action := policy.ActionDeleteObject
 	if ref.VersionID != "" {
 		action = policy.ActionDeleteObjectVersion
@@ -388,11 +394,25 @@ func (d *deleter) add(ref ObjectRef) error {
 		d.b.allowed(d.ctx, d.req, d.bucket, ref.Key, ObjectConditions(or), policy.ActionBypassGovernanceRetention) {
 		batch = 1
 	}
-	d.pending[batch] = append(d.pending[batch], object.ObjectToDelete{Key: ref.Key, VersionID: ref.VersionID})
+	d.pending[batch] = append(d.pending[batch], object.ObjectToDelete{Key: ref.Key, VersionID: versionID})
 	if len(d.pending[batch]) >= deleteBatch {
 		return d.flushBatch(batch)
 	}
 	return nil
+}
+
+// addVersion queues the permanent deletion of one listed version (Delete
+// with AllVersions). A version listed without id is the null version of
+// a bucket that never had versioning: it is authorized as the S3
+// DeleteObject that removes it there, and deleted as the version "null",
+// which removes it whatever the versioning of the bucket is by then
+// (a delete without version id would add a delete marker to a versioned
+// bucket instead).
+func (d *deleter) addVersion(o domain.ObjectInfo) error {
+	if o.VersionID != "" {
+		return d.add(ObjectRef{Key: o.Key, VersionID: o.VersionID})
+	}
+	return d.queue(ObjectRef{Key: o.Key}, domain.NullVersionID)
 }
 
 // flush deletes the queued objects.
@@ -582,13 +602,18 @@ func (b *objectBrowser) renameOne(ctx context.Context, in RenameInput, src, dst 
 	}
 	info, err := b.deps.Objects.GetObjectInfo(ctx, in.Bucket, src, object.GetObjectOptions{})
 	if err != nil {
+		fail(consoleReadErr(err))
+		return
+	}
+	sse, err := preservedSSE(info)
+	if err != nil {
 		fail(err)
 		return
 	}
 	if info.Size > maxCopySize {
 		err = b.copyMultipart(ctx, in.Bucket, info, dst)
 	} else {
-		_, err = b.deps.Objects.CopyObject(ctx, object.CopyObjectInput{SrcBucket: in.Bucket, SrcKey: src, DstBucket: in.Bucket, DstKey: dst})
+		_, err = b.deps.Objects.CopyObject(ctx, object.CopyObjectInput{SrcBucket: in.Bucket, SrcKey: src, DstBucket: in.Bucket, DstKey: dst, SSE: sse})
 	}
 	if err != nil {
 		fail(err)
@@ -601,9 +626,49 @@ func (b *objectBrowser) renameOne(ctx context.Context, in RenameInput, src, dst 
 	out.Renamed = append(out.Renamed, RenamedObject{Source: src, Destination: dst})
 }
 
+// preservedSSE returns the encryption of the copy of src made by the
+// console (rename, restore of a version, copy part by part): the one of
+// the source, never the default encryption of the bucket that a copy
+// without encryption would get instead, so that the console never stores
+// an encrypted object in clear nor changes its KMS key or context. An
+// unencrypted source gets the default encryption of the bucket, as any
+// copy. An SSE-C object cannot be copied: the console has no key.
+func preservedSSE(src domain.ObjectInfo) (domain.SSERequest, error) {
+	switch src.Encryption.Type {
+	case domain.SSES3:
+		return domain.SSERequest{Type: domain.SSES3}, nil
+	case domain.SSEKMS:
+		return domain.SSERequest{Type: domain.SSEKMS, KMSKeyID: src.Encryption.KMSKeyID, Context: maps.Clone(src.Encryption.Context)}, nil
+	case domain.SSEC:
+		return domain.SSERequest{}, errCustomerKeyObject(src.Key)
+	default:
+		return domain.SSERequest{}, nil
+	}
+}
+
+// errCustomerKeyObject is the refusal of a console operation that would
+// read an object encrypted with a customer-provided key.
+func errCustomerKeyObject(key string) error {
+	return fmt.Errorf("%w: %q is encrypted with a customer-provided key (SSE-C): the console has no key, use an S3 client with the key", domain.ErrSSECustomerKeyRequired, key)
+}
+
+// consoleReadErr explains the failure to read an SSE-C object, which the
+// console cannot do (no customer key), and returns other errors as is.
+func consoleReadErr(err error) error {
+	if errors.Is(err, domain.ErrSSECustomerKeyRequired) {
+		return fmt.Errorf("%w: the object is encrypted with a customer-provided key (SSE-C): the console has no key, use an S3 client with the key", domain.ErrSSECustomerKeyRequired)
+	}
+	return err
+}
+
 // copyMultipart copies an object larger than 5 GiB part by part, keeping
-// its metadata and tags; a failure aborts the upload.
+// its metadata, tags and encryption (preservedSSE); a failure aborts the
+// upload.
 func (b *objectBrowser) copyMultipart(ctx context.Context, bucket string, src domain.ObjectInfo, dst string) error {
+	sse, err := preservedSSE(src)
+	if err != nil {
+		return err
+	}
 	expires := ""
 	if !src.Expires.IsZero() {
 		expires = src.Expires.UTC().Format(http.TimeFormat)
@@ -611,7 +676,7 @@ func (b *objectBrowser) copyMultipart(ctx context.Context, bucket string, src do
 	up, err := b.deps.Objects.NewMultipartUpload(ctx, object.NewMultipartInput{
 		Bucket: bucket, Key: dst, ContentType: src.ContentType, ContentEncoding: src.ContentEncoding,
 		ContentDisposition: src.ContentDisposition, ContentLanguage: src.ContentLanguage, CacheControl: src.CacheControl,
-		Expires: expires, UserMetadata: src.UserMetadata, Tags: src.Tags, StorageClass: src.StorageClass,
+		Expires: expires, UserMetadata: src.UserMetadata, Tags: src.Tags, StorageClass: src.StorageClass, SSE: sse,
 	})
 	if err != nil {
 		return err
@@ -660,10 +725,15 @@ func (b *objectBrowser) RestoreVersion(ctx context.Context, in RestoreVersionInp
 	}
 	src, err := b.deps.Objects.GetObjectInfo(ctx, in.Bucket, in.Key, object.GetObjectOptions{VersionID: in.VersionID})
 	if err != nil {
-		return domain.ObjectInfo{}, err
+		return domain.ObjectInfo{}, consoleReadErr(err)
 	}
 	if src.IsDeleteMarker {
 		return domain.ObjectInfo{}, fmt.Errorf("%w: a delete marker cannot be restored", domain.ErrMethodNotAllowed)
+	}
+	// The restored version keeps the encryption of the version it copies.
+	sse, err := preservedSSE(src)
+	if err != nil {
+		return domain.ObjectInfo{}, err
 	}
 	if src.Size > maxCopySize {
 		if err := b.copyMultipart(ctx, in.Bucket, src, in.Key); err != nil {
@@ -671,7 +741,7 @@ func (b *objectBrowser) RestoreVersion(ctx context.Context, in RestoreVersionInp
 		}
 		return b.deps.Objects.GetObjectInfo(ctx, in.Bucket, in.Key, object.GetObjectOptions{})
 	}
-	return b.deps.Objects.CopyObject(ctx, object.CopyObjectInput{SrcBucket: in.Bucket, SrcKey: in.Key, SrcVersionID: in.VersionID, DstBucket: in.Bucket, DstKey: in.Key})
+	return b.deps.Objects.CopyObject(ctx, object.CopyObjectInput{SrcBucket: in.Bucket, SrcKey: in.Key, SrcVersionID: in.VersionID, DstBucket: in.Bucket, DstKey: in.Key, SSE: sse})
 }
 
 // SetTags implements ObjectBrowser.

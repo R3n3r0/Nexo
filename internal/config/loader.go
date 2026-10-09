@@ -37,6 +37,7 @@ const (
 	EnvRPCCallTimeout     = "NEXO_RPC_CALL_TIMEOUT"
 	EnvHealRetryMaxDelay  = "NEXO_HEAL_RETRY_MAX_DELAY"
 	EnvCacheResync        = "NEXO_CACHE_RESYNC_INTERVAL"
+	EnvSendTimeout        = "NEXO_SEND_TIMEOUT"
 	EnvTLSInternodeVerify = "NEXO_TLS_INTERNODE_VERIFY"
 	EnvKMSSecretKey       = "NEXO_KMS_SECRET_KEY"
 	EnvKMSSecretKeyPrev   = "NEXO_KMS_SECRET_KEY_PREVIOUS"
@@ -231,7 +232,7 @@ func (l *loader) applyEnv(cfg *Static) error {
 	set(EnvKMSCAPath, &cfg.KMSCAPath)
 	for key, dst := range map[string]*time.Duration{
 		EnvLockStaleAfter: &cfg.LockStaleAfter, EnvLockRefresh: &cfg.LockRefreshInterval, EnvRPCCallTimeout: &cfg.RPCCallTimeout,
-		EnvHealRetryMaxDelay: &cfg.HealRetryMaxDelay, EnvCacheResync: &cfg.CacheResyncInterval,
+		EnvHealRetryMaxDelay: &cfg.HealRetryMaxDelay, EnvCacheResync: &cfg.CacheResyncInterval, EnvSendTimeout: &cfg.SendTimeout,
 	} {
 		if v, ok := l.env(key); ok && strings.TrimSpace(v) != "" {
 			d, err := time.ParseDuration(strings.TrimSpace(v))

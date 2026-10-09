@@ -10,15 +10,16 @@ Usage:
 Examples:
   nexoctl stat local/docs/report.pdf
   nexoctl stat --checksum --versions local/docs/report.pdf
-  nexoctl stat --enc-c "local/private=$(cat key.b64)" local/private/secret.txt
+  nexoctl stat --enc-c-file keys.txt local/private/secret.txt
   nexoctl stat --json local/docs
 
 Flags:
-      --checksum            show the additional checksum of the object
-      --enc-c stringArray   SSE-C key of the objects under a location: "ALIAS/BUCKET[/PREFIX]=BASE64KEY" (32 bytes; repeatable)
-  -h, --help                help for stat
-      --version-id string   show this version of the object
-      --versions            show every version of the object
+      --checksum                 show the additional checksum of the object
+      --enc-c stringArray        SSE-C key of the objects under a location: "ALIAS/BUCKET[/PREFIX]=BASE64KEY" (32 bytes; repeatable). Prefer --enc-c-file or NEXOCTL_ENC_C: a key in the arguments is visible to other local users and in the shell history
+      --enc-c-file stringArray   file of SSE-C keys, one "ALIAS/BUCKET[/PREFIX]=BASE64KEY" per line ("#" comments; repeatable)
+  -h, --help                     help for stat
+      --version-id string        show this version of the object
+      --versions                 show every version of the object
 
 Global Flags:
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)

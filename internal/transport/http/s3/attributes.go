@@ -120,10 +120,15 @@ func (h *objectRoutes) getAttributes(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
+	ckey, err := customerKeyFromHeaders(r, headerSSECustomerPrefix, h.opts.insecureSSEC)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
 	maxParts = min(maxParts, maxListKeys)
-	opts := object.GetObjectOptions{VersionID: versionID}
+	opts := object.GetObjectOptions{VersionID: versionID, SSECustomerKey: ckey}
 	attrs, err := h.deps.Objects.GetObjectAttributes(r.Context(), bucketName, key, object.AttributesOptions{
-		VersionID: versionID, MaxParts: serviceLimit(maxParts), PartNumberMarker: marker,
+		VersionID: versionID, MaxParts: serviceLimit(maxParts), PartNumberMarker: marker, SSECustomerKey: ckey,
 	})
 	if err != nil {
 		h.writeReadError(w, r, err, bucketName, key, opts)

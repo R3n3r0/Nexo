@@ -125,5 +125,6 @@ func TestRequestIDsAndHeaders(t *testing.T) {
 
 	out := http.Header{}
 	httpx.SetUserMetadata(out, map[string]string{"k": "v"})
-	assert.Equal(t, "v", out.Get("x-amz-meta-k"))
+	// Indexed as a plain map: the key is not canonical on purpose.
+	assert.Equal(t, []string{"v"}, map[string][]string(out)["x-amz-meta-k"], "sent lowercase, not canonicalized")
 }

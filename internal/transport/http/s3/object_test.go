@@ -165,14 +165,14 @@ func TestGetObject(t *testing.T) {
 	assert.Equal(t, "inline", h.Get("Content-Disposition"))
 	assert.Equal(t, "it", h.Get("Content-Language"))
 	assert.Equal(t, "bytes", h.Get("Accept-Ranges"))
-	assert.Equal(t, "alice", h.Get("x-amz-meta-owner"))
+	assert.Equal(t, []string{"alice"}, map[string][]string(h)["x-amz-meta-owner"], "metadata header names are lowercase, as S3 sends them")
 	assert.Equal(t, "2", h.Get("x-amz-tagging-count"))
 	assert.Equal(t, "v1", h.Get("x-amz-version-id"))
 	assert.Equal(t, "REDUCED_REDUNDANCY", h.Get("x-amz-storage-class"))
 	assert.Empty(t, h.Get("x-amz-checksum-sha256"), "checksums only with x-amz-checksum-mode")
 
 	// Checksum mode and response overrides on an authenticated request.
-	f.objects.EXPECT().GetObject(mock.Anything, "photos", "a.txt", object.GetObjectOptions{VersionID: "v1"}).Return(body("hello world", info, 0, 11), nil).Once()
+	f.objects.EXPECT().GetObject(mock.Anything, "photos", "a.txt", object.GetObjectOptions{VersionID: "v1", ChecksumMode: true}).Return(body("hello world", info, 0, 11), nil).Once()
 	rec = f.do(http.MethodGet, "/photos/a.txt?versionId=v1&response-content-type=application/json&response-content-disposition=attachment%3B%20filename%3Dx&response-cache-control=private&response-expires=0&response-content-language=en&response-content-encoding=br", "",
 		"x-amz-checksum-mode", "ENABLED")
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -189,7 +189,7 @@ func TestGetObject(t *testing.T) {
 func TestGetObjectRanges(t *testing.T) {
 	f := newFixture(t)
 	info := domain.ObjectInfo{Size: 100, ETag: "e", ModTime: now, Parts: 3, Checksum: domain.Checksum{Algorithm: domain.ChecksumCRC32, Value: "c"}}
-	f.objects.EXPECT().GetObject(mock.Anything, "b", "k", object.GetObjectOptions{Range: &domain.Range{Start: 10, End: 19}}).Return(body("0123456789", info, 10, 10), nil).Once()
+	f.objects.EXPECT().GetObject(mock.Anything, "b", "k", object.GetObjectOptions{Range: &domain.Range{Start: 10, End: 19}, ChecksumMode: true}).Return(body("0123456789", info, 10, 10), nil).Once()
 	rec := f.do(http.MethodGet, "/b/k", "", "Range", "bytes=10-19", "x-amz-checksum-mode", "ENABLED")
 	require.Equal(t, http.StatusPartialContent, rec.Code)
 	assert.Equal(t, "bytes 10-19/100", rec.Header().Get("Content-Range"))
@@ -323,7 +323,7 @@ func TestHeadObject(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "100", rec.Header().Get("Content-Length"))
 	assert.Equal(t, "image/png", rec.Header().Get("Content-Type"))
-	assert.Equal(t, "b", rec.Header().Get("x-amz-meta-a"))
+	assert.Equal(t, []string{"b"}, map[string][]string(rec.Header())["x-amz-meta-a"], "lowercase metadata header name")
 	assert.Empty(t, rec.Body.String())
 
 	f.objects.EXPECT().GetObjectInfo(mock.Anything, "b", "k", object.GetObjectOptions{Range: &domain.Range{IsSuffix: true, SuffixLength: 10, End: -1}}).Return(info, nil).Once()

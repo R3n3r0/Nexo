@@ -40,6 +40,8 @@ func marker(key, id string, modTime time.Time, latest bool) domain.ObjectInfo {
 
 func days(n int) *ilm.Expiration { return &ilm.Expiration{Days: n} }
 
+func ptr(n int64) *int64 { return &n }
+
 // TestEvaluate covers TS-U-11: the rules evaluated with a fake clock on
 // the versions of a key (filters by prefix, tags and size, days and
 // dates, versioning, noncurrent versions, delete markers, Object Lock)
@@ -61,6 +63,10 @@ func TestEvaluate(t *testing.T) {
 	lockedCurrentVersioned.Retention = domain.ObjectRetention{Mode: domain.RetentionCompliance, RetainUntil: due.AddDate(1, 0, 0)}
 	lockedNull := version("k", "null", created, true)
 	lockedNull.LegalHold = domain.LegalHoldOn
+	// A null version written before versioning was enabled, as a caller
+	// that does not label it lists it (without id).
+	lockedPreVersioning := version("k", "", created, true)
+	lockedPreVersioning.LegalHold = domain.LegalHoldOn
 
 	rule := func(id string, f ilm.Filter, mutate func(r *ilm.Rule)) ilm.Rule {
 		r := ilm.Rule{ID: id, Enabled: true, Filter: f}
@@ -173,6 +179,28 @@ func TestEvaluate(t *testing.T) {
 			versions: []domain.ObjectInfo{lockedNull},
 		},
 		{
+			name: "suspended: a locked null version written before versioning is kept", now: due, versioning: domain.VersioningSuspended,
+			rules:    []ilm.Rule{rule("r", ilm.Filter{}, expire3)},
+			versions: []domain.ObjectInfo{lockedPreVersioning},
+		},
+		{
+			name: "noncurrent: the null version written before versioning was enabled", now: due.AddDate(0, 1, 0), versioning: domain.VersioningEnabled,
+			rules: []ilm.Rule{rule("nc", ilm.Filter{}, noncurrent(1, 0))},
+			versions: []domain.ObjectInfo{
+				version("k", "v2", created.AddDate(0, 0, 1), true), version("k", "v1", created, false), version("k", "null", created.AddDate(0, 0, -1), false),
+			},
+			want: []ilm.Action{
+				{Type: ilm.ActionDeleteVersion, RuleID: "nc", Bucket: "b", Key: "k", VersionID: "v1", ModTime: created, Due: time.Date(2026, 1, 18, 0, 0, 0, 0, time.UTC)},
+				{Type: ilm.ActionDeleteVersion, RuleID: "nc", Bucket: "b", Key: "k", VersionID: "null", ModTime: created.AddDate(0, 0, -1), Due: time.Date(2026, 1, 17, 0, 0, 0, 0, time.UTC)},
+			},
+		},
+		{
+			name: "noncurrent: an unlabeled null version is evaluated too", now: due.AddDate(0, 1, 0), versioning: domain.VersioningEnabled,
+			rules:    []ilm.Rule{rule("nc", ilm.Filter{}, noncurrent(1, 0))},
+			versions: []domain.ObjectInfo{version("k", "v1", created, true), version("k", "", created.AddDate(0, 0, -1), false)},
+			want:     []ilm.Action{{Type: ilm.ActionDeleteVersion, RuleID: "nc", Bucket: "b", Key: "k", ModTime: created.AddDate(0, 0, -1), Due: time.Date(2026, 1, 17, 0, 0, 0, 0, time.UTC)}},
+		},
+		{
 			name: "current delete marker is not expired by days", now: due.AddDate(1, 0, 0), versioning: domain.VersioningEnabled,
 			rules:    []ilm.Rule{rule("r", ilm.Filter{}, expire3)},
 			versions: []domain.ObjectInfo{marker("k", "m", created, true), version("k", "v1", created.Add(-time.Hour), false)},
@@ -209,6 +237,38 @@ func TestEvaluate(t *testing.T) {
 			rules:    []ilm.Rule{rule("dm", ilm.Filter{}, func(r *ilm.Rule) { r.Expiration = &ilm.Expiration{ExpiredObjectDeleteMarker: true} })},
 			versions: []domain.ObjectInfo{marker("k", "m", created, true)},
 			want:     []ilm.Action{{Type: ilm.ActionDeleteVersion, RuleID: "dm", Bucket: "b", Key: "k", VersionID: "m", ModTime: created, Due: created}},
+		},
+		{
+			// AWS: "When you specify the Days tag, Amazon S3 automatically
+			// performs ExpiredObjectDeleteMarker cleanup when the delete
+			// markers are old enough to satisfy the age criteria".
+			name: "an expiration in days removes an expired object delete marker once old enough", now: due.AddDate(0, 1, 0), versioning: domain.VersioningEnabled,
+			rules:    []ilm.Rule{rule("r", ilm.Filter{}, expire3), rule("nc", ilm.Filter{}, noncurrent(1, 0))},
+			versions: []domain.ObjectInfo{marker("k", "m", created, true)},
+			want:     []ilm.Action{{Type: ilm.ActionDeleteVersion, RuleID: "r", Bucket: "b", Key: "k", VersionID: "m", ModTime: created, Due: due}},
+		},
+		{
+			name: "an expired object delete marker younger than the days stays", now: justBefore, versioning: domain.VersioningEnabled,
+			rules:    []ilm.Rule{rule("r", ilm.Filter{}, expire3)},
+			versions: []domain.ObjectInfo{marker("k", "m", created, true)},
+		},
+		{
+			name: "an expiration date does not remove delete markers", now: due.AddDate(1, 0, 0), versioning: domain.VersioningEnabled,
+			rules:    []ilm.Rule{{ID: "date", Enabled: true, Expiration: &ilm.Expiration{Date: due}}},
+			versions: []domain.ObjectInfo{marker("k", "m", created, true)},
+		},
+		{
+			// AWS example: ObjectSizeLessThan=1 expires the noncurrent
+			// objects without data, delete markers included (0 bytes).
+			name: "noncurrent: a size filter sees a marker as 0 bytes", now: due.AddDate(0, 1, 0), versioning: domain.VersioningEnabled,
+			rules:    []ilm.Rule{rule("empty", size(nil, ptr(1)), noncurrent(1, 0))},
+			versions: []domain.ObjectInfo{version("k", "v2", created, true), marker("k", "m1", created, false)},
+			want:     []ilm.Action{{Type: ilm.ActionDeleteVersion, RuleID: "empty", Bucket: "b", Key: "k", VersionID: "m1", ModTime: created, Due: time.Date(2026, 1, 17, 0, 0, 0, 0, time.UTC)}},
+		},
+		{
+			name: "noncurrent: a lower size bound never selects a marker", now: due.AddDate(0, 1, 0), versioning: domain.VersioningEnabled,
+			rules:    []ilm.Rule{rule("big", size(ptr(0), nil), noncurrent(1, 0))},
+			versions: []domain.ObjectInfo{version("k", "v2", created, true), marker("k", "m1", created, false)},
 		},
 		{
 			name: "a delete marker with versions behind it is not expired", now: created, versioning: domain.VersioningEnabled,

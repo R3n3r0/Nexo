@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"strings"
@@ -119,4 +120,76 @@ func TestConsoleUploadEncryption(t *testing.T) {
 	_, err = e.clientFor(user).PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(bucket), Key: aws.String("s3-plain.txt"),
 		Body: strings.NewReader("plain")})
 	assert.Equal(t, http.StatusForbidden, httpStatus(err), "the S3 API decides alike")
+}
+
+// TestConsoleKeepsEncryption (T-7.5): the console operations that copy an
+// object (rename, restore of a version) keep its encryption: an SSE-S3 or
+// SSE-KMS object in a bucket without default encryption is never
+// rewritten in clear nor under another KMS key, and an SSE-C object, which
+// the console cannot read, is refused with a clear error.
+//
+// covers: S-OBJ-13, D-OBJ-06
+func TestConsoleKeepsEncryption(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, testutil.WithKMS(), testutil.WithTLS())
+	c := e.tlsClient()
+	ctx := e.ctx
+	const bucket = "keep-sse"
+	_, err := c.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
+	require.NoError(t, err)
+	_, err = c.PutBucketVersioning(ctx, &s3.PutBucketVersioningInput{Bucket: aws.String(bucket),
+		VersioningConfiguration: &types.VersioningConfiguration{Status: types.BucketVersioningStatusEnabled}})
+	require.NoError(t, err)
+	const marker = "NEXO-CONSOLE-SSE-SECRET"
+	data := markedData(marker, 5000)
+	k := newSSECKey(9)
+	puts := []struct {
+		key string
+		in  s3.PutObjectInput
+	}{
+		{"s3.bin", s3.PutObjectInput{ServerSideEncryption: types.ServerSideEncryptionAes256}},
+		{"kms.bin", s3.PutObjectInput{ServerSideEncryption: types.ServerSideEncryptionAwsKms, SSEKMSKeyId: aws.String(testutil.KMSKeyName)}},
+		{"c.bin", s3.PutObjectInput{SSECustomerAlgorithm: aws.String("AES256"), SSECustomerKey: aws.String(k.key), SSECustomerKeyMD5: aws.String(k.md5)}},
+	}
+	versions := map[string]string{}
+	for _, p := range puts {
+		in := p.in
+		in.Bucket, in.Key, in.Body = aws.String(bucket), aws.String(p.key), bytes.NewReader(data)
+		out, err := c.PutObject(ctx, &in)
+		require.NoError(t, err, p.key)
+		versions[p.key] = aws.ToString(out.VersionId)
+	}
+	console := e.consoleLogin(e.rootCreds())
+
+	// Rename: the destination keeps the encryption of the source.
+	for _, p := range []struct{ src, dst string }{{"s3.bin", "s3-renamed.bin"}, {"kms.bin", "kms-renamed.bin"}} {
+		resp := console.do(http.MethodPost, "/buckets/"+bucket+"/objects/rename", fmt.Sprintf(`{"source":%q,"destination":%q}`, p.src, p.dst))
+		require.Equal(t, http.StatusOK, resp.StatusCode, "%s", resp.Body)
+	}
+	head, err := c.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(bucket), Key: aws.String("s3-renamed.bin")})
+	require.NoError(t, err)
+	assert.Equal(t, types.ServerSideEncryptionAes256, head.ServerSideEncryption)
+	head, err = c.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(bucket), Key: aws.String("kms-renamed.bin")})
+	require.NoError(t, err)
+	assert.Equal(t, types.ServerSideEncryptionAwsKms, head.ServerSideEncryption)
+	assert.Equal(t, testutil.KMSKeyName, aws.ToString(head.SSEKMSKeyId), "the KMS key of the source")
+	resp := console.do(http.MethodPost, "/buckets/"+bucket+"/objects/rename", `{"source":"c.bin","destination":"c-renamed.bin"}`)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "%s", resp.Body)
+	assert.Contains(t, string(resp.Body), "customer-provided key")
+
+	// Restore of a version: the restored copy keeps its encryption.
+	for _, key := range []string{"s3.bin", "kms.bin"} {
+		resp := console.do(http.MethodPost, "/buckets/"+bucket+"/objects/restore?key="+key+"&versionId="+versions[key], "")
+		require.Equal(t, http.StatusCreated, resp.StatusCode, "%s", resp.Body)
+		head, err := c.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
+		require.NoError(t, err)
+		assert.NotEmpty(t, head.ServerSideEncryption, "%s: the restored version is encrypted", key)
+		got, err := c.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
+		require.NoError(t, err)
+		assert.Equal(t, data, readAll(t, got))
+	}
+	resp = console.do(http.MethodPost, "/buckets/"+bucket+"/objects/restore?key=c.bin&versionId="+versions["c.bin"], "")
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "%s", resp.Body)
+
+	assert.False(t, drivesContain(t, e.srv, marker), "no console operation stored the plaintext")
 }

@@ -331,16 +331,40 @@ func TestNewKESValidation(t *testing.T) {
 		{name: "no client", opts: []kms.Option{kms.WithEndpoints("https://kes"), kms.WithDefaultKey("k")}},
 		{name: "no endpoint", deps: kms.KESDeps{HTTP: doer}, opts: []kms.Option{kms.WithDefaultKey("k")}},
 		{name: "bad endpoint", deps: kms.KESDeps{HTTP: doer}, opts: []kms.Option{kms.WithEndpoints("kes:7373"), kms.WithDefaultKey("k")}},
+		// The data keys travel in clear in the KES API: plain HTTP is refused.
+		{name: "plain http", deps: kms.KESDeps{HTTP: doer}, opts: []kms.Option{kms.WithEndpoints("https://kes1", "http://127.0.0.1:7373"), kms.WithDefaultKey("k")}},
+		{name: "credentials in the URL", deps: kms.KESDeps{HTTP: doer}, opts: []kms.Option{kms.WithEndpoints("https://user:s3cr3t-pass@kes"), kms.WithDefaultKey("k")}},
+		{name: "credentials over plain http", deps: kms.KESDeps{HTTP: doer}, opts: []kms.Option{kms.WithEndpoints("http://user:s3cr3t-pass@kes?token=s3cr3t-pass"), kms.WithDefaultKey("k")}},
+		{name: "credentials in a malformed URL", deps: kms.KESDeps{HTTP: doer}, opts: []kms.Option{kms.WithEndpoints("https://user:s3cr3t-pass@kes host"), kms.WithDefaultKey("k")}},
 		{name: "no default key", deps: kms.KESDeps{HTTP: doer}, opts: []kms.Option{kms.WithEndpoints("https://kes")}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := kms.NewKES(tt.deps, tt.opts...)
 			require.ErrorIs(t, err, domain.ErrInvalidArgument)
+			assert.NotContains(t, err.Error(), "s3cr3t-pass", "the errors are logged: no credentials")
 		})
 	}
 	_, err := kms.NewKESClient("cert-only.pem", "", "")
 	require.ErrorIs(t, err, domain.ErrInvalidArgument)
+}
+
+// TestKESNoRedirect: the client never follows a redirect of a KES server
+// (a data key, or the request of one, would reach another host): the
+// redirect is an error.
+func TestKESNoRedirect(t *testing.T) {
+	ctx := context.Background()
+	p := newPKI(t)
+	target := startKES(t, p, newFakeKES("nexo-default"))
+	redirector := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+r.URL.Path, http.StatusTemporaryRedirect)
+	}))
+	redirector.TLS = p.serverTLS
+	redirector.StartTLS()
+	t.Cleanup(redirector.Close)
+	k := newKESClient(t, p, redirector.URL)
+	_, err := k.GenerateKey(ctx, "", kms.Context{"aws:s3:arn": "arn:aws:s3:::b/o"})
+	require.ErrorIs(t, err, domain.ErrKMSUnavailable, "the redirect is not followed")
 }
 
 // TestKESErrorMapping maps the HTTP errors of a KES server to the domain
@@ -410,7 +434,7 @@ func newDocsKeyStore(t *testing.T) kms.KeyStore {
 		}
 		return out, nil
 	}).Maybe()
-	s, err := kms.NewDocsKeyStore(m)
+	s, err := kms.NewKeyStore(kms.KeyStoreDeps{Docs: m})
 	require.NoError(t, err)
 	return s
 }

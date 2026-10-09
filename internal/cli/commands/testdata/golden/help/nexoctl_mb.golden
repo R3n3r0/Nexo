@@ -1,6 +1,7 @@
 Make buckets. --with-lock creates them with Object Lock (WORM retention and
 legal holds, see "nexoctl retention" and "nexoctl legalhold"), which implies
-versioning and can only be enabled at creation.
+versioning; an existing bucket can get it later only once its versioning is
+enabled.
 
 Usage:
   nexoctl mb [flags] ALIAS/BUCKET...

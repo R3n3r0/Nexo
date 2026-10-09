@@ -42,9 +42,11 @@ func (e listEncoder) Encode(s string) string {
 	return s3URLEncode(s)
 }
 
-// s3URLEncode is the URL encoding of S3 listings: url.QueryEscape (spaces
-// become "+") except that "/" and "*" are kept as is, so that clients
-// decode it with a query unescape.
+// s3URLEncode is the URL encoding of S3 listings: the unreserved
+// characters, "/" and "*" are kept as is, every other byte is
+// percent-encoded, the space included ("%20", never "+"), so that both a
+// query unescape (the SDKs) and a path unescape decode it (Ceph s3-tests
+// test_bucket_list_encoding_basic).
 func s3URLEncode(s string) string {
 	if s == "" {
 		return ""
@@ -58,8 +60,6 @@ func s3URLEncode(s string) string {
 		case 'A' <= c && c <= 'Z', 'a' <= c && c <= 'z', '0' <= c && c <= '9',
 			c == '-', c == '_', c == '.', c == '/', c == '*':
 			b.WriteByte(c)
-		case c == ' ':
-			b.WriteByte('+')
 		default:
 			b.WriteByte('%')
 			b.WriteByte(hex[c>>4])

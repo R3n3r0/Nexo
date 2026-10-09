@@ -48,6 +48,21 @@ type KMSKey struct {
 	Default bool `json:"default,omitempty"`
 }
 
+// KMSResealResult is the outcome of ResealKMSKeys.
+type KMSResealResult struct {
+	// Buckets counts the buckets walked.
+	Buckets int `json:"buckets"`
+	// Versions counts the SSE-S3 and SSE-KMS versions met, Uploads the
+	// pending multipart uploads of such objects; Resealed counts the
+	// versions and uploads re-sealed under the current master key, Failed
+	// those that could not be (FirstError tells why).
+	Versions   int    `json:"versions"`
+	Uploads    int    `json:"uploads"`
+	Resealed   int    `json:"resealed"`
+	Failed     int    `json:"failed"`
+	FirstError string `json:"firstError,omitempty"`
+}
+
 // KMSStatus implements AdminClient.
 func (c *client) KMSStatus(ctx context.Context) (*KMSStatus, error) {
 	var out KMSStatus
@@ -78,4 +93,14 @@ func (c *client) CreateKMSKey(ctx context.Context, id string) (*KMSKey, error) {
 	return &out, c.do(ctx, request{method: http.MethodPost, path: "/kms/keys", body: struct {
 		ID string `json:"id"`
 	}{id}}, &out)
+}
+
+// ResealKMSKeys implements AdminClient.
+func (c *client) ResealKMSKeys(ctx context.Context, bucket string) (*KMSResealResult, error) {
+	var q url.Values
+	if bucket != "" {
+		q = url.Values{"bucket": {bucket}}
+	}
+	var out KMSResealResult
+	return &out, c.do(ctx, request{method: http.MethodPost, path: "/kms/reseal", query: q}, &out)
 }

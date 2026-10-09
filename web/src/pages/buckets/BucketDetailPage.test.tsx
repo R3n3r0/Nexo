@@ -208,7 +208,9 @@ describe('BucketSettingsTab (D-BKT-02)', () => {
     renderRoutes(routes, { initialEntries: ['/buckets/backups/settings'], services: admin() });
     const lock = await screen.findByRole('region', { name: 'Object lock' });
     expect(
-      await within(lock).findByText('Object lock can only be enabled when the bucket is created.'),
+      await within(lock).findByText(
+        'Object lock is enabled when the bucket is created; an existing bucket can enable it through the S3 API once its versioning is enabled.',
+      ),
     ).toBeInTheDocument();
     expect(
       within(lock).queryByRole('button', { name: 'Enable object lock' }),

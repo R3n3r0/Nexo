@@ -13,6 +13,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/config"
+	"github.com/r3n3r0/nexo/internal/service/event"
 	"github.com/r3n3r0/nexo/internal/service/settings"
 )
 
@@ -151,7 +152,7 @@ func notifyKeys(specific ...KeySchema) []KeySchema {
 	}
 	keys = append(keys, specific...)
 	return append(keys,
-		KeySchema{Name: "queue_dir", Type: KeyString, Description: "Directory of the persistent event queue (default: the system volume of a local drive)"},
+		KeySchema{Name: "queue_dir", Type: KeyString, Description: "Sub-directory of the persistent event queue, relative to the event queue root on the first local drive of each node (default: one per target)"},
 		KeySchema{Name: "queue_limit", Type: KeyInt, Default: "100000", Description: "Maximum queued events"},
 		KeySchema{Name: "comment", Type: KeyString, Description: "Free text"},
 	)
@@ -220,13 +221,35 @@ func (m *configManager) Get(ctx context.Context, name string) (config.KV, error)
 func mask(s SubsystemSchema, kv config.KV) config.KV {
 	out := make(config.KV, len(kv))
 	for k, v := range kv {
-		if ks, ok := s.key(k); ok && ks.Sensitive && v != "" {
+		if ks, ok := s.key(k); ok && secretValue(ks, v) {
 			v = SensitiveMask
 		}
 		out[k] = v
 	}
 	return out
 }
+
+// secretValue reports whether a value is a secret to mask: a sensitive key,
+// or a URL carrying credentials (user info or a query, where webhook
+// ingest URLs usually put their token), in a URL key or in a string key
+// that holds one ("nats://user:pass@host", "redis://:pass@host").
+func secretValue(ks KeySchema, v string) bool {
+	if v == "" {
+		return false
+	}
+	if ks.Sensitive {
+		return true
+	}
+	if !mayHoldURL(ks) || (ks.Type == KeyString && !strings.Contains(v, "://")) {
+		return false
+	}
+	u, err := url.Parse(v)
+	return err != nil || u.User != nil || u.RawQuery != "" || u.ForceQuery
+}
+
+// mayHoldURL reports the keys whose value may be a URL with credentials:
+// masked by secretValue, so the mask written back keeps the stored value.
+func mayHoldURL(ks KeySchema) bool { return ks.Type == KeyURL || ks.Type == KeyString }
 
 // validate checks kv against the schema of s and returns it without the
 // masked sensitive values (which keep the stored secret).
@@ -237,11 +260,16 @@ func validate(s SubsystemSchema, kv config.KV) (config.KV, error) {
 		if !ok {
 			return nil, fmt.Errorf("%w: unknown key %q of subsystem %s", domain.ErrInvalidArgument, k, s.Name)
 		}
-		if ks.Sensitive && v == SensitiveMask {
+		if (ks.Sensitive || mayHoldURL(ks)) && v == SensitiveMask {
 			continue
 		}
 		if err := checkValue(ks, v); err != nil {
 			return nil, fmt.Errorf("%w: %s.%s: %s", domain.ErrInvalidArgument, s.Name, k, err)
+		}
+		if k == event.KeyQueueDir && strings.HasPrefix(s.Name, event.SubsystemPrefix) {
+			if err := event.ValidateQueueDir(v); err != nil {
+				return nil, fmt.Errorf("%s.%s: %w", s.Name, k, err)
+			}
 		}
 		out[k] = v
 	}

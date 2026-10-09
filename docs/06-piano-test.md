@@ -22,6 +22,20 @@
 | Notturna | s3-tests, mint, suite chaos cluster, fuzz 1 h, benchmark con confronto vs baseline (regressione > 10% = fallimento) |
 | Release | Test di upgrade, scansione immagini (trivy), SBOM |
 
+### Suite di compatibilità Ceph `s3-tests`
+
+`test/compat/run-s3tests.sh` (`make test-s3compat`, job notturno `s3tests-nightly`) scarica `ceph/s3-tests` a un
+commit fissato, crea un venv Python con le dipendenze bloccate da `test/compat/constraints.txt`, avvia `bin/nexo`
+su TLS con il KMS integrato (SNMD a 4 dischi; `NEXO_S3TESTS_MODE=snsd|cluster` per le altre modalità, tutte e tre nel
+job notturno), crea con
+`nexoctl admin` gli utenti `main`, `alt` e `tenant` della suite e le chiavi KMS, genera `s3tests.conf` ed esegue
+`test_s3.py` con pytest. Il plugin `test/compat/nexo_s3tests.py` deseleziona i test di `test/compat/excluded.txt`
+(ognuno con il motivo: funzionalità fuori catalogo o P2, comportamenti specifici di RGW, differenze note di
+[02 §2.4](02-funzionalita.md)), classifica i test per gruppo funzionale e scrive `report.txt`/`report.json`
+(esito per test e per gruppo). Senza rete (git/pip) l'esecuzione locale è saltata e documentata in
+`report/SKIPPED`; in CI (`NEXO_S3TESTS_REQUIRE_NETWORK=1`) è un errore. Il job fallisce se un gruppo obiettivo
+di M7 (versioning, object lock, multipart, tagging, SSE-C, CORS, checksum) supera meno del 90% dei test applicabili.
+
 **Soglie di copertura**: `internal/{auth,policy,erasure,storage,object,iam}` ≥ 85%; resto backend ≥ 70%; web ≥ 75% (statements).
 
 ---
@@ -41,9 +55,9 @@
 | TS-U-08 | Policy engine | Allow/Deny, deny esplicito prevale, wildcard in Action/Resource, ogni operatore Condition, variabili, NotAction/NotResource, policy invalide rifiutate |
 | TS-U-09 | Nomi bucket/oggetti | Regole DNS bucket; chiavi con unicode, `//`, `..`, `\`, null byte, lunghezza 1024 byte; path traversal impossibile |
 | TS-U-10 | Errori S3 | Ogni `ErrorCode` → status HTTP e XML corretti |
-| TS-U-11 | Lifecycle | Valutazione regole con clock finto: filtri prefix/tag/size, giorni, date, noncurrent, MPU |
+| TS-U-11 | Lifecycle | Valutazione regole con clock finto: filtri prefix/tag/size, giorni, date, noncurrent (anche la versione `null` scritta prima del versioning), MPU; le cancellazioni sono condizionate alla versione valutata (una scrittura intercalata tra valutazione e cancellazione non viene mai rimossa né nascosta) |
 | TS-U-12 | Object lock | Matrice governance/compliance × bypass × legal hold × utente |
-| TS-U-13 | Crypto | DARE encrypt/decrypt, range su oggetti cifrati, rotazione chiave, SSE-C chiave errata → 403 |
+| TS-U-13 | Crypto | DARE encrypt/decrypt, range su oggetti cifrati, rotazione della master key con ri-sigillatura delle chiavi dati (`admin kms reseal`), chiavi distinte per ogni caricamento di una parte, checksum sigillati, SSE-C chiave errata → 403; anti-troncamento (una sorgente che fallisce, anche con `io.ErrUnexpectedEOF`, fa fallire lo stream e la codifica erasure: un corpo di dimensione ignota troncato è `400 IncompleteBody` in ogni modalità, con e senza SSE); upload multipart in corso ri-sigillati da `reseal`; chiavi redatte in log e JSON; in matrice anche con un KES simulato su mTLS (`testutil.WithKES`) e SSE-C rifiutata su HTTP in chiaro |
 | TS-U-14 | dsync | Acquisizione con quorum, perdita quorum durante refresh, scadenza lock orfani, read/write concorrenti |
 | TS-U-15 | Placement | Distribuzione uniforme delle chiavi sui set (test chi-quadro), stabilità dell'hash tra versioni |
 
@@ -61,10 +75,10 @@
 | TS-I-09 | Utente readonly/writeonly/custom: matrice di 20 operazioni × policy | Allow/Deny attesi |
 | TS-I-10 | Bucket pubblico in lettura, accesso anonimo a list/get/put | Solo quanto concesso |
 | TS-I-11 | Service account con policy inline più restrittiva del parent | Intersezione rispettata |
-| TS-I-12 | Versioning: put×3, delete (marker), get versione specifica, delete versione, suspend | Conforme S3 |
+| TS-I-12 | Versioning: put×3, delete (marker), get versione specifica, delete versione, suspend; bucket versionato dopo le prime scritture (versione `null` indirizzabile, cancellazione di tutte le versioni e forzata dalla console senza marker residui) | Conforme S3 |
 | TS-I-13 | Concorrenza: 100 goroutine PUT sulla stessa chiave + GET | Sempre un oggetto completo e consistente |
 | TS-I-14 | Read-after-write: PUT poi GET/LIST immediati | Sempre visibile |
-| TS-I-15 | Eventi: webhook di test riceve `ObjectCreated`/`ObjectRemoved` con payload S3 standard; target offline → recapito dopo ripristino | — |
+| TS-I-15 | Eventi: webhook di test riceve `ObjectCreated`/`ObjectRemoved` con payload S3 standard; target offline → recapito dopo ripristino; `sequencer` monotono per chiave con orologi sfasati; nessun evento per retention/legal hold; i webhook non seguono i redirect | — |
 | TS-I-16 | Quota: superamento | Errore e nessun dato scritto |
 | TS-I-17 | Riavvio del server: tutti i dati, IAM, config, multipart in corso preservati | — |
 | TS-I-18 | Crash (SIGKILL) durante PUT di 1 GiB | Nessun oggetto parziale; tmp ripuliti |

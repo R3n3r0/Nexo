@@ -256,7 +256,7 @@ func kmsError(err error) error {
 
 // errSSECRequired is the read of an SSE-C object without its key.
 func errSSECRequired() error {
-	return domain.NewS3Error(domain.ErrInvalidArgument, "InvalidRequest",
+	return domain.NewS3Error(domain.ErrSSECustomerKeyRequired, "InvalidRequest",
 		"The object was stored using a form of Server Side Encryption. The correct parameters must be provided to retrieve the object.")
 }
 

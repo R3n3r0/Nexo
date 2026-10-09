@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/r3n3r0/nexo/internal/domain"
 )
 
 // Defaults.
@@ -92,6 +94,11 @@ type Static struct {
 	// without invalidation: the safety net of the invalidations a node
 	// missed (environment only; zero keeps the default 2m).
 	CacheResyncInterval time.Duration `json:"-"`
+	// SendTimeout bounds how long the body of an object download may stall
+	// (environment only; zero keeps the default 20s): a client that stops
+	// reading has its response aborted, releasing the read lock of the
+	// object (docs/02 §2.4).
+	SendTimeout time.Duration `json:"-"`
 
 	// KMS of the server-side encryption (docs/07 §7.2): the builtin KMS
 	// keyed by KMSSecretKey, or the external KES servers of KMSEndpoints;
@@ -203,7 +210,7 @@ func (s Static) Validate() error {
 	}
 	for name, d := range map[string]time.Duration{
 		"lock stale after": s.LockStaleAfter, "lock refresh interval": s.LockRefreshInterval, "rpc call timeout": s.RPCCallTimeout,
-		"heal retry max delay": s.HealRetryMaxDelay, "cache resync interval": s.CacheResyncInterval,
+		"heal retry max delay": s.HealRetryMaxDelay, "cache resync interval": s.CacheResyncInterval, "send timeout": s.SendTimeout,
 	} {
 		if d < 0 {
 			errs = append(errs, fmt.Errorf("%s %s must not be negative", name, d))
@@ -244,8 +251,17 @@ func (s Static) validateKMS() []error {
 			errs = append(errs, errors.New("kms: the KES default key is required (NEXO_KMS_KEY_NAME)"))
 		}
 		for _, e := range s.KMSEndpoints {
-			if u, err := url.Parse(e); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-				errs = append(errs, fmt.Errorf("kms: endpoint %q must be an http(s) URL", e))
+			// https only: the KES API returns the data keys in clear. The
+			// errors reach stderr and the startup logs: the endpoint is
+			// printed without its user info and query.
+			shown := domain.RedactURL(e)
+			switch u, err := url.Parse(e); {
+			case err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http"):
+				errs = append(errs, fmt.Errorf("kms: endpoint %q must be an https URL (NEXO_KMS_ENDPOINT)", shown))
+			case u.Scheme != "https":
+				errs = append(errs, fmt.Errorf("kms: endpoint %q must use https (NEXO_KMS_ENDPOINT): the KES API returns the data keys in clear", shown))
+			case u.User != nil:
+				errs = append(errs, fmt.Errorf("kms: endpoint %q must not carry credentials (NEXO_KMS_ENDPOINT)", shown))
 			}
 		}
 	}

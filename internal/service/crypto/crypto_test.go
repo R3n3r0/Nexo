@@ -7,10 +7,13 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"testing"
+	"testing/iotest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -69,7 +72,7 @@ func randomData(t *testing.T, n int) []byte {
 // encrypt returns the stored form of part n of plain.
 func encrypt(t *testing.T, k crypto.ObjectKey, n int, plain []byte) []byte {
 	t.Helper()
-	r, err := k.EncryptPart(n, bytes.NewReader(plain))
+	r, err := k.EncryptPart(n, nil, bytes.NewReader(plain))
 	require.NoError(t, err)
 	out, err := io.ReadAll(r)
 	require.NoError(t, err)
@@ -87,7 +90,7 @@ func decrypt(k crypto.ObjectKey, n int, stored []byte, plainSize, offset, length
 	if end > int64(len(stored)) {
 		end = int64(len(stored))
 	}
-	r, err := k.DecryptPart(n, bytes.NewReader(stored[rng.StoredOffset:end]), rng)
+	r, err := k.DecryptPart(n, nil, bytes.NewReader(stored[rng.StoredOffset:end]), rng)
 	if err != nil {
 		return nil, err
 	}
@@ -142,6 +145,75 @@ func TestEncryptDecrypt(t *testing.T) {
 				assert.True(t, bytes.Equal(plain, got), "size %d", size)
 			}
 		})
+	}
+}
+
+// TestObjectKeyRedacted (docs/07 §7.2): an object key printed, logged or
+// encoded in JSON by mistake shows its type and cipher, never the key.
+func TestObjectKeyRedacted(t *testing.T) {
+	svc, _ := newService(t)
+	k, err := svc.Seal(context.Background(), crypto.SealInput{Bucket: "b", Object: "o", Request: domain.SSERequest{Type: domain.SSES3}})
+	require.NoError(t, err)
+	raw := crypto.KeyBytes(k)
+	holder := struct{ Key crypto.ObjectKey }{k}
+	var logs bytes.Buffer
+	slog.New(slog.NewTextHandler(&logs, nil)).Info("sse", "key", k, "holder", holder)
+	slog.New(slog.NewJSONHandler(&logs, nil)).Info("sse", "key", k, "holder", holder)
+	asJSON, err := json.Marshal(holder)
+	require.NoError(t, err)
+	outputs := []string{
+		fmt.Sprintf("%v", k), fmt.Sprintf("%+v", k), fmt.Sprintf("%#v", k), fmt.Sprintf("%x", k), fmt.Sprintf("%d", k),
+		fmt.Sprintf("%+v", holder), fmt.Sprintf("%#v", holder), logs.String(), string(asJSON),
+	}
+	for _, out := range outputs {
+		for _, leak := range []string{hex.EncodeToString(raw), base64.StdEncoding.EncodeToString(raw), fmt.Sprintf("%d %d %d %d", raw[0], raw[1], raw[2], raw[3]), string(raw)} {
+			assert.NotContains(t, out, leak)
+		}
+		assert.Contains(t, out, "SSE-S3")
+	}
+}
+
+// failingAfter returns a source that yields plain, then fails with err.
+func failingAfter(plain []byte, err error) io.Reader {
+	return io.MultiReader(bytes.NewReader(plain), iotest.ErrReader(err))
+}
+
+// TestEncryptSourceFailure (anti-truncation): a source that fails, even
+// with io.ErrUnexpectedEOF (a body cut short), fails the encrypted stream
+// with its error, wherever it fails (inside a package, at a package
+// boundary, on the byte read ahead): a truncated plaintext is never
+// sealed as a complete stream. The end of the source (io.EOF), however it
+// is delivered, ends the stream.
+func TestEncryptSourceFailure(t *testing.T) {
+	svc, _ := newService(t)
+	k, err := svc.Seal(context.Background(), crypto.SealInput{Bucket: "b", Object: "o", Request: domain.SSERequest{Type: domain.SSES3}})
+	require.NoError(t, err)
+	cut := errors.New("connection reset")
+	for _, size := range []int{0, 1, 100000, pkg - 1, pkg, pkg + 1, 2 * pkg} {
+		for _, srcErr := range []error{io.ErrUnexpectedEOF, cut} {
+			r, err := k.EncryptPart(1, nil, failingAfter(make([]byte, size), srcErr))
+			require.NoError(t, err)
+			_, err = io.ReadAll(r)
+			require.ErrorIs(t, err, srcErr, "size %d", size)
+			_, err = r.Read(make([]byte, 1))
+			assert.ErrorIs(t, err, srcErr, "the failure is sticky (size %d)", size)
+		}
+	}
+	for _, size := range []int{0, 1, pkg - 1, pkg, pkg + 1, 2*pkg + 3} {
+		plain := randomData(t, size)
+		for name, src := range map[string]io.Reader{
+			"one byte at a time": iotest.OneByteReader(bytes.NewReader(plain)),
+			"data with EOF":      iotest.DataErrReader(bytes.NewReader(plain)),
+			"half reads":         iotest.HalfReader(bytes.NewReader(plain)),
+		} {
+			r, err := k.EncryptPart(1, nil, src)
+			require.NoError(t, err)
+			stored, err := io.ReadAll(r)
+			require.NoError(t, err, "%s, size %d", name, size)
+			got, err := decrypt(k, 1, stored, int64(size), 0, int64(size))
+			require.NoError(t, err, "%s, size %d", name, size)
+			assert.True(t, bytes.Equal(plain, got), "%s, size %d", name, size)
+		}
 	}
 }
 
@@ -405,4 +477,116 @@ func TestNewSSECustomerKey(t *testing.T) {
 			assert.Equal(t, good, k.KeyMD5)
 		})
 	}
+}
+
+// encryptSalted returns the stored form of part n of plain encrypted with
+// salt.
+func encryptSalted(t *testing.T, k crypto.ObjectKey, n int, salt, plain []byte) []byte {
+	t.Helper()
+	r, err := k.EncryptPart(n, salt, bytes.NewReader(plain))
+	require.NoError(t, err)
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	return out
+}
+
+func xor(a, b []byte) []byte {
+	out := make([]byte, min(len(a), len(b)))
+	for i := range out {
+		out[i] = a[i] ^ b[i]
+	}
+	return out
+}
+
+// TestPartSaltKeystreams (TS-U-13): two uploads of the same part number of
+// one upload (same object key) encrypt under independent keystreams when
+// each has its own salt, so that the ciphertexts never reveal the XOR of
+// the plaintexts; a part reads back only with its own salt.
+func TestPartSaltKeystreams(t *testing.T) {
+	ctx := context.Background()
+	for _, c := range []crypto.Cipher{crypto.CipherAESGCM, crypto.CipherChaCha20Poly1305} {
+		t.Run(string(c), func(t *testing.T) {
+			svc, _ := newService(t, crypto.WithCipher(c))
+			k, err := svc.Seal(ctx, crypto.SealInput{Bucket: "b", Object: "o", Request: domain.SSERequest{Type: domain.SSES3}})
+			require.NoError(t, err)
+			p1 := bytes.Repeat([]byte("A"), 2*pkg)
+			p2 := bytes.Repeat([]byte("secret-plaintext-"), 2*pkg/17+1)[:2*pkg]
+			s1, err := crypto.NewPartSalt()
+			require.NoError(t, err)
+			s2, err := crypto.NewPartSalt()
+			require.NoError(t, err)
+			require.Len(t, s1, crypto.PartSaltSize)
+			require.NotEqual(t, s1, s2)
+
+			c1 := encryptSalted(t, k, 1, s1, p1)
+			c2 := encryptSalted(t, k, 1, s2, p2)
+			assert.NotEqual(t, xor(p1, p2)[:pkg], xor(c1, c2)[:pkg], "the keystreams are independent")
+			// The unsalted derivation of the same part number is yet another key.
+			c0 := encryptSalted(t, k, 1, nil, p1)
+			assert.NotEqual(t, c0, c1)
+
+			rng, err := crypto.PackageRange(int64(len(p2)), 0, int64(len(p2)))
+			require.NoError(t, err)
+			r, err := k.DecryptPart(1, s2, bytes.NewReader(c2), rng)
+			require.NoError(t, err)
+			got, err := io.ReadAll(r)
+			require.NoError(t, err)
+			assert.True(t, bytes.Equal(p2, got))
+			for name, salt := range map[string][]byte{"other salt": s1, "no salt": nil} {
+				r, err := k.DecryptPart(1, salt, bytes.NewReader(c2), rng)
+				require.NoError(t, err)
+				_, err = io.ReadAll(r)
+				assert.ErrorIs(t, err, domain.ErrDecryption, name)
+			}
+			_, err = k.EncryptPart(1, []byte("short"), bytes.NewReader(p1))
+			assert.Error(t, err, "a salt has PartSaltSize bytes")
+		})
+	}
+}
+
+// TestSealValue: the sealed metadata values (checksums of the plaintext)
+// open only with their object key and their name, and never repeat.
+func TestSealValue(t *testing.T) {
+	ctx := context.Background()
+	svc, _ := newService(t)
+	k, err := svc.Seal(ctx, crypto.SealInput{Bucket: "b", Object: "o", Request: domain.SSERequest{Type: domain.SSEC, CustomerKey: customerKey(t)}})
+	require.NoError(t, err)
+	other, err := svc.Seal(ctx, crypto.SealInput{Bucket: "b", Object: "o", Request: domain.SSERequest{Type: domain.SSES3}})
+	require.NoError(t, err)
+	const value = "A6xnQhbz4Vx2HuGl4lXwZ5U2I8iziLRFnhP5eNfIRvQ=" // sha256 of "1234"
+
+	sealed, err := k.SealValue("sha256", value)
+	require.NoError(t, err)
+	assert.True(t, crypto.IsSealedValue(sealed))
+	assert.NotContains(t, sealed, value)
+	again, err := k.SealValue("sha256", value)
+	require.NoError(t, err)
+	assert.NotEqual(t, sealed, again, "random nonce")
+
+	got, err := k.OpenValue("sha256", sealed)
+	require.NoError(t, err)
+	assert.Equal(t, value, got)
+	tampered := sealed[:len(sealed)-2] + "AA"
+	if tampered == sealed {
+		tampered = sealed[:len(sealed)-2] + "BB"
+	}
+	tests := []struct {
+		name   string
+		key    crypto.ObjectKey
+		field  string
+		sealed string
+	}{
+		{"other name", k, "crc32", sealed},
+		{"other key", other, "sha256", sealed},
+		{"tampered", k, "sha256", tampered},
+		{"truncated", k, "sha256", "sse1:AAAA"},
+		{"not base64", k, "sha256", "sse1:***"},
+	}
+	for _, tt := range tests {
+		_, err := tt.key.OpenValue(tt.field, tt.sealed)
+		assert.ErrorIs(t, err, domain.ErrDecryption, tt.name)
+	}
+	clear, err := k.OpenValue("sha256", value)
+	require.NoError(t, err)
+	assert.Equal(t, value, clear, "a value written before the sealing is returned as is")
 }

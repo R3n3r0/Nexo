@@ -1,6 +1,7 @@
 package object
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/url"
@@ -38,6 +39,10 @@ const (
 	// metaActualSize is the plaintext size of an encrypted version (its
 	// stored size is the one of the ciphertext). It is internal.
 	metaActualSize = "x-nexo-internal-actual-size"
+	// metaUploadID is the multipart upload a version was completed from:
+	// a retried completion of that upload (its response lost) answers
+	// with the version instead of NoSuchUpload. It is internal.
+	metaUploadID = "x-nexo-internal-upload-id"
 )
 
 // metaStamp returns the in-place update stamp of a version's metadata, 0
@@ -181,7 +186,9 @@ func objectInfo(bucket, key string, fi storage.FileInfo) domain.ObjectInfo {
 	if info.VersionID == "" && fi.Versioned {
 		// The null version of a versioned (or suspended) bucket is
 		// reported as "null", like S3 (x-amz-version-id: null); only
-		// unversioned buckets have no version id at all.
+		// unversioned buckets have no version id at all. A null version
+		// written before versioning was enabled has no versioned flag:
+		// labelNull reports it from the bucket state.
 		info.VersionID = nullVersion
 	}
 	for k, v := range fi.Metadata {
@@ -212,6 +219,12 @@ func objectInfo(bucket, key string, fi storage.FileInfo) domain.ObjectInfo {
 			// Read with the checksum, below.
 		case strings.HasPrefix(k, metaChecksumPrefix):
 			info.Checksum = domain.Checksum{Algorithm: domain.ChecksumAlgorithm(strings.ToUpper(strings.TrimPrefix(k, metaChecksumPrefix))), Value: v}
+		case strings.HasPrefix(k, metaSealedChecksumPrefix):
+			// Sealed (encrypted version, openChecksums not applied): the
+			// algorithm only.
+			if info.Checksum.Value == "" {
+				info.Checksum = domain.Checksum{Algorithm: domain.ChecksumAlgorithm(strings.ToUpper(strings.TrimPrefix(k, metaSealedChecksumPrefix)))}
+			}
 		case k == metaLockMode:
 			info.Retention.Mode = domain.RetentionMode(v)
 		case k == metaLockRetainUntil:
@@ -233,6 +246,51 @@ func objectInfo(bucket, key string, fi storage.FileInfo) domain.ObjectInfo {
 		info.StorageClass = domain.StorageClassStandard
 	}
 	return info
+}
+
+// nullLabel returns the version id the null version of bucket is
+// reported with: "null" when the bucket has a versioning state (enabled
+// or suspended), "" when it never had versioning. When the settings of the
+// bucket cannot be read, the label stays "" (logged): the read is served
+// anyway, and the callers that address versions treat "" as the null
+// version too.
+func (l *layer) nullLabel(ctx context.Context, bucket string) string {
+	cfg, err := l.bucketConfig(ctx, bucket)
+	if err != nil {
+		l.deps.Logger.DebugContext(ctx, "object: cannot read the versioning of the bucket", "bucket", bucket, "err", err)
+		return ""
+	}
+	if cfg.Versioning.Versioned() {
+		return nullVersion
+	}
+	return ""
+}
+
+// labelNull reports a version without id as "null" when its bucket has a
+// versioning state (see nullLabel): a version written before versioning
+// was enabled is the null version of the bucket, addressed as "null" by
+// every caller (S3, the lifecycle, the console), like the null version
+// written while versioning is suspended. objectInfo alone reports it
+// without id, since the version does not record the later change.
+func (l *layer) labelNull(ctx context.Context, bucket string, info *domain.ObjectInfo) {
+	if info.VersionID == "" {
+		info.VersionID = l.nullLabel(ctx, bucket)
+	}
+}
+
+// labelNulls applies labelNull to the versions of a listing of bucket,
+// reading the bucket state once and only when a version needs it.
+func (l *layer) labelNulls(ctx context.Context, bucket string, infos []domain.ObjectInfo) {
+	resolved, label := false, ""
+	for i := range infos {
+		if infos[i].VersionID != "" {
+			continue
+		}
+		if !resolved {
+			label, resolved = l.nullLabel(ctx, bucket), true
+		}
+		infos[i].VersionID = label
+	}
 }
 
 // --- tags --------------------------------------------------------------------
@@ -323,12 +381,19 @@ func checkSourceConditions(info domain.ObjectInfo, c domain.Conditions) error {
 // checkWriteConditions evaluates the conditional headers of a write against
 // the current version (exists reports whether there is one): If-None-Match
 // "*" requires a missing object, If-Match an existing one with that ETag.
+// As in S3, If-Match on a missing object (or a delete marker) answers
+// NoSuchKey, not PreconditionFailed.
 func checkWriteConditions(exists bool, info domain.ObjectInfo, c domain.Conditions) error {
 	if c.IfNoneMatch != "" && exists && etagMatches(c.IfNoneMatch, info.ETag) {
 		return fmt.Errorf("%w: If-None-Match", domain.ErrPreconditionFailed)
 	}
-	if c.IfMatch != "" && (!exists || !etagMatches(c.IfMatch, info.ETag)) {
-		return fmt.Errorf("%w: If-Match", domain.ErrPreconditionFailed)
+	if c.IfMatch != "" {
+		if !exists {
+			return domain.NewS3Error(domain.ErrObjectNotFound, "NoSuchKey", "The specified key does not exist.")
+		}
+		if !etagMatches(c.IfMatch, info.ETag) {
+			return fmt.Errorf("%w: If-Match", domain.ErrPreconditionFailed)
+		}
 	}
 	return nil
 }

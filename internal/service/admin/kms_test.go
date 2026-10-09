@@ -13,6 +13,8 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/admin"
 	"github.com/r3n3r0/nexo/internal/service/kms"
 	kmsmock "github.com/r3n3r0/nexo/internal/service/kms/mock"
+	"github.com/r3n3r0/nexo/internal/service/object"
+	objectmock "github.com/r3n3r0/nexo/internal/service/object/mock"
 )
 
 func TestNewKMSManagerRequiresKMS(t *testing.T) {
@@ -81,4 +83,48 @@ func TestKMSManagerStatusAndKeys(t *testing.T) {
 	keys, err := m.ListKeys(context.Background(), "k")
 	require.NoError(t, err)
 	assert.Equal(t, []kms.KeyInfo{{Name: "k1", Default: true}}, keys)
+}
+
+// TestKMSManagerReseal: the data keys of every bucket (or of one) are
+// re-sealed and the outcomes summed; it needs the object layer and a KMS.
+func TestKMSManagerReseal(t *testing.T) {
+	ctx := context.Background()
+	configured := kms.Status{Configured: true, Online: true}
+	t.Run("every bucket", func(t *testing.T) {
+		k := kmsmock.NewService(t)
+		k.EXPECT().Status(mock.Anything).Return(configured, nil)
+		objects := objectmock.NewService(t)
+		objects.EXPECT().ListBuckets(mock.Anything).Return([]domain.BucketInfo{{Bucket: domain.Bucket{Name: "a"}}, {Bucket: domain.Bucket{Name: "b"}}}, nil)
+		objects.EXPECT().ResealKeys(mock.Anything, "a").Return(object.ResealResult{Versions: 3, Resealed: 3}, nil)
+		objects.EXPECT().ResealKeys(mock.Anything, "b").Return(object.ResealResult{Versions: 2, Resealed: 1, Failed: 1, FirstError: "k (version v): boom"}, nil)
+		m, err := admin.NewKMSManager(admin.KMSManagerDeps{KMS: k, Objects: objects})
+		require.NoError(t, err)
+		got, err := m.Reseal(ctx, "")
+		require.NoError(t, err)
+		assert.Equal(t, admin.ResealReport{Buckets: 2, Versions: 5, Resealed: 4, Failed: 1, FirstError: "b/k (version v): boom"}, got)
+	})
+	t.Run("one bucket", func(t *testing.T) {
+		k := kmsmock.NewService(t)
+		k.EXPECT().Status(mock.Anything).Return(configured, nil)
+		objects := objectmock.NewService(t)
+		objects.EXPECT().ResealKeys(mock.Anything, "a").Return(object.ResealResult{}, domain.ErrBucketNotFound)
+		m, err := admin.NewKMSManager(admin.KMSManagerDeps{KMS: k, Objects: objects})
+		require.NoError(t, err)
+		_, err = m.Reseal(ctx, "a")
+		require.ErrorIs(t, err, domain.ErrBucketNotFound)
+	})
+	t.Run("no KMS", func(t *testing.T) {
+		k := kmsmock.NewService(t)
+		k.EXPECT().Status(mock.Anything).Return(kms.Status{}, nil)
+		m, err := admin.NewKMSManager(admin.KMSManagerDeps{KMS: k, Objects: objectmock.NewService(t)})
+		require.NoError(t, err)
+		_, err = m.Reseal(ctx, "")
+		require.ErrorIs(t, err, domain.ErrNotImplemented)
+	})
+	t.Run("no object layer", func(t *testing.T) {
+		m, err := admin.NewKMSManager(admin.KMSManagerDeps{KMS: kmsmock.NewService(t)})
+		require.NoError(t, err)
+		_, err = m.Reseal(ctx, "")
+		require.ErrorIs(t, err, domain.ErrNotImplemented)
+	})
 }

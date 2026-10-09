@@ -227,6 +227,11 @@ func TestScenarioKMSEncryptAndQuota(t *testing.T) {
 	s.run("admin", "kms", "key", "create", "mem", "app-key")
 	s.run("admin", "kms", "key", "create", "mem", "app-key")
 	s.run("admin", "kms", "key", "ls", "--json", "mem", "app")
+	h.admin.SetKMSReseal(nexoadmin.KMSResealResult{Buckets: 2, Versions: 3, Resealed: 3})
+	s.run("admin", "kms", "reseal", "mem")
+	s.run("admin", "kms", "reseal", "--json", "mem", "--bucket", "docs")
+	h.admin.SetKMSReseal(nexoadmin.KMSResealResult{Buckets: 1, Versions: 2, Resealed: 1, Failed: 1, FirstError: "docs/a.txt: kms: key not found"})
+	s.run("admin", "kms", "reseal", "mem")
 	s.run("encrypt", "set", "sse-kms", "app-key", "mem/docs")
 	s.run("encrypt", "info", "mem/docs")
 	s.run("encrypt", "set", "sse-s3", "app-key", "mem/docs")
@@ -285,4 +290,38 @@ func TestEncryptionFlagsReachTheClient(t *testing.T) {
 		})
 	}
 	_ = cli.EncryptionRules{}
+}
+
+// TestCustomerKeysOutOfTheArguments: the SSE-C keys can stay out of the
+// process arguments (readable by the other local users and kept in the
+// shell history): from NEXOCTL_ENC_C or from a key file (--enc-c-file);
+// a location named on the command line takes its key from there.
+func TestCustomerKeysOutOfTheArguments(t *testing.T) {
+	h := newHarness(t)
+	h.mem.MakeBucket("b")
+	h.write("f.txt", "data")
+	key := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("e", 32)))
+	other := base64.StdEncoding.EncodeToString([]byte(strings.Repeat("o", 32)))
+	h.write("keys.txt", "# SSE-C keys\n\nmem/b/file/="+key+"\n")
+
+	h.env[cli.EnvEncC] = "mem/b/env/=" + key + ", mem/b/both/=" + other
+	h.mustRun("cp", "f.txt", "mem/b/env/f.txt")
+	h.mustRun("cp", "--enc-c-file", "keys.txt", "f.txt", "mem/b/file/f.txt")
+	h.mustRun("cp", "--enc-c", "mem/b/both/="+key, "f.txt", "mem/b/both/f.txt")
+	for _, k := range []string{"env/f.txt", "file/f.txt", "both/f.txt"} {
+		state, ok := h.mem.State("b", k, "")
+		require.True(t, ok, k)
+		assert.Equal(t, domain.SSEC, state.Encryption.Type, k)
+	}
+	// The readers take the keys from the same sources.
+	delete(h.env, cli.EnvEncC)
+	r := h.run("cat", "mem/b/env/f.txt")
+	assert.NotZero(t, r.code, "without its key")
+	h.env[cli.EnvEncC] = "mem/b/env/=" + key
+	assert.Equal(t, "data", h.mustRun("cat", "mem/b/env/f.txt").stdout)
+	assert.Equal(t, "data", h.mustRun("cat", "--enc-c-file", "keys.txt", "mem/b/file/f.txt").stdout)
+	assert.Equal(t, "data", h.mustRun("cat", "--enc-c", "mem/b/both/="+key, "mem/b/both/f.txt").stdout, "the command line wins over the environment")
+
+	r = h.run("cat", "--enc-c-file", "missing.txt", "mem/b/file/f.txt")
+	assert.Equal(t, 2, r.code, "a missing key file is a usage error: %s", r.stderr)
 }

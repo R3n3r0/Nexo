@@ -221,14 +221,30 @@ func (l *layer) DeleteBucket(ctx context.Context, bucket string, opts DeleteBuck
 	if _, err := l.sets[0].StatVol(ctx, bucket); err != nil {
 		return fmt.Errorf("%s: delete bucket %s: %w", l.name, bucket, err)
 	}
-	if !opts.Force {
+	force := opts.Force
+	switch {
+	case !force:
 		if err := l.checkEmpty(ctx, bucket); err != nil {
 			return err
 		}
-	} else if err := l.checkNoLockedVersion(ctx, bucket); err != nil {
-		return err
+	default:
+		cfg, err := l.bucketConfig(ctx, bucket)
+		if err != nil {
+			return err
+		}
+		if cfg.ObjectLock {
+			// Object writes do not take the bucket lock: a locked version
+			// may be committed while the bucket is being removed. The
+			// bucket is emptied key by key under the key locks instead, and
+			// its volume removed without force, which fails when a version
+			// was written behind the purge.
+			if err := l.purgeLockedBucket(ctx, bucket); err != nil {
+				return err
+			}
+			force = false
+		}
 	}
-	errs := parallel(len(l.sets), func(i int) error { return l.sets[i].DeleteVol(ctx, bucket, opts.Force) })
+	errs := parallel(len(l.sets), func(i int) error { return l.sets[i].DeleteVol(ctx, bucket, force) })
 	for _, err := range errs {
 		if err == nil || errors.Is(err, domain.ErrBucketNotFound) {
 			continue
@@ -242,6 +258,10 @@ func (l *layer) DeleteBucket(ctx context.Context, bucket string, opts DeleteBuck
 					l.deps.Logger.WarnContext(ctx, "object: cannot roll back bucket removal", "bucket", bucket, "err", uerr)
 				}
 			}
+		}
+		if errors.Is(err, domain.ErrBucketNotEmpty) {
+			return domain.NewS3Error(domain.ErrBucketNotEmpty, "BucketNotEmpty",
+				"The bucket you tried to delete is not empty: objects were written during its deletion").WithResource(bucket)
 		}
 		return fmt.Errorf("%s: delete bucket %s: %w", l.name, bucket, err)
 	}
@@ -279,20 +299,94 @@ func (l *layer) checkEmpty(ctx context.Context, bucket string) error {
 	return nil
 }
 
-// checkNoLockedVersion fails with domain.ErrObjectLocked when a bucket
-// with object locking holds a version under legal hold or an active
-// retention: a forced deletion would remove it.
-func (l *layer) checkNoLockedVersion(ctx context.Context, bucket string) error {
-	cfg, err := l.bucketConfig(ctx, bucket)
+// purgeBatch is the number of keys purgeLockedBucket collects per walk.
+const purgeBatch = 1000
+
+// purgeLockedBucket empties a bucket with object locking before its
+// forced deletion (T-7.4: a COMPLIANCE version is never removed, not even
+// by a forced bucket deletion). A first walk refuses the deletion, before
+// anything is removed, when a version is protected. Then every key is
+// purged under its write lock (lockWrite): the versions committed before
+// the lock is taken are all seen and each goes through checkDeletable, so
+// a version locked by a concurrent writer stops the deletion with
+// domain.ErrObjectLocked. A version committed after its key was passed
+// keeps the bucket: the caller removes the volume without force.
+func (l *layer) purgeLockedBucket(ctx context.Context, bucket string) error {
+	if err := l.checkNoLockedVersion(ctx, bucket); err != nil {
+		return err
+	}
+	after := ""
+	for {
+		keys := make([]string, 0, purgeBatch)
+		err := l.walkAll(ctx, storage.WalkDirOptions{Bucket: bucket, Recursive: true, ForwardTo: after}, func(e walkEntry) error {
+			if e.IsDir || e.Name == after {
+				return nil
+			}
+			keys = append(keys, e.Name)
+			if len(keys) == purgeBatch {
+				return errListDone
+			}
+			return nil
+		})
+		if err != nil && !errors.Is(err, errListDone) {
+			return fmt.Errorf("%s: delete bucket %s: %w", l.name, bucket, err)
+		}
+		for _, key := range keys {
+			if err := l.purgeKey(ctx, bucket, key); err != nil {
+				return err
+			}
+		}
+		if len(keys) < purgeBatch {
+			return nil
+		}
+		after = keys[len(keys)-1]
+	}
+}
+
+// purgeKey removes every version and delete marker of bucket/key, latest
+// first, under the key's write lock; a protected version stops it with
+// domain.ErrObjectLocked (no governance bypass).
+func (l *layer) purgeKey(ctx context.Context, bucket, key string) error {
+	ctx, unlock, err := l.lockWrite(ctx, bucket, key)
 	if err != nil {
 		return err
 	}
-	if !cfg.ObjectLock {
-		return nil
+	defer unlock()
+	last := ""
+	for {
+		st, err := l.place.forVersion(ctx, bucket, key, "")
+		if err != nil {
+			return fmt.Errorf("%s: delete bucket %s: %w", l.name, bucket, err)
+		}
+		cur, err := st.ReadVersion(ctx, bucket, key, "", false)
+		if err != nil {
+			if isNotFound(err) || errors.Is(err, domain.ErrNoSuchVersion) {
+				return nil
+			}
+			return fmt.Errorf("%s: delete bucket %s: %w", l.name, bucket, err)
+		}
+		id := cur.VersionID
+		if id == "" {
+			id = nullVersion
+		}
+		if id == last {
+			// The version did not go away: never loop on it.
+			return fmt.Errorf("%s: delete bucket %s: version %s of %q cannot be removed: %w", l.name, bucket, id, key, domain.ErrBucketNotEmpty)
+		}
+		last = id
+		if _, err := l.deleteVersion(ctx, st, bucket, key, id, false, time.Time{}); err != nil {
+			return err
+		}
 	}
+}
+
+// checkNoLockedVersion fails with domain.ErrObjectLocked when the bucket
+// holds a version under legal hold or an active retention: a forced
+// deletion would remove it.
+func (l *layer) checkNoLockedVersion(ctx context.Context, bucket string) error {
 	now := l.now()
 	var locked string
-	err = l.walkAll(ctx, storage.WalkDirOptions{Bucket: bucket, Recursive: true}, func(e walkEntry) error {
+	err := l.walkAll(ctx, storage.WalkDirOptions{Bucket: bucket, Recursive: true}, func(e walkEntry) error {
 		for _, fi := range e.Versions {
 			if isLocked(objectInfo(bucket, e.Name, fi), now) {
 				locked = e.Name

@@ -115,6 +115,9 @@ func ParseTargetConfig(subsystem string, kv map[string]string) (TargetConfig, er
 		}
 		cfg.QueueLimit = n
 	}
+	if err := ValidateQueueDir(cfg.QueueDir); err != nil {
+		return TargetConfig{}, fmt.Errorf("%s: %w", subsystem, err)
+	}
 	if !cfg.Enabled {
 		return cfg, nil
 	}

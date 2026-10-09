@@ -18,8 +18,9 @@ func expiryTime(t time.Time, days int) time.Time {
 }
 
 // matches reports whether the filter selects an object version. Delete
-// markers have no tags and no size: the filters on them never match a
-// marker.
+// markers have no tags (a tag filter never matches them) and no data: the
+// size filters see them as 0 bytes, as S3 does (ObjectSizeLessThan=1 with
+// NoncurrentVersionExpiration expires the noncurrent delete markers).
 func (f Filter) matches(key string, tags map[string]string, size int64, deleteMarker bool) bool {
 	if !strings.HasPrefix(key, f.Prefix) {
 		return false
@@ -34,10 +35,13 @@ func (f Filter) matches(key string, tags map[string]string, size int64, deleteMa
 			}
 		}
 	}
-	if f.SizeGreaterThan != nil && (deleteMarker || size <= *f.SizeGreaterThan) {
+	if deleteMarker {
+		size = 0
+	}
+	if f.SizeGreaterThan != nil && size <= *f.SizeGreaterThan {
 		return false
 	}
-	if f.SizeLessThan != nil && (deleteMarker || size >= *f.SizeLessThan) {
+	if f.SizeLessThan != nil && size >= *f.SizeLessThan {
 		return false
 	}
 	return true
@@ -127,17 +131,31 @@ func evaluate(now time.Time, in EvaluateInput) []Action {
 func evaluateCurrent(now time.Time, in EvaluateInput, v domain.ObjectInfo) (Action, bool) {
 	act := Action{Bucket: in.Bucket, Key: v.Key, VersionID: v.VersionID, ModTime: v.ModTime}
 	if v.IsDeleteMarker {
-		// An expired object delete marker: the only version left of its key.
+		// An expired object delete marker: the only version left of its
+		// key. ExpiredObjectDeleteMarker removes it at once; as in S3, an
+		// Expiration in Days removes it too, once it is as old as the
+		// rule's period.
 		if len(in.Versions) != 1 {
 			return Action{}, false
 		}
+		var d due
 		for _, r := range in.Config.Rules {
-			if r.Enabled && r.Expiration != nil && r.Expiration.ExpiredObjectDeleteMarker && r.Filter.matches(v.Key, nil, 0, true) {
-				act.Type, act.RuleID, act.Due = ActionDeleteVersion, r.ID, v.ModTime
-				return act, true
+			e := r.Expiration
+			if !r.Enabled || e == nil || !r.Filter.matches(v.Key, nil, 0, true) {
+				continue
+			}
+			switch {
+			case e.ExpiredObjectDeleteMarker:
+				d.offer(v.ModTime, r.ID)
+			case e.Days > 0:
+				d.offer(expiryTime(v.ModTime, e.Days), r.ID)
 			}
 		}
-		return Action{}, false
+		if !d.ok || now.Before(d.at) {
+			return Action{}, false
+		}
+		act.Type, act.RuleID, act.Due = ActionDeleteVersion, d.ruleID, d.at
+		return act, true
 	}
 	d := currentExpiry(in.Config, v)
 	if !d.ok || now.Before(d.at) {
@@ -152,7 +170,7 @@ func evaluateCurrent(now time.Time, in EvaluateInput, v domain.ObjectInfo) (Acti
 	case domain.VersioningSuspended:
 		// The null delete marker replaces the null version: its data
 		// goes, which Object Lock forbids.
-		if v.VersionID == "null" && locked(v, now) {
+		if isNullVersion(v.VersionID) && locked(v, now) {
 			return Action{}, false
 		}
 		act.Type = ActionDeleteMarker
@@ -183,6 +201,10 @@ func evaluateNoncurrent(now time.Time, cfg *Configuration, v domain.ObjectInfo, 
 	return Action{Type: ActionDeleteVersion, RuleID: d.ruleID, Key: v.Key, VersionID: v.VersionID, ModTime: v.ModTime, Due: d.at}, true
 }
 
+// isNullVersion reports the null version: "null", or no id at all (the
+// unversioned buckets, and any caller that did not label it).
+func isNullVersion(id string) bool { return id == "" || id == domain.NullVersionID }
+
 // mayApply reports whether a rule of cfg can act on the objects of key.
 func (c *Configuration) mayApply(key string) bool {
 	for _, r := range c.Rules {
@@ -195,10 +217,13 @@ func (c *Configuration) mayApply(key string) bool {
 
 // needsVersions reports whether the evaluation of a current version needs
 // the other versions of its key: noncurrent rules, or expired delete
-// markers to detect.
+// markers to detect (ExpiredObjectDeleteMarker, or an Expiration in Days).
 func (c *Configuration) needsVersions() bool {
 	for _, r := range c.Rules {
-		if r.Enabled && (r.NoncurrentExpiration != nil || (r.Expiration != nil && r.Expiration.ExpiredObjectDeleteMarker)) {
+		if !r.Enabled {
+			continue
+		}
+		if e := r.Expiration; r.NoncurrentExpiration != nil || (e != nil && (e.ExpiredObjectDeleteMarker || e.Days > 0)) {
 			return true
 		}
 	}

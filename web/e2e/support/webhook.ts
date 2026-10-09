@@ -6,10 +6,17 @@ export interface WebhookDelivery {
   body: unknown;
 }
 
-/** The S3 event name of a delivery (its first record, or EventName). */
+/**
+ * The event name of a delivery in the form of the notification
+ * configurations (s3:ObjectCreated:Put): the top-level EventName of the
+ * payload, else the eventName of its first record, which has the AWS form
+ * without the s3: prefix (docs/02 §2.4).
+ */
 export function eventNameOf(delivery: WebhookDelivery): string | undefined {
   const body = delivery.body as { EventName?: string; Records?: { eventName?: string }[] };
-  return body.Records?.[0]?.eventName ?? body.EventName;
+  if (body.EventName) return body.EventName;
+  const name = body.Records?.[0]?.eventName;
+  return name === undefined || name.startsWith('s3:') ? name : `s3:${name}`;
 }
 
 /** An HTTP server of the test receiving the event notifications of Nexo. */

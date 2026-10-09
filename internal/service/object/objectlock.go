@@ -20,12 +20,11 @@ const (
 	metaLockLegalHold   = "x-amz-object-lock-legal-hold"
 )
 
-// Events of the Object Lock changes (published like MinIO does, under
-// s3:ObjectCreated:*).
-const (
-	eventPutRetention event.Name = "s3:ObjectCreated:PutRetention"
-	eventPutLegalHold event.Name = "s3:ObjectCreated:PutLegalHold"
-)
+// noEvent is the event of the Object Lock changes (retention, legal hold):
+// none, as in S3, which has no event type for them. MinIO publishes them
+// as s3:ObjectCreated:PutRetention and :PutLegalHold, which every
+// s3:ObjectCreated:* subscriber would read as a new object (docs/02 §2.4).
+const noEvent event.Name = ""
 
 // errBucketNotLocked is the S3 answer to an Object Lock setting on a
 // bucket created without object locking.
@@ -150,22 +149,16 @@ func isLocked(info domain.ObjectInfo, now time.Time) bool {
 
 // checkRetentionChange decides whether the retention cur of a version may
 // become next at now (TS-U-12): anything goes once cur has expired; an
-// active retention may be extended (same or later date, the mode staying
-// COMPLIANCE or becoming stricter); shortening it, removing it or turning
-// COMPLIANCE into GOVERNANCE is allowed for an active GOVERNANCE retention
-// with bypass only, never for COMPLIANCE.
+// active retention may be extended in its own mode (same or later date);
+// any other change of an active GOVERNANCE retention (shortening it,
+// removing it, turning it into COMPLIANCE) needs the bypass, as in S3;
+// an active COMPLIANCE retention can only be extended.
 func checkRetentionChange(cur, next domain.ObjectRetention, now time.Time, bypass bool) error {
 	if !cur.Active(now) {
 		return nil
 	}
-	extends := !next.IsZero() && !next.RetainUntil.Before(cur.RetainUntil)
-	if cur.Mode == domain.RetentionCompliance {
-		if extends && next.Mode == domain.RetentionCompliance {
-			return nil
-		}
-		return errObjectLocked()
-	}
-	if extends || bypass {
+	extends := !next.IsZero() && next.Mode == cur.Mode && !next.RetainUntil.Before(cur.RetainUntil)
+	if extends || (bypass && cur.Mode == domain.RetentionGovernance) {
 		return nil
 	}
 	return errObjectLocked()
@@ -194,7 +187,7 @@ func (l *layer) GetObjectRetention(ctx context.Context, bucket, key string, opts
 	if err := l.requireObjectLock(ctx, bucket); err != nil {
 		return domain.ObjectRetention{}, err
 	}
-	info, err := l.GetObjectInfo(ctx, bucket, key, GetObjectOptions{VersionID: opts.VersionID})
+	info, err := l.describe(ctx, bucket, key, opts.VersionID)
 	if err != nil {
 		return domain.ObjectRetention{}, err
 	}
@@ -221,7 +214,7 @@ func (l *layer) PutObjectRetention(ctx context.Context, bucket, key string, rete
 		}
 		setRetentionMeta(meta, retention)
 		return nil
-	}, eventPutRetention)
+	}, noEvent)
 }
 
 // GetObjectLegalHold implements Service.
@@ -229,7 +222,7 @@ func (l *layer) GetObjectLegalHold(ctx context.Context, bucket, key string, opts
 	if err := l.requireObjectLock(ctx, bucket); err != nil {
 		return "", err
 	}
-	info, err := l.GetObjectInfo(ctx, bucket, key, GetObjectOptions{VersionID: opts.VersionID})
+	info, err := l.describe(ctx, bucket, key, opts.VersionID)
 	if err != nil {
 		return "", err
 	}
@@ -251,5 +244,5 @@ func (l *layer) PutObjectLegalHold(ctx context.Context, bucket, key string, hold
 	return l.updateMeta(ctx, bucket, key, opts.VersionID, func(_ storage.FileInfo, meta map[string]string) error {
 		setLegalHoldMeta(meta, hold)
 		return nil
-	}, eventPutLegalHold)
+	}, noEvent)
 }

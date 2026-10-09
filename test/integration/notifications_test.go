@@ -34,6 +34,9 @@ type eventSink struct {
 	offline atomic.Bool
 	mu      sync.Mutex
 	got     []event.Payload
+	// wire holds the eventName of the records as they were sent, by
+	// "<payload event name> <bucket>/<key>".
+	wire map[string]string
 }
 
 func newEventSink(t *testing.T) *eventSink {
@@ -54,8 +57,20 @@ func newEventSink(t *testing.T) *eventSink {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		var raw struct {
+			Records []struct {
+				EventName string `json:"eventName"`
+			} `json:"Records"`
+		}
+		_ = json.Unmarshal(body, &raw)
 		s.mu.Lock()
 		s.got = append(s.got, p)
+		if len(raw.Records) == 1 {
+			if s.wire == nil {
+				s.wire = map[string]string{}
+			}
+			s.wire[string(p.EventName)+" "+p.Key] = raw.Records[0].EventName
+		}
 		s.mu.Unlock()
 	}))
 	t.Cleanup(s.srv.Close)
@@ -240,7 +255,11 @@ func TestBucketNotifications(t *testing.T) {
 	// The standard S3 record.
 	rec, ok := sink.find(event.ObjectCreatedPut, "notified/watched/a b.txt")
 	require.True(t, ok)
-	assert.Equal(t, "2.0", rec.EventVersion)
+	assert.Equal(t, "2.1", rec.EventVersion)
+	sink.mu.Lock()
+	wireName := sink.wire["s3:ObjectCreated:Put notified/watched/a b.txt"]
+	sink.mu.Unlock()
+	assert.Equal(t, "ObjectCreated:Put", wireName, "the records name the event as S3 does, without the s3: prefix")
 	assert.Equal(t, "nexo:s3", rec.EventSource)
 	assert.Equal(t, e.srv.Config.Region, rec.AwsRegion)
 	_, err = time.Parse("2006-01-02T15:04:05.000Z", rec.EventTime)

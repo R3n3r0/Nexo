@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/r3n3r0/nexo/internal/clock"
+	"github.com/r3n3r0/nexo/internal/service/sysstore"
 )
 
 // Context is an encryption context: key-value pairs bound to a sealed key
@@ -37,7 +38,9 @@ import (
 type Context map[string]string
 
 // DEK is a data encryption key: Plaintext is the 256-bit key, Ciphertext
-// the same key sealed under KeyID (the only form ever stored).
+// the same key sealed under KeyID (the only form ever stored). A DEK
+// printed, logged or encoded in JSON shows its key id and the size of the
+// sealed key only (dek.go).
 type DEK struct {
 	KeyID      string
 	Plaintext  []byte
@@ -111,8 +114,9 @@ type Service interface {
 // KeyStore persists the registry of the keys created on the builtin KMS:
 // their names and creation times (the key material derives from the
 // master key and is never stored). The composition root provides the
-// store of the deployment mode: NewDocsKeyStore on the replicated system
-// documents (SNMD, cluster), NewFileKeyStore on the drive (SNSD).
+// store of the deployment mode with NewKeyStore: on the replicated system
+// documents (KeyStoreDeps.Docs: SNMD, cluster) or on the drive
+// (WithKeyStorePath: SNSD).
 type KeyStore interface {
 	// Create records a new key; domain.ErrKMSKeyExists when its name is
 	// taken (several nodes creating the same key agree on one).
@@ -136,6 +140,12 @@ type BuiltinDeps struct {
 	Keys   KeyStore
 	Clock  clock.Clock
 	Logger *slog.Logger
+}
+
+// KeyStoreDeps are the dependencies of the key registry (NewKeyStore):
+// Docs, the replicated system documents, or none with WithKeyStorePath.
+type KeyStoreDeps struct {
+	Docs sysstore.Store
 }
 
 // KESDeps are the dependencies of the KES client. HTTP is required.

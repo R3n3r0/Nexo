@@ -5,7 +5,10 @@ package mock
 import (
 	context "context"
 
+	admin "github.com/r3n3r0/nexo/internal/service/admin"
+
 	kms "github.com/r3n3r0/nexo/internal/service/kms"
+
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -134,6 +137,63 @@ func (_c *KMSManager_ListKeys_Call) Return(_a0 []kms.KeyInfo, _a1 error) *KMSMan
 }
 
 func (_c *KMSManager_ListKeys_Call) RunAndReturn(run func(context.Context, string) ([]kms.KeyInfo, error)) *KMSManager_ListKeys_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Reseal provides a mock function with given fields: ctx, bucket
+func (_m *KMSManager) Reseal(ctx context.Context, bucket string) (admin.ResealReport, error) {
+	ret := _m.Called(ctx, bucket)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Reseal")
+	}
+
+	var r0 admin.ResealReport
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (admin.ResealReport, error)); ok {
+		return rf(ctx, bucket)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) admin.ResealReport); ok {
+		r0 = rf(ctx, bucket)
+	} else {
+		r0 = ret.Get(0).(admin.ResealReport)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, bucket)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// KMSManager_Reseal_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Reseal'
+type KMSManager_Reseal_Call struct {
+	*mock.Call
+}
+
+// Reseal is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+func (_e *KMSManager_Expecter) Reseal(ctx interface{}, bucket interface{}) *KMSManager_Reseal_Call {
+	return &KMSManager_Reseal_Call{Call: _e.mock.On("Reseal", ctx, bucket)}
+}
+
+func (_c *KMSManager_Reseal_Call) Run(run func(ctx context.Context, bucket string)) *KMSManager_Reseal_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *KMSManager_Reseal_Call) Return(_a0 admin.ResealReport, _a1 error) *KMSManager_Reseal_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *KMSManager_Reseal_Call) RunAndReturn(run func(context.Context, string) (admin.ResealReport, error)) *KMSManager_Reseal_Call {
 	_c.Call.Return(run)
 	return _c
 }

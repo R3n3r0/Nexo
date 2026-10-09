@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"os"
 	"path"
 	"path/filepath"
 
@@ -30,11 +31,16 @@ type transferFlags struct {
 // that write or read objects (docs/02 S-OBJ-13).
 type encryptionFlags struct {
 	s3, kms, c []string
+	// cFiles are the files of SSE-C keys (--enc-c-file).
+	cFiles []string
 }
 
-// registerSSEC registers --enc-c only (the commands that read objects).
+// registerSSEC registers --enc-c and --enc-c-file only (the commands that
+// read objects). The keys are also read from NEXOCTL_ENC_C (cli.EnvEncC).
 func (f *encryptionFlags) registerSSEC(fs *pflag.FlagSet) {
-	fs.StringArrayVar(&f.c, "enc-c", nil, `SSE-C key of the objects under a location: "ALIAS/BUCKET[/PREFIX]=BASE64KEY" (32 bytes; repeatable)`)
+	fs.StringArrayVar(&f.c, "enc-c", nil, `SSE-C key of the objects under a location: "ALIAS/BUCKET[/PREFIX]=BASE64KEY" (32 bytes; repeatable). `+
+		`Prefer --enc-c-file or `+cli.EnvEncC+`: a key in the arguments is visible to other local users and in the shell history`)
+	fs.StringArrayVar(&f.cFiles, "enc-c-file", nil, `file of SSE-C keys, one "ALIAS/BUCKET[/PREFIX]=BASE64KEY" per line ("#" comments; repeatable)`)
 }
 
 // register registers --enc-s3, --enc-kms and --enc-c.
@@ -44,9 +50,20 @@ func (f *encryptionFlags) register(fs *pflag.FlagSet) {
 	f.registerSSEC(fs)
 }
 
-// rules parses the encryption flags against the configured aliases.
+// rules parses the encryption flags against the configured aliases. The
+// SSE-C keys come from --enc-c, the files of --enc-c-file and the
+// environment (cli.EnvEncC), the command line first.
 func (f *encryptionFlags) rules(ctx context.Context, e *env) (cli.EncryptionRules, error) {
-	flags := cli.EncryptionFlags{S3: f.s3, KMS: f.kms, C: f.c}
+	given := append([]string(nil), f.c...)
+	for _, path := range f.cFiles {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, cli.UsageError("--enc-c-file: %v", err)
+		}
+		given = append(given, cli.ParseKeyFile(data)...)
+	}
+	envKeys, _ := e.deps.LookupEnv(cli.EnvEncC)
+	flags := cli.EncryptionFlags{S3: f.s3, KMS: f.kms, C: cli.CustomerKeys(given, envKeys)}
 	if flags.IsZero() {
 		return nil, nil
 	}
@@ -374,7 +391,7 @@ cp, with its flags (multipart in parallel, metadata, tags, checksums, server-sid
 encryption).`,
 		Example: `  nexoctl put report.pdf local/docs/
   nexoctl put --checksum sha256 --enc-s3 local/vault backup.tar local/vault/2026/
-  nexoctl put --enc-c "local/private=$(cat key.b64)" secret.txt local/private/`,
+  NEXOCTL_ENC_C="local/private=$(cat key.b64)" nexoctl put secret.txt local/private/`,
 		Args:              minArgs(2),
 		ValidArgsFunction: completeTargets(e),
 		RunE: func(cmd *cobra.Command, args []string) error {

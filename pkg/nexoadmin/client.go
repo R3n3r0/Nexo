@@ -175,6 +175,10 @@ type AdminClient interface {
 	// CreateKMSKey creates a key usable as SSE-KMS key id and as default
 	// key of a bucket encryption; an existing key is a conflict.
 	CreateKMSKey(ctx context.Context, id string) (*KMSKey, error)
+	// ResealKMSKeys re-seals the data keys of the SSE-S3 and SSE-KMS objects
+	// of bucket (every bucket when empty) under the current master key of
+	// the KMS, after a rotation (admin:KMSCreateKey).
+	ResealKMSKeys(ctx context.Context, bucket string) (*KMSResealResult, error)
 }
 
 // DefaultRegion is the signing region when Config.Region is empty.

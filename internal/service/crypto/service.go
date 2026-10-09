@@ -17,9 +17,20 @@
 //
 // The sealed key, the salt, the KMS key id and the cipher are stored in
 // the version metadata (xl.meta, internal keys never returned or copied).
+// The checksums of the plaintext are stored sealed under a key derived
+// from the object key (ObjectKey.SealValue). The ETag of an SSE-S3 object
+// (and of its parts) is the MD5 of the plaintext, as in S3: clients read
+// it, and the drives hold it in clear in the version metadata; SSE-C and
+// SSE-KMS ETags are opaque (ObjectKey.ETag). So, without the object key
+// (the SSE-C key of the client, or the KMS), the drives reveal no digest
+// of the content of an SSE-C or SSE-KMS object; they reveal the MD5 of an
+// SSE-S3 one, which confirms a guess of its content (docs/07 §7.2: SSE-S3
+// protects against the theft of the drives, not against that guess).
 //
 // The data of every part (a single-request upload is part 1) is encrypted
-// with a key derived from the object key and the part number, in packages
+// with a key derived from the object key, the part number and, for the
+// parts of a multipart upload, a random salt of each upload of the part
+// (a part number uploaded twice never reuses a keystream), in packages
 // of 64 KiB of plaintext, each sealed with AES-256-GCM (ChaCha20-Poly1305
 // on CPUs without AES instructions) under a nonce derived from its
 // sequence number, the last package of a part marked final in its
@@ -69,7 +80,8 @@ type UnsealInput struct {
 
 // ObjectKey is the unsealed key of an encrypted object: it encrypts and
 // decrypts the data of its parts and derives the ETags of the SSE-C and
-// SSE-KMS objects. It never leaves the process.
+// SSE-KMS objects. It never leaves the process: printed, logged or encoded
+// in JSON it shows its encryption type and cipher only (key.go).
 type ObjectKey struct {
 	key    [32]byte
 	cipher Cipher

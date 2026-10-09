@@ -6,7 +6,8 @@ name: CI
 # Playwright suite against bin/nexo in every mode (single drive, 4 drives,
 # 4 processes) and the image smoke tests; a merge on main adds the
 # multi-process cluster smoke; the nightly run adds the whole cluster suite
-# (TC-*), the slow integration tests and the internode RPC benchmarks.
+# (TC-*), the slow integration tests, the internode RPC benchmarks and the
+# Ceph s3-tests compatibility suite.
 on:
   push:
     branches: [main]
@@ -441,6 +442,65 @@ jobs:
           name: bench-rpc
           path: bench-rpc.txt
           retention-days: 90
+
+  s3tests-nightly:
+    # Nightly (docs/06 §6.1, T-9.1, DoD of T-7.1): the Ceph s3-tests
+    # compatibility suite (test_s3.py at the commit pinned by
+    # test/compat/run-s3tests.sh) against bin/nexo over TLS, in every mode
+    # (4 drives, 1 drive, 4 processes x 2 drives). A job fails when a
+    # target group (versioning, object lock, multipart, tagging, SSE-C,
+    # CORS, checksum) passes less than 90% of its applicable tests; the
+    # per-test report is kept as an artifact and the per-group summary is
+    # in the job summary.
+    name: Compatibility (Ceph s3-tests, ${{ matrix.mode }})
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [snmd, snsd, cluster]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: make test-s3compat
+        shell: bash
+        env:
+          # Without network the script would skip: in CI that is a failure.
+          NEXO_S3TESTS_REQUIRE_NETWORK: "1"
+          NEXO_S3TESTS_MODE: ${{ matrix.mode }}
+          NEXO_S3TESTS_REPORT_DIR: ${{ github.workspace }}/s3tests-report
+        run: make test-s3compat
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -s s3tests-report/report.txt ]]; then
+            {
+              echo '### Ceph s3-tests (${{ matrix.mode }})'
+              echo '```'
+              sed -n '1,/^$/p;/^group/,/^$/p' s3tests-report/report.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: s3tests-report-${{ matrix.mode }}
+          path: s3tests-report
+          if-no-files-found: ignore
+          retention-days: 30
 
   integration-nightly:
     # Nightly: the integration suite in every mode with its slow tests

@@ -58,15 +58,17 @@ func NewKMSRoutes(deps KMSDeps, opts ...KMSOption) (KMSRoutes, error) {
 func (h *kmsRoutes) Register(r chi.Router) { h.guard.register(r, h.routes()) }
 
 func (h *kmsRoutes) routes() []route {
-	status, list, create := h.status, h.list, h.create
+	status, list, create, reseal := h.status, h.list, h.create, h.reseal
 	if h.deps.KMS == nil {
 		ni := notImplemented(h.deps.Enc)
-		status, list, create = ni, ni, ni
+		status, list, create, reseal = ni, ni, ni, ni
 	}
 	return []route{
 		{http.MethodGet, "/kms/status", global(policy.ActionAdminKMSKeyStatus), status},
 		{http.MethodGet, "/kms/keys", global(policy.ActionAdminKMSKeyStatus), list},
 		{http.MethodPost, "/kms/keys", global(policy.ActionAdminKMSCreateKey), create},
+		// Re-sealing the data keys of the objects is key administration.
+		{http.MethodPost, "/kms/reseal", global(policy.ActionAdminKMSCreateKey), reseal},
 	}
 }
 
@@ -102,6 +104,21 @@ type KMSKeyResponse struct {
 // KMSKeyListResponse is the body of GET /kms/keys.
 type KMSKeyListResponse struct {
 	Items []KMSKeyResponse `json:"items"`
+}
+
+// KMSResealResponse is the body of POST /kms/reseal.
+type KMSResealResponse struct {
+	// Buckets counts the buckets walked.
+	Buckets int `json:"buckets"`
+	// Versions counts the SSE-S3 and SSE-KMS versions met, Uploads the
+	// pending multipart uploads of such objects; Resealed counts the
+	// versions and uploads re-sealed under the current master key, Failed
+	// those that could not be (FirstError tells why).
+	Versions   int    `json:"versions"`
+	Uploads    int    `json:"uploads"`
+	Resealed   int    `json:"resealed"`
+	Failed     int    `json:"failed"`
+	FirstError string `json:"firstError,omitempty"`
 }
 
 // CreateKMSKeyRequest is the body of POST /kms/keys.
@@ -167,4 +184,17 @@ func (h *kmsRoutes) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.deps.Enc.WriteJSON(w, http.StatusCreated, newKMSKeyResponse(key))
+}
+
+// reseal re-seals the data keys of the objects of the bucket of the query
+// (every bucket without one) under the current master key.
+func (h *kmsRoutes) reseal(w http.ResponseWriter, r *http.Request) {
+	rep, err := h.deps.KMS.Reseal(r.Context(), r.URL.Query().Get("bucket"))
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	h.deps.Enc.WriteJSON(w, http.StatusOK, KMSResealResponse{
+		Buckets: rep.Buckets, Versions: rep.Versions, Uploads: rep.Uploads, Resealed: rep.Resealed, Failed: rep.Failed, FirstError: rep.FirstError,
+	})
 }

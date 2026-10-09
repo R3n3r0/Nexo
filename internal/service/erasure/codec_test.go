@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"testing"
+	"testing/iotest"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -52,6 +53,39 @@ func TestEncodeDecodeAllLayouts(t *testing.T) {
 					}
 				}
 			})
+		}
+	}
+}
+
+// TestEncodeSourceFailure (anti-truncation): a source that fails, even
+// with io.ErrUnexpectedEOF (a body cut short), fails the encoding with its
+// error, wherever it fails (inside a block or at a block boundary): a
+// truncated stream is never encoded as a complete one. The end of the
+// source (io.EOF), however it is delivered, ends the data.
+func TestEncodeSourceFailure(t *testing.T) {
+	const bs = 64
+	c := newCodec(t, 2, 2, bs)
+	writers := func() []io.Writer {
+		w := make([]io.Writer, 4)
+		for i := range w {
+			w[i] = c.BitrotWriter(context.Background(), &bytes.Buffer{})
+		}
+		return w
+	}
+	cut := errors.New("connection reset")
+	for _, size := range []int{0, 1, bs - 1, bs, bs + 1, 3 * bs} {
+		for _, srcErr := range []error{io.ErrUnexpectedEOF, cut} {
+			src := io.MultiReader(bytes.NewReader(payload(size)), iotest.ErrReader(srcErr))
+			_, err := c.Encode(context.Background(), src, writers(), 4)
+			require.ErrorIs(t, err, srcErr, "size %d", size)
+		}
+		for name, src := range map[string]io.Reader{
+			"one byte at a time": iotest.OneByteReader(bytes.NewReader(payload(size))),
+			"data with EOF":      iotest.DataErrReader(bytes.NewReader(payload(size))),
+		} {
+			total, err := c.Encode(context.Background(), src, writers(), 4)
+			require.NoError(t, err, "%s, size %d", name, size)
+			assert.Equal(t, int64(size), total, "%s, size %d", name, size)
 		}
 	}
 }

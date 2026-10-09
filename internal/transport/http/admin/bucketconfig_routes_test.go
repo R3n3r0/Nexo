@@ -190,6 +190,7 @@ func TestKMSRoutesAreNotImplementedYet(t *testing.T) {
 	c := f.root(t)
 	for _, rt := range []struct{ method, path, body string }{
 		{http.MethodGet, "/kms/status", ""}, {http.MethodGet, "/kms/keys", ""}, {http.MethodPost, "/kms/keys", `{"id":"k1"}`},
+		{http.MethodPost, "/kms/reseal", ""},
 	} {
 		var body any
 		if rt.body != "" {
@@ -227,6 +228,7 @@ func TestBucketConfigAuthorizationDenied(t *testing.T) {
 		{http.MethodGet, "/buckets/b1/objects/attributes?key=k&versionId=v1", "", []policy.Action{policy.ActionGetObjectVersionAttributes}},
 		{http.MethodGet, "/kms/status", "", []policy.Action{policy.ActionAdminKMSKeyStatus}},
 		{http.MethodPost, "/kms/keys", `{"id":"k"}`, []policy.Action{policy.ActionAdminKMSCreateKey}},
+		{http.MethodPost, "/kms/reseal", "", []policy.Action{policy.ActionAdminKMSCreateKey}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.method+" "+tt.path, func(t *testing.T) {

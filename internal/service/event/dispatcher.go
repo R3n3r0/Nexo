@@ -65,9 +65,9 @@ func WithRegion(region string) Option {
 	return func(o *options) { o.region = strings.TrimSpace(region) }
 }
 
-// WithQueueRoot keeps the queues of the targets without queue_dir in
-// <root>/<type>-<id> (on a local drive of the node): without it they are
-// kept in memory.
+// WithQueueRoot keeps the queues of the targets in <root>/<type>-<id>, or
+// <root>/queue_dir/<queue_dir> for a target with a queue_dir (on a local
+// drive of the node): without it they are kept in memory.
 func WithQueueRoot(dir string) Option {
 	return func(o *options) { o.queueRoot = dir }
 }
@@ -337,16 +337,33 @@ func (d *dispatcher) SetTarget(ctx context.Context, cfg TargetConfig) error {
 	return nil
 }
 
-// storeFor returns the queue of a target: its directory (QueueDir, or one
-// of the queue root), shared with the earlier workers of the target, or
-// memory.
+// customQueueDir is the directory of the queue root holding the queues of
+// the targets with a queue_dir.
+const customQueueDir = "queue_dir"
+
+// storeFor returns the queue of a target: a directory of the queue root
+// (<root>/queue_dir/<QueueDir>, or <root>/<type>-<id> by default), shared
+// with the earlier workers of the target, or memory without a queue root.
 func (d *dispatcher) storeFor(cfg TargetConfig) (queueStore, error) {
 	limit := cfg.QueueLimit
 	if limit == 0 {
 		limit = DefaultQueueLimit
 	}
-	dir := cfg.QueueDir
-	if dir == "" && d.opts.queueRoot != "" {
+	if err := ValidateQueueDir(cfg.QueueDir); err != nil {
+		return nil, err
+	}
+	var dir string
+	switch {
+	case d.opts.queueRoot == "":
+		if cfg.QueueDir != "" {
+			d.deps.Logger.Warn("event: queue_dir ignored without a local drive, the queue is kept in memory",
+				"target", cfg.TargetID().String())
+		}
+	case cfg.QueueDir != "":
+		// queue_dir is confined to the queue root (ValidateQueueDir), apart
+		// from the default queues of the targets.
+		dir = filepath.Join(d.opts.queueRoot, customQueueDir, filepath.Clean(cfg.QueueDir))
+	default:
 		dir = filepath.Join(d.opts.queueRoot, cfg.Type+"-"+safeName(cfg.ID))
 	}
 	key := "mem:" + cfg.TargetID().String()
@@ -475,6 +492,9 @@ func (d *dispatcher) TestTarget(ctx context.Context, id TargetID) (TestResult, e
 func (d *dispatcher) ValidateBucketConfig(_ context.Context, doc []byte) ([]byte, error) {
 	cfg, err := ParseBucketConfig(doc, d.opts.region)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkOverlaps(cfg.Rules); err != nil {
 		return nil, err
 	}
 	d.mu.RLock()

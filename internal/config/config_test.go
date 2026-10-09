@@ -98,6 +98,7 @@ func TestLoadClusterSettings(t *testing.T) {
 		config.EnvLockRefresh:       " 2s ",
 		config.EnvRPCCallTimeout:    "5s",
 		config.EnvHealRetryMaxDelay: "3s",
+		config.EnvSendTimeout:       "45s",
 	}
 	l := config.NewLoader(config.WithEnv(envOf(env)))
 	cfg, err := l.Load(context.Background(), config.Input{Flags: flagsFrom(t, "--storage-class-standard", "EC:4"), Args: []string{"/d{1...8}"}})
@@ -108,6 +109,7 @@ func TestLoadClusterSettings(t *testing.T) {
 	assert.Equal(t, 2*time.Second, cfg.LockRefreshInterval)
 	assert.Equal(t, 5*time.Second, cfg.RPCCallTimeout)
 	assert.Equal(t, 3*time.Second, cfg.HealRetryMaxDelay)
+	assert.Equal(t, 45*time.Second, cfg.SendTimeout)
 
 	tests := []struct {
 		name, key, value, want string
