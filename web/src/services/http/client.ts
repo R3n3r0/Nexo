@@ -4,7 +4,11 @@ import { type FormDownloadOptions, submitFormDownload } from './formDownload';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
-export type QueryParams = Record<string, string | number | boolean | undefined>;
+/** Query parameters; an array repeats the parameter (header=a&header=b). */
+export type QueryParams = Record<
+  string,
+  string | number | boolean | readonly string[] | undefined
+>;
 
 export interface RequestOptions {
   method?: HttpMethod;
@@ -262,7 +266,11 @@ export function resolveUrl(baseUrl: string, path: string, query?: QueryParams): 
   const url = new URL(joined, origin);
   if (query) {
     for (const [key, value] of Object.entries(query)) {
-      if (value !== undefined) {
+      if (typeof value === 'object') {
+        for (const item of value) {
+          url.searchParams.append(key, item);
+        }
+      } else if (value !== undefined) {
         url.searchParams.set(key, String(value));
       }
     }

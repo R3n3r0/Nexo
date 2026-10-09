@@ -15,11 +15,17 @@ services:
     command: ["server", "/data"]
     env_file:
       - nexo.env
+    environment:
+      # Disk tier of the distribution cache (docs/11): a separate volume,
+      # ideally on an SSD/NVMe. Remove both lines for a memory-only cache.
+      NEXO_CACHE_DIR: /cache
+      NEXO_CACHE_SIZE: ${NEXO_CACHE_SIZE:-10GiB}
     ports:
       - "${NEXO_S3_PORT:-9000}:9000"
       - "${NEXO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - nexo-data:/data
+      - nexo-cache:/cache
     healthcheck:
       test: ["CMD", "/nexo", "healthcheck"]
       interval: 10s
@@ -31,3 +37,4 @@ services:
 
 volumes:
   nexo-data: {}
+  nexo-cache: {}

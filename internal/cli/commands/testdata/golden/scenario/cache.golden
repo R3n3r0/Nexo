@@ -1,0 +1,381 @@
+$ nexoctl cache policy ls mem
+NAME                 TYPE     TTL        TTL MAX    COMMENT
+aggressive           built-in 1d         30d        Long lifetimes (1d, at least 1h, at most 30d).
+disabled             built-in 1h0m0s     7d         No caching: every request is served by the origin.
+immutable-assets     built-in 365d       365d       Versioned assets: one year in cache and in the browsers.
+respect-origin       built-in 0s         365d       Only the lifetime the objects state.
+standard             built-in 1h0m0s     7d         Default: 1h fresh (bounded to 7d), the Cache-Control of the objects respected.
+
+$ nexoctl cache policy create mem short --ttl-default 10m --ttl-max 1d --browser-cache-control public, max-age=600 --query allowlist:v,lang --key-header Accept-Language --stale-while-revalidate 1m --comment ten minutes
+Created the cache policy `short` (Cache-Control public, max-age=600).
+
+$ nexoctl cache policy create mem short
+! nexoctl: error: cache policy "short": already exists: policy short (already_exists)
+[exit 1]
+
+$ nexoctl cache policy create mem bad --ttl-default 1d --ttl-max 1h
+! nexoctl: error: cache policy "bad": invalid cache configuration: ttl.default 1d is above ttl.max 1h (invalid_cache_request)
+[exit 1]
+
+$ nexoctl cache policy create mem badquery --query maybe
+! nexoctl: error: --query "maybe": expected none, all, allowlist:v,w or denylist:v,w
+! Run 'nexoctl cache policy create --help' for usage.
+[exit 2]
+
+$ nexoctl cache policy info mem short
+Name: short
+Type: defined
+Comment: ten minutes
+Cache-Control: public, max-age=600
+TTL default: 10m
+TTL max: 1d
+Browser cache-control: "public, max-age=600"
+Key query: allowlist:v,lang
+Key headers: Accept-Language
+Stale-while-revalidate: 1m
+
+$ nexoctl cache policy edit mem short --negative-ttl 30s --bypass-cookie session
+Changed the cache policy `short` (Cache-Control public, max-age=600).
+
+$ nexoctl cache policy edit mem short
+! nexoctl: error: nothing to change: give at least one flag
+! Run 'nexoctl cache policy edit --help' for usage.
+[exit 2]
+
+$ nexoctl cache policy edit mem standard --ttl-max 1d
+! nexoctl: error: cache policy "standard": built-in cache policy: standard (builtin_cache_policy)
+[exit 1]
+
+$ nexoctl cache policy info mem nope
+! nexoctl: error: cache policy "nope": cache policy not found: nope (cache_policy_not_found)
+[exit 3]
+
+$ nexoctl cache settings mem
+Cache: inherited
+Node header: off
+
+$ nexoctl cache settings mem --policy standard --node-header --debug-secret s3cret
+Changed the cache settings of the cluster.
+Cache: policy standard
+Node header: on
+Debug header: X-Nexo-Cache-Debug (secret s3cret)
+
+$ nexoctl cache settings mem --enable --disable
+! nexoctl: error: --enable and --disable are mutually exclusive
+! Run 'nexoctl cache settings --help' for usage.
+[exit 2]
+
+$ nexoctl dist cache set mem site --domain www.site.test --policy short --quota 64MiB
+Cache of `site`, domain www.site.test: policy short, quota 64MiB.
+
+$ nexoctl dist cache set mem site --domain preview.site.test --disable
+Cache of `site`, domain preview.site.test: disabled.
+
+$ nexoctl dist cache set mem site --behavior /assets/** --ttl-default 365d --ttl-max 365d
+Cache of `site`, behavior glob /assets/**: TTL default 365d, TTL max 365d.
+
+$ nexoctl dist cache set mem site --auto-invalidate=false --warm-on-write /assets/**
+Cache of `site`, distribution: auto-invalidate no.
+
+$ nexoctl dist cache set mem site --domain other.test --disable
+! nexoctl: error: cache of distribution "site": invalid cache configuration: domains[2]: "other.test" is not a domain of site (invalid_cache_request)
+[exit 1]
+
+$ nexoctl dist cache set mem site --domain www.site.test
+! nexoctl: error: cache of distribution "site": nothing to change: give at least one setting (or --reset)
+! Run 'nexoctl dist cache set --help' for usage.
+[exit 2]
+
+$ nexoctl dist cache set mem site --domain www.site.test --behavior /a
+! nexoctl: error: --domain and --behavior are mutually exclusive
+! Run 'nexoctl dist cache set --help' for usage.
+[exit 2]
+
+$ nexoctl dist cache set mem nope --disable
+! nexoctl: error: cache of distribution "nope": distribution not found: nope (distribution_not_found)
+[exit 3]
+
+$ nexoctl dist cache show mem site --path /assets/app.js
+Distribution: site
+Default: auto-invalidate no
+Domain www.site.test: policy short, quota 64MiB
+Domain preview.site.test: disabled
+Behavior 1 (glob /assets/**): TTL default 365d, TTL max 365d
+Warm on write: glob /assets/**
+Effective www.site.test/assets/app.js: enabled (default), policy short (domain), TTL 365d, Cache-Control public, max-age=600
+Effective preview.site.test/assets/app.js: disabled (domain), policy standard (global), TTL 365d, Cache-Control the object's
+
+$ nexoctl cache inspect mem https://www.site.test/assets/app.js
+URL: https://www.site.test/assets/app.js
+Distribution: site (host www.site.test, mode local)
+Object: web/assets/app.js
+Cache key: site|www.site.test|/assets/app.js
+Cache: enabled (default)
+Policy: short (domain)
+TTL: default 365d (behavior), min 0s, max 365d
+Cache-Control: public, max-age=600
+Node mem: cached in memory (object), age 5s, fresh for 595s, 100B
+
+$ nexoctl cache inspect mem /index.html --dist site --header Accept-Encoding: br
+URL: https://www.site.test/index.html
+Distribution: site (host www.site.test, mode local)
+Object: web/index.html
+Cache key: site|www.site.test|/index.html
+Cache: enabled (default)
+Policy: short (domain)
+TTL: default 10m (domain), min 0s, max 1d
+Cache-Control: public, max-age=600
+Node mem: cached in memory (object), age 5s, fresh for 595s, 100B
+
+$ nexoctl cache inspect mem https://preview.site.test/
+URL: https://preview.site.test/
+Distribution: site (host preview.site.test, mode local)
+Cache key: site|preview.site.test|/
+Cache: disabled (domain)
+Bypass: the cache is disabled
+Policy: standard (global)
+TTL: default 1h0m0s (global), min 0s, max 7d
+Cache-Control: (the one of the object)
+Node mem: not cached
+
+$ nexoctl cache inspect mem /index.html
+! nexoctl: error: /index.html: "/index.html" is not an http(s) URL (a path needs its distribution) (invalid_argument)
+[exit 1]
+
+$ nexoctl cache purge mem site --domain www.site.test /assets/** --soft
+Invalidation inv-9 (distribution site, domain www.site.test, glob /assets/**, soft): completed on 1/1 node, 1 entry removed.
+
+$ nexoctl cache purge mem site https://www.site.test/index.html --prefix /img/ --regex ^/x/ --tag p42 --wait
+Invalidation inv-10 (distribution site, domain www.site.test, path /index.html, prefix /img/, regex ^/x/, tag p42): completed on 1/1 node, 1 entry removed.
+
+$ nexoctl cache purge status mem inv-9
+Invalidation: inv-9
+Scope: distribution site, domain www.site.test, glob /assets/**, soft
+Requested: 2026-01-02 03:04:05 UTC by MEMKEY
+State: completed (1/1 nodes, 1 entry removed)
+Node mem: completed, 1 removed
+
+$ nexoctl cache purge status mem inv-10 --dist site --wait
+Invalidation: inv-10
+Scope: distribution site, domain www.site.test, path /index.html, prefix /img/, regex ^/x/, tag p42
+Requested: 2026-01-02 03:04:05 UTC by MEMKEY
+State: completed (1/1 nodes, 1 entry removed)
+Node mem: completed, 1 removed
+
+$ nexoctl cache purge status mem inv-99
+! nexoctl: error: invalidation "inv-99": invalidation not found: inv-99 (invalidation_not_found)
+[exit 3]
+
+$ nexoctl cache purge ls mem site
+inv-10  2026-01-02 03:04:05 UTC  completed   1/1  distribution site, domain www.site.test, path /index.html, prefix /img/, regex ^/x/, tag p42
+inv-9  2026-01-02 03:04:05 UTC  completed   1/1  distribution site, domain www.site.test, glob /assets/**, soft
+
+$ nexoctl cache purge mem --all
+Invalidation inv-11 (every distribution, everything): completed on 1/1 node, 1 entry removed.
+
+$ nexoctl cache purge ls mem
+inv-11  2026-01-02 03:04:05 UTC  completed   1/1  every distribution, everything
+
+$ nexoctl cache purge mem site
+! nexoctl: error: nothing to invalidate: give paths, patterns (--prefix, --regex), --tag, --domain or --all
+! Run 'nexoctl cache purge --help' for usage.
+[exit 2]
+
+$ nexoctl cache purge mem /assets/**
+! nexoctl: error: "/assets/**": give the distribution before the paths (nexoctl cache purge ALIAS DIST PATH...)
+! Run 'nexoctl cache purge --help' for usage.
+[exit 2]
+
+$ nexoctl cache purge mem --tag x
+! nexoctl: error: without a distribution only --all (every distribution) is allowed
+! Run 'nexoctl cache purge --help' for usage.
+[exit 2]
+
+$ nexoctl cache purge mem site assets/app.js
+! nexoctl: error: "assets/app.js": a path starts with / (or give a URL)
+! Run 'nexoctl cache purge --help' for usage.
+[exit 2]
+
+$ nexoctl dist invalidate mem site /index.html
+Invalidation inv-12 (distribution site, path /index.html): completed on 1/1 node, 0 entries removed.
+
+$ nexoctl cache warm mem site --domain www.site.test --from urls.txt --wait
+Warm-up warm-13 of `site`: completed, 2/2 objects.
+
+$ nexoctl cache warm mem site --prefix /assets/ --concurrency 2 --bandwidth 10MiB
+Warm-up warm-14 of `site`: completed, 1/1 objects.
+
+$ nexoctl cache warm status mem site warm-14
+Warm-up: warm-14
+Distribution: site (domain www.site.test)
+State: completed (1/1 objects, 0 failed, 100B)
+Node mem: completed, 1/1 objects
+
+$ nexoctl cache warm status mem site warm-99
+! nexoctl: error: warm-up "warm-99": warm-up not found: warm-99 (warm_job_not_found)
+[exit 3]
+
+$ nexoctl cache warm mem site
+! nexoctl: error: nothing to warm: give paths, URLs, --from, --prefix, --glob or --regex
+! Run 'nexoctl cache warm --help' for usage.
+[exit 2]
+
+$ nexoctl cache warm mem site --glob /a/** --regex ^/b
+! nexoctl: error: --glob and --regex are mutually exclusive
+! Run 'nexoctl cache warm --help' for usage.
+[exit 2]
+
+$ nexoctl cache warm mem site x.js
+! nexoctl: error: "x.js": a path starts with / (or give a URL)
+! Run 'nexoctl cache warm --help' for usage.
+[exit 2]
+
+$ nexoctl cache stats mem
+At: 2026-01-02 03:04:05 UTC
+Requests: 0 requests, hit ratio 0.0%
+Bytes: 0B from the cache, 0B from the origin
+Entries: 3 (memory 300B, disk 0B)
+Domain www.site.test (site): 0 requests, hit ratio 0.0%, 3 entries
+Nodes: 1 (all online, all synced)
+Node mem (local, online): 3 entries, memory 300B/64.0MiB, 0 evicted, 0 invalidated
+
+$ nexoctl cache stats mem site --domain www.site.test --watch --interval 1ms --count 2
+At: 2026-01-02 03:04:05 UTC
+Requests: 0 requests, hit ratio 0.0%
+Bytes: 0B from the cache, 0B from the origin
+Entries: 3 (memory 300B, disk 0B)
+Domain www.site.test (site): 0 requests, hit ratio 0.0%, 3 entries
+Nodes: 1 (all online, all synced)
+Node mem (local, online): 3 entries, memory 300B/64.0MiB, 0 evicted, 0 invalidated
+
+At: 2026-01-02 03:04:05 UTC
+Requests: 0 requests, hit ratio 0.0%
+Bytes: 0B from the cache, 0B from the origin
+Entries: 3 (memory 300B, disk 0B)
+Domain www.site.test (site): 0 requests, hit ratio 0.0%, 3 entries
+Nodes: 1 (all online, all synced)
+Node mem (local, online): 3 entries, memory 300B/64.0MiB, 0 evicted, 0 invalidated
+
+$ nexoctl cache stats mem nope
+! nexoctl: error: distribution not found: nope (distribution_not_found)
+[exit 3]
+
+$ nexoctl cache webhook add mem site --type cloudflare --zone z1 --token tok --domain www.site.test
+Added the purge webhook `cloudflare` (cloudflare) of `site` for www.site.test.
+
+$ nexoctl cache webhook add mem site --type generic --id edge --url http://edge.test/purge --body-file body.tmpl --header X-Token: abc
+Added the purge webhook `edge` (generic) of `site` for every domain.
+
+$ nexoctl cache webhook add mem site --type generic --id down --url http://unreachable.test/purge
+Added the purge webhook `down` (generic) of `site` for every domain.
+
+$ nexoctl cache webhook add mem site --type cloudflare
+! nexoctl: error: distribution "site": invalid cache configuration: a cloudflare webhook needs zone and token (invalid_cache_request)
+[exit 1]
+
+$ nexoctl cache webhook add mem site --zone z1
+! nexoctl: error: --type is required
+! Run 'nexoctl cache webhook add --help' for usage.
+[exit 2]
+
+$ nexoctl cache webhook ls mem site
+cloudflare       cloudflare www.site.test                  zone z1
+edge             generic    every domain                   http://edge.test/purge
+down             generic    every domain                   http://unreachable.test/purge
+
+$ nexoctl cache webhook test mem site edge
+Webhook `edge`: OK (200, 12 ms).
+
+$ nexoctl cache webhook test mem site down
+Webhook `down`: failed (connection refused, 3 ms).
+! nexoctl: error: webhook down: connection refused
+[exit 1]
+
+$ nexoctl cache webhook rm mem site down
+Removed the purge webhook `down` of `site`.
+
+$ nexoctl cache webhook rm mem site down
+! nexoctl: error: webhook "down" of "site": purge webhook not found: down (webhook_not_found)
+[exit 3]
+
+$ nexoctl dist cache export mem site -o cache.yaml
+Exported 1 cache settings to cache.yaml.
+
+--- cache.yaml
+distribution: site
+cache:
+  autoInvalidate: false
+domains:
+  - host: www.site.test
+    cache:
+      policy: short
+      quota: 64MiB
+  - host: preview.site.test
+    cache:
+      enabled: false
+behaviors:
+  - pathPattern:
+      type: glob
+      pattern: /assets/**
+    cache:
+      ttl:
+        default: 365d
+        max: 365d
+webhooks:
+  - id: cloudflare
+    type: cloudflare
+    domains:
+      - www.site.test
+    zone: z1
+    token: '********'
+  - id: edge
+    type: generic
+    url: http://edge.test/purge
+    headers:
+      X-Token: abc
+    body: '{"paths":"{{range .Paths}}{{.}} {{end}}"}'
+warmOnWrite:
+  - type: glob
+    pattern: /assets/**
+
+$ nexoctl cache policy export mem
+name: short
+comment: ten minutes
+ttl:
+  default: 10m
+  max: 1d
+browserCacheControl: public, max-age=600
+cacheKey:
+  queryString:
+    mode: allowlist
+    params:
+      - v
+      - lang
+  headers:
+    - Accept-Language
+staleWhileRevalidate: 1m
+negativeCaching: 30s
+bypass:
+  cookies:
+    - session
+
+$ nexoctl dist cache set mem site --domain www.site.test --reset
+Cache of `site`: removed the override of the domain www.site.test.
+
+$ nexoctl dist cache import mem cache.yaml
+Cache settings of `site` imported.
+
+$ nexoctl cache policy rm mem short
+! nexoctl: error: cache policy "short": cache policy in use: short is used by distribution site (cache_policy_in_use)
+[exit 1]
+
+$ nexoctl dist cache set mem site --domain www.site.test --reset --policy aggressive
+Cache of `site`, domain www.site.test: policy aggressive.
+
+$ nexoctl cache policy rm mem short
+Removed the cache policy `short`.
+
+$ nexoctl cache policy rm mem standard
+! nexoctl: error: cache policy "standard": built-in cache policy: standard (builtin_cache_policy)
+[exit 1]
+

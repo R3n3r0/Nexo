@@ -142,6 +142,10 @@ export const adminActions: readonly string[] = [
   'admin:KMSKeyStatus',
   'admin:KMSCreateKey',
   'admin:Prometheus',
+  'admin:ManageAccessRules',
+  'admin:ManageDistributions',
+  'admin:ManageCertificates',
+  'admin:SignDistributionURL',
 ];
 
 /** Every action the editor proposes, wildcards first. */
@@ -273,10 +277,14 @@ export const consoleActionScopes: ReadonlyArray<readonly [string, ActionScope]> 
     'admin:RemoveServiceAccount',
     'admin:ListServiceAccounts',
     'admin:ManageShares',
+    'admin:ManageDistributions',
+    'admin:ManageCertificates',
+    'admin:SignDistributionURL',
     's3:ListAllMyBuckets',
     's3:CreateBucket',
   ].map((a) => [a, 'global'] as const),
   ...[
+    'admin:ManageAccessRules',
     'admin:GetBucketQuota',
     'admin:SetBucketQuota',
     's3:DeleteBucket',

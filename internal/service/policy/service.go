@@ -24,6 +24,15 @@
 //     intersection of the parent's and the inline ones;
 //  5. everything else is an implicit deny.
 //
+// The access rules of the buckets (docs/10 §10.1, Deps.AccessRules) are
+// one more resource-based source, next to the bucket policy: a deny rule
+// that applies denies like an explicit Deny (step 2), an allow rule
+// grants like a bucket policy statement (steps 3 and 4: it may grant
+// anonymous requests when its principal is "*"), and the inline policy
+// of derived credentials still has to allow (step 4). Root credentials
+// bypass them like the bucket policy. The Decision names the deciding
+// rule (Decision.Rule, SourceAccessRule).
+//
 // Admin actions (admin:*) are evaluated with the same logic. Statements
 // match actions case-insensitively and resources case-sensitively, with
 // the "*" and "?" wildcards. Policy variables (${aws:username},
@@ -57,8 +66,102 @@ type Deps struct {
 	// Buckets resolves the bucket policy when Args.BucketPolicy is nil.
 	// Optional: without it only Args.BucketPolicy is evaluated.
 	Buckets BucketPolicyProvider
-	Clock   clock.Clock
-	Logger  *slog.Logger
+	// AccessRules, when set, evaluates the access rules of the buckets
+	// (docs/10 §10.1) as a resource-based source next to the bucket
+	// policy. Optional: without it no access rule is evaluated.
+	AccessRules AccessRules
+	Clock       clock.Clock
+	Logger      *slog.Logger
+}
+
+// AccessRules evaluates the access rules of a bucket for a request
+// (docs/10 §10.1); the engine combines the outcome with the IAM, inline
+// and bucket policies. accessrule.Evaluator implements it.
+type AccessRules interface {
+	// EvaluateRules returns the access rules of in.Bucket that apply to
+	// the request: the deny rule and the allow rule of lowest priority. A
+	// bucket without rules returns the zero RuleOutcome. An error (rules
+	// that cannot be loaded or compiled) is returned as is and the engine
+	// fails closed.
+	EvaluateRules(ctx context.Context, in RuleRequest) (RuleOutcome, error)
+}
+
+// RuleRequest is the request the access rules are evaluated for.
+type RuleRequest struct {
+	// Identity is the caller (never nil: domain.Anonymous for anonymous
+	// requests).
+	Identity *domain.Identity
+	Action   Action
+	Bucket   string
+	// Object is the decoded key of the request, "" for the bucket-level
+	// actions (the prefix of a listing is the s3:prefix condition key).
+	Object string
+	// Conditions are the condition values of the request as the engine
+	// resolves them: the keys of Args.Conditions plus aws:username,
+	// aws:userid, aws:principaltype, aws:CurrentTime... Each key is
+	// lowercase up to its first '/' ("aws:sourceip",
+	// "nexo:header/x-origin-secret"). Read only.
+	Conditions map[string][]string
+	// Now is the evaluation time.
+	Now time.Time
+	// Trace asks for RuleOutcome.Evaluated (the simulator); it never
+	// changes the outcome.
+	Trace bool
+}
+
+// RuleOutcome is the outcome of the access rules of a request.
+type RuleOutcome struct {
+	// Deny is the deny rule of lowest priority that applies; nil when
+	// none does.
+	Deny *RuleMatch
+	// Allow is the allow rule of lowest priority that applies; nil when
+	// none does (it may be left nil when Deny is set and Trace is not).
+	Allow *RuleMatch
+	// Evaluated lists every rule of the bucket in evaluation order (deny
+	// rules first, then allow rules, each by priority) with its outcome;
+	// only with RuleRequest.Trace.
+	Evaluated []EvaluatedRule
+}
+
+// RuleMatch identifies an access rule.
+type RuleMatch struct {
+	ID       string `json:"id"`
+	Priority int    `json:"priority"`
+	// Effect is domain.Allow or domain.Deny.
+	Effect domain.Effect `json:"effect"`
+	// Captures are the named groups of the pattern of a rule that matched
+	// the key (regex rules).
+	Captures map[string]string `json:"captures,omitempty"`
+}
+
+// RuleMismatch names why an access rule does not apply to a request.
+type RuleMismatch string
+
+// Reasons of EvaluatedRule.Mismatch.
+const (
+	RuleMismatchNone      RuleMismatch = ""
+	RuleMismatchPrincipal RuleMismatch = "principal"
+	RuleMismatchAction    RuleMismatch = "action"
+	RuleMismatchKey       RuleMismatch = "key"
+	RuleMismatchCondition RuleMismatch = "condition"
+	// RuleMismatchBlockedPublic marks a rule for everyone ("*") ignored
+	// because public access is blocked (cluster or bucket).
+	RuleMismatchBlockedPublic RuleMismatch = "blocked-public"
+)
+
+// EvaluatedRule is the outcome of one access rule (simulator, tester).
+type EvaluatedRule struct {
+	RuleMatch
+	// Matched reports that principal, action, key and conditions all
+	// match: the rule applies to the request.
+	Matched bool `json:"matched"`
+	// Mismatch is the first element that did not match (empty when
+	// Matched).
+	Mismatch RuleMismatch `json:"mismatch,omitempty"`
+	// Condition names the condition that did not hold (sourceIp,
+	// referer, host, captureEquals...) when Mismatch is
+	// RuleMismatchCondition.
+	Condition string `json:"condition,omitempty"`
 }
 
 // Attachments maintains the named policies attached to users and groups
@@ -279,6 +382,23 @@ const (
 	// admin actions.
 	ActionAdminKMSKeyStatus Action = "admin:KMSKeyStatus"
 	ActionAdminKMSCreateKey Action = "admin:KMSCreateKey"
+	// Actions of the access rules, the distributions, their certificates
+	// and their signed URLs (docs/10 §10.5). ActionAdminManageAccessRules
+	// is evaluated on the bucket of the rules (on the deployment for the
+	// cluster-level block public access); ActionAdminManageDistributions
+	// also on the origin bucket of a distribution that is saved.
+	ActionAdminManageAccessRules   Action = "admin:ManageAccessRules"
+	ActionAdminManageDistributions Action = "admin:ManageDistributions"
+	ActionAdminManageCertificates  Action = "admin:ManageCertificates"
+	ActionAdminSignDistributionURL Action = "admin:SignDistributionURL"
+	// Actions of the cache of the distributions (docs/11 §11.11):
+	// ActionAdminManageCache authorizes its configuration (policies,
+	// settings of the cluster and of the distributions, purge webhooks)
+	// and its diagnostics (inspector, statistics);
+	// ActionAdminInvalidateCache the operations on the cached content
+	// (invalidations and warm-ups), assignable alone (a deploy pipeline).
+	ActionAdminManageCache     Action = "admin:ManageCache"
+	ActionAdminInvalidateCache Action = "admin:InvalidateCache"
 )
 
 // Service is the policy engine and the IAM policy store.
@@ -416,6 +536,21 @@ type Request struct {
 	AuthType domain.AuthType
 	// SignedAt is when the request was signed (s3:signatureAge, with Now).
 	SignedAt time.Time
+	// Host is the host the request was addressed to (nexo:Host): the
+	// Host header, or the one a trusted proxy forwarded; any port is
+	// dropped. "" leaves the key out.
+	Host string
+	// Method is the HTTP method of the request (nexo:Method); "" leaves
+	// the key out (the access rules derive it from the action).
+	Method string
+	// Distribution is the distribution serving the request
+	// (nexo:Distribution, docs/10 §10.2); "" for the S3 API.
+	Distribution string
+	// HTTPHeaders are every header of the HTTP request, in any letter
+	// case (nexo:Header/<lowercase name>, for the header conditions of
+	// the access rules); the headers carrying credentials or keys are
+	// left out. Nil leaves the keys out.
+	HTTPHeaders map[string][]string
 }
 
 // RequestClient describes the client of a request (Request.Client).
@@ -444,6 +579,8 @@ const (
 	SourceInline Source = "inline"
 	// SourceBucket is the bucket policy.
 	SourceBucket Source = "bucket"
+	// SourceAccessRule is an access rule of the bucket (Decision.Rule).
+	SourceAccessRule Source = "accessrule"
 )
 
 // Decision is the outcome of Evaluate and Simulate.
@@ -471,6 +608,12 @@ type Decision struct {
 	// Evaluated lists every statement considered, in evaluation order
 	// (iam, group, inline, bucket). Only Simulate fills it.
 	Evaluated []EvaluatedStatement
+	// Rule is the access rule that decided (Source SourceAccessRule); nil
+	// otherwise.
+	Rule *RuleMatch
+	// EvaluatedRules lists the access rules of the bucket with their
+	// outcome (RuleOutcome.Evaluated). Only Simulate fills it.
+	EvaluatedRules []EvaluatedRule
 }
 
 // Mismatch names the first element of a statement that did not match.

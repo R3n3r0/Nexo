@@ -87,6 +87,9 @@ func BindFlags(fs *pflag.FlagSet) {
 	fs.String(FlagStorageClassStd, "", "parity of the STANDARD storage class as EC:n (erasure-coded modes)")
 	fs.String(FlagStorageClassRRS, "", "parity of the REDUCED_REDUNDANCY storage class as EC:n (erasure-coded modes)")
 	fs.Bool(FlagTLSInternodeVerify, false, "mutual TLS between the nodes: the internode calls need a client certificate verified with the CAs of --certs-dir (https endpoints)")
+	bindAccessFlags(fs)
+	bindDistributionFlags(fs)
+	bindCacheFlags(fs)
 }
 
 // Input is what the Loader reads from.
@@ -111,6 +114,19 @@ type LookupEnv func(key string) (string, bool)
 // ReadFile reads a file (os.ReadFile by default).
 type ReadFile func(name string) ([]byte, error)
 
+// Environ lists the environment as KEY=value (os.Environ by default):
+// the loader enumerates the NEXO_SECRET_* variables with it.
+type Environ func() []string
+
+// WithEnviron replaces the environment enumeration (tests).
+func WithEnviron(fn Environ) Option {
+	return func(l *loader) {
+		if fn != nil {
+			l.environ = fn
+		}
+	}
+}
+
 // WithEnv replaces the environment accessor (tests).
 func WithEnv(fn LookupEnv) Option {
 	return func(l *loader) {
@@ -132,13 +148,14 @@ func WithReadFile(fn ReadFile) Option {
 type loader struct {
 	env      LookupEnv
 	readFile ReadFile
+	environ  Environ
 }
 
 var _ Loader = (*loader)(nil)
 
 // NewLoader returns the default loader.
 func NewLoader(opts ...Option) Loader {
-	l := &loader{env: os.LookupEnv, readFile: os.ReadFile}
+	l := &loader{env: os.LookupEnv, readFile: os.ReadFile, environ: os.Environ}
 	for _, o := range opts {
 		o(l)
 	}
@@ -259,7 +276,13 @@ func (l *loader) applyEnv(cfg *Static) error {
 	if previous != "" {
 		cfg.KMSPreviousSecretKeys = splitList(previous)
 	}
-	return nil
+	if err := l.applyAccessEnv(cfg); err != nil {
+		return err
+	}
+	if err := l.applyDistributionEnv(cfg); err != nil {
+		return err
+	}
+	return l.applyCacheEnv(cfg)
 }
 
 // secret reads KEY or, when set, the file named by KEY_FILE (trimmed).
@@ -318,7 +341,13 @@ func applyFlags(cfg *Static, fs *pflag.FlagSet) error {
 		}
 		cfg.TrustedProxies = v
 	}
-	return nil
+	if err := applyAccessFlags(cfg, fs); err != nil {
+		return err
+	}
+	if err := applyDistributionFlags(cfg, fs); err != nil {
+		return err
+	}
+	return applyCacheFlags(cfg, fs)
 }
 
 func splitList(s string) []string {

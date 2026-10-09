@@ -1,0 +1,20 @@
+List the access rules of a bucket in the order the policy engine evaluates them: the deny rules first, then the allow rules, each by priority.
+
+Usage:
+  nexoctl access rule list ALIAS/BUCKET [flags]
+
+Aliases:
+  list, ls
+
+Examples:
+  nexoctl access rule ls local/media
+
+Flags:
+  -h, --help   help for list
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

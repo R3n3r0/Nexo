@@ -1,0 +1,235 @@
+$ nexoctl dist ls mem
+No distribution.
+
+$ nexoctl dist create mem site --bucket web --prefix /prod --domain www.example.com --domain example.com --index index.html --spa /index.html --comment the web site
+Created the distribution `site` (website) of `web/prod` on www.example.com, example.com.
+
+$ nexoctl dist create mem api --bucket data --mode s3 --domain s3.example.com --access authenticated
+Created the distribution `api` (s3) of `data` on s3.example.com.
+
+$ nexoctl dist create mem clash --bucket web --domain example.com
+! nexoctl: error: distribution "clash": example.com: alias already used by another distribution (alias_conflict)
+[exit 1]
+
+$ nexoctl dist create mem nobucket --domain x.example.com
+! nexoctl: error: --bucket is required
+! Run 'nexoctl dist create --help' for usage.
+[exit 2]
+
+$ nexoctl dist ls mem
+ID                   STATE    MODE     ORIGIN               TLS                DOMAINS
+api                  enabled  s3       data                 -                  s3.example.com
+site                 enabled  website  web/prod             -                  www.example.com, example.com
+
+$ nexoctl dist info mem site
+ID: site
+State: enabled
+Mode: website
+Origin: web/prod
+Domains: www.example.com, example.com
+Default behavior: access public, index index.html, spa /index.html
+Comment: the web site
+TLS: -
+
+$ nexoctl dist info mem nope
+! nexoctl: error: distribution "nope": distribution not found: nope (distribution_not_found)
+[exit 3]
+
+$ nexoctl dist resolve mem example.com
+example.com: distribution `site` (alias example.com, website), bucket web
+
+$ nexoctl dist resolve mem unknown.example.org
+unknown.example.org: path-style
+
+$ nexoctl dist domain add mem site *.preview.example.com
+Domains of `site`: www.example.com, example.com, *.preview.example.com.
+
+$ nexoctl dist domain remove mem site *.preview.example.com
+Domains of `site`: www.example.com, example.com.
+
+$ nexoctl dist behavior add mem site --prefix /assets/ --cache-control public, max-age=31536000, immutable
+Added a behavior for prefix /assets/ to `site` (1 behavior).
+
+$ nexoctl dist keygroup create mem downloads --comment download links
+Created the key group `downloads` with the key KMEM0006 (ed25519); private key saved to $WORK/.nexoctl/keys/mem/KMEM0006.pem.
+
+$ nexoctl dist keygroup ls mem
+downloads (1 key)
+  KMEM0006 ed25519 2026-01-02 03:04:05 UTC [private key stored]
+
+$ nexoctl dist behavior add mem site --glob /downloads/** --access signed --key-group downloads
+Added a behavior for glob /downloads/** to `site` (2 behaviors).
+
+$ nexoctl dist behavior ls mem site
+1. prefix /assets/ → cache-control "public, max-age=31536000, immutable"
+2. glob /downloads/** → access signed, key group downloads
+default → access public, index index.html, spa /index.html
+
+$ nexoctl dist behavior move mem site 2 1
+Moved the behavior 2 of `site` to position 1.
+
+$ nexoctl dist behavior ls mem site
+1. glob /downloads/** → access signed, key group downloads
+2. prefix /assets/ → cache-control "public, max-age=31536000, immutable"
+default → access public, index index.html, spa /index.html
+
+$ nexoctl dist error-page set mem site 404 /404.html
+Errors 404 of `site` answer /404.html.
+
+$ nexoctl dist redirect add mem site --from ^/old/(.*)$ --to /new/$1 --status 308
+Added the redirection 1 of `site`: ^/old/(.*)$ → /new/$1 (308).
+
+$ nexoctl dist headers mem site --security --set X-Site: prod --cors-origin https://app.example.com
+Updated the headers of `site` (5 response headers).
+
+$ nexoctl dist restrict mem site --deny-ip 203.0.113.0/24
+Updated the restrictions of `site`.
+
+$ nexoctl dist test mem site /downloads/v1.zip
+Route: www.example.com → distribution `site` (alias www.example.com)
+Behavior: 1 (glob /downloads/**)
+Access: signed
+Settings: access signed, key group downloads, index index.html, spa /index.html
+Object: web/prod/downloads/v1.zip
+Header Referrer-Policy: strict-origin-when-cross-origin
+Header Strict-Transport-Security: max-age=63072000; includeSubDomains
+Header X-Content-Type-Options: nosniff
+Header X-Frame-Options: SAMEORIGIN
+Header X-Site: prod
+
+$ nexoctl dist test mem site https://example.com/assets/app.js
+Route: example.com → distribution `site` (alias example.com)
+Behavior: 2 (prefix /assets/)
+Access: public
+Settings: access public, index index.html, spa /index.html, cache-control "public, max-age=31536000, immutable"
+Object: web/prod/assets/app.js
+Header Referrer-Policy: strict-origin-when-cross-origin
+Header Strict-Transport-Security: max-age=63072000; includeSubDomains
+Header X-Content-Type-Options: nosniff
+Header X-Frame-Options: SAMEORIGIN
+Header X-Site: prod
+
+$ nexoctl dist test mem site /old/page.html
+Route: www.example.com → distribution `site` (alias www.example.com)
+Behavior: default
+Access: public
+Settings: access public, index index.html, spa /index.html
+Object: web/prod/old/page.html
+Header Referrer-Policy: strict-origin-when-cross-origin
+Header Strict-Transport-Security: max-age=63072000; includeSubDomains
+Header X-Content-Type-Options: nosniff
+Header X-Frame-Options: SAMEORIGIN
+Header X-Site: prod
+
+$ nexoctl dist sign-url mem site /downloads/v1.zip
+! nexoctl: error: --expire is required (a duration: 1h, 7d)
+! Run 'nexoctl dist sign-url --help' for usage.
+[exit 2]
+
+$ nexoctl dist sign-url mem site /downloads/v1.zip --expire 1h
+https://www.example.com/downloads/v1.zip?Expires=1767326645&Key-Pair-Id=KMEM0006&Signature=mem-signature
+
+$ nexoctl dist sign-url mem site /downloads/v1.zip --expire 1h --cookie
+Set-Cookie: CloudFront-Policy=mem-policy; Expires=Fri, 02 Jan 2026 04:04:05 UTC; Secure; HttpOnly
+Set-Cookie: CloudFront-Signature=mem-signature; Expires=Fri, 02 Jan 2026 04:04:05 UTC; Secure; HttpOnly
+Set-Cookie: CloudFront-Key-Pair-Id=KMEM0006; Expires=Fri, 02 Jan 2026 04:04:05 UTC; Secure; HttpOnly
+
+$ nexoctl dist sign-url mem site /index.html --expire 1h
+! nexoctl: error: distribution "site": invalid argument: /index.html is served by a behavior with access "public": only the signed behaviors verify signatures
+[exit 1]
+
+$ nexoctl dist keygroup rm mem downloads
+! nexoctl: error: key group "downloads": key group downloads is used by the distribution site (conflict)
+[exit 1]
+
+$ nexoctl dist origin-secret rotate mem site
+New origin secret of `site` (header X-Origin-Secret, 1 active, shown once):
+mem-origin-secret-13
+
+$ nexoctl dist cert set mem site --cert cert.pem --key key.pem
+Uploaded the certificate dist-site (www.example.com, example.com, valid until 2026-04-02 03:04:05 UTC); TLS of `site`: upload:dist-site.
+
+$ nexoctl dist cert set mem api --auto
+TLS of `api`: auto.
+
+$ nexoctl dist cert ls mem
+ID                       SOURCE  STATUS         EXPIRES                 DOMAINS                  USED BY
+dist-site                upload  valid          2026-04-02 03:04:05 UTC www.example.com,example.com site
+ACME acme-api pending for s3.example.com (distributions api)
+
+$ nexoctl dist cert rm mem dist-site
+! nexoctl: error: certificate "dist-site": certificate dist-site is used by the distributions site (conflict)
+[exit 1]
+
+$ nexoctl dist disable mem api
+Distribution `api` disabled.
+
+$ nexoctl dist enable mem api
+Distribution `api` enabled.
+
+$ nexoctl dist export mem site -o site.yaml
+Exported 1 distribution to site.yaml.
+
+--- site.yaml
+id: site
+enabled: true
+comment: the web site
+aliases:
+  - www.example.com
+  - example.com
+origin:
+  bucket: web
+  pathPrefix: /prod
+mode: website
+defaultBehavior:
+  access: public
+  indexDocument: index.html
+  spaFallback: /index.html
+behaviors:
+  - pathPattern:
+      type: glob
+      pattern: /downloads/**
+    access: signed
+    signing:
+      keyGroup: downloads
+  - pathPattern:
+      type: prefix
+      pattern: /assets/
+    cache:
+      cacheControl: public, max-age=31536000, immutable
+errorPages:
+  - status: 404
+    path: /404.html
+redirects:
+  - from: ^/old/(.*)$
+    to: /new/$1
+    status: 308
+headers:
+  response:
+    Referrer-Policy: strict-origin-when-cross-origin
+    Strict-Transport-Security: max-age=63072000; includeSubDomains
+    X-Content-Type-Options: nosniff
+    X-Frame-Options: SAMEORIGIN
+    X-Site: prod
+  cors:
+    allowedOrigins:
+      - https://app.example.com
+restrictions:
+  sourceIp:
+    deny:
+      - 203.0.113.0/24
+  originSecretHeader:
+    name: X-Origin-Secret
+    values:
+      - sha256:mem-13
+tls:
+  certificate: upload:dist-site
+logging: {}
+
+$ nexoctl dist rm mem api
+Removed the distribution `api`.
+
+$ nexoctl dist ls mem
+ID                   STATE    MODE     ORIGIN               TLS                DOMAINS
+site                 enabled  website  web/prod             upload:dist-site   www.example.com, example.com
+

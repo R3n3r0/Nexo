@@ -1,0 +1,25 @@
+Block the access rules granting everyone ("*"), on every bucket (ALIAS) or on
+one (ALIAS/BUCKET). In the reject mode (a setting of the cluster) such a rule
+is refused when saved and the stored ones are ignored; in the ignore mode they
+are accepted and ignored. Deny rules are never affected.
+
+Usage:
+  nexoctl access block-public [flags]
+  nexoctl access block-public [command]
+
+Available Commands:
+  off         Stop blocking the public access
+  on          Block the public access
+  status      Show the block public access
+
+Flags:
+  -h, --help   help for block-public
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl access block-public [command] --help" for more information about a command.

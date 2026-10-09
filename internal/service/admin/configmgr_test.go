@@ -166,7 +166,7 @@ func TestConfigManagerListAndSchema(t *testing.T) {
 	for _, s := range schema {
 		names = append(names, s.Name)
 	}
-	assert.Equal(t, []string{"api", "browser", "logger", "notify_amqp", "notify_kafka", "notify_nats", "notify_postgres", "notify_redis",
+	assert.Equal(t, []string{"access", "api", "browser", "logger", "notify_amqp", "notify_kafka", "notify_nats", "notify_postgres", "notify_redis",
 		"notify_webhook", "region", "scanner"}, names)
 	// Every key says whether the server applies it (regression: keys were
 	// shown as if they took effect while nothing read them).
@@ -176,7 +176,7 @@ func TestConfigManagerListAndSchema(t *testing.T) {
 			applied[s.Name+"."+k.Name] = k.Applied
 		}
 	}
-	for _, k := range []string{"api.root_access", "scanner.speed", "scanner.cycle"} {
+	for _, k := range []string{"api.root_access", "scanner.speed", "scanner.cycle", "access.block_public", "access.block_public_mode"} {
 		assert.True(t, applied[k], k)
 	}
 	for _, k := range []string{"api.requests_max", "browser.session_duration", "logger.level", "region.name"} {

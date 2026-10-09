@@ -1,0 +1,27 @@
+Manage the cache settings of a distribution (admin:ManageCache, docs/11 §11.1):
+its defaults, the overrides of a domain (--domain) and of the paths a pattern
+selects (--behavior). The settings are inherited from the cluster ("nexoctl
+cache settings") to the distribution, the domain and the path; every level may
+name a policy ("nexoctl cache policy") and override its fields.
+
+Usage:
+  nexoctl dist cache [flags]
+  nexoctl dist cache [command]
+
+Available Commands:
+  export      Export the cache settings of a distribution as YAML
+  import      Replace the cache settings of distributions with those of a YAML file
+  set         Change the cache settings of a distribution, a domain or a path
+  show        Show the cache settings of a distribution and the effective policy of its domains
+
+Flags:
+  -h, --help   help for cache
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl dist cache [command] --help" for more information about a command.

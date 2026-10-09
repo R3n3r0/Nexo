@@ -156,6 +156,9 @@ type APIDeps struct {
 	// Domains enable virtual-host style requests ("{bucket}.{domain}") for
 	// each domain (NEXO_DOMAIN); without them every request is path-style.
 	Domains []string
+	// HostBuckets resolves the custom hosts of the buckets (the s3
+	// distributions), before the domains; nil resolves none.
+	HostBuckets HostBuckets
 	// System are the routes the listener serves beside the S3 API under
 	// the reserved "/nexo/" prefix (HealthRoutes, MetricsRoutes). They
 	// answer path-style requests only: the path of a virtual-host request
@@ -192,7 +195,7 @@ func NewAPI(deps APIDeps, groups ...Group) Routes {
 		deps.Enc = httpx.New()
 	}
 	o := newOptions([]Option{WithDomains(deps.Domains...)})
-	d := &dispatcher{enc: deps.Enc, domains: o.domains, ops: make(map[opKey][]opEntry)}
+	d := &dispatcher{enc: deps.Enc, domains: o.domains, hostBuckets: deps.HostBuckets, ops: make(map[opKey][]opEntry)}
 	for _, g := range groups {
 		if g != nil {
 			g.Mount(d)
@@ -234,7 +237,7 @@ func (a *api) Register(r chi.Router) {
 // the Dispatcher: their path is an object key.
 func (a *api) pathStyleOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := virtualHostBucket(a.d.domains, r.Host); ok {
+		if _, ok := a.d.hostBucket(r); ok {
 			a.d.serve(w, r)
 			return
 		}

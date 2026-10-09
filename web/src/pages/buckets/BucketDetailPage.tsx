@@ -17,6 +17,7 @@ import {
   IconFolder,
   IconLock,
   IconSettings,
+  IconShieldCheck,
   IconTrash,
 } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
@@ -33,10 +34,10 @@ import { isApiError, useServices } from '@/services';
 
 import { DeleteBucketDialog } from './DeleteBucketDialog';
 
-const tabs = ['browse', 'settings', 'lifecycle', 'events', 'access'] as const;
+const tabs = ['browse', 'settings', 'lifecycle', 'events', 'access', 'rules'] as const;
 type BucketTab = (typeof tabs)[number];
 
-/** The tab of a bucket route: /buckets/:bucket/{browse/*,settings,lifecycle,events,access}. */
+/** The tab of a bucket route: /buckets/:bucket/{browse/*,settings,lifecycle,events,access,rules}. */
 function tabOf(pathname: string, bucket: string): BucketTab {
   const base = `/buckets/${encodeURIComponent(bucket)}/`;
   const rest = pathname.startsWith(base) ? pathname.slice(base.length) : '';
@@ -175,6 +176,9 @@ export function BucketDetailPage() {
           </Tabs.Tab>
           <Tabs.Tab value="access" leftSection={<IconLock size={16} />}>
             {t('bucket.tabs.access')}
+          </Tabs.Tab>
+          <Tabs.Tab value="rules" leftSection={<IconShieldCheck size={16} />}>
+            {t('bucket.tabs.rules')}
           </Tabs.Tab>
         </Tabs.List>
         {/* Every tab controls a panel; the route renders in the active one. */}

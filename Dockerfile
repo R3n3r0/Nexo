@@ -65,9 +65,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -X github.com/r3n3r0/nexo/internal/version.Date=${DATE}"; \
     go build -trimpath -tags embedui -ldflags "${LDFLAGS}" -o /out/nexo ./cmd/nexo; \
     go build -trimpath -ldflags "${LDFLAGS}" -o /out/nexoctl ./cmd/nexoctl; \
-    # Empty data directory, copied into the final image with the nonroot
-    # ownership (distroless has no shell to run mkdir/chown).
-    mkdir -p /out/data
+    # Empty data and cache directories, copied into the final image with
+    # the nonroot ownership (distroless has no shell to run mkdir/chown).
+    mkdir -p /out/data /out/cache
 
 # ---------------------------------------------------------------------------
 # Final stage: distroless, non-root (UID 65532), no shell.
@@ -91,6 +91,9 @@ LABEL org.opencontainers.image.title="Nexo" \
 COPY --from=go /out/nexo /nexo
 COPY --from=go /out/nexoctl /nexoctl
 COPY --from=go --chown=65532:65532 /out/data /data
+# Disk tier of the distribution cache (--cache-dir /cache): optional, a
+# volume of its own when used (see compose.*.yml).
+COPY --from=go --chown=65532:65532 /out/cache /cache
 
 USER 65532:65532
 

@@ -1,0 +1,49 @@
+Manage the distributions of a Nexo server (Admin API, admin:ManageDistributions):
+a bucket, or a prefix of it, exposed on custom domains as a website (index
+document, SPA fallback, error pages, redirects, behaviors per path, signed URLs)
+or as an S3 endpoint. The changes reach every node of a cluster without restart.
+
+Every change reads the distribution, changes it and writes it back guarded by
+its ETag: a concurrent change is retried. Point the DNS of the domains (CNAME,
+A/AAAA) to the cluster or to the proxies in front of it.
+
+Usage:
+  nexoctl dist [flags]
+  nexoctl dist [command]
+
+Available Commands:
+  behavior      Manage the behaviors per path of a distribution
+  cache         Manage the cache settings of a distribution, its domains and paths
+  cert          Manage the TLS certificates of the domains of the distributions
+  create        Create a distribution
+  disable       Disable a distribution (its domains answer 403)
+  domain        Add and remove the domains (aliases) of a distribution
+  edit          Change the origin, the mode or the default behavior of a distribution
+  enable        Enable a distribution
+  error-page    Replace the error answers of a distribution with pages
+  export        Export distributions as YAML
+  headers       Set the response headers and the CORS policy of a distribution
+  import        Create or replace the distributions of a YAML file
+  info          Show a distribution
+  invalidate    Invalidate cached content of a distribution
+  keygroup      Manage the key groups of the signed URLs and cookies
+  list          List the distributions
+  origin-secret Manage the origin secret of the proxies in front of the cluster
+  redirect      Manage the redirections of a distribution
+  remove        Remove a distribution
+  resolve       Show what serves a host (distribution, virtual host, S3 API)
+  restrict      Restrict the clients of a distribution (source IP, origin secret, rate limit)
+  sign-url      Sign a URL (or cookies) of a signed behavior
+  test          Show how a distribution serves a URL: behavior, access, headers
+
+Flags:
+  -h, --help   help for dist
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl dist [command] --help" for more information about a command.

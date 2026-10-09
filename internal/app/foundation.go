@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/config"
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/cache"
 	"github.com/r3n3r0/nexo/internal/service/cluster"
 	"github.com/r3n3r0/nexo/internal/service/heal"
 	"github.com/r3n3r0/nexo/internal/service/lock"
@@ -66,6 +68,15 @@ type foundation struct {
 	auth  rpc.Authenticator
 	rpc   rpc.Server
 	conns []rpc.Conn
+	// distRequests selects the requests of the distributions, whatever
+	// their path, once the services are composed: the RPC server leaves
+	// them to the API (a website path may look like an internode call).
+	distRequests requestPredicate
+	// cacheNode serves the cache of this node to its peers once it is
+	// composed; cachePeers are the caches of the other nodes (docs/11
+	// §11.4).
+	cacheNode  *cacheNodeHolder
+	cachePeers []cache.Peer
 }
 
 // distributed reports a cluster deployment.
@@ -261,6 +272,11 @@ func (f *foundation) openDistributed(d foundationDeps) error {
 			return err
 		}
 		bootPeers = append(bootPeers, bp)
+		cp, err := rpc.NewCacheClient(rpc.CacheClientDeps{Conn: conn})
+		if err != nil {
+			return err
+		}
+		f.cachePeers = append(f.cachePeers, cp)
 	}
 
 	// Drives: local ones opened here, remote ones through their node.
@@ -336,12 +352,18 @@ func (f *foundation) openDistributed(d foundationDeps) error {
 	if err != nil {
 		return err
 	}
-	serverOpts := []rpc.ServerOption{rpc.WithSkip(s3.VirtualHostRequest(domainsOf(cfg)...))}
+	f.cacheNode = &cacheNodeHolder{}
+	cacheRoutes, err := rpc.NewCacheRoutes(rpc.CacheRoutesDeps{Cache: f.cacheNode})
+	if err != nil {
+		return err
+	}
+	vhost := s3.VirtualHostRequest(domainsOf(cfg)...)
+	serverOpts := []rpc.ServerOption{rpc.WithSkip(func(r *http.Request) bool { return vhost(r) || f.distRequests.match(r) })}
 	if cfg.TLSInternodeVerify {
 		serverOpts = append(serverOpts, rpc.WithClientCertRequired())
 	}
 	f.rpc, err = rpc.NewServer(rpc.ServerDeps{Auth: f.auth, Metrics: f.registry, Clock: d.clock, Logger: logger,
-		Routes: []rpc.Routes{storageRoutes, lockRoutes, peerRoutes, bootRoutes}}, serverOpts...)
+		Routes: []rpc.Routes{storageRoutes, lockRoutes, peerRoutes, bootRoutes, cacheRoutes}}, serverOpts...)
 	return err
 }
 

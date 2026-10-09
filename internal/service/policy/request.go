@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"net"
 	"net/url"
 	"sort"
 	"strconv"
@@ -27,6 +28,23 @@ const (
 	KeyRequestObjectTagKeys = "s3:RequestObjectTagKeys"
 	// KeyRequestObjectTagPrefix is followed by the tag key.
 	KeyRequestObjectTagPrefix = "s3:RequestObjectTag/"
+
+	// Nexo condition keys of the access rules (docs/10 §10.1), also
+	// usable in policies.
+	//
+	// KeyHost is the host the request was addressed to, lowercase and
+	// without port: the Host header or the host forwarded by a trusted
+	// proxy (Request.Host).
+	KeyHost = "nexo:Host"
+	// KeyMethod is the HTTP method of the request (Request.Method).
+	KeyMethod = "nexo:Method"
+	// KeyDistribution is the distribution serving the request.
+	KeyDistribution = "nexo:Distribution"
+	// KeyHeaderPrefix is followed by the lowercase name of a request
+	// header: every header of Request.HTTPHeaders but those carrying
+	// credentials or keys (Authorization, Cookie, x-amz-security-token,
+	// the SSE-C keys...).
+	KeyHeaderPrefix = "nexo:Header/"
 )
 
 // Request headers with a meaning for the condition keys.
@@ -108,5 +126,37 @@ func RequestConditions(r Request) map[string][]string {
 	if !r.SignedAt.IsZero() && !r.Now.IsZero() {
 		set(KeySignatureAge, strconv.FormatInt(r.Now.Sub(r.SignedAt).Milliseconds(), 10))
 	}
+	set(KeyHost, hostOnly(r.Host))
+	set(KeyMethod, strings.ToUpper(strings.TrimSpace(r.Method)))
+	set(KeyDistribution, r.Distribution)
+	for name, values := range r.HTTPHeaders {
+		lname := strings.ToLower(strings.TrimSpace(name))
+		if lname == "" || len(values) == 0 || secretHeader(lname) {
+			continue
+		}
+		conds[KeyHeaderPrefix+lname] = append([]string(nil), values...)
+	}
 	return conds
+}
+
+// secretHeader reports a header carrying credentials or keys, never a
+// condition value.
+func secretHeader(lname string) bool {
+	switch lname {
+	case "authorization", "proxy-authorization", "cookie", headerToken, "x-csrf-token":
+		return true
+	}
+	return strings.Contains(lname, "customer-key") && !strings.HasSuffix(lname, "-md5")
+}
+
+// hostOnly lowercases a host and drops its port ("" stays "").
+func hostOnly(host string) string {
+	host = strings.ToLower(strings.TrimSpace(host))
+	if host == "" {
+		return ""
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return strings.Trim(h, "[]")
+	}
+	return strings.Trim(host, "[]")
 }

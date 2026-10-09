@@ -1,0 +1,119 @@
+# TCL-A-01: access rule add/ls/info/move/rm and access test, consistent with
+# the anonymous requests the server answers; block-public and the presets.
+# TCL-A-02: access export, import into another bucket: identical rules,
+# applied by the server.
+
+exec nexoctl mb local/media
+exec nexoctl cp a.jpg local/media/img/2026/a.jpg
+exec nexoctl cp a.jpg local/media/img/2026/private/b.jpg
+exec nexoctl cp a.jpg local/media/docs/c.jpg
+http -status 403 $NEXO_URL/media/img/2026/a.jpg
+
+exec nexoctl access rule ls local/media
+stdout 'No access rule'
+exec nexoctl access rule add local/media --id img-pub --allow --principal '*' --action read --regex '^img/[0-9]{4}/.*\.(jpe?g|png)$' --ignore-case
+stdout 'Added the access rule `img-pub` to `local/media` \(1 rule\)'
+exec nexoctl access rule add local/media --id no-private --deny --principal '*' --action all --glob '**/private/**' --priority 5
+stdout '\(2 rules\)'
+expectcode 1 nexoctl access rule add local/media --id bad --allow --principal '*' --action read --regex '(['
+stderr 'invalid_access_rule'
+expectcode 1 nexoctl access rule add local/media --id img-pub --allow --principal '*' --action read
+stderr 'use --replace'
+exec nexoctl access rule ls local/media
+stdout '^no-private +5 +deny +\* +all +glob \*\*/private/\*\*$'
+stdout '^img-pub +100 +allow +\* +read +regex\(i\) '
+exec nexoctl access rule info local/media --id img-pub
+stdout '^Match: regex\(i\) \^img/'
+exec nexoctl access rule ls --json local/media
+jsonlines stdout
+
+# access test agrees with the server.
+exec nexoctl access test local/media/img/2026/a.jpg local/media/img/2026/private/b.jpg local/media/docs/c.jpg local/media/IMG/2026/x.png
+stdout '^img/2026/a.jpg: allowed by access rule `img-pub` \(anonymous, s3:GetObject\)$'
+stdout '^img/2026/private/b.jpg: denied by access rule `no-private`'
+stdout '^docs/c.jpg: denied'
+http -o got.jpg $NEXO_URL/media/img/2026/a.jpg
+cmp got.jpg a.jpg
+http -status 403 $NEXO_URL/media/img/2026/private/b.jpg
+http -status 403 $NEXO_URL/media/docs/c.jpg
+http -status 403 -X PUT -T a.jpg $NEXO_URL/media/img/2026/new.jpg
+exec nexoctl access test --json --action write local/media/img/2026/new.jpg
+jsonlines stdout
+stdout '"allowed":false'
+exec nexoctl access test -v local/media/img/2026/private/b.jpg
+stdout 'no-private +deny +5 +matches'
+
+# move changes the order of evaluation; rm drops the deny.
+exec nexoctl access rule move local/media --id img-pub --priority 1
+stdout 'to priority 1'
+exec nexoctl access rule ls local/media
+stdout -count=1 '^img-pub +1 +allow'
+exec nexoctl access rule rm local/media --id no-private
+stdout 'Removed the access rule `no-private`'
+expectcode 3 nexoctl access rule rm local/media --id no-private
+exec nexoctl access test local/media/img/2026/private/b.jpg
+stdout 'allowed by access rule `img-pub`'
+http -o got.jpg $NEXO_URL/media/img/2026/private/b.jpg
+cmp got.jpg a.jpg
+
+# The block public access ignores the rules for everyone (mode reject:
+# such a rule is refused too).
+exec nexoctl access block-public on local/media
+stdout 'Blocked the public access of `local/media`'
+exec nexoctl access block-public status local/media
+stdout 'blocked \(cluster: off, mode reject, bucket: on\)'
+http -status 403 $NEXO_URL/media/img/2026/a.jpg
+expectcode 4 nexoctl access rule add local/media --id pub2 --allow --principal '*' --action list
+stderr 'public_access_blocked'
+exec nexoctl access block-public off local/media
+http $NEXO_URL/media/img/2026/a.jpg
+
+# TCL-A-02: export, import into another bucket: identical rules.
+exec nexoctl access rule add local/media --id docs --allow --principal '*' --action read --prefix docs/ --source-ip 127.0.0.0/8 --source-ip ::1/128 --description 'documents on the loopback'
+exec nexoctl access export local/media rules.yaml
+stdout 'Exported 2 access rules of `local/media` to rules.yaml'
+grep '^bucket: media$' rules.yaml
+grep 'pattern: \^img/\[0-9\]\{4\}/' rules.yaml
+exec nexoctl mb local/copy
+exec nexoctl cp a.jpg local/copy/docs/c.jpg
+http -status 403 $NEXO_URL/copy/docs/c.jpg
+exec nexoctl access import local/copy rules.yaml
+stdout 'Imported 2 access rules into `local/copy`'
+exec nexoctl access rule ls local/media
+cp stdout media.txt
+exec nexoctl access rule ls local/copy
+cmp stdout media.txt
+exec nexoctl access export local/copy
+cp stdout copy.yaml
+exec nexoctl access export local/media
+cp stdout media.yaml
+exec nexoctl access import local/media copy.yaml
+exec nexoctl access export local/media
+cmp stdout media.yaml
+http -o got.jpg $NEXO_URL/copy/docs/c.jpg
+cmp got.jpg a.jpg
+expectcode 1 nexoctl access import local/copy bad.yaml
+stderr 'unknown field'
+
+# The presets of the public access.
+exec nexoctl mb local/site
+exec nexoctl cp a.jpg local/site/index.jpg
+exec nexoctl access public get local/site
+stdout 'is not public \(private\)'
+exec nexoctl access public set public-read local/site
+exec nexoctl access public get local/site
+stdout 'is public \(public-read\)'
+http -o got.jpg $NEXO_URL/site/index.jpg
+cmp got.jpg a.jpg
+exec nexoctl access public set private local/site
+http -status 403 $NEXO_URL/site/index.jpg
+
+-- a.jpg --
+not really a JPEG
+-- bad.yaml --
+rules:
+  - id: a
+    effect: allow
+    principals: ['*']
+    actions: [read]
+    colour: red

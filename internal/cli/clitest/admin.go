@@ -71,9 +71,14 @@ type MemAdmin struct {
 	kmsKeys []nexoadmin.KMSKey
 	// kmsReseal is the outcome of ResealKMSKeys (SetKMSReseal).
 	kmsReseal nexoadmin.KMSResealResult
-	seq       int
-	fail      map[string]error
-	calls     map[string]int
+	// dist holds the access rules, distributions, key groups and
+	// certificates (admin_dist.go).
+	dist memDistState
+	// cache holds the cache of the distributions (admin_cache.go).
+	cache memCacheState
+	seq   int
+	fail  map[string]error
+	calls map[string]int
 }
 
 // memConfigSchema is the configuration schema of MemAdmin.
@@ -298,6 +303,8 @@ func (m *MemAdmin) Client(t TestingT, caller string) *climock.AdminClient {
 	c.EXPECT().ListKMSKeys(x, x).RunAndReturn(s.listKMSKeys).Maybe()
 	c.EXPECT().CreateKMSKey(x, x).RunAndReturn(s.createKMSKey).Maybe()
 	c.EXPECT().ResealKMSKeys(x, x).RunAndReturn(s.resealKMSKeys).Maybe()
+	s.expectDistribution(c)
+	s.expectCache(c)
 	return c
 }
 

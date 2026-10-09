@@ -101,6 +101,69 @@ type AdminClient interface {
 	CreateKMSKey(ctx context.Context, id string) (*nexoadmin.KMSKey, error)
 	ResealKMSKeys(ctx context.Context, bucket string) (*nexoadmin.KMSResealResult, error)
 
+	// Access rules of the buckets (docs/10 §10.1: nexoctl access). The
+	// changes are a read-modify-write guarded by the ETag of the rules
+	// (ifMatch): a concurrent change fails with
+	// domain.ErrPreconditionFailed.
+	GetAccessRules(ctx context.Context, bucket string) (*nexoadmin.AccessRules, error)
+	SetAccessRules(ctx context.Context, bucket string, rules []nexoadmin.BucketAccessRule, ifMatch string) (*nexoadmin.AccessRules, error)
+	TestAccessRules(ctx context.Context, bucket string, in nexoadmin.TestAccessRulesRequest) (*nexoadmin.AccessRulesTestResult, error)
+	GetAccessRulesPublic(ctx context.Context, bucket string) (*nexoadmin.AccessRulesPublicStatus, error)
+	ApplyAccessPreset(ctx context.Context, bucket string, in nexoadmin.AccessPresetRequest, ifMatch string) (*nexoadmin.AccessRules, error)
+	// GetBlockPublic and SetBlockPublic: bucket "" is the cluster.
+	GetBlockPublic(ctx context.Context, bucket string) (*nexoadmin.BlockPublic, error)
+	SetBlockPublic(ctx context.Context, bucket string, in nexoadmin.BlockPublicRequest) (*nexoadmin.BlockPublic, error)
+
+	// Distributions, key groups, routing and certificates (docs/10 §10.2:
+	// nexoctl dist). UpdateDistribution replaces the whole document,
+	// guarded by its ETag (ifMatch).
+	ListDistributions(ctx context.Context) ([]nexoadmin.Distribution, error)
+	CreateDistribution(ctx context.Context, d nexoadmin.Distribution) (*nexoadmin.Distribution, error)
+	GetDistribution(ctx context.Context, id string) (*nexoadmin.Distribution, error)
+	UpdateDistribution(ctx context.Context, d nexoadmin.Distribution, ifMatch string) (*nexoadmin.Distribution, error)
+	DeleteDistribution(ctx context.Context, id string) error
+	TestDistribution(ctx context.Context, id string, in nexoadmin.DistributionTestRequest) (*nexoadmin.DistributionTestResult, error)
+	RotateOriginSecret(ctx context.Context, id string, in nexoadmin.RotateOriginSecretRequest) (*nexoadmin.RotatedOriginSecret, error)
+	SignDistributionURL(ctx context.Context, id string, in nexoadmin.SignRequest) (*nexoadmin.SignedURL, error)
+	ResolveHost(ctx context.Context, host string) (*nexoadmin.Route, error)
+	ListKeyGroups(ctx context.Context) ([]nexoadmin.KeyGroup, error)
+	CreateKeyGroup(ctx context.Context, in nexoadmin.CreateKeyGroupRequest) (*nexoadmin.CreatedKeyGroup, error)
+	GetKeyGroup(ctx context.Context, id string) (*nexoadmin.KeyGroup, error)
+	DeleteKeyGroup(ctx context.Context, id string) error
+	AddKeyGroupKey(ctx context.Context, group string, in nexoadmin.AddKeyRequest) (*nexoadmin.AddedKey, error)
+	DeleteKeyGroupKey(ctx context.Context, group, keyID string) error
+	ListCertificates(ctx context.Context) (*nexoadmin.CertificateList, error)
+	UploadCertificate(ctx context.Context, in nexoadmin.UploadCertificateRequest) (*nexoadmin.Certificate, error)
+	DeleteCertificate(ctx context.Context, id string) error
+
+	// Cache of the distributions (docs/11: nexoctl cache, dist cache, dist
+	// invalidate). The settings are replaced whole, guarded by their ETag
+	// (ifMatch); the invalidations of distribution "" are the global
+	// purges, and GetCacheInvalidation with distribution "" finds one by
+	// its id alone.
+	ListCachePolicies(ctx context.Context) ([]nexoadmin.CachePolicy, error)
+	GetCachePolicy(ctx context.Context, name string) (*nexoadmin.CachePolicy, error)
+	CreateCachePolicy(ctx context.Context, p nexoadmin.CachePolicy) (*nexoadmin.CachePolicy, error)
+	UpdateCachePolicy(ctx context.Context, p nexoadmin.CachePolicy, ifMatch string) (*nexoadmin.CachePolicy, error)
+	DeleteCachePolicy(ctx context.Context, name string) error
+	PreviewCachePolicy(ctx context.Context, p nexoadmin.CachePolicy) (*nexoadmin.CachePolicyPreview, error)
+	GetCacheSettings(ctx context.Context) (*nexoadmin.CacheGlobalSettings, error)
+	SetCacheSettings(ctx context.Context, s nexoadmin.CacheGlobalSettings, ifMatch string) (*nexoadmin.CacheGlobalSettings, error)
+	GetDistributionCache(ctx context.Context, id string) (*nexoadmin.DistributionCache, error)
+	SetDistributionCache(ctx context.Context, cfg nexoadmin.DistributionCache, ifMatch string) (*nexoadmin.DistributionCache, error)
+	EffectiveCachePolicy(ctx context.Context, id, host, path string) (*nexoadmin.CacheEffectivePolicy, error)
+	InvalidateCache(ctx context.Context, distribution string, in nexoadmin.CacheInvalidationRequest) (*nexoadmin.CacheInvalidation, error)
+	GetCacheInvalidation(ctx context.Context, distribution, id string) (*nexoadmin.CacheInvalidation, error)
+	ListCacheInvalidations(ctx context.Context, distribution string) ([]nexoadmin.CacheInvalidation, error)
+	WarmCache(ctx context.Context, distribution string, in nexoadmin.CacheWarmRequest) (*nexoadmin.CacheWarmJob, error)
+	GetCacheWarmJob(ctx context.Context, distribution, id string) (*nexoadmin.CacheWarmJob, error)
+	InspectCache(ctx context.Context, in nexoadmin.CacheInspectRequest) (*nexoadmin.CacheInspection, error)
+	CacheStats(ctx context.Context, q nexoadmin.CacheStatsQuery) (*nexoadmin.CacheStats, error)
+	ListCacheWebhooks(ctx context.Context, distribution string) ([]nexoadmin.CacheWebhook, error)
+	AddCacheWebhook(ctx context.Context, distribution string, w nexoadmin.CacheWebhook) (*nexoadmin.CacheWebhook, error)
+	DeleteCacheWebhook(ctx context.Context, distribution, id string) error
+	TestCacheWebhook(ctx context.Context, distribution, id string) (*nexoadmin.CacheWebhookTestResult, error)
+
 	// Managed share links (docs/09 §9.1, S-OBJ-08c).
 	CreateShare(ctx context.Context, in nexoadmin.CreateShareRequest) (*nexoadmin.Share, error)
 	ListShares(ctx context.Context, opts nexoadmin.ListSharesOptions) (*nexoadmin.ShareList, error)

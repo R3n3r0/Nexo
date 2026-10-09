@@ -3,12 +3,16 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, vi } from 'vitest';
 
-import { initI18n } from '@/i18n';
+import i18n, { initI18n } from '@/i18n';
+import enSections from '@/i18n/locales/en.sections.json';
 
 import { server } from './server';
 
-// Tests assert on English copy (bundled: ready without waiting).
+// Tests assert on English copy (bundled: ready without waiting), the
+// strings of the sections loaded on demand included: the tests render the
+// pages without their route loaders.
 void initI18n({ lng: 'en' });
+i18n.addResourceBundle('en', 'translation', enSections, true, false);
 
 // Monaco cannot run in jsdom: code editors use their plain textarea
 // implementation, which has the same props and markers.

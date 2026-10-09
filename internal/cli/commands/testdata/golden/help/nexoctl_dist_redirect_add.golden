@@ -1,0 +1,25 @@
+Add a redirection (the first that applies wins)
+
+Usage:
+  nexoctl dist redirect add ALIAS ID (--from RE --to TARGET | --host-from HOST --to-host HOST | --https-only) [--status N] [flags]
+
+Examples:
+  nexoctl dist redirect add local sito-web --from '^/vecchio/(.*)$' --to '/nuovo/$1'
+  nexoctl dist redirect add local sito-web --host-from example.com --to-host www.example.com
+  nexoctl dist redirect add local sito-web --https-only
+
+Flags:
+      --from string        RE2 expression of the paths
+  -h, --help               help for add
+      --host-from string   host to redirect
+      --https-only         redirect plain HTTP to HTTPS
+      --status int         301 (default), 302, 303, 307 or 308
+      --to string          target, with $1 and ${name} from the groups of --from
+      --to-host string     target host (path and query kept)
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

@@ -28,6 +28,11 @@ type Deps struct {
 	// NotFound and MethodNotAllowed override chi's default handlers.
 	NotFound         http.Handler
 	MethodNotAllowed http.Handler
+	// Hosts selects by Host what serves a request (the routing of the
+	// distributions, docs/10 §10.2): the innermost middleware, after
+	// Middlewares and in front of the routes. Nil serves every host with
+	// the routes.
+	Hosts middleware.Middleware
 }
 
 // Option configures the server.
@@ -115,10 +120,15 @@ type service struct {
 	certFile, keyFile string
 	tlsConfig         *tls.Config
 	clientCAs         *x509.CertPool
+	// certificates selects the certificates by SNI (WithCertificates).
+	certificates      CertificateSource
 	readHeaderTimeout time.Duration
 	idleTimeout       time.Duration
 	shutdownTimeout   time.Duration
 	h2c               bool
+	// proxyProtocol accepts the PROXY protocol from proxyTrusted.
+	proxyProtocol bool
+	proxyTrusted  []string
 
 	handler http.Handler
 
@@ -164,7 +174,8 @@ func (s *service) build() http.Handler {
 			rt.Register(r)
 		}
 	}
-	return middleware.Chain(r, s.deps.Middlewares...)
+	mws := append(append([]middleware.Middleware(nil), s.deps.Middlewares...), s.deps.Hosts)
+	return middleware.Chain(r, mws...)
 }
 
 // Handler implements Service.
@@ -197,6 +208,14 @@ func (s *service) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("server %s: listen %s: %w", s.name, s.addr, err)
 	}
+	if s.proxyProtocol {
+		pln, err := s.proxyListener(ln)
+		if err != nil {
+			_ = ln.Close()
+			return err
+		}
+		ln = pln
+	}
 	handler := s.handler
 	srv := &http.Server{
 		Handler:           handler,
@@ -213,6 +232,9 @@ func (s *service) Start(ctx context.Context) error {
 			MaxReceiveBufferPerConnection: http2ConnWindow,
 			MaxReadFrameSize:              http2MaxFrameSize,
 		},
+	}
+	if s.proxyProtocol {
+		srv.ConnContext = proxyConnContext
 	}
 	if tlsCfg != nil {
 		ln = tls.NewListener(ln, tlsCfg)
@@ -243,6 +265,9 @@ func (s *service) Start(ctx context.Context) error {
 
 func (s *service) buildTLS() (*tls.Config, error) {
 	cfg, err := s.baseTLS()
+	if err == nil {
+		cfg = s.withCertificates(cfg)
+	}
 	if cfg != nil && s.clientCAs != nil {
 		cfg.ClientAuth, cfg.ClientCAs = tls.VerifyClientCertIfGiven, s.clientCAs
 	}

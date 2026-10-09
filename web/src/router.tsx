@@ -12,8 +12,9 @@ import { LoginPage, type LoginPageProps } from '@/pages/LoginPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { OverviewPage } from '@/pages/OverviewPage';
 import { clusterRoutes } from '@/pages/clusterRoutes';
+import { distributionRoutes } from '@/pages/distributionRoutes';
 import { iamRoutes } from '@/pages/iamRoutes';
-import { CachePage, DistributionsPage, MonitoringPage } from '@/pages/placeholders';
+import { CachePage, MonitoringPage } from '@/pages/placeholders';
 import { storageRoutes } from '@/pages/storageRoutes';
 import { UploadProvider } from '@/upload/UploadProvider';
 
@@ -47,7 +48,7 @@ export function createRoutes(options: RouteOptions = {}): RouteObject[] {
             { index: true, element: <OverviewPage /> },
             ...storageRoutes(),
             ...iamRoutes(),
-            { path: 'distributions', element: <DistributionsPage /> },
+            ...distributionRoutes(),
             { path: 'cache', element: <CachePage /> },
             ...clusterRoutes(),
             { path: 'monitoring', element: <MonitoringPage /> },

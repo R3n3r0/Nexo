@@ -55,7 +55,57 @@ type Metadata struct {
 	Tags         map[string]string `json:"tags,omitempty"`
 	CORS         []byte            `json:"cors,omitempty"`
 	Notification []byte            `json:"notification,omitempty"`
-	UpdatedAt    time.Time         `json:"updatedAt"`
+	// AccessRules are the access rules of the bucket (docs/10 §10.1),
+	// parsed and evaluated by the accessrule package; nil when never set.
+	AccessRules *AccessRules `json:"accessRules,omitempty"`
+	// BlockPublicAccess blocks the access rules granting everyone ("*")
+	// on this bucket (docs/10 §10.1, Protezioni globali).
+	BlockPublicAccess bool      `json:"blockPublicAccess,omitempty"`
+	UpdatedAt         time.Time `json:"updatedAt"`
+}
+
+// AccessRules is the stored access rules document of a bucket.
+type AccessRules struct {
+	// Document is the canonical JSON document of the rules, validated by
+	// the accessrule package before it is stored; "[]" for no rule.
+	Document json.RawMessage `json:"document"`
+	// ETag identifies the content of Document (AccessRulesETag): the
+	// If-Match of an atomic replacement.
+	ETag      string    `json:"etag"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	// UpdatedBy names who wrote the rules (an access key or user).
+	UpdatedBy string `json:"updatedBy,omitempty"`
+}
+
+// AccessConfig is the access configuration of a bucket the evaluation of
+// the access rules reads at every request (MetadataStore.AccessConfig).
+type AccessConfig struct {
+	// Rules are the stored rules, nil when none. They are shared with the
+	// cache of the store and must not be modified.
+	Rules *AccessRules
+	// BlockPublicAccess is the block public access of the bucket.
+	BlockPublicAccess bool
+}
+
+// AccessRulesChange is the outcome of SetAccessRules.
+type AccessRulesChange struct {
+	// Previous are the rules replaced ("[]" when there were none).
+	Previous AccessRules
+	// Current are the rules stored.
+	Current AccessRules
+}
+
+// SetAccessRulesInput are the parameters of SetAccessRules.
+type SetAccessRulesInput struct {
+	// Document is the canonical JSON document of the rules ("[]" or empty
+	// for none), validated by the caller (accessrule.Service).
+	Document json.RawMessage
+	// IfMatch, when not empty, is the ETag the current rules must have
+	// (domain.ErrPreconditionFailed otherwise); the ETag of a bucket
+	// without rules is AccessRulesETag of "[]".
+	IfMatch string
+	// UpdatedBy names who writes the rules.
+	UpdatedBy string
 }
 
 // MetadataStore persists the bucket metadata documents behind an
@@ -75,6 +125,11 @@ type MetadataStore interface {
 	// empty) so that the next Load reads the drives: the hook of the peer
 	// notifications sent when another node changes a bucket.
 	Invalidate(ctx context.Context, bucket string)
+	// AccessConfig returns the access rules and the block public access of
+	// a bucket from the cache (loading the document when missing), without
+	// copying the rest of the metadata: the evaluation of the access rules
+	// calls it at every request. A missing bucket has none.
+	AccessConfig(ctx context.Context, bucket string) (AccessConfig, error)
 }
 
 // Service manages buckets and their metadata.
@@ -164,6 +219,22 @@ type Service interface {
 
 	GetNotification(ctx context.Context, name string) ([]byte, error)
 	SetNotification(ctx context.Context, name string, xmlDoc []byte) error
+
+	// GetAccessRules returns the access rules document of a bucket; a
+	// bucket without rules returns the document "[]" with its ETag.
+	GetAccessRules(ctx context.Context, name string) (AccessRules, error)
+	// SetAccessRules replaces the access rules of a bucket atomically,
+	// under the configuration lock, and returns the rules it replaced and
+	// those it stored (with the new ETag). in.IfMatch, when set, must be
+	// the ETag of the current rules (domain.ErrPreconditionFailed
+	// otherwise). The document is stored as given: the accessrule package
+	// validates it.
+	SetAccessRules(ctx context.Context, name string, in SetAccessRulesInput) (AccessRulesChange, error)
+	// GetBlockPublicAccess reports the block public access of a bucket.
+	GetBlockPublicAccess(ctx context.Context, name string) (bool, error)
+	// SetBlockPublicAccess turns the block public access of a bucket on
+	// or off.
+	SetBlockPublicAccess(ctx context.Context, name string, on bool) error
 
 	// Invalidate drops the cached metadata of a bucket (every bucket when
 	// name is empty); see MetadataStore.Invalidate.

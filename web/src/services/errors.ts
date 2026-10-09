@@ -27,6 +27,22 @@ export interface RuleProblem {
 }
 
 /**
+ * A located problem of an access rule (schema AccessRuleError of the
+ * invalid_access_rule, too_many_access_rules and public_access_blocked
+ * problems).
+ */
+export interface AccessRuleProblem {
+  /** 1-based index of the rule, 0 for the whole list. */
+  rule: number;
+  id?: string;
+  /** The element at fault (match.pattern, conditions.sourceIp[1]...). */
+  field?: string;
+  /** 1-based position of the problem in the pattern. */
+  position?: number;
+  message: string;
+}
+
+/**
  * RFC 9457 problem details document as produced by the Admin API
  * (httpx.Problem in the Go transport).
  */
@@ -44,6 +60,8 @@ export interface ProblemDetails {
   errors?: LocatedError[];
   /** Invalid rules of a bucket configuration (code invalid_configuration). */
   ruleErrors?: RuleProblem[];
+  /** The invalid access rule (codes invalid_access_rule, too_many_access_rules...). */
+  accessRuleErrors?: AccessRuleProblem[];
 }
 
 /** Codes used by the client for failures that never reached a problem document. */
@@ -71,6 +89,8 @@ export class ApiError extends Error {
   readonly errors: readonly LocatedError[];
   /** Invalid rules of a bucket configuration; empty for every other problem. */
   readonly ruleErrors: readonly RuleProblem[];
+  /** The located problems of invalid access rules; empty for every other problem. */
+  readonly accessRuleErrors: readonly AccessRuleProblem[];
 
   constructor(problem: ProblemDetails, options?: ErrorOptions) {
     super(problem.detail ?? problem.title, options);
@@ -83,6 +103,7 @@ export class ApiError extends Error {
     this.requestId = problem.requestId;
     this.errors = problem.errors ?? [];
     this.ruleErrors = problem.ruleErrors ?? [];
+    this.accessRuleErrors = problem.accessRuleErrors ?? [];
   }
 
   /** Builds an error from a parsed problem+json body, defaulting the status. */
@@ -99,6 +120,9 @@ export class ApiError extends Error {
       errors: Array.isArray(body.errors) ? body.errors.filter(isLocatedError) : undefined,
       ruleErrors: Array.isArray(body.ruleErrors)
         ? body.ruleErrors.filter(isRuleProblem)
+        : undefined,
+      accessRuleErrors: Array.isArray(body.accessRuleErrors)
+        ? body.accessRuleErrors.filter(isAccessRuleProblem)
         : undefined,
     });
   }
@@ -150,6 +174,14 @@ export class ApiError extends Error {
     return this.status === 409;
   }
 
+  /**
+   * True when a conditional change lost a race: the document changed since
+   * it was read (412 precondition_failed on If-Match).
+   */
+  get isPreconditionFailed(): boolean {
+    return this.status === 412;
+  }
+
   /** True when the server throttles the caller (429 too_many_requests). */
   get isTooManyRequests(): boolean {
     return this.status === 429;
@@ -187,6 +219,14 @@ function isRuleProblem(value: unknown): value is RuleProblem {
   return typeof v.rule === 'number' && typeof v.code === 'string' && typeof v.message === 'string';
 }
 
+function isAccessRuleProblem(value: unknown): value is AccessRuleProblem {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const v = value as Record<string, unknown>;
+  return typeof v.rule === 'number' && typeof v.message === 'string';
+}
+
 export function isApiError(value: unknown): value is ApiError {
   return value instanceof ApiError;
 }
@@ -197,6 +237,7 @@ const titles: Record<number, string> = {
   403: 'Forbidden',
   404: 'Not Found',
   409: 'Conflict',
+  412: 'Precondition Failed',
   500: 'Internal Server Error',
   502: 'Bad Gateway',
   503: 'Service Unavailable',

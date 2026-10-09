@@ -171,31 +171,59 @@ func (e *AdminError) Unwrap() []error {
 	return []error{e.sentinel, e.API}
 }
 
-// Details returns the located errors of a malformed policy document.
+// Details returns the located errors of a malformed policy document and
+// of an invalid access rule.
 func (e *AdminError) Details() []ErrorDetail {
-	out := make([]ErrorDetail, 0, len(e.API.Errors))
+	out := make([]ErrorDetail, 0, len(e.API.Errors)+len(e.API.AccessRuleErrors))
 	for _, pe := range e.API.Errors {
 		out = append(out, ErrorDetail{
 			Statement: pe.Statement, Sid: pe.Sid, Element: pe.Element,
 			Line: pe.Line, Column: pe.Column, Message: pe.Message,
 		})
 	}
+	for _, ae := range e.API.AccessRuleErrors {
+		out = append(out, ErrorDetail{Rule: ae.Rule, RuleID: ae.ID, Field: ae.Field, Position: ae.Position, Message: ae.Message})
+	}
 	return out
 }
 
-// ErrorDetail locates one error of a document (a policy rejected by the
-// server, TCL-E-11). Line and Column are 1-based (0: unknown).
+// ErrorDetail locates one error of a document: a policy rejected by the
+// server (TCL-E-11; Line and Column are 1-based, 0: unknown) or an access
+// rule (Rule is 1-based, 0 for the whole list; Position is the 1-based
+// position of the problem in the pattern).
 type ErrorDetail struct {
 	Statement int    `json:"statement"`
 	Sid       string `json:"sid,omitempty"`
 	Element   string `json:"element,omitempty"`
 	Line      int    `json:"line,omitempty"`
 	Column    int    `json:"column,omitempty"`
+	Rule      int    `json:"rule,omitempty"`
+	RuleID    string `json:"ruleId,omitempty"`
+	Field     string `json:"field,omitempty"`
+	Position  int    `json:"position,omitempty"`
 	Message   string `json:"message"`
 }
 
-// String renders "line L, column C: statement N (Sid), Element: message".
+// String renders "line L, column C: statement N (Sid), Element: message",
+// or "rule N (id), field, position P: message" for an access rule.
 func (d ErrorDetail) String() string {
+	if d.Rule > 0 || d.Field != "" {
+		var where []string
+		if d.Rule > 0 {
+			r := fmt.Sprintf("rule %d", d.Rule)
+			if d.RuleID != "" {
+				r += fmt.Sprintf(" (%s)", d.RuleID)
+			}
+			where = append(where, r)
+		}
+		if d.Field != "" {
+			where = append(where, d.Field)
+		}
+		if d.Position > 0 {
+			where = append(where, fmt.Sprintf("position %d", d.Position))
+		}
+		return strings.Join(where, ", ") + ": " + d.Message
+	}
 	var parts []string
 	if d.Line > 0 {
 		parts = append(parts, fmt.Sprintf("line %d, column %d", d.Line, d.Column))
@@ -293,6 +321,22 @@ func adminCodeSentinel(code string) error {
 		return domain.ErrInvalidArgument
 	case nexoadmin.CodeObjectLocked:
 		return domain.ErrObjectLocked
+	case nexoadmin.CodePreconditionFailed:
+		return domain.ErrPreconditionFailed
+	case nexoadmin.CodeInvalidAccessRule, nexoadmin.CodeTooManyAccessRules, nexoadmin.CodeConfirmationRequired,
+		nexoadmin.CodeInvalidDistribution, nexoadmin.CodeInvalidCertificate:
+		return domain.ErrInvalidArgument
+	case nexoadmin.CodePublicAccessBlocked:
+		return domain.ErrAccessDenied
+	case nexoadmin.CodeAliasConflict:
+		return domain.ErrConflict
+	case nexoadmin.CodeDistributionNotFound, nexoadmin.CodeKeyGroupNotFound, nexoadmin.CodeKeyNotFound, nexoadmin.CodeCertificateNotFound,
+		nexoadmin.CodeCachePolicyNotFound, nexoadmin.CodeInvalidationNotFound, nexoadmin.CodeWarmJobNotFound, nexoadmin.CodeWebhookNotFound:
+		return ErrAdminNotFound
+	case nexoadmin.CodeInvalidCacheRequest:
+		return domain.ErrInvalidArgument
+	case nexoadmin.CodeBuiltinCachePolicy, nexoadmin.CodeCachePolicyInUse, nexoadmin.CodeAlreadyExists:
+		return domain.ErrConflict
 	}
 	return nil
 }
@@ -718,4 +762,284 @@ func (c *adminClient) RevokeShare(ctx context.Context, id string) error {
 func (c *adminClient) RevokeAllShares(ctx context.Context, owner string) (int, error) {
 	v, err := c.api.RevokeAllShares(ctx, owner)
 	return mapped(c, v, err)
+}
+
+// --- access rules, distributions and certificates ---------------------------
+
+// GetAccessRules implements AdminClient.
+func (c *adminClient) GetAccessRules(ctx context.Context, bucket string) (*nexoadmin.AccessRules, error) {
+	out, err := c.api.GetAccessRules(ctx, bucket)
+	return mapped(c, out, err)
+}
+
+// SetAccessRules implements AdminClient.
+func (c *adminClient) SetAccessRules(ctx context.Context, bucket string, rules []nexoadmin.BucketAccessRule, ifMatch string) (*nexoadmin.AccessRules, error) {
+	out, err := c.api.SetAccessRules(ctx, bucket, rules, ifMatch)
+	return mapped(c, out, err)
+}
+
+// TestAccessRules implements AdminClient.
+func (c *adminClient) TestAccessRules(ctx context.Context, bucket string, in nexoadmin.TestAccessRulesRequest) (*nexoadmin.AccessRulesTestResult, error) {
+	out, err := c.api.TestAccessRules(ctx, bucket, in)
+	return mapped(c, out, err)
+}
+
+// GetAccessRulesPublic implements AdminClient.
+func (c *adminClient) GetAccessRulesPublic(ctx context.Context, bucket string) (*nexoadmin.AccessRulesPublicStatus, error) {
+	out, err := c.api.GetAccessRulesPublic(ctx, bucket)
+	return mapped(c, out, err)
+}
+
+// ApplyAccessPreset implements AdminClient.
+func (c *adminClient) ApplyAccessPreset(ctx context.Context, bucket string, in nexoadmin.AccessPresetRequest, ifMatch string) (*nexoadmin.AccessRules, error) {
+	out, err := c.api.ApplyAccessPreset(ctx, bucket, in, ifMatch)
+	return mapped(c, out, err)
+}
+
+// GetBlockPublic implements AdminClient.
+func (c *adminClient) GetBlockPublic(ctx context.Context, bucket string) (*nexoadmin.BlockPublic, error) {
+	out, err := c.api.GetBlockPublic(ctx, bucket)
+	return mapped(c, out, err)
+}
+
+// SetBlockPublic implements AdminClient.
+func (c *adminClient) SetBlockPublic(ctx context.Context, bucket string, in nexoadmin.BlockPublicRequest) (*nexoadmin.BlockPublic, error) {
+	out, err := c.api.SetBlockPublic(ctx, bucket, in)
+	return mapped(c, out, err)
+}
+
+// ListDistributions implements AdminClient.
+func (c *adminClient) ListDistributions(ctx context.Context) ([]nexoadmin.Distribution, error) {
+	out, err := c.api.ListDistributions(ctx)
+	return mapped(c, out, err)
+}
+
+// CreateDistribution implements AdminClient.
+func (c *adminClient) CreateDistribution(ctx context.Context, d nexoadmin.Distribution) (*nexoadmin.Distribution, error) {
+	out, err := c.api.CreateDistribution(ctx, d)
+	return mapped(c, out, err)
+}
+
+// GetDistribution implements AdminClient.
+func (c *adminClient) GetDistribution(ctx context.Context, id string) (*nexoadmin.Distribution, error) {
+	out, err := c.api.GetDistribution(ctx, id)
+	return mapped(c, out, err)
+}
+
+// UpdateDistribution implements AdminClient.
+func (c *adminClient) UpdateDistribution(ctx context.Context, d nexoadmin.Distribution, ifMatch string) (*nexoadmin.Distribution, error) {
+	out, err := c.api.UpdateDistribution(ctx, d, ifMatch)
+	return mapped(c, out, err)
+}
+
+// TestDistribution implements AdminClient.
+func (c *adminClient) TestDistribution(ctx context.Context, id string, in nexoadmin.DistributionTestRequest) (*nexoadmin.DistributionTestResult, error) {
+	out, err := c.api.TestDistribution(ctx, id, in)
+	return mapped(c, out, err)
+}
+
+// RotateOriginSecret implements AdminClient.
+func (c *adminClient) RotateOriginSecret(ctx context.Context, id string, in nexoadmin.RotateOriginSecretRequest) (*nexoadmin.RotatedOriginSecret, error) {
+	out, err := c.api.RotateOriginSecret(ctx, id, in)
+	return mapped(c, out, err)
+}
+
+// SignDistributionURL implements AdminClient.
+func (c *adminClient) SignDistributionURL(ctx context.Context, id string, in nexoadmin.SignRequest) (*nexoadmin.SignedURL, error) {
+	out, err := c.api.SignDistributionURL(ctx, id, in)
+	return mapped(c, out, err)
+}
+
+// ResolveHost implements AdminClient.
+func (c *adminClient) ResolveHost(ctx context.Context, host string) (*nexoadmin.Route, error) {
+	out, err := c.api.ResolveHost(ctx, host)
+	return mapped(c, out, err)
+}
+
+// ListKeyGroups implements AdminClient.
+func (c *adminClient) ListKeyGroups(ctx context.Context) ([]nexoadmin.KeyGroup, error) {
+	out, err := c.api.ListKeyGroups(ctx)
+	return mapped(c, out, err)
+}
+
+// CreateKeyGroup implements AdminClient.
+func (c *adminClient) CreateKeyGroup(ctx context.Context, in nexoadmin.CreateKeyGroupRequest) (*nexoadmin.CreatedKeyGroup, error) {
+	out, err := c.api.CreateKeyGroup(ctx, in)
+	return mapped(c, out, err)
+}
+
+// GetKeyGroup implements AdminClient.
+func (c *adminClient) GetKeyGroup(ctx context.Context, id string) (*nexoadmin.KeyGroup, error) {
+	out, err := c.api.GetKeyGroup(ctx, id)
+	return mapped(c, out, err)
+}
+
+// AddKeyGroupKey implements AdminClient.
+func (c *adminClient) AddKeyGroupKey(ctx context.Context, group string, in nexoadmin.AddKeyRequest) (*nexoadmin.AddedKey, error) {
+	out, err := c.api.AddKeyGroupKey(ctx, group, in)
+	return mapped(c, out, err)
+}
+
+// ListCertificates implements AdminClient.
+func (c *adminClient) ListCertificates(ctx context.Context) (*nexoadmin.CertificateList, error) {
+	out, err := c.api.ListCertificates(ctx)
+	return mapped(c, out, err)
+}
+
+// UploadCertificate implements AdminClient.
+func (c *adminClient) UploadCertificate(ctx context.Context, in nexoadmin.UploadCertificateRequest) (*nexoadmin.Certificate, error) {
+	out, err := c.api.UploadCertificate(ctx, in)
+	return mapped(c, out, err)
+}
+
+// DeleteDistribution implements AdminClient.
+func (c *adminClient) DeleteDistribution(ctx context.Context, id string) error {
+	return MapAdminError(c.api.DeleteDistribution(ctx, id), c.endpoint)
+}
+
+// DeleteKeyGroup implements AdminClient.
+func (c *adminClient) DeleteKeyGroup(ctx context.Context, id string) error {
+	return MapAdminError(c.api.DeleteKeyGroup(ctx, id), c.endpoint)
+}
+
+// DeleteKeyGroupKey implements AdminClient.
+func (c *adminClient) DeleteKeyGroupKey(ctx context.Context, group, keyID string) error {
+	return MapAdminError(c.api.DeleteKeyGroupKey(ctx, group, keyID), c.endpoint)
+}
+
+// DeleteCertificate implements AdminClient.
+func (c *adminClient) DeleteCertificate(ctx context.Context, id string) error {
+	return MapAdminError(c.api.DeleteCertificate(ctx, id), c.endpoint)
+}
+
+// --- cache of the distributions ----------------------------------------------
+
+// ListCachePolicies implements AdminClient.
+func (c *adminClient) ListCachePolicies(ctx context.Context) ([]nexoadmin.CachePolicy, error) {
+	out, err := c.api.ListCachePolicies(ctx)
+	return mapped(c, out, err)
+}
+
+// GetCachePolicy implements AdminClient.
+func (c *adminClient) GetCachePolicy(ctx context.Context, name string) (*nexoadmin.CachePolicy, error) {
+	out, err := c.api.GetCachePolicy(ctx, name)
+	return mapped(c, out, err)
+}
+
+// CreateCachePolicy implements AdminClient.
+func (c *adminClient) CreateCachePolicy(ctx context.Context, p nexoadmin.CachePolicy) (*nexoadmin.CachePolicy, error) {
+	out, err := c.api.CreateCachePolicy(ctx, p)
+	return mapped(c, out, err)
+}
+
+// UpdateCachePolicy implements AdminClient.
+func (c *adminClient) UpdateCachePolicy(ctx context.Context, p nexoadmin.CachePolicy, ifMatch string) (*nexoadmin.CachePolicy, error) {
+	out, err := c.api.UpdateCachePolicy(ctx, p, ifMatch)
+	return mapped(c, out, err)
+}
+
+// DeleteCachePolicy implements AdminClient.
+func (c *adminClient) DeleteCachePolicy(ctx context.Context, name string) error {
+	return MapAdminError(c.api.DeleteCachePolicy(ctx, name), c.endpoint)
+}
+
+// PreviewCachePolicy implements AdminClient.
+func (c *adminClient) PreviewCachePolicy(ctx context.Context, p nexoadmin.CachePolicy) (*nexoadmin.CachePolicyPreview, error) {
+	out, err := c.api.PreviewCachePolicy(ctx, p)
+	return mapped(c, out, err)
+}
+
+// GetCacheSettings implements AdminClient.
+func (c *adminClient) GetCacheSettings(ctx context.Context) (*nexoadmin.CacheGlobalSettings, error) {
+	out, err := c.api.GetCacheSettings(ctx)
+	return mapped(c, out, err)
+}
+
+// SetCacheSettings implements AdminClient.
+func (c *adminClient) SetCacheSettings(ctx context.Context, s nexoadmin.CacheGlobalSettings, ifMatch string) (*nexoadmin.CacheGlobalSettings, error) {
+	out, err := c.api.SetCacheSettings(ctx, s, ifMatch)
+	return mapped(c, out, err)
+}
+
+// GetDistributionCache implements AdminClient.
+func (c *adminClient) GetDistributionCache(ctx context.Context, id string) (*nexoadmin.DistributionCache, error) {
+	out, err := c.api.GetDistributionCache(ctx, id)
+	return mapped(c, out, err)
+}
+
+// SetDistributionCache implements AdminClient.
+func (c *adminClient) SetDistributionCache(ctx context.Context, cfg nexoadmin.DistributionCache, ifMatch string) (*nexoadmin.DistributionCache, error) {
+	out, err := c.api.SetDistributionCache(ctx, cfg, ifMatch)
+	return mapped(c, out, err)
+}
+
+// EffectiveCachePolicy implements AdminClient.
+func (c *adminClient) EffectiveCachePolicy(ctx context.Context, id, host, path string) (*nexoadmin.CacheEffectivePolicy, error) {
+	out, err := c.api.EffectiveCachePolicy(ctx, id, host, path)
+	return mapped(c, out, err)
+}
+
+// InvalidateCache implements AdminClient.
+func (c *adminClient) InvalidateCache(ctx context.Context, distribution string, in nexoadmin.CacheInvalidationRequest) (*nexoadmin.CacheInvalidation, error) {
+	out, err := c.api.InvalidateCache(ctx, distribution, in)
+	return mapped(c, out, err)
+}
+
+// GetCacheInvalidation implements AdminClient.
+func (c *adminClient) GetCacheInvalidation(ctx context.Context, distribution, id string) (*nexoadmin.CacheInvalidation, error) {
+	out, err := c.api.GetCacheInvalidation(ctx, distribution, id)
+	return mapped(c, out, err)
+}
+
+// ListCacheInvalidations implements AdminClient.
+func (c *adminClient) ListCacheInvalidations(ctx context.Context, distribution string) ([]nexoadmin.CacheInvalidation, error) {
+	out, err := c.api.ListCacheInvalidations(ctx, distribution)
+	return mapped(c, out, err)
+}
+
+// WarmCache implements AdminClient.
+func (c *adminClient) WarmCache(ctx context.Context, distribution string, in nexoadmin.CacheWarmRequest) (*nexoadmin.CacheWarmJob, error) {
+	out, err := c.api.WarmCache(ctx, distribution, in)
+	return mapped(c, out, err)
+}
+
+// GetCacheWarmJob implements AdminClient.
+func (c *adminClient) GetCacheWarmJob(ctx context.Context, distribution, id string) (*nexoadmin.CacheWarmJob, error) {
+	out, err := c.api.GetCacheWarmJob(ctx, distribution, id)
+	return mapped(c, out, err)
+}
+
+// InspectCache implements AdminClient.
+func (c *adminClient) InspectCache(ctx context.Context, in nexoadmin.CacheInspectRequest) (*nexoadmin.CacheInspection, error) {
+	out, err := c.api.InspectCache(ctx, in)
+	return mapped(c, out, err)
+}
+
+// CacheStats implements AdminClient.
+func (c *adminClient) CacheStats(ctx context.Context, q nexoadmin.CacheStatsQuery) (*nexoadmin.CacheStats, error) {
+	out, err := c.api.CacheStats(ctx, q)
+	return mapped(c, out, err)
+}
+
+// ListCacheWebhooks implements AdminClient.
+func (c *adminClient) ListCacheWebhooks(ctx context.Context, distribution string) ([]nexoadmin.CacheWebhook, error) {
+	out, err := c.api.ListCacheWebhooks(ctx, distribution)
+	return mapped(c, out, err)
+}
+
+// AddCacheWebhook implements AdminClient.
+func (c *adminClient) AddCacheWebhook(ctx context.Context, distribution string, w nexoadmin.CacheWebhook) (*nexoadmin.CacheWebhook, error) {
+	out, err := c.api.AddCacheWebhook(ctx, distribution, w)
+	return mapped(c, out, err)
+}
+
+// DeleteCacheWebhook implements AdminClient.
+func (c *adminClient) DeleteCacheWebhook(ctx context.Context, distribution, id string) error {
+	return MapAdminError(c.api.DeleteCacheWebhook(ctx, distribution, id), c.endpoint)
+}
+
+// TestCacheWebhook implements AdminClient.
+func (c *adminClient) TestCacheWebhook(ctx context.Context, distribution, id string) (*nexoadmin.CacheWebhookTestResult, error) {
+	out, err := c.api.TestCacheWebhook(ctx, distribution, id)
+	return mapped(c, out, err)
 }

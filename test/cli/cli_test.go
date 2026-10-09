@@ -25,16 +25,27 @@
 //	eventually DURATION [-match RE] [!] PROG ARGS...
 //	                                 retry PROG until it succeeds (fails with !)
 //	                                 and its stdout matches RE
-//	http [-X M] [-H 'K: V']... [-T FILE] [-o FILE] [-status CODE] URL
+//	http [-X M] [-H 'K: V']... [-T FILE] [-o FILE] [-D FILE] [-status CODE] [-via BASE] URL
 //	                                 send a request (default: expect 2xx);
-//	                                 the body goes to stdout or to FILE
+//	                                 the body goes to stdout or to FILE, the
+//	                                 response headers to the FILE of -D; a
+//	                                 Host header sets the host of the request
+//	                                 (the domains of the distributions);
+//	                                 -via sends a URL of a domain to BASE
+//	                                 (the server) with its host in Host
+//	mkcert DOMAIN... CERT KEY        write a self-signed certificate of the
+//	                                 domains and its private key (PEM)
 //	postpolicy RECORD FILE [-status CODE]
 //	                                 upload FILE with the POST policy of a JSON
 //	                                 record of "share upload --post --json"
-//	jsonfield FILE PATH VAR          set VAR to the member PATH (a.b) of the
-//	                                 first JSON line of FILE
+//	jsonfield FILE PATH VAR          set VAR to the member PATH (a.b, a.0.b
+//	                                 for an array) of the first JSON line of
+//	                                 FILE
 //	jsonlines FILE                   require JSON Lines whose objects start
 //	                                 with a "status" member
+//	openapischema FILE SCHEMA MEMBER validate the member MEMBER of the first
+//	                                 JSON line of FILE against the schema
+//	                                 SCHEMA of api/openapi.yaml
 //	mkfile PATH SIZE                 write SIZE (e.g. 12MiB) pseudo-random bytes
 //	sleep DURATION                   wait
 //	stopnode N / startnode N         stop or start again node N (1-based)
@@ -50,15 +61,21 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
+	"math/big"
 	"math/rand/v2"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -108,7 +125,7 @@ var _ clock.Clock = offsetClock{}
 
 func (c offsetClock) Now() time.Time { return time.Now().Add(c.offset) }
 
-// covers: TCL-E-01..15, TCL-E-18, TCL-E-19, TCL-P-01..06
+// covers: TCL-E-01..15, TCL-E-18, TCL-E-19, TCL-P-01..06, TCL-A-01, TCL-A-02, TCL-D-01..04, TCL-C-01..05
 func TestScripts(t *testing.T) {
 	testscript.Run(t, testscript.Params{
 		Dir:                 ".",
@@ -129,6 +146,8 @@ func TestScripts(t *testing.T) {
 			"postpolicy":    cmdPostPolicy,
 			"jsonfield":     cmdJSONField,
 			"jsonlines":     cmdJSONLines,
+			"openapischema": cmdOpenAPISchema,
+			"mkcert":        cmdMkcert,
 			"mkfile":        cmdMkfile,
 			"sleep":         cmdSleep,
 			"stopnode":      cmdNode(false),
@@ -319,9 +338,9 @@ func cmdEventually(ts *testscript.TestScript, neg bool, args []string) {
 func httpClient() *http.Client { return &http.Client{Timeout: 30 * time.Second} }
 
 func cmdHTTP(ts *testscript.TestScript, neg bool, args []string) {
-	method, body, out, status := http.MethodGet, "", "", 0
+	method, body, out, dump, status, via, host := http.MethodGet, "", "", "", 0, "", ""
 	headers := http.Header{}
-	var url string
+	var target string
 	for i := 0; i < len(args); i++ {
 		next := func() string {
 			if i+1 >= len(args) {
@@ -338,21 +357,37 @@ func cmdHTTP(ts *testscript.TestScript, neg bool, args []string) {
 			if !ok {
 				ts.Fatalf("http: invalid header %q", args[i])
 			}
+			if strings.EqualFold(strings.TrimSpace(k), "Host") {
+				host = strings.TrimSpace(v)
+				continue
+			}
 			headers.Set(strings.TrimSpace(k), strings.TrimSpace(v))
 		case "-T":
 			body = ts.MkAbs(next())
 		case "-o":
 			out = ts.MkAbs(next())
+		case "-D":
+			dump = ts.MkAbs(next())
 		case "-status":
 			code, err := strconv.Atoi(next())
 			ts.Check(err)
 			status = code
+		case "-via":
+			via = next()
 		default:
-			url = args[i]
+			target = args[i]
 		}
 	}
-	if url == "" {
-		ts.Fatalf("usage: http [-X M] [-H 'K: V']... [-T FILE] [-o FILE] [-status CODE] URL")
+	if target == "" {
+		ts.Fatalf("usage: http [-X M] [-H 'K: V']... [-T FILE] [-o FILE] [-D FILE] [-status CODE] [-via BASE] URL")
+	}
+	if via != "" {
+		u, err := url.Parse(target)
+		ts.Check(err)
+		if host == "" {
+			host = u.Host
+		}
+		target = strings.TrimSuffix(via, "/") + u.RequestURI()
 	}
 	var reader io.Reader = http.NoBody
 	var length int64
@@ -361,16 +396,28 @@ func cmdHTTP(ts *testscript.TestScript, neg bool, args []string) {
 		ts.Check(err)
 		reader, length = bytes.NewReader(data), int64(len(data))
 	}
-	req, err := http.NewRequest(method, url, reader)
+	req, err := http.NewRequest(method, target, reader)
 	ts.Check(err)
 	req.ContentLength = length
 	req.Header = headers
+	if host != "" {
+		req.Host = host
+	}
 	resp, err := httpClient().Do(req)
 	ts.Check(err)
 	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(resp.Body)
 	ts.Check(err)
 	checkStatus(ts, neg, resp.StatusCode, status, data)
+	if dump != "" {
+		var b strings.Builder
+		for _, k := range cli.SortedKeys(resp.Header) {
+			for _, v := range resp.Header[k] {
+				fmt.Fprintf(&b, "%s: %s\n", k, v)
+			}
+		}
+		ts.Check(os.WriteFile(dump, []byte(b.String()), 0o600))
+	}
 	if out != "" {
 		ts.Check(os.WriteFile(out, data, 0o600))
 		return
@@ -431,6 +478,14 @@ func cmdJSONField(ts *testscript.TestScript, neg bool, args []string) {
 	var v any
 	ts.Check(json.Unmarshal([]byte(first), &v))
 	for _, key := range strings.Split(args[1], ".") {
+		if list, ok := v.([]any); ok {
+			i, err := strconv.Atoi(key)
+			if err != nil || i < 0 || i >= len(list) {
+				ts.Fatalf("jsonfield: no element %q in %s", key, first)
+			}
+			v = list[i]
+			continue
+		}
 		m, ok := v.(map[string]any)
 		if !ok {
 			ts.Fatalf("jsonfield: %s is not an object in %s", key, first)
@@ -476,6 +531,31 @@ func cmdJSONLines(ts *testscript.TestScript, neg bool, args []string) {
 	if n == 0 {
 		ts.Fatalf("jsonlines: no record in %s", args[0])
 	}
+}
+
+func cmdMkcert(ts *testscript.TestScript, neg bool, args []string) {
+	if neg || len(args) < 3 {
+		ts.Fatalf("usage: mkcert DOMAIN... CERT KEY")
+	}
+	domains, certFile, keyFile := args[:len(args)-2], args[len(args)-2], args[len(args)-1]
+	_, key, err := ed25519.GenerateKey(nil)
+	ts.Check(err)
+	now := time.Now()
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(now.UnixNano()),
+		Subject:      pkix.Name{CommonName: domains[0]},
+		DNSNames:     domains,
+		NotBefore:    now.Add(-time.Hour),
+		NotAfter:     now.Add(90 * 24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(nil, tmpl, tmpl, key.Public(), key)
+	ts.Check(err)
+	pkcs8, err := x509.MarshalPKCS8PrivateKey(key)
+	ts.Check(err)
+	ts.Check(os.WriteFile(ts.MkAbs(certFile), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600))
+	ts.Check(os.WriteFile(ts.MkAbs(keyFile), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8}), 0o600))
 }
 
 func cmdMkfile(ts *testscript.TestScript, neg bool, args []string) {

@@ -3,6 +3,7 @@ package admin_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -12,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/accessrule"
+	accessrulemock "github.com/r3n3r0/nexo/internal/service/accessrule/mock"
 	"github.com/r3n3r0/nexo/internal/service/admin"
 	adminmock "github.com/r3n3r0/nexo/internal/service/admin/mock"
 	"github.com/r3n3r0/nexo/internal/service/bucket"
@@ -360,6 +363,42 @@ func TestBucketManagerTagsAndObjectLockDefaults(t *testing.T) {
 			assert.Equal(t, tt.wantTags, tags)
 			assert.NotNil(t, tags)
 			assert.Equal(t, tt.wantLock, lock)
+		})
+	}
+}
+
+// TestBucketManagerPublicThroughAccessRules covers docs/10 D-ACC-03: a
+// bucket public through an access rule is shown public.
+func TestBucketManagerPublicThroughAccessRules(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name         string
+		policyPublic bool
+		rules        *accessrule.PublicStatus
+		rulesErr     error
+		want         bool
+	}{
+		{name: "public bucket policy", policyPublic: true, want: true},
+		{name: "public access rule", rules: &accessrule.PublicStatus{Public: true, Preset: accessrule.PresetPublicRead}, want: true},
+		{name: "blocked access rule", rules: &accessrule.PublicStatus{Preset: accessrule.PresetPublicRead, Blocked: true}},
+		{name: "rules unreadable", rulesErr: errors.New("boom")},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			buckets, objects, rules := bucketmock.NewService(t), objectmock.NewService(t), accessrulemock.NewService(t)
+			mgr, err := admin.NewBucketManager(admin.BucketManagerDeps{Buckets: buckets, Objects: objects, Policy: policymock.NewService(t),
+				Authz: allowAll(t), AccessRules: rules})
+			require.NoError(t, err)
+			b := info("photos")
+			buckets.EXPECT().Get(mock.Anything, "photos").Return(&b, nil)
+			objects.EXPECT().DataUsage(mock.Anything, "photos").Return(nil, nil)
+			buckets.EXPECT().IsPublic(mock.Anything, "photos").Return(tc.policyPublic, nil)
+			if !tc.policyPublic {
+				rules.EXPECT().PublicStatus(mock.Anything, "photos").Return(tc.rules, tc.rulesErr)
+			}
+			got, err := mgr.Get(ctx, req("bob"), "photos")
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got.Public)
 		})
 	}
 }

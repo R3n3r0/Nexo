@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -12,10 +13,12 @@ import (
 	"github.com/r3n3r0/nexo/internal/config"
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/lifecycle"
+	"github.com/r3n3r0/nexo/internal/service/accessrule"
 	adminsvc "github.com/r3n3r0/nexo/internal/service/admin"
 	"github.com/r3n3r0/nexo/internal/service/audit"
 	"github.com/r3n3r0/nexo/internal/service/auth"
 	"github.com/r3n3r0/nexo/internal/service/bucket"
+	"github.com/r3n3r0/nexo/internal/service/cache"
 	"github.com/r3n3r0/nexo/internal/service/cluster"
 	configsvc "github.com/r3n3r0/nexo/internal/service/config"
 	"github.com/r3n3r0/nexo/internal/service/crypto"
@@ -59,6 +62,13 @@ type services struct {
 	healing healingServices
 	// unsubscribe unregisters the cache invalidations of the notifier.
 	unsubscribe func()
+	// accessRules manages the access rules of the buckets (docs/10 §10.1).
+	accessRules accessrule.Service
+	// dist are the distributions, their certificates and web listeners
+	// (docs/10 §10.2).
+	dist *distStack
+	// cache is the cache of the distributions (docs/11).
+	cache cache.Service
 }
 
 // composeDeps are the inputs of compose.
@@ -221,7 +231,15 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		return nil, err
 	}
 	sse := crypto.New(crypto.Deps{KMS: keys, Logger: logger.With("component", "crypto")})
-	objects, err := newObjectLayer(d, stores.buckets, events, notifier, sse)
+	// The writes reach the cache of the distributions through the events
+	// of the object layer, before they are acknowledged (docs/11 §11.5):
+	// the hook is installed once the cache is composed.
+	hook := &cacheHook{}
+	objectEvents, err := cache.NewEvents(cache.EventsDeps{Events: events, Invalidator: hook, Logger: logger.With("component", "cache")})
+	if err != nil {
+		return nil, err
+	}
+	objects, err := newObjectLayer(d, stores.buckets, objectEvents, notifier, sse)
 	if err != nil {
 		return nil, fmt.Errorf("object layer: %w", err)
 	}
@@ -266,15 +284,46 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	if err := identities.Bootstrap(ctx, domain.Credentials{AccessKey: cfg.RootUser, SecretKey: cfg.RootPassword}); err != nil {
 		return nil, fmt.Errorf("bootstrap root credentials: %w", err)
 	}
+	// The access rules of the buckets are a resource-based source of the
+	// policy engine, next to the bucket policies (docs/10 §10.1).
+	access, err := newAccessEvaluator(cfg, stores.buckets, dynConfig, d.clock, logger)
+	if err != nil {
+		return nil, fmt.Errorf("access rules: %w", err)
+	}
 	policies := policy.New(policy.Deps{
 		Store:       stores.policies,
 		Attachments: identities,
 		Buckets:     bucketPolicies{store: stores.buckets},
+		AccessRules: access.eval,
 		Clock:       d.clock,
 		Logger:      logger,
 	})
 	buckets, err := bucket.New(bucket.Deps{Objects: objects, Store: stores.buckets, Policy: policies, Locks: f.locks, KMS: keys, Clock: d.clock, Logger: logger},
 		bucket.WithRegion(cfg.Region))
+	if err != nil {
+		return nil, err
+	}
+	accessRules, err := access.service(buckets, policies, dynConfig, auditor, d.clock, logger)
+	if err != nil {
+		return nil, fmt.Errorf("access rules: %w", err)
+	}
+	// Distributions (docs/10 §10.2): the routing by Host of the listeners,
+	// the certificates of the domains (distribution.go).
+	distStack, err := newDistCore(distCoreDeps{cfg: cfg, f: f, docs: stores.docs, deploymentID: d.deploymentID, matcher: access.matcher,
+		registry: registry, clock: d.clock, logger: logger})
+	if err != nil {
+		return nil, fmt.Errorf("distributions: %w", err)
+	}
+	// The cache of the distributions (docs/11, cache.go) serves the object
+	// reads of their requests: the S3 object routes and the website engine
+	// read through it.
+	cacheSvc, err := newCache(cacheDeps{cfg: cfg, f: f, docs: stores.docs, objects: objects, dist: distStack, matcher: access.matcher,
+		registry: registry, clock: d.clock, logger: logger})
+	if err != nil {
+		return nil, fmt.Errorf("cache: %w", err)
+	}
+	hook.set(cacheSvc)
+	cachedObjects, err := cache.NewObjects(cache.ObjectsDeps{Objects: objects, Cache: cacheSvc})
 	if err != nil {
 		return nil, err
 	}
@@ -339,7 +388,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	s3Middlewares, err := s3Middlewares(middlewareDeps{
 		logger: logger, clock: d.clock, codec: codec, ids: ids,
 		registry: registry, verifier: verifier, auditor: auditor, domains: domainsOf(cfg),
-		trustedProxies: cfg.TrustedProxies,
+		trustedProxies: cfg.TrustedProxies, forwardedHeaders: cfg.ForwardedHeaders, dist: distStack,
 	})
 	if err != nil {
 		return nil, err
@@ -351,19 +400,19 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		return nil, err
 	}
 	lifecycleRoutes := s3.NewLifecycleRoutes(s3.LifecycleDeps{Buckets: buckets, Lifecycle: lifecycle, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger},
-		s3.WithDomains(domainsOf(cfg)...))
+		s3.WithDomains(domainsOf(cfg)...), s3.WithHostBuckets(distStack.hostBuckets()))
 	notificationRoutes := s3.NewNotificationRoutes(s3.NotificationDeps{Buckets: buckets, Events: events, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger},
-		s3.WithRegion(cfg.Region), s3.WithDomains(domainsOf(cfg)...))
+		s3.WithRegion(cfg.Region), s3.WithDomains(domainsOf(cfg)...), s3.WithHostBuckets(distStack.hostBuckets()))
 	// SSE-C keys need TLS (or a trusted proxy that terminated it), unless
 	// the configuration allows them in clear (tests).
 	ssecOpt := s3.WithInsecureSSEC(cfg.SSECAllowInsecure)
-	s3API := s3.NewAPI(s3.APIDeps{Enc: codec, Domains: domainsOf(cfg), System: []httpx.Routes{
+	s3API := s3.NewAPI(s3.APIDeps{Enc: codec, Domains: domainsOf(cfg), HostBuckets: distStack.hostBuckets(), System: []httpx.Routes{
 		s3.NewHealthRoutes(s3.HealthDeps{Health: healthSvc, Enc: codec}),
 		metricsRoutes,
 	}, Buckets: buckets, Settings: applied, Logger: logger},
 		s3.NewBucketRoutes(s3.BucketDeps{Buckets: buckets, Objects: objects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger},
 			s3.WithRegion(cfg.Region)),
-		s3.NewObjectRoutes(s3.ObjectDeps{Objects: objects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger}, ssecOpt, sendTimeoutOpt(cfg)),
+		s3.NewObjectRoutes(s3.ObjectDeps{Objects: cachedObjects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger}, ssecOpt, sendTimeoutOpt(cfg)),
 		s3.NewMultipartRoutes(s3.MultipartDeps{Objects: objects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger}, ssecOpt),
 		s3.NewPresignedRoutes(s3.PresignedDeps{Verifier: verifier, Objects: objects, Buckets: buckets, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger},
 			s3.WithRegion(cfg.Region), ssecOpt),
@@ -373,15 +422,23 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		lifecycleRoutes,
 		notificationRoutes,
 	)
+	if err := distStack.composeHTTP(distHTTPDeps{
+		cfg: cfg, objects: cachedObjects, cache: cacheSvc, policy: s3Policy, verifier: verifier, publicAccess: accessRules,
+		secrets: accessrule.NewStaticSecrets(cfg.Secrets), registry: registry, ids: ids, clock: d.clock, logger: logger,
+	}); err != nil {
+		return nil, fmt.Errorf("distributions: %w", err)
+	}
 	s3Srv := server.New(server.Deps{
 		Routes:      []httpx.Routes{s3API},
 		Middlewares: append(s3Middlewares, lifecycleRoutes, notificationRoutes),
+		Hosts:       distStack.s3Hosts,
 		Logger:      logger,
-	}, serverOptions(cfg, cfg.Address, "s3")...)
+	}, append(serverOptions(cfg, cfg.Address, "s3"), distStack.tlsOptions(cfg)...)...)
 
 	// Console + Admin API server (:9001).
 	consoleMiddlewares, err := consoleMiddlewares(middlewareDeps{
 		logger: logger, clock: d.clock, codec: codec, ids: ids, registry: registry, trustedProxies: cfg.TrustedProxies,
+		forwardedHeaders: cfg.ForwardedHeaders,
 	})
 	if err != nil {
 		return nil, err
@@ -391,6 +448,8 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		sessions: sessions, verifier: verifier, signer: signer, admin: adminSvc, iam: identities, policy: policies,
 		buckets: buckets, objects: objects, shares: shares, config: dynConfig, locks: f.lockManager, secureCookies: secureConsole(cfg),
 		consoleURL: cfg.BrowserRedirectURL, lifecycle: lifecycle, events: events, kms: keys,
+		accessRules: accessRules, dist: distStack, acmeDirectory: cfg.ACMEDirectory, acmeChallenge: cfg.ACMEChallenge,
+		cache: cacheSvc,
 	})
 	if err != nil {
 		return nil, err
@@ -418,6 +477,9 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		buckets:      buckets,
 		shares:       shares,
 		signer:       signer,
+		accessRules:  accessRules,
+		dist:         distStack,
+		cache:        cacheSvc,
 		events:       events,
 		lifecycle:    lifecycle,
 		s3Srv:        s3Srv,
@@ -441,11 +503,26 @@ func (s *services) runners() lifecycle.Runner {
 				_ = s.events.Stop(context.WithoutCancel(ctx))
 				return err
 			}
+			if err := s.cache.Start(ctx); err != nil {
+				_ = healing.Stop(context.WithoutCancel(ctx))
+				_ = s.events.Stop(context.WithoutCancel(ctx))
+				return err
+			}
+			// The distributions last: their web listeners serve once
+			// everything else runs.
+			if err := s.dist.runner().Start(ctx); err != nil {
+				_ = s.cache.Stop(context.WithoutCancel(ctx))
+				_ = healing.Stop(context.WithoutCancel(ctx))
+				_ = s.events.Stop(context.WithoutCancel(ctx))
+				return err
+			}
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
 			s.unsubscribe()
-			herr := healing.Stop(ctx)
+			derr := s.dist.runner().Stop(ctx)
+			derr = errors.Join(derr, s.cache.Stop(ctx))
+			herr := errors.Join(derr, healing.Stop(ctx))
 			if err := s.events.Stop(ctx); err != nil {
 				return err
 			}

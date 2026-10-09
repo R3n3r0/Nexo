@@ -428,6 +428,120 @@ func (_c *Service_Get_Call) RunAndReturn(run func(context.Context, string) (*dom
 	return _c
 }
 
+// GetAccessRules provides a mock function with given fields: ctx, name
+func (_m *Service) GetAccessRules(ctx context.Context, name string) (bucket.AccessRules, error) {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetAccessRules")
+	}
+
+	var r0 bucket.AccessRules
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (bucket.AccessRules, error)); ok {
+		return rf(ctx, name)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) bucket.AccessRules); ok {
+		r0 = rf(ctx, name)
+	} else {
+		r0 = ret.Get(0).(bucket.AccessRules)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, name)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_GetAccessRules_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetAccessRules'
+type Service_GetAccessRules_Call struct {
+	*mock.Call
+}
+
+// GetAccessRules is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+func (_e *Service_Expecter) GetAccessRules(ctx interface{}, name interface{}) *Service_GetAccessRules_Call {
+	return &Service_GetAccessRules_Call{Call: _e.mock.On("GetAccessRules", ctx, name)}
+}
+
+func (_c *Service_GetAccessRules_Call) Run(run func(ctx context.Context, name string)) *Service_GetAccessRules_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *Service_GetAccessRules_Call) Return(_a0 bucket.AccessRules, _a1 error) *Service_GetAccessRules_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_GetAccessRules_Call) RunAndReturn(run func(context.Context, string) (bucket.AccessRules, error)) *Service_GetAccessRules_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetBlockPublicAccess provides a mock function with given fields: ctx, name
+func (_m *Service) GetBlockPublicAccess(ctx context.Context, name string) (bool, error) {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetBlockPublicAccess")
+	}
+
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (bool, error)); ok {
+		return rf(ctx, name)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) bool); ok {
+		r0 = rf(ctx, name)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, name)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_GetBlockPublicAccess_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetBlockPublicAccess'
+type Service_GetBlockPublicAccess_Call struct {
+	*mock.Call
+}
+
+// GetBlockPublicAccess is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+func (_e *Service_Expecter) GetBlockPublicAccess(ctx interface{}, name interface{}) *Service_GetBlockPublicAccess_Call {
+	return &Service_GetBlockPublicAccess_Call{Call: _e.mock.On("GetBlockPublicAccess", ctx, name)}
+}
+
+func (_c *Service_GetBlockPublicAccess_Call) Run(run func(ctx context.Context, name string)) *Service_GetBlockPublicAccess_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *Service_GetBlockPublicAccess_Call) Return(_a0 bool, _a1 error) *Service_GetBlockPublicAccess_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_GetBlockPublicAccess_Call) RunAndReturn(run func(context.Context, string) (bool, error)) *Service_GetBlockPublicAccess_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetCORS provides a mock function with given fields: ctx, name
 func (_m *Service) GetCORS(ctx context.Context, name string) ([]byte, error) {
 	ret := _m.Called(ctx, name)
@@ -1211,6 +1325,112 @@ func (_c *Service_ListPage_Call) Return(_a0 bucket.ListPageResult, _a1 error) *S
 }
 
 func (_c *Service_ListPage_Call) RunAndReturn(run func(context.Context, bucket.ListPageInput) (bucket.ListPageResult, error)) *Service_ListPage_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetAccessRules provides a mock function with given fields: ctx, name, in
+func (_m *Service) SetAccessRules(ctx context.Context, name string, in bucket.SetAccessRulesInput) (bucket.AccessRulesChange, error) {
+	ret := _m.Called(ctx, name, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetAccessRules")
+	}
+
+	var r0 bucket.AccessRulesChange
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, bucket.SetAccessRulesInput) (bucket.AccessRulesChange, error)); ok {
+		return rf(ctx, name, in)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, bucket.SetAccessRulesInput) bucket.AccessRulesChange); ok {
+		r0 = rf(ctx, name, in)
+	} else {
+		r0 = ret.Get(0).(bucket.AccessRulesChange)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, bucket.SetAccessRulesInput) error); ok {
+		r1 = rf(ctx, name, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_SetAccessRules_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetAccessRules'
+type Service_SetAccessRules_Call struct {
+	*mock.Call
+}
+
+// SetAccessRules is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+//   - in bucket.SetAccessRulesInput
+func (_e *Service_Expecter) SetAccessRules(ctx interface{}, name interface{}, in interface{}) *Service_SetAccessRules_Call {
+	return &Service_SetAccessRules_Call{Call: _e.mock.On("SetAccessRules", ctx, name, in)}
+}
+
+func (_c *Service_SetAccessRules_Call) Run(run func(ctx context.Context, name string, in bucket.SetAccessRulesInput)) *Service_SetAccessRules_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(bucket.SetAccessRulesInput))
+	})
+	return _c
+}
+
+func (_c *Service_SetAccessRules_Call) Return(_a0 bucket.AccessRulesChange, _a1 error) *Service_SetAccessRules_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_SetAccessRules_Call) RunAndReturn(run func(context.Context, string, bucket.SetAccessRulesInput) (bucket.AccessRulesChange, error)) *Service_SetAccessRules_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetBlockPublicAccess provides a mock function with given fields: ctx, name, on
+func (_m *Service) SetBlockPublicAccess(ctx context.Context, name string, on bool) error {
+	ret := _m.Called(ctx, name, on)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetBlockPublicAccess")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, bool) error); ok {
+		r0 = rf(ctx, name, on)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Service_SetBlockPublicAccess_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetBlockPublicAccess'
+type Service_SetBlockPublicAccess_Call struct {
+	*mock.Call
+}
+
+// SetBlockPublicAccess is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+//   - on bool
+func (_e *Service_Expecter) SetBlockPublicAccess(ctx interface{}, name interface{}, on interface{}) *Service_SetBlockPublicAccess_Call {
+	return &Service_SetBlockPublicAccess_Call{Call: _e.mock.On("SetBlockPublicAccess", ctx, name, on)}
+}
+
+func (_c *Service_SetBlockPublicAccess_Call) Run(run func(ctx context.Context, name string, on bool)) *Service_SetBlockPublicAccess_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(bool))
+	})
+	return _c
+}
+
+func (_c *Service_SetBlockPublicAccess_Call) Return(_a0 error) *Service_SetBlockPublicAccess_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Service_SetBlockPublicAccess_Call) RunAndReturn(run func(context.Context, string, bool) error) *Service_SetBlockPublicAccess_Call {
 	_c.Call.Return(run)
 	return _c
 }

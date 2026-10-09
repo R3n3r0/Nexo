@@ -10,6 +10,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
+	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
 )
 
 type opKey struct {
@@ -33,7 +34,9 @@ type DispatcherDeps struct {
 type dispatcher struct {
 	enc     httpx.Encoder
 	domains []string
-	ops     map[opKey][]opEntry
+	// hostBuckets resolves the custom hosts of the buckets (nil: none).
+	hostBuckets HostBuckets
+	ops         map[opKey][]opEntry
 }
 
 var _ Dispatcher = (*dispatcher)(nil)
@@ -45,7 +48,7 @@ func NewDispatcher(deps DispatcherDeps, opts ...Option) Dispatcher {
 		deps.Enc = httpx.New()
 	}
 	o := newOptions(opts)
-	return &dispatcher{enc: deps.Enc, domains: o.domains, ops: make(map[opKey][]opEntry)}
+	return &dispatcher{enc: deps.Enc, domains: o.domains, hostBuckets: o.hostBuckets, ops: make(map[opKey][]opEntry)}
 }
 
 // Handle implements Dispatcher.
@@ -104,7 +107,7 @@ func (d *dispatcher) serve(w http.ResponseWriter, r *http.Request) {
 // otherwise. The key is the decoded path (r.URL.Path).
 func (d *dispatcher) resolve(r *http.Request) target {
 	path := strings.TrimPrefix(r.URL.Path, "/")
-	if bucket, ok := virtualHostBucket(d.domains, r.Host); ok {
+	if bucket, ok := d.hostBucket(r); ok {
 		if path == "" {
 			return target{scope: ScopeBucket, bucket: bucket, virtualHost: true}
 		}
@@ -118,6 +121,17 @@ func (d *dispatcher) resolve(r *http.Request) target {
 		return target{scope: ScopeBucket, bucket: bucket}
 	}
 	return target{scope: ScopeObject, bucket: bucket, key: key}
+}
+
+// hostBucket returns the bucket a request addresses by host: a custom
+// host of a bucket (HostBuckets), then "{bucket}.{domain}".
+func (d *dispatcher) hostBucket(r *http.Request) (string, bool) {
+	if d.hostBuckets != nil {
+		if bucket, ok := d.hostBuckets(middleware.HostOf(r)); ok {
+			return bucket, true
+		}
+	}
+	return virtualHostBucket(d.domains, r.Host)
 }
 
 // virtualHostBucket extracts the bucket of a "{bucket}.{domain}" host for

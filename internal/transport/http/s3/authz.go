@@ -382,6 +382,12 @@ func requestConditions(r *http.Request, now time.Time) map[string][]string {
 		Headers:  r.Header,
 		AuthType: authType,
 		SignedAt: signedAt,
+		// The keys of the access rules (docs/10 §10.1): the host the
+		// client addressed (forwarded by the trusted proxies), the method
+		// and the headers.
+		Host:        client.Host,
+		Method:      r.Method,
+		HTTPHeaders: r.Header,
 	})
 }
 

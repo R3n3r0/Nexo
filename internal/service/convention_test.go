@@ -122,6 +122,7 @@ func TestMockCoverage(t *testing.T) {
 		"../transport/http/httpx",
 		"../transport/http/middleware",
 		"../transport/http/server",
+		"../transport/http/dist",
 		"../transport/http/console",
 		"../transport/http/s3",
 		"../transport/http/admin",

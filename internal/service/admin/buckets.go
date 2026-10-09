@@ -9,6 +9,7 @@ import (
 	"sort"
 
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/accessrule"
 	"github.com/r3n3r0/nexo/internal/service/bucket"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
@@ -26,8 +27,11 @@ type BucketManagerDeps struct {
 	Policy policy.Service
 	// Authz authorizes the requested settings and filters the listing
 	// (required).
-	Authz  Authorizer
-	Logger *slog.Logger
+	Authz Authorizer
+	// AccessRules reports the buckets public through their access rules
+	// (optional: without it only the bucket policy makes a bucket public).
+	AccessRules accessrule.Service
+	Logger      *slog.Logger
 }
 
 // BucketManagerOption configures the bucket manager.
@@ -158,17 +162,23 @@ func (m *bucketManager) summary(ctx context.Context, name string) (*BucketSummar
 	return &BucketSummary{Info: *info, Public: m.public(ctx, name)}, nil
 }
 
-// public reports whether the bucket policy grants access to everyone; a
-// failure is logged and reported as not public.
+// public reports whether the bucket policy grants access to everyone, or
+// an access rule in effect allows everyone; a failure is logged and
+// reported as not public.
 func (m *bucketManager) public(ctx context.Context, name string) bool {
 	public, err := m.deps.Buckets.IsPublic(ctx, name)
+	if err != nil && !errors.Is(err, domain.ErrPolicyNotFound) {
+		m.deps.Logger.WarnContext(ctx, "admin: bucket policy status", "bucket", name, "err", err)
+	}
+	if public || m.deps.AccessRules == nil {
+		return public
+	}
+	st, err := m.deps.AccessRules.PublicStatus(ctx, name)
 	if err != nil {
-		if !errors.Is(err, domain.ErrPolicyNotFound) {
-			m.deps.Logger.WarnContext(ctx, "admin: bucket policy status", "bucket", name, "err", err)
-		}
+		m.deps.Logger.WarnContext(ctx, "admin: access rules public status", "bucket", name, "err", err)
 		return false
 	}
-	return public
+	return st.Public
 }
 
 // Create implements BucketManager.

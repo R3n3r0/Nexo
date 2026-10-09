@@ -25,6 +25,63 @@ func (_m *MetadataStore) EXPECT() *MetadataStore_Expecter {
 	return &MetadataStore_Expecter{mock: &_m.Mock}
 }
 
+// AccessConfig provides a mock function with given fields: ctx, _a1
+func (_m *MetadataStore) AccessConfig(ctx context.Context, _a1 string) (bucket.AccessConfig, error) {
+	ret := _m.Called(ctx, _a1)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AccessConfig")
+	}
+
+	var r0 bucket.AccessConfig
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (bucket.AccessConfig, error)); ok {
+		return rf(ctx, _a1)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) bucket.AccessConfig); ok {
+		r0 = rf(ctx, _a1)
+	} else {
+		r0 = ret.Get(0).(bucket.AccessConfig)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, _a1)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MetadataStore_AccessConfig_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AccessConfig'
+type MetadataStore_AccessConfig_Call struct {
+	*mock.Call
+}
+
+// AccessConfig is a helper method to define mock.On call
+//   - ctx context.Context
+//   - _a1 string
+func (_e *MetadataStore_Expecter) AccessConfig(ctx interface{}, _a1 interface{}) *MetadataStore_AccessConfig_Call {
+	return &MetadataStore_AccessConfig_Call{Call: _e.mock.On("AccessConfig", ctx, _a1)}
+}
+
+func (_c *MetadataStore_AccessConfig_Call) Run(run func(ctx context.Context, _a1 string)) *MetadataStore_AccessConfig_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MetadataStore_AccessConfig_Call) Return(_a0 bucket.AccessConfig, _a1 error) *MetadataStore_AccessConfig_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MetadataStore_AccessConfig_Call) RunAndReturn(run func(context.Context, string) (bucket.AccessConfig, error)) *MetadataStore_AccessConfig_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // BucketConfig provides a mock function with given fields: ctx, _a1
 func (_m *MetadataStore) BucketConfig(ctx context.Context, _a1 string) (object.BucketConfig, error) {
 	ret := _m.Called(ctx, _a1)

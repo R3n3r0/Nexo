@@ -1,0 +1,33 @@
+Manage the HTTP cache of the distributions of a Nexo server (docs/11): the
+reusable cache policies, the settings of the cluster, the invalidations (purge),
+the warm-ups, the purge webhooks of the CDNs and proxies in front of the
+cluster, the inspector of a URL and the statistics. The settings of a
+distribution, of its domains and paths are "nexoctl dist cache".
+
+The configuration needs admin:ManageCache; the invalidations and the warm-ups
+need admin:InvalidateCache alone (a deploy pipeline).
+
+Usage:
+  nexoctl cache [flags]
+  nexoctl cache [command]
+
+Available Commands:
+  inspect     Show how the cache serves a URL
+  policy      Manage the reusable cache policies
+  purge       Invalidate cached content
+  settings    Show or change the cache settings of the cluster
+  stats       Show the statistics of the cache
+  warm        Cache objects of a domain before they are requested
+  webhook     Manage the purge webhooks of a distribution
+
+Flags:
+  -h, --help   help for cache
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl cache [command] --help" for more information about a command.

@@ -1,0 +1,180 @@
+$ nexoctl access rule list mem/media
+No access rule on `mem/media`.
+
+$ nexoctl access rule add mem/media --id img-pub --allow --principal * --action read --regex ^img/[0-9]{4}/.*\.(jpe?g|png)$ --ignore-case
+Added the access rule `img-pub` to `mem/media` (1 rule).
+
+$ nexoctl access rule add mem/media --id no-private --deny --principal * --action all --glob **/private/** --priority 5
+Added the access rule `no-private` to `mem/media` (2 rules).
+
+$ nexoctl access rule add mem/media --id docs --allow --principal user:alice --action read --action list --prefix docs/ --source-ip 10.0.0.0/8 --description documents of alice
+Added the access rule `docs` to `mem/media` (3 rules).
+
+$ nexoctl access rule add mem/media --id img-pub --allow --principal * --action read
+! nexoctl: error: mem/media: conflict: the access rule "img-pub" exists in `mem/media` (use --replace)
+[exit 1]
+
+$ nexoctl access rule add mem/media --id bad --allow --principal * --action read --regex ([
+! nexoctl: error: mem/media: invalid access rule: error parsing regexp: missing closing ]: `[` (invalid_access_rule)
+[exit 1]
+
+$ nexoctl access rule add mem/media --id x --principal * --action read
+! nexoctl: error: one of --allow and --deny is required
+! Run 'nexoctl access rule add --help' for usage.
+[exit 2]
+
+$ nexoctl access rule add mem/media --id x --allow --principal * --action read --prefix a --glob b
+! nexoctl: error: --prefix, --glob and --regex are mutually exclusive
+! Run 'nexoctl access rule add --help' for usage.
+[exit 2]
+
+$ nexoctl access rule list mem/media
+ID                   PRIORITY  EFFECT PRINCIPALS           ACTIONS          MATCH
+no-private                  5  deny   *                    all              glob **/private/**
+img-pub                   100  allow  *                    read             regex(i) ^img/[0-9]{4}/.*\.(jpe?g|png)$
+docs                      100  allow  user:alice           read,list        prefix docs/ (conditions)
+
+$ nexoctl access rule info mem/media --id img-pub
+ID: img-pub
+Priority: 100
+Effect: allow
+Principals: *
+Actions: read
+Match: regex(i) ^img/[0-9]{4}/.*\.(jpe?g|png)$
+
+$ nexoctl access rule info mem/media --id nope
+! nexoctl: error: access rule "nope" of `mem/media`: not found
+[exit 3]
+
+$ nexoctl access test mem/media/img/2026/a.JPG mem/media/img/2026/private/b.jpg mem/media/docs/x.txt
+img/2026/a.JPG: allowed by access rule `img-pub` (anonymous, s3:GetObject)
+  rules: allow (matched: img-pub)
+img/2026/private/b.jpg: denied by access rule `no-private` (anonymous, s3:GetObject)
+  rules: deny (matched: no-private, img-pub)
+docs/x.txt: denied (no statement allows it) (anonymous, s3:GetObject)
+  rules: none
+
+$ nexoctl access test mem/media/docs/x.txt --principal user:alice --ip 10.1.2.3 -v
+docs/x.txt: allowed by access rule `docs` (user:alice, s3:GetObject)
+  rules: allow (matched: docs)
+  no-private           deny       5  no key
+  img-pub              allow    100  no key
+  docs                 allow    100  matches
+  reason: allowed by access rule docs
+
+$ nexoctl access test mem/media/docs/x.txt --principal user:alice --ip 192.0.2.1
+docs/x.txt: denied (no statement allows it) (user:alice, s3:GetObject)
+  rules: none
+
+$ nexoctl access rule move mem/media --id img-pub --priority 1
+Moved the access rule `img-pub` of `mem/media` to priority 1.
+
+$ nexoctl access rule list mem/media
+ID                   PRIORITY  EFFECT PRINCIPALS           ACTIONS          MATCH
+no-private                  5  deny   *                    all              glob **/private/**
+img-pub                     1  allow  *                    read             regex(i) ^img/[0-9]{4}/.*\.(jpe?g|png)$
+docs                      100  allow  user:alice           read,list        prefix docs/ (conditions)
+
+$ nexoctl access export mem/media rules.yaml
+Exported 3 access rules of `mem/media` to rules.yaml.
+
+--- rules.yaml
+bucket: media
+rules:
+  - id: img-pub
+    priority: 1
+    effect: allow
+    principals:
+      - '*'
+    actions:
+      - read
+    match:
+      type: regex
+      pattern: ^img/[0-9]{4}/.*\.(jpe?g|png)$
+      caseInsensitive: true
+  - id: no-private
+    priority: 5
+    effect: deny
+    principals:
+      - '*'
+    actions:
+      - all
+    match:
+      type: glob
+      pattern: '**/private/**'
+  - id: docs
+    priority: 100
+    effect: allow
+    principals:
+      - user:alice
+    actions:
+      - read
+      - list
+    match:
+      type: prefix
+      pattern: docs/
+    conditions:
+      sourceIp:
+        - 10.0.0.0/8
+    description: documents of alice
+
+$ nexoctl access import mem/copy rules.yaml
+Imported 3 access rules into `mem/copy`.
+
+$ nexoctl access rule remove mem/media --id docs
+Removed the access rule `docs` from `mem/media`.
+
+$ nexoctl access rule remove mem/media --id docs
+! nexoctl: error: access rule "docs" of `mem/media`: not found
+[exit 3]
+
+$ nexoctl access public get mem/media
+`mem/media` is public (custom): img-pub.
+
+$ nexoctl access public set public-read mem/site
+Applied the preset `public-read` to `mem/site`: public.
+
+$ nexoctl access public get mem/site
+`mem/site` is public (public-read): preset-public-read.
+
+$ nexoctl access block-public status mem
+Public access of the cluster `mem`: not blocked (cluster: off, mode reject).
+
+$ nexoctl access block-public on mem/site
+Blocked the public access of `mem/site` (mode reject).
+
+$ nexoctl access block-public status mem/site
+Public access of `mem/site`: blocked (cluster: off, mode reject, bucket: on).
+
+$ nexoctl access rule add mem/site --id pub2 --allow --principal * --action read
+! nexoctl: error: mem/site: invalid access rule: public access is blocked: a rule cannot allow everyone ("*") (public_access_blocked)
+[exit 4]
+
+$ nexoctl access block-public off mem/site
+Unblocked the public access of `mem/site`.
+
+$ nexoctl access export mem/media
+bucket: media
+rules:
+  - id: img-pub
+    priority: 1
+    effect: allow
+    principals:
+      - '*'
+    actions:
+      - read
+    match:
+      type: regex
+      pattern: ^img/[0-9]{4}/.*\.(jpe?g|png)$
+      caseInsensitive: true
+  - id: no-private
+    priority: 5
+    effect: deny
+    principals:
+      - '*'
+    actions:
+      - all
+    match:
+      type: glob
+      pattern: '**/private/**'
+

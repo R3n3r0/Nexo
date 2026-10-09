@@ -58,6 +58,8 @@ type request struct {
 	raw  []byte
 	// contentType of raw bodies.
 	contentType string
+	// header are extra request headers (If-Match).
+	header http.Header
 }
 
 // pathOf joins escaped path segments: each segment is escaped once, so a
@@ -131,6 +133,9 @@ func (c *client) send(ctx context.Context, in request) ([]byte, http.Header, err
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
+	for k, v := range in.header {
+		req.Header[k] = v
+	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", c.cfg.UserAgent)
 	if err := c.signer.sign(ctx, req, payload); err != nil {
@@ -169,6 +174,9 @@ type APIError struct {
 	// (Code invalid_configuration): lifecycle rules, event subscriptions,
 	// CORS rules.
 	RuleErrors []RuleError `json:"ruleErrors"`
+	// AccessRuleErrors locate the invalid access rule (Code
+	// invalid_access_rule, too_many_access_rules, public_access_blocked).
+	AccessRuleErrors []AccessRuleError `json:"accessRuleErrors"`
 }
 
 // Error implements error.
@@ -184,6 +192,11 @@ func (e *APIError) Error() string {
 	}
 	for _, re := range e.RuleErrors {
 		msg += fmt.Sprintf("; rule %d: %s", re.Rule, re.Message)
+	}
+	for _, ae := range e.AccessRuleErrors {
+		if ae.Position > 0 {
+			msg += fmt.Sprintf(" (rule %d, %s, position %d)", ae.Rule, ae.Field, ae.Position)
+		}
 	}
 	return msg
 }

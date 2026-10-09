@@ -1,0 +1,34 @@
+Manage the access rules of the buckets of a Nexo server (Admin API,
+admin:ManageAccessRules): rules with a priority, an effect (allow or deny),
+principals, actions and a pattern of the keys (a prefix, a glob with *, **, ?,
+[abc] and {a,b}, or an RE2 regular expression), evaluated by the policy engine
+next to the IAM policies and the bucket policy: a deny in any source denies.
+
+Principals: '*' (everyone, anonymous included), user:NAME, group:NAME,
+accesskey:KEY, distribution:ID. Actions: read, list, write, delete, tag, all,
+or S3 actions (s3:GetObject). Every change replaces the rules of the bucket
+atomically and fails if they changed meanwhile.
+
+Usage:
+  nexoctl access [flags]
+  nexoctl access [command]
+
+Available Commands:
+  block-public Block the public access of the cluster or of a bucket
+  export       Export the access rules of a bucket as YAML
+  import       Replace the access rules of a bucket with those of a YAML file
+  public       Apply and show the public access presets of a bucket
+  rule         Add, list, show, remove and reorder the access rules of a bucket
+  test         Test the access rules on keys (who may do what)
+
+Flags:
+  -h, --help   help for access
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl access [command] --help" for more information about a command.

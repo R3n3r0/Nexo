@@ -225,7 +225,8 @@
       "settings": "Impostazioni",
       "access": "Accesso",
       "lifecycle": "Ciclo di vita",
-      "events": "Eventi"
+      "events": "Eventi",
+      "rules": "Regole di accesso"
     },
     "summary": "{{size}} · {{objects}} oggetti",
     "delete": "Elimina bucket",

@@ -45,6 +45,16 @@ packages:
       NotificationManager:
       CORSManager:
       KMSManager:
+      AccessRuleManager:
+      DistributionManager:
+      CertificateManager:
+      CacheManager:
+  github.com/r3n3r0/nexo/internal/service/accessrule:
+    interfaces:
+      Service:
+      Evaluator:
+      ConfigSource:
+      SecretStore:
   github.com/r3n3r0/nexo/internal/service/audit:
     interfaces:
       Service:
@@ -57,6 +67,25 @@ packages:
     interfaces:
       Service:
       MetadataStore:
+  github.com/r3n3r0/nexo/internal/service/cache:
+    interfaces:
+      Service:
+      Runtime:
+      Reader:
+      Exchange:
+      Invalidator:
+      Manager:
+      Operations:
+      Node:
+      Peer:
+      Distributions:
+      SecretSource:
+      HTTPDoer:
+  github.com/r3n3r0/nexo/internal/service/certs:
+    interfaces:
+      Service:
+      DomainSource:
+      Sealer:
   github.com/r3n3r0/nexo/internal/service/cluster:
     interfaces:
       Notifier:
@@ -77,6 +106,18 @@ packages:
   github.com/r3n3r0/nexo/internal/service/crypto:
     interfaces:
       Service:
+  github.com/r3n3r0/nexo/internal/service/distribution:
+    interfaces:
+      Service:
+      Resolver:
+      KeyGroups:
+      SignedRequestVerifier:
+      Signer:
+      Matcher:
+      CompiledPattern:
+      PublicAccessBlock:
+      SecretSource:
+      Website:
   github.com/r3n3r0/nexo/internal/service/erasure:
     interfaces:
       Codec:
@@ -133,6 +174,11 @@ packages:
       Counter:
       Gauge:
       Histogram:
+  github.com/r3n3r0/nexo/internal/service/match:
+    interfaces:
+      Service:
+      Matcher:
+      Set:
   github.com/r3n3r0/nexo/internal/service/object:
     interfaces:
       Service:
@@ -146,6 +192,7 @@ packages:
       Attachments:
       BucketPolicyProvider:
       SharedStore:
+      AccessRules:
   github.com/r3n3r0/nexo/internal/service/preflight:
     interfaces:
       Service:
@@ -194,9 +241,16 @@ packages:
     interfaces:
       Middleware:
       Gate:
+  github.com/r3n3r0/nexo/internal/transport/http/dist:
+    interfaces:
+      WebsiteRoutes:
+      HostRouter:
+      ChallengeRoutes:
+      AccessLogger:
   github.com/r3n3r0/nexo/internal/transport/http/server:
     interfaces:
       Service:
+      CertificateSource:
   github.com/r3n3r0/nexo/internal/transport/http/console:
     interfaces:
       Assets:
@@ -231,6 +285,10 @@ packages:
       NotificationRoutes:
       CORSRoutes:
       KMSRoutes:
+      AccessRuleRoutes:
+      DistributionRoutes:
+      CertificateRoutes:
+      CacheRoutes:
   github.com/r3n3r0/nexo/internal/transport/rpc:
     interfaces:
       Routes:
@@ -238,6 +296,7 @@ packages:
       LockRoutes:
       PeerRoutes:
       BootstrapRoutes:
+      CacheRoutes:
       Server:
       Authenticator:
       Conn:

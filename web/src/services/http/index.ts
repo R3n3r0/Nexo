@@ -1,8 +1,15 @@
 import { createAuthEventEmitter } from '../events';
 import type { Services } from '../interfaces';
+import { createHttpAccessRuleService } from './accessRules';
 import { createHttpBucketService } from './buckets';
+import { createHttpCacheService } from './cache';
 import { createHttpClient, type HttpClientOptions } from './client';
 import { createHttpConfigService } from './config';
+import {
+  createHttpCertificateService,
+  createHttpDistributionService,
+  createHttpKeyGroupService,
+} from './distributions';
 import { createHttpHealService } from './heal';
 import {
   createHttpAccessKeyService,
@@ -51,6 +58,11 @@ export function createHttpServices(options: HttpServicesOptions = {}): Services 
     shares: createHttpShareService(client),
     config: createHttpConfigService(client),
     permissions: createHttpPermissionService(client),
+    accessRules: createHttpAccessRuleService(client),
+    distributions: createHttpDistributionService(client),
+    keyGroups: createHttpKeyGroupService(client),
+    certificates: createHttpCertificateService(client),
+    cache: createHttpCacheService(client),
     authEvents,
   };
 }

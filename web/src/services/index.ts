@@ -30,6 +30,7 @@ export async function loadServices(config: ServicesConfig): Promise<Services> {
 export {
   ApiError,
   isApiError,
+  type AccessRuleProblem,
   type LocatedError,
   type ProblemDetails,
   type RuleProblem,

@@ -1,0 +1,19 @@
+Stop blocking the public access
+
+Usage:
+  nexoctl access block-public off ALIAS[/BUCKET] [flags]
+
+Examples:
+  nexoctl access block-public on local --mode reject
+  nexoctl access block-public on local/media
+  nexoctl access block-public off local
+
+Flags:
+  -h, --help   help for off
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

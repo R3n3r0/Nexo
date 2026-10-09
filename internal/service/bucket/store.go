@@ -217,6 +217,35 @@ func (s *metadataStore) drop(bucket string) {
 	s.mu.Unlock()
 }
 
+// AccessConfig implements MetadataStore. The rules are those of the
+// cache, never modified in place (Save caches a copy), so they are shared
+// without copying.
+func (s *metadataStore) AccessConfig(ctx context.Context, bucket string) (AccessConfig, error) {
+	if err := domain.ValidateBucketName(bucket); err != nil {
+		return AccessConfig{}, err
+	}
+	s.mu.RLock()
+	cached, ok := s.cache[bucket]
+	s.mu.RUnlock()
+	if !ok {
+		if _, err := s.Load(ctx, bucket); err != nil {
+			return AccessConfig{}, err
+		}
+		s.mu.RLock()
+		cached, ok = s.cache[bucket]
+		s.mu.RUnlock()
+		if !ok {
+			// Changed meanwhile and not cached again: read once more.
+			m, err := s.Load(ctx, bucket)
+			if err != nil {
+				return AccessConfig{}, err
+			}
+			cached = m
+		}
+	}
+	return AccessConfig{Rules: cached.AccessRules, BlockPublicAccess: cached.BlockPublicAccess}, nil
+}
+
 // BucketConfig implements object.BucketConfigSource.
 func (s *metadataStore) BucketConfig(ctx context.Context, bucket string) (object.BucketConfig, error) {
 	m, err := s.Load(ctx, bucket)
@@ -283,6 +312,7 @@ func (m *Metadata) clone() *Metadata {
 	c.Lifecycle = cloneBytes(m.Lifecycle)
 	c.CORS = cloneBytes(m.CORS)
 	c.Notification = cloneBytes(m.Notification)
+	c.AccessRules = m.AccessRules.clone()
 	return &c
 }
 

@@ -1,0 +1,25 @@
+Manage the TLS certificates of the domains of the distributions (served by SNI on
+every node): ACME (--auto: obtained and renewed by the leader), uploaded PEM
+certificates (--cert --key), or none when a proxy terminates TLS (--none).
+Needs admin:ManageCertificates (and admin:ManageDistributions for "set").
+
+Usage:
+  nexoctl dist cert [flags]
+  nexoctl dist cert [command]
+
+Available Commands:
+  list        List the certificates with their status and expiration
+  remove      Remove a certificate no distribution names
+  set         Set the TLS certificate of the domains of a distribution
+
+Flags:
+  -h, --help   help for cert
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl dist cert [command] --help" for more information about a command.
