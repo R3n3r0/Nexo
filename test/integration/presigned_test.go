@@ -2,8 +2,13 @@ package integration_test
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/http/httptest"
+	"net/http/httputil"
 	"net/url"
 	"strings"
 	"testing"
@@ -16,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/r3n3r0/nexo/internal/clock"
+	"github.com/r3n3r0/nexo/internal/config"
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/iam"
 	"github.com/r3n3r0/nexo/internal/service/policy"
@@ -477,4 +483,70 @@ func TestPresignedUnsignedHeaders(t *testing.T) {
 	e.signRequest(req, alice, []byte("x"))
 	req.Header.Set("X-Amz-Copy-Source", "/secret/salaries.csv")
 	requireS3Error(t, do(t, req), http.StatusForbidden, "AccessDenied")
+}
+
+// TestPresignedBehindProxy (TPS-19, docs/08 §8.5): behind a reverse proxy
+// that forwards the Host header, the links the console generates with
+// the public URL of the deployment (NEXO_SERVER_URL) download through the
+// proxy, with the content uploaded; in a cluster, whichever node signed a
+// link and whichever node serves it. A link presented with another host
+// is refused: the signature covers it.
+//
+// covers: TPS-19
+func TestPresignedBehindProxy(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	_, port, err := net.SplitHostPort(ln.Addr().String())
+	require.NoError(t, err)
+	public := "http://s3.public.test:" + port
+	e := newEnv(t, testutil.WithConfig(func(cfg *config.Static) { cfg.ServerURL = public }))
+	target, err := url.Parse(e.srv.S3URL)
+	require.NoError(t, err)
+	// httputil.ReverseProxy forwards the Host of the client, as nginx with
+	// proxy_set_header Host $http_host.
+	proxy := httptest.NewUnstartedServer(httputil.NewSingleHostReverseProxy(target))
+	_ = proxy.Listener.Close()
+	proxy.Listener = ln
+	proxy.Start()
+	t.Cleanup(proxy.Close)
+	dialer := &net.Dialer{Timeout: 5 * time.Second}
+	viaProxy := &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return dialer.DialContext(ctx, network, ln.Addr().String())
+		},
+	}}
+
+	e.mkBucket("tps19")
+	body := bytes.Repeat([]byte("TPS-19 "), 3000)
+	e.put("tps19", "report.bin", body)
+	root := e.consoleLogin(e.rootCreds())
+	var links []string
+	for range 3 {
+		resp := root.do(http.MethodPost, "/buckets/tps19/objects/share", `{"key":"report.bin","expiresIn":3600}`)
+		require.Equal(t, http.StatusCreated, resp.StatusCode, "%s", resp.Body)
+		var sh struct {
+			URL string `json:"url"`
+		}
+		require.NoError(t, json.Unmarshal(resp.Body, &sh))
+		resp = root.do(http.MethodPost, "/presign", `{"bucket":"tps19","key":"report.bin","expiresIn":3600}`)
+		require.Equal(t, http.StatusOK, resp.StatusCode, "%s", resp.Body)
+		var raw struct {
+			URL string `json:"url"`
+		}
+		require.NoError(t, json.Unmarshal(resp.Body, &raw))
+		links = append(links, sh.URL, raw.URL)
+	}
+	for _, link := range links {
+		require.True(t, strings.HasPrefix(link, public+"/tps19/report.bin?"), "the link uses the public URL: %s", link)
+		for range 3 {
+			resp := doWith(t, viaProxy, newRequest(t, http.MethodGet, link, nil))
+			require.Equal(t, http.StatusOK, resp.StatusCode, "%s: %s", link, resp.Body)
+			assert.Equal(t, body, resp.Body)
+		}
+		u, err := url.Parse(link)
+		require.NoError(t, err)
+		u.Host = target.Host
+		resp := do(t, newRequest(t, http.MethodGet, u.String(), nil))
+		requireS3Error(t, resp, http.StatusForbidden, "SignatureDoesNotMatch")
+	}
 }

@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/cluster"
 	"github.com/r3n3r0/nexo/internal/service/heal"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/scanner"
@@ -46,6 +48,11 @@ type Deps struct {
 	Scanner scanner.Service
 	// Actions performs restart/stop; optional.
 	Actions ActionHandler
+	// Cluster describes the nodes of a distributed deployment (every
+	// node, the unreachable ones offline); nil reports this node only.
+	// The disks of this node are always the ones of Drives, with their
+	// healing progress.
+	Cluster cluster.Info
 }
 
 // Option configures the facade.
@@ -84,21 +91,10 @@ func (s *service) ServerInfo(ctx context.Context) (*domain.ServerInfo, error) {
 		Region:       s.deps.Region,
 		DeploymentID: s.deps.DeploymentID,
 		StartedAt:    s.startedAt,
-		Pools:        append([]domain.PoolInfo(nil), s.deps.Pools...),
 	}
 	info.Uptime = now.Sub(info.StartedAt)
-	disks := make([]domain.DiskInfo, 0, len(s.deps.Drives))
-	for _, d := range s.deps.Drives {
-		disks = append(disks, s.diskInfo(ctx, d))
-	}
-	info.Nodes = []domain.NodeInfo{{
-		Endpoint: "local",
-		State:    domain.StateOnline,
-		Version:  s.deps.Build.Version,
-		Commit:   s.deps.Build.Commit,
-		Uptime:   info.Uptime,
-		Disks:    disks,
-	}}
+	info.Nodes = s.nodes(ctx, info.Uptime)
+	info.Pools = poolStates(s.deps.Pools, info.Nodes)
 	if s.deps.Objects != nil {
 		buckets, err := s.deps.Objects.ListBuckets(ctx)
 		if err == nil {
@@ -112,6 +108,66 @@ func (s *service) ServerInfo(ctx context.Context) (*domain.ServerInfo, error) {
 		}
 	}
 	return info, nil
+}
+
+// nodes describes the nodes of the deployment, this one first with the
+// disks of Drives; with a cluster service, every node with the clock
+// offset of the peers and the background healing of each node.
+func (s *service) nodes(ctx context.Context, uptime time.Duration) []domain.NodeInfo {
+	disks := make([]domain.DiskInfo, 0, len(s.deps.Drives))
+	for _, d := range s.deps.Drives {
+		disks = append(disks, s.diskInfo(ctx, d))
+	}
+	local := []domain.NodeInfo{{
+		Endpoint: "local",
+		State:    domain.StateOnline,
+		Version:  s.deps.Build.Version,
+		Commit:   s.deps.Build.Commit,
+		Uptime:   uptime,
+		Disks:    disks,
+		Local:    true,
+	}}
+	if s.deps.Cluster == nil {
+		return local
+	}
+	// The nodes and the clock offsets are measured concurrently: an
+	// unreachable peer costs one call timeout, not two.
+	var (
+		wg    sync.WaitGroup
+		skews []cluster.Skew
+		err   error
+	)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		skews, err = s.deps.Cluster.ClockSkew(ctx)
+	}()
+	nodes, nodesErr := s.deps.Cluster.Nodes(ctx)
+	wg.Wait()
+	if err != nil {
+		s.deps.Logger.WarnContext(ctx, "admin: clock skew for server info", "err", err)
+	}
+	if nodesErr != nil || len(nodes) == 0 {
+		if nodesErr != nil {
+			s.deps.Logger.WarnContext(ctx, "admin: cluster nodes for server info", "err", nodesErr)
+		}
+		return local
+	}
+	// This node first, with the disks queried above.
+	nodes[0].Disks = disks
+	nodes[0].Local = true
+	bySkew := make(map[string]cluster.Skew, len(skews))
+	for _, sk := range skews {
+		bySkew[sk.NodeID] = sk
+	}
+	for i := range nodes {
+		sk, ok := bySkew[nodes[i].Endpoint]
+		if !ok || sk.Err != "" || nodes[i].Local || nodes[i].State == domain.StateOffline {
+			continue
+		}
+		nodes[i].ClockSkew = &domain.ClockSkew{Offset: sk.Offset, RTT: sk.RTT, Exceeded: sk.Exceeded}
+	}
+	return nodes
 }
 
 // diskInfo queries one drive, reporting an unreachable drive as offline

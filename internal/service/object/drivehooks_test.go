@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/erasure"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	objectmock "github.com/r3n3r0/nexo/internal/service/object/mock"
 	"github.com/r3n3r0/nexo/internal/service/storage"
@@ -35,6 +36,17 @@ type driveFaults struct {
 	full       bool
 	failCommit error
 	diskInfo   *domain.DiskInfo
+	// failRename, when set, fails the file moves (RenameFile) whose
+	// destination it returns an error for.
+	failRename func(dst string) error
+	// beforeCommit, when set, runs before every RenameData (it may block).
+	beforeCommit func(ctx context.Context, volume, path string)
+	// failWriteAll and failDelete, when set, fail the WriteAll and Delete
+	// calls of the paths they return an error for.
+	failWriteAll func(path string) error
+	failDelete   func(path string) error
+	// failDeleteVersion, when set, fails every DeleteVersion.
+	failDeleteVersion error
 }
 
 func (f *driveFaults) set(fn func(f *driveFaults)) {
@@ -46,7 +58,9 @@ func (f *driveFaults) set(fn func(f *driveFaults)) {
 func (f *driveFaults) get() driveFaults {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return driveFaults{offline: f.offline, slowReads: f.slowReads, full: f.full, failCommit: f.failCommit, diskInfo: f.diskInfo}
+	return driveFaults{offline: f.offline, slowReads: f.slowReads, full: f.full, failCommit: f.failCommit, diskInfo: f.diskInfo,
+		failRename: f.failRename, beforeCommit: f.beforeCommit, failWriteAll: f.failWriteAll, failDelete: f.failDelete,
+		failDeleteVersion: f.failDeleteVersion}
 }
 
 func errOffline() error { return fmt.Errorf("%w: injected: drive offline", domain.ErrDiskNotFound) }
@@ -136,8 +150,12 @@ func hookedDrive(t *testing.T, base storage.StorageAPI, f *driveFaults) *storage
 		}).Maybe()
 	m.EXPECT().DeleteVersion(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(ctx context.Context, v, p string, fi storage.FileInfo, o storage.DeleteOptions) error {
-			if off() {
+			st := f.get()
+			switch {
+			case st.offline:
 				return errOffline()
+			case st.failDeleteVersion != nil:
+				return st.failDeleteVersion
 			}
 			return base.DeleteVersion(ctx, v, p, fi, o)
 		}).Maybe()
@@ -173,12 +191,21 @@ func hookedDrive(t *testing.T, base storage.StorageAPI, f *driveFaults) *storage
 			case st.failCommit != nil:
 				return storage.RenameDataResult{}, st.failCommit
 			}
+			if st.beforeCommit != nil {
+				st.beforeCommit(ctx, dv, dp)
+			}
 			return base.RenameData(ctx, sv, sp, fi, dv, dp, o)
 		}).Maybe()
 	m.EXPECT().RenameFile(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(ctx context.Context, sv, sp, dv, dp string) error {
-			if off() {
+			st := f.get()
+			if st.offline {
 				return errOffline()
+			}
+			if st.failRename != nil {
+				if err := st.failRename(dp); err != nil {
+					return err
+				}
 			}
 			return base.RenameFile(ctx, sv, sp, dv, dp)
 		}).Maybe()
@@ -196,14 +223,26 @@ func hookedDrive(t *testing.T, base storage.StorageAPI, f *driveFaults) *storage
 		return base.ReadAll(ctx, v, p)
 	}).Maybe()
 	m.EXPECT().WriteAll(mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, v, p string, b []byte) error {
-		if off() {
+		st := f.get()
+		if st.offline {
 			return errOffline()
+		}
+		if st.failWriteAll != nil {
+			if err := st.failWriteAll(p); err != nil {
+				return err
+			}
 		}
 		return base.WriteAll(ctx, v, p, b)
 	}).Maybe()
 	m.EXPECT().Delete(mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, v, p string, o storage.DeleteOptions) error {
-		if off() {
+		st := f.get()
+		if st.offline {
 			return errOffline()
+		}
+		if st.failDelete != nil {
+			if err := st.failDelete(p); err != nil {
+				return err
+			}
 		}
 		return base.Delete(ctx, v, p, o)
 	}).Maybe()
@@ -298,10 +337,10 @@ func newCluster(t *testing.T, spec clusterSpec) *cluster {
 	}
 	opts := append([]object.Option{
 		object.WithInlineLimit(testInlineLimit), object.WithBlockSize(testBlockSize), object.WithMinPartSize(16),
-		object.WithLockTimeout(5 * time.Second), object.WithHedgeDelay(50 * time.Millisecond),
+		object.WithLockTimeout(5 * time.Second),
 	}, spec.opts...)
 	svc, err := object.NewServerPools(object.PoolsDeps{
-		Pools: pools, DeploymentID: "deployment-test", Heal: c.heal, Buckets: spec.buckets, Logger: slog.New(slog.DiscardHandler),
+		Pools: pools, DeploymentID: "deployment-test", Codecs: testCodecs("deployment-test", erasure.WithHedgeDelay(50*time.Millisecond)), Heal: c.heal, Buckets: spec.buckets, Logger: slog.New(slog.DiscardHandler),
 	}, opts...)
 	require.NoError(t, err)
 	c.svc = svc

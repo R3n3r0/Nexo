@@ -198,3 +198,22 @@ func TestLayout_Validate(t *testing.T) {
 		l.Nodes[1].Local = true
 	}, topology.ErrInvalidLayout)
 }
+
+// TestSetQuorums: D drives to read and to write, D+1 to write when data
+// and parity are as many (docs/03 §3.3).
+func TestSetQuorums(t *testing.T) {
+	tests := []struct {
+		drives, parity, read, write int
+	}{
+		{drives: 4, parity: 2, read: 2, write: 3},
+		{drives: 6, parity: 1, read: 5, write: 5},
+		{drives: 8, parity: 4, read: 4, write: 5},
+		{drives: 16, parity: 4, read: 12, write: 12},
+		{drives: 1, parity: 0, read: 1, write: 1},
+	}
+	for _, tt := range tests {
+		r, w := topology.SetQuorums(tt.drives, tt.parity)
+		assert.Equal(t, tt.read, r, "%d drives EC:%d", tt.drives, tt.parity)
+		assert.Equal(t, tt.write, w, "%d drives EC:%d", tt.drives, tt.parity)
+	}
+}

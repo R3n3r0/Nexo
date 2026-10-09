@@ -3,6 +3,7 @@ package rpc
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -33,6 +34,9 @@ const (
 	// partitioned without resets) by HTTP/2 pings.
 	http2ReadIdle    = 10 * time.Second
 	http2PingTimeout = 5 * time.Second
+	// http2MaxFrameSize is the largest DATA frame a node accepts from its
+	// peers (the HTTP/2 default is 16 KiB).
+	http2MaxFrameSize = 1 << 20
 )
 
 // ConnDeps are the dependencies of a connection to a node.
@@ -52,6 +56,19 @@ type connOptions struct {
 	healthMin   time.Duration
 	healthMax   time.Duration
 	wrap        func(http.RoundTripper) http.RoundTripper
+	dial        DialFunc
+	maxReply    int64
+}
+
+// DialFunc opens the TCP connection to a node (net.Dialer.DialContext).
+type DialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
+
+// WithDialer replaces the TCP dialer of the connection (default a
+// net.Dialer bounded by WithDialTimeout): the tests route the internode
+// traffic through proxies that partition the nodes or delay the links.
+// TLS, when configured, runs over the connections it returns.
+func WithDialer(d DialFunc) ConnOption {
+	return func(o *connOptions) { o.dial = d }
 }
 
 // WithTLSConfig calls the node over TLS (https) with cfg; without it the
@@ -89,6 +106,17 @@ func WithHealthInterval(lo, hi time.Duration) ConnOption {
 	}
 }
 
+// WithMaxReply bounds the answer of a unary call the connection accepts
+// (default 64 MiB, like the calls a node accepts): a larger one fails
+// with ErrProtocol.
+func WithMaxReply(n int64) ConnOption {
+	return func(o *connOptions) {
+		if n > 0 {
+			o.maxReply = n
+		}
+	}
+}
+
 // WithTransportWrapper decorates the HTTP/2 round tripper of the
 // connection (latency or fault injection in tests, tracing).
 func WithTransportWrapper(wrap func(http.RoundTripper) http.RoundTripper) ConnOption {
@@ -105,14 +133,17 @@ type conn struct {
 	transport *http2.Transport
 	client    *http.Client
 
-	online  atomic.Bool
-	closed  atomic.Bool
-	mu      sync.Mutex
-	probing bool
-	lastErr string
-	stop    chan struct{}
-	wg      sync.WaitGroup
-	once    sync.Once
+	online atomic.Bool
+	closed atomic.Bool
+	// verifying is set while a broken exchange is being verified by a
+	// ping (suspect).
+	verifying atomic.Bool
+	mu        sync.Mutex
+	probing   bool
+	lastErr   string
+	stop      chan struct{}
+	wg        sync.WaitGroup
+	once      sync.Once
 }
 
 var _ Conn = (*conn)(nil)
@@ -131,7 +162,7 @@ func NewConn(deps ConnDeps, node string, opts ...ConnOption) (Conn, error) {
 	}
 	o := connOptions{
 		callTimeout: defaultCallTimeout, dialTimeout: defaultDialTimeout,
-		healthMin: defaultHealthMin, healthMax: defaultHealthMax,
+		healthMin: defaultHealthMin, healthMax: defaultHealthMax, maxReply: maxUnaryReply,
 	}
 	for _, opt := range opts {
 		opt(&o)
@@ -142,17 +173,30 @@ func NewConn(deps ConnDeps, node string, opts ...ConnOption) (Conn, error) {
 		scheme = "https"
 	}
 	c.base = scheme + "://" + node + Prefix + "/"
-	dialer := &net.Dialer{Timeout: o.dialTimeout, KeepAlive: 30 * time.Second}
+	netDialer := &net.Dialer{Timeout: o.dialTimeout, KeepAlive: 30 * time.Second}
+	dial := o.dial
+	if dial == nil {
+		dial = netDialer.DialContext
+	}
 	c.transport = &http2.Transport{
 		AllowHTTP:       o.tls == nil,
 		TLSClientConfig: o.tls,
 		ReadIdleTimeout: http2ReadIdle,
 		PingTimeout:     http2PingTimeout,
+		// Shard streams move megabytes: large DATA frames cut the number
+		// of frames, and of read syscalls, per byte.
+		MaxReadFrameSize: http2MaxFrameSize,
 		DialTLSContext: func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
-			if o.tls == nil {
-				return dialer.DialContext(ctx, network, addr)
+			raw, err := dial(ctx, network, addr)
+			if err != nil || o.tls == nil {
+				return raw, err
 			}
-			return (&tls.Dialer{NetDialer: dialer, Config: cfg}).DialContext(ctx, network, addr)
+			tc := tls.Client(raw, tlsConfigFor(cfg, addr))
+			if err := tc.HandshakeContext(ctx); err != nil {
+				_ = raw.Close()
+				return nil, err
+			}
+			return tc, nil
 		},
 	}
 	var rt http.RoundTripper = c.transport
@@ -206,8 +250,10 @@ func (c *conn) check(ctx context.Context) error {
 	return nil
 }
 
-// newRequest builds an authenticated call.
-func (c *conn) newRequest(ctx context.Context, path string, body io.Reader, contentType string, o callOptions) (*http.Request, error) {
+// newRequest builds an authenticated call: its token is bound to the
+// method and target of the request and to argsHash, the SHA-256 of the
+// arguments (the body of a unary call, the first frame of an upload).
+func (c *conn) newRequest(ctx context.Context, path string, body io.Reader, contentType string, o callOptions, argsHash []byte) (*http.Request, error) {
 	u := c.base + strings.TrimPrefix(path, "/")
 	if len(o.params) > 0 {
 		q := url.Values{}
@@ -220,7 +266,7 @@ func (c *conn) newRequest(ctx context.Context, path string, body io.Reader, cont
 	if err != nil {
 		return nil, fmt.Errorf("rpc: build call %s to %s: %w", path, c.node, err)
 	}
-	token, err := c.deps.Auth.Token(ctx)
+	token, err := c.deps.Auth.Token(ctx, c.node, CallBinding{Method: req.Method, Target: req.URL.RequestURI(), BodyHash: argsHash})
 	if err != nil {
 		return nil, err
 	}
@@ -231,7 +277,10 @@ func (c *conn) newRequest(ctx context.Context, path string, body io.Reader, cont
 
 // transportError classifies the failure of an exchange: the caller gave
 // up (its context error), the call timed out (the node is slow: no
-// breaker), or the node is unreachable (the circuit opens).
+// breaker), or the exchange broke. A broken exchange does not prove the
+// node gone (a stream reset, a connection closed at the wrong time): the
+// call fails, and the circuit opens only if a ping of the node fails too
+// (verified in the background, so that the failing call is not delayed).
 func (c *conn) transportError(ctx context.Context, timedOut bool, err error) error {
 	if cerr := ctx.Err(); cerr != nil {
 		return cerr
@@ -239,8 +288,52 @@ func (c *conn) transportError(ctx context.Context, timedOut bool, err error) err
 	if timedOut {
 		return fmt.Errorf("%w: %s: call timed out: %w", domain.ErrNodeOffline, c.node, context.DeadlineExceeded)
 	}
-	c.trip(err)
+	if unreachable(err) {
+		c.trip(err)
+	} else {
+		c.suspect(err)
+	}
 	return fmt.Errorf("%w: %s: %v", domain.ErrNodeOffline, c.node, err)
+}
+
+// unreachable reports a failure to connect to the node (refused, no
+// route, unknown host): unlike a broken exchange, it needs no ping to
+// tell that the node is gone.
+func unreachable(err error) bool {
+	var op *net.OpError
+	return errors.As(err, &op) && op.Op == "dial"
+}
+
+// suspect verifies, in the background, that the node still answers a
+// ping after a broken exchange, and opens the circuit when it does not.
+// One verification runs at a time.
+func (c *conn) suspect(cause error) {
+	if c.closed.Load() || !c.online.Load() || !c.verifying.CompareAndSwap(false, true) {
+		return
+	}
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		defer c.verifying.Store(false)
+		ctx, cancel := context.WithTimeout(context.Background(), min(pingTimeout, c.opts.callTimeout))
+		defer cancel()
+		go func() {
+			select {
+			case <-c.stop:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+		var reply pingReply
+		err := c.unary(ctx, "health/ping", struct{}{}, &reply, callOptions{timeout: min(pingTimeout, c.opts.callTimeout)})
+		if err == nil || c.closed.Load() {
+			if err == nil {
+				c.deps.Logger.Debug("rpc: exchange failed but the node answers", "peer", c.node, "err", cause)
+			}
+			return
+		}
+		c.trip(fmt.Errorf("%v (ping: %v)", cause, err))
+	}()
 }
 
 // answer turns a non-200 answer into the remote error.
@@ -273,7 +366,7 @@ func (c *conn) unary(ctx context.Context, path string, in, out any, o callOption
 	}
 	callCtx, cancel := context.WithTimeout(ctx, o.timeout)
 	defer cancel()
-	req, err := c.newRequest(callCtx, path, bytes.NewReader(body), contentTypeMsgpack, o)
+	req, err := c.newRequest(callCtx, path, bytes.NewReader(body), contentTypeMsgpack, o, hashOf(body))
 	if err != nil {
 		return err
 	}
@@ -285,8 +378,11 @@ func (c *conn) unary(ctx context.Context, path string, in, out any, o callOption
 	if err := c.answer(resp); err != nil {
 		return err
 	}
-	data, err := io.ReadAll(resp.Body)
+	data, err := readReply(resp.Body, c.opts.maxReply)
 	if err != nil {
+		if errors.Is(err, ErrProtocol) {
+			return fmt.Errorf("%s from %s: %w", path, c.node, err)
+		}
 		return c.transportError(ctx, errors.Is(callCtx.Err(), context.DeadlineExceeded), err)
 	}
 	if out == nil || len(data) == 0 {
@@ -317,38 +413,53 @@ func (c *conn) Upload(ctx context.Context, path string, args any, body io.Reader
 		timer := time.AfterFunc(o.timeout, func() { timedOut.Store(true); cancel() })
 		defer timer.Stop()
 	}
+	encoded, err := msgpack.Marshal(args)
+	if err != nil {
+		return fmt.Errorf("rpc: encode %T: %w", args, err)
+	}
 	pr, pw := io.Pipe()
 	var readErr error
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		readErr = writeUpload(pw, args, body)
+		readErr = writeUpload(pw, encoded, body)
 	}()
-	req, err := c.newRequest(callCtx, path, pr, contentTypeStream, o)
+	req, err := c.newRequest(callCtx, path, pr, contentTypeStream, o, hashOf(encoded))
 	if err != nil {
 		_ = pr.CloseWithError(err)
 		<-done
 		return err
 	}
 	resp, err := c.client.Do(req)
+	// The whole answer is read before the request body is closed: the
+	// node may answer before the transport has read the end of the
+	// request body from the pipe, and a pipe closed under it makes the
+	// transport abort the stream, answer included (a healthy node then
+	// looked offline). Once the answer is in, closing the pipe only
+	// stops a writer the node did not wait for (it answered early).
+	var (
+		data      []byte
+		answerErr error
+	)
+	if err == nil {
+		if answerErr = c.answer(resp); answerErr == nil {
+			data, err = readReply(resp.Body, c.opts.maxReply)
+			if errors.Is(err, ErrProtocol) {
+				answerErr, err = fmt.Errorf("%s from %s: %w", path, c.node, err), nil
+			}
+		}
+		_ = resp.Body.Close()
+	}
 	_ = pr.CloseWithError(errUploadDone)
 	<-done
 	if readErr != nil {
-		if resp != nil {
-			_ = resp.Body.Close()
-		}
 		return readErr
 	}
 	if err != nil {
 		return c.transportError(ctx, timedOut.Load(), err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if err := c.answer(resp); err != nil {
-		return err
-	}
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return c.transportError(ctx, timedOut.Load(), err)
+	if answerErr != nil {
+		return answerErr
 	}
 	if out != nil && len(data) > 0 {
 		if err := msgpack.Unmarshal(data, out); err != nil {
@@ -358,21 +469,46 @@ func (c *conn) Upload(ctx context.Context, path string, args any, body io.Reader
 	return nil
 }
 
-// writeUpload writes the framed upload: the arguments, the data, the end.
-// It returns the read error of body, if any (sent as an error frame so
-// that the node discards the partial data); write errors only mean that
-// the exchange ended.
-func writeUpload(pw *io.PipeWriter, args any, body io.Reader) error {
+// maxUnaryReply bounds the answer of a unary call a node accepts from a
+// peer, like maxUnaryBody bounds the calls a node accepts.
+const maxUnaryReply = maxUnaryBody
+
+// readReply reads the answer of a unary call, refusing one over limit
+// bytes (ErrProtocol): a peer, or a process listening on its port, cannot
+// make this node buffer an unbounded answer.
+func readReply(r io.Reader, limit int64) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("%w: answer over %d bytes", ErrProtocol, limit)
+	}
+	return data, nil
+}
+
+// hashOf returns the SHA-256 of the arguments of a call.
+func hashOf(args []byte) []byte {
+	sum := sha256.Sum256(args)
+	return sum[:]
+}
+
+// writeUpload writes the framed upload: the encoded arguments, the data,
+// the end. It returns the read error of body, if any (sent as an error
+// frame so that the node discards the partial data); write errors only
+// mean that the exchange ended.
+func writeUpload(pw *io.PipeWriter, args []byte, body io.Reader) error {
 	fw := newFrameWriter(pw)
-	if err := fw.Msg(args); err != nil {
+	if err := fw.frame(frameMsg, args); err != nil {
 		_ = pw.CloseWithError(err)
 		return nil
 	}
-	buf := make([]byte, dataChunk)
+	// The data frames are filled straight from body (no copy).
+	buf := fw.dataFrame()
 	for {
-		n, rerr := body.Read(buf)
+		n, rerr := fill(body, buf[frameHeaderSize:frameHeaderSize+dataChunk])
 		if n > 0 {
-			if err := fw.Data(buf[:n]); err != nil {
+			if err := fw.writeDataFrame(buf, n); err != nil {
 				_ = pw.CloseWithError(err)
 				return nil
 			}
@@ -408,7 +544,7 @@ func (c *conn) open(ctx context.Context, path string, in any, opts []CallOption)
 	streamCtx, cancel := context.WithCancel(ctx)
 	timedOut := atomic.Bool{}
 	timer := time.AfterFunc(o.timeout, func() { timedOut.Store(true); cancel() })
-	req, err := c.newRequest(streamCtx, path, bytes.NewReader(body), contentTypeMsgpack, o)
+	req, err := c.newRequest(streamCtx, path, bytes.NewReader(body), contentTypeMsgpack, o, hashOf(body))
 	if err != nil {
 		timer.Stop()
 		cancel()
@@ -465,6 +601,12 @@ func (s *frameStream) Read(p []byte) (int, error) {
 
 func (s *frameStream) Next(v any) error { return s.fail(s.fr.Next(v)) }
 
+// WriteTo implements io.WriterTo (io.Copy without intermediate buffer).
+func (s *frameStream) WriteTo(w io.Writer) (int64, error) {
+	n, err := s.fr.WriteTo(w)
+	return n, s.fail(err)
+}
+
 // fail reports the error of the caller's context rather than the broken
 // stream it caused.
 func (s *frameStream) fail(err error) error {
@@ -491,7 +633,7 @@ func (c *conn) trip(err error) {
 	defer c.mu.Unlock()
 	c.lastErr = err.Error()
 	if c.online.CompareAndSwap(true, false) {
-		c.deps.Logger.Warn("rpc: node offline, probing it in the background", "node", c.node, "err", err)
+		c.deps.Logger.Warn("rpc: node offline, probing it in the background", "peer", c.node, "err", err)
 	}
 	if c.probing || c.closed.Load() {
 		return
@@ -527,7 +669,7 @@ func (c *conn) probe() {
 			c.lastErr = ""
 			c.online.Store(true)
 			c.mu.Unlock()
-			c.deps.Logger.Info("rpc: node online", "node", c.node, "remote_node", reply.Node)
+			c.deps.Logger.Info("rpc: node online", "peer", c.node, "peer_id", reply.Node)
 			return
 		}
 		c.mu.Lock()
@@ -536,9 +678,27 @@ func (c *conn) probe() {
 		if msg := err.Error(); msg != lastLogged && !errors.Is(err, domain.ErrNodeOffline) {
 			// The node answers but refuses us (credentials, deployment,
 			// version): worth an explicit warning.
-			c.deps.Logger.Warn("rpc: node refuses the internode calls", "node", c.node, "err", err)
+			c.deps.Logger.Warn("rpc: node refuses the internode calls", "peer", c.node, "err", err)
 			lastLogged = msg
 		}
 		interval = min(interval*2, c.opts.healthMax)
 	}
+}
+
+// tlsConfigFor returns cfg naming the server of addr when it names none,
+// as tls.Dialer does.
+func tlsConfigFor(cfg *tls.Config, addr string) *tls.Config {
+	if cfg == nil {
+		cfg = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+	if cfg.ServerName != "" {
+		return cfg
+	}
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	c := cfg.Clone()
+	c.ServerName = host
+	return c
 }

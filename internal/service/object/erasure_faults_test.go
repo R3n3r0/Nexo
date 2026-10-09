@@ -207,7 +207,7 @@ func TestBitrotHealOnRead(t *testing.T) {
 			require.NoError(t, os.WriteFile(files[0], raw, 0o600))
 			got, _ := get(t, c.svc, "bkt", "dir/large", object.GetObjectOptions{})
 			assert.Equal(t, objects["dir/large"], got)
-			assert.Eventually(t, func() bool { return assert.ObjectsAreEqual([]string{"bkt/dir/large@"}, c.heal.notified()) }, time.Second, 5*time.Millisecond)
+			assert.Eventually(t, func() bool { return assert.ObjectsAreEqual([]string{"bkt/dir/large@null"}, c.heal.notified()) }, time.Second, 5*time.Millisecond)
 
 			// Inline content: the copy of one drive is damaged.
 			meta := filepath.Join(c.roots[0], "bkt", "small", storage.MetaFile)
@@ -219,7 +219,7 @@ func TestBitrotHealOnRead(t *testing.T) {
 			require.NoError(t, os.WriteFile(meta, raw, 0o600))
 			got, _ = get(t, c.svc, "bkt", "small", object.GetObjectOptions{})
 			assert.Equal(t, objects["small"], got)
-			assert.Contains(t, c.heal.notified(), "bkt/small@")
+			assert.Contains(t, c.heal.notified(), "bkt/small@null")
 		})
 	}
 }
@@ -238,7 +238,7 @@ func TestEmptiedDrive(t *testing.T) {
 			assertReadable(t, c.svc, objects)
 			notified := strings.Join(c.heal.notified(), " ")
 			for k := range objects {
-				assert.Contains(t, notified, "bkt/"+k+"@")
+				assert.Contains(t, notified, "bkt/"+k+"@null")
 			}
 			body := payload(2*testBlockSize + 9)
 			put(t, c.svc, "bkt", "after", body)
@@ -306,7 +306,7 @@ func TestFullDrives(t *testing.T) {
 			put(t, c.svc, "bkt", "new", body)
 			got, _ = get(t, c.svc, "bkt", "new", object.GetObjectOptions{})
 			assert.Equal(t, body, got)
-			assert.Contains(t, c.heal.notified(), "bkt/new@", "the drive that missed the write is reported (MRF)")
+			assert.Contains(t, c.heal.notified(), "bkt/new@null", "the drive that missed the write is reported (MRF)")
 			assertNoTmp(t, c.roots)
 		})
 	}
@@ -361,7 +361,7 @@ func TestCommitQuorumRollback(t *testing.T) {
 			c.setFaults(func(f *driveFaults) { f.failCommit = errCommit }, 2)
 			put(t, c.svc, "bkt", "obj", payload(size))
 			c.setFaults(func(f *driveFaults) { f.failCommit = nil }, 2)
-			assert.Contains(t, c.heal.notified(), "bkt/obj@")
+			assert.Contains(t, c.heal.notified(), "bkt/obj@null")
 			got, _ = get(t, c.svc, "bkt", "obj", object.GetObjectOptions{})
 			assert.Equal(t, payload(size), got)
 		})

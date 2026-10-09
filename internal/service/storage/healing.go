@@ -60,6 +60,6 @@ func (h *HealingTracker) Progress() *domain.HealingProgress {
 	return &domain.HealingProgress{
 		Started: h.Started, LastUpdate: h.LastUpdate, Bucket: h.Bucket, Object: h.Object,
 		HealedBuckets: len(h.HealedBuckets), ObjectsHealed: h.ObjectsHealed, ObjectsFailed: h.ObjectsFailed,
-		BytesDone: h.BytesDone, BytesFailed: h.BytesFailed,
+		BytesDone: h.BytesDone, BytesFailed: h.BytesFailed, RetryAttempts: h.RetryAttempts,
 	}
 }

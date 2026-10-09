@@ -245,8 +245,11 @@ func (c *Cluster) newNode(n, port int, ports []int) *Node {
 		cluster.WithRetryInterval(50*time.Millisecond), cluster.WithNotifyTimeout(2*time.Second))
 	node.Info = cluster.NewInfo(cluster.InfoDeps{NodeID: node.ID, Nodes: cluster.NodesOf(layout), Drives: node.LocalDrives,
 		Peers: peers, Clock: clk, Logger: logger}, cluster.WithBuildInfo(version, "test"))
+	if id := cluster.FormattedDeploymentID(ctx, node.LocalDrives); id != "" {
+		node.Auth.SetDeploymentID(ctx, id)
+	}
 	node.Bootstrapper, err = cluster.NewBootstrapper(cluster.BootstrapDeps{Layout: layout, Topology: topo, Drives: node.Drives,
-		Peers: bootPeers, Clock: clk, Logger: logger},
+		Peers: bootPeers, Binder: node.Auth, Clock: clk, Logger: logger},
 		cluster.WithBootstrapBackoff(20*time.Millisecond, 200*time.Millisecond), cluster.WithBootstrapVersion(version),
 		cluster.WithBootstrapTimeout(2*time.Second))
 	must(t, err, "bootstrapper")
@@ -255,7 +258,7 @@ func (c *Cluster) newNode(n, port int, ports []int) *Node {
 	must(t, err, "leader")
 
 	// The RPC server, in front of a placeholder S3 API.
-	storageRoutes, err := rpc.NewStorageRoutes(rpc.StorageRoutesDeps{Drives: node.LocalDrives})
+	storageRoutes, err := rpc.NewStorageRoutes(rpc.StorageRoutesDeps{Drives: node.LocalDrives, Auth: node.Auth})
 	must(t, err, "storage routes")
 	lockRoutes, err := rpc.NewLockRoutes(rpc.LockRoutesDeps{Server: node.LockServer})
 	must(t, err, "lock routes")
@@ -297,7 +300,7 @@ func (n *Node) Start() {
 	}
 	must(n.c.T, err, "listen")
 	s3 := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(S3Placeholder)) })
-	n.srv = &http.Server{Handler: h2c.NewHandler(n.Server.Wrap(s3), &http2.Server{}), ReadHeaderTimeout: 10 * time.Second}
+	n.srv = &http.Server{Handler: h2c.NewHandler(n.Server.Wrap(s3), &http2.Server{MaxUploadBufferPerStream: 16 << 20, MaxUploadBufferPerConnection: 64 << 20, MaxReadFrameSize: 1 << 20}), ReadHeaderTimeout: 10 * time.Second}
 	go func(srv *http.Server) { _ = srv.Serve(ln) }(n.srv)
 	n.started = true
 	for m := range n.c.Nodes {

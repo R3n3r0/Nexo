@@ -4,7 +4,9 @@
 
 exec nexoctl admin info local
 stdout '^Mode: snmd '
-stdout '^Pool 1: 1 set\(s\) of 4 drive\(s\), parity 2$'
+stdout '^Pool 1: 1 set\(s\) of 4 drive\(s\), parity 2, quorum read 2 write 3$'
+stdout '^  set 1  ok  4 of 4 drive\(s\) online$'
+stdout '^    background healing: 0 pending, '
 
 exec nexoctl mb local/photos
 exec nexoctl cp small.txt local/photos/small.txt

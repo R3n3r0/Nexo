@@ -104,6 +104,22 @@ func (s *service) HealDisk(ctx context.Context, endpoint string) (DiskResult, er
 		}
 		return h.res, fmt.Errorf("heal: drive %s: %w", endpoint, err)
 	}
+	if failed := h.tracker.ObjectsFailed; failed > 0 && h.tracker.RetryAttempts < s.opts.diskRetries {
+		// Objects failed (sources momentarily without quorum, a drive
+		// flapping): keep the tracker and start a new pass over every
+		// object, which the drive monitor runs at its next round.
+		h.tracker.RetryAttempts++
+		h.tracker.HealedBuckets = nil
+		h.tracker.Bucket, h.tracker.Object = "", ""
+		h.tracker.ObjectsFailed, h.tracker.BytesFailed = 0, 0
+		if err := h.checkpoint(ctx); err != nil {
+			return h.res, fmt.Errorf("heal: drive %s: %w", endpoint, err)
+		}
+		s.deps.Logger.Warn("heal: objects failed to heal on the drive, healing again", "drive", endpoint,
+			"failed", failed, "retry", h.tracker.RetryAttempts, "of", s.opts.diskRetries)
+		return h.res, fmt.Errorf("%w: heal: drive %s: %d object(s) failed to heal, pass %d of %d scheduled",
+			domain.ErrFaultyDisk, endpoint, failed, h.tracker.RetryAttempts+1, s.opts.diskRetries+1)
+	}
 	h.res.Finished = s.deps.Clock.Now().UTC()
 	if err := d.Delete(ctx, domain.SystemBucket, storage.HealingFile, storage.DeleteOptions{}); err != nil && !errors.Is(err, domain.ErrObjectNotFound) {
 		return h.res, fmt.Errorf("heal: drive %s: remove the healing tracker: %w", endpoint, err)

@@ -58,6 +58,8 @@ func Run(t *testing.T, newDrive Factory) {
 		{"StorageErrors", testStorageErrors},
 		{"LegacyMetadataOnDisk", testLegacyMetadataOnDisk},
 		{"SharedDataDirSurvives", testSharedDataDirSurvives},
+		{"CorruptMetadataQuarantined", testCorruptMetadataQuarantined},
+		{"DeleteVersionKeepData", testDeleteVersionKeepData},
 		{"KeyNames", testKeyNames},
 		{"ObjectSizes", testObjectSizes},
 		{"ConcurrentDifferentKeys", testConcurrentDifferentKeys},

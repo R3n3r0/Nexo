@@ -20,7 +20,7 @@ func (l *layer) DeleteObject(ctx context.Context, bucket, key string, opts Delet
 		return DeletedObject{}, err
 	}
 	// A delete marker may create the key: the placement locks are needed.
-	unlock, err := l.lockWrite(ctx, bucket, key)
+	ctx, unlock, err := l.lockWrite(ctx, bucket, key)
 	if err != nil {
 		return DeletedObject{}, err
 	}
@@ -41,7 +41,7 @@ func (l *layer) DeleteObject(ctx context.Context, bucket, key string, opts Delet
 	}
 	modTime := opts.ModTime
 	if modTime.IsZero() {
-		modTime = l.now()
+		modTime = l.commitTime(ctx, bucket, key)
 	}
 	switch cfg.Versioning {
 	case domain.VersioningEnabled, domain.VersioningSuspended:
@@ -51,8 +51,11 @@ func (l *layer) DeleteObject(ctx context.Context, bucket, key string, opts Delet
 			marker.VersionID = l.newID()
 			reported = marker.VersionID
 		}
-		if err := st.DeleteVersion(ctx, bucket, key, marker); err != nil {
+		if err := checkLocks(ctx); err != nil {
 			return DeletedObject{}, fmt.Errorf("%s: delete %s/%s: %w", l.name, bucket, key, err)
+		}
+		if err := st.DeleteVersion(ctx, bucket, key, marker); err != nil {
+			return DeletedObject{}, fmt.Errorf("%s: delete %s/%s: %w", l.name, bucket, key, lockErr(ctx, err))
 		}
 		l.publish(ctx, event.ObjectRemovedDeleteMarkerCreated, bucket, domain.ObjectInfo{Bucket: bucket, Key: key, VersionID: marker.VersionID, IsDeleteMarker: true})
 		return DeletedObject{Key: key, DeleteMarker: true, DeleteMarkerVersionID: reported}, nil
@@ -64,8 +67,11 @@ func (l *layer) DeleteObject(ctx context.Context, bucket, key string, opts Delet
 			}
 			return DeletedObject{}, fmt.Errorf("%s: delete %s/%s: %w", l.name, bucket, key, err)
 		}
-		if err := st.DeleteVersion(ctx, bucket, key, storage.FileInfo{VersionID: cur.VersionID}); err != nil && !errors.Is(err, domain.ErrNoSuchVersion) && !isNotFound(err) {
+		if err := checkLocks(ctx); err != nil {
 			return DeletedObject{}, fmt.Errorf("%s: delete %s/%s: %w", l.name, bucket, key, err)
+		}
+		if err := st.DeleteVersion(ctx, bucket, key, storage.FileInfo{VersionID: cur.VersionID}); err != nil && !errors.Is(err, domain.ErrNoSuchVersion) && !isNotFound(err) {
+			return DeletedObject{}, fmt.Errorf("%s: delete %s/%s: %w", l.name, bucket, key, lockErr(ctx, err))
 		}
 		l.publish(ctx, event.ObjectRemovedDelete, bucket, objectInfo(bucket, key, cur))
 		return DeletedObject{Key: key}, nil
@@ -88,11 +94,14 @@ func (l *layer) deleteVersion(ctx context.Context, st store, bucket, key, versio
 		}
 		return DeletedObject{}, fmt.Errorf("%s: delete %s/%s: %w", l.name, bucket, key, err)
 	}
+	if err := checkLocks(ctx); err != nil {
+		return DeletedObject{}, fmt.Errorf("%s: delete %s/%s: %w", l.name, bucket, key, err)
+	}
 	if err := st.DeleteVersion(ctx, bucket, key, storage.FileInfo{VersionID: stored}); err != nil {
 		if isNotFound(err) || errors.Is(err, domain.ErrNoSuchVersion) {
 			return gone, nil
 		}
-		return DeletedObject{}, fmt.Errorf("%s: delete %s/%s: %w", l.name, bucket, key, err)
+		return DeletedObject{}, fmt.Errorf("%s: delete %s/%s: %w", l.name, bucket, key, lockErr(ctx, err))
 	}
 	del := DeletedObject{Key: key, VersionID: versionID, DeleteMarker: cur.Deleted}
 	if cur.Deleted {

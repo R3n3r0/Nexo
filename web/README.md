@@ -38,7 +38,22 @@ against the real `bin/nexo` with the embedded dashboard:
 - `e2e/global-teardown.ts` stops the server by PID and removes the temporary directory
   (`NEXO_E2E_KEEP=1` keeps it, with `nexo.log`);
 - the specs reach the server through the fixtures of `e2e/support/fixtures.ts` (`api`: signed
-  Admin/S3 client, `nexo`: ports and credentials).
+  Admin/S3 client, `nexo`: ports, credentials and deployment mode).
+
+The suite runs in the deployment modes of docs/08 §8.6 (TM-02), one Playwright project each
+(`npm run e2e -- --project <name>` runs one):
+
+| Project    | Deployment                                      | Specs                             | Started by                                                                        |
+| ---------- | ----------------------------------------------- | --------------------------------- | --------------------------------------------------------------------------------- |
+| `chromium` | one node, one drive (SNSD)                      | every `e2e/*.spec.ts`             | the global setup                                                                  |
+| `snmd`     | one node, 4 drives (erasure coding)             | TD-E-01..04                       | the setup project `snmd-setup` (`e2e/modes/`), stopped by `snmd-teardown`         |
+| `cluster`  | 4 `bin/nexo` processes of 2 drives on 127.0.0.1 | `e2e/cluster/*.spec.ts` (TD-E-15) | the setup project `cluster-setup` (`e2e/cluster/`), stopped by `cluster-teardown` |
+
+The cluster nodes listen on consecutive ports and share one command line (the ellipsis on the
+port and `/proc/self/cwd` on Linux); TD-E-15 freezes a node with `SIGSTOP`, checks that the
+Cluster page highlights it and its drives, writes while it is down, resumes it with `SIGCONT`
+and follows the background healing on the Healing page. The drives of the SNMD and cluster
+deployments go to `/dev/shm` when it has room (`NEXO_E2E_DIR` overrides it).
 
 In CI, `make build` runs first and `npx playwright install --with-deps chromium` provides the
 browser; locally the Chromium of `PLAYWRIGHT_BROWSERS_PATH` is used (or

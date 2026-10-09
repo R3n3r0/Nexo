@@ -3,6 +3,7 @@ import type { Services } from '../interfaces';
 import { createHttpBucketService } from './buckets';
 import { createHttpClient, type HttpClientOptions } from './client';
 import { createHttpConfigService } from './config';
+import { createHttpHealService } from './heal';
 import {
   createHttpAccessKeyService,
   createHttpGroupService,
@@ -33,6 +34,7 @@ export function createHttpServices(options: HttpServicesOptions = {}): Services 
   return {
     session: createHttpSessionService(client),
     info: createHttpInfoService(client),
+    heal: createHttpHealService(client),
     buckets: createHttpBucketService(client),
     objects: createHttpObjectService(client),
     uploads: createHttpUploadService(client),

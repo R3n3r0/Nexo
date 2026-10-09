@@ -126,6 +126,15 @@ type AdminClient interface {
 	DeleteConfig(ctx context.Context, subsystem string, keys ...string) error
 	ExportConfig(ctx context.Context) ([]byte, error)
 	ImportConfig(ctx context.Context, data []byte) error
+
+	// Cluster state (admin cluster export/import): IAM, policies,
+	// configuration and bucket settings in one zip archive.
+	ExportCluster(ctx context.Context) ([]byte, error)
+	ImportCluster(ctx context.Context, archive []byte, opts ImportClusterOptions) (*ClusterImportResult, error)
+
+	// Namespace locks (admin lock list/clear).
+	ListLocks(ctx context.Context) ([]Lock, error)
+	ForceUnlock(ctx context.Context, resources ...string) error
 }
 
 // DefaultRegion is the signing region when Config.Region is empty.

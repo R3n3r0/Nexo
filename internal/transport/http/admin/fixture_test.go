@@ -26,6 +26,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/auth"
 	bucketmock "github.com/r3n3r0/nexo/internal/service/bucket/mock"
 	iammock "github.com/r3n3r0/nexo/internal/service/iam/mock"
+	lockmock "github.com/r3n3r0/nexo/internal/service/lock/mock"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	policymock "github.com/r3n3r0/nexo/internal/service/policy/mock"
 	"github.com/r3n3r0/nexo/internal/service/session"
@@ -67,6 +68,8 @@ type fixture struct {
 	policies   *adminmock.PolicyManager
 	policy     *policymock.Service
 	config     *adminmock.ConfigManager
+	cluster    *adminmock.ClusterManager
+	locks      *lockmock.Manager
 	sessions   session.Service
 
 	mu     sync.Mutex
@@ -83,7 +86,8 @@ func newFixture(t *testing.T) *fixture {
 		buckets: adminmock.NewBucketManager(t), bucketSvc: bucketmock.NewService(t), browser: adminmock.NewObjectBrowser(t),
 		uploads: adminmock.NewUploadManager(t), shares: adminmock.NewShareManager(t), identities: adminmock.NewIdentityManager(t),
 		accessKeys: adminmock.NewAccessKeyManager(t), policies: adminmock.NewPolicyManager(t), policy: policymock.NewService(t),
-		config: adminmock.NewConfigManager(t), catalog: adminsvc.CatalogActions(),
+		config: adminmock.NewConfigManager(t), cluster: adminmock.NewClusterManager(t), locks: lockmock.NewManager(t),
+		catalog: adminsvc.CatalogActions(),
 	}
 	f.iam.EXPECT().LookupCredentials(mock.Anything, mock.Anything).RunAndReturn(
 		func(_ context.Context, key string) (domain.Credentials, domain.Identity, error) {
@@ -134,7 +138,9 @@ func newFixture(t *testing.T) *fixture {
 	require.NoError(t, err)
 	configRoutes, err := admin.NewConfigRoutes(admin.ConfigDeps{Config: f.config, Authz: f.authz, Enc: enc})
 	require.NoError(t, err)
-	f.groups = []admin.Routes{sessionRoutes, infoRoutes, userRoutes, policyRoutes, bucketRoutes, objectRoutes, shareRoutes, configRoutes}
+	clusterRoutes, err := admin.NewClusterRoutes(admin.ClusterDeps{Cluster: f.cluster, Locks: f.locks, Authz: f.authz, Enc: enc})
+	require.NoError(t, err)
+	f.groups = []admin.Routes{sessionRoutes, infoRoutes, userRoutes, policyRoutes, bucketRoutes, objectRoutes, shareRoutes, configRoutes, clusterRoutes}
 
 	r := chi.NewRouter()
 	api, err := admin.NewAPI(admin.APIDeps{Enc: enc, Auth: authn}, f.groups...)

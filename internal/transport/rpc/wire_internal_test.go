@@ -151,22 +151,6 @@ func TestFrames(t *testing.T) {
 	assert.ErrorIs(t, err, ErrProtocol)
 }
 
-func TestVersions(t *testing.T) {
-	tests := []struct {
-		a, b string
-		want bool
-	}{
-		{"v1.2.3", "v1.9.0", true},
-		{"1.2.3", "v1.0.0", true},
-		{"v1.2.3", "v2.0.0", false},
-		{"dev", "v2.0.0", true},
-		{"v3.0.0", "abc123", true},
-	}
-	for _, tt := range tests {
-		assert.Equal(t, tt.want, compatibleVersions(tt.a, tt.b), "%s vs %s", tt.a, tt.b)
-	}
-}
-
 func TestParentPrefix(t *testing.T) {
 	for in, want := range map[string]string{"x": "", "a/b": "a/", "a/b/c": "a/b/", "a/": "", "a/b/": "a/"} {
 		assert.Equal(t, want, parentPrefix(in), in)

@@ -4,6 +4,7 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 )
 
@@ -11,6 +12,31 @@ import (
 type Middleware interface {
 	Wrap(next http.Handler) http.Handler
 }
+
+// Gate is the router of a listener that opens before its APIs exist: the
+// listener of a cluster node serves the internode RPC to its peers while
+// they bootstrap, the S3 and console APIs are composed after the
+// bootstrap. While closed the gate answers the liveness probe and refuses
+// the readiness probe and every other request with 503 (Retry-After: the
+// SDKs retry); once opened it serves the composed handler. Close turns the
+// new requests away again while the node stops, and Drain waits for the
+// requests already admitted.
+type Gate interface {
+	Middleware
+	http.Handler
+	// Open serves h from now on.
+	Open(h http.Handler)
+	// Close turns the new requests away with reason.
+	Close(reason string)
+	// Drain waits until the requests admitted by the opened gate are
+	// done, or ctx ends (its error). Close it first: the requests
+	// admitted after Drain returns are not waited for.
+	Drain(ctx context.Context) error
+}
+
+// GateDeps are the dependencies of the gate (none: the type keeps the
+// constructor shape of docs/12 §12.3).
+type GateDeps struct{}
 
 // Func adapts a function to Middleware.
 type Func func(next http.Handler) http.Handler

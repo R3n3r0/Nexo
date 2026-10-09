@@ -46,6 +46,8 @@ func catalog() []catalogEntry {
 		policy.ActionAdminListGroups, policy.ActionAdminEnableGroup, policy.ActionAdminDisableGroup,
 		policy.ActionAdminCreateAccessKey, policy.ActionAdminUpdateAccessKey, policy.ActionAdminRemoveServiceAccount,
 		policy.ActionAdminListAccessKeys, policy.ActionAdminManageShares,
+		policy.ActionAdminExportCluster, policy.ActionAdminImportCluster,
+		policy.ActionAdminListLocks, policy.ActionAdminForceUnlock,
 		policy.ActionListAllMyBuckets, policy.ActionCreateBucket,
 	)...)
 	out = append(out, scoped(scopeBucket,

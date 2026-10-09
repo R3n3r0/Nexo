@@ -104,6 +104,7 @@ func listEverything(t *testing.T, svc object.Service, in domain.ListObjectsInput
 // markers, versions) is the one of the single-drive layer: the heap merge
 // of the sets and pools is invisible.
 func TestErasureSetsEquivalence(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	spec := clusterSpec{pools: 2, sets: 3, drives: 4}
 	c := newCluster(t, spec)
@@ -271,6 +272,7 @@ func (c *cluster) setPoolSpace(spec clusterSpec, p int, total, free float64) {
 // TestPoolPlacement covers the choice of the pool of new objects: random,
 // weighted by free space, never a pool over 95% or being decommissioned.
 func TestPoolPlacement(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	tests := []struct {
 		name     string
@@ -383,7 +385,7 @@ func TestPoolsDuplicateKeys(t *testing.T) {
 	for p, body := range []string{"older", "newer"} {
 		single, err := object.NewServerPools(object.PoolsDeps{
 			Pools:        []object.PoolSpec{{Sets: [][]storage.StorageAPI{c.drives[p*4 : (p+1)*4]}}},
-			DeploymentID: "deployment-test", Logger: slog.New(slog.DiscardHandler),
+			DeploymentID: "deployment-test", Codecs: testCodecs("deployment-test"), Logger: slog.New(slog.DiscardHandler),
 		}, object.WithInlineLimit(testInlineLimit), object.WithBlockSize(testBlockSize))
 		require.NoError(t, err)
 		put(t, single, "bkt", "dup", []byte(body))
@@ -422,6 +424,7 @@ func TestNewServerPoolsValidation(t *testing.T) {
 		ok   bool
 	}{
 		{name: "no pool", deps: object.PoolsDeps{}},
+		{name: "no codec factory", deps: object.PoolsDeps{Pools: []object.PoolSpec{{Sets: set(4)}}}},
 		{name: "empty pool", deps: object.PoolsDeps{Pools: []object.PoolSpec{{}}}},
 		{name: "set of one drive", deps: object.PoolsDeps{Pools: []object.PoolSpec{{Sets: set(1)}}}},
 		{name: "sets of different sizes", deps: object.PoolsDeps{Pools: []object.PoolSpec{{Sets: [][]storage.StorageAPI{drives[:4], drives[4:7]}}}}},
@@ -433,6 +436,9 @@ func TestNewServerPoolsValidation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.name != "no codec factory" {
+				tt.deps.Codecs = testCodecs("")
+			}
 			svc, err := object.NewServerPools(tt.deps, tt.opts...)
 			if !tt.ok {
 				assert.ErrorIs(t, err, domain.ErrInvalidArgument)

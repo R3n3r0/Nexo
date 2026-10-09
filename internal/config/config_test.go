@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
@@ -80,6 +81,52 @@ func TestLoadPrometheusAuthType(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, cfg.PrometheusAuthType)
+		})
+	}
+}
+
+// TestLoadClusterSettings covers the settings of the erasure-coded and
+// distributed modes: storage class parities (flags over environment) and
+// the internode durations (environment only).
+func TestLoadClusterSettings(t *testing.T) {
+	env := map[string]string{
+		config.EnvRootUser:          "admin",
+		config.EnvRootPassword:      "password123",
+		config.EnvStorageClassStd:   "EC:3",
+		config.EnvStorageClassRRS:   "EC:1",
+		config.EnvLockStaleAfter:    "20s",
+		config.EnvLockRefresh:       " 2s ",
+		config.EnvRPCCallTimeout:    "5s",
+		config.EnvHealRetryMaxDelay: "3s",
+	}
+	l := config.NewLoader(config.WithEnv(envOf(env)))
+	cfg, err := l.Load(context.Background(), config.Input{Flags: flagsFrom(t, "--storage-class-standard", "EC:4"), Args: []string{"/d{1...8}"}})
+	require.NoError(t, err)
+	assert.Equal(t, "EC:4", cfg.StorageClassStandard, "flag wins over the environment")
+	assert.Equal(t, "EC:1", cfg.StorageClassRRS)
+	assert.Equal(t, 20*time.Second, cfg.LockStaleAfter)
+	assert.Equal(t, 2*time.Second, cfg.LockRefreshInterval)
+	assert.Equal(t, 5*time.Second, cfg.RPCCallTimeout)
+	assert.Equal(t, 3*time.Second, cfg.HealRetryMaxDelay)
+
+	tests := []struct {
+		name, key, value, want string
+	}{
+		{name: "malformed duration", key: config.EnvRPCCallTimeout, value: "soon", want: config.EnvRPCCallTimeout},
+		{name: "malformed storage class", key: config.EnvStorageClassRRS, value: "EC", want: "storage class"},
+		{name: "refresh longer than stale", key: config.EnvLockRefresh, value: "1m", want: "lock refresh interval"},
+		{name: "negative heal retry delay", key: config.EnvHealRetryMaxDelay, value: "-1s", want: "heal retry max delay"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bad := map[string]string{}
+			for k, v := range env {
+				bad[k] = v
+			}
+			bad[tt.key] = tt.value
+			_, err := config.NewLoader(config.WithEnv(envOf(bad))).Load(context.Background(), config.Input{Args: []string{"/d{1...8}"}})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.want)
 		})
 	}
 }
@@ -170,6 +217,13 @@ func TestValidate(t *testing.T) {
 		{"bad proxy", func(s *config.Static) { s.TrustedProxies = []string{"not-an-ip"} }, "trusted proxy"},
 		{"empty region", func(s *config.Static) { s.Region = "" }, "region"},
 		{"bad prometheus auth", func(s *config.Static) { s.PrometheusAuthType = "basic" }, "prometheus auth type"},
+		{"bad standard storage class", func(s *config.Static) { s.StorageClassStandard = "RS:2" }, "standard storage class"},
+		{"negative parity", func(s *config.Static) { s.StorageClassRRS = "EC:-1" }, "reduced redundancy storage class"},
+		{"negative rpc timeout", func(s *config.Static) { s.RPCCallTimeout = -time.Second }, "rpc call timeout"},
+		{"internode mTLS without TLS", func(s *config.Static) { s.TLSInternodeVerify = true }, "tls internode verify"},
+		{"refresh not shorter than stale", func(s *config.Static) {
+			s.LockStaleAfter, s.LockRefreshInterval = 5*time.Second, 5*time.Second
+		}, "lock refresh interval"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -189,4 +243,26 @@ func TestValidate(t *testing.T) {
 	assert.Contains(t, err.Error(), "root user")
 	assert.Contains(t, err.Error(), "endpoint")
 	assert.Contains(t, err.Error(), "address")
+}
+
+// TestLoadTLSInternodeVerify: --tls-internode-verify (or its variable)
+// turns mutual TLS between the nodes on; it needs the certificates.
+func TestLoadTLSInternodeVerify(t *testing.T) {
+	env := map[string]string{config.EnvRootUser: "admin", config.EnvRootPassword: "password123", config.EnvCertsDir: "/certs"}
+	cfg, err := config.NewLoader(config.WithEnv(envOf(env))).Load(context.Background(), config.Input{Args: []string{"/data"}})
+	require.NoError(t, err)
+	assert.False(t, cfg.TLSInternodeVerify, "off by default")
+
+	env[config.EnvTLSInternodeVerify] = "true"
+	cfg, err = config.NewLoader(config.WithEnv(envOf(env))).Load(context.Background(), config.Input{Args: []string{"/data"}})
+	require.NoError(t, err)
+	assert.True(t, cfg.TLSInternodeVerify)
+	cfg, err = config.NewLoader(config.WithEnv(envOf(env))).Load(context.Background(),
+		config.Input{Flags: flagsFrom(t, "--tls-internode-verify=false"), Args: []string{"/data"}})
+	require.NoError(t, err)
+	assert.False(t, cfg.TLSInternodeVerify, "the flag wins")
+
+	env[config.EnvTLSInternodeVerify] = "maybe"
+	_, err = config.NewLoader(config.WithEnv(envOf(env))).Load(context.Background(), config.Input{Args: []string{"/data"}})
+	require.ErrorContains(t, err, config.EnvTLSInternodeVerify)
 }

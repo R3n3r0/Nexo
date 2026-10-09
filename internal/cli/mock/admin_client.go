@@ -824,6 +824,64 @@ func (_c *AdminClient_DetachPolicy_Call) RunAndReturn(run func(context.Context, 
 	return _c
 }
 
+// ExportCluster provides a mock function with given fields: ctx
+func (_m *AdminClient) ExportCluster(ctx context.Context) ([]byte, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ExportCluster")
+	}
+
+	var r0 []byte
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]byte, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []byte); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]byte)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_ExportCluster_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ExportCluster'
+type AdminClient_ExportCluster_Call struct {
+	*mock.Call
+}
+
+// ExportCluster is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) ExportCluster(ctx interface{}) *AdminClient_ExportCluster_Call {
+	return &AdminClient_ExportCluster_Call{Call: _e.mock.On("ExportCluster", ctx)}
+}
+
+func (_c *AdminClient_ExportCluster_Call) Run(run func(ctx context.Context)) *AdminClient_ExportCluster_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_ExportCluster_Call) Return(_a0 []byte, _a1 error) *AdminClient_ExportCluster_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_ExportCluster_Call) RunAndReturn(run func(context.Context) ([]byte, error)) *AdminClient_ExportCluster_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ExportConfig provides a mock function with given fields: ctx
 func (_m *AdminClient) ExportConfig(ctx context.Context) ([]byte, error) {
 	ret := _m.Called(ctx)
@@ -878,6 +936,66 @@ func (_c *AdminClient_ExportConfig_Call) Return(_a0 []byte, _a1 error) *AdminCli
 }
 
 func (_c *AdminClient_ExportConfig_Call) RunAndReturn(run func(context.Context) ([]byte, error)) *AdminClient_ExportConfig_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ForceUnlock provides a mock function with given fields: ctx, resources
+func (_m *AdminClient) ForceUnlock(ctx context.Context, resources ...string) error {
+	var tmpRet mock.Arguments
+	if len(resources) > 0 {
+		tmpRet = _m.Called(ctx, resources)
+	} else {
+		tmpRet = _m.Called(ctx)
+	}
+	ret := tmpRet
+
+	if len(ret) == 0 {
+		panic("no return value specified for ForceUnlock")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, ...string) error); ok {
+		r0 = rf(ctx, resources...)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_ForceUnlock_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ForceUnlock'
+type AdminClient_ForceUnlock_Call struct {
+	*mock.Call
+}
+
+// ForceUnlock is a helper method to define mock.On call
+//   - ctx context.Context
+//   - resources ...string
+func (_e *AdminClient_Expecter) ForceUnlock(ctx interface{}, resources ...interface{}) *AdminClient_ForceUnlock_Call {
+	return &AdminClient_ForceUnlock_Call{Call: _e.mock.On("ForceUnlock",
+		append([]interface{}{ctx}, resources...)...)}
+}
+
+func (_c *AdminClient_ForceUnlock_Call) Run(run func(ctx context.Context, resources ...string)) *AdminClient_ForceUnlock_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		variadicArgs := make([]string, len(args)-1)
+		for i, a := range args[1:] {
+			if a != nil {
+				variadicArgs[i] = a.(string)
+			}
+		}
+		run(args[0].(context.Context), variadicArgs...)
+	})
+	return _c
+}
+
+func (_c *AdminClient_ForceUnlock_Call) Return(_a0 error) *AdminClient_ForceUnlock_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_ForceUnlock_Call) RunAndReturn(run func(context.Context, ...string) error) *AdminClient_ForceUnlock_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1472,6 +1590,66 @@ func (_c *AdminClient_HealStatus_Call) RunAndReturn(run func(context.Context, st
 	return _c
 }
 
+// ImportCluster provides a mock function with given fields: ctx, archive, opts
+func (_m *AdminClient) ImportCluster(ctx context.Context, archive []byte, opts nexoadmin.ImportClusterOptions) (*nexoadmin.ClusterImportResult, error) {
+	ret := _m.Called(ctx, archive, opts)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ImportCluster")
+	}
+
+	var r0 *nexoadmin.ClusterImportResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, []byte, nexoadmin.ImportClusterOptions) (*nexoadmin.ClusterImportResult, error)); ok {
+		return rf(ctx, archive, opts)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, []byte, nexoadmin.ImportClusterOptions) *nexoadmin.ClusterImportResult); ok {
+		r0 = rf(ctx, archive, opts)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.ClusterImportResult)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, []byte, nexoadmin.ImportClusterOptions) error); ok {
+		r1 = rf(ctx, archive, opts)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_ImportCluster_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ImportCluster'
+type AdminClient_ImportCluster_Call struct {
+	*mock.Call
+}
+
+// ImportCluster is a helper method to define mock.On call
+//   - ctx context.Context
+//   - archive []byte
+//   - opts nexoadmin.ImportClusterOptions
+func (_e *AdminClient_Expecter) ImportCluster(ctx interface{}, archive interface{}, opts interface{}) *AdminClient_ImportCluster_Call {
+	return &AdminClient_ImportCluster_Call{Call: _e.mock.On("ImportCluster", ctx, archive, opts)}
+}
+
+func (_c *AdminClient_ImportCluster_Call) Run(run func(ctx context.Context, archive []byte, opts nexoadmin.ImportClusterOptions)) *AdminClient_ImportCluster_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]byte), args[2].(nexoadmin.ImportClusterOptions))
+	})
+	return _c
+}
+
+func (_c *AdminClient_ImportCluster_Call) Return(_a0 *nexoadmin.ClusterImportResult, _a1 error) *AdminClient_ImportCluster_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_ImportCluster_Call) RunAndReturn(run func(context.Context, []byte, nexoadmin.ImportClusterOptions) (*nexoadmin.ClusterImportResult, error)) *AdminClient_ImportCluster_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ImportConfig provides a mock function with given fields: ctx, data
 func (_m *AdminClient) ImportConfig(ctx context.Context, data []byte) error {
 	ret := _m.Called(ctx, data)
@@ -1749,6 +1927,64 @@ func (_c *AdminClient_ListHeals_Call) Return(_a0 *nexoadmin.HealJobList, _a1 err
 }
 
 func (_c *AdminClient_ListHeals_Call) RunAndReturn(run func(context.Context) (*nexoadmin.HealJobList, error)) *AdminClient_ListHeals_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListLocks provides a mock function with given fields: ctx
+func (_m *AdminClient) ListLocks(ctx context.Context) ([]nexoadmin.Lock, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListLocks")
+	}
+
+	var r0 []nexoadmin.Lock
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]nexoadmin.Lock, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []nexoadmin.Lock); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]nexoadmin.Lock)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_ListLocks_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListLocks'
+type AdminClient_ListLocks_Call struct {
+	*mock.Call
+}
+
+// ListLocks is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) ListLocks(ctx interface{}) *AdminClient_ListLocks_Call {
+	return &AdminClient_ListLocks_Call{Call: _e.mock.On("ListLocks", ctx)}
+}
+
+func (_c *AdminClient_ListLocks_Call) Run(run func(ctx context.Context)) *AdminClient_ListLocks_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_ListLocks_Call) Return(_a0 []nexoadmin.Lock, _a1 error) *AdminClient_ListLocks_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_ListLocks_Call) RunAndReturn(run func(context.Context) ([]nexoadmin.Lock, error)) *AdminClient_ListLocks_Call {
 	_c.Call.Return(run)
 	return _c
 }

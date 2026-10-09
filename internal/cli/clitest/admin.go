@@ -1,6 +1,7 @@
 package clitest
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -57,6 +59,7 @@ type MemAdmin struct {
 	info       nexoadmin.ServerInfo
 	usage      nexoadmin.DataUsage
 	heals      []*nexoadmin.HealJob
+	locks      []nexoadmin.Lock
 	seq        int
 	fail       map[string]error
 	calls      map[string]int
@@ -112,9 +115,10 @@ func NewMemAdmin(clk clock.Clock) *MemAdmin {
 	m.info = nexoadmin.ServerInfo{
 		Version: "dev", Commit: "abc1234", BuildDate: "2026-01-01", Mode: "snsd", Region: "us-east-1",
 		DeploymentID: "d-0001", StartedAt: now.Add(-90 * time.Minute), UptimeSeconds: 5400, Buckets: 2, Objects: 3, Usage: 3 << 20,
-		Pools: []nexoadmin.PoolInfo{{Index: 0, Sets: 1, DrivesPerSet: 1, Parity: 0}},
+		Pools: []nexoadmin.PoolInfo{{Index: 0, Sets: 1, DrivesPerSet: 1, Parity: 0, ReadQuorum: 1, WriteQuorum: 1,
+			ErasureSets: []nexoadmin.ErasureSetInfo{{Index: 0, Drives: 1, Online: 1, State: nexoadmin.SetStateOK}}}},
 		Nodes: []nexoadmin.NodeInfo{{
-			Endpoint: "local", State: "online", Version: "dev", Commit: "abc1234", UptimeSeconds: 5400,
+			Endpoint: "local", State: "online", Version: "dev", Commit: "abc1234", UptimeSeconds: 5400, Local: true,
 			Disks: []nexoadmin.DiskInfo{{Endpoint: "/data", Path: "/data", ID: "disk-1", State: "online", Total: 100 << 30, Free: 60 << 30, Used: 40 << 30}},
 		}},
 	}
@@ -258,6 +262,11 @@ func (m *MemAdmin) Client(t TestingT, caller string) *climock.AdminClient {
 	c.EXPECT().DeleteConfig(x, x, x).RunAndReturn(s.deleteConfig).Maybe()
 	c.EXPECT().ExportConfig(x).RunAndReturn(s.exportConfig).Maybe()
 	c.EXPECT().ImportConfig(x, x).RunAndReturn(s.importConfig).Maybe()
+	c.EXPECT().ExportCluster(x).RunAndReturn(s.exportCluster).Maybe()
+	c.EXPECT().ImportCluster(x, x, x).RunAndReturn(s.importCluster).Maybe()
+	c.EXPECT().ListLocks(x).RunAndReturn(s.listLocks).Maybe()
+	c.EXPECT().ForceUnlock(x, x).RunAndReturn(func(ctx context.Context, res ...string) error { return s.forceUnlock(ctx, res...) }).Maybe()
+	c.EXPECT().ForceUnlock(x, x, x).RunAndReturn(func(ctx context.Context, res ...string) error { return s.forceUnlock(ctx, res...) }).Maybe()
 	c.EXPECT().GetBucketQuota(x, x).RunAndReturn(s.getBucketQuota).Maybe()
 	c.EXPECT().SetBucketQuota(x, x, x).RunAndReturn(s.setBucketQuota).Maybe()
 	c.EXPECT().GetBucketEncryption(x, x).RunAndReturn(s.getBucketEncryption).Maybe()
@@ -1413,6 +1422,147 @@ func (s *memSession) importConfig(_ context.Context, data []byte) error {
 			return err
 		}
 	}
+	return nil
+}
+
+// --- cluster state and locks ------------------------------------------------------------------
+
+// memClusterArchive is the archive of MemAdmin: a zip holding the
+// manifest of the real archives with the users, groups, policies and
+// configuration of the store.
+type memClusterArchive struct {
+	Format   string                       `json:"format"`
+	Version  int                          `json:"version"`
+	Users    []string                     `json:"users"`
+	Groups   []string                     `json:"groups"`
+	Policies []string                     `json:"policies"`
+	Config   map[string]map[string]string `json:"config"`
+}
+
+func (s *memSession) exportCluster(context.Context) ([]byte, error) {
+	if err := s.begin("ExportCluster"); err != nil {
+		return nil, err
+	}
+	if err := s.requireAdminLocked("admin:ExportCluster"); err != nil {
+		return nil, err
+	}
+	defer s.m.mu.Unlock()
+	a := memClusterArchive{Format: "nexo-cluster-export", Version: 1, Users: cli.SortedKeys(s.m.users), Groups: cli.SortedKeys(s.m.groups), Config: s.m.config}
+	for _, name := range cli.SortedKeys(s.m.policies) {
+		if !s.m.policies[name].BuiltIn {
+			a.Policies = append(a.Policies, name)
+		}
+	}
+	data, err := json.Marshal(a)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create("manifest.json")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := w.Write(data); err != nil {
+		return nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func (s *memSession) importCluster(_ context.Context, archive []byte, opts nexoadmin.ImportClusterOptions) (*nexoadmin.ClusterImportResult, error) {
+	if err := s.begin("ImportCluster"); err != nil {
+		return nil, err
+	}
+	if err := s.requireAdminLocked("admin:ImportCluster"); err != nil {
+		return nil, err
+	}
+	defer s.m.mu.Unlock()
+	mode := opts.Mode
+	switch mode {
+	case "":
+		mode = "merge"
+	case "merge", "replace":
+	default:
+		return nil, invalid("import mode %q (merge or replace)", mode)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
+	if err != nil {
+		return nil, invalid("cluster archive: not a zip file: %v", err)
+	}
+	var a memClusterArchive
+	found := false
+	for _, f := range zr.File {
+		if f.Name != "manifest.json" {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return nil, invalid("cluster archive: %v", err)
+		}
+		err = json.NewDecoder(rc).Decode(&a)
+		_ = rc.Close()
+		if err != nil || a.Format != "nexo-cluster-export" {
+			return nil, invalid("cluster archive: bad manifest")
+		}
+		found = true
+	}
+	if !found {
+		return nil, invalid("cluster archive: no manifest.json")
+	}
+	res := &nexoadmin.ClusterImportResult{Mode: mode, DryRun: opts.DryRun, Users: len(a.Users), Groups: len(a.Groups),
+		Policies: len(a.Policies), ConfigSubsystems: len(a.Config), BucketsCreated: []string{}, Removed: []string{}}
+	if mode == "replace" {
+		for _, u := range cli.SortedKeys(s.m.users) {
+			if !slices.Contains(a.Users, u) {
+				res.Removed = append(res.Removed, "user:"+u)
+			}
+		}
+	}
+	if opts.DryRun {
+		return res, nil
+	}
+	for name, kv := range a.Config {
+		s.m.config[name] = kv
+	}
+	for _, r := range res.Removed {
+		delete(s.m.users, strings.TrimPrefix(r, "user:"))
+	}
+	return res, nil
+}
+
+// SetLocks sets the namespace locks the store reports.
+func (m *MemAdmin) SetLocks(locks ...nexoadmin.Lock) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.locks = append([]nexoadmin.Lock(nil), locks...)
+}
+
+func (s *memSession) listLocks(context.Context) ([]nexoadmin.Lock, error) {
+	if err := s.begin("ListLocks"); err != nil {
+		return nil, err
+	}
+	if err := s.requireAdminLocked("admin:TopLocksInfo"); err != nil {
+		return nil, err
+	}
+	defer s.m.mu.Unlock()
+	return append([]nexoadmin.Lock{}, s.m.locks...), nil
+}
+
+func (s *memSession) forceUnlock(_ context.Context, resources ...string) error {
+	if err := s.begin("ForceUnlock"); err != nil {
+		return err
+	}
+	if err := s.requireAdminLocked("admin:ForceUnlock"); err != nil {
+		return err
+	}
+	defer s.m.mu.Unlock()
+	if len(resources) == 0 {
+		return invalid("at least one resource is required")
+	}
+	s.m.locks = slices.DeleteFunc(s.m.locks, func(l nexoadmin.Lock) bool { return slices.Contains(resources, l.Resource) })
 	return nil
 }
 

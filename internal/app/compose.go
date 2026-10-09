@@ -16,11 +16,12 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/audit"
 	"github.com/r3n3r0/nexo/internal/service/auth"
 	"github.com/r3n3r0/nexo/internal/service/bucket"
+	"github.com/r3n3r0/nexo/internal/service/cluster"
 	configsvc "github.com/r3n3r0/nexo/internal/service/config"
+	"github.com/r3n3r0/nexo/internal/service/erasure"
 	"github.com/r3n3r0/nexo/internal/service/event"
 	"github.com/r3n3r0/nexo/internal/service/health"
 	"github.com/r3n3r0/nexo/internal/service/iam"
-	"github.com/r3n3r0/nexo/internal/service/metrics"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/service/session"
@@ -85,9 +86,8 @@ type sharedStores struct {
 // mode. SNSD keeps the documents of earlier releases on its drive
 // (.nexo.sys/config); the erasure-coded modes keep them in the replicated
 // system document store, shared by every node.
-func openStores(ctx context.Context, d composeDeps) (sharedStores, error) {
+func openStores(ctx context.Context, d composeDeps, coh cluster.Coherence) (sharedStores, error) {
 	var out sharedStores
-	b := broadcaster{n: d.f.notifier, logger: d.logger}
 	if d.f.layout.Mode == domain.ModeSNSD {
 		sysConfigDir := filepath.Join(d.f.local[0].Endpoint().Path, domain.SystemBucket, storage.ConfigDir)
 		var err error
@@ -117,23 +117,23 @@ func openStores(ctx context.Context, d composeDeps) (sharedStores, error) {
 	if err != nil {
 		return out, err
 	}
-	out.config = notifyingConfigStore{Store: cfgStore, b: b}
+	out.config = coh.ConfigStore(cfgStore)
 	iamStore, err := iam.NewDocsStore(ctx, docs, d.cfg.RootPassword)
 	if err != nil {
 		return out, fmt.Errorf("iam store: %w", err)
 	}
-	out.iam = notifyingIAMStore{Store: iamStore, b: b}
+	out.iam = coh.IAMStore(iamStore)
 	policyStore, err := policy.NewDocsStore(docs)
 	if err != nil {
 		return out, err
 	}
 	out.sharedPolicies = policyStore
-	out.policies = notifyingPolicyStore{SharedStore: policyStore, b: b}
+	out.policies = coh.PolicyStore(policyStore)
 	bucketStore, err := bucket.NewStore(bucket.StoreDeps{Docs: docs, Logger: d.logger})
 	if err != nil {
 		return out, err
 	}
-	out.buckets = notifyingBucketStore{MetadataStore: bucketStore, b: b}
+	out.buckets = coh.BucketStore(bucketStore)
 	return out, nil
 }
 
@@ -159,9 +159,11 @@ func newObjectLayer(d composeDeps, buckets object.BucketConfigSource, events eve
 	if err != nil {
 		return nil, err
 	}
+	// The codecs key the bitrot hashes of the shards with the deployment.
+	codecs := erasure.NewFactory(erasure.Deps{Logger: d.logger}, erasure.WithDeploymentID(d.deploymentID))
 	return object.NewServerPools(object.PoolsDeps{
 		Pools: pools, DeploymentID: d.deploymentID, Locks: f.locks, Buckets: buckets, Events: events, Heal: mrf,
-		Clock: d.clock, Logger: d.logger,
+		Codecs: codecs, Clock: d.clock, Logger: d.logger,
 	}, opts...)
 }
 
@@ -172,13 +174,17 @@ func newObjectLayer(d composeDeps, buckets object.BucketConfigSource, events eve
 // invalidations on the notifier.
 func compose(ctx context.Context, d composeDeps) (*services, error) {
 	cfg, f, logger := d.cfg, d.f, d.logger
-	stores, err := openStores(ctx, d)
+	coh, err := cluster.NewCoherence(cluster.CoherenceDeps{Notifier: f.notifier, Logger: logger})
+	if err != nil {
+		return nil, err
+	}
+	stores, err := openStores(ctx, d, coh)
 	if err != nil {
 		return nil, err
 	}
 
 	// Cross-cutting services.
-	registry := metrics.New(metrics.Deps{Logger: logger})
+	registry := d.f.registry
 	auditor := audit.NewSlog(audit.Deps{Logger: logger.With("component", "audit"), Clock: d.clock})
 	dynConfig := configsvc.New(configsvc.Deps{Store: stores.config, Logger: logger})
 	events := event.NewDispatcher(event.Deps{Logger: logger.With("component", "events")})
@@ -186,7 +192,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	// Object layer and the bucket metadata it reads the bucket
 	// configuration from; the MRF queue receives the objects it finds
 	// damaged, the healing service and the scanner work on it.
-	mrf := newHealQueue(d)
+	mrf := f.mrf
 	var notifier object.HealNotifier
 	if mrf != nil {
 		notifier = mrf
@@ -198,6 +204,12 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	healing, err := newHealing(d, objects, mrf, dynConfig)
 	if err != nil {
 		return nil, fmt.Errorf("healing: %w", err)
+	}
+	if healing.heal != nil {
+		// Before serving: a pool added by an expansion gets the buckets
+		// of the deployment (failures are logged by the service and
+		// healed later by the jobs and the scanner).
+		_, _ = healing.heal.HealPools(ctx)
 	}
 
 	// Identities, policies and buckets. IAM is the source of truth of the
@@ -230,10 +242,11 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	signer := auth.NewSigner(authDeps, auth.WithRegion(cfg.Region))
 	shares := share.New(share.Deps{IAM: identities, Signer: signer, Store: stores.iam, Policy: policies, Clock: d.clock, Logger: logger},
 		share.WithServerURL(publicS3URL(cfg)), share.WithRegion(cfg.Region))
-	// The signing key derives from the root credentials so that every node
-	// of a deployment accepts the same cookies.
+	// The signing key derives from the root credentials and the deployment
+	// ID: every node of the deployment accepts the same cookies, no other
+	// deployment does.
 	sessions, err := session.New(session.Deps{IAM: identities, Store: stores.iam, Clock: d.clock, Logger: logger},
-		session.WithSigningKey(session.DeriveKey(cfg.RootUser, cfg.RootPassword)))
+		session.WithSigningKey(session.DeriveKey(cfg.RootUser, cfg.RootPassword, d.deploymentID)))
 	if err != nil {
 		return nil, err
 	}
@@ -248,11 +261,14 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		Region:       cfg.Region,
 		DeploymentID: d.deploymentID,
 		Drives:       f.local,
-		Pools:        poolInfos(f.layout),
+		Pools:        f.layout.PoolInfos(),
 		Objects:      objects,
 		Heal:         healing.heal,
 		Scanner:      healing.scanner,
 		Actions:      processActions{running: d.running, signal: signalSelf},
+		// Every node of the deployment (this one only on a single node),
+		// with its background healing and clock offset.
+		Cluster: f.info,
 	})
 	healthSvc := health.New(health.Deps{Readiness: map[string]health.Check{
 		"storage": object.ReadinessCheck(objects),
@@ -315,7 +331,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	adminAPI, err := buildAdminAPI(adminDeps{
 		codec: codec, clock: d.clock, logger: logger, region: cfg.Region, s3URL: publicS3URL(cfg),
 		sessions: sessions, verifier: verifier, signer: signer, admin: adminSvc, iam: identities, policy: policies,
-		buckets: buckets, objects: objects, shares: shares, config: dynConfig, secureCookies: secureConsole(cfg),
+		buckets: buckets, objects: objects, shares: shares, config: dynConfig, locks: f.lockManager, secureCookies: secureConsole(cfg),
 		consoleURL: cfg.BrowserRedirectURL,
 	})
 	if err != nil {
@@ -331,9 +347,11 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		Logger:      logger,
 	}, serverOptions(cfg, cfg.ConsoleAddress, "console")...)
 
-	unsubscribe := subscribe(f.notifier, invalidators{
-		identities: identities, policies: stores.sharedPolicies, config: dynConfig, buckets: stores.buckets, logger: logger,
-	})
+	caches := cluster.Caches{IAM: identities, Config: dynConfig, Buckets: stores.buckets}
+	if stores.sharedPolicies != nil {
+		caches.Policies = stores.sharedPolicies
+	}
+	unsubscribe := coh.Subscribe(caches)
 	return &services{
 		deploymentID: d.deploymentID,
 		objects:      objects,

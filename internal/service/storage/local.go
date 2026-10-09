@@ -56,6 +56,8 @@ type xlStorage struct {
 
 	// rename is os.Rename; internal tests replace it to inject failures.
 	rename func(oldpath, newpath string) error
+	// copyBufs recycles the buffers of CreateFile.
+	copyBufs sync.Pool
 }
 
 var _ StorageAPI = (*xlStorage)(nil)
@@ -563,7 +565,17 @@ func (s *xlStorage) DeleteVersion(ctx context.Context, volume, objPath string, f
 	defer unlock()
 	meta, err := s.readMeta(dir, true)
 	if err != nil {
-		if !fi.MarkDeleted || !errors.Is(err, fs.ErrNotExist) {
+		switch {
+		case errors.Is(err, domain.ErrInvalidFormat):
+			// Undecodable: quarantined, the drive no longer holds any
+			// version of the key (the healing restores the others).
+			if qerr := s.quarantineMeta(volume, objPath, dir, err); qerr != nil {
+				return qerr
+			}
+			if !fi.MarkDeleted {
+				return nil
+			}
+		case !fi.MarkDeleted || !errors.Is(err, fs.ErrNotExist):
 			return s.metaErr(volume, objPath, err)
 		}
 		// A delete marker on a missing object is still recorded, as S3 does.
@@ -583,7 +595,7 @@ func (s *xlStorage) DeleteVersion(ctx context.Context, volume, objPath string, f
 			return err
 		}
 		// A marker replacing the null version (suspended versioning) frees its data.
-		if replaced != nil && !meta.sharesDataDir(replaced.DataDir) {
+		if replaced != nil && !opts.KeepData && !meta.sharesDataDir(replaced.DataDir) {
 			s.removeDataDir(dir, replaced.DataDir)
 		}
 		return nil
@@ -596,13 +608,18 @@ func (s *xlStorage) DeleteVersion(ctx context.Context, volume, objPath string, f
 		if err := os.Remove(filepath.Join(dir, MetaFile)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("storage: remove %s/%s: %w", volume, objPath, mapErr(err))
 		}
-		s.removeOrphanDataDirs(dir)
+		if !opts.KeepData {
+			s.removeOrphanDataDirs(dir)
+		}
 		s.syncDir(dir)
 		s.pruneEmptyDirs(dir, volDir)
 		return nil
 	}
 	if err := s.writeMeta(dir, volDir, meta, true); err != nil {
 		return err
+	}
+	if opts.KeepData {
+		return nil
 	}
 	for _, dataDir := range []string{removed.DataDir, opts.OldDataDir} {
 		if dataDir != "" && !meta.sharesDataDir(dataDir) {
@@ -670,15 +687,14 @@ func (s *xlStorage) CreateFile(ctx context.Context, volume, filePath string, siz
 		return err
 	}
 	cleanup := func() { _ = tmp.Close(); _ = os.Remove(tmp.Name()) }
-	src := &ctxReader{ctx: ctx, r: r}
+	var src io.Reader = &ctxReader{ctx: ctx, r: r}
 	if size >= 0 {
-		var n int64
-		n, err = io.Copy(tmp, io.LimitReader(src, size))
-		if err == nil && n != size {
-			err = fmt.Errorf("%w: expected %d bytes, got %d", io.ErrUnexpectedEOF, size, n)
-		}
-	} else {
-		_, err = io.Copy(tmp, src)
+		src = io.LimitReader(src, size)
+	}
+	var n int64
+	n, err = s.copyFull(tmp, src, size)
+	if err == nil && size >= 0 && n != size {
+		err = fmt.Errorf("%w: expected %d bytes, got %d", io.ErrUnexpectedEOF, size, n)
 	}
 	if err != nil {
 		cleanup()
@@ -689,6 +705,52 @@ func (s *xlStorage) CreateFile(ctx context.Context, volume, filePath string, siz
 		return fmt.Errorf("storage: commit %s/%s: %w", volume, filePath, s.writeErr(volume, filePath, err))
 	}
 	return nil
+}
+
+// copyBufferSize is the size of the buffers CreateFile fills before each
+// write: few large writes rather than one per read of a stream that
+// arrives in small pieces (the data frames of a remote caller).
+const copyBufferSize = 1 << 20
+
+// copyFull copies src to dst writing whole buffers (the last one short).
+func (s *xlStorage) copyFull(dst io.Writer, src io.Reader, size int64) (int64, error) {
+	var buf []byte
+	if size >= 0 && size < copyBufferSize {
+		buf = make([]byte, max(size, 1))
+	} else {
+		b, _ := s.copyBufs.Get().(*[]byte)
+		if b == nil {
+			nb := make([]byte, copyBufferSize)
+			b = &nb
+		}
+		defer s.copyBufs.Put(b)
+		buf = *b
+	}
+	var written int64
+	for {
+		// Fill the buffer: only io.EOF ends the stream (a reader may fail
+		// with io.ErrUnexpectedEOF, a cut stream, which is an error).
+		n := 0
+		var rerr error
+		for n < len(buf) && rerr == nil {
+			var m int
+			m, rerr = src.Read(buf[n:])
+			n += m
+		}
+		if n > 0 {
+			if _, err := dst.Write(buf[:n]); err != nil {
+				return written, err
+			}
+			written += int64(n)
+		}
+		switch {
+		case rerr == nil:
+		case errors.Is(rerr, io.EOF):
+			return written, nil
+		default:
+			return written, rerr
+		}
+	}
 }
 
 // ReadFileStream implements StorageAPI.

@@ -1,6 +1,8 @@
 # TCL-E-15 (single node): admin info shows the mode, the node and its drives
 # online, exit 0; C-ADM-01, C-ADM-07, C-ADM-09.
 
+[cluster] skip 'a single drive: cluster_admin_info.txtar covers the cluster'
+
 exec nexoctl admin info local
 stdout '^local  Nexo '
 stdout '^Mode: snsd '

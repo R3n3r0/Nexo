@@ -76,6 +76,19 @@ func (p Pool) DriveCount() int { return len(p.Endpoints) }
 // DataShards returns the number of data shards per erasure set.
 func (p Pool) DataShards() int { return p.SetDriveCount - p.Parity }
 
+// SetQuorums returns the read and write quorums of an erasure set of
+// drives drives with parity parity (docs/03 §3.3): D = drives - parity
+// drives to read, D to write, D+1 when D == P so that the two halves of a
+// split set cannot both write. It is the one rule of the object layer,
+// the bootstrap and the cluster information.
+func SetQuorums(drives, parity int) (read, write int) {
+	d := drives - parity
+	if d == parity {
+		return d, d + 1
+	}
+	return d, d
+}
+
 // Set returns the drives of erasure set i, ordered by DiskIdx. It returns nil
 // when i is out of range.
 func (p Pool) Set(i int) []domain.Endpoint {
@@ -94,6 +107,15 @@ func (p Pool) Sets() [][]domain.Endpoint {
 	out := make([][]domain.Endpoint, 0, p.SetCount)
 	for i := 0; i < p.SetCount; i++ {
 		out = append(out, p.Set(i))
+	}
+	return out
+}
+
+// PoolInfos summarizes the erasure pools of the layout.
+func (l *Layout) PoolInfos() []domain.PoolInfo {
+	out := make([]domain.PoolInfo, 0, len(l.Pools))
+	for _, p := range l.Pools {
+		out = append(out, domain.PoolInfo{Index: p.Index, Sets: p.SetCount, DrivesPerSet: p.SetDriveCount, Parity: p.Parity})
 	}
 	return out
 }

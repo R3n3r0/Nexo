@@ -118,6 +118,7 @@ func newFixture(t *testing.T, kind string, extra ...object.Option) *fixture {
 		deps.Sets = [][]storage.StorageAPI{fx.drives}
 		deps.Parity = 2
 		deps.DeploymentID = "deployment-test"
+		deps.Codecs = testCodecs("deployment-test")
 		fx.svc, err = object.NewErasure(deps, opts...)
 	case "pools":
 		// The public constructor of the composition root: 1 pool × 1 set
@@ -126,6 +127,7 @@ func newFixture(t *testing.T, kind string, extra ...object.Option) *fixture {
 		fx.svc, err = object.NewServerPools(object.PoolsDeps{
 			Pools:        []object.PoolSpec{{Sets: [][]storage.StorageAPI{fx.drives}}},
 			DeploymentID: "deployment-test",
+			Codecs:       testCodecs("deployment-test"),
 			Buckets:      deps.Buckets,
 			Events:       deps.Events,
 			Clock:        deps.Clock,
@@ -217,7 +219,9 @@ func TestConstructorsValidateDeps(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
 	_, err = object.NewErasure(object.Deps{Sets: [][]storage.StorageAPI{drives}, Parity: 2})
 	assert.ErrorIs(t, err, domain.ErrInvalidArgument, "parity must leave at least one data shard")
-	svc, err := object.NewErasure(object.Deps{Sets: [][]storage.StorageAPI{drives}, Parity: 1})
+	_, err = object.NewErasure(object.Deps{Sets: [][]storage.StorageAPI{drives}, Parity: 1})
+	assert.ErrorIs(t, err, domain.ErrInvalidArgument, "the codec factory is required")
+	svc, err := object.NewErasure(object.Deps{Sets: [][]storage.StorageAPI{drives}, Parity: 1, Codecs: testCodecs("")})
 	require.NoError(t, err)
 	h := svc.Health(context.Background(), object.HealthOptions{})
 	assert.True(t, h.Healthy)

@@ -222,6 +222,7 @@ func mappings(c S3Codes) []errorMapping {
 		{domain.ErrNotImplemented, c.NotImplemented, http.StatusNotImplemented, "not_implemented"},
 		{domain.ErrStorageFull, c.StorageFull, http.StatusInsufficientStorage, "storage_full"},
 		{domain.ErrDiskNotFound, c.SlowDown, http.StatusServiceUnavailable, "disk_not_found"},
+		{domain.ErrNodeOffline, c.SlowDown, http.StatusServiceUnavailable, "node_offline"},
 		{domain.ErrFaultyDisk, c.SlowDown, http.StatusServiceUnavailable, "faulty_disk"},
 		{domain.ErrReadQuorum, c.SlowDown, http.StatusServiceUnavailable, "read_quorum"},
 		{domain.ErrWriteQuorum, c.SlowDown, http.StatusServiceUnavailable, "write_quorum"},

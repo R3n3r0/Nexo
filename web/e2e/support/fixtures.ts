@@ -20,6 +20,12 @@ interface TestFixtures {
 }
 
 interface WorkerFixtures {
+  /**
+   * State file of the deployment of the project (set by the SNMD and
+   * cluster projects); the single-drive server of the global setup by
+   * default.
+   */
+  nexoStateFile: string | undefined;
   nexo: E2EState;
 }
 
@@ -29,10 +35,10 @@ interface WorkerFixtures {
  * spec opts out with test.use({ storageState: anonymous }).
  */
 export const test = base.extend<TestFixtures, WorkerFixtures>({
+  nexoStateFile: [undefined, { scope: 'worker', option: true }],
   nexo: [
-    // eslint-disable-next-line no-empty-pattern
-    async ({}, use) => {
-      await use(readState());
+    async ({ nexoStateFile }, use) => {
+      await use(readState(nexoStateFile));
     },
     { scope: 'worker' },
   ],

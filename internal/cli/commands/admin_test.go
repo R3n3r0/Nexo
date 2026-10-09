@@ -44,18 +44,27 @@ func TestScenarioAdminServer(t *testing.T) {
 	s.run("admin", "info", "nope")
 	info := nexoadmin.ServerInfo{
 		Version: "dev", Mode: "distributed", Region: "eu-1", DeploymentID: "d-2", UptimeSeconds: 60,
-		Pools: []nexoadmin.PoolInfo{{Index: 0, Sets: 1, DrivesPerSet: 4, Parity: 2}},
+		Pools: []nexoadmin.PoolInfo{{Index: 0, Sets: 2, DrivesPerSet: 4, Parity: 2, ReadQuorum: 2, WriteQuorum: 3,
+			ErasureSets: []nexoadmin.ErasureSetInfo{
+				{Index: 0, Drives: 4, Online: 3, Offline: 1, Healing: 2, State: nexoadmin.SetStateDegraded},
+				{Index: 1, Drives: 4, Online: 2, Offline: 2, State: nexoadmin.SetStateReadOnly},
+			}}},
 		Nodes: []nexoadmin.NodeInfo{
-			{Endpoint: "http://node1:9000", State: "online", UptimeSeconds: 60, Disks: []nexoadmin.DiskInfo{
-				{Path: "/data1", State: "online", Total: 10 << 30, Used: 1 << 30, Free: 9 << 30},
-				{Path: "/data2", State: "online", Total: 10 << 30, Used: 1 << 30, Free: 9 << 30, Healing: true},
-				{Path: "/data3", State: "healing", Healing: true, HealingProgress: &nexoadmin.HealingProgress{
-					ObjectsHealed: 12, ObjectsFailed: 1, BytesDone: 3 << 20, Bucket: "photos", Object: "2026/a.jpg",
+			{Endpoint: "http://node1:9000", State: "online", Version: "dev", UptimeSeconds: 60, Local: true,
+				HealQueue: &nexoadmin.HealQueueStats{Pending: 3, Healed: 4, Retried: 2}, Disks: []nexoadmin.DiskInfo{
+					{Path: "/data1", State: "online", Total: 10 << 30, Used: 1 << 30, Free: 9 << 30},
+					{Path: "/data2", State: "online", Total: 10 << 30, Used: 1 << 30, Free: 9 << 30, Healing: true},
+					{Path: "/data3", State: "healing", Healing: true, HealingProgress: &nexoadmin.HealingProgress{
+						ObjectsHealed: 12, ObjectsFailed: 1, BytesDone: 3 << 20, Bucket: "photos", Object: "2026/a.jpg",
+					}},
 				}},
-			}},
 			{Endpoint: "http://node2:9000", State: "offline", Disks: []nexoadmin.DiskInfo{
 				{Endpoint: "http://node2:9000/data1", State: "offline", Error: "connection refused"},
 			}},
+			{Endpoint: "http://node3:9000", State: "online", Version: "dev", UptimeSeconds: 61,
+				ClockSkew: &nexoadmin.ClockSkew{OffsetMs: 2500, RTTMs: 1, Exceeded: true}, HealQueue: &nexoadmin.HealQueueStats{}},
+			{Endpoint: "http://node4:9000", State: "online", Version: "dev", UptimeSeconds: 62,
+				ClockSkew: &nexoadmin.ClockSkew{OffsetMs: -12, RTTMs: 1}, HealQueue: &nexoadmin.HealQueueStats{}},
 		},
 	}
 	h.admin.SetServerInfo(info)
@@ -537,4 +546,34 @@ func TestAdminConfigSetWarnsAboutUnappliedKeys(t *testing.T) {
 	r = h.run("admin", "config", "set", "mem", "api", "root_access=off")
 	require.Equal(t, 0, r.code, r.stderr)
 	assert.Empty(t, r.stderr, "api.root_access is applied")
+}
+
+// covers: C-ADM-13, TCL-E-16
+func TestScenarioAdminClusterAndLocks(t *testing.T) {
+	h := newHarness(t)
+	h.mustRun("admin", "user", "add", "mem", "alice", "alice-secret-1")
+	h.mustRun("admin", "config", "set", "mem", "region", "name=eu-south-1")
+	h.admin.SetLocks(nexoadmin.Lock{Resource: "photos/a.jpg", UID: "u1", Owner: "http://node1:9000", Type: "write", Quorum: 3,
+		Since: t0, Refreshed: t0, Servers: 3, Total: 4})
+	s := h.session()
+	s.run("admin", "cluster", "export", "mem", "--output", "backup.zip")
+	s.run("admin", "cluster", "import", "mem", "backup.zip", "--dry-run")
+	h.mustRun("admin", "user", "add", "mem", "mallory", "mallory-secret")
+	s.run("admin", "cluster", "import", "mem", "backup.zip", "--mode", "replace", "--dry-run")
+	s.run("admin", "cluster", "import", "mem", "backup.zip", "--mode", "replace")
+	s.run("admin", "cluster", "import", "mem", "backup.zip", "--mode", "wipe")
+	h.write("junk.zip", "not a zip")
+	s.run("admin", "cluster", "import", "mem", "junk.zip")
+	s.run("admin", "lock", "list", "mem")
+	s.run("admin", "lock", "list", "--json", "mem")
+	s.run("admin", "lock", "clear", "mem", "photos/a.jpg")
+	s.run("admin", "lock", "list", "mem")
+	golden(t, "scenario/admin_cluster", s.b.String())
+
+	// The archive goes to stdout without --output.
+	r := h.run("admin", "cluster", "export", "mem")
+	require.Equal(t, 0, r.code, r.stderr)
+	assert.Equal(t, h.read("backup.zip"), r.stdout)
+	_, ok := h.admin.User("mallory")
+	assert.False(t, ok, "the replace import removed the user the archive does not hold")
 }

@@ -103,10 +103,11 @@ func newLayer(t *testing.T, kind string, drives []storage.StorageAPI) object.Ser
 		svc, err = object.NewFS(deps, opts...)
 	case "pools":
 		svc, err = object.NewServerPools(object.PoolsDeps{
-			Pools: []object.PoolSpec{{Sets: [][]storage.StorageAPI{drives}}}, DeploymentID: "deployment-test", Logger: deps.Logger,
+			Pools: []object.PoolSpec{{Sets: [][]storage.StorageAPI{drives}}}, DeploymentID: "deployment-test", Codecs: testCodecs("deployment-test"), Logger: deps.Logger,
 		}, opts...)
 	default:
 		deps.Sets, deps.Parity, deps.DeploymentID = [][]storage.StorageAPI{drives}, 2, "deployment-test"
+		deps.Codecs = testCodecs("deployment-test")
 		svc, err = object.NewErasure(deps, opts...)
 	}
 	require.NoError(t, err)

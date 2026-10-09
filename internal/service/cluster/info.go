@@ -29,9 +29,12 @@ type InfoDeps struct {
 	// Drives are the local drives of this node.
 	Drives []storage.StorageAPI
 	// Peers are the other nodes (none on a single node).
-	Peers  []Peer
-	Clock  clock.Clock
-	Logger *slog.Logger
+	Peers []Peer
+	// HealQueue reports the background healing of this node; optional
+	// (none in SNSD).
+	HealQueue HealQueueReporter
+	Clock     clock.Clock
+	Logger    *slog.Logger
 }
 
 // InfoOption configures the info service.
@@ -113,6 +116,10 @@ func (i *info) Local(ctx context.Context) (domain.NodeInfo, error) {
 		Endpoint: i.deps.NodeID, State: domain.StateOnline, Version: i.opts.version, Commit: i.opts.commit,
 		Uptime: i.deps.Clock.Now().Sub(i.started),
 	}
+	if i.deps.HealQueue != nil {
+		stats := i.deps.HealQueue.HealQueueStats(ctx)
+		out.HealQueue = &stats
+	}
 	out.Disks = make([]domain.DiskInfo, len(i.deps.Drives))
 	var wg sync.WaitGroup
 	for n, d := range i.deps.Drives {
@@ -138,6 +145,7 @@ func (i *info) Nodes(ctx context.Context) ([]domain.NodeInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	local.Local = true
 	peers := make([]domain.NodeInfo, len(i.deps.Peers))
 	var wg sync.WaitGroup
 	for n, p := range i.deps.Peers {

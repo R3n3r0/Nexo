@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -30,14 +29,18 @@ const (
 	// replacement: the node formatting a fresh deployment may still be
 	// writing it.
 	settleRounds = 2
+	// formatAttempts bounds the writes of the format of a fresh pool to
+	// one drive, formatRetryPause the pause before the first retry (it
+	// grows linearly).
+	formatAttempts   = 3
+	formatRetryPause = 200 * time.Millisecond
 )
 
 // BootstrapDeps are the dependencies of the bootstrappers.
 type BootstrapDeps struct {
 	// Layout is the topology of the deployment (required).
 	Layout *topology.Layout
-	// Topology builds and checks the format.json documents (default
-	// topology.New).
+	// Topology builds and checks the format.json documents (required).
 	Topology topology.Service
 	// Drives are the drives of the layout, matched by endpoint: the local
 	// drives and, in a distributed deployment, the clients of the drives
@@ -45,12 +48,15 @@ type BootstrapDeps struct {
 	Drives []storage.StorageAPI
 	// Peers are the bootstrap clients of the other nodes.
 	Peers []BootstrapPeer
-	// Formatter formats the drives of a single-node deployment
-	// (NewLocalBootstrapper; default storage.NewFormatter).
+	// Formatter formats the drives of a single-node deployment (required
+	// by NewLocalBootstrapper).
 	Formatter storage.Formatter
 	// IDs generates the deployment id of a fresh deployment (default
 	// UUID v4).
-	IDs    topology.IDGenerator
+	IDs topology.IDGenerator
+	// Binder, when set, is bound to the deployment as soon as the
+	// bootstrap knows its id (distributed deployments).
+	Binder DeploymentBinder
 	Clock  clock.Clock
 	Logger *slog.Logger
 }
@@ -114,8 +120,8 @@ func newBootstrapOptions(opts []BootstrapOption) bootstrapOptions {
 }
 
 func (deps *BootstrapDeps) defaults() error {
-	if deps.Layout == nil {
-		return fmt.Errorf("%w: cluster: the bootstrap needs the layout", domain.ErrInvalidArgument)
+	if deps.Layout == nil || deps.Topology == nil {
+		return fmt.Errorf("%w: cluster: the bootstrap needs the layout and the topology service", domain.ErrInvalidArgument)
 	}
 	if deps.Clock == nil {
 		deps.Clock = clock.NewReal()
@@ -126,10 +132,29 @@ func (deps *BootstrapDeps) defaults() error {
 	if deps.IDs == nil {
 		deps.IDs = topology.NewUUIDGenerator()
 	}
-	if deps.Topology == nil {
-		deps.Topology = topology.New(topology.Deps{IDs: deps.IDs, Logger: deps.Logger})
-	}
 	return nil
+}
+
+// FormattedDeploymentID returns the deployment id recorded in the format
+// of the given drives (the local drives of a node), "" when none is
+// formatted. A node whose drives are formatted binds its internode
+// authentication to it before it accepts any call (DeploymentBinder);
+// drives that disagree are the business of the bootstrap, which refuses
+// them: the first readable format wins here.
+func FormattedDeploymentID(ctx context.Context, drives []storage.StorageAPI) string {
+	for _, d := range drives {
+		if d == nil {
+			continue
+		}
+		data, err := d.ReadAll(ctx, domain.SystemBucket, storage.FormatFile)
+		if err != nil {
+			continue
+		}
+		if f, err := topology.UnmarshalFormat(data); err == nil && f.ID != "" {
+			return f.ID
+		}
+	}
+	return ""
 }
 
 // bootstrapper is the startup sequence of a node of a distributed
@@ -198,7 +223,7 @@ func (b *bootstrapper) currentID() string {
 // Bootstrap implements Bootstrapper.
 func (b *bootstrapper) Bootstrap(ctx context.Context) (BootstrapResult, error) {
 	start := b.deps.Clock.Now()
-	b.deps.Logger.Info("cluster: bootstrap", "node", b.nodeID, "nodes", len(b.deps.Layout.Nodes),
+	b.deps.Logger.Info("cluster: bootstrap", "self", b.nodeID, "nodes", len(b.deps.Layout.Nodes),
 		"drives", b.deps.Layout.DriveCount(), "topology", shortHash(b.deps.Layout.Hash()))
 	if err := b.verifyPeers(ctx); err != nil {
 		return BootstrapResult{}, err
@@ -210,7 +235,7 @@ func (b *bootstrapper) Bootstrap(ctx context.Context) (BootstrapResult, error) {
 	b.mu.Lock()
 	b.deploymentID = res.DeploymentID
 	b.mu.Unlock()
-	b.deps.Logger.Info("cluster: bootstrap complete", "node", b.nodeID, "deployment_id", res.DeploymentID,
+	b.deps.Logger.Info("cluster: bootstrap complete", "self", b.nodeID, "deployment_id", res.DeploymentID,
 		"healing", len(res.Healing), "offline", len(res.Offline), "elapsed", b.deps.Clock.Now().Sub(start).Round(time.Millisecond))
 	return res, nil
 }
@@ -289,7 +314,7 @@ func (b *bootstrapper) verifyPeers(ctx context.Context) error {
 				offline = append(offline, id)
 			case a.cfg.TopologyHash != ours.TopologyHash || a.cfg.Mode != ours.Mode:
 				topoDiff = append(topoDiff, fmt.Sprintf("%s (topology %s, mode %s)", id, shortHash(a.cfg.TopologyHash), a.cfg.Mode))
-			case !compatibleVersions(a.cfg.Version, ours.Version):
+			case !domain.CompatibleVersions(a.cfg.Version, ours.Version):
 				versionDiff = append(versionDiff, fmt.Sprintf("%s (version %s)", id, a.cfg.Version))
 			default:
 				verified++
@@ -356,6 +381,12 @@ func (b *bootstrapper) waitFormats(ctx context.Context) (BootstrapResult, error)
 		}
 		if deploymentID == "" && first.IsLocal {
 			deploymentID = b.deps.IDs.NewID()
+		}
+		if deploymentID != "" && b.deps.Binder != nil {
+			// From now on the callers of other deployments are refused,
+			// and the formats this node writes on its peers carry the id
+			// its tokens claim.
+			b.deps.Binder.SetDeploymentID(ctx, deploymentID)
 		}
 		wrote := false
 		var waiting []string
@@ -504,11 +535,29 @@ func (b *bootstrapper) formatPool(ctx context.Context, pool topology.Pool, state
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := b.writeFormat(ctx, s.ep, docs[i]); err != nil {
-				b.deps.Logger.Warn("cluster: cannot format drive", "drive", s.ep.String(), "err", err)
-				return
+			// A write that fails (a remote drive slow to answer under load)
+			// is retried: a drive of a fresh pool left unformatted would be
+			// taken by its node for a replaced drive, and healed for nothing.
+			var err error
+			for attempt := range formatAttempts {
+				if err = b.writeFormat(ctx, s.ep, docs[i]); err == nil {
+					written[i] = true
+					return
+				}
+				if ctx.Err() != nil {
+					return
+				}
+				if attempt < formatAttempts-1 {
+					t := time.NewTimer(time.Duration(attempt+1) * formatRetryPause)
+					select {
+					case <-ctx.Done():
+						t.Stop()
+						return
+					case <-t.C:
+					}
+				}
 			}
-			written[i] = true
+			b.deps.Logger.Warn("cluster: cannot format drive", "drive", s.ep.String(), "attempts", formatAttempts, "err", err)
 		}()
 	}
 	wg.Wait()
@@ -547,6 +596,15 @@ func (b *bootstrapper) formatReplacements(ctx context.Context, pool topology.Poo
 			b.deps.Logger.Warn("cluster: cannot format replacement drive", "drive", key, "err", err)
 			continue
 		}
+		if !b.setHoldsData(ctx, pool, states, set) {
+			// The set holds nothing yet (a fresh deployment whose first
+			// format did not reach this drive): there is nothing to heal.
+			delete(empty, key)
+			n++
+			b.deps.Logger.Info("cluster: empty drive of a deployment without data formatted", "drive", key,
+				"pool", pool.Index+1, "set", set+1, "disk", disk+1)
+			continue
+		}
 		now := b.deps.Clock.Now()
 		tracker, err := json.Marshal(storage.HealingTracker{
 			ID: doc.Erasure.This, PoolIndex: pool.Index, SetIndex: set, DiskIndex: disk, Path: s.ep.Path,
@@ -565,6 +623,41 @@ func (b *bootstrapper) formatReplacements(ctx context.Context, pool topology.Poo
 			"drive", key, "pool", pool.Index+1, "set", set+1, "disk", disk+1)
 	}
 	return n, ctx.Err()
+}
+
+// setHoldsData reports whether the formatted drives of set hold data a
+// replaced drive must receive: a bucket, or a system document (bucket
+// metadata, configuration, IAM). When a drive cannot tell, it holds data.
+func (b *bootstrapper) setHoldsData(ctx context.Context, pool topology.Pool, states []driveFormat, set int) bool {
+	callCtx, cancel := context.WithTimeout(ctx, b.opts.timeout)
+	defer cancel()
+	checked := 0
+	for i := set * pool.SetDriveCount; i < (set+1)*pool.SetDriveCount && i < len(states); i++ {
+		if states[i].doc == nil {
+			continue
+		}
+		d := b.drives[states[i].ep.String()]
+		if d == nil {
+			continue
+		}
+		vols, err := d.ListVols(callCtx)
+		if err != nil {
+			return true
+		}
+		for _, v := range vols {
+			if !strings.HasPrefix(v.Name, ".") {
+				return true
+			}
+		}
+		for _, dir := range []string{storage.BucketsDir, storage.ConfigDir} {
+			infos, err := d.StatInfoFile(callCtx, domain.SystemBucket, dir+"/*", true)
+			if err != nil || len(infos) > 0 {
+				return true
+			}
+		}
+		checked++
+	}
+	return checked == 0
 }
 
 func (b *bootstrapper) writeFormat(ctx context.Context, ep domain.Endpoint, doc *topology.FormatV1) error {
@@ -620,18 +713,18 @@ func setGaps(pool topology.Pool, states []driveFormat, need int, ok func(driveFo
 	return gaps
 }
 
-// readQuorum is the number of drives of a set needed to read: the data
-// shards.
-func readQuorum(p topology.Pool) int { return p.SetDriveCount - p.Parity }
+// readQuorum is the number of drives of a set needed to read
+// (topology.SetQuorums).
+func readQuorum(p topology.Pool) int {
+	r, _ := topology.SetQuorums(p.SetDriveCount, p.Parity)
+	return r
+}
 
-// writeQuorum is the number of drives of a set needed to write: the data
-// shards, one more when data and parity are as many (docs/03 §3.3).
+// writeQuorum is the number of drives of a set needed to write
+// (topology.SetQuorums).
 func writeQuorum(p topology.Pool) int {
-	q := p.SetDriveCount - p.Parity
-	if q == p.Parity {
-		q++
-	}
-	return q
+	_, w := topology.SetQuorums(p.SetDriveCount, p.Parity)
+	return w
 }
 
 func shortHash(h string) string {
@@ -639,24 +732,6 @@ func shortHash(h string) string {
 		return h[:12]
 	}
 	return h
-}
-
-// compatibleVersions reports whether two build versions may run in the
-// same deployment: same major version, or a version that is not a release
-// ("dev" builds) on either side.
-func compatibleVersions(a, b string) bool {
-	ma, okA := majorVersion(a)
-	mb, okB := majorVersion(b)
-	return !okA || !okB || ma == mb
-}
-
-func majorVersion(v string) (int, bool) {
-	major, _, ok := strings.Cut(strings.TrimPrefix(v, "v"), ".")
-	if !ok {
-		return 0, false
-	}
-	n, err := strconv.Atoi(major)
-	return n, err == nil && n >= 0
 }
 
 // localBootstrapper is the startup of a single-node deployment: no peers,
@@ -679,7 +754,7 @@ func NewLocalBootstrapper(deps BootstrapDeps, opts ...BootstrapOption) (Bootstra
 		return nil, err
 	}
 	if deps.Formatter == nil {
-		deps.Formatter = storage.NewFormatter(storage.FormatterDeps{Topology: deps.Topology, IDs: deps.IDs, Logger: deps.Logger})
+		return nil, fmt.Errorf("%w: cluster: the local bootstrap needs the drive formatter", domain.ErrInvalidArgument)
 	}
 	return &localBootstrapper{deps: deps, opts: newBootstrapOptions(opts)}, nil
 }

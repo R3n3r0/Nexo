@@ -49,6 +49,7 @@ func listAll(t *testing.T, svc object.Service, in domain.ListObjectsInput, v2 bo
 // TS-I-05 (scaled down): nested prefixes, every page size, v1 and v2,
 // with and without delimiter: nothing duplicated, nothing omitted.
 func TestListingPagination(t *testing.T) {
+	t.Parallel()
 	forEachImpl(t, func(t *testing.T, fx *fixture) {
 		ctx := context.Background()
 		require.NoError(t, fx.svc.MakeBucket(ctx, "bkt", object.MakeBucketOptions{}))
@@ -161,14 +162,22 @@ func TestDeleteObjectsBatch(t *testing.T) {
 // TS-I-05 at full scale: 10k objects under nested prefixes, listed with
 // pages of 1000 and of 1 (fs only, skipped with -short).
 func TestListingTenThousandObjects(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("10k objects: not in -short")
 	}
 	fx := newFixture(t, "fs")
 	ctx := context.Background()
 	require.NoError(t, fx.svc.MakeBucket(ctx, "bkt", object.MakeBucketOptions{}))
-	keys := make([]string, 0, 10000)
-	for i := 0; i < 10000; i++ {
+	// Under the race detector a fifth of the objects keeps the same shape
+	// (every d%d prefix still holds the 37 s%02d sub-prefixes, 370 keys
+	// are enough) without dominating the package's run time.
+	n := 10000
+	if raceEnabled {
+		n = 2000
+	}
+	keys := make([]string, 0, n)
+	for i := 0; i < n; i++ {
 		keys = append(keys, fmt.Sprintf("d%d/s%02d/o%04d", i%10, i%37, i))
 	}
 	for _, k := range keys {

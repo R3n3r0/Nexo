@@ -73,29 +73,63 @@ type Claims struct {
 	// DeploymentID is the deployment of the caller, empty while it has
 	// not read its format yet (bootstrap).
 	DeploymentID string
+	// Unbound reports a caller without deployment id calling a node bound
+	// to its deployment: it proved the root credentials, but it may only
+	// use the calls of the bootstrap (it has not read the format yet).
+	Unbound bool
+	// Unverified reports a call to a node that does not know its own
+	// deployment yet (no format on its drives): the deployment the caller
+	// claims cannot be checked, so it may only use the calls of the
+	// bootstrap and write the format (and healing tracker) of the drives.
+	Unverified bool
 	// Protocol is the internode protocol version of the caller.
 	Protocol int
 	// Version is the build version of the caller.
 	Version   string
 	IssuedAt  time.Time
 	ExpiresAt time.Time
+	// BodyHash is the SHA-256 of the arguments the token is bound to
+	// (CallBinding.BodyHash): the route adapters compare it with the
+	// arguments they decode.
+	BodyHash []byte
 }
 
-// Authenticator issues and verifies the internode tokens: HS256 JWTs valid
-// for a minute, signed with a key derived (HKDF-SHA256) from the root
-// credentials and the deployment id.
+// CallBinding identifies the call a token is issued for: a token is good
+// for that call only, once.
+type CallBinding struct {
+	// Method and Target are the method and the request target (path and
+	// query, as sent on the wire) of the call.
+	Method, Target string
+	// BodyHash is the SHA-256 of the msgpack arguments of the call: the
+	// whole body of a unary call or of a call answered by a stream, the
+	// first frame of an upload. Verify compares it when it is set; the
+	// route adapters compare the arguments they decode with
+	// Claims.BodyHash otherwise.
+	BodyHash []byte
+}
+
+// Authenticator issues and verifies the internode tokens: HS256 JWTs
+// signed with a key derived (HKDF-SHA256) from the root credentials and
+// the deployment id, each bound to one call (method, target, hash of the
+// arguments) and accepted once, so that a token seen on the wire (http
+// endpoints, or a fake endpoint the caller was tricked into calling) is
+// good for nothing else.
 type Authenticator interface {
 	// NodeID returns the identity this node signs with. It is a pure
 	// accessor (no I/O).
 	NodeID() string
-	// Token returns a bearer token for an outgoing call, renewed before it
-	// expires.
-	Token(ctx context.Context) (string, error)
-	// Verify validates the token of an incoming call: signature, expiry,
-	// protocol and build major versions, and the deployment id when both
-	// nodes know it. Failures wrap domain.ErrUnauthenticated,
-	// ErrDeploymentMismatch or ErrIncompatibleVersion.
-	Verify(ctx context.Context, token string) (Claims, error)
+	// Token returns a bearer token for one outgoing call to the node
+	// audience ("host:port", its node id): it is only valid on that node,
+	// for that call, once, and for a few seconds.
+	Token(ctx context.Context, audience string, call CallBinding) (string, error)
+	// Verify validates the token of an incoming call: signature (first:
+	// nothing the token claims is trusted before), audience (this node),
+	// expiry, the call it is bound to, its unique id (a replayed token is
+	// refused), protocol and build major versions, and the deployment id
+	// when both nodes know it. Failures wrap domain.ErrUnauthenticated,
+	// ErrDeploymentMismatch or ErrIncompatibleVersion, and never carry the
+	// identity of this node or of its deployment.
+	Verify(ctx context.Context, token string, call CallBinding) (Claims, error)
 	// SetDeploymentID binds the authenticator to the deployment once the
 	// bootstrap has read or written the format: from then on tokens carry
 	// it and callers of another deployment are refused.
@@ -146,20 +180,4 @@ type CallOption func(*callOptions)
 type callOptions struct {
 	timeout time.Duration
 	params  [][2]string
-}
-
-// WithTimeout overrides the call timeout of the Conn for one call (for
-// streams it bounds the wait for the answer, not the stream itself).
-func WithTimeout(d time.Duration) CallOption {
-	return func(o *callOptions) {
-		if d > 0 {
-			o.timeout = d
-		}
-	}
-}
-
-// WithParam adds a query parameter to the call (the drive of a storage
-// call).
-func WithParam(key, value string) CallOption {
-	return func(o *callOptions) { o.params = append(o.params, [2]string{key, value}) }
 }

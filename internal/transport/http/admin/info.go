@@ -88,10 +88,23 @@ type ServerInfoResponse struct {
 
 // PoolResponse is an erasure pool in ServerInfoResponse.
 type PoolResponse struct {
-	Index        int `json:"index"`
-	Sets         int `json:"sets"`
-	DrivesPerSet int `json:"drivesPerSet"`
-	Parity       int `json:"parity"`
+	Index        int                  `json:"index"`
+	Sets         int                  `json:"sets"`
+	DrivesPerSet int                  `json:"drivesPerSet"`
+	Parity       int                  `json:"parity"`
+	ReadQuorum   int                  `json:"readQuorum"`
+	WriteQuorum  int                  `json:"writeQuorum"`
+	ErasureSets  []ErasureSetResponse `json:"erasureSets"`
+}
+
+// ErasureSetResponse is the state of an erasure set in PoolResponse.
+type ErasureSetResponse struct {
+	Index   int    `json:"index"`
+	Drives  int    `json:"drives"`
+	Online  int    `json:"online"`
+	Offline int    `json:"offline"`
+	Healing int    `json:"healing"`
+	State   string `json:"state"`
 }
 
 // NodeResponse is a node in ServerInfoResponse.
@@ -102,6 +115,26 @@ type NodeResponse struct {
 	Commit    string         `json:"commit"`
 	UptimeSec int64          `json:"uptimeSeconds"`
 	Disks     []DiskResponse `json:"disks"`
+	// Local marks the node that answered.
+	Local     bool                    `json:"local"`
+	ClockSkew *ClockSkewResponse      `json:"clockSkew,omitempty"`
+	HealQueue *HealQueueStatsResponse `json:"healQueue,omitempty"`
+}
+
+// ClockSkewResponse is the clock offset of a node in NodeResponse.
+type ClockSkewResponse struct {
+	OffsetMs int64 `json:"offsetMs"`
+	RTTMs    int64 `json:"rttMs"`
+	Exceeded bool  `json:"exceeded"`
+}
+
+// HealQueueStatsResponse are the background healing counters of a node in
+// NodeResponse.
+type HealQueueStatsResponse struct {
+	Pending int    `json:"pending"`
+	Healed  uint64 `json:"healed"`
+	Retried uint64 `json:"retried"`
+	Dropped uint64 `json:"dropped"`
 }
 
 // DiskResponse is a drive in NodeResponse.
@@ -134,6 +167,7 @@ type HealingProgressResponse struct {
 	ObjectsFailed uint64    `json:"objectsFailed"`
 	BytesDone     uint64    `json:"bytesDone"`
 	BytesFailed   uint64    `json:"bytesFailed"`
+	RetryAttempts int       `json:"retryAttempts,omitempty"`
 }
 
 func newHealingProgressResponse(p *domain.HealingProgress) *HealingProgressResponse {
@@ -143,6 +177,7 @@ func newHealingProgressResponse(p *domain.HealingProgress) *HealingProgressRespo
 	return &HealingProgressResponse{
 		Started: p.Started, LastUpdate: p.LastUpdate, Bucket: p.Bucket, Object: p.Object, HealedBuckets: p.HealedBuckets,
 		ObjectsHealed: p.ObjectsHealed, ObjectsFailed: p.ObjectsFailed, BytesDone: p.BytesDone, BytesFailed: p.BytesFailed,
+		RetryAttempts: p.RetryAttempts,
 	}
 }
 
@@ -163,7 +198,14 @@ func newServerInfoResponse(info *domain.ServerInfo) ServerInfoResponse {
 		Nodes:        make([]NodeResponse, 0, len(info.Nodes)),
 	}
 	for _, p := range info.Pools {
-		resp.Pools = append(resp.Pools, PoolResponse{Index: p.Index, Sets: p.Sets, DrivesPerSet: p.DrivesPerSet, Parity: p.Parity})
+		pool := PoolResponse{Index: p.Index, Sets: p.Sets, DrivesPerSet: p.DrivesPerSet, Parity: p.Parity,
+			ReadQuorum: p.ReadQuorum, WriteQuorum: p.WriteQuorum, ErasureSets: make([]ErasureSetResponse, 0, len(p.ErasureSets))}
+		for _, set := range p.ErasureSets {
+			pool.ErasureSets = append(pool.ErasureSets, ErasureSetResponse{
+				Index: set.Index, Drives: set.Drives, Online: set.Online, Offline: set.Offline, Healing: set.Healing, State: set.State,
+			})
+		}
+		resp.Pools = append(resp.Pools, pool)
 	}
 	for _, n := range info.Nodes {
 		node := NodeResponse{
@@ -173,6 +215,13 @@ func newServerInfoResponse(info *domain.ServerInfo) ServerInfoResponse {
 			Commit:    n.Commit,
 			UptimeSec: int64(n.Uptime.Seconds()),
 			Disks:     make([]DiskResponse, 0, len(n.Disks)),
+			Local:     n.Local,
+		}
+		if sk := n.ClockSkew; sk != nil {
+			node.ClockSkew = &ClockSkewResponse{OffsetMs: sk.Offset.Milliseconds(), RTTMs: sk.RTT.Milliseconds(), Exceeded: sk.Exceeded}
+		}
+		if q := n.HealQueue; q != nil {
+			node.HealQueue = &HealQueueStatsResponse{Pending: q.Pending, Healed: q.Healed, Retried: q.Retried, Dropped: q.Dropped}
 		}
 		for _, d := range n.Disks {
 			node.Disks = append(node.Disks, DiskResponse{

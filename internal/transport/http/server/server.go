@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,8 +13,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
@@ -55,6 +54,14 @@ func WithTLS(certFile, keyFile string) Option {
 	}
 }
 
+// WithClientCAs asks the TLS clients for a certificate and verifies the
+// ones presented with pool (tls.VerifyClientCertIfGiven): the S3 clients
+// present none, the nodes of a cluster with mutual TLS present theirs,
+// which the internode RPC server then requires.
+func WithClientCAs(pool *x509.CertPool) Option {
+	return func(s *service) { s.clientCAs = pool }
+}
+
 // WithTLSConfig enables TLS with a ready configuration (takes precedence
 // over WithTLS files).
 func WithTLSConfig(cfg *tls.Config) Option {
@@ -94,12 +101,20 @@ func WithoutH2C() Option {
 	return func(s *service) { s.h2c = false }
 }
 
+// HTTP/2 tuning of the listeners (see Start).
+const (
+	http2StreamWindow = 16 << 20
+	http2ConnWindow   = 64 << 20
+	http2MaxFrameSize = 1 << 20
+)
+
 type service struct {
 	deps              Deps
 	name              string
 	addr              string
 	certFile, keyFile string
 	tlsConfig         *tls.Config
+	clientCAs         *x509.CertPool
 	readHeaderTimeout time.Duration
 	idleTimeout       time.Duration
 	shutdownTimeout   time.Duration
@@ -189,11 +204,27 @@ func (s *service) Start(ctx context.Context) error {
 		IdleTimeout:       s.idleTimeout,
 		ErrorLog:          slog.NewLogLogger(s.deps.Logger.Handler(), slog.LevelWarn),
 		TLSConfig:         tlsCfg,
+		// The internode RPC streams erasure shards over HTTP/2: receive
+		// windows of a few MiB and large frames keep a stream from
+		// stalling on flow control and cut the frames per byte (the
+		// defaults are 1 MiB windows and 16 KiB frames).
+		HTTP2: &http.HTTP2Config{
+			MaxReceiveBufferPerStream:     http2StreamWindow,
+			MaxReceiveBufferPerConnection: http2ConnWindow,
+			MaxReadFrameSize:              http2MaxFrameSize,
+		},
 	}
 	if tlsCfg != nil {
 		ln = tls.NewListener(ln, tlsCfg)
 	} else if s.h2c {
-		srv.Handler = h2c.NewHandler(handler, &http2.Server{})
+		// Cleartext HTTP/2 with prior knowledge (the internode RPC) served
+		// by net/http itself rather than by a hijacking h2c handler: the
+		// server tracks these connections, so Shutdown closes them and a
+		// stopped node stops answering its peers.
+		var protocols http.Protocols
+		protocols.SetHTTP1(true)
+		protocols.SetUnencryptedHTTP2(true)
+		srv.Protocols = &protocols
 	}
 	s.listener = ln
 	s.srv = srv
@@ -211,6 +242,14 @@ func (s *service) Start(ctx context.Context) error {
 }
 
 func (s *service) buildTLS() (*tls.Config, error) {
+	cfg, err := s.baseTLS()
+	if cfg != nil && s.clientCAs != nil {
+		cfg.ClientAuth, cfg.ClientCAs = tls.VerifyClientCertIfGiven, s.clientCAs
+	}
+	return cfg, err
+}
+
+func (s *service) baseTLS() (*tls.Config, error) {
 	if s.tlsConfig != nil {
 		cfg := s.tlsConfig.Clone()
 		if cfg.MinVersion == 0 {

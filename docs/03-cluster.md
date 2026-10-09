@@ -53,8 +53,37 @@ in lettura e scrittura; capacità utile 75%.
 ## 3.4 Comunicazione internode
 
 - Trasporto: HTTP/2 sulla stessa porta S3 sotto `/nexo/rpc/v1/`, mTLS opzionale (raccomandato).
-- Autenticazione: JWT a breve durata firmato con chiave derivata dalle credenziali root (HMAC) + verifica
-  deployment ID; rifiuto di nodi con versione/format incompatibile.
+- Autenticazione: JWT a breve durata (20 s) firmato con chiave derivata dalle credenziali root (HMAC) + verifica
+  deployment ID; rifiuto di nodi con versione/format incompatibile. La firma è verificata prima di qualsiasi
+  claim; il token è legato al nodo destinatario (`aud`) e a **una sola chiamata**: metodo e target (path e
+  query, `htm`/`htu`), hash SHA-256 degli argomenti (`bh`: il corpo msgpack, o il primo frame di un upload,
+  verificato dalle rotte) e id univoco (`jti`) accettato una volta sola (cache degli id fino alla scadenza);
+  un token intercettato non vale per nessun'altra chiamata né per ripetere la stessa. Lo skew tollerato è
+  15 s, le risposte d'errore non rivelano mai il deployment ID.
+- Legame al deployment: un nodo con i dischi formattati legge il deployment ID dal proprio `format.json`
+  **prima di aprire il listener**; un nodo con i dischi vuoti si lega appena lo conosce: quando un peer gli
+  scrive il `format.json` o quando il suo bootstrap lo legge o lo genera (il nodo che formatta il deployment
+  passa al nuovo ID prima di scrivere i formati sui peer). Un chiamante senza deployment ID (bootstrap)
+  accede solo alle chiamate di bootstrap (ping, `bootstrap/*`, lettura e stat di `format.json` senza glob,
+  stato del disco: niente elenchi di volumi o di oggetti); finché un nodo non conosce il proprio deployment
+  accetta da qualunque chiamante solo le stesse chiamate più la scrittura di `format.json` e del tracker di
+  healing. Questa restrizione protegge da errori di configurazione (un nodo di un altro deployment con le
+  stesse credenziali root), non da un attaccante: chi ha le credenziali root può sempre ottenere il
+  deployment ID (`bootstrap/config`) e firmare token validi.
+- Rifiuti: ogni rifiuto (token, deployment, versione, certificato client) è registrato a livello Warn con
+  indirizzo remoto e path (mai il token), al più una volta per indirizzo e motivo al minuto, e contato in
+  `nexo_rpc_auth_refused_total{reason}`; un indirizzo che accumula 20 fallimenti di autenticazione viene
+  rifiutato senza verifica (429) finché il credito non si ricarica (uno ogni 3 s): il server non è un oracolo
+  veloce sulla password root.
+- Trasporto: solo HTTP/2. Con endpoint `http` il traffico e i token sono in chiaro (avviso all'avvio): la
+  legatura dei token limita un'intercettazione passiva, non un attaccante attivo, quindi TLS è necessario su
+  reti non fidate. Con `--tls-internode-verify` (`NEXO_TLS_INTERNODE_VERIFY`, endpoint `https`) il TLS è
+  **mutuo**: ogni nodo presenta il proprio certificato (`public.crt`, con uso client) e le chiamate internode
+  senza un certificato client verificato con le CA di `certs/CAs` sono rifiutate (le richieste S3 sulla stessa
+  porta non ne presentano). Si è scelto di non rendere obbligatorio un flag di opt-in per gli endpoint `http`
+  (resta l'avviso), per non rompere i deployment su reti private. Il proxy pubblico non inoltra mai
+  `/nexo/rpc/`, e una richiesta virtual-host (`<bucket>.<dominio>/nexo/rpc/v1/...`) è una chiave S3, non una
+  chiamata internode. Le risposte unarie dei peer sono limitate a 64 MiB.
 - Servizi RPC:
   | Servizio | Scopo |
   |----------|-------|
@@ -94,6 +123,13 @@ in lettura e scrittura; capacità utile 75%.
 | Disk replacement | Disco nuovo senza `format.json` | Healing completo del disco con checkpoint (`healing.bin`) e ripresa dopo restart |
 | Manuale | `nexoctl admin heal` | Heal di bucket/prefix, `--deep` per verifica bitrot completa |
 
+- Un `xl.meta` non decodificabile non blocca il disco: alla prima scrittura o cancellazione viene spostato in
+  quarantena (`.nexo.sys/quarantine/`, mai ripulita automaticamente, per l'analisi) e trattato come assente;
+  heal-on-read, MRF, `HealObject` e l'healing del disco lo riscrivono da quello degli altri dischi con tutte
+  le versioni.
+- Le scritture e le cancellazioni rifiutate per mancanza di quorum sono annullate sui dischi che le avevano
+  applicate (versione precedente ripristinata), per non lasciare una minoranza divergente.
+
 ## 3.8 Espansione, decommission, rebalance
 
 - **Espansione**: si riavviano tutti i nodi con la nuova lista di pool (rolling restart). I nuovi pool vengono
@@ -125,5 +161,7 @@ in lettura e scrittura; capacità utile 75%.
 | 1 nodo offline (4 nodi) | Cluster pienamente operativo |
 | Partizione di rete 2+2 | Nessuna scrittura possibile senza quorum lock (no split-brain); letture se quorum dati raggiungibile |
 | Disco corrotto (bitrot) | Rilevato in lettura, risposta corretta, shard riparato |
-| Crash durante la scrittura | Nessun oggetto parziale visibile; tmp ripuliti all'avvio |
+| Crash durante la scrittura | Nessun oggetto parziale visibile; tmp ripuliti all'avvio e, durante il servizio, dal janitor (voci di `.nexo.sys/tmp` più vecchie di 24 h, controllo ogni ora) |
+| Crash durante il completamento multipart | Il completamento scrive prima un journal (`completing.json`) nella directory dell'upload e sposta le parti in una directory di staging; al nuovo tentativo l'upload viene concluso (versione già committata) o le parti tornano al loro posto: l'upload resta completabile |
+| Parti multipart su dischi diversi | Ogni parte richiede `D` dischi che la contengono integra; i dischi che non la hanno la ricevono ricostruita dagli shard prima del commit |
 | Clock skew tra nodi | Avviso se > 2 s; SigV4 tollera 15 min; lock indipendenti dal clock |

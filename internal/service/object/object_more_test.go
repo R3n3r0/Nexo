@@ -517,7 +517,7 @@ func TestErasureSetSelectionIsStable(t *testing.T) {
 	ctx := context.Background()
 	drives, _ := newDrives(t, 4)
 	sets := [][]storage.StorageAPI{drives[:2], drives[2:]}
-	svc, err := object.NewErasure(object.Deps{Sets: sets, Parity: 1, DeploymentID: "dep", Logger: nil}, object.WithInlineLimit(0), object.WithBlockSize(testBlockSize))
+	svc, err := object.NewErasure(object.Deps{Sets: sets, Parity: 1, DeploymentID: "dep", Codecs: testCodecs("dep"), Logger: nil}, object.WithInlineLimit(0), object.WithBlockSize(testBlockSize))
 	require.NoError(t, err)
 	require.NoError(t, svc.MakeBucket(ctx, "bkt", object.MakeBucketOptions{}))
 	keys := []string{"alpha", "beta", "gamma", "delta", "epsilon", "zeta/1", "zeta/2", "eta"}

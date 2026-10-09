@@ -97,9 +97,12 @@ func TestNotifierRetriesMissedEvents(t *testing.T) {
 	assert.Empty(t, s2.events())
 
 	s2.online.Store(true)
-	require.Eventually(t, func() bool { return len(s2.events()) == 2 }, 5*time.Second, 5*time.Millisecond)
+	require.Eventually(t, func() bool { return len(s2.events()) >= 2 }, 5*time.Second, 5*time.Millisecond)
 	assert.Equal(t, "alice", s2.events()[0].Name)
 	assert.Equal(t, "bob", s2.events()[1].Name, "duplicates are delivered once, in order")
+	for _, e := range s2.events()[2:] {
+		assert.Equal(t, cluster.EventResync, e.Kind, "a peer back online may be asked to resync too")
+	}
 
 	// Too many missed events become one resync.
 	for _, name := range []string{"c", "d", "e", "f"} {
@@ -155,4 +158,86 @@ func TestNotifierSubscriberMock(t *testing.T) {
 	h.EXPECT().HandleEvent(mock.Anything, e).Return(nil).Once()
 	n.Subscribe(cluster.EventBucketMetadata, h)
 	require.NoError(t, n.Deliver(ctx, e))
+}
+
+// resyncCounter subscribes to the resyncs a notifier delivers locally.
+func resyncCounter(n cluster.Notifier) (func() []string, func()) {
+	var mu sync.Mutex
+	var names []string
+	unsubscribe := n.Subscribe(cluster.EventIAM, cluster.HandlerFunc(func(_ context.Context, e cluster.Event) error {
+		if e.Kind == cluster.EventResync {
+			mu.Lock()
+			names = append(names, e.Name)
+			mu.Unlock()
+		}
+		return nil
+	}))
+	return func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), names...)
+	}, unsubscribe
+}
+
+// TestNotifierPeriodicResync: a node reloads its cached state
+// periodically, so that an invalidation lost for good (its origin crashed
+// with it queued) does not leave a revoked credential usable forever.
+func TestNotifierPeriodicResync(t *testing.T) {
+	ctx := context.Background()
+	p1, _ := newPeer(t, "n2:9000")
+	n := cluster.NewNotifier(cluster.NotifierDeps{NodeID: "n1:9000", Peers: []cluster.Peer{p1}, Logger: discard()},
+		cluster.WithRetryInterval(5*time.Millisecond), cluster.WithResyncInterval(30*time.Millisecond))
+	resyncs, unsubscribe := resyncCounter(n)
+	defer unsubscribe()
+	require.NoError(t, n.Start(ctx))
+	t.Cleanup(func() { _ = n.Stop(context.Background()) })
+	require.Eventually(t, func() bool { return len(resyncs()) >= 2 }, 5*time.Second, 5*time.Millisecond)
+	assert.Equal(t, "periodic", resyncs()[0])
+}
+
+// TestNotifierResyncsPeerBackOnline: a peer that was unreachable is asked
+// to reload everything once back, whatever it missed and from whom.
+func TestNotifierResyncsPeerBackOnline(t *testing.T) {
+	ctx := context.Background()
+	p1, s1 := newPeer(t, "n2:9000")
+	n := cluster.NewNotifier(cluster.NotifierDeps{NodeID: "n1:9000", Peers: []cluster.Peer{p1}, Logger: discard()},
+		cluster.WithRetryInterval(5*time.Millisecond), cluster.WithResyncInterval(0))
+	require.NoError(t, n.Start(ctx))
+	t.Cleanup(func() { _ = n.Stop(context.Background()) })
+	s1.online.Store(false)
+	time.Sleep(50 * time.Millisecond) // seen offline
+	assert.Empty(t, s1.events())
+	s1.online.Store(true)
+	require.Eventually(t, func() bool { return len(s1.events()) == 1 }, 5*time.Second, 5*time.Millisecond)
+	assert.Equal(t, cluster.EventResync, s1.events()[0].Kind)
+	assert.Equal(t, "n1:9000", s1.events()[0].Origin)
+}
+
+// TestNotifierResyncAfterFreeze: a node that notices it was frozen (its
+// loop ticks far behind schedule: suspended process, VM pause) reloads
+// its cached state, since it may have missed invalidations meanwhile.
+func TestNotifierResyncAfterFreeze(t *testing.T) {
+	ctx := context.Background()
+	peer := clustermock.NewPeer(t)
+	var slow atomic.Bool
+	peer.EXPECT().NodeID().Return("n2:9000").Maybe()
+	peer.EXPECT().IsOnline().Return(true).Maybe()
+	peer.EXPECT().Notify(mock.Anything, mock.Anything).RunAndReturn(func(context.Context, cluster.Event) error {
+		if slow.Load() {
+			time.Sleep(100 * time.Millisecond) // the loop stalls here
+			return domain.ErrNodeOffline
+		}
+		return nil
+	}).Maybe()
+	n := cluster.NewNotifier(cluster.NotifierDeps{NodeID: "n1:9000", Peers: []cluster.Peer{peer}, Logger: discard()},
+		cluster.WithRetryInterval(5*time.Millisecond), cluster.WithResyncInterval(0), cluster.WithNotifyTimeout(time.Second))
+	resyncs, unsubscribe := resyncCounter(n)
+	defer unsubscribe()
+	require.NoError(t, n.Start(ctx))
+	t.Cleanup(func() { _ = n.Stop(context.Background()) })
+	slow.Store(true)
+	_ = n.Broadcast(ctx, cluster.Event{Kind: cluster.EventIAM, Name: "alice"})
+	require.Eventually(t, func() bool { return len(resyncs()) >= 1 }, 5*time.Second, 5*time.Millisecond)
+	slow.Store(false)
+	assert.Contains(t, resyncs()[0], "frozen")
 }

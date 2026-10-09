@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"time"
@@ -15,9 +16,12 @@ import (
 	"github.com/r3n3r0/nexo/internal/config"
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/cluster"
+	"github.com/r3n3r0/nexo/internal/service/heal"
 	"github.com/r3n3r0/nexo/internal/service/lock"
+	"github.com/r3n3r0/nexo/internal/service/metrics"
 	"github.com/r3n3r0/nexo/internal/service/storage"
 	"github.com/r3n3r0/nexo/internal/service/topology"
+	"github.com/r3n3r0/nexo/internal/transport/http/s3"
 	"github.com/r3n3r0/nexo/internal/transport/rpc"
 	"github.com/r3n3r0/nexo/internal/version"
 )
@@ -39,12 +43,22 @@ type foundation struct {
 	local  []storage.StorageAPI
 	drives []storage.StorageAPI
 
+	// mrf is the background healing queue of this node, persisted on its
+	// local drives (erasure-coded modes only: nil in SNSD, where a single
+	// drive has nothing to heal from). It is built with the drives so that
+	// the node information published to the peers reports it.
+	mrf heal.Queue
+
 	locks        lock.Locker
 	lockManager  lock.Manager
 	notifier     cluster.Notifier
 	leader       cluster.Leader
 	info         cluster.Info
 	bootstrapper cluster.Bootstrapper
+
+	// registry is the metrics registry of the node: the internode RPC
+	// server counts its refusals there before the services are composed.
+	registry metrics.Registry
 
 	// Distributed deployments only: the internode authentication, the RPC
 	// server mounted in front of the S3 API and the connections to the
@@ -108,6 +122,8 @@ type foundationDeps struct {
 	logger *slog.Logger
 	// noFsync opens the local drives without fsync (WithoutFsync).
 	noFsync bool
+	// dial opens the internode connections (WithInternodeDialer).
+	dial func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 // driveOptions are the options of the local drives.
@@ -122,7 +138,7 @@ func (d foundationDeps) driveOptions() []storage.Option {
 // services of the deployment mode. On error everything opened so far is
 // released.
 func newFoundation(d foundationDeps) (f *foundation, err error) {
-	f = &foundation{layout: d.layout, topo: d.topo, nodeID: cluster.LocalNodeID}
+	f = &foundation{layout: d.layout, topo: d.topo, nodeID: cluster.LocalNodeID, registry: metrics.New(metrics.Deps{Logger: d.logger})}
 	defer func() {
 		if err != nil {
 			_ = f.close(context.Background())
@@ -154,16 +170,20 @@ func (f *foundation) openLocal(d foundationDeps) error {
 	if len(f.local) == 0 {
 		return fmt.Errorf("%w: no local drives in the deployment", domain.ErrInvalidArgument)
 	}
+	f.mrf = newHealQueue(d.layout.Mode, f.local, d.clock, d.logger, d.cfg.HealRetryMaxDelay)
 	f.locks = lock.NewLocal(lock.Deps{})
 	f.lockManager = lock.NewManager(lock.ManagerDeps{Logger: d.logger})
 	f.notifier = cluster.NewLocalNotifier(cluster.NotifierDeps{NodeID: f.nodeID, Clock: d.clock, Logger: d.logger})
 	f.leader = cluster.NewLocalLeader(cluster.LeaderDeps{NodeID: f.nodeID, Logger: d.logger})
 	build := version.Get()
-	f.info = cluster.NewInfo(cluster.InfoDeps{NodeID: f.nodeID, Nodes: cluster.NodesOf(d.layout), Drives: f.local, Clock: d.clock, Logger: d.logger},
+	f.info = cluster.NewInfo(cluster.InfoDeps{NodeID: f.nodeID, Nodes: cluster.NodesOf(d.layout), Drives: f.local,
+		HealQueue: healQueueReporter(f.mrf), Clock: d.clock, Logger: d.logger},
 		cluster.WithBuildInfo(build.Version, build.Commit))
 	var err error
-	f.bootstrapper, err = cluster.NewLocalBootstrapper(cluster.BootstrapDeps{Layout: d.layout, Topology: d.topo, Drives: f.local, Clock: d.clock, Logger: d.logger},
-		cluster.WithBootstrapVersion(build.Version))
+	formatter := storage.NewFormatter(storage.FormatterDeps{Topology: d.topo, Logger: d.logger})
+	f.bootstrapper, err = cluster.NewLocalBootstrapper(cluster.BootstrapDeps{
+		Layout: d.layout, Topology: d.topo, Formatter: formatter, Drives: f.local, Clock: d.clock, Logger: d.logger,
+	}, cluster.WithBootstrapVersion(build.Version))
 	return err
 }
 
@@ -198,6 +218,10 @@ func (f *foundation) openDistributed(d foundationDeps) error {
 	if err != nil {
 		return err
 	}
+	if tlsCfg == nil {
+		logger.Warn("internode traffic and tokens in cleartext: use https endpoints (TLS) unless the network between the nodes is trusted",
+			"nodes", len(d.layout.Nodes))
+	}
 	callTimeout := cmpOr(cfg.RPCCallTimeout, defaultRPCCallTimeout)
 	conns := map[string]rpc.Conn{}
 	var peers []cluster.Peer
@@ -212,6 +236,9 @@ func (f *foundation) openDistributed(d foundationDeps) error {
 		opts := []rpc.ConnOption{rpc.WithCallTimeout(callTimeout)}
 		if tlsCfg != nil {
 			opts = append(opts, rpc.WithTLSConfig(tlsCfg))
+		}
+		if d.dial != nil {
+			opts = append(opts, rpc.WithDialer(d.dial))
 		}
 		conn, err := rpc.NewConn(rpc.ConnDeps{Auth: f.auth, Logger: logger}, id, opts...)
 		if err != nil {
@@ -258,16 +285,28 @@ func (f *foundation) openDistributed(d foundationDeps) error {
 		f.drives = append(f.drives, drive)
 	}
 
+	// A node whose drives are formatted knows its deployment before it
+	// accepts any call: the callers of another deployment are refused
+	// even while the peers are away and the bootstrap waits for them.
+	if id := cluster.FormattedDeploymentID(context.Background(), f.local); id != "" {
+		f.auth.SetDeploymentID(context.Background(), id)
+	}
+
+	f.mrf = newHealQueue(d.layout.Mode, f.local, d.clock, logger, cfg.HealRetryMaxDelay)
+
 	f.locks, err = lock.NewDistributed(lock.DistributedDeps{Servers: servers, Owner: f.nodeID, Logger: logger},
 		lock.WithRefreshInterval(cmpOr(cfg.LockRefreshInterval, defaultLockRefresh)))
 	if err != nil {
 		return err
 	}
 	f.lockManager = lock.NewManager(lock.ManagerDeps{Servers: servers, Logger: logger})
-	f.notifier = cluster.NewNotifier(cluster.NotifierDeps{NodeID: f.nodeID, Peers: peers, Clock: d.clock, Logger: logger})
-	f.info = cluster.NewInfo(cluster.InfoDeps{NodeID: f.nodeID, Nodes: cluster.NodesOf(d.layout), Drives: f.local, Peers: peers, Clock: d.clock, Logger: logger},
+	f.notifier = cluster.NewNotifier(cluster.NotifierDeps{NodeID: f.nodeID, Peers: peers, Clock: d.clock, Logger: logger},
+		cluster.WithResyncInterval(cmpOr(cfg.CacheResyncInterval, cluster.DefaultResyncInterval)))
+	f.info = cluster.NewInfo(cluster.InfoDeps{NodeID: f.nodeID, Nodes: cluster.NodesOf(d.layout), Drives: f.local, Peers: peers,
+		HealQueue: healQueueReporter(f.mrf), Clock: d.clock, Logger: logger},
 		cluster.WithBuildInfo(build.Version, build.Commit))
-	f.bootstrapper, err = cluster.NewBootstrapper(cluster.BootstrapDeps{Layout: d.layout, Topology: d.topo, Drives: f.drives, Peers: bootPeers, Clock: d.clock, Logger: logger},
+	f.bootstrapper, err = cluster.NewBootstrapper(cluster.BootstrapDeps{Layout: d.layout, Topology: d.topo, Drives: f.drives, Peers: bootPeers,
+		Binder: f.auth, Clock: d.clock, Logger: logger},
 		cluster.WithBootstrapVersion(build.Version))
 	if err != nil {
 		return err
@@ -277,7 +316,7 @@ func (f *foundation) openDistributed(d foundationDeps) error {
 		return err
 	}
 
-	storageRoutes, err := rpc.NewStorageRoutes(rpc.StorageRoutesDeps{Drives: f.local})
+	storageRoutes, err := rpc.NewStorageRoutes(rpc.StorageRoutesDeps{Drives: f.local, Auth: f.auth})
 	if err != nil {
 		return err
 	}
@@ -293,8 +332,12 @@ func (f *foundation) openDistributed(d foundationDeps) error {
 	if err != nil {
 		return err
 	}
-	f.rpc, err = rpc.NewServer(rpc.ServerDeps{Auth: f.auth, Clock: d.clock, Logger: logger,
-		Routes: []rpc.Routes{storageRoutes, lockRoutes, peerRoutes, bootRoutes}})
+	serverOpts := []rpc.ServerOption{rpc.WithSkip(s3.VirtualHostRequest(domainsOf(cfg)...))}
+	if cfg.TLSInternodeVerify {
+		serverOpts = append(serverOpts, rpc.WithClientCertRequired())
+	}
+	f.rpc, err = rpc.NewServer(rpc.ServerDeps{Auth: f.auth, Metrics: f.registry, Clock: d.clock, Logger: logger,
+		Routes: []rpc.Routes{storageRoutes, lockRoutes, peerRoutes, bootRoutes}}, serverOpts...)
 	return err
 }
 
@@ -309,26 +352,55 @@ func cmpOr(v, def time.Duration) time.Duration {
 // internodeTLS returns the TLS configuration of the internode connections
 // of a deployment whose endpoints are https URLs: the system roots plus
 // the certificates of <certs>/CAs and the server certificate itself (a
-// cluster commonly shares one certificate). It is nil for http endpoints.
+// cluster commonly shares one certificate). With mutual TLS
+// (TLSInternodeVerify) the node presents its own certificate to its
+// peers. It is nil for http endpoints.
 func internodeTLS(cfg config.Static, layout *topology.Layout) (*tls.Config, error) {
 	eps := layout.Endpoints()
 	if len(eps) == 0 || eps[0].Scheme != "https" {
+		if cfg.TLSInternodeVerify {
+			return nil, fmt.Errorf("%w: mutual TLS between the nodes needs https endpoints", domain.ErrInvalidArgument)
+		}
 		return nil, nil
 	}
 	pool, err := x509.SystemCertPool()
 	if err != nil || pool == nil {
 		pool = x509.NewCertPool()
 	}
-	if cfg.CertsDir != "" {
-		files, _ := filepath.Glob(filepath.Join(cfg.CertsDir, "CAs", "*"))
-		files = append(files, filepath.Join(cfg.CertsDir, "public.crt"))
-		for _, file := range files {
-			data, err := os.ReadFile(file)
-			if err != nil {
-				continue
-			}
-			pool.AppendCertsFromPEM(data)
+	appendCerts(pool, cfg)
+	out := &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+	if cfg.TLSInternodeVerify {
+		cert, err := tls.LoadX509KeyPair(filepath.Join(cfg.CertsDir, "public.crt"), filepath.Join(cfg.CertsDir, "private.key"))
+		if err != nil {
+			return nil, fmt.Errorf("internode client certificate: %w", err)
 		}
+		out.Certificates = []tls.Certificate{cert}
 	}
-	return &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}, nil
+	return out, nil
+}
+
+// deploymentCAs returns the certificates the nodes of the deployment are
+// verified with as TLS clients (mutual TLS): <certs>/CAs and the server
+// certificate itself, not the system roots.
+func deploymentCAs(cfg config.Static) *x509.CertPool {
+	pool := x509.NewCertPool()
+	appendCerts(pool, cfg)
+	return pool
+}
+
+// appendCerts adds the certificates of <certs>/CAs and the server
+// certificate to pool.
+func appendCerts(pool *x509.CertPool, cfg config.Static) {
+	if cfg.CertsDir == "" {
+		return
+	}
+	files, _ := filepath.Glob(filepath.Join(cfg.CertsDir, "CAs", "*"))
+	files = append(files, filepath.Join(cfg.CertsDir, "public.crt"))
+	for _, file := range files {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			continue
+		}
+		pool.AppendCertsFromPEM(data)
+	}
 }

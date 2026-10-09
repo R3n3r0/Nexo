@@ -587,6 +587,29 @@ func (c *adminClient) ImportConfig(ctx context.Context, data []byte) error {
 	return MapAdminError(c.api.ImportConfig(ctx, data), c.endpoint)
 }
 
+// ExportCluster implements AdminClient.
+func (c *adminClient) ExportCluster(ctx context.Context) ([]byte, error) {
+	v, err := c.api.ExportCluster(ctx)
+	return mapped(c, v, err)
+}
+
+// ImportCluster implements AdminClient.
+func (c *adminClient) ImportCluster(ctx context.Context, archive []byte, opts nexoadmin.ImportClusterOptions) (*nexoadmin.ClusterImportResult, error) {
+	v, err := c.api.ImportCluster(ctx, archive, opts)
+	return mapped(c, v, err)
+}
+
+// ListLocks implements AdminClient.
+func (c *adminClient) ListLocks(ctx context.Context) ([]nexoadmin.Lock, error) {
+	v, err := c.api.ListLocks(ctx)
+	return mapped(c, v, err)
+}
+
+// ForceUnlock implements AdminClient.
+func (c *adminClient) ForceUnlock(ctx context.Context, resources ...string) error {
+	return MapAdminError(c.api.ForceUnlock(ctx, resources...), c.endpoint)
+}
+
 // GetBucketQuota implements AdminClient.
 func (c *adminClient) GetBucketQuota(ctx context.Context, bucket string) (*nexoadmin.BucketQuota, error) {
 	v, err := c.api.GetBucketQuota(ctx, bucket)

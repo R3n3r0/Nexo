@@ -2,9 +2,10 @@ $ nexoctl admin info mem
 mem  Nexo dev (commit abc1234, built 2026-01-01)
 Mode: snsd  Region: us-east-1  Deployment: d-0001
 Uptime: 1h30m0s  Buckets: 2  Objects: 3  Usage: 3.0MiB
-Pool 1: 1 set(s) of 1 drive(s), parity 0
+Pool 1: 1 set(s) of 1 drive(s), parity 0, quorum read 1 write 1
+  set 1  ok  1 of 1 drive(s) online
 Nodes: 1 online, 0 offline
-  local  online  uptime 1h30m0s  1 drive(s)
+  local  online  version dev  uptime 1h30m0s  1 drive(s)  (this node)
     /data  online  used 40.0GiB of 100.0GiB (free 60.0GiB)
 
 $ nexoctl admin info mem/bucket
@@ -20,14 +21,21 @@ $ nexoctl admin info mem
 mem  Nexo dev (commit -, built -)
 Mode: distributed  Region: eu-1  Deployment: d-2
 Uptime: 1m0s  Buckets: 0  Objects: 0  Usage: 0B
-Pool 1: 1 set(s) of 4 drive(s), parity 2
-Nodes: 1 online, 1 offline
-  http://node1:9000  online  uptime 1m0s  3 drive(s)
+Pool 1: 2 set(s) of 4 drive(s), parity 2, quorum read 2 write 3
+  set 1  degraded  3 of 4 drive(s) online, 2 healing
+  set 2  readonly  2 of 4 drive(s) online
+Nodes: 3 online, 1 offline
+  http://node1:9000  online  version dev  uptime 1m0s  3 drive(s)  (this node)
+    background healing: 3 pending, 4 healed, 2 retried, 0 dropped
     /data1  online  used 1.0GiB of 10.0GiB (free 9.0GiB)
     /data2  online  used 1.0GiB of 10.0GiB (free 9.0GiB)  healing
     /data3  healing  healing (12 object(s) healed, 1 failed, 3.0MiB, at photos/2026/a.jpg)
-  http://node2:9000  offline  uptime -  1 drive(s)
+  http://node2:9000  offline  version -  uptime -  1 drive(s)
     http://node2:9000/data1  offline  error: connection refused
+  http://node3:9000  online  version dev  uptime 1m1s  0 drive(s)  clock +2.500s (skew above 2s)
+    background healing: 0 pending, 0 healed, 0 retried, 0 dropped
+  http://node4:9000  online  version dev  uptime 1m2s  0 drive(s)  clock -0.012s
+    background healing: 0 pending, 0 healed, 0 retried, 0 dropped
 
 $ nexoctl admin usage mem
 SIZE          OBJECTS   VERSIONS  BUCKET

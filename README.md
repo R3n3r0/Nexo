@@ -43,3 +43,12 @@ servita direttamente dal binario Go. È progettato per girare sia su un singolo 
 - **Cache per dominio**: policy di cache per distribuzione, dominio e percorso, invalidazione automatica alla scrittura, purge per path/tag/dominio, cache condivisa nel cluster.
 - **Compatibilità S3**: SigV4, bucket, oggetti, multipart, versioning, policy, lifecycle, object lock, SSE.
 - **Cluster**: pool di server, erasure set Reed-Solomon, nessun database di metadati centrale.
+
+## Sviluppo e test
+
+| Comando | Cosa esegue |
+|---------|-------------|
+| `make test` / `make test-race` | Test Go (unit, integrazione in-process nelle tre modalità SNSD, SNMD 4 dischi, cluster 4×2 in-process) |
+| `make test-integration` | Suite di integrazione S3/IAM/presigned in matrice di modalità, test lenti inclusi (TM-01) |
+| `make test-cluster` | Test cluster multi-processo (TC-*, build tag `cluster`): 4 processi `bin/nexo` su 127.0.0.1 con kill/pausa/riavvio |
+| `make run-cluster` | Cluster locale di 4 processi (`http://127.0.0.1:{9101...9104}/proc/self/cwd/d{1...2}`, Linux) |

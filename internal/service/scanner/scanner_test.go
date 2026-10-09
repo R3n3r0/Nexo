@@ -19,6 +19,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/cluster"
 	clustermock "github.com/r3n3r0/nexo/internal/service/cluster/mock"
 	"github.com/r3n3r0/nexo/internal/service/config"
+	"github.com/r3n3r0/nexo/internal/service/erasure"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	objectmock "github.com/r3n3r0/nexo/internal/service/object/mock"
 	"github.com/r3n3r0/nexo/internal/service/scanner"
@@ -70,6 +71,7 @@ func newDeployment(t *testing.T, n int) *deployment {
 	}).Maybe()
 	d.objects, err = object.NewServerPools(object.PoolsDeps{
 		Pools: []object.PoolSpec{{Sets: [][]storage.StorageAPI{d.drives}}}, DeploymentID: id, Buckets: buckets, Logger: quiet(),
+		Codecs: erasure.NewFactory(erasure.Deps{Logger: quiet()}, erasure.WithDeploymentID(id)),
 	}, object.WithBlockSize(blockSize), object.WithInlineLimit(1024))
 	require.NoError(t, err)
 	d.healer = d.objects.(object.Healer)

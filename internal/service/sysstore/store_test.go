@@ -202,6 +202,10 @@ func TestInvalidPaths(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
 	_, err = sysstore.New(sysstore.Deps{})
 	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
+	// No silent local locker: in a cluster two nodes would write a
+	// document at once.
+	_, err = sysstore.New(sysstore.Deps{Drives: newFixture(t, 1).drives})
+	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
 }
 
 func TestQuorum(t *testing.T) {

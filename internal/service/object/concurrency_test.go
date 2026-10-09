@@ -20,6 +20,7 @@ import (
 // read returns one complete version, consistent with its own ETag, and the
 // final object is one of the written versions.
 func TestConcurrentPutsOnOneKey(t *testing.T) {
+	t.Parallel()
 	forEachImpl(t, func(t *testing.T, fx *fixture) {
 		ctx := context.Background()
 		require.NoError(t, fx.svc.MakeBucket(ctx, "bkt", object.MakeBucketOptions{}))

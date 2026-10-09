@@ -149,6 +149,41 @@ func (_c *Queue_NotifyHeal_Call) RunAndReturn(run func(context.Context, string, 
 	return _c
 }
 
+// Release provides a mock function with given fields: ctx, e, wait
+func (_m *Queue) Release(ctx context.Context, e heal.Entry, wait bool) {
+	_m.Called(ctx, e, wait)
+}
+
+// Queue_Release_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Release'
+type Queue_Release_Call struct {
+	*mock.Call
+}
+
+// Release is a helper method to define mock.On call
+//   - ctx context.Context
+//   - e heal.Entry
+//   - wait bool
+func (_e *Queue_Expecter) Release(ctx interface{}, e interface{}, wait interface{}) *Queue_Release_Call {
+	return &Queue_Release_Call{Call: _e.mock.On("Release", ctx, e, wait)}
+}
+
+func (_c *Queue_Release_Call) Run(run func(ctx context.Context, e heal.Entry, wait bool)) *Queue_Release_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(heal.Entry), args[2].(bool))
+	})
+	return _c
+}
+
+func (_c *Queue_Release_Call) Return() *Queue_Release_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *Queue_Release_Call) RunAndReturn(run func(context.Context, heal.Entry, bool)) *Queue_Release_Call {
+	_c.Run(run)
+	return _c
+}
+
 // Start provides a mock function with given fields: ctx
 func (_m *Queue) Start(ctx context.Context) error {
 	ret := _m.Called(ctx)

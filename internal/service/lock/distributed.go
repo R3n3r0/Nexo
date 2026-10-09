@@ -338,7 +338,7 @@ func (d *distributed) tryAcquire(ctx context.Context, resource string, write boo
 		}
 	}()
 	if count >= quorum {
-		acq.ctx, acq.cancel = context.WithCancel(ctx)
+		acq.ctx, acq.cancel = context.WithCancelCause(ctx)
 		return acq, nil
 	}
 	releases.Add(1)
@@ -372,7 +372,7 @@ type acquisition struct {
 	quorum int
 
 	ctx    context.Context
-	cancel context.CancelFunc
+	cancel context.CancelCauseFunc
 	// drained is closed once every server answered the acquisition.
 	drained chan struct{}
 
@@ -397,7 +397,7 @@ func (a *acquisition) Unlock(ctx context.Context) {
 		close(a.stop)
 		a.refreshCancel()
 		a.refreshW.Wait()
-		a.cancel()
+		a.cancel(nil)
 		a.releaseServers(context.WithoutCancel(ctx), "released")
 	})
 }
@@ -433,7 +433,8 @@ func (a *acquisition) refreshLoop() {
 		a.d.deps.Logger.Warn("lock: lost the quorum while refreshing, the operation is canceled",
 			"resource", a.args.Resources, "uid", a.args.UID, "write", a.write,
 			"refreshed", refreshed, "quorum", a.quorum, "servers", len(a.d.deps.Servers))
-		a.cancel()
+		a.cancel(fmt.Errorf("%w: %v (renewed on %d of %d lock servers, %d needed)",
+			domain.ErrLockLost, a.args.Resources, refreshed, len(a.d.deps.Servers), a.quorum))
 		go a.releaseServers(context.Background(), "lost")
 		return
 	}

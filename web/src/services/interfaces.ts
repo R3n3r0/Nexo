@@ -33,6 +33,8 @@ import type {
   DeleteObjectsInput,
   DeleteObjectsResult,
   Group,
+  HealJob,
+  HealRequest,
   ListObjectsQuery,
   ObjectDetails,
   ObjectEntry,
@@ -92,6 +94,24 @@ export interface InfoService {
   serverInfo(): Promise<ServerInfo>;
   /** Data usage, total and per bucket (GET /usage). */
   usage(): Promise<DataUsage>;
+}
+
+/**
+ * Healing jobs (D-CLU-02): POST /heal starts a background job, GET /heal
+ * and GET /heal/{id} report its progress (any node answers). A
+ * single-drive deployment has nothing to heal: every call rejects with a
+ * 501 not_implemented ApiError.
+ */
+export interface HealService {
+  /**
+   * Starts a job: without bucket the format of the drives and every
+   * bucket, with recursive the objects too. An identical running job is
+   * returned instead of a new one; too many running jobs reject with 429.
+   */
+  start(request: HealRequest): Promise<HealJob>;
+  /** Running and recently finished jobs, newest first. */
+  list(): Promise<HealJob[]>;
+  get(id: string): Promise<HealJob>;
 }
 
 /** Bucket management. */
@@ -303,6 +323,7 @@ export interface AuthEvents {
 export interface Services {
   readonly session: SessionService;
   readonly info: InfoService;
+  readonly heal: HealService;
   readonly buckets: BucketService;
   readonly objects: ObjectService;
   readonly uploads: UploadService;

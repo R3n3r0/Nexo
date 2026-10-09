@@ -46,11 +46,12 @@ func (l *layer) GetObjectInfo(ctx context.Context, bucket, key string, opts GetO
 		return domain.ObjectInfo{}, err
 	}
 	if !opts.NoLock {
-		lc, err := l.lock(ctx, bucket, key, false)
+		lctx, unlock, err := l.lock(ctx, bucket, key, false)
 		if err != nil {
 			return domain.ObjectInfo{}, err
 		}
-		defer lc.Unlock(ctx)
+		defer unlock()
+		ctx = lctx
 	}
 	st, err := l.place.forVersion(ctx, bucket, key, opts.VersionID)
 	if err != nil {
@@ -73,20 +74,23 @@ func (l *layer) GetObjectInfo(ctx context.Context, bucket, key string, opts GetO
 }
 
 // GetObject implements Service. The read lock is held until the returned
-// body is closed, so that the version being read is never purged under it.
+// body is closed, so that the version being read is never purged under it;
+// the body fails if the lock is lost meanwhile (a writer may then replace
+// the version being read).
 func (l *layer) GetObject(ctx context.Context, bucket, key string, opts GetObjectOptions) (*Reader, error) {
 	if err := validObject(bucket, key); err != nil {
 		return nil, err
 	}
+	rctx := ctx
 	var unlock func()
 	if !opts.NoLock {
-		lc, err := l.lock(ctx, bucket, key, false)
+		lctx, release, err := l.lock(ctx, bucket, key, false)
 		if err != nil {
 			return nil, err
 		}
-		unlock = func() { lc.Unlock(ctx) }
+		rctx, unlock = lctx, release
 	}
-	r, _, err := l.openObject(ctx, bucket, key, opts, unlock)
+	r, _, err := l.openObject(rctx, bucket, key, opts, unlock)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +213,7 @@ func (r *partsReader) Read(p []byte) (int, error) {
 			return n, nil
 		}
 		if err != nil {
-			return n, fmt.Errorf("object: read %s/%s: %w", r.bucket, r.key, err)
+			return n, fmt.Errorf("object: read %s/%s: %w", r.bucket, r.key, lockErr(r.ctx, err))
 		}
 		return n, nil
 	}
@@ -229,7 +233,7 @@ func (r *partsReader) openNext() error {
 			}
 			rc, err := r.st.ReadData(r.ctx, r.bucket, r.key, r.fi, part, partOff, partLen)
 			if err != nil {
-				return fmt.Errorf("object: open part %d of %s/%s: %w", part.Number, r.bucket, r.key, err)
+				return fmt.Errorf("object: open part %d of %s/%s: %w", part.Number, r.bucket, r.key, lockErr(r.ctx, err))
 			}
 			r.cur = rc
 			return nil

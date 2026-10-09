@@ -239,7 +239,9 @@ func TestVirtualHostSystemPathsAreKeys(t *testing.T) {
 		}
 		return doWith(t, client, req)
 	}
-	for _, key := range []string{"nexo/metrics/foo", "nexo/metrics/v1/node", "nexo/health/live"} {
+	// "nexo/rpc/v1/..." is the path of the internode calls of a cluster:
+	// on a bucket host name it is a key too.
+	for _, key := range []string{"nexo/metrics/foo", "nexo/metrics/v1/node", "nexo/health/live", "nexo/rpc/v1/report.txt"} {
 		t.Run(key, func(t *testing.T) {
 			body := []byte("data of " + key)
 			resp := send(http.MethodPut, "/"+key, body, true)

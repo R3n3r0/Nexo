@@ -71,6 +71,11 @@ type ShareRoutes interface{ Routes }
 // ConfigRoutes exposes /config.
 type ConfigRoutes interface{ Routes }
 
+// ClusterRoutes exposes the export and import of the state of the
+// deployment (/cluster/export, /cluster/import) and the diagnostics of the
+// namespace locks (/locks).
+type ClusterRoutes interface{ Routes }
+
 // APIDeps are the dependencies of the API composition.
 type APIDeps struct {
 	Enc httpx.Encoder

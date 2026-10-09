@@ -22,6 +22,11 @@ type MirrorRequest struct {
 	Options MirrorOptions
 	// DryRun reports the actions without doing them.
 	DryRun bool
+	// Preserve replays every version and delete marker of a remote source
+	// on a remote target, the oldest first, with their content type,
+	// metadata and tags (PlanMirrorVersions): the migration of a
+	// deployment (docs/08 §8.2). It excludes Options.Remove.
+	Preserve bool
 	// Transfer tunes the copies. Its Progress, when set, receives the
 	// transferred bytes and the name of the file being copied.
 	Transfer TransferOptions
@@ -42,6 +47,8 @@ type MirrorEvent struct {
 	Source Target
 	// Dest is the written, kept (conflict) or removed path.
 	Dest Target
+	// SourceVersion is the replayed version of the source (Preserve).
+	SourceVersion string
 	// Size is the copied size: the size of the source in a dry run, for a
 	// conflict and for an action not attempted; 0 for a removal.
 	Size int64
@@ -61,6 +68,8 @@ type MirrorStats struct {
 	Bytes     int64
 	Removed   int
 	Conflicts int
+	// Markers counts the delete markers replayed (Preserve).
+	Markers int
 	// Failed counts the actions not attempted; First is the error of the
 	// first one.
 	Failed int
@@ -131,6 +140,9 @@ func NewMirrorer(deps MirrorDeps, opts ...MirrorerOption) (Mirrorer, error) {
 
 // Plan implements Mirrorer.
 func (m *mirrorer) Plan(ctx context.Context, req MirrorRequest) (*MirrorPlan, error) {
+	if req.Preserve {
+		return m.planVersions(ctx, req)
+	}
 	src, err := CollectEntries(Walk(ctx, m.deps.Resolve, req.Source))
 	if err != nil {
 		return nil, err
@@ -171,10 +183,19 @@ func (m *mirrorer) Apply(ctx context.Context, req MirrorRequest, plan *MirrorPla
 			}
 			continue
 		}
-		ev := MirrorEvent{Kind: a.Kind, Source: item.Source, Dest: item.Dest, Size: a.Source.Size}
+		item.SourceVersion = a.SourceVersion
+		ev := MirrorEvent{Kind: a.Kind, Source: item.Source, Dest: item.Dest, Size: a.Source.Size, SourceVersion: a.SourceVersion}
 		switch a.Kind {
 		case MirrorConflict:
 			stats.Conflicts++
+		case MirrorDeleteMarker:
+			if !req.DryRun {
+				if _, err := m.replayVersion(ctx, item, a.Kind, opts); err != nil {
+					return stats, err
+				}
+			}
+			stats.Markers++
+			ev.Size = 0
 		case MirrorRemove:
 			if !req.DryRun {
 				if err := m.transfer.Delete(ctx, item.Dest, ""); err != nil {
@@ -186,11 +207,11 @@ func (m *mirrorer) Apply(ctx context.Context, req MirrorRequest, plan *MirrorPla
 		default:
 			if !req.DryRun {
 				opts.Progress.SetLabel(baseName(item.Source))
-				res, err := m.transfer.Copy(ctx, item, opts)
+				n, err := m.copyItem(ctx, req, item, opts)
 				if err != nil {
 					return stats, err
 				}
-				ev.Size = res.Size
+				ev.Size = n
 			}
 			stats.Copied++
 			stats.Bytes += ev.Size
@@ -200,6 +221,19 @@ func (m *mirrorer) Apply(ctx context.Context, req MirrorRequest, plan *MirrorPla
 		}
 	}
 	return stats, nil
+}
+
+// copyItem copies one path, or replays one version with Preserve, and
+// returns the copied size.
+func (m *mirrorer) copyItem(ctx context.Context, req MirrorRequest, item CopyItem, opts TransferOptions) (int64, error) {
+	if req.Preserve {
+		return m.replayVersion(ctx, item, MirrorCopy, opts)
+	}
+	res, err := m.transfer.Copy(ctx, item, opts)
+	if err != nil {
+		return 0, err
+	}
+	return res.Size, nil
 }
 
 // mirrorItem returns the transfer of a mirror action. The source of a

@@ -76,6 +76,8 @@ func TestInfo(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, all, 3)
 	assert.Equal(t, []string{"127.0.0.1:1", "127.0.0.1:2", "127.0.0.1:3"}, []string{all[0].Endpoint, all[1].Endpoint, all[2].Endpoint}, "topology order")
+	assert.Equal(t, []bool{true, false, false}, []bool{all[0].Local, all[1].Local, all[2].Local}, "the answering node is marked")
+	assert.Nil(t, all[0].HealQueue, "no healing queue wired")
 	assert.Equal(t, domain.StateOffline, all[1].State)
 	require.Len(t, all[1].Disks, 2, "the drives of an offline node are reported offline")
 	assert.Equal(t, domain.StateOffline, all[1].Disks[0].State)
@@ -99,14 +101,20 @@ func TestInfo(t *testing.T) {
 	assert.False(t, skews[1].Exceeded)
 }
 
-// TestInfoSingleNode: without peers the info describes the local node only.
+// TestInfoSingleNode: without peers the info describes the local node only,
+// with the counters of its background healing queue.
 func TestInfoSingleNode(t *testing.T) {
 	ctx := context.Background()
-	info := cluster.NewInfo(cluster.InfoDeps{Logger: discard()})
+	stats := domain.HealQueueStats{Pending: 2, Healed: 5, Retried: 1}
+	info := cluster.NewInfo(cluster.InfoDeps{Logger: discard(),
+		HealQueue: cluster.HealQueueReporterFunc(func(context.Context) domain.HealQueueStats { return stats })})
 	all, err := info.Nodes(ctx)
 	require.NoError(t, err)
 	require.Len(t, all, 1)
 	assert.Equal(t, cluster.LocalNodeID, all[0].Endpoint)
+	assert.True(t, all[0].Local)
+	require.NotNil(t, all[0].HealQueue)
+	assert.Equal(t, stats, *all[0].HealQueue)
 	skews, err := info.ClockSkew(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, skews)

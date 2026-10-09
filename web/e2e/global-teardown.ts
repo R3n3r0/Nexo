@@ -1,11 +1,13 @@
 import { rm } from 'node:fs/promises';
 
-import { readState } from './support/env';
+import { readState, runDirectory } from './support/env';
 import { stopNexo } from './support/nexo';
 
 /**
  * Stops the server by PID and removes its temporary directory (kept when
- * NEXO_E2E_KEEP=1, to inspect the drive and nexo.log after a failure).
+ * NEXO_E2E_KEEP=1, to inspect the drive and nexo.log after a failure),
+ * and the directory of the state files of the mode projects, whose
+ * teardown projects ran before.
  */
 export default async function globalTeardown(): Promise<void> {
   const state = readState();
@@ -15,4 +17,5 @@ export default async function globalTeardown(): Promise<void> {
     return;
   }
   await rm(state.workDir, { recursive: true, force: true });
+  await rm(runDirectory(), { recursive: true, force: true });
 }

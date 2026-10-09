@@ -54,7 +54,7 @@ decodifica una volta sola.
 | Metodo | Path | Descrizione |
 |--------|------|-------------|
 | POST | `/auth/login` · `/auth/logout` · GET `/auth/session` | Sessione console |
-| GET | `/info` | Info server/cluster (pool, nodi, dischi, versioni, uptime) |
+| GET | `/info` | Info server/cluster (pool con quorum e stato degli erasure set, nodi con versione, uptime, sfasamento dell'orologio e riparazione in background, dischi) |
 | GET | `/usage` | Uso dati per cluster/bucket |
 | GET/POST/DELETE | `/buckets`, `/buckets/{b}` | Gestione bucket (estende S3 con stat, quota, ecc.); chi può elencare solo una parte del bucket (home directory) ne vede nome, data di creazione e regione (`partial: true`) |
 | GET/PUT | `/buckets/{b}/{versioning,policy,lifecycle,encryption,objectlock,quota,tags,events,replication}` | Impostazioni bucket |

@@ -25,11 +25,11 @@ func (p *erasureServerPools) HealBucket(ctx context.Context, bucket string, opts
 	if err := validBucket(bucket); err != nil {
 		return res, err
 	}
-	lc, err := p.lock(ctx, bucket, "", true)
+	ctx, unlock, err := p.lock(ctx, bucket, "", true)
 	if err != nil {
 		return res, err
 	}
-	defer lc.Unlock(ctx)
+	defer unlock()
 	exists := false
 	var record []byte
 	for _, st := range p.sets {
@@ -168,11 +168,11 @@ func (p *erasureServerPools) HealObject(ctx context.Context, bucket, key, versio
 	if err := validObject(bucket, key); err != nil {
 		return res, err
 	}
-	lc, err := p.lock(ctx, bucket, key, true)
+	ctx, unlock, err := p.lock(ctx, bucket, key, true)
 	if err != nil {
 		return res, err
 	}
-	defer lc.Unlock(ctx)
+	defer unlock()
 	found := false
 	var notFound error
 	for _, pl := range p.pools {
@@ -193,6 +193,12 @@ func (p *erasureServerPools) HealObject(ctx context.Context, bucket, key, versio
 		res.Removed += r.Removed
 		res.Bytes += r.Bytes
 		res.DriveStates = append(res.DriveStates, r.DriveStates...)
+	}
+	if found && opts.AllVersions && !opts.DryRun && !lockLost(ctx) {
+		cutoff := p.deps.Clock.Now().Add(-OrphanDataDirGrace)
+		for _, pl := range p.pools {
+			res.Orphans += pl.setFor(key).purgeOrphans(ctx, bucket, key, cutoff)
+		}
 	}
 	if !found {
 		if notFound == nil {
@@ -218,8 +224,28 @@ func (e *erasureSet) healObject(ctx context.Context, bucket, key, versionID stri
 	res := HealResult{Bucket: bucket, Key: key, Drives: e.n()}
 	examined := 0
 	var last error
-	for _, v := range versions {
-		r, err := e.healVersion(ctx, bucket, key, v, opts)
+	done := make(map[string]bool, len(versions))
+	for k := 0; k < len(versions); k++ {
+		v := versions[k]
+		done[v] = true
+		metaReset := false
+		r, err := e.healVersion(ctx, bucket, key, v, opts, &metaReset)
+		if metaReset && !opts.AllVersions {
+			// The metadata of a drive was undecodable: the write of the
+			// healed version started it over, so every other version the
+			// drives agree on goes back on it too.
+			if ids, verr := e.versionIDs(ctx, bucket, key); verr == nil {
+				if v == "" && len(ids) > 0 {
+					done[ids[0]] = true // the latest one, just healed
+				}
+				for _, id := range ids {
+					if !done[id] {
+						versions = append(versions, id)
+						done[id] = true
+					}
+				}
+			}
+		}
 		if err != nil {
 			if absent(err) {
 				last = err
@@ -304,8 +330,11 @@ type healTarget struct {
 	metaOnly bool
 }
 
-// healVersion repairs one version on the drives that need it.
-func (e *erasureSet) healVersion(ctx context.Context, bucket, key, versionID string, opts HealOptions) (HealResult, error) {
+// healVersion repairs one version on the drives that need it. *metaReset
+// is set when a repaired drive had undecodable metadata: the write that
+// repaired it started its xl.meta over, dropping the other versions it
+// recorded there.
+func (e *erasureSet) healVersion(ctx context.Context, bucket, key, versionID string, opts HealOptions, metaReset *bool) (HealResult, error) {
 	res := HealResult{Bucket: bucket, Key: key, Drives: e.n(), VersionIDs: []string{versionID}}
 	infos := make([]storage.FileInfo, e.n())
 	errs := e.onDrives(func(i int, d storage.StorageAPI) error {
@@ -384,6 +413,9 @@ func (e *erasureSet) healVersion(ctx context.Context, bucket, key, versionID str
 	res.Healed = len(healed)
 	for i := range healed {
 		after[i] = HealDriveOK
+		if errors.Is(errs[i], domain.ErrInvalidFormat) {
+			*metaReset = true
+		}
 	}
 	res.DriveStates = e.driveStates(before, after)
 	if len(healed) < len(targets) {
@@ -399,7 +431,7 @@ func readState(err error) HealDriveState {
 		return HealDriveOK
 	case errors.Is(err, domain.ErrDiskNotFound):
 		return HealDriveOffline
-	case isNotFound(err) || errors.Is(err, domain.ErrNoSuchVersion):
+	case isNotFound(err) || errors.Is(err, domain.ErrNoSuchVersion) || errors.Is(err, domain.ErrBucketNotFound):
 		return HealDriveMissing
 	default:
 		return HealDriveCorrupt
@@ -431,7 +463,7 @@ func (e *erasureSet) healDangling(ctx context.Context, bucket, key string, infos
 			if infos[i].Erasure.DataBlocks > 0 {
 				parity = infos[i].Erasure.ParityBlocks
 			}
-		case isNotFound(err) || errors.Is(err, domain.ErrNoSuchVersion):
+		case readState(err) == HealDriveMissing:
 			missing++
 		}
 	}
@@ -516,12 +548,17 @@ func verifyShard(r erasure.ShardReader, codec erasure.Codec, size int64) bool {
 // repair rewrites the version on the target drives and returns the
 // drives healed. Metadata-only targets get the agreed metadata, the others
 // the whole version: its metadata (with the inline content) or its shards,
-// rebuilt from the healthy drives.
+// rebuilt from the healthy drives. A target that misses the bucket (a
+// drive offline when the bucket was created) gets it first.
 func (e *erasureSet) repair(ctx context.Context, bucket, key string, fi storage.FileInfo, codec erasure.Codec, targets []healTarget) map[int]bool {
 	healed := make(map[int]bool, len(targets))
 	var data []int
 	for _, t := range targets {
 		d := e.drives[t.drive]
+		if err := e.ensureVolume(ctx, d, bucket); err != nil {
+			e.logger.WarnContext(ctx, "object: heal failed", "bucket", bucket, "key", key, "drive", t.drive+1, "err", err)
+			continue
+		}
 		var err error
 		switch {
 		case t.metaOnly && codec != nil:
@@ -546,74 +583,59 @@ func (e *erasureSet) repair(ctx context.Context, bucket, key string, fi storage.
 	return healed
 }
 
+// ensureVolume creates the bucket on a drive of the set that misses it,
+// with the bucket record the other drives hold: a drive that was offline
+// when the bucket was created gets it with its first healed object
+// instead of failing every heal of the bucket (HealBucket repairs the
+// buckets without objects).
+func (e *erasureSet) ensureVolume(ctx context.Context, d storage.StorageAPI, bucket string) error {
+	_, err := d.StatVol(ctx, bucket)
+	if err == nil || !errors.Is(err, domain.ErrBucketNotFound) {
+		return err
+	}
+	if err := d.MakeVol(ctx, bucket); err != nil && !errors.Is(err, domain.ErrBucketAlreadyExists) {
+		return fmt.Errorf("create bucket %s: %w", bucket, err)
+	}
+	if record, err := e.ReadAll(ctx, bucketDocPath(bucket)); err == nil {
+		if err := d.WriteAll(ctx, domain.SystemBucket, bucketDocPath(bucket), record); err != nil {
+			return fmt.Errorf("record bucket %s: %w", bucket, err)
+		}
+	}
+	return nil
+}
+
 // rebuildShards reconstructs the shards of the target drives from the
 // healthy ones, part by part, in a temporary directory of each target,
 // then renames them into place with the agreed metadata. It returns the
 // drives healed.
 func (e *erasureSet) rebuildShards(ctx context.Context, bucket, key string, fi storage.FileInfo, codec erasure.Codec, targets []int) []int {
-	isTarget := make(map[int]bool, len(targets))
+	sources := make([]bool, e.n())
+	for i := range sources {
+		sources[i] = true
+	}
 	for _, i := range targets {
-		isTarget[i] = true
+		sources[i] = false
 	}
 	tmpDir := storage.TmpDir + "/" + uuid.NewString()
 	defer e.cleanup(ctx, tmpDir)
 	failed := make([]bool, e.n())
 	for _, part := range fi.Parts {
-		dataPath := storage.ObjectDataPath(key, fi.DataDir, part.Number)
-		readers := make([]erasure.ShardReader, e.n())
-		for i, d := range e.drives {
-			if isTarget[i] || !isOnline(d) {
-				continue
-			}
-			readers[shardOf(fi.Erasure, i)] = codec.BitrotReader(ctx, func(ctx context.Context, off int64) (io.ReadCloser, error) {
-				return d.ReadFileStream(ctx, bucket, dataPath, off, -1)
-			})
-		}
-		writers := make([]io.Writer, e.n())
-		pipes := make([]*io.PipeWriter, e.n())
-		errs := make([]error, e.n())
-		var wg sync.WaitGroup
+		var live []int
 		for _, i := range targets {
-			if failed[i] {
-				continue
-			}
-			pr, pw := io.Pipe()
-			pipes[i] = pw
-			writers[shardOf(fi.Erasure, i)] = codec.BitrotWriter(ctx, pw)
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				err := e.drives[i].CreateFile(ctx, domain.SystemBucket, tmpDir+"/"+partName(part.Number), -1, &shardStream{PipeReader: pr})
-				if err != nil {
-					_ = pr.CloseWithError(err)
-				} else {
-					_ = pr.Close()
-				}
-				errs[i] = err
-			}()
-		}
-		_, herr := codec.Heal(ctx, writers, readers, part.Size)
-		for _, pw := range pipes {
-			if pw == nil {
-				continue
-			}
-			if herr != nil {
-				_ = pw.CloseWithError(herr)
-			} else {
-				_ = pw.Close()
+			if !failed[i] {
+				live = append(live, i)
 			}
 		}
-		wg.Wait()
-		for _, r := range readers {
-			if r != nil {
-				_ = r.Close()
-			}
-		}
-		if herr != nil {
-			e.logger.WarnContext(ctx, "object: cannot rebuild shards", "bucket", bucket, "key", key, "part", part.Number, "err", herr)
+		if len(live) == 0 {
 			return nil
 		}
-		for _, i := range targets {
+		errs, err := e.healShards(ctx, codec, fi.Erasure, part.Size, sources, bucket, storage.ObjectDataPath(key, fi.DataDir, part.Number),
+			live, tmpDir+"/"+partName(part.Number))
+		if err != nil {
+			e.logger.WarnContext(ctx, "object: cannot rebuild shards", "bucket", bucket, "key", key, "part", part.Number, "err", err)
+			return nil
+		}
+		for _, i := range live {
 			if errs[i] != nil {
 				failed[i] = true
 			}

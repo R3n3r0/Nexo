@@ -2,6 +2,8 @@ package rpc
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"io"
@@ -40,9 +42,18 @@ func unary[In, Out any](fn func(ctx context.Context, in In) (Out, error)) http.H
 func upload[In, Out any](fn func(ctx context.Context, in In, body io.Reader) (Out, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		fr := newFrameReader(r.Body, "caller")
-		var in In
-		if err := fr.Next(&in); err != nil {
+		raw, err := fr.NextRaw()
+		if err != nil {
 			writeError(w, fmt.Errorf("%w: upload arguments: %w", ErrProtocol, err))
+			return
+		}
+		if err := checkBinding(r.Context(), raw); err != nil {
+			writeError(w, err)
+			return
+		}
+		var in In
+		if err := msgpack.Unmarshal(raw, &in); err != nil {
+			writeError(w, fmt.Errorf("%w: decode %T: %v", ErrProtocol, in, err))
 			return
 		}
 		out, err := fn(r.Context(), in, fr)
@@ -133,8 +144,23 @@ func stream[In, Item any](fn func(ctx context.Context, in In, emit func(Item) er
 	}
 }
 
-// decodeBody decodes the msgpack body of a unary call into v; an empty
-// body leaves v zero.
+// checkBinding verifies that the arguments of a call are the ones its
+// token was issued for (Claims.BodyHash): a token is good for its call
+// only.
+func checkBinding(ctx context.Context, args []byte) error {
+	c, ok := CallerFromContext(ctx)
+	if !ok {
+		return fmt.Errorf("%w: rpc: unauthenticated call", ErrInvalidToken)
+	}
+	sum := sha256.Sum256(args)
+	if len(c.BodyHash) == 0 || subtle.ConstantTimeCompare(sum[:], c.BodyHash) != 1 {
+		return fmt.Errorf("%w: the token was issued for other arguments", ErrInvalidToken)
+	}
+	return nil
+}
+
+// decodeBody decodes the msgpack body of a unary call into v, once its
+// binding to the token is verified; an empty body leaves v zero.
 func decodeBody(w http.ResponseWriter, r *http.Request, v any) error {
 	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxUnaryBody))
 	if err != nil {
@@ -143,6 +169,9 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) error {
 			return fmt.Errorf("%w: call body over %d bytes", ErrProtocol, tooLarge.Limit)
 		}
 		return fmt.Errorf("%w: read call body: %v", ErrProtocol, err)
+	}
+	if err := checkBinding(r.Context(), data); err != nil {
+		return err
 	}
 	if len(data) == 0 {
 		return nil

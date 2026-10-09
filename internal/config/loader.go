@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,6 +35,9 @@ const (
 	EnvLockStaleAfter     = "NEXO_LOCK_STALE_AFTER"
 	EnvLockRefresh        = "NEXO_LOCK_REFRESH_INTERVAL"
 	EnvRPCCallTimeout     = "NEXO_RPC_CALL_TIMEOUT"
+	EnvHealRetryMaxDelay  = "NEXO_HEAL_RETRY_MAX_DELAY"
+	EnvCacheResync        = "NEXO_CACHE_RESYNC_INTERVAL"
+	EnvTLSInternodeVerify = "NEXO_TLS_INTERNODE_VERIFY"
 	// FileSuffix is appended to a variable name to read its value from a file.
 	FileSuffix = "_FILE"
 )
@@ -53,6 +57,7 @@ const (
 	FlagConfigFile         = "config"
 	FlagStorageClassStd    = "storage-class-standard"
 	FlagStorageClassRRS    = "storage-class-rrs"
+	FlagTLSInternodeVerify = "tls-internode-verify"
 )
 
 // BindFlags defines the server flags on fs. Root credentials have no flag
@@ -72,6 +77,7 @@ func BindFlags(fs *pflag.FlagSet) {
 	fs.String(FlagConfigFile, "", "JSON configuration file (lowest precedence)")
 	fs.String(FlagStorageClassStd, "", "parity of the STANDARD storage class as EC:n (erasure-coded modes)")
 	fs.String(FlagStorageClassRRS, "", "parity of the REDUCED_REDUNDANCY storage class as EC:n (erasure-coded modes)")
+	fs.Bool(FlagTLSInternodeVerify, false, "mutual TLS between the nodes: the internode calls need a client certificate verified with the CAs of --certs-dir (https endpoints)")
 }
 
 // Input is what the Loader reads from.
@@ -199,7 +205,17 @@ func (l *loader) applyEnv(cfg *Static) error {
 	}
 	set(EnvStorageClassStd, &cfg.StorageClassStandard)
 	set(EnvStorageClassRRS, &cfg.StorageClassRRS)
-	for key, dst := range map[string]*time.Duration{EnvLockStaleAfter: &cfg.LockStaleAfter, EnvLockRefresh: &cfg.LockRefreshInterval, EnvRPCCallTimeout: &cfg.RPCCallTimeout} {
+	if v, ok := l.env(EnvTLSInternodeVerify); ok && strings.TrimSpace(v) != "" {
+		b, err := strconv.ParseBool(strings.TrimSpace(v))
+		if err != nil {
+			return fmt.Errorf("%s: %w", EnvTLSInternodeVerify, err)
+		}
+		cfg.TLSInternodeVerify = b
+	}
+	for key, dst := range map[string]*time.Duration{
+		EnvLockStaleAfter: &cfg.LockStaleAfter, EnvLockRefresh: &cfg.LockRefreshInterval, EnvRPCCallTimeout: &cfg.RPCCallTimeout,
+		EnvHealRetryMaxDelay: &cfg.HealRetryMaxDelay, EnvCacheResync: &cfg.CacheResyncInterval,
+	} {
 		if v, ok := l.env(key); ok && strings.TrimSpace(v) != "" {
 			d, err := time.ParseDuration(strings.TrimSpace(v))
 			if err != nil {
@@ -259,6 +275,13 @@ func applyFlags(cfg *Static, fs *pflag.FlagSet) error {
 	setString(FlagStorageClassRRS, &cfg.StorageClassRRS)
 	if err != nil {
 		return fmt.Errorf("read flags: %w", err)
+	}
+	if fs.Changed(FlagTLSInternodeVerify) {
+		v, err := fs.GetBool(FlagTLSInternodeVerify)
+		if err != nil {
+			return fmt.Errorf("read flags: %w", err)
+		}
+		cfg.TLSInternodeVerify = v
 	}
 	if fs.Changed(FlagTrustedProxies) {
 		v, err := fs.GetStringSlice(FlagTrustedProxies)

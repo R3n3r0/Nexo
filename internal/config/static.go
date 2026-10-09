@@ -54,6 +54,12 @@ type Static struct {
 	BrowserRedirectURL string `json:"browserRedirectUrl"`
 	// CertsDir holds public.crt/private.key for TLS; empty disables TLS.
 	CertsDir string `json:"certsDir"`
+	// TLSInternodeVerify enables mutual TLS between the nodes of a
+	// cluster: the internode calls need a client certificate verified
+	// with the CAs of CertsDir/CAs (and the certificate of the node), and
+	// every node presents its own certificate as a client (it must allow
+	// client authentication). It needs TLS (CertsDir).
+	TLSInternodeVerify bool `json:"tlsInternodeVerify"`
 	// TrustedProxies are the CIDRs or IPs whose X-Forwarded-* headers are trusted.
 	TrustedProxies []string `json:"trustedProxies"`
 	LogLevel       string   `json:"logLevel"`
@@ -76,6 +82,15 @@ type Static struct {
 	LockStaleAfter      time.Duration `json:"-"`
 	LockRefreshInterval time.Duration `json:"-"`
 	RPCCallTimeout      time.Duration `json:"-"`
+	// HealRetryMaxDelay caps the delay between two attempts of the
+	// background healing (MRF) at an object it could not heal yet, e.g.
+	// while a node is down (environment only; zero keeps the default 5m).
+	HealRetryMaxDelay time.Duration `json:"-"`
+	// CacheResyncInterval is how often a cluster node reloads the shared
+	// state it caches (IAM, policies, configuration, bucket metadata) even
+	// without invalidation: the safety net of the invalidations a node
+	// missed (environment only; zero keeps the default 2m).
+	CacheResyncInterval time.Duration `json:"-"`
 }
 
 // Default returns the configuration defaults.
@@ -115,6 +130,9 @@ func (s Static) Validate() error {
 	if s.Region == "" {
 		errs = append(errs, errors.New("region must not be empty"))
 	}
+	if s.TLSInternodeVerify && !s.TLSEnabled() {
+		errs = append(errs, errors.New("tls internode verify needs TLS: set the certificates directory"))
+	}
 	for name, u := range map[string]string{"server url": s.ServerURL, "browser redirect url": s.BrowserRedirectURL} {
 		if u == "" {
 			continue
@@ -151,7 +169,10 @@ func (s Static) Validate() error {
 			errs = append(errs, fmt.Errorf("%s: %w", name, err))
 		}
 	}
-	for name, d := range map[string]time.Duration{"lock stale after": s.LockStaleAfter, "lock refresh interval": s.LockRefreshInterval, "rpc call timeout": s.RPCCallTimeout} {
+	for name, d := range map[string]time.Duration{
+		"lock stale after": s.LockStaleAfter, "lock refresh interval": s.LockRefreshInterval, "rpc call timeout": s.RPCCallTimeout,
+		"heal retry max delay": s.HealRetryMaxDelay, "cache resync interval": s.CacheResyncInterval,
+	} {
 		if d < 0 {
 			errs = append(errs, fmt.Errorf("%s %s must not be negative", name, d))
 		}

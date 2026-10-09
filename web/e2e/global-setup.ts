@@ -4,11 +4,9 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { request } from '@playwright/test';
-
-import { NexoClient } from './support/api';
-import { type E2EState, repoRoot, stateVariable } from './support/env';
-import { rootCredentials, startNexo, stopNexo } from './support/nexo';
+import { repoRoot, stateVariable } from './support/env';
+import { startNexo, stopNexo } from './support/nexo';
+import { seed } from './support/seed';
 
 /** Sources the binary embeds: a newer file means bin/nexo is stale. */
 const sources = ['cmd', 'internal', 'pkg', 'api', 'go.mod', 'go.sum', 'web/src', 'web/index.html'];
@@ -35,7 +33,7 @@ function newestMtime(path: string): number {
  * make build-embedded: unlike `make build` it does not run npm ci, which
  * would replace node_modules under the running Playwright).
  */
-function ensureBinary(): string {
+export function ensureBinary(): string {
   const explicit = process.env.NEXO_E2E_BINARY;
   if (explicit !== undefined && explicit !== '') {
     return explicit;
@@ -54,9 +52,6 @@ function ensureBinary(): string {
   return binary;
 }
 
-/** Users created for the suite. */
-const member = { accessKey: 'e2e-member', secretKey: 'e2e-member-secret-01' };
-
 /**
  * Starts bin/nexo on free ports with a temporary drive and root
  * credentials, seeds the test identities through the Admin API (SigV4 as
@@ -68,27 +63,7 @@ export default async function globalSetup(): Promise<void> {
   const workDir = await mkdtemp(join(tmpdir(), 'nexo-e2e-'));
   const server = await startNexo({ binary, workDir });
   try {
-    const api = new NexoClient(server);
-    // A user with every S3 permission and no admin:* action.
-    await api.call('POST', '/users', {
-      json: { ...member, policyNames: ['readwrite'] },
-    });
-
-    const rootStorageState = join(workDir, 'root-session.json');
-    const ctx = await request.newContext({ baseURL: server.consoleURL });
-    const res = await ctx.post('/api/v1/auth/login', { data: rootCredentials });
-    if (!res.ok()) {
-      throw new Error(`root login failed: ${res.status()} ${await res.text()}`);
-    }
-    await ctx.storageState({ path: rootStorageState });
-    await ctx.dispose();
-
-    const state: E2EState = {
-      ...server,
-      workDir,
-      rootStorageState,
-      users: { member },
-    };
+    const state = await seed(server, 'snsd', workDir);
     const file = join(workDir, 'state.json');
     writeFileSync(file, JSON.stringify(state, null, 2));
     process.env[stateVariable] = file;

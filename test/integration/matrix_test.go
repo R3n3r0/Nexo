@@ -106,6 +106,7 @@ func suite() []suiteTest {
 		{name: "TestPresignedRevokedSigner", fn: TestPresignedRevokedSigner},
 		{name: "TestPresignedResponseOverrides", fn: TestPresignedResponseOverrides},
 		{name: "TestPresignedUnsignedHeaders", fn: TestPresignedUnsignedHeaders},
+		{name: "TestPresignedBehindProxy", fn: TestPresignedBehindProxy},
 		{name: "TestS3ErrorDocuments", fn: TestS3ErrorDocuments},
 		{name: "TestRequestIDHeaders", fn: TestRequestIDHeaders},
 		{name: "TestVirtualHostStyle", fn: TestVirtualHostStyle},
@@ -160,7 +161,7 @@ func TestSuiteCoversEveryTest(t *testing.T) {
 				continue
 			}
 			switch fn.Name.Name {
-			case matrixTest, "TestSuiteCoversEveryTest":
+			case matrixTest, "TestSuiteCoversEveryTest", migrationTest:
 				continue
 			}
 			found++

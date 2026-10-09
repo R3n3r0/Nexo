@@ -105,7 +105,7 @@ type Server struct {
 	mu     sync.Mutex
 	// running reports that the nodes are started and not yet stopped.
 	running bool
-	lb      []*http.Server
+	lb      []*LoadBalancer
 }
 
 // settings collects the options of StartServer.
@@ -273,7 +273,7 @@ func startCluster(t testing.TB, st settings) *Server {
 			}
 			// Cluster nodes log at info level: four debug streams slow the
 			// suite down without helping a diagnosis.
-			logger := slog.New(slog.NewTextHandler(testWriter{t}, &slog.HandlerOptions{Level: slog.LevelInfo})).With("node", n+1)
+			logger := slog.New(slog.NewTextHandler(testWriter{t}, &slog.HandlerOptions{Level: slog.LevelInfo})).With("instance", n+1)
 			srv.Nodes = append(srv.Nodes, &Node{Config: cfg, logger: logger})
 		}
 		srv.Dir = base
@@ -358,8 +358,9 @@ func (s *Server) start() error {
 	}
 	wg.Wait()
 	if err := errors.Join(errs...); err != nil {
-		s.stopNodes()
-		return err
+		// The nodes that started are stopped; the start error is the one
+		// reported.
+		return errors.Join(err, s.stopNodes())
 	}
 	first := s.Nodes[0]
 	s.App = first.App

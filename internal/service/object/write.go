@@ -147,12 +147,13 @@ func (l *layer) writeObject(ctx context.Context, bucket, key string, body io.Rea
 	// Commit: under the object write lock, with the checks repeated
 	// against the state of that moment.
 	if !in.withinLock {
-		unlock, err := l.lockWrite(ctx, bucket, key)
+		lctx, unlock, err := l.lockWrite(ctx, bucket, key)
 		if err != nil {
 			l.cleanupTmp(ctx, st, tmpDir)
 			return domain.ObjectInfo{}, err
 		}
 		defer unlock()
+		ctx = lctx
 		if cfg, err = l.checkWrite(ctx, st, bucket, key, in); err != nil {
 			l.cleanupTmp(ctx, st, tmpDir)
 			return domain.ObjectInfo{}, err
@@ -167,7 +168,7 @@ func (l *layer) writeObject(ctx context.Context, bucket, key string, body io.Rea
 	fi.VersionID, fi.Versioned = l.versionFor(cfg, in.versionID)
 	fi.ModTime = in.modTime
 	if fi.ModTime.IsZero() {
-		fi.ModTime = l.now()
+		fi.ModTime = l.commitTime(ctx, bucket, key)
 	}
 	fi.Parts = []storage.PartInfo{{Number: 1, ETag: hr.etag(), Size: fi.Size, ActualSize: fi.Size, ModTime: fi.ModTime}}
 	if err := l.commitVersion(ctx, st, bucket, key, fi, tmpDir); err != nil {
@@ -218,16 +219,42 @@ func (l *layer) checkCurrent(ctx context.Context, bucket, key string, c domain.C
 	return checkWriteConditions(exists, objectInfo(bucket, key, cur), c)
 }
 
-// commitVersion makes a version visible and purges the data it replaces.
+// commitVersion makes a version visible (the store purges the data it
+// replaces) and removes the copies the other pools may hold.
 func (l *layer) commitVersion(ctx context.Context, st store, bucket, key string, fi storage.FileInfo, tmpDir string) error {
-	old, err := st.CommitData(ctx, tmpDir, fi, bucket, key)
-	if err != nil {
+	if err := checkLocks(ctx); err != nil {
 		l.cleanupTmp(ctx, st, tmpDir)
 		return err
 	}
-	l.purgeReplaced(ctx, st, bucket, key, old, fi.DataDir)
+	if err := st.CommitData(ctx, tmpDir, fi, bucket, key); err != nil {
+		l.cleanupTmp(ctx, st, tmpDir)
+		if cerr := checkLocks(ctx); cerr != nil {
+			return cerr
+		}
+		return err
+	}
 	l.dropElsewhere(ctx, st, bucket, key, fi.VersionID)
 	return nil
+}
+
+// commitTime returns the modification time of a new version (or delete
+// marker) of bucket/key, decided under its write lock: the local clock,
+// but always after the latest version already there. Versions are
+// ordered by modification time, and the nodes of a cluster do not share
+// a clock: a write coordinated by a node whose clock lags behind the one
+// of the previous writer must still become the latest version (docs/06
+// TC-13).
+func (l *layer) commitTime(ctx context.Context, bucket, key string) time.Time {
+	now := l.now()
+	st, err := l.place.forRead(ctx, bucket, key)
+	if err != nil {
+		return now
+	}
+	cur, err := st.ReadVersion(ctx, bucket, key, "", false)
+	if err != nil || cur.ModTime.Before(now) {
+		return now
+	}
+	return cur.ModTime.Add(time.Nanosecond).UTC()
 }
 
 // dropElsewhere keeps an object in a single pool: a commit of the null
@@ -236,7 +263,7 @@ func (l *layer) commitVersion(ctx context.Context, st store, bucket, key string,
 // removed. Other versions are distinct versions and stay where they are;
 // reads pick the newest across pools.
 func (l *layer) dropElsewhere(ctx context.Context, st store, bucket, key, versionID string) {
-	if versionID != "" {
+	if versionID != "" || lockLost(ctx) {
 		return
 	}
 	ctx = context.WithoutCancel(ctx)
@@ -245,20 +272,6 @@ func (l *layer) dropElsewhere(ctx context.Context, st store, bucket, key, versio
 		if err != nil && !isNotFound(err) && !errors.Is(err, domain.ErrNoSuchVersion) {
 			l.deps.Logger.WarnContext(ctx, "object: cannot remove the copy of another pool", "bucket", bucket, "key", key, "err", err)
 		}
-	}
-}
-
-// purgeReplaced removes the data directory of the version a commit
-// replaced (the null version of an unversioned or suspended bucket).
-func (l *layer) purgeReplaced(ctx context.Context, st store, bucket, key, old, current string) {
-	if old == "" || old == current {
-		return
-	}
-	// The commit is done: the replaced data must go even when the client
-	// went away in the meantime.
-	ctx = context.WithoutCancel(ctx)
-	if err := st.DeletePath(ctx, bucket, storage.ObjectDataDir(key, old), true); err != nil && !isNotFound(err) {
-		l.deps.Logger.WarnContext(ctx, "object: cannot purge replaced data", "bucket", bucket, "key", key, "data_dir", old, "err", err)
 	}
 }
 
@@ -359,7 +372,7 @@ func (l *layer) CopyObject(ctx context.Context, in CopyObjectInput) (domain.Obje
 			return domain.ObjectInfo{}, err
 		}
 	}
-	unlock, err := l.lockCopy(ctx, in.SrcBucket, in.SrcKey, in.DstBucket, in.DstKey)
+	ctx, unlock, err := l.lockCopy(ctx, in.SrcBucket, in.SrcKey, in.DstBucket, in.DstKey)
 	if err != nil {
 		return domain.ObjectInfo{}, err
 	}

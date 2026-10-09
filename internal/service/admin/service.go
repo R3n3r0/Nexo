@@ -1147,6 +1147,73 @@ type ConfigManager interface {
 	Import(ctx context.Context, data []byte) error
 }
 
+// --- cluster export/import ---------------------------------------------------
+
+// ClusterManager exports and imports the state of a deployment besides its
+// objects (S-OPS-15, docs/08 §8.2): the IAM state (users, groups, access
+// keys, STS credentials and their policy attachments), the named
+// policies, the dynamic configuration and the settings of every bucket
+// (versioning, object lock, policy, lifecycle, encryption, quota, tags,
+// CORS, notifications), in one versioned zip archive. With `nexoctl
+// mirror` for the objects it migrates a deployment to another mode
+// (SNSD → cluster) or restores a backup. The IAM document of the archive
+// is encrypted with a key derived from the root secret key: the target
+// must share the root credentials of the source. The archive also holds
+// the secrets of the configuration: it is as sensitive as the root
+// credentials.
+type ClusterManager interface {
+	// Export returns the archive.
+	Export(ctx context.Context) ([]byte, error)
+	// Import validates the whole archive (format, version, policies,
+	// configuration, bucket names), then, unless opts.DryRun, applies it:
+	// configuration, named policies, IAM, bucket settings (the missing
+	// buckets are created). Malformed archives are
+	// domain.ErrInvalidArgument.
+	Import(ctx context.Context, archive []byte, opts ImportOptions) (ImportSummary, error)
+}
+
+// ImportMode is what an import does with the state the archive does not
+// hold.
+type ImportMode string
+
+// Import modes.
+const (
+	// ImportMerge (the default) adds the archived state and replaces its
+	// homonyms; the rest of the deployment is kept.
+	ImportMerge ImportMode = "merge"
+	// ImportReplace also replaces the whole configuration and removes the
+	// users, groups and named policies the archive does not hold, and the
+	// settings of the archived buckets it does not set. Buckets are never
+	// removed.
+	ImportReplace ImportMode = "replace"
+)
+
+// ImportOptions tune ClusterManager.Import.
+type ImportOptions struct {
+	Mode ImportMode
+	// DryRun validates the archive and reports what the import would do,
+	// without changing anything.
+	DryRun bool
+}
+
+// ImportSummary is the outcome of an import (or of its dry run): the
+// counts of the archived state and what the import creates and removes.
+type ImportSummary struct {
+	Mode             ImportMode
+	DryRun           bool
+	Users            int
+	Groups           int
+	Policies         int
+	ConfigSubsystems int
+	Buckets          int
+	// BucketsCreated are the archived buckets this deployment did not
+	// have.
+	BucketsCreated []string
+	// Removed are the entries a replace import removes ("user:<name>",
+	// "group:<name>", "policy:<name>").
+	Removed []string
+}
+
 // Subsystem is the configuration of one subsystem.
 type Subsystem struct {
 	Name     string

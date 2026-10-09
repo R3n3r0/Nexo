@@ -19,6 +19,10 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/lifecycle"
+	"github.com/r3n3r0/nexo/internal/service/bucket"
+	configsvc "github.com/r3n3r0/nexo/internal/service/config"
+	"github.com/r3n3r0/nexo/internal/service/iam"
+	"github.com/r3n3r0/nexo/internal/service/policy"
 )
 
 // Node is a server of the deployment.
@@ -84,7 +88,11 @@ func (f HandlerFunc) HandleEvent(ctx context.Context, e Event) error { return f(
 // other nodes, and delivers the invalidations it receives to the local
 // subscribers. It runs a background retry of the deliveries that failed
 // (lifecycle.Runner): a peer that was unreachable receives the events it
-// missed, or a single EventResync when it missed too many.
+// missed, or a single EventResync when it missed too many. Since an
+// invalidation can still be lost (the node that queued it crashed), the
+// background loop also reloads the local state (a local EventResync)
+// periodically and when the node notices it was frozen, and sends an
+// EventResync to every peer that comes back online (docs/03 §3.9).
 type Notifier interface {
 	lifecycle.Runner
 	// Broadcast sends e to every peer, synchronously, so that the other
@@ -101,6 +109,52 @@ type Notifier interface {
 	// Deliver dispatches an event received from a peer to the local
 	// subscribers and returns their errors.
 	Deliver(ctx context.Context, e Event) error
+}
+
+// Coherence keeps the caches of the nodes coherent (docs/03 §3.9): the
+// shared stores it wraps broadcast, after every successful write, the
+// invalidation event of what they changed (IAM, named policies, dynamic
+// configuration, bucket metadata, share links, session revocations), and
+// Subscribe makes this node drop the caches the events of its peers name.
+// A broadcast that misses a peer does not fail the write (it succeeded):
+// the notifier retries the delivery and resynchronizes the nodes. In the
+// single-node modes the notifier is local and the broadcasts are no-ops.
+// The wrappers are pure decorations and Subscribe a pure registration (no
+// I/O, the documented exception to the context rule).
+type Coherence interface {
+	// IAMStore wraps the IAM store (users, groups, service accounts, STS
+	// credentials, share links, session revocations).
+	IAMStore(s iam.Store) iam.Store
+	// PolicyStore wraps the store of the named policies.
+	PolicyStore(s policy.SharedStore) policy.SharedStore
+	// ConfigStore wraps the store of the dynamic configuration.
+	ConfigStore(s configsvc.Store) configsvc.Store
+	// BucketStore wraps the store of the bucket metadata.
+	BucketStore(s bucket.MetadataStore) bucket.MetadataStore
+	// Subscribe registers the invalidations of caches on the notifier and
+	// returns the function that unregisters them. The share links and the
+	// session revocations are read through on every use: their events
+	// need no handler.
+	Subscribe(caches Caches) (unsubscribe func())
+}
+
+// Caches are the caches a node drops when a peer changed the state they
+// hold.
+type Caches struct {
+	// IAM drops the identities (required).
+	IAM interface{ Invalidate(ctx context.Context) }
+	// Policies drops the named policies; nil when they are not shared
+	// (SNSD).
+	Policies interface{ Invalidate(ctx context.Context) }
+	// Config reloads the dynamic configuration (required).
+	Config interface {
+		Reload(ctx context.Context) error
+	}
+	// Buckets drops the metadata of a bucket ("" for every bucket)
+	// (required).
+	Buckets interface {
+		Invalidate(ctx context.Context, name string)
+	}
 }
 
 // PingResult is the answer of a node to a ping: its identity, version and
@@ -162,6 +216,16 @@ type BootstrapResult struct {
 	Offline []domain.Endpoint
 }
 
+// DeploymentBinder binds the internode authentication of the node to its
+// deployment (rpc.Authenticator implements it). The bootstrapper calls it
+// as soon as it knows the deployment id, read from the formats or
+// generated for a fresh deployment (before it writes the formats on the
+// peers), so that the node refuses the callers of other deployments from
+// then on instead of at the end of the bootstrap.
+type DeploymentBinder interface {
+	SetDeploymentID(ctx context.Context, id string)
+}
+
 // Bootstrapper runs the startup sequence of a node (docs/03 §3.5).
 type Bootstrapper interface {
 	// LocalConfig returns the configuration this node announces to its
@@ -212,6 +276,20 @@ type Skew struct {
 	Exceeded bool
 	// Err is set when the peer could not be reached.
 	Err string
+}
+
+// HealQueueReporter reports the counters of the background healing queue
+// (MRF) of this node, which Info.Local publishes to the other nodes.
+type HealQueueReporter interface {
+	HealQueueStats(ctx context.Context) domain.HealQueueStats
+}
+
+// HealQueueReporterFunc adapts a function to HealQueueReporter.
+type HealQueueReporterFunc func(ctx context.Context) domain.HealQueueStats
+
+// HealQueueStats implements HealQueueReporter.
+func (f HealQueueReporterFunc) HealQueueStats(ctx context.Context) domain.HealQueueStats {
+	return f(ctx)
 }
 
 // Info describes the nodes of the deployment.

@@ -178,7 +178,7 @@ func listFiles(t *testing.T, root, bucket string) []string {
 		rel, _ := filepath.Rel(root, path)
 		if rel == bucket || strings.HasPrefix(rel, bucket+string(filepath.Separator)) ||
 			strings.Contains(rel, filepath.Join(".nexo.sys", "buckets", bucket)) ||
-			strings.HasPrefix(rel, filepath.Join(".nexo.sys", "tmp")) {
+			strings.HasPrefix(rel, filepath.Join(".nexo.sys", "tmp")) || background(rel) {
 			return nil
 		}
 		if !d.IsDir() {
@@ -188,4 +188,17 @@ func listFiles(t *testing.T, root, bucket string) []string {
 	})
 	require.NoError(t, err)
 	return out
+}
+
+// background reports the system files the services maintain on their own
+// (healing trackers, MRF queue, healing jobs, data usage): they may change
+// at any time, whatever the test does.
+func background(rel string) bool {
+	sys := ".nexo.sys" + string(filepath.Separator)
+	switch {
+	case rel == sys+"healing.bin", strings.HasPrefix(rel, sys+"healing"+string(filepath.Separator)),
+		strings.HasPrefix(rel, sys+"usage"):
+		return true
+	}
+	return false
 }

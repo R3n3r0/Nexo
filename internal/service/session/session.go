@@ -2,10 +2,12 @@ package session
 
 import (
 	"context"
+	"crypto/hkdf"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -45,11 +47,25 @@ func WithSigningKey(key []byte) Option {
 	}
 }
 
-// DeriveKey derives a deterministic signing key from the root credentials
-// so that every node of a deployment accepts the same session cookies.
-func DeriveKey(accessKey, secretKey string) []byte {
-	sum := sha256.Sum256([]byte("nexo-console-session\x00" + accessKey + "\x00" + secretKey))
-	return sum[:]
+// sessionKeyInfo is the HKDF context of the session signing keys.
+const sessionKeyInfo = "nexo-console-session-v2"
+
+// DeriveKey derives the signing key of the sessions from the root
+// credentials and the deployment ID: HKDF-SHA256 with the deployment ID as
+// salt. Every node of a deployment accepts the same session cookies, and
+// no other deployment does, even with the same root credentials (a cookie
+// of staging is not valid in production).
+func DeriveKey(accessKey, secretKey, deploymentID string) []byte {
+	// The access key is length-prefixed: no two credential pairs share
+	// the input key material.
+	ikm := binary.BigEndian.AppendUint32(nil, uint32(len(accessKey)))
+	ikm = append(append(ikm, accessKey...), secretKey...)
+	k, err := hkdf.Key(sha256.New, ikm, []byte(deploymentID), sessionKeyInfo, 32)
+	if err != nil {
+		// Only an invalid length fails: 32 bytes of SHA-256 never do.
+		panic(fmt.Sprintf("session: derive key: %v", err))
+	}
+	return k
 }
 
 // WithTTL sets the session lifetime (default 12h).

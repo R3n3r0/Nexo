@@ -1,17 +1,22 @@
 import { uniqueKey, uniqueName } from './support/api';
+import { modeLabels } from './support/env';
 import { rootCredentials } from './support/nexo';
 import { anonymous, expect, loginWithForm, test } from './support/fixtures';
 
 test.describe('authentication', () => {
   test.use({ storageState: anonymous });
 
-  test('TD-E-01 root signs in, sees the overview and signs out', async ({ page, context }) => {
+  test('TD-E-01 root signs in, sees the overview and signs out', async ({
+    page,
+    context,
+    nexo,
+  }) => {
     await page.goto('/');
     await expect(page).toHaveURL(/\/login$/);
     await loginWithForm(page, rootCredentials);
     await expect(page).toHaveURL(/\/$/);
     await expect(page.getByRole('heading', { name: 'Overview', level: 2 })).toBeVisible();
-    await expect(page.getByText('Single node, single drive').first()).toBeVisible();
+    await expect(page.getByText(modeLabels[nexo.mode]).first()).toBeVisible();
 
     const session = (await context.cookies()).find((c) => c.name === 'nexo_session');
     expect(session?.value).toBeTruthy();

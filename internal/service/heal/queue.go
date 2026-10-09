@@ -219,6 +219,32 @@ func (q *queue) Done(_ context.Context, e Entry, retry bool) {
 	q.signal()
 }
 
+// Release implements Queue.
+func (q *queue) Release(_ context.Context, e Entry, wait bool) {
+	now := q.deps.Clock.Now()
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	cur, ok := q.entries[entryKey(e.Bucket, e.Object, e.VersionID)]
+	if !ok || !cur.leased {
+		return
+	}
+	cur.leased = false
+	q.dirty = true
+	switch {
+	case cur.again:
+		// Notified again during the lease: heal once more, now.
+		cur.again = false
+		cur.NotBefore = now
+	case wait:
+		cur.Waits++
+		cur.NotBefore = now.Add(q.backoff(cur.Waits))
+		q.stats.Retried++
+	default:
+		cur.NotBefore = now
+	}
+	q.signal()
+}
+
 // backoff returns the delay before attempt n+1: minBackoff doubled n-1
 // times, capped at maxBackoff.
 func (q *queue) backoff(attempts int) time.Duration {
