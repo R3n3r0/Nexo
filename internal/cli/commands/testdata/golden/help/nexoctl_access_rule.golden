@@ -1,0 +1,24 @@
+Add, list, show, remove and reorder the access rules of a bucket
+
+Usage:
+  nexoctl access rule [flags]
+  nexoctl access rule [command]
+
+Available Commands:
+  add         Add an access rule to a bucket
+  info        Show an access rule
+  list        List the access rules of a bucket, in evaluation order
+  move        Change the priority of an access rule
+  remove      Remove an access rule
+
+Flags:
+  -h, --help   help for rule
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl access rule [command] --help" for more information about a command.

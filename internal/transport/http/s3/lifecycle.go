@@ -141,7 +141,7 @@ func (h *lifecycleRoutes) Wrap(next http.Handler) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t := resolveTarget(h.opts.domains, r)
+		t := resolveTarget(h.opts, r)
 		if !objectRequest(t) || !expirationMethod(r.Method) {
 			next.ServeHTTP(w, r)
 			return
@@ -225,8 +225,8 @@ func (h *lifecycleRoutes) addExpiration(w http.ResponseWriter, r *http.Request, 
 
 // resolveTarget resolves the bucket and the key of a request like the
 // Dispatcher does (the middlewares run before it).
-func resolveTarget(domains []string, r *http.Request) target {
-	return (&dispatcher{domains: domains}).resolve(r)
+func resolveTarget(o options, r *http.Request) target {
+	return (&dispatcher{domains: o.domains, hostBuckets: o.hostBuckets}).resolve(r)
 }
 
 // objectRequest reports a request on an object, not on the reserved

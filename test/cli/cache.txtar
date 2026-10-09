@@ -1,0 +1,212 @@
+# The cache of the distributions from the CLI (docs/11 §11.10).
+# TCL-C-01: cache policy create + dist cache set --domain: the answers of the
+# domain carry the Cache-Control of the policy and X-Cache MISS then HIT; the
+# domain with the cache off answers BYPASS.
+# TCL-C-02: cache purge --domain ... '/assets/**' → purge status completed on
+# every node → MISS (the other paths stay cached).
+# TCL-C-03: cache inspect agrees with the real answers.
+# TCL-C-04: cache warm --from urls.txt → the next requests are HITs.
+# TCL-C-05: cache stats --json is valid against the schema of the API.
+# TCL-D-04 (cache side): dist invalidate.
+
+exec nexoctl mb local/web
+exec nexoctl cp index.html local/web/index.html
+exec nexoctl cp app.js local/web/assets/app.js
+exec nexoctl cp style.css local/web/assets/style.css
+exec nexoctl dist create local site --bucket web --domain www.site.test --domain preview.site.test --index index.html
+# The entries are served as HITs once the node receives the invalidations of
+# every peer (at once on a single node).
+eventually 30s -match 'Nodes: [0-9]+ \(all online, all synced\)' nexoctl cache stats local
+
+# Settings of the cluster.
+exec nexoctl cache settings local
+stdout '^Cache: inherited$'
+stdout '^Node header: off$'
+
+# TCL-C-01: a policy, the override of the domains and of the assets.
+exec nexoctl cache policy create local short --ttl-default 10m --browser-cache-control 'public, max-age=600' --comment 'ten minutes'
+stdout 'Created the cache policy `short` \(Cache-Control public, max-age=600\).'
+exec nexoctl cache policy ls local
+stdout '^short +defined +10m0s +7d +ten minutes$'
+stdout '^standard +built-in +1h0m0s +7d '
+exec nexoctl cache policy info local short
+stdout '^Type: defined$'
+stdout '^Cache-Control: public, max-age=600$'
+stdout '^TTL default: 10m0s$'
+expectcode 1 nexoctl cache policy create local short
+stderr 'already_exists'
+expectcode 1 nexoctl cache policy edit local standard --ttl-max 1d
+stderr 'builtin_cache_policy'
+expectcode 1 nexoctl cache policy create local bad --ttl-default 1h --ttl-max 1m
+stderr 'invalid_cache_request'
+exec nexoctl cache policy edit local short --stale-while-revalidate 1m
+stdout 'Changed the cache policy `short`'
+
+exec nexoctl dist cache set local site --domain www.site.test --policy short --quota 64MiB
+stdout 'Cache of `site`, domain www.site.test: policy short, quota 64MiB.'
+exec nexoctl dist cache set local site --domain preview.site.test --disable
+stdout 'Cache of `site`, domain preview.site.test: disabled.'
+exec nexoctl dist cache set local site --behavior '/assets/**' --ttl-default 365d --ttl-max 365d
+stdout 'Cache of `site`, behavior glob /assets/\*\*: TTL default 365d, TTL max 365d.'
+expectcode 1 nexoctl dist cache set local site --domain other.test --disable
+stderr 'invalid_cache_request'
+expectcode 2 nexoctl dist cache set local site --domain www.site.test
+exec nexoctl dist cache show local site --path /assets/app.js
+stdout '^Domain www.site.test: policy short, quota 64MiB$'
+stdout '^Domain preview.site.test: disabled$'
+stdout '^Behavior 1 \(glob /assets/\*\*\): TTL default 365d, TTL max 365d$'
+stdout '^Effective www.site.test/assets/app.js: enabled \(default\), policy short \(domain\), TTL 365d, Cache-Control public, max-age=600$'
+stdout '^Effective preview.site.test/assets/app.js: disabled \(domain\), policy standard \(default\)'
+
+http -H 'Host: www.site.test' -D h.txt -o got.html $NEXO_URL/
+cmp got.html index.html
+grep '^X-Cache: MISS$' h.txt
+grep '^Cache-Control: public, max-age=600$' h.txt
+http -H 'Host: www.site.test' -D h.txt -o got.html $NEXO_URL/
+cmp got.html index.html
+grep '^X-Cache: HIT$' h.txt
+grep '^Age: ' h.txt
+http -H 'Host: preview.site.test' -D h.txt -o got.html $NEXO_URL/
+cmp got.html index.html
+grep '^X-Cache: BYPASS$' h.txt
+
+# TCL-C-03: the inspector agrees with the answers.
+exec nexoctl cache inspect local https://www.site.test/
+stdout '^Distribution: site \(host www.site.test, mode local\)$'
+stdout '^Object: web/index.html$'
+stdout '^Cache: enabled \(default\)$'
+stdout '^Policy: short \(domain\)$'
+stdout '^Cache-Control: public, max-age=600$'
+stdout '^Node [^ ]+: cached in memory \(object\), age [0-9]+s, fresh for [0-9]+s'
+exec nexoctl cache inspect local /assets/app.js --dist site
+stdout '^Node [^ ]+: not cached$'
+! stdout 'cached in'
+exec nexoctl cache inspect local https://preview.site.test/
+stdout '^Cache: disabled \(domain\)$'
+stdout '^Bypass: '
+exec nexoctl cache inspect --json local https://www.site.test/
+jsonlines stdout
+openapischema stdout CacheInspection inspection
+expectcode 1 nexoctl cache inspect local /index.html
+stderr 'invalid_argument'
+
+# TCL-C-02: a purge of the assets of a domain.
+http -H 'Host: www.site.test' -o got.js $NEXO_URL/assets/app.js
+http -H 'Host: www.site.test' -D h.txt -o got.js $NEXO_URL/assets/app.js
+grep '^X-Cache: HIT$' h.txt
+exec nexoctl cache purge --json local site --domain www.site.test '/assets/**'
+jsonlines stdout
+jsonfield stdout invalidation.id INV
+exec nexoctl cache purge status local $INV --wait
+stdout '^Scope: distribution site, domain www.site.test, glob /assets/\*\*$'
+stdout '^State: completed \([0-9]+/[0-9]+ nodes'
+! stdout 'pending'
+exec nexoctl cache purge status local $INV --dist site
+stdout '^Invalidation: '$INV'$'
+http -H 'Host: www.site.test' -D h.txt -o got.js $NEXO_URL/assets/app.js
+cmp got.js app.js
+grep '^X-Cache: MISS$' h.txt
+http -H 'Host: www.site.test' -D h.txt -o got.html $NEXO_URL/
+grep '^X-Cache: HIT$' h.txt
+exec nexoctl cache purge ls local site
+stdout '^'$INV' .* completed '
+exec nexoctl cache purge local site --tag release-1 --soft
+stdout '^Invalidation inv-[0-9a-f-]+ \(distribution site, tag release-1, soft\): '
+expectcode 2 nexoctl cache purge local site
+expectcode 2 nexoctl cache purge local '/assets/**'
+expectcode 2 nexoctl cache purge local site assets/app.js
+expectcode 3 nexoctl cache purge status local inv-nope
+stderr 'invalidation_not_found'
+
+# TCL-D-04: dist invalidate, by URL.
+exec nexoctl dist invalidate local site https://www.site.test/ --wait
+stdout '^Invalidation inv-[0-9a-f-]+ \(distribution site, domain www.site.test, paths / /index.html\): completed on '
+http -H 'Host: www.site.test' -D h.txt -o got.html $NEXO_URL/
+grep '^X-Cache: MISS$' h.txt
+
+# TCL-C-04: a warm-up from a list of URLs and paths, then HITs.
+exec nexoctl cache purge local site --all --wait
+exec nexoctl cache warm local site --domain www.site.test --from urls.txt --wait
+stdout '^Warm-up warm-[0-9a-f-]+ of `site`: completed, ([0-9]+)/[0-9]+ objects.$'
+http -H 'Host: www.site.test' -D h.txt -o got.js $NEXO_URL/assets/app.js
+cmp got.js app.js
+grep '^X-Cache: HIT$' h.txt
+http -H 'Host: www.site.test' -D h.txt -o got.css $NEXO_URL/assets/style.css
+cmp got.css style.css
+grep '^X-Cache: HIT$' h.txt
+exec nexoctl cache warm --json local site --prefix /assets/
+jsonfield stdout job.id JOB
+exec nexoctl cache warm status local site $JOB --wait
+stdout '^State: completed \([0-9]+/[0-9]+ objects, 0 failed'
+expectcode 2 nexoctl cache warm local site
+expectcode 1 nexoctl cache warm local site /x.js --domain other.test
+stderr 'invalid_cache_request'
+
+# TCL-C-05: the statistics, valid against the schema of the API.
+exec nexoctl cache stats --json local site
+jsonlines stdout
+openapischema stdout CacheStats stats
+exec nexoctl cache stats local site --domain www.site.test
+stdout '^Requests: [0-9]+ requests \(HIT [0-9]+, MISS [0-9]+'
+stdout '^Domain www.site.test \(site\): '
+exec nexoctl cache stats --json local --watch --interval 50ms --count 2
+stdout -count=2 '^\{"status":"success","alias":"local"'
+
+# The node header of the cluster settings.
+exec nexoctl cache settings local --node-header
+stdout '^Node header: on$'
+http -H 'Host: www.site.test' -D h.txt -o got.html $NEXO_URL/
+grep '^X-Cache-Node: ' h.txt
+exec nexoctl cache settings local --node-header=false
+
+# Purge webhooks: a generic one, its test call and the purges it receives.
+webhook HOOK
+exec nexoctl cache webhook add local site --id edge --type generic --url $HOOK --body-file body.tmpl --domain www.site.test
+stdout 'Added the purge webhook `edge` \(generic\) of `site` for www.site.test.'
+exec nexoctl cache webhook ls local site
+stdout '^edge +generic +www.site.test +http://'
+exec nexoctl cache webhook test local site edge
+stdout 'Webhook `edge`: OK \(200, '
+webhookwait 10s '^purge-test '
+exec nexoctl cache purge local site --domain www.site.test /index.html
+webhookwait 10s '^purge /index.html'
+expectcode 1 nexoctl cache webhook add local site --id edge --type generic --url $HOOK
+stderr 'already_exists'
+exec nexoctl cache webhook rm local site edge
+expectcode 3 nexoctl cache webhook test local site edge
+stderr 'webhook_not_found'
+
+# GitOps: export and import of the policies and of the settings.
+exec nexoctl dist cache export local site -o cache.yaml
+stdout 'Exported 1 cache settings to cache.yaml.'
+grep '^distribution: site$' cache.yaml
+grep '^  - host: www.site.test$' cache.yaml
+exec nexoctl cache policy export local -o policies.yaml
+grep '^name: short$' policies.yaml
+exec nexoctl cache policy import local policies.yaml
+stdout 'Cache policy `short` updated.'
+exec nexoctl dist cache import local cache.yaml
+stdout 'Cache settings of `site` imported.'
+
+# A policy in use cannot be removed; the override removed, it can.
+expectcode 1 nexoctl cache policy rm local short
+stderr 'cache_policy_in_use'
+exec nexoctl dist cache set local site --domain www.site.test --reset
+stdout 'Cache of `site`: removed the override of the domain www.site.test.'
+exec nexoctl cache policy rm local short
+stdout 'Removed the cache policy `short`.'
+exec nexoctl dist rm local site
+exec nexoctl cache purge local --all
+
+-- index.html --
+<h1>home</h1>
+-- app.js --
+console.log("app")
+-- style.css --
+body { color: black }
+-- urls.txt --
+# the assets of the release
+https://www.site.test/assets/app.js
+/assets/style.css
+-- body.tmpl --
+{"EventName":"purge{{if .Test}}-test{{end}}","Key":"{{range $i, $p := .Paths}}{{if $i}},{{end}}{{$p}}{{end}}"}

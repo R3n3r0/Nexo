@@ -21,6 +21,10 @@ x-nexo: &nexo
     - nexo.env
   environment:
     NEXO_CERTS_DIR: /certs
+    # Disk tier of the distribution cache (docs/11), one volume per node.
+    NEXO_CACHE_DIR: /cache
+    NEXO_CACHE_SIZE: ${NEXO_CACHE_SIZE:-10GiB}
+    NEXO_CACHE_MODE: ${NEXO_CACHE_MODE:-local}
   # volumes are listed per service: YAML merge keys replace lists, they do
   # not concatenate them, so ./certs is repeated on every node.
   healthcheck:
@@ -42,6 +46,7 @@ services:
       - ./certs:/certs:ro
       - d1-1:/data1
       - d1-2:/data2
+      - c1:/cache
 
   nexo2:
     <<: *nexo
@@ -50,6 +55,7 @@ services:
       - ./certs:/certs:ro
       - d2-1:/data1
       - d2-2:/data2
+      - c2:/cache
 
   nexo3:
     <<: *nexo
@@ -58,6 +64,7 @@ services:
       - ./certs:/certs:ro
       - d3-1:/data1
       - d3-2:/data2
+      - c3:/cache
 
   nexo4:
     <<: *nexo
@@ -66,6 +73,7 @@ services:
       - ./certs:/certs:ro
       - d4-1:/data1
       - d4-2:/data2
+      - c4:/cache
 
   # TCP passthrough load balancer: no TLS termination here, the Host header
   # and the certificate the client sees are Nexo's.
@@ -92,3 +100,7 @@ volumes:
   d3-2: {}
   d4-1: {}
   d4-2: {}
+  c1: {}
+  c2: {}
+  c3: {}
+  c4: {}

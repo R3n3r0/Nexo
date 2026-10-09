@@ -73,6 +73,25 @@ docker run ... -v /srv/nexo:/data ghcr.io/r3n3r0/nexo server /data
 
 Named volumes inherit the ownership of `/data` from the image and need nothing.
 
+### Distribution cache volume (`/cache`)
+
+The cache of the distributions (docs/11) keeps the hot objects in memory and, with a cache
+directory, on disk. Every compose file mounts a named volume at `/cache` and sets
+`NEXO_CACHE_DIR=/cache` (flag `--cache-dir`) with `NEXO_CACHE_SIZE` (`--cache-size`, default
+10GiB): put it on an SSD/NVMe, never on one of the data drives. The cache is disposable: an
+emptied or corrupt volume is rebuilt from the storage, without errors for the clients.
+
+```bash
+# bind mount of a fast disk, writable by the container user
+sudo mkdir -p /mnt/nvme/nexo-cache && sudo chown 65532:65532 /mnt/nvme/nexo-cache
+docker run ... -v /mnt/nvme/nexo-cache:/cache -e NEXO_CACHE_DIR=/cache -e NEXO_CACHE_SIZE=50GiB \
+  ghcr.io/r3n3r0/nexo server /data
+```
+
+Without `NEXO_CACHE_DIR` only the memory tier is used (`NEXO_CACHE_MEMORY`, default 256MiB). In a
+cluster each node has its own cache volume; `NEXO_CACHE_MODE=shared` (or `shared+local`) keeps one
+copy of an object in the whole cluster, on the node that owns its key.
+
 ## Cluster
 
 ```bash

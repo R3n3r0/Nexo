@@ -1,0 +1,138 @@
+# TCL-D-01: dist create with two domains: the requests for both hosts serve
+# the content (the domains are simulated with the Host header).
+# TCL-D-02: dist sign-url with the stored key of the key group: the URL is
+# served, then refused (403) after its expiry; the signed cookies too.
+# TCL-D-03: dist test shows the behavior and the headers the server sends.
+# TCL-D-04: dist origin-secret rotate, dist cert set --cert/--key, and the
+# GitOps export/import.
+
+exec nexoctl mb local/web
+exec nexoctl cp index.html local/web/prod/index.html
+exec nexoctl cp app.js local/web/prod/assets/app.js
+exec nexoctl cp v1.zip local/web/prod/downloads/v1.zip
+exec nexoctl cp index.html local/web/secret.html
+
+# TCL-D-01
+exec nexoctl dist create local site --bucket web --prefix /prod --domain www.site.test --domain site.test --index index.html --spa /index.html
+stdout 'Created the distribution `site` \(website\) of `web/prod` on www.site.test, site.test.'
+expectcode 1 nexoctl dist create local clash --bucket web --domain site.test
+stderr 'alias_conflict'
+exec nexoctl dist ls local
+stdout '^site +enabled +website +web/prod +- +www.site.test, site.test$'
+exec nexoctl dist ls --json local
+jsonlines stdout
+exec nexoctl dist resolve local site.test
+stdout '^site.test: distribution `site` \(alias site.test, website\), bucket web$'
+http -H 'Host: www.site.test' -o got.html $NEXO_URL/
+cmp got.html index.html
+http -H 'Host: site.test' -o got.html $NEXO_URL/
+cmp got.html index.html
+http -H 'Host: site.test' -o got.html $NEXO_URL/some/spa/route
+cmp got.html index.html
+http -H 'Host: www.site.test' -status 404 $NEXO_URL/../secret.html
+exec nexoctl dist disable local site
+http -H 'Host: www.site.test' -status 403 $NEXO_URL/
+exec nexoctl dist enable local site
+http -H 'Host: www.site.test' -o got.html $NEXO_URL/
+cmp got.html index.html
+
+# TCL-D-03
+exec nexoctl dist behavior add local site --prefix /assets/ --cache-control 'public, max-age=60'
+stdout 'Added a behavior for prefix /assets/ to `site` \(1 behavior\)'
+exec nexoctl dist headers local site --set 'X-Site: prod'
+exec nexoctl dist test local site /assets/app.js
+stdout '^Route: www.site.test → distribution `site` \(alias www.site.test\)$'
+stdout '^Behavior: 1 \(prefix /assets/\)$'
+stdout '^Object: web/prod/assets/app.js$'
+stdout '^Settings: .*cache-control "public, max-age=60"$'
+stdout '^Header X-Site: prod$'
+exec nexoctl dist test --json local site https://site.test/assets/app.js
+jsonlines stdout
+http -H 'Host: site.test' -D headers.txt -o got.js $NEXO_URL/assets/app.js
+cmp got.js app.js
+grep '^Cache-Control: public, max-age=60$' headers.txt
+grep '^X-Site: prod$' headers.txt
+exec nexoctl dist test local site /
+stdout '^Behavior: default$'
+stdout '^Object: web/prod/$'
+
+# TCL-D-02: a key group with a generated key (stored privately), a signed
+# behavior, a URL valid a few seconds.
+exec nexoctl dist keygroup create local downloads --comment 'download links'
+stdout 'Created the key group `downloads` with the key '
+stdout 'private key saved to '
+exec nexoctl dist keygroup ls local
+stdout '\[private key stored\]'
+exec nexoctl dist behavior add local site --glob '/downloads/**' --access signed --key-group downloads
+http -H 'Host: www.site.test' -status 403 $NEXO_URL/downloads/v1.zip
+expectcode 2 nexoctl dist sign-url local site /downloads/v1.zip
+expectcode 1 nexoctl dist sign-url local site /index.html --expire 1h
+stderr 'only the signed behaviors verify signatures'
+exec nexoctl dist sign-url --json local site /downloads/v1.zip --scheme http --expire 4s
+jsonlines stdout
+jsonfield stdout url URL
+http -via $NEXO_URL -o got.zip $URL
+cmp got.zip v1.zip
+sleep 5s
+http -via $NEXO_URL -status 403 $URL
+
+# Signed cookies of the downloads.
+exec nexoctl dist sign-url --json local site /downloads/v1.zip --scheme http --cookie --resource 'http://www.site.test/downloads/*' --expire 1h
+jsonfield stdout cookies.0.name C0
+jsonfield stdout cookies.0.value V0
+jsonfield stdout cookies.1.name C1
+jsonfield stdout cookies.1.value V1
+jsonfield stdout cookies.2.name C2
+jsonfield stdout cookies.2.value V2
+http -H 'Host: www.site.test' -H 'Cookie: '$C0'='$V0'; '$C1'='$V1'; '$C2'='$V2 -o got.zip $NEXO_URL/downloads/v1.zip
+cmp got.zip v1.zip
+expectcode 1 nexoctl dist keygroup rm local downloads
+stderr 'used by'
+
+# TCL-D-04: the origin secret: the requests without it are refused.
+exec nexoctl dist origin-secret rotate --json local site
+jsonlines stdout
+stdout '"header":"X-Origin-Secret"'
+jsonfield stdout secret SECRET
+http -H 'Host: www.site.test' -status 403 $NEXO_URL/
+http -H 'Host: www.site.test' -H 'X-Origin-Secret: '$SECRET -o got.html $NEXO_URL/
+cmp got.html index.html
+exec nexoctl dist origin-secret rotate --json local site
+jsonfield stdout secret SECRET2
+http -H 'Host: www.site.test' -H 'X-Origin-Secret: '$SECRET -o got.html $NEXO_URL/
+http -H 'Host: www.site.test' -H 'X-Origin-Secret: '$SECRET2 -o got.html $NEXO_URL/
+exec nexoctl dist restrict local site --no-origin-secret
+http -H 'Host: www.site.test' -o got.html $NEXO_URL/
+
+# TCL-D-04: an uploaded certificate for the domains.
+mkcert www.site.test site.test cert.pem key.pem
+exec nexoctl dist cert set local site --cert cert.pem --key key.pem
+stdout 'Uploaded the certificate dist-site \(www.site.test, site.test, valid until '
+stdout 'TLS of `site`: upload:dist-site.'
+exec nexoctl dist cert ls local
+stdout '^dist-site +upload +valid +.* site$'
+exec nexoctl dist info local site
+stdout '^TLS: upload:dist-site$'
+expectcode 1 nexoctl dist cert rm local dist-site
+stderr 'used by'
+
+# GitOps: export, remove, import: served again.
+exec nexoctl dist export local site -o site.yaml
+stdout 'Exported 1 distribution to site.yaml.'
+grep '^  - www.site.test$' site.yaml
+exec nexoctl dist rm local site
+http -H 'Host: www.site.test' -status 403 $NEXO_URL/
+exec nexoctl dist import local site.yaml
+stdout 'Distribution `site` created.'
+http -H 'Host: www.site.test' -o got.html $NEXO_URL/
+cmp got.html index.html
+exec nexoctl dist cert set local site --none
+exec nexoctl dist cert rm local dist-site
+exec nexoctl dist rm local site
+
+-- index.html --
+<h1>home</h1>
+-- app.js --
+console.log("app")
+-- v1.zip --
+zip data of the release

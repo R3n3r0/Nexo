@@ -3,7 +3,8 @@ import { corsLimits, validateCorsRule, type CorsIssue } from '@/lib/cors';
 import type { BucketService } from '../interfaces';
 import type { Bucket, PolicyError } from '../types';
 import { ApiError, type RuleProblem } from '../errors';
-import { applyPreset, presetPolicy, type MockStorage } from './storage';
+import { publicByRules } from './accessRules';
+import { applyPreset, presetPolicy, type MockBucketState, type MockStorage } from './storage';
 import { clone, invalidConfiguration, problem } from './support';
 
 export function sampleBuckets(): Bucket[] {
@@ -76,17 +77,21 @@ export interface MockBucketOptions {
 export function createMockBucketService(storage: MockStorage): BucketService {
   const { ctx } = storage;
 
+  /** The bucket as the server reports it: public by its policy or by its access rules. */
+  const view = (state: MockBucketState): Bucket => {
+    const bucket = clone(state.bucket);
+    bucket.public = state.bucket.public === true || publicByRules(storage.blockPublic, state);
+    return bucket;
+  };
+
   const service: BucketService = {
     async list() {
       await ctx.delay();
-      return [...storage.buckets.values()]
-        .map((s) => s.bucket)
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .map(clone);
+      return [...storage.buckets.values()].map(view).sort((a, b) => a.name.localeCompare(b.name));
     },
     async get(name) {
       await ctx.delay();
-      return clone(storage.bucket(name).bucket);
+      return view(storage.bucket(name));
     },
     async create(input) {
       await ctx.delay();

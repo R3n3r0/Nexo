@@ -67,7 +67,12 @@ export const navigation: readonly NavItem[] = [
   },
   { key: 'accessKeys', path: '/access-keys', icon: IconKey },
   { key: 'shares', path: '/shares', icon: IconShare },
-  { key: 'distributions', path: '/distributions', icon: IconWorld },
+  {
+    key: 'distributions',
+    path: '/distributions',
+    icon: IconWorld,
+    requires: 'admin:ManageDistributions',
+  },
   { key: 'cache', path: '/cache', icon: IconDatabase },
   { key: 'cluster', path: '/cluster', icon: IconServer, requires: 'admin:ServerInfo' },
   { key: 'healing', path: '/healing', icon: IconFirstAidKit, requires: 'admin:Heal' },

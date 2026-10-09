@@ -1,8 +1,16 @@
 import { demoCredentials } from '../demo';
 import { createAuthEventEmitter } from '../events';
 import type { Services } from '../interfaces';
+import { createMockAccessRuleService, type MockAccessRuleOptions } from './accessRules';
 import { createMockBucketService, sampleBuckets, type MockBucketOptions } from './buckets';
 import { createMockConfigService, type MockConfigOptions } from './config';
+import {
+  createMockCertificateService,
+  createMockDistributionService,
+  createMockDistributionState,
+  createMockKeyGroupService,
+  type MockDistributionOptions,
+} from './distributions';
 import { createMockHealService, type MockHealOptions } from './heal';
 import { createMockIam, type MockIamOptions } from './iam';
 import { createMockInfoService, sampleServerInfo, type MockInfoOptions } from './info';
@@ -32,7 +40,9 @@ export interface MockServicesOptions
     MockIamOptions,
     MockShareOptions,
     MockConfigOptions,
-    MockNotificationOptions {
+    MockNotificationOptions,
+    MockAccessRuleOptions,
+    MockDistributionOptions {
   /** Accepted logins; defaults to the demo credentials. */
   accounts?: Record<string, string>;
   /** Start authenticated as this account (tests of protected pages). */
@@ -71,6 +81,13 @@ export function createMockServices(options: MockServicesOptions = {}): MockServi
   };
   const session = createMockSessionService(ctx, sessionOptions);
   const objects = createMockObjectService(storage);
+  const dist = createMockDistributionState(
+    ctx,
+    options,
+    (name) => storage.buckets.has(name),
+    options.buckets === undefined,
+    (action) => iam.allowed(action),
+  );
   const serverInfo =
     options.info ??
     sampleServerInfo({
@@ -93,12 +110,25 @@ export function createMockServices(options: MockServicesOptions = {}): MockServi
     shares: createMockShareService(ctx, iam, options, objects),
     config: createMockConfigService(ctx, iam, options),
     permissions: iam.permissions,
+    accessRules: createMockAccessRuleService(
+      storage,
+      {
+        current: () => session.currentAccessKey() ?? undefined,
+        rootAccessKey: Object.keys(accounts)[0] ?? demoCredentials.accessKey,
+        allowed: (action, bucket) => iam.allowed(action, bucket),
+      },
+      options,
+    ),
+    distributions: createMockDistributionService(ctx, dist),
+    keyGroups: createMockKeyGroupService(ctx, dist),
+    certificates: createMockCertificateService(ctx, dist),
     authEvents,
   };
 }
 
 export { isValidBucketName, sampleBuckets } from './buckets';
 export { sampleConfigSchema } from './config';
+export { sampleDistributions } from './distributions';
 export { sampleAccessKeys, sampleGroups, samplePolicies, sampleUsers } from './iam';
 export { maxExpirySeconds, sampleShares } from './shares';
 export { sampleClusterInfo, sampleServerInfo } from './info';

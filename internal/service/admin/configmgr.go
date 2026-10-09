@@ -69,6 +69,10 @@ func configSchema() []SubsystemSchema {
 // knownSubsystems lists the subsystems and keys the configuration accepts.
 func knownSubsystems() []SubsystemSchema {
 	return []SubsystemSchema{
+		{Name: "access", Description: "Access rules of the buckets: cluster-level block public access", Keys: []KeySchema{
+			{Name: "block_public", Type: KeyBool, Default: "off", Description: "Block the access rules granting everyone (\"*\") on every bucket"},
+			{Name: "block_public_mode", Type: KeyEnum, Default: "reject", Values: []string{"reject", "ignore"}, Description: "reject: refuse such rules when saved (the stored ones are ignored); ignore: accept them and ignore them"},
+		}},
 		{Name: "api", Description: "S3 API behavior", Keys: []KeySchema{
 			{Name: "cors_allow_origin", Type: KeyList, Default: "*", Description: "Origins allowed by CORS, comma separated"},
 			{Name: "requests_max", Type: KeyInt, Default: "0", Description: "Maximum concurrent requests (0: automatic)"},

@@ -179,6 +179,89 @@ type AdminClient interface {
 	// of bucket (every bucket when empty) under the current master key of
 	// the KMS, after a rotation (admin:KMSCreateKey).
 	ResealKMSKeys(ctx context.Context, bucket string) (*KMSResealResult, error)
+
+	// Access rules of the buckets (admin:ManageAccessRules, docs/10
+	// §10.1). SetAccessRules replaces every rule atomically; a non-empty
+	// ifMatch is the ETag the current rules must have (IsPreconditionFailed
+	// otherwise). An invalid rule is an *APIError with Code
+	// invalid_access_rule locating it in AccessRuleErrors.
+	GetAccessRules(ctx context.Context, bucket string) (*AccessRules, error)
+	SetAccessRules(ctx context.Context, bucket string, rules []BucketAccessRule, ifMatch string) (*AccessRules, error)
+	// TestAccessRules evaluates requests on keys with every source of the
+	// policy engine (admin:SimulatePolicy too, for another identity).
+	TestAccessRules(ctx context.Context, bucket string, in TestAccessRulesRequest) (*AccessRulesTestResult, error)
+	GetAccessRulesPublic(ctx context.Context, bucket string) (*AccessRulesPublicStatus, error)
+	ApplyAccessPreset(ctx context.Context, bucket string, in AccessPresetRequest, ifMatch string) (*AccessRules, error)
+	// GetBlockPublic and SetBlockPublic read and set the block public
+	// access of a bucket, or of the cluster when bucket is "".
+	GetBlockPublic(ctx context.Context, bucket string) (*BlockPublic, error)
+	SetBlockPublic(ctx context.Context, bucket string, in BlockPublicRequest) (*BlockPublic, error)
+
+	// Distributions, their key groups and the host routing
+	// (admin:ManageDistributions; admin:SignDistributionURL for the
+	// signatures, docs/10 §10.2). UpdateDistribution replaces the whole
+	// document; a non-empty ifMatch is the ETag it must have.
+	ListDistributions(ctx context.Context) ([]Distribution, error)
+	CreateDistribution(ctx context.Context, d Distribution) (*Distribution, error)
+	GetDistribution(ctx context.Context, id string) (*Distribution, error)
+	UpdateDistribution(ctx context.Context, d Distribution, ifMatch string) (*Distribution, error)
+	DeleteDistribution(ctx context.Context, id string) error
+	TestDistribution(ctx context.Context, id string, in DistributionTestRequest) (*DistributionTestResult, error)
+	RotateOriginSecret(ctx context.Context, id string, in RotateOriginSecretRequest) (*RotatedOriginSecret, error)
+	// SignDistributionURL signs a URL or cookies with a private key of the
+	// key group of the signed behavior (never stored by the server).
+	SignDistributionURL(ctx context.Context, id string, in SignRequest) (*SignedURL, error)
+	ResolveHost(ctx context.Context, host string) (*Route, error)
+	ListKeyGroups(ctx context.Context) ([]KeyGroup, error)
+	// CreateKeyGroup creates a key group; with GenerateKey the private key
+	// of its first key pair is returned once.
+	CreateKeyGroup(ctx context.Context, in CreateKeyGroupRequest) (*CreatedKeyGroup, error)
+	GetKeyGroup(ctx context.Context, id string) (*KeyGroup, error)
+	DeleteKeyGroup(ctx context.Context, id string) error
+	AddKeyGroupKey(ctx context.Context, group string, in AddKeyRequest) (*AddedKey, error)
+	DeleteKeyGroupKey(ctx context.Context, group, keyID string) error
+
+	// Certificates of the domains (admin:ManageCertificates).
+	ListCertificates(ctx context.Context) (*CertificateList, error)
+	UploadCertificate(ctx context.Context, in UploadCertificateRequest) (*Certificate, error)
+	GetCertificate(ctx context.Context, id string) (*Certificate, error)
+	DeleteCertificate(ctx context.Context, id string) error
+
+	// Cache of the distributions (docs/11). The configuration
+	// (admin:ManageCache): reusable policies, settings of the cluster and
+	// of a distribution (replaced whole; a non-empty ifMatch is the ETag
+	// they must have), the effective policy of a path of a domain, the
+	// purge webhooks, the inspector and the statistics.
+	ListCachePolicies(ctx context.Context) ([]CachePolicy, error)
+	GetCachePolicy(ctx context.Context, name string) (*CachePolicy, error)
+	CreateCachePolicy(ctx context.Context, p CachePolicy) (*CachePolicy, error)
+	UpdateCachePolicy(ctx context.Context, p CachePolicy, ifMatch string) (*CachePolicy, error)
+	DeleteCachePolicy(ctx context.Context, name string) error
+	// PreviewCachePolicy validates a policy and computes the Cache-Control
+	// it sends, without storing it.
+	PreviewCachePolicy(ctx context.Context, p CachePolicy) (*CachePolicyPreview, error)
+	GetCacheSettings(ctx context.Context) (*CacheGlobalSettings, error)
+	SetCacheSettings(ctx context.Context, s CacheGlobalSettings, ifMatch string) (*CacheGlobalSettings, error)
+	GetDistributionCache(ctx context.Context, id string) (*DistributionCache, error)
+	SetDistributionCache(ctx context.Context, cfg DistributionCache, ifMatch string) (*DistributionCache, error)
+	// EffectiveCachePolicy returns the policy of a path ("" for /) of a
+	// domain ("" for the level of the distribution).
+	EffectiveCachePolicy(ctx context.Context, id, host, path string) (*CacheEffectivePolicy, error)
+	InspectCache(ctx context.Context, in CacheInspectRequest) (*CacheInspection, error)
+	CacheStats(ctx context.Context, q CacheStatsQuery) (*CacheStats, error)
+	ListCacheWebhooks(ctx context.Context, distribution string) ([]CacheWebhook, error)
+	AddCacheWebhook(ctx context.Context, distribution string, w CacheWebhook) (*CacheWebhook, error)
+	DeleteCacheWebhook(ctx context.Context, distribution, id string) error
+	TestCacheWebhook(ctx context.Context, distribution, id string) (*CacheWebhookTestResult, error)
+	// The operations on the cached content (admin:InvalidateCache):
+	// invalidations of a distribution, or global purges when distribution
+	// is "" (All only); GetCacheInvalidation with distribution "" finds an
+	// invalidation by its id alone. The warm-ups of a domain.
+	InvalidateCache(ctx context.Context, distribution string, in CacheInvalidationRequest) (*CacheInvalidation, error)
+	GetCacheInvalidation(ctx context.Context, distribution, id string) (*CacheInvalidation, error)
+	ListCacheInvalidations(ctx context.Context, distribution string) ([]CacheInvalidation, error)
+	WarmCache(ctx context.Context, distribution string, in CacheWarmRequest) (*CacheWarmJob, error)
+	GetCacheWarmJob(ctx context.Context, distribution, id string) (*CacheWarmJob, error)
 }
 
 // DefaultRegion is the signing region when Config.Region is empty.

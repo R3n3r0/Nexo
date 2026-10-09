@@ -127,6 +127,62 @@ type Static struct {
 	// (NEXO_SSEC_ALLOW_INSECURE, environment only): S3 requires TLS for
 	// them; only for tests and development.
 	SSECAllowInsecure bool `json:"-"`
+
+	// Proxies and access rules (docs/10 §10.1, §10.2; access.go).
+	//
+	// ProxyProtocol lists the listeners (s3, console, web) accepting the
+	// PROXY protocol v1/v2 from the TrustedProxies.
+	ProxyProtocol []string `json:"proxyProtocol,omitempty"`
+	// ForwardedHeaders is the header family the trusted proxies set:
+	// "x-forwarded" (X-Forwarded-For/Proto/Host, the default) or
+	// "forwarded" (RFC 7239).
+	ForwardedHeaders string `json:"forwardedHeaders,omitempty"`
+	// AccessRulesMax bounds the access rules of a bucket (default 200).
+	AccessRulesMax int `json:"accessRulesMax,omitempty"`
+	// KeyNormalization is the Unicode normalization of the keys the
+	// access rules match: "nfc" (default) or "none".
+	KeyNormalization string `json:"keyNormalization,omitempty"`
+	// BlockPublicAccess and BlockPublicAccessMode ("reject" or "ignore")
+	// are the cluster-level block public access until it is changed at
+	// runtime (the "access" subsystem of the dynamic configuration).
+	BlockPublicAccess     bool   `json:"blockPublicAccess,omitempty"`
+	BlockPublicAccessMode string `json:"blockPublicAccessMode,omitempty"`
+	// Distributions (docs/10 §10.2; distribution.go).
+	//
+	// WebAddress and WebTLSAddress are the optional listeners serving the
+	// distributions only (and the ACME challenges): plain HTTP (":80")
+	// and TLS (":443") with the certificates of the domains by SNI.
+	WebAddress    string `json:"webAddress,omitempty"`
+	WebTLSAddress string `json:"webTLSAddress,omitempty"`
+	// UnknownHost is what the S3 listener does with a host that is no
+	// alias, virtual host or main domain: UnknownHostPathStyle (default)
+	// or UnknownHostMisdirected (421).
+	UnknownHost string `json:"unknownHost,omitempty"`
+	// ACMEDirectory, ACMEEmail and ACMEChallenge configure the automatic
+	// certificates (tls.certificate "auto"): the directory of the CA
+	// (default Let's Encrypt), the contact of the account and the
+	// challenge (http-01 on the web listener, tls-alpn-01 on the TLS web
+	// listener); ACMECACert is the PEM file of the CA of a private ACME
+	// server.
+	ACMEDirectory string `json:"acmeDirectory,omitempty"`
+	ACMEEmail     string `json:"acmeEmail,omitempty"`
+	ACMEChallenge string `json:"acmeChallenge,omitempty"`
+	ACMECACert    string `json:"acmeCACert,omitempty"`
+	// Cache of the distributions (docs/11; cache.go).
+	//
+	// CacheDir is the directory of the disk tier (empty: memory only),
+	// CacheSize its size (the size of the memory tier without CacheDir),
+	// CacheMemory the size of the memory tier (zero: the defaults) and
+	// CacheMode the cluster mode (local, shared, shared+local).
+	CacheDir    string `json:"cacheDir,omitempty"`
+	CacheSize   int64  `json:"cacheSize,omitempty"`
+	CacheMemory int64  `json:"cacheMemory,omitempty"`
+	CacheMode   string `json:"cacheMode,omitempty"`
+
+	// Secrets are the secrets the access rules reference as
+	// ${secret:<name>}: the NEXO_SECRET_<NAME> variables (or their _FILE
+	// form), keyed by <name> in lowercase (environment only).
+	Secrets map[string]string `json:"-"`
 }
 
 // KMSConfigured reports whether a KMS is configured (builtin or external).
@@ -142,6 +198,11 @@ func Default() Static {
 		LogFormat:      DefaultLogFormat,
 
 		PrometheusAuthType: PrometheusAuthJWT,
+
+		ForwardedHeaders:      ForwardedHeadersX,
+		AccessRulesMax:        DefaultAccessRulesMax,
+		KeyNormalization:      KeyNormalizationNFC,
+		BlockPublicAccessMode: BlockPublicReject,
 	}
 }
 
@@ -217,6 +278,9 @@ func (s Static) Validate() error {
 		}
 	}
 	errs = append(errs, s.validateKMS()...)
+	errs = append(errs, s.validateAccess()...)
+	errs = append(errs, s.validateDistribution()...)
+	errs = append(errs, s.validateCache()...)
 	if s.LockStaleAfter > 0 && s.LockRefreshInterval > 0 && s.LockRefreshInterval >= s.LockStaleAfter {
 		errs = append(errs, fmt.Errorf("lock refresh interval %s must be shorter than the lock stale delay %s", s.LockRefreshInterval, s.LockStaleAfter))
 	}

@@ -361,3 +361,189 @@ export interface UploadEncryption {
 export interface CreateUploadOptions extends CreateUploadInput {
   encryption?: UploadEncryption;
 }
+
+/* ------------------------------------------------------------------------ */
+/* M7b: access rules, presets, block public access (docs/10 §10.1).        */
+/* ------------------------------------------------------------------------ */
+
+/** A pattern of keys or paths: prefix, glob or RE2 regex. */
+export type KeyPattern = Schemas['KeyPattern'];
+export type KeyPatternType = KeyPattern['type'];
+/** Conditions of an access rule; all must hold. */
+export type AccessRuleConditions = Schemas['AccessRuleConditions'];
+/** An access rule of a bucket (not the anonymous access presets of AccessRule). */
+export type BucketAccessRule = Schemas['BucketAccessRule'];
+/** The access rules of a bucket with their version (etag) and public state. */
+export type AccessRules = Schemas['AccessRules'];
+/** POST /buckets/{bucket}/access-rules/test. */
+export type TestAccessRulesInput = Schemas['TestAccessRulesRequest'];
+export type AccessRulesTestResult = Schemas['AccessRulesTestResult'];
+/** The outcome of the access rules of the bucket for one key. */
+export type AccessRulesKeyResult = Schemas['AccessRulesKeyResult'];
+/** A rule as the tester evaluated it (matched, or the first mismatch). */
+export type EvaluatedAccessRule = Schemas['EvaluatedAccessRule'];
+export type AccessRulesPreset = Schemas['AccessRulesPreset'];
+export type AccessRulesPublicStatus = Schemas['AccessRulesPublicStatus'];
+export type AccessPresetInput = Schemas['AccessPresetRequest'];
+export type BlockPublicMode = Schemas['BlockPublicMode'];
+/** The block public access of a bucket or of the cluster (no bucket). */
+export type BlockPublic = Schemas['BlockPublic'];
+export type BlockPublicInput = Schemas['BlockPublicRequest'];
+/** A located problem of an access rule (problem field accessRuleErrors). */
+export type AccessRuleError = Schemas['AccessRuleError'];
+
+/* ------------------------------------------------------------------------ */
+/* M7b: distributions, key groups, certificates (docs/10 §10.2).           */
+/* ------------------------------------------------------------------------ */
+
+/** A distribution: a bucket (or a prefix) served on custom domains. */
+export type Distribution = Schemas['Distribution'];
+export type DistributionMode = Schemas['DistributionMode'];
+export type DistributionAccess = Schemas['DistributionAccess'];
+/** How the requests of a path are served; unset fields inherit from the default behavior. */
+export type DistributionBehavior = Schemas['DistributionBehavior'];
+export type DistributionCors = Schemas['DistributionCORS'];
+export type DistributionErrorPage = NonNullable<Distribution['errorPages']>[number];
+export type DistributionRedirect = NonNullable<Distribution['redirects']>[number];
+export type DistributionRestrictions = NonNullable<Distribution['restrictions']>;
+/** What serves a host (GET /routing/resolve). */
+export type Route = Schemas['Route'];
+export type RouteKind = Route['kind'];
+/** POST /distributions/{id}/test. */
+export type DistributionTestInput = Schemas['DistributionTestRequest'];
+export type DistributionTestResult = Schemas['DistributionTestResult'];
+export type RotateOriginSecretInput = Schemas['RotateOriginSecretRequest'];
+/** The new origin secret, in clear this time only. */
+export type RotateOriginSecretResult = Schemas['RotateOriginSecretResult'];
+/** POST /distributions/{id}/sign: a signed URL or signed cookies. */
+export type SignDistributionInput = Schemas['SignDistributionRequest'];
+export type SignDistributionResult = Schemas['SignDistributionResult'];
+export type SignedCookie = Schemas['SignedCookie'];
+
+/** A key group of the signed behaviors, with its public keys. */
+export type KeyGroup = Schemas['KeyGroup'];
+export type PublicKey = Schemas['PublicKey'];
+export type CreateKeyGroupInput = Schemas['CreateKeyGroupRequest'];
+/** The key group created, with the private key of its generated key (shown once). */
+export type CreateKeyGroupResult = Schemas['CreateKeyGroupResult'];
+export type GenerateKeyInput = Schemas['GenerateKeyRequest'];
+export type AddKeyInput = Schemas['AddKeyRequest'];
+/** The added key; privateKeyPem when the server generated it (shown once). */
+export type AddKeyResult = Schemas['AddKeyResult'];
+
+/** An uploaded or ACME certificate (never its key) and the distributions using it. */
+export type Certificate = Schemas['Certificate'];
+export type CertificateStatus = Schemas['CertificateStatus'];
+export type CertificateDetails = Schemas['CertificateDetails'];
+/** A certificate of a distribution with tls.certificate auto, issued or pending. */
+export type ManagedCertificate = Schemas['ManagedCertificate'];
+/** GET /certificates: the certificates and the ACME state. */
+export type CertificateList = Schemas['CertificateList'];
+export type UploadCertificateInput = Schemas['UploadCertificateRequest'];
+
+/**
+ * Traffic of the aliases of the distributions (D-DST-08): the per-domain
+ * counters of the cache statistics (GET /cache/stats, docs/11 §11.8),
+ * summed over the nodes. A console-side view: the statistics are a
+ * document of the cache API.
+ */
+export interface DistributionTraffic {
+  hosts: HostTraffic[];
+}
+
+/** Counters of one alias of a distribution. */
+export interface HostTraffic {
+  distribution: string;
+  host: string;
+  /** Requests answered, every cache result included. */
+  requests: number;
+  /** Bytes served, from the cache and from the origin. */
+  bytes: number;
+  /** Share of the cacheable requests served from the cache (0..1). */
+  hitRatio: number;
+}
+
+/* ------------------------------------------------------------------------ */
+/* M7c: cache of the distributions (docs/11).                              */
+/* ------------------------------------------------------------------------ */
+
+/** A duration: Go syntax ("90s", "1h30m") or days ("365d"); a number is seconds. */
+export type CacheDuration = Schemas['CacheDuration'];
+/** A size: bytes, or a number with a unit ("20GiB", "5MB"). */
+export type CacheSize = Schemas['CacheSize'];
+/** Where a setting of the effective policy comes from (docs/11 §11.1). */
+export type CacheLevel = Schemas['CacheLevel'];
+/** local, shared or shared+local (docs/11 §11.4). */
+export type CacheMode = Schemas['CacheMode'];
+/** The query parameters of the cache key ("none", "allowlist:v,w" or the object form). */
+export type CacheQueryString = Schemas['CacheQueryString'];
+/** The settings of a cache policy; unset fields inherit (levels) or take the standard values. */
+export type CachePolicySpec = Schemas['CachePolicySpec'];
+/** A reusable cache policy, referenced by name (built-in ones are read-only). */
+export type CachePolicy = Schemas['CachePolicy'];
+/** POST /cache/preview: the policy completed, its Cache-Control and a summary. */
+export type CachePolicyPreview = Schemas['CachePolicyPreview'];
+/** The cache settings of a level (cluster, distribution, domain, behavior). */
+export type CacheSettings = Schemas['CacheSettings'];
+/** The cache settings of the cluster (GET/PUT /cache/settings). */
+export type CacheGlobalSettings = Schemas['CacheGlobalSettings'];
+/** A CDN or proxy purged on the invalidations of a distribution (secrets masked). */
+export type CacheWebhook = Schemas['CacheWebhook'];
+export type CacheWebhookType = CacheWebhook['type'];
+/** The outcome of a test call of a purge webhook. */
+export type CacheWebhookTestResult = Schemas['CacheWebhookTestResult'];
+/** The cache settings of a distribution, its domains and its paths. */
+export type DistributionCache = Schemas['DistributionCache'];
+/** The override of a domain (alias, wildcard alias or a host it matches). */
+export type CacheDomainSettings = NonNullable<DistributionCache['domains']>[number];
+/** The override of the paths matching a pattern (first match wins). */
+export type CacheBehaviorSettings = NonNullable<DistributionCache['behaviors']>[number];
+/** The policy applying to a path of a domain, with the level of every setting. */
+export type CacheEffectivePolicy = Schemas['CacheEffectivePolicy'];
+/** POST /distributions/{id}/invalidations (or /cache/invalidations with all). */
+export type CacheInvalidationRequest = Schemas['CacheInvalidationRequest'];
+/** The state of an invalidation or of a warm-up on one node. */
+export type CacheNodeStatus = Schemas['CacheNodeStatus'];
+/** An invalidation with its state on every node. */
+export type CacheInvalidation = Schemas['CacheInvalidation'];
+/** POST /distributions/{id}/cache/warm. */
+export type CacheWarmRequest = Schemas['CacheWarmRequest'];
+/** A warm-up with its progress on every node. */
+export type CacheWarmJob = Schemas['CacheWarmJob'];
+export type CacheWarmNode = CacheWarmJob['nodes'][number];
+/** GET /cache/inspect: the key, the effective policy and the entry on every node. */
+export type CacheInspection = Schemas['CacheInspection'];
+export type CacheInspectionNode = CacheInspection['nodes'][number];
+/** Answers by X-Cache value, bytes from the cache and from the origin, hit ratio. */
+export type CacheCounters = Schemas['CacheCounters'];
+/** The statistics of one domain. */
+export type CacheHostStats = Schemas['CacheHostStats'];
+/** A requested object (top requests, top misses). */
+export type CacheObjectStat = Schemas['CacheObjectStat'];
+/** The statistics of one node. */
+export type CacheNodeStats = Schemas['CacheNodeStats'];
+/** GET /cache/stats: the cluster (summed) and every node. */
+export type CacheStats = Schemas['CacheStats'];
+
+/** GET /cache/inspect: an absolute URL, or a path of a distribution. */
+export interface CacheInspectInput {
+  url: string;
+  /** The distribution the URL must be served by (completes a path). */
+  distribution?: string;
+  /** Request headers of the key ("Accept-Encoding: br"). */
+  headers?: string[];
+}
+
+/** GET /cache/stats filters. */
+export interface CacheStatsQuery {
+  distribution?: string;
+  host?: string;
+  /** Size of the lists of top objects (default 10, at most 100). */
+  top?: number;
+}
+
+/** GET /distributions/{id}/cache/effective: a domain and a path. */
+export interface CacheEffectiveQuery {
+  host?: string;
+  path?: string;
+}

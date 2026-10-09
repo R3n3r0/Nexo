@@ -150,6 +150,21 @@ func suite() []suiteTest {
 		{name: "TestObjectLockValidation", fn: TestObjectLockValidation},
 		{name: "TestSSECustomerKeyRequirements", fn: TestSSECustomerKeyRequirements},
 		{name: "TestSSECustomerKeyOverPlainHTTP", fn: TestSSECustomerKeyOverPlainHTTP},
+		{name: "TestDistributionWebsite", fn: TestDistributionWebsite},
+		{name: "TestDistributionS3Mode", fn: TestDistributionS3Mode},
+		{name: "TestDistributionSignedAndRestricted", fn: TestDistributionSignedAndRestricted},
+		{name: "TestDistributionWebListeners", fn: TestDistributionWebListeners},
+		{name: "TestDistributionACME", fn: TestDistributionACME},
+		{name: "TestAccessRulesS3", fn: TestAccessRulesS3},
+		{name: "TestAccessRulesBehindProxies", fn: TestAccessRulesBehindProxies},
+		{name: "TestAccessRulesConsole", fn: TestAccessRulesConsole},
+		{name: "TestAccessRulesPublicAndBlocked", fn: TestAccessRulesPublicAndBlocked},
+		{name: "TestAccessRulesPropagation", fn: TestAccessRulesPropagation},
+		{name: "TestCacheServesAndInvalidates", fn: TestCacheServesAndInvalidates},
+		{name: "TestCacheManualInvalidation", fn: TestCacheManualInvalidation},
+		{name: "TestCacheSecurity", fn: TestCacheSecurity},
+		{name: "TestCacheDomainsAndConfig", fn: TestCacheDomainsAndConfig},
+		{name: "TestCacheSharedMode", fn: TestCacheSharedMode},
 	}
 }
 

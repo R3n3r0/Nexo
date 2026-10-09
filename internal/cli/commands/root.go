@@ -122,7 +122,7 @@ anything else is a local path.`,
 		newCatCmd(e), newHeadCmd(e), newPipeCmd(e), newStatCmd(e), newMirrorCmd(e),
 		newFindCmd(e), newDuCmd(e), newTreeCmd(e), newDiffCmd(e),
 	)
-	add(groupSharing, newShareCmd(e), newPresignCmd(e), newAnonymousCmd(e), newCORSCmd(e))
+	add(groupSharing, newShareCmd(e), newPresignCmd(e), newAnonymousCmd(e), newCORSCmd(e), newAccessCmd(e), newDistCmd(e), newCacheCmd(e))
 	add(groupSettings, newVersionCmd(e), newTagCmd(e), newRetentionCmd(e), newLegalHoldCmd(e),
 		newILMCmd(e), newEventCmd(e), newQuotaCmd(e), newEncryptCmd(e))
 	add(groupAdmin, newAdminCmd(e))

@@ -15,6 +15,13 @@ x-nexo: &nexo
   command: ["server", "--console-address", ":9001", "http://nexo{1...4}:9000/data{1...2}"]
   env_file:
     - nexo.env
+  environment:
+    # Disk tier of the distribution cache (docs/11): one volume per node,
+    # ideally on an SSD/NVMe. NEXO_CACHE_MODE=shared keeps one copy of an
+    # object in the cluster (its owner node) instead of one per node.
+    NEXO_CACHE_DIR: /cache
+    NEXO_CACHE_SIZE: ${NEXO_CACHE_SIZE:-10GiB}
+    NEXO_CACHE_MODE: ${NEXO_CACHE_MODE:-local}
   healthcheck:
     test: ["CMD", "/nexo", "healthcheck"]
     interval: 10s
@@ -31,6 +38,7 @@ services:
     volumes:
       - d1-1:/data1
       - d1-2:/data2
+      - c1:/cache
 
   nexo2:
     <<: *nexo
@@ -38,6 +46,7 @@ services:
     volumes:
       - d2-1:/data1
       - d2-2:/data2
+      - c2:/cache
 
   nexo3:
     <<: *nexo
@@ -45,6 +54,7 @@ services:
     volumes:
       - d3-1:/data1
       - d3-2:/data2
+      - c3:/cache
 
   nexo4:
     <<: *nexo
@@ -52,6 +62,7 @@ services:
     volumes:
       - d4-1:/data1
       - d4-2:/data2
+      - c4:/cache
 
   # Load balancer: HTTP reverse proxy for S3 and console. The Host header is
   # forwarded unchanged so SigV4 signatures and presigned URLs stay valid.
@@ -84,3 +95,7 @@ volumes:
   d3-2: {}
   d4-1: {}
   d4-2: {}
+  c1: {}
+  c2: {}
+  c3: {}
+  c4: {}

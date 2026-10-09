@@ -20,6 +20,7 @@ import type {
   Upload,
   UploadEncryption,
 } from '../types';
+import type { MockAccessRulesState, MockBlockPublicState } from './accessRules';
 import { clone, problem, type MockContext } from './support';
 
 /** Content of a mock object: text/bytes for previews, or an uploaded blob. */
@@ -73,6 +74,8 @@ export interface MockBucketState {
   /** Event subscriptions (D-BKT-04). */
   notifications?: EventSubscription[];
   cors?: CorsRule[];
+  /** Access rules and bucket-level block public access (D-ACC-01..04). */
+  access?: MockAccessRulesState;
 }
 
 /** The KMS of the mock deployment. */
@@ -112,6 +115,8 @@ export interface MockStorageOptions {
   kms?: KmsStatus;
   /** Keys of the KMS (its default key by default). */
   kmsKeys?: KmsKey[];
+  /** The cluster-level block public access (off, reject mode by default). */
+  blockPublic?: MockBlockPublicState;
 }
 
 /** Shared in-memory state of the storage mocks (buckets, objects, uploads). */
@@ -121,6 +126,8 @@ export interface MockStorage {
   readonly uploads: Map<string, MockUploadState>;
   readonly uploadLimits: UploadLimits;
   readonly kms: MockKmsState;
+  /** The cluster-level block public access (D-ACC-04). */
+  readonly blockPublic: MockBlockPublicState;
   /** The bucket or a 404 bucket_not_found. */
   bucket(name: string): MockBucketState;
   /**
@@ -298,6 +305,7 @@ export function createMockStorage(
     uploads: new Map(),
     uploadLimits: { ...defaultLimits, ...options.uploadLimits },
     kms,
+    blockPublic: clone(options.blockPublic ?? { enabled: false, mode: 'reject' }),
     encryptionFor(state, request) {
       const algorithm = request?.algorithm ?? state.encryption?.algorithm;
       if (algorithm === undefined) {

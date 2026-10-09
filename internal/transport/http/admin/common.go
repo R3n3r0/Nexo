@@ -14,7 +14,11 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/accessrule"
 	adminsvc "github.com/r3n3r0/nexo/internal/service/admin"
+	"github.com/r3n3r0/nexo/internal/service/cache"
+	"github.com/r3n3r0/nexo/internal/service/certs"
+	"github.com/r3n3r0/nexo/internal/service/distribution"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
 )
@@ -206,6 +210,25 @@ type RuleErrorResponse struct {
 	Message string `json:"message"`
 }
 
+// AccessRuleErrorResponse locates the problem of an access rule (codes
+// invalid_access_rule, too_many_access_rules, public_access_blocked).
+type AccessRuleErrorResponse struct {
+	// Rule is the 1-based index of the rule, 0 for the whole list.
+	Rule int    `json:"rule"`
+	ID   string `json:"id,omitempty"`
+	// Field is the element at fault ("match.pattern",
+	// "conditions.sourceIp[1]"...).
+	Field string `json:"field,omitempty"`
+	// Position is the 1-based position of the problem in the pattern, 0
+	// when not applicable.
+	Position int    `json:"position,omitempty"`
+	Message  string `json:"message"`
+}
+
+func newAccessRuleErrorResponse(e *accessrule.RuleError) AccessRuleErrorResponse {
+	return AccessRuleErrorResponse{Rule: e.Index + 1, ID: e.ID, Field: e.Field, Position: e.Position, Message: e.Msg}
+}
+
 // problemDocument is a problem with the extension members of the Admin
 // API.
 type problemDocument struct {
@@ -214,12 +237,80 @@ type problemDocument struct {
 	Errors []PolicyErrorResponse `json:"errors,omitempty"`
 	// RuleErrors locates the invalid rules of a bucket configuration.
 	RuleErrors []RuleErrorResponse `json:"ruleErrors,omitempty"`
+	// AccessRuleErrors locates the invalid access rule.
+	AccessRuleErrors []AccessRuleErrorResponse `json:"accessRuleErrors,omitempty"`
+}
+
+// Problem codes of the access rules, distributions and certificates.
+const (
+	codeInvalidAccessRule    = "invalid_access_rule"
+	codeTooManyAccessRules   = "too_many_access_rules"
+	codePublicAccessBlocked  = "public_access_blocked"
+	codeConfirmationRequired = "confirmation_required"
+	codeAliasConflict        = "alias_conflict"
+	codeDistributionNotFound = "distribution_not_found"
+	codeKeyGroupNotFound     = "keygroup_not_found"
+	codeKeyNotFound          = "key_not_found"
+	codeInvalidDistribution  = "invalid_distribution"
+	codeCertificateNotFound  = "certificate_not_found"
+	codeInvalidCertificate   = "invalid_certificate"
+)
+
+// Problem codes of the cache (docs/11).
+const (
+	codeCachePolicyNotFound  = "cache_policy_not_found"
+	codeInvalidationNotFound = "invalidation_not_found"
+	codeWarmJobNotFound      = "warm_job_not_found"
+	codeWebhookNotFound      = "webhook_not_found"
+	codeInvalidCacheRequest  = "invalid_cache_request"
+	codeBuiltinCachePolicy   = "builtin_cache_policy"
+	codeCachePolicyInUse     = "cache_policy_in_use"
+	codeCacheAlreadyExists   = "already_exists"
+)
+
+// refinedProblem returns the status and the code of the errors of the
+// access rules, the distributions, the certificates and the cache, more
+// specific than those of the domain sentinels they wrap.
+func refinedProblem(err error) (int, string, bool) {
+	refined := []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{accessrule.ErrPublicAccessBlocked, http.StatusForbidden, codePublicAccessBlocked},
+		{accessrule.ErrTooManyRules, http.StatusBadRequest, codeTooManyAccessRules},
+		{accessrule.ErrConfirmationRequired, http.StatusBadRequest, codeConfirmationRequired},
+		{accessrule.ErrInvalidRule, http.StatusBadRequest, codeInvalidAccessRule},
+		{distribution.ErrAliasConflict, http.StatusConflict, codeAliasConflict},
+		{distribution.ErrDistributionNotFound, http.StatusNotFound, codeDistributionNotFound},
+		{distribution.ErrKeyGroupNotFound, http.StatusNotFound, codeKeyGroupNotFound},
+		{distribution.ErrKeyNotFound, http.StatusNotFound, codeKeyNotFound},
+		{distribution.ErrInvalid, http.StatusBadRequest, codeInvalidDistribution},
+		{certs.ErrCertificateNotFound, http.StatusNotFound, codeCertificateNotFound},
+		{certs.ErrInvalidCertificate, http.StatusBadRequest, codeInvalidCertificate},
+		{cache.ErrPolicyNotFound, http.StatusNotFound, codeCachePolicyNotFound},
+		{cache.ErrInvalidationNotFound, http.StatusNotFound, codeInvalidationNotFound},
+		{cache.ErrWarmJobNotFound, http.StatusNotFound, codeWarmJobNotFound},
+		{cache.ErrWebhookNotFound, http.StatusNotFound, codeWebhookNotFound},
+		{cache.ErrInvalid, http.StatusBadRequest, codeInvalidCacheRequest},
+		{cache.ErrBuiltinPolicy, http.StatusConflict, codeBuiltinCachePolicy},
+		{cache.ErrPolicyInUse, http.StatusConflict, codeCachePolicyInUse},
+		{cache.ErrAlreadyExists, http.StatusConflict, codeCacheAlreadyExists},
+	}
+	for _, rp := range refined {
+		if errors.Is(err, rp.err) {
+			return rp.status, rp.code, true
+		}
+	}
+	return 0, "", false
 }
 
 // writeError maps err to a problem+json response. Policy validation
 // errors are reported as malformed_policy with their position, the
 // invalid rules of a bucket configuration as invalid_configuration with
-// their index.
+// their index, an invalid access rule with its index, field and position
+// in its pattern (accessRuleErrors); the errors of the distributions and
+// certificates get their own codes (refinedProblem).
 func writeError(enc httpx.Encoder, w http.ResponseWriter, r *http.Request, err error) {
 	if p, ok := adminsvc.ProblemOf(err); ok {
 		doc := problemDocument{Problem: enc.ProblemFromError(err), Errors: []PolicyErrorResponse{newPolicyErrorResponse(p)}}
@@ -235,6 +326,16 @@ func writeError(enc httpx.Encoder, w http.ResponseWriter, r *http.Request, err e
 		}
 		doc.Status, doc.Code = http.StatusBadRequest, codeInvalidConfiguration
 		doc.Title = http.StatusText(http.StatusBadRequest)
+		writeProblemDocument(w, r, doc)
+		return
+	}
+	if status, code, ok := refinedProblem(err); ok {
+		doc := problemDocument{Problem: enc.ProblemFromError(err)}
+		doc.Status, doc.Code, doc.Title = status, code, http.StatusText(status)
+		var re *accessrule.RuleError
+		if errors.As(err, &re) {
+			doc.AccessRuleErrors = []AccessRuleErrorResponse{newAccessRuleErrorResponse(re)}
+		}
 		writeProblemDocument(w, r, doc)
 		return
 	}

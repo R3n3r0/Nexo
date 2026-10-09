@@ -1,0 +1,17 @@
+package certs
+
+import (
+	"fmt"
+
+	"github.com/r3n3r0/nexo/internal/domain"
+)
+
+// Sentinels of the package; they wrap the domain ones.
+var (
+	// ErrCertificateNotFound reports an unknown certificate.
+	ErrCertificateNotFound = fmt.Errorf("certificate not found: %w", domain.ErrNotFound)
+	// ErrChallengeNotFound reports an unknown ACME challenge.
+	ErrChallengeNotFound = fmt.Errorf("acme challenge not found: %w", domain.ErrNotFound)
+	// ErrInvalidCertificate reports a certificate or key refused at upload.
+	ErrInvalidCertificate = fmt.Errorf("invalid certificate: %w", domain.ErrInvalidArgument)
+)

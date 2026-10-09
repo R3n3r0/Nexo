@@ -15,6 +15,8 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { StorageActions, usePermissions } from '@/auth/usePermissions';
+import { BlockPublicControl } from '@/components/accessRules/BlockPublicControl';
 import { ConfirmDialog, ErrorAlert, PageHeader } from '@/components/iam/common';
 import { checkConfigValue } from '@/lib/config';
 import { iamKeys, useInvalidatingMutation } from '@/lib/iamQueries';
@@ -30,6 +32,12 @@ import {
 import { ConfigField } from './ConfigField';
 import { KmsSection } from './KmsSection';
 import { NotifyTargetsSection } from './NotifyTargetsSection';
+
+/** D-ACC-04: the block public access of the cluster, with its mode. */
+function ClusterBlockPublic() {
+  const perms = usePermissions();
+  return <BlockPublicControl canEdit={perms.can(StorageActions.manageAccessRules)} />;
+}
 
 /** Validates an imported document: subsystems of string settings. */
 function asConfigDocument(value: unknown): ConfigDocument | undefined {
@@ -146,6 +154,7 @@ export function ConfigurationPage() {
       ) : null}
       <NotifyTargetsSection schema={schema.data} />
       <KmsSection />
+      <ClusterBlockPublic />
       {schema.isPending || values.isPending ? <Loader aria-label={t('common.loading')} /> : null}
       {schema.data && values.data ? (
         <Accordion multiple variant="separated" defaultValue={['region']}>

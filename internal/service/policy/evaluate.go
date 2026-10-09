@@ -229,8 +229,22 @@ scan:
 		}
 	}
 
-	d := decide(id, action, deny, parentAllow, inlineAllow, bucketAllow, hasInline)
+	// The access rules of the bucket: root bypasses them like the bucket
+	// policy, and an explicit deny already decided (unless tracing).
+	var rules RuleOutcome
+	if s.deps.AccessRules != nil && args.Bucket != "" && !id.IsRoot && (deny == nil || trace) {
+		rules, err = s.deps.AccessRules.EvaluateRules(ctx, RuleRequest{
+			Identity: id, Action: args.Action, Bucket: args.Bucket, Object: args.Object,
+			Conditions: req.ctx.keys, Now: now, Trace: trace,
+		})
+		if err != nil {
+			return Decision{}, fmt.Errorf("policy: access rules of %s: %w", args.Bucket, err)
+		}
+	}
+
+	d := decide(id, action, deny, parentAllow, inlineAllow, bucketAllow, hasInline, rules)
 	d.Evaluated = evaluated
+	d.EvaluatedRules = rules.Evaluated
 	return d, nil
 }
 
@@ -241,17 +255,26 @@ func firstHit(current, h *hit) *hit {
 	return h
 }
 
-// decide combines the matched statements into the decision.
-func decide(id *domain.Identity, action string, deny, parentAllow, inlineAllow, bucketAllow *hit, hasInline bool) Decision {
+// decide combines the matched statements and access rules into the
+// decision: a deny in any source denies, then an allow of the identity
+// policies, of the bucket policy or of an access rule grants (within the
+// inline policy of derived credentials).
+func decide(id *domain.Identity, action string, deny, parentAllow, inlineAllow, bucketAllow *hit, hasInline bool, rules RuleOutcome) Decision {
 	if deny != nil {
 		return decisionFrom(false, "explicit deny in "+describe(deny), deny)
+	}
+	if rules.Deny != nil {
+		return ruleDecision(false, "explicit deny by "+describeRule(rules.Deny), rules.Deny)
 	}
 	switch {
 	case id.IsAnonymous:
 		if bucketAllow != nil {
 			return decisionFrom(true, "allowed by "+describe(bucketAllow), bucketAllow)
 		}
-		return Decision{Reason: "anonymous access to " + action + " is not granted by the bucket policy"}
+		if rules.Allow != nil {
+			return ruleDecision(true, "allowed by "+describeRule(rules.Allow), rules.Allow)
+		}
+		return Decision{Reason: "anonymous access to " + action + " is not granted by the bucket policy or an access rule"}
 	case id.IsRoot:
 		// Root with an inline policy: the parent allows everything.
 		if inlineAllow != nil {
@@ -264,12 +287,29 @@ func decide(id *domain.Identity, action string, deny, parentAllow, inlineAllow, 
 		grant = bucketAllow
 	}
 	if grant == nil {
-		return Decision{Reason: "no policy allows " + action}
+		if rules.Allow == nil {
+			return Decision{Reason: "no policy or access rule allows " + action}
+		}
+		if hasInline && inlineAllow == nil {
+			return Decision{Reason: "the inline policy does not allow " + action + " (" + describeRule(rules.Allow) + " does)", Source: SourceInline}
+		}
+		return ruleDecision(true, "allowed by "+describeRule(rules.Allow), rules.Allow)
 	}
 	if hasInline && inlineAllow == nil {
 		return Decision{Reason: "the inline policy does not allow " + action + " (" + describe(grant) + " does)", Source: SourceInline}
 	}
 	return decisionFrom(true, "allowed by "+describe(grant), grant)
+}
+
+// ruleDecision is the decision taken by an access rule.
+func ruleDecision(allowed bool, reason string, m *RuleMatch) Decision {
+	rule := *m
+	return Decision{Allowed: allowed, Reason: reason, Source: SourceAccessRule, Rule: &rule}
+}
+
+// describeRule names an access rule for decision reasons.
+func describeRule(m *RuleMatch) string {
+	return fmt.Sprintf("access rule %q (priority %d)", m.ID, m.Priority)
 }
 
 func decisionFrom(allowed bool, reason string, h *hit) Decision {

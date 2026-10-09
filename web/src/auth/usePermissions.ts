@@ -48,6 +48,17 @@ export const StorageActions = {
   configUpdate: 'admin:ConfigUpdate',
   kmsStatus: 'admin:KMSKeyStatus',
   kmsCreateKey: 'admin:KMSCreateKey',
+  /** Access rules, presets and block public access (docs/10 §10.5). */
+  manageAccessRules: 'admin:ManageAccessRules',
+} as const;
+
+/** Policy actions of the distributions pages (docs/10 §10.5). */
+export const DistributionActions = {
+  manage: 'admin:ManageDistributions',
+  certificates: 'admin:ManageCertificates',
+  sign: 'admin:SignDistributionURL',
+  /** The traffic of the aliases comes from the cache statistics. */
+  cacheStats: 'admin:ManageCache',
 } as const;
 
 export interface PermissionCheck {

@@ -1,0 +1,44 @@
+# The cache of the distributions on an erasure-coded single node (SNMD):
+# TCL-C-01 (a policy for a domain: Cache-Control and X-Cache), TCL-C-02 (a
+# purge completed, then a MISS), TCL-C-03 (the inspector), TCL-C-04 (a
+# warm-up, then HITs) and TCL-C-05 (the statistics against the schema).
+
+exec nexoctl mb local/web
+exec nexoctl cp index.html local/web/index.html
+exec nexoctl cp app.js local/web/assets/app.js
+exec nexoctl dist create local site --bucket web --domain www.site.test --index index.html
+exec nexoctl cache policy create local short --ttl-default 10m --browser-cache-control 'public, max-age=600'
+exec nexoctl dist cache set local site --domain www.site.test --policy short
+http -H 'Host: www.site.test' -D h.txt -o got.html $NEXO_URL/
+cmp got.html index.html
+grep '^X-Cache: MISS$' h.txt
+grep '^Cache-Control: public, max-age=600$' h.txt
+http -H 'Host: www.site.test' -D h.txt -o got.html $NEXO_URL/
+grep '^X-Cache: HIT$' h.txt
+exec nexoctl cache inspect local https://www.site.test/
+stdout '^Policy: short \(domain\)$'
+stdout '^Node [^ ]+: cached in memory'
+
+# A write is seen at once; a purge drops the entry.
+exec nexoctl cp index2.html local/web/index.html
+http -H 'Host: www.site.test' -D h.txt -o got.html $NEXO_URL/
+cmp got.html index2.html
+exec nexoctl cache purge local site / --wait
+stdout 'completed on 1/1 node'
+http -H 'Host: www.site.test' -D h.txt -o got.html $NEXO_URL/
+grep '^X-Cache: MISS$' h.txt
+
+exec nexoctl cache warm local site --prefix /assets/ --wait
+stdout 'completed, 1/1 objects.'
+http -H 'Host: www.site.test' -D h.txt -o got.js $NEXO_URL/assets/app.js
+cmp got.js app.js
+grep '^X-Cache: HIT$' h.txt
+exec nexoctl cache stats --json local site
+openapischema stdout CacheStats stats
+
+-- index.html --
+<h1>home</h1>
+-- index2.html --
+<h1>home, v2</h1>
+-- app.js --
+console.log("app")

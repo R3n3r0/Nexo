@@ -19,7 +19,10 @@ export const resources = {
   en: { translation: en },
 } as const;
 
-/** Loads the translations of the languages that are not bundled. */
+/**
+ * Loads the translations of the languages that are not bundled: the core
+ * strings and the strings of the sections loaded on demand, together.
+ */
 const lazyLocales: BackendModule = {
   type: 'backend',
   init: () => undefined,
@@ -28,9 +31,9 @@ const lazyLocales: BackendModule = {
       callback(null, {});
       return;
     }
-    import('./locales/it.json').then(
-      (module) => {
-        callback(null, module.default);
+    Promise.all([import('./locales/it.json'), import('./locales/it.sections.json')]).then(
+      ([core, sections]) => {
+        callback(null, { ...core.default, ...sections.default });
       },
       (error: unknown) => {
         callback(error instanceof Error ? error : new Error(String(error)), null);
@@ -38,6 +41,28 @@ const lazyLocales: BackendModule = {
     );
   },
 };
+
+let sectionsLoaded: Promise<void> | undefined;
+
+/**
+ * Loads the strings of the sections that are not in the initial bundle
+ * (access rules, distributions, key groups, certificates: docs/06 §6.5
+ * bundle budget) into the default language; the other languages load them
+ * with their core strings. The route loaders of those sections await it
+ * before rendering; later calls share the first load.
+ */
+export function loadSectionTranslations(): Promise<void> {
+  sectionsLoaded ??= import('./locales/en.sections.json').then(
+    (module) => {
+      i18n.addResourceBundle(defaultLanguage, 'translation', module.default, true, false);
+    },
+    (error: unknown) => {
+      sectionsLoaded = undefined;
+      throw error;
+    },
+  );
+  return sectionsLoaded;
+}
 
 export function isLanguage(value: unknown): value is Language {
   return typeof value === 'string' && (supportedLanguages as readonly string[]).includes(value);

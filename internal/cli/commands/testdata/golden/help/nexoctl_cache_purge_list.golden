@@ -1,0 +1,20 @@
+List the invalidations of a distribution (the global purges without DIST)
+
+Usage:
+  nexoctl cache purge list ALIAS [DIST] [flags]
+
+Aliases:
+  list, ls
+
+Examples:
+  nexoctl cache purge ls local sito-web
+
+Flags:
+  -h, --help   help for list
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

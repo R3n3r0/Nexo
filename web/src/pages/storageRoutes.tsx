@@ -2,6 +2,8 @@ import { Center, Loader } from '@mantine/core';
 import { lazy, Suspense, type ComponentType, type LazyExoticComponent } from 'react';
 import { Navigate, type RouteObject } from 'react-router';
 
+import { loadSectionTranslations } from '@/i18n';
+
 /** Lazily loads a named page export, so that each section is its own chunk. */
 function lazyPage<M>(load: () => Promise<M>, pick: (module: M) => ComponentType) {
   return lazy(async () => ({ default: pick(await load()) }));
@@ -34,6 +36,12 @@ const BucketEventsTab = lazyPage(
 const BucketAccessTab = lazyPage(
   () => import('./buckets/BucketAccessTab'),
   (m) => m.BucketAccessTab,
+);
+// The page uses strings loaded on demand (i18n sections).
+const BucketRulesTab = lazyPage(
+  async () =>
+    (await Promise.all([import('./buckets/BucketRulesTab'), loadSectionTranslations()]))[0],
+  (m) => m.BucketRulesTab,
 );
 const ObjectsPage = lazyPage(
   () => import('./objects/ObjectsPage'),
@@ -77,6 +85,7 @@ export function storageRoutes(): RouteObject[] {
         { path: 'lifecycle', element: page(BucketLifecycleTab) },
         { path: 'events', element: page(BucketEventsTab) },
         { path: 'access', element: page(BucketAccessTab) },
+        { path: 'rules', element: page(BucketRulesTab) },
       ],
     },
     { path: 'objects', element: page(ObjectsPage) },

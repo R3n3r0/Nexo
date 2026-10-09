@@ -60,6 +60,10 @@ tags:
   - name: cluster
   - name: notify
   - name: kms
+  - name: access-rules
+  - name: distributions
+  - name: certificates
+  - name: cache
 
 paths:
   /auth/login:
@@ -2214,6 +2218,1093 @@ paths:
         "204": { description: Deleted. }
         default: { $ref: "#/components/responses/Problem" }
 
+  /buckets/{bucket}/access-rules:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    get:
+      tags: [access-rules]
+      operationId: getAccessRules
+      summary: Access rules of the bucket
+      description: |
+        The access rules of the bucket (docs/10 §10.1): prefix, glob and RE2 regex patterns
+        of the keys, principals, actions, conditions and priorities, evaluated by the
+        policy engine next to the bucket policy. The `ETag` header (and `etag`) identify
+        the version of the rules for the `If-Match` of PUT. A bucket without rules
+        answers an empty list.
+      x-nexo-actions: ["admin:ManageAccessRules"]
+      responses:
+        "200":
+          description: The rules.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AccessRules" }
+        default: { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [access-rules]
+      operationId: setAccessRules
+      summary: Replace the access rules of the bucket atomically
+      description: |
+        Validates every rule (pattern compiled at once, at most `--access-rules-max`
+        rules per bucket, 200 by default) and replaces the rules of the bucket in one
+        change, propagated to every node. With `If-Match` the change applies only to the
+        version of the rules with that ETag (412 `precondition_failed` otherwise). An
+        invalid rule answers 400 `invalid_access_rule` (too many: `too_many_access_rules`)
+        with the rule, the field and the position of the problem in the pattern in
+        `accessRuleErrors`; an allow rule for everyone while the block public access is
+        on in the reject mode answers 403 `public_access_blocked`. Every change is audited.
+      x-nexo-actions: ["admin:ManageAccessRules"]
+      parameters:
+        - { $ref: "#/components/parameters/ifMatch" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PutAccessRulesRequest" }
+      responses:
+        "200":
+          description: The rules as stored.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AccessRules" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "403": { $ref: "#/components/responses/Problem" }
+        "412": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/access-rules/test:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    post:
+      tags: [access-rules]
+      operationId: testAccessRules
+      summary: Test the access rules on keys (pattern tester, simulator)
+      description: |
+        Evaluates the requests of a principal on keys of the bucket with every source of
+        the policy engine (IAM, bucket policy, access rules), without performing them: for
+        each key the rules that match, the outcome of the rules alone, the final decision
+        and the rule that determined it (docs/10 D-ACC-02, `nexoctl access test`). The
+        keys are matched after their normalization (`normalizedKey`). Authorized by the
+        service: admin:ManageAccessRules on the bucket and, to test the requests of
+        another identity than the caller's, admin:SimulatePolicy.
+      x-nexo-actions: ["admin:ManageAccessRules", "admin:SimulatePolicy"]
+      x-nexo-authorized-by: service
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TestAccessRulesRequest" }
+      responses:
+        "200":
+          description: The outcome of every key.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AccessRulesTestResult" }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/access-rules/public:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    get:
+      tags: [access-rules]
+      operationId: getAccessRulesPublic
+      summary: Public status of the bucket through its access rules
+      x-nexo-actions: ["admin:ManageAccessRules"]
+      responses:
+        "200":
+          description: The public status.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AccessRulesPublicStatus" }
+        default: { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [access-rules]
+      operationId: setAccessRulesPreset
+      summary: Apply a public access preset
+      description: |
+        Replaces the rules generated by the presets (ids starting with `preset-`) with those
+        of the preset: `private` (also removes every allow rule for everyone),
+        `public-read`, `public-read-list`, `public-prefix` (with `match`) and
+        `public-write` (with `confirm`: 400 `confirmation_required` otherwise). The other
+        rules are kept. `If-Match` as for PUT /buckets/{bucket}/access-rules.
+      x-nexo-actions: ["admin:ManageAccessRules"]
+      parameters:
+        - { $ref: "#/components/parameters/ifMatch" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AccessPresetRequest" }
+      responses:
+        "200":
+          description: The rules as stored.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AccessRules" }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/block-public:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    get:
+      tags: [access-rules]
+      operationId: getBucketBlockPublic
+      summary: Block public access of the bucket
+      x-nexo-actions: ["admin:ManageAccessRules"]
+      responses:
+        "200":
+          description: The setting of the bucket and the one in effect.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BlockPublic" }
+        default: { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [access-rules]
+      operationId: setBucketBlockPublic
+      summary: Turn the block public access of the bucket on or off
+      description: The mode is a setting of the cluster (PUT /access/block-public); a mode here is 400.
+      x-nexo-actions: ["admin:ManageAccessRules"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BlockPublicRequest" }
+      responses:
+        "200":
+          description: The setting of the bucket and the one in effect.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BlockPublic" }
+        default: { $ref: "#/components/responses/Problem" }
+  /access/block-public:
+    get:
+      tags: [access-rules]
+      operationId: getBlockPublic
+      summary: Block public access of the cluster
+      x-nexo-actions: ["admin:ManageAccessRules"]
+      responses:
+        "200":
+          description: The cluster setting and its mode.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BlockPublic" }
+        default: { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [access-rules]
+      operationId: setBlockPublic
+      summary: Turn the block public access of the cluster on or off
+      description: |
+        While on, the principal `*` of the allow rules of every bucket is ignored and, in
+        the `reject` mode, such a rule is refused when saved (the stored ones are
+        ignored); in the `ignore` mode they are accepted and ignored. Deny rules for
+        everyone are never affected. Stored in the dynamic configuration (subsystem
+        `access`), it applies to every node without restart.
+      x-nexo-actions: ["admin:ManageAccessRules"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BlockPublicRequest" }
+      responses:
+        "200":
+          description: The cluster setting and its mode.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BlockPublic" }
+        default: { $ref: "#/components/responses/Problem" }
+  /distributions:
+    get:
+      tags: [distributions]
+      operationId: listDistributions
+      summary: Distributions (custom domains of the buckets)
+      x-nexo-actions: ["admin:ManageDistributions"]
+      responses:
+        "200":
+          description: Every distribution, sorted by id.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DistributionList" }
+        default: { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [distributions]
+      operationId: createDistribution
+      summary: Create a distribution
+      description: |
+        Validates and stores the distribution (docs/10 §10.2); the routing table of every
+        node is updated without restart. An alias used by another distribution (or the S3
+        and console domains) answers 409 `alias_conflict`, an invalid distribution 400
+        `invalid_distribution`. admin:ManageDistributions is also evaluated on the origin
+        bucket: an explicit Deny on a bucket keeps it from being exposed. Origin secrets
+        given in clear are stored hashed.
+      x-nexo-actions: ["admin:ManageDistributions"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Distribution" }
+      responses:
+        "201":
+          description: The distribution as stored.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Distribution" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /distributions/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/distributionId" }
+    get:
+      tags: [distributions]
+      operationId: getDistribution
+      summary: A distribution
+      x-nexo-actions: ["admin:ManageDistributions"]
+      responses:
+        "200":
+          description: The distribution.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Distribution" }
+        "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [distributions]
+      operationId: updateDistribution
+      summary: Replace a distribution
+      description: |
+        Replaces the whole document (its id is the one of the path). With `If-Match` the
+        change applies only to the version with that ETag (412 otherwise).
+        admin:ManageDistributions is also evaluated on the current and the new origin
+        buckets.
+      x-nexo-actions: ["admin:ManageDistributions"]
+      parameters:
+        - { $ref: "#/components/parameters/ifMatch" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Distribution" }
+      responses:
+        "200":
+          description: The distribution as stored.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Distribution" }
+        "412": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [distributions]
+      operationId: deleteDistribution
+      summary: Remove a distribution
+      x-nexo-actions: ["admin:ManageDistributions"]
+      responses:
+        "204": { description: Removed. }
+        default: { $ref: "#/components/responses/Problem" }
+  /distributions/{id}/test:
+    parameters:
+      - { $ref: "#/components/parameters/distributionId" }
+    post:
+      tags: [distributions]
+      operationId: testDistribution
+      summary: How the distribution serves a URL
+      description: |
+        Without reading the object: the route of the host, the behavior that matches the
+        path (`-1` for the default one) with its inherited fields resolved (access,
+        methods, cache), the object of the path, the redirection or the refusal, and the
+        headers of the response (docs/10 D-DST-03, `nexoctl dist test`). A path is
+        completed with https and the first exact alias; a URL whose host is not an alias
+        of the distribution is 400.
+      x-nexo-actions: ["admin:ManageDistributions"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DistributionTestRequest" }
+      responses:
+        "200":
+          description: How the URL is served.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DistributionTestResult" }
+        default: { $ref: "#/components/responses/Problem" }
+  /distributions/{id}/origin-secret/rotate:
+    parameters:
+      - { $ref: "#/components/parameters/distributionId" }
+    post:
+      tags: [distributions]
+      operationId: rotateDistributionOriginSecret
+      summary: Rotate the origin secret of the proxies
+      description: |
+        Generates a new origin secret, returned in clear once (stored hashed), and keeps
+        the most recent previous ones active (`keep`, default 1) so that the proxies are
+        updated without downtime; the requests without one of the active secrets in the
+        header are refused.
+      x-nexo-actions: ["admin:ManageDistributions"]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RotateOriginSecretRequest" }
+      responses:
+        "200":
+          description: The new secret and the distribution.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RotateOriginSecretResult" }
+        default: { $ref: "#/components/responses/Problem" }
+  /distributions/{id}/sign:
+    parameters:
+      - { $ref: "#/components/parameters/distributionId" }
+    post:
+      tags: [distributions]
+      operationId: signDistributionURL
+      summary: Sign a URL, or cookies, of a signed behavior
+      description: |
+        CloudFront-style signed URL (`?Expires=&Signature=&Key-Pair-Id=`, or `?Policy=`
+        for a custom policy with `resource`, `notBefore` or `ipRange`) or signed cookies
+        (`cookies: true`) for the URL, which a signed behavior of the distribution must
+        serve. The server never stores the private keys: the caller sends the private key
+        of a key of the key group of the behavior (its key pair id is found from the key
+        when not given). Exactly one of `expiresIn` and `expiresAt`.
+      x-nexo-actions: ["admin:SignDistributionURL"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SignDistributionRequest" }
+      responses:
+        "200":
+          description: The signed URL or cookies.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SignDistributionResult" }
+        default: { $ref: "#/components/responses/Problem" }
+  /keygroups:
+    get:
+      tags: [distributions]
+      operationId: listKeyGroups
+      summary: Key groups of the signed behaviors
+      x-nexo-actions: ["admin:ManageDistributions"]
+      responses:
+        "200":
+          description: Every key group, sorted by id.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KeyGroupList" }
+        default: { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [distributions]
+      operationId: createKeyGroup
+      summary: Create a key group
+      description: |
+        With `generateKey`, its first key pair is generated: the private key is in the
+        answer once and never stored (docs/10: "scaricabile una sola volta").
+      x-nexo-actions: ["admin:ManageDistributions"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateKeyGroupRequest" }
+      responses:
+        "201":
+          description: The key group and its generated key pair.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreateKeyGroupResult" }
+        default: { $ref: "#/components/responses/Problem" }
+  /keygroups/{id}:
+    parameters:
+      - { $ref: "#/components/parameters/keyGroupId" }
+    get:
+      tags: [distributions]
+      operationId: getKeyGroup
+      summary: A key group
+      x-nexo-actions: ["admin:ManageDistributions"]
+      responses:
+        "200":
+          description: The key group.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KeyGroup" }
+        default: { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [distributions]
+      operationId: deleteKeyGroup
+      summary: Remove a key group no distribution references (409 otherwise)
+      x-nexo-actions: ["admin:ManageDistributions"]
+      responses:
+        "204": { description: Removed. }
+        default: { $ref: "#/components/responses/Problem" }
+  /keygroups/{id}/keys:
+    parameters:
+      - { $ref: "#/components/parameters/keyGroupId" }
+    get:
+      tags: [distributions]
+      operationId: listKeyGroupKeys
+      summary: Public keys of a key group
+      x-nexo-actions: ["admin:ManageDistributions"]
+      responses:
+        "200":
+          description: The keys, oldest first.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicKeyList" }
+        default: { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [distributions]
+      operationId: addKeyGroupKey
+      summary: Add a key to a key group
+      description: |
+        A public key provided by the user (`publicKeyPem`, PKIX, Ed25519 or RSA of 2048 to
+        4096 bits), or a key pair generated by the server whose private key is in the
+        answer once. Several keys sign at once: a new key is added before the old one is
+        removed (rotation without downtime).
+      x-nexo-actions: ["admin:ManageDistributions"]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddKeyRequest" }
+      responses:
+        "201":
+          description: The added key.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AddKeyResult" }
+        default: { $ref: "#/components/responses/Problem" }
+  /keygroups/{id}/keys/{key}:
+    parameters:
+      - { $ref: "#/components/parameters/keyGroupId" }
+      - name: key
+        in: path
+        required: true
+        description: Key pair id (Key-Pair-Id of the signed URLs).
+        schema: { type: string }
+    delete:
+      tags: [distributions]
+      operationId: deleteKeyGroupKey
+      summary: Remove a key from its key group
+      x-nexo-actions: ["admin:ManageDistributions"]
+      responses:
+        "204": { description: Removed. }
+        default: { $ref: "#/components/responses/Problem" }
+  /routing/resolve:
+    get:
+      tags: [distributions]
+      operationId: resolveHost
+      summary: What serves a host (routing diagnostics)
+      description: |
+        The resolution of the routing table of the answering node: an exact alias, then
+        the most specific wildcard alias of a distribution, `<bucket>.<domain>`
+        (virtual-host), the S3 and console domains (main), otherwise the path-style S3 API
+        (or 421, misdirected, when the deployment asks for it).
+      x-nexo-actions: ["admin:ManageDistributions"]
+      parameters:
+        - name: host
+          in: query
+          required: true
+          description: The host, with or without port.
+          schema: { type: string }
+      responses:
+        "200":
+          description: The route.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Route" }
+        default: { $ref: "#/components/responses/Problem" }
+  /certificates:
+    get:
+      tags: [certificates]
+      operationId: listCertificates
+      summary: TLS certificates of the domains of the distributions
+      description: |
+        The uploaded and ACME certificates (never their keys) with their status (`expiring`
+        within 21 days), the distributions using them, and the ACME certificates of the
+        distributions with `tls.certificate: auto`, obtained or pending (the leader orders
+        and renews them).
+      x-nexo-actions: ["admin:ManageCertificates"]
+      responses:
+        "200":
+          description: The certificates.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CertificateList" }
+        default: { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [certificates]
+      operationId: uploadCertificate
+      summary: Upload a PEM certificate
+      description: |
+        The leaf certificate followed by its intermediates and its private key, validated
+        (chain linkage, key matching the leaf, DNS names, validity: 400
+        `invalid_certificate`), stored sealed and served by SNI on every node. A
+        certificate of the same id is replaced. Distributions use it with
+        `tls.certificate: upload:<id>`.
+      x-nexo-actions: ["admin:ManageCertificates"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UploadCertificateRequest" }
+      responses:
+        "201":
+          description: The certificate.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Certificate" }
+        default: { $ref: "#/components/responses/Problem" }
+  /certificates/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [certificates]
+      operationId: getCertificate
+      summary: A certificate
+      x-nexo-actions: ["admin:ManageCertificates"]
+      responses:
+        "200":
+          description: The certificate.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Certificate" }
+        default: { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [certificates]
+      operationId: deleteCertificate
+      summary: Remove a certificate no distribution names (409 otherwise)
+      x-nexo-actions: ["admin:ManageCertificates"]
+      responses:
+        "204": { description: Removed. }
+        default: { $ref: "#/components/responses/Problem" }
+
+  /cache/policies:
+    get:
+      tags: [cache]
+      operationId: listCachePolicies
+      summary: Cache policies (built-in and defined)
+      description: |
+        The reusable cache policies (docs/11 §11.2), by name: the built-in ones
+        (`disabled`, `standard`, `aggressive`, `immutable-assets`, `respect-origin`,
+        read-only, `builtin: true`) and those defined by the administrators. Every
+        policy is complete: its unset fields take the values of `standard`.
+      x-nexo-actions: ["admin:ManageCache"]
+      responses:
+        "200":
+          description: The policies, by name.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CachePolicyList" }
+        default: { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [cache]
+      operationId: createCachePolicy
+      summary: Define a cache policy
+      description: |
+        Validates (TTL `min` ≤ `default` ≤ `max`, durations, sizes, media types...) and
+        stores the policy; every node applies it at once. A name already taken answers
+        409 `already_exists`, a built-in name 409 `builtin_cache_policy`, an invalid
+        policy 400 `invalid_cache_request`.
+      x-nexo-actions: ["admin:ManageCache"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CachePolicy" }
+      responses:
+        "201":
+          description: The policy as stored.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CachePolicy" }
+        default: { $ref: "#/components/responses/Problem" }
+  /cache/policies/{name}:
+    parameters:
+      - { $ref: "#/components/parameters/cachePolicyName" }
+    get:
+      tags: [cache]
+      operationId: getCachePolicy
+      summary: A cache policy
+      x-nexo-actions: ["admin:ManageCache"]
+      responses:
+        "200":
+          description: The policy.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CachePolicy" }
+        "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [cache]
+      operationId: updateCachePolicy
+      summary: Replace a defined cache policy
+      description: |
+        Replaces the whole policy (its name is the one of the path); with `If-Match`
+        only the version with that ETag (412 otherwise). The entries cached under the
+        policy are dropped. A built-in policy answers 409 `builtin_cache_policy`.
+      x-nexo-actions: ["admin:ManageCache"]
+      parameters:
+        - { $ref: "#/components/parameters/ifMatch" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CachePolicy" }
+      responses:
+        "200":
+          description: The policy as stored.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CachePolicy" }
+        "412": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [cache]
+      operationId: deleteCachePolicy
+      summary: Remove a defined cache policy
+      description: A policy named by the settings of the cluster or of a distribution answers 409 `cache_policy_in_use`.
+      x-nexo-actions: ["admin:ManageCache"]
+      responses:
+        "204": { description: Removed. }
+        default: { $ref: "#/components/responses/Problem" }
+  /cache/preview:
+    post:
+      tags: [cache]
+      operationId: previewCachePolicy
+      summary: Validate a policy and preview its Cache-Control
+      description: |
+        Without storing it: the policy completed with the defaults, the `Cache-Control`
+        it sends to the clients (`inherited` when it is the one of the objects) and a
+        one-line summary (the editor of the console, D-CCH-03). An invalid policy
+        answers 400 `invalid_cache_request` with the field at fault in `detail`.
+      x-nexo-actions: ["admin:ManageCache"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CachePolicy" }
+      responses:
+        "200":
+          description: The preview.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CachePolicyPreview" }
+        default: { $ref: "#/components/responses/Problem" }
+  /cache/settings:
+    get:
+      tags: [cache]
+      operationId: getCacheSettings
+      summary: Cache settings of the cluster
+      description: The global level of the inheritance (docs/11 §11.1); the debug secret is masked.
+      x-nexo-actions: ["admin:ManageCache"]
+      responses:
+        "200":
+          description: The settings.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CacheGlobalSettings" }
+        default: { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [cache]
+      operationId: updateCacheSettings
+      summary: Replace the cache settings of the cluster
+      description: |
+        No quota (the size of the cache is `--cache-size`) nor webhooks at this level. A
+        masked debug secret keeps the stored one.
+      x-nexo-actions: ["admin:ManageCache"]
+      parameters:
+        - { $ref: "#/components/parameters/ifMatch" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CacheGlobalSettings" }
+      responses:
+        "200":
+          description: The settings as stored.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CacheGlobalSettings" }
+        "412": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /cache/inspect:
+    get:
+      tags: [cache]
+      operationId: inspectCache
+      summary: How the cache serves a URL
+      description: |
+        The cache key computed for the URL, the effective policy with the level each
+        setting comes from (`fields`), why the cache would be bypassed, and the entry of
+        the key on every node: tier, age, freshness, size, compressed variants
+        (docs/11 §11.7, D-CCH-05). Nothing is read from the origin.
+      x-nexo-actions: ["admin:ManageCache"]
+      parameters:
+        - name: url
+          in: query
+          required: true
+          description: An absolute http(s) URL on a domain of a distribution, or a path of `distribution`.
+          schema: { type: string }
+        - name: distribution
+          in: query
+          description: The distribution the URL must be served by (a path is completed with https and its first exact alias).
+          schema: { type: string }
+        - name: header
+          in: query
+          description: 'A request header of the key ("Accept-Encoding: br"), repeatable.'
+          style: form
+          explode: true
+          schema:
+            type: array
+            items: { type: string }
+      responses:
+        "200":
+          description: The inspection.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CacheInspection" }
+        default: { $ref: "#/components/responses/Problem" }
+  /cache/stats:
+    get:
+      tags: [cache]
+      operationId: getCacheStats
+      summary: Statistics of the cache
+      description: |
+        The answers by `X-Cache` value, the bytes served from the cache and from the
+        origin, the hit ratio, the entries and the sizes per tier, of the cluster (summed)
+        and of every node, per domain, with the most requested objects and those missed
+        the most (docs/11 §11.8). `distribution` and `host` narrow them; a host alone
+        selects the distribution serving it.
+      x-nexo-actions: ["admin:ManageCache"]
+      parameters:
+        - name: distribution
+          in: query
+          schema: { type: string }
+        - name: host
+          in: query
+          schema: { type: string }
+        - name: top
+          in: query
+          description: Size of the lists of top objects (default 10, at most 100).
+          schema: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: The statistics.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CacheStats" }
+        default: { $ref: "#/components/responses/Problem" }
+  /cache/invalidations:
+    get:
+      tags: [cache]
+      operationId: listGlobalCacheInvalidations
+      summary: History of the global purges
+      x-nexo-actions: ["admin:InvalidateCache"]
+      responses:
+        "200":
+          description: The global purges, the newest first.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CacheInvalidationList" }
+        default: { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [cache]
+      operationId: purgeAllCaches
+      summary: Purge the cache of every distribution
+      description: The global purge (`all` is required; `soft` marks the entries expired instead of dropping them).
+      x-nexo-actions: ["admin:InvalidateCache"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CacheInvalidationRequest" }
+      responses:
+        "201":
+          description: The invalidation with its state on every node.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CacheInvalidation" }
+        default: { $ref: "#/components/responses/Problem" }
+  /cache/invalidations/{inv}:
+    parameters:
+      - { $ref: "#/components/parameters/invalidationId" }
+    get:
+      tags: [cache]
+      operationId: findCacheInvalidation
+      summary: An invalidation, by its id alone
+      description: A global purge or an invalidation of any distribution (`nexoctl cache purge status`).
+      x-nexo-actions: ["admin:InvalidateCache"]
+      responses:
+        "200":
+          description: The invalidation with its state on every node.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CacheInvalidation" }
+        "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /distributions/{id}/cache:
+    parameters:
+      - { $ref: "#/components/parameters/distributionId" }
+    get:
+      tags: [cache]
+      operationId: getDistributionCache
+      summary: Cache settings of a distribution
+      description: |
+        The defaults of the distribution, the overrides of its domains (an alias, exact or
+        wildcard, or a host a wildcard alias matches) and of its paths (behaviors, the
+        first match wins), its purge webhooks (secrets masked) and the objects warmed on
+        write (docs/11 §11.1). A distribution without settings answers an empty document
+        without ETag.
+      x-nexo-actions: ["admin:ManageCache"]
+      responses:
+        "200":
+          description: The settings.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DistributionCache" }
+        "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [cache]
+      operationId: updateDistributionCache
+      summary: Replace the cache settings of a distribution
+      description: |
+        Replaces the whole document (`distribution` is the id of the path); with
+        `If-Match` only the version with that ETag (412 otherwise). Every node applies the
+        settings at once and drops the entries whose settings changed. The webhooks sent
+        with masked secrets keep the stored ones.
+      x-nexo-actions: ["admin:ManageCache"]
+      parameters:
+        - { $ref: "#/components/parameters/ifMatch" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DistributionCache" }
+      responses:
+        "200":
+          description: The settings as stored.
+          headers:
+            ETag: { $ref: "#/components/headers/ETag" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DistributionCache" }
+        "412": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /distributions/{id}/cache/effective:
+    parameters:
+      - { $ref: "#/components/parameters/distributionId" }
+    get:
+      tags: [cache]
+      operationId: getEffectiveCachePolicy
+      summary: Effective cache policy of a path of a domain
+      description: The policy that applies after the inheritance global → distribution → domain → behavior, with the level of each setting (TCC-01).
+      x-nexo-actions: ["admin:ManageCache"]
+      parameters:
+        - name: host
+          in: query
+          description: A domain of the distribution (none for the level of the distribution).
+          schema: { type: string }
+        - name: path
+          in: query
+          description: A path of the distribution (default /).
+          schema: { type: string }
+      responses:
+        "200":
+          description: The effective policy.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CacheEffectivePolicy" }
+        default: { $ref: "#/components/responses/Problem" }
+  /distributions/{id}/cache/warm:
+    parameters:
+      - { $ref: "#/components/parameters/distributionId" }
+    post:
+      tags: [cache]
+      operationId: warmDistributionCache
+      summary: Warm the cache of a domain
+      description: |
+        Caches objects before they are requested (docs/11 §11.6): paths, absolute URLs of
+        the domain, every object below a prefix or matching a pattern, with bounded
+        concurrency and bandwidth. In the local mode every node warms its own cache.
+        Returns at once; `GET .../warm/{job}` follows the progress.
+      x-nexo-actions: ["admin:InvalidateCache"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CacheWarmRequest" }
+      responses:
+        "202":
+          description: The warm-up, started.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CacheWarmJob" }
+        default: { $ref: "#/components/responses/Problem" }
+  /distributions/{id}/cache/warm/{job}:
+    parameters:
+      - { $ref: "#/components/parameters/distributionId" }
+      - name: job
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [cache]
+      operationId: getCacheWarmJob
+      summary: Progress of a warm-up
+      x-nexo-actions: ["admin:InvalidateCache"]
+      responses:
+        "200":
+          description: The warm-up with its progress on every node.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CacheWarmJob" }
+        "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /distributions/{id}/cache/webhooks:
+    parameters:
+      - { $ref: "#/components/parameters/distributionId" }
+    get:
+      tags: [cache]
+      operationId: listCacheWebhooks
+      summary: Purge webhooks of a distribution
+      description: The CDNs and proxies in front of the cluster purged on the invalidations of the distribution, automatic and manual (secrets masked).
+      x-nexo-actions: ["admin:ManageCache"]
+      responses:
+        "200":
+          description: The webhooks.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CacheWebhookList" }
+        default: { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [cache]
+      operationId: addCacheWebhook
+      summary: Add a purge webhook
+      description: An id already used answers 409 `already_exists`.
+      x-nexo-actions: ["admin:ManageCache"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CacheWebhook" }
+      responses:
+        "201":
+          description: The webhook as stored (secrets masked).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CacheWebhook" }
+        default: { $ref: "#/components/responses/Problem" }
+  /distributions/{id}/cache/webhooks/{webhook}:
+    parameters:
+      - { $ref: "#/components/parameters/distributionId" }
+      - { $ref: "#/components/parameters/cacheWebhookId" }
+    delete:
+      tags: [cache]
+      operationId: deleteCacheWebhook
+      summary: Remove a purge webhook
+      description: The domains bound to it are unbound.
+      x-nexo-actions: ["admin:ManageCache"]
+      responses:
+        "204": { description: Removed. }
+        default: { $ref: "#/components/responses/Problem" }
+  /distributions/{id}/cache/webhooks/{webhook}/test:
+    parameters:
+      - { $ref: "#/components/parameters/distributionId" }
+      - { $ref: "#/components/parameters/cacheWebhookId" }
+    post:
+      tags: [cache]
+      operationId: testCacheWebhook
+      summary: Call a purge webhook once
+      description: A test purge, outside of the queue (the connection test of D-CCH-07); a failed call is reported in the body, not as an error.
+      x-nexo-actions: ["admin:ManageCache"]
+      responses:
+        "200":
+          description: The outcome of the call.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CacheWebhookTestResult" }
+        default: { $ref: "#/components/responses/Problem" }
+  /distributions/{id}/invalidations:
+    parameters:
+      - { $ref: "#/components/parameters/distributionId" }
+    get:
+      tags: [cache]
+      operationId: listCacheInvalidations
+      summary: History of the invalidations of a distribution
+      x-nexo-actions: ["admin:InvalidateCache"]
+      responses:
+        "200":
+          description: The invalidations, the newest first.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CacheInvalidationList" }
+        default: { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [cache]
+      operationId: invalidateDistributionCache
+      summary: Invalidate cached content of a distribution
+      description: |
+        Exact paths (or absolute URLs of a domain, which set the domain), prefix, glob or
+        regex patterns of paths, cache tags (surrogate keys), a whole domain (`domain`
+        alone) or everything (`all`); `soft` marks the entries expired (served stale while
+        revalidated) instead of dropping them (docs/11 §11.5). Applied on every node and
+        sent to the purge webhooks of the domains; a node not reached is retried and the
+        state stays `in-progress` until it applies it.
+      x-nexo-actions: ["admin:InvalidateCache"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CacheInvalidationRequest" }
+      responses:
+        "201":
+          description: The invalidation with its state on every node.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CacheInvalidation" }
+        default: { $ref: "#/components/responses/Problem" }
+  /distributions/{id}/invalidations/{inv}:
+    parameters:
+      - { $ref: "#/components/parameters/distributionId" }
+      - { $ref: "#/components/parameters/invalidationId" }
+    get:
+      tags: [cache]
+      operationId: getCacheInvalidation
+      summary: An invalidation of a distribution
+      x-nexo-actions: ["admin:InvalidateCache"]
+      responses:
+        "200":
+          description: The invalidation with its state on every node.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CacheInvalidation" }
+        "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+
 components:
   securitySchemes:
     session:
@@ -2291,6 +3382,49 @@ components:
       in: query
       description: Page size, 1 to 1000 (default 1000).
       schema: { type: integer, minimum: 1, maximum: 1000 }
+    ifMatch:
+      name: If-Match
+      in: header
+      description: |
+        The ETag of the version the change applies to (quoted or not); a different
+        current version answers 412 `precondition_failed`. Absent or `*`, the change
+        applies unconditionally.
+      schema: { type: string }
+    distributionId:
+      name: id
+      in: path
+      required: true
+      description: Id of the distribution.
+      schema: { type: string }
+    keyGroupId:
+      name: id
+      in: path
+      required: true
+      description: Id of the key group.
+      schema: { type: string }
+    cachePolicyName:
+      name: name
+      in: path
+      required: true
+      description: Name of the cache policy.
+      schema: { type: string }
+    cacheWebhookId:
+      name: webhook
+      in: path
+      required: true
+      description: Id of the purge webhook.
+      schema: { type: string }
+    invalidationId:
+      name: inv
+      in: path
+      required: true
+      description: Id of the invalidation.
+      schema: { type: string }
+
+  headers:
+    ETag:
+      description: The version of the document, quoted.
+      schema: { type: string }
 
   responses:
     Problem:
@@ -2321,6 +3455,10 @@ components:
           type: array
           description: Invalid rules of a bucket configuration (code invalid_configuration).
           items: { $ref: "#/components/schemas/RuleError" }
+        accessRuleErrors:
+          type: array
+          description: The invalid access rule (codes invalid_access_rule, too_many_access_rules, public_access_blocked).
+          items: { $ref: "#/components/schemas/AccessRuleError" }
     RuleError:
       type: object
       required: [rule, code, message]
@@ -3930,3 +5068,1111 @@ components:
         resealed: { type: integer, description: Versions and uploads whose data key is sealed under the current master key. }
         failed: { type: integer, description: Versions and uploads that could not be re-sealed. }
         firstError: { type: string, description: Why the first failed version or upload could not be re-sealed. }
+
+    KeyPattern:
+      type: object
+      required: [type, pattern]
+      description: |
+        A pattern of keys or paths: `prefix` (literal, an empty prefix matches everything),
+        `glob` (`*` one segment, `**` any number, `?`, `[abc]`, `{a,b}`) or `regex` (RE2:
+        linear time, no backreference nor lookaround, at most 1024 characters). Keys are
+        matched decoded and normalized (`.`, `..`, `//` resolved, Unicode NFC).
+      properties:
+        type:
+          type: string
+          enum: [prefix, glob, regex]
+        pattern: { type: string }
+        caseInsensitive: { type: boolean }
+    AccessRuleConditions:
+      type: object
+      description: Conditions of an access rule; all must hold.
+      properties:
+        sourceIp:
+          type: array
+          description: CIDRs or IPs (IPv4, IPv6) one of which must contain the client (behind the trusted proxies).
+          items: { type: string }
+        notSourceIp:
+          type: array
+          items: { type: string }
+        referer:
+          type: array
+          description: Patterns with `*` and `?` one of which the Referer must match.
+          items: { type: string }
+        host:
+          type: array
+          description: Hosts the request must be addressed to (exact or `*.example.com`).
+          items: { type: string }
+        secureTransport: { type: boolean }
+        timeWindow:
+          type: object
+          properties:
+            from: { type: string, description: "RFC 3339, included." }
+            to: { type: string, description: "RFC 3339, included." }
+        methods:
+          type: array
+          items: { type: string }
+        headers:
+          type: object
+          description: Request headers and their exact values; a value may be `${secret:<name>}`.
+          additionalProperties: { type: string }
+        captureEquals:
+          type: object
+          description: Named groups of the regex of the rule and the values they must capture (policy variables such as `${aws:username}`).
+          additionalProperties: { type: string }
+    BucketAccessRule:
+      type: object
+      required: [id, priority, effect, principals, actions]
+      properties:
+        id:
+          type: string
+          description: 1-64 letters, digits, '.', '_' or '-'; unique in the bucket.
+        priority:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+          description: Order of evaluation, lower first (deny rules before allow rules).
+        effect:
+          type: string
+          enum: [allow, deny]
+        principals:
+          type: array
+          description: '`*` (everyone, anonymous included), `user:<name>`, `group:<name>`, `accesskey:<key>`, `distribution:<id>` (wildcards `*` and `?` in the names).'
+          items: { type: string }
+        actions:
+          type: array
+          description: Classes `read`, `list`, `write`, `delete`, `tag`, `all`, or S3 actions (`s3:GetObject`, `s3:Get*`). Object lock is never granted.
+          items: { type: string }
+        match:
+          description: The keys of the rule; absent, the whole bucket.
+          allOf:
+            - { $ref: "#/components/schemas/KeyPattern" }
+        conditions: { $ref: "#/components/schemas/AccessRuleConditions" }
+        description: { type: string }
+    AccessRules:
+      type: object
+      required: [bucket, rules, etag, public, blockPublic, warnings]
+      properties:
+        bucket: { type: string }
+        rules:
+          type: array
+          items: { $ref: "#/components/schemas/BucketAccessRule" }
+        etag:
+          type: string
+          description: Version of the rules, for the If-Match of PUT (also in the ETag header, quoted).
+        updatedAt: { type: string, format: date-time }
+        updatedBy: { type: string }
+        public:
+          type: boolean
+          description: An allow rule for everyone is in effect (not blocked).
+        blockPublic:
+          type: boolean
+          description: The block public access in effect on the bucket (cluster or bucket).
+        warnings:
+          type: array
+          description: Rules letting everyone write or delete, rules for everyone ignored by the block public access.
+          items: { type: string }
+    PutAccessRulesRequest:
+      type: object
+      required: [rules]
+      properties:
+        rules:
+          type: array
+          description: Every rule of the bucket; an empty list removes them.
+          items: { $ref: "#/components/schemas/BucketAccessRule" }
+    TestAccessRulesRequest:
+      type: object
+      properties:
+        keys:
+          type: array
+          description: Keys to test (the listing prefixes of a listing action); none tests the bucket.
+          items: { type: string }
+        action:
+          type: string
+          description: An action class (read, list, write, delete, tag) or an S3 action; default read.
+        principal:
+          type: string
+          description: '`anonymous` (default), `user:<name>`, `accesskey:<key>` (or a bare access key), `distribution:<id>`.'
+        ip: { type: string, description: "Client address." }
+        host: { type: string, description: "Host the request is addressed to." }
+        method: { type: string, description: "HTTP method (default derived from the action)." }
+        secure: { type: boolean, description: "HTTPS (absent - unknown)." }
+        referer: { type: string }
+        headers:
+          type: object
+          additionalProperties: { type: string }
+        distribution: { type: string, description: "Distribution serving the request." }
+        time: { type: string, format: date-time, description: "Time of the request (default now)." }
+    EvaluatedAccessRule:
+      type: object
+      required: [id, priority, effect, matched]
+      properties:
+        id: { type: string }
+        priority: { type: integer }
+        effect: { type: string, enum: [Allow, Deny] }
+        captures:
+          type: object
+          description: Named groups captured by the regex of the rule.
+          additionalProperties: { type: string }
+        matched: { type: boolean, description: "The rule applies to the request." }
+        mismatch:
+          type: string
+          enum: [principal, action, key, condition, blocked-public]
+          description: The first element that did not match.
+        condition: { type: string, description: "The condition that did not hold." }
+    AccessRulesKeyResult:
+      type: object
+      required: [key, normalizedKey, rules, matched, rulesOutcome, allowed, reason]
+      properties:
+        key: { type: string }
+        normalizedKey: { type: string, description: "The key the patterns were matched against." }
+        rules:
+          type: array
+          description: Every rule with its outcome, in evaluation order.
+          items: { $ref: "#/components/schemas/EvaluatedAccessRule" }
+        matched:
+          type: array
+          description: Ids of the rules that apply.
+          items: { type: string }
+        blockedPublic:
+          type: array
+          description: Ids of the rules for everyone the block public access ignores.
+          items: { type: string }
+        rulesOutcome:
+          type: string
+          enum: [allow, deny, none]
+          description: The outcome of the access rules alone.
+        allowed: { type: boolean, description: "The final decision of the policy engine." }
+        determinant: { type: string, description: "The access rule that decided (absent - another source or the implicit deny)." }
+        source: { type: string, description: "Source of the decisive statement (iam, group, bucket, accessrule, root...)." }
+        reason: { type: string }
+    AccessRulesTestResult:
+      type: object
+      required: [bucket, action, blockPublic, results]
+      properties:
+        bucket: { type: string }
+        action: { type: string, description: "The S3 action evaluated." }
+        blockPublic: { $ref: "#/components/schemas/BlockPublic" }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/AccessRulesKeyResult" }
+    AccessRulesPreset:
+      type: string
+      enum: [private, public-read, public-read-list, public-prefix, public-write, custom]
+    AccessRulesPublicStatus:
+      type: object
+      required: [bucket, public, preset, blocked]
+      properties:
+        bucket: { type: string }
+        public: { type: boolean, description: "An allow rule for everyone is in effect." }
+        preset: { $ref: "#/components/schemas/AccessRulesPreset" }
+        rules:
+          type: array
+          description: Ids of the allow rules for everyone.
+          items: { type: string }
+        blocked: { type: boolean, description: "The block public access ignores them." }
+    AccessPresetRequest:
+      type: object
+      required: [preset]
+      properties:
+        preset: { $ref: "#/components/schemas/AccessRulesPreset" }
+        match:
+          description: The keys of public-prefix (required) and public-write (optional).
+          allOf:
+            - { $ref: "#/components/schemas/KeyPattern" }
+        confirm: { type: boolean, description: "Acknowledges public-write." }
+    BlockPublicMode:
+      type: string
+      enum: [reject, ignore]
+    BlockPublic:
+      type: object
+      required: [enabled, mode, cluster, effective]
+      properties:
+        bucket: { type: string, description: "Absent for the cluster level." }
+        enabled: { type: boolean, description: "The setting of this level." }
+        mode: { $ref: "#/components/schemas/BlockPublicMode" }
+        cluster: { type: boolean, description: "The cluster-level setting." }
+        effective: { type: boolean, description: "In effect (cluster or bucket)." }
+    BlockPublicRequest:
+      type: object
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
+        mode:
+          description: Cluster level only; absent keeps it.
+          allOf:
+            - { $ref: "#/components/schemas/BlockPublicMode" }
+    AccessRuleError:
+      type: object
+      required: [rule, message]
+      properties:
+        rule: { type: integer, description: "1-based index of the rule, 0 for the whole list." }
+        id: { type: string }
+        field: { type: string, description: "The element at fault (match.pattern, conditions.sourceIp[1]...)." }
+        position: { type: integer, description: "1-based position of the problem in the pattern." }
+        message: { type: string }
+
+    DistributionMode:
+      type: string
+      enum: [website, s3]
+      description: website (static sites, downloads; never S3 XML) or s3 (the domain is an S3 endpoint of the bucket).
+    DistributionAccess:
+      type: string
+      enum: [public, signed, authenticated, deny]
+    DistributionCORS:
+      type: object
+      required: [allowedOrigins]
+      properties:
+        allowedOrigins:
+          type: array
+          items: { type: string }
+        allowedMethods:
+          type: array
+          items: { type: string }
+        allowedHeaders:
+          type: array
+          items: { type: string }
+        exposeHeaders:
+          type: array
+          items: { type: string }
+        maxAge: { type: integer }
+        allowCredentials: { type: boolean }
+    DistributionBehavior:
+      type: object
+      description: How the requests of a path are served; an unset field inherits from the default behavior.
+      properties:
+        pathPattern:
+          description: The paths of the behavior (absent for the default behavior).
+          allOf:
+            - { $ref: "#/components/schemas/KeyPattern" }
+        access: { $ref: "#/components/schemas/DistributionAccess" }
+        allowedMethods:
+          type: array
+          description: Default GET, HEAD, OPTIONS; POST and PUT only on signed behaviors of a website distribution.
+          items: { type: string }
+        indexDocument: { type: string }
+        spaFallback: { type: string, description: "Path served (200) instead of a missing object." }
+        cache:
+          type: object
+          description: Cache settings (docs/11); cacheControl is the Cache-Control sent to the browsers.
+          properties:
+            cacheControl: { type: string }
+        signing:
+          type: object
+          required: [keyGroup]
+          properties:
+            keyGroup: { type: string }
+        responseHeaders:
+          type: object
+          additionalProperties: { type: string }
+        cors: { $ref: "#/components/schemas/DistributionCORS" }
+    Distribution:
+      type: object
+      required: [id, aliases, origin]
+      description: |
+        A distribution (docs/10 §10.2): the document stored in the system store and
+        exported by `nexoctl dist export`.
+      properties:
+        id:
+          type: string
+          description: Lowercase letters, digits, '.', '_' and '-' (at most 64).
+        enabled: { type: boolean }
+        comment: { type: string }
+        aliases:
+          type: array
+          description: Host names, exact or wildcard (`*.preview.example.com`), unique across the distributions.
+          items: { type: string }
+        origin:
+          type: object
+          required: [bucket]
+          properties:
+            bucket: { type: string }
+            pathPrefix: { type: string, description: "The distribution serves only the keys under this prefix (website mode)." }
+            versionPinning: { type: boolean }
+        mode: { $ref: "#/components/schemas/DistributionMode" }
+        defaultBehavior: { $ref: "#/components/schemas/DistributionBehavior" }
+        behaviors:
+          type: array
+          description: Evaluated in order, the first match wins.
+          items: { $ref: "#/components/schemas/DistributionBehavior" }
+        errorPages:
+          type: array
+          items:
+            type: object
+            required: [status, path]
+            properties:
+              status: { type: integer }
+              path: { type: string }
+              responseStatus: { type: integer }
+        redirects:
+          type: array
+          items:
+            type: object
+            properties:
+              from: { type: string, description: "RE2 expression on the path." }
+              to: { type: string, description: "Target with $1, ${name}." }
+              hostFrom: { type: string }
+              toHost: { type: string }
+              httpsOnly: { type: boolean }
+              status: { type: integer }
+        headers:
+          type: object
+          properties:
+            response:
+              type: object
+              additionalProperties: { type: string }
+            cors: { $ref: "#/components/schemas/DistributionCORS" }
+        restrictions:
+          type: object
+          properties:
+            sourceIp:
+              type: object
+              properties:
+                allow:
+                  type: array
+                  items: { type: string }
+                deny:
+                  type: array
+                  items: { type: string }
+            originSecretHeader:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                value: { type: string, description: "A secret in clear (stored hashed) or ${secret:<name>}." }
+                values:
+                  type: array
+                  description: The active secrets, hashed (sha256:<hex>) or ${secret:<name>}.
+                  items: { type: string }
+            rateLimit:
+              type: object
+              properties:
+                requestsPerSecond: { type: integer }
+                burst: { type: integer }
+                per: { type: string }
+        tls:
+          type: object
+          properties:
+            certificate:
+              type: string
+              description: auto (ACME), upload:<id>, none (TLS terminated by a proxy).
+        logging:
+          type: object
+          properties:
+            accessLog: { type: boolean }
+            format: { type: string, enum: [json, combined] }
+            target: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        etag: { type: string, description: "The stored version (If-Match of PUT); ignored in requests." }
+    DistributionList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Distribution" }
+    Route:
+      type: object
+      required: [kind, host]
+      properties:
+        kind:
+          type: string
+          enum: [distribution, virtual-host, main, path-style, misdirected]
+        host: { type: string, description: "Normalized host." }
+        alias: { type: string, description: "The alias that matched." }
+        distribution: { type: string, description: "Id of the distribution." }
+        mode: { $ref: "#/components/schemas/DistributionMode" }
+        enabled: { type: boolean }
+        bucket: { type: string }
+    DistributionTestRequest:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string, description: "An absolute URL on an alias of the distribution, or a path." }
+        method: { type: string, description: "Default GET." }
+        clientIp: { type: string }
+    DistributionTestResult:
+      type: object
+      required: [route, behaviorIndex, behavior, responseHeaders]
+      properties:
+        route: { $ref: "#/components/schemas/Route" }
+        behaviorIndex: { type: integer, description: "Index of the behavior, -1 for the default one." }
+        behavior: { $ref: "#/components/schemas/DistributionBehavior" }
+        bucket: { type: string }
+        key: { type: string }
+        redirectStatus: { type: integer }
+        redirectLocation: { type: string }
+        refusalStatus: { type: integer }
+        refusal: { type: string }
+        responseHeaders:
+          type: object
+          additionalProperties: { type: string }
+    RotateOriginSecretRequest:
+      type: object
+      properties:
+        header: { type: string, description: "Default the current header, or X-Origin-Secret." }
+        keep: { type: integer, minimum: 0, description: "Previous secrets kept active (default 1)." }
+        dropPrevious: { type: boolean }
+    RotateOriginSecretResult:
+      type: object
+      required: [secret, header, distribution]
+      properties:
+        secret: { type: string, description: "The new secret in clear, shown once." }
+        header: { type: string }
+        distribution: { $ref: "#/components/schemas/Distribution" }
+    SignDistributionRequest:
+      type: object
+      required: [url, privateKeyPem]
+      properties:
+        url: { type: string, description: "An absolute URL on an alias, or a path completed with scheme and host." }
+        scheme: { type: string, enum: [http, https] }
+        host: { type: string, description: "Default the first exact alias." }
+        privateKeyPem: { type: string, description: "PKCS 8 (or PKCS 1 RSA) private key of a key of the key group." }
+        keyPairId: { type: string }
+        expiresIn: { type: integer, minimum: 1, description: "Seconds from now." }
+        expiresAt: { type: string, format: date-time }
+        notBefore: { type: string, format: date-time }
+        ipRange: { type: string, description: "IP or CIDR of the viewers." }
+        resource: { type: string, description: "URL with * and ? wildcards (default the URL)." }
+        cookies: { type: boolean }
+    SignedCookie:
+      type: object
+      required: [name, value, expires]
+      properties:
+        name: { type: string }
+        value: { type: string }
+        expires: { type: string, format: date-time }
+    SignDistributionResult:
+      type: object
+      required: [url, cookies, keyGroup, keyPairId, expiresAt]
+      properties:
+        url: { type: string, description: "The signed URL (unsigned with cookies)." }
+        cookies:
+          type: array
+          items: { $ref: "#/components/schemas/SignedCookie" }
+        keyGroup: { type: string }
+        keyPairId: { type: string }
+        expiresAt: { type: string, format: date-time }
+    PublicKey:
+      type: object
+      required: [id, algorithm, publicKeyPem, createdAt]
+      properties:
+        id: { type: string, description: "Key-Pair-Id of the signed URLs." }
+        algorithm: { type: string, enum: [ed25519, rsa] }
+        bits: { type: integer }
+        publicKeyPem: { type: string }
+        comment: { type: string }
+        createdAt: { type: string, format: date-time }
+    PublicKeyList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/PublicKey" }
+    KeyGroup:
+      type: object
+      required: [id, keys, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        comment: { type: string }
+        keys:
+          type: array
+          items: { $ref: "#/components/schemas/PublicKey" }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    KeyGroupList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/KeyGroup" }
+    GenerateKeyRequest:
+      type: object
+      properties:
+        algorithm: { type: string, enum: [ed25519, rsa] }
+        bits: { type: integer, description: "RSA size (2048 by default, 3072 or 4096)." }
+        comment: { type: string }
+    GeneratedKey:
+      type: object
+      required: [publicKey, privateKeyPem]
+      properties:
+        publicKey: { $ref: "#/components/schemas/PublicKey" }
+        privateKeyPem: { type: string, description: "PKCS 8 private key, returned once and never stored." }
+    CreateKeyGroupRequest:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string }
+        comment: { type: string }
+        generateKey: { $ref: "#/components/schemas/GenerateKeyRequest" }
+    CreateKeyGroupResult:
+      type: object
+      required: [keyGroup]
+      properties:
+        keyGroup: { $ref: "#/components/schemas/KeyGroup" }
+        key: { $ref: "#/components/schemas/GeneratedKey" }
+    AddKeyRequest:
+      type: object
+      properties:
+        publicKeyPem: { type: string, description: "A PKIX public key; absent generates a key pair." }
+        algorithm: { type: string, enum: [ed25519, rsa] }
+        bits: { type: integer }
+        comment: { type: string }
+    AddKeyResult:
+      type: object
+      required: [publicKey]
+      properties:
+        publicKey: { $ref: "#/components/schemas/PublicKey" }
+        privateKeyPem: { type: string, description: "The private key of a generated key pair, returned once." }
+
+    CertificateStatus:
+      type: string
+      enum: [valid, expiring, expired, not-yet-valid]
+    CertificateDetails:
+      type: object
+      required: [id, source, domains, subject, issuer, serial, notBefore, notAfter, fingerprint, status, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        source: { type: string, enum: [upload, acme] }
+        domains:
+          type: array
+          items: { type: string }
+        subject: { type: string }
+        issuer: { type: string }
+        serial: { type: string }
+        notBefore: { type: string, format: date-time }
+        notAfter: { type: string, format: date-time }
+        fingerprint: { type: string }
+        status: { $ref: "#/components/schemas/CertificateStatus" }
+        lastError: { type: string, description: "Last failure of an ACME renewal." }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    Certificate:
+      allOf:
+        - { $ref: "#/components/schemas/CertificateDetails" }
+        - type: object
+          required: [usedBy]
+          properties:
+            usedBy:
+              type: array
+              description: Distributions whose TLS names the certificate.
+              items: { type: string }
+    ManagedCertificate:
+      type: object
+      required: [id, domains, distributions, state]
+      properties:
+        id: { type: string }
+        domains:
+          type: array
+          items: { type: string }
+        distributions:
+          type: array
+          items: { type: string }
+        state: { type: string, enum: [issued, pending] }
+        certificate: { $ref: "#/components/schemas/CertificateDetails" }
+    CertificateList:
+      type: object
+      required: [items, acme]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Certificate" }
+        acme:
+          type: object
+          required: [directory, challenge, managed]
+          properties:
+            directory: { type: string }
+            challenge: { type: string, enum: [http-01, tls-alpn-01] }
+            managed:
+              type: array
+              items: { $ref: "#/components/schemas/ManagedCertificate" }
+    UploadCertificateRequest:
+      type: object
+      required: [certificatePem, privateKeyPem]
+      properties:
+        id: { type: string, description: "Default derived from the first DNS name." }
+        certificatePem: { type: string, description: "Leaf certificate followed by its intermediates." }
+        privateKeyPem: { type: string }
+    CacheDuration:
+      description: |
+        A duration: Go syntax ("90s", "1h30m") or days ("365d"); a number is seconds. The
+        server writes the Go syntax, whole days as "<n>d".
+      oneOf:
+        - type: string
+        - type: number
+    CacheSize:
+      description: |
+        A size: bytes, or a number with a unit (KiB, MiB, GiB, TiB, KB, MB, GB, TB; K, M,
+        G, T are binary). The server writes the largest binary unit dividing it ("20GiB").
+      oneOf:
+        - type: string
+        - type: integer
+    CacheLevel:
+      type: string
+      enum: [default, global, distribution, domain, behavior]
+      description: Where a setting comes from (docs/11 §11.1).
+    CacheMode:
+      type: string
+      enum: [local, shared, shared+local]
+    CacheQueryString:
+      description: |
+        The query parameters of the cache key: "none", "all", "allowlist:v,w",
+        "denylist:utm_source", or the object form (`mode` and `params`, or `allowlist` /
+        `denylist`). The server writes the object `{mode, params}`.
+      anyOf:
+        - type: string
+        - type: object
+          properties:
+            mode: { type: string, enum: [none, all, allowlist, denylist] }
+            params:
+              type: array
+              items: { type: string }
+            allowlist:
+              type: array
+              items: { type: string }
+            denylist:
+              type: array
+              items: { type: string }
+    CachePolicySpec:
+      type: object
+      description: |
+        The settings of a cache policy (docs/11 §11.2). In a policy every field is set; in
+        the settings of a level an unset field inherits from the more general level.
+      properties:
+        ttl:
+          type: object
+          description: Lifetime in cache when the object states none (default), and bounds of every lifetime (min, max).
+          properties:
+            default: { $ref: "#/components/schemas/CacheDuration" }
+            min: { $ref: "#/components/schemas/CacheDuration" }
+            max: { $ref: "#/components/schemas/CacheDuration" }
+        respectObjectCacheControl: { type: boolean, description: "Use the Cache-Control and Expires stored with the objects." }
+        browserCacheControl: { type: string, description: "Cache-Control sent to the clients; empty keeps the one of the object." }
+        cacheKey:
+          type: object
+          properties:
+            queryString: { $ref: "#/components/schemas/CacheQueryString" }
+            headers:
+              type: array
+              items: { type: string }
+            cookies:
+              type: array
+              items: { type: string }
+            normalize: { type: boolean, description: "Sort the query, lowercase, drop utm_*, fbclid, gclid." }
+            includeHost: { type: boolean, description: "One key per domain, or shared by the aliases." }
+        staleWhileRevalidate: { $ref: "#/components/schemas/CacheDuration" }
+        staleIfError: { $ref: "#/components/schemas/CacheDuration" }
+        negativeCaching: { $ref: "#/components/schemas/CacheDuration" }
+        bypass:
+          type: object
+          properties:
+            always: { type: boolean }
+            authorization: { type: boolean, description: "Skip the requests with credentials; false caches them per credential." }
+            cookies:
+              type: array
+              items: { type: string }
+            queryParams:
+              type: array
+              items: { type: string }
+            headers:
+              type: array
+              items: { type: string }
+        compression:
+          type: object
+          properties:
+            enabled: { type: boolean }
+            algorithms:
+              type: array
+              items: { type: string, enum: [gzip, br, zstd] }
+            contentTypes:
+              type: array
+              items: { type: string }
+            minSize: { $ref: "#/components/schemas/CacheSize" }
+        minSize: { $ref: "#/components/schemas/CacheSize" }
+        maxObjectSize: { $ref: "#/components/schemas/CacheSize" }
+        rangeCaching:
+          type: object
+          properties:
+            enabled: { type: boolean }
+            blockSize: { $ref: "#/components/schemas/CacheSize" }
+        contentTypes:
+          type: object
+          properties:
+            allow:
+              type: array
+              items: { type: string }
+            deny:
+              type: array
+              items: { type: string }
+    CachePolicy:
+      description: A reusable cache policy, referenced by name.
+      allOf:
+        - $ref: "#/components/schemas/CachePolicySpec"
+        - type: object
+          required: [name]
+          properties:
+            name:
+              type: string
+              description: Lowercase letters, digits, '.', '_' and '-' (at most 64).
+            comment: { type: string }
+            builtin: { type: boolean, description: "A predefined, read-only policy; ignored in requests." }
+            updatedAt: { type: string, format: date-time }
+            etag: { type: string, description: "The stored version; ignored in requests." }
+    CachePolicyList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/CachePolicy" }
+    CachePolicyPreview:
+      type: object
+      required: [policy, cacheControl, inherited, summary]
+      properties:
+        policy: { $ref: "#/components/schemas/CachePolicy" }
+        cacheControl: { type: string, description: "The Cache-Control sent to the clients." }
+        inherited: { type: boolean, description: "The policy sets none: the one of the objects is sent." }
+        summary: { type: string }
+    CacheSettings:
+      description: |
+        The cache settings of a level: whether the cache is on, the policy it starts from
+        (naming one replaces what the more general levels set) and the fields of the policy
+        it overrides.
+      allOf:
+        - $ref: "#/components/schemas/CachePolicySpec"
+        - type: object
+          properties:
+            enabled: { type: boolean }
+            policy: { type: string }
+            quota: { $ref: "#/components/schemas/CacheSize" }
+            purgeWebhooks:
+              type: array
+              description: The webhooks of the distribution purged on the invalidations of the domain (domain level).
+              items: { type: string }
+            autoInvalidate: { type: boolean, description: "Drop the entries of the objects written (global and distribution levels; default true)." }
+    CacheGlobalSettings:
+      type: object
+      required: [cache]
+      properties:
+        cache: { $ref: "#/components/schemas/CacheSettings" }
+        nodeHeader: { type: boolean, description: "Add X-Cache-Node to every answer." }
+        debug:
+          type: object
+          description: The request header unlocking X-Cache-Key, X-Cache-Policy and X-Cache-Node.
+          properties:
+            header: { type: string, description: "Default X-Nexo-Cache-Debug." }
+            secret: { type: string, description: "The value to present, or ${secret:<name>}; masked in answers." }
+        updatedAt: { type: string, format: date-time }
+        etag: { type: string }
+    CacheWebhook:
+      type: object
+      required: [id, type]
+      description: |
+        A CDN or proxy purged on the invalidations of the distribution, with retries and a
+        persistent queue. Secrets (token, clientSecret) may be ${secret:<name>}; they are
+        masked in answers and a masked value keeps the stored one.
+      properties:
+        id: { type: string }
+        type: { type: string, enum: [cloudflare, fastly, akamai, nginx, varnish, generic] }
+        domains:
+          type: array
+          description: The domains whose invalidations call it (none for every domain not bound to another webhook).
+          items: { type: string }
+        url: { type: string, description: "API base, address of the proxy, or URL template of a generic webhook." }
+        zone: { type: string, description: "Cloudflare zone id, Fastly service id." }
+        token: { type: string }
+        clientToken: { type: string }
+        clientSecret: { type: string }
+        network: { type: string, enum: [production, staging] }
+        cpCode: { type: string }
+        method: { type: string }
+        headers:
+          type: object
+          additionalProperties: { type: string }
+        body: { type: string, description: "Body template of a generic webhook (Go text/template)." }
+        scheme: { type: string, enum: [http, https] }
+    CacheWebhookList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/CacheWebhook" }
+    CacheWebhookTestResult:
+      type: object
+      required: [ok, durationMs]
+      properties:
+        ok: { type: boolean }
+        status: { type: integer, description: "HTTP status answered by the endpoint." }
+        error: { type: string }
+        durationMs: { type: integer }
+    DistributionCache:
+      type: object
+      required: [cache]
+      description: The cache settings of a distribution (docs/11 §11.1).
+      properties:
+        distribution: { type: string, description: "The id of the distribution (the one of the path; may be omitted in requests)." }
+        cache: { $ref: "#/components/schemas/CacheSettings" }
+        domains:
+          type: array
+          items:
+            type: object
+            required: [host, cache]
+            properties:
+              host: { type: string, description: "An alias of the distribution (exact or wildcard), or a host a wildcard alias matches." }
+              cache: { $ref: "#/components/schemas/CacheSettings" }
+        behaviors:
+          type: array
+          description: Overrides per path, the first match wins (no quota, webhooks nor autoInvalidate).
+          items:
+            type: object
+            required: [pathPattern, cache]
+            properties:
+              pathPattern: { $ref: "#/components/schemas/KeyPattern" }
+              cache: { $ref: "#/components/schemas/CacheSettings" }
+        webhooks:
+          type: array
+          items: { $ref: "#/components/schemas/CacheWebhook" }
+        warmOnWrite:
+          type: array
+          description: The objects written whose path matches one of these patterns are cached at once.
+          items: { $ref: "#/components/schemas/KeyPattern" }
+        updatedAt: { type: string, format: date-time }
+        etag: { type: string }
+    CacheEffectivePolicy:
+      type: object
+      required: [enabled, enabledLevel, policyName, policyLevel, policy, fields, behavior, autoInvalidate]
+      properties:
+        enabled: { type: boolean }
+        enabledLevel: { $ref: "#/components/schemas/CacheLevel" }
+        policyName: { type: string }
+        policyLevel: { $ref: "#/components/schemas/CacheLevel" }
+        policy: { $ref: "#/components/schemas/CachePolicySpec" }
+        fields:
+          type: object
+          description: Every setting ("ttl.default", "staleIfError"...) with the level that set it last.
+          additionalProperties: { $ref: "#/components/schemas/CacheLevel" }
+        domain: { type: string, description: "The domain settings that matched." }
+        behavior: { type: integer, description: "Index of the behavior that matched, -1 for none." }
+        distributionQuota: { $ref: "#/components/schemas/CacheSize" }
+        domainQuota: { $ref: "#/components/schemas/CacheSize" }
+        cacheControl: { type: string, description: "The Cache-Control sent to the clients (empty: the one of the object)." }
+        autoInvalidate: { type: boolean }
+    CacheInvalidationRequest:
+      type: object
+      properties:
+        domain: { type: string, description: "A domain of the distribution; alone, it purges the whole domain." }
+        paths:
+          type: array
+          description: Exact paths ("/docs/" also drops its index document), or absolute URLs of a domain (their host sets the domain).
+          items: { type: string }
+        patterns:
+          type: array
+          items: { $ref: "#/components/schemas/KeyPattern" }
+        tags:
+          type: array
+          description: Cache tags (x-amz-meta-cache-tag, surrogate keys).
+          items: { type: string }
+        all: { type: boolean }
+        soft: { type: boolean, description: "Mark the entries expired instead of dropping them." }
+    CacheNodeStatus:
+      type: object
+      required: [node, state]
+      properties:
+        node: { type: string }
+        state: { type: string, enum: [pending, completed, running, failed] }
+        at: { type: string, format: date-time }
+        removed: { type: integer, description: "Entries dropped or marked." }
+        error: { type: string }
+    CacheInvalidation:
+      type: object
+      required: [id, request, createdAt, state, nodes]
+      properties:
+        id: { type: string }
+        request:
+          allOf:
+            - $ref: "#/components/schemas/CacheInvalidationRequest"
+            - type: object
+              properties:
+                distribution: { type: string, description: "Empty for a global purge." }
+                actor: { type: string }
+        createdAt: { type: string, format: date-time }
+        state: { type: string, enum: [in-progress, completed] }
+        nodes:
+          type: array
+          items: { $ref: "#/components/schemas/CacheNodeStatus" }
+    CacheInvalidationList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/CacheInvalidation" }
+    CacheWarmRequest:
+      type: object
+      properties:
+        domain: { type: string, description: "The domain the entries are keyed by (default the first exact alias)." }
+        paths:
+          type: array
+          items: { type: string }
+        urls:
+          type: array
+          description: Absolute URLs of the domain.
+          items: { type: string }
+        prefix: { type: string, description: "Every object below this path prefix." }
+        pattern: { $ref: "#/components/schemas/KeyPattern" }
+        concurrency: { type: integer, minimum: 0, description: "Parallel reads (default 4)." }
+        bandwidth: { $ref: "#/components/schemas/CacheSize" }
+    CacheWarmJob:
+      type: object
+      required: [id, request, createdAt, state, nodes]
+      properties:
+        id: { type: string }
+        request:
+          allOf:
+            - $ref: "#/components/schemas/CacheWarmRequest"
+            - type: object
+              properties:
+                distribution: { type: string }
+                actor: { type: string }
+        createdAt: { type: string, format: date-time }
+        state: { type: string, enum: [running, completed, failed] }
+        nodes:
+          type: array
+          items:
+            allOf:
+              - $ref: "#/components/schemas/CacheNodeStatus"
+              - type: object
+                required: [total, done, failed, bytes]
+                properties:
+                  total: { type: integer }
+                  done: { type: integer }
+                  failed: { type: integer }
+                  bytes: { type: integer }
+    CacheInspection:
+      type: object
+      required: [url, host, path, bypass, policy, mode, nodes]
+      properties:
+        url: { type: string }
+        distribution: { type: string }
+        host: { type: string }
+        path: { type: string }
+        bucket: { type: string }
+        key: { type: string, description: "The object the URL maps to." }
+        cacheKey: { type: string }
+        bypass: { type: boolean }
+        reason: { type: string, description: "Why the cache is bypassed (redirection, refusal, method, credentials, disabled cache...)." }
+        policy: { $ref: "#/components/schemas/CacheEffectivePolicy" }
+        mode: { $ref: "#/components/schemas/CacheMode" }
+        nodes:
+          type: array
+          items:
+            type: object
+            required: [node, online, entry]
+            properties:
+              node: { type: string }
+              online: { type: boolean }
+              owner: { type: boolean, description: "The owner of the key (shared mode)." }
+              error: { type: string }
+              entry:
+                type: object
+                required: [key, present, ageSeconds, expiresInSeconds, sizeBytes, encodings]
+                properties:
+                  key: { type: string }
+                  present: { type: boolean }
+                  tier: { type: string, enum: [memory, disk] }
+                  kind: { type: string, enum: [object, head, info, negative, pass] }
+                  ageSeconds: { type: integer }
+                  expiresInSeconds: { type: integer, description: "Negative once stale." }
+                  stale: { type: boolean }
+                  sizeBytes: { type: integer }
+                  etag: { type: string }
+                  encodings:
+                    type: array
+                    items: { type: string }
+                  blocks: { type: integer }
+    CacheCounters:
+      type: object
+      required: [requests, bytesCache, bytesOrigin, hitRatio]
+      properties:
+        requests:
+          type: object
+          description: Answers by X-Cache value (HIT, MISS, STALE, BYPASS, EXPIRED, REVALIDATED).
+          additionalProperties: { type: integer }
+        bytesCache: { type: integer }
+        bytesOrigin: { type: integer }
+        hitRatio: { type: number, description: "Share of the cacheable requests served from the cache (HIT, STALE, REVALIDATED)." }
+    CacheHostStats:
+      allOf:
+        - $ref: "#/components/schemas/CacheCounters"
+        - type: object
+          required: [distribution, host, entries, memoryBytes, diskBytes]
+          properties:
+            distribution: { type: string }
+            host: { type: string }
+            entries: { type: integer }
+            memoryBytes: { type: integer }
+            diskBytes: { type: integer }
+    CacheObjectStat:
+      type: object
+      required: [distribution, host, path, requests, misses]
+      properties:
+        distribution: { type: string }
+        host: { type: string }
+        path: { type: string }
+        requests: { type: integer }
+        misses: { type: integer }
+    CacheNodeStats:
+      allOf:
+        - $ref: "#/components/schemas/CacheCounters"
+        - type: object
+          required: [node, online, mode, entries, memoryBytes, memoryLimitBytes, diskBytes, diskLimitBytes, evictions, invalidations, flushes, synced, originReads, webhookQueue, hosts, topObjects, topMisses]
+          properties:
+            node: { type: string }
+            online: { type: boolean }
+            mode: { $ref: "#/components/schemas/CacheMode" }
+            entries: { type: integer }
+            memoryBytes: { type: integer }
+            memoryLimitBytes: { type: integer }
+            diskBytes: { type: integer }
+            diskLimitBytes: { type: integer }
+            evictions: { type: integer }
+            invalidations: { type: integer }
+            flushes: { type: integer }
+            synced: { type: boolean, description: "The node receives the invalidations of every peer." }
+            originReads: { type: integer }
+            webhookQueue: { type: integer }
+            hosts:
+              type: array
+              items: { $ref: "#/components/schemas/CacheHostStats" }
+            topObjects:
+              type: array
+              items: { $ref: "#/components/schemas/CacheObjectStat" }
+            topMisses:
+              type: array
+              items: { $ref: "#/components/schemas/CacheObjectStat" }
+            error: { type: string }
+    CacheStats:
+      description: The statistics of the cluster (summed over the nodes) and of every node.
+      allOf:
+        - $ref: "#/components/schemas/CacheCounters"
+        - type: object
+          required: [entries, memoryBytes, diskBytes, hosts, topObjects, topMisses, nodes]
+          properties:
+            entries: { type: integer }
+            memoryBytes: { type: integer }
+            diskBytes: { type: integer }
+            hosts:
+              type: array
+              items: { $ref: "#/components/schemas/CacheHostStats" }
+            topObjects:
+              type: array
+              items: { $ref: "#/components/schemas/CacheObjectStat" }
+            topMisses:
+              type: array
+              items: { $ref: "#/components/schemas/CacheObjectStat" }
+            nodes:
+              type: array
+              items: { $ref: "#/components/schemas/CacheNodeStats" }

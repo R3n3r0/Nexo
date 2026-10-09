@@ -124,7 +124,7 @@ func (h *notificationRoutes) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		r = r.WithContext(event.WithRequest(ctx, requestOf(r)))
-		t := resolveTarget(h.opts.domains, r)
+		t := resolveTarget(h.opts, r)
 		if r.Method != http.MethodHead || !objectRequest(t) {
 			next.ServeHTTP(w, r)
 			return

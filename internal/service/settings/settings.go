@@ -27,6 +27,10 @@ func Applied(subsystem, key string) bool {
 		return key == KeyRootAccess || key == KeyCORSAllowOrigin
 	case "scanner":
 		return key == "speed" || key == "cycle"
+	case "access":
+		// The block public access, read by the access rules
+		// (internal/service/accessrule) at every evaluation.
+		return key == "block_public" || key == "block_public_mode"
 	}
 	// The notification targets (notify_<kind>[:<id>]) are applied by the
 	// event dispatcher, which reloads them when they change.

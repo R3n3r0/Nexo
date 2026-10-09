@@ -1,0 +1,28 @@
+Restrict the clients of a distribution: --allow-ip/--deny-ip filter the client
+behind the trusted proxies; --origin-secret-header requires the origin secret of
+the proxies in that header (generate the secret with "nexoctl dist origin-secret
+rotate"); --rate-limit is stored, not enforced yet.
+
+Usage:
+  nexoctl dist restrict ALIAS ID [--allow-ip CIDR]... [--deny-ip CIDR]... [--origin-secret-header NAME] [--rate-limit N] [flags]
+
+Examples:
+  nexoctl dist restrict local sito-web --deny-ip 203.0.113.0/24
+  nexoctl dist restrict local sito-web --origin-secret-header X-Origin-Secret
+
+Flags:
+      --allow-ip stringArray          allow only the clients of this CIDR (repeatable)
+      --burst int                     burst of the rate limit
+      --clear-ip                      remove the source IP restrictions
+      --deny-ip stringArray           refuse the clients of this CIDR (repeatable)
+  -h, --help                          help for restrict
+      --no-origin-secret              remove the origin secret requirement
+      --origin-secret-header string   require the origin secret in this header
+      --rate-limit int                requests per second per client (stored, not enforced yet)
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

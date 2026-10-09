@@ -1,0 +1,23 @@
+Manage the behaviors per path of a distribution
+
+Usage:
+  nexoctl dist behavior [flags]
+  nexoctl dist behavior [command]
+
+Available Commands:
+  add         Add a behavior for the paths of a pattern
+  list        List the behaviors of a distribution, in evaluation order
+  move        Move a behavior (1-based positions): the first match wins
+  remove      Remove the behavior N (1-based, see behavior ls)
+
+Flags:
+  -h, --help   help for behavior
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl dist behavior [command] --help" for more information about a command.

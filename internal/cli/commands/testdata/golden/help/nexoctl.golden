@@ -26,8 +26,11 @@ Buckets and objects:
   tree        Show the objects and prefixes as a tree
 
 Sharing and access:
+  access      Manage the access rules of the buckets (prefix, glob, regex)
   anonymous   Manage the anonymous access of buckets and prefixes
+  cache       Manage the cache of the distributions
   cors        Manage the CORS configuration of buckets
+  dist        Manage the distributions: custom domains of the buckets
   presign     Generate a raw presigned URL for any method
   share       Share objects with links that need no credentials
 

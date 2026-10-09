@@ -3,7 +3,7 @@
 # and "nexoctl" for the target architecture. For local builds from sources
 # use the Dockerfile at the repository root instead.
 FROM --platform=$BUILDPLATFORM busybox:1.37-musl AS dirs
-RUN mkdir -p /out/data
+RUN mkdir -p /out/data /out/cache
 
 FROM gcr.io/distroless/static-debian12:nonroot
 
@@ -16,6 +16,7 @@ LABEL org.opencontainers.image.title="Nexo" \
 COPY nexo /nexo
 COPY nexoctl /nexoctl
 COPY --from=dirs --chown=65532:65532 /out/data /data
+COPY --from=dirs --chown=65532:65532 /out/cache /cache
 
 USER 65532:65532
 EXPOSE 9000 9001

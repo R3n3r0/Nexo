@@ -25,12 +25,16 @@ import (
 	"github.com/r3n3r0/nexo/internal/config"
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/lifecycle"
+	"github.com/r3n3r0/nexo/internal/service/accessrule"
 	adminsvc "github.com/r3n3r0/nexo/internal/service/admin"
 	"github.com/r3n3r0/nexo/internal/service/audit"
 	"github.com/r3n3r0/nexo/internal/service/auth"
 	"github.com/r3n3r0/nexo/internal/service/bucket"
+	"github.com/r3n3r0/nexo/internal/service/cache"
+	"github.com/r3n3r0/nexo/internal/service/certs"
 	"github.com/r3n3r0/nexo/internal/service/cluster"
 	configsvc "github.com/r3n3r0/nexo/internal/service/config"
+	"github.com/r3n3r0/nexo/internal/service/distribution"
 	"github.com/r3n3r0/nexo/internal/service/event"
 	"github.com/r3n3r0/nexo/internal/service/iam"
 	"github.com/r3n3r0/nexo/internal/service/ilm"
@@ -44,6 +48,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/storage"
 	"github.com/r3n3r0/nexo/internal/service/topology"
 	adminhttp "github.com/r3n3r0/nexo/internal/transport/http/admin"
+	"github.com/r3n3r0/nexo/internal/transport/http/dist"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
 	"github.com/r3n3r0/nexo/internal/transport/http/s3"
@@ -145,6 +150,9 @@ type App struct {
 	consSrv  server.Service
 	s3Gate   middleware.Gate
 	consGate middleware.Gate
+	// s3Certs serves, by SNI, the certificates of the distributions on
+	// the S3 listener of a cluster node once its services are composed.
+	s3Certs *certificateHolder
 	// running is set while Run drives the application: only then may the
 	// Admin API stop or restart the process (processActions).
 	running *atomic.Bool
@@ -217,8 +225,12 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (app *App, er
 		const waiting = "the cluster bootstrap is not complete: this node waits for its peers"
 		a.s3Gate = middleware.NewGate(middleware.GateDeps{}, middleware.WithS3Errors(), middleware.WithClosedReason(waiting))
 		a.consGate = middleware.NewGate(middleware.GateDeps{}, middleware.WithClosedReason(waiting))
-		a.s3Srv = server.New(server.Deps{Middlewares: []middleware.Middleware{f.rpc, a.s3Gate}, Logger: logger},
-			serverOptions(cfg, cfg.Address, "s3")...)
+		a.s3Certs = &certificateHolder{}
+		s3Opts := serverOptions(cfg, cfg.Address, "s3")
+		if cfg.TLSEnabled() {
+			s3Opts = append(s3Opts, server.WithCertificates(a.s3Certs))
+		}
+		a.s3Srv = server.New(server.Deps{Middlewares: []middleware.Middleware{f.rpc, a.s3Gate}, Logger: logger}, s3Opts...)
 		a.consSrv = server.New(server.Deps{Middlewares: []middleware.Middleware{a.consGate}, Logger: logger},
 			serverOptions(cfg, cfg.ConsoleAddress, "console")...)
 		group.Add("s3", a.s3Srv)
@@ -297,6 +309,8 @@ func (a *App) joinCluster(ctx context.Context) error {
 	a.mu.Lock()
 	a.svc, a.late = svc, late
 	a.mu.Unlock()
+	a.s3Certs.set(svc.dist.certs)
+	a.f.distRequests.set(dist.DistributionRequest(svc.dist.raw))
 	a.s3Gate.Open(svc.s3Srv.Handler())
 	a.consGate.Open(svc.consSrv.Handler())
 	a.logger.Info("cluster: node ready", "node", a.f.nodeID, "deployment_id", res.DeploymentID,
@@ -420,6 +434,12 @@ type middlewareDeps struct {
 	// trustedProxies are the reverse proxies whose X-Forwarded-* headers
 	// name the client of the requests of both listeners.
 	trustedProxies []string
+	// forwardedHeaders is the header family the trusted proxies set
+	// (x-forwarded or forwarded, RFC 7239).
+	forwardedHeaders string
+	// dist routes the requests of the distributions around the S3
+	// authentication (nil: none).
+	dist *distStack
 }
 
 // s3Middlewares returns the middleware chain of the S3 listener, outermost
@@ -431,7 +451,8 @@ type middlewareDeps struct {
 // aws:SecureTransport decide alike through S3 and through the console
 // (docs/04 §4.3).
 func s3Middlewares(d middlewareDeps) ([]middleware.Middleware, error) {
-	forwarded, err := middleware.NewForwarded(middleware.ForwardedDeps{}, middleware.WithTrustedProxies(d.trustedProxies...))
+	forwarded, err := middleware.NewForwarded(middleware.ForwardedDeps{}, middleware.WithTrustedProxies(d.trustedProxies...),
+		middleware.WithForwardedHeaders(middleware.ForwardedHeaders(d.forwardedHeaders)))
 	if err != nil {
 		return nil, err
 	}
@@ -441,8 +462,12 @@ func s3Middlewares(d middlewareDeps) ([]middleware.Middleware, error) {
 	}
 	// The metrics routes authenticate their bearer tokens themselves; a
 	// virtual-host request with the same path is an object request.
+	skip, service := s3.MetricsRequest(d.domains...), s3.SigningService(d.domains...)
+	if d.dist != nil {
+		skip, service = d.dist.authSkip(skip), d.dist.authService(service)
+	}
 	authn, err := middleware.NewAuth(middleware.AuthDeps{Verifier: d.verifier, OnError: middleware.S3ErrorWriter(d.codec),
-		Skip: s3.MetricsRequest(d.domains...), Service: s3.SigningService(d.domains...)})
+		Skip: skip, Service: service})
 	if err != nil {
 		return nil, err
 	}
@@ -472,7 +497,8 @@ func consoleMiddlewares(d middlewareDeps) ([]middleware.Middleware, error) {
 	}
 	// The client of a request (login throttling, aws:SourceIp, Secure
 	// cookies) is the one behind the trusted proxies.
-	forwarded, err := middleware.NewForwarded(middleware.ForwardedDeps{}, middleware.WithTrustedProxies(d.trustedProxies...))
+	forwarded, err := middleware.NewForwarded(middleware.ForwardedDeps{}, middleware.WithTrustedProxies(d.trustedProxies...),
+		middleware.WithForwardedHeaders(middleware.ForwardedHeaders(d.forwardedHeaders)))
 	if err != nil {
 		return nil, err
 	}
@@ -520,6 +546,17 @@ type adminDeps struct {
 	// consoleURL is the public URL of the console, when configured: an
 	// origin the console requests may come from besides their Host.
 	consoleURL string
+	// accessRules and dist back the access rules, distributions and
+	// certificates endpoints (docs/10 §10.5); nil leaves them out.
+	accessRules accessrule.Service
+	dist        *distStack
+	// acmeDirectory and acmeChallenge describe the ACME of the
+	// certificates of the distributions ("" for the defaults).
+	acmeDirectory string
+	acmeChallenge string
+	// cache backs the cache endpoints (docs/11 §11.11); nil leaves them
+	// out.
+	cache cache.Service
 }
 
 // adminServices are the console services of internal/service/admin the
@@ -542,6 +579,14 @@ type adminServices struct {
 	cors          adminsvc.CORSManager
 	// kms manages the keys of the KMS (nil without one wired).
 	kms adminsvc.KMSManager
+	// accessRules, distributions and certificates manage the access
+	// rules, the distributions and their certificates (nil when the
+	// services are not wired).
+	accessRules   adminsvc.AccessRuleManager
+	distributions adminsvc.DistributionManager
+	certificates  adminsvc.CertificateManager
+	// cache manages the cache of the distributions (nil when not wired).
+	cache adminsvc.CacheManager
 }
 
 // buildAdminServices composes the console services around the
@@ -554,7 +599,8 @@ func buildAdminServices(d adminDeps) (adminServices, error) {
 	if out.authz, err = adminsvc.NewAuthorizer(adminsvc.AuthorizerDeps{Policy: d.policy, Creds: d.iam, Logger: d.logger}); err != nil {
 		return out, err
 	}
-	if out.buckets, err = adminsvc.NewBucketManager(adminsvc.BucketManagerDeps{Buckets: d.buckets, Objects: d.objects, Policy: d.policy, Authz: out.authz, Logger: d.logger}); err != nil {
+	if out.buckets, err = adminsvc.NewBucketManager(adminsvc.BucketManagerDeps{Buckets: d.buckets, Objects: d.objects, Policy: d.policy, Authz: out.authz,
+		AccessRules: d.accessRules, Logger: d.logger}); err != nil {
 		return out, err
 	}
 	if out.browser, err = adminsvc.NewObjectBrowser(adminsvc.ObjectBrowserDeps{Objects: d.objects, Authz: out.authz, Clock: d.clock, Logger: d.logger}); err != nil {
@@ -596,9 +642,14 @@ func buildAdminServices(d adminDeps) (adminServices, error) {
 		return out, err
 	}
 	if d.kms != nil {
-		out.kms, err = adminsvc.NewKMSManager(adminsvc.KMSManagerDeps{KMS: d.kms, Objects: d.objects, Logger: d.logger})
+		if out.kms, err = adminsvc.NewKMSManager(adminsvc.KMSManagerDeps{KMS: d.kms, Objects: d.objects, Logger: d.logger}); err != nil {
+			return out, err
+		}
 	}
-	return out, err
+	if err := buildDistributionManagers(d, &out); err != nil {
+		return out, err
+	}
+	return out, buildCacheManager(d, &out)
 }
 
 // buildAdminAPI assembles the Admin API route groups behind the
@@ -672,9 +723,18 @@ func buildAdminAPI(d adminDeps) (httpx.Routes, error) {
 	if err != nil {
 		return nil, err
 	}
-	return adminhttp.NewAPI(adminhttp.APIDeps{Enc: d.codec, Auth: authn},
-		sessionRoutes, infoRoutes, userRoutes, policyRoutes, bucketRoutes, objectRoutes, shareRoutes, configRoutes, clusterRoutes,
-		lifecycleRoutes, notificationRoutes, corsRoutes, kmsRoutes)
+	groups := []httpx.Routes{sessionRoutes, infoRoutes, userRoutes, policyRoutes, bucketRoutes, objectRoutes, shareRoutes, configRoutes, clusterRoutes,
+		lifecycleRoutes, notificationRoutes, corsRoutes, kmsRoutes}
+	distRoutes, err := buildDistributionRoutes(d, svc)
+	if err != nil {
+		return nil, err
+	}
+	cacheRoutes, err := buildCacheRoutes(d, svc)
+	if err != nil {
+		return nil, err
+	}
+	groups = append(append(groups, distRoutes...), cacheRoutes...)
+	return adminhttp.NewAPI(adminhttp.APIDeps{Enc: d.codec, Auth: authn}, groups...)
 }
 
 // processActions implements the service control of the Admin API (POST
@@ -880,6 +940,60 @@ func (a *App) Events() event.Service {
 	return nil
 }
 
+// AccessRules returns the service of the access rules of the buckets
+// (integration tests; the Admin API and the CLI manage them).
+func (a *App) AccessRules() accessrule.Service {
+	if s := a.services(); s != nil {
+		return s.accessRules
+	}
+	return nil
+}
+
+// Distributions returns the distribution service (the Admin API, the CLI
+// and the integration tests manage the distributions through it).
+func (a *App) Distributions() distribution.Service {
+	if s := a.services(); s != nil {
+		return s.dist.service
+	}
+	return nil
+}
+
+// Certificates returns the certificates of the domains of the
+// distributions.
+func (a *App) Certificates() certs.Service {
+	if s := a.services(); s != nil {
+		return s.dist.certs
+	}
+	return nil
+}
+
+// DistributionSigner signs the URLs and cookies of the signed behaviors
+// with a private key of a key group (dist sign-url).
+func (a *App) DistributionSigner() distribution.Signer {
+	if s := a.services(); s != nil {
+		return s.dist.signer
+	}
+	return nil
+}
+
+// WebAddr returns the address of the web listener (--web-address), ""
+// when it is not configured or not started yet.
+func (a *App) WebAddr() string {
+	if s := a.services(); s != nil && s.dist.webSrv != nil {
+		return s.dist.webSrv.Addr()
+	}
+	return ""
+}
+
+// WebTLSAddr returns the address of the TLS web listener
+// (--web-tls-address), "" when it is not configured or not started yet.
+func (a *App) WebTLSAddr() string {
+	if s := a.services(); s != nil && s.dist.webTLSSrv != nil {
+		return s.dist.webTLSSrv.Addr()
+	}
+	return ""
+}
+
 // Signer returns the SigV4 signer of the server (integration tests build
 // POST policy forms and presigned URLs with it).
 func (a *App) Signer() auth.Signer {
@@ -891,6 +1005,10 @@ func (a *App) Signer() auth.Signer {
 
 func serverOptions(cfg config.Static, addr, name string) []server.Option {
 	opts := []server.Option{server.WithAddr(addr), server.WithName(name)}
+	if cfg.ProxyProtocolOn(name) {
+		// The PROXY protocol of the trusted proxies (docs/10 §10.2).
+		opts = append(opts, server.WithProxyProtocol(cfg.TrustedProxies...))
+	}
 	if cfg.TLSEnabled() {
 		opts = append(opts, server.WithTLS(filepath.Join(cfg.CertsDir, "public.crt"), filepath.Join(cfg.CertsDir, "private.key")))
 		if cfg.TLSInternodeVerify && name == "s3" {

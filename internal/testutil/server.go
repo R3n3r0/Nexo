@@ -30,6 +30,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/app"
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/config"
+	"github.com/r3n3r0/nexo/internal/service/accessrule"
 	"github.com/r3n3r0/nexo/internal/service/auth"
 	"github.com/r3n3r0/nexo/internal/service/bucket"
 	"github.com/r3n3r0/nexo/internal/service/event"
@@ -100,6 +101,8 @@ type Server struct {
 	Buckets  bucket.Service
 	Shares   share.Service
 	Signer   auth.Signer
+	// AccessRules manages the access rules of the buckets.
+	AccessRules accessrule.Service
 	// ILM applies the bucket lifecycle at once (ApplyNow) and Events
 	// manages the notification targets.
 	ILM    ilm.Service
@@ -415,6 +418,7 @@ func (s *Server) start() error {
 	s.IAM = first.App.IAM()
 	s.Policies = first.App.Policies()
 	s.Buckets = first.App.Buckets()
+	s.AccessRules = first.App.AccessRules()
 	s.Shares = first.App.Shares()
 	s.Signer = first.App.Signer()
 	s.ILM = first.App.ILM()
