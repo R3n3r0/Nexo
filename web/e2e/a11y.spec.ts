@@ -77,6 +77,7 @@ test.describe('TD-E-19 accessibility (axe-core: no serious or critical violation
         ['distributions', '/distributions'],
         ['cache', '/cache'],
         ['cluster', '/cluster'],
+        ['healing', '/healing'],
         ['monitoring', '/monitoring'],
         ['not found', '/no/such/page'],
       ] as const;

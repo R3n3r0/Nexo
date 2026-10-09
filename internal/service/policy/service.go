@@ -229,6 +229,15 @@ const (
 	ActionAdminServerTrace             Action = "admin:ServerTrace"
 	ActionAdminConsoleLog              Action = "admin:ConsoleLog"
 	ActionAdminManageShares            Action = "admin:ManageShares"
+	// ActionAdminExportCluster and ActionAdminImportCluster authorize the
+	// export and the import of the state of the deployment (IAM, policies,
+	// configuration, bucket settings: admin cluster export/import).
+	ActionAdminExportCluster Action = "admin:ExportCluster"
+	ActionAdminImportCluster Action = "admin:ImportCluster"
+	// ActionAdminListLocks and ActionAdminForceUnlock authorize the
+	// diagnostics of the namespace locks (admin lock list/clear).
+	ActionAdminListLocks   Action = "admin:TopLocksInfo"
+	ActionAdminForceUnlock Action = "admin:ForceUnlock"
 
 	// Bucket and object configuration actions of the S3 API, shared by
 	// the S3 and the Admin API transports.

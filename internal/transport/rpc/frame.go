@@ -30,8 +30,13 @@ const (
 	frameTrailer    = 4
 	// maxFramePayload bounds the payload a reader accepts.
 	maxFramePayload = 8 << 20
-	// dataChunk is the payload size of the data frames a writer emits.
-	dataChunk = 128 << 10
+	// dataChunk is the payload size of the data frames a writer emits:
+	// one HTTP/2 DATA frame (the peers accept 1 MiB frames) per frame.
+	dataChunk = 512 << 10
+	// readBufferSize is the buffer of a frame reader: it holds the
+	// headers and small frames; large payloads are read past it, straight
+	// into their destination.
+	readBufferSize = 64 << 10
 )
 
 // Content types of the internode calls.
@@ -40,20 +45,48 @@ const (
 	contentTypeStream  = "application/x-nexo-stream"
 )
 
-// frameWriter writes frames to a buffered writer.
+// frameWriter writes frames: messages through a buffered writer, data
+// frames assembled in place (header, payload read straight from the
+// source, checksum) and written whole, without copying the payload.
 type frameWriter struct {
+	raw   io.Writer
 	w     *bufio.Writer
 	table *crc32.Table
 	enc   *msgpack.Encoder
 	buf   bytes.Buffer
 	hdr   [frameHeaderSize]byte
 	sum   [frameTrailer]byte
+	// data is the buffer of a data frame, allocated with the first one.
+	data []byte
 }
 
 func newFrameWriter(w io.Writer) *frameWriter {
-	fw := &frameWriter{w: bufio.NewWriterSize(w, dataChunk+frameHeaderSize+frameTrailer), table: crc32.MakeTable(crc32.Castagnoli)}
+	fw := &frameWriter{raw: w, w: bufio.NewWriterSize(w, 32<<10), table: crc32.MakeTable(crc32.Castagnoli)}
 	fw.enc = msgpack.NewEncoder(&fw.buf)
 	return fw
+}
+
+// dataFrame returns the buffer of a data frame: header, dataChunk bytes
+// of payload, checksum.
+func (fw *frameWriter) dataFrame() []byte {
+	if fw.data == nil {
+		fw.data = make([]byte, frameHeaderSize+dataChunk+frameTrailer)
+	}
+	return fw.data
+}
+
+// writeDataFrame completes the frame of buf holding n bytes of payload and
+// writes it whole, after the buffered messages.
+func (fw *frameWriter) writeDataFrame(buf []byte, n int) error {
+	if err := fw.w.Flush(); err != nil {
+		return err
+	}
+	buf[0] = frameData
+	binary.BigEndian.PutUint32(buf[1:frameHeaderSize], uint32(n))
+	end := frameHeaderSize + n
+	binary.BigEndian.PutUint32(buf[end:end+frameTrailer], crc32.Checksum(buf[frameHeaderSize:end], fw.table))
+	_, err := fw.raw.Write(buf[:end+frameTrailer])
+	return err
 }
 
 func (fw *frameWriter) frame(typ byte, payload []byte) error {
@@ -72,9 +105,10 @@ func (fw *frameWriter) frame(typ byte, payload []byte) error {
 
 // Data writes p as data frames.
 func (fw *frameWriter) Data(p []byte) error {
+	buf := fw.dataFrame()
 	for len(p) > 0 {
-		n := min(len(p), dataChunk)
-		if err := fw.frame(frameData, p[:n]); err != nil {
+		n := copy(buf[frameHeaderSize:frameHeaderSize+dataChunk], p)
+		if err := fw.writeDataFrame(buf, n); err != nil {
 			return err
 		}
 		p = p[n:]
@@ -105,15 +139,16 @@ func (fw *frameWriter) Error(err error) error {
 }
 
 // CopyData streams r as data frames until io.EOF and returns the number of
-// bytes copied. Read errors are returned as such.
+// bytes copied: each frame is filled straight from r (up to dataChunk
+// bytes, or what r has when it ends). Read errors are returned as such.
 func (fw *frameWriter) CopyData(r io.Reader) (int64, error) {
-	buf := make([]byte, dataChunk)
+	buf := fw.dataFrame()
 	var total int64
 	for {
-		n, err := r.Read(buf)
+		n, err := fill(r, buf[frameHeaderSize:frameHeaderSize+dataChunk])
 		if n > 0 {
 			total += int64(n)
-			if werr := fw.Data(buf[:n]); werr != nil {
+			if werr := fw.writeDataFrame(buf, n); werr != nil {
 				return total, werr
 			}
 		}
@@ -124,6 +159,21 @@ func (fw *frameWriter) CopyData(r io.Reader) (int64, error) {
 			return total, err
 		}
 	}
+}
+
+// fill reads from r until p is full or r fails: unlike io.ReadFull, only
+// io.EOF ends the stream (a reader failing with io.ErrUnexpectedEOF, a
+// cut stream, is an error).
+func fill(r io.Reader, p []byte) (int, error) {
+	n := 0
+	for n < len(p) {
+		m, err := r.Read(p[n:])
+		n += m
+		if err != nil {
+			return n, err
+		}
+	}
+	return n, nil
 }
 
 // Flush writes the buffered frames.
@@ -149,35 +199,58 @@ type frameReader struct {
 }
 
 func newFrameReader(r io.Reader, node string) *frameReader {
-	return &frameReader{r: bufio.NewReaderSize(r, 64<<10), node: node, table: crc32.MakeTable(crc32.Castagnoli)}
+	return &frameReader{r: bufio.NewReaderSize(r, readBufferSize), node: node, table: crc32.MakeTable(crc32.Castagnoli)}
+}
+
+// header reads the header of the next frame: its type and payload size.
+func (fr *frameReader) header() (byte, int, error) {
+	if fr.err != nil {
+		return 0, 0, fr.err
+	}
+	if _, err := io.ReadFull(fr.r, fr.hdr[:]); err != nil {
+		return 0, 0, fr.fail(cut(err))
+	}
+	typ, n := fr.hdr[0], binary.BigEndian.Uint32(fr.hdr[1:])
+	if n > maxFramePayload {
+		return 0, 0, fr.fail(fmt.Errorf("%w: frame of %d bytes from %s", ErrProtocol, n, fr.node))
+	}
+	return typ, int(n), nil
+}
+
+// payload reads the payload of the current frame into dst (its size) and
+// verifies its checksum.
+func (fr *frameReader) payload(dst []byte) error {
+	if _, err := io.ReadFull(fr.r, dst); err != nil {
+		return fr.fail(cut(err))
+	}
+	if _, err := io.ReadFull(fr.r, fr.sum[:]); err != nil {
+		return fr.fail(cut(err))
+	}
+	if crc32.Checksum(dst, fr.table) != binary.BigEndian.Uint32(fr.sum[:]) {
+		return fr.fail(fmt.Errorf("%w: frame checksum mismatch from %s", ErrProtocol, fr.node))
+	}
+	return nil
 }
 
 // next reads the next frame. A stream cut before an end frame is
 // io.ErrUnexpectedEOF; an error frame is decoded into the remote error.
 func (fr *frameReader) next() (byte, []byte, error) {
-	if fr.err != nil {
-		return 0, nil, fr.err
+	typ, n, err := fr.header()
+	if err != nil {
+		return 0, nil, err
 	}
-	if _, err := io.ReadFull(fr.r, fr.hdr[:]); err != nil {
-		return 0, nil, fr.fail(cut(err))
-	}
-	typ, n := fr.hdr[0], binary.BigEndian.Uint32(fr.hdr[1:])
-	if n > maxFramePayload {
-		return 0, nil, fr.fail(fmt.Errorf("%w: frame of %d bytes from %s", ErrProtocol, n, fr.node))
-	}
-	if cap(fr.buf) < int(n) {
+	if cap(fr.buf) < n {
 		fr.buf = make([]byte, n)
 	}
 	payload := fr.buf[:n]
-	if _, err := io.ReadFull(fr.r, payload); err != nil {
-		return 0, nil, fr.fail(cut(err))
+	if err := fr.payload(payload); err != nil {
+		return 0, nil, err
 	}
-	if _, err := io.ReadFull(fr.r, fr.sum[:]); err != nil {
-		return 0, nil, fr.fail(cut(err))
-	}
-	if crc32.Checksum(payload, fr.table) != binary.BigEndian.Uint32(fr.sum[:]) {
-		return 0, nil, fr.fail(fmt.Errorf("%w: frame checksum mismatch from %s", ErrProtocol, fr.node))
-	}
+	return fr.frame(typ, payload)
+}
+
+// frame interprets a frame read whole.
+func (fr *frameReader) frame(typ byte, payload []byte) (byte, []byte, error) {
 	switch typ {
 	case frameEnd:
 		return 0, nil, fr.fail(io.EOF)
@@ -207,10 +280,28 @@ func cut(err error) error {
 	return err
 }
 
-// Read implements io.Reader over the data frames.
+// Read implements io.Reader over the data frames. A data frame that fits
+// in p is read straight into it.
 func (fr *frameReader) Read(p []byte) (int, error) {
 	for len(fr.data) == 0 {
-		typ, payload, err := fr.next()
+		typ, n, err := fr.header()
+		if err != nil {
+			return 0, err
+		}
+		if typ == frameData && n > 0 && n <= len(p) {
+			if err := fr.payload(p[:n]); err != nil {
+				return 0, err
+			}
+			return n, nil
+		}
+		if cap(fr.buf) < n {
+			fr.buf = make([]byte, n)
+		}
+		payload := fr.buf[:n]
+		if err := fr.payload(payload); err != nil {
+			return 0, err
+		}
+		typ, payload, err = fr.frame(typ, payload)
 		if err != nil {
 			return 0, err
 		}
@@ -222,6 +313,47 @@ func (fr *frameReader) Read(p []byte) (int, error) {
 	n := copy(p, fr.data)
 	fr.data = fr.data[n:]
 	return n, nil
+}
+
+// WriteTo implements io.WriterTo over the data frames: io.Copy writes
+// every payload to w as read, without an intermediate buffer.
+func (fr *frameReader) WriteTo(w io.Writer) (int64, error) {
+	var total int64
+	for {
+		if len(fr.data) > 0 {
+			n, err := w.Write(fr.data)
+			total += int64(n)
+			fr.data = fr.data[n:]
+			if err != nil {
+				return total, err
+			}
+			continue
+		}
+		typ, payload, err := fr.next()
+		if errors.Is(err, io.EOF) {
+			return total, nil
+		}
+		if err != nil {
+			return total, err
+		}
+		if typ != frameData {
+			return total, fr.fail(fmt.Errorf("%w: message frame in a data stream from %s", ErrProtocol, fr.node))
+		}
+		fr.data = payload
+	}
+}
+
+// NextRaw returns a copy of the payload of the next message frame (its
+// msgpack encoding); io.EOF ends the stream.
+func (fr *frameReader) NextRaw() ([]byte, error) {
+	typ, payload, err := fr.next()
+	if err != nil {
+		return nil, err
+	}
+	if typ != frameMsg {
+		return nil, fr.fail(fmt.Errorf("%w: data frame in a message stream from %s", ErrProtocol, fr.node))
+	}
+	return bytes.Clone(payload), nil
 }
 
 // Next decodes the next message frame into v; io.EOF ends the stream.

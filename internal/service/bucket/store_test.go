@@ -14,6 +14,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/bucket"
+	"github.com/r3n3r0/nexo/internal/service/lock"
 	"github.com/r3n3r0/nexo/internal/service/storage"
 	"github.com/r3n3r0/nexo/internal/service/sysstore"
 	"github.com/r3n3r0/nexo/internal/testutil"
@@ -189,7 +190,7 @@ func TestMetadataStoreOnDocuments(t *testing.T) {
 	for i := range drives {
 		drives[i] = testutil.NewLocalDriveIndex(t, "", i)
 	}
-	docs, err := sysstore.New(sysstore.Deps{Drives: drives})
+	docs, err := sysstore.New(sysstore.Deps{Drives: drives, Locks: lock.NewLocal(lock.Deps{})})
 	require.NoError(t, err)
 	a, err := bucket.NewStore(bucket.StoreDeps{Docs: docs})
 	require.NoError(t, err)

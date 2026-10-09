@@ -38,6 +38,14 @@ export type Session = Schemas['Session'];
 export type DiskInfo = Schemas['DiskInfo'];
 export type NodeInfo = Schemas['NodeInfo'];
 export type PoolInfo = Schemas['PoolInfo'];
+/** Progress of the healing of a replaced or wiped drive. */
+export type HealingProgress = Schemas['HealingProgress'];
+/** Clock offset of a node measured by the node answering GET /info. */
+export type ClockSkew = Schemas['ClockSkew'];
+/** Drives of an erasure set and the quorum they leave. */
+export type ErasureSetInfo = Schemas['ErasureSetInfo'];
+/** ok, degraded (write quorum kept), readonly (read quorum only), unavailable. */
+export type ErasureSetState = Schemas['ErasureSetState'];
 
 /** Aggregated server/cluster information (GET /info). */
 export type ServerInfo = Schemas['ServerInfo'];
@@ -113,6 +121,20 @@ export type CreatedAccessKey = AccessKey & { secretKey: string };
 export type CreateAccessKeyInput = Schemas['CreateAccessKeyRequest'];
 export type UpdateAccessKeyInput = Schemas['UpdateAccessKeyRequest'];
 
+/* Healing jobs (POST/GET /heal, GET /heal/{id}). */
+
+/** What to heal: no bucket = format and every bucket; recursive = the objects too. */
+export type HealRequest = Schemas['HealRequest'];
+export type HealJob = Schemas['HealJob'];
+export type HealJobState = Schemas['HealJobState'];
+/** Per-drive counters of a healing job. */
+export type HealJobDrive = Schemas['HealJobDrive'];
+/** An item that needed healing, was dangling or failed. */
+export type HealItem = Schemas['HealItem'];
+export type HealItemDrive = Schemas['HealItemDrive'];
+/** State of an item on a drive before and after the healing. */
+export type HealDriveState = Schemas['HealDriveState'];
+
 /* Pages of the list endpoints ({items, nextCursor}). */
 
 export type BucketList = Schemas['BucketList'];
@@ -121,6 +143,7 @@ export type GroupList = Schemas['GroupList'];
 export type PolicyList = Schemas['PolicyList'];
 export type AccessKeyList = Schemas['AccessKeyList'];
 export type ShareList = Schemas['ShareList'];
+export type HealJobList = Schemas['HealJobList'];
 
 /* Console-side inputs composed from the wire types. */
 

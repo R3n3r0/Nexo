@@ -32,11 +32,13 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/cluster"
 	configsvc "github.com/r3n3r0/nexo/internal/service/config"
 	"github.com/r3n3r0/nexo/internal/service/iam"
+	"github.com/r3n3r0/nexo/internal/service/lock"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/service/session"
 	"github.com/r3n3r0/nexo/internal/service/share"
+	"github.com/r3n3r0/nexo/internal/service/storage"
 	"github.com/r3n3r0/nexo/internal/service/topology"
 	adminhttp "github.com/r3n3r0/nexo/internal/transport/http/admin"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
@@ -56,6 +58,8 @@ type options struct {
 	topology topology.Service
 	stopWait time.Duration
 	noFsync  bool
+	// dial opens the internode connections (nil: net.Dialer).
+	dial func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 // WithLogger sets the logger (default slog.Default()).
@@ -103,6 +107,13 @@ func WithoutFsync() Option {
 	return func(o *options) { o.noFsync = true }
 }
 
+// WithInternodeDialer opens the TCP connections of this node to its
+// peers (tests: proxies that partition the nodes or slow their links,
+// docs/06 TC-07, TC-08); default a net.Dialer.
+func WithInternodeDialer(d func(ctx context.Context, network, addr string) (net.Conn, error)) Option {
+	return func(o *options) { o.dial = d }
+}
+
 // WithStopTimeout bounds the shutdown (default 30s).
 func WithStopTimeout(d time.Duration) Option {
 	return func(o *options) {
@@ -129,8 +140,8 @@ type App struct {
 	// internode RPC from the start).
 	s3Srv    server.Service
 	consSrv  server.Service
-	s3Gate   *gate
-	consGate *gate
+	s3Gate   middleware.Gate
+	consGate middleware.Gate
 	// running is set while Run drives the application: only then may the
 	// Admin API stop or restart the process (processActions).
 	running *atomic.Bool
@@ -173,7 +184,7 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (app *App, er
 		return nil, fmt.Errorf("app: parse endpoints: %w", err)
 	}
 
-	f, err := newFoundation(foundationDeps{cfg: cfg, layout: layout, topo: topo, clock: o.clock, logger: logger, noFsync: o.noFsync})
+	f, err := newFoundation(foundationDeps{cfg: cfg, layout: layout, topo: topo, clock: o.clock, logger: logger, noFsync: o.noFsync, dial: o.dial})
 	if err != nil {
 		return nil, fmt.Errorf("app: %w", err)
 	}
@@ -190,10 +201,19 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (app *App, er
 	// Components stop in reverse order: the drives are released last.
 	group := lifecycle.NewGroup(lifecycle.WithLogger(logger), lifecycle.WithStopTimeout(o.stopWait))
 	group.Add("drives", lifecycle.Funcs{OnStop: f.close})
+	// The leftovers of the writes a crashed peer coordinated stay in the
+	// temporary area of this node's drives until they age out (file times
+	// are wall-clock times: no injected clock).
+	janitor, err := storage.NewJanitor(storage.JanitorDeps{Drives: f.local, Logger: logger.With("component", "janitor")})
+	if err != nil {
+		return nil, fmt.Errorf("app: %w", err)
+	}
+	group.Add("janitor", janitor)
 	group.Add("notifier", f.notifier)
 	if f.distributed() {
-		a.s3Gate = newGate(true, "the cluster bootstrap is not complete: this node waits for its peers")
-		a.consGate = newGate(false, "the cluster bootstrap is not complete: this node waits for its peers")
+		const waiting = "the cluster bootstrap is not complete: this node waits for its peers"
+		a.s3Gate = middleware.NewGate(middleware.GateDeps{}, middleware.WithS3Errors(), middleware.WithClosedReason(waiting))
+		a.consGate = middleware.NewGate(middleware.GateDeps{}, middleware.WithClosedReason(waiting))
 		a.s3Srv = server.New(server.Deps{Middlewares: []middleware.Middleware{f.rpc, a.s3Gate}, Logger: logger},
 			serverOptions(cfg, cfg.Address, "s3")...)
 		a.consSrv = server.New(server.Deps{Middlewares: []middleware.Middleware{a.consGate}, Logger: logger},
@@ -274,18 +294,30 @@ func (a *App) joinCluster(ctx context.Context) error {
 	a.mu.Lock()
 	a.svc, a.late = svc, late
 	a.mu.Unlock()
-	a.s3Gate.open(svc.s3Srv.Handler())
-	a.consGate.open(svc.consSrv.Handler())
+	a.s3Gate.Open(svc.s3Srv.Handler())
+	a.consGate.Open(svc.consSrv.Handler())
 	a.logger.Info("cluster: node ready", "node", a.f.nodeID, "deployment_id", res.DeploymentID,
 		"offline_drives", len(res.Offline), "healing_drives", len(res.Healing))
 	return nil
 }
 
-// leaveCluster turns the requests away and stops the background
-// components of a cluster node.
+// leaveCluster turns the requests away, waits for the requests in
+// progress and stops the background components of a cluster node. The
+// requests are drained first: what they report to the background
+// components (the MRF entries of their partial writes) reaches them
+// before the components stop and persist their state. The listeners stay
+// open for the internode RPC of the peers until the group stops them.
 func (a *App) leaveCluster(ctx context.Context) error {
-	a.s3Gate.close("the node is stopping")
-	a.consGate.close("the node is stopping")
+	a.s3Gate.Close("the node is stopping")
+	a.consGate.Close("the node is stopping")
+	for _, g := range []struct {
+		name string
+		gate middleware.Gate
+	}{{"s3", a.s3Gate}, {"console", a.consGate}} {
+		if err := g.gate.Drain(ctx); err != nil {
+			a.logger.Warn("cluster: requests still in progress at the stop", "listener", g.name, "err", err)
+		}
+	}
 	a.mu.Lock()
 	late := a.late
 	a.late = nil
@@ -470,6 +502,8 @@ type adminDeps struct {
 	objects  object.Service
 	shares   share.Service
 	config   configsvc.Service
+	// locks exposes the namespace locks of the deployment (diagnostics).
+	locks lock.Manager
 	// secureCookies forces the Secure flag of the session cookies (the
 	// console is served over HTTPS, possibly by a proxy terminating TLS).
 	secureCookies bool
@@ -490,6 +524,7 @@ type adminServices struct {
 	accessKeys adminsvc.AccessKeyManager
 	policies   adminsvc.PolicyManager
 	config     adminsvc.ConfigManager
+	cluster    adminsvc.ClusterManager
 }
 
 // buildAdminServices composes the console services around the
@@ -524,7 +559,12 @@ func buildAdminServices(d adminDeps) (adminServices, error) {
 	if out.policies, err = adminsvc.NewPolicyManager(adminsvc.PolicyManagerDeps{Policy: d.policy, Creds: d.iam, Logger: d.logger}); err != nil {
 		return out, err
 	}
-	out.config, err = adminsvc.NewConfigManager(adminsvc.ConfigManagerDeps{Config: d.config, Logger: d.logger})
+	if out.config, err = adminsvc.NewConfigManager(adminsvc.ConfigManagerDeps{Config: d.config, Logger: d.logger}); err != nil {
+		return out, err
+	}
+	out.cluster, err = adminsvc.NewClusterManager(adminsvc.ClusterManagerDeps{
+		IAM: d.iam, Policy: d.policy, Config: out.config, Buckets: d.buckets, Clock: d.clock, Logger: d.logger,
+	}, adminsvc.WithServerVersion(version.Get().Version))
 	return out, err
 }
 
@@ -579,8 +619,12 @@ func buildAdminAPI(d adminDeps) (httpx.Routes, error) {
 	if err != nil {
 		return nil, err
 	}
+	clusterRoutes, err := adminhttp.NewClusterRoutes(adminhttp.ClusterDeps{Cluster: svc.cluster, Locks: d.locks, Authz: svc.authz, Enc: d.codec})
+	if err != nil {
+		return nil, err
+	}
 	return adminhttp.NewAPI(adminhttp.APIDeps{Enc: d.codec, Auth: authn},
-		sessionRoutes, infoRoutes, userRoutes, policyRoutes, bucketRoutes, objectRoutes, shareRoutes, configRoutes)
+		sessionRoutes, infoRoutes, userRoutes, policyRoutes, bucketRoutes, objectRoutes, shareRoutes, configRoutes, clusterRoutes)
 }
 
 // processActions implements the service control of the Admin API (POST
@@ -782,6 +826,12 @@ func serverOptions(cfg config.Static, addr, name string) []server.Option {
 	opts := []server.Option{server.WithAddr(addr), server.WithName(name)}
 	if cfg.TLSEnabled() {
 		opts = append(opts, server.WithTLS(filepath.Join(cfg.CertsDir, "public.crt"), filepath.Join(cfg.CertsDir, "private.key")))
+		if cfg.TLSInternodeVerify && name == "s3" {
+			// The internode calls arrive on the S3 port: the nodes
+			// present their certificate, verified with the CAs of the
+			// deployment (the S3 clients present none).
+			opts = append(opts, server.WithClientCAs(deploymentCAs(cfg)))
+		}
 	}
 	return opts
 }
@@ -796,13 +846,4 @@ func portOf(addr string) int {
 		return 0
 	}
 	return p
-}
-
-// poolInfos summarizes the pools of the layout for ServerInfo.
-func poolInfos(layout *topology.Layout) []domain.PoolInfo {
-	out := make([]domain.PoolInfo, 0, len(layout.Pools))
-	for _, p := range layout.Pools {
-		out = append(out, domain.PoolInfo{Index: p.Index, Sets: p.SetCount, DrivesPerSet: p.SetDriveCount, Parity: p.Parity})
-	}
-	return out
 }

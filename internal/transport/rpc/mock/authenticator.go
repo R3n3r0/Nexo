@@ -101,9 +101,9 @@ func (_c *Authenticator_SetDeploymentID_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
-// Token provides a mock function with given fields: ctx
-func (_m *Authenticator) Token(ctx context.Context) (string, error) {
-	ret := _m.Called(ctx)
+// Token provides a mock function with given fields: ctx, audience, call
+func (_m *Authenticator) Token(ctx context.Context, audience string, call rpc.CallBinding) (string, error) {
+	ret := _m.Called(ctx, audience, call)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Token")
@@ -111,17 +111,17 @@ func (_m *Authenticator) Token(ctx context.Context) (string, error) {
 
 	var r0 string
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context) (string, error)); ok {
-		return rf(ctx)
+	if rf, ok := ret.Get(0).(func(context.Context, string, rpc.CallBinding) (string, error)); ok {
+		return rf(ctx, audience, call)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context) string); ok {
-		r0 = rf(ctx)
+	if rf, ok := ret.Get(0).(func(context.Context, string, rpc.CallBinding) string); ok {
+		r0 = rf(ctx, audience, call)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = rf(ctx)
+	if rf, ok := ret.Get(1).(func(context.Context, string, rpc.CallBinding) error); ok {
+		r1 = rf(ctx, audience, call)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -136,13 +136,15 @@ type Authenticator_Token_Call struct {
 
 // Token is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *Authenticator_Expecter) Token(ctx interface{}) *Authenticator_Token_Call {
-	return &Authenticator_Token_Call{Call: _e.mock.On("Token", ctx)}
+//   - audience string
+//   - call rpc.CallBinding
+func (_e *Authenticator_Expecter) Token(ctx interface{}, audience interface{}, call interface{}) *Authenticator_Token_Call {
+	return &Authenticator_Token_Call{Call: _e.mock.On("Token", ctx, audience, call)}
 }
 
-func (_c *Authenticator_Token_Call) Run(run func(ctx context.Context)) *Authenticator_Token_Call {
+func (_c *Authenticator_Token_Call) Run(run func(ctx context.Context, audience string, call rpc.CallBinding)) *Authenticator_Token_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context))
+		run(args[0].(context.Context), args[1].(string), args[2].(rpc.CallBinding))
 	})
 	return _c
 }
@@ -152,14 +154,14 @@ func (_c *Authenticator_Token_Call) Return(_a0 string, _a1 error) *Authenticator
 	return _c
 }
 
-func (_c *Authenticator_Token_Call) RunAndReturn(run func(context.Context) (string, error)) *Authenticator_Token_Call {
+func (_c *Authenticator_Token_Call) RunAndReturn(run func(context.Context, string, rpc.CallBinding) (string, error)) *Authenticator_Token_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// Verify provides a mock function with given fields: ctx, token
-func (_m *Authenticator) Verify(ctx context.Context, token string) (rpc.Claims, error) {
-	ret := _m.Called(ctx, token)
+// Verify provides a mock function with given fields: ctx, token, call
+func (_m *Authenticator) Verify(ctx context.Context, token string, call rpc.CallBinding) (rpc.Claims, error) {
+	ret := _m.Called(ctx, token, call)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Verify")
@@ -167,17 +169,17 @@ func (_m *Authenticator) Verify(ctx context.Context, token string) (rpc.Claims, 
 
 	var r0 rpc.Claims
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) (rpc.Claims, error)); ok {
-		return rf(ctx, token)
+	if rf, ok := ret.Get(0).(func(context.Context, string, rpc.CallBinding) (rpc.Claims, error)); ok {
+		return rf(ctx, token, call)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string) rpc.Claims); ok {
-		r0 = rf(ctx, token)
+	if rf, ok := ret.Get(0).(func(context.Context, string, rpc.CallBinding) rpc.Claims); ok {
+		r0 = rf(ctx, token, call)
 	} else {
 		r0 = ret.Get(0).(rpc.Claims)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
-		r1 = rf(ctx, token)
+	if rf, ok := ret.Get(1).(func(context.Context, string, rpc.CallBinding) error); ok {
+		r1 = rf(ctx, token, call)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -193,13 +195,14 @@ type Authenticator_Verify_Call struct {
 // Verify is a helper method to define mock.On call
 //   - ctx context.Context
 //   - token string
-func (_e *Authenticator_Expecter) Verify(ctx interface{}, token interface{}) *Authenticator_Verify_Call {
-	return &Authenticator_Verify_Call{Call: _e.mock.On("Verify", ctx, token)}
+//   - call rpc.CallBinding
+func (_e *Authenticator_Expecter) Verify(ctx interface{}, token interface{}, call interface{}) *Authenticator_Verify_Call {
+	return &Authenticator_Verify_Call{Call: _e.mock.On("Verify", ctx, token, call)}
 }
 
-func (_c *Authenticator_Verify_Call) Run(run func(ctx context.Context, token string)) *Authenticator_Verify_Call {
+func (_c *Authenticator_Verify_Call) Run(run func(ctx context.Context, token string, call rpc.CallBinding)) *Authenticator_Verify_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(rpc.CallBinding))
 	})
 	return _c
 }
@@ -209,7 +212,7 @@ func (_c *Authenticator_Verify_Call) Return(_a0 rpc.Claims, _a1 error) *Authenti
 	return _c
 }
 
-func (_c *Authenticator_Verify_Call) RunAndReturn(run func(context.Context, string) (rpc.Claims, error)) *Authenticator_Verify_Call {
+func (_c *Authenticator_Verify_Call) RunAndReturn(run func(context.Context, string, rpc.CallBinding) (rpc.Claims, error)) *Authenticator_Verify_Call {
 	_c.Call.Return(run)
 	return _c
 }

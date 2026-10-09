@@ -300,12 +300,31 @@ func TestValidateRejectsExpiredTamperedAndRevoked(t *testing.T) {
 }
 
 func TestDeriveKey(t *testing.T) {
-	k1 := session.DeriveKey("admin", "password123")
-	k2 := session.DeriveKey("admin", "password123")
-	k3 := session.DeriveKey("admin", "other")
+	k1 := session.DeriveKey("admin", "password123", "dep-a")
 	assert.Len(t, k1, 32)
-	assert.Equal(t, k1, k2, "deterministic: every node accepts the same cookies")
-	assert.NotEqual(t, k1, k3)
+	assert.Equal(t, k1, session.DeriveKey("admin", "password123", "dep-a"), "deterministic: every node accepts the same cookies")
+	assert.NotEqual(t, k1, session.DeriveKey("admin", "other", "dep-a"))
+	assert.NotEqual(t, k1, session.DeriveKey("admin", "password123", "dep-b"), "bound to the deployment")
+	assert.NotEqual(t, session.DeriveKey("a", "b\x00c", "d"), session.DeriveKey("a\x00b", "c", "d"), "the credentials are not ambiguous")
+}
+
+// TestSessionBoundToDeployment: a session cookie issued by a deployment is
+// rejected by another deployment with the same root credentials
+// (regression: the key derived from the root credentials only, so a cookie
+// of staging was valid in production).
+func TestSessionBoundToDeployment(t *testing.T) {
+	ctx := context.Background()
+	clk := clock.NewFake(time.Date(2026, 10, 9, 10, 0, 0, 0, time.UTC))
+	staging, _ := newTestService(t, clk, session.WithSigningKey(session.DeriveKey("root", "rootsecret", "staging-id")))
+	production, _ := newTestService(t, clk, session.WithSigningKey(session.DeriveKey("root", "rootsecret", "production-id")))
+	sameDeployment, _ := newTestService(t, clk, session.WithSigningKey(session.DeriveKey("root", "rootsecret", "staging-id")))
+
+	sess, err := staging.Login(ctx, login("root", "rootsecret"))
+	require.NoError(t, err)
+	_, err = sameDeployment.Validate(ctx, sess.Token)
+	require.NoError(t, err, "another node of the same deployment accepts the cookie")
+	_, err = production.Validate(ctx, sess.Token)
+	assert.ErrorIs(t, err, domain.ErrAccessDenied)
 }
 
 // covers: docs/09 §9.1 point 3 (rotating the secret of a user closes its

@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -184,6 +186,54 @@ func TestBuildSNMD(t *testing.T) {
 	cfg.RootPassword = "another-password"
 	_, err = app.Build(ctx, cfg, logger)
 	require.ErrorIs(t, err, iam.ErrWrongKey)
+}
+
+// TestBuildExpandsPools: restarted with a second pool (docs/03 §3.8), a
+// deployment creates its buckets on the new pool before serving, so that
+// the new objects placed there find them; the old objects stay readable
+// and the buckets stay listed.
+func TestBuildExpandsPools(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	first := filepath.Join(dir, "a{1...4}")
+	cfg := testConfig(t, first)
+	logger := app.WithLogger(slog.New(slog.DiscardHandler))
+	a, err := app.Build(ctx, cfg, logger, app.WithStopTimeout(5*time.Second))
+	require.NoError(t, err)
+	_, err = a.Buckets().Create(ctx, bucket.CreateInput{Name: "photos"})
+	require.NoError(t, err)
+	_, err = a.Objects().PutObject(ctx, object.PutObjectInput{Bucket: "photos", Key: "old", Reader: strings.NewReader("old"), Size: 3})
+	require.NoError(t, err)
+	require.NoError(t, a.Stop(ctx))
+
+	cfg.Endpoints = []string{first, filepath.Join(dir, "b{1...8}")}
+	b, err := app.Build(ctx, cfg, logger, app.WithStopTimeout(5*time.Second))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, b.Stop(ctx)) }()
+	for i := 1; i <= 8; i++ {
+		assert.DirExists(t, filepath.Join(dir, "b"+strconv.Itoa(i), "photos"), "the bucket exists on every drive of the new pool")
+	}
+	buckets, err := b.Objects().ListBuckets(ctx)
+	require.NoError(t, err)
+	require.Len(t, buckets, 1)
+	assert.Equal(t, "photos", buckets[0].Name)
+	r, err := b.Objects().GetObject(ctx, "photos", "old", object.GetObjectOptions{})
+	require.NoError(t, err)
+	data, err := io.ReadAll(r)
+	require.NoError(t, err)
+	_ = r.Close()
+	assert.Equal(t, "old", string(data))
+
+	for i := range 20 {
+		key := "new-" + strconv.Itoa(i)
+		_, err := b.Objects().PutObject(ctx, object.PutObjectInput{Bucket: "photos", Key: key, Reader: strings.NewReader(key), Size: int64(len(key))})
+		if errors.Is(err, domain.ErrStorageFull) {
+			// Both pools live on the file system of the temporary
+			// directory: above 95% of use, no pool takes new objects.
+			t.Skipf("the file system of the temporary directory is nearly full: %v", err)
+		}
+		require.NoError(t, err, key)
+	}
 }
 
 func TestBuildPersistsIdentitiesAcrossRestarts(t *testing.T) {

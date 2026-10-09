@@ -50,6 +50,7 @@ func (p *patternReader) md5() string { return hex.EncodeToString(p.sum.Sum(nil))
 // TS-I-02: objects of every size class round-trip with their ETag, with the
 // default inline limit (128 KiB).
 func TestPutGetSizes(t *testing.T) {
+	t.Parallel()
 	sizes := []struct {
 		name   string
 		size   int64

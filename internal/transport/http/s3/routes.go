@@ -242,3 +242,15 @@ func MetricsRequest(domains ...string) func(r *http.Request) bool {
 		return !virtualHost
 	}
 }
+
+// VirtualHostRequest returns the predicate selecting the requests that
+// address a bucket by host name (<bucket>.<domain>, for the given
+// domains): their path is an object key, whatever it looks like (a key
+// "nexo/rpc/v1/..." is not an internode call).
+func VirtualHostRequest(domains ...string) func(r *http.Request) bool {
+	normalized := newOptions([]Option{WithDomains(domains...)}).domains
+	return func(r *http.Request) bool {
+		_, virtualHost := virtualHostBucket(normalized, r.Host)
+		return virtualHost
+	}
+}

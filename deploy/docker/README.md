@@ -93,6 +93,27 @@ Clients talk to the `lb` service (nginx) on 9000 and 9001. `nginx.conf`:
 Stopping one node (`docker compose -f compose.cluster.yml stop nexo3`) keeps the cluster serving;
 healing runs when it comes back.
 
+A node serves the internode RPC (`/nexo/rpc/v1/`) on its S3 port from the start, but answers the
+S3 and console requests with `503` (and its readiness probe `/nexo/health/ready` too) until the
+cluster bootstrap is complete: a quorum of the nodes and of the drives of every erasure set must be
+reachable, so the nodes can start in any order. A node started with other endpoints than its peers
+refuses to join and exits. `nexo server --dry-run <endpoints>` checks the topology, the recognition of
+the node among the endpoints (its host names or addresses and the port of `--address`), the drive
+directories, the ports and the certificates without starting anything.
+
+**Internode RPC security.** The internode calls are HTTP/2 only and carry a short-lived token
+(HMAC derived from the root credentials and the deployment id, bound to the node it is sent to).
+With `http://` endpoints (this compose file) that traffic, tokens included, travels in cleartext:
+keep it on a trusted internal network (the compose network here) and use `https://` endpoints
+(`compose.cluster-tls.yml`) anywhere else; a node logs a warning at startup when it runs without TLS.
+The public proxy never forwards `/nexo/rpc/` (`nginx.conf` answers `404`): only the nodes talk to
+each other on that path.
+
+**Expansion** (docs/03 §3.8): add a second pool by restarting every node with both pools, e.g.
+`server --console-address :9001 http://nexo{1...4}:9000/data{1...2} http://nexo{5...8}:9000/data{1...4}`
+(every argument with an ellipsis is a pool). The objects of the first pool stay where they are; the new
+objects go to the pools weighted by their free space.
+
 ### Cluster with TLS
 
 ```bash

@@ -9,6 +9,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/lock"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/service/storage"
 	"github.com/r3n3r0/nexo/internal/service/sysstore"
@@ -22,7 +23,7 @@ func newDocs(t *testing.T, n int) sysstore.Store {
 	for i := range drives {
 		drives[i] = testutil.NewLocalDriveIndex(t, "", i)
 	}
-	docs, err := sysstore.New(sysstore.Deps{Drives: drives})
+	docs, err := sysstore.New(sysstore.Deps{Drives: drives, Locks: lock.NewLocal(lock.Deps{})})
 	require.NoError(t, err)
 	return docs
 }

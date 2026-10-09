@@ -226,6 +226,18 @@ type Service interface {
 	// position and a healing tracker (healing.bin), so that HealDisk
 	// repopulates them. Remote drives are reported, their node heals them.
 	HealFormat(ctx context.Context, opts Options) (FormatResult, error)
+	// HealPools creates the buckets of the deployment on the pools that
+	// miss them and returns how many it created: a pool added by an
+	// expansion (docs/03 §3.8) starts empty, and a new object placed on it
+	// would not find its bucket (MakeBucket creates the later buckets on
+	// every pool). The candidates are the volumes of every online drive,
+	// each listed within a bound so that an unresponsive node does not
+	// hold the caller; HealBucket only creates what is missing and
+	// refuses the remnants of a rolled-back creation that no set holds.
+	// Nothing is done for a single pool. The error is the first failed
+	// bucket (the others are still tried): the healing jobs and the
+	// scanner repair them later.
+	HealPools(ctx context.Context) (int, error)
 	// HealDisk heals every bucket, object and system file of the set of
 	// the local drive endpoint onto it, checkpointing its progress (last
 	// bucket and object, counters) in its healing tracker and resuming
@@ -250,6 +262,9 @@ type Entry struct {
 	VersionID string `json:"versionId,omitempty"`
 	// Attempts counts the failed heals so far.
 	Attempts int `json:"attempts,omitempty"`
+	// Waits counts the heals that found a drive of the set offline (the
+	// entry waits for it to come back, with backoff, never abandoned).
+	Waits int `json:"waits,omitempty"`
 	// Queued is when the entry was first queued; NotBefore when it may be
 	// tried again (backoff).
 	Queued    time.Time `json:"queued"`
@@ -292,6 +307,13 @@ type Queue interface {
 	// attempts limit, when it is dropped and logged). A notification
 	// received for e during the lease queues it again.
 	Done(ctx context.Context, e Entry, retry bool)
+	// Release ends the lease of e without a failed attempt. With wait
+	// false the healing was interrupted (the service is stopping): the
+	// entry is due again at once, unchanged, and persisted with the
+	// queue. With wait true the heal found a drive of the set offline: the
+	// entry is due again after a backoff that grows with its waits, up to
+	// the maximum, and it is never abandoned for that reason.
+	Release(ctx context.Context, e Entry, wait bool)
 	// Stats returns the counters of the queue.
 	Stats(ctx context.Context) QueueStats
 }

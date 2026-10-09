@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -116,18 +117,27 @@ func uploadIDTime(id string) (time.Time, bool) {
 
 // --- locking -----------------------------------------------------------------
 
+// Every namespace lock helper returns, with the release function, a
+// context bound to the locks: the caller's context, canceled (with a
+// cause wrapping domain.ErrLockLost) as soon as one of the locks is lost.
+// A distributed lock is lost when its lease cannot be renewed on a quorum
+// of the lock servers (docs/03 §3.6): another node may then take it, so
+// the operations run under the lock use the bound context and stop before
+// their commit point instead of committing alongside another writer.
+
 // lock acquires the namespace lock of bucket/key (key "" locks the bucket).
-func (l *layer) lock(ctx context.Context, bucket, key string, write bool) (lock.LockContext, error) {
-	return l.lockPath(ctx, bucket, key, write)
+func (l *layer) lock(ctx context.Context, bucket, key string, write bool) (context.Context, func(), error) {
+	return l.lockAll(ctx, []lockRequest{{bucket: bucket, key: key, write: write}})
 }
 
 // lockUpload acquires the lock of a multipart upload: part uploads share
 // it, completion and abort hold it exclusively.
-func (l *layer) lockUpload(ctx context.Context, bucket, uploadID string, write bool) (lock.LockContext, error) {
-	return l.lockPath(ctx, domain.SystemBucket, uploadDir(bucket, uploadID), write)
+func (l *layer) lockUpload(ctx context.Context, bucket, uploadID string, write bool) (context.Context, func(), error) {
+	return l.lockAll(ctx, []lockRequest{{bucket: domain.SystemBucket, key: uploadDir(bucket, uploadID), write: write}})
 }
 
-func (l *layer) lockPath(ctx context.Context, volume, path string, write bool) (lock.LockContext, error) {
+// acquire takes one namespace lock.
+func (l *layer) acquire(ctx context.Context, volume, path string, write bool) (lock.LockContext, error) {
 	ns := l.deps.Locks.NewNSLock(ctx, volume, path)
 	var (
 		lc  lock.LockContext
@@ -172,13 +182,13 @@ func ancestorLocks(bucket, key string) []lockRequest {
 // the drives would otherwise see them in different orders and each could
 // commit on part of the drives. Writers of sibling keys share the read
 // locks and do not wait on each other.
-func (l *layer) lockWrite(ctx context.Context, bucket, key string) (func(), error) {
+func (l *layer) lockWrite(ctx context.Context, bucket, key string) (context.Context, func(), error) {
 	return l.lockAll(ctx, append(ancestorLocks(bucket, key), lockRequest{bucket: bucket, key: key, write: true}))
 }
 
 // lockCopy locks the source of a copy for reading and its destination as
 // lockWrite does. A self-copy takes the write lock only.
-func (l *layer) lockCopy(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) (func(), error) {
+func (l *layer) lockCopy(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) (context.Context, func(), error) {
 	reqs := append(ancestorLocks(dstBucket, dstKey), lockRequest{bucket: dstBucket, key: dstKey, write: true})
 	if srcBucket != dstBucket || srcKey != dstKey {
 		reqs = append(reqs, lockRequest{bucket: srcBucket, key: srcKey})
@@ -189,9 +199,10 @@ func (l *layer) lockCopy(ctx context.Context, srcBucket, srcKey, dstBucket, dstK
 // lockAll acquires several namespace locks in resource order, a resource
 // requested twice being locked once (for writing when either request
 // writes), so that concurrent multi-lock acquisitions (crossed copies
-// a→b and b→a, a write of "k" with one of "k/x") cannot deadlock. The
-// returned function releases what was acquired.
-func (l *layer) lockAll(ctx context.Context, reqs []lockRequest) (func(), error) {
+// a→b and b→a, a write of "k" with one of "k/x") cannot deadlock. It
+// returns the context bound to the locks and the function that releases
+// them.
+func (l *layer) lockAll(ctx context.Context, reqs []lockRequest) (context.Context, func(), error) {
 	slices.SortFunc(reqs, func(a, b lockRequest) int {
 		if c := strings.Compare(lock.Resource(a.bucket, a.key), lock.Resource(b.bucket, b.key)); c != 0 {
 			return c
@@ -206,21 +217,112 @@ func (l *layer) lockAll(ctx context.Context, reqs []lockRequest) (func(), error)
 		}
 	})
 	reqs = slices.CompactFunc(reqs, func(a, b lockRequest) bool { return a.bucket == b.bucket && a.key == b.key })
-	held := make([]lock.LockContext, 0, len(reqs))
-	release := func() {
-		for i := len(held) - 1; i >= 0; i-- {
-			held[i].Unlock(ctx)
-		}
-	}
+	locks := make([]lock.LockContext, 0, len(reqs))
 	for _, r := range reqs {
-		lc, err := l.lock(ctx, r.bucket, r.key, r.write)
+		lc, err := l.acquire(ctx, r.bucket, r.key, r.write)
 		if err != nil {
-			release()
-			return nil, err
+			for i := len(locks) - 1; i >= 0; i-- {
+				locks[i].Unlock(ctx)
+			}
+			return nil, nil, err
 		}
-		held = append(held, lc)
+		locks = append(locks, lc)
 	}
-	return release, nil
+	h := newHeld(locks)
+	return h.bind(ctx), func() { h.release(ctx) }, nil
+}
+
+// held is the set of namespace locks of one acquisition. lost is canceled
+// when one of the locks is lost, with the cause of the loss, and when the
+// locks are released (cause errReleased), which releases the contexts
+// bound to it.
+type held struct {
+	locks    []lock.LockContext
+	lost     context.Context
+	cancel   context.CancelCauseFunc
+	watchers []func() bool
+}
+
+// errReleased is the cause of the cancellation of a context bound to
+// locks that were released (the operation is over).
+var errReleased = errors.New("object: namespace locks released")
+
+// heldKey is the context key of the lock sets a context is bound to.
+type heldKey struct{}
+
+func newHeld(locks []lock.LockContext) *held {
+	h := &held{locks: locks}
+	h.lost, h.cancel = context.WithCancelCause(context.Background())
+	for _, lc := range locks {
+		lctx := lc.Context()
+		if lctx == nil {
+			continue
+		}
+		h.watchers = append(h.watchers, context.AfterFunc(lctx, func() {
+			if cause := context.Cause(lctx); errors.Is(cause, domain.ErrLockLost) {
+				h.cancel(cause)
+			}
+		}))
+	}
+	return h
+}
+
+// bind returns parent, canceled with the cause of the loss when one of
+// the locks is lost. The lock set is recorded in the context, so that
+// detached can bind a context outliving parent to it.
+func (h *held) bind(parent context.Context) context.Context {
+	sets, _ := parent.Value(heldKey{}).([]*held)
+	ctx, cancel := context.WithCancelCause(context.WithValue(parent, heldKey{}, append(slices.Clip(sets), h)))
+	context.AfterFunc(h.lost, func() { cancel(context.Cause(h.lost)) })
+	return ctx
+}
+
+// release releases the locks, in reverse acquisition order.
+func (h *held) release(ctx context.Context) {
+	h.cancel(errReleased)
+	for _, stop := range h.watchers {
+		stop()
+	}
+	for i := len(h.locks) - 1; i >= 0; i-- {
+		h.locks[i].Unlock(ctx)
+	}
+}
+
+// detached returns a context that survives the cancellation of ctx (a
+// client that went away must not interrupt a commit or its rollback) but
+// not the loss of the namespace locks ctx is bound to.
+func detached(ctx context.Context) context.Context {
+	out := context.WithoutCancel(ctx)
+	sets, _ := ctx.Value(heldKey{}).([]*held)
+	for _, h := range sets {
+		out = h.bind(out)
+	}
+	return out
+}
+
+// lockLost reports whether ctx was canceled because a namespace lock it
+// is bound to was lost.
+func lockLost(ctx context.Context) bool {
+	return errors.Is(context.Cause(ctx), domain.ErrLockLost)
+}
+
+// lockErr returns the cause of the loss instead of err when the failure of
+// an operation is due to a namespace lock of ctx being lost.
+func lockErr(ctx context.Context, err error) error {
+	if lockLost(ctx) {
+		return context.Cause(ctx)
+	}
+	return err
+}
+
+// checkLocks fails with the cause of the loss when a namespace lock ctx is
+// bound to was lost: the operations call it right before their commit
+// point.
+func checkLocks(ctx context.Context) error {
+	if lockLost(ctx) {
+		return context.Cause(ctx)
+	}
+	return nil
 }
 
 // --- bucket configuration -------------------------------------------------

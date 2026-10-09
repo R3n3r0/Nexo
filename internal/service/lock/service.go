@@ -37,7 +37,8 @@ type NSLock interface {
 // LockContext is a held lock.
 type LockContext interface {
 	// Context is derived from the caller's context and is canceled when
-	// the lock is released or lost.
+	// the lock is released or lost; the cause of a lost lock
+	// (context.Cause) wraps domain.ErrLockLost.
 	Context() context.Context
 	// Unlock releases the lock. It is idempotent. ctx carries the request
 	// values (logging, tracing); the release is not aborted when ctx is

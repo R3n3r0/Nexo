@@ -14,7 +14,6 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
-	"github.com/r3n3r0/nexo/internal/service/lock"
 	"github.com/r3n3r0/nexo/internal/service/storage"
 )
 
@@ -57,7 +56,9 @@ func New(deps Deps, opts ...Option) (Store, error) {
 		return nil, fmt.Errorf("%w: sysstore: at least one drive is required", domain.ErrInvalidArgument)
 	}
 	if deps.Locks == nil {
-		deps.Locks = lock.NewLocal(lock.Deps{})
+		// No silent local default: in a cluster it would let two nodes
+		// write the same document at once.
+		return nil, fmt.Errorf("%w: sysstore: the locker is required", domain.ErrInvalidArgument)
 	}
 	if deps.Clock == nil {
 		deps.Clock = clock.NewReal()

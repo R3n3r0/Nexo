@@ -56,6 +56,7 @@ tags:
   - name: access-keys
   - name: policies
   - name: config
+  - name: cluster
 
 paths:
   /auth/login:
@@ -1713,6 +1714,95 @@ paths:
       responses:
         "204": { description: Imported. }
         default: { $ref: "#/components/responses/Problem" }
+  /cluster/export:
+    get:
+      tags: [cluster]
+      operationId: exportCluster
+      summary: Export the state of the deployment besides its objects
+      description: >-
+        A versioned zip archive (manifest.json, iam.bin, policies.json, config.json,
+        buckets/<name>.json) holding the IAM state (users, groups, access keys, STS credentials and
+        their policy attachments, encrypted with a key derived from the root secret key), the named
+        policies, the dynamic configuration (secrets included) and the settings of every bucket
+        (versioning, object lock, policy, lifecycle, encryption, quota, tags, CORS, notifications).
+        With `nexoctl mirror` for the objects it migrates a deployment to another mode.
+      x-nexo-actions: ["admin:ExportCluster"]
+      responses:
+        "200":
+          description: The archive (attachment).
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Problem" }
+  /cluster/import:
+    post:
+      tags: [cluster]
+      operationId: importCluster
+      summary: Import an archive of GET /cluster/export
+      description: >-
+        The whole archive is validated first (format, version, policies, configuration, bucket
+        names); with `dryRun` the import stops there and reports what it would do. It then applies
+        the configuration, the named policies, the IAM state (the target must share the root
+        credentials of the source) and the bucket settings, creating the missing buckets. `merge`
+        (default) keeps what the archive does not hold; `replace` also replaces the whole
+        configuration and removes the users, groups and named policies the archive does not hold and
+        the settings of the archived buckets it does not set (buckets are never removed).
+      x-nexo-actions: ["admin:ImportCluster"]
+      parameters:
+        - name: mode
+          in: query
+          schema: { type: string, enum: [merge, replace] }
+        - name: dryRun
+          in: query
+          schema: { type: boolean }
+      requestBody:
+        required: true
+        content:
+          application/zip:
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: What the import did (or would do).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClusterImportResult" }
+        default: { $ref: "#/components/responses/Problem" }
+  /locks:
+    get:
+      tags: [cluster]
+      operationId: listLocks
+      summary: List the namespace locks held across the lock servers
+      x-nexo-actions: ["admin:TopLocksInfo"]
+      responses:
+        "200":
+          description: The locks, sorted by resource.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Lock" }
+        default: { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [cluster]
+      operationId: forceUnlock
+      summary: Release namespace locks on every lock server, whoever holds them
+      description: >-
+        Diagnostics of stuck locks (admin lock clear). An operation holding a released lock loses
+        it at its next lease renewal and stops before its commit.
+      x-nexo-actions: ["admin:ForceUnlock"]
+      parameters:
+        - name: resource
+          in: query
+          required: true
+          description: A resource to release ("bucket/key"); repeatable.
+          schema:
+            type: array
+            items: { type: string }
+          style: form
+          explode: true
+      responses:
+        "204": { description: Released. }
+        default: { $ref: "#/components/responses/Problem" }
   /config/{subsys}:
     parameters:
       - name: subsys
@@ -1942,6 +2032,39 @@ components:
         healing: { type: boolean }
         healingProgress: { $ref: "#/components/schemas/HealingProgress" }
         error: { type: string }
+    ClusterImportResult:
+      type: object
+      required: [mode, dryRun, users, groups, policies, configSubsystems, buckets, bucketsCreated, removed]
+      properties:
+        mode: { type: string, enum: [merge, replace] }
+        dryRun: { type: boolean }
+        users: { type: integer, description: Users of the archive. }
+        groups: { type: integer }
+        policies: { type: integer, description: Named policies of the archive. }
+        configSubsystems: { type: integer }
+        buckets: { type: integer, description: Buckets of the archive. }
+        bucketsCreated:
+          type: array
+          description: Archived buckets this deployment did not have (created by the import).
+          items: { type: string }
+        removed:
+          type: array
+          description: Entries a replace import removes ("user:<name>", "group:<name>", "policy:<name>").
+          items: { type: string }
+    Lock:
+      type: object
+      required: [resource, uid, owner, type, quorum, since, refreshed, servers, total]
+      properties:
+        resource: { type: string, description: The locked resource ("bucket/key"). }
+        uid: { type: string, description: The acquisition. }
+        owner: { type: string, description: The node holding the lock. }
+        source: { type: string }
+        type: { type: string, enum: [write, read] }
+        quorum: { type: integer }
+        since: { type: string, format: date-time }
+        refreshed: { type: string, format: date-time }
+        servers: { type: integer, description: Lock servers holding the lock. }
+        total: { type: integer, description: Lock servers queried. }
     HealingProgress:
       type: object
       description: Progress of the healing of a replaced or wiped drive (present while it heals).
@@ -1953,12 +2076,15 @@ components:
         object: { type: string, description: Last object healed. }
         healedBuckets: { type: integer, description: Buckets completely healed. }
         objectsHealed: { type: integer, format: int64 }
-        objectsFailed: { type: integer, format: int64 }
+        objectsFailed: { type: integer, format: int64, description: Objects that failed to heal in the current pass. }
         bytesDone: { type: integer, format: int64 }
         bytesFailed: { type: integer, format: int64 }
+        retryAttempts:
+          type: integer
+          description: Passes started over because objects failed to heal in the previous one (at most the configured retries).
     NodeInfo:
       type: object
-      required: [endpoint, state, version, commit, uptimeSeconds, disks]
+      required: [endpoint, state, version, commit, uptimeSeconds, disks, local]
       properties:
         endpoint: { type: string }
         state: { $ref: "#/components/schemas/ResourceState" }
@@ -1968,14 +2094,65 @@ components:
         disks:
           type: array
           items: { $ref: "#/components/schemas/DiskInfo" }
+        local: { type: boolean, description: The node that answered (listed first). }
+        clockSkew: { $ref: "#/components/schemas/ClockSkew" }
+        healQueue: { $ref: "#/components/schemas/HealQueueStats" }
+    ClockSkew:
+      type: object
+      description: >-
+        Clock offset of a node measured by the node that answered (absent for that node and for
+        the unreachable ones). An offset above 2 s is reported (docs/03 §3.11).
+      required: [offsetMs, rttMs, exceeded]
+      properties:
+        offsetMs:
+          type: integer
+          format: int64
+          description: Clock of the node minus the clock of the node that answered, corrected by half the round trip.
+        rttMs: { type: integer, format: int64 }
+        exceeded: { type: boolean, description: The offset is above the warning threshold. }
+    HealQueueStats:
+      type: object
+      description: >-
+        Background healing (MRF) of a node: the objects written or read without every drive,
+        repaired in the background. Absent on a single drive and for the unreachable nodes.
+      required: [pending, healed, retried, dropped]
+      properties:
+        pending: { type: integer, description: Objects waiting to be healed or being healed. }
+        healed: { type: integer, format: int64 }
+        retried: { type: integer, format: int64, description: "Failed attempts, rescheduled." }
+        dropped:
+          type: integer
+          format: int64
+          description: Objects refused (queue full) or abandoned (too many attempts).
+    ErasureSetState:
+      type: string
+      description: >-
+        ok: every drive online; degraded: drives offline or healing, the write quorum is kept;
+        readonly: only the read quorum is kept; unavailable: below the read quorum.
+      enum: [ok, degraded, readonly, unavailable]
+    ErasureSetInfo:
+      type: object
+      required: [index, drives, online, offline, healing, state]
+      properties:
+        index: { type: integer }
+        drives: { type: integer }
+        online: { type: integer, description: Drives that answer (the healing ones included). }
+        offline: { type: integer }
+        healing: { type: integer }
+        state: { $ref: "#/components/schemas/ErasureSetState" }
     PoolInfo:
       type: object
-      required: [index, sets, drivesPerSet, parity]
+      required: [index, sets, drivesPerSet, parity, readQuorum, writeQuorum, erasureSets]
       properties:
         index: { type: integer }
         sets: { type: integer }
         drivesPerSet: { type: integer }
         parity: { type: integer }
+        readQuorum: { type: integer, description: Drives of a set needed to read. }
+        writeQuorum: { type: integer, description: Drives of a set needed to write. }
+        erasureSets:
+          type: array
+          items: { $ref: "#/components/schemas/ErasureSetInfo" }
     ServerInfo:
       type: object
       required:

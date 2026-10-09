@@ -1,9 +1,18 @@
 name: CI
 
+# Pipeline of docs/06 §6.1: every pull request runs the lint, the unit
+# tests, the integration suite and the CLI scripts in every deployment mode
+# (SNSD, SNMD, cluster in-process; docs/08 §8.6 TM-01, TM-02), the
+# Playwright suite against bin/nexo in every mode (single drive, 4 drives,
+# 4 processes) and the image smoke tests; a merge on main adds the
+# multi-process cluster smoke; the nightly run adds the whole cluster suite
+# (TC-*), the slow integration tests and the internode RPC benchmarks.
 on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "17 2 * * *"
   workflow_dispatch:
 
 permissions:
@@ -41,7 +50,12 @@ jobs:
           fi
 
       - name: go vet
-        run: go vet ./...
+        run: |
+          go vet ./...
+          # The test hooks of bin/nexo and the multi-process cluster tests.
+          go vet -tags nexotest ./cmd/nexo
+          go vet -tags cluster ./test/cluster/...
+          go vet -tags compose ./test/compose/...
 
       - name: go generate is a no-op (mocks are up to date)
         run: |
@@ -55,7 +69,7 @@ jobs:
           args: --timeout=5m
 
   test-go:
-    name: Test Go
+    name: Test Go (unit)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -69,13 +83,10 @@ jobs:
       - name: go test -race
         env:
           CGO_ENABLED: "1"
-        # The CLI end-to-end scripts run in their own step below.
-        run: go test -race -count=1 -shuffle=on -coverprofile=coverage.txt -covermode=atomic $(go list ./... | grep -v '/test/cli$')
-
-      - name: CLI end-to-end (testscript, test/cli)
-        env:
-          CGO_ENABLED: "1"
-        run: go test -race -count=1 ./test/cli/...
+        # The integration suite and the CLI scripts run per mode below.
+        run: |
+          go test -race -count=1 -shuffle=on -coverprofile=coverage.txt -covermode=atomic \
+            $(go list ./... | grep -v -e '/test/cli$' -e '/test/integration$')
 
       - name: Coverage summary
         if: always()
@@ -91,6 +102,48 @@ jobs:
           path: coverage.txt
           if-no-files-found: ignore
           retention-days: 14
+
+  test-modes:
+    # TM-01 and TM-02: the S3/IAM/presigned integration suite and the CLI
+    # end-to-end scripts (testscript) in every deployment mode, the
+    # deployments started in the test process.
+    name: Test ${{ matrix.mode }} (integration, CLI)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: snsd
+            integration: -skip '^TestDeploymentModes$'
+            cli: -skip '^TestScripts$/^(snmd|cluster)_'
+          - mode: snmd
+            integration: -run '^TestDeploymentModes$/^snmd$'
+            cli: -run '^TestScripts$/^snmd_'
+          - mode: cluster
+            integration: -run '^TestDeploymentModes$/^cluster$'
+            # Every script of a single drive runs on the cluster too
+            # (NEXO_CLI_MODE), with the cluster_* ones.
+            cli: -skip '^TestScripts$/^snmd_'
+            cliMode: cluster
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Integration suite (test/integration)
+        env:
+          CGO_ENABLED: "1"
+        run: go test -race -count=1 ${{ matrix.integration }} ./test/integration/...
+
+      - name: CLI end-to-end (testscript, test/cli)
+        env:
+          CGO_ENABLED: "1"
+          NEXO_CLI_MODE: ${{ matrix.cliMode }}
+        run: go test -race -count=1 ${{ matrix.cli }} ./test/cli/...
 
   web:
     name: Web console
@@ -201,9 +254,17 @@ jobs:
           retention-days: 7
 
   e2e:
-    name: End-to-end (Playwright, Chromium)
+    # The Playwright projects of web/playwright.config.ts: the whole suite
+    # on a single drive, TD-E-01..04 on one node with 4 drives (SNMD) and
+    # TD-E-15 (cluster and healing pages) on 4 bin/nexo processes with a
+    # node frozen and resumed.
+    name: End-to-end ${{ matrix.project }} (Playwright, Chromium)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [chromium, snmd, cluster]
     steps:
       - uses: actions/checkout@v4
 
@@ -226,21 +287,178 @@ jobs:
         working-directory: web
         run: npx playwright install --with-deps chromium
 
-      - name: npm run e2e
+      - name: npm run e2e -- --project ${{ matrix.project }}
         working-directory: web
         env:
           CI: "true"
-        run: npm run e2e
+        run: npm run e2e -- --project ${{ matrix.project }}
 
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.project }}
           path: |
             web/playwright-report
             web/test-results
           if-no-files-found: ignore
           retention-days: 7
+
+  e2e-cluster-nightly:
+    # Nightly (TM-02): the whole Playwright suite of the single drive on
+    # the cluster of 4 bin/nexo processes ("cluster-full"), then the
+    # cluster scenario.
+    name: End-to-end cluster-full (Playwright, Chromium, nightly)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: make build
+        run: make build
+
+      - name: Install Chromium for Playwright
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: npm run e2e -- --project cluster
+        working-directory: web
+        env:
+          CI: "true"
+          NEXO_E2E_CLUSTER_FULL: "1"
+        run: npm run e2e -- --project cluster
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-cluster-full
+          path: |
+            web/playwright-report
+            web/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+  cluster-smoke:
+    # Merge on main (docs/06 §6.1): a cluster of 4 bin/nexo processes,
+    # consistency across the nodes and the server information.
+    name: Cluster smoke (4 processes)
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: TC-03, TC-04 and the server information of every node
+        run: go test -tags cluster -count=1 -timeout 10m -v -run '^(TestTC03CrossNodeConsistency|TestTC04IdentityPropagation|TestServerInfoNodes)$' ./test/cluster/...
+
+  cluster-nightly:
+    # Nightly (docs/06 §6.1): the multi-process cluster tests (TC-*,
+    # test/cluster, build tag "cluster").
+    name: Cluster (4 processes, TC-*)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: make test-cluster
+        # shell: bash runs with pipefail: the status of make survives tee.
+        shell: bash
+        env:
+          # TC-15: the soak under random chaos runs 10 minutes at night.
+          NEXO_CLUSTER_SOAK: 10m
+        run: make test-cluster 2>&1 | tee cluster-tests.log
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: cluster-tests-log
+          path: cluster-tests.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  bench-nightly:
+    # Nightly: the throughput of the internode storage RPC over loopback
+    # against the local drive (docs/05 T-6.1 DoD: 1 GB/s between two
+    # nodes, checked on the concurrent streams); the numbers are kept as
+    # an artifact and in the job summary to follow the trend.
+    name: Benchmarks (internode RPC)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: make bench-rpc
+        shell: bash
+        run: make bench-rpc 2>&1 | tee bench-rpc.txt
+
+      - name: DoD T-6.1 (internode throughput >= 1 GB/s)
+        shell: bash
+        # The aggregate throughput of concurrent shard streams (what an
+        # erasure read or write moves between two nodes), best of the runs.
+        run: |
+          {
+            echo "### Internode RPC throughput (MB/s, best of 3)"
+            for b in CreateFile ReadFileStream CreateFileParallel ReadFileStreamParallel; do
+              best=$(grep -E "^Benchmark${b}/remote-" bench-rpc.txt | awk '{print $(NF-1)}' | sort -n | tail -1)
+              echo "- ${b}/remote: ${best}"
+            done
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          for b in CreateFileParallel ReadFileStreamParallel; do
+            best=$(grep -E "^Benchmark${b}/remote-" bench-rpc.txt | awk '{print $(NF-1)}' | sort -n | tail -1)
+            awk -v v="$best" -v b="$b" 'BEGIN { if (v + 0 < 1000) { print b " below 1 GB/s: " v " MB/s"; exit 1 } }'
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-rpc
+          path: bench-rpc.txt
+          retention-days: 90
+
+  integration-nightly:
+    # Nightly: the integration suite in every mode with its slow tests
+    # (thousands of objects, large transfers), without the race detector.
+    name: Integration (every mode, slow tests)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: make test-integration
+        run: make test-integration
 
   docker:
     name: Docker image
@@ -324,6 +542,73 @@ jobs:
       - name: Cleanup
         if: always()
         run: docker rm -f nexo >/dev/null 2>&1 || true
+
+  compose-cluster-nightly:
+    # Nightly: compose.cluster.yml with the image of this commit behind its
+    # nginx load balancer (docs/08 §8.6): TM-06 (a container stopped under
+    # load, no client error) and TM-09 (presigned and share links
+    # generated with NEXO_SERVER_URL, downloaded from outside), the tests
+    # of test/compose (build tag "compose").
+    name: Compose cluster (TM-06, TM-09)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build nexo image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          load: true
+          tags: nexo:ci
+          build-args: |
+            VERSION=ci-${{ github.sha }}
+            COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=nexo
+
+      - name: Start compose.cluster.yml
+        working-directory: deploy/docker
+        env:
+          NEXO_IMAGE: nexo:ci
+        run: |
+          cp nexo.env.example nexo.env
+          echo "NEXO_SERVER_URL=http://localhost:9000" >> nexo.env
+          docker compose -f compose.cluster.yml up -d
+          for _ in $(seq 1 90); do
+            curl -fsS -o /dev/null http://localhost:9000/nexo/health/ready && break
+            sleep 2
+          done
+          curl -fsS http://localhost:9000/nexo/health/ready
+
+      - name: TM-06 and TM-09 (test/compose)
+        env:
+          NEXO_IMAGE: nexo:ci
+          NEXO_COMPOSE_FILE: deploy/docker/compose.cluster.yml
+        run: go test -tags compose -count=1 -v -timeout 20m ./test/compose/...
+
+      - name: Compose logs
+        if: failure()
+        working-directory: deploy/docker
+        env:
+          NEXO_IMAGE: nexo:ci
+        run: docker compose -f compose.cluster.yml logs --no-color --tail 300 || true
+
+      - name: Stop the deployment
+        if: always()
+        working-directory: deploy/docker
+        env:
+          NEXO_IMAGE: nexo:ci
+        run: docker compose -f compose.cluster.yml down -v || true
 
   deploy-files:
     name: Deploy files

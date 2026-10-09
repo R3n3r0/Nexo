@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"sync"
 
 	"github.com/r3n3r0/nexo/internal/domain"
@@ -36,12 +37,14 @@ type store interface {
 	// dir.
 	WriteData(ctx context.Context, dir string, partNum int, size int64, r io.Reader, ei storage.ErasureInfo) (int64, error)
 	// CommitData moves the system directory tmpDir into place as the data
-	// directory fi.DataDir of volume/path and records fi. It returns the
-	// data directory of the replaced version, if any. On failure tmpDir is
-	// left where it is (wherever the move did not happen, or moved back
+	// directory fi.DataDir of volume/path and records fi, on the drives
+	// whose tmpDir holds every part of fi, then purges the data directory
+	// of the version it replaced on each of them (unless ctx reports a lost
+	// namespace lock: another writer may be committing). On failure tmpDir
+	// is left where it is (wherever the move did not happen, or moved back
 	// where a partial commit was rolled back): the caller removes it or,
 	// for a multipart completion, restores its parts.
-	CommitData(ctx context.Context, tmpDir string, fi storage.FileInfo, volume, path string) (string, error)
+	CommitData(ctx context.Context, tmpDir string, fi storage.FileInfo, volume, path string) error
 	// ReadData streams [offset, offset+length) of the logical content of
 	// part of the version fi.
 	ReadData(ctx context.Context, volume, path string, fi storage.FileInfo, part storage.PartInfo, offset, length int64) (io.ReadCloser, error)
@@ -49,7 +52,30 @@ type store interface {
 	ReadAll(ctx context.Context, path string) ([]byte, error)
 	WriteAll(ctx context.Context, path string, data []byte) error
 	DeletePath(ctx context.Context, volume, path string, recursive bool) error
-	RenameFile(ctx context.Context, srcPath, dstPath string) error
+	// MoveFiles moves system files (each move from src to dst) on every
+	// drive. On each drive the moves are all or nothing: a drive that fails
+	// one of them moves back the files it moved. Drives that fail are left
+	// out while the write quorum of layout ei holds (their files stay at
+	// the source); otherwise the moves are undone everywhere and the
+	// reduced error is returned.
+	MoveFiles(ctx context.Context, moves []fileMove, ei storage.ErasureInfo) error
+	// UndoMoves moves back, on every drive and best effort, the files of
+	// moves found at their destination: the parts of a multipart upload
+	// whose completion failed after StageParts, wherever they were moved.
+	UndoMoves(ctx context.Context, moves []fileMove)
+	// StageParts assembles the data of a multipart completion in
+	// stagingDir: it moves the data files of the selected parts (moves[k]
+	// holds part fi.Parts[k]) on every drive, file by file, then rebuilds,
+	// on the online drives that miss a part, its shards from the drives
+	// that hold it: the parts of an upload may have been acknowledged on
+	// different drives (a rolling restart during a long upload), each on a
+	// write quorum. It fails with domain.ErrObjectNotFound when a part can
+	// no longer be decoded, with domain.ErrWriteQuorum when the drives
+	// that would make it decodable are offline or failing. Whatever the
+	// outcome, the caller restores the parts with UndoMoves when the
+	// completion does not commit; CommitData then commits the drives whose
+	// staged data is complete. A single drive moves all or nothing.
+	StageParts(ctx context.Context, moves []fileMove, stagingDir string, fi storage.FileInfo) error
 	StatGlob(ctx context.Context, pattern string) ([]storage.StatInfo, error)
 	// WalkVersions walks the entries of a bucket in S3 key order (see
 	// StorageAPI.WalkDir) with the versions of every object decoded (and,
@@ -60,6 +86,48 @@ type store interface {
 
 	// Online reports the online and total drive counts.
 	Online() (online, total int)
+}
+
+// fileMove is one file move of MoveFiles: system paths, relative to
+// domain.SystemBucket.
+type fileMove struct {
+	src, dst string
+}
+
+// reversed returns the moves that undo moves.
+func reversed(moves []fileMove) []fileMove {
+	out := make([]fileMove, len(moves))
+	for i, m := range moves {
+		out[i] = fileMove{src: m.dst, dst: m.src}
+	}
+	return out
+}
+
+// moveAll moves the files of moves on drive d, all or nothing: when a move
+// fails, the moves made so far are undone, and so is the failed one, which
+// a remote drive may have made although the call reported a failure.
+func moveAll(ctx context.Context, d storage.StorageAPI, moves []fileMove, logger *slog.Logger) error {
+	for j, m := range moves {
+		if err := d.RenameFile(ctx, domain.SystemBucket, m.src, domain.SystemBucket, m.dst); err != nil {
+			undoMoves(ctx, d, moves[:j+1], logger)
+			return err
+		}
+	}
+	return nil
+}
+
+// undoMoves moves back the files of moves found at their destination on
+// drive d, best effort and even when ctx is canceled: a move that did not
+// happen (destination missing) is skipped.
+func undoMoves(ctx context.Context, d storage.StorageAPI, moves []fileMove, logger *slog.Logger) {
+	ctx = context.WithoutCancel(ctx)
+	for _, m := range reversed(moves) {
+		err := d.RenameFile(ctx, domain.SystemBucket, m.src, domain.SystemBucket, m.dst)
+		if err != nil && !isNotFound(err) {
+			logger.WarnContext(ctx, "object: cannot move a file back", "from", m.src, "to", m.dst,
+				"drive", d.Endpoint().String(), "err", err)
+		}
+	}
 }
 
 // walkEntry is one entry of WalkVersions: a prefix (IsDir, the name ends

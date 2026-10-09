@@ -31,6 +31,8 @@ import {
   type ServerInfo,
 } from '@/services';
 
+import { ClusterStatus } from './overview/ClusterStatus';
+
 // Recharts is large: the chart is loaded only when the overview shows it.
 const BucketUsageChart = lazy(() => import('./overview/BucketUsageChart'));
 
@@ -245,7 +247,10 @@ function BucketUsage() {
   );
 }
 
-/** D-DASH-01: mode, capacity, buckets/objects, nodes and drives, usage per bucket. */
+/**
+ * D-DASH-01: mode, cluster health, capacity, buckets/objects, nodes and
+ * drives, usage per bucket.
+ */
 export function OverviewPage() {
   const { t, i18n } = useTranslation();
   const { info } = useServices();
@@ -360,6 +365,7 @@ export function OverviewPage() {
         />
       </SimpleGrid>
 
+      {data ? <ClusterStatus info={data} /> : null}
       {data ? (
         <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
           <CapacityMeter info={data} />

@@ -49,10 +49,12 @@ type options struct {
 	monitorInterval time.Duration
 	checkpointEvery int
 	checkpointAfter time.Duration
+	diskRetries     int
 	jobRetention    time.Duration
 	jobItems        int
 	maxJobs         int
 	persistAfter    time.Duration
+	listVolsTimeout time.Duration
 }
 
 func defaultOptions() options {
@@ -61,10 +63,12 @@ func defaultOptions() options {
 		monitorInterval: 30 * time.Second,
 		checkpointEvery: 100,
 		checkpointAfter: 5 * time.Second,
+		diskRetries:     3,
 		jobRetention:    time.Hour,
 		jobItems:        1000,
 		maxJobs:         4,
 		persistAfter:    time.Second,
+		listVolsTimeout: 10 * time.Second,
 	}
 }
 
@@ -110,6 +114,20 @@ func WithCheckpoint(n int, d time.Duration) Option {
 	}
 }
 
+// WithDiskRetries sets how many times the healing of a drive starts over
+// when objects failed to heal during a pass (default 3; 0 never retries):
+// the tracker is kept and the next pass (the drive monitor resumes it)
+// examines every object again. Once the retries are exhausted the drive
+// is declared healed and the objects still failing are left to the
+// scanner and the MRF queue.
+func WithDiskRetries(n int) Option {
+	return func(o *options) {
+		if n >= 0 {
+			o.diskRetries = n
+		}
+	}
+}
+
 // WithJobRetention sets how long a finished job stays visible (default
 // 1h).
 func WithJobRetention(d time.Duration) Option {
@@ -135,6 +153,16 @@ func WithMaxJobs(n int) Option {
 	return func(o *options) {
 		if n > 0 {
 			o.maxJobs = n
+		}
+	}
+}
+
+// WithListVolsTimeout bounds the listing of the volumes of one drive by
+// HealPools (default 10s).
+func WithListVolsTimeout(d time.Duration) Option {
+	return func(o *options) {
+		if d > 0 {
+			o.listVolsTimeout = d
 		}
 	}
 }

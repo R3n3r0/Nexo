@@ -3,8 +3,9 @@ import { createAuthEventEmitter } from '../events';
 import type { Services } from '../interfaces';
 import { createMockBucketService, sampleBuckets, type MockBucketOptions } from './buckets';
 import { createMockConfigService, type MockConfigOptions } from './config';
+import { createMockHealService, type MockHealOptions } from './heal';
 import { createMockIam, type MockIamOptions } from './iam';
-import { createMockInfoService, type MockInfoOptions } from './info';
+import { createMockInfoService, sampleServerInfo, type MockInfoOptions } from './info';
 import { createMockObjectService } from './objects';
 import {
   createMockSessionService,
@@ -22,6 +23,7 @@ export interface MockServicesOptions
   extends
     MockBehaviour,
     MockInfoOptions,
+    MockHealOptions,
     MockBucketOptions,
     MockStorageOptions,
     MockIamOptions,
@@ -65,9 +67,11 @@ export function createMockServices(options: MockServicesOptions = {}): MockServi
   };
   const session = createMockSessionService(ctx, sessionOptions);
   const objects = createMockObjectService(storage);
+  const serverInfo = options.info ?? sampleServerInfo();
   return {
     session,
-    info: createMockInfoService(ctx, options, storage),
+    info: createMockInfoService(ctx, { ...options, info: serverInfo }, storage),
+    heal: createMockHealService(ctx, () => serverInfo, options),
     buckets: createMockBucketService(storage),
     objects,
     uploads: createMockUploadService(storage),
@@ -86,6 +90,6 @@ export { isValidBucketName, sampleBuckets } from './buckets';
 export { sampleConfigSchema } from './config';
 export { sampleAccessKeys, sampleGroups, samplePolicies, sampleUsers } from './iam';
 export { maxExpirySeconds, sampleShares } from './shares';
-export { sampleServerInfo } from './info';
+export { sampleClusterInfo, sampleServerInfo } from './info';
 export { sampleObjects, type MockObjectSeed } from './storage';
 export type { MockSessionService } from './session';

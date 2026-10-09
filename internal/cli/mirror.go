@@ -37,6 +37,9 @@ type MirrorAction struct {
 	// the existing target entry (overwrite, remove, conflict).
 	Source Entry
 	Target Entry
+	// SourceVersion is the version of the source replayed by mirror
+	// --preserve (PlanMirrorVersions).
+	SourceVersion string
 }
 
 // PlanMirror compares the listings of the source and of the target of a

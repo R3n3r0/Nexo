@@ -66,7 +66,10 @@ func TestConcurrentWritersOneKey(t *testing.T) {
 	for _, versioned := range []bool{false, true} {
 		t.Run(fmt.Sprintf("versioned=%t", versioned), func(t *testing.T) {
 			ctx := context.Background()
-			spec := clusterSpec{pools: 1, sets: 1, drives: 4}
+			// The writers commit one at a time: under the race detector, on
+			// a loaded machine, the last ones wait well beyond the default
+			// lock timeout of the tests, which is not what this test is about.
+			spec := clusterSpec{pools: 1, sets: 1, drives: 4, opts: []object.Option{object.WithLockTimeout(5 * time.Minute)}}
 			if versioned {
 				spec.buckets = versionedBuckets(t)
 			}
@@ -167,7 +170,7 @@ func TestListingTenThousandObjectsOnErasure(t *testing.T) {
 		drives[i] = testutil.NewLocalDriveIndex(t, filepath.Join(base, fmt.Sprintf("d%d", i)), i)
 	}
 	svc, err := object.NewServerPools(object.PoolsDeps{
-		Pools: []object.PoolSpec{{Sets: [][]storage.StorageAPI{drives}}}, DeploymentID: "perf", Logger: slog.New(slog.DiscardHandler),
+		Pools: []object.PoolSpec{{Sets: [][]storage.StorageAPI{drives}}}, DeploymentID: "perf", Codecs: testCodecs("perf"), Logger: slog.New(slog.DiscardHandler),
 	})
 	require.NoError(t, err)
 	ctx := context.Background()

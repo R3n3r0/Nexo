@@ -31,10 +31,41 @@ import (
 // data file it describes, so concurrent uploads of the same part number
 // never mix the data of one with the ETag of the other. Data files that
 // no description names are removed with the upload.
+//
+// A completion assembles the selected parts in a staging directory of the
+// upload and records the moves first in a journal:
+//
+//	multipart/<bucket>/<uploadID>/completing.json   the journal
+//	multipart/<bucket>/<uploadID>/completing.<dataDir>/part.K
+//
+// Nothing of an upload is ever in the temporary area emptied at startup:
+// a completion interrupted by a crash leaves its journal, and the next
+// completion attempt either finds the version committed (and finishes the
+// cleanup) or moves the parts back before starting over.
 const (
-	uploadFile = "upload.json"
-	metaSuffix = ".meta"
+	uploadFile     = "upload.json"
+	metaSuffix     = ".meta"
+	journalFile    = "completing.json"
+	stagingPrefix  = "completing."
+	maxJournalSize = 4 << 20
 )
+
+// completionJournal is the persisted record of a completion in progress.
+type completionJournal struct {
+	// Staging is the staging directory (system path).
+	Staging string `json:"staging"`
+	// DataDir and VersionID identify the version the completion commits.
+	DataDir   string `json:"dataDir"`
+	VersionID string `json:"versionId,omitempty"`
+	// Moves are the moves of the part data files into Staging.
+	Moves []journalMove `json:"moves"`
+}
+
+// journalMove is one move of a completion journal (system paths).
+type journalMove struct {
+	Src string `json:"src"`
+	Dst string `json:"dst"`
+}
 
 // uploadMeta is the persisted description of an in-progress upload.
 type uploadMeta struct {
@@ -75,7 +106,10 @@ func uploadDir(bucket, uploadID string) string { return uploadsDir(bucket) + "/"
 
 func partMetaName(n int) string { return partName(n) + metaSuffix }
 
-func partName(n int) string { return "part." + strconv.Itoa(n) }
+// partPrefix starts the name of every part file.
+const partPrefix = "part."
+
+func partName(n int) string { return partPrefix + strconv.Itoa(n) }
 
 // validUploadID accepts the base64url ids produced by newUploadID (and any
 // id of the same alphabet), so that an id never escapes its directory.
@@ -200,11 +234,11 @@ func (l *layer) PutObjectPart(ctx context.Context, in PutObjectPartInput) (domai
 	if !validUploadID(in.UploadID) {
 		return domain.Part{}, noSuchUpload(in.UploadID)
 	}
-	lc, err := l.lockUpload(ctx, in.Bucket, in.UploadID, false)
+	ctx, unlock, err := l.lockUpload(ctx, in.Bucket, in.UploadID, false)
 	if err != nil {
 		return domain.Part{}, err
 	}
-	defer lc.Unlock(ctx)
+	defer unlock()
 	st, err := l.place.forUpload(ctx, in.Bucket, in.Key, in.UploadID)
 	if err != nil {
 		return domain.Part{}, fmt.Errorf("%s: upload %s: %w", l.name, in.UploadID, err)
@@ -247,18 +281,27 @@ func (l *layer) PutObjectPart(ctx context.Context, in PutObjectPartInput) (domai
 	// Concurrent uploads of the same part number commit one at a time: on
 	// an erasure set their descriptions would otherwise reach the drives
 	// in different orders and no version of it would have a quorum.
-	plc, err := l.lockPath(ctx, domain.SystemBucket, dir+"/"+partName(in.PartNumber), true)
+	ctx, unlockPart, err := l.lockAll(ctx, []lockRequest{{bucket: domain.SystemBucket, key: dir + "/" + partName(in.PartNumber), write: true}})
 	if err != nil {
 		return domain.Part{}, err
 	}
-	defer plc.Unlock(ctx)
-	if err := st.RenameFile(ctx, tmpDir+"/"+partName(in.PartNumber), dir+"/"+part.DataFile); err != nil {
+	defer unlockPart()
+	// The data moves with the quorum of the layout of the upload: a part
+	// acknowledged on fewer drives than its decoding needs would make the
+	// completed object unreadable.
+	move := []fileMove{{src: tmpDir + "/" + partName(in.PartNumber), dst: dir + "/" + part.DataFile}}
+	if err := st.MoveFiles(ctx, move, m.layout(st)); err != nil {
 		return domain.Part{}, fmt.Errorf("%s: store part %d of %s: %w", l.name, in.PartNumber, in.UploadID, err)
 	}
 	previous, hadPrevious := l.readPart(ctx, st, dir, in.PartNumber)
 	data, err := json.Marshal(part)
 	if err != nil {
+		l.removeUploadFile(ctx, st, dir, part.DataFile)
 		return domain.Part{}, fmt.Errorf("%s: encode part: %w", l.name, err)
+	}
+	if err := checkLocks(ctx); err != nil {
+		l.removeUploadFile(ctx, st, dir, part.DataFile)
+		return domain.Part{}, fmt.Errorf("%s: store part %d of %s: %w", l.name, in.PartNumber, in.UploadID, err)
 	}
 	if err := st.WriteAll(ctx, dir+"/"+partMetaName(in.PartNumber), data); err != nil {
 		l.removeUploadFile(ctx, st, dir, part.DataFile)
@@ -307,11 +350,11 @@ func (l *layer) CopyObjectPart(ctx context.Context, in CopyObjectPartInput) (dom
 	if err := validObject(in.DstBucket, in.DstKey); err != nil {
 		return domain.Part{}, err
 	}
-	lc, err := l.lock(ctx, in.SrcBucket, in.SrcKey, false)
+	ctx, unlock, err := l.lock(ctx, in.SrcBucket, in.SrcKey, false)
 	if err != nil {
 		return domain.Part{}, err
 	}
-	defer lc.Unlock(ctx)
+	defer unlock()
 	info, err := l.GetObjectInfo(ctx, in.SrcBucket, in.SrcKey, GetObjectOptions{VersionID: in.SrcVersionID, NoLock: true})
 	if err != nil {
 		return domain.Part{}, err
@@ -407,11 +450,11 @@ func (l *layer) AbortMultipartUpload(ctx context.Context, bucket, key, uploadID 
 	if !validUploadID(uploadID) {
 		return noSuchUpload(uploadID)
 	}
-	lc, err := l.lockUpload(ctx, bucket, uploadID, true)
+	ctx, unlock, err := l.lockUpload(ctx, bucket, uploadID, true)
 	if err != nil {
 		return err
 	}
-	defer lc.Unlock(ctx)
+	defer unlock()
 	st, err := l.place.forUpload(ctx, bucket, key, uploadID)
 	if err != nil {
 		return fmt.Errorf("%s: upload %s: %w", l.name, uploadID, err)
@@ -447,16 +490,18 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 	if !validUploadID(in.UploadID) {
 		return domain.ObjectInfo{}, noSuchUpload(in.UploadID)
 	}
-	unlock, err := l.lockWrite(ctx, in.Bucket, in.Key)
+	// The key is locked before the upload (as CopyObjectPart locks its
+	// source before the upload), so that the two never deadlock.
+	ctx, unlock, err := l.lockWrite(ctx, in.Bucket, in.Key)
 	if err != nil {
 		return domain.ObjectInfo{}, err
 	}
 	defer unlock()
-	ulc, err := l.lockUpload(ctx, in.Bucket, in.UploadID, true)
+	ctx, unlockUpload, err := l.lockUpload(ctx, in.Bucket, in.UploadID, true)
 	if err != nil {
 		return domain.ObjectInfo{}, err
 	}
-	defer ulc.Unlock(ctx)
+	defer unlockUpload()
 	st, err := l.place.forUpload(ctx, in.Bucket, in.Key, in.UploadID)
 	if err != nil {
 		return domain.ObjectInfo{}, fmt.Errorf("%s: upload %s: %w", l.name, in.UploadID, err)
@@ -464,6 +509,12 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 	m, dir, err := l.loadUpload(ctx, st, in.Bucket, in.Key, in.UploadID)
 	if err != nil {
 		return domain.ObjectInfo{}, err
+	}
+	if done, err := l.recoverCompletion(ctx, st, dir, in.Bucket, in.Key); err != nil || done != nil {
+		if err != nil {
+			return domain.ObjectInfo{}, err
+		}
+		return *done, nil
 	}
 	uploaded, err := l.listParts(ctx, st, dir)
 	if err != nil {
@@ -522,33 +573,12 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 		return domain.ObjectInfo{}, fmt.Errorf("%w: object of %d bytes exceeds the bucket quota of %d bytes", domain.ErrQuotaExceeded, total, cfg.QuotaBytes)
 	}
 
-	// From the first part moved on, the completion runs to its end (commit,
-	// or parts moved back into the upload) even when the client goes away:
-	// a canceled context would leave the parts in the temporary directory,
-	// which is then purged, and the upload unusable.
-	ctx = context.WithoutCancel(ctx)
-	// Assemble the selected parts, renumbered, in a fresh temporary directory.
-	tmpDir := l.newTmpDir()
-	moved := 0
-	restore := func() {
-		for i := 0; i < moved; i++ {
-			if err := st.RenameFile(ctx, tmpDir+"/"+partName(i+1), dir+"/"+selected[i].DataFile); err != nil {
-				l.deps.Logger.WarnContext(ctx, "object: cannot restore part after a failed completion", "upload", in.UploadID, "part", selected[i].Number, "err", err)
-			}
-		}
-		l.cleanupTmp(ctx, st, tmpDir)
-	}
-	for i, p := range selected {
-		if err := st.RenameFile(ctx, dir+"/"+p.DataFile, tmpDir+"/"+partName(i+1)); err != nil {
-			restore()
-			if isNotFound(err) {
-				return domain.ObjectInfo{}, domain.NewS3Error(domain.ErrInvalidPart, "InvalidPart",
-					fmt.Sprintf("One or more of the specified parts could not be found. The data of part %d is missing.", p.Number))
-			}
-			return domain.ObjectInfo{}, fmt.Errorf("%s: assemble part %d of %s: %w", l.name, p.Number, in.UploadID, err)
-		}
-		moved++
-	}
+	// From the journal on, the completion runs to its end (commit, or
+	// parts moved back into the upload) even when the client goes away: a
+	// canceled context would leave the parts in the staging directory. It
+	// still stops when a namespace lock is lost (rolling back), since
+	// another node may then complete or abort the upload.
+	ctx = detached(ctx)
 	versionID, versioned := l.versionFor(cfg, "")
 	meta := make(map[string]string, len(m.Metadata)+2)
 	for k, v := range m.Metadata {
@@ -562,7 +592,7 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 		Volume:    in.Bucket,
 		Name:      in.Key,
 		VersionID: versionID,
-		ModTime:   l.now(),
+		ModTime:   l.commitTime(ctx, in.Bucket, in.Key),
 		Size:      total,
 		DataDir:   uuid.NewString(),
 		Metadata:  meta,
@@ -570,20 +600,125 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 		Erasure:   m.layout(st),
 		Versioned: versioned,
 	}
-	old, err := st.CommitData(ctx, tmpDir, fi, in.Bucket, in.Key)
+	// Assemble the selected parts, renumbered, in a staging directory of
+	// the upload, the moves journaled first: a failure moves back every
+	// part wherever it went, and so does the next attempt after a crash,
+	// so that the upload stays completable.
+	staging := dir + "/" + stagingPrefix + fi.DataDir
+	moves := make([]fileMove, len(selected))
+	journal := completionJournal{Staging: staging, DataDir: fi.DataDir, VersionID: fi.VersionID}
+	for i, p := range selected {
+		moves[i] = fileMove{src: dir + "/" + p.DataFile, dst: staging + "/" + partName(i+1)}
+		journal.Moves = append(journal.Moves, journalMove{Src: moves[i].src, Dst: moves[i].dst})
+	}
+	jdata, err := json.Marshal(journal)
 	if err != nil {
+		return domain.ObjectInfo{}, fmt.Errorf("%s: encode completion journal: %w", l.name, err)
+	}
+	if err := st.WriteAll(ctx, dir+"/"+journalFile, jdata); err != nil {
+		return domain.ObjectInfo{}, fmt.Errorf("%s: complete %s: %w", l.name, in.UploadID, err)
+	}
+	restore := func() { l.undoCompletion(ctx, st, dir, staging, moves) }
+	if err := st.StageParts(ctx, moves, staging, fi); err != nil {
+		restore()
+		if isNotFound(err) {
+			return domain.ObjectInfo{}, domain.NewS3Error(domain.ErrInvalidPart, "InvalidPart",
+				"One or more of the specified parts could not be found. The data of a part is missing.")
+		}
+		return domain.ObjectInfo{}, fmt.Errorf("%s: assemble the parts of %s: %w", l.name, in.UploadID, err)
+	}
+	if err := checkLocks(ctx); err != nil {
 		restore()
 		return domain.ObjectInfo{}, fmt.Errorf("%s: complete %s: %w", l.name, in.UploadID, err)
 	}
-	l.purgeReplaced(ctx, st, in.Bucket, in.Key, old, fi.DataDir)
-	l.dropElsewhere(ctx, st, in.Bucket, in.Key, fi.VersionID)
+	if err := st.CommitData(ctx, staging, fi, in.Bucket, in.Key); err != nil {
+		restore()
+		if cerr := checkLocks(ctx); cerr != nil {
+			err = cerr
+		}
+		return domain.ObjectInfo{}, fmt.Errorf("%s: complete %s: %w", l.name, in.UploadID, err)
+	}
+	return l.finishCompletion(ctx, st, dir, in.UploadID, fi), nil
+}
+
+// finishCompletion removes the upload of a committed completion, drops the
+// copies of the key in other pools and publishes the event.
+func (l *layer) finishCompletion(ctx context.Context, st store, dir, uploadID string, fi storage.FileInfo) domain.ObjectInfo {
+	l.dropElsewhere(ctx, st, fi.Volume, fi.Name, fi.VersionID)
 	if err := st.DeletePath(ctx, domain.SystemBucket, dir, true); err != nil && !isNotFound(err) {
-		l.deps.Logger.WarnContext(ctx, "object: cannot remove completed upload", "upload", in.UploadID, "err", err)
+		l.deps.Logger.WarnContext(ctx, "object: cannot remove completed upload", "upload", uploadID, "err", err)
 	}
 	fi.IsLatest = true
-	info := objectInfo(in.Bucket, in.Key, fi)
-	l.publish(ctx, event.ObjectCreatedCompleteMultipartUpload, in.Bucket, info)
-	return info, nil
+	info := objectInfo(fi.Volume, fi.Name, fi)
+	l.publish(ctx, event.ObjectCreatedCompleteMultipartUpload, fi.Volume, info)
+	return info
+}
+
+// undoCompletion moves the parts of a completion that did not commit back
+// into the upload, wherever they went, then removes the staging directory
+// and the journal.
+func (l *layer) undoCompletion(ctx context.Context, st store, dir, staging string, moves []fileMove) {
+	ctx = context.WithoutCancel(ctx)
+	st.UndoMoves(ctx, moves)
+	l.cleanupTmp(ctx, st, staging)
+	if err := st.DeletePath(ctx, domain.SystemBucket, dir+"/"+journalFile, false); err != nil && !isNotFound(err) {
+		l.deps.Logger.WarnContext(ctx, "object: cannot remove a completion journal", "dir", dir, "err", err)
+	}
+}
+
+// recoverCompletion handles the journal left by a completion of the upload
+// interrupted by a crash: when the version it was committing is in place,
+// it finishes the completion and returns the object; otherwise it moves
+// the parts back into the upload (nil, nil). It runs under the write lock
+// of the upload.
+func (l *layer) recoverCompletion(ctx context.Context, st store, dir, bucket, key string) (*domain.ObjectInfo, error) {
+	data, err := st.ReadAll(ctx, dir+"/"+journalFile)
+	if err != nil {
+		if isNotFound(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("%s: read the completion journal of %s: %w", l.name, dir, err)
+	}
+	var j completionJournal
+	if len(data) > maxJournalSize || json.Unmarshal(data, &j) != nil || !j.valid(dir) {
+		l.deps.Logger.WarnContext(ctx, "object: discarding an unreadable completion journal", "dir", dir)
+		l.undoCompletion(ctx, st, dir, "", nil)
+		return nil, nil
+	}
+	moves := make([]fileMove, len(j.Moves))
+	for i, mv := range j.Moves {
+		moves[i] = fileMove{src: mv.Src, dst: mv.Dst}
+	}
+	vid := j.VersionID
+	if vid == "" {
+		vid = nullVersion
+	}
+	if fi, err := st.ReadVersion(ctx, bucket, key, vid, false); err == nil && fi.DataDir == j.DataDir && !fi.Deleted {
+		// The interrupted completion committed: only its cleanup is left.
+		l.deps.Logger.InfoContext(ctx, "object: finishing a completion interrupted after its commit", "bucket", bucket, "key", key)
+		info := l.finishCompletion(ctx, st, dir, path.Base(dir), fi)
+		return &info, nil
+	}
+	l.deps.Logger.InfoContext(ctx, "object: moving back the parts of an interrupted completion", "bucket", bucket, "key", key, "parts", len(moves))
+	l.undoCompletion(ctx, st, dir, j.Staging, moves)
+	return nil, nil
+}
+
+// valid reports whether every path of the journal lies inside the upload
+// directory dir.
+func (j completionJournal) valid(dir string) bool {
+	inside := func(p string) bool {
+		return strings.HasPrefix(p, dir+"/") && !strings.Contains(p, "..") && !strings.Contains(p, "//")
+	}
+	if !inside(j.Staging) || !strings.HasPrefix(path.Base(j.Staging), stagingPrefix) {
+		return false
+	}
+	for _, mv := range j.Moves {
+		if !inside(mv.Src) || !strings.HasPrefix(mv.Dst, j.Staging+"/") || strings.Contains(mv.Dst, "..") {
+			return false
+		}
+	}
+	return true
 }
 
 func checksumMap(c domain.Checksum) map[string]string {
@@ -769,11 +904,11 @@ func (l *layer) cleanupUpload(ctx context.Context, st store, d storage.StatInfo,
 	if !m.Initiated.Before(cutoff) {
 		return false, nil
 	}
-	lc, err := l.lockUpload(ctx, bucket, uploadID, true)
+	ctx, unlock, err := l.lockUpload(ctx, bucket, uploadID, true)
 	if err != nil {
 		return false, err
 	}
-	defer lc.Unlock(ctx)
+	defer unlock()
 	if err := st.DeletePath(ctx, domain.SystemBucket, d.Name, true); err != nil {
 		if isNotFound(err) || errors.Is(err, domain.ErrBucketNotFound) {
 			return false, nil // completed or aborted meanwhile

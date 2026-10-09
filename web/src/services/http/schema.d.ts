@@ -1321,6 +1321,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/cluster/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export the state of the deployment besides its objects
+         * @description A versioned zip archive (manifest.json, iam.bin, policies.json, config.json, buckets/<name>.json) holding the IAM state (users, groups, access keys, STS credentials and their policy attachments, encrypted with a key derived from the root secret key), the named policies, the dynamic configuration (secrets included) and the settings of every bucket (versioning, object lock, policy, lifecycle, encryption, quota, tags, CORS, notifications). With `nexoctl mirror` for the objects it migrates a deployment to another mode.
+         */
+        get: operations["exportCluster"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/cluster/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import an archive of GET /cluster/export
+         * @description The whole archive is validated first (format, version, policies, configuration, bucket names); with `dryRun` the import stops there and reports what it would do. It then applies the configuration, the named policies, the IAM state (the target must share the root credentials of the source) and the bucket settings, creating the missing buckets. `merge` (default) keeps what the archive does not hold; `replace` also replaces the whole configuration and removes the users, groups and named policies the archive does not hold and the settings of the archived buckets it does not set (buckets are never removed).
+         */
+        post: operations["importCluster"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/locks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the namespace locks held across the lock servers */
+        get: operations["listLocks"];
+        put?: never;
+        post?: never;
+        /**
+         * Release namespace locks on every lock server, whoever holds them
+         * @description Diagnostics of stuck locks (admin lock clear). An operation holding a released lock loses it at its next lease renewal and stops before its commit.
+         */
+        delete: operations["forceUnlock"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/config/{subsys}": {
         parameters: {
             query?: never;
@@ -1429,6 +1490,43 @@ export interface components {
             healingProgress?: components["schemas"]["HealingProgress"];
             error?: string;
         };
+        ClusterImportResult: {
+            /** @enum {string} */
+            mode: "merge" | "replace";
+            dryRun: boolean;
+            /** @description Users of the archive. */
+            users: number;
+            groups: number;
+            /** @description Named policies of the archive. */
+            policies: number;
+            configSubsystems: number;
+            /** @description Buckets of the archive. */
+            buckets: number;
+            /** @description Archived buckets this deployment did not have (created by the import). */
+            bucketsCreated: string[];
+            /** @description Entries a replace import removes ("user:<name>", "group:<name>", "policy:<name>"). */
+            removed: string[];
+        };
+        Lock: {
+            /** @description The locked resource ("bucket/key"). */
+            resource: string;
+            /** @description The acquisition. */
+            uid: string;
+            /** @description The node holding the lock. */
+            owner: string;
+            source?: string;
+            /** @enum {string} */
+            type: "write" | "read";
+            quorum: number;
+            /** Format: date-time */
+            since: string;
+            /** Format: date-time */
+            refreshed: string;
+            /** @description Lock servers holding the lock. */
+            servers: number;
+            /** @description Lock servers queried. */
+            total: number;
+        };
         /** @description Progress of the healing of a replaced or wiped drive (present while it heals). */
         HealingProgress: {
             /** Format: date-time */
@@ -1443,12 +1541,17 @@ export interface components {
             healedBuckets: number;
             /** Format: int64 */
             objectsHealed: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Objects that failed to heal in the current pass.
+             */
             objectsFailed: number;
             /** Format: int64 */
             bytesDone: number;
             /** Format: int64 */
             bytesFailed: number;
+            /** @description Passes started over because objects failed to heal in the previous one (at most the configured retries). */
+            retryAttempts?: number;
         };
         NodeInfo: {
             endpoint: string;
@@ -1458,12 +1561,64 @@ export interface components {
             /** Format: int64 */
             uptimeSeconds: number;
             disks: components["schemas"]["DiskInfo"][];
+            /** @description The node that answered (listed first). */
+            local: boolean;
+            clockSkew?: components["schemas"]["ClockSkew"];
+            healQueue?: components["schemas"]["HealQueueStats"];
+        };
+        /** @description Clock offset of a node measured by the node that answered (absent for that node and for the unreachable ones). An offset above 2 s is reported (docs/03 §3.11). */
+        ClockSkew: {
+            /**
+             * Format: int64
+             * @description Clock of the node minus the clock of the node that answered, corrected by half the round trip.
+             */
+            offsetMs: number;
+            /** Format: int64 */
+            rttMs: number;
+            /** @description The offset is above the warning threshold. */
+            exceeded: boolean;
+        };
+        /** @description Background healing (MRF) of a node: the objects written or read without every drive, repaired in the background. Absent on a single drive and for the unreachable nodes. */
+        HealQueueStats: {
+            /** @description Objects waiting to be healed or being healed. */
+            pending: number;
+            /** Format: int64 */
+            healed: number;
+            /**
+             * Format: int64
+             * @description Failed attempts, rescheduled.
+             */
+            retried: number;
+            /**
+             * Format: int64
+             * @description Objects refused (queue full) or abandoned (too many attempts).
+             */
+            dropped: number;
+        };
+        /**
+         * @description ok: every drive online; degraded: drives offline or healing, the write quorum is kept; readonly: only the read quorum is kept; unavailable: below the read quorum.
+         * @enum {string}
+         */
+        ErasureSetState: "ok" | "degraded" | "readonly" | "unavailable";
+        ErasureSetInfo: {
+            index: number;
+            drives: number;
+            /** @description Drives that answer (the healing ones included). */
+            online: number;
+            offline: number;
+            healing: number;
+            state: components["schemas"]["ErasureSetState"];
         };
         PoolInfo: {
             index: number;
             sets: number;
             drivesPerSet: number;
             parity: number;
+            /** @description Drives of a set needed to read. */
+            readQuorum: number;
+            /** @description Drives of a set needed to write. */
+            writeQuorum: number;
+            erasureSets: components["schemas"]["ErasureSetInfo"][];
         };
         ServerInfo: {
             version: string;
@@ -4765,6 +4920,98 @@ export interface operations {
         };
         responses: {
             /** @description Imported. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    exportCluster: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The archive (attachment). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    importCluster: {
+        parameters: {
+            query?: {
+                mode?: "merge" | "replace";
+                dryRun?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/zip": string;
+            };
+        };
+        responses: {
+            /** @description What the import did (or would do). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClusterImportResult"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listLocks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The locks, sorted by resource. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Lock"][];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    forceUnlock: {
+        parameters: {
+            query: {
+                /** @description A resource to release ("bucket/key"); repeatable. */
+                resource: string[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Released. */
             204: {
                 headers: {
                     [name: string]: unknown;

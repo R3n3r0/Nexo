@@ -47,11 +47,11 @@ func (l *layer) MakeBucket(ctx context.Context, bucket string, opts MakeBucketOp
 	if err := validBucket(bucket); err != nil {
 		return err
 	}
-	lc, err := l.lock(ctx, bucket, "", true)
+	ctx, unlock, err := l.lock(ctx, bucket, "", true)
 	if err != nil {
 		return err
 	}
-	defer lc.Unlock(ctx)
+	defer unlock()
 
 	errs := parallel(len(l.sets), func(i int) error { return l.sets[i].MakeVol(ctx, bucket) })
 	created := make([]bool, len(l.sets))
@@ -213,11 +213,11 @@ func (l *layer) DeleteBucket(ctx context.Context, bucket string, opts DeleteBuck
 	if err := validBucket(bucket); err != nil {
 		return err
 	}
-	lc, err := l.lock(ctx, bucket, "", true)
+	ctx, unlock, err := l.lock(ctx, bucket, "", true)
 	if err != nil {
 		return err
 	}
-	defer lc.Unlock(ctx)
+	defer unlock()
 	if _, err := l.sets[0].StatVol(ctx, bucket); err != nil {
 		return fmt.Errorf("%s: delete bucket %s: %w", l.name, bucket, err)
 	}

@@ -24,14 +24,15 @@ import (
 func newAdminCmd(e *env) *cobra.Command {
 	cmd := groupCmd("admin", "Administer a Nexo server (Admin API)")
 	cmd.Long = `Administer a Nexo server through its Admin API: server information and usage,
-users, groups, policies, access keys, configuration and service control.
+users, groups, policies, access keys, configuration, service control, the export and
+import of the state of a deployment and the lock diagnostics.
 
 The Admin API is served by the console listener of the server: see --admin-url
 of "nexoctl alias set". Every subcommand takes the alias as its first argument.`
 	cmd.AddCommand(
 		newAdminInfoCmd(e), newAdminUsageCmd(e), newAdminHealCmd(e),
 		newAdminUserCmd(e), newAdminGroupCmd(e), newAdminPolicyCmd(e), newAdminAccessKeyCmd(e),
-		newAdminConfigCmd(e), newAdminServiceCmd(e),
+		newAdminConfigCmd(e), newAdminServiceCmd(e), newAdminClusterCmd(e), newAdminLockCmd(e),
 	)
 	return cmd
 }
@@ -57,8 +58,10 @@ func newAdminInfoCmd(e *env) *cobra.Command {
 	}
 }
 
-// formatInfo renders the server information: a summary, the pools and
-// one block per node with its drives (offline ones highlighted).
+// formatInfo renders the server information: a summary, the pools with
+// their quorums and the state of every erasure set, then one block per
+// node (version, uptime, clock offset, background healing) with its
+// drives; offline nodes and drives and degraded sets are highlighted.
 func (e *env) formatInfo(alias string, info *nexoadmin.ServerInfo) string {
 	var b strings.Builder
 	p := e.out
@@ -67,7 +70,18 @@ func (e *env) formatInfo(alias string, info *nexoadmin.ServerInfo) string {
 	fmt.Fprintf(&b, "Uptime: %s  Buckets: %d  Objects: %d  Usage: %s\n",
 		cli.HumanDuration(time.Duration(info.UptimeSeconds)*time.Second), info.Buckets, info.Objects, cli.HumanSize(int64(info.Usage)))
 	for _, pool := range info.Pools {
-		fmt.Fprintf(&b, "Pool %d: %d set(s) of %d drive(s), parity %d\n", pool.Index+1, pool.Sets, pool.DrivesPerSet, pool.Parity)
+		fmt.Fprintf(&b, "Pool %d: %d set(s) of %d drive(s), parity %d", pool.Index+1, pool.Sets, pool.DrivesPerSet, pool.Parity)
+		if pool.ReadQuorum > 0 {
+			fmt.Fprintf(&b, ", quorum read %d write %d", pool.ReadQuorum, pool.WriteQuorum)
+		}
+		b.WriteString("\n")
+		for _, set := range pool.ErasureSets {
+			fmt.Fprintf(&b, "  set %d  %s  %d of %d drive(s) online", set.Index+1, e.paintSetState(set.State), set.Online, set.Drives)
+			if set.Healing > 0 {
+				fmt.Fprintf(&b, ", %d healing", set.Healing)
+			}
+			b.WriteString("\n")
+		}
 	}
 	online, offline := 0, 0
 	for _, n := range info.Nodes {
@@ -79,44 +93,76 @@ func (e *env) formatInfo(alias string, info *nexoadmin.ServerInfo) string {
 	}
 	fmt.Fprintf(&b, "Nodes: %d online, %d offline", online, offline)
 	for _, n := range info.Nodes {
-		state := p.Paint(cli.ColorGreen, n.State)
-		if n.State != stateOnline {
-			state = p.Paint(cli.ColorRed, n.State)
-		}
-		uptime := "-"
-		if n.UptimeSeconds > 0 {
-			uptime = cli.HumanDuration(time.Duration(n.UptimeSeconds) * time.Second)
-		}
-		fmt.Fprintf(&b, "\n  %s  %s  uptime %s  %d drive(s)", n.Endpoint, state, uptime, len(n.Disks))
-		for _, d := range n.Disks {
-			dstate := p.Paint(cli.ColorGreen, d.State)
-			if d.State != stateOnline {
-				dstate = p.Paint(cli.ColorRed, d.State)
-			}
-			path := d.Path
-			if path == "" {
-				path = d.Endpoint
-			}
-			fmt.Fprintf(&b, "\n    %s  %s", path, dstate)
-			if d.Total > 0 {
-				fmt.Fprintf(&b, "  used %s of %s (free %s)", cli.HumanSize(int64(d.Used)), cli.HumanSize(int64(d.Total)), cli.HumanSize(int64(d.Free)))
-			}
-			if d.Healing {
-				b.WriteString("  healing")
-				if hp := d.HealingProgress; hp != nil {
-					fmt.Fprintf(&b, " (%d object(s) healed, %d failed, %s", hp.ObjectsHealed, hp.ObjectsFailed, cli.HumanSize(int64(hp.BytesDone)))
-					if at := strings.TrimSuffix(hp.Bucket+"/"+hp.Object, "/"); at != "" {
-						fmt.Fprintf(&b, ", at %s", at)
-					}
-					b.WriteString(")")
-				}
-			}
-			if d.Error != "" {
-				b.WriteString("  error: " + d.Error)
-			}
-		}
+		e.formatNode(&b, n)
 	}
 	return b.String()
+}
+
+// paintSetState colors the state of an erasure set: green when ok,
+// yellow when degraded, red without the write quorum.
+func (e *env) paintSetState(state string) string {
+	switch state {
+	case nexoadmin.SetStateOK:
+		return e.out.Paint(cli.ColorGreen, state)
+	case nexoadmin.SetStateDegraded:
+		return e.out.Paint(cli.ColorYellow, state)
+	default:
+		return e.out.Paint(cli.ColorRed, state)
+	}
+}
+
+// formatNode renders a node of formatInfo and its drives.
+func (e *env) formatNode(b *strings.Builder, n nexoadmin.NodeInfo) {
+	p := e.out
+	state := p.Paint(cli.ColorGreen, n.State)
+	if n.State != stateOnline {
+		state = p.Paint(cli.ColorRed, n.State)
+	}
+	uptime := "-"
+	if n.UptimeSeconds > 0 {
+		uptime = cli.HumanDuration(time.Duration(n.UptimeSeconds) * time.Second)
+	}
+	fmt.Fprintf(b, "\n  %s  %s  version %s  uptime %s  %d drive(s)", n.Endpoint, state, orDash(n.Version), uptime, len(n.Disks))
+	switch {
+	case n.Local:
+		b.WriteString("  (this node)")
+	case n.ClockSkew != nil:
+		skew := fmt.Sprintf("clock %+.3fs", float64(n.ClockSkew.OffsetMs)/1000)
+		if n.ClockSkew.Exceeded {
+			skew = p.Paint(cli.ColorYellow, skew+" (skew above 2s)")
+		}
+		b.WriteString("  " + skew)
+	}
+	if q := n.HealQueue; q != nil {
+		fmt.Fprintf(b, "\n    background healing: %d pending, %d healed, %d retried, %d dropped", q.Pending, q.Healed, q.Retried, q.Dropped)
+	}
+	for _, d := range n.Disks {
+		dstate := p.Paint(cli.ColorGreen, d.State)
+		if d.State != stateOnline {
+			dstate = p.Paint(cli.ColorRed, d.State)
+		}
+		path := d.Path
+		if path == "" {
+			path = d.Endpoint
+		}
+		fmt.Fprintf(b, "\n    %s  %s", path, dstate)
+		if d.Total > 0 {
+			fmt.Fprintf(b, "  used %s of %s (free %s)", cli.HumanSize(int64(d.Used)), cli.HumanSize(int64(d.Total)), cli.HumanSize(int64(d.Free)))
+		}
+		if d.Healing {
+			b.WriteString("  healing")
+			if hp := d.HealingProgress; hp != nil {
+				fmt.Fprintf(b, " (%d object(s) healed, %d failed, %s", hp.ObjectsHealed, hp.ObjectsFailed, cli.HumanSize(int64(hp.BytesDone)))
+				if at := strings.TrimSuffix(hp.Bucket+"/"+hp.Object, "/"); at != "" {
+					fmt.Fprintf(b, ", at %s", at)
+				}
+				b.WriteString(")")
+			}
+		}
+		if d.Error != "" {
+			b.WriteString("  error: " + d.Error)
+		}
+	}
 }
 
 func newAdminUsageCmd(e *env) *cobra.Command {

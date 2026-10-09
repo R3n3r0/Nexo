@@ -131,10 +131,17 @@ type console struct {
 // newConsole logs in through POST /auth/login.
 func newConsole(t *testing.T, srv *testutil.Server, accessKey, secretKey string) *console {
 	t.Helper()
+	return newConsoleAt(t, srv.ConsoleURL, accessKey, secretKey)
+}
+
+// newConsoleAt logs in on the console at consoleURL (one node of a
+// cluster).
+func newConsoleAt(t *testing.T, consoleURL, accessKey, secretKey string) *console {
+	t.Helper()
 	jar, err := cookiejar.New(nil)
 	require.NoError(t, err)
-	ct := newContractTransport(t, srv.ConsoleURL)
-	c := &console{t: t, base: srv.ConsoleURL + admin.Prefix, http: &http.Client{Jar: jar, Transport: ct, Timeout: 60 * time.Second}, contract: ct}
+	ct := newContractTransport(t, consoleURL)
+	c := &console{t: t, base: consoleURL + admin.Prefix, http: &http.Client{Jar: jar, Transport: ct, Timeout: 60 * time.Second}, contract: ct}
 	resp := c.call(http.MethodPost, "/auth/login", map[string]string{"accessKey": accessKey, "secretKey": secretKey}, http.StatusOK)
 	var sess admin.SessionResponse
 	require.NoError(t, json.Unmarshal(resp, &sess))

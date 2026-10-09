@@ -11,4 +11,6 @@ coverage*.txt
 .DS_Store
 /.cache/
 /data/
+/data[0-9]*/
+/cluster/
 /tmp/

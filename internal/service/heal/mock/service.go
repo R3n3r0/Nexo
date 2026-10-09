@@ -254,6 +254,62 @@ func (_c *Service_HealObject_Call) RunAndReturn(run func(context.Context, string
 	return _c
 }
 
+// HealPools provides a mock function with given fields: ctx
+func (_m *Service) HealPools(ctx context.Context) (int, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for HealPools")
+	}
+
+	var r0 int
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (int, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) int); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_HealPools_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HealPools'
+type Service_HealPools_Call struct {
+	*mock.Call
+}
+
+// HealPools is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *Service_Expecter) HealPools(ctx interface{}) *Service_HealPools_Call {
+	return &Service_HealPools_Call{Call: _e.mock.On("HealPools", ctx)}
+}
+
+func (_c *Service_HealPools_Call) Run(run func(ctx context.Context)) *Service_HealPools_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *Service_HealPools_Call) Return(_a0 int, _a1 error) *Service_HealPools_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_HealPools_Call) RunAndReturn(run func(context.Context) (int, error)) *Service_HealPools_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // HealPrefix provides a mock function with given fields: ctx, bucket, prefix, opts, fn
 func (_m *Service) HealPrefix(ctx context.Context, bucket string, prefix string, opts heal.Options, fn heal.ObjectFunc) (heal.Summary, error) {
 	ret := _m.Called(ctx, bucket, prefix, opts, fn)

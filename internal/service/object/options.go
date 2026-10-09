@@ -2,8 +2,6 @@ package object
 
 import (
 	"time"
-
-	"github.com/r3n3r0/nexo/internal/service/erasure"
 )
 
 // Option configures an object layer implementation.
@@ -27,9 +25,6 @@ type options struct {
 	// poolSpaceTTL bounds the age of the cached free space of the pools
 	// (default 5s).
 	poolSpaceTTL time.Duration
-	// hedgeDelay is how long an erasure read waits for a shard before
-	// asking another one (default erasure.DefaultHedgeDelay).
-	hedgeDelay time.Duration
 }
 
 func defaultOptions() options {
@@ -40,7 +35,6 @@ func defaultOptions() options {
 		lockTimeout:  30 * time.Second,
 		region:       "us-east-1",
 		poolSpaceTTL: 5 * time.Second,
-		hedgeDelay:   erasure.DefaultHedgeDelay,
 	}
 }
 
@@ -111,11 +105,4 @@ func WithPoolSpaceTTL(d time.Duration) Option {
 			o.poolSpaceTTL = d
 		}
 	}
-}
-
-// WithHedgeDelay sets how long an erasure read waits for the shards of a
-// block before reading one more shard (0 disables the time-based hedging)
-// when the codecs are built by the layer (PoolsDeps.Codecs nil).
-func WithHedgeDelay(d time.Duration) Option {
-	return func(o *options) { o.hedgeDelay = d }
 }

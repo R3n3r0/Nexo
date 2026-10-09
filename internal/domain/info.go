@@ -51,6 +51,9 @@ type HealingProgress struct {
 	ObjectsFailed uint64
 	BytesDone     uint64
 	BytesFailed   uint64
+	// RetryAttempts counts the passes started over because objects failed
+	// to heal (ObjectsFailed counts those of the current pass).
+	RetryAttempts int
 }
 
 // NodeInfo describes a server node.
@@ -61,6 +64,67 @@ type NodeInfo struct {
 	Commit   string
 	Uptime   time.Duration
 	Disks    []DiskInfo
+	// Local marks the node that answered (the first one of
+	// ServerInfo.Nodes).
+	Local bool
+	// ClockSkew is the clock offset of the node measured by the node that
+	// answered; nil for that node and for the unreachable ones.
+	ClockSkew *ClockSkew
+	// HealQueue are the counters of the background healing (MRF) of the
+	// node; nil when the node has none (a single drive) or is unreachable.
+	HealQueue *HealQueueStats
+}
+
+// ClockSkew is the clock offset of a node (docs/03 §3.11).
+type ClockSkew struct {
+	// Offset is the clock of the node minus the clock of the node
+	// measuring it, corrected by half the round trip.
+	Offset time.Duration
+	RTT    time.Duration
+	// Exceeded reports an offset above the warning threshold (2s).
+	Exceeded bool
+}
+
+// HealQueueStats are the counters of the background healing queue of a
+// node (MRF, docs/03 §3.7): the objects written or read without every
+// drive, repaired in the background.
+type HealQueueStats struct {
+	// Pending counts the objects waiting to be healed or being healed.
+	Pending int
+	// Healed counts the objects repaired, Retried the attempts that
+	// failed and were rescheduled, Dropped the objects refused (queue
+	// full) or abandoned (too many attempts).
+	Healed  uint64
+	Retried uint64
+	Dropped uint64
+}
+
+// Erasure set states as reported by ServerInfo: whether the drives that
+// answer keep the read and write quorums of the set.
+const (
+	// SetStateOK: every drive is online and none is healing.
+	SetStateOK = "ok"
+	// SetStateDegraded: some drives are offline or healing, the write
+	// quorum is kept.
+	SetStateDegraded = "degraded"
+	// SetStateReadOnly: only the read quorum is kept.
+	SetStateReadOnly = "readonly"
+	// SetStateUnavailable: not even the read quorum is kept.
+	SetStateUnavailable = "unavailable"
+)
+
+// ErasureSetInfo is the state of an erasure set of a pool.
+type ErasureSetInfo struct {
+	Index int
+	// Drives is the size of the set; Online counts the drives that answer
+	// (the healing ones included), Offline the others, Healing the drives
+	// being repopulated.
+	Drives  int
+	Online  int
+	Offline int
+	Healing int
+	// State is one of the SetState* constants.
+	State string
 }
 
 // PoolInfo summarizes an erasure pool.
@@ -69,6 +133,13 @@ type PoolInfo struct {
 	Sets         int
 	DrivesPerSet int
 	Parity       int
+	// ReadQuorum and WriteQuorum are the drives of a set needed to read
+	// and to write with the default parity of the pool (docs/03 §3.3).
+	ReadQuorum  int
+	WriteQuorum int
+	// ErasureSets are the states of the sets, from the drives of
+	// ServerInfo.Nodes.
+	ErasureSets []ErasureSetInfo
 }
 
 // ServerInfo is the aggregated server/cluster information.

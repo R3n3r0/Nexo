@@ -57,6 +57,11 @@ NEXO_CONSOLE_ADDRESS). Precedence: flags > environment > --config file.`,
 			if fsys, ok := assets(); ok {
 				opts = append(opts, app.WithAssetsFS(fsys))
 			}
+			hooks, err := testOptions(deps.lookupEnv)
+			if err != nil {
+				return err
+			}
+			opts = append(opts, hooks...)
 			application, err := app.Build(ctx, cfg, opts...)
 			if err != nil {
 				return err

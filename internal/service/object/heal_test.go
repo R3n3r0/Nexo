@@ -250,3 +250,32 @@ func TestHealDriveStates(t *testing.T) {
 	assert.Equal(t, []object.HealDriveState{ok, ok, ok, ok}, after)
 	assert.Equal(t, 1, res.Healed)
 }
+
+// TestHealDriveWithoutBucket: a drive offline when the bucket and its
+// objects were written misses the bucket itself; healing an object
+// recreates the bucket there (with its record) instead of failing until
+// the bucket is healed.
+func TestHealDriveWithoutBucket(t *testing.T) {
+	ctx := context.Background()
+	c := newCluster(t, clusterSpec{pools: 1, sets: 1, drives: 4})
+	c.setFaults(func(f *driveFaults) { f.offline = true }, 1)
+	objects := seed(t, c.svc)
+	c.setFaults(func(f *driveFaults) { f.offline = false }, 1)
+	_, err := os.Stat(filepath.Join(c.roots[1], "bkt"))
+	require.ErrorIs(t, err, os.ErrNotExist, "the drive was offline at the creation")
+
+	h := healerOf(t, c.svc)
+	for k := range objects {
+		res, err := h.HealObject(ctx, "bkt", k, "", object.HealOptions{})
+		require.NoError(t, err, k)
+		assert.Equal(t, 1, res.Healed, k)
+		before, after := statesOf(res)
+		assert.Equal(t, object.HealDriveMissing, before[1], k)
+		assert.Equal(t, object.HealDriveOK, after[1], k)
+	}
+	_, err = os.Stat(filepath.Join(c.roots[1], domain.SystemBucket, storage.BucketsDir, "bkt"))
+	assert.NoError(t, err, "the bucket record is restored with the bucket")
+	// The healed drive alone with D-1 others serves everything.
+	c.setFaults(func(f *driveFaults) { f.offline = true }, 0, 2)
+	assertReadable(t, c.svc, objects)
+}

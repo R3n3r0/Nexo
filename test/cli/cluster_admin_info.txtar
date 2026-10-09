@@ -1,0 +1,46 @@
+# TCL-E-15 (cluster of 4 nodes x 2 drives): admin info shows the pool with
+# its quorums and the state of its erasure set, every node with its
+# version and drives, this node first; with a node down it still succeeds
+# (exit 0), the node and its drives offline and the set degraded; writes
+# keep working and the node comes back. C-ADM-01, C-ADM-07.
+
+exec nexoctl admin info local
+stdout '^Mode: distributed '
+stdout '^Pool 1: 1 set\(s\) of 8 drive\(s\), parity 4, quorum read 4 write 5$'
+stdout '^  set 1  ok  8 of 8 drive\(s\) online$'
+stdout '^Nodes: 4 online, 0 offline$'
+stdout '^  127\.0\.0\.1:[0-9]+  online  version .*  2 drive\(s\)  \(this node\)$'
+stdout '^  127\.0\.0\.1:[0-9]+  online  version .*  2 drive\(s\)  clock [-+][0-9.]+s$'
+stdout '^    background healing: 0 pending, '
+
+stopnode 4
+exec nexoctl admin info local
+stdout '^Nodes: 3 online, 1 offline$'
+stdout '^  127\.0\.0\.1:[0-9]+  offline  version -  uptime -  2 drive\(s\)$'
+stdout '^  set 1  degraded  6 of 8 drive\(s\) online$'
+stdout '  offline  error: '
+exec nexoctl admin info --json local
+jsonlines stdout
+stdout '"state":"offline"'
+stdout '"state":"degraded"'
+
+# The cluster keeps writing with a node down, then heals it.
+exec nexoctl mb local/photos
+exec nexoctl cp small.txt local/photos/small.txt
+startnode 4
+eventually 30s -match 'Nodes: 4 online, 0 offline' nexoctl admin info local
+exec nexoctl admin heal -r --interval 50ms local/photos
+stdout '^Heal [^ ]+: done, scanned 2, '
+exec nexoctl cat local/photos/small.txt
+stdout '^inline object$'
+
+# The lock diagnostics query every lock server: at rest only the leader
+# lock of the background services is held, by a quorum of them.
+exec nexoctl admin lock list local
+stdout '^RESOURCE +TYPE +OWNER +SERVERS +SINCE$'
+stdout '^\.nexo\.sys/leader +write +127\.0\.0\.1:[0-9]+ +[34]/4 '
+exec nexoctl admin lock clear local photos/small.txt
+stdout '^Released photos/small.txt on "local"\.$'
+
+-- small.txt --
+inline object

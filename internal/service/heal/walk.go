@@ -3,6 +3,7 @@ package heal
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -48,9 +49,15 @@ func online(drives []storage.StorageAPI) []storage.StorageAPI {
 // walkKeys calls fn once for every object key held by at least one of
 // drives in bucket under prefix and after the key after (excluded), in
 // key order: the union of the drives, so that the objects a quorum of
-// drives miss are found too. A drive whose walk fails is left out; the
-// walk fails when every drive failed. fn stops the walk by returning an
-// error, which walkKeys returns.
+// drives miss are found too. A drive that does not hold the bucket is
+// left out (the walk fails with domain.ErrBucketNotFound when none does).
+// Any other failure of the walk of a drive, at its start or midway, stops
+// the walk with that error: the union would otherwise miss the keys only
+// that drive still had to report, and a caller would take a partial walk
+// for a complete one (a replaced drive declared healed). The keys handed
+// to fn before the failure were complete: a caller can resume after the
+// last of them. fn stops the walk by returning an error, which walkKeys
+// returns.
 func walkKeys(ctx context.Context, drives []storage.StorageAPI, bucket, prefix, after string, fn func(key string) error) error {
 	drives = online(drives)
 	if len(drives) == 0 {
@@ -95,18 +102,22 @@ func walkKeys(ctx context.Context, drives []storage.StorageAPI, bucket, prefix, 
 		wg.Wait()
 	}()
 	live := make([]*keyStream, 0, len(streams))
-	var errs []error
-	for _, s := range streams {
+	missing := 0
+	var missingErr error
+	for i, s := range streams {
 		s.advance()
 		switch {
 		case !s.done:
 			live = append(live, s)
+		case errors.Is(s.err, domain.ErrBucketNotFound):
+			missing++
+			missingErr = s.err
 		case s.err != nil:
-			errs = append(errs, s.err)
+			return fmt.Errorf("walk %s on drive %s: %w", bucket, drives[i].Endpoint(), s.err)
 		}
 	}
-	if len(errs) == len(streams) {
-		return walkError(errs)
+	if missing == len(streams) {
+		return missingErr
 	}
 	for len(live) > 0 {
 		next := live[0].head
@@ -123,20 +134,17 @@ func walkKeys(ctx context.Context, drives []storage.StorageAPI, bucket, prefix, 
 				s.advance()
 			}
 		}
+		for _, s := range live {
+			if s.done && s.err != nil {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				return fmt.Errorf("walk %s interrupted after %q: %w", bucket, next, s.err)
+			}
+		}
 		live = slices.DeleteFunc(live, func(s *keyStream) bool { return s.done })
 	}
 	return ctx.Err()
-}
-
-// walkError reduces the errors of drive walks that all failed: the first
-// one that is not a missing bucket, else the missing bucket.
-func walkError(errs []error) error {
-	for _, err := range errs {
-		if !errors.Is(err, domain.ErrBucketNotFound) {
-			return err
-		}
-	}
-	return errs[0]
 }
 
 // listBuckets returns the union of the buckets held by the online drives,

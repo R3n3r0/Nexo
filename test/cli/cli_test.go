@@ -7,7 +7,9 @@
 // endpoints in $NEXO_URL (S3) and $NEXO_ADMIN_URL (Admin API) and the root
 // credentials in $NEXO_ROOT_USER and $NEXO_ROOT_PASSWORD. The scripts
 // named snmd_*.txtar run against a single node of 4 drives (SNMD) whose
-// drive directories are $NEXO_DRIVE1 ... $NEXO_DRIVE4.
+// drive directories are $NEXO_DRIVE1 ... $NEXO_DRIVE4, the ones named
+// cluster_*.txtar against a cluster of 4 nodes of 2 drives in the test
+// process, the alias "local" pointing at the first node.
 //
 // Custom commands available to the scripts:
 //
@@ -31,6 +33,8 @@
 //	                                 with a "status" member
 //	mkfile PATH SIZE                 write SIZE (e.g. 12MiB) pseudo-random bytes
 //	sleep DURATION                   wait
+//	stopnode N / startnode N         stop or start again node N (1-based)
+//	                                 of a cluster_*.txtar deployment
 package cli_test
 
 import (
@@ -100,6 +104,12 @@ func TestScripts(t *testing.T) {
 		Setup:               setup,
 		RequireExplicitExec: true,
 		RequireUniqueNames:  true,
+		Condition: func(cond string) (bool, error) {
+			if cond == modeCluster {
+				return os.Getenv(envCLIMode) == modeCluster, nil
+			}
+			return false, fmt.Errorf("unknown condition %q", cond)
+		},
 		Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){
 			"expectcode": cmdExpectCode,
 			"eventually": cmdEventually,
@@ -110,6 +120,8 @@ func TestScripts(t *testing.T) {
 			"jsonlines":  cmdJSONLines,
 			"mkfile":     cmdMkfile,
 			"sleep":      cmdSleep,
+			"stopnode":   cmdNode(false),
+			"startnode":  cmdNode(true),
 		},
 	})
 }
@@ -122,6 +134,26 @@ const (
 	snmdDrives = 4
 )
 
+// clusterPrefix marks the scripts run against an in-process cluster of
+// clusterNodes nodes of clusterDrives drives each.
+const (
+	clusterPrefix = "cluster_"
+	clusterNodes  = 4
+	clusterDrives = 2
+)
+
+// envCLIMode runs the scripts of a single drive against another
+// deployment (docs/08 §8.6 TM-02): "cluster" starts the in-process
+// cluster for them too (the nightly CI job). A script that depends on a
+// single drive skips itself with the condition [cluster].
+const (
+	envCLIMode  = "NEXO_CLI_MODE"
+	modeCluster = "cluster"
+)
+
+// serverKey is the key of the deployment of a script in its Env values.
+type serverKey struct{}
+
 // setup starts a server for the script and configures the alias "local"
 // in an isolated HOME.
 func setup(env *testscript.Env) error {
@@ -129,15 +161,26 @@ func setup(env *testscript.Env) error {
 	if !ok {
 		return errors.New("the testscript T is not a testing.TB")
 	}
-	var opts []testutil.Option
-	if strings.HasPrefix(strings.TrimPrefix(filepath.Base(env.WorkDir), "script-"), snmdPrefix) {
-		opts = append(opts, testutil.Drives(snmdDrives))
-	}
-	srv := testutil.StartServer(tb, opts...)
-	if len(opts) > 0 {
+	name := strings.TrimPrefix(filepath.Base(env.WorkDir), "script-")
+	var srv *testutil.Server
+	switch {
+	case strings.HasPrefix(name, clusterPrefix), !strings.HasPrefix(name, snmdPrefix) && os.Getenv(envCLIMode) == modeCluster:
+		srv = testutil.StartCluster(tb, clusterNodes, clusterDrives)
+	case strings.HasPrefix(name, snmdPrefix):
+		srv = testutil.StartServer(tb, testutil.Drives(snmdDrives))
 		for i, dir := range srv.DriveDirs() {
 			env.Setenv(fmt.Sprintf("NEXO_DRIVE%d", i+1), dir)
 		}
+	default:
+		srv = testutil.StartServer(tb)
+	}
+	env.Values[serverKey{}] = srv
+	env.Values[tbKey{}] = tb
+	s3URL, consoleURL := srv.S3URL, srv.ConsoleURL
+	if len(srv.Nodes) > 1 {
+		// The first node answers, so that its view of the others is the
+		// one the scripts check.
+		s3URL, consoleURL = srv.Nodes[0].S3URL, srv.Nodes[0].ConsoleURL
 	}
 	home := filepath.Join(env.WorkDir, "home")
 	if err := os.MkdirAll(home, 0o700); err != nil {
@@ -146,13 +189,42 @@ func setup(env *testscript.Env) error {
 	env.Setenv("HOME", home)
 	env.Setenv("USERPROFILE", home)
 	env.Setenv("NO_COLOR", "1")
-	env.Setenv("NEXO_URL", srv.S3URL)
-	env.Setenv("NEXO_ADMIN_URL", srv.ConsoleURL)
+	env.Setenv("NEXO_URL", s3URL)
+	env.Setenv("NEXO_ADMIN_URL", consoleURL)
 	env.Setenv("NEXO_ROOT_USER", srv.RootUser)
 	env.Setenv("NEXO_ROOT_PASSWORD", srv.RootPassword)
 	svc := cli.NewAliasService(cli.AliasDeps{Store: cli.NewFileStore(filepath.Join(home, cli.ConfigDirName, cli.ConfigFileName))})
-	return svc.Set(context.Background(), cli.Alias{Name: "local", URL: srv.S3URL, AdminURL: srv.ConsoleURL, AccessKey: srv.RootUser, SecretKey: srv.RootPassword})
+	return svc.Set(context.Background(), cli.Alias{Name: "local", URL: s3URL, AdminURL: consoleURL, AccessKey: srv.RootUser, SecretKey: srv.RootPassword})
 }
+
+// cmdNode returns the stopnode (start false) or startnode command.
+func cmdNode(start bool) func(ts *testscript.TestScript, neg bool, args []string) {
+	return func(ts *testscript.TestScript, neg bool, args []string) {
+		if neg || len(args) != 1 {
+			ts.Fatalf("usage: stopnode|startnode N")
+		}
+		srv, ok := ts.Value(serverKey{}).(*testutil.Server)
+		if !ok {
+			ts.Fatalf("no deployment for this script")
+		}
+		n, err := strconv.Atoi(args[0])
+		if err != nil || n < 1 || n > len(srv.Nodes) {
+			ts.Fatalf("node %q: want 1..%d", args[0], len(srv.Nodes))
+		}
+		tb, ok := ts.Value(tbKey{}).(testing.TB)
+		if !ok {
+			ts.Fatalf("no testing.TB for this script")
+		}
+		if start {
+			srv.StartNode(tb, n-1)
+		} else {
+			srv.StopNode(tb, n-1)
+		}
+	}
+}
+
+// tbKey is the key of the testing.TB of a script in its Env values.
+type tbKey struct{}
 
 // exitCode returns the exit code of an Exec error (0 for nil).
 func exitCode(err error) int {

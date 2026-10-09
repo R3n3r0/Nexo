@@ -55,7 +55,10 @@ nexo server http://node{1...4}:9000/data{1...4}     → Cluster (1 pool)
 | Cluster → Cluster più grande | Aggiunta di pool (nessuna migrazione) |
 
 Comandi dedicati: `nexoctl admin cluster export ALIAS > backup.zip` (IAM + config + metadati di tutti i bucket)
-e `nexoctl admin cluster import ALIAS backup.zip`.
+e `nexoctl admin cluster import ALIAS backup.zip` (`--dry-run`, `--mode merge|replace`). L'import va eseguito
+prima del `mirror --preserve`: crea i bucket con il loro versioning, così il target conserva tutte le versioni
+copiate (un bucket target senza versioning con più versioni da copiare è rifiutato). Verificato da TM-04
+(`test/integration/migration_test.go`).
 
 ## 8.3 Distribuzione come binario
 

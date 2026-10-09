@@ -57,9 +57,9 @@ type Deps struct {
 	// erasure set of the first pool, local or remote. A nil drive is an
 	// offline one.
 	Drives []storage.StorageAPI
-	// Locks serializes the writes of a document: the local locker in a
-	// single-node deployment, the distributed one (dsync) in a cluster
-	// (default: a local locker).
+	// Locks serializes the writes of a document (required): the local
+	// locker in a single-node deployment, the distributed one (dsync) in a
+	// cluster.
 	Locks lock.Locker
 	// Clock stamps the versions (default: wall clock).
 	Clock  clock.Clock

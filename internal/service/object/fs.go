@@ -109,12 +109,26 @@ func (s *singleDrive) ErasureInfo(string, string) storage.ErasureInfo {
 	return storage.ErasureInfo{Algorithm: "none", DataBlocks: 1, ParityBlocks: 0, Index: 1, Distribution: []int{1}}
 }
 
-func (s *singleDrive) CommitData(ctx context.Context, tmpDir string, fi storage.FileInfo, volume, path string) (string, error) {
+func (s *singleDrive) CommitData(ctx context.Context, tmpDir string, fi storage.FileInfo, volume, path string) error {
 	res, err := s.d.RenameData(ctx, domain.SystemBucket, tmpDir, fi, volume, path, storage.RenameOptions{})
 	if err != nil {
-		return "", err
+		return err
 	}
-	return res.OldDataDir, nil
+	if res.OldDataDir == "" || res.OldDataDir == fi.DataDir {
+		return nil
+	}
+	if lockLost(ctx) {
+		s.logger.WarnContext(ctx, "object: lock lost after the commit, replaced data left in place", "bucket", volume, "key", path)
+		return nil
+	}
+	// The commit is done: the replaced data goes even when the client went
+	// away in the meantime.
+	ctx = context.WithoutCancel(ctx)
+	err = s.d.Delete(ctx, volume, storage.ObjectDataDir(path, res.OldDataDir), storage.DeleteOptions{Recursive: true})
+	if err != nil && !isNotFound(err) {
+		s.logger.WarnContext(ctx, "object: cannot purge replaced data", "bucket", volume, "key", path, "data_dir", res.OldDataDir, "err", err)
+	}
+	return nil
 }
 
 func (s *singleDrive) ReadData(ctx context.Context, volume, path string, fi storage.FileInfo, part storage.PartInfo, offset, length int64) (io.ReadCloser, error) {
@@ -133,8 +147,16 @@ func (s *singleDrive) DeletePath(ctx context.Context, volume, path string, recur
 	return s.d.Delete(ctx, volume, path, storage.DeleteOptions{Recursive: recursive})
 }
 
-func (s *singleDrive) RenameFile(ctx context.Context, srcPath, dstPath string) error {
-	return s.d.RenameFile(ctx, domain.SystemBucket, srcPath, domain.SystemBucket, dstPath)
+func (s *singleDrive) MoveFiles(ctx context.Context, moves []fileMove, _ storage.ErasureInfo) error {
+	return moveAll(ctx, s.d, moves, s.logger)
+}
+
+func (s *singleDrive) StageParts(ctx context.Context, moves []fileMove, _ string, _ storage.FileInfo) error {
+	return moveAll(ctx, s.d, moves, s.logger)
+}
+
+func (s *singleDrive) UndoMoves(ctx context.Context, moves []fileMove) {
+	undoMoves(ctx, s.d, moves, s.logger)
 }
 
 func (s *singleDrive) StatGlob(ctx context.Context, pattern string) ([]storage.StatInfo, error) {

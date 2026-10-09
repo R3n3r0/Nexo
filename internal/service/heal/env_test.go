@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/erasure"
 	"github.com/r3n3r0/nexo/internal/service/heal"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/storage"
@@ -89,7 +90,8 @@ func newEnv(t *testing.T, base string, n int, opts ...heal.Option) *env {
 	require.NoError(t, err)
 	e.pools = []object.PoolSpec{{Sets: [][]storage.StorageAPI{e.drives}}}
 	e.queue = heal.NewQueue(heal.QueueDeps{Drives: e.drives, Logger: quiet()}, heal.WithBackoff(5*time.Millisecond, 50*time.Millisecond))
-	e.objects, err = object.NewServerPools(object.PoolsDeps{Pools: e.pools, DeploymentID: id, Heal: e.queue, Logger: quiet()},
+	e.objects, err = object.NewServerPools(object.PoolsDeps{Pools: e.pools, DeploymentID: id, Heal: e.queue, Logger: quiet(),
+		Codecs: erasure.NewFactory(erasure.Deps{Logger: quiet()}, erasure.WithDeploymentID(id))},
 		object.WithBlockSize(testBlockSize), object.WithInlineLimit(16<<10))
 	require.NoError(t, err)
 	e.healer = e.objects.(object.Healer)

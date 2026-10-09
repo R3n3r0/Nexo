@@ -45,6 +45,9 @@ type Deps struct {
 	// Heal receives the damaged objects found by the erasure layer (see
 	// PoolsDeps.Heal); nil means no healing.
 	Heal HealNotifier
+	// Codecs builds the erasure codecs of NewErasure (required there, see
+	// PoolsDeps.Codecs).
+	Codecs erasure.Factory
 	// IDs generates version identifiers and temporary directory names
 	// (default: time-ordered UUID v7). Upload ids embed one of its ids when
 	// it is a UUID.
@@ -108,6 +111,10 @@ type HealResult struct {
 	DriveStates []HealDrive
 	// Bytes is the logical size of the versions examined (HealObject).
 	Bytes int64
+	// Orphans counts the data directories that no version references,
+	// removed by HealObject with AllVersions once older than
+	// OrphanDataDirGrace.
+	Orphans int
 }
 
 // HealDriveState is the state of the copy of a bucket or of an object
@@ -160,8 +167,9 @@ type PoolsDeps struct {
 	Buckets BucketConfigSource
 	// Events receives bucket notifications; nil disables them.
 	Events event.Service
-	// Codecs builds the erasure codecs; nil builds them from DeploymentID
-	// (erasure.NewFactory with the block size and hedge delay options).
+	// Codecs builds the erasure codecs (required): erasure.NewFactory
+	// keyed with the same DeploymentID (erasure.WithDeploymentID), whose
+	// bitrot hashes the shards carry.
 	Codecs erasure.Factory
 	// IDs generates version identifiers and temporary directory names
 	// (default: time-ordered UUID v7).

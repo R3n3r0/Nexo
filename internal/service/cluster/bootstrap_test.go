@@ -103,7 +103,8 @@ func (d *deployment) bootstrapper(t *testing.T, n int, drives []storage.StorageA
 	l := d.layout(t, n)
 	peers, states := d.peers(t, n, l)
 	base := []cluster.BootstrapOption{cluster.WithBootstrapBackoff(10*time.Millisecond, 50*time.Millisecond), cluster.WithBootstrapVersion("v1.0.0")}
-	b, err := cluster.NewBootstrapper(cluster.BootstrapDeps{Layout: l, Drives: drives, Peers: peers, Logger: discard()}, append(base, opts...)...)
+	topo := topology.New(topology.Deps{Logger: discard()})
+	b, err := cluster.NewBootstrapper(cluster.BootstrapDeps{Layout: l, Topology: topo, Drives: drives, Peers: peers, Logger: discard()}, append(base, opts...)...)
 	require.NoError(t, err)
 	return b, states
 }
@@ -152,6 +153,56 @@ func TestBootstrapFreshDeployment(t *testing.T) {
 	res3, err := third.Bootstrap(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, res.DeploymentID, res3.DeploymentID)
+}
+
+// TestBootstrapBindsTheDeployment: the bootstrap binds the internode
+// authentication to the deployment as soon as it knows its id: the node
+// formatting a fresh deployment before it writes any format (its peers
+// then see its tokens carry the id of the formats it writes), the others
+// once they read the formats.
+func TestBootstrapBindsTheDeployment(t *testing.T) {
+	ctx := context.Background()
+	d := newDeployment(t)
+	drives := d.drives(t, d.layout(t, 0))
+	formatted := func() int {
+		n := 0
+		for _, drive := range drives {
+			if _, err := drive.ReadAll(ctx, domain.SystemBucket, storage.FormatFile); err == nil {
+				n++
+			}
+		}
+		return n
+	}
+	var bound []string
+	var formatsAtBind []int
+	binder := clustermock.NewDeploymentBinder(t)
+	binder.EXPECT().SetDeploymentID(mock.Anything, mock.Anything).Run(func(_ context.Context, id string) {
+		bound = append(bound, id)
+		formatsAtBind = append(formatsAtBind, formatted())
+	})
+	newNode := func(n int, drives []storage.StorageAPI) cluster.Bootstrapper {
+		l := d.layout(t, n)
+		peers, _ := d.peers(t, n, l)
+		b, err := cluster.NewBootstrapper(cluster.BootstrapDeps{Layout: l, Topology: topology.New(topology.Deps{Logger: discard()}),
+			Drives: drives, Peers: peers, Binder: binder, Logger: discard()},
+			cluster.WithBootstrapBackoff(10*time.Millisecond, 50*time.Millisecond), cluster.WithBootstrapVersion("v1.0.0"))
+		require.NoError(t, err)
+		return b
+	}
+	res, err := newNode(0, drives).Bootstrap(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, bound)
+	assert.Equal(t, res.DeploymentID, bound[0])
+	assert.Zero(t, formatsAtBind[0], "bound before any format is written")
+
+	bound = nil
+	res3, err := newNode(2, d.drives(t, d.layout(t, 2))).Bootstrap(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, bound)
+	assert.Equal(t, res.DeploymentID, res3.DeploymentID)
+	for _, id := range bound {
+		assert.Equal(t, res.DeploymentID, id, "a node reading the formats binds to their deployment")
+	}
 }
 
 // TestBootstrapWaitsForTheFirstNode: the other nodes do not format a fresh
@@ -211,8 +262,13 @@ func TestBootstrapReplacementDrive(t *testing.T) {
 		}
 	}
 	before := formatOf(t, drives[local])
+	// The deployment holds data: a bucket on every drive.
+	for _, dr := range drives {
+		require.NoError(t, dr.MakeVol(ctx, "photos"))
+	}
 	for _, i := range []int{local, remote} {
 		require.NoError(t, drives[i].Delete(ctx, domain.SystemBucket, storage.FormatFile, storage.DeleteOptions{}))
+		require.NoError(t, drives[i].DeleteVol(ctx, "photos", true))
 	}
 	second, _ := d.bootstrapper(t, 1, drives)
 	res2, err := second.Bootstrap(ctx)
@@ -229,6 +285,34 @@ func TestBootstrapReplacementDrive(t *testing.T) {
 	require.Len(t, res2.Offline, 1, "the drive of the other node waits for its node")
 	_, err = drives[remote].ReadAll(ctx, domain.SystemBucket, storage.FormatFile)
 	assert.ErrorIs(t, err, domain.ErrObjectNotFound)
+}
+
+// TestBootstrapUnformattedDriveWithoutData: a drive of a fresh deployment
+// that its first format missed (a remote write that failed under load) is
+// formatted by its node without being marked for healing: its set holds
+// no data, there is nothing to heal.
+func TestBootstrapUnformattedDriveWithoutData(t *testing.T) {
+	ctx := context.Background()
+	d := newDeployment(t)
+	first, _ := d.bootstrapper(t, 0, d.drives(t, d.layout(t, 0)))
+	_, err := first.Bootstrap(ctx)
+	require.NoError(t, err)
+	l := d.layout(t, 1)
+	drives := d.drives(t, l)
+	local := -1
+	for i, ep := range l.Endpoints() {
+		if ep.IsLocal {
+			local = i
+			break
+		}
+	}
+	require.NoError(t, drives[local].Delete(ctx, domain.SystemBucket, storage.FormatFile, storage.DeleteOptions{}))
+	second, _ := d.bootstrapper(t, 1, drives)
+	res, err := second.Bootstrap(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, res.Healing, "nothing to heal in a deployment without data")
+	assert.Nil(t, drives[local].Healing())
+	formatOf(t, drives[local])
 }
 
 // TestBootstrapTopologyMismatch (TC-02): a node whose topology differs
@@ -358,8 +442,13 @@ func TestNewBootstrapperValidation(t *testing.T) {
 	l := d.layout(t, 0)
 	_, err := cluster.NewBootstrapper(cluster.BootstrapDeps{})
 	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
-	_, err = cluster.NewBootstrapper(cluster.BootstrapDeps{Layout: l, Drives: d.drives(t, l)[:3]})
+	topo := topology.New(topology.Deps{Logger: discard()})
+	_, err = cluster.NewBootstrapper(cluster.BootstrapDeps{Layout: l, Drives: d.drives(t, l)})
+	assert.ErrorIs(t, err, domain.ErrInvalidArgument, "the topology service is injected, never built here")
+	_, err = cluster.NewBootstrapper(cluster.BootstrapDeps{Layout: l, Topology: topo, Drives: d.drives(t, l)[:3]})
 	assert.ErrorIs(t, err, domain.ErrInvalidArgument, "every endpoint needs a drive")
+	_, err = cluster.NewLocalBootstrapper(cluster.BootstrapDeps{Layout: l, Topology: topo, Drives: d.drives(t, l)})
+	assert.ErrorIs(t, err, domain.ErrInvalidArgument, "the formatter is injected, never built here")
 }
 
 // TestLocalBootstrapper: a single-node deployment formats its drives with
@@ -374,7 +463,8 @@ func TestLocalBootstrapper(t *testing.T) {
 	for _, ep := range l.Endpoints() {
 		drives = append(drives, openDrive(t, ep))
 	}
-	b, err := cluster.NewLocalBootstrapper(cluster.BootstrapDeps{Layout: l, Topology: topo, Drives: drives, Logger: discard()})
+	formatter := storage.NewFormatter(storage.FormatterDeps{Topology: topo, Logger: discard()})
+	b, err := cluster.NewLocalBootstrapper(cluster.BootstrapDeps{Layout: l, Topology: topo, Formatter: formatter, Drives: drives, Logger: discard()})
 	require.NoError(t, err)
 	res, err := b.Bootstrap(ctx)
 	require.NoError(t, err)

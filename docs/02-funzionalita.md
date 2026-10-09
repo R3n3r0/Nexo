@@ -165,7 +165,7 @@ Sintassi: `nexoctl <gruppo> <comando> [ALIAS/BUCKET/PREFIX] [flag]`. Output `--j
 | C-OBJ-03 | `cp [-r]` | Copia locale↔remoto, remoto↔remoto, multipart parallelo, progress bar | P0 |
 | C-OBJ-04 | `mv`, `rm [-r] [--versions]` | Sposta, elimina | P0 |
 | C-OBJ-05 | `cat`, `pipe`, `head`, `stat` | Stream su stdout/stdin, metadati | P0 |
-| C-OBJ-06 | `mirror [--watch] [--remove]` | Sincronizzazione directory/bucket | P1 |
+| C-OBJ-06 | `mirror [--watch] [--remove] [--preserve]` | Sincronizzazione directory/bucket; `--preserve` copia tutte le versioni e i delete marker tra due bucket (migrazione, docs/08 §8.2) | P1 |
 | C-OBJ-07 | `share download/upload [--post]`, `share list/revoke`, `presign --method` | URL presigned, POST policy, share link revocabili | P0 |
 | C-OBJ-07b | `anonymous set/get/list/set-json` | Accesso anonimo per bucket/prefix e bucket policy | P0 |
 | C-OBJ-08 | `find`, `du`, `diff`, `tree` | Utility | P1 |

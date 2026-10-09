@@ -43,6 +43,7 @@ func TestMapS3ErrorTable(t *testing.T) {
 		{domain.ErrInvalidRange, "InvalidRange", 416},
 		{domain.ErrNotImplemented, "NotImplemented", 501},
 		{domain.ErrDiskNotFound, "SlowDown", 503},
+		{domain.ErrNodeOffline, "SlowDown", 503},
 		{domain.ErrFaultyDisk, "SlowDown", 503},
 		{domain.ErrReadQuorum, "SlowDown", 503},
 		{domain.ErrWriteQuorum, "SlowDown", 503},
@@ -96,7 +97,7 @@ func TestMapS3ErrorEverySentinelIsMapped(t *testing.T) {
 		domain.ErrLockTimeout, domain.ErrQuotaExceeded, domain.ErrObjectLocked, domain.ErrInvalidArgument,
 		domain.ErrMalformedXML, domain.ErrConflict, domain.ErrMethodNotAllowed, domain.ErrChecksumMismatch,
 		domain.ErrUnauthenticated, domain.ErrInvalidFormat, domain.ErrFormatMismatch, domain.ErrInvalidLayout,
-		domain.ErrShareNotFound, domain.ErrTooManyRequests,
+		domain.ErrShareNotFound, domain.ErrTooManyRequests, domain.ErrNodeOffline,
 	}
 	c := httpx.New()
 	for _, s := range sentinels {

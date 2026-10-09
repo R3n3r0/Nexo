@@ -24,10 +24,14 @@ const (
 
 func discard() *slog.Logger { return slog.New(slog.DiscardHandler) }
 
-// newAuth returns the authenticator of a node of the test deployment.
+// testDeployment is the deployment of the test nodes.
+const testDeployment = "dep-test"
+
+// newAuth returns the authenticator of a node of the test deployment
+// (rpc.WithDeploymentID("") makes a node that does not know it yet).
 func newAuth(t testing.TB, node string, opts ...rpc.AuthOption) rpc.Authenticator {
 	t.Helper()
-	base := []rpc.AuthOption{rpc.WithCredentials(rootUser, rootPassword), rpc.WithNodeID(node)}
+	base := []rpc.AuthOption{rpc.WithCredentials(rootUser, rootPassword), rpc.WithNodeID(node), rpc.WithDeploymentID(testDeployment)}
 	a, err := rpc.NewAuthenticator(rpc.AuthDeps{Logger: discard()}, append(base, opts...)...)
 	require.NoError(t, err)
 	return a
@@ -57,7 +61,7 @@ func listenOn(addr string) (net.Listener, error) {
 // serve serves handler with cleartext HTTP/2 on ln, like the S3 server.
 func serve(t testing.TB, ln net.Listener, handler http.Handler) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewUnstartedServer(h2c.NewHandler(handler, &http2.Server{}))
+	srv := httptest.NewUnstartedServer(h2c.NewHandler(handler, &http2.Server{MaxUploadBufferPerStream: 16 << 20, MaxUploadBufferPerConnection: 64 << 20, MaxReadFrameSize: 1 << 20}))
 	_ = srv.Listener.Close()
 	srv.Listener = ln
 	srv.Start()
@@ -66,13 +70,15 @@ func serve(t testing.TB, ln net.Listener, handler http.Handler) *httptest.Server
 }
 
 // startRPC starts an RPC server with the routes on a fresh port and
-// returns its address.
-func startRPC(t testing.TB, auth rpc.Authenticator, routes ...rpc.Routes) (string, *httptest.Server) {
+// returns its address, which is its node id (the audience of the tokens
+// of its callers).
+func startRPC(t testing.TB, routes ...rpc.Routes) (string, *httptest.Server) {
 	t.Helper()
-	s, err := rpc.NewServer(rpc.ServerDeps{Auth: auth, Routes: routes, Logger: discard()})
-	require.NoError(t, err)
 	ln := listen(t)
-	return ln.Addr().String(), serve(t, ln, s)
+	addr := ln.Addr().String()
+	s, err := rpc.NewServer(rpc.ServerDeps{Auth: newAuth(t, addr), Routes: routes, Logger: discard()})
+	require.NoError(t, err)
+	return addr, serve(t, ln, s)
 }
 
 // dial returns a connection to node.

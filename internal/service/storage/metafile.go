@@ -30,7 +30,13 @@ func (s *xlStorage) readMeta(dir string, withData bool) (*xlMeta, error) {
 }
 
 // readMetaOrNew reads the xl.meta of an object directory with its data,
-// or returns an empty document when the object does not exist yet.
+// or returns an empty document when the object does not exist yet. An
+// xl.meta that cannot be decoded (bitrot of the metadata) is moved into the
+// quarantine area and the object starts over with an empty document: the
+// write that called it records its version instead of failing on this
+// drive for ever, and the healing restores the other versions from the
+// drives of the set (on a single drive they were unreadable anyway; the
+// quarantined copy is kept for inspection).
 func (s *xlStorage) readMetaOrNew(volume, objPath, dir string) (*xlMeta, error) {
 	meta, err := s.readMeta(dir, true)
 	switch {
@@ -38,9 +44,36 @@ func (s *xlStorage) readMetaOrNew(volume, objPath, dir string) (*xlMeta, error) 
 		return meta, nil
 	case errors.Is(err, fs.ErrNotExist):
 		return &xlMeta{}, nil
+	case errors.Is(err, domain.ErrInvalidFormat):
+		if qerr := s.quarantineMeta(volume, objPath, dir, err); qerr != nil {
+			return nil, qerr
+		}
+		return &xlMeta{}, nil
 	default:
 		return nil, s.metaErr(volume, objPath, err)
 	}
+}
+
+// quarantineMeta moves the undecodable xl.meta of an object directory into
+// the quarantine area of the drive (QuarantineDir), named after the time
+// and a random suffix, and logs where it went.
+func (s *xlStorage) quarantineMeta(volume, objPath, dir string, cause error) error {
+	qdir := filepath.Join(s.root, domain.SystemBucket, QuarantineDir)
+	if err := s.mkdirAll(qdir, s.root); err != nil {
+		return fmt.Errorf("storage: create %s: %w", qdir, mapErr(err))
+	}
+	dst := filepath.Join(qdir, s.deps.Clock.Now().UTC().Format("20060102T150405.000000000Z")+"-"+randomSuffix()+"."+MetaFile)
+	if err := s.rename(filepath.Join(dir, MetaFile), dst); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil // moved by a concurrent write
+		}
+		return fmt.Errorf("storage: quarantine %s/%s: %w", volume, objPath, s.writeErr(volume, objPath, err))
+	}
+	s.syncDir(dir)
+	s.syncDir(qdir)
+	s.deps.Logger.Warn("storage: corrupt xl.meta moved to quarantine, the object starts over on this drive",
+		"bucket", volume, "key", objPath, "drive", s.root, "quarantined", dst, "err", cause)
+	return nil
 }
 
 // metaErr maps an error of readMeta.

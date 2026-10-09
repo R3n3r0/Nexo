@@ -148,11 +148,22 @@ func pickValidFileInfo(infos []storage.FileInfo, errs []error, defaultQuorum int
 		agreeing[i] = true
 		mk := metadataKey(infos[i])
 		metaCounts[mk]++
-		if metaCounts[mk] > chosenCount {
+		if betterMeta(metaCounts[mk], infos[i], chosenCount, infos[chosen]) {
 			chosen, chosenCount = i, metaCounts[mk]
 		}
 	}
 	return infos[chosen], agreeing, nil
+}
+
+// betterMeta reports whether metadata seen count times (fi) beats the
+// current choice: the most common one wins, then, among equally common
+// ones (an in-place update that reached part of the drives, some of which
+// are now offline), the most recently updated.
+func betterMeta(count int, fi storage.FileInfo, bestCount int, best storage.FileInfo) bool {
+	if count != bestCount {
+		return count > bestCount
+	}
+	return metaStamp(fi.Metadata) > metaStamp(best.Metadata)
 }
 
 // mergeVersions returns the versions of an object that a read quorum of
@@ -188,7 +199,7 @@ func mergeVersions(perDrive [][]storage.FileInfo, defaultQuorum int) []storage.F
 			c.count++
 			mk := metadataKey(fi)
 			c.metas[mk]++
-			if c.metas[mk] > c.best {
+			if betterMeta(c.metas[mk], fi, c.best, c.fi) {
 				c.best, c.fi = c.metas[mk], fi
 			}
 		}

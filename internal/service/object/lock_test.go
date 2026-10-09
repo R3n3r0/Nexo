@@ -51,6 +51,7 @@ func (r *lockRecorder) nsLock(resource string) lock.NSLock {
 		r.log = append(r.log, mode+" "+resource)
 		r.held[resource]++
 		lc := lockmock.NewLockContext(r.t)
+		lc.EXPECT().Context().Return(context.Background()).Maybe()
 		lc.EXPECT().Unlock(mock.Anything).Run(func(context.Context) {
 			r.mu.Lock()
 			defer r.mu.Unlock()

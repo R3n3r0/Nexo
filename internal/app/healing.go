@@ -3,13 +3,18 @@ package app
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"time"
 
+	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/lifecycle"
+	"github.com/r3n3r0/nexo/internal/service/cluster"
 	configsvc "github.com/r3n3r0/nexo/internal/service/config"
 	"github.com/r3n3r0/nexo/internal/service/heal"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/scanner"
+	"github.com/r3n3r0/nexo/internal/service/storage"
 )
 
 // healingServices are the background services that keep the data whole
@@ -37,13 +42,31 @@ func poolSpecs(f *foundation) ([]object.PoolSpec, error) {
 	return pools, nil
 }
 
-// newHealQueue returns the MRF queue of this node, persisted on its local
-// drives; nil in SNSD (a single drive has nothing to heal from).
-func newHealQueue(d composeDeps) heal.Queue {
-	if d.f.layout.Mode == domain.ModeSNSD {
+// newHealQueue returns the MRF queue of a node, persisted on its local
+// drives; nil in SNSD (a single drive has nothing to heal from). A
+// positive maxRetryDelay caps the backoff between two attempts at an
+// object (default 5m).
+func newHealQueue(mode domain.Mode, local []storage.StorageAPI, clk clock.Clock, logger *slog.Logger, maxRetryDelay time.Duration) heal.Queue {
+	if mode == domain.ModeSNSD {
 		return nil
 	}
-	return heal.NewQueue(heal.QueueDeps{Drives: d.f.local, Clock: d.clock, Logger: d.logger.With("component", "mrf")})
+	var opts []heal.QueueOption
+	if maxRetryDelay > 0 {
+		opts = append(opts, heal.WithBackoff(min(time.Second, maxRetryDelay), maxRetryDelay))
+	}
+	return heal.NewQueue(heal.QueueDeps{Drives: local, Clock: clk, Logger: logger.With("component", "mrf")}, opts...)
+}
+
+// healQueueReporter publishes the counters of the MRF queue in the node
+// information (Admin API server info, peer RPC); nil without a queue.
+func healQueueReporter(q heal.Queue) cluster.HealQueueReporter {
+	if q == nil {
+		return nil
+	}
+	return cluster.HealQueueReporterFunc(func(ctx context.Context) domain.HealQueueStats {
+		st := q.Stats(ctx)
+		return domain.HealQueueStats{Pending: st.Pending + st.Leased, Healed: st.Healed, Retried: st.Retried, Dropped: st.Dropped}
+	})
 }
 
 // newHealing builds the healing service (erasure-coded modes) and the

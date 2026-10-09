@@ -40,6 +40,7 @@ packages:
       AccessKeyManager:
       PolicyManager:
       ConfigManager:
+      ClusterManager:
   github.com/r3n3r0/nexo/internal/service/audit:
     interfaces:
       Service:
@@ -61,7 +62,10 @@ packages:
       Bootstrapper:
       LeaderListener:
       Leader:
+      HealQueueReporter:
       Info:
+      Coherence:
+      DeploymentBinder:
   github.com/r3n3r0/nexo/internal/service/config:
     interfaces:
       Service:
@@ -115,6 +119,9 @@ packages:
       Attachments:
       BucketPolicyProvider:
       SharedStore:
+  github.com/r3n3r0/nexo/internal/service/preflight:
+    interfaces:
+      Service:
   github.com/r3n3r0/nexo/internal/service/scanner:
     interfaces:
       Service:
@@ -133,6 +140,7 @@ packages:
     interfaces:
       StorageAPI:
       Formatter:
+      Janitor:
   github.com/r3n3r0/nexo/internal/service/sysstore:
     interfaces:
       Store:
@@ -154,6 +162,7 @@ packages:
   github.com/r3n3r0/nexo/internal/transport/http/middleware:
     interfaces:
       Middleware:
+      Gate:
   github.com/r3n3r0/nexo/internal/transport/http/server:
     interfaces:
       Service:
@@ -184,6 +193,7 @@ packages:
       ObjectRoutes:
       ShareRoutes:
       ConfigRoutes:
+      ClusterRoutes:
   github.com/r3n3r0/nexo/internal/transport/rpc:
     interfaces:
       Routes:

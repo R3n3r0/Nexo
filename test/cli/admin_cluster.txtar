@@ -1,0 +1,69 @@
+# TM-04 / C-ADM-13: admin cluster export writes the state of the deployment
+# besides its objects (IAM, policies, configuration, bucket settings) to a
+# zip archive; import validates it first (--dry-run stops there), merges it
+# by default and, with --mode replace, removes what the archive does not
+# hold. admin lock list/clear are the diagnostics of the namespace locks.
+
+exec nexoctl mb local/photos
+exec nexoctl version enable local/photos
+exec nexoctl quota set local/photos --size 1GiB
+exec nexoctl admin policy create local photo-read photo-read.json
+exec nexoctl admin user add local bob bob-secret-123 --policy photo-read
+
+exec nexoctl admin cluster export local --output backup.zip
+stdout '^Exported the state of "local" to backup.zip \('
+exec nexoctl admin cluster export local
+cp stdout stdout.zip
+exec nexoctl admin cluster import local stdout.zip --dry-run
+stdout '^Would import into "local" \(merge\): 1 user\(s\), 0 group\(s\), 1 polic\(ies\), '
+
+# Merge brings back what was removed after the export.
+exec nexoctl admin user remove local bob
+exec nexoctl admin policy remove local photo-read
+exec nexoctl version suspend local/photos
+exec nexoctl admin cluster import local backup.zip
+stdout '^Imported into "local" \(merge\): 1 user\(s\), 0 group\(s\), 1 polic\(ies\), [0-9]+ configuration subsystem\(s\), 1 bucket\(s\)\.$'
+exec nexoctl admin user list local
+stdout '^bob +enabled +photo-read +-$'
+exec nexoctl admin policy info local photo-read
+stdout 's3:GetObject'
+exec nexoctl version info local/photos
+stdout 'enabled'
+exec nexoctl quota info --json local/photos
+stdout '"size":1073741824'
+
+# Replace removes the users the archive does not hold; --dry-run changes nothing.
+exec nexoctl admin user add local mallory mallory-secret-1
+exec nexoctl admin cluster import local backup.zip --mode replace --dry-run
+stdout '^Removed: user:mallory$'
+exec nexoctl admin user list local
+stdout '^mallory '
+exec nexoctl admin cluster import --json local backup.zip --mode replace
+jsonlines stdout
+stdout '"mode":"replace","dryRun":false,'
+stdout '"removed":\["user:mallory"\]'
+exec nexoctl admin user list local
+! stdout mallory
+stdout '^bob '
+
+# A broken archive changes nothing (exit 1); a bad mode is a usage error.
+expectcode 1 nexoctl admin cluster import local junk.zip
+stderr 'not a zip file'
+expectcode 2 nexoctl admin cluster import local backup.zip --mode wipe
+
+# No object lock is held at rest (a cluster holds the lock of its
+# leader); clearing one is idempotent.
+exec nexoctl admin lock list local
+! stdout 'photos/'
+exec nexoctl admin lock clear local photos/a.jpg
+stdout '^Released photos/a.jpg on "local"\.$'
+
+-- photo-read.json --
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Effect": "Allow", "Action": ["s3:GetObject"], "Resource": ["arn:aws:s3:::photos/*"]}
+  ]
+}
+-- junk.zip --
+not a zip archive

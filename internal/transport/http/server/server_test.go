@@ -2,7 +2,9 @@ package server_test
 
 import (
 	"context"
+	"crypto/tls"
 	"io"
+	"net"
 	"net/http"
 	"testing"
 	"time"
@@ -10,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/http2"
 
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
@@ -102,4 +105,42 @@ func TestServerListenError(t *testing.T) {
 
 	bad := server.New(server.Deps{}, server.WithTLS("/nonexistent/cert.pem", "/nonexistent/key.pem"), server.WithAddr("127.0.0.1:0"))
 	assert.Error(t, bad.Start(context.Background()))
+}
+
+// TestServerH2CStop: the cleartext HTTP/2 connections (prior knowledge, as
+// the internode RPC dials them) are served and closed by Stop, so that a
+// stopped node no longer answers on a connection opened before.
+func TestServerH2CStop(t *testing.T) {
+	routes := httpx.RoutesFunc(func(r chi.Router) {
+		r.Get("/proto", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(r.Proto)) })
+	})
+	srv := server.New(server.Deps{Routes: []httpx.Routes{routes}}, server.WithAddr("127.0.0.1:0"), server.WithShutdownTimeout(5*time.Second))
+	ctx := context.Background()
+	require.NoError(t, srv.Start(ctx))
+	addr := srv.Addr()
+	client := &http.Client{Timeout: 5 * time.Second, Transport: &http2.Transport{
+		AllowHTTP: true,
+		DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, network, addr)
+		},
+	}}
+	get := func() (string, error) {
+		resp, err := client.Get("http://" + addr + "/proto")
+		if err != nil {
+			return "", err
+		}
+		defer func() { _ = resp.Body.Close() }()
+		b, err := io.ReadAll(resp.Body)
+		return string(b), err
+	}
+	proto, err := get()
+	require.NoError(t, err)
+	assert.Equal(t, "HTTP/2.0", proto)
+
+	start := time.Now()
+	require.NoError(t, srv.Stop(ctx))
+	t.Logf("stopped in %s", time.Since(start))
+	_, err = get()
+	assert.Error(t, err, "the open HTTP/2 connection is closed with the server")
 }

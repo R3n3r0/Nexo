@@ -11,6 +11,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/storage"
+	"github.com/r3n3r0/nexo/internal/service/topology"
 )
 
 // Arguments and answers of the storage service. Each call names the drive
@@ -99,18 +100,26 @@ const driveParam = "drive"
 type StorageRoutesDeps struct {
 	// Drives are the local drives of the node, addressed by their path.
 	Drives []storage.StorageAPI
+	// Auth, when set, is bound to the deployment of the format a peer
+	// writes on a drive of this node while it does not know its own (the
+	// node formatting a fresh deployment): from then on this node checks
+	// the deployment of its callers, before its own bootstrap reads the
+	// formats.
+	Auth Authenticator
 }
 
 // storageRoutes implements StorageRoutes.
 type storageRoutes struct {
 	drives map[string]storage.StorageAPI
+	auth   Authenticator
 }
 
 var _ StorageRoutes = (*storageRoutes)(nil)
 
 // NewStorageRoutes exposes the local drives to the other nodes.
-func NewStorageRoutes(deps StorageRoutesDeps) (StorageRoutes, error) {
-	h := &storageRoutes{drives: make(map[string]storage.StorageAPI, len(deps.Drives))}
+func NewStorageRoutes(deps StorageRoutesDeps, opts ...StorageRoutesOption) (StorageRoutes, error) {
+	_ = apply(opts)
+	h := &storageRoutes{drives: make(map[string]storage.StorageAPI, len(deps.Drives)), auth: deps.Auth}
 	for _, d := range deps.Drives {
 		if d == nil {
 			continue
@@ -233,10 +242,22 @@ func (h *storageRoutes) Register(r chi.Router) {
 			return d.WalkDir(ctx, in.Opts, func(e storage.WalkEntry) error { return emit(e) })
 		}))
 		r.Post("/read-all", on(h, func(ctx context.Context, d storage.StorageAPI, in pathArgs) ([]byte, error) {
+			if restricted(ctx) && (in.Volume != domain.SystemBucket || in.Path != storage.FormatFile) {
+				// A node bootstrapping reads the format, nothing else.
+				return nil, errRestricted
+			}
 			return d.ReadAll(ctx, in.Volume, in.Path)
 		}))
 		r.Post("/write-all", on(h, func(ctx context.Context, d storage.StorageAPI, in writeAllArgs) (empty, error) {
-			return empty{}, d.WriteAll(ctx, in.Volume, in.Path, in.Data)
+			if restricted(ctx) && (in.Volume != domain.SystemBucket || (in.Path != storage.FormatFile && in.Path != storage.HealingFile)) {
+				// A node without deployment receives its format, nothing else.
+				return empty{}, errRestricted
+			}
+			if err := d.WriteAll(ctx, in.Volume, in.Path, in.Data); err != nil {
+				return empty{}, err
+			}
+			h.bindFormat(ctx, in)
+			return empty{}, nil
 		}))
 		r.Post("/delete", on(h, func(ctx context.Context, d storage.StorageAPI, in deleteArgs) (empty, error) {
 			return empty{}, d.Delete(ctx, in.Volume, in.Path, in.Opts)
@@ -245,7 +266,33 @@ func (h *storageRoutes) Register(r chi.Router) {
 			return d.CheckParts(ctx, in.Volume, in.Path, in.FI)
 		}))
 		r.Post("/stat-info-file", on(h, func(ctx context.Context, d storage.StorageAPI, in statInfoFileArgs) ([]storage.StatInfo, error) {
+			if restricted(ctx) && (in.Volume != domain.SystemBucket || in.Path != storage.FormatFile || in.Glob) {
+				return nil, errRestricted
+			}
 			return d.StatInfoFile(ctx, in.Volume, in.Path, in.Glob)
 		}))
 	})
+}
+
+// bindFormat binds the node to the deployment of the format a peer wrote
+// on one of its drives while the node did not know its deployment.
+func (h *storageRoutes) bindFormat(ctx context.Context, in writeAllArgs) {
+	c, ok := CallerFromContext(ctx)
+	if h.auth == nil || !ok || !c.Unverified || in.Volume != domain.SystemBucket || in.Path != storage.FormatFile {
+		return
+	}
+	if f, err := topology.UnmarshalFormat(in.Data); err == nil && f.ID != "" {
+		h.auth.SetDeploymentID(ctx, f.ID)
+	}
+}
+
+// errRestricted refuses the calls a caller whose deployment is not
+// established may not make (Claims.Unbound, Claims.Unverified).
+var errRestricted = fmt.Errorf("%w: rpc: the deployment of the call is not established", domain.ErrAccessDenied)
+
+// restricted reports a call whose deployment is not established: the
+// caller has none, or this node does not know its own yet.
+func restricted(ctx context.Context) bool {
+	c, ok := CallerFromContext(ctx)
+	return !ok || c.Unbound || c.Unverified
 }

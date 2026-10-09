@@ -31,6 +31,11 @@ export interface StartOptions {
   /** Directory with public.crt/private.key: serves both listeners over TLS. */
   certsDir?: string;
   env?: Record<string, string>;
+  /**
+   * Drives of the node: 1 (default) serves workDir/data as a single drive
+   * (SNSD), more serve workDir/data/d{1...N} with erasure coding (SNMD).
+   */
+  drives?: number;
 }
 
 /** Asks the kernel for a free TCP port on the loopback interface. */
@@ -68,7 +73,7 @@ function probe(url: string): Promise<number> {
   });
 }
 
-function isAlive(pid: number): boolean {
+export function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
@@ -90,21 +95,55 @@ const sleep = (ms: number) =>
 export async function startNexo(options: StartOptions): Promise<NexoProcess> {
   const dataDir = join(options.workDir, 'data');
   await mkdir(dataDir, { recursive: true });
+  const drives = options.drives ?? 1;
   const logFile = join(options.workDir, 'nexo.log');
   const [s3Port, consolePort] = [await freePort(), await freePort()];
   const scheme = options.certsDir === undefined ? 'http' : 'https';
-  const args = [
-    'server',
-    '--address',
-    `127.0.0.1:${s3Port}`,
-    '--console-address',
-    `127.0.0.1:${consolePort}`,
-    ...(options.certsDir === undefined ? [] : ['--certs-dir', options.certsDir]),
+  const pid = spawnNexo({
+    binary: options.binary,
+    logFile,
+    env: options.env,
+    args: [
+      'server',
+      '--address',
+      `127.0.0.1:${s3Port}`,
+      '--console-address',
+      `127.0.0.1:${consolePort}`,
+      ...(options.certsDir === undefined ? [] : ['--certs-dir', options.certsDir]),
+      drives > 1 ? join(dataDir, `d{1...${String(drives)}}`) : dataDir,
+    ],
+  });
+  const consoleURL = `${scheme}://127.0.0.1:${consolePort}`;
+  await waitReady(pid, consoleURL, logFile, 30_000);
+  return {
+    pid,
+    consoleURL,
+    s3URL: `${scheme}://127.0.0.1:${s3Port}`,
     dataDir,
-  ];
-  const log = openSync(logFile, 'a');
-  const child = spawn(options.binary, args, {
+    logFile,
+    region: 'us-east-1',
+  };
+}
+
+export interface SpawnOptions {
+  binary: string;
+  args: string[];
+  logFile: string;
+  /** Working directory of the process. */
+  cwd?: string;
+  env?: Record<string, string> | undefined;
+}
+
+/**
+ * Starts a nexo process detached in its own process group, its output
+ * appended to logFile, with the root credentials of the suite; returns
+ * its PID (stop it with stopNexo).
+ */
+export function spawnNexo(options: SpawnOptions): number {
+  const log = openSync(options.logFile, 'a');
+  const child = spawn(options.binary, options.args, {
     detached: true,
+    cwd: options.cwd,
     stdio: ['ignore', log, log],
     env: {
       ...process.env,
@@ -117,33 +156,35 @@ export async function startNexo(options: StartOptions): Promise<NexoProcess> {
   });
   closeSync(log);
   child.unref();
-  const pid = child.pid;
-  if (pid === undefined) {
+  if (child.pid === undefined) {
     throw new Error(`could not start ${options.binary}`);
   }
-  const consoleURL = `${scheme}://127.0.0.1:${consolePort}`;
-  const deadline = Date.now() + 30_000;
+  return child.pid;
+}
+
+/** Waits until the console of a process answers its readiness probe. */
+export async function waitReady(
+  pid: number,
+  consoleURL: string,
+  logFile: string,
+  timeoutMs: number,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
   for (;;) {
     if (!isAlive(pid)) {
       throw new Error(`nexo exited during startup:\n${readFileSync(logFile, 'utf8')}`);
     }
     if ((await probe(`${consoleURL}/nexo/health/ready`)) === 200) {
-      break;
+      return;
     }
     if (Date.now() > deadline) {
       await stopNexo(pid);
-      throw new Error(`nexo was not ready within 30 s:\n${readFileSync(logFile, 'utf8')}`);
+      throw new Error(
+        `nexo was not ready within ${String(timeoutMs / 1000)} s:\n${readFileSync(logFile, 'utf8')}`,
+      );
     }
     await sleep(100);
   }
-  return {
-    pid,
-    consoleURL,
-    s3URL: `${scheme}://127.0.0.1:${s3Port}`,
-    dataDir,
-    logFile,
-    region: 'us-east-1',
-  };
 }
 
 /** Stops a server by PID: SIGTERM, then SIGKILL after 10 s. */
@@ -151,6 +192,8 @@ export async function stopNexo(pid: number): Promise<void> {
   if (!isAlive(pid)) {
     return;
   }
+  // A frozen process (SIGSTOP) must run to handle the SIGTERM.
+  process.kill(pid, 'SIGCONT');
   process.kill(pid, 'SIGTERM');
   const deadline = Date.now() + 10_000;
   while (isAlive(pid) && Date.now() < deadline) {

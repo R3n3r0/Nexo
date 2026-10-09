@@ -26,7 +26,22 @@ const (
 	metaTagging            = "x-amz-tagging"
 	metaUserPrefix         = "x-amz-meta-"
 	metaChecksumPrefix     = "x-amz-checksum-"
+	// metaUpdated is the stamp (Unix nanoseconds, increasing) of the last
+	// in-place update of the metadata of a version (tags): when the
+	// drives disagree on the metadata with no majority, the newest wins.
+	// It is internal: never exposed, never copied.
+	metaUpdated = "x-nexo-internal-meta-updated"
 )
+
+// metaStamp returns the in-place update stamp of a version's metadata, 0
+// when it was never updated.
+func metaStamp(meta map[string]string) int64 {
+	v, err := strconv.ParseInt(meta[metaUpdated], 10, 64)
+	if err != nil {
+		return 0
+	}
+	return v
+}
 
 // defaultContentType is stored when a write declares no Content-Type.
 const defaultContentType = "application/octet-stream"

@@ -231,7 +231,7 @@ func (l *leader) run(ctx context.Context, done chan<- struct{}) {
 		}
 		term := lc.Context()
 		l.elected.Store(true)
-		l.deps.Logger.Info("cluster: this node is the leader", "node", l.deps.NodeID)
+		l.deps.Logger.Info("cluster: this node is the leader", "leader", l.deps.NodeID)
 		for _, ln := range l.listeners.begin(term) {
 			ln.OnElected(term)
 		}
@@ -239,9 +239,9 @@ func (l *leader) run(ctx context.Context, done chan<- struct{}) {
 		l.elected.Store(false)
 		stopping := ctx.Err() != nil
 		if stopping {
-			l.deps.Logger.Info("cluster: leadership released", "node", l.deps.NodeID)
+			l.deps.Logger.Info("cluster: leadership released", "leader", l.deps.NodeID)
 		} else {
-			l.deps.Logger.Warn("cluster: leadership lost", "node", l.deps.NodeID)
+			l.deps.Logger.Warn("cluster: leadership lost", "leader", l.deps.NodeID)
 		}
 		lc.Unlock(context.Background())
 		for _, ln := range l.listeners.end() {

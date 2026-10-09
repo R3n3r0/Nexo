@@ -507,3 +507,33 @@ func (c *client) ExportConfig(ctx context.Context) ([]byte, error) {
 func (c *client) ImportConfig(ctx context.Context, data []byte) error {
 	return c.do(ctx, request{method: http.MethodPost, path: "/config/import", raw: data, contentType: "application/json"}, nil)
 }
+
+// ExportCluster implements AdminClient.
+func (c *client) ExportCluster(ctx context.Context) ([]byte, error) {
+	data, _, err := c.send(ctx, request{method: http.MethodGet, path: "/cluster/export"})
+	return data, err
+}
+
+// ImportCluster implements AdminClient.
+func (c *client) ImportCluster(ctx context.Context, archive []byte, opts ImportClusterOptions) (*ClusterImportResult, error) {
+	q := url.Values{}
+	if opts.Mode != "" {
+		q.Set("mode", opts.Mode)
+	}
+	if opts.DryRun {
+		q.Set("dryRun", "true")
+	}
+	var out ClusterImportResult
+	return &out, c.do(ctx, request{method: http.MethodPost, path: "/cluster/import", query: q, raw: archive, contentType: "application/zip"}, &out)
+}
+
+// ListLocks implements AdminClient.
+func (c *client) ListLocks(ctx context.Context) ([]Lock, error) {
+	var out []Lock
+	return out, c.do(ctx, request{method: http.MethodGet, path: "/locks"}, &out)
+}
+
+// ForceUnlock implements AdminClient.
+func (c *client) ForceUnlock(ctx context.Context, resources ...string) error {
+	return c.do(ctx, request{method: http.MethodDelete, path: "/locks", query: url.Values{"resource": resources}}, nil)
+}

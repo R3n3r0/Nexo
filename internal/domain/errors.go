@@ -92,8 +92,13 @@ var (
 	ErrReadQuorum     = errors.New("read quorum not met")
 	ErrWriteQuorum    = errors.New("write quorum not met")
 	ErrLockTimeout    = errors.New("lock timeout")
-	ErrQuotaExceeded  = errors.New("quota exceeded")
-	ErrObjectLocked   = errors.New("object locked")
+	// ErrLockLost reports an operation stopped because a distributed lock
+	// it held could not be renewed (docs/03 §3.6): another node may have
+	// taken it. It wraps ErrLockTimeout, so that clients see the same
+	// retryable error (503 SlowDown).
+	ErrLockLost      = fmt.Errorf("lock lost: %w", ErrLockTimeout)
+	ErrQuotaExceeded = errors.New("quota exceeded")
+	ErrObjectLocked  = errors.New("object locked")
 	// ErrInvalidFormat reports a malformed or unsupported on-disk document
 	// (format.json, xl.meta); ErrFormatMismatch reports drives whose formats
 	// disagree with each other or with the deployment layout.

@@ -67,6 +67,33 @@ type PoolInfo struct {
 	Sets         int `json:"sets"`
 	DrivesPerSet int `json:"drivesPerSet"`
 	Parity       int `json:"parity"`
+	// ReadQuorum and WriteQuorum are the drives of a set needed to read
+	// and to write.
+	ReadQuorum  int              `json:"readQuorum"`
+	WriteQuorum int              `json:"writeQuorum"`
+	ErasureSets []ErasureSetInfo `json:"erasureSets"`
+}
+
+// Erasure set states.
+const (
+	SetStateOK          = "ok"
+	SetStateDegraded    = "degraded"
+	SetStateReadOnly    = "readonly"
+	SetStateUnavailable = "unavailable"
+)
+
+// ErasureSetInfo is the state of an erasure set: ok (every drive online),
+// degraded (drives offline or healing, the write quorum is kept),
+// readonly (only the read quorum is kept) or unavailable.
+type ErasureSetInfo struct {
+	Index int `json:"index"`
+	// Drives is the size of the set; Online counts the drives that
+	// answer, the healing ones included.
+	Drives  int    `json:"drives"`
+	Online  int    `json:"online"`
+	Offline int    `json:"offline"`
+	Healing int    `json:"healing"`
+	State   string `json:"state"`
 }
 
 // NodeInfo is a node of the deployment.
@@ -77,6 +104,35 @@ type NodeInfo struct {
 	Commit        string     `json:"commit"`
 	UptimeSeconds int64      `json:"uptimeSeconds"`
 	Disks         []DiskInfo `json:"disks"`
+	// Local marks the node that answered (listed first).
+	Local bool `json:"local"`
+	// ClockSkew is the clock offset of the node measured by the node that
+	// answered; nil for that node and for the unreachable ones.
+	ClockSkew *ClockSkew `json:"clockSkew,omitempty"`
+	// HealQueue is the background healing of the node; nil on a single
+	// drive and for the unreachable nodes.
+	HealQueue *HealQueueStats `json:"healQueue,omitempty"`
+}
+
+// ClockSkew is the clock offset of a node.
+type ClockSkew struct {
+	// OffsetMs is the clock of the node minus the clock of the node that
+	// answered, in milliseconds.
+	OffsetMs int64 `json:"offsetMs"`
+	RTTMs    int64 `json:"rttMs"`
+	// Exceeded reports an offset above the warning threshold (2s).
+	Exceeded bool `json:"exceeded"`
+}
+
+// HealQueueStats are the counters of the background healing (MRF) of a
+// node.
+type HealQueueStats struct {
+	// Pending counts the objects waiting to be healed or being healed.
+	Pending int    `json:"pending"`
+	Healed  uint64 `json:"healed"`
+	Retried uint64 `json:"retried"`
+	// Dropped counts the objects refused (queue full) or abandoned.
+	Dropped uint64 `json:"dropped"`
 }
 
 // DiskInfo is a drive of a node.
@@ -109,6 +165,9 @@ type HealingProgress struct {
 	ObjectsFailed uint64    `json:"objectsFailed"`
 	BytesDone     uint64    `json:"bytesDone"`
 	BytesFailed   uint64    `json:"bytesFailed"`
+	// RetryAttempts counts the passes started over because objects failed
+	// to heal (ObjectsFailed counts those of the current pass).
+	RetryAttempts int `json:"retryAttempts,omitempty"`
 }
 
 // DataUsage is the data usage, total and per bucket.
@@ -739,4 +798,42 @@ type ConfigSubsystemSchema struct {
 	Name        string      `json:"name"`
 	Description string      `json:"description"`
 	Keys        []ConfigKey `json:"keys"`
+}
+
+// ImportClusterOptions tune ImportCluster.
+type ImportClusterOptions struct {
+	// Mode is "merge" (default: what the archive does not hold is kept) or
+	// "replace" (the configuration is replaced, the users, groups and named
+	// policies the archive does not hold are removed).
+	Mode string
+	// DryRun validates the archive and reports what the import would do.
+	DryRun bool
+}
+
+// ClusterImportResult is the outcome of ImportCluster.
+type ClusterImportResult struct {
+	Mode             string   `json:"mode"`
+	DryRun           bool     `json:"dryRun"`
+	Users            int      `json:"users"`
+	Groups           int      `json:"groups"`
+	Policies         int      `json:"policies"`
+	ConfigSubsystems int      `json:"configSubsystems"`
+	Buckets          int      `json:"buckets"`
+	BucketsCreated   []string `json:"bucketsCreated"`
+	Removed          []string `json:"removed"`
+}
+
+// Lock is a namespace lock held across the lock servers.
+type Lock struct {
+	Resource string `json:"resource"`
+	UID      string `json:"uid"`
+	Owner    string `json:"owner"`
+	Source   string `json:"source,omitempty"`
+	// Type is "write" or "read".
+	Type      string    `json:"type"`
+	Quorum    int       `json:"quorum"`
+	Since     time.Time `json:"since"`
+	Refreshed time.Time `json:"refreshed"`
+	Servers   int       `json:"servers"`
+	Total     int       `json:"total"`
 }

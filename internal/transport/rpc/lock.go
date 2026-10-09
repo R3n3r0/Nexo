@@ -25,7 +25,8 @@ var _ LockRoutes = (*lockRoutes)(nil)
 
 // NewLockRoutes exposes the lock server of the node to the distributed
 // lockers of the other nodes.
-func NewLockRoutes(deps LockRoutesDeps) (LockRoutes, error) {
+func NewLockRoutes(deps LockRoutesDeps, opts ...LockRoutesOption) (LockRoutes, error) {
+	_ = apply(opts)
 	if deps.Server == nil {
 		return nil, fmt.Errorf("%w: rpc: the lock routes need the lock server", domain.ErrInvalidArgument)
 	}
@@ -61,7 +62,8 @@ var _ lock.Server = (*lockClient)(nil)
 
 // NewLockClient returns the lock server of another node, for the
 // distributed locker.
-func NewLockClient(deps LockClientDeps) (lock.Server, error) {
+func NewLockClient(deps LockClientDeps, opts ...LockClientOption) (lock.Server, error) {
+	_ = apply(opts)
 	if deps.Conn == nil {
 		return nil, fmt.Errorf("%w: rpc: the lock client needs a connection", domain.ErrInvalidArgument)
 	}

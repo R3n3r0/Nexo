@@ -19,8 +19,8 @@ PKGS        := ./...
 
 export CGO_ENABLED ?= 0
 
-.PHONY: all build build-go build-web build-embedded e2e test test-race lint web-lint web-test generate fmt clean \
-        run-single run-snmd docker help
+.PHONY: all build build-go build-web build-embedded e2e test test-race test-integration test-cluster test-compose bench-rpc lint web-lint \
+        web-test generate fmt clean run-single run-snmd run-cluster docker help
 
 all: build
 
@@ -49,6 +49,22 @@ test:
 ## test-race: run the Go unit tests with the race detector
 test-race:
 	CGO_ENABLED=1 $(GO) test $(GOFLAGS) -race -count=1 $(PKGS)
+
+## test-integration: run the S3/IAM/presigned suite in every mode (SNSD, SNMD, cluster in-process), slow tests included
+test-integration:
+	$(GO) test $(GOFLAGS) -count=1 -timeout 20m ./test/integration/...
+
+## test-cluster: run the multi-process cluster tests (TC-*, build tag "cluster") against a fresh bin/nexo
+test-cluster:
+	$(GO) test $(GOFLAGS) -tags cluster -count=1 -timeout 40m -v ./test/cluster/...
+
+## test-compose: run TM-06/TM-09 against a running deploy/docker/compose.cluster.yml (build tag "compose", nightly CI)
+test-compose:
+	NEXO_COMPOSE_FILE=deploy/docker/compose.cluster.yml $(GO) test -tags compose -count=1 -v ./test/compose/...
+
+## bench-rpc: measure the throughput of a remote drive over loopback against the local drive (docs/05 T-6.1)
+bench-rpc:
+	$(GO) test -run '^$$' -bench 'CreateFile|ReadFileStream' -benchtime 2s -count 3 ./internal/transport/rpc/
 
 ## lint: run gofmt, go vet and golangci-lint
 lint:
@@ -90,6 +106,16 @@ run-single: build-go
 run-snmd: build-go
 	NEXO_ROOT_USER=$${NEXO_ROOT_USER:-admin} NEXO_ROOT_PASSWORD=$${NEXO_ROOT_PASSWORD:-password123} \
 	  $(BIN_DIR)/nexo server --log-format text ./data1 ./data2 ./data3 ./data4
+
+## run-cluster: start a 4-node cluster (2 drives per node) on 127.0.0.1:{9101..9104} in ./cluster (Linux), Ctrl-C stops it
+run-cluster: build-go
+	@mkdir -p cluster; trap 'kill $$(jobs -p) 2>/dev/null' INT TERM EXIT; \
+	for i in 1 2 3 4; do \
+	  mkdir -p cluster/n$$i; \
+	  ( cd cluster/n$$i && NEXO_ROOT_USER=$${NEXO_ROOT_USER:-admin} NEXO_ROOT_PASSWORD=$${NEXO_ROOT_PASSWORD:-password123} \
+	    exec ../../$(BIN_DIR)/nexo server --log-format text --address 127.0.0.1:910$$i --console-address 127.0.0.1:920$$i \
+	      'http://127.0.0.1:{9101...9104}/proc/self/cwd/d{1...2}' ) & \
+	done; wait
 
 ## docker: build the container image
 docker:

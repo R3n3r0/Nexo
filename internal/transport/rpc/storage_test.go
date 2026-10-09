@@ -36,7 +36,7 @@ func remoteDrive(t testing.TB, dir string, opts ...rpc.StorageClientOption) (sto
 	local := openLocal(t, dir)
 	routes, err := rpc.NewStorageRoutes(rpc.StorageRoutesDeps{Drives: []storage.StorageAPI{local}})
 	require.NoError(t, err)
-	addr, _ := startRPC(t, newAuth(t, "server:9000"), routes)
+	addr, _ := startRPC(t, routes)
 	conn := dial(t, newAuth(t, "client:9000"), addr)
 	ep := domain.Endpoint{Scheme: "http", Host: addr, Path: dir}
 	client, err := rpc.NewStorageClient(rpc.StorageClientDeps{Conn: conn, Logger: discard()}, ep,
@@ -69,7 +69,7 @@ func TestRemoteDriveUnknown(t *testing.T) {
 	ctx := context.Background()
 	routes, err := rpc.NewStorageRoutes(rpc.StorageRoutesDeps{Drives: []storage.StorageAPI{openLocal(t, t.TempDir()+"/d")}})
 	require.NoError(t, err)
-	addr, _ := startRPC(t, newAuth(t, "server:9000"), routes)
+	addr, _ := startRPC(t, routes)
 	conn := dial(t, newAuth(t, "client:9000"), addr)
 	client, err := rpc.NewStorageClient(rpc.StorageClientDeps{Conn: conn, Logger: discard()},
 		domain.Endpoint{Scheme: "http", Host: addr, Path: "/not/served"})
@@ -89,11 +89,11 @@ func TestRemoteNodeOffline(t *testing.T) {
 	local := openLocal(t, dir)
 	routes, err := rpc.NewStorageRoutes(rpc.StorageRoutesDeps{Drives: []storage.StorageAPI{local}})
 	require.NoError(t, err)
-	serverAuth := newAuth(t, "server:9000")
-	s, err := rpc.NewServer(rpc.ServerDeps{Auth: serverAuth, Routes: []rpc.Routes{routes}, Logger: discard()})
-	require.NoError(t, err)
 	ln := listen(t)
 	addr := ln.Addr().String()
+	serverAuth := newAuth(t, addr)
+	s, err := rpc.NewServer(rpc.ServerDeps{Auth: serverAuth, Routes: []rpc.Routes{routes}, Logger: discard()})
+	require.NoError(t, err)
 	srv := serve(t, ln, s)
 	conn := dial(t, newAuth(t, "client:9000"), addr, rpc.WithDialTimeout(time.Second))
 	client, err := rpc.NewStorageClient(rpc.StorageClientDeps{Conn: conn, Logger: discard()}, domain.Endpoint{Scheme: "http", Host: addr, Path: dir})
@@ -107,8 +107,9 @@ func TestRemoteNodeOffline(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, domain.ErrDiskNotFound)
 	assert.ErrorIs(t, err, domain.ErrNodeOffline)
+	// A broken exchange is verified by a ping before the circuit opens.
+	require.Eventually(t, func() bool { return !conn.IsOnline() }, 5*time.Second, 5*time.Millisecond)
 	assert.False(t, client.IsOnline())
-	assert.False(t, conn.IsOnline())
 	start := time.Now()
 	_, err = client.StatVol(ctx, "b")
 	assert.ErrorIs(t, err, domain.ErrNodeOffline)

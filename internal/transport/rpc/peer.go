@@ -27,7 +27,8 @@ type peerRoutes struct {
 var _ PeerRoutes = (*peerRoutes)(nil)
 
 // NewPeerRoutes exposes the peer service of the node.
-func NewPeerRoutes(deps PeerRoutesDeps) (PeerRoutes, error) {
+func NewPeerRoutes(deps PeerRoutesDeps, opts ...PeerRoutesOption) (PeerRoutes, error) {
+	_ = apply(opts)
 	if deps.Notifier == nil || deps.Info == nil {
 		return nil, fmt.Errorf("%w: rpc: the peer routes need the notifier and the info service", domain.ErrInvalidArgument)
 	}
@@ -63,7 +64,8 @@ type peerClient struct {
 var _ cluster.Peer = (*peerClient)(nil)
 
 // NewPeerClient returns the peer of another node.
-func NewPeerClient(deps PeerClientDeps) (cluster.Peer, error) {
+func NewPeerClient(deps PeerClientDeps, opts ...PeerClientOption) (cluster.Peer, error) {
+	_ = apply(opts)
 	if deps.Conn == nil {
 		return nil, fmt.Errorf("%w: rpc: the peer client needs a connection", domain.ErrInvalidArgument)
 	}
@@ -109,7 +111,8 @@ type bootstrapRoutes struct {
 var _ BootstrapRoutes = (*bootstrapRoutes)(nil)
 
 // NewBootstrapRoutes exposes the startup configuration of the node.
-func NewBootstrapRoutes(deps BootstrapRoutesDeps) (BootstrapRoutes, error) {
+func NewBootstrapRoutes(deps BootstrapRoutesDeps, opts ...BootstrapRoutesOption) (BootstrapRoutes, error) {
+	_ = apply(opts)
 	if deps.Bootstrapper == nil {
 		return nil, fmt.Errorf("%w: rpc: the bootstrap routes need the bootstrapper", domain.ErrInvalidArgument)
 	}
@@ -139,7 +142,8 @@ type bootstrapClient struct {
 var _ cluster.BootstrapPeer = (*bootstrapClient)(nil)
 
 // NewBootstrapClient returns the bootstrap service of another node.
-func NewBootstrapClient(deps BootstrapClientDeps) (cluster.BootstrapPeer, error) {
+func NewBootstrapClient(deps BootstrapClientDeps, opts ...BootstrapClientOption) (cluster.BootstrapPeer, error) {
+	_ = apply(opts)
 	if deps.Conn == nil {
 		return nil, fmt.Errorf("%w: rpc: the bootstrap client needs a connection", domain.ErrInvalidArgument)
 	}

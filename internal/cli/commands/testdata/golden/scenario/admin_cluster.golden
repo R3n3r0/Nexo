@@ -1,0 +1,35 @@
+$ nexoctl admin cluster export mem --output backup.zip
+Exported the state of "mem" to backup.zip (250B).
+
+$ nexoctl admin cluster import mem backup.zip --dry-run
+Would import into "mem" (merge): 1 user(s), 0 group(s), 0 polic(ies), 1 configuration subsystem(s), 0 bucket(s).
+
+$ nexoctl admin cluster import mem backup.zip --mode replace --dry-run
+Would import into "mem" (replace): 1 user(s), 0 group(s), 0 polic(ies), 1 configuration subsystem(s), 0 bucket(s).
+Removed: user:mallory
+
+$ nexoctl admin cluster import mem backup.zip --mode replace
+Imported into "mem" (replace): 1 user(s), 0 group(s), 0 polic(ies), 1 configuration subsystem(s), 0 bucket(s).
+Removed: user:mallory
+
+$ nexoctl admin cluster import mem backup.zip --mode wipe
+! nexoctl: error: --mode must be merge or replace, not "wipe"
+! Run 'nexoctl admin cluster import --help' for usage.
+[exit 2]
+
+$ nexoctl admin cluster import mem junk.zip
+! nexoctl: error: import junk.zip: cluster archive: not a zip file: zip: not a valid zip file (invalid_argument)
+[exit 1]
+
+$ nexoctl admin lock list mem
+RESOURCE                                 TYPE   OWNER                  SERVERS  SINCE
+photos/a.jpg                             write  http://node1:9000      3/4      2026-01-02T03:04:05Z
+
+$ nexoctl admin lock list --json mem
+{"status":"success","alias":"mem","resource":"photos/a.jpg","uid":"u1","owner":"http://node1:9000","type":"write","quorum":3,"since":"2026-01-02T03:04:05Z","refreshed":"2026-01-02T03:04:05Z","servers":3,"total":4}
+
+$ nexoctl admin lock clear mem photos/a.jpg
+Released photos/a.jpg on "mem".
+
+$ nexoctl admin lock list mem
+

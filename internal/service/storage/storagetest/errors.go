@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/google/uuid"
@@ -196,6 +199,17 @@ func testStorageErrors(t *testing.T, f Factory) {
 	assert.ErrorIs(t, s.CreateFile(ctx, "b", "f", -2, strings.NewReader("")), domain.ErrInvalidArgument)
 	err = s.CreateFile(ctx, "b", "f", 10, strings.NewReader("short"))
 	assert.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	// A stream of unknown size cut midway (the reader fails, even with
+	// io.ErrUnexpectedEOF) is an error and leaves no file behind.
+	cut := io.MultiReader(strings.NewReader(strings.Repeat("x", 3<<20)), iotest.ErrReader(io.ErrUnexpectedEOF))
+	assert.ErrorIs(t, s.CreateFile(ctx, "b", "cut", -1, cut), io.ErrUnexpectedEOF)
+	_, err = s.ReadAll(ctx, "b", "cut")
+	assert.ErrorIs(t, err, domain.ErrObjectNotFound, "nothing is left of a cut stream")
+	require.NoError(t, s.CreateFile(ctx, "b", "big", -1, strings.NewReader(strings.Repeat("y", 3<<20+5))))
+	big, err := s.ReadAll(ctx, "b", "big")
+	require.NoError(t, err)
+	assert.Len(t, big, 3<<20+5)
+	require.NoError(t, s.Delete(ctx, "b", "big", storage.DeleteOptions{}))
 	require.NoError(t, s.CreateFile(ctx, "b", "f", 4, strings.NewReader("data and more")))
 	all, err := s.ReadAll(ctx, "b", "f")
 	require.NoError(t, err)
@@ -232,7 +246,8 @@ func testStorageErrors(t *testing.T, f Factory) {
 	require.NoError(t, s.WriteAll(ctx, "b", "broken/"+storage.MetaFile, []byte("garbage")))
 	_, err = s.ReadVersion(ctx, "b", "broken", "", storage.ReadOptions{})
 	assert.ErrorIs(t, err, domain.ErrInvalidFormat)
-	assert.ErrorIs(t, s.WriteMetadata(ctx, "b", "broken", storage.FileInfo{ModTime: now}), domain.ErrInvalidFormat)
+	// A write starts the object over (the document goes to quarantine).
+	assert.NoError(t, s.WriteMetadata(ctx, "b", "broken", storage.FileInfo{ModTime: now}))
 
 	// Volumes holding only empty directories are empty.
 	require.NoError(t, s.MakeVol(ctx, "leftovers"))
@@ -307,4 +322,110 @@ func testSharedDataDirSurvives(t *testing.T, f Factory) {
 	check, err = s.CheckParts(ctx, "b", "nometa", inline)
 	require.NoError(t, err)
 	assert.Equal(t, []int{storage.CheckPartFileNotFound}, check.Results)
+}
+
+// testCorruptMetadataQuarantined: an undecodable xl.meta fails the reads
+// and the in-place updates, but a write that records a version (commit,
+// metadata write, delete marker) or removes one moves it into the
+// quarantine area and starts the object over instead of failing for ever.
+func testCorruptMetadataQuarantined(t *testing.T, f Factory) {
+	ctx := context.Background()
+	s, dir := open(t, f)
+	require.NoError(t, s.MakeVol(ctx, "b"))
+	now := time.Now()
+	corrupt := func(key string) {
+		t.Helper()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "b", key, storage.MetaFile), []byte("garbage, not an xl.meta"), 0o640))
+	}
+	quarantined := func() int {
+		t.Helper()
+		entries, err := os.ReadDir(filepath.Join(dir, domain.SystemBucket, storage.QuarantineDir))
+		if errors.Is(err, os.ErrNotExist) {
+			return 0
+		}
+		require.NoError(t, err)
+		return len(entries)
+	}
+
+	_, err := putObject(ctx, s, "b", "k", "v1", now, []byte("one"))
+	require.NoError(t, err)
+	corrupt("k")
+	_, err = s.ReadVersion(ctx, "b", "k", "", storage.ReadOptions{})
+	require.ErrorIs(t, err, domain.ErrInvalidFormat)
+	err = s.UpdateMetadata(ctx, "b", "k", version("v1", now, 3), storage.UpdateMetadataOptions{})
+	require.ErrorIs(t, err, domain.ErrInvalidFormat, "an update has nothing to update")
+	assert.Equal(t, 0, quarantined())
+
+	// Inline write and commit of a data directory.
+	_, err = putObject(ctx, s, "b", "k", "v2", now.Add(time.Second), []byte("two"))
+	require.NoError(t, err)
+	assert.Equal(t, 1, quarantined())
+	got, err := getObject(ctx, s, "b", "k", "v2")
+	require.NoError(t, err)
+	assert.Equal(t, "two", string(got))
+	_, err = s.ReadVersion(ctx, "b", "k", "v1", storage.ReadOptions{})
+	require.ErrorIs(t, err, domain.ErrNoSuchVersion, "the versions of the corrupt document are gone from this drive")
+	corrupt("k")
+	big := bytes.Repeat([]byte("B"), storage.SmallFileThreshold)
+	_, err = putObject(ctx, s, "b", "k", "v3", now.Add(2*time.Second), big)
+	require.NoError(t, err)
+	assert.Equal(t, 2, quarantined())
+	got, err = getObject(ctx, s, "b", "k", "v3")
+	require.NoError(t, err)
+	assert.Equal(t, big, got)
+
+	// Delete marker, then removal of a version.
+	corrupt("k")
+	marker := storage.FileInfo{VersionID: "m1", ModTime: now.Add(3 * time.Second), MarkDeleted: true, Versioned: true}
+	require.NoError(t, s.DeleteVersion(ctx, "b", "k", marker, storage.DeleteOptions{}))
+	fi, err := s.ReadVersion(ctx, "b", "k", "", storage.ReadOptions{})
+	require.NoError(t, err)
+	assert.True(t, fi.Deleted)
+	assert.Equal(t, 1, fi.NumVersions)
+	corrupt("k")
+	require.NoError(t, s.DeleteVersion(ctx, "b", "k", storage.FileInfo{VersionID: "m1"}, storage.DeleteOptions{}),
+		"the drive no longer holds the version")
+	_, err = s.ReadVersion(ctx, "b", "k", "", storage.ReadOptions{})
+	require.ErrorIs(t, err, domain.ErrObjectNotFound)
+	assert.Equal(t, 4, quarantined())
+}
+
+// testDeleteVersionKeepData: with KeepData, DeleteVersion leaves the data
+// directory of the removed version (or of the null version a delete
+// marker replaces) in place, for the caller to purge or restore.
+func testDeleteVersionKeepData(t *testing.T, f Factory) {
+	ctx := context.Background()
+	s, _ := open(t, f)
+	require.NoError(t, s.MakeVol(ctx, "b"))
+	now := time.Now()
+	big := bytes.Repeat([]byte("K"), storage.SmallFileThreshold)
+	for _, last := range []bool{true, false} {
+		key := fmt.Sprintf("k-%v", last)
+		fi, err := putObject(ctx, s, "b", key, "", now, big)
+		require.NoError(t, err)
+		if !last {
+			_, err = putObject(ctx, s, "b", key, "v2", now.Add(time.Second), []byte("x"))
+			require.NoError(t, err)
+		}
+		require.NoError(t, s.DeleteVersion(ctx, "b", key, storage.FileInfo{}, storage.DeleteOptions{KeepData: true}))
+		_, err = s.ReadVersion(ctx, "b", key, "null", storage.ReadOptions{})
+		require.Error(t, err, "the version is removed")
+		check, err := s.CheckParts(ctx, "b", key, fi)
+		require.NoError(t, err)
+		assert.Equal(t, []int{storage.CheckPartSuccess}, check.Results, "its data stays in place")
+		// Restored by its metadata.
+		require.NoError(t, s.WriteMetadata(ctx, "b", key, fi))
+		got, err := getObject(ctx, s, "b", key, "null")
+		require.NoError(t, err)
+		assert.Equal(t, big, got)
+	}
+
+	// A suspended-versioning delete marker replacing the null version.
+	fi, err := putObject(ctx, s, "b", "m", "", now, big)
+	require.NoError(t, err)
+	marker := storage.FileInfo{ModTime: now.Add(time.Second), MarkDeleted: true, Versioned: true}
+	require.NoError(t, s.DeleteVersion(ctx, "b", "m", marker, storage.DeleteOptions{KeepData: true}))
+	check, err := s.CheckParts(ctx, "b", "m", fi)
+	require.NoError(t, err)
+	assert.Equal(t, []int{storage.CheckPartSuccess}, check.Results)
 }

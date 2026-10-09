@@ -13,7 +13,7 @@ test('TD-E-06 canceling a 200 MiB upload halfway leaves no pending multipart upl
   api,
   nexo,
 }) => {
-  test.setTimeout(90_000);
+  test.setTimeout(180_000);
   const bucket = uniqueName('e2e-cancel');
   await api.createBucket(bucket);
   try {
@@ -24,12 +24,13 @@ test('TD-E-06 canceling a 200 MiB upload halfway leaves no pending multipart upl
     await handle.truncate(200 * MiB);
     await handle.close();
 
-    // The first parts go through; the next ones are held, as on a slow
-    // link, so that the upload is canceled in the middle.
+    // The first part goes through; the next ones are held, as on a slow
+    // link, so that the upload is canceled in the middle. One part only:
+    // the test does not depend on the throughput of a loaded machine.
     const passed: number[] = [];
     const held: Route[] = [];
     await page.route('**/api/v1/buckets/*/uploads/*/parts/*', async (route) => {
-      if (passed.length < 3) {
+      if (passed.length < 1) {
         passed.push(Number(new URL(route.request().url()).pathname.split('/').pop()));
         await route.continue();
         return;
@@ -41,8 +42,10 @@ test('TD-E-06 canceling a 200 MiB upload halfway leaves no pending multipart upl
     await page.getByTestId('upload-files-input').setInputFiles(file);
     const uploads = page.getByRole('region', { name: 'Uploads' });
     await expect(uploads.getByText('big.bin')).toBeVisible();
-    await expect.poll(() => passed.length).toBe(3);
-    await expect.poll(() => held.length).toBeGreaterThan(0);
+    // Generous timeouts: a part is 16 MiB read from the disk by the
+    // browser and sent to the server, slow on a busy CI runner.
+    await expect.poll(() => passed.length, { timeout: 60_000 }).toBe(1);
+    await expect.poll(() => held.length, { timeout: 60_000 }).toBeGreaterThan(0);
 
     // The multipart upload exists on the server while the file is in flight.
     const pending = await api.call<{ items: { key: string; uploadId: string }[] }>(

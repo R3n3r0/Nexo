@@ -3,7 +3,9 @@ package rpc_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -49,7 +51,7 @@ func TestConnCalls(t *testing.T) {
 			http.Error(w, "bad gateway", http.StatusBadGateway)
 		})
 	})
-	addr, _ := startRPC(t, newAuth(t, "server:9000"), routes)
+	addr, _ := startRPC(t, routes)
 	conn := dial(t, newAuth(t, "client:9000"), addr)
 	assert.Equal(t, addr, conn.Node())
 
@@ -87,7 +89,7 @@ func TestConnCalls(t *testing.T) {
 // and the probe reports why the node refuses us.
 func TestConnAuthentication(t *testing.T) {
 	ctx := context.Background()
-	addr, _ := startRPC(t, newAuth(t, "server:9000"))
+	addr, _ := startRPC(t)
 	other, err := rpc.NewAuthenticator(rpc.AuthDeps{Logger: discard()}, rpc.WithCredentials(rootUser, "other-secret"), rpc.WithNodeID("intruder:9000"))
 	require.NoError(t, err)
 	conn := dial(t, other, addr)
@@ -105,10 +107,17 @@ func TestServerWrap(t *testing.T) {
 	h := s.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("s3")) }))
 	for path, want := range map[string]int{"/bucket/key": http.StatusOK, "/nexo/rpc/v1/peer/ping": http.StatusUnauthorized, "/nexo/rpc/v1": http.StatusOK} {
 		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, nil))
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		req.ProtoMajor, req.ProtoMinor = 2, 0
+		h.ServeHTTP(rec, req)
 		assert.Equal(t, want, rec.Code, path)
 	}
+	// The internode calls are HTTP/2 only: an HTTP/1 request (a reverse
+	// proxy, a replayed request) is refused before its token is read.
 	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/nexo/rpc/v1/peer/ping", nil))
+	assert.Equal(t, http.StatusNotImplemented, rec.Code)
+	rec = httptest.NewRecorder()
 	s.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/elsewhere", nil))
 	assert.Equal(t, http.StatusNotImplemented, rec.Code)
 	_, err = rpc.NewServer(rpc.ServerDeps{})
@@ -122,21 +131,67 @@ func TestServerWrap(t *testing.T) {
 // TestConnTLS: with TLS the calls use HTTPS (HTTP/2 negotiated by ALPN).
 func TestConnTLS(t *testing.T) {
 	ctx := context.Background()
-	server, err := rpc.NewServer(rpc.ServerDeps{Auth: newAuth(t, "server:9000"), Logger: discard()})
+	ln := listen(t)
+	addr := ln.Addr().String()
+	server, err := rpc.NewServer(rpc.ServerDeps{Auth: newAuth(t, addr), Logger: discard()})
 	require.NoError(t, err)
 	srv := httptest.NewUnstartedServer(server)
+	_ = srv.Listener.Close()
+	srv.Listener = ln
 	srv.EnableHTTP2 = true
 	srv.StartTLS()
 	t.Cleanup(srv.Close)
 	cfg := srv.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
-	conn := dial(t, newAuth(t, "client:9000"), srv.Listener.Addr().String(), rpc.WithTLSConfig(cfg))
+	conn := dial(t, newAuth(t, "client:9000"), addr, rpc.WithTLSConfig(cfg))
 	var pong struct {
 		Node     string
 		Protocol int
 	}
 	require.NoError(t, conn.Call(ctx, "health/ping", struct{}{}, &pong))
-	assert.Equal(t, "server:9000", pong.Node)
+	assert.Equal(t, addr, pong.Node)
 	assert.Equal(t, rpc.ProtocolVersion, pong.Protocol)
+}
+
+// TestConnDialer: WithDialer routes the connections of the node (the
+// cluster tests put proxies on the links between the nodes); TLS runs
+// over the connections it returns.
+func TestConnDialer(t *testing.T) {
+	ctx := context.Background()
+	addr, _ := startRPC(t)
+	var dialed atomic.Int32
+	var last atomic.Value
+	via := func(ctx context.Context, network, target string) (net.Conn, error) {
+		dialed.Add(1)
+		last.Store(target)
+		return (&net.Dialer{}).DialContext(ctx, network, target)
+	}
+	conn := dial(t, newAuth(t, "client:9000"), addr, rpc.WithDialer(via))
+	var pong struct{ Node string }
+	require.NoError(t, conn.Call(ctx, "health/ping", struct{}{}, &pong))
+	assert.Equal(t, addr, pong.Node)
+	assert.Positive(t, dialed.Load())
+	assert.Equal(t, addr, last.Load(), "the dialer receives the address of the node")
+
+	cut := func(context.Context, string, string) (net.Conn, error) { return nil, errors.New("link cut") }
+	blocked := dial(t, newAuth(t, "client:9000"), addr, rpc.WithDialer(cut))
+	assert.Error(t, blocked.Call(ctx, "health/ping", struct{}{}, &pong))
+
+	// TLS over the dialed connection.
+	ln := listen(t)
+	tlsAddr := ln.Addr().String()
+	server, err := rpc.NewServer(rpc.ServerDeps{Auth: newAuth(t, tlsAddr), Logger: discard()})
+	require.NoError(t, err)
+	srv := httptest.NewUnstartedServer(server)
+	_ = srv.Listener.Close()
+	srv.Listener = ln
+	srv.EnableHTTP2 = true
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+	cfg := srv.Client().Transport.(*http.Transport).TLSClientConfig.Clone()
+	secure := dial(t, newAuth(t, "client:9000"), tlsAddr, rpc.WithTLSConfig(cfg), rpc.WithDialer(via))
+	require.NoError(t, secure.Call(ctx, "health/ping", struct{}{}, &pong))
+	assert.Equal(t, tlsAddr, pong.Node)
+	assert.Equal(t, tlsAddr, last.Load())
 }
 
 // TestConnStreams covers the streamed calls beyond the storage suite:
@@ -150,7 +205,7 @@ func TestConnStreams(t *testing.T) {
 			_, _ = w.Write([]byte{0x81, 0xa1, 'c', 0xad, 'a', 'c', 'c', 'e', 's', 's', '_', 'd', 'e', 'n', 'i', 'e', 'd'})
 		})
 	})
-	addr, _ := startRPC(t, newAuth(t, "server:9000"), routes)
+	addr, _ := startRPC(t, routes)
 	conn := dial(t, newAuth(t, "client:9000"), addr)
 
 	// The node refuses before reading the upload.
@@ -177,7 +232,7 @@ func TestLockOverRPC(t *testing.T) {
 		local = append(local, s)
 		routes, err := rpc.NewLockRoutes(rpc.LockRoutesDeps{Server: s})
 		require.NoError(t, err)
-		addr, _ := startRPC(t, newAuth(t, "server:9000"), routes)
+		addr, _ := startRPC(t, routes)
 		client, err := rpc.NewLockClient(rpc.LockClientDeps{Conn: dial(t, newAuth(t, "client:9000"), addr)})
 		require.NoError(t, err)
 		servers = append(servers, client)

@@ -11,8 +11,9 @@ import { AppShellLayout } from '@/layout/AppShellLayout';
 import { LoginPage, type LoginPageProps } from '@/pages/LoginPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { OverviewPage } from '@/pages/OverviewPage';
+import { clusterRoutes } from '@/pages/clusterRoutes';
 import { iamRoutes } from '@/pages/iamRoutes';
-import { CachePage, ClusterPage, DistributionsPage, MonitoringPage } from '@/pages/placeholders';
+import { CachePage, DistributionsPage, MonitoringPage } from '@/pages/placeholders';
 import { storageRoutes } from '@/pages/storageRoutes';
 import { UploadProvider } from '@/upload/UploadProvider';
 
@@ -48,7 +49,7 @@ export function createRoutes(options: RouteOptions = {}): RouteObject[] {
             ...iamRoutes(),
             { path: 'distributions', element: <DistributionsPage /> },
             { path: 'cache', element: <CachePage /> },
-            { path: 'cluster', element: <ClusterPage /> },
+            ...clusterRoutes(),
             { path: 'monitoring', element: <MonitoringPage /> },
             { path: '*', element: <NotFoundPage /> },
           ],

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/r3n3r0/nexo/internal/domain"
-	"github.com/r3n3r0/nexo/internal/service/erasure"
 	"github.com/r3n3r0/nexo/internal/service/topology"
 )
 
@@ -40,6 +39,9 @@ func NewServerPools(deps PoolsDeps, opts ...Option) (Service, error) {
 	if len(deps.Pools) == 0 {
 		return nil, fmt.Errorf("%w: object: NewServerPools requires at least one pool", domain.ErrInvalidArgument)
 	}
+	if deps.Codecs == nil {
+		return nil, fmt.Errorf("%w: object: NewServerPools requires the erasure codec factory", domain.ErrInvalidArgument)
+	}
 	if deps.Logger == nil {
 		deps.Logger = slog.Default()
 	}
@@ -51,10 +53,6 @@ func NewServerPools(deps PoolsDeps, opts ...Option) (Service, error) {
 		opt(&o)
 	}
 	codecs := deps.Codecs
-	if codecs == nil {
-		codecs = erasure.NewFactory(erasure.Deps{Logger: deps.Logger},
-			erasure.WithDeploymentID(deps.DeploymentID), erasure.WithBlockSize(o.blockSize), erasure.WithHedgeDelay(o.hedgeDelay))
-	}
 	k0, k1 := sipKeys(deps.DeploymentID)
 	pools := make([]*pool, 0, len(deps.Pools))
 	var stores []store
@@ -112,6 +110,7 @@ func NewErasure(deps Deps, opts ...Option) (Service, error) {
 		Heal:         deps.Heal,
 		Buckets:      deps.Buckets,
 		Events:       deps.Events,
+		Codecs:       deps.Codecs,
 		IDs:          deps.IDs,
 		Clock:        deps.Clock,
 		Logger:       deps.Logger,

@@ -3,6 +3,7 @@ package object
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/event"
@@ -47,11 +48,11 @@ func (l *layer) updateTags(ctx context.Context, bucket, key, versionID string, m
 	if err := validObject(bucket, key); err != nil {
 		return domain.ObjectInfo{}, err
 	}
-	lc, err := l.lock(ctx, bucket, key, true)
+	ctx, unlock, err := l.lock(ctx, bucket, key, true)
 	if err != nil {
 		return domain.ObjectInfo{}, err
 	}
-	defer lc.Unlock(ctx)
+	defer unlock()
 	st, err := l.place.forVersion(ctx, bucket, key, versionID)
 	if err != nil {
 		return domain.ObjectInfo{}, fmt.Errorf("%s: tag %s/%s: %w", l.name, bucket, key, err)
@@ -65,6 +66,11 @@ func (l *layer) updateTags(ctx context.Context, bucket, key, versionID string, m
 		meta[k] = v
 	}
 	mutate(meta)
+	stamp := l.now().UnixNano()
+	if prev := metaStamp(fi.Metadata); stamp <= prev {
+		stamp = prev + 1
+	}
+	meta[metaUpdated] = strconv.FormatInt(stamp, 10)
 	fi.Metadata = meta
 	if err := st.UpdateMetadata(ctx, bucket, key, fi); err != nil {
 		return domain.ObjectInfo{}, fmt.Errorf("%s: tag %s/%s: %w", l.name, bucket, key, err)

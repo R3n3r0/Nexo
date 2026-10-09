@@ -4,6 +4,12 @@ date): a second run transfers nothing. Different targets are replaced only with
 --overwrite; --remove deletes what is not in SOURCE. --watch keeps a local
 SOURCE synchronized until Ctrl-C.
 
+--preserve copies every version and delete marker between two buckets, the
+oldest first, with their content type, metadata and tags: with "admin cluster
+export/import" (bucket settings first, so that the target keeps the versions),
+it migrates a deployment to another mode. A second run replays only the newer
+versions of the source.
+
 Usage:
   nexoctl mirror [flags] SOURCE TARGET
 
@@ -11,6 +17,7 @@ Examples:
   nexoctl mirror ./site/ local/website
   nexoctl mirror --remove --overwrite local/photos ./backup/photos
   nexoctl mirror --watch --remove --overwrite ./docs local/docs
+  nexoctl mirror --preserve old/photos new/photos
 
 Flags:
       --attr string             user metadata of the uploaded objects: "key1=value1;key2=value2"
@@ -22,6 +29,7 @@ Flags:
       --overwrite               replace the different files and objects of TARGET
       --parallel int            parts of a multipart upload sent at once (default 4)
       --part-size string        part size of the multipart uploads, 5MiB-5GiB (default: computed from the size)
+      --preserve                copy every version and delete marker between two buckets, with metadata and tags
       --remove                  remove from TARGET what is not in SOURCE
       --tags string             tags of the uploaded objects: "key1=value1&key2=value2"
   -w, --watch                   keep watching a local SOURCE and synchronize its changes

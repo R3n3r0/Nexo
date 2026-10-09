@@ -14,6 +14,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/erasure"
 	"github.com/r3n3r0/nexo/internal/service/storage"
+	"github.com/r3n3r0/nexo/internal/service/topology"
 )
 
 // erasureSet is the store of one erasure set (ErasureObjects): every
@@ -39,10 +40,7 @@ func (e *erasureSet) n() int { return len(e.drives) }
 
 // quorums returns the read and write quorums of a D+P layout.
 func quorums(data, parity int) (read, write int) {
-	if data == parity {
-		return data, data + 1
-	}
-	return data, data
+	return topology.SetQuorums(data+parity, parity)
 }
 
 // readQuorum and writeQuorum are the quorums of the set's default
@@ -95,18 +93,23 @@ func (e *erasureSet) onDrives(fn func(i int, d storage.StorageAPI) error) []erro
 	})
 }
 
-// each runs fn on every online drive and reduces the errors with quorum.
-func (e *erasureSet) each(quorum int, fallback error, fn func(i int, d storage.StorageAPI) error) error {
-	return reduceErrs(e.onDrives(fn), quorum, fallback)
-}
-
-// notify reports bucket/key (version versionID) to the heal notifier.
-// It never blocks on the request context.
+// notify reports bucket/key (version versionID as a request names it: the
+// empty id is the latest version) to the heal notifier. It never blocks on
+// the request context.
 func (e *erasureSet) notify(ctx context.Context, bucket, key, versionID string) {
 	if bucket == domain.SystemBucket {
 		return
 	}
 	e.heal.NotifyHeal(context.WithoutCancel(ctx), bucket, key, versionID)
+}
+
+// notifyStored reports a version by its stored id: the empty id is the
+// null version, reported as "null", which need not be the latest one.
+func (e *erasureSet) notifyStored(ctx context.Context, bucket, key, storedID string) {
+	if storedID == "" {
+		storedID = nullVersion
+	}
+	e.notify(ctx, bucket, key, storedID)
 }
 
 // partial reports whether some drive, online or offline, missed an
@@ -257,7 +260,7 @@ func (e *erasureSet) ReadVersion(ctx context.Context, volume, path, versionID st
 		fi.Data = data
 	}
 	if degraded {
-		e.notify(ctx, volume, path, fi.VersionID)
+		e.notifyStored(ctx, volume, path, fi.VersionID)
 	}
 	return fi, nil
 }
@@ -321,21 +324,86 @@ func (e *erasureSet) UpdateMetadata(ctx context.Context, volume, path string, fi
 	return e.afterWrite(ctx, volume, path, fi.VersionID, errs, e.writeQuorumOf(fi.Erasure))
 }
 
+// DeleteVersion removes a version (or writes a delete marker) on every
+// drive. The data of the removed (or replaced) version stays in place
+// until the delete reached its write quorum: a delete that misses it puts
+// the previous version back on the drives it reached, so that a refused
+// delete never removes a version from fewer drives than its readers need.
+// It fails without touching anything when too few drives are online.
 func (e *erasureSet) DeleteVersion(ctx context.Context, volume, path string, fi storage.FileInfo) error {
-	errs := e.onDrives(func(_ int, d storage.StorageAPI) error {
-		return d.DeleteVersion(ctx, volume, path, fi, storage.DeleteOptions{})
+	quorum := e.writeQuorum()
+	if online, _ := e.Online(); online < quorum {
+		return fmt.Errorf("%w: %s/%s: %d of %d drives online, %d needed", domain.ErrWriteQuorum, volume, path, online, e.n(), quorum)
+	}
+	// The version the delete removes, or the marker replaces, per drive.
+	target := fi.VersionID
+	if target == "" {
+		target = nullVersion
+	}
+	previous := make([]*storage.FileInfo, e.n())
+	_ = e.onDrives(func(i int, d storage.StorageAPI) error {
+		prev, err := d.ReadVersion(ctx, volume, path, target, storage.ReadOptions{ReadData: true})
+		if err == nil {
+			previous[i] = &prev
+		}
+		return nil
 	})
-	return e.afterWrite(ctx, volume, path, fi.VersionID, errs, e.writeQuorum())
+	errs := e.onDrives(func(_ int, d storage.StorageAPI) error {
+		return d.DeleteVersion(ctx, volume, path, fi, storage.DeleteOptions{KeepData: true})
+	})
+	if err := reduceErrs(errs, quorum, domain.ErrWriteQuorum); err != nil {
+		e.undoDelete(ctx, volume, path, fi, errs, previous)
+		return err
+	}
+	if partial(errs) {
+		e.notifyStored(ctx, volume, path, fi.VersionID)
+	}
+	olds := make([]string, e.n())
+	for i, prev := range previous {
+		if prev != nil {
+			olds[i] = prev.DataDir
+		}
+	}
+	e.purgeReplaced(ctx, volume, path, "", errs, olds)
+	return nil
 }
 
-// afterWrite reduces the errors of a metadata write and reports a write
-// that reached its quorum but not every online drive.
-func (e *erasureSet) afterWrite(ctx context.Context, volume, path, versionID string, errs []error, quorum int) error {
+// undoDelete puts back, on the drives where a delete that missed its
+// quorum succeeded, the version it removed (its data was kept), or removes
+// the delete marker it added.
+func (e *erasureSet) undoDelete(ctx context.Context, volume, path string, fi storage.FileInfo, errs []error, previous []*storage.FileInfo) {
+	ctx = context.WithoutCancel(ctx)
+	_ = parallel(e.n(), func(i int) error {
+		if errs[i] != nil {
+			return nil
+		}
+		d := e.drives[i]
+		var err error
+		switch prev := previous[i]; {
+		case prev != nil:
+			err = d.WriteMetadata(ctx, volume, path, *prev)
+		case fi.MarkDeleted:
+			err = d.DeleteVersion(ctx, volume, path, storage.FileInfo{VersionID: fi.VersionID}, storage.DeleteOptions{})
+		default:
+			err = errors.New("the removed version could not be read beforehand")
+		}
+		if err != nil {
+			e.logger.WarnContext(ctx, "object: cannot roll back a failed delete", "bucket", volume, "key", path, "drive", i+1, "err", err)
+			e.notifyStored(ctx, volume, path, fi.VersionID)
+		}
+		return nil
+	})
+}
+
+// afterWrite reduces the errors of a metadata write of the version with
+// stored id storedID and reports a write that reached its quorum but not
+// every online drive.
+func (e *erasureSet) afterWrite(ctx context.Context, volume, path, storedID string, errs []error, quorum int) error {
 	if err := reduceErrs(errs, quorum, domain.ErrWriteQuorum); err != nil {
 		return err
 	}
 	if partial(errs) {
-		e.notify(ctx, volume, path, versionID)
+		e.notifyStored(ctx, volume, path, storedID)
 	}
 	return nil
 }
@@ -452,10 +520,12 @@ func (e *erasureSet) cleanup(ctx context.Context, dir string) {
 }
 
 // CommitData renames the staged data and the new metadata into place on
-// every drive. When the write quorum is missed, the drives that committed
-// are rolled back: the data directory goes back to tmpDir and the
-// metadata to its previous state, so that no partial version is visible.
-func (e *erasureSet) CommitData(ctx context.Context, tmpDir string, fi storage.FileInfo, volume, path string) (string, error) {
+// every drive that holds the whole staged data. When the write quorum is
+// missed, the drives that committed are rolled back: the data directory
+// goes back to tmpDir and the metadata to its previous state, so that no
+// partial version is visible. Once the quorum is met, every drive that
+// committed purges the data directory of the version it replaced.
+func (e *erasureSet) CommitData(ctx context.Context, tmpDir string, fi storage.FileInfo, volume, path string) error {
 	if fi.Data != nil {
 		if codec, err := e.codecFor(ctx, fi.Erasure); err == nil {
 			fi.Erasure.Checksums = []storage.ChecksumInfo{{PartNumber: 1, Algorithm: erasure.BitrotAlgorithm, Hash: codec.BitrotSum(fi.Data)}}
@@ -468,6 +538,11 @@ func (e *erasureSet) CommitData(ctx context.Context, tmpDir string, fi storage.F
 		fi.Erasure.Checksums = sums
 	}
 	quorum := e.writeQuorumOf(fi.Erasure)
+	staged := e.stagedParts(ctx, tmpDir, fi)
+	if ready := e.n() - countErrs(staged); ready < quorum {
+		return fmt.Errorf("%w: %s/%s: the staged data is complete on %d of %d drives, %d needed",
+			domain.ErrWriteQuorum, volume, path, ready, e.n(), quorum)
+	}
 	// The version this commit may replace (the null version, or a forced
 	// id), per drive, to restore it if the commit has to be undone.
 	previous := make([]*storage.FileInfo, e.n())
@@ -476,6 +551,9 @@ func (e *erasureSet) CommitData(ctx context.Context, tmpDir string, fi storage.F
 		replaced = nullVersion
 	}
 	_ = e.onDrives(func(i int, d storage.StorageAPI) error {
+		if staged[i] != nil {
+			return nil
+		}
 		prev, err := d.ReadVersion(ctx, volume, path, replaced, storage.ReadOptions{ReadData: true})
 		if err == nil {
 			previous[i] = &prev
@@ -484,23 +562,96 @@ func (e *erasureSet) CommitData(ctx context.Context, tmpDir string, fi storage.F
 	})
 	olds := make([]string, e.n())
 	errs := e.onDrives(func(i int, d storage.StorageAPI) error {
+		if staged[i] != nil {
+			return staged[i]
+		}
 		res, err := d.RenameData(ctx, domain.SystemBucket, tmpDir, forDrive(fi, i), volume, path, storage.RenameOptions{})
 		olds[i] = res.OldDataDir
 		return err
 	})
 	if err := reduceErrs(errs, quorum, domain.ErrWriteQuorum); err != nil {
 		e.undoCommit(ctx, tmpDir, fi, volume, path, errs, previous)
-		return "", err
+		return err
 	}
 	if partial(errs) {
-		e.notify(ctx, volume, path, fi.VersionID)
+		e.notifyStored(ctx, volume, path, fi.VersionID)
 	}
-	for i, err := range errs {
-		if err == nil && olds[i] != "" {
-			return olds[i], nil
+	e.purgeReplaced(ctx, volume, path, fi.DataDir, errs, olds)
+	return nil
+}
+
+// countErrs returns the number of non-nil errors.
+func countErrs(errs []error) int {
+	n := 0
+	for _, err := range errs {
+		if err != nil {
+			n++
 		}
 	}
-	return "", nil
+	return n
+}
+
+// stagedParts checks, drive by drive, that tmpDir holds every part of fi
+// with the size of its shard file. A drive that missed a part (a failed
+// shard write, a failed move of a multipart part) must neither count
+// towards the quorum of the commit nor receive metadata naming data it
+// does not have: it is left to the healing.
+func (e *erasureSet) stagedParts(ctx context.Context, tmpDir string, fi storage.FileInfo) []error {
+	out := make([]error, e.n())
+	if fi.DataDir == "" || len(fi.Parts) == 0 {
+		return out
+	}
+	codec, err := e.codecFor(ctx, fi.Erasure)
+	if err != nil {
+		return out // the commit refuses the layout on every drive
+	}
+	errs := e.onDrives(func(i int, d storage.StorageAPI) error {
+		infos, err := d.StatInfoFile(ctx, domain.SystemBucket, tmpDir+"/"+partPrefix+"*", true)
+		if err != nil {
+			return err
+		}
+		sizes := make(map[string]int64, len(infos))
+		for _, info := range infos {
+			sizes[info.Name] = info.Size
+		}
+		for _, p := range fi.Parts {
+			want := codec.BitrotFileSize(p.Size)
+			if want == 0 {
+				continue // an empty part has no shard data to read
+			}
+			if got, ok := sizes[tmpDir+"/"+partName(p.Number)]; !ok || got != want {
+				return fmt.Errorf("%w: pool %d set %d drive %d: staged part %d is missing or truncated",
+					domain.ErrFaultyDisk, e.poolIdx+1, e.setIdx+1, i+1, p.Number)
+			}
+		}
+		return nil
+	})
+	copy(out, errs)
+	return out
+}
+
+// purgeReplaced removes, on every drive that committed, the data directory
+// of the version the commit replaced there (drives may disagree on it).
+// The commit is done: the replaced data goes even when the client went
+// away, but not when the namespace lock was lost, since another writer may
+// then be committing the same key.
+func (e *erasureSet) purgeReplaced(ctx context.Context, volume, path, current string, errs []error, olds []string) {
+	if lockLost(ctx) {
+		e.logger.WarnContext(ctx, "object: lock lost after the commit, replaced data left in place", "bucket", volume, "key", path)
+		return
+	}
+	ctx = context.WithoutCancel(ctx)
+	_ = parallel(e.n(), func(i int) error {
+		if errs[i] != nil || olds[i] == "" || olds[i] == current {
+			return nil
+		}
+		err := e.drives[i].Delete(ctx, volume, storage.ObjectDataDir(path, olds[i]), storage.DeleteOptions{Recursive: true})
+		if err != nil && !isNotFound(err) {
+			e.logger.WarnContext(ctx, "object: cannot purge replaced data", "bucket", volume, "key", path,
+				"data_dir", olds[i], "drive", i+1, "err", err)
+		}
+		return nil
+	})
 }
 
 // undoCommit reverts the drives where a commit that missed its quorum
@@ -525,7 +676,7 @@ func (e *erasureSet) undoCommit(ctx context.Context, tmpDir string, fi storage.F
 		}
 		if err != nil {
 			e.logger.WarnContext(ctx, "object: cannot roll back a failed commit", "bucket", volume, "key", path, "drive", i+1, "err", err)
-			e.notify(ctx, volume, path, fi.VersionID)
+			e.notifyStored(ctx, volume, path, fi.VersionID)
 		}
 		return nil
 	})
@@ -603,10 +754,10 @@ func (d *decodeReader) Close() error {
 	return err
 }
 
-// afterRead reports the shards a read found damaged (missing file, bitrot,
-// truncated): the response was served from the others, the object needs
-// healing.
-func (e *erasureSet) afterRead(ctx context.Context, volume, path, versionID string, shardErrs []error) {
+// afterRead reports the shards a read of the version with stored id
+// storedID found damaged (missing file, bitrot, truncated): the response
+// was served from the others, the object needs healing.
+func (e *erasureSet) afterRead(ctx context.Context, volume, path, storedID string, shardErrs []error) {
 	damaged := false
 	for i, err := range shardErrs {
 		if err == nil || errors.Is(err, domain.ErrDiskNotFound) || errors.Is(err, context.Canceled) ||
@@ -619,7 +770,7 @@ func (e *erasureSet) afterRead(ctx context.Context, volume, path, versionID stri
 		}
 	}
 	if damaged {
-		e.notify(ctx, volume, path, versionID)
+		e.notifyStored(ctx, volume, path, storedID)
 	}
 }
 
@@ -634,7 +785,7 @@ func (e *erasureSet) ReadAll(ctx context.Context, path string) ([]byte, error) {
 		contents[i] = data
 		return err
 	})
-	best, bestCount := -1, 0
+	best, bestCount, withQuorum := -1, 0, 0
 	counts := make([]int, e.n())
 	for i, err := range errs {
 		if err != nil {
@@ -643,12 +794,20 @@ func (e *erasureSet) ReadAll(ctx context.Context, path string) ([]byte, error) {
 		for j := 0; j <= i; j++ {
 			if errs[j] == nil && bytes.Equal(contents[i], contents[j]) {
 				counts[j]++
+				if counts[j] == e.readQuorum() {
+					withQuorum++
+				}
 				if counts[j] > bestCount {
 					best, bestCount = j, counts[j]
 				}
 				break
 			}
 		}
+	}
+	if withQuorum > 1 {
+		// Two contents each on a read quorum (D == P): which one was
+		// acknowledged cannot be told, the drive order must not decide.
+		return nil, fmt.Errorf("%w: %s: two contents each on %d drives", domain.ErrReadQuorum, path, e.readQuorum())
 	}
 	if best >= 0 && bestCount >= e.readQuorum() {
 		return contents[best], nil
@@ -659,10 +818,57 @@ func (e *erasureSet) ReadAll(ctx context.Context, path string) ([]byte, error) {
 	return nil, fmt.Errorf("%w: %s: drives disagree", domain.ErrReadQuorum, path)
 }
 
+// WriteAll writes a system file on every drive. A write that misses its
+// quorum is rolled back: the drives it reached get their previous content
+// back (or lose the file when they had none), so that a refused write
+// never becomes visible, nor ties with the acknowledged content (D == P).
 func (e *erasureSet) WriteAll(ctx context.Context, path string, data []byte) error {
-	return e.each(e.writeQuorum(), domain.ErrWriteQuorum, func(_ int, d storage.StorageAPI) error {
+	type prior struct {
+		data   []byte
+		absent bool
+	}
+	previous := make([]*prior, e.n())
+	_ = e.onDrives(func(i int, d storage.StorageAPI) error {
+		old, err := d.ReadAll(ctx, domain.SystemBucket, path)
+		switch {
+		case err == nil:
+			previous[i] = &prior{data: old}
+		case isNotFound(err):
+			previous[i] = &prior{absent: true}
+		}
+		return nil
+	})
+	errs := e.onDrives(func(_ int, d storage.StorageAPI) error {
 		return d.WriteAll(ctx, domain.SystemBucket, path, data)
 	})
+	err := reduceErrs(errs, e.writeQuorum(), domain.ErrWriteQuorum)
+	if err == nil {
+		return nil
+	}
+	rctx := context.WithoutCancel(ctx)
+	_ = parallel(e.n(), func(i int) error {
+		if errs[i] != nil {
+			return nil
+		}
+		d, prev := e.drives[i], previous[i]
+		var rerr error
+		switch {
+		case prev == nil:
+			rerr = errors.New("previous content unknown")
+		case prev.absent:
+			rerr = d.Delete(rctx, domain.SystemBucket, path, storage.DeleteOptions{})
+			if isNotFound(rerr) {
+				rerr = nil
+			}
+		default:
+			rerr = d.WriteAll(rctx, domain.SystemBucket, path, prev.data)
+		}
+		if rerr != nil {
+			e.logger.WarnContext(rctx, "object: cannot roll back a refused system write", "path", path, "drive", i+1, "err", rerr)
+		}
+		return nil
+	})
+	return err
 }
 
 func (e *erasureSet) DeletePath(ctx context.Context, volume, path string, recursive bool) error {
@@ -692,9 +898,168 @@ func (e *erasureSet) DeletePath(ctx context.Context, volume, path string, recurs
 // errNotFoundOK marks a delete that found nothing to remove.
 var errNotFoundOK = errors.New("object: nothing to delete")
 
-func (e *erasureSet) RenameFile(ctx context.Context, srcPath, dstPath string) error {
-	return e.each(e.writeQuorum(), domain.ErrWriteQuorum, func(_ int, d storage.StorageAPI) error {
-		return d.RenameFile(ctx, domain.SystemBucket, srcPath, domain.SystemBucket, dstPath)
+// MoveFiles implements store. The quorum is the one of the layout the
+// moved files belong to (the parts of an upload are written with the
+// layout of its storage class), so that a part is never acknowledged on
+// fewer drives than its decoding needs.
+func (e *erasureSet) MoveFiles(ctx context.Context, moves []fileMove, ei storage.ErasureInfo) error {
+	errs := e.onDrives(func(_ int, d storage.StorageAPI) error {
+		return moveAll(ctx, d, moves, e.logger)
+	})
+	if err := reduceErrs(errs, e.writeQuorumOf(ei), domain.ErrWriteQuorum); err != nil {
+		e.UndoMoves(ctx, moves)
+		return err
+	}
+	return nil
+}
+
+// StageParts implements store.
+func (e *erasureSet) StageParts(ctx context.Context, moves []fileMove, stagingDir string, fi storage.FileInfo) error {
+	if len(moves) != len(fi.Parts) {
+		return fmt.Errorf("%w: %d moves for %d parts", domain.ErrInvalidArgument, len(moves), len(fi.Parts))
+	}
+	codec, err := e.codecFor(ctx, fi.Erasure)
+	if err != nil {
+		return err
+	}
+	n := e.n()
+	moveErrs := make([][]error, n)
+	_ = e.onDrives(func(i int, d storage.StorageAPI) error {
+		errs := make([]error, len(moves))
+		for j, m := range moves {
+			errs[j] = d.RenameFile(ctx, domain.SystemBucket, m.src, domain.SystemBucket, m.dst)
+		}
+		moveErrs[i] = errs
+		return nil
+	})
+	// The size of every staged shard file, per drive.
+	sizes := make([]map[string]int64, n)
+	statErrs := e.onDrives(func(i int, d storage.StorageAPI) error {
+		infos, err := d.StatInfoFile(ctx, domain.SystemBucket, stagingDir+"/"+partPrefix+"*", true)
+		if err != nil && !isNotFound(err) {
+			return err
+		}
+		sizes[i] = make(map[string]int64, len(infos))
+		for _, info := range infos {
+			sizes[i][info.Name] = info.Size
+		}
+		return nil
+	})
+	data := codec.DataShards()
+	for j, p := range fi.Parts {
+		dst := moves[j].dst
+		want := codec.BitrotFileSize(p.Size)
+		holders := make([]bool, n)
+		count, unknown := 0, 0
+		var targets []int
+		for i := range n {
+			if statErrs[i] != nil {
+				unknown++ // offline or failing: it may hold the part
+				continue
+			}
+			if got, ok := sizes[i][dst]; ok && got == want {
+				holders[i] = true
+				count++
+				continue
+			}
+			targets = append(targets, i)
+			if merr := moveErrs[i]; merr != nil && merr[j] != nil && !isNotFound(merr[j]) {
+				unknown++ // the move failed: the part may be at its source
+			}
+		}
+		if count < data {
+			if count+unknown < data {
+				return fmt.Errorf("%w: part %d is held by %d of %d drives, %d needed to decode it",
+					domain.ErrObjectNotFound, p.Number, count, n, data)
+			}
+			return fmt.Errorf("%w: part %d is held by %d of %d reachable drives, %d needed to decode it",
+				domain.ErrWriteQuorum, p.Number, count, n-unknown, data)
+		}
+		if len(targets) == 0 {
+			continue
+		}
+		errs, err := e.healShards(ctx, codec, fi.Erasure, p.Size, holders, domain.SystemBucket, dst, targets, dst)
+		if err != nil {
+			e.logger.WarnContext(ctx, "object: cannot rebuild a part of a multipart completion", "part", p.Number, "err", err)
+			continue
+		}
+		for _, i := range targets {
+			if errs[i] != nil {
+				e.logger.WarnContext(ctx, "object: cannot rebuild a part of a multipart completion on a drive",
+					"part", p.Number, "drive", i+1, "err", errs[i])
+			}
+		}
+	}
+	return nil
+}
+
+// healShards rebuilds the shard file of one part (layout ei, size logical
+// bytes) on the target drives, at dstPath of the system volume, from the
+// shard files srcVolume/srcPath of the source drives. It returns the
+// error of every drive (nil for the targets written), or an error when the
+// part could not be decoded.
+func (e *erasureSet) healShards(ctx context.Context, codec erasure.Codec, ei storage.ErasureInfo, size int64, sources []bool,
+	srcVolume, srcPath string, targets []int, dstPath string,
+) ([]error, error) {
+	readers := make([]erasure.ShardReader, e.n())
+	for i, d := range e.drives {
+		if !sources[i] || !isOnline(d) {
+			continue
+		}
+		readers[shardOf(ei, i)] = codec.BitrotReader(ctx, func(ctx context.Context, off int64) (io.ReadCloser, error) {
+			return d.ReadFileStream(ctx, srcVolume, srcPath, off, -1)
+		})
+	}
+	defer func() {
+		for _, r := range readers {
+			if r != nil {
+				_ = r.Close()
+			}
+		}
+	}()
+	writers := make([]io.Writer, e.n())
+	pipes := make([]*io.PipeWriter, e.n())
+	errs := make([]error, e.n())
+	var wg sync.WaitGroup
+	for _, i := range targets {
+		pr, pw := io.Pipe()
+		pipes[i] = pw
+		writers[shardOf(ei, i)] = codec.BitrotWriter(ctx, pw)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := e.drives[i].CreateFile(ctx, domain.SystemBucket, dstPath, -1, &shardStream{PipeReader: pr})
+			if err != nil {
+				_ = pr.CloseWithError(err)
+			} else {
+				_ = pr.Close()
+			}
+			errs[i] = err
+		}()
+	}
+	_, herr := codec.Heal(ctx, writers, readers, size)
+	for _, pw := range pipes {
+		if pw == nil {
+			continue
+		}
+		if herr != nil {
+			_ = pw.CloseWithError(herr)
+		} else {
+			_ = pw.Close()
+		}
+	}
+	wg.Wait()
+	if herr != nil {
+		return nil, herr
+	}
+	return errs, nil
+}
+
+// UndoMoves implements store.
+func (e *erasureSet) UndoMoves(ctx context.Context, moves []fileMove) {
+	_ = e.onDrives(func(_ int, d storage.StorageAPI) error {
+		undoMoves(ctx, d, moves, e.logger)
+		return nil
 	})
 }
 

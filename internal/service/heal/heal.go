@@ -328,20 +328,26 @@ func (s *service) mrfWorker(ctx context.Context) {
 		// size checks are enough.
 		opts := object.HealOptions{Deep: e.Attempts == 0, Remove: s.opts.mrfRemove}
 		r, err := s.deps.Healer.HealObject(ctx, e.Bucket, e.Object, e.VersionID, opts)
-		retry := false
-		switch {
-		case err == nil && r.Offline > 0:
-			// A drive of the set is still offline: heal it once back.
-			retry = true
-		case err == nil, gone(err), errors.Is(err, domain.ErrBucketNotFound):
-		default:
-			retry = ctx.Err() == nil
-			s.deps.Logger.Debug("heal: MRF heal failed", "bucket", e.Bucket, "object", e.Object, "version_id", e.VersionID,
-				"attempt", e.Attempts+1, "err", err)
-		}
 		if err == nil && r.Healed > 0 {
 			s.deps.Logger.Debug("heal: MRF healed", "bucket", e.Bucket, "object", e.Object, "version_id", e.VersionID, "drives", r.Healed)
 		}
-		s.deps.Queue.Done(context.WithoutCancel(ctx), e, retry)
+		done := context.WithoutCancel(ctx)
+		switch {
+		case ctx.Err() != nil:
+			// Interrupted by the shutdown: the entry is not healed, it
+			// stays queued (and persisted) for the next run.
+			s.deps.Queue.Release(done, e, false)
+			return
+		case err == nil && r.Offline > 0:
+			// A drive of the set is still offline: heal it once back,
+			// however long it stays away.
+			s.deps.Queue.Release(done, e, true)
+		case err == nil, gone(err), errors.Is(err, domain.ErrBucketNotFound):
+			s.deps.Queue.Done(done, e, false)
+		default:
+			s.deps.Logger.Debug("heal: MRF heal failed", "bucket", e.Bucket, "object", e.Object, "version_id", e.VersionID,
+				"attempt", e.Attempts+1, "err", err)
+			s.deps.Queue.Done(done, e, true)
+		}
 	}
 }

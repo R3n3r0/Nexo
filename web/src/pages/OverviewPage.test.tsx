@@ -3,15 +3,39 @@ import { describe, expect, it } from 'vitest';
 
 import { summariseServerInfo } from '@/lib/serverInfo';
 import { ApiError } from '@/services';
-import { createMockServices, sampleServerInfo } from '@/services/mock';
+import { createMockServices, sampleClusterInfo, sampleServerInfo } from '@/services/mock';
 import { renderRoutes, renderWithProviders } from '@/test/render';
 
 import { capacityOf, OverviewPage, topBuckets } from './OverviewPage';
 
+const overviewRoute = [{ path: '/', element: <OverviewPage /> }];
+
 describe('OverviewPage (D-DASH-01)', () => {
+  it('summarizes the health of a cluster and links to the cluster page', async () => {
+    renderRoutes(overviewRoute, {
+      services: createMockServices({ info: sampleClusterInfo(), initialAccessKey: 'nexoadmin' }),
+    });
+    const status = await screen.findByRole('region', { name: 'Cluster health' });
+    expect(within(status).getByText('Degraded')).toBeInTheDocument();
+    expect(status).toHaveTextContent(
+      'Nodes online: 3 of 4 · drives online: 6 of 8 · healthy erasure sets: 0 of 1',
+    );
+    expect(status).toHaveTextContent('1 node offline');
+    expect(within(status).getByText('nexo2:9000')).toBeInTheDocument();
+    expect(status).toHaveTextContent(
+      '1 drive(s) healing, 2 object(s) waiting for the background healing.',
+    );
+    expect(status).toHaveTextContent('Clock skew up to 2.60 s on nexo4:9000.');
+    expect(within(status).getByRole('link', { name: 'Open the cluster page' })).toHaveAttribute(
+      'href',
+      '/cluster',
+    );
+    expect(screen.getByText('Distributed cluster')).toBeInTheDocument();
+  });
+
   it('renders the stat tiles from InfoService', async () => {
     const info = sampleServerInfo({ version: '1.4.2', buckets: 42, objects: 12_840 });
-    renderWithProviders(<OverviewPage />, {
+    renderRoutes(overviewRoute, {
       services: createMockServices({ info, initialAccessKey: 'nexoadmin' }),
     });
     expect(await screen.findByText('1.4.2')).toBeInTheDocument();
@@ -26,7 +50,7 @@ describe('OverviewPage (D-DASH-01)', () => {
   });
 
   it('shows the capacity, the drives and the usage per bucket', async () => {
-    renderWithProviders(<OverviewPage />, {
+    renderRoutes(overviewRoute, {
       services: createMockServices({ initialAccessKey: 'nexoadmin' }),
     });
     const capacity = await screen.findByRole('region', { name: 'Capacity' });

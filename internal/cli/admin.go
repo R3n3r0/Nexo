@@ -64,6 +64,15 @@ type AdminClient interface {
 	ExportConfig(ctx context.Context) ([]byte, error)
 	ImportConfig(ctx context.Context, data []byte) error
 
+	// Cluster state (S-OPS-15, C-ADM-13): IAM, policies, configuration and
+	// bucket settings in one zip archive.
+	ExportCluster(ctx context.Context) ([]byte, error)
+	ImportCluster(ctx context.Context, archive []byte, opts nexoadmin.ImportClusterOptions) (*nexoadmin.ClusterImportResult, error)
+
+	// Namespace locks (docs/03 §3.6: admin lock list/clear).
+	ListLocks(ctx context.Context) ([]nexoadmin.Lock, error)
+	ForceUnlock(ctx context.Context, resources ...string) error
+
 	// Bucket settings of the Admin API (C-OBJ-09: quota, encrypt).
 	GetBucketQuota(ctx context.Context, bucket string) (*nexoadmin.BucketQuota, error)
 	SetBucketQuota(ctx context.Context, bucket string, quota nexoadmin.BucketQuota) (*nexoadmin.BucketQuota, error)

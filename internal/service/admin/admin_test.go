@@ -13,6 +13,8 @@ import (
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/admin"
+	"github.com/r3n3r0/nexo/internal/service/cluster"
+	clustermock "github.com/r3n3r0/nexo/internal/service/cluster/mock"
 	"github.com/r3n3r0/nexo/internal/service/heal"
 	healmock "github.com/r3n3r0/nexo/internal/service/heal/mock"
 	objectmock "github.com/r3n3r0/nexo/internal/service/object/mock"
@@ -65,7 +67,13 @@ func TestServerInfo(t *testing.T) {
 	assert.Equal(t, start, info.StartedAt)
 	assert.Equal(t, 90*time.Second, info.Uptime)
 	require.Len(t, info.Pools, 1)
+	// 2 drives without parity: both needed; the broken one makes the set
+	// unavailable.
+	assert.Equal(t, 2, info.Pools[0].ReadQuorum)
+	assert.Equal(t, 2, info.Pools[0].WriteQuorum)
+	assert.Equal(t, []domain.ErasureSetInfo{{Index: 0, Drives: 2, Online: 1, Offline: 1, State: domain.SetStateUnavailable}}, info.Pools[0].ErasureSets)
 	require.Len(t, info.Nodes, 1)
+	assert.True(t, info.Nodes[0].Local)
 	require.Len(t, info.Nodes[0].Disks, 2)
 	d1, d2 := info.Nodes[0].Disks[0], info.Nodes[0].Disks[1]
 	assert.Equal(t, "/data1", d1.Path)
@@ -209,4 +217,113 @@ func TestServerInfoHealingProgress(t *testing.T) {
 	assert.Equal(t, domain.StateHealing, disk.State)
 	require.NotNil(t, disk.HealingProgress)
 	assert.Equal(t, domain.HealingProgress{Started: started, Bucket: "b", Object: "k", ObjectsHealed: 7, HealedBuckets: 1}, *disk.HealingProgress)
+}
+
+// TestServerInfoCluster: a distributed deployment reports every node,
+// this one first with its own drives, the unreachable ones offline, the
+// clock offset of the peers that answer and the state of the erasure
+// sets; a failure to reach the peers falls back to this node.
+func TestServerInfoCluster(t *testing.T) {
+	ep, _ := domain.ParseEndpoint("http://n1:9000/data1")
+	d := storagemock.NewStorageAPI(t)
+	d.EXPECT().Endpoint().Return(ep)
+	d.EXPECT().DiskInfo(mock.Anything, storage.DiskInfoOptions{}).Return(domain.DiskInfo{Endpoint: ep.String(), State: domain.StateOnline, Total: 10}, nil)
+	d.EXPECT().Healing().Return(nil)
+	peers := clustermock.NewInfo(t)
+	disk := func(node string, set int, state string) domain.DiskInfo {
+		return domain.DiskInfo{Endpoint: "http://" + node + "/data1", SetIdx: set, State: state, Healing: state == domain.StateHealing}
+	}
+	queue := &domain.HealQueueStats{Pending: 3, Healed: 4}
+	nodes := []domain.NodeInfo{
+		{Endpoint: "n1:9000", State: domain.StateOnline, Local: true, Disks: []domain.DiskInfo{{Endpoint: ep.String()}}, HealQueue: queue},
+		{Endpoint: "n2:9000", State: domain.StateOffline, Disks: []domain.DiskInfo{disk("n2:9000", 0, domain.StateOffline), disk("n2:9000", 1, domain.StateOffline)}},
+		{Endpoint: "n3:9000", State: domain.StateOnline, Disks: []domain.DiskInfo{disk("n3:9000", 0, domain.StateHealing), disk("n3:9000", 1, domain.StateOnline)}},
+		{Endpoint: "n4:9000", State: domain.StateOnline, Disks: []domain.DiskInfo{disk("n4:9000", 0, domain.StateOnline), disk("n4:9000", 1, domain.StateOffline)}},
+	}
+	peers.EXPECT().Nodes(mock.Anything).Return(nodes, nil).Once()
+	peers.EXPECT().ClockSkew(mock.Anything).Return([]cluster.Skew{
+		{NodeID: "n2:9000", Err: "offline"},
+		{NodeID: "n3:9000", Offset: 3 * time.Second, RTT: time.Millisecond, Exceeded: true},
+		{NodeID: "n4:9000", Offset: -20 * time.Millisecond, RTT: 2 * time.Millisecond},
+	}, nil).Once()
+	svc := admin.New(admin.Deps{Mode: domain.ModeDistributed, Drives: []storage.StorageAPI{d}, Cluster: peers,
+		Pools: []domain.PoolInfo{{Index: 0, Sets: 2, DrivesPerSet: 4, Parity: 2}}})
+
+	info, err := svc.ServerInfo(context.Background())
+	require.NoError(t, err)
+	require.Len(t, info.Nodes, 4)
+	assert.Equal(t, "n1:9000", info.Nodes[0].Endpoint)
+	assert.True(t, info.Nodes[0].Local)
+	assert.Equal(t, uint64(10), info.Nodes[0].Disks[0].Total, "this node reports its own drives")
+	assert.Equal(t, queue, info.Nodes[0].HealQueue)
+	assert.Equal(t, domain.StateOffline, info.Nodes[1].State)
+	assert.Nil(t, info.Nodes[0].ClockSkew, "the reference clock")
+	assert.Nil(t, info.Nodes[1].ClockSkew, "an unreachable node has no measure")
+	assert.Equal(t, &domain.ClockSkew{Offset: 3 * time.Second, RTT: time.Millisecond, Exceeded: true}, info.Nodes[2].ClockSkew)
+	assert.Equal(t, &domain.ClockSkew{Offset: -20 * time.Millisecond, RTT: 2 * time.Millisecond}, info.Nodes[3].ClockSkew)
+
+	// 2 sets of 4 drives with parity 2: D == P, so 2 to read and 3 to
+	// write. Set 0: n1 online, n2 offline, n3 healing, n4 online;
+	// set 1: n2 and n4 offline, n3 online.
+	require.Len(t, info.Pools, 1)
+	pool := info.Pools[0]
+	assert.Equal(t, 2, pool.ReadQuorum)
+	assert.Equal(t, 3, pool.WriteQuorum)
+	assert.Equal(t, []domain.ErasureSetInfo{
+		{Index: 0, Drives: 4, Online: 3, Offline: 1, Healing: 1, State: domain.SetStateDegraded},
+		{Index: 1, Drives: 4, Online: 1, Offline: 3, State: domain.SetStateUnavailable},
+	}, pool.ErasureSets)
+
+	peers.EXPECT().Nodes(mock.Anything).Return(nil, errors.New("unreachable")).Once()
+	peers.EXPECT().ClockSkew(mock.Anything).Return(nil, errors.New("unreachable")).Once()
+	info, err = svc.ServerInfo(context.Background())
+	require.NoError(t, err)
+	require.Len(t, info.Nodes, 1)
+	assert.Equal(t, "local", info.Nodes[0].Endpoint)
+}
+
+// TestPoolStates covers the quorum rule and the set states.
+func TestPoolStates(t *testing.T) {
+	tests := []struct {
+		name                string
+		drives, parity      int
+		online, healing     int
+		wantRead, wantWrite int
+		want                string
+	}{
+		{"single drive", 1, 0, 1, 0, 1, 1, domain.SetStateOK},
+		{"single drive gone", 1, 0, 0, 0, 1, 1, domain.SetStateUnavailable},
+		{"16 drives EC:4 all online", 16, 4, 16, 0, 12, 12, domain.SetStateOK},
+		{"16 drives EC:4 one healing", 16, 4, 16, 1, 12, 12, domain.SetStateDegraded},
+		{"16 drives EC:4 four offline", 16, 4, 12, 0, 12, 12, domain.SetStateDegraded},
+		{"16 drives EC:4 five offline", 16, 4, 11, 0, 12, 12, domain.SetStateUnavailable},
+		{"8 drives EC:4 three offline", 8, 4, 5, 0, 4, 5, domain.SetStateDegraded},
+		{"8 drives EC:4 four offline", 8, 4, 4, 0, 4, 5, domain.SetStateReadOnly},
+		{"8 drives EC:4 five offline", 8, 4, 3, 0, 4, 5, domain.SetStateUnavailable},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var disks []domain.DiskInfo
+			for i := range tt.drives {
+				d := domain.DiskInfo{DiskIdx: i, State: domain.StateOffline}
+				if i < tt.online {
+					d.State = domain.StateOnline
+				}
+				if i < tt.healing {
+					d.State, d.Healing = domain.StateHealing, true
+				}
+				disks = append(disks, d)
+			}
+			pools := admin.PoolStates([]domain.PoolInfo{{Sets: 1, DrivesPerSet: tt.drives, Parity: tt.parity}}, []domain.NodeInfo{{Disks: disks}})
+			require.Len(t, pools, 1)
+			assert.Equal(t, tt.wantRead, pools[0].ReadQuorum)
+			assert.Equal(t, tt.wantWrite, pools[0].WriteQuorum)
+			require.Len(t, pools[0].ErasureSets, 1)
+			set := pools[0].ErasureSets[0]
+			assert.Equal(t, tt.want, set.State)
+			assert.Equal(t, tt.online, set.Online)
+			assert.Equal(t, tt.drives-tt.online, set.Offline)
+			assert.Equal(t, tt.healing, set.Healing)
+		})
+	}
 }

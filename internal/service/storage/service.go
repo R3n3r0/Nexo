@@ -16,6 +16,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/lifecycle"
 	"github.com/r3n3r0/nexo/internal/service/topology"
 )
 
@@ -51,6 +52,29 @@ type FormatterDeps struct {
 	Logger *slog.Logger
 }
 
+// Janitor sweeps the temporary area (TmpDir) of the local drives of a
+// node: an entry left there longer than the age threshold is the leftover
+// of a write whose coordinator crashed (in a cluster, another node), which
+// the startup cleanup of the drive would only remove at its own restart.
+// In-progress writes keep their entries fresh (the files they write are
+// modified as the data flows), so the threshold (default 24h) only needs
+// to exceed the longest stall of a write.
+type Janitor interface {
+	lifecycle.Runner
+	// Sweep removes the stale entries of every drive now and returns how
+	// many it removed.
+	Sweep(ctx context.Context) (int, error)
+}
+
+// JanitorDeps are the dependencies of the janitor.
+type JanitorDeps struct {
+	// Drives are the drives to sweep: the local drives of the node.
+	Drives []StorageAPI
+	// Clock tells the age of the entries (default: wall clock).
+	Clock  clock.Clock
+	Logger *slog.Logger
+}
+
 // Well-known paths inside the system volume (domain.SystemBucket).
 const (
 	// FormatFile is the format.json document, relative to the system volume.
@@ -66,6 +90,10 @@ const (
 	// HealingFile is the healing tracker of the drive (HealingTracker
 	// encoded as JSON). Its presence marks a drive being healed.
 	HealingFile = "healing.bin"
+	// QuarantineDir keeps the xl.meta documents found undecodable by a
+	// write (see StorageAPI.WriteMetadata): the object starts over on the
+	// drive and the copy is kept for inspection; nothing removes it.
+	QuarantineDir = "quarantine"
 	// MetaFile is the per-object metadata document.
 	MetaFile = "xl.meta"
 )
@@ -106,11 +134,18 @@ type StorageAPI interface {
 	// data (small objects) is returned in FileInfo.Data.
 	ReadVersion(ctx context.Context, volume, path, versionID string, opts ReadOptions) (FileInfo, error)
 	// WriteMetadata writes (or appends) a version to the metadata file.
+	// Like RenameData and DeleteVersion, it moves an undecodable xl.meta
+	// (domain.ErrInvalidFormat) into QuarantineDir and starts the object
+	// over on the drive instead of failing: the other versions are healed
+	// back from the drives of the erasure set.
 	WriteMetadata(ctx context.Context, volume, path string, fi FileInfo) error
 	// UpdateMetadata updates the metadata of an existing version in place.
 	UpdateMetadata(ctx context.Context, volume, path string, fi FileInfo, opts UpdateMetadataOptions) error
 	// DeleteVersion removes one version (or writes a delete marker when
-	// fi.MarkDeleted is set) and cleans up its data directory.
+	// fi.MarkDeleted is set) and cleans up its data directory (unless
+	// opts.KeepData). On an undecodable xl.meta (quarantined, see
+	// WriteMetadata) the drive no longer holds the version: the delete
+	// succeeds, and a delete marker becomes the only version.
 	DeleteVersion(ctx context.Context, volume, path string, fi FileInfo, opts DeleteOptions) error
 
 	// CreateFile streams size bytes from r into a new data file, written
@@ -199,6 +234,11 @@ type DeleteOptions struct {
 	UndoWrite bool
 	// OldDataDir is the data directory to remove when replacing a version.
 	OldDataDir string
+	// KeepData leaves in place the data directory of the version that
+	// DeleteVersion removes (or that a delete marker replaces): the caller
+	// purges it once the delete reached its quorum, or restores the version
+	// with WriteMetadata when it did not.
+	KeepData bool
 }
 
 // RenameOptions tunes RenameData.
@@ -364,5 +404,8 @@ type HealingTracker struct {
 	Object string
 	// HealedBuckets lists the buckets completely healed.
 	HealedBuckets []string `json:",omitempty"`
+	// RetryAttempts counts the passes started over because objects failed
+	// to heal in the previous one (sources momentarily without quorum).
+	RetryAttempts int `json:",omitempty"`
 	Finished      bool
 }
