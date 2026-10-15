@@ -30,6 +30,7 @@ function renderDialog(props: Partial<ShareDialogProps> = {}) {
   return { ...view, services, onClose };
 }
 
+// covers: D-SHR-01
 describe('ShareDialog (TD-U-10)', () => {
   afterEach(() => {
     vi.useRealTimers();

@@ -123,7 +123,14 @@
           "type": "object",
           "properties": {
             "endpoint": {"type": "string", "pattern": "^(|https?://.+)$"},
-            "protocol": {"type": "string", "enum": ["", "http/protobuf", "grpc"]}
+            "protocol": {"type": "string", "enum": ["", "http/protobuf", "grpc"]},
+            "sampleRatio": {
+              "description": "NEXO_OTEL_TRACES_SAMPLER_ARG, 0 to 1 (empty: server default)",
+              "anyOf": [
+                {"type": "string", "pattern": "^(|0(\\.[0-9]+)?|1(\\.0+)?)$"},
+                {"type": "number", "minimum": 0, "maximum": 1}
+              ]
+            }
           }
         }
       }

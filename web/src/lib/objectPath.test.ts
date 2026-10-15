@@ -13,6 +13,7 @@ import {
 } from './objectPath';
 import { fromBytes, toBytes } from './units';
 
+// covers: D-OBJ-01
 describe('object keys in routes (TD-U-05)', () => {
   it.each([
     'plain/key.txt',
@@ -68,6 +69,7 @@ describe('object keys in routes (TD-U-05)', () => {
   });
 });
 
+// covers: D-BKT-01
 describe('bucketNameIssue (TD-U-04)', () => {
   it.each([
     ['', 'required'],

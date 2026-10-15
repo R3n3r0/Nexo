@@ -20,6 +20,8 @@ import (
 // nothing: PutObject (declared length or streamed), CopyObject and
 // CompleteMultipartUpload; a delete frees the space at once. The usage of
 // the whole deployment counts: in a cluster the writes go to every node.
+//
+// covers: S-BKT-09
 func TestBucketQuota(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)

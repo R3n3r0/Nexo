@@ -90,6 +90,13 @@ func (d *dispatcher) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	e := match(entries, r.URL.Query())
 	if e == nil {
+		// Without a sub-resource the method itself has no operation on
+		// the resource (POST on an object, as S3 answers); with one, the
+		// sub-resource is an operation Nexo does not implement.
+		if !hasSubResource(r.URL.Query()) {
+			d.enc.WriteS3Error(w, r, fmt.Errorf("%w: %s", domain.ErrMethodNotAllowed, r.Method))
+			return
+		}
 		d.enc.WriteS3Error(w, r, fmt.Errorf("%w: unsupported operation", domain.ErrNotImplemented))
 		return
 	}
@@ -169,6 +176,17 @@ func match(entries []opEntry, q url.Values) *opEntry {
 		}
 	}
 	return best
+}
+
+// hasSubResource reports whether the query names a sub-resource or an
+// operation parameter (anything but the authentication parameters).
+func hasSubResource(q url.Values) bool {
+	for name := range q {
+		if !isAuthParam(name) {
+			return true
+		}
+	}
+	return false
 }
 
 func matchRank(op Operation, q url.Values) int {

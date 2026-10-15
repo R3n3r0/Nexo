@@ -74,7 +74,7 @@ func xcache(r response) string { return r.Header.Get(cache.HeaderXCache) }
 // Age, 304 from the cache), and a write acknowledged by any node is seen
 // at once on every domain of every node: never the old content.
 //
-// covers: S-CCH-01, S-CCH-03
+// covers: S-DST-07, S-DST-07b
 func TestCacheServesAndInvalidates(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
@@ -169,7 +169,7 @@ func TestCacheServesAndInvalidates(t *testing.T) {
 // path, tag, domain, everything) with their state on every node, and the
 // purge webhooks (TCC-04, TCC-06, TCC-15).
 //
-// covers: S-CCH-03, S-CCH-05
+// covers: S-DST-07b
 func TestCacheManualInvalidation(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
@@ -299,7 +299,7 @@ func TestCacheManualInvalidation(t *testing.T) {
 // access of a path applies at once, and the answers to authenticated
 // requests are not served to others.
 //
-// covers: S-CCH-04
+// covers: S-DST-07, S-DST-04
 func TestCacheSecurity(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
@@ -411,7 +411,7 @@ func TestCacheSecurity(t *testing.T) {
 // the cluster with different domains: the purge of one domain does not
 // touch the other (TCC-C-05).
 //
-// covers: S-CCH-02
+// covers: S-DST-07
 func TestCacheDomainsAndConfig(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
@@ -423,12 +423,10 @@ func TestCacheDomainsAndConfig(t *testing.T) {
 	proxy := func(host string) string {
 		target, err := url.Parse(e.srv.Nodes[0].S3URL)
 		require.NoError(t, err)
-		rp := httputil.NewSingleHostReverseProxy(target)
-		director := rp.Director
-		rp.Director = func(r *http.Request) {
-			director(r)
-			r.Host = host
-		}
+		rp := &httputil.ReverseProxy{Rewrite: func(r *httputil.ProxyRequest) {
+			r.SetURL(target)
+			r.Out.Host = host
+		}}
 		srv := httptest.NewServer(rp)
 		t.Cleanup(srv.Close)
 		return srv.URL
@@ -483,7 +481,7 @@ func TestCacheDomainsAndConfig(t *testing.T) {
 // node is served from it (one copy, one read of the origin); the writes
 // still invalidate it at once. On one node the mode is the local cache.
 //
-// covers: S-CCH-06
+// covers: S-DST-07c
 func TestCacheSharedMode(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t, testutil.WithConfig(func(c *config.Static) { c.CacheMode = config.CacheModeShared }))
@@ -528,7 +526,7 @@ func TestCacheSharedMode(t *testing.T) {
 // behavior is not bypassed through an escaped '?' and an anonymous 404
 // never poisons the entry of a real object.
 //
-// covers: S-CCH-01, S-CCH-04
+// covers: S-DST-07
 func TestCacheKeyIsUnambiguous(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
@@ -611,7 +609,7 @@ func TestCacheKeyIsUnambiguous(t *testing.T) {
 // access of the distribution is decided from the metadata in memory).
 // SNSD has no quorum to lose: the test runs in SNMD and in the cluster.
 //
-// covers: S-CCH-05
+// covers: S-DST-07c
 func TestCacheStaleIfOriginDown(t *testing.T) {
 	if modeOf(t) == modeSNSD {
 		t.Skip("one drive: TCC-07 needs an erasure-coded origin (SNMD, cluster)")

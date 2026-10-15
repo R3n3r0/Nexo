@@ -7,6 +7,7 @@ import { renderRoutes } from '@/test/render';
 
 import { navigation, visibleNavigation } from './navigation';
 
+// covers: D-UX-02
 describe('visibleNavigation (D-UX-02)', () => {
   const keys = (items: ReturnType<typeof visibleNavigation>) => items.map((i) => i.key);
 

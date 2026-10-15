@@ -231,6 +231,7 @@ func (s *service) logRecord(ctx context.Context, e Entry) {
 
 // publish hands an entry to the audit targets (their queues).
 func (s *service) publish(ctx context.Context, e Entry) error {
+	// #nosec G117 -- AccessKey is the access key ID of the caller, never its secret key.
 	data, err := json.Marshal(e)
 	if err != nil {
 		return fmt.Errorf("audit: encode entry: %w", err)

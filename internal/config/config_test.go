@@ -39,6 +39,7 @@ func flagsFrom(t *testing.T, args ...string) *pflag.FlagSet {
 	return fs
 }
 
+// covers: S-IAM-01, S-OPS-01
 func TestLoadDefaultsAndEnv(t *testing.T) {
 	l := config.NewLoader(config.WithEnv(envOf(map[string]string{
 		config.EnvRootUser:       "admin",
@@ -133,6 +134,7 @@ func TestLoadClusterSettings(t *testing.T) {
 	}
 }
 
+// covers: S-OPS-01
 func TestLoadPrecedenceFlagsOverEnvOverFile(t *testing.T) {
 	env := map[string]string{
 		config.EnvRootUser:     "admin",
@@ -165,6 +167,7 @@ func TestLoadPrecedenceFlagsOverEnvOverFile(t *testing.T) {
 	assert.Equal(t, ":7000", cfg.Address, "env still applies")
 }
 
+// covers: S-IAM-01, S-OPS-13
 func TestLoadSecretsFromFiles(t *testing.T) {
 	env := map[string]string{
 		config.EnvRootUser:                         "stale",
@@ -198,6 +201,7 @@ func TestLoadErrors(t *testing.T) {
 	assert.Contains(t, err.Error(), "parse config file")
 }
 
+// covers: S-OPS-14
 func TestValidate(t *testing.T) {
 	valid := config.Default()
 	valid.RootUser, valid.RootPassword, valid.Endpoints = "admin", "password123", []string{"/data"}

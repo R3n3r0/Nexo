@@ -13,6 +13,7 @@ interface Rule {
   abortIncompleteUpload?: { daysAfterInitiation?: number };
 }
 
+// covers: D-BKT-03
 test.describe('bucket lifecycle (D-BKT-03)', () => {
   let bucket: string;
 
@@ -25,6 +26,7 @@ test.describe('bucket lifecycle (D-BKT-03)', () => {
     await api.deleteBucket(bucket);
   });
 
+  // covers: D-BKT-03, D-BKT-04
   test('TD-E-14 a rule created in the console is the one of the S3 API and of the CLI', async ({
     page,
     api,

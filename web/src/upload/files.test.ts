@@ -38,6 +38,7 @@ function transfer(entries: FileSystemEntry[]): DataTransfer {
   } as unknown as DataTransfer;
 }
 
+// covers: D-OBJ-02
 describe('dropped folders (D-OBJ-02)', () => {
   it('walks folders recursively and keeps their structure', async () => {
     const dropped = transfer([

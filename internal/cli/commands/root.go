@@ -127,6 +127,7 @@ anything else is a local path.`,
 		newILMCmd(e), newEventCmd(e), newQuotaCmd(e), newEncryptCmd(e))
 	add(groupAdmin, newAdminCmd(e))
 	add(groupConfig, newAliasCmd(e))
+	root.AddCommand(newGenDocsCmd(e)) // hidden: make docs
 	root.SetCompletionCommandGroupID(groupConfig)
 	root.SetHelpCommandGroupID(groupConfig)
 	return root

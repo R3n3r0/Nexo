@@ -1,3 +1,4 @@
+# covers: C-OBJ-09, S-OBJ-13, S-STO-02
 # T-7.10 on an erasure-coded single node (SNMD) served over TLS: Object
 # Lock, lifecycle, events, CORS, SSE-S3/SSE-KMS/SSE-C and checksums of
 # multipart objects (the single-drive scripts object_lock, ilm, event,

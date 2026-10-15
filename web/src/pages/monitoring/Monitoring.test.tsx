@@ -141,6 +141,7 @@ beforeEach(() => {
 });
 
 describe('monitoring page', { timeout: 30_000 }, () => {
+  // covers: D-UX-02
   it('opens the first section allowed and offers only the allowed ones (D-UX-02)', async () => {
     const { router } = open('/monitoring', limited(['admin:ConsoleLog']));
     await waitFor(() => {
@@ -166,6 +167,7 @@ describe('monitoring page', { timeout: 30_000 }, () => {
     );
   });
 
+  // covers: D-MON-01
   it('TD-U-11 draws the charts of the series with their latest values', async () => {
     const services = admin();
     const spy = vi.spyOn(services.monitoring, 'queryMetric');
@@ -190,6 +192,7 @@ describe('monitoring page', { timeout: 30_000 }, () => {
     });
   });
 
+  // covers: D-MON-01
   it('TD-U-11 renders the charts of a range without sample', async () => {
     const services = admin();
     vi.spyOn(services.monitoring, 'queryMetric').mockImplementation((q): Promise<MetricSeries> =>
@@ -227,6 +230,7 @@ describe('monitoring page', { timeout: 30_000 }, () => {
   });
 });
 
+// covers: D-MON-02
 describe('live trace (TD-U-12)', { timeout: 30_000 }, () => {
   it('shows the requests as they come, pauses, resumes and bounds the buffer', async () => {
     const { user } = open('/monitoring/trace', withEventSource());
@@ -347,6 +351,7 @@ describe('live trace (TD-U-12)', { timeout: 30_000 }, () => {
   });
 });
 
+// covers: D-MON-02
 describe('live logs (TD-U-12)', { timeout: 30_000 }, () => {
   function log(n: number, level: LogEntry['level'], message: string): LogEntry {
     return {
@@ -385,6 +390,7 @@ describe('live logs (TD-U-12)', { timeout: 30_000 }, () => {
   });
 });
 
+// covers: D-MON-03
 describe('audit (D-MON-03)', { timeout: 30_000 }, () => {
   it('searches the records by user and outcome and shows their details', async () => {
     const { user } = open('/monitoring/audit');

@@ -1,3 +1,4 @@
+# covers: C-OBJ-09, S-BKT-06
 # T-7.10, S-BKT-06: cors set (JSON or S3 XML), get, rm, and the preflight
 # requests the server answers after them (without a bucket configuration
 # the server-wide api.cors_allow_origin applies).

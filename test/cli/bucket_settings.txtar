@@ -1,3 +1,4 @@
+# covers: C-OBJ-09, S-BKT-09, S-BKT-11
 # C-OBJ-09: quota and encrypt manage the hard quota and the default
 # encryption of a bucket through the Admin API (regression: the commands
 # were missing).

@@ -47,6 +47,7 @@ async function openDrawer(page: Page, name: string, tab: string) {
   return drawer;
 }
 
+// covers: D-OBJ-06
 test.describe('object lock in the console (D-OBJ-06)', () => {
   let bucket: string;
 

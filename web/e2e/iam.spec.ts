@@ -40,6 +40,7 @@ const policyFor = (bucket: string, actions: string[]) =>
   );
 
 test.describe('identities and policies', () => {
+  // covers: D-IAM-03
   test('TD-P-05 the policy editor blocks invalid JSON, saves a valid policy and it applies', async ({
     page,
     api,
@@ -110,6 +111,7 @@ test.describe('identities and policies', () => {
     }
   });
 
+  // covers: D-POL-03
   test('TD-P-06 the simulator shows the decision and the deciding statement', async ({
     page,
     api,
@@ -232,6 +234,7 @@ test.describe('identities and policies', () => {
       }
     });
 
+    // covers: D-IAM-01, D-IAM-03, D-UX-02
     test('TD-E-12 a custom policy limits the user to one bucket and hides the admin menu', async ({
       page,
       api,
@@ -308,6 +311,7 @@ test.describe('identities and policies', () => {
     });
   });
 
+  // covers: D-IAM-04
   test('TD-E-13 an access key with an expiration shows its secret once and works with S3', async ({
     page,
     api,
@@ -363,6 +367,7 @@ test.describe('identities and policies', () => {
     await api.call('DELETE', `/access-keys/${accessKey}`);
   });
 
+  // covers: D-IAM-01
   test('D-IAM-01 a user whose access key has "@" and "+" is edited and deleted from the console', async ({
     page,
     api,

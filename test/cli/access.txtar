@@ -1,3 +1,4 @@
+# covers: C-ACC-01
 # TCL-A-01: access rule add/ls/info/move/rm and access test, consistent with
 # the anonymous requests the server answers; block-public and the presets.
 # TCL-A-02: access export, import into another bucket: identical rules,

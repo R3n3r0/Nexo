@@ -1,3 +1,4 @@
+# covers: C-UX-01
 # C-UX-01: --debug dumps the HTTP exchanges on stderr with the secrets
 # redacted; --quiet and --no-color.
 

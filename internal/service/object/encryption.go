@@ -337,11 +337,12 @@ type encryptedReader struct {
 	remaining int64
 	cur       io.Reader
 	closer    io.Closer
+	pinned    []pinnedStream
 }
 
 // openEncrypted returns a reader over the plaintext [offset,
 // offset+length) of an encrypted version.
-func (l *layer) openEncrypted(ctx context.Context, st store, bucket, key string, fi storage.FileInfo, okey *crypto.ObjectKey, offset, length int64) io.ReadCloser {
+func (l *layer) openEncrypted(ctx context.Context, st store, bucket, key string, fi storage.FileInfo, okey *crypto.ObjectKey, offset, length int64) *encryptedReader {
 	return &encryptedReader{ctx: ctx, l: l, st: st, bucket: bucket, key: key, fi: fi, okey: okey, offset: offset, remaining: length}
 }
 
@@ -375,48 +376,99 @@ func (r *encryptedReader) Read(p []byte) (int, error) {
 	}
 }
 
-// openNext opens the part holding the current offset, from the offset to
-// the end of the range or of the part.
-func (r *encryptedReader) openNext() error {
+// encryptedRead is the read of the part holding a plaintext offset: the
+// part (index i), the plaintext range in it and the packages that hold it.
+type encryptedRead struct {
+	i       int
+	part    storage.PartInfo
+	partLen int64
+	rng     crypto.Range
+}
+
+// locate returns the read of the part holding the plaintext offset off,
+// bounded by remaining.
+func (r *encryptedReader) locate(off, remaining int64) (encryptedRead, error) {
 	var start int64
 	for i, part := range r.fi.Parts {
 		plain := part.ActualSize
-		if r.offset >= start+plain {
+		if off >= start+plain {
 			start += plain
 			continue
 		}
-		partOff := r.offset - start
-		partLen := min(plain-partOff, r.remaining)
+		partOff := off - start
+		partLen := min(plain-partOff, remaining)
 		rng, err := crypto.PackageRange(plain, partOff, partLen)
 		if err != nil {
-			return fmt.Errorf("object: %s/%s: %w", r.bucket, r.key, err)
+			return encryptedRead{}, fmt.Errorf("object: %s/%s: %w", r.bucket, r.key, err)
 		}
 		if rng.StoredOffset+rng.StoredLength > part.Size {
-			return fmt.Errorf("object: %s/%s: %w: part %d is shorter than its packages", r.bucket, r.key, domain.ErrDecryption, part.Number)
+			return encryptedRead{}, fmt.Errorf("object: %s/%s: %w: part %d is shorter than its packages", r.bucket, r.key, domain.ErrDecryption, part.Number)
 		}
-		var raw io.Reader
-		if r.fi.DataDir == "" {
-			if rng.StoredOffset+rng.StoredLength > int64(len(r.fi.Data)) {
-				return fmt.Errorf("%w: inline data of %d bytes, want [%d,+%d)", domain.ErrFaultyDisk, len(r.fi.Data), rng.StoredOffset, rng.StoredLength)
-			}
-			raw = bytes.NewReader(r.fi.Data[rng.StoredOffset : rng.StoredOffset+rng.StoredLength])
-		} else {
-			rc, err := r.st.ReadData(r.ctx, r.bucket, r.key, r.fi, part, rng.StoredOffset, rng.StoredLength)
-			if err != nil {
-				return fmt.Errorf("object: open part %d of %s/%s: %w", part.Number, r.bucket, r.key, lockErr(r.ctx, err))
-			}
-			raw, r.closer = rc, rc
-		}
-		n, salt := encryptionPart(part, i)
-		dec, err := r.okey.DecryptPart(n, salt, raw, rng)
-		if err != nil {
-			r.closeCur()
-			return err
-		}
-		r.cur = dec
-		return nil
+		return encryptedRead{i: i, part: part, partLen: partLen, rng: rng}, nil
 	}
-	return fmt.Errorf("%w: offset %d beyond the parts of %s/%s", domain.ErrFaultyDisk, r.offset, r.bucket, r.key)
+	return encryptedRead{}, fmt.Errorf("%w: offset %d beyond the parts of %s/%s", domain.ErrFaultyDisk, off, r.bucket, r.key)
+}
+
+// openNext opens the part holding the current offset, from the offset to
+// the end of the range or of the part.
+func (r *encryptedReader) openNext() error {
+	rd, err := r.locate(r.offset, r.remaining)
+	if err != nil {
+		return err
+	}
+	rng := rd.rng
+	var raw io.Reader
+	if r.fi.DataDir == "" {
+		if rng.StoredOffset+rng.StoredLength > int64(len(r.fi.Data)) {
+			return fmt.Errorf("%w: inline data of %d bytes, want [%d,+%d)", domain.ErrFaultyDisk, len(r.fi.Data), rng.StoredOffset, rng.StoredLength)
+		}
+		raw = bytes.NewReader(r.fi.Data[rng.StoredOffset : rng.StoredOffset+rng.StoredLength])
+	} else if rc := takePinned(&r.pinned, r.offset); rc != nil {
+		raw, r.closer = rc, rc
+	} else {
+		rc, err := r.st.ReadData(r.ctx, r.bucket, r.key, r.fi, rd.part, rng.StoredOffset, rng.StoredLength)
+		if err != nil {
+			return fmt.Errorf("object: open part %d of %s/%s: %w", rd.part.Number, r.bucket, r.key, lockErr(r.ctx, err))
+		}
+		raw, r.closer = rc, rc
+	}
+	n, salt := encryptionPart(rd.part, rd.i)
+	dec, err := r.okey.DecryptPart(n, salt, raw, rng)
+	if err != nil {
+		r.closeCur()
+		return err
+	}
+	r.cur = dec
+	return nil
+}
+
+// pin implements pinnable: the ciphertext streams of the parts of the
+// range are opened up front (inline data needs none).
+func (r *encryptedReader) pin(max int) bool {
+	if r.fi.DataDir == "" {
+		return true
+	}
+	var opened []pinnedStream
+	for off, rem := r.offset, r.remaining; rem > 0; {
+		rd, err := r.locate(off, rem)
+		if err != nil || len(opened) == max {
+			closePinned(opened)
+			return false
+		}
+		rc, pinned, err := r.st.OpenData(r.ctx, r.bucket, r.key, r.fi, rd.part, rd.rng.StoredOffset, rd.rng.StoredLength)
+		if err != nil {
+			closePinned(opened)
+			return false
+		}
+		opened = append(opened, pinnedStream{off: off, rc: rc})
+		if !pinned {
+			closePinned(opened)
+			return false
+		}
+		off, rem = off+rd.partLen, rem-rd.partLen
+	}
+	r.pinned = opened
+	return true
 }
 
 func (r *encryptedReader) closeCur() {
@@ -427,6 +479,8 @@ func (r *encryptedReader) closeCur() {
 }
 
 func (r *encryptedReader) Close() error {
+	closePinned(r.pinned)
+	r.pinned = nil
 	r.closeCur()
 	return nil
 }

@@ -683,6 +683,9 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 		parts      = make([]storage.PartInfo, 0, len(in.Parts))
 		selected   = make([]partMeta, 0, len(in.Parts))
 		uploadType = m.checksumType()
+		// missingChecksum is the first part listed without its checksum
+		// in a COMPOSITE upload with a checksum (0: none).
+		missingChecksum int
 	)
 	for i, cp := range in.Parts {
 		p, ok := byNumber[cp.Number]
@@ -690,12 +693,12 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 			return domain.ObjectInfo{}, domain.NewS3Error(domain.ErrInvalidPart, "InvalidPart",
 				fmt.Sprintf("One or more of the specified parts could not be found. Part %d may not have been uploaded, or the specified entity tag may not match the part's entity tag.", cp.Number))
 		}
-		if uploadType == domain.ChecksumTypeComposite && m.Checksum != domain.ChecksumNone && cp.Checksum.IsZero() {
+		if missingChecksum == 0 && uploadType == domain.ChecksumTypeComposite && m.Checksum != domain.ChecksumNone && cp.Checksum.IsZero() {
 			// As S3: the checksum of a COMPOSITE upload is the checksum of
-			// the part checksums, which the request must confirm.
-			return domain.ObjectInfo{}, domain.NewS3Error(domain.ErrInvalidArgument, "InvalidRequest",
-				fmt.Sprintf("The upload was created using a %s checksum. The complete request must include the checksum for each part. It was missing for part %d in the request.",
-					strings.ToLower(string(m.Checksum)), cp.Number))
+			// the part checksums, which the request must confirm. Reported
+			// after the verification of a declared object checksum, so
+			// that a wrong one is a BadDigest.
+			missingChecksum = cp.Number
 		}
 		if i < len(in.Parts)-1 && p.plainSize() < l.opts.minPartSize {
 			return domain.ObjectInfo{}, domain.NewS3Error(domain.ErrEntityTooSmall, "EntityTooSmall",
@@ -749,6 +752,11 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 	checksum, err := multipartChecksum(m.Checksum, uploadType, partSums, in.Checksum)
 	if err != nil {
 		return domain.ObjectInfo{}, err
+	}
+	if missingChecksum != 0 {
+		return domain.ObjectInfo{}, domain.NewS3Error(domain.ErrInvalidArgument, "InvalidRequest",
+			fmt.Sprintf("The upload was created using a %s checksum. The complete request must include the checksum for each part. It was missing for part %d in the request.",
+				strings.ToLower(string(m.Checksum)), missingChecksum))
 	}
 	if err := l.checkCurrent(ctx, in.Bucket, in.Key, in.Conditions); err != nil {
 		return domain.ObjectInfo{}, err

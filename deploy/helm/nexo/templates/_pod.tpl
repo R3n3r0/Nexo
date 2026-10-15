@@ -187,6 +187,10 @@ spec:
         - name: NEXO_OTEL_EXPORTER_OTLP_PROTOCOL
           value: {{ . | quote }}
         {{- end }}
+        {{- with .Values.config.otel.sampleRatio }}
+        - name: NEXO_OTEL_TRACES_SAMPLER_ARG
+          value: {{ . | quote }}
+        {{- end }}
         {{- with .Values.extraEnv }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

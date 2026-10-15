@@ -106,6 +106,8 @@ func bucketName(prefix string) string {
 // cluster stopped and started again while clients write and read through
 // the load balancer: no client error (with the retries of the SDK), and
 // every write acknowledged reads back.
+//
+// covers: S-OPS-13, S-STO-06
 func TestTM06StopContainerNoClientError(t *testing.T) {
 	s := load(t)
 	ctx := context.Background()
@@ -189,6 +191,8 @@ func TestTM06StopContainerNoClientError(t *testing.T) {
 // URL and the share link the console generates behind nginx (with
 // NEXO_SERVER_URL the public URL of the load balancer) download from
 // outside the compose network.
+//
+// covers: S-OPS-13, S-OPS-14
 func TestTM09PresignedBehindNginx(t *testing.T) {
 	s := load(t)
 	ctx := context.Background()

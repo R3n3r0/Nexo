@@ -5,6 +5,7 @@ import { anonymous, expect, loginWithForm, test } from './support/fixtures';
 test.describe('deep links', () => {
   test.use({ storageState: anonymous });
 
+  // covers: D-OBJ-01
   test('TD-E-03 a deep link opens the right page after the login (SPA fallback)', async ({
     page,
     api,
@@ -50,6 +51,7 @@ test.describe('deep links', () => {
   });
 });
 
+// covers: D-UX-01
 test('TD-E-18 dark theme, English and a 375 px viewport without horizontal overflow', async ({
   browser,
   nexo,

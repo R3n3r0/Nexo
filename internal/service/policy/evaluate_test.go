@@ -370,6 +370,8 @@ func TestEvaluateClock(t *testing.T) {
 }
 
 // TestSimulateLists checks the statements reported by the simulator.
+//
+// covers: S-IAM-04b
 func TestSimulateLists(t *testing.T) {
 	ctx := context.Background()
 	svc, _ := newEngine(t)

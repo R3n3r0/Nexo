@@ -24,10 +24,15 @@ const nullVersion = "null"
 func (l *layer) readVersion(ctx context.Context, st store, bucket, key, versionID string, readData bool) (storage.FileInfo, error) {
 	fi, err := st.ReadVersion(ctx, bucket, key, versionID, readData)
 	if err != nil {
-		if isNotFound(err) && versionID == "" {
+		if isNotFound(err) {
 			// Distinguish a missing bucket from a missing key.
 			if serr := l.statBucket(ctx, st, bucket); serr != nil {
 				return storage.FileInfo{}, serr
+			}
+			if versionID != "" {
+				// No version of a missing key exists: S3 answers
+				// NoSuchVersion to a request naming one.
+				return storage.FileInfo{}, fmt.Errorf("%w: version %s of %s/%s (no such key)", domain.ErrNoSuchVersion, versionID, bucket, key)
 			}
 		}
 		return storage.FileInfo{}, err
@@ -118,24 +123,29 @@ func (l *layer) GetObjectInfo(ctx context.Context, bucket, key string, opts GetO
 	return info, nil
 }
 
-// GetObject implements Service. The read lock is held until the returned
-// body is closed, so that the version being read is never purged under it;
-// the body fails if the lock is lost meanwhile (a writer may then replace
-// the version being read).
+// GetObject implements Service. The read lock is held while the version
+// is resolved and its data opened. When the read can open up front every
+// file it needs (inline data, or at most WithPinnedReadParts parts, see
+// pinnedReads), the lock is released before the body is returned: the
+// read goes on from the open files even if a writer replaces the version
+// and purges its data meanwhile, so a slow or stalled download never
+// blocks the writers of the key. Otherwise the lock is held until the body
+// is closed, so that the version being read is never purged under it; the
+// body then fails if the lock is lost meanwhile.
 func (l *layer) GetObject(ctx context.Context, bucket, key string, opts GetObjectOptions) (*Reader, error) {
 	if err := validObject(bucket, key); err != nil {
 		return nil, err
 	}
 	rctx := ctx
-	var unlock func()
+	var lk *readLock
 	if !opts.NoLock {
 		lctx, release, err := l.lock(ctx, bucket, key, false)
 		if err != nil {
 			return nil, err
 		}
-		rctx, unlock = lctx, release
+		rctx, lk = lctx, &readLock{release: release, free: ctx}
 	}
-	r, _, err := l.openObject(rctx, bucket, key, opts, unlock)
+	r, _, err := l.openObject(rctx, bucket, key, opts, lk)
 	if err != nil {
 		return nil, err
 	}
@@ -144,13 +154,15 @@ func (l *layer) GetObject(ctx context.Context, bucket, key string, opts GetObjec
 }
 
 // openObject resolves the version and the range of a read, evaluates the
-// read conditions of opts and opens the data. unlock, when not nil, runs
-// when the reader is closed, or before returning on failure. The returned
-// FileInfo carries the raw metadata of the version.
-func (l *layer) openObject(ctx context.Context, bucket, key string, opts GetObjectOptions, unlock func()) (*Reader, storage.FileInfo, error) {
+// read conditions of opts and opens the data. lk, when not nil, is the
+// read lock of the caller: it is released before returning when the data
+// could be pinned (see GetObject), when the reader is closed otherwise,
+// and before returning on failure. The returned FileInfo carries the raw
+// metadata of the version.
+func (l *layer) openObject(ctx context.Context, bucket, key string, opts GetObjectOptions, lk *readLock) (*Reader, storage.FileInfo, error) {
 	release := func() {
-		if unlock != nil {
-			unlock()
+		if lk != nil {
+			lk.release()
 		}
 	}
 	st, err := l.storeFor(ctx, bucket, key, opts.VersionID)
@@ -186,6 +198,20 @@ func (l *layer) openObject(ctx context.Context, bucket, key string, opts GetObje
 		release()
 		return nil, storage.FileInfo{}, err
 	}
+	if lk != nil {
+		if rc, ok := l.openPinned(lk.free, st, bucket, key, fi, okey, offset, length); ok {
+			if err := checkLocks(ctx); err != nil {
+				// The lock was lost while the data was opened: a writer
+				// may have replaced the version in between.
+				_ = rc.Close()
+				release()
+				return nil, storage.FileInfo{}, err
+			}
+			release()
+			fi.Data = nil
+			return &Reader{ReadCloser: rc, Info: info, Offset: offset, Length: length}, fi, nil
+		}
+	}
 	var rc io.ReadCloser
 	if okey != nil {
 		rc = l.openEncrypted(ctx, st, bucket, key, fi, okey, offset, length)
@@ -193,8 +219,8 @@ func (l *layer) openObject(ctx context.Context, bucket, key string, opts GetObje
 		release()
 		return nil, storage.FileInfo{}, fmt.Errorf("%s: read %s/%s: %w", l.name, bucket, key, err)
 	}
-	if unlock != nil {
-		rc = &unlockOnClose{ReadCloser: rc, unlock: unlock}
+	if lk != nil {
+		rc = &unlockOnClose{ReadCloser: rc, unlock: lk.release}
 	}
 	fi.Data = nil
 	return &Reader{ReadCloser: rc, Info: info, Offset: offset, Length: length}, fi, nil
@@ -243,7 +269,7 @@ func (l *layer) openData(ctx context.Context, st store, bucket, key string, fi s
 }
 
 // partsReader streams a byte range across the parts of a version, opening
-// one part at a time.
+// one part at a time (or taking the streams pin opened up front).
 type partsReader struct {
 	ctx       context.Context
 	st        store
@@ -253,6 +279,7 @@ type partsReader struct {
 	offset    int64
 	remaining int64
 	cur       io.ReadCloser
+	pinned    []pinnedStream
 }
 
 func (r *partsReader) Read(p []byte) (int, error) {
@@ -286,31 +313,69 @@ func (r *partsReader) Read(p []byte) (int, error) {
 	}
 }
 
-func (r *partsReader) openNext() error {
+// locatePart returns the part holding offset, the offset in it and the
+// length to read from it (bounded by remaining); ok is false when offset
+// is beyond the parts.
+func locatePart(fi storage.FileInfo, offset, remaining int64) (part storage.PartInfo, partOff, partLen int64, ok bool) {
 	var start int64
-	for _, part := range r.fi.Parts {
+	for _, part := range fi.Parts {
 		if part.Size == 0 {
 			continue
 		}
-		if r.offset >= start && r.offset < start+part.Size {
-			partOff := r.offset - start
-			partLen := part.Size - partOff
-			if partLen > r.remaining {
-				partLen = r.remaining
-			}
-			rc, err := r.st.ReadData(r.ctx, r.bucket, r.key, r.fi, part, partOff, partLen)
-			if err != nil {
-				return fmt.Errorf("object: open part %d of %s/%s: %w", part.Number, r.bucket, r.key, lockErr(r.ctx, err))
-			}
-			r.cur = rc
-			return nil
+		if offset >= start && offset < start+part.Size {
+			partOff = offset - start
+			return part, partOff, min(part.Size-partOff, remaining), true
 		}
 		start += part.Size
 	}
-	return fmt.Errorf("%w: offset %d beyond the parts of %s/%s", domain.ErrFaultyDisk, r.offset, r.bucket, r.key)
+	return storage.PartInfo{}, 0, 0, false
+}
+
+func (r *partsReader) openNext() error {
+	part, partOff, partLen, ok := locatePart(r.fi, r.offset, r.remaining)
+	if !ok {
+		return fmt.Errorf("%w: offset %d beyond the parts of %s/%s", domain.ErrFaultyDisk, r.offset, r.bucket, r.key)
+	}
+	if rc := takePinned(&r.pinned, r.offset); rc != nil {
+		r.cur = rc
+		return nil
+	}
+	rc, err := r.st.ReadData(r.ctx, r.bucket, r.key, r.fi, part, partOff, partLen)
+	if err != nil {
+		return fmt.Errorf("object: open part %d of %s/%s: %w", part.Number, r.bucket, r.key, lockErr(r.ctx, err))
+	}
+	r.cur = rc
+	return nil
+}
+
+// pin implements pinnable.
+func (r *partsReader) pin(max int) bool {
+	var opened []pinnedStream
+	for off, rem := r.offset, r.remaining; rem > 0; {
+		part, partOff, partLen, ok := locatePart(r.fi, off, rem)
+		if !ok || len(opened) == max {
+			closePinned(opened)
+			return false
+		}
+		rc, pinned, err := r.st.OpenData(r.ctx, r.bucket, r.key, r.fi, part, partOff, partLen)
+		if err != nil {
+			closePinned(opened)
+			return false
+		}
+		opened = append(opened, pinnedStream{off: off, rc: rc})
+		if !pinned {
+			closePinned(opened)
+			return false
+		}
+		off, rem = off+partLen, rem-partLen
+	}
+	r.pinned = opened
+	return true
 }
 
 func (r *partsReader) Close() error {
+	closePinned(r.pinned)
+	r.pinned = nil
 	if r.cur != nil {
 		err := r.cur.Close()
 		r.cur = nil

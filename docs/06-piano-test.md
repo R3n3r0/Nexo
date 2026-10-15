@@ -19,22 +19,72 @@
 |---------|-----|
 | Ogni PR | lint Go/TS, unit Go (`-race`, copertura), unit web, build con UI embedded, integrazione server, testscript CLI, Playwright smoke (Chromium), contratto OpenAPI |
 | Merge su `main` | + Playwright completo (Chromium, Firefox, WebKit), fuzz 5 min per target, cluster smoke 4 nodi |
-| Notturna | s3-tests, mint, suite chaos cluster, fuzz 1 h, benchmark con confronto vs baseline (regressione > 10% = fallimento) |
-| Release | Test di upgrade, scansione immagini (trivy), SBOM |
+| Notturna | s3-tests, mint, test di upgrade, suite chaos cluster, fuzz 1 h, benchmark con confronto vs baseline (regressione > 10% = fallimento) |
+| Release | Test di upgrade dalla release precedente, scansione immagini (trivy), SBOM |
 
 ### Suite di compatibilità Ceph `s3-tests`
 
 `test/compat/run-s3tests.sh` (`make test-s3compat`, job notturno `s3tests-nightly`) scarica `ceph/s3-tests` a un
 commit fissato, crea un venv Python con le dipendenze bloccate da `test/compat/constraints.txt`, avvia `bin/nexo`
 su TLS con il KMS integrato (SNMD a 4 dischi; `NEXO_S3TESTS_MODE=snsd|cluster` per le altre modalità, tutte e tre nel
-job notturno), crea con
-`nexoctl admin` gli utenti `main`, `alt` e `tenant` della suite e le chiavi KMS, genera `s3tests.conf` ed esegue
-`test_s3.py` con pytest. Il plugin `test/compat/nexo_s3tests.py` deseleziona i test di `test/compat/excluded.txt`
-(ognuno con il motivo: funzionalità fuori catalogo o P2, comportamenti specifici di RGW, differenze note di
-[02 §2.4](02-funzionalita.md)), classifica i test per gruppo funzionale e scrive `report.txt`/`report.json`
-(esito per test e per gruppo). Senza rete (git/pip) l'esecuzione locale è saltata e documentata in
-`report/SKIPPED`; in CI (`NEXO_S3TESTS_REQUIRE_NETWORK=1`) è un errore. Il job fallisce se un gruppo obiettivo
-di M7 (versioning, object lock, multipart, tagging, SSE-C, CORS, checksum) supera meno del 90% dei test applicabili.
+job notturno; il deployment è quello di `test/compat/lib.sh`, condiviso con `mint`), crea con `nexoctl admin` gli
+utenti `main`, `alt` e `tenant` della suite e le chiavi KMS, genera `s3tests.conf` ed esegue con pytest tutti i file
+della suite (`test_s3.py`, `test_headers.py`, `test_iam.py`, `test_sts.py`, `test_s3select.py`, `test_sns.py`,
+`test_s3control.py`; `NEXO_S3TESTS_FILES` per restringerli). Il plugin `test/compat/nexo_s3tests.py` deseleziona
+i test di `test/compat/excluded.txt` (`<selettore> | <categoria> | <motivo>`, categorie: `rgw` estensioni o
+attese di RGW che AWS stesso non soddisfa, `deprecated` API deprecate come SigV2, `p2` funzionalità P2 del
+catalogo, `out-of-catalog`, `aws` risposta di Nexo uguale a quella di AWS e diversa da quella attesa, `design`
+scelte di [02 §2.4](02-funzionalita.md), `suite` difetti della suite), classifica i test per gruppo funzionale e
+scrive `report.txt`/`report.json` (esito per test, per gruppo, esclusioni per categoria). Il job fallisce se un
+gruppo con test applicabili ne supera meno del 95% (`NEXO_S3TESTS_THRESHOLD`). Con
+`NEXO_S3TESTS_CHECK_EXCLUDED=names` (nel job notturno) esegue anche i test esclusi per nome e fallisce se uno
+passa: l'esclusione va tolta. Senza rete (git/pip) l'esecuzione locale è saltata e documentata in
+`report/SKIPPED`; in CI (`NEXO_S3TESTS_REQUIRE_NETWORK=1`) è un errore. Lo stato misurato è in
+[05, stato di T-9.1](05-roadmap-task.md).
+
+### Suite di compatibilità MinIO `mint`
+
+`test/compat/run-mint.sh` (`make test-mint`, job notturno `mint-nightly` in SNMD e cluster) esegue le suite SDK di
+`minio/mint` a un commit fissato **senza Docker**: costruisce sull'host ogni suite con la toolchain del linguaggio
+(Go: minio-go, aws-sdk-go-v2, versioning, healthcheck, mc; Python: minio-py, awscli, s3cmd, s3select; Node.js:
+minio-js; Java: minio-java, aws-sdk-java-v2 con Gradle; Ruby: aws-sdk-ruby; PHP: aws-sdk-php con Composer), con
+le versioni degli SDK fissate nello script, una volta per versione; avvia `bin/nexo` (`lib.sh`, TLS, KMS integrato;
+`NEXO_MINT_MODE=snmd|snsd|cluster`) e lancia ogni suite con l'ambiente di `mint.sh` (`MINT_MODE=full`,
+certificato della prova fra le CA fidate di ogni runtime). `test/compat/mint_report.py` legge il log JSON di ogni
+suite e scrive `report.txt`/`report.json` per suite (passati, falliti, attesi, NA); i fallimenti attesi sono in
+`test/compat/mint-excluded.txt` (`<suite> | <glob sul nome del test o su "<funzione> <argomenti>"> | <categoria>
+| <motivo>`, le categorie di `excluded.txt` più `minio`, estensioni e risposte specifiche di MinIO). Lo script
+fallisce se una suite fallisce un test non elencato o non può essere costruita (`NEXO_MINT_REQUIRE_ALL=1` in CI).
+Molte suite si fermano al primo errore: un fallimento atteso nasconde i test che lo seguono (indicato in
+`mint-excluded.txt`).
+
+### Test di upgrade (T-9.8)
+
+`test/upgrade` (build tag `upgrade`, `make test-upgrade`, job notturno `upgrade-nightly`): `TestMain` costruisce
+la release precedente dal suo commit (`NEXO_UPGRADE_FROM`, default `224bb31`, M7, estratta con `git archive`) e la
+release in prova dal working tree (`NEXO_UPGRADE_OLD_BIN`/`NEXO_UPGRADE_NEW_BIN` per binari già pronti); i
+deployment usano TLS e il KMS integrato.
+
+- `TestUpgradeSNMD` (4 dischi): la release precedente scrive oggetti con più versioni e delete marker, multipart
+  con checksum CRC32C e un upload lasciato aperto, SSE-S3, SSE-KMS, SSE-C, cifratura predefinita, Object Lock
+  (retention governance, legal hold), tag e metadati, utenti, policy e access key IAM, bucket policy anonima,
+  lifecycle, CORS, notifiche verso un webhook e un evento accodato col webhook irraggiungibile. La release in prova
+  rilegge tutto (sha256 di ogni versione, ETag, checksum, decifratura, lock, configurazioni, permessi), recapita
+  l'evento accodato, completa l'upload aperto e modifica i dati; poi riparte la release precedente sugli stessi
+  dischi (downgrade) e infine di nuovo quella in prova.
+- `TestRollingUpgradeCluster` (4 nodi × 2 dischi dietro un load balancer con health check): aggiornamento di un
+  nodo alla volta (SIGTERM, avvio della nuova release, attesa del quorum) mentre 8 worker scrivono, leggono
+  (confronto con lo sha256 dell'ultima scrittura confermata) e cancellano, e un upload multipart riceve una parte
+  a nodo spento: nessun errore client oltre ai retry dell'SDK, nessuna lettura incoerente, tutti i nodi online con
+  la nuova versione, dati della release precedente integri. Poi un nodo torna alla release precedente (rollback
+  di un nodo), serve i dati scritti dalla nuova, ne scrive di nuovi letti dai nodi aggiornati, e riparte con la
+  nuova.
+
+Politica di downgrade ([08](08-modalita-deploy.md)): una release legge i dischi delle release precedenti della
+stessa major. Tornare indietro è supportato solo fra release con gli stessi formati (versione di `format.json`,
+major di `xl.meta`, protocollo internodo): i test verificano che la release in prova scriva ancora i formati che
+la precedente legge e in tal caso che il downgrade funzioni; se un formato cambia, la release precedente deve
+rifiutare i dischi (non partire) lasciandoli intatti, e i test lo verificano al posto del downgrade.
 
 **Soglie di copertura**: `internal/{auth,policy,erasure,storage,object,iam}` ≥ 85%; resto backend ≥ 70%; web ≥ 75% (statements).
 
@@ -111,7 +161,7 @@ di M7 (versioning, object lock, multipart, tagging, SSE-C, CORS, checksum) super
 | TC-09 | Nodo che crasha mentre tiene un write lock | Lock rilasciato entro la scadenza, altre scritture riprendono |
 | TC-10 | Sostituzione completa dei dischi di un nodo | Healing ricostruisce tutto; checksum di tutti gli oggetti uguali a quelli originali |
 | TC-11 | Espansione: aggiunta di un secondo pool con rolling restart | Nessun downtime visibile; nuovi oggetti nel nuovo pool; vecchi leggibili |
-| TC-12 | Rolling upgrade binario N → N+1 | Nessun errore client |
+| TC-12 | Rolling upgrade binario N → N+1 (stesso sorgente, versioni diverse; la release precedente reale in `test/upgrade`, §6.1) | Nessun errore client |
 | TC-13 | Clock skew 5 s su un nodo | Avviso nei log/console; nessuna anomalia funzionale |
 | TC-14 | Job singleton (scanner/ILM) | Esattamente un'istanza attiva; failover se il leader muore |
 | TC-15 | Soak test 24 h con carico misto + chaos casuale (Jepsen-like, verifica con checker di linearizzabilità sulle chiavi) | Nessuna violazione di consistenza, nessun leak di memoria/goroutine |
@@ -257,5 +307,22 @@ Test di **cache per dominio** (server, cluster, CLI, dashboard): [11 §11.12](11
 ## 6.8 Matrice di tracciabilità
 
 Ogni funzionalità del [catalogo](02-funzionalita.md) deve avere almeno un test associato. La matrice viene
-mantenuta in `test/TRACEABILITY.md` (generata da tag nei test, es. `// covers: S-OBJ-06`) e controllata in CI:
+mantenuta in [`test/TRACEABILITY.md`](../test/TRACEABILITY.md) (generata da tag nei test, es. `// covers: S-OBJ-06`) e controllata in CI:
 una funzionalità P0/P1 senza test fa fallire la pipeline di release.
+
+- **Tag**: un commento `covers: <codice>[, <codice>...]` (`//` nei test Go e TypeScript, `#` negli script `testscript`
+  `.txtar`, shell e Python) nel commento di documentazione o nel corpo del test; un valore che termina con una
+  virgola continua sulla riga di commento successiva; i gruppi del catalogo si possono scrivere come intervallo
+  (`D-ACC-01..04`). Il testo dopo i codici è libero (es. `covers: S-OBJ-13 (--enc-c)`), gli ID dei casi di test
+  (`TS-I-05`, `TCL-E-03`, `TD-E-11`, ...) restano nei titoli e nei commenti ma non contano per la matrice.
+- **Fonti**: `*_test.go`, `test/**/*.txtar`, `web/src/**/*.test.ts(x)`, `web/e2e/**/*.spec.ts`, script `.sh`/`.py`
+  (es. `packaging/smoke.sh`); il test associato è la funzione Go, il titolo del test/suite Vitest o Playwright che
+  segue il tag, o l'intero script.
+- **Strumento**: `make traceability` (`go run ./cmd/tools/traceability`, logica in `internal/tools/traceability`,
+  fuori dai binari di rilascio) riscrive la matrice: riepilogo per priorità, funzionalità P0/P1 per area con i test
+  (i primi 8 e il conteggio), P2 elencate come "non in v1.0". I codici raggruppati del catalogo (`D-ACC-01..04`,
+  `D-CCH-01..08`, `D-DST-01..08`) sono espansi con le descrizioni di [10](10-domini-accessi-distribuzioni.md) e
+  [11](11-cache-domini.md).
+- **Controllo**: `make traceability-check` (job `lint-go` della CI e workflow di release) e il test Go
+  `TestRepositoryTraceability` falliscono se una funzionalità P0/P1 non ha test, se un tag nomina un codice fuori
+  catalogo o se `test/TRACEABILITY.md` non è aggiornata.

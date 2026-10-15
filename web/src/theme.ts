@@ -104,15 +104,19 @@ export function localizedTheme(labels: ThemeLabels): MantineThemeOverride {
 
 /**
  * Darkening of shade 9 that the "light" variant text needs, per palette
- * colour, to reach a 4.5:1 contrast on its tinted background (the default
- * shades of yellow, orange, lime, green and teal are too light).
+ * colour, to reach a 4.5:1 contrast on its tinted background, also over
+ * the hover background of a table row (gray 1-2: the status badges of the
+ * live trace and of the audit log); the default shades of red, cyan, teal,
+ * green, lime, yellow and orange are too light.
  */
 const lightTextDarkening: Record<string, number> = {
-  teal: 0.05,
-  green: 0.1,
-  orange: 0.15,
-  lime: 0.2,
-  yellow: 0.3,
+  red: 0.08,
+  cyan: 0.06,
+  teal: 0.12,
+  green: 0.18,
+  orange: 0.19,
+  lime: 0.25,
+  yellow: 0.33,
 };
 
 /**

@@ -1,3 +1,4 @@
+# covers: C-ADM-05
 # TCL-E-13: admin accesskey create --expiry: the key works, then expires.
 # C-ADM-05: inline policy, edit, remove; the secret is printed once.
 

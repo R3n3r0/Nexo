@@ -141,7 +141,9 @@ func TestDispatcherErrors(t *testing.T) {
 		status               int
 		code                 string
 	}{
-		{"no default operation", "POST", "/b/k", http.StatusNotImplemented, "NotImplemented"},
+		{"no default operation", "POST", "/b/k", http.StatusMethodNotAllowed, "MethodNotAllowed"},
+		{"presigned, no default operation", "POST", "/b/k?X-Amz-Signature=x", http.StatusMethodNotAllowed, "MethodNotAllowed"},
+		{"unknown sub-resource", "POST", "/b/k?unknown", http.StatusNotImplemented, "NotImplemented"},
 		{"no operation for the method", "DELETE", "/b/k", http.StatusMethodNotAllowed, "MethodNotAllowed"},
 		{"unknown method", "PROPFIND", "/b/k", http.StatusMethodNotAllowed, "MethodNotAllowed"},
 		{"service scope", "PUT", "/", http.StatusMethodNotAllowed, "MethodNotAllowed"},

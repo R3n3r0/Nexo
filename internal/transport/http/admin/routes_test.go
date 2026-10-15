@@ -34,6 +34,7 @@ import (
 
 func httptestBody(s string) io.ReadCloser { return io.NopCloser(strings.NewReader(s)) }
 
+// covers: S-OPS-08
 func TestInfoRoutes(t *testing.T) {
 	f := newFixture(t)
 	c := f.root(t)

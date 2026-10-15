@@ -38,6 +38,7 @@ const validPolicy = JSON.stringify(
   2,
 );
 
+// covers: D-IAM-03
 describe('Policy editor (TD-U-07)', () => {
   it('highlights invalid JSON with its position and blocks saving', async () => {
     renderEditor();

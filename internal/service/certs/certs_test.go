@@ -20,6 +20,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/cluster"
 )
 
+// covers: S-DST-06
 func TestUploadValidation(t *testing.T) {
 	ctx := context.Background()
 	docs := &memDocs{docs: map[string][]byte{}}
@@ -80,6 +81,8 @@ func TestUploadValidation(t *testing.T) {
 
 // TestSNISelection covers the selection by SNI with several certificates
 // (TDS-10) and the propagation of an upload to the other nodes.
+//
+// covers: S-DST-06, S-OPS-02
 func TestSNISelection(t *testing.T) {
 	ctx := context.Background()
 	docs := &memDocs{docs: map[string][]byte{}}
@@ -220,6 +223,8 @@ func TestUploadRefusesTheNamesOfTheDeployment(t *testing.T) {
 }
 
 // TestExpiryStatus checks the warning window of 21 days.
+//
+// covers: S-DST-06
 func TestExpiryStatus(t *testing.T) {
 	ctx := context.Background()
 	start := time.Now()
@@ -243,6 +248,8 @@ func TestExpiryStatus(t *testing.T) {
 
 // TestReconcileOnlyOnLeader checks that the ACME job never runs on a node
 // that is not the leader.
+//
+// covers: S-DST-06, S-STO-06
 func TestReconcileOnlyOnLeader(t *testing.T) {
 	domains := certsmock.NewDomainSource(t) // no call expected
 	docs := &memDocs{docs: map[string][]byte{}}

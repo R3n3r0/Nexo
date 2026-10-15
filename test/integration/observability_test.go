@@ -255,7 +255,7 @@ func sum(samples map[string]float64, family string, fragments ...string) (float6
 // state of the deployment, the bucket families summed over the nodes; and
 // the series of the console aggregated over the nodes (T-8.2).
 //
-// covers: S-OPS-05, D-MON-01
+// covers: S-OPS-05, D-MON-01, S-OPS-04
 func TestClusterMetrics(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t, testutil.WithConfig(func(c *config.Static) { c.PrometheusAuthType = config.PrometheusAuthPublic }))

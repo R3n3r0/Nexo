@@ -14,6 +14,8 @@ import (
 )
 
 // TestResolve covers the host resolution order of docs/10 §10.2 (TDS-01).
+//
+// covers: S-DST-01
 func TestResolve(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t,
@@ -89,6 +91,8 @@ func TestResolve(t *testing.T) {
 }
 
 // TestAliasConflicts covers TDS-02: an alias belongs to one distribution.
+//
+// covers: S-DST-01
 func TestAliasConflicts(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t, distribution.WithMainHosts("s3.example.org"))

@@ -1,0 +1,6 @@
+$ nexoctl admin trace --count 3 mem
+Tracing the requests of "mem" (Ctrl-C to stop).
+2026-01-02 03:05:05.000 n1:9000 s3    PutObject                200    12.5ms  PUT /photos/a.jpg  rx 2.0KiB tx 0B  user alice  from 10.0.0.1
+2026-01-02 03:05:06.000 n2:9000 s3    GetObject                503    0.42ms  GET /photos/b.jpg?X-Amz-Signature=*REDACTED*  error: SlowDown
+2026-01-02 03:05:07.000 n1:9000 admin GET /buckets             200     1.50s  GET /api/v1/buckets  user root
+

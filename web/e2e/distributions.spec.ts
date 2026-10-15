@@ -44,6 +44,7 @@ test.describe('distributions', () => {
     await api.deleteBucket(bucket);
   });
 
+  // covers: D-DST-01, D-DST-02
   test('TD-D-01 the wizard creates a distribution with two domains, its DNS records and routing', async ({
     page,
     api,
@@ -127,6 +128,7 @@ test.describe('distributions', () => {
     await expect(row).toContainText(bucket);
   });
 
+  // covers: D-DST-03, D-DST-04
   test('TD-D-02 a behavior with SPA fallback and an error page, tested then served on the domain', async ({
     page,
     api,
@@ -214,6 +216,7 @@ test.describe('distributions', () => {
     }
   });
 
+  // covers: D-DST-05
   test('TD-D-03 the private key of a key group is shown once and signs a URL that opens the file', async ({
     page,
     api,
@@ -304,6 +307,7 @@ test.describe('distributions', () => {
     }
   });
 
+  // covers: D-DST-07
   test('TD-D-04 an expiring certificate is highlighted; an invalid one is refused', async ({
     page,
     api,
@@ -372,6 +376,7 @@ test.describe('distributions', () => {
     }
   });
 
+  // covers: D-DST-01, D-UX-02
   test('TD-D-05 a user without admin:ManageDistributions neither sees nor changes the distributions', async ({
     browser,
     nexo,

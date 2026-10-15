@@ -27,6 +27,7 @@ func openDrive(t *testing.T, ep domain.Endpoint) storage.StorageAPI {
 	return d
 }
 
+// covers: S-OPS-08
 func TestInfo(t *testing.T) {
 	ctx := context.Background()
 	base := t.TempDir()

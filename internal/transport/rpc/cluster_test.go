@@ -2,11 +2,9 @@ package rpc_test
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"math/rand/v2"
-	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -16,7 +14,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/net/http2"
 
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
@@ -372,9 +369,7 @@ func TestClusterRPCOnTheS3Port(t *testing.T) {
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusNotImplemented, resp.StatusCode, "the RPC is HTTP/2 only")
-	h2c := &http.Client{Transport: &http2.Transport{AllowHTTP: true, DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, network, addr)
-	}}}
+	h2c := h2Client()
 	resp, err = h2c.Post(fmt.Sprintf("http://%s/nexo/rpc/v1/peer/ping", c.Nodes[0].ID), "application/x-msgpack", nil)
 	require.NoError(t, err)
 	_ = resp.Body.Close()

@@ -33,7 +33,7 @@ import (
 // random delays; nobody serves before a quorum of nodes is up, then every
 // node joins the same deployment.
 //
-// covers: TC-01
+// covers: TC-01, S-STO-06
 func TestTC01RandomStartOrder(t *testing.T) {
 	c := newCluster(t, 4)
 	seed := seedOf(t)
@@ -87,7 +87,7 @@ func TestTC01RandomStartOrder(t *testing.T) {
 // refused by its peers and exits with a clear error, without touching the
 // deployment.
 //
-// covers: TC-02
+// covers: TC-02, S-STO-06
 func TestTC02TopologyMismatch(t *testing.T) {
 	c := newCluster(t, 4)
 	for _, nd := range c.nodes[:3] {
@@ -116,7 +116,7 @@ func TestTC02TopologyMismatch(t *testing.T) {
 // cluster), for single and multipart objects, overwrites, listings and
 // deletions.
 //
-// covers: TC-03
+// covers: TC-03, S-STO-06
 func TestTC03CrossNodeConsistency(t *testing.T) {
 	c := newCluster(t, 4)
 	c.start()
@@ -198,7 +198,7 @@ func TestTC03CrossNodeConsistency(t *testing.T) {
 // created through the Admin API of one node are effective at once on
 // every node; so is the disabling of a user.
 //
-// covers: TC-04
+// covers: TC-04, S-STO-06, S-IAM-03, S-IAM-05
 func TestTC04IdentityPropagation(t *testing.T) {
 	c := newCluster(t, 4)
 	c.start()
@@ -254,7 +254,7 @@ func TestTC04IdentityPropagation(t *testing.T) {
 // clients see no error (the SDK retries), no read contradicts a confirmed
 // write, and the node is healed when it comes back.
 //
-// covers: TC-05
+// covers: TC-05, S-STO-06, S-STO-05
 func TestTC05NodeFailureUnderLoad(t *testing.T) {
 	for _, mode := range []string{"kill", "pause"} {
 		t.Run(mode, func(t *testing.T) {
@@ -311,7 +311,7 @@ func TestTC05NodeFailureUnderLoad(t *testing.T) {
 // serving reads but refuses writes (no quorum) without corrupting
 // anything; when the nodes return, everything is as before.
 //
-// covers: TC-06
+// covers: TC-06, S-STO-06, S-STO-07
 func TestTC06TwoNodesDown(t *testing.T) {
 	t.Parallel() // waits on timeouts: overlaps with the other waiting tests
 	c := newCluster(t, 4)
@@ -373,7 +373,7 @@ func TestTC06TwoNodesDown(t *testing.T) {
 // one half (SIGSTOP) and then the other: neither half accepts a write, and
 // the deployment is intact once whole again.
 //
-// covers: TC-07
+// covers: TC-07, S-STO-06, S-STO-07
 func TestTC07PartitionNoSplitBrain(t *testing.T) {
 	t.Parallel() // waits on timeouts: overlaps with the other waiting tests
 	c := newCluster(t, 4)
@@ -418,7 +418,7 @@ func TestTC07PartitionNoSplitBrain(t *testing.T) {
 // helper process joining the lock servers with the internode credentials
 // (the test binary itself), killed with SIGKILL while it holds the lock.
 //
-// covers: TC-09
+// covers: TC-09, S-STO-07
 func TestTC09LockHolderCrash(t *testing.T) {
 	t.Parallel() // waits on timeouts: overlaps with the other waiting tests
 	c := newCluster(t, 4)
@@ -470,7 +470,7 @@ func TestTC09LockHolderCrash(t *testing.T) {
 // empty ones); when the node comes back they are healed, and the objects
 // read through them have the original checksums.
 //
-// covers: TC-10
+// covers: TC-10, S-STO-05
 func TestTC10DriveReplacement(t *testing.T) {
 	c := newCluster(t, 4)
 	c.start()
@@ -511,7 +511,7 @@ func TestTC10DriveReplacement(t *testing.T) {
 // pool), the new objects are spread over both pools weighted by free
 // space (the second pool has twice the drives).
 //
-// covers: TC-11
+// covers: TC-11, S-STO-08
 func TestTC11PoolExpansion(t *testing.T) {
 	if !multiPool() {
 		t.Skip("several pools on one machine need the per-process /proc/self/cwd of Linux")
@@ -596,7 +596,7 @@ func leaders(c *cluster) []*node {
 // (scanner, MRF, ILM); when it dies another node takes over, and the old
 // leader does not take the leadership back when it returns.
 //
-// covers: TC-14
+// covers: TC-14, S-STO-06
 func TestTC14SingletonLeader(t *testing.T) {
 	c := newCluster(t, 4)
 	c.start()
@@ -637,6 +637,8 @@ func TestTC14SingletonLeader(t *testing.T) {
 // node of the deployment and its drives; a node that is down is reported
 // offline, with its drives (the cluster page of the console, nexoctl admin
 // info).
+//
+// covers: S-OPS-08, S-STO-06
 func TestServerInfoNodes(t *testing.T) {
 	c := newCluster(t, 4)
 	c.start()

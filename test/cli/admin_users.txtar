@@ -1,3 +1,4 @@
+# covers: C-ADM-02
 # TCL-E-10: admin user add/list/disable/remove; a disabled or removed user
 # is denied (exit 4). C-ADM-02, C-ADM-03.
 

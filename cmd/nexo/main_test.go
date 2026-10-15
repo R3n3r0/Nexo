@@ -55,6 +55,7 @@ func TestVersionCommand(t *testing.T) {
 	assert.Contains(t, out.String(), `"version": "dev"`)
 }
 
+// covers: S-OPS-03, S-OPS-13
 func TestHealthcheckCommand(t *testing.T) {
 	healthy := true
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -82,13 +83,17 @@ func TestHealthcheckCommand(t *testing.T) {
 	cmd.SetArgs([]string{"healthcheck", "--url", srv.URL + "/nexo/health/live"})
 	assert.Error(t, cmd.Execute(), "explicit URL is used as is")
 
-	u, err := healthURL(":9001", "/nexo/health/live")
+	u, err := healthURL("http", ":9001", "/nexo/health/live")
 	require.NoError(t, err)
 	assert.Equal(t, "http://127.0.0.1:9001/nexo/health/live", u)
-	_, err = healthURL("9001", "/x")
+	u, err = healthURL("https", "[::]:9001", "/nexo/health/ready")
+	require.NoError(t, err)
+	assert.Equal(t, "https://127.0.0.1:9001/nexo/health/ready", u)
+	_, err = healthURL("http", "9001", "/x")
 	assert.Error(t, err)
 }
 
+// covers: S-OPS-14
 func TestServerDryRun(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "data")
 	deps, out, _ := testDeps(map[string]string{
@@ -144,6 +149,8 @@ func freePort(t *testing.T) int {
 
 // TestServerDryRunMatrix is TM-12: nexo server --dry-run on valid and
 // invalid configurations, without starting nor writing to the drives.
+//
+// covers: S-OPS-14, S-STO-00
 func TestServerDryRunMatrix(t *testing.T) {
 	creds := map[string]string{"NEXO_ROOT_USER": "admin", "NEXO_ROOT_PASSWORD": "password123"}
 	now := time.Now()

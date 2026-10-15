@@ -30,6 +30,8 @@ func TestNew_Defaults(t *testing.T) {
 }
 
 // TM-03 / docs/08 §8.1: mode detection.
+//
+// covers: S-STO-00, S-STO-01, S-STO-02, S-STO-06
 func TestParse_ModeDetection(t *testing.T) {
 	t.Parallel()
 	svc := newTestService(t)
@@ -238,6 +240,7 @@ func TestParse_Options(t *testing.T) {
 	})
 }
 
+// covers: S-STO-08
 func TestParse_MultiPool(t *testing.T) {
 	t.Parallel()
 	svc := newTestService(t)
@@ -350,6 +353,8 @@ func TestParse_SetsSpreadAcrossNodes(t *testing.T) {
 }
 
 // TS-U-02: every topology from 1x1 to 32x32 nodes x drives.
+//
+// covers: S-STO-00
 func TestParse_Matrix(t *testing.T) {
 	t.Parallel()
 	svc := newTestService(t)

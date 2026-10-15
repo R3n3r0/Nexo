@@ -55,6 +55,12 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # docs/06 §6.8: a P0/P1 feature of the catalog without a test, a tag
+      # naming a code outside the catalog or a stale test/TRACEABILITY.md
+      # stops the release.
+      - name: Traceability matrix
+        run: make traceability-check
+
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}

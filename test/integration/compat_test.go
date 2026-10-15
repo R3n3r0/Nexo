@@ -3,7 +3,12 @@ package integration_test
 import (
 	"bufio"
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/xml"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -53,6 +58,61 @@ func TestStalledDownloadReleasesLock(t *testing.T) {
 	require.NoError(t, err, "the overwrite gets the lock of the stalled download")
 	assert.Less(t, time.Since(start), 15*time.Second, "well before the lock timeout (30s)")
 	assert.Equal(t, []byte("small"), e.get("stall", "big"))
+}
+
+// TestStalledDownloadIsASnapshot: a GET releases the lock of its key once
+// the data of the version is open (MVCC on the data directory): an
+// overwrite does not wait for a client that stopped reading (without
+// relying on NEXO_SEND_TIMEOUT), and the download, resumed afterwards,
+// delivers the whole version it started with (ceph/s3-tests
+// test_atomic_read_*), single-part and multipart.
+//
+// covers: S-OBJ-02
+func TestStalledDownloadIsASnapshot(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	e.mkBucket("snapshot")
+	big := bytes.Repeat([]byte("s"), 24<<20)
+	parts := [][]byte{bytes.Repeat([]byte("p"), 5<<20), bytes.Repeat([]byte("q"), 5<<20), bytes.Repeat([]byte("r"), 3<<20)}
+	e.put("snapshot", "single", big)
+	up, err := e.root.CreateMultipartUpload(e.ctx, &s3.CreateMultipartUploadInput{Bucket: aws.String("snapshot"), Key: aws.String("multi")})
+	require.NoError(t, err)
+	var done []types.CompletedPart
+	for i, p := range parts {
+		out, err := e.root.UploadPart(e.ctx, &s3.UploadPartInput{Bucket: aws.String("snapshot"), Key: aws.String("multi"), UploadId: up.UploadId,
+			PartNumber: aws.Int32(int32(i + 1)), Body: bytes.NewReader(p)})
+		require.NoError(t, err)
+		done = append(done, types.CompletedPart{PartNumber: aws.Int32(int32(i + 1)), ETag: out.ETag})
+	}
+	_, err = e.root.CompleteMultipartUpload(e.ctx, &s3.CompleteMultipartUploadInput{Bucket: aws.String("snapshot"), Key: aws.String("multi"),
+		UploadId: up.UploadId, MultipartUpload: &types.CompletedMultipartUpload{Parts: done}})
+	require.NoError(t, err)
+
+	for key, want := range map[string][]byte{"single": big, "multi": bytes.Join(parts, nil)} {
+		t.Run(key, func(t *testing.T) {
+			conn, err := net.Dial("tcp", e.hostPort())
+			require.NoError(t, err)
+			defer func() { _ = conn.Close() }()
+			req := newRequest(t, http.MethodGet, e.srv.S3URL+"/snapshot/"+key, nil)
+			e.signRequest(req, e.rootCreds(), nil)
+			require.NoError(t, req.Write(conn))
+			// The headers arrive, then the client reads nothing more.
+			resp, err := http.ReadResponse(bufio.NewReaderSize(conn, 64), req)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			start := time.Now()
+			_, err = e.root.PutObject(e.ctx, &s3.PutObjectInput{Bucket: aws.String("snapshot"), Key: aws.String(key), Body: strings.NewReader("new")})
+			require.NoError(t, err)
+			assert.Less(t, time.Since(start), 5*time.Second, "the overwrite does not wait for the stalled download")
+			assert.Equal(t, []byte("new"), e.get("snapshot", key))
+
+			got, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			assert.Equal(t, len(want), len(got))
+			assert.True(t, bytes.Equal(want, got), "the download delivers the version it started with")
+		})
+	}
 }
 
 // TestMultipartCompletionRetry: a CompleteMultipartUpload repeated after
@@ -122,6 +182,14 @@ func TestMultipartCompletionValidation(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, httpStatus(err))
 	assert.Equal(t, "InvalidRequest", apiCode(err))
 	assert.Contains(t, err.Error(), "It was missing for part 1 in the request", "the S3 message")
+	// A declared object checksum that does not match is reported first
+	// (ceph/s3-tests test_multipart_checksum_sha256).
+	_, err = e.root.CompleteMultipartUpload(e.ctx, &s3.CompleteMultipartUploadInput{Bucket: aws.String(bucket), Key: aws.String("k"),
+		UploadId: up.UploadId, MultipartUpload: &types.CompletedMultipartUpload{Parts: withoutSums},
+		ChecksumSHA256: aws.String(base64.StdEncoding.EncodeToString(make([]byte, sha256.Size)))})
+	require.Error(t, err)
+	assert.Equal(t, http.StatusBadRequest, httpStatus(err))
+	assert.Equal(t, "BadDigest", apiCode(err))
 	for _, wrong := range []int64{5, 1024, 10<<20 + 1} {
 		err = complete(withSums, aws.Int64(wrong))
 		require.Error(t, err, "x-amz-mp-object-size %d", wrong)
@@ -327,4 +395,86 @@ func TestSSECustomerKeyOverPlainHTTP(t *testing.T) {
 	ssec(req)
 	e.signRequest(req, e.rootCreds(), nil)
 	requireS3Error(t, do(t, req), http.StatusBadRequest, "InvalidRequest")
+}
+
+// TestRequestHeaderValidation: the request headers of ceph/s3-tests
+// test_headers.py. An empty Content-MD5 is invalid (400 InvalidDigest); a
+// canned ACL that S3 does not define is a malformed request (400
+// InvalidArgument), a public one a feature Nexo does not provide (501,
+// S-BKT-13); a request signed with the Date header in the RFC 1123
+// numeric-zone format of Python clients (botocore, no X-Amz-Date) is
+// accepted.
+//
+// covers: S-OBJ-01, S-IAM-02
+func TestRequestHeaderValidation(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	const bucket = "header-checks"
+	e.mkBucket(bucket)
+	root := e.rootCreds()
+
+	tests := []struct {
+		name   string
+		path   string
+		header http.Header
+		status int
+		code   string
+	}{
+		{"empty Content-MD5", "/" + bucket + "/md5", http.Header{"Content-Md5": {""}}, http.StatusBadRequest, "InvalidDigest"},
+		{"malformed Content-MD5", "/" + bucket + "/md5", http.Header{"Content-Md5": {"YWJyYWNhZGFicmE="}}, http.StatusBadRequest, "InvalidDigest"},
+		{"unknown canned ACL", "/" + bucket + "/acl", http.Header{"X-Amz-Acl": {"public-ready"}}, http.StatusBadRequest, "InvalidArgument"},
+		{"public canned ACL", "/" + bucket + "/acl", http.Header{"X-Amz-Acl": {"public-read"}}, http.StatusNotImplemented, "NotImplemented"},
+		{"private canned ACL", "/" + bucket + "/acl", http.Header{"X-Amz-Acl": {"private"}}, http.StatusOK, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := e.signedDo(http.MethodPut, tt.path, root, []byte("bar"), tt.header)
+			assert.Equal(t, tt.status, r.StatusCode, "%s", r.Body)
+			if tt.code != "" {
+				assert.Contains(t, string(r.Body), "<Code>"+tt.code+"</Code>")
+			}
+		})
+	}
+
+	t.Run("signed with the Date header", func(t *testing.T) {
+		for _, layout := range []string{"Mon, 02 Jan 2006 15:04:05 -0000", http.TimeFormat} {
+			body := []byte("dated")
+			req := newRequest(t, http.MethodPut, e.srv.S3URL+"/"+bucket+"/dated", body)
+			signWithDateHeader(t, req, root, e.srv.Config.Region, time.Now().UTC(), layout, body)
+			r := do(t, req)
+			assert.Equal(t, http.StatusOK, r.StatusCode, "Date %q: %s", req.Header.Get("Date"), r.Body)
+		}
+	})
+}
+
+// signWithDateHeader signs req with SigV4 dated by the Date header (in
+// layout) instead of X-Amz-Date, as botocore does when the request
+// carries a Date header.
+func signWithDateHeader(t *testing.T, req *http.Request, c creds, region string, at time.Time, layout string, body []byte) {
+	t.Helper()
+	sum := sha256.Sum256(body)
+	payload := hex.EncodeToString(sum[:])
+	req.Header.Set("Date", at.Format(layout))
+	req.Header.Set("X-Amz-Content-Sha256", payload)
+	amzDate := at.Format("20060102T150405Z")
+	day := at.Format("20060102")
+	canonical := strings.Join([]string{
+		req.Method,
+		req.URL.EscapedPath(),
+		req.URL.RawQuery,
+		"date:" + req.Header.Get("Date") + "\nhost:" + req.URL.Host + "\nx-amz-content-sha256:" + payload + "\n",
+		"date;host;x-amz-content-sha256",
+		payload,
+	}, "\n")
+	scope := day + "/" + region + "/s3/aws4_request"
+	crSum := sha256.Sum256([]byte(canonical))
+	toSign := "AWS4-HMAC-SHA256\n" + amzDate + "\n" + scope + "\n" + hex.EncodeToString(crSum[:])
+	mac := func(key []byte, data string) []byte {
+		h := hmac.New(sha256.New, key)
+		_, _ = h.Write([]byte(data))
+		return h.Sum(nil)
+	}
+	key := mac(mac(mac(mac([]byte("AWS4"+c.SecretKey), day), region), "s3"), "aws4_request")
+	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+c.AccessKey+"/"+scope+
+		", SignedHeaders=date;host;x-amz-content-sha256, Signature="+hex.EncodeToString(mac(key, toSign)))
 }

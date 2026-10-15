@@ -22,6 +22,7 @@ const routes: RouteObject[] = [
   },
 ];
 
+// covers: D-AUTH-01
 describe('session expiry (TD-U-02, TD-E-17)', () => {
   it('sends the user to the login page with a message and back to the same route', async () => {
     const user = userEvent.setup();

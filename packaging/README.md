@@ -9,6 +9,7 @@ Release packaging of Nexo (T-9.5, docs/08 §8.7). The release itself is describe
 | `nfpm/postinstall.sh` | deb/rpm: `systemctl daemon-reload`; next steps on install, restart advice on upgrade; never enables nor restarts the service |
 | `nfpm/preremove.sh` | deb/rpm: stops and disables the service on removal (not on upgrade) |
 | `nfpm/postremove.sh` | deb/rpm: `systemctl daemon-reload`; data, user and (until a purge) `/etc/default/nexo` are kept |
+| `nfpm/nexo.sysusers.conf` | deb/rpm: `/usr/lib/sysusers.d/nexo.conf`, the `nexo` user and group for `systemd-sysusers` (image-based systems) |
 | `smoke.sh` | TM-10: version of both binaries, `nexo server --dry-run`, a single-drive server (readiness, embedded console, S3 round trip with `nexoctl`, SIGTERM); `RUNNER=qemu-aarch64-static` for linux/arm64 |
 | `systemd-verify.sh` | `systemd-analyze verify` and `security` of `deploy/systemd/nexo.service` on a scratch root (no root privileges needed) |
 

@@ -32,7 +32,7 @@ func multipartETag(parts ...[]byte) string {
 // TS-I-06: multipart uploads: parts out of order, repeated part, a small
 // non-final part, abort, paginated ListParts, UploadPartCopy.
 //
-// covers: S-OBJ-06
+// covers: S-OBJ-06, S-OBJ-07
 func TestMultipart(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)

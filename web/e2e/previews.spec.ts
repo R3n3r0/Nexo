@@ -19,6 +19,7 @@ test.describe('object previews', () => {
     await api.deleteBucket(bucket);
   });
 
+  // covers: D-OBJ-05
   test('TD-E-10 previews an image, a PDF and a text file', async ({ page, api }) => {
     await api.putObject(bucket, 'media/pixel.png', pngImage, 'image/png');
     await api.putObject(bucket, 'media/doc.pdf', pdfDocument, 'application/pdf');

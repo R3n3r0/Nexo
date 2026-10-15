@@ -86,6 +86,7 @@ type fixedID string
 
 func (f fixedID) NewID() string { return string(f) }
 
+// covers: S-OBJ-07
 func TestHTTPMetaBuild(t *testing.T) {
 	tests := []struct {
 		name string

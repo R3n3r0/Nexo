@@ -74,6 +74,7 @@ func TestUploadPart(t *testing.T) {
 	requireError(t, f.do(http.MethodPut, "/b/k?partNumber=1&uploadId=gone", "part"), http.StatusNotFound, "NoSuchUpload")
 }
 
+// covers: S-OBJ-04, S-OBJ-06
 func TestUploadPartCopy(t *testing.T) {
 	f := newFixture(t)
 	f.objects.EXPECT().CopyObjectPart(mock.Anything, object.CopyObjectPartInput{
@@ -231,6 +232,16 @@ func TestListParts(t *testing.T) {
 	assert.Equal(t, "c4", res.Parts[1].ChecksumSHA256)
 	assert.Equal(t, "c5", res.Parts[2].ChecksumCRC32C)
 	assert.Equal(t, "c6", res.Parts[3].ChecksumSHA1)
+
+	// The last page reports its last part too (as S3 does).
+	f.objects.EXPECT().ListObjectParts(mock.Anything, domain.ListPartsInput{Bucket: "b", Key: "k", UploadID: "u1", MaxParts: 1000}).
+		Return(domain.ListPartsResult{Parts: []domain.Part{{Number: 1}, {Number: 2}}}, nil).Once()
+	rec = f.do(http.MethodGet, "/b/k?uploadId=u1", "")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	res = s3.ListPartsResult{}
+	decodeXML(t, rec, &res)
+	assert.False(t, res.IsTruncated)
+	assert.Equal(t, 2, res.NextPartNumberMarker)
 
 	requireError(t, f.do(http.MethodGet, "/b/k?uploadId=u1&max-parts=-2", ""), http.StatusBadRequest, "InvalidArgument")
 	requireError(t, f.do(http.MethodGet, "/b/k?uploadId=u1&part-number-marker=x", ""), http.StatusBadRequest, "InvalidArgument")

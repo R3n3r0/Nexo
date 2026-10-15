@@ -28,6 +28,7 @@ test.describe('object browser', () => {
     await api.deleteBucket(bucket);
   });
 
+  // covers: D-OBJ-02
   test('TD-E-05 dropping a folder of 50 nested files keeps its structure', async ({
     page,
     api,
@@ -54,6 +55,7 @@ test.describe('object browser', () => {
     await expect(page.getByRole('navigation', { name: 'Folder path' })).toContainText('l1-1');
   });
 
+  // covers: D-OBJ-03
   test('TD-E-07 downloads one object and a zip of three', async ({ page, api }) => {
     const files = {
       'reports/a.txt': 'alpha\n',
@@ -91,6 +93,7 @@ test.describe('object browser', () => {
     );
   });
 
+  // covers: D-OBJ-03
   test('TD-E-07 a refused zip download reports its problem and downloads nothing', async ({
     page,
     api,
@@ -117,6 +120,7 @@ test.describe('object browser', () => {
     expect(downloads).toBe(0);
   });
 
+  // covers: D-OBJ-04
   test('TD-E-08 creates a folder, moves an object into it and deletes the folder', async ({
     page,
     api,

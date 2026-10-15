@@ -2,9 +2,7 @@ package server_test
 
 import (
 	"context"
-	"crypto/tls"
 	"io"
-	"net"
 	"net/http"
 	"testing"
 	"time"
@@ -12,7 +10,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/net/http2"
 
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
@@ -118,13 +115,9 @@ func TestServerH2CStop(t *testing.T) {
 	ctx := context.Background()
 	require.NoError(t, srv.Start(ctx))
 	addr := srv.Addr()
-	client := &http.Client{Timeout: 5 * time.Second, Transport: &http2.Transport{
-		AllowHTTP: true,
-		DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
-			var d net.Dialer
-			return d.DialContext(ctx, network, addr)
-		},
-	}}
+	var protocols http.Protocols
+	protocols.SetUnencryptedHTTP2(true)
+	client := &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{Protocols: &protocols}}
 	get := func() (string, error) {
 		resp, err := client.Get("http://" + addr + "/proto")
 		if err != nil {

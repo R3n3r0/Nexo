@@ -37,6 +37,7 @@ function setup() {
   return { manager, abort };
 }
 
+// covers: D-OBJ-02
 describe('UploadPanel (D-OBJ-02)', () => {
   it('is hidden while the queue is empty', () => {
     setup();
@@ -86,6 +87,7 @@ describe('UploadPanel (D-OBJ-02)', () => {
   });
 });
 
+// covers: D-OBJ-02
 describe('UploadPanel while completing (D-OBJ-02)', () => {
   // Regression: the completion could be "canceled" although the object was
   // created.

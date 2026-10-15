@@ -61,6 +61,8 @@ func (e *env) rawStatus(base, rawPath string, hdr http.Header) int {
 // prevails over IAM, the bucket policy and the allow rules, an allow rule
 // grants without IAM policy, the home directories of the users, no bypass
 // through the encodings of the key, root bypasses the rules.
+//
+// covers: S-ACC-01
 func TestAccessRulesS3(t *testing.T) {
 	e := newEnv(t)
 	e.mkBucket("media")
@@ -155,6 +157,8 @@ func TestAccessRulesS3(t *testing.T) {
 // headers read the client behind the trusted proxies (X-Forwarded-*, a Go
 // reverse proxy, the PROXY protocol v1/v2 on the S3 listener); a peer that
 // is not a trusted proxy cannot forge them.
+//
+// covers: S-ACC-02, S-DST-05
 func TestAccessRulesBehindProxies(t *testing.T) {
 	e := newEnv(t, testutil.WithConfig(func(cfg *config.Static) {
 		cfg.TrustedProxies = []string{"127.0.0.1", "::1"}
@@ -314,6 +318,8 @@ func proxiedGet(t *testing.T, from, addr string, header []byte, path string) int
 // TestAccessRulesConsole checks that the console decides with the access
 // rules as the S3 API does (the same policy engine): an allow rule grants a
 // user without IAM policy, a deny rule prevails over its IAM policy.
+//
+// covers: S-ACC-01
 func TestAccessRulesConsole(t *testing.T) {
 	e := newEnv(t)
 	e.mkBucket("shared")
@@ -362,6 +368,8 @@ func iamGroup(name string, members ...string) iam.CreateGroupInput {
 // TestAccessRulesPublicAndBlocked covers the presets (public-read,
 // public-prefix) and TAR-08: the block public access at the bucket and at
 // the cluster level, in the reject and the ignore modes.
+//
+// covers: S-ACC-03
 func TestAccessRulesPublicAndBlocked(t *testing.T) {
 	e := newEnv(t)
 	e.mkBucket("site")
@@ -411,6 +419,8 @@ func TestAccessRulesPublicAndBlocked(t *testing.T) {
 // block public access saved on a node is in effect on every node within a
 // second, without restart (the bucket metadata and the configuration are
 // invalidated by the cluster notifications).
+//
+// covers: S-ACC-01, S-ACC-03, S-STO-06
 func TestAccessRulesPropagation(t *testing.T) {
 	e := newEnv(t)
 	e.mkBucket("prop")

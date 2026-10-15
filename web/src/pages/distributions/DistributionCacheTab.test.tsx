@@ -34,6 +34,7 @@ async function domainRow(host: string): Promise<HTMLElement> {
 configure({ asyncUtilTimeout: 5_000 });
 
 describe('distribution cache tab', { timeout: 30_000 }, () => {
+  // covers: D-CCH-02
   it('D-CCH-02 shows every domain with its effective policy, the level setting it, usage and hit ratio', async () => {
     open('/distributions/sito-web/cache');
     const www = await domainRow('www.example.com');
@@ -60,6 +61,7 @@ describe('distribution cache tab', { timeout: 30_000 }, () => {
     expect(paths).toHaveTextContent('cache off');
   });
 
+  // covers: D-CCH-02
   it('TD-C-01 overrides the policy of a domain and saves it with If-Match', async () => {
     const services = createMockServices({ initialAccessKey: 'nexoadmin' });
     const { user } = open('/distributions/sito-web/cache', services);
@@ -145,6 +147,7 @@ describe('distribution cache tab', { timeout: 30_000 }, () => {
     expect(paths).toHaveTextContent('TTL 1d');
   });
 
+  // covers: D-CCH-08
   it('D-CCH-08 charts the answers per domain of the distribution', async () => {
     open('/distributions/sito-web/cache?section=statistics');
     const domains = await screen.findByRole('table', { name: 'Domains' });
@@ -155,6 +158,7 @@ describe('distribution cache tab', { timeout: 30_000 }, () => {
     );
   });
 
+  // covers: D-CCH-07
   it('D-CCH-07 adds a purge webhook, tests it and removes it', async () => {
     const services = createMockServices({ initialAccessKey: 'nexoadmin' });
     const { user } = open('/distributions/sito-web/cache?section=webhooks', services);
@@ -191,6 +195,7 @@ describe('distribution cache tab', { timeout: 30_000 }, () => {
     });
   });
 
+  // covers: D-DST-08
   it('D-DST-08 invalidates a path of a domain from the distribution', async () => {
     const services = createMockServices({ initialAccessKey: 'nexoadmin', cacheSteps: 0 });
     const { user } = open('/distributions/sito-web/cache?section=invalidations', services);

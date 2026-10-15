@@ -9,12 +9,17 @@
 # NEXO_BINARY defaults to bin/nexo, then to any "nexo" in PATH. The overall
 # exposure reported by systemd-analyze security must stay below
 # MAX_EXPOSURE (default 2.0, "OK").
+#
+# covers: S-OPS-12 (the unit installed by the deb and rpm packages)
 set -eu
 
 root_dir=$(cd "$(dirname "$0")/.." && pwd)
 bin=${1:-$root_dir/bin/nexo}
 [ -x "$bin" ] || bin=$(command -v nexo || true)
-[ -n "$bin" ] && [ -x "$bin" ] || { echo "systemd-verify: no nexo binary (build it: make build-go)" >&2; exit 1; }
+if [ -z "$bin" ] || [ ! -x "$bin" ]; then
+    echo "systemd-verify: no nexo binary (build it: make build-go)" >&2
+    exit 1
+fi
 max=${MAX_EXPOSURE:-2.0}
 
 r=$(mktemp -d)

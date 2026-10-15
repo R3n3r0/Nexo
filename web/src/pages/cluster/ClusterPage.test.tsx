@@ -6,6 +6,7 @@ import { renderWithProviders } from '@/test/render';
 
 import { ClusterPage } from './ClusterPage';
 
+// covers: D-CLU-01
 describe('ClusterPage (D-CLU-01)', () => {
   it('highlights the offline node and its drives, the degraded set and the drifting clock', async () => {
     renderWithProviders(<ClusterPage />, {

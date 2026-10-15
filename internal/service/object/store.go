@@ -48,6 +48,13 @@ type store interface {
 	// ReadData streams [offset, offset+length) of the logical content of
 	// part of the version fi.
 	ReadData(ctx context.Context, volume, path string, fi storage.FileInfo, part storage.PartInfo, offset, length int64) (io.ReadCloser, error)
+	// OpenData is ReadData with the files of the stream opened before it
+	// returns (ReadData may open them at the first read). pinned reports
+	// that every file the stream needs is open, so that it keeps reading
+	// the version after a writer purged its data directory (an open file
+	// survives its removal, see pinnedReads): the read lock of the object
+	// can then be released before the stream is consumed.
+	OpenData(ctx context.Context, volume, path string, fi storage.FileInfo, part storage.PartInfo, offset, length int64) (rc io.ReadCloser, pinned bool, err error)
 
 	ReadAll(ctx context.Context, path string) ([]byte, error)
 	WriteAll(ctx context.Context, path string, data []byte) error

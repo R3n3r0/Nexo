@@ -91,7 +91,7 @@ export function LogsTab() {
     <Stack gap="md">
       <Text size="sm" c="dimmed">
         {t('monitoring.logs.hint')}{' '}
-        <Anchor component={Link} to="/configuration" size="sm">
+        <Anchor component={Link} to="/configuration" size="sm" underline="always">
           {t('nav.configuration')}
         </Anchor>
       </Text>

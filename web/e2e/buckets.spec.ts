@@ -1,6 +1,7 @@
 import { uniqueName } from './support/api';
 import { expect, test } from './support/fixtures';
 
+// covers: D-BKT-01
 test('TD-E-04 creates a bucket, finds it in the list and deletes it', async ({ page, api }) => {
   const bucket = uniqueName('e2e-bucket');
   try {

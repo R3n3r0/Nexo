@@ -1,0 +1,36 @@
+## nexoctl dist error-page set
+
+Answer an error status with a page of the distribution
+
+```
+nexoctl dist error-page set ALIAS ID STATUS PATH [--response-status N] [flags]
+```
+
+### Examples
+
+```
+  nexoctl dist error-page set local sito-web 404 /404.html
+  nexoctl dist error-page set local sito-web 403 /404.html --response-status 404
+```
+
+### Options
+
+```
+  -h, --help                  help for set
+      --response-status int   status sent with the page (default: the error status)
+```
+
+### Options inherited from parent commands
+
+```
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+```
+
+### SEE ALSO
+
+* [nexoctl dist error-page](nexoctl_dist_error-page.md)	 - Replace the error answers of a distribution with pages
+

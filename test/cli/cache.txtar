@@ -1,3 +1,4 @@
+# covers: C-CCH-01, C-DST-01
 # The cache of the distributions from the CLI (docs/11 §11.10).
 # TCL-C-01: cache policy create + dist cache set --domain: the answers of the
 # domain carry the Cache-Control of the policy and X-Cache MISS then HIT; the

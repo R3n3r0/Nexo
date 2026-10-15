@@ -1,3 +1,4 @@
+# covers: C-ADM-07
 # TCL-E-16 and C-ADM heal (SNMD, 4 drives): admin heal finds the objects a
 # drive lost, reports them drive by drive without changing anything with
 # --dry-run, repairs them, and follows a job started in the background.

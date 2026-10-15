@@ -239,6 +239,8 @@ func (g randomPolicies) args(t *testing.T) policy.Args {
 // TestSimulateMatchesEvaluate is the property test of docs/09 TPS-18: on
 // random policies and requests the simulator takes exactly the decision
 // of the enforcement, and its statement list explains it.
+//
+// covers: S-IAM-04b
 func TestSimulateMatchesEvaluate(t *testing.T) {
 	ctx := context.Background()
 	svc, store := newEngine(t)

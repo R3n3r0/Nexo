@@ -1,3 +1,4 @@
+# covers: C-OBJ-07
 # TCL-E-08, TCL-P-01: share download gives a URL that downloads the same
 # content; with --expire 1s it is refused after 2 s.
 # TCL-P-02: share upload gives a PUT URL; --post a POST policy for forms.

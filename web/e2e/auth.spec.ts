@@ -6,6 +6,7 @@ import { anonymous, expect, loginWithForm, test } from './support/fixtures';
 test.describe('authentication', () => {
   test.use({ storageState: anonymous });
 
+  // covers: D-AUTH-01, D-DASH-01
   test('TD-E-01 root signs in, sees the overview and signs out', async ({
     page,
     context,
@@ -37,6 +38,7 @@ test.describe('authentication', () => {
     await expect(page.getByRole('heading', { name: 'Sign in to Nexo' })).toBeVisible();
   });
 
+  // covers: D-AUTH-01
   test('TD-E-02 repeated wrong credentials are reported, then throttled', async ({ page, api }) => {
     const user = { accessKey: uniqueKey('throttled'), secretKey: 'right-secret-123' };
     await api.call('POST', '/users', { json: { ...user, policyNames: ['readonly'] } });
@@ -72,6 +74,7 @@ test.describe('authentication', () => {
     ).toBeVisible();
   });
 
+  // covers: D-AUTH-01
   test('TD-E-17 an expired session sends to the login and back to the same route', async ({
     page,
     context,

@@ -10,6 +10,7 @@ import { capacityOf, OverviewPage, topBuckets } from './OverviewPage';
 
 const overviewRoute = [{ path: '/', element: <OverviewPage /> }];
 
+// covers: D-DASH-01
 describe('OverviewPage (D-DASH-01)', () => {
   it('summarizes the health of a cluster and links to the cluster page', async () => {
     renderRoutes(overviewRoute, {
@@ -95,6 +96,7 @@ describe('OverviewPage (D-DASH-01)', () => {
   });
 });
 
+// covers: D-UX-02
 describe('OverviewPage without admin:ServerInfo (TD-U-09)', () => {
   it('points to the buckets instead of failing', async () => {
     const services = createMockServices({ initialAccessKey: 'nexoadmin' });

@@ -1,3 +1,4 @@
+# covers: C-OBJ-05, C-OBJ-08
 # TCL-E-09: stat, cat, head -n, find --name "*.log" --older-than 1d, du,
 # tree, diff.
 

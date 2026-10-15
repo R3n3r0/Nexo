@@ -356,6 +356,8 @@ func TestConsoleOrigins(t *testing.T) {
 // TestAuthorizationDeniedPerGroup sends one request of every route group
 // with a denying authorizer: the guard answers 403 access_denied and the
 // services are never called (the mocks would fail the test).
+//
+// covers: S-IAM-05
 func TestAuthorizationDeniedPerGroup(t *testing.T) {
 	tests := []struct {
 		group, method, path, body string

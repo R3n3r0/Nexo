@@ -1,0 +1,51 @@
+## nexoctl share upload
+
+Generate upload links (managed PUT by default, --raw, or a --post policy)
+
+### Synopsis
+
+Generate an upload link for an object (a PUT URL, managed by default) with the
+curl command that uses it, or with --post a POST policy for HTML forms, signed
+locally: the form fields, a curl command and an HTML form. A POST policy
+targets a key, or with --prefix (or a target ending with "/") any key under a
+prefix.
+
+```
+nexoctl share upload [flags] ALIAS/BUCKET/OBJECT
+```
+
+### Examples
+
+```
+  nexoctl share upload --expire 1h local/inbox/report.pdf
+  nexoctl share upload --post --max-size 10MiB --prefix uploads/ local/inbox
+```
+
+### Options
+
+```
+      --content-type string   Content-Type the upload must send
+  -E, --expire string         validity of the link (1s to 7d) (default "7d")
+  -h, --help                  help for upload
+      --managed               managed, revocable link signed by the server (Admin API) (default true)
+      --max-size string       largest accepted upload with --post (e.g. 10MiB)
+      --min-size string       smallest accepted upload with --post
+      --post                  generate a POST policy for HTML forms (signed locally)
+      --prefix string         with --post: accept any key under this prefix of the bucket
+      --raw                   raw URL signed locally with the alias credentials (not revocable)
+```
+
+### Options inherited from parent commands
+
+```
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+```
+
+### SEE ALSO
+
+* [nexoctl share](nexoctl_share.md)	 - Share objects with links that need no credentials
+

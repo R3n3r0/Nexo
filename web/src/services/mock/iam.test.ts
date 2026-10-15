@@ -173,6 +173,7 @@ describe('mock shares', () => {
     await expect(s.shares.get(share.id)).rejects.toMatchObject({ status: 404 });
   });
 
+  // covers: D-SHR-03
   it('shows a non-admin only its own links (TD-P-07)', async () => {
     const s = createMockServices({ accounts, initialAccessKey: 'alice' });
     expect((await s.shares.list()).map((x) => x.owner)).toEqual(['alice']);

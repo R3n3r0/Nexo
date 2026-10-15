@@ -1,0 +1,84 @@
+# Site of the user documentation (docs/user), built with MkDocs Material:
+#   make docs-site     # bin/site, mkdocs build --strict + the Admin API page
+# Requires: pip install mkdocs==1.6.1 mkdocs-material==9.7.7 (CI job "docs").
+# The pages are plain Markdown that renders on GitHub too: no Material-only
+# syntax (tabs, admonitions) in docs/user.
+site_name: Nexo
+site_description: Documentazione utente di Nexo, object storage compatibile con S3
+repo_url: https://github.com/R3n3r0/Nexo
+repo_name: R3n3r0/Nexo
+edit_uri: edit/main/docs/user/
+docs_dir: docs/user
+copyright: Nexo
+
+theme:
+  name: material
+  language: it
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - search.highlight
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Tema scuro
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Tema chiaro
+
+markdown_extensions:
+  - tables
+  - attr_list
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: false
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+# The generated CLI reference (238 pages) is reached from its root page.
+not_in_nav: |
+  /cli/*.md
+
+nav:
+  - Introduzione: README.md
+  - Per iniziare:
+      - Quickstart: quickstart.md
+      - Installazione: installazione.md
+      - Modalità di deployment: modalita.md
+      - Configurazione: configurazione.md
+  - Operazioni:
+      - Monitoraggio: operazioni/monitoraggio.md
+      - Trace, log e audit: operazioni/trace-log-audit.md
+      - Healing e dischi: operazioni/healing-dischi.md
+      - Aggiornamento ed espansione: operazioni/aggiornamento-espansione.md
+      - Backup e migrazione: operazioni/backup-migrazione.md
+      - Risoluzione dei problemi: operazioni/troubleshooting.md
+  - Sicurezza:
+      - Utenti, policy e credenziali: sicurezza/utenti-policy.md
+      - Condivisione e accesso anonimo: sicurezza/condivisione.md
+      - Regole di accesso: sicurezza/regole-accesso.md
+      - TLS e certificati: sicurezza/tls.md
+      - KMS e SSE: sicurezza/kms-sse.md
+      - Threat model: sicurezza/threat-model.md
+  - Funzionalità:
+      - Distribuzioni e cache: distribuzioni/README.md
+      - "Tutorial: sito statico": distribuzioni/tutorial-sito-statico.md
+      - Eventi e lifecycle: eventi-lifecycle.md
+  - Riferimenti:
+      - CLI: riferimenti/cli.md
+      - Comandi di nexoctl: cli/nexoctl.md
+      - Admin API: riferimenti/admin-api.md
+      - Compatibilità S3: riferimenti/compatibilita-s3.md

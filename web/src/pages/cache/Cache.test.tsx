@@ -57,6 +57,7 @@ function deployer() {
 configure({ asyncUtilTimeout: 5_000 });
 
 describe('cache pages', { timeout: 30_000 }, () => {
+  // covers: D-CCH-01
   it('D-CCH-01 shows the tiers, the hit ratio, the bandwidth saved and the top domains', async () => {
     const { router } = open('/cache');
     await waitFor(() => {
@@ -86,6 +87,7 @@ describe('cache pages', { timeout: 30_000 }, () => {
     );
   });
 
+  // covers: D-CCH-01
   it('D-CCH-01 filters the statistics by distribution', async () => {
     const { user } = open('/cache/overview');
     await screen.findByRole('table', { name: 'Top domains' });
@@ -96,6 +98,7 @@ describe('cache pages', { timeout: 30_000 }, () => {
     expect(domains).toHaveTextContent('download.example.com');
   });
 
+  // covers: D-CCH-03
   it('TD-C-02 previews the Cache-Control live and validates min ≤ default ≤ max', async () => {
     const services = admin();
     const { user, router } = open('/cache/policies/-/new', services);
@@ -162,6 +165,7 @@ describe('cache pages', { timeout: 30_000 }, () => {
     expect(stored.browserCacheControl).toBe('public, max-age=31536000');
   });
 
+  // covers: D-CCH-03
   it('D-CCH-03 shows a built-in policy read-only and duplicates it', async () => {
     const { user, router } = open('/cache/policies/aggressive');
     expect(await screen.findByRole('heading', { name: 'Policy aggressive' })).toBeInTheDocument();
@@ -176,6 +180,7 @@ describe('cache pages', { timeout: 30_000 }, () => {
     expect(screen.getByRole('textbox', { name: 'TTL default' })).toHaveValue('1d');
   });
 
+  // covers: D-CCH-03
   it('D-CCH-03 lists the policies and refuses to delete one in use', async () => {
     const services = admin({
       cachePolicies: [{ name: 'short', ttl: { default: '10m' } }],
@@ -191,6 +196,7 @@ describe('cache pages', { timeout: 30_000 }, () => {
     expect(await within(dialog).findByText('cache policy short is in use')).toBeInTheDocument();
   });
 
+  // covers: D-CCH-04, D-DST-08
   it('TD-C-03 follows an invalidation by glob node by node until completed', async () => {
     const services = admin({ cacheSteps: 2 });
     const { user } = open('/cache/invalidations', services);
@@ -219,6 +225,7 @@ describe('cache pages', { timeout: 30_000 }, () => {
     expect(history).toHaveTextContent('nexoadmin');
   });
 
+  // covers: D-CCH-05
   it('TD-C-04 shows the effective policy of a URL and the level of every setting', async () => {
     const services = admin({ cacheSteps: 0 });
     // A warm-up caches the object on the first node.
@@ -263,6 +270,7 @@ describe('cache pages', { timeout: 30_000 }, () => {
     expect(await screen.findByText('The cache is bypassed')).toBeInTheDocument();
   });
 
+  // covers: D-CCH-06
   it('D-CCH-06 warms a domain and shows the progress', async () => {
     const { user } = open('/cache/warm', admin({ cacheSteps: 1 }));
     const form = await screen.findByRole('form', { name: 'Warm-up' });
@@ -297,6 +305,7 @@ describe('cache pages', { timeout: 30_000 }, () => {
     });
   });
 
+  // covers: D-CCH-04, D-UX-02
   it('TD-C-06 lets a user with admin:InvalidateCache alone invalidate, not change the policies', async () => {
     const services = deployer();
     const { user, router } = open('/cache', services);
@@ -333,6 +342,7 @@ describe('cache pages', { timeout: 30_000 }, () => {
     expect(isApiError(refused) && refused.status).toBe(403);
   });
 
+  // covers: D-CCH-04, D-UX-02
   it('TD-C-06 shows the cache entry of the menu to a user who may invalidate', async () => {
     renderRoutes(createRoutes(), { initialEntries: ['/cache'], services: deployer() });
     const nav = await screen.findByRole('navigation', { name: 'Main navigation' });

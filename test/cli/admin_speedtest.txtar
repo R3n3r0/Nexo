@@ -1,0 +1,26 @@
+# covers: C-ADM-12, S-OPS-11
+# C-ADM-12, S-OPS-11: admin speedtest measures the drives and the object
+# layer with small sizes; admin profile writes a pprof profile.
+
+exec nexoctl admin speedtest --size 64KiB --duration 300ms --concurrency 2 local drive
+stdout 'Running the drive speed test of "local"'
+stdout '^Node .*, drive 64(\.0)?KiB, 300ms per phase, concurrency 2$'
+stdout ' write +.*/s '
+stdout ' read +.*/s '
+exec nexoctl admin speedtest --size 64KiB --duration 300ms --concurrency 2 --json local object
+jsonlines stdout
+stdout '"kind":"object","node":"[^"]+","size":65536,'
+exec nexoctl ls local
+! stdout 'nexo-speedtest'
+[!cluster] ! exec nexoctl admin speedtest --size 64KiB --duration 300ms local net
+expectcode 2 nexoctl admin speedtest local gpu
+expectcode 2 nexoctl admin speedtest --size lots local drive
+
+exec nexoctl admin profile --type heap --output heap.pb.gz local
+stdout 'Wrote the heap profile of .* to heap.pb.gz: go tool pprof heap.pb.gz'
+exists heap.pb.gz
+exec nexoctl admin profile --type cpu --seconds 1 --output cpu.pb.gz --json local
+jsonlines stdout
+stdout '"type":"cpu","file":"cpu.pb.gz"'
+exists cpu.pb.gz
+expectcode 2 nexoctl admin profile --type threads local

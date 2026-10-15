@@ -250,6 +250,8 @@ func site(t *testing.T) *distribution.Distribution {
 }
 
 // TestWebsite covers the website mode (TDS-03, TDS-05, TDS-09, TDS-12).
+//
+// covers: S-DST-02, S-DST-03
 func TestWebsite(t *testing.T) {
 	d := site(t)
 	fx := newEngine(t, map[string]bool{"prod/secret.html": true})
@@ -386,6 +388,8 @@ func TestWebsiteHTTPSOnlyAndPublicAccess(t *testing.T) {
 
 // TestWebsiteRestrictions covers the origin secret with two active values
 // during a rotation (TDS-07) and the address filters.
+//
+// covers: S-DST-05
 func TestWebsiteRestrictions(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t)
@@ -531,6 +535,8 @@ func TestWebsiteBlockPublicAccess(t *testing.T) {
 // TestWebsiteSecurity covers the redirects that would leave the site, the
 // existence oracle of the index documents, CORS with credentials and the
 // If-Range of the ranges (TDS-03, TDS-05, TDS-12).
+//
+// covers: S-DST-03
 func TestWebsiteSecurity(t *testing.T) {
 	d := sample("sec", "www.example.com")
 	d.Redirects = []distribution.Redirect{
@@ -610,6 +616,8 @@ func TestWebsiteSecurity(t *testing.T) {
 
 // TestWebsiteS3ModeAccess is TDS-04/TDS-05 in the s3 mode: the admission
 // before the authentication, then the access of the default behavior.
+//
+// covers: S-DST-02
 func TestWebsiteS3ModeAccess(t *testing.T) {
 	ctx := context.Background()
 	fx := newEngine(t, nil)

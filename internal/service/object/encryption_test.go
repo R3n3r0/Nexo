@@ -303,6 +303,26 @@ func TestEncryptedCopy(t *testing.T) {
 		_, err = fx.svc.GetObject(ctx, "cpb", "src", object.GetObjectOptions{SSECustomerKey: oldKey})
 		require.ErrorIs(t, err, domain.ErrAccessDenied, "the old key is gone")
 
+		// In-place decryption: a copy onto itself without encryption
+		// changes the encryption attributes, it is legal (minio-go
+		// testEncryptedSSECToUnencryptedCopyObject); without any change it
+		// is not.
+		put(t, fx.svc, "cpb", "dec", data, func(in *object.PutObjectInput) { in.SSE = domain.SSERequest{Type: domain.SSEC, CustomerKey: oldKey} })
+		info, err = fx.svc.CopyObject(ctx, object.CopyObjectInput{SrcBucket: "cpb", SrcKey: "dec", SrcSSECustomerKey: oldKey, DstBucket: "cpb", DstKey: "dec"})
+		require.NoError(t, err)
+		assert.Equal(t, domain.SSENone, info.Encryption.Type)
+		got, _ = get(t, fx.svc, "cpb", "dec", object.GetObjectOptions{})
+		assert.Equal(t, data, got)
+		_, err = fx.svc.CopyObject(ctx, object.CopyObjectInput{SrcBucket: "cpb", SrcKey: "dec", DstBucket: "cpb", DstKey: "dec"})
+		require.ErrorIs(t, err, domain.ErrInvalidArgument, "an unencrypted self-copy without changes is illegal")
+		_, err = fx.svc.DeleteObject(ctx, "cpb", "dec", object.DeleteObjectOptions{})
+		require.NoError(t, err, "decrypted on purpose: out of the plaintext check below")
+		put(t, fx.svc, "cpb", "s3self", data, func(in *object.PutObjectInput) { in.SSE = domain.SSERequest{Type: domain.SSES3} })
+		fx.setBucketConfig("cpb", object.BucketConfig{Encryption: domain.BucketEncryption{Algorithm: domain.SSEAlgorithmAES256}})
+		_, err = fx.svc.CopyObject(ctx, object.CopyObjectInput{SrcBucket: "cpb", SrcKey: "s3self", DstBucket: "cpb", DstKey: "s3self"})
+		require.ErrorIs(t, err, domain.ErrInvalidArgument, "the default encryption of the bucket keeps SSE-S3: no change")
+		fx.setBucketConfig("cpb", object.BucketConfig{})
+
 		// UploadPartCopy from an SSE-C source into an SSE-S3 upload.
 		up, err := fx.svc.NewMultipartUpload(ctx, object.NewMultipartInput{Bucket: "cpb", Key: "mpb", SSE: domain.SSERequest{Type: domain.SSES3}})
 		require.NoError(t, err)

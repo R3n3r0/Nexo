@@ -123,6 +123,12 @@ func TestPresignedParameterErrors(t *testing.T) {
 	req.URL.RawQuery += "&prefix=%zz"
 	_, err = v.Verify(ctx, req)
 	assertS3Error(t, err, domain.ErrInvalidArgument, "AuthorizationQueryParametersError")
+	// A malformed X-Amz-Content-Sha256 header is the payload hash of a
+	// canonical request the URL did not sign (mint PresignedPut).
+	req = httptest.NewRequest(http.MethodGet, awsPresignedURL, nil)
+	req.Header.Set("X-Amz-Content-Sha256", "invalid-sha256")
+	_, err = v.Verify(ctx, req)
+	assertS3Error(t, err, domain.ErrSignatureMismatch, "SignatureDoesNotMatch")
 	// Both an Authorization header and a presigned query.
 	req = httptest.NewRequest(http.MethodGet, awsPresignedURL, nil)
 	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=x")

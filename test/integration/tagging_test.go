@@ -70,7 +70,7 @@ func TestBucketTagging(t *testing.T) {
 // PutObjectTagging) and s3:ExistingObjectTag/<key> (tags of the object
 // read), in Allow and Deny statements.
 //
-// covers: S-OBJ-11, S-IAM-04
+// covers: S-OBJ-11, S-IAM-04, S-OBJ-04
 func TestObjectTagsAndPolicies(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)

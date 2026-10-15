@@ -21,7 +21,7 @@ import (
 // path: SDK put/get/head/list/copy/delete, presigned URLs and raw signed
 // requests (SigV4 canonical URIs are not double-encoded for S3).
 //
-// covers: S-OBJ-01
+// covers: S-OBJ-01, S-OBJ-04, S-OBJ-07
 func TestSpecialCharacterKeys(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)

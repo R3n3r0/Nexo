@@ -162,6 +162,8 @@ func TestHitMissAgeAndExpiry(t *testing.T) {
 
 // TestStaleWhileRevalidateAndIfError is TCC-07: an expired entry is served
 // stale while it is refreshed, and when the origin has no quorum.
+//
+// covers: S-DST-07c
 func TestStaleWhileRevalidateAndIfError(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	e.origin.put("web", "a.txt", []byte("v1"), textInfo("text/plain"), cacheControl("max-age=10"))
@@ -195,6 +197,8 @@ func TestStaleWhileRevalidateAndIfError(t *testing.T) {
 }
 
 // TestRequestCollapsing is TCC-08: concurrent misses read the origin once.
+//
+// covers: S-DST-07c
 func TestRequestCollapsing(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	data := payload(64<<10, 7)
@@ -228,6 +232,8 @@ func TestRequestCollapsing(t *testing.T) {
 
 // TestRangeCaching is TCC-09: an object larger than a block is cached by
 // blocks; the ranges are served byte-identical from them.
+//
+// covers: S-DST-07c
 func TestRangeCaching(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	const block = 64 << 10

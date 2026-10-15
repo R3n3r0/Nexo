@@ -44,6 +44,10 @@ type Deps struct {
 	// WatchDebounce coalesces the file events of mirror --watch (0:
 	// cli.DefaultWatchDebounce).
 	WatchDebounce time.Duration
+	// ReconnectDelay is the first delay before a live stream (admin trace,
+	// admin logs) that ended or failed is opened again (0:
+	// cli.DefaultReconnectDelay).
+	ReconnectDelay time.Duration
 }
 
 // DefaultDeps returns the dependencies of the real process.
@@ -88,6 +92,9 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.WatchDebounce <= 0 {
 		d.WatchDebounce = cli.DefaultWatchDebounce
+	}
+	if d.ReconnectDelay <= 0 {
+		d.ReconnectDelay = cli.DefaultReconnectDelay
 	}
 	return d
 }

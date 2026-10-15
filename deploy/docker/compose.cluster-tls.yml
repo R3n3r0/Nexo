@@ -28,9 +28,10 @@ x-nexo: &nexo
   # volumes are listed per service: YAML merge keys replace lists, they do
   # not concatenate them, so ./certs is repeated on every node.
   healthcheck:
-    # The console listens with TLS: probe it explicitly over https. The dev
-    # certificate includes "localhost" and the CA in /certs/CAs is trusted.
-    test: ["CMD", "/nexo", "healthcheck", "--url", "https://localhost:9001/nexo/health/live"]
+    # The console listens with TLS: with NEXO_CERTS_DIR set the probe uses
+    # https and trusts /certs (public.crt and CAs/), whatever host names
+    # the certificate covers.
+    test: ["CMD", "/nexo", "healthcheck"]
     interval: 10s
     timeout: 3s
     retries: 3

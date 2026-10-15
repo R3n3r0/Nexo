@@ -1,0 +1,5 @@
+$ nexoctl admin logs --level INFO --last 50 --count 2 mem
+Following the logs of "mem" (Ctrl-C to stop).
+2026-01-02 03:05:05.000 n1:9000 INFO  server started addr=:9000 mode=cluster
+2026-01-02 03:05:07.000 n2:9000 ERROR drive offline drive="/data 2" err=""
+

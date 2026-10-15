@@ -8,6 +8,7 @@ import { expect, test } from './support/fixtures';
 
 const MiB = 1024 * 1024;
 
+// covers: D-OBJ-02
 test('TD-E-06 canceling a 200 MiB upload halfway leaves no pending multipart upload', async ({
   page,
   api,

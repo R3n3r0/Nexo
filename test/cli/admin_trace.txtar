@@ -1,0 +1,45 @@
+# covers: C-ADM-08
+# TCL-E-17, C-ADM-08, S-OPS-07: admin trace shows, live, the requests that
+# another nexoctl makes while it runs, filtered, until Ctrl-C, --count or
+# --timeout; the queries are redacted.
+
+exec nexoctl mb local/traced
+exec nexoctl mb local/other
+
+# An idle stream ends with --timeout, successfully.
+exec nexoctl admin trace --timeout 500ms local
+stdout 'Tracing the requests of "local" \(Ctrl-C to stop\)\.'
+
+# The trace runs in the background while another process uploads and
+# downloads with a presigned URL; Ctrl-C ends it.
+[windows] skip 'the trace is stopped with SIGINT'
+exec nexoctl admin trace --bucket traced local &trace&
+sleep 1s
+exec nexoctl cp a.txt local/traced/one.txt
+exec nexoctl presign --json local/traced/one.txt
+jsonfield stdout url GETURL
+http -o got.txt $GETURL
+exec nexoctl cp a.txt local/other/a.txt
+sleep 1s
+kill -INT trace
+wait trace
+stdout '^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3} .* s3 +PutObject +200 .* PUT /traced/one.txt'
+stdout ' s3 +\S*GetObject +200 .* GET /traced/one.txt\?.*X-Amz-Signature=\*?REDACTED'
+! stdout '/other/'
+! stdout 'X-Amz-Signature=[0-9a-f]'
+
+# --count stops after that many requests; --json prints one line each.
+exec nexoctl admin trace --api PutObject --count 1 --timeout 60s --json local &counted&
+sleep 1s
+exec nexoctl cp a.txt local/traced/two.txt
+wait counted
+jsonlines stdout
+stdout '"alias":"local","trace":\{"time":"[^"]+","node":"[^"]+","type":"s3","api":"PutObject","method":"PUT","path":"/traced/two.txt",.*"status":200,'
+
+# Invalid filters are usage errors.
+expectcode 2 nexoctl admin trace --status 6xx local
+expectcode 2 nexoctl admin trace --type ftp local
+expectcode 2 nexoctl admin trace local/traced
+
+-- a.txt --
+traced data

@@ -328,13 +328,14 @@ func parseTaggingHeader(h http.Header) (map[string]string, error) {
 	return tags, nil
 }
 
-// decodeContentMD5 decodes the base64 Content-MD5 header ("" when absent).
+// decodeContentMD5 decodes the base64 Content-MD5 header (nil when
+// absent). A header present with an empty value is invalid, as in S3.
 func decodeContentMD5(h http.Header) ([]byte, error) {
-	v := h.Get(headerContentMD5)
-	if v == "" {
+	vs := h.Values(headerContentMD5)
+	if len(vs) == 0 {
 		return nil, nil
 	}
-	raw, err := base64.StdEncoding.DecodeString(v)
+	raw, err := base64.StdEncoding.DecodeString(vs[0])
 	if err != nil || len(raw) != 16 {
 		return nil, domain.NewS3Error(domain.ErrInvalidArgument, "InvalidDigest", "The Content-MD5 you specified is not valid.")
 	}
@@ -421,8 +422,11 @@ func checkStorageClass(sc string) error {
 func checkUnsupportedHeaders(h http.Header) error {
 	switch acl := h.Get(httpx.HeaderAmzACL); acl {
 	case "", "private", "bucket-owner-full-control":
-	default:
+	case "public-read", "public-read-write", "authenticated-read", "aws-exec-read", "bucket-owner-read", "log-delivery-write":
 		return notImplemented("Canned ACL " + acl + " is not supported: use bucket policies or anonymous access rules")
+	default:
+		// Not a canned ACL of S3: a malformed request, not a feature.
+		return domain.NewS3Error(domain.ErrInvalidArgument, "InvalidArgument", "The canned ACL "+acl+" is not valid.")
 	}
 	for name := range h {
 		lname := strings.ToLower(name)

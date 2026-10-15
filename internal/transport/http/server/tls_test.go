@@ -142,6 +142,8 @@ func peerCert(t *testing.T, c *http.Client, url string) *x509.Certificate {
 // listener at runtime (S-OPS-02, docs/07 §7.3): the next handshakes get
 // the new certificate, the established connections (HTTP/1.1 and HTTP/2)
 // keep serving, a response in progress completes.
+//
+// covers: S-OPS-02
 func TestKeystoreRotationWithoutInterruption(t *testing.T) {
 	ca := newTLSCA(t, "CA")
 	dir := t.TempDir()
@@ -194,6 +196,8 @@ func TestKeystoreRotationWithoutInterruption(t *testing.T) {
 
 // TestTLSPolicy checks the versions and cipher suites the listeners
 // accept.
+//
+// covers: S-OPS-02
 func TestTLSPolicy(t *testing.T) {
 	ca := newTLSCA(t, "CA")
 	_, _, pair := ca.issue(t, "s3.example.org")

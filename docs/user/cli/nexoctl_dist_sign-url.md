@@ -1,0 +1,54 @@
+## nexoctl dist sign-url
+
+Sign a URL (or cookies) of a signed behavior
+
+### Synopsis
+
+Sign a URL of a signed behavior of the distribution (CloudFront-style
+?Expires=&Signature=&Key-Pair-Id=, or ?Policy= for a custom policy with --ip,
+--resource or --not-before), or the signed cookies of a resource (--cookie).
+The private key is the one of --private-key, or the stored key of the key group
+of the behavior (see "dist keygroup"). A path is completed with https (--scheme)
+and the first exact domain (--host). Needs admin:SignDistributionURL.
+
+```
+nexoctl dist sign-url ALIAS ID PATH|URL --expire DURATION [--ip CIDR] [--cookie] [flags]
+```
+
+### Examples
+
+```
+  nexoctl dist sign-url local sito-web /downloads/v1.zip --expire 1h
+  nexoctl dist sign-url local sito-web /downloads/v1.zip --expire 1h --ip 1.2.3.4
+  nexoctl dist sign-url local sito-web /premium/ --expire 12h --cookie --resource 'https://www.example.com/premium/*'
+```
+
+### Options
+
+```
+      --cookie               sign cookies instead of the URL
+      --expire string        validity of the signature (30m, 1h, 7d)
+  -h, --help                 help for sign-url
+      --host string          domain of the URL (default: the first exact domain)
+      --ip string            only for the clients of this IP or CIDR
+      --key-id string        key pair id of the stored private key
+      --not-before string    start of the validity (RFC 3339)
+      --private-key string   PEM private key file of a key of the key group
+      --resource string      resource of a custom policy, with * and ? wildcards
+      --scheme string        scheme of the URL: https (default) or http
+```
+
+### Options inherited from parent commands
+
+```
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+```
+
+### SEE ALSO
+
+* [nexoctl dist](nexoctl_dist.md)	 - Manage the distributions: custom domains of the buckets
+

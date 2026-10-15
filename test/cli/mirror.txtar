@@ -1,3 +1,4 @@
+# covers: C-OBJ-06
 # TCL-E-06: a second mirror transfers nothing. TCL-E-07: mirror --remove
 # and --watch (file created, modified and removed) synchronize within 2 s.
 

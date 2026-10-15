@@ -30,6 +30,8 @@ func publicBucketPolicy(t *testing.T, f *fixture) *domain.Policy {
 // an IAM deny prevails over an allow rule; the inline policy of derived
 // credentials still limits; root bypasses the rules; object lock actions
 // are never granted by a rule.
+//
+// covers: S-ACC-01
 func TestPrecedence(t *testing.T) {
 	f := newFixture(t)
 	f.put(
@@ -125,6 +127,8 @@ func TestPrecedence(t *testing.T) {
 // a deny rule beats every allow rule whatever their priorities, and among
 // rules of the same effect the lowest priority decides (then the order of
 // the document).
+//
+// covers: S-ACC-01
 func TestPriorityDecides(t *testing.T) {
 	f := newFixture(t)
 	f.put(
@@ -153,6 +157,8 @@ func TestPriorityDecides(t *testing.T) {
 
 // TestHomeDirectories is TAR-06: the named group of the pattern compared
 // with ${aws:username}: every user reaches only its own directory.
+//
+// covers: S-ACC-02
 func TestHomeDirectories(t *testing.T) {
 	f := newFixture(t)
 	f.put(rule("home", 10, allow, list("*"), list("all"), regexP(`^home/(?P<user>[^/]+)/`),
@@ -191,6 +197,8 @@ func TestHomeDirectories(t *testing.T) {
 // not), referer, host, transport, time window, methods, headers with
 // secrets, distributions, principals by group, access key and wildcard;
 // a condition that cannot be evaluated never widens access.
+//
+// covers: S-ACC-02
 func TestConditions(t *testing.T) {
 	f := newFixture(t)
 	f.put(

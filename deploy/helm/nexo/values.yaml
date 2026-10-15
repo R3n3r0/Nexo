@@ -101,7 +101,9 @@ tls:
   enabled: false
   # -- Secret of type kubernetes.io/tls (tls.crt, tls.key). In distributed
   # mode the certificate must cover the node names
-  # *.<release>-hl.<namespace>.svc.<clusterDomain> (and the public names).
+  # *.<fullname>-hl.<namespace>.svc.<clusterDomain>, the Service names
+  # <fullname>.<namespace>.svc[.<clusterDomain>] (ServiceMonitor, Helm
+  # tests) and the public names (README "Credentials, KMS, TLS").
   # Changes are picked up without a restart (certificate hot reload).
   secretName: ""
   # -- Optional Secret with the CA certificates the nodes trust (mounted in
@@ -162,6 +164,9 @@ config:
     endpoint: ""
     # -- NEXO_OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf or grpc.
     protocol: ""
+    # -- NEXO_OTEL_TRACES_SAMPLER_ARG: share of the traces recorded, 0 to 1
+    # (empty = server default, 1).
+    sampleRatio: ""
 
 # -- Extra environment variables of the server container (any NEXO_* setting).
 extraEnv: []

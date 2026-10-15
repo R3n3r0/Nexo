@@ -189,6 +189,8 @@ func driveWithShard(t *testing.T, c *cluster, key string, index int) int {
 // the inline copy of one drive) is detected, the read still returns the
 // right content from the other shards, and the object is reported to the
 // heal notifier.
+//
+// covers: S-STO-04, S-STO-05
 func TestBitrotHealOnRead(t *testing.T) {
 	for _, l := range setLayouts() {
 		t.Run(fmt.Sprintf("%d drives", l.drives), func(t *testing.T) {

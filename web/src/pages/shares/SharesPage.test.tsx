@@ -18,6 +18,7 @@ function renderPage(initialAccessKey = 'nexoadmin', path = '/shares') {
   return { ...view, services };
 }
 
+// covers: D-SHR-03
 describe('Shares page (D-SHR-03)', () => {
   // Regression (D-SHR-01): the copy button of a prefix share copied the
   // ListObjectsV2 URL of the prefix, which downloads nothing.
@@ -87,6 +88,7 @@ describe('Shares page (D-SHR-03)', () => {
     });
   });
 
+  // covers: D-SHR-03
   it('shows a user only its own links (TD-P-07)', async () => {
     renderPage('alice');
     const table = await screen.findByRole('table', { name: 'Active links' });
@@ -96,6 +98,7 @@ describe('Shares page (D-SHR-03)', () => {
     expect(screen.getByRole('button', { name: 'Revoke all my links' })).toBeInTheDocument();
   });
 
+  // covers: D-SHR-02
   it('generates a POST policy form with its snippets (D-SHR-02)', async () => {
     const user = userEvent.setup();
     const { services } = renderPage('nexoadmin', '/shares?tab=upload');

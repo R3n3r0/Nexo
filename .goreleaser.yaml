@@ -122,8 +122,9 @@ archives:
         info: *fileinfo
 
 nfpms:
-  # Server: binary, systemd unit, /etc/default/nexo, nexo user (preinstall)
-  # and /var/lib/nexo. The CLI is a package of its own, recommended.
+  # Server: binary, systemd unit, /etc/default/nexo, nexo user (preinstall,
+  # sysusers.d) and /var/lib/nexo. The CLI is a package of its own,
+  # recommended.
   - id: nexo
     package_name: nexo
     ids: [nexo]
@@ -153,6 +154,10 @@ nfpms:
           group: root
       - src: deploy/systemd/nexo.service
         dst: /usr/lib/systemd/system/nexo.service
+        file_info:
+          mode: 0644
+      - src: packaging/nfpm/nexo.sysusers.conf
+        dst: /usr/lib/sysusers.d/nexo.conf
         file_info:
           mode: 0644
       - src: deploy/systemd/nexo.env.example
@@ -197,6 +202,9 @@ nfpms:
       summary: S3-compatible object storage server
       group: System Environment/Daemons
     deb:
+      # The preinst creates the nexo user with useradd/groupadd.
+      predepends:
+        - passwd
       lintian_overrides:
         - statically-linked-binary
 

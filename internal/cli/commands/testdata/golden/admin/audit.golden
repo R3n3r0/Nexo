@@ -1,0 +1,16 @@
+$ nexoctl admin audit mem
+TIME                    STATUS  DURATION  USER                 API                      RESOURCE
+2026-01-02 02:54:05.000 201       25.0ms  root                 CreateUser               /api/v1/users
+2026-01-02 02:34:05.000 403       0.50ms  svc-1 (bob)          DeleteObject             photos/b.jpg  error: AccessDenied
+2026-01-02 00:04:05.000 200        8.0ms  alice                PutObject                photos/a.jpg
+
+$ nexoctl admin audit --user bob --since 1h mem
+TIME                    STATUS  DURATION  USER                 API                      RESOURCE
+2026-01-02 02:34:05.000 403       0.50ms  svc-1 (bob)          DeleteObject             photos/b.jpg  error: AccessDenied
+
+$ nexoctl admin audit --action PutObject --since 2026-01-01 --until 2026-01-02T01:00:00Z --json mem
+{"status":"success","alias":"mem","time":"2026-01-02T00:04:05Z","node":"n1:9000","type":"s3","requestId":"a1","api":"PutObject","bucket":"photos","object":"a.jpg","statusCode":200,"durationMs":8,"rx":0,"tx":0,"accessKey":"alice"}
+
+$ nexoctl admin audit --user nobody mem
+No audit record matches.
+

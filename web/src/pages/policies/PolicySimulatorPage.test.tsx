@@ -8,6 +8,7 @@ import { renderRoutes } from '@/test/render';
 
 import { PolicySimulatorPage } from './PolicySimulatorPage';
 
+// covers: D-POL-03
 describe('Policy simulator (D-POL-03)', () => {
   // Typed character by character in several fields: a loaded machine slows
   // it past the default 5 s.

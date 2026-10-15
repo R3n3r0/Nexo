@@ -23,8 +23,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmihailenco/msgpack/v5"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
@@ -49,11 +47,25 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
-// h2Client returns a cleartext HTTP/2 client.
+// h2Client returns a cleartext HTTP/2 client (prior knowledge, as the
+// internode RPC dials).
 func h2Client() *http.Client {
-	return &http.Client{Transport: &http2.Transport{AllowHTTP: true, DialTLSContext: func(ctx context.Context, network, a string, _ *tls.Config) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, network, a)
-	}}}
+	var protocols http.Protocols
+	protocols.SetUnencryptedHTTP2(true)
+	return &http.Client{Transport: &http.Transport{Protocols: &protocols}}
+}
+
+// h2cServer returns an unstarted test server that serves handler with
+// HTTP/1 and cleartext HTTP/2, with the HTTP/2 settings of config (nil:
+// the defaults).
+func h2cServer(handler http.Handler, config *http.HTTP2Config) *httptest.Server {
+	srv := httptest.NewUnstartedServer(handler)
+	var protocols http.Protocols
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+	srv.Config.Protocols = &protocols
+	srv.Config.HTTP2 = config
+	return srv
 }
 
 // TestServerRefusalsAreLoggedCountedAndThrottled: authentication failures
@@ -135,11 +147,11 @@ func TestConnBoundsReplies(t *testing.T) {
 	big := bytes.Repeat([]byte("x"), 4096)
 	reply, err := msgpack.Marshal(big)
 	require.NoError(t, err)
-	srv := httptest.NewUnstartedServer(h2c.NewHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := h2cServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		w.Header().Set("Content-Type", "application/x-msgpack")
 		_, _ = w.Write(reply)
-	}), &http2.Server{}))
+	}), nil)
 	_ = srv.Listener.Close()
 	srv.Listener = ln
 	srv.Start()

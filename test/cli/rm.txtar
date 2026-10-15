@@ -1,3 +1,4 @@
+# covers: C-OBJ-04
 # TCL-E-05: mv, rm -r --force, rm --versions.
 
 exec nexoctl mb local/plain

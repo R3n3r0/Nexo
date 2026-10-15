@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/vmihailenco/msgpack/v5"
-	"golang.org/x/net/http2"
 
 	"github.com/r3n3r0/nexo/internal/domain"
 )
@@ -130,7 +129,7 @@ type conn struct {
 	opts      connOptions
 	node      string
 	base      string
-	transport *http2.Transport
+	transport *http.Transport
 	client    *http.Client
 
 	online atomic.Bool
@@ -178,25 +177,36 @@ func NewConn(deps ConnDeps, node string, opts ...ConnOption) (Conn, error) {
 	if dial == nil {
 		dial = netDialer.DialContext
 	}
-	c.transport = &http2.Transport{
-		AllowHTTP:       o.tls == nil,
-		TLSClientConfig: o.tls,
-		ReadIdleTimeout: http2ReadIdle,
-		PingTimeout:     http2PingTimeout,
-		// Shard streams move megabytes: large DATA frames cut the number
-		// of frames, and of read syscalls, per byte.
-		MaxReadFrameSize: http2MaxFrameSize,
-		DialTLSContext: func(ctx context.Context, network, addr string, cfg *tls.Config) (net.Conn, error) {
+	// HTTP/2 only, served by net/http: cleartext with prior knowledge
+	// (h2c) without TLS, negotiated by ALPN with it. There is no HTTP/1
+	// fallback, so every call to a node shares one multiplexed connection.
+	var protocols http.Protocols
+	if o.tls == nil {
+		protocols.SetUnencryptedHTTP2(true)
+	} else {
+		protocols.SetHTTP2(true)
+	}
+	c.transport = &http.Transport{
+		Protocols:   &protocols,
+		DialContext: dial,
+		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			raw, err := dial(ctx, network, addr)
-			if err != nil || o.tls == nil {
-				return raw, err
+			if err != nil {
+				return nil, err
 			}
-			tc := tls.Client(raw, tlsConfigFor(cfg, addr))
+			tc := tls.Client(raw, h2TLSConfig(o.tls, addr))
 			if err := tc.HandshakeContext(ctx); err != nil {
 				_ = raw.Close()
 				return nil, err
 			}
 			return tc, nil
+		},
+		HTTP2: &http.HTTP2Config{
+			SendPingTimeout: http2ReadIdle,
+			PingTimeout:     http2PingTimeout,
+			// Shard streams move megabytes: large DATA frames cut the
+			// number of frames, and of read syscalls, per byte.
+			MaxReadFrameSize: http2MaxFrameSize,
 		},
 	}
 	var rt http.RoundTripper = c.transport
@@ -685,20 +695,23 @@ func (c *conn) probe() {
 	}
 }
 
-// tlsConfigFor returns cfg naming the server of addr when it names none,
-// as tls.Dialer does.
-func tlsConfigFor(cfg *tls.Config, addr string) *tls.Config {
+// h2TLSConfig returns the client configuration of a TLS connection to addr:
+// a copy of cfg that negotiates HTTP/2 by ALPN and names the server of addr
+// when cfg names none, as tls.Dialer does.
+func h2TLSConfig(cfg *tls.Config, addr string) *tls.Config {
+	var c *tls.Config
 	if cfg == nil {
-		cfg = &tls.Config{MinVersion: tls.VersionTLS12}
+		c = &tls.Config{MinVersion: tls.VersionTLS12}
+	} else {
+		c = cfg.Clone()
 	}
-	if cfg.ServerName != "" {
-		return cfg
+	if c.ServerName == "" {
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			host = addr
+		}
+		c.ServerName = host
 	}
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		host = addr
-	}
-	c := cfg.Clone()
-	c.ServerName = host
+	c.NextProtos = []string{"h2"}
 	return c
 }

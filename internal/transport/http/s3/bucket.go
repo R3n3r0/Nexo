@@ -393,14 +393,17 @@ func (h *bucketRoutes) listObjectVersions(w http.ResponseWriter, r *http.Request
 		out.NextKeyMarker = p.enc.Encode(res.NextMarker)
 		out.NextVersionIDMarker = res.NextVersionIDMarker
 	}
+	// Allocated up front: the listing order points into both slices.
+	out.Versions = make([]VersionEntry, 0, len(res.Objects))
+	out.DeleteMarkers = make([]DeleteMarkerEntry, 0, len(res.Objects))
 	for _, o := range res.Objects {
 		if o.IsDeleteMarker {
-			out.DeleteMarkers = append(out.DeleteMarkers, DeleteMarkerEntry{
+			out.addDeleteMarker(DeleteMarkerEntry{
 				Key: p.enc.Encode(o.Key), VersionID: versionIDOrNull(o.VersionID), IsLatest: o.IsLatest, LastModified: s3Time(o.ModTime), Owner: owner,
 			})
 			continue
 		}
-		out.Versions = append(out.Versions, VersionEntry{
+		out.addVersion(VersionEntry{
 			Key: p.enc.Encode(o.Key), VersionID: versionIDOrNull(o.VersionID), IsLatest: o.IsLatest, LastModified: s3Time(o.ModTime),
 			ETag: quoteETag(o.ETag), ChecksumAlgorithm: string(o.Checksum.Algorithm), ChecksumType: string(o.Checksum.Type),
 			Size: o.Size, StorageClass: storageClassOrStandard(o.StorageClass), Owner: owner,
@@ -556,7 +559,9 @@ func (h *bucketRoutes) putTagging(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	// 200 as the API reference and the SDK models declare (the AWS sample
+	// shows a 204, which SDKs such as minio-js reject).
+	w.WriteHeader(http.StatusOK)
 }
 
 func (h *bucketRoutes) deleteTagging(w http.ResponseWriter, r *http.Request) {
@@ -676,7 +681,7 @@ func cannedPrivateACL(owner Owner) AccessControlPolicy {
 	acl.AccessControlList.Grants = []Grant{{
 		Grantee: Grantee{
 			XMLNS: "http://www.w3.org/2001/XMLSchema-instance", Type: "CanonicalUser",
-			ID: owner.ID, DisplayName: owner.DisplayName,
+			ID: owner.ID, DisplayName: owner.DisplayName, TypeElement: "CanonicalUser",
 		},
 		Permission: "FULL_CONTROL",
 	}}

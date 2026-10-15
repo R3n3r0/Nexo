@@ -1,3 +1,4 @@
+# covers: C-OBJ-07
 # TCL-P-06: presign --method DELETE (and the other methods) gives raw
 # presigned URLs that work without credentials.
 

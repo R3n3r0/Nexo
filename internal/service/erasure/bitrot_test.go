@@ -22,6 +22,8 @@ import (
 // TestBitrotDetectsEveryBitFlip is TS-U-04: flipping any single bit of a
 // shard file (hash or content, any block) is detected by the block read,
 // with the typed error.
+//
+// covers: S-STO-04
 func TestBitrotDetectsEveryBitFlip(t *testing.T) {
 	const bs = 40
 	c := newCodec(t, 2, 1, bs)
@@ -132,6 +134,8 @@ func TestBitrotReaderErrors(t *testing.T) {
 
 // TestDecodeSetsCorruptShardsAside: a corrupt or failing shard is
 // replaced by a parity shard and reported in ShardErrs.
+//
+// covers: S-STO-04
 func TestDecodeSetsCorruptShardsAside(t *testing.T) {
 	c := newCodec(t, 3, 2, 30)
 	data := payload(100)

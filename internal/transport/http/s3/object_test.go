@@ -24,6 +24,7 @@ func body(data string, info domain.ObjectInfo, offset, length int64) *object.Rea
 	return &object.Reader{ReadCloser: io.NopCloser(strings.NewReader(data)), Info: info, Offset: offset, Length: length}
 }
 
+// covers: S-OBJ-01, S-OBJ-07
 func TestPutObject(t *testing.T) {
 	f := newFixture(t)
 	var got object.PutObjectInput
@@ -142,6 +143,7 @@ func TestPutObjectSignedPayloadIsNotRehashed(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
+// covers: S-OBJ-01, S-OBJ-07
 func TestGetObject(t *testing.T) {
 	f := newFixture(t)
 	info := domain.ObjectInfo{
@@ -186,6 +188,7 @@ func TestGetObject(t *testing.T) {
 	assert.Equal(t, "br", h.Get("Content-Encoding"))
 }
 
+// covers: S-OBJ-02
 func TestGetObjectRanges(t *testing.T) {
 	f := newFixture(t)
 	info := domain.ObjectInfo{Size: 100, ETag: "e", ModTime: now, Parts: 3, Checksum: domain.Checksum{Algorithm: domain.ChecksumCRC32, Value: "c"}}
@@ -236,6 +239,7 @@ func TestGetObjectRanges(t *testing.T) {
 	assert.Equal(t, http.StatusRequestedRangeNotSatisfiable, rec.Code)
 }
 
+// covers: S-OBJ-02
 func TestGetObjectConditionsAndMarkers(t *testing.T) {
 	f := newFixture(t)
 	// HTTP dates parse in a GMT location: compare instants.
@@ -315,6 +319,7 @@ func TestGetObjectInterruptedBody(t *testing.T) {
 	assert.Equal(t, "application/octet-stream", rec.Header().Get("Content-Type"), "no type is sniffed")
 }
 
+// covers: S-OBJ-01, S-OBJ-07
 func TestHeadObject(t *testing.T) {
 	f := newFixture(t)
 	info := domain.ObjectInfo{Size: 100, ETag: "e", ModTime: now, ContentType: "image/png", UserMetadata: map[string]string{"a": "b"}, Parts: 4}
@@ -359,6 +364,7 @@ func TestHeadObject(t *testing.T) {
 	assert.Equal(t, `"e"`, rec.Header().Get("ETag"))
 }
 
+// covers: S-OBJ-01
 func TestDeleteObject(t *testing.T) {
 	f := newFixture(t)
 	f.objects.EXPECT().DeleteObject(mock.Anything, "b", "k", object.DeleteObjectOptions{}).
@@ -377,8 +383,19 @@ func TestDeleteObject(t *testing.T) {
 
 	f.objects.EXPECT().DeleteObject(mock.Anything, "b", "k", mock.Anything).Return(object.DeletedObject{}, domain.ErrObjectLocked).Once()
 	requireError(t, f.do(http.MethodDelete, "/b/k", ""), http.StatusForbidden, "XNexoObjectLocked")
+
+	// If-Match is a condition of the object layer; a failed one is 412.
+	f.objects.EXPECT().DeleteObject(mock.Anything, "b", "k", object.DeleteObjectOptions{IfMatch: `"etag"`}).
+		Return(object.DeletedObject{}, domain.ErrPreconditionFailed).Once()
+	requireError(t, f.do(http.MethodDelete, "/b/k", "", "If-Match", `"etag"`), http.StatusPreconditionFailed, "PreconditionFailed")
+	// The conditions of the directory buckets are refused, never ignored
+	// (the object layer is not called).
+	for _, h := range []string{"x-amz-if-match-last-modified-time", "x-amz-if-match-size"} {
+		requireError(t, f.do(http.MethodDelete, "/b/k", "", h, "1"), http.StatusNotImplemented, "NotImplemented")
+	}
 }
 
+// covers: S-OBJ-05
 func TestDeleteObjects(t *testing.T) {
 	f := newFixture(t)
 	doc := `<Delete><Quiet>false</Quiet><Object><Key>a</Key></Object><Object><Key>b</Key><VersionId>v2</VersionId></Object><Object><Key>c</Key></Object></Delete>`
@@ -422,6 +439,7 @@ func TestDeleteObjects(t *testing.T) {
 	requireError(t, f.do(http.MethodPost, "/bk?delete", doc), http.StatusNotFound, "NoSuchBucket")
 }
 
+// covers: S-OBJ-04, S-OBJ-07
 func TestCopyObject(t *testing.T) {
 	f := newFixture(t)
 	var got object.CopyObjectInput
@@ -483,6 +501,7 @@ func TestCopyObject(t *testing.T) {
 	requireError(t, f.do(http.MethodPut, "/dst/k", "", "x-amz-copy-source", "/src/k", "x-amz-copy-source-if-match", "x"), http.StatusPreconditionFailed, "PreconditionFailed")
 }
 
+// covers: S-OBJ-11
 func TestObjectTagging(t *testing.T) {
 	f := newFixture(t)
 	doc := `<Tagging><TagSet><Tag><Key>k</Key><Value>v</Value></Tag></TagSet></Tagging>`

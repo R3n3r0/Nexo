@@ -56,6 +56,8 @@ func TestNewRequiresDeps(t *testing.T) {
 // TestHealBitrot is TS-E-04: a flipped bit in a shard is reported corrupt
 // by the deep check, the object stays readable, and the shard is rebuilt
 // byte for byte, on demand and by the MRF queue after a read met it.
+//
+// covers: S-STO-04, S-STO-05
 func TestHealBitrot(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t, "", 4)
@@ -128,6 +130,8 @@ func TestHealBitrot(t *testing.T) {
 
 // TestMRFOfflineDrive: a write that misses an offline drive is queued and
 // retried with backoff until the drive is back, then healed.
+//
+// covers: S-STO-05
 func TestMRFOfflineDrive(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t, "", 4)
@@ -191,6 +195,8 @@ func TestHealPrefixDangling(t *testing.T) {
 // TestHealFormatAndDisk is TS-E-05: a drive emptied and put back is
 // formatted with its position and marked for healing, then healed
 // completely: buckets, objects and system files.
+//
+// covers: S-STO-05
 func TestHealFormatAndDisk(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t, "", 4)
@@ -262,6 +268,8 @@ func TestHealFormatAndDisk(t *testing.T) {
 // TestHealDiskResume is the second half of TS-E-05: a drive healing
 // interrupted halfway (the process killed) resumes after a restart from
 // its checkpoint instead of starting over.
+//
+// covers: S-STO-05
 func TestHealDiskResume(t *testing.T) {
 	ctx := context.Background()
 	base := baseDir(t)

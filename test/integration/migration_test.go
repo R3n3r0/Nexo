@@ -40,7 +40,7 @@ const lifecycleXML = `<LifecycleConfiguration><Rule><ID>expire-tmp</ID><Status>E
 // policy, quota, tags, lifecycle) are identical, and the migrated
 // credentials work on the cluster.
 //
-// covers: TM-04
+// covers: TM-04, S-OPS-15, S-STO-00
 func TestMigrateSingleDriveToCluster(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

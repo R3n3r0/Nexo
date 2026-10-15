@@ -466,6 +466,13 @@ type DeleteObjectOptions struct {
 	// changes. The lifecycle deletes this way the versions it evaluated,
 	// so that a write acknowledged after the evaluation is never lost.
 	IfModTime time.Time
+	// IfMatch makes the delete conditional on the ETag of the version it
+	// targets (the version named by VersionID, else the latest), "*"
+	// matching any ETag (S3 conditional deletes): a missing version, a
+	// delete marker or another ETag fails the delete with
+	// domain.ErrPreconditionFailed and nothing changes. The check runs
+	// under the object write lock.
+	IfMatch string
 }
 
 // ObjectToDelete identifies one object in DeleteObjects.

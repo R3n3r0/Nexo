@@ -551,6 +551,13 @@ func TestVersioning(t *testing.T) {
 		assert.False(t, r.Info.IsLatest)
 		_, err := svc.GetObject(ctx, "ver", "k", object.GetObjectOptions{VersionID: "0192f0f0-0000-7000-8000-00000000dead"})
 		assert.ErrorIs(t, err, domain.ErrNoSuchVersion)
+		// A version of a missing key is a missing version (as S3 answers),
+		// in a bucket that exists.
+		_, err = svc.GetObjectInfo(ctx, "ver", "nokey", object.GetObjectOptions{VersionID: v1.VersionID})
+		assert.ErrorIs(t, err, domain.ErrNoSuchVersion)
+		assert.NotErrorIs(t, err, domain.ErrObjectNotFound)
+		_, err = svc.GetObjectInfo(ctx, "nobucket", "nokey", object.GetObjectOptions{VersionID: v1.VersionID})
+		assert.ErrorIs(t, err, domain.ErrBucketNotFound)
 		// A malformed version id is an invalid request, as in S3.
 		for _, bad := range []string{"missing", "zzz", "0192f0f0-0000-7000-8000-00000000dea", "0192f0f0_0000-7000-8000-00000000dead"} {
 			_, err = svc.GetObject(ctx, "ver", "k", object.GetObjectOptions{VersionID: bad})

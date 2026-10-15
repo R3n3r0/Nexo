@@ -100,7 +100,7 @@ func TestBucketCORS(t *testing.T) {
 	resp = e.preflight("/"+bucket+"/index.html", "https://app.example.com", "PUT", "Content-Type, X-Amz-Date")
 	assert.Equal(t, "true", resp.Header.Get("Access-Control-Allow-Credentials"))
 	assert.Equal(t, "GET, PUT", resp.Header.Get("Access-Control-Allow-Methods"))
-	assert.Equal(t, "Content-Type, X-Amz-Date", resp.Header.Get("Access-Control-Allow-Headers"))
+	assert.Equal(t, "content-type, x-amz-date", resp.Header.Get("Access-Control-Allow-Headers"), "lowercase, as S3")
 	assert.Equal(t, "600", resp.Header.Get("Access-Control-Max-Age"))
 	assert.Equal(t, "ETag, x-amz-version-id", resp.Header.Get("Access-Control-Expose-Headers"))
 	resp = e.preflight("/"+bucket, "https://app.example.com", "GET", "")

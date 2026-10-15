@@ -374,7 +374,7 @@ func (l *layer) purgeKey(ctx context.Context, bucket, key string) error {
 			return fmt.Errorf("%s: delete bucket %s: version %s of %q cannot be removed: %w", l.name, bucket, id, key, domain.ErrBucketNotEmpty)
 		}
 		last = id
-		if _, err := l.deleteVersion(ctx, st, bucket, key, id, false, time.Time{}); err != nil {
+		if _, err := l.deleteVersion(ctx, st, bucket, key, id, false, deleteConditions{}); err != nil {
 			return err
 		}
 	}

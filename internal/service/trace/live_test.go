@@ -72,6 +72,7 @@ func TestDisabledWithoutSubscribers(t *testing.T) {
 	assert.Eventually(t, func() bool { return !svc.Enabled() }, 5*time.Second, 5*time.Millisecond)
 }
 
+// covers: S-OPS-07
 func TestFilters(t *testing.T) {
 	events := []trace.Event{
 		{Node: "n1", Type: trace.TypeS3, API: "PutObject", Bucket: "photos", Status: 200, Duration: 10 * time.Millisecond},
@@ -135,6 +136,8 @@ func TestInvalidFilters(t *testing.T) {
 
 // TestRedaction checks that no credential, signature or token of a query
 // string reaches a subscriber (S-OPS-07).
+//
+// covers: S-OPS-07
 func TestRedaction(t *testing.T) {
 	secrets := map[string]string{
 		"X-Amz-Signature":      "f00dfacecafe",
@@ -215,6 +218,8 @@ func TestBackpressure(t *testing.T) {
 
 // TestPeers checks the cluster trace: the events of the peers reach the
 // subscriber, filtered, and a broken stream is opened again.
+//
+// covers: S-OPS-07, S-STO-06
 func TestPeers(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

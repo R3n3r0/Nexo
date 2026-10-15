@@ -53,7 +53,7 @@ func (r *recorder) count() int {
 func attrsOf(s sdktrace.ReadOnlySpan) map[string]string {
 	out := map[string]string{}
 	for _, kv := range s.Attributes() {
-		out[string(kv.Key)] = kv.Value.Emit()
+		out[string(kv.Key)] = kv.Value.String()
 	}
 	return out
 }
@@ -159,7 +159,7 @@ func TestTelemetryPropagation(t *testing.T) {
 
 	res := map[string]string{}
 	for _, kv := range root.Resource().Attributes() {
-		res[string(kv.Key)] = kv.Value.Emit()
+		res[string(kv.Key)] = kv.Value.String()
 	}
 	assert.Equal(t, "nexo", res["service.name"])
 	assert.Equal(t, "1.2.3", res["service.version"])

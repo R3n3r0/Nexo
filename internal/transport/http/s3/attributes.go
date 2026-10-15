@@ -150,6 +150,11 @@ func (h *objectRoutes) getAttributes(w http.ResponseWriter, r *http.Request) {
 		for _, p := range attrs.Parts {
 			parts.Parts = append(parts.Parts, AttributesPart{ChecksumFields: checksumFields(p.Checksum), PartNumber: p.Number, Size: p.Size})
 		}
+		if n := len(attrs.Parts); n > 0 && !attrs.IsTruncated {
+			// S3 reports the last part of every page (clients follow it
+			// only when the page is truncated).
+			parts.NextPartNumberMarker = attrs.Parts[n-1].Number
+		}
 		out.ObjectParts = parts
 	}
 	if want[attributeStorageClass] {

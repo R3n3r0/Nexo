@@ -281,6 +281,7 @@ func TestReduceErrs(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrBucketNotFound)
 }
 
+// covers: S-STO-03
 func TestStorageClasses(t *testing.T) {
 	tests := []struct {
 		name             string

@@ -73,7 +73,8 @@ func TestPostObject(t *testing.T) {
 	f.objects.EXPECT().PutObject(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, in object.PutObjectInput) (domain.ObjectInfo, error) {
 		got = in
 		data, _ = io.ReadAll(in.Reader)
-		return domain.ObjectInfo{ETag: "pe", Size: 9, VersionID: "v1"}, nil
+		return domain.ObjectInfo{ETag: "pe", Size: 9, VersionID: "v1",
+			Checksum: domain.Checksum{Algorithm: domain.ChecksumCRC32C, Value: "Mo4O/g==", Type: domain.ChecksumTypeFullObject}}, nil
 	}).Once()
 	rec := f.serve(f.post("/b", fields, `C:\Users\me\photo.png`, "png-bytes"))
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
@@ -82,6 +83,7 @@ func TestPostObject(t *testing.T) {
 	assert.Equal(t, s3.PostResponse{XMLName: res.XMLName, Location: "http://s3.local/b/uploads/photo.png", Bucket: "b", Key: "uploads/photo.png", ETag: `"pe"`}, res)
 	assert.Equal(t, `"pe"`, rec.Header().Get("ETag"))
 	assert.Equal(t, "v1", rec.Header().Get("x-amz-version-id"))
+	assert.Equal(t, "Mo4O/g==", rec.Header().Get("x-amz-checksum-crc32c"), "the checksum of the upload, as PutObject")
 	assert.Equal(t, "http://s3.local/b/uploads/photo.png", rec.Header().Get("Location"))
 
 	assert.Equal(t, "png-bytes", string(data))
@@ -205,6 +207,14 @@ func TestPostObjectErrors(t *testing.T) {
 	_ = mw.Close()
 	requireError(t, f.do(http.MethodPost, "/b", buf.String(), "Content-Type", mw.FormDataContentType()), http.StatusBadRequest, "InvalidArgument")
 	requireError(t, f.do(http.MethodPost, "/b", "--x\r\nbroken", "Content-Type", "multipart/form-data; boundary=x"), http.StatusBadRequest, "MalformedPOSTRequest")
+	// A part without a field name (the file under the name "").
+	buf.Reset()
+	mw = multipart.NewWriter(&buf)
+	_ = mw.WriteField("key", "k")
+	fw, _ := mw.CreateFormFile("", "a.txt")
+	_, _ = fw.Write([]byte("x"))
+	_ = mw.Close()
+	requireError(t, f.do(http.MethodPost, "/b", buf.String(), "Content-Type", mw.FormDataContentType()), http.StatusBadRequest, "MalformedPOSTRequest")
 	// Too many fields overall.
 	big := map[string]string{}
 	for i := 0; i < 20; i++ {

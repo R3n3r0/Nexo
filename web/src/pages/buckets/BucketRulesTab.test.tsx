@@ -65,6 +65,7 @@ async function addRuleButton() {
 
 /** D-ACC-01..04 / TD-A-01..03 on the mocks. */
 describe('BucketRulesTab', () => {
+  // covers: D-ACC-01, D-ACC-02
   it('TD-A-01 creates a regex rule whose preview highlights the matching keys', async () => {
     const { user, services } = open();
     expect(await screen.findByText(/No access rule/)).toBeInTheDocument();
@@ -114,6 +115,7 @@ describe('BucketRulesTab', () => {
     ).toBeInTheDocument();
   });
 
+  // covers: D-ACC-01, D-ACC-02
   it('TD-A-01 blocks an invalid regex with its position and shows the server position too', async () => {
     const services = admin();
     const set = vi.spyOn(services.accessRules, 'set');
@@ -155,6 +157,7 @@ describe('BucketRulesTab', () => {
     expect(await within(dialog).findByText('Position 3: invalid escape \\C')).toBeInTheDocument();
   });
 
+  // covers: D-ACC-01
   it('TD-A-02 reorders the rules and saves the priorities with If-Match', async () => {
     const services = admin();
     const first = await services.accessRules.set('media', [
@@ -188,6 +191,7 @@ describe('BucketRulesTab', () => {
     });
   });
 
+  // covers: D-ACC-01
   it('TD-A-02 reports a concurrent change (412) and reloads the rules', async () => {
     const services = admin();
     await services.accessRules.set('media', [rule('a', 10), rule('b', 20)]);
@@ -211,6 +215,7 @@ describe('BucketRulesTab', () => {
     ).toBeInTheDocument();
   });
 
+  // covers: D-ACC-03
   it('TD-A-03 applies the public-prefix preset and shows the public state', async () => {
     const { user, services } = open();
     const panel = await screen.findByRole('region', { name: 'Public access' });
@@ -241,6 +246,7 @@ describe('BucketRulesTab', () => {
     expect((await services.buckets.get('media')).public).toBe(true);
   });
 
+  // covers: D-ACC-03
   it('TD-A-03 needs an explicit confirmation for public-write', async () => {
     const { user } = open();
     const panel = await screen.findByRole('region', { name: 'Public access' });
@@ -256,6 +262,7 @@ describe('BucketRulesTab', () => {
     expect(apply).toBeEnabled();
   });
 
+  // covers: D-ACC-02
   it('D-ACC-02 tests keys and highlights the rules that decide', async () => {
     const services = admin();
     await services.accessRules.set('media', [

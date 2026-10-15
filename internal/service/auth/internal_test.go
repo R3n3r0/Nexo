@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -192,4 +193,41 @@ func FuzzParseQuery(f *testing.F) {
 			require.ElementsMatch(t, vs, back[k], k)
 		}
 	})
+}
+
+func TestRequestTime(t *testing.T) {
+	want := time.Date(2026, 10, 15, 11, 35, 55, 0, time.UTC)
+	tests := []struct {
+		name    string
+		headers map[string]string
+		ok      bool
+	}{
+		{"x-amz-date", map[string]string{"X-Amz-Date": "20261015T113555Z"}, true},
+		{"x-amz-date wins over date", map[string]string{"X-Amz-Date": "20261015T113555Z", "Date": "Mon, 01 Jan 2001 00:00:00 GMT"}, true},
+		{"IMF-fixdate", map[string]string{"Date": "Thu, 15 Oct 2026 11:35:55 GMT"}, true},
+		{"RFC 1123 numeric zone (botocore)", map[string]string{"Date": "Thu, 15 Oct 2026 11:35:55 -0000"}, true},
+		{"RFC 1123 offset", map[string]string{"Date": "Thu, 15 Oct 2026 13:35:55 +0200"}, true},
+		{"RFC 850", map[string]string{"Date": "Thursday, 15-Oct-26 11:35:55 GMT"}, true},
+		{"asctime", map[string]string{"Date": "Thu Oct 15 11:35:55 2026"}, true},
+		{"RFC 1123 zone name", map[string]string{"Date": "Thu, 15 Oct 2026 11:35:55 UTC"}, true},
+		{"malformed x-amz-date", map[string]string{"X-Amz-Date": "2026-10-15T11:35:55Z"}, false},
+		{"malformed date", map[string]string{"Date": "yesterday"}, false},
+		{"none", nil, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &http.Request{Header: http.Header{}}
+			for k, v := range tt.headers {
+				r.Header.Set(k, v)
+			}
+			got, err := requestTime(r)
+			if !tt.ok {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.True(t, want.Equal(got), "got %s", got)
+			assert.Equal(t, time.UTC, got.Location())
+		})
+	}
 }

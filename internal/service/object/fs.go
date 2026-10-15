@@ -135,6 +135,16 @@ func (s *singleDrive) ReadData(ctx context.Context, volume, path string, fi stor
 	return s.d.ReadFileStream(ctx, volume, storage.ObjectDataPath(path, fi.DataDir, part.Number), offset, length)
 }
 
+// OpenData implements store: the drive opens the part file when the
+// stream is created.
+func (s *singleDrive) OpenData(ctx context.Context, volume, path string, fi storage.FileInfo, part storage.PartInfo, offset, length int64) (io.ReadCloser, bool, error) {
+	rc, err := s.ReadData(ctx, volume, path, fi, part, offset, length)
+	if err != nil {
+		return nil, false, err
+	}
+	return rc, pinnedReads, nil
+}
+
 func (s *singleDrive) ReadAll(ctx context.Context, path string) ([]byte, error) {
 	return s.d.ReadAll(ctx, domain.SystemBucket, path)
 }

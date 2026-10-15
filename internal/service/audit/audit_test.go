@@ -164,6 +164,7 @@ func (w *webhook) count() int {
 	return len(w.bodies)
 }
 
+// covers: S-OPS-06
 func TestWebhookTarget(t *testing.T) {
 	ctx := context.Background()
 	hook := &webhook{status: http.StatusOK}
@@ -234,6 +235,7 @@ func TestWebhookTargetRetries(t *testing.T) {
 	require.ErrorIs(t, err, domain.ErrInvalidArgument)
 }
 
+// covers: S-OPS-06
 func TestKafkaTarget(t *testing.T) {
 	ctx := context.Background()
 	dialer := eventmock.NewKafkaDialer(t)

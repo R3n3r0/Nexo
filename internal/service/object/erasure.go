@@ -689,17 +689,31 @@ func (e *erasureSet) undoCommit(ctx context.Context, tmpDir string, fi storage.F
 // ReadData decodes [offset, offset+length) of a part from the shards of
 // the online drives: D shards are read (data shards first), others are
 // added when a shard fails, is corrupt or is slow. Damaged shards are
-// reported to the heal notifier once the read is over.
+// reported to the heal notifier once the read is over. The shards are
+// opened by the decoding, which starts at the first read of the body.
 func (e *erasureSet) ReadData(ctx context.Context, volume, path string, fi storage.FileInfo, part storage.PartInfo, offset, length int64) (io.ReadCloser, error) {
+	rc, _, err := e.readData(ctx, volume, path, fi, part, offset, length, false)
+	return rc, err
+}
+
+// OpenData implements store: the shards of the local drives and, in
+// shard order, enough remote ones to reach D are opened before it returns
+// (pinned when D of them are); the others are opened by the decoding when
+// one of those fails.
+func (e *erasureSet) OpenData(ctx context.Context, volume, path string, fi storage.FileInfo, part storage.PartInfo, offset, length int64) (io.ReadCloser, bool, error) {
+	return e.readData(ctx, volume, path, fi, part, offset, length, true)
+}
+
+func (e *erasureSet) readData(ctx context.Context, volume, path string, fi storage.FileInfo, part storage.PartInfo, offset, length int64, eager bool) (io.ReadCloser, bool, error) {
 	if length <= 0 {
-		return io.NopCloser(bytes.NewReader(nil)), nil
+		return io.NopCloser(bytes.NewReader(nil)), true, nil
 	}
 	codec, err := e.codecFor(ctx, fi.Erasure)
 	if err != nil {
-		return nil, fmt.Errorf("%s/%s: %w", volume, path, err)
+		return nil, false, fmt.Errorf("%s/%s: %w", volume, path, err)
 	}
 	if offset < 0 || offset+length > part.Size {
-		return nil, fmt.Errorf("%w: [%d,%d) beyond part of %d bytes", domain.ErrInvalidRange, offset, offset+length, part.Size)
+		return nil, false, fmt.Errorf("%w: [%d,%d) beyond part of %d bytes", domain.ErrInvalidRange, offset, offset+length, part.Size)
 	}
 	dataPath := storage.ObjectDataPath(path, fi.DataDir, part.Number)
 	online := 0
@@ -709,52 +723,180 @@ func (e *erasureSet) ReadData(ctx context.Context, volume, path string, fi stora
 		}
 	}
 	if online < codec.DataShards() {
-		return nil, fmt.Errorf("%w: %s/%s: %d of %d drives online, %d needed", domain.ErrReadQuorum, volume, path, online, e.n(), codec.DataShards())
+		return nil, false, fmt.Errorf("%w: %s/%s: %d of %d drives online, %d needed", domain.ErrReadQuorum, volume, path, online, e.n(), codec.DataShards())
 	}
 	dctx, cancel := context.WithCancel(ctx)
+	var pre *preopened
+	if eager {
+		pre = e.preopen(dctx, codec, fi, volume, dataPath, offset)
+	}
 	readers := make([]erasure.ShardReader, e.n())
 	for i, d := range e.drives {
 		if !isOnline(d) {
 			continue
 		}
-		readers[shardOf(fi.Erasure, i)] = codec.BitrotReader(dctx, func(ctx context.Context, off int64) (io.ReadCloser, error) {
+		shard := shardOf(fi.Erasure, i)
+		readers[shard] = codec.BitrotReader(dctx, func(ctx context.Context, off int64) (io.ReadCloser, error) {
+			if rc := pre.take(shard, off); rc != nil {
+				return rc, nil
+			}
 			return d.ReadFileStream(ctx, volume, dataPath, off, -1)
 		})
 	}
 	pr, pw := io.Pipe()
-	dr := &decodeReader{PipeReader: pr, cancel: cancel, done: make(chan struct{})}
-	go func() {
-		defer close(dr.done)
-		res, err := codec.Decode(dctx, pw, readers, offset, length, part.Size)
+	dr := &decodeReader{pr: pr, cancel: cancel, done: make(chan struct{})}
+	closeReaders := func() {
 		for _, r := range readers {
 			if r != nil {
 				_ = r.Close()
 			}
 		}
-		// A decoding stopped by Close says nothing about the shards it
-		// did not finish reading.
-		if err == nil || dctx.Err() == nil {
-			e.afterRead(ctx, volume, path, fi.VersionID, res.ShardErrs)
+		pre.close()
+	}
+	dr.discard = closeReaders
+	dr.start = func() {
+		go func() {
+			defer close(dr.done)
+			res, err := codec.Decode(dctx, pw, readers, offset, length, part.Size)
+			closeReaders()
+			// A decoding stopped by Close says nothing about the shards it
+			// did not finish reading.
+			if err == nil || dctx.Err() == nil {
+				e.afterRead(ctx, volume, path, fi.VersionID, res.ShardErrs)
+			}
+			_ = pw.CloseWithError(err)
+		}()
+	}
+	return dr, eager && pre.len() >= codec.DataShards() && pinnedReads, nil
+}
+
+// preopened holds the shard streams a read opened before decoding, all
+// positioned at the shard file offset of the first block of the read; the
+// shard readers take them instead of opening their stream.
+type preopened struct {
+	mu      sync.Mutex
+	off     int64
+	streams map[int]io.ReadCloser // by shard index
+}
+
+// take returns the stream of shard opened at file offset off, nil when
+// there is none (each stream is taken once).
+func (p *preopened) take(shard int, off int64) io.ReadCloser {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if off != p.off {
+		return nil
+	}
+	rc := p.streams[shard]
+	delete(p.streams, shard)
+	return rc
+}
+
+// len returns the number of streams opened and not taken yet.
+func (p *preopened) len() int {
+	if p == nil {
+		return 0
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.streams)
+}
+
+// close closes the streams no shard reader took.
+func (p *preopened) close() {
+	if p == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, rc := range p.streams {
+		_ = rc.Close()
+	}
+	p.streams = nil
+}
+
+// preopen opens the shard streams of a read from offset of a part: every
+// shard of a local drive (an open file costs nothing until read), and
+// remote ones in shard order (data shards first, as the decoding reads
+// them) until D are open. Shards that fail to open are left to the
+// decoding, which reports them.
+func (e *erasureSet) preopen(ctx context.Context, codec erasure.Codec, fi storage.FileInfo, volume, dataPath string, offset int64) *preopened {
+	pre := &preopened{
+		off:     offset / codec.BlockSize() * (erasure.BitrotHashSize + codec.ShardSize()),
+		streams: map[int]io.ReadCloser{},
+	}
+	type shardDrive struct {
+		shard int
+		d     storage.StorageAPI
+	}
+	var local, remote []shardDrive
+	for i, d := range e.drives {
+		if !isOnline(d) {
+			continue
 		}
-		_ = pw.CloseWithError(err)
-	}()
-	return dr, nil
+		sd := shardDrive{shard: shardOf(fi.Erasure, i), d: d}
+		if d.Endpoint().IsLocal {
+			local = append(local, sd)
+		} else {
+			remote = append(remote, sd)
+		}
+	}
+	slices.SortFunc(remote, func(a, b shardDrive) int { return a.shard - b.shard })
+	open := func(batch []shardDrive) {
+		rcs := make([]io.ReadCloser, len(batch))
+		_ = parallel(len(batch), func(i int) error {
+			rc, err := batch[i].d.ReadFileStream(ctx, volume, dataPath, pre.off, -1)
+			rcs[i] = rc
+			return err
+		})
+		for i, rc := range rcs {
+			if rc != nil {
+				pre.streams[batch[i].shard] = rc
+			}
+		}
+	}
+	open(local)
+	for need := codec.DataShards() - len(pre.streams); need > 0 && len(remote) > 0; need = codec.DataShards() - len(pre.streams) {
+		batch := remote[:min(need, len(remote))]
+		remote = remote[len(batch):]
+		open(batch)
+	}
+	return pre
 }
 
 // decodeReader is the body of an erasure-coded part: the output of the
-// decoding goroutine. Close stops the decoding and waits for it, so that
-// no shard is read once the body is closed (and the read lock released).
+// decoding goroutine, started at the first read. Close stops the decoding
+// and waits for it, so that no shard is read once the body is closed (and
+// the read lock released).
 type decodeReader struct {
-	*io.PipeReader
-	cancel context.CancelFunc
-	done   chan struct{}
+	pr      *io.PipeReader
+	start   func()
+	discard func()
+	once    sync.Once
+	cancel  context.CancelFunc
+	done    chan struct{}
+}
+
+// Read implements io.Reader.
+func (d *decodeReader) Read(p []byte) (int, error) {
+	d.once.Do(d.start)
+	return d.pr.Read(p)
 }
 
 // Close implements io.Closer.
 func (d *decodeReader) Close() error {
-	err := d.PipeReader.Close()
+	started := true
+	d.once.Do(func() { started = false })
+	err := d.pr.Close()
 	d.cancel()
-	<-d.done
+	if started {
+		<-d.done
+	} else {
+		d.discard()
+	}
 	return err
 }
 

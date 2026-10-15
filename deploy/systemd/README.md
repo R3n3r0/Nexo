@@ -81,12 +81,19 @@ NEXO_ENDPOINTS=http://nexo{1...4}.lan:9000/mnt/disk{1...4}
    (`NEXO_ENDPOINTS="http://nexo{1...4}.lan:9000/mnt/disk{1...4} http://nexo{5...8}.lan:9000/mnt/disk{1...4}"`,
    quoted because of the space) and restart all the nodes.
 5. Upgrades: install the new package everywhere, then restart **one node at a time**, waiting for
-   `nexo healthcheck --ready` (or `curl -f http://localhost:9000/nexo/health/ready`) before the next.
+   `nexo healthcheck --ready` (with TLS `nexo healthcheck --ready --certs-dir /etc/nexo/certs`: HTTPS,
+   trusting the certificates of the node) or `curl -f http://localhost:9000/nexo/health/ready` before
+   the next.
 
 ## Notes
 
 - `systemctl reload nexo` sends `SIGHUP`: the TLS certificates of `NEXO_CERTS_DIR` are reloaded
   without dropping connections.
+- `Type=exec`, not `Type=notify`: a cluster node becomes ready only when enough nodes have started
+  (bootstrap), so a readiness notification would block `systemctl start` on the first nodes of a
+  cluster started one at a time. Wait for readiness with `nexo healthcheck --ready` instead.
+- The `nexo` user is created by the package (`useradd`) and declared in
+  `/usr/lib/sysusers.d/nexo.conf` for `systemd-sysusers`.
 - Ports below 1024 (`NEXO_WEB_ADDRESS=:80`) need `CapabilityBoundingSet=CAP_NET_BIND_SERVICE` and
   `AmbientCapabilities=CAP_NET_BIND_SERVICE` in a drop-in.
 - `LimitNOFILE=1048576`, `TasksMax=infinity`: one file descriptor per open object part and connection.

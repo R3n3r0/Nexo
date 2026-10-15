@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { configure, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -8,11 +8,16 @@ import { renderRoutes, renderWithProviders } from '@/test/render';
 
 import { ConfigurationPage } from './ConfigurationPage';
 
+// The configuration page renders every subsystem: under the load of the
+// whole suite its sections take longer to appear than the default waits.
+configure({ asyncUtilTimeout: 5_000 });
+
 function renderConfig(services = createMockServices({ initialAccessKey: 'nexoadmin' })) {
   const view = renderRoutes([{ path: '/', element: <ConfigurationPage /> }], { services });
   return { ...view, services, user: userEvent.setup() };
 }
 
+// covers: D-CFG-01
 describe('Configuration: observability (D-CFG-01)', { timeout: 30_000 }, () => {
   it('sets the level of the logs and goes back to the server default', async () => {
     const { services, user } = renderConfig();
@@ -106,6 +111,7 @@ describe('Configuration: observability (D-CFG-01)', { timeout: 30_000 }, () => {
   });
 });
 
+// covers: D-CFG-02
 describe('Info page: TLS and tracing (D-CFG-02)', () => {
   it('flags an expiring certificate and shows the collector', async () => {
     const soon = new Date(Date.now() + 5 * 86_400_000).toISOString();

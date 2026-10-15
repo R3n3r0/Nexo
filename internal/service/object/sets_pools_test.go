@@ -271,6 +271,8 @@ func (c *cluster) setPoolSpace(spec clusterSpec, p int, total, free float64) {
 
 // TestPoolPlacement covers the choice of the pool of new objects: random,
 // weighted by free space, never a pool over 95% or being decommissioned.
+//
+// covers: S-STO-08
 func TestPoolPlacement(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -317,6 +319,8 @@ func TestPoolPlacement(t *testing.T) {
 // TestPoolsKeepObjectsInPlace: an existing object (any version) stays in
 // its pool whatever the free space says, multipart uploads stay in the
 // pool chosen at their creation, reads find objects in any pool.
+//
+// covers: S-STO-08
 func TestPoolsKeepObjectsInPlace(t *testing.T) {
 	ctx := context.Background()
 	spec := clusterSpec{pools: 2, sets: 2, drives: 4, buckets: versionedBuckets(t), opts: []object.Option{object.WithPoolSpaceTTL(0)}}
@@ -455,6 +459,8 @@ func TestNewServerPoolsValidation(t *testing.T) {
 // configured EC:n), multipart parts included, and the shards of each
 // object are distributed by a permutation of the drives derived from its
 // key.
+//
+// covers: S-STO-03
 func TestStorageClassLayouts(t *testing.T) {
 	ctx := context.Background()
 	tests := []struct {

@@ -6,6 +6,7 @@ import { renderWithProviders } from '@/test/render';
 
 import { InfoPage } from './InfoPage';
 
+// covers: D-CFG-02
 describe('InfoPage (D-CFG-02)', () => {
   it('shows version, build, deployment ID and mode', async () => {
     const info = sampleServerInfo({ version: '2.0.1', commit: 'deadbeef', mode: 'snmd' });

@@ -125,6 +125,7 @@ describe('buildRows', () => {
   });
 });
 
+// covers: D-OBJ-01
 describe('ObjectBrowser (TD-U-05)', () => {
   it('shows the folder of the route with a breadcrumb and navigates the folders', async () => {
     renderRoutes(routes, {
@@ -341,6 +342,7 @@ describe('ObjectBrowser (TD-U-05)', () => {
     });
   });
 
+  // covers: D-SHR-01
   it('opens the share dialog of an object (TD-U-10)', async () => {
     renderRoutes(routes, { initialEntries: ['/buckets/media/browse/'], services: services() });
     await screen.findByRole('button', { name: 'top.json' });
@@ -351,6 +353,7 @@ describe('ObjectBrowser (TD-U-05)', () => {
   });
 });
 
+// covers: D-UX-02
 describe('ObjectBrowser permissions (TD-U-09)', () => {
   it('offers only reading to a read-only user', async () => {
     renderRoutes(routes, { initialEntries: ['/buckets/media/browse/'], services: readOnly() });
