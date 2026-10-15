@@ -7,7 +7,7 @@
 
 # Empty data and cache directories owned by nonroot (distroless has no
 # shell to run mkdir/chown).
-FROM --platform=$BUILDPLATFORM busybox:1.37-musl AS dirs
+FROM --platform=$BUILDPLATFORM busybox:1.38-musl AS dirs
 RUN mkdir -p /out/data /out/cache
 
 FROM gcr.io/distroless/static-debian12:nonroot

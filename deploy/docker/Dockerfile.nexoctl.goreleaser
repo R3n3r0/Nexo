@@ -5,7 +5,7 @@
 # root, which produces the same image.
 
 # Home directory for ~/.nexoctl/config.json, owned by nonroot.
-FROM --platform=$BUILDPLATFORM busybox:1.37-musl AS dirs
+FROM --platform=$BUILDPLATFORM busybox:1.38-musl AS dirs
 RUN mkdir -p /out/home/nonroot
 
 FROM gcr.io/distroless/static-debian12:nonroot
