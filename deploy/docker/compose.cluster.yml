@@ -30,8 +30,6 @@ x-nexo: &nexo
     start_period: 10s
   restart: unless-stopped
   stop_grace_period: 30s
-  networks:
-    - nexo
 
 services:
   nexo1:
@@ -76,7 +74,7 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
     networks:
-      nexo:
+      default:
         # A fixed address: the only proxy NEXO_TRUSTED_PROXIES may trust
         # (nexo.env.example), never a whole range of the Docker networks.
         ipv4_address: 172.29.0.10
@@ -94,11 +92,15 @@ services:
     restart: unless-stopped
 
 networks:
-  nexo:
+  # The default network of the project, so that the services of an overlay
+  # (compose.observability.yml: Prometheus, Grafana) share it with the
+  # nodes and the load balancer.
+  default:
     ipam:
       config:
-        # The load balancer has a fixed address; the nodes get theirs from
-        # ip_range, which never includes it.
+        # The load balancer has a fixed address; the nodes (and the
+        # services of an overlay) get theirs from ip_range, which never
+        # includes it.
         - subnet: 172.29.0.0/24
           ip_range: 172.29.0.128/25
 

@@ -58,7 +58,7 @@ dopo la v1.0: ACL complete, replica tra cluster, tiering verso S3 remoto, `Assum
 | Metadati non ASCII | I valori `x-amz-meta-*` sono restituiti con i byte ricevuti (UTF-8), senza codifica RFC 2047 |
 | CORS | Un bucket **senza** configurazione CORS segue la politica globale `api.cors_allow_origin` (default `*`): la preflight risponde 200 invece del 403 di S3. Un bucket con configurazione CORS si comporta come in S3 |
 | Notifiche | Record nel formato S3 con `eventSource` `nexo:s3`; il payload aggiunge `EventName` e `Key` al primo livello (come MinIO); le modifiche di retention e legal hold non generano eventi, come in S3 |
-| Download lenti | Un client che smette di leggere il corpo di una GET per più di 20 s (`NEXO_SEND_TIMEOUT`) vede la risposta interrotta |
+| Download lenti | Un client che smette di leggere il corpo di una GET per più di 20 s (`NEXO_SEND_TIMEOUT`) vede la risposta interrotta (su HTTP/2 viene chiusa la connessione che non accetta più byte); un client che legge con regolarità non viene interrotto, anche con molti stream HTTP/2 sulla stessa connessione purché questa riceva almeno circa 40 KB/s |
 | Errori specifici | `XNexoQuotaExceeded` e `XNexoStorageFull` (507), `XNexoParentIsObject` e `XNexoObjectExistsAsDirectory` (400); un set senza quorum risponde `503 SlowDownWrite`/`SlowDownRead` (`XNexoLockTimeout` se non ottiene il lock, `ServiceUnavailable` per un disco o nodo offline); gli SDK ritentano i `503`, `SlowDown` resta per le richieste rallentate |
 | Block public access | Agisce sulle regole di accesso e sulle distribuzioni, non sulle bucket policy anonime (vedi [Condivisione](../sicurezza/condivisione.md)) |
 

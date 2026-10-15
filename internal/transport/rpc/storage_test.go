@@ -95,6 +95,52 @@ func TestRemoteHandlesLifecycle(t *testing.T) {
 	assert.Zero(t, rpc.OpenHandles(routes))
 }
 
+// TestRemoteHandlesRenewed: a handle its reader holds without streaming
+// it (a spare shard of an erasure read, streamed only when another shard
+// fails) is renewed while open, so it outlives the idle timeout of its
+// node however long the read lasts; the handle of a reader that can no
+// longer renew it (crashed, unreachable) still expires (regression: a read
+// lasting more than the idle timeout lost the spare shards it held on its
+// peers, and with them the redundancy of the parity).
+func TestRemoteHandlesRenewed(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir() + "/d"
+	local := openLocal(t, dir)
+	require.NoError(t, local.MakeVol(ctx, "bkt"))
+	require.NoError(t, local.WriteAll(ctx, "bkt", "obj/part.1", []byte("shard")))
+	// Swept every second, idle after 400ms: renewed every 100ms.
+	routes, err := rpc.NewStorageRoutes(rpc.StorageRoutesDeps{Drives: []storage.StorageAPI{local}}, rpc.WithFileHandles(10, 400*time.Millisecond))
+	require.NoError(t, err)
+	require.NoError(t, routes.Start(ctx))
+	t.Cleanup(func() { _ = routes.Stop(ctx) })
+	addr, _ := startRPC(t, routes)
+	ep := domain.Endpoint{Scheme: "http", Host: addr, Path: dir}
+	open := func(boot string) (storage.FileHandle, rpc.Conn) {
+		conn := dial(t, newAuth(t, "client:9000"), addr)
+		c, err := rpc.NewStorageClient(rpc.StorageClientDeps{Conn: conn, Boot: boot, Logger: discard()}, ep)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = c.Close(ctx) })
+		h, err := c.OpenFile(ctx, "bkt", "obj/part.1")
+		require.NoError(t, err)
+		return h, conn
+	}
+	reading, _ := open("boot")
+	_, lost := open("boot")
+	require.Equal(t, 2, rpc.OpenHandles(routes))
+	require.NoError(t, lost.Close(ctx), "the second reader can no longer reach the node")
+
+	time.Sleep(3 * time.Second) // three sweeps, seven idle timeouts
+	assert.Equal(t, 1, rpc.OpenHandles(routes), "the renewed handle stays open, the other expires")
+	rc, err := reading.ReadStream(ctx, 0, -1)
+	require.NoError(t, err)
+	data, err := io.ReadAll(rc)
+	require.NoError(t, err)
+	require.NoError(t, rc.Close())
+	assert.Equal(t, "shard", string(data))
+	require.NoError(t, reading.Close(ctx))
+	assert.Zero(t, rpc.OpenHandles(routes))
+}
+
 // TestRemoteBehavior runs the StorageAPI behavior suite of the local drive,
 // unchanged, against the RPC client of a drive served by another node.
 func TestRemoteBehavior(t *testing.T) {

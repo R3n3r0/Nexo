@@ -125,7 +125,7 @@ Valgono anche le variabili standard `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER
 | `NEXO_RPC_CALL_TIMEOUT` | `30s` | Durata massima di una chiamata tra nodi |
 | `NEXO_HEAL_RETRY_MAX_DELAY` | `5m` | Attesa massima tra due tentativi di healing in background di un oggetto |
 | `NEXO_CACHE_RESYNC_INTERVAL` | `2m` | Ricarica periodica dello stato condiviso (IAM, policy, configurazione) su ogni nodo |
-| `NEXO_SEND_TIMEOUT` | `20s` | Dopo quanto una risposta il cui client ha smesso di leggere viene interrotta: download S3 e dei siti delle distribuzioni, console e Admin API, su tutti i listener |
+| `NEXO_SEND_TIMEOUT` | `20s` | Dopo quanto una risposta il cui client ha smesso di leggere viene interrotta: download S3 e dei siti delle distribuzioni, console e Admin API, su tutti i listener; una connessione HTTP/2 che non accetta byte per lo stesso tempo viene chiusa con tutti i suoi stream |
 
 ### File di configurazione
 

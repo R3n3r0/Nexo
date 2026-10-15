@@ -444,7 +444,11 @@ func TestAudit(t *testing.T) {
 		target    string
 		operation string
 		identity  *domain.Identity
-		check     func(t *testing.T, e audit.Entry)
+		// header is the Authorization header of the request; status the
+		// answer of the handler (default okHandler's).
+		header string
+		status int
+		check  func(t *testing.T, e audit.Entry)
 	}{
 		{
 			name: "named operation with identity", target: "/photos/2026/a.jpg?versionId=1", operation: "GetObject",
@@ -491,13 +495,43 @@ func TestAudit(t *testing.T) {
 				assert.Equal(t, "10", e.ReqQuery["max-keys"])
 			},
 		},
-		// The probes are not audited (nil check): they would push the
-		// requests of the users out of the ring.
-		{name: "health probe", target: "/nexo/health/ready"},
-		{name: "anonymous metrics scrape", target: "/nexo/metrics/v1/node"},
+		// The anonymous probes are not audited (nil check): they would push
+		// the requests of the users out of the ring.
+		{name: "health probe", target: "/nexo/health/ready", status: http.StatusOK},
+		{name: "health probe of a node not ready", target: "/nexo/health/ready", status: http.StatusServiceUnavailable},
+		{name: "anonymous metrics scrape", target: "/nexo/metrics/v1/node", status: http.StatusOK},
 		{
 			name: "authenticated metrics scrape", target: "/nexo/metrics/v1/node", identity: &domain.Identity{AccessKey: "AKIA1"},
+			header: "Bearer token", status: http.StatusOK,
 			check: func(t *testing.T, e audit.Entry) { assert.Equal(t, "AKIA1", e.AccessKey) },
+		},
+		// An attempt to authenticate, or a refused scrape, is recorded
+		// (regression: a signed request to a health path, or a forged
+		// bearer token, tested credentials without an audit trail).
+		{
+			name: "signed health request refused", target: "/nexo/health/live", status: http.StatusForbidden,
+			header: "AWS4-HMAC-SHA256 Credential=AKIA1/20261008/us-east-1/s3/aws4_request, SignedHeaders=host, Signature=00",
+			check: func(t *testing.T, e audit.Entry) {
+				assert.Equal(t, "/nexo/health/live", e.API.Path)
+				assert.Equal(t, http.StatusForbidden, e.API.StatusCode)
+			},
+		},
+		{
+			name: "signed health request served", target: "/nexo/health/live", status: http.StatusOK, identity: &domain.Identity{AccessKey: "AKIA1"},
+			header: "AWS4-HMAC-SHA256 Credential=AKIA1/20261008/us-east-1/s3/aws4_request, SignedHeaders=host, Signature=00",
+			check:  func(t *testing.T, e audit.Entry) { assert.Equal(t, "AKIA1", e.AccessKey) },
+		},
+		{
+			name: "presigned health request", target: "/nexo/health/live?X-Amz-Credential=AKIA1&X-Amz-Signature=00", status: http.StatusForbidden,
+			check: func(t *testing.T, e audit.Entry) { assert.Equal(t, http.StatusForbidden, e.API.StatusCode) },
+		},
+		{
+			name: "metrics scrape with a forged token", target: "/nexo/metrics/v1/node", header: "Bearer garbage", status: http.StatusForbidden,
+			check: func(t *testing.T, e audit.Entry) { assert.Equal(t, http.StatusForbidden, e.API.StatusCode) },
+		},
+		{
+			name: "metrics scrape without token refused", target: "/nexo/metrics/v1/cluster", status: http.StatusForbidden,
+			check: func(t *testing.T, e audit.Entry) { assert.Equal(t, "/nexo/metrics/v1/cluster", e.API.Path) },
 		},
 	}
 	for _, tt := range tests {
@@ -513,16 +547,27 @@ func TestAudit(t *testing.T) {
 					httpx.SetOperationName(r.Context(), tt.operation)
 				}
 				clk.Advance(2 * time.Millisecond)
+				if tt.status != 0 {
+					w.WriteHeader(tt.status)
+					return
+				}
 				okHandler().ServeHTTP(w, r)
 			}))
 			req := httptest.NewRequest(http.MethodGet, tt.target, nil)
 			req.RemoteAddr = "10.0.0.1:5555"
+			if tt.header != "" {
+				req.Header.Set("Authorization", tt.header)
+			}
 			if tt.identity != nil {
 				req = req.WithContext(middleware.WithIdentity(req.Context(), tt.identity))
 			}
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, req)
-			assert.Equal(t, http.StatusTeapot, rec.Code)
+			want := tt.status
+			if want == 0 {
+				want = http.StatusTeapot
+			}
+			assert.Equal(t, want, rec.Code)
 		})
 	}
 }

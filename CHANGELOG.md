@@ -118,7 +118,15 @@ state pubblicate: la base dei test di aggiornamento è il commit di M7 (`224bb31
   `--s3-distributions` (`auto`/`on`/`off`) e `--no-distributions` le disattiva per il ripristino (S-DST-01).
 - **Letture su istantanea con ridondanza**: una GET che ha rilasciato il lock tiene aperti gli shard di tutti i
   dischi online (handle remoti via RPC), così bitrot, dischi o nodi persi durante il trasferimento non la
-  troncano anche se una PUT o DELETE concorrente ha già eliminato i dati; il conteggio delle parti è corretto.
+  troncano anche se una PUT o DELETE concorrente ha già eliminato i dati, anche se dura più di un'ora (il nodo che
+  legge rinnova i suoi handle); il conteggio delle parti è corretto. Aprire e chiudere un handle costa lo stesso
+  qualunque sia il numero di handle aperti sul nodo.
+- **Client fermi su HTTP/2**: una connessione HTTP/2 che non accetta byte per `NEXO_SEND_TIMEOUT` viene chiusa con
+  tutti i suoi stream su ogni listener; prima un client anonimo che annunciava finestre grandi e smetteva di
+  svuotare il socket teneva a tempo indeterminato handler, corpi bufferizzati e il lock di lettura degli oggetti
+  di più di 8 parti. Su HTTP/2 il limite di stallo misura l'avanzamento di ogni stream a pezzi dimensionati sugli
+  stream della connessione: un browser che carica molte risorse in parallelo su una rete lenta non viene più
+  interrotto.
 - `/nexo/health/cluster` riporta nodi, dischi, quorum di scrittura e manutenzione reali (S-OPS-03);
   `admin info` riporta oggetti e spazio usato dallo scanner.
 - Licenza Apache-2.0 (`LICENSE`) negli archivi, nei pacchetti deb/rpm, nelle immagini OCI e nel chart Helm.
@@ -138,7 +146,9 @@ state pubblicate: la base dei test di aggiornamento è il commit di M7 (`224bb31
   `nexo --version` stampa la versione come `nexo version`.
 - `make run-single`/`run-snmd` usano percorsi assoluti; `make run-cluster` mette la console sulla porta S3 + 1.
 - Docker: `nexo.env.example` senza password predefinita, Prometheus e Grafana dello stack di osservabilità
-  legati a `127.0.0.1` e senza credenziali predefinite.
+  legati a `127.0.0.1` e senza credenziali predefinite; in `compose.cluster.yml` nodi e load balancer stanno
+  sulla rete predefinita del progetto (con l'indirizzo fisso del load balancer), così l'overlay
+  `compose.observability.yml` raggiunge i target di `prometheus.cluster.yml` (verificato in CI).
 - CI: workflow puliti per actionlint con shellcheck, lint e vet anche dei test con tag `compose`, `upgrade` e
   `nexotest`.
 - Documentazione: rimosse `NEXO_BROWSER` e `NEXO_CONSOLE_SESSION_DURATION`, mai lette (la sessione della console

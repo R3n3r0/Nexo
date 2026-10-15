@@ -16,7 +16,8 @@ import (
 
 // Defaults of the file handles the peers open on the drives of a node
 // (storage/open-file): at most defaultMaxHandles open at once, an idle
-// handle (no stream opened for defaultHandleIdle) is closed.
+// handle (neither streamed nor renewed by its reader, storage/touch-handles,
+// for defaultHandleIdle) is closed.
 const (
 	defaultMaxHandles = 1 << 16
 	defaultHandleIdle = time.Hour
@@ -43,11 +44,14 @@ type handleEntry struct {
 // handleTable holds the files the peers opened on the drives of this node:
 // a read that released its lock keeps the shards of the version it reads
 // open here (storage.StorageAPI.OpenFile), even when a writer removes them.
-// Handles a peer forgets are closed: after the idle timeout without a
-// stream being read (a crashed peer, a lost close; swept periodically by
-// the StorageRoutes runner and at each open), or as soon as a restarted
+// The reader renews the handles it still holds (touch), streamed or not
+// (the spare shards of an erasure read are streamed only when another
+// shard fails). Handles a peer forgets are closed: after the idle timeout
+// without a stream or a renewal (a crashed peer, a lost close; swept
+// periodically by the StorageRoutes runner), or as soon as a restarted
 // process of the same peer opens a file. A closed handle keeps its file
-// until its last stream ends.
+// until its last stream ends. Opening, streaming, renewing and closing a
+// handle take constant time, whatever the number of handles open.
 type handleTable struct {
 	clock clock.Clock
 	max   int
@@ -55,10 +59,16 @@ type handleTable struct {
 
 	mu      sync.Mutex
 	entries map[string]*handleEntry
+	// boots is the process of each peer that last opened a handle, and
+	// byNode the handles of each peer with a boot id: a new process of a
+	// peer forgets the handles of the earlier ones.
+	boots  map[string]string
+	byNode map[string]map[string]struct{}
 }
 
 func newHandleTable(clk clock.Clock, maxHandles int, idle time.Duration) *handleTable {
-	return &handleTable{clock: clk, max: maxHandles, idle: idle, entries: map[string]*handleEntry{}}
+	return &handleTable{clock: clk, max: maxHandles, idle: idle, entries: map[string]*handleEntry{},
+		boots: map[string]string{}, byNode: map[string]map[string]struct{}{}}
 }
 
 // add registers a handle of drive opened by the process boot of the peer
@@ -73,19 +83,58 @@ func (t *handleTable) add(ctx context.Context, drive, node, boot string, h stora
 	id := hex.EncodeToString(raw)
 	now := t.clock.Now()
 	t.mu.Lock()
-	expired := t.sweepLocked(now)
-	expired = append(expired, t.forgetLocked(node, boot)...)
+	forgotten := t.forgetLocked(node, boot)
 	full := len(t.entries) >= t.max
 	if !full {
-		t.entries[id] = &handleEntry{h: h, drive: drive, node: node, boot: boot, lastUse: now}
+		t.insertLocked(id, &handleEntry{h: h, drive: drive, node: node, boot: boot, lastUse: now})
 	}
 	t.mu.Unlock()
-	closeAll(ctx, expired)
+	closeAll(ctx, forgotten)
 	if full {
 		_ = h.Close(ctx)
 		return "", fmt.Errorf("%w: rpc: %d file handles open on this node", domain.ErrTooManyRequests, t.max)
 	}
 	return id, nil
+}
+
+// insertLocked records the handle id.
+func (t *handleTable) insertLocked(id string, e *handleEntry) {
+	t.entries[id] = e
+	if e.node != "" && e.boot != "" {
+		ids := t.byNode[e.node]
+		if ids == nil {
+			ids = map[string]struct{}{}
+			t.byNode[e.node] = ids
+		}
+		ids[id] = struct{}{}
+	}
+}
+
+// deleteLocked forgets the handle id.
+func (t *handleTable) deleteLocked(id string, e *handleEntry) {
+	delete(t.entries, id)
+	if ids := t.byNode[e.node]; ids != nil {
+		delete(ids, id)
+		if len(ids) == 0 {
+			delete(t.byNode, e.node)
+		}
+	}
+}
+
+// touch renews the handles ids of drive, which their reader still holds,
+// and returns how many it found.
+func (t *handleTable) touch(drive string, ids []string) int {
+	now := t.clock.Now()
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	n := 0
+	for _, id := range ids {
+		if e, ok := t.entries[id]; ok && e.drive == drive {
+			e.lastUse = now
+			n++
+		}
+	}
+	return n
 }
 
 // acquire returns the handle id of drive for a stream, marking it in use
@@ -115,13 +164,12 @@ func (t *handleTable) acquire(drive, id string) (storage.FileHandle, func(), err
 func (t *handleTable) remove(ctx context.Context, drive, id string) error {
 	t.mu.Lock()
 	e, ok := t.entries[id]
-	if ok && e.drive == drive {
-		delete(t.entries, id)
+	ok = ok && e.drive == drive
+	if ok {
+		t.deleteLocked(id, e)
 	}
-	expired := t.sweepLocked(t.clock.Now())
 	t.mu.Unlock()
-	closeAll(ctx, expired)
-	if !ok || e.drive != drive {
+	if !ok {
 		return nil
 	}
 	return e.h.Close(ctx)
@@ -143,7 +191,7 @@ func (t *handleTable) closeEvery(ctx context.Context) {
 	all := make([]storage.FileHandle, 0, len(t.entries))
 	for id, e := range t.entries {
 		all = append(all, e.h)
-		delete(t.entries, id)
+		t.deleteLocked(id, e)
 	}
 	t.mu.Unlock()
 	closeAll(ctx, all)
@@ -157,31 +205,34 @@ func (t *handleTable) len() int {
 }
 
 // sweepLocked removes the handles idle for longer than the timeout (no
-// stream being read) and returns them, to be closed without the lock.
+// stream being read, no renewal) and returns them, to be closed without
+// the lock.
 func (t *handleTable) sweepLocked(now time.Time) []storage.FileHandle {
 	var out []storage.FileHandle
 	for id, e := range t.entries {
 		if e.streams == 0 && now.Sub(e.lastUse) > t.idle {
 			out = append(out, e.h)
-			delete(t.entries, id)
+			t.deleteLocked(id, e)
 		}
 	}
 	return out
 }
 
-// forgetLocked removes the handles node opened from another process than
-// boot (an earlier one: the peer restarted and will never close them) and
-// returns them, to be closed without the lock. A peer that sends no boot
-// id (an older release) is left to the idle timeout.
+// forgetLocked records boot as the current process of node and, when it
+// is a new one (the peer restarted and will never close the handles of
+// the earlier ones), removes the handles node opened from another process
+// and returns them, to be closed without the lock. A peer that sends no
+// boot id (an older release) is left to the idle timeout.
 func (t *handleTable) forgetLocked(node, boot string) []storage.FileHandle {
-	if node == "" || boot == "" {
+	if node == "" || boot == "" || t.boots[node] == boot {
 		return nil
 	}
+	t.boots[node] = boot
 	var out []storage.FileHandle
-	for id, e := range t.entries {
-		if e.node == node && e.boot != "" && e.boot != boot {
+	for id := range t.byNode[node] {
+		if e := t.entries[id]; e.boot != boot {
 			out = append(out, e.h)
-			delete(t.entries, id)
+			t.deleteLocked(id, e)
 		}
 	}
 	return out

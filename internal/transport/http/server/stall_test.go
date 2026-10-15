@@ -23,8 +23,9 @@ import (
 	"github.com/r3n3r0/nexo/internal/transport/http/server"
 )
 
-// h2Peer is a raw HTTP/2 client (prior knowledge) that announces a zero
-// flow control window: the server can send headers but no body.
+// h2Peer is a raw HTTP/2 client (prior knowledge) that announces a given
+// flow control window: with a zero window the server can send headers but
+// no body.
 type h2Peer struct {
 	t      *testing.T
 	conn   net.Conn
@@ -39,17 +40,31 @@ type h2Peer struct {
 	connWindow int64
 }
 
-func dialH2(t *testing.T, addr string) *h2Peer {
+// dialH2 connects a peer announcing a zero window that reads every frame
+// of the server.
+func dialH2(t *testing.T, addr string) *h2Peer { return dialH2Window(t, addr, 0, true) }
+
+// dialH2Window connects a peer announcing window (for its streams and its
+// connection); one that does not drain stops reading its socket once the
+// server settings are in, and keeps its receive buffer small, so the
+// server soon cannot write anything to the connection.
+func dialH2Window(t *testing.T, addr string, window uint32, drain bool) *h2Peer {
 	t.Helper()
 	conn, err := net.Dial("tcp", addr)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
+	if !drain {
+		require.NoError(t, conn.(*net.TCPConn).SetReadBuffer(4<<10))
+	}
 	p := &h2Peer{t: t, conn: conn, fr: http2.NewFramer(conn, conn), frames: make(chan http2.Frame, 1024),
 		settings: map[http2.SettingID]uint32{}, connWindow: 65535}
 	p.henc = hpack.NewEncoder(&p.hbuf)
 	_, err = io.WriteString(conn, http2.ClientPreface)
 	require.NoError(t, err)
-	require.NoError(t, p.fr.WriteSettings(http2.Setting{ID: http2.SettingInitialWindowSize, Val: 0}))
+	require.NoError(t, p.fr.WriteSettings(http2.Setting{ID: http2.SettingInitialWindowSize, Val: window}))
+	if window > 65535 {
+		require.NoError(t, p.fr.WriteWindowUpdate(0, window-65535))
+	}
 	// The settings of the server and the window of its connection
 	// arrive before any answer.
 	deadline := time.Now().Add(5 * time.Second)
@@ -75,6 +90,9 @@ func dialH2(t *testing.T, addr string) *h2Peer {
 		}
 	}
 	_ = conn.SetReadDeadline(time.Time{})
+	if !drain {
+		return p
+	}
 	go func() {
 		defer close(p.frames)
 		for {
@@ -225,6 +243,63 @@ func TestServerReleasesStalledHTTP2Streams(t *testing.T) {
 				"goroutines left: %d (before %d)", runtime.NumGoroutine(), before)
 		})
 	}
+}
+
+// floodServer starts a server whose /flood handler writes until a write
+// fails (or the request ends), never reading its request body; done
+// receives the outcome of every handler.
+func floodServer(t *testing.T, opts ...server.Option) (server.Service, chan error) {
+	t.Helper()
+	done := make(chan error, 64)
+	routes := httpx.RoutesFunc(func(r chi.Router) {
+		r.Get("/flood", func(w http.ResponseWriter, r *http.Request) {
+			chunk := bytes.Repeat([]byte("x"), 32<<10)
+			var err error
+			for i := 0; i < 32<<10 && err == nil; i++ { // at most 1 GiB
+				_, err = w.Write(chunk)
+			}
+			done <- err
+		})
+	})
+	srv := server.New(server.Deps{Routes: []httpx.Routes{routes}}, append([]server.Option{server.WithAddr("127.0.0.1:0")}, opts...)...)
+	require.NoError(t, srv.Start(context.Background()))
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Stop(ctx)
+	})
+	return srv, done
+}
+
+// TestServerReleasesHTTP2ConnectionsNobodyDrains: a client announcing
+// large windows that never reads its socket blocks the writer of the
+// whole HTTP/2 connection, where the deadline of a stream cannot reset the
+// stream (its RST_STREAM waits behind the blocked frame): the connection
+// is closed once it accepts no byte for the send timeout, which releases
+// every handler and the request bodies buffered for them (regression: they
+// stayed held, with the read lock of an object, for as long as the client
+// kept the connection open).
+func TestServerReleasesHTTP2ConnectionsNobodyDrains(t *testing.T) {
+	const timeout = 500 * time.Millisecond
+	before := runtime.NumGoroutine()
+	srv, done := floodServer(t, server.WithSendTimeout(timeout))
+	p := dialH2Window(t, srv.Addr(), 1<<30, false)
+	const streams = 8
+	for i := range streams {
+		p.get(uint32(2*i+1), "/flood", 64<<10)
+	}
+	start := time.Now()
+	for range streams {
+		select {
+		case err := <-done:
+			assert.Error(t, err, "the blocked write fails")
+		case <-time.After(10 * time.Second):
+			t.Fatal("a handler stays blocked on a connection nobody drains")
+		}
+	}
+	assert.Less(t, time.Since(start), 5*time.Second)
+	assert.Eventually(t, func() bool { return runtime.NumGoroutine() <= before+8 }, 5*time.Second, 20*time.Millisecond,
+		"goroutines left: %d (before %d)", runtime.NumGoroutine(), before)
 }
 
 // TestServerLiftedSendBound: a handler that lifts the bound (the

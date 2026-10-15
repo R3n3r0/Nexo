@@ -310,12 +310,17 @@ type waiter struct {
 
 func (b *bootstrapper) newWaiter() *waiter { return &waiter{b: b, delay: b.opts.backoffMin} }
 
-// wait logs what the phase waits for (when it changed, or periodically)
-// and sleeps until the next round.
+// wait logs at warning level what the phase waits for (when it changed,
+// or periodically) and sleeps until the next round.
 func (w *waiter) wait(ctx context.Context, msg string, attrs ...slog.Attr) error {
+	return w.waitAt(ctx, slog.LevelWarn, msg, attrs...)
+}
+
+// waitAt is wait logging at level.
+func (w *waiter) waitAt(ctx context.Context, level slog.Level, msg string, attrs ...slog.Attr) error {
 	now := w.b.deps.Clock.Now()
 	if msg != w.last || now.Sub(w.lastTime) >= relogInterval {
-		w.b.deps.Logger.LogAttrs(ctx, slog.LevelWarn, msg, attrs...)
+		w.b.deps.Logger.LogAttrs(ctx, level, msg, attrs...)
 		w.last, w.lastTime = msg, now
 	}
 	timer := time.NewTimer(w.delay)
@@ -502,8 +507,14 @@ func (b *bootstrapper) waitFormats(ctx context.Context) (BootstrapResult, error)
 		}
 		if len(waiting) == 0 {
 			// Quorum reached, but local empty drives are settling before
-			// they are formatted as replacements.
-			if err := w.wait(ctx, "cluster: empty local drives in an existing deployment, formatting them", slog.Int("drives", len(empty))); err != nil {
+			// they are formatted: replaced drives when their sets hold
+			// data, otherwise the drives of a node that started after
+			// its peers formatted a fresh deployment (not a failure).
+			level, msg := slog.LevelInfo, "cluster: empty local drives, formatting them once settled"
+			if b.emptyInDataSets(ctx, states, empty) {
+				level, msg = slog.LevelWarn, "cluster: empty local drives in an existing deployment, formatting them"
+			}
+			if err := w.waitAt(ctx, level, msg, slog.Int("drives", len(empty))); err != nil {
 				return BootstrapResult{}, err
 			}
 			continue
@@ -708,6 +719,25 @@ func (b *bootstrapper) formatReplacements(ctx context.Context, pool topology.Poo
 			"drive", key, "pool", pool.Index+1, "set", set+1, "disk", disk+1)
 	}
 	return n, ctx.Err()
+}
+
+// emptyInDataSets reports whether one of the empty local drives settling
+// before their format belongs to a set holding data (setContent).
+func (b *bootstrapper) emptyInDataSets(ctx context.Context, states [][]driveFormat, empty map[string]int) bool {
+	for p, pool := range b.deps.Layout.Pools {
+		checked := map[int]bool{}
+		for i, s := range states[p] {
+			set := i / pool.SetDriveCount
+			if empty[s.ep.String()] == 0 || checked[set] {
+				continue
+			}
+			checked[set] = true
+			if b.setContent(ctx, pool, states[p], set) == setData {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // setContent is what the formatted drives of a set hold.

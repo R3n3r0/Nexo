@@ -13,6 +13,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/metrics"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
+	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
 )
 
 // MetricsDeps are the dependencies of the metrics routes. Registry is
@@ -126,6 +127,8 @@ func (h *metricsRoutes) authorize(r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	// The audit records the scraper (the identity holder of the request).
+	middleware.WithIdentity(ctx, id)
 	decision, err := h.deps.Policy.Evaluate(ctx, policy.Args{Identity: id, Action: policy.ActionAdminPrometheus, Now: h.deps.Clock.Now()})
 	if err != nil {
 		return err
