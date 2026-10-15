@@ -56,7 +56,7 @@ const (
 	SignatureVersion = "AWS4-HMAC-SHA256"
 	headerAmzPrefix  = "x-amz-"
 	headerMetaPrefix = "x-amz-meta-"
-	headerToken      = "x-amz-security-token"
+	headerToken      = "x-amz-security-token" // #nosec G101 -- an S3 header name, not a credential
 )
 
 // requestParams maps the query parameters of Request.Params to their

@@ -27,6 +27,12 @@ func TestParseEndpoint(t *testing.T) {
 		{"http://node1:9000/", Endpoint{}, true},
 		{"http://user@node1:9000/data", Endpoint{}, true},
 		{"http://node1:9000/data?x=1", Endpoint{}, true},
+		// "/mnt/d /" is the directory "d ": parsed again after the
+		// trimming of the arguments it would be "/mnt/d".
+		{"/mnt/d /", Endpoint{}, true},
+		{"d\t/", Endpoint{}, true},
+		{"  /mnt/d  ", Endpoint{Path: "/mnt/d", IsLocal: true}, false},
+		{"http://node1:9000/d%20/", Endpoint{Scheme: "http", Host: "node1:9000", Path: "/d "}, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.raw, func(t *testing.T) {

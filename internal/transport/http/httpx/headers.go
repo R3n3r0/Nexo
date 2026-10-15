@@ -10,7 +10,7 @@ const (
 	HeaderAmzMetaPrefix     = "x-amz-meta-"
 	HeaderAmzDate           = "x-amz-date"
 	HeaderAmzContentSHA256  = "x-amz-content-sha256"
-	HeaderAmzSecurityToken  = "x-amz-security-token"
+	HeaderAmzSecurityToken  = "x-amz-security-token" // #nosec G101 -- an S3 header name, not a credential
 	HeaderAmzVersionID      = "x-amz-version-id"
 	HeaderAmzDeleteMarker   = "x-amz-delete-marker"
 	HeaderAmzCopySource     = "x-amz-copy-source"
@@ -34,7 +34,7 @@ const (
 	HeaderAmzObjectLockRetainUntil = "x-amz-object-lock-retain-until-date"
 	HeaderAmzObjectLockLegalHold   = "x-amz-object-lock-legal-hold"
 	HeaderAmzBucketObjectLock      = "x-amz-bucket-object-lock-enabled"
-	HeaderAmzBypassGovernance      = "x-amz-bypass-governance-retention"
+	HeaderAmzBypassGovernance      = "x-amz-bypass-governance-retention" // #nosec G101 -- an S3 header name, not a credential
 	HeaderAmzMetadataDirective     = "x-amz-metadata-directive"
 	HeaderAmzTaggingDirective      = "x-amz-tagging-directive"
 	HeaderAmzTaggingCount          = "x-amz-tagging-count"

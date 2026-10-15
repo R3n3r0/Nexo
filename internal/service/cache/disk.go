@@ -76,7 +76,7 @@ func (d *disk) write(meta *entryMeta, body []byte) (int64, error) {
 	hdr := make([]byte, diskHeaderSize)
 	copy(hdr, diskMagic)
 	hdr[4] = diskVersion
-	binary.BigEndian.PutUint32(hdr[8:], uint32(len(mdata)))
+	binary.BigEndian.PutUint32(hdr[8:], uint32(len(mdata))) // #nosec G115 -- the JSON description of an entry, far below 4 GiB
 	binary.BigEndian.PutUint64(hdr[12:], uint64(len(body)))
 	binary.BigEndian.PutUint32(hdr[20:], crc32.Checksum(mdata, d.table))
 	binary.BigEndian.PutUint32(hdr[24:], m.CRC)
@@ -99,7 +99,7 @@ func (d *disk) writeFile(path string, parts ...[]byte) (int64, error) {
 	var rnd [6]byte
 	_, _ = rand.Read(rnd[:])
 	tmp := path + diskTmpMarker + hex.EncodeToString(rnd[:])
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o640)
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600) // #nosec G304 -- a temporary file under the cache directory, named after a hash
 	if err != nil {
 		return 0, err
 	}
@@ -194,6 +194,21 @@ func (d *disk) remove(key string) {
 // load walks the disk tier and reports every valid entry; the temporary
 // and corrupt files are removed.
 func (d *disk) load(fn func(meta *entryMeta, size int64)) error {
+	// The removals go through a root of the directory: a parent replaced
+	// by a symbolic link during the walk cannot point them outside of it.
+	root, err := os.OpenRoot(d.dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	remove := func(path string) {
+		if rel, err := filepath.Rel(d.dir, path); err == nil {
+			_ = root.Remove(rel)
+		}
+	}
 	return filepath.WalkDir(d.dir, func(path string, e fs.DirEntry, err error) error {
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
@@ -206,19 +221,19 @@ func (d *disk) load(fn func(meta *entryMeta, size int64)) error {
 		}
 		name := e.Name()
 		if strings.Contains(name, diskTmpMarker) || !strings.HasSuffix(name, diskExt) {
-			_ = os.Remove(path)
+			remove(path)
 			return nil
 		}
 		meta, size, err := d.readMeta(path)
 		if err != nil || d.pathOf(meta.Key) != path {
 			d.logger.Warn("cache: dropping an unreadable disk entry", "file", path, "err", err)
-			_ = os.Remove(path)
+			remove(path)
 			return nil
 		}
 		if !strings.HasPrefix(meta.Key, keyVersion+"|") {
 			// A key of another format is never looked up again.
 			d.logger.Debug("cache: dropping a disk entry of another key format", "file", path)
-			_ = os.Remove(path)
+			remove(path)
 			return nil
 		}
 		fn(meta, size)
@@ -228,7 +243,7 @@ func (d *disk) load(fn func(meta *entryMeta, size int64)) error {
 
 // readMeta reads the description of a file and checks its size.
 func (d *disk) readMeta(path string) (*entryMeta, int64, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- an entry file under the cache directory (pathOf or the walk of it)
 	if err != nil {
 		return nil, 0, err
 	}

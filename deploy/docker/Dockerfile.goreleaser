@@ -1,29 +1,44 @@
-# Release image for ghcr.io/r3n3r0/nexo, built by GoReleaser (.goreleaser.yaml)
-# from the already compiled binaries: the build context only contains "nexo"
-# and "nexoctl" for the target architecture. For local builds from sources
-# use the Dockerfile at the repository root instead.
+# Release image ghcr.io/r3n3r0/nexo, built by GoReleaser (dockers_v2 in
+# .goreleaser.yaml) with buildx for linux/amd64 and linux/arm64 from the
+# binaries it already compiled: the build context holds them under
+# $TARGETPLATFORM/ (linux/amd64/nexo, linux/arm64/nexoctl, ...). For a
+# build from the sources use the Dockerfile at the repository root, which
+# produces the same image.
+
+# Empty data and cache directories owned by nonroot (distroless has no
+# shell to run mkdir/chown).
 FROM --platform=$BUILDPLATFORM busybox:1.37-musl AS dirs
 RUN mkdir -p /out/data /out/cache
 
 FROM gcr.io/distroless/static-debian12:nonroot
 
+ARG TARGETPLATFORM
+
+# The version, revision, creation date and source labels are added by
+# GoReleaser (--label), with the same values as the image annotations.
 LABEL org.opencontainers.image.title="Nexo" \
       org.opencontainers.image.description="S3-compatible object storage server with embedded web console" \
       org.opencontainers.image.url="https://github.com/r3n3r0/nexo" \
-      org.opencontainers.image.source="https://github.com/r3n3r0/nexo" \
+      org.opencontainers.image.documentation="https://github.com/r3n3r0/nexo/tree/main/docs" \
       org.opencontainers.image.vendor="r3n3r0"
 
-COPY nexo /nexo
-COPY nexoctl /nexoctl
+COPY $TARGETPLATFORM/nexo /nexo
+COPY $TARGETPLATFORM/nexoctl /nexoctl
 COPY --from=dirs --chown=65532:65532 /out/data /data
 COPY --from=dirs --chown=65532:65532 /out/cache /cache
 
 USER 65532:65532
+
+# 9000: S3 API (and internode RPC), 9001: console + Admin API.
 EXPOSE 9000 9001
 VOLUME /data
+
 ENV NEXO_ADDRESS=:9000 \
     NEXO_CONSOLE_ADDRESS=:9001
+
+# distroless has no curl: the binary probes its own liveness endpoint.
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
     CMD ["/nexo", "healthcheck"]
+
 ENTRYPOINT ["/nexo"]
 CMD ["server", "/data"]

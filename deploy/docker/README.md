@@ -14,7 +14,7 @@ UID 65532). The deployment mode is chosen by the arguments of `nexo server`, not
 | `compose.observability.yml` | Prometheus + Grafana overlay with a provisioned Nexo dashboard |
 | `nexo.env.example` | Template for `nexo.env` (root credentials and options) |
 | `gen-dev-certs.sh` | Development CA and certificate for the TLS cluster |
-| `Dockerfile.goreleaser`, `Dockerfile.nexoctl.goreleaser` | Release images built by GoReleaser from prebuilt binaries |
+| `Dockerfile.goreleaser`, `Dockerfile.nexoctl.goreleaser` | Release images built by GoReleaser (`dockers_v2`: one multi-arch buildx build, the prebuilt binaries in `$TARGETPLATFORM/` of the context; same result as the root Dockerfiles, docs/08 §8.7) |
 | `Dockerfile` | Symlink to the root `Dockerfile` (used by `make docker`) |
 
 ## Images

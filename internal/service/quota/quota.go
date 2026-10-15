@@ -295,7 +295,7 @@ func (s *service) replacedSize(ctx context.Context, bucket, key string) uint64 {
 	if err != nil || info.IsDeleteMarker {
 		return 0
 	}
-	return uint64(max0(info.Size))
+	return uint64(max0(info.Size)) // #nosec G115 -- max0 returns a non-negative size
 }
 
 // reserve checks that size more bytes fit in the quota of bucket and
@@ -388,7 +388,7 @@ func newLimitedReader(r io.Reader, max uint64, bucket string) *limitedReader {
 
 func (l *limitedReader) Read(p []byte) (int, error) {
 	n, err := l.r.Read(p)
-	l.n += uint64(n)
+	l.n += uint64(n) // #nosec G115 -- io.Reader.Read returns 0 <= n <= len(p)
 	if l.n > l.max {
 		return n, errStreamExceeded(l.bucket, l.max)
 	}
@@ -422,7 +422,7 @@ func (s *service) PutObject(ctx context.Context, in object.PutObjectInput) (doma
 			in.Reader = newLimitedReader(in.Reader, max, in.Bucket)
 			res := &reservation{s: s, st: s.state(in.Bucket)}
 			info, err := s.Service.PutObject(ctx, in)
-			res.done(uint64(max0(info.Size)), err == nil)
+			res.done(uint64(max0(info.Size)), err == nil) // #nosec G115 -- max0 returns a non-negative size
 			return info, err
 		}
 		return s.Service.PutObject(ctx, in)
@@ -432,7 +432,7 @@ func (s *service) PutObject(ctx context.Context, in object.PutObjectInput) (doma
 		return domain.ObjectInfo{}, err
 	}
 	info, err := s.Service.PutObject(ctx, in)
-	res.done(uint64(max0(info.Size)), err == nil)
+	res.done(uint64(max0(info.Size)), err == nil) // #nosec G115 -- max0 returns a non-negative size
 	return info, err
 }
 
@@ -463,7 +463,7 @@ func (s *service) sourceSize(ctx context.Context, bucket, key, versionID string,
 		}
 		size = length
 	}
-	return uint64(max0(size)), true
+	return uint64(max0(size)), true // #nosec G115 -- max0 returns a non-negative size
 }
 
 // CopyObject implements object.Service.
@@ -477,7 +477,7 @@ func (s *service) CopyObject(ctx context.Context, in object.CopyObjectInput) (do
 		return domain.ObjectInfo{}, err
 	}
 	info, err := s.Service.CopyObject(ctx, in)
-	res.done(uint64(max0(info.Size)), err == nil)
+	res.done(uint64(max0(info.Size)), err == nil) // #nosec G115 -- max0 returns a non-negative size
 	return info, err
 }
 
@@ -533,7 +533,7 @@ func (s *service) uploadSize(ctx context.Context, in object.CompleteMultipartInp
 		}
 		for _, p := range res.Parts {
 			if selected[p.Number] {
-				size += uint64(max0(p.Size))
+				size += uint64(max0(p.Size)) // #nosec G115 -- max0 returns a non-negative size
 			}
 		}
 		if !res.IsTruncated || res.NextPartNumberMarker <= marker {
@@ -563,7 +563,7 @@ func (s *service) CompleteMultipartUpload(ctx context.Context, in object.Complet
 		return domain.ObjectInfo{}, err
 	}
 	info, err := s.Service.CompleteMultipartUpload(ctx, in)
-	res.done(uint64(max0(info.Size)), err == nil)
+	res.done(uint64(max0(info.Size)), err == nil) // #nosec G115 -- max0 returns a non-negative size
 	return info, err
 }
 

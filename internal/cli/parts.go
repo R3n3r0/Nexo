@@ -50,7 +50,7 @@ func (s *sectionParts) next(*bufferPool) (part, bool, error) {
 	offset := int64(s.n) * s.partSize
 	size := min(s.partSize, s.size-offset)
 	s.n++
-	return part{number: int32(s.n), offset: offset, size: size, body: io.NewSectionReader(s.ra, offset, size)}, true, nil
+	return part{number: int32(s.n), offset: offset, size: size, body: io.NewSectionReader(s.ra, offset, size)}, true, nil // #nosec G115 -- a part number, at most the 10000 parts of a planned upload
 }
 
 // rangeParts cuts an object of known size into the ranges of an
@@ -69,7 +69,7 @@ func (s *rangeParts) next(*bufferPool) (part, bool, error) {
 	offset := int64(s.n) * s.partSize
 	size := min(s.partSize, s.size-offset)
 	s.n++
-	return part{number: int32(s.n), offset: offset, size: size}, true, nil
+	return part{number: int32(s.n), offset: offset, size: size}, true, nil // #nosec G115 -- a part number, at most the 10000 parts of a planned upload
 }
 
 // streamParts reads the parts of a sequential body into buffers. With a
@@ -135,7 +135,7 @@ func (s *streamParts) next(pool *bufferPool) (part, bool, error) {
 	if s.size >= 0 && s.read >= s.size {
 		s.done = true
 	}
-	return part{number: int32(number), offset: offset, size: int64(len(buf)), body: bytes.NewReader(buf), buf: buf}, true, nil
+	return part{number: int32(number), offset: offset, size: int64(len(buf)), body: bytes.NewReader(buf), buf: buf}, true, nil // #nosec G115 -- a part number, at most the 10000 parts of an upload
 }
 
 // bufferPool recycles the part buffers of one upload: at most cap(free)

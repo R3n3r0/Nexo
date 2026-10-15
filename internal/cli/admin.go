@@ -7,8 +7,9 @@ import (
 )
 
 // AdminClient is the Admin API surface used by the nexoctl admin and share
-// commands (docs/12 §12.5): a subset of nexoadmin.AdminClient, so that the
-// client of pkg/nexoadmin satisfies it. The implementation of NewAdminFactory
+// commands (docs/12 §12.5): a subset of nexoadmin.AdminClient (its live
+// streams behind the EventStream interface, so that the tests replace
+// them). The implementation of NewAdminFactory
 // wraps every failure of the server in an *AdminError, which wraps the
 // matching sentinel of domain (domain.ErrUserNotFound,
 // domain.ErrAccessDenied, ...) so that the commands map them to stable
@@ -22,6 +23,19 @@ type AdminClient interface {
 	ListHeals(ctx context.Context) (*nexoadmin.HealJobList, error)
 	RestartService(ctx context.Context) error
 	StopService(ctx context.Context) error
+	// Diagnostics of the node that serves the request (S-OPS-11).
+	Profile(ctx context.Context, in nexoadmin.ProfileRequest) (*nexoadmin.Profile, error)
+	Speedtest(ctx context.Context, kind string, in nexoadmin.SpeedtestRequest) (*nexoadmin.SpeedtestResult, error)
+
+	// Observability of the deployment, every node of a cluster included
+	// (C-ADM-08, docs/07 §7.4): the live trace of the requests and the live
+	// logs (streams read until closed or the server ends them), the search
+	// of the audit log and the series of the metrics of the console.
+	Trace(ctx context.Context, opts nexoadmin.TraceOptions) (EventStream[nexoadmin.TraceEvent], error)
+	Logs(ctx context.Context, opts nexoadmin.LogOptions) (EventStream[nexoadmin.LogEntry], error)
+	SearchAudit(ctx context.Context, q nexoadmin.AuditQuery) (*nexoadmin.AuditList, error)
+	ListMetrics(ctx context.Context) (*nexoadmin.MetricList, error)
+	QueryMetric(ctx context.Context, q nexoadmin.MetricQuery) (*nexoadmin.MetricSeries, error)
 
 	// Users and groups.
 	ListUsers(ctx context.Context, opts nexoadmin.ListOptions) (*nexoadmin.UserList, error)
@@ -170,6 +184,18 @@ type AdminClient interface {
 	GetShare(ctx context.Context, id string) (*nexoadmin.Share, error)
 	RevokeShare(ctx context.Context, id string) error
 	RevokeAllShares(ctx context.Context, owner string) (int, error)
+}
+
+// EventStream is a live stream of the Admin API (admin trace, admin logs).
+// Next waits for the next item and returns io.EOF when the server ended the
+// stream; Dropped counts the items the server dropped because the client
+// did not keep up; Close ends the stream (Next then fails). A stream is not
+// safe for concurrent calls of Next.
+type EventStream[T any] interface {
+	Next() (*T, error)
+	// Dropped is a pure accessor.
+	Dropped() uint64
+	Close() error
 }
 
 // AdminFactory builds the Admin API client of an alias: the commands

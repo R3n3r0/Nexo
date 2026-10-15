@@ -2094,3 +2094,142 @@ type InspectCacheInput struct {
 	// headers and cookies of the cache key, Authorization).
 	Header http.Header
 }
+
+// --- diagnostics (S-OPS-11) ------------------------------------------------
+
+// ProfileType is a runtime profile of the server (pprof).
+type ProfileType string
+
+// Profile types.
+const (
+	// ProfileCPU samples the CPU for the duration of the profile.
+	ProfileCPU ProfileType = "cpu"
+	// ProfileHeap is the live heap at the end of the request.
+	ProfileHeap ProfileType = "heap"
+	// ProfileGoroutine are the stacks of every goroutine.
+	ProfileGoroutine ProfileType = "goroutine"
+	// ProfileMutex and ProfileBlock sample the contended mutexes and the
+	// blocking events for the duration of the profile (their sampling is
+	// off otherwise).
+	ProfileMutex ProfileType = "mutex"
+	ProfileBlock ProfileType = "block"
+)
+
+// Limits of the profiles: the sampled ones (cpu, mutex, block) last
+// between MinProfileDuration and MaxProfileDuration, DefaultProfileDuration
+// when unset.
+const (
+	MinProfileDuration     = time.Second
+	DefaultProfileDuration = 10 * time.Second
+	MaxProfileDuration     = 2 * time.Minute
+)
+
+// ProfileInput are the parameters of Diagnostics.Profile.
+type ProfileInput struct {
+	Type ProfileType
+	// Duration of a sampled profile (0: DefaultProfileDuration); ignored
+	// by the heap and goroutine snapshots.
+	Duration time.Duration
+}
+
+// Profile is a profile of the node that served the request, in the pprof
+// format (gzipped protocol buffer, `go tool pprof`).
+type Profile struct {
+	Type     ProfileType
+	Node     string
+	Duration time.Duration
+	Data     []byte
+}
+
+// SpeedtestKind selects what a speed test measures.
+type SpeedtestKind string
+
+// Speed tests.
+const (
+	// SpeedtestDrive writes then reads files on every local drive of the
+	// node (its temporary area), the drives in parallel.
+	SpeedtestDrive SpeedtestKind = "drive"
+	// SpeedtestObject uploads then downloads objects through the object
+	// layer (erasure coding, quorum, internode RPC in a cluster) in a
+	// temporary bucket, removed afterwards.
+	SpeedtestObject SpeedtestKind = "object"
+	// SpeedtestNet uploads files to a drive of every other node of a
+	// cluster over the internode RPC, then reads one of them back
+	// repeatedly (served from the page cache of the peer): the network
+	// between the nodes. Not available out of a cluster.
+	SpeedtestNet SpeedtestKind = "net"
+)
+
+// Limits of the speed tests (SpeedtestInput).
+const (
+	DefaultSpeedtestSize        = 4 << 20
+	MaxSpeedtestSize            = 64 << 20
+	DefaultSpeedtestDuration    = 5 * time.Second
+	MaxSpeedtestDuration        = time.Minute
+	DefaultSpeedtestConcurrency = 8
+	MaxSpeedtestConcurrency     = 64
+	// MaxSpeedtestBytes bounds the data a test writes per target (drive,
+	// node or the object test as a whole) whatever its duration.
+	MaxSpeedtestBytes = 1 << 30
+)
+
+// SpeedtestInput are the parameters of Diagnostics.Speedtest.
+type SpeedtestInput struct {
+	Kind SpeedtestKind
+	// Size of each file or object (0: DefaultSpeedtestSize; at most
+	// MaxSpeedtestSize).
+	Size int64
+	// Duration of each phase, write then read (0:
+	// DefaultSpeedtestDuration; at most MaxSpeedtestDuration).
+	Duration time.Duration
+	// Concurrency of the object test and of the reads of the net test
+	// (0: DefaultSpeedtestConcurrency; at most MaxSpeedtestConcurrency).
+	Concurrency int
+}
+
+// SpeedtestResult is the outcome of a speed test.
+type SpeedtestResult struct {
+	Kind        SpeedtestKind     `json:"kind"`
+	Node        string            `json:"node"`
+	Size        int64             `json:"size"`
+	Duration    time.Duration     `json:"duration"`
+	Concurrency int               `json:"concurrency"`
+	Targets     []SpeedtestTarget `json:"targets"`
+}
+
+// SpeedtestTarget is the measure of one target: a drive, a peer node or
+// the object layer.
+type SpeedtestTarget struct {
+	Target string           `json:"target"`
+	Write  SpeedtestMeasure `json:"write"`
+	Read   SpeedtestMeasure `json:"read"`
+	Error  string           `json:"error,omitempty"`
+}
+
+// SpeedtestMeasure is the throughput of a phase.
+type SpeedtestMeasure struct {
+	Bytes      int64         `json:"bytes"`
+	Operations int64         `json:"operations"`
+	Elapsed    time.Duration `json:"elapsed"`
+	// BytesPerSecond and OperationsPerSecond are computed over Elapsed.
+	BytesPerSecond      float64 `json:"bytesPerSecond"`
+	OperationsPerSecond float64 `json:"operationsPerSecond"`
+	// LatencyP50 and LatencyP99 are the latencies of the operations.
+	LatencyP50 time.Duration `json:"latencyP50"`
+	LatencyP99 time.Duration `json:"latencyP99"`
+}
+
+// Diagnostics profiles the server and measures its drives, its object
+// layer and the network between its nodes (S-OPS-11). Both run on the
+// node that serves the request, one at a time per kind
+// (domain.ErrConflict while one is running); the inputs out of their
+// limits are domain.ErrInvalidArgument. The Admin API exposes them to the
+// identities allowed admin:Profiling and admin:Speedtest (root, the
+// diagnostics policy).
+type Diagnostics interface {
+	// Profile collects a runtime profile.
+	Profile(ctx context.Context, in ProfileInput) (*Profile, error)
+	// Speedtest runs a speed test and removes what it wrote
+	// (domain.ErrNotImplemented: SpeedtestNet out of a cluster).
+	Speedtest(ctx context.Context, in SpeedtestInput) (*SpeedtestResult, error)
+}

@@ -21,6 +21,10 @@ import (
 // Clock default to httpx.New() and the wall clock.
 type MetricsDeps struct {
 	Registry metrics.Registry
+	// Exporter gathers the families of each scope (the node, every node
+	// of the cluster, the buckets); without it every scope serves the
+	// whole registry of the node.
+	Exporter metrics.Exporter
 	Verifier auth.Verifier
 	Policy   policy.Service
 	Enc      httpx.Encoder
@@ -59,8 +63,8 @@ func WithPublicMetrics(public bool) Option {
 // NewMetricsRoutes returns the metrics route group (Prometheus text
 // exposition, served by the registry itself). The registry is wired by the
 // composition root (the same one the middlewares write to). A missing
-// dependency is a wiring error (domain.ErrInvalidArgument). The three
-// scopes serve the same registry until per-scope collectors exist (M8).
+// dependency is a wiring error (domain.ErrInvalidArgument). With an
+// exporter each scope serves its families (docs/07 §7.4).
 func NewMetricsRoutes(deps MetricsDeps, opts ...Option) (MetricsRoutes, error) {
 	o := newOptions(opts)
 	if deps.Registry == nil {
@@ -80,21 +84,34 @@ func NewMetricsRoutes(deps MetricsDeps, opts ...Option) (MetricsRoutes, error) {
 
 // Register implements Routes.
 func (h *metricsRoutes) Register(r chi.Router) {
-	r.Get(PathMetricsCluster, h.serve)
-	r.Get(PathMetricsNode, h.serve)
-	r.Get(PathMetricsBucket, h.serve)
+	r.Get(PathMetricsCluster, h.serve(metrics.ScopeCluster))
+	r.Get(PathMetricsNode, h.serve(metrics.ScopeNode))
+	r.Get(PathMetricsBucket, h.serve(metrics.ScopeBucket))
 }
 
-// serve authenticates and authorizes the scraper, then hands the request
-// to the registry.
-func (h *metricsRoutes) serve(w http.ResponseWriter, r *http.Request) {
-	if !h.public {
-		if err := h.authorize(r); err != nil {
+// serve authenticates and authorizes the scraper, then answers the
+// families of scope (the exporter), or the whole registry.
+func (h *metricsRoutes) serve(scope metrics.Scope) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !h.public {
+			if err := h.authorize(r); err != nil {
+				h.deps.Enc.WriteS3Error(w, r, err)
+				return
+			}
+		}
+		if h.deps.Exporter == nil {
+			h.handler.ServeHTTP(w, r)
+			return
+		}
+		ctx := r.Context()
+		families, err := h.deps.Exporter.Gather(ctx, scope)
+		if err != nil {
 			h.deps.Enc.WriteS3Error(w, r, err)
 			return
 		}
+		w.Header().Set("Content-Type", metrics.TextContentType)
+		_ = h.deps.Exporter.WriteText(ctx, w, families)
 	}
-	h.handler.ServeHTTP(w, r)
 }
 
 // authorize verifies the bearer token and asks the policy engine for

@@ -67,7 +67,7 @@ copiate (un bucket target senza versioning con più versioni da copiare è rifiu
 | `nexo` | Server + dashboard React embedded (statico, `CGO_ENABLED=0`) |
 | `nexoctl` | CLI (statica) |
 | Piattaforme | linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64 (`nexoctl` anche windows/arm64) |
-| Pacchetti | `.tar.gz`/`.zip`, `.deb`, `.rpm`, Homebrew tap, unit systemd, checksum SHA256 + firma cosign, SBOM |
+| Pacchetti | `.tar.gz`/`.zip`, `.deb`/`.rpm` (`nexo` con unit systemd e `nexoctl` con i completamenti della shell), cask Homebrew, checksum SHA256 firmati con cosign, SBOM SPDX (dettaglio in §8.7) |
 
 Esempi:
 
@@ -148,8 +148,21 @@ File forniti in `deploy/docker/`:
 | `compose.observability.yml` | Prometheus + Grafana con dashboard Nexo preconfigurate |
 
 ### Altri orchestratori
-- **Docker Swarm**: stack file con `deploy.placement` per legare ogni servizio al suo nodo/volume.
-- **Kubernetes**: Helm chart con `mode: standalone | distributed` (StatefulSet + headless service per il cluster).
+- **Docker Swarm** ([`deploy/swarm/stack.yml`](../deploy/swarm/README.md)): 4 nodi × 2 dischi, ogni servizio
+  legato al suo nodo Swarm con `deploy.placement` (`node.labels.nexo.node`), così i volumi nominati lo seguono;
+  `endpoint_mode: dnsrr` (indirizzo del task, niente VIP IPVS sulle connessioni internode), credenziali come
+  Docker secret (`NEXO_ROOT_*_FILE`), rete overlay cifrata, due nginx con la configurazione di
+  `compose.cluster.yml`, aggiornamenti un nodo alla volta.
+- **Kubernetes** ([`deploy/helm/nexo`](../deploy/helm/nexo/README.md)): `mode: standalone` (Deployment con un
+  PVC per disco: SNSD o SNMD) oppure `mode: distributed` (StatefulSet `Parallel` con `replicas × pools` pod e
+  `drivesPerNode` PVC ciascuno, headless service che pubblica i pod non ancora pronti, endpoint con ellissi
+  generati dal template, PodDisruptionBudget, anti-affinity, probe su `/nexo/health/live|ready`, utente non
+  root e file system in sola lettura, Secret per credenziali e KMS, TLS da Secret `kubernetes.io/tls`,
+  ServiceMonitor, Ingress per S3/console/distribuzioni, volume della cache, `helm test` con health del
+  cluster e round trip S3).
+- **systemd** ([`deploy/systemd`](../deploy/systemd/README.md)): unit con sandbox (`ProtectSystem=strict`,
+  nessuna capability, filtro delle syscall: esposizione 1,5 "OK" per `systemd-analyze security`),
+  `/etc/default/nexo`, istruzioni per il cluster su più macchine.
 
 ## 8.5 Reverse proxy e URL pubblici
 Fondamentale perché gli **URL presigned** restino validi dietro proxy/load balancer:
@@ -211,3 +224,78 @@ la sintassi di tutte le configurazioni di `deploy/proxy` e del compose (`nginx -
 | TM-10 | Binari di release: avvio smoke su ogni OS/arch in CI (QEMU per arm64), `nexo version` coerente con il tag | — |
 | TM-11 | Immagini: firma cosign verificabile, scansione trivy senza vulnerabilità High/Critical | — |
 | TM-12 | `nexo server --dry-run` su configurazioni valide/invalide | Exit code e messaggi attesi |
+
+## 8.7 Rilascio (T-9.5)
+
+Un tag `v*` avvia [`.github/workflows/release.yml`](../.github/workflows/release.yml): GoReleaser v2.18.3 con
+[`.goreleaser.yaml`](../.goreleaser.yaml), poi i job di verifica. Nessun segreto a lunga scadenza: le firme sono
+**cosign keyless** (Sigstore, certificato emesso per l'identità OIDC del workflow).
+
+### Cosa produce una release
+
+| Artefatto | Dettaglio |
+|-----------|-----------|
+| Binari | `nexo` (con la console, `-tags embedui`) per linux/darwin/windows × amd64/arm64 (non windows/arm64); `nexoctl` anche per windows/arm64. Statici (`CGO_ENABLED=0`), `-trimpath`, data e mtime = commit (riproducibili); `nexo version` stampa il tag |
+| Archivi | `nexo_X.Y.Z_<os>_<arch>.tar.gz` (`.zip` su Windows) con README, unit e file env di systemd; `nexoctl_…` con i completamenti bash/zsh/fish; archivio dei sorgenti `nexo_X.Y.Z_source.tar.gz` |
+| Pacchetti | `.deb` e `.rpm` per amd64/arm64: `nexo` (binario in `/usr/bin`, unit in `/usr/lib/systemd/system`, `/etc/default/nexo` come conffile `0640 root:nexo` con la password vuota, utente `nexo` creato da `preinstall`, `/var/lib/nexo/data`; mai avviato né riavviato dagli script; la rimozione ferma il servizio e conserva i dati) e `nexoctl` (binario e completamenti); `nexo` raccomanda `nexoctl` |
+| Checksum | `checksums.txt` (SHA-256 di archivi, pacchetti, SBOM, sorgenti) + `checksums.txt.sigstore.json` (bundle cosign: firma, certificato, voce del log di trasparenza Rekor) |
+| SBOM | Un documento SPDX JSON per archivio (`<archivio>.sbom.json`, syft v1.54.1): moduli Go e toolchain di ogni binario. I pacchetti contengono gli stessi binari linux degli archivi |
+| Immagini | `ghcr.io/r3n3r0/nexo` (nexo + nexoctl) e `ghcr.io/r3n3r0/nexoctl`, indice multi-arch linux/amd64+arm64 costruito da buildx con i binari già compilati (`deploy/docker/Dockerfile*.goreleaser`, equivalenti ai Dockerfile della radice), attestazioni SBOM e provenance (`mode=max`) di BuildKit, firma cosign; tag `vX.Y.Z` e, per le release finali, `vX.Y` e `latest` |
+| Helm | `nexo-X.Y.Z.tgz` allegato alla release e pubblicato in `oci://ghcr.io/r3n3r0/charts/nexo` (firmato con cosign) |
+| Homebrew | Cask `nexo` e `nexoctl` in `r3n3r0/homebrew-tap` (`brew install r3n3r0/tap/nexoctl`), solo se il segreto `HOMEBREW_TAP_GITHUB_TOKEN` esiste; i binari macOS non sono notarizzati: il cask rimuove l'attributo di quarantena |
+
+### Verificare una release
+
+```bash
+TAG=v1.0.0
+# Identità delle firme: il workflow di release del tag, con le maiuscole del repository
+# su GitHub (cosign la confronta esattamente).
+ID="https://github.com/R3n3r0/Nexo/.github/workflows/release.yml@refs/tags/$TAG"
+ISSUER=https://token.actions.githubusercontent.com
+
+# 1. firma di checksums.txt (cosign >= 2.4), poi i file scaricati
+cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
+  --certificate-identity "$ID" --certificate-oidc-issuer "$ISSUER"
+sha256sum --ignore-missing -c checksums.txt          # macOS: shasum -a 256 --ignore-missing -c
+
+# 2. SBOM di un archivio (coperto dai checksum)
+jq -r '.packages[] | "\(.name) \(.versionInfo)"' nexo_${TAG#v}_linux_amd64.tar.gz.sbom.json | head
+
+# 3. immagini: firma, SBOM e provenance attestate nell'indice multi-arch
+cosign verify ghcr.io/r3n3r0/nexo:$TAG --certificate-identity "$ID" --certificate-oidc-issuer "$ISSUER"
+docker buildx imagetools inspect ghcr.io/r3n3r0/nexo:$TAG --format '{{ json .SBOM }}'
+docker buildx imagetools inspect ghcr.io/r3n3r0/nexo:$TAG --format '{{ json .Provenance }}'
+
+# 4. chart Helm
+cosign verify ghcr.io/r3n3r0/charts/nexo:${TAG#v} --certificate-identity "$ID" --certificate-oidc-issuer "$ISSUER"
+```
+
+Il job `verify` della release esegue gli stessi controlli (TM-11) e la scansione trivy delle immagini
+(High/Critical con fix disponibile: il job fallisce); il job `smoke` (TM-10) estrae gli archivi su
+linux/amd64, linux/arm64 (QEMU), darwin/arm64, darwin/amd64 (Rosetta) e windows/amd64 ed esegue
+[`packaging/smoke.sh`](../packaging/smoke.sh): versione uguale al tag, `--dry-run`, server su un disco,
+console servita, round trip S3 con `nexoctl`, arresto con SIGTERM (su Windows solo versione e `--dry-run`).
+
+### Riprodurre e controllare in locale (senza pubblicare)
+
+| Comando | Cosa fa |
+|---------|---------|
+| `make release-tools` | Installa in `bin/tools` GoReleaser, Helm, kubeconform e syft alle versioni fissate nel Makefile |
+| `make release-check` | `goreleaser check` |
+| `make release-snapshot` | Tutta la release in `dist/` (versione `X.Y.Z-next`), senza immagini né firme (`RELEASE_SKIP=docker,sign`; con un demone Docker `RELEASE_SKIP=sign` costruisce anche le immagini) |
+| `make release-smoke` | `packaging/smoke.sh` sui binari linux/amd64 dello snapshot e, con `qemu-aarch64-static`, linux/arm64 |
+| `make helm-lint` | `helm lint --strict`, `helm template` e `kubeconform -strict` (Kubernetes 1.27 e 1.34, CRD ServiceMonitor) con i valori di default e `deploy/helm/nexo/ci/*-values.yaml` |
+| `make systemd-verify` | `systemd-analyze verify` e `security` (esposizione ≤ 2,0) della unit |
+| `make hadolint` / `make packaging` | Dockerfile; tutti i controlli che non richiedono Docker |
+
+Il job CI `packaging` esegue a ogni pull request lo snapshot con le immagini, TM-10 su amd64 e arm64,
+l'installazione dei `.deb` con il systemd del runner (servizio che rifiuta di partire senza password, poi
+parte, risponde, round trip S3, `reload`, `stop`, rimozione che conserva i dati), i `.rpm` in un container
+Fedora, il chart, la unit e i Dockerfile; il job `deploy-files` valida lo stack Swarm (`docker stack config`).
+
+Decisioni aperte del rilascio: licenza del progetto (assente: archivi, pacchetti e chart non dichiarano
+una licenza), repository `r3n3r0/homebrew-tap` con il segreto `HOMEBREW_TAP_GITHUB_TOKEN`, visibilità
+pubblica dei pacchetti ghcr.io (privati alla prima pubblicazione), e la toolchain Go ≥ 1.26 richiesta dalla
+scansione delle vulnerabilità (docs/security/threat-model.md §10.1): finché la toolchain resta Go 1.24 è
+atteso che trivy segnali le vulnerabilità della libreria standard già note a govulncheck e che il job
+`verify` fallisca.

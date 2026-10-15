@@ -22,7 +22,7 @@ export interface ServicesConfig {
 export async function loadServices(config: ServicesConfig): Promise<Services> {
   if (config.demo) {
     const { createMockServices } = await import('./mock');
-    return createMockServices({ latencyMs: 150 });
+    return createMockServices({ latencyMs: 150, liveDemo: true });
   }
   return createHttpServices({ baseUrl: config.apiBase });
 }

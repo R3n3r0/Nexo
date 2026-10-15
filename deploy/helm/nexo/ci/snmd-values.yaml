@@ -1,0 +1,19 @@
+# Standalone with four drives (SNMD, erasure coding), builtin KMS, a
+# NetworkPolicy and a PVC for the cache.
+mode: standalone
+standalone:
+  drives: 4
+persistence:
+  storageClass: fast-ssd
+kms:
+  secretKey: "nexo-key:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+cache:
+  enabled: true
+  volume:
+    type: pvc
+networkPolicy:
+  enabled: true
+  allowedFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: ingress-nginx

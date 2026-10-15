@@ -1,0 +1,97 @@
+{{/*
+helm test: an S3 round trip with nexoctl (from the server image, no
+shell): alias with the root credentials (checked against the server),
+bucket creation, upload of a 20 MB object (the nexoctl binary itself,
+multipart), stat, then removal of the bucket. Every step is a container
+of its own, run in order; the alias lives in an emptyDir.
+*/}}
+{{- $url := printf "%s://%s:%v" (include "nexo.scheme" .) (include "nexo.serviceHost" .) .Values.service.s3Port }}
+{{- $bucket := printf "test/%s" .Values.tests.bucket }}
+{{- $steps := list
+  (list "alias" "alias" "set" "test" $url "$(NEXO_ROOT_USER)" "$(NEXO_ROOT_PASSWORD)")
+  (list "mb" "mb" "--ignore-existing" $bucket)
+  (list "put" "cp" "/nexoctl" (printf "%s/nexoctl" $bucket))
+  (list "stat" "stat" (printf "%s/nexoctl" $bucket))
+}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "nexo.fullname" . }}-test-s3
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nexo.testLabels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext:
+    {{- toYaml .Values.podSecurityContext | nindent 4 }}
+  {{- with .Values.imagePullSecrets }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  initContainers:
+    {{- range $steps }}
+    - name: {{ first . }}
+      {{- include "nexo.testContainer" (dict "root" $ "args" (rest .)) | nindent 6 }}
+    {{- end }}
+  containers:
+    - name: cleanup
+      {{- include "nexo.testContainer" (dict "root" . "args" (list "rb" "--force" $bucket)) | nindent 6 }}
+  volumes:
+    - name: config
+      emptyDir: {}
+    {{- if .Values.tls.caSecretName }}
+    - name: ca
+      secret:
+        secretName: {{ .Values.tls.caSecretName }}
+        defaultMode: 0440
+        items:
+          - key: {{ .Values.tls.caKey }}
+            path: ca.crt
+    {{- end }}
+{{- define "nexo.testContainer" -}}
+{{- $root := .root -}}
+image: {{ include "nexo.image" $root | quote }}
+imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+command: ["/nexoctl"]
+args:
+  {{- range .args }}
+  - {{ . | quote }}
+  {{- end }}
+env:
+  - name: NEXOCTL_CONFIG_DIR
+    value: /config
+  - name: NEXO_ROOT_USER
+    valueFrom:
+      secretKeyRef:
+        name: {{ include "nexo.credentialsSecret" $root }}
+        key: {{ include "nexo.userKey" $root }}
+  - name: NEXO_ROOT_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: {{ include "nexo.credentialsSecret" $root }}
+        key: {{ include "nexo.passwordKey" $root }}
+  {{- if $root.Values.tls.caSecretName }}
+  - name: SSL_CERT_FILE
+    value: /etc/nexo/ca/ca.crt
+  {{- end }}
+securityContext:
+  {{- toYaml $root.Values.securityContext | nindent 2 }}
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+volumeMounts:
+  - name: config
+    mountPath: /config
+  {{- if $root.Values.tls.caSecretName }}
+  - name: ca
+    mountPath: /etc/nexo/ca
+    readOnly: true
+  {{- end }}
+{{- end }}

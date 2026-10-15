@@ -72,6 +72,18 @@ export const CacheActions = {
   invalidate: 'admin:InvalidateCache',
 } as const;
 
+/**
+ * Policy actions of the monitoring pages (docs/07 §7.4): the charts need
+ * admin:Prometheus or admin:ServerInfo, the live trace admin:ServerTrace,
+ * the live logs and the audit log admin:ConsoleLog.
+ */
+export const MonitoringActions = {
+  prometheus: 'admin:Prometheus',
+  serverInfo: 'admin:ServerInfo',
+  trace: 'admin:ServerTrace',
+  consoleLog: 'admin:ConsoleLog',
+} as const;
+
 export interface PermissionCheck {
   /** True until the first answer of GET /me/permissions. */
   loading: boolean;

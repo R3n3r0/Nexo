@@ -9,6 +9,7 @@ import (
 
 // fsTypeName maps the statfs magic number to a file system name.
 func fsTypeName(st syscall.Statfs_t) string {
+	// #nosec G115 -- the bits of the filesystem magic number
 	switch uint64(st.Type) {
 	case 0xEF53:
 		return "ext4"
@@ -29,6 +30,6 @@ func fsTypeName(st syscall.Statfs_t) string {
 	case 0x65735546:
 		return "fuse"
 	default:
-		return fmt.Sprintf("0x%x", uint64(st.Type))
+		return fmt.Sprintf("0x%x", uint64(st.Type)) // #nosec G115 -- the bits of the filesystem magic number
 	}
 }

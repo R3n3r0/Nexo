@@ -2,7 +2,7 @@ package object
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/md5" // #nosec G501 -- the S3 multipart ETag
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -679,7 +679,7 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 	var (
 		total      int64
 		plainTotal int64
-		etagSum    = md5.New()
+		etagSum    = md5.New() // #nosec G401 -- the S3 multipart ETag (MD5 of the part MD5s), not a security primitive
 		parts      = make([]storage.PartInfo, 0, len(in.Parts))
 		selected   = make([]partMeta, 0, len(in.Parts))
 		uploadType = m.checksumType()

@@ -1,8 +1,8 @@
 package object
 
 import (
-	"crypto/md5"
-	"crypto/sha1"
+	"crypto/md5"  // #nosec G501 -- the S3 ETag and Content-MD5 integrity checks
+	"crypto/sha1" // #nosec G505 -- the SHA1 checksum algorithm of S3, an integrity check only
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -29,7 +29,7 @@ type hashReader struct {
 }
 
 func newHashReader(r io.Reader, wantSHA bool, algo domain.ChecksumAlgorithm) (*hashReader, error) {
-	h := &hashReader{r: r, md5: md5.New(), algo: algo}
+	h := &hashReader{r: r, md5: md5.New(), algo: algo} // #nosec G401 -- the S3 ETag (Content-MD5) of an object, an integrity check only
 	if wantSHA {
 		h.sha = sha256.New()
 	}
@@ -53,7 +53,7 @@ func newChecksumHash(algo domain.ChecksumAlgorithm) (hash.Hash, error) {
 	case domain.ChecksumCRC64NVME:
 		return crc64.New(crc64.MakeTable(crc64NVMEPoly)), nil
 	case domain.ChecksumSHA1:
-		return sha1.New(), nil
+		return sha1.New(), nil // #nosec G401 -- the S3 SHA1 checksum algorithm (x-amz-checksum-sha1), an integrity check only
 	case domain.ChecksumSHA256:
 		return sha256.New(), nil
 	default:

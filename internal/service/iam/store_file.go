@@ -366,7 +366,7 @@ func (f *fileStore) readEntry(ns Namespace, path string) (*entryPlain, error) {
 
 // readLimited reads a whole file of at most limit bytes.
 func readLimited(path string, limit int64) ([]byte, error) {
-	fh, err := os.Open(path)
+	fh, err := os.Open(path) // #nosec G304 -- a file of the IAM directory of the server, named after a validated key
 	if err != nil {
 		return nil, err
 	}
@@ -413,7 +413,7 @@ func writeTemp(dir string, data []byte) (string, error) {
 
 // syncDir makes a rename durable; failures (e.g. on Windows) are ignored.
 func syncDir(dir string) {
-	fh, err := os.Open(dir)
+	fh, err := os.Open(dir) // #nosec G304 -- the IAM directory of the server
 	if err != nil {
 		return
 	}

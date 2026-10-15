@@ -18,7 +18,8 @@ import (
 //   - writeonly: upload only (s3:PutObject and the multipart actions,
 //     s3:GetBucketLocation for the SDKs), no read, list or delete;
 //   - diagnostics: the MinIO diagnostics admin actions (server info,
-//     trace, logs, profiling, locks, OBD, bandwidth, Prometheus, health);
+//     trace, logs, profiling, speed tests, locks, OBD, bandwidth,
+//     Prometheus, health);
 //   - consoleAdmin: every admin, KMS and S3 action, like MinIO.
 func builtInPolicies(at time.Time) map[string]Named {
 	allow := func(resource string, actions ...string) domain.Statement {
@@ -43,8 +44,9 @@ func builtInPolicies(at time.Time) map[string]Named {
 				string(ActionListMultipartParts), string(ActionListMultipart)),
 		),
 		PolicyDiagnostics: mk(PolicyDiagnostics,
-			allow(allS3Resources, string(ActionAdminServerInfo), "admin:ServerTrace", "admin:ConsoleLog", "admin:Profiling",
-				"admin:TopLocksInfo", "admin:OBDInfo", "admin:BandwidthMonitor", string(ActionAdminPrometheus), "admin:Health"),
+			allow(allS3Resources, string(ActionAdminServerInfo), "admin:ServerTrace", "admin:ConsoleLog", string(ActionAdminProfiling),
+				string(ActionAdminSpeedtest), "admin:TopLocksInfo", "admin:OBDInfo", "admin:BandwidthMonitor", string(ActionAdminPrometheus),
+				"admin:Health"),
 		),
 	}
 }

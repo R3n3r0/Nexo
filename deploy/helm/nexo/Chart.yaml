@@ -1,0 +1,24 @@
+apiVersion: v2
+name: nexo
+description: >-
+  Nexo, the S3-compatible object storage server with an embedded web console:
+  standalone (one pod, one or more drives) or distributed (a StatefulSet
+  cluster with erasure coding).
+type: application
+# The release workflow packages the chart with the version of the tag
+# (helm package --version X.Y.Z --app-version vX.Y.Z).
+version: 1.0.0-rc.1
+appVersion: "v1.0.0-rc.1"
+kubeVersion: ">=1.27.0-0"
+home: https://github.com/r3n3r0/nexo
+sources:
+  - https://github.com/r3n3r0/nexo
+icon: https://raw.githubusercontent.com/r3n3r0/nexo/main/web/public/favicon.svg
+keywords:
+  - s3
+  - object-storage
+  - storage
+  - erasure-coding
+maintainers:
+  - name: r3n3r0
+    url: https://github.com/r3n3r0

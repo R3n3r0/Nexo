@@ -934,7 +934,7 @@ or to the standard output without FILE (JSON with --json): the document of
 			if err != nil {
 				return err
 			}
-			if err := os.WriteFile(args[1], y, 0o644); err != nil {
+			if err := os.WriteFile(args[1], y, 0o600); err != nil {
 				return err
 			}
 			return e.out.Info(accessExportRecord{Alias: t.Alias, Bucket: t.Bucket, File: args[1], Rules: len(cur.Rules)},

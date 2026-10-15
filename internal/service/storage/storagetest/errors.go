@@ -124,7 +124,7 @@ func testSymlinksAreNotFollowed(t *testing.T, f Factory) {
 		globbed = append(globbed, info.Name)
 	}
 	assert.ElementsMatch(t, []string{"obj", "metalink"}, globbed, "globs skip links")
-	data, err := os.ReadFile(filepath.Join(outside, "secret"))
+	data, err := os.ReadFile(filepath.Join(outside, "secret")) // #nosec G304 -- a file of the test's temporary directory
 	require.NoError(t, err)
 	assert.Equal(t, "secret", string(data))
 	_, err = os.Stat(filepath.Join(outside, "new"))
@@ -268,7 +268,7 @@ func fixture(t *testing.T, name string) []byte {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
 	require.True(t, ok, "locate the storagetest sources")
-	data, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "testdata", "xlmeta", name))
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "testdata", "xlmeta", name)) // #nosec G304 -- a test fixture of the repository
 	require.NoError(t, err)
 	return data
 }
@@ -335,7 +335,7 @@ func testCorruptMetadataQuarantined(t *testing.T, f Factory) {
 	now := time.Now()
 	corrupt := func(key string) {
 		t.Helper()
-		require.NoError(t, os.WriteFile(filepath.Join(dir, "b", key, storage.MetaFile), []byte("garbage, not an xl.meta"), 0o640))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "b", key, storage.MetaFile), []byte("garbage, not an xl.meta"), 0o640)) // #nosec G306 -- a corrupt fixture written by a test
 	}
 	quarantined := func() int {
 		t.Helper()

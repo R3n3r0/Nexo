@@ -2,8 +2,9 @@ package cli
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/md5" // #nosec G501 -- the SSE-C key MD5 header required by S3
 	"encoding/base64"
+	"math"
 	"strings"
 	"time"
 
@@ -33,7 +34,7 @@ func customerKeyOf(r domain.SSERequest) customerKeyFields {
 	}
 	keyMD5 := r.CustomerKey.KeyMD5
 	if keyMD5 == "" {
-		sum := md5.Sum(r.CustomerKey.Key)
+		sum := md5.Sum(r.CustomerKey.Key) // #nosec G401 -- the SSE-C key MD5 header required by S3, not a security primitive
 		keyMD5 = base64.StdEncoding.EncodeToString(sum[:])
 	}
 	return customerKeyFields{
@@ -289,7 +290,11 @@ func intPtr32(n *int) *int32 {
 	if n == nil {
 		return nil
 	}
-	return aws.Int32(int32(*n))
+	// A number out of the int32 range is clamped rather than wrapped: the
+	// server refuses it instead of reading another value (days of 2^32+1
+	// would otherwise become 1).
+	v := min(max(*n, math.MinInt32), math.MaxInt32)
+	return aws.Int32(int32(v)) // #nosec G115 -- clamped to the int32 range above
 }
 
 // intPtrOf converts an optional number of the SDK.

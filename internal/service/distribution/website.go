@@ -390,7 +390,7 @@ func hexDecode(s string) ([]byte, error) {
 		if hi < 0 || lo < 0 {
 			return nil, errors.New("invalid hex")
 		}
-		out[i/2] = byte(hi<<4 | lo)
+		out[i/2] = byte(hi<<4 | lo) // #nosec G115 -- hi and lo are hexadecimal digits (0-15)
 	}
 	return out, nil
 }

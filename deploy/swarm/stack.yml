@@ -1,0 +1,179 @@
+# Nexo cluster on Docker Swarm: 4 nodes x 2 drives (one erasure set of 8
+# drives) behind an nginx load balancer publishing S3 (9000) and the
+# console (9001). See README.md for the full procedure:
+#
+#   # one Swarm node per Nexo node, labelled 1..4
+#   docker node update --label-add nexo.node=1 <swarm-node-a>   # ... 2, 3, 4
+#   printf admin | docker secret create nexo_root_user -
+#   printf %s "$NEXO_PASSWORD" | docker secret create nexo_root_password -   # >= 8 characters
+#   docker stack deploy -c stack.yml nexo
+#
+# Every service is pinned to its Swarm node (placement), so its named
+# volumes (created by the local driver on that node) always follow it. The
+# services resolve each other by name on the overlay network: dnsrr returns
+# the task address itself (no IPVS virtual IP, whose idle timeout cuts the
+# long-lived internode connections), and "hostname" lets every node
+# recognize its own endpoints.
+version: "3.8"
+
+x-nexo: &nexo
+  image: ghcr.io/r3n3r0/nexo:${NEXO_TAG:-latest}
+  command: ["server", "http://nexo{1...4}:9000/data{1...2}"]
+  environment: &nexo-env
+    NEXO_ROOT_USER_FILE: /run/secrets/nexo_root_user
+    NEXO_ROOT_PASSWORD_FILE: /run/secrets/nexo_root_password
+    # The load balancer is the only client of the nodes: trust its
+    # X-Forwarded-* headers (the overlay network below).
+    NEXO_TRUSTED_PROXIES: 10.231.0.0/24
+    # Public URL of presigned and share links (behind your DNS/TLS edge).
+    NEXO_SERVER_URL: ${NEXO_SERVER_URL:-http://localhost:9000}
+    NEXO_CACHE_DIR: /cache
+    NEXO_CACHE_SIZE: ${NEXO_CACHE_SIZE:-10GiB}
+  secrets:
+    - nexo_root_user
+    - nexo_root_password
+  networks:
+    - nexo
+  healthcheck:
+    test: ["CMD", "/nexo", "healthcheck"]
+    interval: 10s
+    timeout: 3s
+    retries: 3
+    start_period: 30s
+  # In-flight uploads complete on SIGTERM before the task exits.
+  stop_grace_period: 90s
+  ulimits:
+    nofile:
+      soft: 1048576
+      hard: 1048576
+
+x-deploy: &deploy
+  mode: replicated
+  replicas: 1
+  endpoint_mode: dnsrr
+  restart_policy:
+    condition: any
+    delay: 5s
+  # docker service update rolls one node at a time; the erasure sets keep
+  # their quorum with one node down.
+  update_config:
+    parallelism: 1
+    delay: 30s
+    order: stop-first
+    failure_action: pause
+  resources:
+    limits:
+      memory: 4G
+    reservations:
+      memory: 512M
+
+services:
+  nexo1:
+    <<: *nexo
+    hostname: nexo1
+    volumes:
+      - nexo1-data1:/data1
+      - nexo1-data2:/data2
+      - nexo1-cache:/cache
+    deploy:
+      <<: *deploy
+      placement:
+        constraints: [node.labels.nexo.node == 1]
+
+  nexo2:
+    <<: *nexo
+    hostname: nexo2
+    volumes:
+      - nexo2-data1:/data1
+      - nexo2-data2:/data2
+      - nexo2-cache:/cache
+    deploy:
+      <<: *deploy
+      placement:
+        constraints: [node.labels.nexo.node == 2]
+
+  nexo3:
+    <<: *nexo
+    hostname: nexo3
+    volumes:
+      - nexo3-data1:/data1
+      - nexo3-data2:/data2
+      - nexo3-cache:/cache
+    deploy:
+      <<: *deploy
+      placement:
+        constraints: [node.labels.nexo.node == 3]
+
+  nexo4:
+    <<: *nexo
+    hostname: nexo4
+    volumes:
+      - nexo4-data1:/data1
+      - nexo4-data2:/data2
+      - nexo4-cache:/cache
+    deploy:
+      <<: *deploy
+      placement:
+        constraints: [node.labels.nexo.node == 4]
+
+  # Load balancer of S3 and console (the configuration of compose.cluster.yml:
+  # Host preserved, no body limit, no buffering, retry on another node).
+  lb:
+    image: nginx:1.27-alpine
+    configs:
+      - source: nginx_conf
+        target: /etc/nginx/nginx.conf
+    ports:
+      - target: 9000
+        published: 9000
+        protocol: tcp
+        mode: ingress
+      - target: 9001
+        published: 9001
+        protocol: tcp
+        mode: ingress
+    networks:
+      - nexo
+    deploy:
+      mode: replicated
+      replicas: 2
+      restart_policy:
+        condition: any
+      update_config:
+        parallelism: 1
+        order: start-first
+
+networks:
+  nexo:
+    driver: overlay
+    # Encrypt the internode traffic between the Swarm nodes (IPsec), unless
+    # Nexo itself runs with TLS (NEXO_CERTS_DIR).
+    driver_opts:
+      encrypted: "true"
+    ipam:
+      config:
+        - subnet: 10.231.0.0/24
+
+secrets:
+  nexo_root_user:
+    external: true
+  nexo_root_password:
+    external: true
+
+configs:
+  nginx_conf:
+    file: ../docker/nginx.conf
+
+volumes:
+  nexo1-data1: {}
+  nexo1-data2: {}
+  nexo1-cache: {}
+  nexo2-data1: {}
+  nexo2-data2: {}
+  nexo2-cache: {}
+  nexo3-data1: {}
+  nexo3-data2: {}
+  nexo3-cache: {}
+  nexo4-data1: {}
+  nexo4-data2: {}
+  nexo4-cache: {}

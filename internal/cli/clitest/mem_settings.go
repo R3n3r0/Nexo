@@ -2,7 +2,7 @@ package clitest
 
 import (
 	"context"
-	"crypto/sha1" //nolint:gosec // the SHA1 checksum of S3, not a security primitive.
+	"crypto/sha1" // #nosec G505 -- the SHA1 checksum algorithm of S3, an integrity check only
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
@@ -69,7 +69,7 @@ func memChecksum(algo domain.ChecksumAlgorithm, data []byte) (domain.Checksum, e
 		binary.BigEndian.PutUint64(b[:], sum)
 		return domain.Checksum{Algorithm: algo, Value: base64.StdEncoding.EncodeToString(b[:]), Type: domain.ChecksumTypeFullObject}, nil
 	case domain.ChecksumSHA1:
-		h = sha1.New() //nolint:gosec // the SHA1 checksum of S3.
+		h = sha1.New() // #nosec G401 -- the S3 SHA1 checksum algorithm, an integrity check only
 	case domain.ChecksumSHA256:
 		h = sha256.New()
 	default:

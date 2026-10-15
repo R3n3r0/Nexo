@@ -64,6 +64,8 @@ tags:
   - name: distributions
   - name: certificates
   - name: cache
+  - name: diagnostics
+  - name: monitoring
 
 paths:
   /auth/login:
@@ -245,7 +247,7 @@ paths:
       tags: [server]
       operationId: restartService
       summary: Restart the server
-      description: The response is sent before the process restarts (SIGHUP to the server process).
+      description: The response is sent before the process restarts (in place, within the process; SIGHUP only reloads the TLS certificates).
       x-nexo-actions: ["admin:ServiceRestart"]
       responses:
         "202":
@@ -271,21 +273,132 @@ paths:
         default: { $ref: "#/components/responses/Problem" }
   /trace:
     get:
-      tags: [server]
+      tags: [monitoring]
       operationId: serverTrace
-      summary: Live trace of the requests (SSE, not implemented yet)
+      summary: Live trace of the requests (Server-Sent Events)
+      description: |
+        Streams one event per S3, Admin API, website or internode request served by
+        the deployment, the nodes of a cluster included (`node` restricts them),
+        as `text/event-stream`: `event: trace` with a TraceEvent, `event: dropped`
+        with a StreamDropped when the client did not keep up (the server never
+        waits for a slow stream: it drops events and counts them), a `: heartbeat`
+        comment while idle. The query strings are redacted (signatures,
+        credentials, tokens); headers and bodies are never part of an event.
+        Without `type`, every type but `rpc`.
       x-nexo-actions: ["admin:ServerTrace"]
+      parameters:
+        - { name: node, in: query, description: "Nodes to trace (comma-separated or repeated)", schema: { type: string } }
+        - { name: type, in: query, description: "Request types: s3, admin, web, rpc (comma-separated)", schema: { type: string } }
+        - { name: api, in: query, description: "API names (PutObject, GET /buckets...), comma-separated", schema: { type: string } }
+        - { name: bucket, in: query, description: "Buckets (comma-separated)", schema: { type: string } }
+        - { name: status, in: query, description: "Status codes (404) or classes (5xx), comma-separated", schema: { type: string } }
+        - { name: errors, in: query, description: "Only the failed requests (status >= 400)", schema: { type: boolean } }
+        - { name: threshold, in: query, description: "Only the requests slower than this duration (500ms, 2s)", schema: { type: string } }
       responses:
-        "501": { $ref: "#/components/responses/Problem" }
+        "200":
+          description: The stream of the events.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "400": { $ref: "#/components/responses/Problem" }
         default: { $ref: "#/components/responses/Problem" }
   /logs:
     get:
-      tags: [server]
+      tags: [monitoring]
       operationId: serverLogs
-      summary: Live server logs (SSE, not implemented yet)
+      summary: Live server logs (Server-Sent Events)
+      description: |
+        Streams the log entries of the deployment, the nodes of a cluster included,
+        as `text/event-stream`: `event: log` with a LogEntry, `event: dropped` with
+        a StreamDropped, a `: heartbeat` comment while idle. `last` first replays
+        up to that many recent entries of each node (at most 10000). Secrets
+        (credentials, signatures, tokens, passwords) are redacted from the entries.
       x-nexo-actions: ["admin:ConsoleLog"]
+      parameters:
+        - { name: node, in: query, description: "Nodes (comma-separated or repeated)", schema: { type: string } }
+        - { name: level, in: query, description: "Minimum level", schema: { type: string, enum: [debug, info, warn, error, DEBUG, INFO, WARN, ERROR] } }
+        - { name: last, in: query, description: "Recent entries to replay first", schema: { type: integer, minimum: 0, maximum: 10000 } }
       responses:
-        "501": { $ref: "#/components/responses/Problem" }
+        "200":
+          description: The stream of the entries.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "400": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /audit:
+    get:
+      tags: [monitoring]
+      operationId: searchAudit
+      summary: Search the recent audit log
+      description: |
+        Searches the audit records kept in memory by every node (the most recent
+        ones; the complete log goes to the JSON log and to the audit targets
+        audit_webhook and audit_kafka), newest first. An audit record is produced
+        for every authenticated S3 and Admin API request.
+      x-nexo-actions: ["admin:ConsoleLog"]
+      parameters:
+        - { name: node, in: query, description: "Nodes (comma-separated or repeated)", schema: { type: string } }
+        - { name: api, in: query, description: "API name (PutObject, GET /buckets...)", schema: { type: string } }
+        - { name: bucket, in: query, schema: { type: string } }
+        - { name: user, in: query, description: "Access key or parent user", schema: { type: string } }
+        - { name: type, in: query, description: "Request type", schema: { type: string, enum: [s3, admin] } }
+        - { name: status, in: query, description: "Status codes (404) or classes (5xx), comma-separated", schema: { type: string } }
+        - { name: errors, in: query, description: "Only the failed requests (status >= 400)", schema: { type: boolean } }
+        - { name: since, in: query, schema: { type: string, format: date-time } }
+        - { name: until, in: query, schema: { type: string, format: date-time } }
+        - { name: requestId, in: query, schema: { type: string } }
+        - { name: limit, in: query, description: "At most this many records (default 100, at most 1000)", schema: { type: integer, minimum: 0, maximum: 1000 } }
+      responses:
+        "200":
+          description: The matching audit records.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuditList" }
+        "400": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /metrics:
+    get:
+      tags: [monitoring]
+      operationId: listMetrics
+      summary: The series of the metrics of the console
+      description: |
+        The series kept by every node in memory (one point every 10 seconds for
+        24 hours) for the charts of the console. Allowed with `admin:Prometheus`
+        or `admin:ServerInfo` (either one).
+      x-nexo-actions: ["admin:Prometheus", "admin:ServerInfo"]
+      responses:
+        "200":
+          description: The series.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MetricList" }
+        default: { $ref: "#/components/responses/Problem" }
+  /metrics/query:
+    get:
+      tags: [monitoring]
+      operationId: queryMetric
+      summary: The points of a series, per node and for the cluster
+      description: |
+        The points of `metric` from `end - range` to `end` every `step`, for every
+        node (or those of `node`) and aggregated for the cluster; a point without
+        sample (node down, older than the buffer) is null. Allowed with
+        `admin:Prometheus` or `admin:ServerInfo` (either one).
+      x-nexo-actions: ["admin:Prometheus", "admin:ServerInfo"]
+      parameters:
+        - { name: metric, in: query, required: true, description: "Name of the series (GET /metrics)", schema: { type: string } }
+        - { name: range, in: query, description: "Span of the points (default 1h, at most 24h)", schema: { type: string } }
+        - { name: step, in: query, description: "Distance between two points (multiple of 10s; default keeps at most 360 points)", schema: { type: string } }
+        - { name: end, in: query, description: "End of the range (default now)", schema: { type: string, format: date-time } }
+        - { name: node, in: query, description: "Nodes (comma-separated or repeated)", schema: { type: string } }
+      responses:
+        "200":
+          description: The points.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MetricSeries" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "404": { $ref: "#/components/responses/Problem" }
         default: { $ref: "#/components/responses/Problem" }
 
   /buckets:
@@ -3304,6 +3417,71 @@ paths:
               schema: { $ref: "#/components/schemas/CacheInvalidation" }
         "404": { $ref: "#/components/responses/Problem" }
         default: { $ref: "#/components/responses/Problem" }
+  /profile:
+    get:
+      tags: [diagnostics]
+      operationId: getProfile
+      summary: Runtime profile of the node (pprof)
+      description: |
+        Collects a profile of the node that serves the request, in the pprof format
+        (gzipped protocol buffer, `go tool pprof`): `cpu`, `mutex` and `block` sample
+        for `seconds` (1-120, default 10), `heap` and `goroutine` are snapshots. One
+        profile at a time per node (409 `conflict`). Allowed to root and to the
+        identities with `admin:Profiling` (the `diagnostics` policy).
+      x-nexo-actions: ["admin:Profiling"]
+      parameters:
+        - name: type
+          in: query
+          schema: { type: string, enum: [cpu, heap, goroutine, mutex, block], default: cpu }
+        - name: seconds
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 120 }
+      responses:
+        "200":
+          description: The profile, as an attachment named nexo-<node>-<type>.pb.gz.
+          headers:
+            X-Nexo-Node: { schema: { type: string }, description: The node that collected the profile. }
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "400": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /speedtest/{kind}:
+    parameters:
+      - name: kind
+        in: path
+        required: true
+        schema: { type: string, enum: [drive, object, net] }
+    post:
+      tags: [diagnostics]
+      operationId: runSpeedtest
+      summary: Speed test of the drives, of the object layer or of the network
+      description: |
+        Runs on the node that serves the request and removes what it wrote: `drive`
+        writes then reads files on every local drive; `object` uploads then downloads
+        objects through the object layer in a temporary bucket (`nexo-speedtest-*`);
+        `net` uploads files to a drive of every other node of a cluster over the
+        internode RPC then reads one back (501 out of a cluster). Each phase lasts
+        `durationSeconds` (at most 60) and writes at most 1 GiB per target; objects
+        and files are at most 64 MiB, the concurrency at most 64. One test at a time
+        per node (409 `conflict`).
+      x-nexo-actions: ["admin:Speedtest"]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SpeedtestRequest" }
+      responses:
+        "200":
+          description: The measures of every target.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SpeedtestResult" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "409": { $ref: "#/components/responses/Problem" }
+        "501": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
 
 components:
   securitySchemes:
@@ -3714,6 +3892,43 @@ components:
           type: array
           items: { $ref: "#/components/schemas/NodeInfo" }
         kms: { $ref: "#/components/schemas/KmsInfo" }
+        tls: { $ref: "#/components/schemas/TlsInfo" }
+        telemetry: { $ref: "#/components/schemas/TelemetryInfo" }
+    TlsInfo:
+      type: object
+      description: >-
+        TLS of the listeners of the node that answers (docs/07 §7.3): the
+        certificates of its certificates directory, reloaded without restart.
+      required: [enabled, internodeVerify, certificates]
+      properties:
+        enabled: { type: boolean, description: "False when the listeners serve plain HTTP." }
+        minVersion: { type: string, enum: ["1.2", "1.3"], description: "Oldest TLS version accepted." }
+        internodeVerify: { type: boolean, description: "Mutual TLS between the nodes." }
+        certificates:
+          type: array
+          description: The default certificate first, then those selected by SNI; never their keys.
+          items: { $ref: "#/components/schemas/TlsCertificate" }
+    TlsCertificate:
+      type: object
+      required: [name, subject, issuer, notBefore, notAfter, fingerprint]
+      properties:
+        name: { type: string, description: "Empty for the default certificate, the sub-directory of one selected by SNI." }
+        domains: { type: array, items: { type: string } }
+        ips: { type: array, items: { type: string } }
+        subject: { type: string }
+        issuer: { type: string }
+        notBefore: { type: string, format: date-time }
+        notAfter: { type: string, format: date-time }
+        fingerprint: { type: string, description: "SHA-256 of the leaf certificate." }
+    TelemetryInfo:
+      type: object
+      description: Distributed tracing (OpenTelemetry) of the node that answers (docs/07 §7.4).
+      required: [enabled, sampleRatio]
+      properties:
+        enabled: { type: boolean, description: "The spans are exported to an OTLP collector." }
+        endpoint: { type: string, description: "URL of the collector, without user info nor query." }
+        protocol: { type: string, enum: [http/protobuf, grpc] }
+        sampleRatio: { type: number, minimum: 0, maximum: 1 }
     BucketUsage:
       type: object
       required: [size, objectsCount, versionsCount, deleteMarkers]
@@ -3852,6 +4067,126 @@ components:
         action:
           type: string
           enum: [restart, stop]
+
+    TraceEvent:
+      type: object
+      description: A request of the live trace (SSE event `trace`).
+      required: [time, node, type, method, path, status, durationMs, inputBytes, outputBytes]
+      properties:
+        time: { type: string, format: date-time }
+        node: { type: string }
+        type: { type: string, enum: [s3, admin, web, rpc] }
+        api: { type: string }
+        method: { type: string }
+        path: { type: string }
+        query: { type: string, description: "The query string, signatures, credentials and tokens redacted." }
+        status: { type: integer }
+        durationMs: { type: number }
+        inputBytes: { type: integer, format: int64 }
+        outputBytes: { type: integer, format: int64 }
+        requestId: { type: string }
+        clientIp: { type: string }
+        user: { type: string }
+        bucket: { type: string }
+        error: { type: string }
+    LogEntry:
+      type: object
+      description: A log entry (SSE event `log`).
+      required: [time, node, level, message]
+      properties:
+        time: { type: string, format: date-time }
+        node: { type: string }
+        level: { type: string, enum: [DEBUG, INFO, WARN, ERROR] }
+        message: { type: string }
+        attrs:
+          type: object
+          additionalProperties: { type: string }
+    StreamDropped:
+      type: object
+      description: The events a stream lost so far (SSE event `dropped`).
+      required: [dropped]
+      properties:
+        dropped: { type: integer, format: int64 }
+    AuditEntry:
+      type: object
+      required: [time, api, statusCode, durationMs, rx, tx]
+      properties:
+        time: { type: string, format: date-time }
+        node: { type: string }
+        type: { type: string, enum: [s3, admin] }
+        requestId: { type: string }
+        api: { type: string }
+        method: { type: string }
+        path: { type: string }
+        bucket: { type: string }
+        object: { type: string }
+        statusCode: { type: integer }
+        durationMs: { type: number }
+        rx: { type: integer, format: int64, description: "Bytes received." }
+        tx: { type: integer, format: int64, description: "Bytes sent." }
+        remoteHost: { type: string }
+        userAgent: { type: string }
+        accessKey: { type: string }
+        parentUser: { type: string }
+        query:
+          type: object
+          description: The query parameters, the sensitive ones redacted.
+          additionalProperties: { type: string }
+        error: { type: string }
+    AuditList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/AuditEntry" }
+    MetricInfo:
+      type: object
+      required: [name, description, unit, aggregation]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        unit: { type: string }
+        aggregation:
+          type: string
+          description: How the nodes combine into the cluster series.
+          enum: [sum, avg, max]
+    MetricList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/MetricInfo" }
+    MetricPoint:
+      type: object
+      required: [t, v]
+      properties:
+        t: { type: integer, format: int64, description: "Unix time in seconds." }
+        v: { type: number, nullable: true, description: "The value, null without sample." }
+    MetricNodeSeries:
+      type: object
+      required: [node, points]
+      properties:
+        node: { type: string }
+        points:
+          type: array
+          items: { $ref: "#/components/schemas/MetricPoint" }
+        error: { type: string, description: "Why the points of the node could not be read." }
+    MetricSeries:
+      type: object
+      required: [metric, start, end, stepSeconds, nodes, cluster]
+      properties:
+        metric: { $ref: "#/components/schemas/MetricInfo" }
+        start: { type: string, format: date-time }
+        end: { type: string, format: date-time }
+        stepSeconds: { type: integer, format: int64 }
+        nodes:
+          type: array
+          items: { $ref: "#/components/schemas/MetricNodeSeries" }
+        cluster:
+          type: array
+          items: { $ref: "#/components/schemas/MetricPoint" }
 
     Bucket:
       type: object
@@ -6180,3 +6515,40 @@ components:
             nodes:
               type: array
               items: { $ref: "#/components/schemas/CacheNodeStats" }
+    SpeedtestRequest:
+      type: object
+      properties:
+        size: { type: integer, minimum: 1, maximum: 67108864, description: "Size of each file or object (default 4 MiB)." }
+        durationSeconds: { type: number, minimum: 0.1, maximum: 60, description: "Duration of each phase (default 5)." }
+        concurrency: { type: integer, minimum: 1, maximum: 64, description: "Concurrency of the object test and of the reads of the net test (default 8)." }
+    SpeedtestMeasure:
+      type: object
+      required: [bytes, operations, elapsedSeconds, bytesPerSecond, operationsPerSecond, latencyP50Ms, latencyP99Ms]
+      properties:
+        bytes: { type: integer }
+        operations: { type: integer }
+        elapsedSeconds: { type: number }
+        bytesPerSecond: { type: number }
+        operationsPerSecond: { type: number }
+        latencyP50Ms: { type: number }
+        latencyP99Ms: { type: number }
+    SpeedtestTarget:
+      type: object
+      required: [target, write, read]
+      properties:
+        target: { type: string, description: "A drive, a peer node, or objects." }
+        write: { $ref: "#/components/schemas/SpeedtestMeasure" }
+        read: { $ref: "#/components/schemas/SpeedtestMeasure" }
+        error: { type: string }
+    SpeedtestResult:
+      type: object
+      required: [kind, node, size, durationSeconds, concurrency, targets]
+      properties:
+        kind: { type: string, enum: [drive, object, net] }
+        node: { type: string }
+        size: { type: integer }
+        durationSeconds: { type: number }
+        concurrency: { type: integer }
+        targets:
+          type: array
+          items: { $ref: "#/components/schemas/SpeedtestTarget" }

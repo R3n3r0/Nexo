@@ -37,7 +37,7 @@ const (
 	// configuration (lifecycle, notifications, CORS) in ruleErrors.
 	codeInvalidConfiguration = "invalid_configuration"
 	codeNotImplemented       = "not_implemented"
-	codeInvalidCSRFToken     = "invalid_csrf_token"
+	codeInvalidCSRFToken     = "invalid_csrf_token" // #nosec G101 -- an error code, not a credential
 )
 
 // caller returns the authenticated identity, or the anonymous identity

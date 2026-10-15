@@ -41,6 +41,10 @@ func TestInfoRoutes(t *testing.T) {
 		Version: "v-test", Mode: domain.ModeSNSD, Region: region, Uptime: 90 * time.Second,
 		Pools: []domain.PoolInfo{{Index: 0, Sets: 1, DrivesPerSet: 1}},
 		Nodes: []domain.NodeInfo{{Endpoint: "local", State: domain.StateOnline, Disks: []domain.DiskInfo{{Path: "/data", State: domain.StateOnline}}}},
+		TLS: &domain.TLSInfo{Enabled: true, MinVersion: "1.2", Certificates: []domain.TLSCertificate{
+			{Domains: []string{"nexo.test"}, Subject: "CN=nexo.test", Issuer: "CN=ca", NotAfter: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), Fingerprint: "ab"},
+		}},
+		Telemetry: &domain.TelemetryInfo{Enabled: true, Endpoint: "http://otel:4318", Protocol: "http/protobuf", SampleRatio: 1},
 	}, nil)
 	rec := c.do(http.MethodGet, "/info", nil)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -48,6 +52,10 @@ func TestInfoRoutes(t *testing.T) {
 	assert.Equal(t, "snsd", info.Mode)
 	assert.Equal(t, int64(90), info.UptimeSec)
 	assert.Contains(t, rec.Body.String(), `"drivesPerSet":1`, "camelCase wire format")
+	require.NotNil(t, info.TLS)
+	assert.Equal(t, []admin.TLSCertificateResponse{{Domains: []string{"nexo.test"}, Subject: "CN=nexo.test", Issuer: "CN=ca",
+		NotAfter: time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), Fingerprint: "ab"}}, info.TLS.Certificates)
+	assert.Equal(t, &admin.TelemetryInfoResponse{Enabled: true, Endpoint: "http://otel:4318", Protocol: "http/protobuf", SampleRatio: 1}, info.Telemetry)
 
 	f.adm.EXPECT().DataUsage(mock.Anything).Return(&adminsvc.DataUsage{BucketsCount: 1, Buckets: map[string]adminsvc.BucketUsage{"a": {Size: 3}}}, nil)
 	rec = c.do(http.MethodGet, "/usage", nil)
@@ -103,8 +111,6 @@ func TestInfoRoutes(t *testing.T) {
 	assert.Equal(t, http.StatusNotImplemented, rec.Code)
 	rec = c.do(http.MethodPost, "/service/reboot", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
-	rec = c.do(http.MethodGet, "/trace", nil)
-	assert.Equal(t, http.StatusNotImplemented, rec.Code)
 }
 
 func TestMyPermissions(t *testing.T) {

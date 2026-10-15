@@ -1,7 +1,7 @@
 package domain
 
 import (
-	"crypto/md5"
+	"crypto/md5" // #nosec G501 -- the SSE-C key MD5 header required by S3
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -103,7 +103,7 @@ func NewSSECustomerKey(key []byte, declaredMD5 string) (SSECustomerKey, error) {
 		return SSECustomerKey{}, NewS3Error(ErrInvalidArgument, "InvalidArgument",
 			"The secret key was invalid for the specified algorithm.")
 	}
-	sum := md5.Sum(key)
+	sum := md5.Sum(key) // #nosec G401 -- the SSE-C key MD5 header required by S3, not a security primitive
 	computed := base64.StdEncoding.EncodeToString(sum[:])
 	if declaredMD5 != "" && declaredMD5 != computed {
 		return SSECustomerKey{}, NewS3Error(ErrInvalidArgument, "InvalidArgument",

@@ -1,5 +1,12 @@
-# Example alerting rules for Nexo (docs/07 §7.4). Metric names follow the
-# nexo_* namespace; adjust thresholds to your deployment.
+# Alerting rules for Nexo (docs/07 §7.4). The node families (nexo_drive_*,
+# nexo_s3_*, nexo_mrf_*, nexo_events_*, nexo_rpc_*, nexo_lock_*,
+# nexo_kms_*) come from the job nexo-node (/nexo/metrics/v1/node, one
+# target per node); the nexo_cluster_* families from the job nexo-cluster
+# (/nexo/metrics/v1/cluster, one target for the deployment). The rules
+# select the job so that the node families, also exposed by the cluster
+# endpoint with a "server" label, are not counted twice. Adjust the
+# thresholds to your deployment; deploy/docker/observability/config_test.go
+# checks that every metric named here exists.
 groups:
   - name: nexo.availability
     rules:
@@ -13,64 +20,165 @@ groups:
           description: "Prometheus has not been able to scrape {{ $labels.instance }} for 1 minute."
 
       - alert: NexoDriveOffline
-        expr: nexo_drive_online == 0
+        expr: nexo_drive_online{job="nexo-node"} == 0
         for: 2m
         labels:
           severity: warning
         annotations:
           summary: "Drive {{ $labels.drive }} on {{ $labels.instance }} is offline"
-          description: "An offline drive reduces the redundancy of its erasure set; healing starts when it comes back."
+          description: "An offline drive reduces the redundancy of its erasure set (pool {{ $labels.pool }}, set {{ $labels.set }}); healing starts when it comes back."
 
       - alert: NexoClusterNodesOffline
-        expr: nexo_cluster_nodes_offline > 0
+        expr: nexo_cluster_nodes_offline{job="nexo-cluster"} > 0
         for: 2m
         labels:
           severity: warning
         annotations:
           summary: "{{ $value }} Nexo node(s) offline"
+          description: "Nodes of the deployment cannot be reached by the node answering the scrape."
+
+      - alert: NexoErasureSetDegraded
+        expr: nexo_cluster_sets_degraded{job="nexo-cluster"} > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} erasure set(s) of pool {{ $labels.pool }} are degraded"
+          description: "Drives are missing but the sets keep their write quorum: replace or bring back the drives before more fail."
 
       - alert: NexoQuorumAtRisk
-        # Half of the nodes offline means writes are refused on a 4-node cluster.
-        expr: nexo_cluster_nodes_offline >= nexo_cluster_nodes_online
+        # A read-only set lost its write quorum (writes refused), an
+        # unavailable one its read quorum (reads refused too).
+        expr: |
+          nexo_cluster_sets_read_only{job="nexo-cluster"}
+            + nexo_cluster_sets_unavailable{job="nexo-cluster"} > 0
         for: 1m
         labels:
           severity: critical
         annotations:
-          summary: "Nexo write quorum at risk"
-          description: "Offline nodes: {{ $value }}. Writes are refused until quorum is restored."
+          summary: "Erasure sets of pool {{ $labels.pool }} lost their write quorum"
+          description: "{{ $value }} set(s) refuse writes. Bring the offline nodes or drives back."
+
+      - alert: NexoKMSOffline
+        expr: nexo_kms_online{job="nexo-node"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The KMS does not answer {{ $labels.instance }}"
+          description: "Encrypted objects (SSE-S3, SSE-KMS) can be neither written nor read."
 
   - name: nexo.capacity
     rules:
       - alert: NexoCapacityHigh
         expr: |
-          sum(nexo_drive_used_bytes) / sum(nexo_drive_total_bytes) > 0.85
+          1 - nexo_cluster_capacity_usable_free_bytes{job="nexo-cluster"}
+            / nexo_cluster_capacity_usable_total_bytes{job="nexo-cluster"} > 0.85
         for: 10m
         labels:
           severity: warning
         annotations:
           summary: "Nexo capacity above 85%"
-          description: "Used {{ $value | humanizePercentage }} of the raw capacity. Plan a new pool."
+          description: "Used {{ $value | humanizePercentage }} of the usable capacity. Plan a new pool."
+
+      - alert: NexoDriveAlmostFull
+        expr: |
+          nexo_drive_free_bytes{job="nexo-node"} / nexo_drive_total_bytes{job="nexo-node"} < 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Drive {{ $labels.drive }} on {{ $labels.instance }} has less than 5% free space"
+
+      - alert: NexoDriveInodesLow
+        expr: |
+          nexo_drive_free_inodes{job="nexo-node"}
+            / (nexo_drive_used_inodes{job="nexo-node"} + nexo_drive_free_inodes{job="nexo-node"}) < 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Drive {{ $labels.drive }} on {{ $labels.instance }} has less than 5% free inodes"
 
   - name: nexo.requests
     rules:
       - alert: NexoHigh5xxRate
         expr: |
-          sum(rate(nexo_s3_requests_total{status=~"5.."}[5m]))
-            / sum(rate(nexo_s3_requests_total[5m])) > 0.05
+          sum(rate(nexo_s3_requests_5xx_errors_total{job="nexo-node"}[5m]))
+            / sum(rate(nexo_s3_requests_total{job="nexo-node"}[5m])) > 0.05
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "More than 5% of S3 requests fail with 5xx"
+          summary: "More than 5% of the S3 requests fail with 5xx"
+
+      - alert: NexoSlowRequests
+        expr: |
+          histogram_quantile(0.99, sum by (le) (rate(nexo_s3_request_duration_seconds_bucket{job="nexo-node"}[5m]))) > 5
+        for: 15m
+        labels:
+          severity: info
+        annotations:
+          summary: "The 99th percentile of the S3 latency is above 5s"
+
+      - alert: NexoInternodeErrors
+        expr: |
+          sum by (instance, peer) (rate(nexo_rpc_errors_total{job="nexo-node"}[5m]))
+            / sum by (instance, peer) (rate(nexo_rpc_requests_total{job="nexo-node"}[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 10% of the calls from {{ $labels.instance }} to {{ $labels.peer }} fail"
+
+      - alert: NexoLockTimeouts
+        expr: sum by (instance) (rate(nexo_lock_acquire_timeouts_total{job="nexo-node"}[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Lock acquisitions time out on {{ $labels.instance }}"
+          description: "Contended objects or slow peers: the requests waiting on the locks fail with 503."
 
   - name: nexo.healing
     rules:
       - alert: NexoHealingStalled
+        # Objects wait in the background healing queue and none was healed
+        # in 30 minutes.
         expr: |
-          nexo_heal_objects_pending > 0
-            and rate(nexo_heal_objects_healed_total[30m]) == 0
+          nexo_mrf_queue_pending{job="nexo-node"} > 0
+            and on (instance) increase(nexo_mrf_queue_healed_total{job="nexo-node"}[30m]) == 0
         for: 30m
         labels:
           severity: warning
         annotations:
-          summary: "Nexo healing has pending objects but no progress in 30 minutes"
+          summary: "The healing queue of {{ $labels.instance }} makes no progress"
+          description: "{{ $value }} object(s) wait for healing."
+
+      - alert: NexoDriveHealingStalled
+        expr: |
+          time() - nexo_heal_drive_last_update_timestamp_seconds{job="nexo-node"} > 1800
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The healing of drive {{ $labels.drive }} on {{ $labels.instance }} made no progress in 30 minutes"
+
+  - name: nexo.events
+    rules:
+      - alert: NexoEventQueueBacklog
+        expr: nexo_events_pending{job="nexo-node"} > 1000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} bucket notifications wait for target {{ $labels.target }} on {{ $labels.instance }}"
+          description: "The target is slow or down; the queue is persistent up to its queue_limit, then events are dropped."
+
+      - alert: NexoEventTargetDown
+        expr: nexo_events_target_online{job="nexo-node"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Notification target {{ $labels.target }} does not accept events"

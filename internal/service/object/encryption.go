@@ -60,9 +60,9 @@ const (
 // part n of its upload with salt (nil for the parts without salt).
 func encodePartIndex(n int, salt []byte) []byte {
 	if salt == nil {
-		return binary.AppendUvarint([]byte{partIndexNumber}, uint64(n))
+		return binary.AppendUvarint([]byte{partIndexNumber}, uint64(n)) // #nosec G115 -- a part number, 1 to 10000
 	}
-	out := binary.AppendUvarint([]byte{partIndexSalted}, uint64(n))
+	out := binary.AppendUvarint([]byte{partIndexSalted}, uint64(n)) // #nosec G115 -- a part number, 1 to 10000
 	return append(out, salt...)
 }
 

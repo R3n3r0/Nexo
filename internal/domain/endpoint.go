@@ -40,6 +40,12 @@ func ParseEndpoint(raw string) (Endpoint, error) {
 		if clean == string(filepath.Separator) || clean == "." {
 			return Endpoint{}, fmt.Errorf("%w: endpoint path %q is not usable as a drive", ErrInvalidArgument, raw)
 		}
+		// The spaces around an argument are trimmed: a path that starts
+		// or ends with spaces once cleaned ("d /" is the directory "d ")
+		// would name another directory when parsed again.
+		if clean != strings.TrimSpace(clean) {
+			return Endpoint{}, fmt.Errorf("%w: endpoint path %q must not start or end with spaces", ErrInvalidArgument, raw)
+		}
 		return Endpoint{Path: clean, IsLocal: true}, nil
 	}
 	u, err := url.Parse(raw)

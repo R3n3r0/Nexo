@@ -1,0 +1,45 @@
+{{- if eq .Values.mode "standalone" }}
+{{- $root := . }}
+{{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
+{{- range $i := until (int .Values.standalone.drives) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "nexo.fullname" $root }}-{{ include "nexo.driveVolume" (dict "root" $root "i" (add1 $i)) }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- include "nexo.labels" $root | nindent 4 }}
+  annotations:
+    # The drives outlive the release: helm uninstall keeps the data.
+    helm.sh/resource-policy: keep
+    {{- with $root.Values.persistence.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes:
+    {{- toYaml $root.Values.persistence.accessModes | nindent 4 }}
+  {{- include "nexo.storageClass" $root.Values.persistence.storageClass | nindent 2 }}
+  resources:
+    requests:
+      storage: {{ $root.Values.persistence.size | quote }}
+{{- end }}
+{{- end }}
+{{- if and .Values.cache.enabled (eq .Values.cache.volume.type "pvc") }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "nexo.fullname" . }}-cache
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nexo.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- include "nexo.storageClass" .Values.cache.volume.storageClass | nindent 2 }}
+  resources:
+    requests:
+      storage: {{ .Values.cache.volume.size | quote }}
+{{- end }}
+{{- end }}

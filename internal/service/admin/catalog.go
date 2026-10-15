@@ -51,6 +51,10 @@ func catalog() []catalogEntry {
 		policy.ActionAdminKMSKeyStatus, policy.ActionAdminKMSCreateKey,
 		policy.ActionAdminManageDistributions, policy.ActionAdminManageCertificates, policy.ActionAdminSignDistributionURL,
 		policy.ActionAdminManageCache, policy.ActionAdminInvalidateCache,
+		// The metrics of the console (GET /metrics/query) need one of
+		// admin:Prometheus or admin:ServerInfo.
+		policy.ActionAdminPrometheus,
+		policy.ActionAdminProfiling, policy.ActionAdminSpeedtest,
 		policy.ActionListAllMyBuckets, policy.ActionCreateBucket,
 	)...)
 	out = append(out, scoped(scopeBucket,

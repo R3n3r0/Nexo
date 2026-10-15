@@ -56,5 +56,5 @@ func (h *challengeRoutes) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write([]byte(keyAuth))
+	_, _ = w.Write([]byte(keyAuth)) // #nosec G705 -- the ACME key authorization of a known token, served as application/octet-stream
 }

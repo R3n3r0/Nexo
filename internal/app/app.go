@@ -7,13 +7,15 @@ package app
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,6 +42,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/ilm"
 	"github.com/r3n3r0/nexo/internal/service/kms"
 	"github.com/r3n3r0/nexo/internal/service/lock"
+	"github.com/r3n3r0/nexo/internal/service/logs"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
@@ -47,6 +50,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/share"
 	"github.com/r3n3r0/nexo/internal/service/storage"
 	"github.com/r3n3r0/nexo/internal/service/topology"
+	"github.com/r3n3r0/nexo/internal/service/trace"
 	adminhttp "github.com/r3n3r0/nexo/internal/transport/http/admin"
 	"github.com/r3n3r0/nexo/internal/transport/http/dist"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
@@ -68,6 +72,11 @@ type options struct {
 	noFsync  bool
 	// dial opens the internode connections (nil: net.Dialer).
 	dial func(ctx context.Context, network, addr string) (net.Conn, error)
+	// keystoreOpts tune the reloads of the certificates directory
+	// (internal tests).
+	keystoreOpts []certs.KeystoreOption
+	// logOutput is the output of the logs the server owns (WithLogOutput).
+	logOutput io.Writer
 }
 
 // WithLogger sets the logger (default slog.Default()).
@@ -156,6 +165,9 @@ type App struct {
 	// running is set while Run drives the application: only then may the
 	// Admin API stop or restart the process (processActions).
 	running *atomic.Bool
+	// restarts carries the restart requests of the Admin API (POST
+	// /service/restart) to Run.
+	restarts chan struct{}
 
 	mu sync.RWMutex
 	// svc are the composed services: set by Build in the single-node
@@ -194,8 +206,15 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (app *App, er
 	if err != nil {
 		return nil, fmt.Errorf("app: parse endpoints: %w", err)
 	}
+	// The log stream tees the process logger from here on, and the
+	// distributed tracing is configured (observability.go).
+	obs, logger, err := newObservability(ctx, cfg, layout, o)
+	if err != nil {
+		return nil, fmt.Errorf("app: %w", err)
+	}
 
-	f, err := newFoundation(foundationDeps{cfg: cfg, layout: layout, topo: topo, clock: o.clock, logger: logger, noFsync: o.noFsync, dial: o.dial})
+	f, err := newFoundation(foundationDeps{cfg: cfg, layout: layout, topo: topo, clock: o.clock, logger: logger, noFsync: o.noFsync, dial: o.dial,
+		keystoreOpts: o.keystoreOpts, obs: obs})
 	if err != nil {
 		return nil, fmt.Errorf("app: %w", err)
 	}
@@ -206,12 +225,21 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (app *App, er
 	}()
 	a := &App{
 		cfg: cfg, opts: opts, o: o, layout: layout, logger: logger, stopWait: o.stopWait, f: f,
-		running: &atomic.Bool{},
+		running: &atomic.Bool{}, restarts: make(chan struct{}, 1),
 	}
 
 	// Components stop in reverse order: the drives are released last.
 	group := lifecycle.NewGroup(lifecycle.WithLogger(logger), lifecycle.WithStopTimeout(o.stopWait))
 	group.Add("drives", lifecycle.Funcs{OnStop: f.close})
+	// The spans are flushed once every component stopped; the ring
+	// buffer of the metrics samples while the node runs.
+	group.Add("telemetry", obs.telemetry)
+	group.Add("metrics-history", obs.history)
+	if f.keystore != nil {
+		// The certificates directory is watched while the listeners
+		// serve (started before them, stopped after them).
+		group.Add("tls", f.keystore)
+	}
 	// The leftovers of the writes a crashed peer coordinated stay in the
 	// temporary area of this node's drives until they age out (file times
 	// are wall-clock times: no injected clock).
@@ -226,13 +254,19 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (app *App, er
 		a.s3Gate = middleware.NewGate(middleware.GateDeps{}, middleware.WithS3Errors(), middleware.WithClosedReason(waiting))
 		a.consGate = middleware.NewGate(middleware.GateDeps{}, middleware.WithClosedReason(waiting))
 		a.s3Certs = &certificateHolder{}
-		s3Opts := serverOptions(cfg, cfg.Address, "s3")
+		s3Opts := serverOptions(cfg, f.keystore, cfg.Address, "s3")
 		if cfg.TLSEnabled() {
 			s3Opts = append(s3Opts, server.WithCertificates(a.s3Certs))
 		}
-		a.s3Srv = server.New(server.Deps{Middlewares: []middleware.Middleware{f.rpc, a.s3Gate}, Logger: logger}, s3Opts...)
+		// The internode calls are traced (live trace, spans) in front of
+		// the RPC server.
+		rpcObservers, err := f.rpcObservers(f.isRPC(cfg))
+		if err != nil {
+			return nil, fmt.Errorf("app: %w", err)
+		}
+		a.s3Srv = server.New(server.Deps{Middlewares: append(rpcObservers, f.rpc, a.s3Gate), Logger: logger}, s3Opts...)
 		a.consSrv = server.New(server.Deps{Middlewares: []middleware.Middleware{a.consGate}, Logger: logger},
-			serverOptions(cfg, cfg.ConsoleAddress, "console")...)
+			serverOptions(cfg, f.keystore, cfg.ConsoleAddress, "console")...)
 		group.Add("s3", a.s3Srv)
 		group.Add("console", a.consSrv)
 		group.Add("cluster", lifecycle.Funcs{OnStart: a.joinCluster, OnStop: a.leaveCluster})
@@ -277,7 +311,7 @@ func newTopology(cfg config.Static, logger *slog.Logger) topology.Service {
 func (a *App) composeDeps(deploymentID string) composeDeps {
 	return composeDeps{
 		cfg: a.cfg, f: a.f, deploymentID: deploymentID, clock: a.o.clock, logger: a.logger,
-		assets: a.o.assets, running: a.running,
+		assets: a.o.assets, running: a.running, restart: a.requestRestart,
 	}
 }
 
@@ -445,6 +479,10 @@ type middlewareDeps struct {
 	// dist routes the requests of the distributions around the S3
 	// authentication (nil: none).
 	dist *distStack
+	// tracer publishes the requests to the live trace, telemetry records
+	// their spans (observability.go).
+	tracer    trace.Service
+	telemetry trace.Telemetry
 }
 
 // s3Middlewares returns the middleware chain of the S3 listener, outermost
@@ -476,7 +514,16 @@ func s3Middlewares(d middlewareDeps) ([]middleware.Middleware, error) {
 	if err != nil {
 		return nil, err
 	}
-	auditing, err := middleware.NewAudit(middleware.AuditDeps{Auditor: d.auditor, Clock: d.clock})
+	auditing, err := middleware.NewAudit(middleware.AuditDeps{Auditor: d.auditor, Clock: d.clock}, middleware.WithAuditDomains(d.domains...))
+	if err != nil {
+		return nil, err
+	}
+	obs, err := observers(d, "s3", trace.TypeS3, nil)
+	if err != nil {
+		return nil, err
+	}
+	apiMetrics, err := middleware.NewAPIMetrics(middleware.APIMetricsDeps{Registry: d.registry, Clock: d.clock},
+		middleware.WithAPIMetricsDomains(d.domains...))
 	if err != nil {
 		return nil, err
 	}
@@ -484,13 +531,48 @@ func s3Middlewares(d middlewareDeps) ([]middleware.Middleware, error) {
 		middleware.NewRequestID(middleware.RequestIDDeps{IDs: d.ids}),
 		forwarded,
 		middleware.NewRecover(middleware.RecoverDeps{Logger: d.logger, OnError: middleware.S3ErrorWriter(d.codec)}),
+		// The span of the request, child of the trace context of the
+		// caller: the internode calls it makes are its children.
+		obs.tracing,
 		middleware.NewLogging(middleware.LoggingDeps{Logger: d.logger.With("server", "s3"), Clock: d.clock}, middleware.WithLogLevel(slog.LevelDebug)),
 		httpMetrics,
 		// CORS is applied by the S3 API itself (s3.APIDeps.Buckets and
 		// Settings): bucket CORS configurations, api.cors_allow_origin.
 		auditing,
+		// The S3 API metrics and the live trace see the operation the
+		// router names and the identity the authentication establishes.
+		apiMetrics,
+		obs.trace,
 		authn,
 	}, nil
+}
+
+// requestObservers are the middlewares of the distributed tracing and of
+// the live trace of a listener.
+type requestObservers struct {
+	tracing middleware.Middleware
+	trace   middleware.Middleware
+}
+
+// observers returns the request observers of a listener (server names it
+// in the spans, typ in the live trace); only, when set, selects the
+// requests they observe.
+func observers(d middlewareDeps, server string, typ trace.Type, only func(r *http.Request) bool) (requestObservers, error) {
+	var out requestObservers
+	var err error
+	if out.tracing, err = middleware.NewTracing(middleware.TracingDeps{Telemetry: d.telemetry},
+		middleware.WithTracingServer(server), middleware.WithTracingOnly(only), middleware.WithTracingDomains(d.domains...)); err != nil {
+		return out, err
+	}
+	out.trace, err = middleware.NewTrace(middleware.TraceDeps{Tracer: d.tracer, Clock: d.clock},
+		middleware.WithTraceType(typ), middleware.WithTraceOnly(only), middleware.WithTraceDomains(d.domains...))
+	return out, err
+}
+
+// consoleAPIRequest selects the requests of the Admin API among those of
+// the console listener (not the assets of the web UI).
+func consoleAPIRequest(r *http.Request) bool {
+	return strings.HasPrefix(r.URL.Path, adminhttp.Prefix+"/")
 }
 
 // consoleMiddlewares returns the middleware chain of the console listener;
@@ -507,16 +589,32 @@ func consoleMiddlewares(d middlewareDeps) ([]middleware.Middleware, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The requests of the Admin API are audited and traced, not the
+	// assets of the web UI.
+	auditing, err := middleware.NewAudit(middleware.AuditDeps{Auditor: d.auditor, Clock: d.clock},
+		middleware.WithAuditType(middleware.AuditTypeAdmin), middleware.WithAuditOnly(consoleAPIRequest))
+	if err != nil {
+		return nil, err
+	}
+	obs, err := observers(d, "console", trace.TypeAdmin, consoleAPIRequest)
+	if err != nil {
+		return nil, err
+	}
 	return []middleware.Middleware{
 		middleware.NewRequestID(middleware.RequestIDDeps{IDs: d.ids}),
 		forwarded,
 		middleware.NewRecover(middleware.RecoverDeps{Logger: d.logger, OnError: middleware.ProblemErrorWriter(d.codec)}),
+		obs.tracing,
 		middleware.NewLogging(middleware.LoggingDeps{Logger: d.logger.With("server", "console"), Clock: d.clock}, middleware.WithLogLevel(slog.LevelDebug)),
 		httpMetrics,
 		// The proxied uploads of the console stream up to their own limits;
 		// the JSON endpoints bound their bodies themselves.
 		middleware.NewMaxBody(middleware.MaxBodyDeps{}, middleware.WithMaxBodyLimit(
 			max(middleware.DefaultMaxBody, adminsvc.DefaultMaxUploadSize, adminsvc.DefaultMaxPartSize))),
+		// The Admin API authenticates its requests itself: the audit and
+		// the live trace learn the identity through their holder.
+		auditing,
+		obs.trace,
 	}, nil
 }
 
@@ -562,6 +660,15 @@ type adminDeps struct {
 	// cache backs the cache endpoints (docs/11 §11.11); nil leaves them
 	// out.
 	cache cache.Service
+	// diagnostics backs the profiling and speed test endpoints
+	// (S-OPS-11); nil leaves them out.
+	diagnostics adminsvc.Diagnostics
+	// obsTrace, obsLogs, obsAudit and obsHistory back the live streams,
+	// the audit search and the metrics of the console (docs/05 M8).
+	obsTrace   trace.Service
+	obsLogs    logs.Service
+	obsAudit   audit.Service
+	obsHistory metrics.History
 }
 
 // adminServices are the console services of internal/service/admin the
@@ -739,18 +846,35 @@ func buildAdminAPI(d adminDeps) (httpx.Routes, error) {
 		return nil, err
 	}
 	groups = append(append(groups, distRoutes...), cacheRoutes...)
+	if d.diagnostics != nil {
+		diagnosticsRoutes, err := adminhttp.NewDiagnosticsRoutes(adminhttp.DiagnosticsDeps{Diagnostics: d.diagnostics, Authz: svc.authz, Enc: d.codec})
+		if err != nil {
+			return nil, err
+		}
+		groups = append(groups, diagnosticsRoutes)
+	}
+	obsRoutes, err := adminhttp.NewObservabilityRoutes(adminhttp.ObservabilityDeps{
+		Trace: d.obsTrace, Logs: d.obsLogs, Audit: d.obsAudit, History: d.obsHistory, Authz: svc.authz, Enc: d.codec,
+	})
+	if err != nil {
+		return nil, err
+	}
+	groups = append(groups, obsRoutes)
 	return adminhttp.NewAPI(adminhttp.APIDeps{Enc: d.codec, Auth: authn}, groups...)
 }
 
 // processActions implements the service control of the Admin API (POST
-// /service/restart|stop) for a server driven by App.Run: the action is a
-// signal to the process (SIGHUP restarts, SIGTERM stops), handled by Run
-// like the signal of an operator, after the response is sent (the
-// graceful shutdown waits for it). Outside Run (tests, embedding) the
-// process belongs to someone else: the actions are not available.
+// /service/restart|stop) for a server driven by App.Run: a stop is a
+// SIGTERM to the process, handled by Run like the signal of an operator; a
+// restart is a request to Run in the process itself (SIGHUP reloads the
+// TLS certificates, it does not restart). Both take effect after the
+// response is sent (the graceful shutdown waits for it). Outside Run
+// (tests, embedding) the process belongs to someone else: the actions are
+// not available.
 type processActions struct {
 	running *atomic.Bool
 	signal  func(os.Signal) error
+	restart func() error
 }
 
 var _ adminsvc.ActionHandler = processActions{}
@@ -760,11 +884,13 @@ func (p processActions) Handle(_ context.Context, action adminsvc.Action) error 
 	if !p.running.Load() {
 		return fmt.Errorf("app: service %s: only a server run as a process can be controlled: %w", action, domain.ErrNotImplemented)
 	}
-	sig := os.Signal(syscall.SIGTERM)
+	var err error
 	if action == adminsvc.ActionRestart {
-		sig = syscall.SIGHUP
+		err = p.restart()
+	} else {
+		err = p.signal(syscall.SIGTERM)
 	}
-	if err := p.signal(sig); err != nil {
+	if err != nil {
 		return fmt.Errorf("app: service %s: %w", action, err)
 	}
 	return nil
@@ -777,6 +903,33 @@ func signalSelf(sig os.Signal) error {
 		return err
 	}
 	return p.Signal(sig)
+}
+
+// requestRestart asks Run to restart the application; a request already
+// pending covers this one.
+func (a *App) requestRestart() error {
+	select {
+	case a.restarts <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+// reloadTLS reloads the certificates of the listeners without a restart
+// (SIGHUP, docs/07 §7.3): the certificates directory and the
+// certificates of the distributions. The established connections keep
+// their certificate; a failed reload keeps the current ones.
+func (a *App) reloadTLS(ctx context.Context) {
+	if a.f.keystore != nil {
+		if err := a.f.keystore.Reload(ctx); err != nil {
+			a.logger.ErrorContext(ctx, "SIGHUP: certificates directory not reloaded", "err", err)
+		}
+	}
+	if s := a.services(); s != nil && s.dist.certs != nil {
+		if err := s.dist.certs.Reload(ctx); err != nil {
+			a.logger.ErrorContext(ctx, "SIGHUP: certificates of the distributions not reloaded", "err", err)
+		}
+	}
 }
 
 // Start starts every component. It returns once the servers listen and,
@@ -810,10 +963,11 @@ func (a *App) Stop(ctx context.Context) error {
 }
 
 // Run starts the application, waits for ctx to end or for SIGINT/SIGTERM,
-// then stops it. SIGHUP (sent by POST /service/restart) restarts it in
-// place: every component stops, the application is built again from the
-// same configuration (re-reading the persisted state) and started. It
-// returns the start, restart or stop error.
+// then stops it. SIGHUP reloads the TLS certificates without a restart
+// (reloadTLS). POST /service/restart restarts it in place: every
+// component stops, the application is built again from the same
+// configuration (re-reading the persisted state) and started. It returns
+// the start, restart or stop error.
 func (a *App) Run(ctx context.Context) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -826,23 +980,30 @@ func (a *App) Run(ctx context.Context) error {
 			return err
 		}
 		cur.running.Store(true)
-		select {
-		case <-ctx.Done():
-			cur.running.Store(false)
-			cur.logger.Info("shutdown requested", "reason", ctx.Err())
-			return cur.Stop(context.WithoutCancel(ctx))
-		case <-hup:
-			cur.running.Store(false)
-			cur.logger.Info("restart requested")
-			if err := cur.Stop(context.WithoutCancel(ctx)); err != nil {
-				return err
+	wait:
+		for {
+			select {
+			case <-ctx.Done():
+				cur.running.Store(false)
+				cur.logger.Info("shutdown requested", "reason", ctx.Err())
+				return cur.Stop(context.WithoutCancel(ctx))
+			case <-hup:
+				cur.logger.Info("SIGHUP: reloading the TLS certificates")
+				cur.reloadTLS(ctx)
+			case <-cur.restarts:
+				break wait
 			}
-			next, err := Build(ctx, cur.cfg, cur.opts...)
-			if err != nil {
-				return fmt.Errorf("app: restart: %w", err)
-			}
-			cur = next
 		}
+		cur.running.Store(false)
+		cur.logger.Info("restart requested")
+		if err := cur.Stop(context.WithoutCancel(ctx)); err != nil {
+			return err
+		}
+		next, err := Build(ctx, cur.cfg, cur.opts...)
+		if err != nil {
+			return fmt.Errorf("app: restart: %w", err)
+		}
+		cur = next
 	}
 }
 
@@ -1008,22 +1169,34 @@ func (a *App) Signer() auth.Signer {
 	return nil
 }
 
-func serverOptions(cfg config.Static, addr, name string) []server.Option {
-	opts := []server.Option{server.WithAddr(addr), server.WithName(name)}
+// serverOptions are the options of the S3 and console listeners: address,
+// name, the PROXY protocol of the trusted proxies when enabled, and TLS
+// with the certificates of the keystore (nil without TLS), reloaded at
+// runtime.
+func serverOptions(cfg config.Static, ks certs.Keystore, addr, name string) []server.Option {
+	opts := []server.Option{server.WithAddr(addr), server.WithName(name), server.WithMinTLSVersion(tlsMinVersion(cfg))}
 	if cfg.ProxyProtocolOn(name) {
 		// The PROXY protocol of the trusted proxies (docs/10 §10.2).
 		opts = append(opts, server.WithProxyProtocol(cfg.TrustedProxies...))
 	}
-	if cfg.TLSEnabled() {
-		opts = append(opts, server.WithTLS(filepath.Join(cfg.CertsDir, "public.crt"), filepath.Join(cfg.CertsDir, "private.key")))
+	if ks != nil {
+		opts = append(opts, server.WithKeystore(ks))
 		if cfg.TLSInternodeVerify && name == "s3" {
 			// The internode calls arrive on the S3 port: the nodes
-			// present their certificate, verified with the CAs of the
-			// deployment (the S3 clients present none).
-			opts = append(opts, server.WithClientCAs(deploymentCAs(cfg)))
+			// present their certificate, verified with the current CAs
+			// of the deployment (the S3 clients present none).
+			opts = append(opts, server.WithClientCASource(ks))
 		}
 	}
 	return opts
+}
+
+// tlsMinVersion is the oldest TLS version the listeners accept.
+func tlsMinVersion(cfg config.Static) uint16 {
+	if cfg.TLSMinVersion == config.TLSVersion13 {
+		return tls.VersionTLS13
+	}
+	return tls.VersionTLS12
 }
 
 func portOf(addr string) int {

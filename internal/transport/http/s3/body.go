@@ -2,7 +2,7 @@ package s3
 
 import (
 	"bytes"
-	"crypto/md5"
+	"crypto/md5" // #nosec G501 -- the S3 Content-MD5 integrity check
 	"errors"
 	"fmt"
 	"io"
@@ -36,7 +36,7 @@ func readBody(r *http.Request, limit int64) ([]byte, error) {
 	if want != nil {
 		// Content-MD5 is the integrity check of the S3 protocol, not a
 		// security primitive.
-		got := md5.Sum(body)
+		got := md5.Sum(body) // #nosec G401 -- the Content-MD5 check of S3, an integrity check only
 		if !bytes.Equal(got[:], want) {
 			return nil, domain.NewS3Error(domain.ErrBadDigest, "BadDigest", "The Content-MD5 you specified did not match what we received.")
 		}

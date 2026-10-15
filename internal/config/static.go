@@ -63,6 +63,9 @@ type Static struct {
 	// every node presents its own certificate as a client (it must allow
 	// client authentication). It needs TLS (CertsDir).
 	TLSInternodeVerify bool `json:"tlsInternodeVerify"`
+	// TLSMinVersion is the oldest TLS version the listeners accept:
+	// TLSVersion12 (default) or TLSVersion13 (tls.go).
+	TLSMinVersion string `json:"tlsMinVersion,omitempty"`
 	// TrustedProxies are the CIDRs or IPs whose X-Forwarded-* headers are trusted.
 	TrustedProxies []string `json:"trustedProxies"`
 	LogLevel       string   `json:"logLevel"`
@@ -187,6 +190,16 @@ type Static struct {
 	// purge webhooks may reach: by default only public addresses.
 	CacheWebhookAllow []string `json:"cacheWebhookAllow,omitempty"`
 
+	// Distributed tracing (OpenTelemetry, docs/07 §7.4; observability.go).
+	//
+	// OTelEndpoint is the URL of the OTLP collector (empty: tracing
+	// disabled), OTelProtocol its protocol ("http/protobuf", the default,
+	// or "grpc") and OTelSampleRatio the share of the traces started by
+	// the server that are recorded (0 to 1, default 1).
+	OTelEndpoint    string  `json:"otelEndpoint,omitempty"`
+	OTelProtocol    string  `json:"otelProtocol,omitempty"`
+	OTelSampleRatio float64 `json:"otelSampleRatio,omitempty"`
+
 	// Secrets are the secrets the access rules reference as
 	// ${secret:<name>}: the NEXO_SECRET_<NAME> variables (or their _FILE
 	// form), keyed by <name> in lowercase (environment only).
@@ -206,6 +219,7 @@ func Default() Static {
 		LogFormat:      DefaultLogFormat,
 
 		PrometheusAuthType: PrometheusAuthJWT,
+		OTelSampleRatio:    1,
 
 		ForwardedHeaders:      ForwardedHeadersX,
 		AccessRulesMax:        DefaultAccessRulesMax,
@@ -289,6 +303,8 @@ func (s Static) Validate() error {
 	errs = append(errs, s.validateAccess()...)
 	errs = append(errs, s.validateDistribution()...)
 	errs = append(errs, s.validateCache()...)
+	errs = append(errs, s.validateTLS()...)
+	errs = append(errs, s.validateObservability()...)
 	if s.LockStaleAfter > 0 && s.LockRefreshInterval > 0 && s.LockRefreshInterval >= s.LockStaleAfter {
 		errs = append(errs, fmt.Errorf("lock refresh interval %s must be shorter than the lock stale delay %s", s.LockRefreshInterval, s.LockStaleAfter))
 	}

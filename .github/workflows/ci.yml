@@ -4,11 +4,14 @@ name: CI
 # tests, the integration suite and the CLI scripts in every deployment mode
 # (SNSD, SNMD, cluster in-process; docs/08 §8.6 TM-01, TM-02), the
 # Playwright suite against bin/nexo in every mode (single drive, 4 drives,
-# 4 processes), Nexo behind two edge proxies (test/proxy) and the image
-# smoke tests; a merge on main adds the
-# multi-process cluster smoke; the nightly run adds the whole cluster suite
-# (TC-*), the slow integration tests, the internode RPC benchmarks and the
-# Ceph s3-tests compatibility suite.
+# 4 processes), Nexo behind two edge proxies (test/proxy), the image
+# smoke tests, the security scans (govulncheck, gosec, npm audit) and the
+# packaging (GoReleaser snapshot, deb/rpm installed, Helm chart, systemd
+# unit, Dockerfiles; the release itself is release.yml); a
+# merge on main adds the multi-process cluster smoke; the nightly run adds
+# the whole cluster suite (TC-*), the slow integration tests, the internode
+# RPC benchmarks, the fuzzing of every fuzz target and the Ceph s3-tests
+# compatibility suite.
 on:
   push:
     branches: [main]
@@ -27,6 +30,9 @@ concurrency:
 env:
   NODE_VERSION: "22"
   GOLANGCI_LINT_VERSION: v2.5.0
+  # The security scanners (make security, docs/security).
+  GOVULNCHECK_VERSION: v1.1.4
+  GOSEC_VERSION: v2.29.0
 
 jobs:
   lint-go:
@@ -70,6 +76,41 @@ jobs:
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
           args: --timeout=5m
+
+  security:
+    # docs/security: the known vulnerabilities the code reaches, in the
+    # modules and in the standard library of the toolchain of go.mod
+    # (govulncheck), insecure code (gosec: a false positive carries a
+    # "#nosec Gxxx -- reason" next to it) and the production dependencies
+    # of the dashboard (npm audit).
+    name: Security scans
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }} ./...
+
+      - name: gosec
+        env:
+          # gosec needs a newer toolchain than go.mod: the go command
+          # downloads it.
+          GOTOOLCHAIN: auto
+        run: go run github.com/securego/gosec/v2/cmd/gosec@${{ env.GOSEC_VERSION }} -quiet -exclude-dir=web ./...
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: npm audit (production dependencies of the dashboard)
+        working-directory: web
+        run: npm audit --omit=dev --audit-level=moderate
 
   test-go:
     name: Test Go (unit)
@@ -289,6 +330,150 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  packaging:
+    # T-9.5 (docs/08 §8.7): the whole release built without publishing
+    # (GoReleaser snapshot: binaries for every OS/arch, archives, deb/rpm,
+    # SBOMs, multi-arch images, Homebrew casks), TM-10 on linux/amd64 and
+    # linux/arm64 (QEMU), the deb packages installed and the hardened unit
+    # run by the systemd of the runner, the rpm packages installed in
+    # Fedora, the Helm chart (lint, template, kubeconform), the systemd unit
+    # (verify, security) and the Dockerfiles (hadolint).
+    name: Packaging (GoReleaser snapshot, packages, Helm, systemd)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: [web]
+    env:
+      GORELEASER_VERSION: v2.18.3
+      HELM_VERSION: v3.22.0
+      KUBECONFORM_VERSION: v0.7.0
+      SYFT_VERSION: v1.54.1
+      HADOLINT_VERSION: v2.14.0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # GoReleaser derives the snapshot version from the tags
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: ${{ env.GORELEASER_VERSION }}
+          install-only: true
+
+      - uses: anchore/sbom-action/download-syft@v0
+        with:
+          syft-version: ${{ env.SYFT_VERSION }}
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Tools (kubeconform, QEMU user emulation)
+        run: |
+          go install "github.com/yannh/kubeconform/cmd/kubeconform@${KUBECONFORM_VERSION}"
+          sudo apt-get update -qq && sudo apt-get install -y -qq qemu-user-static
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: GoReleaser configuration
+        run: goreleaser check
+
+      - name: Dockerfiles (hadolint)
+        run: |
+          docker run --rm -v "$PWD:/src:ro" -w /src "hadolint/hadolint:${HADOLINT_VERSION}" hadolint \
+            Dockerfile Dockerfile.nexoctl deploy/docker/Dockerfile.goreleaser deploy/docker/Dockerfile.nexoctl.goreleaser
+
+      - name: Helm chart (lint, template, kubeconform)
+        run: make helm-lint
+
+      - name: Snapshot release (no publish, no signature)
+        run: make release-snapshot RELEASE_SKIP=sign
+
+      - name: Release artefacts
+        run: |
+          set -eux
+          ls -la dist
+          sha256sum --ignore-missing -c dist/checksums.txt
+          for f in dist/*.tar.gz dist/*.zip; do test -f "$f.sbom.json"; done
+          ls dist/homebrew/Casks/nexo.rb dist/homebrew/Casks/nexoctl.rb
+          dpkg-deb -c dist/nexo_*_amd64.deb
+          dpkg-deb -c dist/nexoctl_*_amd64.deb
+
+      - name: TM-10 smoke (linux/amd64, linux/arm64 with QEMU)
+        run: make release-smoke
+
+      - name: Images built by GoReleaser
+        run: |
+          set -eux
+          docker images 'ghcr.io/r3n3r0/*'
+          for name in nexo nexoctl; do
+            for arch in amd64 arm64; do
+              img="$(docker images --format '{{.Repository}}:{{.Tag}}' "ghcr.io/r3n3r0/$name" | grep -- "-$arch\$" | head -1)"
+              test -n "$img"
+              test "$(docker image inspect -f '{{.Architecture}}' "$img")" = "$arch"
+              test "$(docker image inspect -f '{{.Config.User}}' "$img")" = "65532:65532"
+            done
+            docker run --rm --platform linux/amd64 "$(docker images --format '{{.Repository}}:{{.Tag}}' "ghcr.io/r3n3r0/$name" | grep -- '-amd64$' | head -1)" version
+          done
+
+      - name: systemd unit (verify, security)
+        run: packaging/systemd-verify.sh dist/nexo_linux_amd64_v1/nexo
+
+      - name: deb packages with the systemd of the runner
+        run: |
+          set -eux
+          sudo apt-get install -y ./dist/nexoctl_*_amd64.deb ./dist/nexo_*_amd64.deb
+          getent passwd nexo
+          test "$(sudo stat -c '%U:%G %a' /var/lib/nexo/data)" = "nexo:nexo 750"
+          test "$(sudo stat -c '%U:%G %a' /etc/default/nexo)" = "root:nexo 640"
+          # The root password is empty: the --dry-run pre-start check refuses to start.
+          if sudo systemctl start nexo; then echo "started without a root password" >&2; exit 1; fi
+          sudo sed -i 's/^NEXO_ROOT_PASSWORD=$/NEXO_ROOT_PASSWORD=ci-password-123/' /etc/default/nexo
+          sudo systemctl reset-failed nexo
+          sudo systemctl start nexo
+          for _ in $(seq 1 60); do curl -fsS -o /dev/null http://127.0.0.1:9000/nexo/health/ready && break; sleep 1; done
+          curl -fsS http://127.0.0.1:9000/nexo/health/ready
+          export NEXOCTL_CONFIG_DIR="$RUNNER_TEMP/nexoctl"
+          nexoctl alias set ci http://127.0.0.1:9000 admin ci-password-123
+          nexoctl mb ci/packages
+          nexoctl cp /etc/os-release ci/packages/os-release
+          nexoctl cat ci/packages/os-release | cmp - /etc/os-release
+          sudo systemctl reload nexo
+          systemctl is-active nexo
+          sudo systemctl stop nexo
+          sudo apt-get remove -y nexo nexoctl
+          # The data (the drive formatted by the service), the user and the
+          # configuration survive the removal.
+          test -n "$(sudo ls -A /var/lib/nexo/data)"
+          getent passwd nexo
+          sudo test -f /etc/default/nexo
+
+      - name: Service logs
+        if: failure()
+        run: sudo journalctl -u nexo --no-pager -n 200 || true
+
+      - name: rpm packages (Fedora)
+        run: |
+          docker run --rm -v "$PWD/dist:/dist:ro" fedora:42 sh -euxc '
+            dnf install -y -q /dist/nexoctl-*.x86_64.rpm /dist/nexo-*.x86_64.rpm
+            getent passwd nexo
+            rpm -V nexo nexoctl
+            test "$(stat -c "%U:%G" /var/lib/nexo/data)" = "nexo:nexo"
+            nexo version
+            nexoctl version
+            touch /var/lib/nexo/data/format.json
+            dnf remove -y -q nexo nexoctl
+            test -f /var/lib/nexo/data/format.json'
+
   e2e:
     # The Playwright projects of web/playwright.config.ts: the whole suite
     # on a single drive, TD-E-01..04 on one node with 4 drives (SNMD) and
@@ -477,6 +662,34 @@ jobs:
           name: bench-rpc
           path: bench-rpc.txt
           retention-days: 90
+
+  fuzz-nightly:
+    # Nightly (M9 T-9.2): every Go fuzz target (parsers of the S3 and
+    # Admin API documents, SigV4, policies, xl.meta, endpoints, keys,
+    # distributions, end to end request bodies) for a minute each; a
+    # crasher is kept as an artifact, to be added to the testdata/fuzz
+    # corpus of its package with the fix.
+    name: Fuzzing
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: make fuzz
+        run: make fuzz FUZZTIME=60s
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: fuzz-crashers
+          path: "**/testdata/fuzz/**"
+          retention-days: 30
 
   s3tests-nightly:
     # Nightly (docs/06 §6.1, T-9.1, DoD of T-7.1): the Ceph s3-tests
@@ -719,6 +932,9 @@ jobs:
             deploy/docker/observability/*.yml \
             deploy/docker/observability/grafana/provisioning/*/*.yml \
             deploy/proxy/*.yml \
+            deploy/swarm/*.yml \
+            deploy/helm/nexo/values.yaml \
+            deploy/helm/nexo/ci/*.yaml \
             .github/workflows/*.yml \
             .github/dependabot.yml \
             .goreleaser.yaml \
@@ -785,12 +1001,7 @@ jobs:
             docker run --rm -v "$PWD/deploy/docker/observability:/obs:ro" --entrypoint promtool prom/prometheus:v3.5.0 check config --syntax-only "/obs/$f"
           done
 
-      - name: systemd unit
-        run: systemd-analyze verify --man=no deploy/systemd/nexo.service || true
-
-      - name: GoReleaser config
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: check
+      - name: Swarm stack
+        run: |
+          cd deploy/swarm
+          docker stack config -c stack.yml >/dev/null

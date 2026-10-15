@@ -15,7 +15,7 @@ import { clusterRoutes } from '@/pages/clusterRoutes';
 import { distributionRoutes } from '@/pages/distributionRoutes';
 import { iamRoutes } from '@/pages/iamRoutes';
 import { cacheRoutes } from '@/pages/cacheRoutes';
-import { MonitoringPage } from '@/pages/placeholders';
+import { monitoringRoutes } from '@/pages/monitoringRoutes';
 import { storageRoutes } from '@/pages/storageRoutes';
 import { UploadProvider } from '@/upload/UploadProvider';
 
@@ -52,7 +52,7 @@ export function createRoutes(options: RouteOptions = {}): RouteObject[] {
             ...distributionRoutes(),
             ...cacheRoutes(),
             ...clusterRoutes(),
-            { path: 'monitoring', element: <MonitoringPage /> },
+            ...monitoringRoutes(),
             { path: '*', element: <NotFoundPage /> },
           ],
         },

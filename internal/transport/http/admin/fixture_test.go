@@ -23,13 +23,17 @@ import (
 	"github.com/r3n3r0/nexo/internal/domain"
 	adminsvc "github.com/r3n3r0/nexo/internal/service/admin"
 	adminmock "github.com/r3n3r0/nexo/internal/service/admin/mock"
+	auditmock "github.com/r3n3r0/nexo/internal/service/audit/mock"
 	"github.com/r3n3r0/nexo/internal/service/auth"
 	bucketmock "github.com/r3n3r0/nexo/internal/service/bucket/mock"
 	iammock "github.com/r3n3r0/nexo/internal/service/iam/mock"
 	lockmock "github.com/r3n3r0/nexo/internal/service/lock/mock"
+	logsmock "github.com/r3n3r0/nexo/internal/service/logs/mock"
+	metricsmock "github.com/r3n3r0/nexo/internal/service/metrics/mock"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	policymock "github.com/r3n3r0/nexo/internal/service/policy/mock"
 	"github.com/r3n3r0/nexo/internal/service/session"
+	tracemock "github.com/r3n3r0/nexo/internal/service/trace/mock"
 	"github.com/r3n3r0/nexo/internal/transport/http/admin"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
@@ -76,11 +80,17 @@ type fixture struct {
 	dists      *adminmock.DistributionManager
 	certs      *adminmock.CertificateManager
 	cache      *adminmock.CacheManager
+	diag       *adminmock.Diagnostics
+	tracer     *tracemock.Service
+	logs       *logsmock.Service
+	audit      *auditmock.Service
+	history    *metricsmock.History
 	locks      *lockmock.Manager
 	sessions   session.Service
 
 	mu     sync.Mutex
 	deny   bool
+	denied map[policy.Action]bool
 	checks []adminsvc.AuthorizeInput
 }
 
@@ -96,7 +106,8 @@ func newFixture(t *testing.T) *fixture {
 		config: adminmock.NewConfigManager(t), cluster: adminmock.NewClusterManager(t), locks: lockmock.NewManager(t),
 		lifecycle: adminmock.NewLifecycleManager(t), notify: adminmock.NewNotificationManager(t), cors: adminmock.NewCORSManager(t),
 		rules: adminmock.NewAccessRuleManager(t), dists: adminmock.NewDistributionManager(t), certs: adminmock.NewCertificateManager(t),
-		cache: adminmock.NewCacheManager(t), catalog: adminsvc.CatalogActions(),
+		cache: adminmock.NewCacheManager(t), diag: adminmock.NewDiagnostics(t), catalog: adminsvc.CatalogActions(),
+		tracer: tracemock.NewService(t), logs: logsmock.NewService(t), audit: auditmock.NewService(t), history: metricsmock.NewHistory(t),
 	}
 	f.iam.EXPECT().LookupCredentials(mock.Anything, mock.Anything).RunAndReturn(
 		func(_ context.Context, key string) (domain.Credentials, domain.Identity, error) {
@@ -114,7 +125,7 @@ func newFixture(t *testing.T) *fixture {
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			f.checks = append(f.checks, in)
-			if f.deny {
+			if f.deny || (len(in.Actions) == 1 && f.denied[in.Actions[0]]) {
 				return adminsvc.Decision{DeniedAction: in.Actions[0], Reason: "denied by the test"}, nil
 			}
 			return adminsvc.Decision{Allowed: true}, nil
@@ -165,8 +176,14 @@ func newFixture(t *testing.T) *fixture {
 	require.NoError(t, err)
 	cacheRoutes, err := admin.NewCacheRoutes(admin.CacheDeps{Cache: f.cache, Authz: f.authz, Enc: enc})
 	require.NoError(t, err)
+	diagnosticsRoutes, err := admin.NewDiagnosticsRoutes(admin.DiagnosticsDeps{Diagnostics: f.diag, Authz: f.authz, Enc: enc})
+	require.NoError(t, err)
+	observabilityRoutes, err := admin.NewObservabilityRoutes(admin.ObservabilityDeps{Trace: f.tracer, Logs: f.logs, Audit: f.audit,
+		History: f.history, Authz: f.authz, Enc: enc}, admin.WithHeartbeat(20*time.Millisecond))
+	require.NoError(t, err)
 	f.groups = []admin.Routes{sessionRoutes, infoRoutes, userRoutes, policyRoutes, bucketRoutes, objectRoutes, shareRoutes, configRoutes, clusterRoutes,
-		lifecycleRoutes, notificationRoutes, corsRoutes, kmsRoutes, accessRuleRoutes, distributionRoutes, certificateRoutes, cacheRoutes}
+		lifecycleRoutes, notificationRoutes, corsRoutes, kmsRoutes, accessRuleRoutes, distributionRoutes, certificateRoutes, cacheRoutes,
+		diagnosticsRoutes, observabilityRoutes}
 
 	r := chi.NewRouter()
 	api, err := admin.NewAPI(admin.APIDeps{Enc: enc, Auth: authn}, f.groups...)
@@ -181,6 +198,17 @@ func (f *fixture) denyAll() {
 	f.mu.Lock()
 	f.deny = true
 	f.mu.Unlock()
+}
+
+// denyActions makes the authorizer deny the requests of exactly one of
+// actions.
+func (f *fixture) denyActions(actions ...policy.Action) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.denied = map[policy.Action]bool{}
+	for _, a := range actions {
+		f.denied[a] = true
+	}
 }
 
 // lastCheck returns the last AuthorizeInput the guard or a service asked.

@@ -70,6 +70,62 @@ export function sampleConfigSchema(): ConfigSubsystemSchema[] {
       ],
     },
     {
+      name: 'audit_kafka',
+      description: 'Audit log to Kafka (one JSON record per authenticated request)',
+      keys: [
+        {
+          name: 'enable',
+          type: 'bool',
+          default: 'off',
+          description: 'Enable the target',
+          sensitive: false,
+          applied: true,
+        },
+        {
+          name: 'brokers',
+          type: 'list',
+          description: 'Brokers (host:port), comma separated',
+          sensitive: false,
+          applied: true,
+        },
+        {
+          name: 'topic',
+          type: 'string',
+          description: 'Topic of the audit records',
+          sensitive: false,
+          applied: true,
+        },
+      ],
+    },
+    {
+      name: 'audit_webhook',
+      description: 'Audit log to a webhook (one JSON record per authenticated request)',
+      keys: [
+        {
+          name: 'enable',
+          type: 'bool',
+          default: 'off',
+          description: 'Enable the target',
+          sensitive: false,
+          applied: true,
+        },
+        {
+          name: 'endpoint',
+          type: 'url',
+          description: 'URL receiving the audit records',
+          sensitive: false,
+          applied: true,
+        },
+        {
+          name: 'auth_token',
+          type: 'string',
+          description: 'Bearer token sent to the endpoint',
+          sensitive: true,
+          applied: true,
+        },
+      ],
+    },
+    {
       name: 'logger',
       description: 'Server logs',
       keys: [
@@ -80,7 +136,7 @@ export function sampleConfigSchema(): ConfigSubsystemSchema[] {
           values: ['debug', 'info', 'warn', 'error'],
           description: 'Minimum level',
           sensitive: false,
-          applied: false,
+          applied: true,
         },
         {
           name: 'format',
@@ -89,7 +145,7 @@ export function sampleConfigSchema(): ConfigSubsystemSchema[] {
           values: ['text', 'json'],
           description: 'Output format',
           sensitive: false,
-          applied: false,
+          applied: true,
         },
       ],
     },
@@ -211,7 +267,10 @@ export function createMockConfigService(
     }
   };
   const subsystem = (name: string) => {
-    const found = schema.find((s) => s.name === name);
+    // A notification or audit target may name its id (audit_webhook:<id>).
+    const [prefix = name, id] = name.split(':', 2);
+    const base = id !== undefined && id !== '' && /^(notify|audit)_/.test(prefix) ? prefix : name;
+    const found = schema.find((s) => s.name === base);
     if (!found) {
       throw problem(400, 'invalid_argument', `Unknown configuration subsystem "${name}".`);
     }

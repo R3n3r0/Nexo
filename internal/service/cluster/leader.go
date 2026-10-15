@@ -192,7 +192,7 @@ func (l *leader) Start(context.Context) error {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	l.cancel, l.done = cancel, make(chan struct{})
-	go l.run(ctx, l.done)
+	go l.run(ctx, l.done) // #nosec G118 -- the candidacy outlives the context of Start and ends with Stop (cancel)
 	return nil
 }
 
@@ -256,7 +256,7 @@ func (l *leader) run(ctx context.Context, done chan<- struct{}) {
 // sleep waits for the next candidacy, with jitter so that the candidates
 // do not compete in lockstep.
 func (l *leader) sleep(ctx context.Context) bool {
-	d := l.opts.retry/2 + rand.N(l.opts.retry/2+1)
+	d := l.opts.retry/2 + rand.N(l.opts.retry/2+1) // #nosec G404 -- the jitter of the candidacy retries, not a secret
 	timer := time.NewTimer(d)
 	defer timer.Stop()
 	select {

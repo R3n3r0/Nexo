@@ -9,14 +9,14 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"os"
-	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/config"
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/cache"
+	"github.com/r3n3r0/nexo/internal/service/certs"
 	"github.com/r3n3r0/nexo/internal/service/cluster"
 	"github.com/r3n3r0/nexo/internal/service/heal"
 	"github.com/r3n3r0/nexo/internal/service/lock"
@@ -61,6 +61,15 @@ type foundation struct {
 	// registry is the metrics registry of the node: the internode RPC
 	// server counts its refusals there before the services are composed.
 	registry metrics.Registry
+	// obs are the observability services of the node (observability.go).
+	obs *observability
+	// peers are the other nodes of a cluster (none on a single node).
+	peers []cluster.Peer
+
+	// keystore holds the certificates of the certificates directory,
+	// reloaded at runtime (docs/07 §7.3): the listeners and the
+	// internode connections read it at every handshake. Nil without TLS.
+	keystore certs.Keystore
 
 	// Distributed deployments only: the internode authentication, the RPC
 	// server mounted in front of the S3 API and the connections to the
@@ -135,6 +144,11 @@ type foundationDeps struct {
 	noFsync bool
 	// dial opens the internode connections (WithInternodeDialer).
 	dial func(ctx context.Context, network, addr string) (net.Conn, error)
+	// keystoreOpts tune the reloads of the certificates directory.
+	keystoreOpts []certs.KeystoreOption
+	// obs are the log stream and the distributed tracing of the node
+	// (newObservability).
+	obs *observability
 }
 
 // driveOptions are the options of the local drives.
@@ -149,12 +163,19 @@ func (d foundationDeps) driveOptions() []storage.Option {
 // services of the deployment mode. On error everything opened so far is
 // released.
 func newFoundation(d foundationDeps) (f *foundation, err error) {
-	f = &foundation{layout: d.layout, topo: d.topo, nodeID: cluster.LocalNodeID, registry: metrics.New(metrics.Deps{Logger: d.logger})}
+	f = &foundation{layout: d.layout, topo: d.topo, nodeID: cluster.LocalNodeID, registry: metrics.New(metrics.Deps{Logger: d.logger}), obs: d.obs}
 	defer func() {
 		if err != nil {
 			_ = f.close(context.Background())
 		}
 	}()
+	if d.cfg.TLSEnabled() {
+		f.keystore, err = certs.NewKeystore(certs.KeystoreDeps{Metrics: f.registry, Clock: d.clock, Logger: d.logger.With("component", "tls")},
+			d.cfg.CertsDir, d.keystoreOpts...)
+		if err != nil {
+			return nil, fmt.Errorf("tls: %w", err)
+		}
+	}
 	if f.distributed() {
 		err = f.openDistributed(d)
 	} else {
@@ -174,6 +195,9 @@ func (f *foundation) openLocal(d foundationDeps) error {
 		drive, err := storage.NewLocal(storage.Deps{Clock: d.clock, Logger: d.logger}, ep, d.driveOptions()...)
 		if err != nil {
 			return fmt.Errorf("open drive %s: %w", ep, err)
+		}
+		if drive, err = f.measureDrive(drive); err != nil {
+			return err
 		}
 		f.local = append(f.local, drive)
 		f.drives = append(f.drives, drive)
@@ -195,6 +219,10 @@ func (f *foundation) openLocal(d foundationDeps) error {
 	f.bootstrapper, err = cluster.NewLocalBootstrapper(cluster.BootstrapDeps{
 		Layout: d.layout, Topology: d.topo, Formatter: formatter, Drives: f.local, Clock: d.clock, Logger: d.logger,
 	}, cluster.WithBootstrapVersion(build.Version))
+	if err != nil {
+		return err
+	}
+	_, err = f.openObservability(d.logger)
 	return err
 }
 
@@ -225,7 +253,7 @@ func (f *foundation) openDistributed(d foundationDeps) error {
 	if err != nil {
 		return err
 	}
-	tlsCfg, err := internodeTLS(cfg, d.layout)
+	tlsCfg, err := internodeTLS(cfg, d.layout, f.keystore)
 	if err != nil {
 		return err
 	}
@@ -251,11 +279,16 @@ func (f *foundation) openDistributed(d foundationDeps) error {
 		if d.dial != nil {
 			opts = append(opts, rpc.WithDialer(d.dial))
 		}
+		// The internode calls are measured and carry the trace context.
+		opts = append(opts, rpc.WithTransportWrapper(f.rpcTransport(id)))
 		conn, err := rpc.NewConn(rpc.ConnDeps{Auth: f.auth, Logger: logger}, id, opts...)
 		if err != nil {
 			return err
 		}
 		f.conns = append(f.conns, conn)
+		if err := f.addObservabilityPeer(conn); err != nil {
+			return err
+		}
 		conns[id] = conn
 		ls, err := rpc.NewLockClient(rpc.LockClientDeps{Conn: conn})
 		if err != nil {
@@ -286,6 +319,9 @@ func (f *foundation) openDistributed(d foundationDeps) error {
 			drive, err = storage.NewLocal(storage.Deps{Clock: d.clock, Logger: logger}, ep, d.driveOptions()...)
 			if err != nil {
 				return fmt.Errorf("open drive %s: %w", ep, err)
+			}
+			if drive, err = f.measureDrive(drive); err != nil {
+				return err
 			}
 			f.local = append(f.local, drive)
 		} else {
@@ -357,14 +393,28 @@ func (f *foundation) openDistributed(d foundationDeps) error {
 	if err != nil {
 		return err
 	}
+	f.peers = peers
+	obsRoutes, err := f.openObservability(logger)
+	if err != nil {
+		return err
+	}
 	vhost := s3.VirtualHostRequest(domainsOf(cfg)...)
 	serverOpts := []rpc.ServerOption{rpc.WithSkip(func(r *http.Request) bool { return vhost(r) || f.distRequests.match(r) })}
 	if cfg.TLSInternodeVerify {
 		serverOpts = append(serverOpts, rpc.WithClientCertRequired())
 	}
 	f.rpc, err = rpc.NewServer(rpc.ServerDeps{Auth: f.auth, Metrics: f.registry, Clock: d.clock, Logger: logger,
-		Routes: []rpc.Routes{storageRoutes, lockRoutes, peerRoutes, bootRoutes, cacheRoutes}}, serverOpts...)
+		Routes: []rpc.Routes{storageRoutes, lockRoutes, peerRoutes, bootRoutes, cacheRoutes, obsRoutes}}, serverOpts...)
 	return err
+}
+
+// isRPC selects the internode calls among the requests of the S3 port
+// (what the RPC server serves).
+func (f *foundation) isRPC(cfg config.Static) func(r *http.Request) bool {
+	vhost := s3.VirtualHostRequest(domainsOf(cfg)...)
+	return func(r *http.Request) bool {
+		return strings.HasPrefix(r.URL.Path, rpc.Prefix+"/") && !vhost(r) && !f.distRequests.match(r)
+	}
 }
 
 // cmpOr returns v when positive, def otherwise.
@@ -376,12 +426,14 @@ func cmpOr(v, def time.Duration) time.Duration {
 }
 
 // internodeTLS returns the TLS configuration of the internode connections
-// of a deployment whose endpoints are https URLs: the system roots plus
-// the certificates of <certs>/CAs and the server certificate itself (a
-// cluster commonly shares one certificate). With mutual TLS
-// (TLSInternodeVerify) the node presents its own certificate to its
-// peers. It is nil for http endpoints.
-func internodeTLS(cfg config.Static, layout *topology.Layout) (*tls.Config, error) {
+// of a deployment whose endpoints are https URLs: the peers are verified
+// with the system roots, the certificates of <certs>/CAs and the server
+// certificate itself (a cluster commonly shares one certificate), as
+// loaded when the node starts. With mutual TLS (TLSInternodeVerify) the
+// node presents its own certificate to its peers: the current one of the
+// keystore, so that a rotated certificate is presented from the next
+// connection on. It is nil for http endpoints.
+func internodeTLS(cfg config.Static, layout *topology.Layout, ks certs.Keystore) (*tls.Config, error) {
 	eps := layout.Endpoints()
 	if len(eps) == 0 || eps[0].Scheme != "https" {
 		if cfg.TLSInternodeVerify {
@@ -389,44 +441,18 @@ func internodeTLS(cfg config.Static, layout *topology.Layout) (*tls.Config, erro
 		}
 		return nil, nil
 	}
-	pool, err := x509.SystemCertPool()
-	if err != nil || pool == nil {
-		pool = x509.NewCertPool()
-	}
-	appendCerts(pool, cfg)
-	out := &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
-	if cfg.TLSInternodeVerify {
-		cert, err := tls.LoadX509KeyPair(filepath.Join(cfg.CertsDir, "public.crt"), filepath.Join(cfg.CertsDir, "private.key"))
-		if err != nil {
-			return nil, fmt.Errorf("internode client certificate: %w", err)
+	out := &tls.Config{MinVersion: tls.VersionTLS12}
+	if ks == nil {
+		pool, err := x509.SystemCertPool()
+		if err != nil || pool == nil {
+			pool = x509.NewCertPool()
 		}
-		out.Certificates = []tls.Certificate{cert}
+		out.RootCAs = pool
+		return out, nil
+	}
+	out.RootCAs = ks.RootCAs()
+	if cfg.TLSInternodeVerify {
+		out.GetClientCertificate = ks.GetClientCertificate
 	}
 	return out, nil
-}
-
-// deploymentCAs returns the certificates the nodes of the deployment are
-// verified with as TLS clients (mutual TLS): <certs>/CAs and the server
-// certificate itself, not the system roots.
-func deploymentCAs(cfg config.Static) *x509.CertPool {
-	pool := x509.NewCertPool()
-	appendCerts(pool, cfg)
-	return pool
-}
-
-// appendCerts adds the certificates of <certs>/CAs and the server
-// certificate to pool.
-func appendCerts(pool *x509.CertPool, cfg config.Static) {
-	if cfg.CertsDir == "" {
-		return
-	}
-	files, _ := filepath.Glob(filepath.Join(cfg.CertsDir, "CAs", "*"))
-	files = append(files, filepath.Join(cfg.CertsDir, "public.crt"))
-	for _, file := range files {
-		data, err := os.ReadFile(file)
-		if err != nil {
-			continue
-		}
-		pool.AppendCertsFromPEM(data)
-	}
 }

@@ -27,6 +27,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/service/sysstore"
+	"github.com/r3n3r0/nexo/internal/service/trace"
 	"github.com/r3n3r0/nexo/internal/transport/http/dist"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
@@ -187,6 +188,14 @@ type distHTTPDeps struct {
 	ids      httpx.IDGenerator
 	clock    clock.Clock
 	logger   *slog.Logger
+	// keystore holds the certificates of the server (nil without TLS):
+	// the fallback of the TLS web listener for the names no distribution
+	// certificate covers.
+	keystore certs.Keystore
+	// tracer and telemetry observe the requests of the web listeners
+	// (live trace of type web, spans "web <method>"); nil: not observed.
+	tracer    trace.Service
+	telemetry trace.Telemetry
 }
 
 // composeHTTP builds the website engine, the host routers and the web
@@ -246,10 +255,10 @@ func (s *distStack) composeHTTP(d distHTTPDeps) error {
 			return err
 		}
 		opts := append(webServerOptions(d.cfg, d.cfg.WebTLSAddress, "web-tls"), server.WithCertificates(s.certs))
-		if d.cfg.TLSEnabled() {
-			// The certificate of the server is the fallback of the names
-			// no distribution certificate covers.
-			opts = append(opts, server.WithTLS(certFiles(d.cfg)))
+		if d.keystore != nil {
+			// The certificates of the server are the fallback of the
+			// names no distribution certificate covers.
+			opts = append(opts, server.WithKeystore(d.keystore))
 		}
 		s.webTLSSrv = server.New(server.Deps{Middlewares: webMws, Hosts: hosts, NotFound: misdirected, Logger: d.logger}, opts...)
 	}
@@ -310,12 +319,26 @@ func webMiddlewares(d distHTTPDeps) ([]middleware.Middleware, error) {
 	plain := middleware.ErrorWriter(func(w http.ResponseWriter, _ *http.Request, _ error) {
 		http.Error(w, "500 Internal Server Error", http.StatusInternalServerError)
 	})
+	var tracing, traced middleware.Middleware
+	if d.telemetry != nil {
+		if tracing, err = middleware.NewTracing(middleware.TracingDeps{Telemetry: d.telemetry}, middleware.WithTracingServer("web")); err != nil {
+			return nil, err
+		}
+	}
+	if d.tracer != nil {
+		if traced, err = middleware.NewTrace(middleware.TraceDeps{Tracer: d.tracer, Clock: d.clock}, middleware.WithTraceType(trace.TypeWeb)); err != nil {
+			return nil, err
+		}
+	}
+	// Chain skips the nil middlewares.
 	return []middleware.Middleware{
 		middleware.NewRequestID(middleware.RequestIDDeps{IDs: d.ids}),
 		forwarded,
 		middleware.NewRecover(middleware.RecoverDeps{Logger: d.logger, OnError: plain}),
+		tracing,
 		middleware.NewLogging(middleware.LoggingDeps{Logger: d.logger.With("server", "web"), Clock: d.clock}, middleware.WithLogLevel(slog.LevelDebug)),
 		httpMetrics,
+		traced,
 	}, nil
 }
 
@@ -323,16 +346,11 @@ func webMiddlewares(d distHTTPDeps) ([]middleware.Middleware, error) {
 // name, the PROXY protocol of the trusted proxies when enabled for the
 // web listeners.
 func webServerOptions(cfg config.Static, addr, name string) []server.Option {
-	opts := []server.Option{server.WithAddr(addr), server.WithName(name)}
+	opts := []server.Option{server.WithAddr(addr), server.WithName(name), server.WithMinTLSVersion(tlsMinVersion(cfg))}
 	if cfg.ProxyProtocolOn(config.ListenerWeb) {
 		opts = append(opts, server.WithProxyProtocol(cfg.TrustedProxies...))
 	}
 	return opts
-}
-
-// certFiles are the certificate and key files of the server.
-func certFiles(cfg config.Static) (string, string) {
-	return cfg.CertsDir + "/public.crt", cfg.CertsDir + "/private.key"
 }
 
 // mainHosts are the host names of the S3 API and of the console.
@@ -349,7 +367,7 @@ func mainHosts(cfg config.Static) []string {
 // acmeHTTPClient returns the client of an ACME server whose CA is in file
 // (besides the system roots).
 func acmeHTTPClient(file string) (*http.Client, error) {
-	data, err := os.ReadFile(file)
+	data, err := os.ReadFile(file) // #nosec G304 -- a certificate file named by the operator's configuration
 	if err != nil {
 		return nil, fmt.Errorf("acme CA certificate: %w", err)
 	}

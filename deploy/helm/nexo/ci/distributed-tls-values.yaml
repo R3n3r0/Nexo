@@ -1,0 +1,27 @@
+# Distributed with TLS (https endpoints and probes), mutual TLS between the
+# nodes, two pools of 4 pods x 4 drives, KES and a cache on PVCs.
+mode: distributed
+distributed:
+  replicas: 4
+  drivesPerNode: 4
+  pools: 2
+auth:
+  rootPassword: ci-password-123
+tls:
+  enabled: true
+  secretName: nexo-tls
+  caSecretName: nexo-ca
+  minVersion: "1.3"
+  internodeVerify: true
+kms:
+  kes:
+    endpoint: https://kes.kes.svc:7373
+    keyName: nexo-default
+    existingSecret: nexo-kes
+cache:
+  enabled: true
+  mode: shared
+  volume:
+    type: pvc
+serviceMonitor:
+  enabled: true

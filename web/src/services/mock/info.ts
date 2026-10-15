@@ -53,6 +53,24 @@ export function sampleServerInfo(overrides: Partial<ServerInfo> = {}): ServerInf
     buckets: 3,
     objects: 12840,
     usage: 194 * 1024 ** 3,
+    tls: {
+      enabled: true,
+      minVersion: '1.2',
+      internodeVerify: false,
+      certificates: [
+        {
+          name: '',
+          domains: ['nexo.example.com', 'localhost'],
+          ips: ['127.0.0.1'],
+          subject: 'CN=nexo.example.com',
+          issuer: 'CN=Example CA',
+          notBefore: '2026-07-01T00:00:00Z',
+          notAfter: '2027-07-01T00:00:00Z',
+          fingerprint: '4f3c2a9e1b7d6c5a8e0f1d2c3b4a5968778695a4b3c2d1e0f9e8d7c6b5a49382',
+        },
+      ],
+    },
+    telemetry: { enabled: false, sampleRatio: 1 },
     ...overrides,
   };
 }

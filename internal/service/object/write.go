@@ -205,6 +205,7 @@ func (l *layer) writeObject(ctx context.Context, bucket, key string, body io.Rea
 			return domain.ObjectInfo{}, err
 		}
 	}
+	// #nosec G115 -- plainSize counts the bytes written, never negative
 	if cfg.QuotaBytes > 0 && uint64(plainSize) > cfg.QuotaBytes {
 		l.cleanupTmp(ctx, st, tmpDir)
 		return domain.ObjectInfo{}, fmt.Errorf("%w: object of %d bytes exceeds the bucket quota of %d bytes", domain.ErrQuotaExceeded, plainSize, cfg.QuotaBytes)

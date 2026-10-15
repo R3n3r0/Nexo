@@ -83,7 +83,12 @@ export const navigation: readonly NavItem[] = [
   },
   { key: 'cluster', path: '/cluster', icon: IconServer, requires: 'admin:ServerInfo' },
   { key: 'healing', path: '/healing', icon: IconFirstAidKit, requires: 'admin:Heal' },
-  { key: 'monitoring', path: '/monitoring', icon: IconActivity },
+  {
+    key: 'monitoring',
+    path: '/monitoring',
+    icon: IconActivity,
+    requiresAny: ['admin:Prometheus', 'admin:ServerInfo', 'admin:ServerTrace', 'admin:ConsoleLog'],
+  },
   {
     key: 'configuration',
     path: '/configuration',

@@ -26,7 +26,8 @@ func newAdminCmd(e *env) *cobra.Command {
 	cmd.Long = `Administer a Nexo server through its Admin API: server information and usage,
 users, groups, policies, access keys, configuration, service control, the export and
 import of the state of a deployment, the lock diagnostics, the KMS of the
-server-side encryption and the notification targets.
+server-side encryption, the notification targets, the runtime profiles and the
+speed tests.
 
 The Admin API is served by the console listener of the server: see --admin-url
 of "nexoctl alias set". Every subcommand takes the alias as its first argument.`
@@ -34,7 +35,7 @@ of "nexoctl alias set". Every subcommand takes the alias as its first argument.`
 		newAdminInfoCmd(e), newAdminUsageCmd(e), newAdminHealCmd(e),
 		newAdminUserCmd(e), newAdminGroupCmd(e), newAdminPolicyCmd(e), newAdminAccessKeyCmd(e),
 		newAdminConfigCmd(e), newAdminServiceCmd(e), newAdminClusterCmd(e), newAdminLockCmd(e),
-		newAdminKMSCmd(e), newAdminNotifyCmd(e),
+		newAdminKMSCmd(e), newAdminNotifyCmd(e), newAdminProfileCmd(e), newAdminSpeedtestCmd(e),
 	)
 	return cmd
 }
@@ -69,6 +70,7 @@ func (e *env) formatInfo(alias string, info *nexoadmin.ServerInfo) string {
 	p := e.out
 	fmt.Fprintf(&b, "%s  Nexo %s (commit %s, built %s)\n", p.Paint(cli.ColorBold, alias), info.Version, orDash(info.Commit), orDash(info.BuildDate))
 	fmt.Fprintf(&b, "Mode: %s  Region: %s  Deployment: %s\n", info.Mode, orDash(info.Region), orDash(info.DeploymentID))
+	// #nosec G115 -- display of server counters, sizes far below 2^63
 	fmt.Fprintf(&b, "Uptime: %s  Buckets: %d  Objects: %d  Usage: %s\n",
 		cli.HumanDuration(time.Duration(info.UptimeSeconds)*time.Second), info.Buckets, info.Objects, cli.HumanSize(int64(info.Usage)))
 	for _, pool := range info.Pools {
@@ -149,12 +151,12 @@ func (e *env) formatNode(b *strings.Builder, n nexoadmin.NodeInfo) {
 		}
 		fmt.Fprintf(b, "\n    %s  %s", path, dstate)
 		if d.Total > 0 {
-			fmt.Fprintf(b, "  used %s of %s (free %s)", cli.HumanSize(int64(d.Used)), cli.HumanSize(int64(d.Total)), cli.HumanSize(int64(d.Free)))
+			fmt.Fprintf(b, "  used %s of %s (free %s)", cli.HumanSize(int64(d.Used)), cli.HumanSize(int64(d.Total)), cli.HumanSize(int64(d.Free))) // #nosec G115 -- display of drive sizes, far below 2^63
 		}
 		if d.Healing {
 			b.WriteString("  healing")
 			if hp := d.HealingProgress; hp != nil {
-				fmt.Fprintf(b, " (%d object(s) healed, %d failed, %s", hp.ObjectsHealed, hp.ObjectsFailed, cli.HumanSize(int64(hp.BytesDone)))
+				fmt.Fprintf(b, " (%d object(s) healed, %d failed, %s", hp.ObjectsHealed, hp.ObjectsFailed, cli.HumanSize(int64(hp.BytesDone))) // #nosec G115 -- display of a byte counter, far below 2^63
 				if at := strings.TrimSuffix(hp.Bucket+"/"+hp.Object, "/"); at != "" {
 					fmt.Fprintf(b, ", at %s", at)
 				}
@@ -190,8 +192,9 @@ func newAdminUsageCmd(e *env) *cobra.Command {
 			fmt.Fprintf(&b, "%-10s %10s %10s  %s", "SIZE", "OBJECTS", "VERSIONS", "BUCKET")
 			for _, name := range cli.SortedKeys(du.Buckets) {
 				u := du.Buckets[name]
-				fmt.Fprintf(&b, "\n%-10s %10d %10d  %s", cli.HumanSize(int64(u.Size)), u.ObjectsCount, u.VersionsCount, name)
+				fmt.Fprintf(&b, "\n%-10s %10d %10d  %s", cli.HumanSize(int64(u.Size)), u.ObjectsCount, u.VersionsCount, name) // #nosec G115 -- display of a usage size, far below 2^63
 			}
+			// #nosec G115 -- display of a usage size, far below 2^63
 			fmt.Fprintf(&b, "\n%-10s %10d %10d  %s", cli.HumanSize(int64(du.TotalSize)), du.ObjectsCount, du.VersionsCount,
 				fmt.Sprintf("total (%d bucket(s))", du.BucketsCount))
 			return e.out.Result(adminUsageRecord{Alias: alias, DataUsage: *du}, b.String())
@@ -280,7 +283,7 @@ func (e *env) waitHeal(ctx context.Context, client cli.AdminClient, job *nexoadm
 	for !job.Finished && job.State == nexoadmin.HealRunning {
 		bar.SetLabel(fmt.Sprintf("scanned %d healed %d failed %d", job.Scanned, job.Healed, job.Failed))
 		if job.Bytes > bytes {
-			bar.Add(int64(job.Bytes - bytes))
+			bar.Add(int64(job.Bytes - bytes)) // #nosec G115 -- job.Bytes > bytes is checked just above
 			bytes = job.Bytes
 		}
 		t := time.NewTimer(interval)
@@ -328,7 +331,7 @@ func (e *env) formatHeal(job *nexoadmin.HealJob) string {
 		fmt.Fprintf(&b, ", dangling %d, removed %d", job.Dangling, job.Removed)
 	}
 	if job.Bytes > 0 {
-		fmt.Fprintf(&b, ", %s", cli.HumanSize(int64(job.Bytes)))
+		fmt.Fprintf(&b, ", %s", cli.HumanSize(int64(job.Bytes))) // #nosec G115 -- display of a byte counter, far below 2^63
 	}
 	if job.Current != "" {
 		fmt.Fprintf(&b, "\n  current: %s", job.Current)
@@ -584,7 +587,7 @@ func (e *env) readDocument(path string) ([]byte, error) {
 		}
 		return data, nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- a file the user named on the command line
 	if err != nil {
 		return nil, err
 	}

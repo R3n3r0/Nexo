@@ -414,7 +414,7 @@ func (s *service) rollback(ctx context.Context, r *record) {
 // --- records ----------------------------------------------------------------
 
 func (s *service) save(ctx context.Context, r *record) error {
-	raw, err := json.Marshal(r)
+	raw, err := json.Marshal(r) // #nosec G117 -- AccessKey is the public id of the share's service account, its secret is not in the record
 	if err != nil {
 		return fmt.Errorf("share: encode %s: %w", r.ID, err)
 	}

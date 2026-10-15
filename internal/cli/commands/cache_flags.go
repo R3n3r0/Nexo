@@ -237,7 +237,7 @@ func readSecretFlag(cmd *cobra.Command, value, file, flag string) (string, error
 	if cmd.Flags().Changed(flag) {
 		return "", cli.UsageError("--%s and --%s-file are mutually exclusive", flag, flag)
 	}
-	data, err := os.ReadFile(file)
+	data, err := os.ReadFile(file) // #nosec G304 -- a file the user named on the command line
 	if err != nil {
 		return "", err
 	}

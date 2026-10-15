@@ -275,7 +275,7 @@ func (s *xlStorage) syncDir(dir string) {
 	if !s.opts.fsync {
 		return
 	}
-	d, err := os.Open(dir)
+	d, err := os.Open(dir) // #nosec G304 -- a directory of a drive, resolved and checked by the storage layer
 	if err != nil {
 		return
 	}
@@ -314,7 +314,7 @@ func (s *xlStorage) pruneEmptyDirs(dir, stop string) {
 
 // openFile opens a regular file for reading without following links.
 func openFile(name string) (*os.File, os.FileInfo, error) {
-	f, err := os.OpenFile(name, os.O_RDONLY|oNoFollow, 0)
+	f, err := os.OpenFile(name, os.O_RDONLY|oNoFollow, 0) // #nosec G304 -- a file of a drive, resolved and checked by the storage layer (O_NOFOLLOW)
 	if err != nil {
 		return nil, nil, err
 	}

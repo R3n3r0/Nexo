@@ -112,7 +112,7 @@ func uploadIDTime(id string) (time.Time, bool) {
 	if err != nil || len(raw) != uploadIDLen {
 		return time.Time{}, false
 	}
-	return time.Unix(0, int64(binary.BigEndian.Uint64(raw[16:]))).UTC(), true
+	return time.Unix(0, int64(binary.BigEndian.Uint64(raw[16:]))).UTC(), true // #nosec G115 -- the bits of the int64 UnixNano written by newUploadID
 }
 
 // --- locking -----------------------------------------------------------------

@@ -1,0 +1,68 @@
+{{/* S3 API (and distributions) and console of the ready pods. */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nexo.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nexo.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  {{- if and (has .Values.service.type (list "NodePort" "LoadBalancer")) .Values.service.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ .Values.service.externalTrafficPolicy }}
+  {{- end }}
+  {{- if and (eq .Values.service.type "LoadBalancer") .Values.service.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+    {{- toYaml .Values.service.loadBalancerSourceRanges | nindent 4 }}
+  {{- end }}
+  selector:
+    {{- include "nexo.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: s3
+      port: {{ .Values.service.s3Port }}
+      targetPort: s3
+      protocol: TCP
+      {{- if and (has .Values.service.type (list "NodePort" "LoadBalancer")) .Values.service.nodePorts.s3 }}
+      nodePort: {{ .Values.service.nodePorts.s3 }}
+      {{- end }}
+    - name: console
+      port: {{ .Values.service.consolePort }}
+      targetPort: console
+      protocol: TCP
+      {{- if and (has .Values.service.type (list "NodePort" "LoadBalancer")) .Values.service.nodePorts.console }}
+      nodePort: {{ .Values.service.nodePorts.console }}
+      {{- end }}
+---
+{{/*
+Headless Service: stable DNS names of the pods
+(<fullname>-N.<fullname>-hl.<namespace>.svc.<domain>), used by the
+endpoints of the distributed mode and by the ServiceMonitor. The pods are
+published before they are ready: the nodes must find each other during
+the bootstrap.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nexo.headlessName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nexo.labels" . | nindent 4 }}
+    nexo.r3n3r0.io/service: headless
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    {{- include "nexo.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: s3
+      port: 9000
+      targetPort: s3
+      protocol: TCP
+    - name: console
+      port: 9001
+      targetPort: console
+      protocol: TCP

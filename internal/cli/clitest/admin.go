@@ -238,6 +238,8 @@ func (m *MemAdmin) Client(t TestingT, caller string) *climock.AdminClient {
 	c.EXPECT().HealStatus(x, x).RunAndReturn(s.healStatus).Maybe()
 	c.EXPECT().ListHeals(x).RunAndReturn(s.listHeals).Maybe()
 	c.EXPECT().RestartService(x).RunAndReturn(func(ctx context.Context) error { return s.service(ctx, "RestartService") }).Maybe()
+	c.EXPECT().Profile(x, x).RunAndReturn(s.profile).Maybe()
+	c.EXPECT().Speedtest(x, x, x).RunAndReturn(s.speedtest).Maybe()
 	c.EXPECT().StopService(x).RunAndReturn(func(ctx context.Context) error { return s.service(ctx, "StopService") }).Maybe()
 	c.EXPECT().ListUsers(x, x).RunAndReturn(s.listUsers).Maybe()
 	c.EXPECT().CreateUser(x, x).RunAndReturn(s.createUser).Maybe()

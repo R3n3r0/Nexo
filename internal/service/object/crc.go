@@ -51,7 +51,7 @@ func (c crcCombiner) decode(raw []byte) uint64 {
 func (c crcCombiner) encode(crc uint64) []byte {
 	out := make([]byte, c.size)
 	if c.width == 32 {
-		binary.BigEndian.PutUint32(out, uint32(crc))
+		binary.BigEndian.PutUint32(out, uint32(crc)) // #nosec G115 -- a 32-bit CRC kept in a uint64
 	} else {
 		binary.BigEndian.PutUint64(out, crc)
 	}

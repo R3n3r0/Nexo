@@ -52,6 +52,9 @@ type requirement struct {
 	// that show a resource the requester may use in part (the page of a
 	// bucket whose listing a home directory restricts).
 	partial bool
+	// any allows the request when one of actions is allowed (the metrics
+	// of the console: admin:Prometheus or admin:ServerInfo).
+	any bool
 }
 
 // global requires actions on the whole deployment.
@@ -67,6 +70,11 @@ func onBucket(actions ...policy.Action) requirement {
 // onObject requires actions on the object named by ?key=.
 func onObject(actions ...policy.Action) requirement {
 	return requirement{actions: actions, scope: scopeObject}
+}
+
+// anyOf requires one of actions on the whole deployment.
+func anyOf(actions ...policy.Action) requirement {
+	return requirement{actions: actions, scope: scopeGlobal, any: true}
 }
 
 // byService documents the actions the service authorizes itself.
@@ -132,10 +140,22 @@ type guard struct {
 	enc   httpx.Encoder
 }
 
-// register installs the routes behind their authorization.
+// register installs the routes behind their authorization. The route
+// names the operation of the request ("GET /buckets/{bucket}") for the
+// audit log, the live trace and the spans (httpx.SetOperationName).
 func (g guard) register(r chi.Router, routes []route) {
 	for _, rt := range routes {
-		r.With(g.middleware(rt.req)).Method(rt.method, rt.pattern, rt.handler)
+		r.With(operationName(rt.method+" "+rt.pattern), g.middleware(rt.req)).Method(rt.method, rt.pattern, rt.handler)
+	}
+}
+
+// operationName records the operation of the requests of a route.
+func operationName(name string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			httpx.SetOperationName(r.Context(), name)
+			next.ServeHTTP(w, r)
+		})
 	}
 }
 
@@ -160,6 +180,10 @@ func (g guard) middleware(req requirement) func(http.Handler) http.Handler {
 			}
 			if len(actions) == 0 {
 				next.ServeHTTP(w, r)
+				return
+			}
+			if req.any {
+				g.authorizeAny(w, r, next, actions)
 				return
 			}
 			in := adminsvc.AuthorizeInput{Requester: requesterOf(r), Actions: actions, Partial: req.partial}
@@ -196,6 +220,27 @@ func (g guard) middleware(req requirement) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// authorizeAny serves the request when one of the global actions is
+// allowed, and answers the denial of the first one otherwise.
+func (g guard) authorizeAny(w http.ResponseWriter, r *http.Request, next http.Handler, actions []policy.Action) {
+	var first adminsvc.Decision
+	for i, a := range actions {
+		d, err := g.authz.Authorize(r.Context(), adminsvc.AuthorizeInput{Requester: requesterOf(r), Actions: []policy.Action{a}})
+		if err != nil {
+			writeError(g.enc, w, r, err)
+			return
+		}
+		if d.Allowed {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if i == 0 {
+			first = d
+		}
+	}
+	problem(g.enc, w, r, http.StatusForbidden, codeAccessDenied, deniedDetail(first))
 }
 
 // mergeConditions returns base overlaid with extra (extra wins).

@@ -13,6 +13,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"math"
 	"strings"
 
 	"github.com/r3n3r0/nexo/internal/domain"
@@ -102,7 +103,9 @@ func (k ObjectKey) MarshalJSON() ([]byte, error) {
 // (nil: the unsalted derivation of the single part of a single-request
 // upload and of the parts written before part salts existed).
 func (k ObjectKey) partKey(n int, salt []byte) ([]byte, error) {
-	if n < 1 {
+	// The number is derived on 32 bits: a larger one would share the key
+	// of a smaller one.
+	if n < 1 || n > math.MaxUint32 {
 		return nil, fmt.Errorf("%w: crypto: part number %d", domain.ErrInvalidArgument, n)
 	}
 	if salt != nil && len(salt) != PartSaltSize {
@@ -115,7 +118,7 @@ func (k ObjectKey) partKey(n int, salt []byte) ([]byte, error) {
 	}
 	_, _ = mac.Write([]byte(label))
 	var num [4]byte
-	binary.BigEndian.PutUint32(num[:], uint32(n))
+	binary.BigEndian.PutUint32(num[:], uint32(n)) // #nosec G115 -- 1 <= n <= math.MaxUint32 is checked above
 	_, _ = mac.Write(num[:])
 	_, _ = mac.Write(salt)
 	return mac.Sum(nil), nil

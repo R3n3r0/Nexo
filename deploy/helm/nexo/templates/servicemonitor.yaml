@@ -1,0 +1,79 @@
+{{- if .Values.serviceMonitor.enabled }}
+{{- $fullname := include "nexo.fullname" . }}
+{{- $distributed := eq .Values.mode "distributed" }}
+{{/*
+Prometheus Operator ServiceMonitor on the headless Service: the node
+metrics of every pod; the cluster (and bucket) metrics, the same on every
+node, once through the S3 Service, from the target of the first pod.
+*/}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $fullname }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nexo.labels" . | nindent 4 }}
+    {{- with .Values.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  selector:
+    matchLabels:
+      {{- include "nexo.selectorLabels" . | nindent 6 }}
+      nexo.r3n3r0.io/service: headless
+  endpoints:
+    {{- $scopes := list (dict "scope" "node" "interval" .Values.serviceMonitor.interval "once" false) }}
+    {{- if .Values.serviceMonitor.cluster }}
+    {{- $scopes = append $scopes (dict "scope" "cluster" "interval" .Values.serviceMonitor.interval "once" true) }}
+    {{- end }}
+    {{- if .Values.serviceMonitor.bucket }}
+    {{- $scopes = append $scopes (dict "scope" "bucket" "interval" .Values.serviceMonitor.bucketInterval "once" true) }}
+    {{- end }}
+    {{- range $scopes }}
+    - port: s3
+      path: /nexo/metrics/v1/{{ .scope }}
+      scheme: {{ include "nexo.scheme" $ }}
+      interval: {{ .interval }}
+      scrapeTimeout: {{ $.Values.serviceMonitor.scrapeTimeout }}
+      {{- if $.Values.tls.enabled }}
+      tlsConfig:
+        serverName: {{ include "nexo.serviceHost" $ }}
+        {{- if $.Values.tls.caSecretName }}
+        ca:
+          secret:
+            name: {{ $.Values.tls.caSecretName }}
+            key: {{ $.Values.tls.caKey }}
+        {{- end }}
+      {{- end }}
+      {{- if $.Values.serviceMonitor.bearerTokenSecret.name }}
+      authorization:
+        type: Bearer
+        credentials:
+          name: {{ $.Values.serviceMonitor.bearerTokenSecret.name }}
+          key: {{ $.Values.serviceMonitor.bearerTokenSecret.key }}
+      {{- end }}
+      relabelings:
+        {{- if and .once $distributed }}
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          regex: {{ $fullname }}-0
+          action: keep
+        - targetLabel: __address__
+          replacement: {{ include "nexo.serviceHost" $ }}:{{ $.Values.service.s3Port }}
+        - targetLabel: instance
+          replacement: {{ $fullname }}
+        {{- end }}
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        {{- with $.Values.serviceMonitor.relabelings }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with $.Values.serviceMonitor.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- end }}
+{{- end }}

@@ -247,6 +247,113 @@ func (_c *Registry_Histogram_Call) RunAndReturn(run func(context.Context, metric
 	return _c
 }
 
+// Observe provides a mock function with given fields: ctx, def, kind, fn
+func (_m *Registry) Observe(ctx context.Context, def metrics.Definition, kind metrics.Kind, fn metrics.ObserveFunc) error {
+	ret := _m.Called(ctx, def, kind, fn)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Observe")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, metrics.Definition, metrics.Kind, metrics.ObserveFunc) error); ok {
+		r0 = rf(ctx, def, kind, fn)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Registry_Observe_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Observe'
+type Registry_Observe_Call struct {
+	*mock.Call
+}
+
+// Observe is a helper method to define mock.On call
+//   - ctx context.Context
+//   - def metrics.Definition
+//   - kind metrics.Kind
+//   - fn metrics.ObserveFunc
+func (_e *Registry_Expecter) Observe(ctx interface{}, def interface{}, kind interface{}, fn interface{}) *Registry_Observe_Call {
+	return &Registry_Observe_Call{Call: _e.mock.On("Observe", ctx, def, kind, fn)}
+}
+
+func (_c *Registry_Observe_Call) Run(run func(ctx context.Context, def metrics.Definition, kind metrics.Kind, fn metrics.ObserveFunc)) *Registry_Observe_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(metrics.Definition), args[2].(metrics.Kind), args[3].(metrics.ObserveFunc))
+	})
+	return _c
+}
+
+func (_c *Registry_Observe_Call) Return(_a0 error) *Registry_Observe_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Registry_Observe_Call) RunAndReturn(run func(context.Context, metrics.Definition, metrics.Kind, metrics.ObserveFunc) error) *Registry_Observe_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Snapshot provides a mock function with given fields: ctx
+func (_m *Registry) Snapshot(ctx context.Context) ([]metrics.Family, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Snapshot")
+	}
+
+	var r0 []metrics.Family
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]metrics.Family, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []metrics.Family); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]metrics.Family)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Registry_Snapshot_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Snapshot'
+type Registry_Snapshot_Call struct {
+	*mock.Call
+}
+
+// Snapshot is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *Registry_Expecter) Snapshot(ctx interface{}) *Registry_Snapshot_Call {
+	return &Registry_Snapshot_Call{Call: _e.mock.On("Snapshot", ctx)}
+}
+
+func (_c *Registry_Snapshot_Call) Run(run func(ctx context.Context)) *Registry_Snapshot_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *Registry_Snapshot_Call) Return(_a0 []metrics.Family, _a1 error) *Registry_Snapshot_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Registry_Snapshot_Call) RunAndReturn(run func(context.Context) ([]metrics.Family, error)) *Registry_Snapshot_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewRegistry creates a new instance of Registry. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewRegistry(t interface {

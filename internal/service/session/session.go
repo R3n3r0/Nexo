@@ -58,7 +58,7 @@ const sessionKeyInfo = "nexo-console-session-v2"
 func DeriveKey(accessKey, secretKey, deploymentID string) []byte {
 	// The access key is length-prefixed: no two credential pairs share
 	// the input key material.
-	ikm := binary.BigEndian.AppendUint32(nil, uint32(len(accessKey)))
+	ikm := binary.BigEndian.AppendUint32(nil, uint32(len(accessKey))) // #nosec G115 -- the length of an access key, bounded by the request limits
 	ikm = append(append(ikm, accessKey...), secretKey...)
 	k, err := hkdf.Key(sha256.New, ikm, []byte(deploymentID), sessionKeyInfo, 32)
 	if err != nil {

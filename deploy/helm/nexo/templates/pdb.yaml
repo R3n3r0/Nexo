@@ -1,0 +1,19 @@
+{{- if and (eq .Values.mode "distributed") .Values.podDisruptionBudget.enabled }}
+{{/*
+Voluntary disruptions (node drains, cluster upgrades) evict at most
+maxUnavailable pods at a time, so that the erasure sets keep their read
+and write quorum.
+*/}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "nexo.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nexo.labels" . | nindent 4 }}
+spec:
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "nexo.selectorLabels" . | nindent 6 }}
+{{- end }}

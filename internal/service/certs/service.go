@@ -20,11 +20,18 @@
 // the valid certificate expiring last winning; it answers the
 // "acme-tls/1" handshakes of the TLS-ALPN-01 validation with the challenge
 // certificate.
+//
+// Keystore serves the certificates of the server itself, read from the
+// certificates directory (--certs-dir, docs/07 §7.3) and reloaded at
+// runtime without interrupting the established connections; the listeners
+// chain the two: the certificates of the distributions first, for the
+// names they cover, then the keystore.
 package certs
 
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"log/slog"
 	"time"
 
@@ -186,6 +193,76 @@ type Deps struct {
 	// carries (tests only).
 	Hosts HostSource
 	// Metrics exposes the expiration of the certificates (optional).
+	Metrics metrics.Registry
+	Clock   clock.Clock
+	Logger  *slog.Logger
+}
+
+// --- certificates of the server (certificates directory) -----------------------
+
+// KeyPair describes a certificate of the certificates directory (never its
+// key).
+type KeyPair struct {
+	// Name is "" for the default certificate (public.crt), the name of its
+	// sub-directory for a certificate selected by SNI.
+	Name string `json:"name"`
+	// Domains are the DNS names of the leaf certificate, IPs its addresses.
+	Domains     []string  `json:"domains,omitempty"`
+	IPs         []string  `json:"ips,omitempty"`
+	Subject     string    `json:"subject"`
+	Issuer      string    `json:"issuer"`
+	NotBefore   time.Time `json:"notBefore"`
+	NotAfter    time.Time `json:"notAfter"`
+	Fingerprint string    `json:"fingerprint"`
+}
+
+// Keystore serves the TLS material of the listeners of the server from the
+// certificates directory (--certs-dir, docs/07 §7.3):
+//
+//	<dir>/public.crt, <dir>/private.key        the default certificate (required)
+//	<dir>/<name>/public.crt, private.key       more certificates, selected by SNI
+//	<dir>/CAs/*                                 the CA certificates trusted for the peers
+//
+// It reloads the directory without a restart when its files change
+// (watched, with a debounce, and polled as a safety net) and on Reload (the
+// SIGHUP of the operator): every handshake reads the current material, so a
+// reload applies to the next handshake while the established connections
+// keep theirs. A reload that fails (a key that does not match its
+// certificate, a file half written...) keeps the previous material and is
+// logged; the initial load fails NewKeystore.
+//
+// GetCertificate, GetClientCertificate, ClientCAs and RootCAs read the
+// material in memory: they never block nor do I/O (the documented exception
+// to the context rule for the TLS callbacks and the pure accessors).
+type Keystore interface {
+	lifecycle.Runner
+	// GetCertificate selects the certificate of a handshake: the
+	// certificate of a sub-directory whose leaf names the server name
+	// exactly, then one whose wildcard covers it (the valid one expiring
+	// last wins), the default certificate otherwise.
+	GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error)
+	// GetClientCertificate returns the default certificate, presented by
+	// the node to its peers (mutual TLS between the nodes).
+	GetClientCertificate(info *tls.CertificateRequestInfo) (*tls.Certificate, error)
+	// ClientCAs returns the CAs verifying the client certificates of the
+	// peers: the certificates of CAs/ and of public.crt. Pure accessor.
+	ClientCAs() *x509.CertPool
+	// RootCAs returns the CAs verifying the server certificates of the
+	// peers: the system roots, the certificates of CAs/ and of
+	// public.crt. Pure accessor.
+	RootCAs() *x509.CertPool
+	// Reload reads the directory again now; on error the current material
+	// is kept.
+	Reload(ctx context.Context) error
+	// KeyPairs describes the loaded certificates, the default one first,
+	// then by name.
+	KeyPairs(ctx context.Context) []KeyPair
+}
+
+// KeystoreDeps are the dependencies of the keystore.
+type KeystoreDeps struct {
+	// Metrics exposes the expiration of the certificates and the reloads
+	// (optional).
 	Metrics metrics.Registry
 	Clock   clock.Clock
 	Logger  *slog.Logger

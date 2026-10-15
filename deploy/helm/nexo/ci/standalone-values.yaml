@@ -1,0 +1,20 @@
+# helm lint / template / kubeconform: standalone, one drive (SNSD), with
+# the S3 and console Ingresses and the disk cache.
+mode: standalone
+auth:
+  rootPassword: ci-password-123
+ingress:
+  s3:
+    enabled: true
+    className: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    hosts: [s3.nexo.test]
+    tls:
+      - secretName: s3-nexo-test-tls
+        hosts: [s3.nexo.test]
+  console:
+    enabled: true
+    hosts: [console.nexo.test]
+cache:
+  enabled: true

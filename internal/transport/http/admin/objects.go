@@ -550,6 +550,7 @@ func downloadCookie(r *http.Request) *http.Cookie {
 			return nil
 		}
 	}
+	// #nosec G124 -- a download marker read by the console script (not HttpOnly, no secret); Secure follows the client connection
 	return &http.Cookie{
 		Name: DownloadCookiePrefix + token, Value: "1", Path: "/", MaxAge: 60,
 		SameSite: http.SameSiteStrictMode, Secure: middleware.ClientOf(r).Secure,

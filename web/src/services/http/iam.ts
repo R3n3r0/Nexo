@@ -1,15 +1,8 @@
-import type {
-  AccessKeyService,
-  GroupService,
-  PermissionService,
-  PolicyService,
-  UserService,
-} from '../interfaces';
+import type { AccessKeyService, GroupService, PolicyService, UserService } from '../interfaces';
 import type {
   AccessKey,
   CreatedAccessKey,
   Group,
-  Permissions,
   Policy,
   PolicyEntities,
   Simulation,
@@ -127,13 +120,6 @@ export function createHttpAccessKeyService(client: HttpClient): AccessKeyService
   };
 }
 
-/** PermissionService over GET /me/permissions. */
-export function createHttpPermissionService(client: HttpClient): PermissionService {
-  return {
-    get(query) {
-      return client.request<Permissions>('/me/permissions', {
-        query: { user: query?.user, bucket: query?.bucket, prefix: query?.prefix },
-      });
-    },
-  };
-}
+// The permissions are read by the shell of the console at once: they live
+// in their own module, out of the IAM services loaded with their pages.
+export { createHttpPermissionService } from './permissions';

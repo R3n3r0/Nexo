@@ -271,6 +271,33 @@ circa 3 ms da nodo1 a nodo4; TCD-03: decine di ms attraverso i proxy).
 | T-9.7 | Accessibilità e i18n completi dashboard (D-UX-01) | M8 | axe senza violazioni serious/critical |
 | T-9.8 | Test di upgrade (v1.0-rc → v1.0) con dati esistenti, rolling restart | T-9.5 | Nessuna perdita dati |
 
+**Stato di T-9.2, T-9.3, T-9.4 (hardening).**
+- T-9.2: benchmark `warp` v1.8.2 in SNSD, SNMD e cluster di 4 processi (`make bench`, `test/bench/warp.sh`),
+  profiling via Admin API (`GET /api/v1/profile`, `nexoctl admin profile`) e speed test (`POST /api/v1/speedtest/*`,
+  `nexoctl admin speedtest`, S-OPS-11, anticipato da T-10.7); ottimizzazioni misurate (buffer di erasure coding
+  riciclati e dimensionati sulla parte, buffer di scrittura dei drive riciclati): report in
+  [docs/bench/README.md](bench/README.md). O_DIRECT e zero-copy restano aperti.
+- T-9.3: threat model STRIDE per superficie, `make security` (govulncheck, gosec, npm audit) e job CI `security`,
+  24 target di fuzzing (`make fuzz`, job notturno `fuzz-nightly`): [docs/security/threat-model.md](security/threat-model.md).
+  Aperte le vulnerabilità della libreria standard di Go 1.24 e di `x/net`/`x/text`/pgx che richiedono la toolchain
+  Go 1.26 (remediation in §10.1 del threat model); manca il pen test della console.
+- T-9.4: keystore di `--certs-dir` con SNI, ricarica a caldo (fsnotify e SIGHUP) senza interrompere le connessioni,
+  TLS ≥ 1.2 (`--tls-min-version`), catena con i certificati delle distribuzioni ([docs/07 §7.3](07-sicurezza-operativita.md#73-tls)).
+
+**Stato di T-9.5 (packaging).** Configurazione completa e validata in locale, nessuna release pubblicata (la
+"release candidata pubblicata" del DoD richiede il primo tag `v1.0.0-rc.1`): [docs/08 §8.7](08-modalita-deploy.md#87-rilascio-t-95).
+- GoReleaser v2.18.3 (`goreleaser check` senza deprecazioni; `make release-snapshot` costruisce gli 11 binari
+  con la console, 11 archivi + sorgenti, 8 pacchetti deb/rpm `nexo`/`nexoctl`, checksum, 11 SBOM SPDX, cask
+  Homebrew); con un demone Docker `make release-snapshot RELEASE_SKIP=sign` costruisce anche le immagini
+  linux/amd64 e linux/arm64 (`dockers_v2`; il container amd64 è `healthy` in 6 s, UID 65532). Push, attestazioni
+  SBOM/provenance, firme cosign keyless (bundle Sigstore) e chart OCI solo nel workflow `release.yml`.
+- TM-10: `packaging/smoke.sh` (versione = tag, `--dry-run`, server, console, round trip S3, SIGTERM) verde su
+  linux/amd64 e linux/arm64 con QEMU; job `smoke` della release su darwin e windows. TM-11: job `verify`
+  (firme di checksum e immagini, attestazioni SBOM, trivy).
+- Helm chart `deploy/helm/nexo` (`standalone`/`distributed`, `helm test`), stack Swarm `deploy/swarm`, unit
+  systemd con sandbox (esposizione 1,5), job CI `packaging` (snapshot, pacchetti installati, chart, unit,
+  Dockerfile).
+
 ## M10 — Post v1.0 (P2)
 
 | ID | Task |

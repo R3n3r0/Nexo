@@ -19,8 +19,46 @@ type AuditDeps struct {
 	Clock clock.Clock
 }
 
+// AuditOption configures the audit middleware.
+type AuditOption func(*auditOptions)
+
+type auditOptions struct {
+	typ     string
+	domains []string
+	only    func(r *http.Request) bool
+}
+
+// Types of the audited requests (audit.Entry.Type).
+const (
+	AuditTypeS3    = "s3"
+	AuditTypeAdmin = "admin"
+)
+
+// WithAuditType sets the type of the entries (default AuditTypeS3); the
+// entries of the Admin API (AuditTypeAdmin) name the bucket of their path.
+func WithAuditType(t string) AuditOption {
+	return func(o *auditOptions) {
+		if t != "" {
+			o.typ = t
+		}
+	}
+}
+
+// WithAuditDomains names the bucket of the virtual-host requests
+// ("<bucket>.<domain>").
+func WithAuditDomains(domains ...string) AuditOption {
+	return func(o *auditOptions) { o.domains = domains }
+}
+
+// WithAuditOnly audits the requests only selects (default: every
+// request); the console audits its API, not the assets of the web UI.
+func WithAuditOnly(only func(r *http.Request) bool) AuditOption {
+	return func(o *auditOptions) { o.only = only }
+}
+
 type auditMiddleware struct {
 	deps AuditDeps
+	opts auditOptions
 }
 
 var _ Middleware = (*auditMiddleware)(nil)
@@ -33,53 +71,65 @@ var _ Middleware = (*auditMiddleware)(nil)
 // run before (outside) the auth middleware, so that the requests rejected
 // by the authentication are recorded too. A missing auditor is a wiring
 // error (domain.ErrInvalidArgument).
-func NewAudit(deps AuditDeps) (Middleware, error) {
+func NewAudit(deps AuditDeps, opts ...AuditOption) (Middleware, error) {
 	if deps.Auditor == nil {
 		return nil, fmt.Errorf("%w: audit middleware requires an auditor", domain.ErrInvalidArgument)
 	}
 	if deps.Clock == nil {
 		deps.Clock = clock.NewReal()
 	}
-	return &auditMiddleware{deps: deps}, nil
+	o := auditOptions{typ: AuditTypeS3}
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return &auditMiddleware{deps: deps, opts: o}, nil
 }
 
 // Wrap implements Middleware.
 func (m *auditMiddleware) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if m.opts.only != nil && !m.opts.only(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		start := m.deps.Clock.Now()
-		ctx, holder := httpx.WithOperationHolder(r.Context())
-		ctx = WithIdentityHolder(ctx)
+		ctx, holder := observe(r.Context())
 		rw := wrapWriter(w)
-		next.ServeHTTP(rw, r.WithContext(ctx))
+		r = r.WithContext(ctx)
+		received := countBody(r)
+		next.ServeHTTP(rw, r)
 
-		bucket, object := splitPath(r.URL.Path)
+		bucket, object := targetOf(r, m.opts.domains)
+		if m.opts.typ == AuditTypeAdmin {
+			bucket, object = adminBucket(r.URL.Path), r.URL.Query().Get("key")
+		}
 		entry := audit.Entry{
 			Version:    audit.EntryVersion,
+			Type:       m.opts.typ,
 			Time:       start,
-			RequestID:  httpx.RequestIDFrom(r.Context()),
+			RequestID:  requestIDOf(ctx, rw),
 			RemoteHost: ClientOf(r).IP,
 			UserAgent:  r.UserAgent(),
 			API: audit.API{
 				Name:           holder.Name(),
+				Method:         r.Method,
+				Path:           r.URL.Path,
 				Bucket:         bucket,
 				Object:         object,
 				Status:         http.StatusText(rw.Status()),
 				StatusCode:     rw.Status(),
-				InputBytes:     max(r.ContentLength, 0),
+				InputBytes:     received(),
 				OutputBytes:    rw.bytes,
 				TimeToResponse: m.deps.Clock.Now().Sub(start),
 			},
 			// Presigned signatures and tokens are capabilities: never logged.
 			ReqQuery: flatten(httpx.RedactQuery(r.URL.Query())),
+			Error:    statusError(rw.Status()),
 		}
 		if entry.API.Name == "" {
 			entry.API.Name = r.Method + " " + r.URL.Path
 		}
-		id, ok := HeldIdentity(ctx)
-		if !ok { // authenticated before this middleware
-			id, ok = IdentityFromContext(ctx)
-		}
-		if ok {
+		if id, ok := callerOf(ctx); ok {
 			entry.AccessKey = id.AccessKey
 			entry.ParentUser = id.Parent
 		}

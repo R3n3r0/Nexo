@@ -23,10 +23,10 @@ const (
 const (
 	fieldPolicy        = "policy"
 	fieldAlgorithm     = "x-amz-algorithm"
-	fieldCredential    = "x-amz-credential"
+	fieldCredential    = "x-amz-credential" // #nosec G101 -- a POST policy form field name, not a credential
 	fieldDate          = "x-amz-date"
 	fieldSignature     = "x-amz-signature"
-	fieldSecurityToken = "x-amz-security-token"
+	fieldSecurityToken = "x-amz-security-token" // #nosec G101 -- a POST policy form field name, not a credential
 	fieldBucket        = "bucket"
 	fieldKey           = "key"
 	fieldFile          = "file"

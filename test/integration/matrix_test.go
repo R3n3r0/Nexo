@@ -167,6 +167,10 @@ func suite() []suiteTest {
 		{name: "TestCacheSharedMode", fn: TestCacheSharedMode},
 		{name: "TestCacheKeyIsUnambiguous", fn: TestCacheKeyIsUnambiguous},
 		{name: "TestCacheStaleIfOriginDown", fn: TestCacheStaleIfOriginDown},
+		{name: "TestDiagnostics", fn: TestDiagnostics},
+		{name: "TestLiveTrace", fn: TestLiveTrace},
+		{name: "TestAuditLog", fn: TestAuditLog},
+		{name: "TestClusterMetrics", fn: TestClusterMetrics},
 	}
 }
 

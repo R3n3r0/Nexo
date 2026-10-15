@@ -161,7 +161,7 @@ func (s *fileKeyStore) Create(ctx context.Context, key KeyInfo) error {
 		return err
 	}
 	path := filepath.Join(s.dir, key.Name+keyDocSuffix)
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) // #nosec G304 -- a key file of the key store directory, named after a validated key name
 	if errors.Is(err, fs.ErrExist) {
 		return fmt.Errorf("kms key store: %q: %w", key.Name, domain.ErrKMSKeyExists)
 	}
@@ -192,7 +192,7 @@ func (s *fileKeyStore) Get(ctx context.Context, name string) (KeyInfo, error) {
 	if err := validKeyName(name); err != nil {
 		return KeyInfo{}, err
 	}
-	data, err := os.ReadFile(filepath.Join(s.dir, name+keyDocSuffix))
+	data, err := os.ReadFile(filepath.Join(s.dir, name+keyDocSuffix)) // #nosec G304 -- a key file of the key store directory, named after a validated key name
 	if errors.Is(err, fs.ErrNotExist) {
 		return KeyInfo{}, fmt.Errorf("kms key store: %q: %w", name, domain.ErrKMSKeyNotFound)
 	}

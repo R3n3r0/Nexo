@@ -185,6 +185,7 @@ func (c *chunkedReader) nextChunk() error {
 	if err != nil {
 		return errMalformedChunk("invalid chunk size " + strconv.Quote(sizeHex))
 	}
+	// #nosec G115 -- decoded never exceeds the non-negative decodedLength
 	if size > uint64(c.cfg.decodedLength-c.decoded) {
 		return errIncomplete("the payload is longer than x-amz-decoded-content-length")
 	}
@@ -196,7 +197,7 @@ func (c *chunkedReader) nextChunk() error {
 		}
 		c.chunkSig = sig
 	}
-	c.remaining = int64(size)
+	c.remaining = int64(size) // #nosec G115 -- size is at most decodedLength-decoded (checked above)
 	c.chunkHash.Reset()
 	if size > 0 {
 		c.inChunk = true

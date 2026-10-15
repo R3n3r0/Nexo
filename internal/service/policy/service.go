@@ -370,7 +370,7 @@ const (
 	ActionPutObjectRetention         Action = "s3:PutObjectRetention"
 	ActionGetObjectLegalHold         Action = "s3:GetObjectLegalHold"
 	ActionPutObjectLegalHold         Action = "s3:PutObjectLegalHold"
-	ActionBypassGovernanceRetention  Action = "s3:BypassGovernanceRetention"
+	ActionBypassGovernanceRetention  Action = "s3:BypassGovernanceRetention" // #nosec G101 -- an IAM action name, not a credential
 	ActionGetObjectAttributes        Action = "s3:GetObjectAttributes"
 	ActionGetObjectVersionAttributes Action = "s3:GetObjectVersionAttributes"
 	// ActionAdminApplyLifecycle authorizes the immediate application of
@@ -399,6 +399,12 @@ const (
 	// (invalidations and warm-ups), assignable alone (a deploy pipeline).
 	ActionAdminManageCache     Action = "admin:ManageCache"
 	ActionAdminInvalidateCache Action = "admin:InvalidateCache"
+	// Diagnostics of the server (S-OPS-11): ActionAdminProfiling
+	// authorizes the runtime profiles (pprof), ActionAdminSpeedtest the
+	// speed tests of the drives, of the object layer and of the network
+	// between the nodes. The diagnostics policy grants both.
+	ActionAdminProfiling Action = "admin:Profiling"
+	ActionAdminSpeedtest Action = "admin:Speedtest"
 )
 
 // Service is the policy engine and the IAM policy store.

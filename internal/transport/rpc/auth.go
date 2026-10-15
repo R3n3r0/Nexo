@@ -22,7 +22,7 @@ import (
 // Token parameters of the internode authentication.
 const (
 	tokenIssuer   = "nexo"
-	tokenAudience = "nexo-internode"
+	tokenAudience = "nexo-internode" // #nosec G101 -- the audience of the internode tokens, not a credential
 	// keyInfo is the HKDF context of the signing key: changing it changes
 	// every key, so it is versioned like the protocol.
 	keyInfo = "nexo internode rpc v1"

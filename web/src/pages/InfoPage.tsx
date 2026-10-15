@@ -17,6 +17,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { TelemetryStatus, TlsStatus } from '@/components/observability/ServerTelemetry';
 import { formatDuration } from '@/lib/format';
 import { problemMessage } from '@/lib/problem';
 import { serverInfoQueryKey } from '@/lib/serverInfo';
@@ -33,7 +34,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-/** D-CFG-02: version, build, deployment ID, mode and KMS of the server. */
+/** D-CFG-02: version, build, deployment ID, mode, KMS, TLS and tracing of the server. */
 export function InfoPage() {
   const { t, i18n } = useTranslation();
   const { info } = useServices();
@@ -130,6 +131,34 @@ export function InfoPage() {
               {t('kms.keysList', { keys: (data.kms.keys ?? []).join(', ') })}
             </Text>
           ) : null}
+        </Paper>
+      ) : null}
+      {data !== undefined ? (
+        <Paper
+          withBorder
+          radius="md"
+          p="md"
+          component="section"
+          aria-label={t('observability.tls.title')}
+        >
+          <Title order={4} mb="sm">
+            {t('observability.tls.title')}
+          </Title>
+          <TlsStatus tls={data.tls} />
+        </Paper>
+      ) : null}
+      {data !== undefined ? (
+        <Paper
+          withBorder
+          radius="md"
+          p="md"
+          component="section"
+          aria-label={t('observability.telemetry.title')}
+        >
+          <Title order={4} mb="sm">
+            {t('observability.telemetry.title')}
+          </Title>
+          <TelemetryStatus telemetry={data.telemetry} />
         </Paper>
       ) : null}
       {data && data.pools.length > 0 ? (
