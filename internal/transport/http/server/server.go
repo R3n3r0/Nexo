@@ -108,7 +108,8 @@ func WithoutH2C() Option {
 
 // WithSendTimeout bounds how long a write of a response may stall
 // (default httpx.DefaultSendTimeout; <= 0 disables the bound): every
-// response of the server, see stallGuard.
+// response of the server, see stallGuard, and every HTTP/2 connection,
+// closed when it accepts no byte for that long.
 func WithSendTimeout(d time.Duration) Option {
 	return func(s *service) { s.sendTimeout = d }
 }
@@ -277,32 +278,9 @@ func (s *service) Start(ctx context.Context) error {
 		}
 		ln = pln
 	}
-	handler := s.handler
-	h2cfg := s.http2
-	srv := &http.Server{
-		Handler:           handler,
-		ReadHeaderTimeout: s.readHeaderTimeout,
-		IdleTimeout:       s.idleTimeout,
-		ErrorLog:          slog.NewLogLogger(s.deps.Logger.Handler(), slog.LevelWarn),
-		TLSConfig:         tlsCfg,
-		// The windows of net/http unless the listener serves the
-		// internode RPC (WithHTTP2Windows).
-		HTTP2: &h2cfg,
-	}
-	if s.proxyProtocol {
-		srv.ConnContext = proxyConnContext
-	}
+	srv := s.httpServer(tlsCfg)
 	if tlsCfg != nil {
 		ln = tls.NewListener(ln, tlsCfg)
-	} else if s.h2c {
-		// Cleartext HTTP/2 with prior knowledge (the internode RPC) served
-		// by net/http itself rather than by a hijacking h2c handler: the
-		// server tracks these connections, so Shutdown closes them and a
-		// stopped node stops answering its peers.
-		var protocols http.Protocols
-		protocols.SetHTTP1(true)
-		protocols.SetUnencryptedHTTP2(true)
-		srv.Protocols = &protocols
 	}
 	s.listener = ln
 	s.srv = srv
@@ -317,6 +295,49 @@ func (s *service) Start(ctx context.Context) error {
 		close(errCh)
 	}(s.serveErr)
 	return nil
+}
+
+// httpServer returns the net/http server of the listener, with TLS when
+// tlsCfg is not nil.
+func (s *service) httpServer(tlsCfg *tls.Config) *http.Server {
+	h2cfg := s.http2
+	if s.sendTimeout > 0 && h2cfg.WriteByteTimeout == 0 {
+		// An HTTP/2 connection that accepts no byte for the send timeout
+		// is closed with all its streams: a client that announces large
+		// windows and stops draining its socket blocks the writer of the
+		// connection, behind which the reset of a stalled stream
+		// (stallGuard) waits forever.
+		h2cfg.WriteByteTimeout = s.sendTimeout
+	}
+	srv := &http.Server{
+		Handler:           s.handler,
+		ReadHeaderTimeout: s.readHeaderTimeout,
+		IdleTimeout:       s.idleTimeout,
+		ErrorLog:          slog.NewLogLogger(s.deps.Logger.Handler(), slog.LevelWarn),
+		TLSConfig:         tlsCfg,
+		// The windows of net/http unless the listener serves the
+		// internode RPC (WithHTTP2Windows).
+		HTTP2: &h2cfg,
+		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
+			// The requests in progress on the connection (stallGuard).
+			ctx = withConnRequests(ctx)
+			if s.proxyProtocol {
+				ctx = proxyConnContext(ctx, c)
+			}
+			return ctx
+		},
+	}
+	if tlsCfg == nil && s.h2c {
+		// Cleartext HTTP/2 with prior knowledge (the internode RPC) served
+		// by net/http itself rather than by a hijacking h2c handler: the
+		// server tracks these connections, so Shutdown closes them and a
+		// stopped node stops answering its peers.
+		var protocols http.Protocols
+		protocols.SetHTTP1(true)
+		protocols.SetUnencryptedHTTP2(true)
+		srv.Protocols = &protocols
+	}
+	return srv
 }
 
 // buildTLS returns the TLS configuration of the listener, nil without

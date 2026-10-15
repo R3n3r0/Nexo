@@ -103,7 +103,7 @@ func (m *auditMiddleware) Wrap(next http.Handler) http.Handler {
 		if m.opts.typ == AuditTypeAdmin {
 			bucket, object = adminBucket(r.URL.Path), r.URL.Query().Get("key")
 		}
-		if id, ok := callerOf(ctx); bucket == "" && probe(r.URL.Path, id, ok) {
+		if id, ok := callerOf(ctx); bucket == "" && probe(r, rw.Status(), id, ok) {
 			// The health probes of the load balancers and of Kubernetes,
 			// and the anonymous scrapes: every few seconds per node, they
 			// would push the requests of the users out of the ring.
@@ -165,21 +165,46 @@ func flatten(values map[string][]string) map[string]string {
 }
 
 // probePrefixes are the paths of the probes the audit leaves out: the
-// health checks, and the metrics scrapes when anonymous (a bearer token is
-// no identity of the request).
+// health checks and the metrics scrapes, when anonymous.
 const (
 	healthPrefix  = "/nexo/health/"
 	metricsPrefix = "/nexo/metrics/"
 )
 
-// probe reports a request the audit does not record: a health probe, or an
-// anonymous metrics scrape, outside any bucket.
-func probe(path string, id *domain.Identity, ok bool) bool {
+// probe reports a request the audit does not record, outside any bucket:
+// an anonymous health probe, whatever the health it reports, or an
+// anonymous metrics scrape served (NEXO_PROMETHEUS_AUTH_TYPE=public). A
+// request that presents credentials (a signature, a bearer token: an
+// attempt to authenticate, valid or not) and a refused scrape are recorded
+// like any other.
+func probe(r *http.Request, status int, id *domain.Identity, ok bool) bool {
+	if authenticated(id, ok) || presentsCredentials(r) {
+		return false
+	}
 	switch {
-	case strings.HasPrefix(path, healthPrefix):
+	case strings.HasPrefix(r.URL.Path, healthPrefix):
 		return true
-	case strings.HasPrefix(path, metricsPrefix):
-		return !authenticated(id, ok)
+	case strings.HasPrefix(r.URL.Path, metricsPrefix):
+		return status < http.StatusBadRequest
+	}
+	return false
+}
+
+// credentialParams are the query parameters of the presigned and
+// signature V2 credentials.
+var credentialParams = []string{"X-Amz-Credential", "X-Amz-Signature", "AWSAccessKeyId", "Signature"}
+
+// presentsCredentials reports a request carrying credentials: an
+// Authorization header (SigV4, bearer token) or a presigned signature.
+func presentsCredentials(r *http.Request) bool {
+	if r.Header.Get("Authorization") != "" {
+		return true
+	}
+	q := r.URL.Query()
+	for _, k := range credentialParams {
+		if q.Has(k) {
+			return true
+		}
 	}
 	return false
 }

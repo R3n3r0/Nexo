@@ -1,9 +1,12 @@
 package cluster_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -26,6 +29,33 @@ type deployment struct {
 	base  string
 	ports []int
 	args  []string
+	// logger receives the logs of the bootstrappers (discarded when nil).
+	logger *slog.Logger
+}
+
+// logBuffer collects the text logs of a bootstrapper.
+type logBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (l *logBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.Write(p)
+}
+
+func (l *logBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.buf.String()
+}
+
+// captureLogs sends the logs of the bootstrappers of d to the returned buffer.
+func (d *deployment) captureLogs() *logBuffer {
+	logs := &logBuffer{}
+	d.logger = slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	return logs
 }
 
 func newDeployment(t *testing.T) *deployment {
@@ -110,7 +140,11 @@ func (d *deployment) bootstrapper(t *testing.T, n int, drives []storage.StorageA
 	peers, states := d.peers(t, n, l)
 	base := []cluster.BootstrapOption{cluster.WithBootstrapBackoff(10*time.Millisecond, 50*time.Millisecond), cluster.WithBootstrapVersion("v1.0.0")}
 	topo := topology.New(topology.Deps{Logger: discard()})
-	b, err := cluster.NewBootstrapper(cluster.BootstrapDeps{Layout: l, Topology: topo, Drives: drives, Peers: peers, Logger: discard()}, append(base, opts...)...)
+	logger := d.logger
+	if logger == nil {
+		logger = discard()
+	}
+	b, err := cluster.NewBootstrapper(cluster.BootstrapDeps{Layout: l, Topology: topo, Drives: drives, Peers: peers, Logger: logger}, append(base, opts...)...)
 	require.NoError(t, err)
 	return b, states
 }
@@ -276,9 +310,12 @@ func TestBootstrapReplacementDrive(t *testing.T) {
 		require.NoError(t, drives[i].Delete(ctx, domain.SystemBucket, storage.FormatFile, storage.DeleteOptions{}))
 		require.NoError(t, drives[i].DeleteVol(ctx, "photos", true))
 	}
+	logs := d.captureLogs()
 	second, _ := d.bootstrapper(t, 1, drives)
 	res2, err := second.Bootstrap(ctx)
 	require.NoError(t, err)
+	assert.Contains(t, logs.String(), `level=WARN msg="cluster: empty local drives in an existing deployment, formatting them"`)
+	assert.Contains(t, logs.String(), `level=WARN msg="cluster: empty drive in an existing deployment formatted and marked for healing"`)
 	assert.Equal(t, res.DeploymentID, res2.DeploymentID)
 	require.Len(t, res2.Healing, 1)
 	assert.Equal(t, l.Endpoints()[local].String(), res2.Healing[0].String())
@@ -324,8 +361,10 @@ func TestBootstrapUnformattedDriveWithoutData(t *testing.T) {
 // TestBootstrapLateNodeOfFreshDeployment: the drive of a node that starts
 // after its peers formatted a fresh deployment and wrote its configuration
 // is formatted, and the healing copies that configuration, but it is a
-// drive that joined the deployment, not a replacement (regression: the
-// regular first start of a cluster logged replaced drives and a heal).
+// drive that joined the deployment, not a replacement, and nothing is
+// logged as a warning (regression: the regular first start of a cluster
+// logged replaced drives and a heal, then still a warning about empty
+// drives "in an existing deployment" while they settled).
 func TestBootstrapLateNodeOfFreshDeployment(t *testing.T) {
 	ctx := context.Background()
 	d := newDeployment(t)
@@ -348,9 +387,12 @@ func TestBootstrapLateNodeOfFreshDeployment(t *testing.T) {
 		}
 	}
 	require.NoError(t, drives[local].Delete(ctx, domain.SystemBucket, storage.FormatFile, storage.DeleteOptions{}))
+	logs := d.captureLogs()
 	second, _ := d.bootstrapper(t, 1, drives)
 	res, err := second.Bootstrap(ctx)
 	require.NoError(t, err)
+	assert.NotContains(t, logs.String(), "level=WARN")
+	assert.Contains(t, logs.String(), `level=INFO msg="cluster: empty local drives, formatting them once settled"`)
 	assert.Empty(t, res.Healing, "not a replacement")
 	require.Len(t, res.Joined, 1)
 	assert.Equal(t, l.Endpoints()[local].String(), res.Joined[0].String())

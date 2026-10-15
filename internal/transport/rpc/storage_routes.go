@@ -60,6 +60,12 @@ type (
 	openFileReply struct {
 		Handle string
 		Size   int64
+		// Idle is the idle timeout of the handle: its reader renews it
+		// (touch-handles) well within it.
+		Idle time.Duration
+	}
+	touchHandlesArgs struct {
+		Handles []string
 	}
 	readHandleArgs struct {
 		Handle         string
@@ -272,7 +278,12 @@ func (h *storageRoutes) Register(r chi.Router) {
 			if err != nil {
 				return openFileReply{}, err
 			}
-			return openFileReply{Handle: id, Size: fh.Size()}, nil
+			return openFileReply{Handle: id, Size: fh.Size(), Idle: h.handles.idle}, nil
+		}))
+		// The reader renews the handles it still holds, streamed or not.
+		r.Post("/touch-handles", on(h, func(_ context.Context, d storage.StorageAPI, in touchHandlesArgs) (empty, error) {
+			h.handles.touch(d.Endpoint().Path, in.Handles)
+			return empty{}, nil
 		}))
 		r.Post("/read-handle", download(func(ctx context.Context, in readHandleArgs) (io.ReadCloser, error) {
 			d, err := h.drive(ctx)

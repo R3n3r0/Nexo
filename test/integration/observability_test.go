@@ -187,6 +187,30 @@ func TestAuditLog(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, failed.Items[0].StatusCode)
 	assert.Equal(t, "GetObject", failed.Items[0].API)
 
+	// A signed request to a health path is an attempt to authenticate,
+	// audited like any other (regression: the audit left out every request
+	// to /nexo/health/*, so credentials could be tested there unrecorded).
+	now := time.Now().UTC()
+	probe, err := http.NewRequestWithContext(ctx, http.MethodGet, s3URL+"/nexo/health/live", nil)
+	require.NoError(t, err)
+	probe.Header.Set("X-Amz-Date", now.Format("20060102T150405Z"))
+	probe.Header.Set("X-Amz-Content-Sha256", "UNSIGNED-PAYLOAD")
+	probe.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+user.AccessKey+"/"+now.Format("20060102")+"/"+e.srv.Config.Region+
+		"/s3/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature="+strings.Repeat("0", 64))
+	resp, err := http.DefaultClient.Do(probe)
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	require.Equal(t, http.StatusForbidden, resp.StatusCode)
+	probeID := resp.Header.Get("x-amz-request-id")
+	require.NotEmpty(t, probeID)
+	require.Eventually(t, func() bool {
+		list, err = admin.SearchAudit(ctx, nexoadmin.AuditQuery{RequestID: probeID})
+		require.NoError(t, err)
+		return len(list.Items) == 1
+	}, 30*time.Second, 50*time.Millisecond)
+	assert.Equal(t, "/nexo/health/live", list.Items[0].Path)
+	assert.Equal(t, http.StatusForbidden, list.Items[0].StatusCode)
+
 	// The console requests are audited too (type admin).
 	consoleReqs, err := admin.SearchAudit(ctx, nexoadmin.AuditQuery{Type: "admin", API: "GET /audit", Limit: 5})
 	require.NoError(t, err)

@@ -87,9 +87,12 @@ type storageClient struct {
 	healingOK bool
 
 	// open are the file handles opened on the node and not closed yet:
-	// Close closes them before the client.
-	openMu sync.Mutex
-	open   map[*remoteHandle]struct{}
+	// Close closes them before the client, and they are renewed every
+	// renewal (a quarter of their idle timeout on the node) while open.
+	openMu   sync.Mutex
+	open     map[*remoteHandle]struct{}
+	renewal  time.Duration
+	renewing bool
 }
 
 var _ storage.StorageAPI = (*storageClient)(nil)
@@ -334,11 +337,67 @@ func (c *storageClient) OpenFile(ctx context.Context, volume, path string) (stor
 		return nil, err
 	}
 	h := &remoteHandle{c: c, id: reply.Handle, size: reply.Size, name: volume + "/" + path}
+	renewal := reply.Idle / 4
+	if renewal <= 0 {
+		renewal = defaultHandleIdle / 4
+	}
 	c.openMu.Lock()
 	c.open[h] = struct{}{}
+	if c.renewal == 0 || renewal < c.renewal {
+		c.renewal = renewal
+	}
+	start := !c.renewing
+	c.renewing = true
 	c.openMu.Unlock()
+	if start {
+		c.renewHandles()
+	}
 	return h, nil
 }
+
+// renewHandles renews, every renewal until the client closes, the file
+// handles still open on the node: a handle that its reader holds without
+// streaming it (a spare shard of an erasure read, streamed only when
+// another shard fails) is not idle, however long the read lasts. A handle
+// closed, or forgotten by a lost close, is no longer renewed and expires.
+func (c *storageClient) renewHandles() {
+	if c.closed.Load() {
+		return
+	}
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		for {
+			c.openMu.Lock()
+			every := c.renewal
+			c.openMu.Unlock()
+			timer := time.NewTimer(every)
+			select {
+			case <-c.stop:
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+			c.openMu.Lock()
+			ids := make([]string, 0, len(c.open))
+			for h := range c.open {
+				ids = append(ids, h.id)
+			}
+			c.openMu.Unlock()
+			if len(ids) == 0 {
+				continue
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), renewHandlesTimeout)
+			if err := c.call(ctx, "touch-handles", touchHandlesArgs{Handles: ids}, nil); err != nil {
+				c.deps.Logger.Debug("rpc: renew file handles", "drive", c.ep.String(), "handles", len(ids), "err", err)
+			}
+			cancel()
+		}
+	}()
+}
+
+// renewHandlesTimeout bounds a renewal of the file handles.
+const renewHandlesTimeout = 30 * time.Second
 
 // remoteHandle is a file opened on the node of a remote drive.
 type remoteHandle struct {

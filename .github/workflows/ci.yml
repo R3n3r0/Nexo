@@ -1099,6 +1099,19 @@ jobs:
           NEXO_SECRET_PROXY_A=a NEXO_SECRET_PROXY_B=b docker compose -f compose.multi-proxy.yml config --quiet
           GRAFANA_ADMIN_PASSWORD=ci docker compose -f compose.single.yml -f compose.observability.yml config --quiet
           GRAFANA_ADMIN_PASSWORD=ci PROMETHEUS_CONFIG=prometheus.cluster.yml docker compose -f compose.cluster.yml -f compose.observability.yml config --quiet
+          # The scrapers of the observability overlay share a network with
+          # every target of their Prometheus configuration.
+          shares() {
+            python3 -c 'import json, sys
+          s = json.load(sys.stdin)["services"]
+          nets = lambda n: set(s[n].get("networks") or ["default"])
+          alone = [n for n in sys.argv[1:] if not nets("prometheus") & nets(n)]
+          print("prometheus shares a network with", sys.argv[1:], "except", alone)
+          sys.exit(1 if alone else 0)' "$@"
+          }
+          GRAFANA_ADMIN_PASSWORD=ci docker compose -f compose.single.yml -f compose.observability.yml config --format json | shares nexo
+          GRAFANA_ADMIN_PASSWORD=ci PROMETHEUS_CONFIG=prometheus.cluster.yml docker compose -f compose.cluster.yml -f compose.observability.yml config --format json \
+            | shares nexo1 nexo2 nexo3 nexo4 lb
 
       - name: nginx configs
         run: |

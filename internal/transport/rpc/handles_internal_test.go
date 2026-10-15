@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -50,7 +51,7 @@ func (c *closeCounter) count(name string) int {
 
 // TestHandleTable: the file handles the peers open are bound to their
 // drive, closed by the peer or after the idle timeout (a peer that crashed
-// or lost the close), and bounded in number.
+// or lost the close; the sweep of the runner), and bounded in number.
 func TestHandleTable(t *testing.T) {
 	ctx := context.Background()
 	clk := clock.NewFake(time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC))
@@ -83,15 +84,108 @@ func TestHandleTable(t *testing.T) {
 	clk.Advance(50 * time.Second)
 	d, err := tbl.add(ctx, "/d1", "n1", "", cc.handle("d"))
 	require.NoError(t, err)
+	assert.Zero(t, tbl.sweep(ctx))
 	assert.Zero(t, cc.count("a"), "used 50s ago")
 	clk.Advance(61 * time.Second)
-	_, err = tbl.add(ctx, "/d1", "n1", "", cc.handle("e"))
-	require.NoError(t, err)
+	assert.Equal(t, 2, tbl.sweep(ctx))
 	assert.Equal(t, 1, cc.count("a"), "idle for more than a minute")
 	assert.Equal(t, 1, cc.count("d"))
 	_, _, err = tbl.acquire("/d1", d)
 	require.ErrorIs(t, err, domain.ErrNotFound)
+	_, err = tbl.add(ctx, "/d1", "n1", "", cc.handle("e"))
+	require.NoError(t, err)
 	assert.Equal(t, 1, tbl.len())
+}
+
+// TestHandleTableRenewal: a handle its reader renews is never idle, even
+// when it is never streamed (the spare shards of an erasure read, streamed
+// only when another shard fails), and expires once no longer renewed
+// (regression: an erasure read lasting more than the idle timeout lost the
+// spare shards of the version it read on its peers, and with them the
+// redundancy of the parity).
+func TestHandleTableRenewal(t *testing.T) {
+	ctx := context.Background()
+	clk := clock.NewFake(time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC))
+	tbl := newHandleTable(clk, 100, time.Minute)
+	cc := newCloseCounter(t)
+	spare, err := tbl.add(ctx, "/d1", "n1", "boot", cc.handle("spare"))
+	require.NoError(t, err)
+	forgotten, err := tbl.add(ctx, "/d1", "n1", "boot", cc.handle("forgotten"))
+	require.NoError(t, err)
+	for range 10 {
+		clk.Advance(40 * time.Second)
+		assert.Equal(t, 1, tbl.touch("/d1", []string{spare, "unknown"}))
+		assert.Zero(t, tbl.touch("/d2", []string{spare}), "a handle of another drive")
+		tbl.sweep(ctx)
+	}
+	assert.Zero(t, cc.count("spare"), "renewed for ten times the idle timeout")
+	assert.Equal(t, 1, cc.count("forgotten"), "no longer renewed")
+	_, _, err = tbl.acquire("/d1", forgotten)
+	require.ErrorIs(t, err, domain.ErrNotFound)
+	fh, release, err := tbl.acquire("/d1", spare)
+	require.NoError(t, err)
+	release()
+	assert.NotNil(t, fh)
+}
+
+// nopHandle is a storage.FileHandle that holds nothing.
+type nopHandle struct{}
+
+func (nopHandle) Size() int64 { return 0 }
+func (nopHandle) ReadStream(context.Context, int64, int64) (io.ReadCloser, error) {
+	return io.NopCloser(strings.NewReader("")), nil
+}
+func (nopHandle) Close(context.Context) error { return nil }
+
+// fillHandles opens n handles of a few peers on the table.
+func fillHandles(tb testing.TB, tbl *handleTable, n int) {
+	tb.Helper()
+	ctx := context.Background()
+	for i := range n {
+		_, err := tbl.add(ctx, "/d1", fmt.Sprintf("n%d", i%4), "boot", nopHandle{})
+		require.NoError(tb, err)
+	}
+}
+
+// TestHandleTableConstantTime: opening and closing a handle takes the
+// same time however many handles are open, the idle ones being swept by
+// the runner (regression: every open and close scanned the whole table
+// under its lock, so a node holding the tens of thousands of handles of
+// many concurrent reads served only a few hundred opens a second).
+func TestHandleTableConstantTime(t *testing.T) {
+	ctx := context.Background()
+	tbl := newHandleTable(clock.NewReal(), defaultMaxHandles, time.Hour)
+	fillHandles(t, tbl, 60000)
+	start := time.Now()
+	for range 2000 {
+		id, err := tbl.add(ctx, "/d1", "n1", "boot", nopHandle{})
+		require.NoError(t, err)
+		require.NoError(t, tbl.remove(ctx, "/d1", id))
+	}
+	// A scan of the table per call takes seconds here, constant time a
+	// few milliseconds.
+	assert.Less(t, time.Since(start), time.Second)
+	assert.Equal(t, 60000, tbl.len())
+}
+
+// BenchmarkHandleTableOpenClose measures an open and a close of a handle
+// with 60000 handles open.
+func BenchmarkHandleTableOpenClose(b *testing.B) {
+	ctx := context.Background()
+	tbl := newHandleTable(clock.NewReal(), defaultMaxHandles, time.Hour)
+	fillHandles(b, tbl, 60000)
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			id, err := tbl.add(ctx, "/d1", "n1", "boot", nopHandle{})
+			if err != nil {
+				b.Fatal(err)
+			}
+			if err := tbl.remove(ctx, "/d1", id); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 }
 
 // TestHandleTableForgottenHandles: the handles a peer forgot are closed
