@@ -277,7 +277,7 @@ func (d *distributed) jitter() time.Duration {
 	if hi <= lo {
 		return lo
 	}
-	return lo + rand.N(hi-lo)
+	return lo + rand.N(hi-lo) // #nosec G404 -- the jitter of the lock retries, not a secret
 }
 
 // grantResult is the answer of one server to an acquisition attempt.

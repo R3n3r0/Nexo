@@ -15,7 +15,6 @@ import (
 	"github.com/r3n3r0/nexo/internal/lifecycle"
 	"github.com/r3n3r0/nexo/internal/service/accessrule"
 	adminsvc "github.com/r3n3r0/nexo/internal/service/admin"
-	"github.com/r3n3r0/nexo/internal/service/audit"
 	"github.com/r3n3r0/nexo/internal/service/auth"
 	"github.com/r3n3r0/nexo/internal/service/bucket"
 	"github.com/r3n3r0/nexo/internal/service/cache"
@@ -27,6 +26,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/health"
 	"github.com/r3n3r0/nexo/internal/service/iam"
 	"github.com/r3n3r0/nexo/internal/service/ilm"
+	"github.com/r3n3r0/nexo/internal/service/metrics"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/service/quota"
@@ -69,6 +69,9 @@ type services struct {
 	dist *distStack
 	// cache is the cache of the distributions (docs/11).
 	cache cache.Service
+	// obs runs the audit targets and the logger configuration
+	// (observability.go).
+	obs lifecycle.Runner
 }
 
 // composeDeps are the inputs of compose.
@@ -80,6 +83,8 @@ type composeDeps struct {
 	logger       *slog.Logger
 	assets       fs.FS
 	running      *atomic.Bool
+	// restart asks Run for a restart (POST /service/restart).
+	restart func() error
 }
 
 // sharedStores are the stores of the documents shared by the services:
@@ -163,7 +168,7 @@ func newObjectLayer(d composeDeps, buckets object.BucketConfigSource, events eve
 	opts := []object.Option{object.WithRegion(d.cfg.Region)}
 	if f.layout.Mode == domain.ModeSNSD {
 		return object.NewFS(object.Deps{
-			Store: f.local[0], Buckets: buckets, Locks: f.locks, Events: events, Crypto: sse, DeploymentID: d.deploymentID,
+			Store: f.local[0], Buckets: buckets, Locks: f.objectLocks(), Events: events, Crypto: sse, DeploymentID: d.deploymentID,
 			Clock: d.clock, Logger: d.logger,
 		}, opts...)
 	}
@@ -180,7 +185,7 @@ func newObjectLayer(d composeDeps, buckets object.BucketConfigSource, events eve
 	// The codecs key the bitrot hashes of the shards with the deployment.
 	codecs := erasure.NewFactory(erasure.Deps{Logger: d.logger}, erasure.WithDeploymentID(d.deploymentID))
 	return object.NewServerPools(object.PoolsDeps{
-		Pools: pools, DeploymentID: d.deploymentID, Locks: f.locks, Buckets: buckets, Events: events, Heal: mrf,
+		Pools: pools, DeploymentID: d.deploymentID, Locks: f.objectLocks(), Buckets: buckets, Events: events, Heal: mrf,
 		Codecs: codecs, Crypto: sse, Clock: d.clock, Logger: d.logger,
 	}, opts...)
 }
@@ -203,14 +208,26 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 
 	// Cross-cutting services.
 	registry := d.f.registry
-	auditor := audit.NewSlog(audit.Deps{Logger: logger.With("component", "audit"), Clock: d.clock})
 	dynConfig := configsvc.New(configsvc.Deps{Store: stores.config, Logger: logger})
+	// The audit log (docs/05 T-8.4): the structured log, the memory the
+	// console searches and the audit targets (observability.go).
+	auditor, err := newAuditor(d, dynConfig)
+	if err != nil {
+		return nil, fmt.Errorf("audit: %w", err)
+	}
 	// Bucket notifications: the targets of the notify_* subsystems, routed
 	// by the notification configurations of the buckets, queued on a
-	// local drive of this node.
-	events := event.NewDispatcher(event.Deps{
-		Rules: notificationRules{store: stores.buckets}, Config: dynConfig, Logger: logger.With("component", "events"),
-	}, event.WithRegion(cfg.Region), event.WithQueueRoot(eventQueueRoot(f)))
+	// local drive of this node; the deliveries are measured.
+	eventFactory, err := metrics.WrapTargetFactory(ctx, event.NewTargetFactory(event.FactoryDeps{Logger: logger.With("component", "events")}), registry)
+	if err != nil {
+		return nil, err
+	}
+	events, err := metrics.WrapEvents(ctx, event.NewDispatcher(event.Deps{
+		Factory: eventFactory, Rules: notificationRules{store: stores.buckets}, Config: dynConfig, Logger: logger.With("component", "events"),
+	}, event.WithRegion(cfg.Region), event.WithQueueRoot(eventQueueRoot(f))), registry)
+	if err != nil {
+		return nil, err
+	}
 
 	// Object layer and the bucket metadata it reads the bucket
 	// configuration from; the MRF queue receives the objects it finds
@@ -228,6 +245,12 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	}
 	keys, err := newKMS(kmsDeps{cfg: cfg, localRoot: localRoot, docs: stores.docs, clock: d.clock, logger: logger})
 	if err != nil {
+		return nil, err
+	}
+	// The requests to the KMS are measured; the scrapes read its state
+	// from the bare one.
+	kmsState := keys
+	if keys, err = metrics.WrapKMS(ctx, keys, registry); err != nil {
 		return nil, err
 	}
 	sse := crypto.New(crypto.Deps{KMS: keys, Logger: logger.With("component", "crypto")})
@@ -249,7 +272,13 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	if err != nil {
 		return nil, fmt.Errorf("lifecycle: %w", err)
 	}
-	healing, err := newHealing(d, objects, mrf, dynConfig, lifecycle)
+	// The actions of the lifecycle rules applied by the scanner are
+	// measured.
+	measuredILM, err := metrics.WrapLifecycle(ctx, lifecycle, registry)
+	if err != nil {
+		return nil, err
+	}
+	healing, err := newHealing(d, objects, mrf, dynConfig, measuredILM)
 	if err != nil {
 		return nil, fmt.Errorf("healing: %w", err)
 	}
@@ -360,16 +389,28 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		Objects:      objects,
 		Heal:         healing.heal,
 		Scanner:      healing.scanner,
-		Actions:      processActions{running: d.running, signal: signalSelf},
+		Actions:      processActions{running: d.running, signal: signalSelf, restart: d.restart},
 		// Every node of the deployment (this one only on a single node),
 		// with its background healing and clock offset.
 		Cluster: f.info,
 		// The state of the KMS and its keys.
 		KMS: keys,
+		// The TLS of the listeners with their certificates, and the
+		// distributed tracing.
+		TLS: tlsInfoOf(cfg), Keystore: f.keystore, Telemetry: telemetryInfoOf(cfg, f.obs),
 	})
 	healthSvc := health.New(health.Deps{Readiness: map[string]health.Check{
 		"storage": object.ReadinessCheck(objects),
 	}})
+	// Observability (observability.go): the scrape endpoints, the cluster
+	// view of the logs, the families read from the services at every
+	// scrape, the audit targets and the logger configuration.
+	obsSvc, err := composeObservability(ctx, d, adminSvc, metrics.Sources{
+		Node: f.info, HealQueue: mrf, Heal: healing.heal, Scanner: healing.scanner, Events: events, KMS: kmsState,
+	}, auditor, dynConfig)
+	if err != nil {
+		return nil, fmt.Errorf("observability: %w", err)
+	}
 
 	codec := httpx.New()
 	ids := httpx.NewIDGenerator()
@@ -389,12 +430,13 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		logger: logger, clock: d.clock, codec: codec, ids: ids,
 		registry: registry, verifier: verifier, auditor: auditor, domains: domainsOf(cfg),
 		trustedProxies: cfg.TrustedProxies, forwardedHeaders: cfg.ForwardedHeaders, trustForwardedHost: cfg.TrustForwardedHost, dist: distStack,
+		tracer: f.obs.trace, telemetry: f.obs.telemetry,
 	})
 	if err != nil {
 		return nil, err
 	}
 	metricsRoutes, err := s3.NewMetricsRoutes(
-		s3.MetricsDeps{Registry: registry, Verifier: verifier, Policy: s3Policy, Enc: codec, Clock: d.clock},
+		s3.MetricsDeps{Registry: registry, Exporter: obsSvc.exporter, Verifier: verifier, Policy: s3Policy, Enc: codec, Clock: d.clock},
 		s3.WithPublicMetrics(cfg.PrometheusAuthType == config.PrometheusAuthPublic))
 	if err != nil {
 		return nil, err
@@ -425,6 +467,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	if err := distStack.composeHTTP(distHTTPDeps{
 		cfg: cfg, objects: cachedObjects, cache: cacheSvc, policy: s3Policy, verifier: verifier, publicAccess: accessRules,
 		secrets: accessrule.NewStaticSecrets(cfg.Secrets), registry: registry, ids: ids, clock: d.clock, logger: logger,
+		keystore: f.keystore, tracer: f.obs.trace, telemetry: f.obs.telemetry,
 	}); err != nil {
 		return nil, fmt.Errorf("distributions: %w", err)
 	}
@@ -433,12 +476,13 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		Middlewares: append(s3Middlewares, lifecycleRoutes, notificationRoutes),
 		Hosts:       distStack.s3Hosts,
 		Logger:      logger,
-	}, append(serverOptions(cfg, cfg.Address, "s3"), distStack.tlsOptions(cfg)...)...)
+	}, append(serverOptions(cfg, f.keystore, cfg.Address, "s3"), distStack.tlsOptions(cfg)...)...)
 
 	// Console + Admin API server (:9001).
 	consoleMiddlewares, err := consoleMiddlewares(middlewareDeps{
 		logger: logger, clock: d.clock, codec: codec, ids: ids, registry: registry, trustedProxies: cfg.TrustedProxies,
 		forwardedHeaders: cfg.ForwardedHeaders, trustForwardedHost: cfg.TrustForwardedHost,
+		auditor: auditor, tracer: f.obs.trace, telemetry: f.obs.telemetry,
 	})
 	if err != nil {
 		return nil, err
@@ -449,7 +493,8 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		buckets: buckets, objects: objects, shares: shares, config: dynConfig, locks: f.lockManager, secureCookies: secureConsole(cfg),
 		consoleURL: cfg.BrowserRedirectURL, lifecycle: lifecycle, events: events, kms: keys,
 		accessRules: accessRules, dist: distStack, acmeDirectory: cfg.ACMEDirectory, acmeChallenge: cfg.ACMEChallenge,
-		cache: cacheSvc,
+		cache: cacheSvc, diagnostics: newDiagnostics(f, objects, buckets, logger),
+		obsTrace: f.obs.trace, obsLogs: obsSvc.logs, obsAudit: auditor, obsHistory: f.obs.history,
 	})
 	if err != nil {
 		return nil, err
@@ -462,7 +507,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		},
 		Middlewares: consoleMiddlewares,
 		Logger:      logger,
-	}, serverOptions(cfg, cfg.ConsoleAddress, "console")...)
+	}, serverOptions(cfg, f.keystore, cfg.ConsoleAddress, "console")...)
 
 	caches := cluster.Caches{IAM: identities, Config: dynConfig, Buckets: stores.buckets}
 	if stores.sharedPolicies != nil {
@@ -486,6 +531,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		consSrv:      consSrv,
 		healing:      healing,
 		unsubscribe:  unsubscribe,
+		obs:          obsSvc.runner,
 	}, nil
 }
 
@@ -494,7 +540,9 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 // the healing services (stopped first).
 func (s *services) runners() lifecycle.Runner {
 	healing := s.healing.runner()
-	return lifecycle.Funcs{
+	// The observability first: the audit targets receive the entries of
+	// the first requests, the logger configuration applies.
+	return runners(s.obs, lifecycle.Funcs{
 		OnStart: func(ctx context.Context) error {
 			if err := s.events.Start(ctx); err != nil {
 				return err
@@ -528,7 +576,7 @@ func (s *services) runners() lifecycle.Runner {
 			}
 			return herr
 		},
-	}
+	})
 }
 
 // sendTimeoutOpt bounds the stalls of the object downloads
@@ -538,4 +586,22 @@ func sendTimeoutOpt(cfg config.Static) s3.Option {
 		return nil
 	}
 	return s3.WithSendTimeout(cfg.SendTimeout)
+}
+
+// newDiagnostics returns the profiling and the speed tests of the node
+// (S-OPS-11): its local drives, one drive of every other node of a
+// cluster for the network test, the object layer.
+func newDiagnostics(f *foundation, objects object.Service, buckets bucket.Service, logger *slog.Logger) adminsvc.Diagnostics {
+	local := make(map[storage.StorageAPI]bool, len(f.local))
+	for _, d := range f.local {
+		local[d] = true
+	}
+	var peers []storage.StorageAPI
+	for _, d := range f.drives {
+		if !local[d] {
+			peers = append(peers, d)
+		}
+	}
+	return adminsvc.NewDiagnostics(adminsvc.DiagnosticsDeps{Drives: f.local, Peers: peers, Objects: objects, Buckets: buckets,
+		Logger: logger.With("component", "diagnostics")}, adminsvc.WithDiagnosticsNode(f.nodeID))
 }

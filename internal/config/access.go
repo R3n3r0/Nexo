@@ -51,7 +51,7 @@ const (
 	// EnvSecretPrefix starts the variables of the secrets referenced by
 	// the access rules: NEXO_SECRET_PROXY_TOKEN (or NEXO_SECRET_PROXY_TOKEN_FILE)
 	// is ${secret:proxy-token}.
-	EnvSecretPrefix = "NEXO_SECRET_"
+	EnvSecretPrefix = "NEXO_SECRET_" // #nosec G101 -- the prefix of environment variable names, not a credential
 )
 
 // Flags of the proxies and of the access rules.

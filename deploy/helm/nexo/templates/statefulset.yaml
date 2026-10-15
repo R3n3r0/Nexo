@@ -1,0 +1,67 @@
+{{- if eq .Values.mode "distributed" }}
+{{/*
+Distributed: replicas x pools pods with drivesPerNode volumes each. The pod
+names and the headless Service give the stable host names of the
+endpoints; Parallel lets the nodes start together and wait for each other.
+*/}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "nexo.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nexo.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "nexo.headlessName" . }}
+  replicas: {{ include "nexo.replicas" . }}
+  podManagementPolicy: {{ .Values.distributed.podManagementPolicy }}
+  {{- with .Values.distributed.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "nexo.selectorLabels" . | nindent 6 }}
+  template:
+    {{- include "nexo.podTemplate" . | nindent 4 }}
+  {{- if or .Values.persistence.enabled (and .Values.cache.enabled (eq .Values.cache.volume.type "pvc")) }}
+  volumeClaimTemplates:
+    {{- if .Values.persistence.enabled }}
+    {{- $root := . }}
+    {{- range $i := until (int .Values.distributed.drivesPerNode) }}
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: data{{ add1 $i }}
+        labels:
+          {{- include "nexo.selectorLabels" $root | nindent 10 }}
+        {{- with $root.Values.persistence.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes:
+          {{- toYaml $root.Values.persistence.accessModes | nindent 10 }}
+        {{- include "nexo.storageClass" $root.Values.persistence.storageClass | nindent 8 }}
+        resources:
+          requests:
+            storage: {{ $root.Values.persistence.size | quote }}
+    {{- end }}
+    {{- end }}
+    {{- if and .Values.cache.enabled (eq .Values.cache.volume.type "pvc") }}
+    - apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: cache
+        labels:
+          {{- include "nexo.selectorLabels" . | nindent 10 }}
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        {{- include "nexo.storageClass" .Values.cache.volume.storageClass | nindent 8 }}
+        resources:
+          requests:
+            storage: {{ .Values.cache.volume.size | quote }}
+    {{- end }}
+  {{- end }}
+{{- end }}

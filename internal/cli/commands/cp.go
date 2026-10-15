@@ -56,7 +56,7 @@ func (f *encryptionFlags) register(fs *pflag.FlagSet) {
 func (f *encryptionFlags) rules(ctx context.Context, e *env) (cli.EncryptionRules, error) {
 	given := append([]string(nil), f.c...)
 	for _, path := range f.cFiles {
-		data, err := os.ReadFile(path)
+		data, err := os.ReadFile(path) // #nosec G304 -- a file the user named on the command line
 		if err != nil {
 			return nil, cli.UsageError("--enc-c-file: %v", err)
 		}

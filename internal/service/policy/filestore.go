@@ -101,7 +101,7 @@ func (s *fileStore) load() error {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") || strings.HasPrefix(e.Name(), fileTempPrefix) {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(policiesDir, e.Name()))
+		data, err := os.ReadFile(filepath.Join(policiesDir, e.Name())) // #nosec G304 -- a file of the policy directory of the server
 		if err != nil {
 			return fmt.Errorf("policy file store: %w", err)
 		}
@@ -116,7 +116,7 @@ func (s *fileStore) load() error {
 		s.cache.policies[n.Name] = n
 	}
 	for kind, file := range map[EntityKind]string{EntityUser: fileUsers, EntityGroup: fileGroups} {
-		data, err := os.ReadFile(filepath.Join(s.dir, file))
+		data, err := os.ReadFile(filepath.Join(s.dir, file)) // #nosec G304 -- a file of the policy directory of the server, named after a validated policy name
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
@@ -266,7 +266,7 @@ func writeFileAtomic(path string, data []byte) (err error) {
 // syncDir flushes a directory entry change. It is best effort: some
 // platforms (Windows) cannot sync directories.
 func syncDir(dir string) {
-	d, err := os.Open(dir)
+	d, err := os.Open(dir) // #nosec G304 -- the policy directory of the server
 	if err != nil {
 		return
 	}

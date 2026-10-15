@@ -96,13 +96,14 @@ func checkMsgpack(b []byte, maxDepth int) error {
 				return err
 			}
 		}
-		remaining := uint64(len(b) - pos)
+		remaining := uint64(len(b) - pos) // #nosec G115 -- pos never exceeds len(b)
 		if skip > remaining {
 			return errMsgpackTruncated
 		}
 		pos += int(skip)
 		if items > 0 {
 			// Every value takes at least one byte.
+			// #nosec G115 -- pos never exceeds len(b)
 			if items > uint64(len(b)-pos) {
 				return errMsgpackTooLarge
 			}

@@ -65,6 +65,12 @@ func TestApplied(t *testing.T) {
 	assert.True(t, settings.Applied("scanner", "speed"), "read by the scanner at every cycle")
 	assert.True(t, settings.Applied("scanner", "cycle"))
 	assert.False(t, settings.Applied("region", "comment"))
+	assert.True(t, settings.Applied("logger", "level"), "applied at once by the log stream")
+	assert.True(t, settings.Applied("logger", "format"))
+	assert.True(t, settings.Applied("audit_webhook:siem", "endpoint"), "applied by the audit log")
+	assert.True(t, settings.Applied("audit_kafka", "brokers"))
+	assert.False(t, settings.Applied("audit_webhook", "comment"))
+	assert.False(t, settings.Applied("api", "requests_deadline"))
 }
 
 // covers: S-OPS-01 (api.root_access=off denies the root credentials on

@@ -53,6 +53,15 @@ import type {
   UploadCertificateInput,
   AccessKeyFilter,
   AttachPolicyInput,
+  AuditEntry,
+  AuditQuery,
+  LogEntry,
+  LogFilter,
+  MetricInfo,
+  MetricQuery,
+  MetricSeries,
+  TraceEvent,
+  TraceFilter,
   AttributesQuery,
   Bucket,
   BucketAccess,
@@ -133,6 +142,7 @@ import type {
   VersionList,
   ZipInput,
 } from './types';
+import type { ApiError } from './errors';
 
 /** Console session (cookie + CSRF token managed by the implementation). */
 export interface SessionService {
@@ -600,6 +610,53 @@ export interface CacheService {
   testWebhook(distribution: string, id: string): Promise<CacheWebhookTestResult>;
 }
 
+/**
+ * State of a live stream (Server-Sent Events): connecting (first
+ * connection), open (receiving), reconnecting (the connection broke: it is
+ * reopened automatically, with a growing delay) and closed (for good: by
+ * close(), or by a refusal of the server such as 403, given as the error).
+ */
+export type StreamState = 'connecting' | 'open' | 'reconnecting' | 'closed';
+
+/** The callbacks of a live stream. */
+export interface StreamHandlers<T> {
+  /** An item of the stream. */
+  onItem(item: T): void;
+  /**
+   * The items the server dropped so far on this connection because the
+   * client did not keep up (the server never waits for a slow stream).
+   */
+  onDropped?(total: number): void;
+  /** The state changed; a stream closed by the server comes with its error. */
+  onState?(state: StreamState, error?: ApiError): void;
+}
+
+/** A live stream; close() ends it (no callback is called afterwards). */
+export interface LiveStream {
+  close(): void;
+}
+
+/**
+ * Monitoring of the deployment (D-MON-01..03, docs/07 §7.4), aggregated
+ * over the nodes of a cluster: the series of the charts (one point every
+ * 10 s for 24 h per node; admin:Prometheus or admin:ServerInfo), the live
+ * trace of the requests (admin:ServerTrace) and the live logs
+ * (admin:ConsoleLog) as Server-Sent Events, and the search of the audit
+ * log (admin:ConsoleLog).
+ */
+export interface MonitoringService {
+  /** The series available (GET /metrics). */
+  metrics(): Promise<MetricInfo[]>;
+  /** The points of a series per node and for the cluster (GET /metrics/query). */
+  queryMetric(query: MetricQuery): Promise<MetricSeries>;
+  /** Opens the live trace (GET /trace); it reconnects by itself until closed. */
+  trace(filter: TraceFilter, handlers: StreamHandlers<TraceEvent>): LiveStream;
+  /** Opens the live logs (GET /logs); it reconnects by itself until closed. */
+  logs(filter: LogFilter, handlers: StreamHandlers<LogEntry>): LiveStream;
+  /** Searches the recent audit records (GET /audit), newest first. */
+  audit(query: AuditQuery): Promise<AuditEntry[]>;
+}
+
 export type Unsubscribe = () => void;
 
 /**
@@ -634,5 +691,6 @@ export interface Services {
   readonly keyGroups: KeyGroupService;
   readonly certificates: CertificateService;
   readonly cache: CacheService;
+  readonly monitoring: MonitoringService;
   readonly authEvents: AuthEvents;
 }

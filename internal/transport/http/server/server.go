@@ -121,7 +121,14 @@ type service struct {
 	tlsConfig         *tls.Config
 	clientCAs         *x509.CertPool
 	// certificates selects the certificates by SNI (WithCertificates).
-	certificates      CertificateSource
+	certificates CertificateSource
+	// keystore serves the certificates of the server itself, reloaded
+	// at runtime (WithKeystore); clientCASource the CAs verifying the
+	// client certificates (WithClientCASource).
+	keystore       CertificateSource
+	clientCASource ClientCASource
+	// minTLSVersion is the oldest TLS version accepted (default 1.2).
+	minTLSVersion     uint16
 	readHeaderTimeout time.Duration
 	idleTimeout       time.Duration
 	shutdownTimeout   time.Duration
@@ -263,25 +270,47 @@ func (s *service) Start(ctx context.Context) error {
 	return nil
 }
 
+// buildTLS returns the TLS configuration of the listener, nil without
+// TLS: the base configuration (WithTLSConfig, WithKeystore or WithTLS),
+// the distribution certificates by SNI in front of it, the TLS policy
+// (harden) and the verification of the client certificates.
 func (s *service) buildTLS() (*tls.Config, error) {
 	cfg, err := s.baseTLS()
-	if err == nil {
-		cfg = s.withCertificates(cfg)
+	if err != nil {
+		return nil, err
 	}
-	if cfg != nil && s.clientCAs != nil {
-		cfg.ClientAuth, cfg.ClientCAs = tls.VerifyClientCertIfGiven, s.clientCAs
+	cfg = s.withCertificates(cfg)
+	if cfg == nil {
+		return nil, nil
+	}
+	s.harden(cfg)
+	s.withClientCAs(cfg)
+	return cfg, nil
+}
+
+func (s *service) baseTLS() (*tls.Config, error) {
+	cfg, err := s.baseTLSConfig()
+	if cfg != nil {
+		// HTTP/2 then HTTP/1.1, before the protocol of the ACME
+		// validation (withCertificates) that only a validator offers.
+		cfg.NextProtos = appendMissing(cfg.NextProtos, "h2", "http/1.1")
 	}
 	return cfg, err
 }
 
-func (s *service) baseTLS() (*tls.Config, error) {
+func (s *service) baseTLSConfig() (*tls.Config, error) {
 	if s.tlsConfig != nil {
 		cfg := s.tlsConfig.Clone()
-		if cfg.MinVersion == 0 {
-			cfg.MinVersion = tls.VersionTLS12
+		if s.keystore != nil && cfg.GetCertificate == nil && len(cfg.Certificates) == 0 {
+			cfg.GetCertificate = s.keystore.GetCertificate
 		}
-		cfg.NextProtos = appendMissing(cfg.NextProtos, "h2", "http/1.1")
 		return cfg, nil
+	}
+	if s.keystore != nil {
+		// Every handshake asks the keystore: a reload of the
+		// certificates applies to the next one, the established
+		// connections keep theirs.
+		return &tls.Config{GetCertificate: s.keystore.GetCertificate}, nil
 	}
 	if s.certFile == "" && s.keyFile == "" {
 		return nil, nil
@@ -290,11 +319,7 @@ func (s *service) baseTLS() (*tls.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("server %s: load TLS key pair: %w", s.name, err)
 	}
-	return &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		MinVersion:   tls.VersionTLS12,
-		NextProtos:   []string{"h2", "http/1.1"},
-	}, nil
+	return &tls.Config{Certificates: []tls.Certificate{cert}}, nil
 }
 
 func appendMissing(list []string, values ...string) []string {

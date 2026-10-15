@@ -233,7 +233,7 @@ func (s *service) Seal(ctx context.Context, in SealInput) (ObjectKey, error) {
 	if err != nil {
 		return ObjectKey{}, err
 	}
-	sealed := aead.Seal(nil, make([]byte, aead.NonceSize()), k.key[:], nil)
+	sealed := aead.Seal(nil, make([]byte, aead.NonceSize()), k.key[:], nil) // #nosec G407 -- the key encryption key is derived (HKDF) from a fresh random salt for every seal and encrypts a single message
 	k.meta[MetaType] = string(req.Type)
 	k.meta[MetaCipher] = string(k.cipher)
 	k.meta[MetaSealAlgorithm] = sealAlgorithm

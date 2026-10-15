@@ -1,56 +1,73 @@
-# systemd unit for the Nexo S3-compatible object storage server.
+# systemd unit of the Nexo S3-compatible object storage server.
 #
-# Install:
-#   install -m 0755 nexo nexoctl /usr/local/bin/
-#   useradd --system --home-dir /var/lib/nexo --shell /usr/sbin/nologin nexo
-#   install -d -o nexo -g nexo -m 0750 /var/lib/nexo /srv/nexo
-#   install -d -m 0750 /etc/nexo && install -m 0640 -g nexo nexo.env.example /etc/nexo/nexo.env
-#   cp nexo.service /etc/systemd/system/ && systemctl daemon-reload
-#   systemctl enable --now nexo
+# Installed by the deb/rpm packages as /usr/lib/systemd/system/nexo.service;
+# for a manual install see deploy/systemd/README.md. The deployment mode
+# (SNSD, SNMD, cluster) comes from NEXO_ENDPOINTS in /etc/default/nexo, so
+# the unit is the same on every node of every mode.
 #
-# The endpoints (SNSD, SNMD or cluster) come from NEXO_ENDPOINTS in
-# /etc/nexo/nexo.env, so this unit is the same for every mode.
+# The executable is looked up by name in systemd's fixed search path
+# (/usr/local/bin before /usr/bin, systemd >= 239): the same unit runs the
+# packaged binary (/usr/bin/nexo) and a manually installed one
+# (/usr/local/bin/nexo).
+#
+# Local changes go in a drop-in (systemctl edit nexo), never in this file:
+# e.g. the data drives outside /var/lib/nexo must be made writable with
+#   [Service]
+#   ReadWritePaths=/mnt/disk1 /mnt/disk2 /mnt/disk3 /mnt/disk4
 
 [Unit]
 Description=Nexo S3-compatible object storage server
-Documentation=https://github.com/r3n3r0/nexo
+Documentation=https://github.com/r3n3r0/nexo/blob/main/docs/08-modalita-deploy.md
 Wants=network-online.target
 After=network-online.target
-AssertFileIsExecutable=/usr/local/bin/nexo
-AssertPathExists=/etc/nexo/nexo.env
+# Restart=always below, but a configuration that keeps failing stops after
+# 10 attempts in 5 minutes (systemctl reset-failed nexo to retry).
+StartLimitIntervalSec=300
+StartLimitBurst=10
 
 [Service]
-Type=simple
+Type=exec
 User=nexo
 Group=nexo
+EnvironmentFile=/etc/default/nexo
+# /var/lib/nexo (default drive /var/lib/nexo/data) and /var/cache/nexo
+# (NEXO_CACHE_DIR) are created and owned by nexo, and writable despite
+# ProtectSystem=strict.
+StateDirectory=nexo
+StateDirectoryMode=0750
+CacheDirectory=nexo
+CacheDirectoryMode=0750
 WorkingDirectory=/var/lib/nexo
-EnvironmentFile=/etc/nexo/nexo.env
 
-# Validate topology, drive permissions, ports and certificates before starting.
-ExecStartPre=/usr/local/bin/nexo server --dry-run
-ExecStart=/usr/local/bin/nexo server
-# SIGHUP reloads the TLS certificates.
+# Validate topology, drive permissions, ports and certificates (with the
+# same sandbox as the server) before starting.
+ExecStartPre=nexo server --dry-run
+ExecStart=nexo server
+# SIGHUP reloads the TLS certificates of NEXO_CERTS_DIR.
 ExecReload=/bin/kill -HUP $MAINPID
 
 Restart=always
 RestartSec=5s
-# Give in-flight uploads time to complete on shutdown.
+# SIGTERM: the node answers 503 to new requests and lets the in-flight
+# uploads complete before exiting.
 KillSignal=SIGTERM
 KillMode=mixed
 TimeoutStopSec=90s
 
 LimitNOFILE=1048576
-LimitNPROC=infinity
 TasksMax=infinity
 OOMScoreAdjust=-500
+# Objects, metadata and caches are readable by the nexo user only.
+UMask=0077
 
-# Hardening. Data directories outside /srv, /var and /mnt must be listed in
-# ReadWritePaths (ProtectSystem=full makes /usr, /boot and /etc read-only).
+# Sandbox. The whole file system is read-only except the state and cache
+# directories above and the ReadWritePaths of a drop-in.
 NoNewPrivileges=true
-ProtectSystem=full
+ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 PrivateDevices=true
+ProtectProc=invisible
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectKernelLogs=true
@@ -60,11 +77,20 @@ ProtectHostname=true
 RestrictSUIDSGID=true
 RestrictRealtime=true
 RestrictNamespaces=true
+# AF_NETLINK: the node lists its interface addresses to recognize its own
+# endpoints in a cluster.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 LockPersonality=true
+MemoryDenyWriteExecute=true
+RemoveIPC=true
 SystemCallArchitectures=native
-#ReadWritePaths=/mnt/disk1 /mnt/disk2 /mnt/disk3 /mnt/disk4
-# Required only when binding ports below 1024.
-#AmbientCapabilities=CAP_NET_BIND_SERVICE
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# No capability at all. Ports below 1024 (e.g. NEXO_WEB_ADDRESS=:80) need,
+# in a drop-in:
+#   CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+#   AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=
 
 [Install]
 WantedBy=multi-user.target

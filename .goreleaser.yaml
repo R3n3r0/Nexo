@@ -1,13 +1,29 @@
-# GoReleaser v2 configuration for Nexo (.github/workflows/release.yml).
+# GoReleaser v2 configuration of the Nexo release (docs/08 §8.7), run by
+# .github/workflows/release.yml on every v* tag with GoReleaser v2.18.3.
 #
-# Artefacts (docs/08 §8.3-8.4): nexo (server + embedded console) and nexoctl
-# for linux/darwin/windows on amd64/arm64 (windows/arm64 only for nexoctl),
-# tar.gz/zip archives, deb/rpm packages, sha256 checksums signed with cosign,
-# SBOMs, multi-arch images ghcr.io/r3n3r0/nexo and ghcr.io/r3n3r0/nexoctl.
+# Artefacts:
+#   - binaries: nexo (server + embedded console, -tags embedui) for
+#     linux/darwin/windows on amd64/arm64 (no windows/arm64) and nexoctl for
+#     the same platforms plus windows/arm64; static (CGO_ENABLED=0),
+#     reproducible (-trimpath, mod_timestamp);
+#   - archives: tar.gz (zip on Windows) with README, systemd unit and env
+#     file (nexo) or shell completions (nexoctl);
+#   - packages: nexo and nexoctl as deb and rpm (nfpm) for linux amd64/arm64;
+#   - checksums.txt (sha256) signed with cosign keyless (Sigstore bundle
+#     checksums.txt.sigstore.json); SPDX SBOMs (syft) of every archive,
+#     listed in checksums.txt;
+#   - images ghcr.io/r3n3r0/nexo and ghcr.io/r3n3r0/nexoctl, multi-arch
+#     (linux/amd64, linux/arm64), with BuildKit SBOM and provenance
+#     attestations, signed with cosign keyless; tags vX.Y.Z, plus vX.Y and
+#     latest for final releases;
+#   - Homebrew casks nexo and nexoctl pushed to r3n3r0/homebrew-tap when the
+#     HOMEBREW_TAP_GITHUB_TOKEN secret is set.
 #
-# The web console must be built before running GoReleaser:
+# The console must be built before running GoReleaser (the before hook
+# checks it), then:
 #   (cd web && npm ci && npm run build)
-#   goreleaser release --snapshot --clean      # local dry run
+#   goreleaser check
+#   goreleaser release --snapshot --clean --skip=docker,sign    # local, no docker: make release-snapshot
 version: 2
 
 project_name: nexo
@@ -19,6 +35,9 @@ before:
   hooks:
     - 'sh -c "test -f web/dist/index.html || { echo web/dist/index.html missing - run npm ci and npm run build in web/ >&2; exit 1; }"'
     - go mod download
+    # Shell completions of nexoctl, shipped in its archives, packages and
+    # Homebrew cask. bin/ is ignored by git.
+    - 'sh -c "rm -rf bin/completions && mkdir -p bin/completions && for s in bash zsh fish; do go run ./cmd/nexoctl completion $s > bin/completions/nexoctl.$s || exit 1; done"'
 
 builds:
   - id: nexo
@@ -32,7 +51,7 @@ builds:
       - -s -w
       - -X github.com/r3n3r0/nexo/internal/version.Version=v{{ .Version }}
       - -X github.com/r3n3r0/nexo/internal/version.Commit={{ .ShortCommit }}
-      - -X github.com/r3n3r0/nexo/internal/version.Date={{ .Date }}
+      - -X github.com/r3n3r0/nexo/internal/version.Date={{ .CommitDate }}
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
     ignore:
@@ -49,7 +68,7 @@ builds:
       - -s -w
       - -X github.com/r3n3r0/nexo/internal/version.Version=v{{ .Version }}
       - -X github.com/r3n3r0/nexo/internal/version.Commit={{ .ShortCommit }}
-      - -X github.com/r3n3r0/nexo/internal/version.Date={{ .Date }}
+      - -X github.com/r3n3r0/nexo/internal/version.Date={{ .CommitDate }}
     goos: [linux, darwin, windows]
     goarch: [amd64, arm64]
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -62,12 +81,26 @@ archives:
     format_overrides:
       - goos: windows
         formats: [zip]
+    builds_info:
+      owner: root
+      group: root
+      mtime: "{{ .CommitDate }}"
     files:
-      - README.md
+      - src: README.md
+        info: &fileinfo
+          owner: root
+          group: root
+          mode: 0644
+          mtime: "{{ .CommitDate }}"
       - src: deploy/systemd/nexo.service
         dst: systemd/nexo.service
+        info: *fileinfo
       - src: deploy/systemd/nexo.env.example
         dst: systemd/nexo.env.example
+        info: *fileinfo
+      - src: deploy/systemd/README.md
+        dst: systemd/README.md
+        info: *fileinfo
 
   - id: nexoctl
     ids: [nexoctl]
@@ -76,29 +109,54 @@ archives:
     format_overrides:
       - goos: windows
         formats: [zip]
+    builds_info:
+      owner: root
+      group: root
+      mtime: "{{ .CommitDate }}"
     files:
-      - README.md
+      - src: README.md
+        info: *fileinfo
+      - src: bin/completions/*
+        dst: completions
+        strip_parent: true
+        info: *fileinfo
 
 nfpms:
+  # Server: binary, systemd unit, /etc/default/nexo, nexo user (preinstall)
+  # and /var/lib/nexo. The CLI is a package of its own, recommended.
   - id: nexo
     package_name: nexo
-    ids: [nexo, nexoctl]
+    ids: [nexo]
     file_name_template: "{{ .ConventionalFileName }}"
     vendor: r3n3r0
     homepage: https://github.com/r3n3r0/nexo
     maintainer: r3n3r0 <r3n3r0@users.noreply.github.com>
     description: |-
-      S3-compatible object storage server with an embedded web console,
-      plus the nexoctl command-line client.
+      S3-compatible object storage server with an embedded web console.
+      Single node (one or more drives, erasure coding) or distributed cluster.
     formats: [deb, rpm]
-    bindir: /usr/local/bin
-    section: utils
+    bindir: /usr/bin
+    section: net
     priority: optional
+    mtime: "{{ .CommitDate }}"
+    recommends:
+      - nexoctl
     contents:
+      # Implicit parents take the owner of their files: keep /etc/default
+      # root's (rpm leaves it to the filesystem package).
+      - dst: /etc/default
+        type: dir
+        packager: deb
+        file_info:
+          mode: 0755
+          owner: root
+          group: root
       - src: deploy/systemd/nexo.service
         dst: /usr/lib/systemd/system/nexo.service
+        file_info:
+          mode: 0644
       - src: deploy/systemd/nexo.env.example
-        dst: /etc/nexo/nexo.env
+        dst: /etc/default/nexo
         type: config|noreplace
         file_info:
           mode: 0640
@@ -110,11 +168,76 @@ nfpms:
           mode: 0750
           owner: nexo
           group: nexo
+      - dst: /var/lib/nexo/data
+        type: dir
+        file_info:
+          mode: 0750
+          owner: nexo
+          group: nexo
+      - dst: /etc/nexo
+        type: dir
+        file_info:
+          mode: 0750
+          owner: root
+          group: nexo
+      - src: README.md
+        dst: /usr/share/doc/nexo/README.md
+        file_info:
+          mode: 0644
+      - src: deploy/systemd/README.md
+        dst: /usr/share/doc/nexo/systemd.md
+        file_info:
+          mode: 0644
     scripts:
-      preinstall: deploy/systemd/preinstall.sh
-      postinstall: deploy/systemd/postinstall.sh
+      preinstall: packaging/nfpm/preinstall.sh
+      postinstall: packaging/nfpm/postinstall.sh
+      preremove: packaging/nfpm/preremove.sh
+      postremove: packaging/nfpm/postremove.sh
     rpm:
       summary: S3-compatible object storage server
+      group: System Environment/Daemons
+    deb:
+      lintian_overrides:
+        - statically-linked-binary
+
+  # CLI: nexoctl and its shell completions.
+  - id: nexoctl
+    package_name: nexoctl
+    ids: [nexoctl]
+    file_name_template: "{{ .ConventionalFileName }}"
+    vendor: r3n3r0
+    homepage: https://github.com/r3n3r0/nexo
+    maintainer: r3n3r0 <r3n3r0@users.noreply.github.com>
+    description: |-
+      Command-line client of Nexo, the S3-compatible object storage server:
+      buckets and objects, mirroring, sharing and administration.
+    formats: [deb, rpm]
+    bindir: /usr/bin
+    section: net
+    priority: optional
+    mtime: "{{ .CommitDate }}"
+    contents:
+      - src: bin/completions/nexoctl.bash
+        dst: /usr/share/bash-completion/completions/nexoctl
+        file_info:
+          mode: 0644
+      - src: bin/completions/nexoctl.zsh
+        dst: /usr/share/zsh/vendor-completions/_nexoctl
+        packager: deb
+        file_info:
+          mode: 0644
+      - src: bin/completions/nexoctl.zsh
+        dst: /usr/share/zsh/site-functions/_nexoctl
+        packager: rpm
+        file_info:
+          mode: 0644
+      - src: bin/completions/nexoctl.fish
+        dst: /usr/share/fish/vendor_completions.d/nexoctl.fish
+        file_info:
+          mode: 0644
+    rpm:
+      summary: Command-line client of Nexo
+      group: Applications/Internet
     deb:
       lintian_overrides:
         - statically-linked-binary
@@ -123,125 +246,132 @@ checksum:
   name_template: checksums.txt
   algorithm: sha256
 
+# SPDX JSON SBOMs generated by syft, one per archive (the Go modules and
+# the toolchain of its binaries). The deb/rpm packages contain the same
+# linux binaries as the linux archives, whose SBOMs describe them (syft
+# does not look inside the packages).
 sboms:
   - id: archives
     artifacts: archive
 
+source:
+  enabled: true
+  name_template: "nexo_{{ .Version }}_source"
+
+metadata:
+  mod_timestamp: "{{ .CommitTimestamp }}"
+
+report_sizes: true
+
+# cosign keyless (Sigstore, GitHub OIDC): only checksums.txt is signed,
+# it covers every archive, package, SBOM and the source archive.
 signs:
   - id: checksums
     cmd: cosign
     artifacts: checksum
-    certificate: "${artifact}.pem"
-    signature: "${artifact}.sig"
+    signature: "${artifact}.sigstore.json"
     args:
       - sign-blob
-      - --output-certificate=${certificate}
-      - --output-signature=${signature}
+      - --bundle=${signature}
       - ${artifact}
       - --yes
 
-dockers:
-  - id: nexo-amd64
+# One multi-arch image per name, built and pushed by buildx from the
+# binaries above (deploy/docker/Dockerfile*.goreleaser read them from
+# $TARGETPLATFORM/), with SBOM attestations.
+dockers_v2:
+  - id: nexo
     ids: [nexo, nexoctl]
-    goos: linux
-    goarch: amd64
-    use: buildx
     dockerfile: deploy/docker/Dockerfile.goreleaser
-    image_templates:
-      - ghcr.io/r3n3r0/nexo:{{ .Tag }}-amd64
-    build_flag_templates:
-      - --platform=linux/amd64
-      - --label=org.opencontainers.image.version={{ .Tag }}
-      - --label=org.opencontainers.image.revision={{ .FullCommit }}
-      - --label=org.opencontainers.image.created={{ .Date }}
-      - --label=org.opencontainers.image.source={{ .GitURL }}
+    images:
+      - ghcr.io/r3n3r0/nexo
+    tags:
+      - "{{ .Tag }}"
+      - '{{ if not .Prerelease }}v{{ .Major }}.{{ .Minor }}{{ end }}'
+      - '{{ if not .Prerelease }}latest{{ end }}'
+    platforms: [linux/amd64, linux/arm64]
+    sbom: "true"
+    labels: &imagelabels
+      org.opencontainers.image.version: "v{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .CommitDate }}"
+      org.opencontainers.image.source: "{{ .GitURL }}"
+    annotations: &imageannotations
+      org.opencontainers.image.version: "v{{ .Version }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.created: "{{ .CommitDate }}"
+      org.opencontainers.image.source: "{{ .GitURL }}"
+    flags:
+      - --provenance=mode=max
 
-  - id: nexo-arm64
-    ids: [nexo, nexoctl]
-    goos: linux
-    goarch: arm64
-    use: buildx
-    dockerfile: deploy/docker/Dockerfile.goreleaser
-    image_templates:
-      - ghcr.io/r3n3r0/nexo:{{ .Tag }}-arm64
-    build_flag_templates:
-      - --platform=linux/arm64
-      - --label=org.opencontainers.image.version={{ .Tag }}
-      - --label=org.opencontainers.image.revision={{ .FullCommit }}
-      - --label=org.opencontainers.image.created={{ .Date }}
-      - --label=org.opencontainers.image.source={{ .GitURL }}
-
-  - id: nexoctl-amd64
+  - id: nexoctl
     ids: [nexoctl]
-    goos: linux
-    goarch: amd64
-    use: buildx
     dockerfile: deploy/docker/Dockerfile.nexoctl.goreleaser
-    image_templates:
-      - ghcr.io/r3n3r0/nexoctl:{{ .Tag }}-amd64
-    build_flag_templates:
-      - --platform=linux/amd64
-      - --label=org.opencontainers.image.version={{ .Tag }}
-      - --label=org.opencontainers.image.revision={{ .FullCommit }}
-      - --label=org.opencontainers.image.created={{ .Date }}
-      - --label=org.opencontainers.image.source={{ .GitURL }}
-
-  - id: nexoctl-arm64
-    ids: [nexoctl]
-    goos: linux
-    goarch: arm64
-    use: buildx
-    dockerfile: deploy/docker/Dockerfile.nexoctl.goreleaser
-    image_templates:
-      - ghcr.io/r3n3r0/nexoctl:{{ .Tag }}-arm64
-    build_flag_templates:
-      - --platform=linux/arm64
-      - --label=org.opencontainers.image.version={{ .Tag }}
-      - --label=org.opencontainers.image.revision={{ .FullCommit }}
-      - --label=org.opencontainers.image.created={{ .Date }}
-      - --label=org.opencontainers.image.source={{ .GitURL }}
-
-# Multi-arch manifests: vX.Y.Z always; vX.Y and latest skipped for pre-releases.
-docker_manifests:
-  - name_template: ghcr.io/r3n3r0/nexo:{{ .Tag }}
-    image_templates:
-      - ghcr.io/r3n3r0/nexo:{{ .Tag }}-amd64
-      - ghcr.io/r3n3r0/nexo:{{ .Tag }}-arm64
-  - name_template: ghcr.io/r3n3r0/nexo:v{{ .Major }}.{{ .Minor }}
-    skip_push: auto
-    image_templates:
-      - ghcr.io/r3n3r0/nexo:{{ .Tag }}-amd64
-      - ghcr.io/r3n3r0/nexo:{{ .Tag }}-arm64
-  - name_template: ghcr.io/r3n3r0/nexo:latest
-    skip_push: auto
-    image_templates:
-      - ghcr.io/r3n3r0/nexo:{{ .Tag }}-amd64
-      - ghcr.io/r3n3r0/nexo:{{ .Tag }}-arm64
-
-  - name_template: ghcr.io/r3n3r0/nexoctl:{{ .Tag }}
-    image_templates:
-      - ghcr.io/r3n3r0/nexoctl:{{ .Tag }}-amd64
-      - ghcr.io/r3n3r0/nexoctl:{{ .Tag }}-arm64
-  - name_template: ghcr.io/r3n3r0/nexoctl:v{{ .Major }}.{{ .Minor }}
-    skip_push: auto
-    image_templates:
-      - ghcr.io/r3n3r0/nexoctl:{{ .Tag }}-amd64
-      - ghcr.io/r3n3r0/nexoctl:{{ .Tag }}-arm64
-  - name_template: ghcr.io/r3n3r0/nexoctl:latest
-    skip_push: auto
-    image_templates:
-      - ghcr.io/r3n3r0/nexoctl:{{ .Tag }}-amd64
-      - ghcr.io/r3n3r0/nexoctl:{{ .Tag }}-arm64
+    images:
+      - ghcr.io/r3n3r0/nexoctl
+    tags:
+      - "{{ .Tag }}"
+      - '{{ if not .Prerelease }}v{{ .Major }}.{{ .Minor }}{{ end }}'
+      - '{{ if not .Prerelease }}latest{{ end }}'
+    platforms: [linux/amd64, linux/arm64]
+    sbom: "true"
+    labels: *imagelabels
+    annotations: *imageannotations
+    flags:
+      - --provenance=mode=max
 
 docker_signs:
   - id: images
     cmd: cosign
-    artifacts: manifests
+    artifacts: images
     output: true
     args:
       - sign
       - ${artifact}@${digest}
       - --yes
+
+# Homebrew casks in r3n3r0/homebrew-tap (brew install r3n3r0/tap/nexoctl).
+# Skipped when HOMEBREW_TAP_GITHUB_TOKEN (a token allowed to push to the
+# tap) is not set, and for pre-releases.
+homebrew_casks:
+  - name: nexoctl
+    ids: [nexoctl]
+    binaries: [nexoctl]
+    repository: &tap
+      owner: r3n3r0
+      name: homebrew-tap
+      token: '{{ envOrDefault "HOMEBREW_TAP_GITHUB_TOKEN" "" }}'
+    directory: Casks
+    homepage: https://github.com/r3n3r0/nexo
+    description: Command-line client of Nexo, the S3-compatible object storage server
+    commit_msg_template: "nexoctl {{ .Tag }}"
+    skip_upload: &tapskip '{{ if eq (envOrDefault "HOMEBREW_TAP_GITHUB_TOKEN" "") "" }}true{{ else }}auto{{ end }}'
+    generate_completions_from_executable:
+      executable: nexoctl
+      args: [completion]
+    hooks:
+      post:
+        # The binaries are signed with cosign, not notarized by Apple.
+        install: &unquarantine |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", staged_path.to_s]
+          end
+
+  - name: nexo
+    ids: [nexo]
+    binaries: [nexo]
+    repository: *tap
+    directory: Casks
+    homepage: https://github.com/r3n3r0/nexo
+    description: S3-compatible object storage server with an embedded web console
+    commit_msg_template: "nexo {{ .Tag }}"
+    skip_upload: *tapskip
+    caveats: |
+      Start a single-drive server (console on http://localhost:9001):
+        NEXO_ROOT_USER=admin NEXO_ROOT_PASSWORD=<at least 8 characters> nexo server ~/nexo-data
+    hooks:
+      post:
+        install: *unquarantine
 
 snapshot:
   version_template: "{{ incpatch .Version }}-next"
@@ -279,32 +409,29 @@ release:
   prerelease: auto
   mode: replace
   footer: |
-    ## Docker images
+    ## Verify this release
+
+    ```sh
+    # checksums.txt: signed with cosign keyless by the release workflow of this tag
+    cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
+      --certificate-identity 'https://github.com/R3n3r0/Nexo/.github/workflows/release.yml@refs/tags/{{ .Tag }}' \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com
+    sha256sum --ignore-missing -c checksums.txt
+
+    # images (multi-arch index, SBOM and provenance attestations)
+    cosign verify ghcr.io/r3n3r0/nexo:{{ .Tag }} \
+      --certificate-identity 'https://github.com/R3n3r0/Nexo/.github/workflows/release.yml@refs/tags/{{ .Tag }}' \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com
+    docker buildx imagetools inspect ghcr.io/r3n3r0/nexo:{{ .Tag }} --format '{{ "{{" }} json .SBOM {{ "}}" }}'
+    ```
+
+    ## Install
 
     ```sh
     docker pull ghcr.io/r3n3r0/nexo:{{ .Tag }}
     docker pull ghcr.io/r3n3r0/nexoctl:{{ .Tag }}
+    helm install nexo oci://ghcr.io/r3n3r0/charts/nexo --version {{ .Version }}
     ```
 
-    Images and checksums are signed with cosign (keyless):
-
-    ```sh
-    cosign verify ghcr.io/r3n3r0/nexo:{{ .Tag }} \
-      --certificate-identity-regexp 'https://github.com/r3n3r0/nexo/.github/workflows/release.yml@refs/tags/.*' \
-      --certificate-oidc-issuer https://token.actions.githubusercontent.com
-    cosign verify-blob checksums.txt --signature checksums.txt.sig --certificate checksums.txt.pem \
-      --certificate-identity-regexp 'https://github.com/r3n3r0/nexo/.github/workflows/release.yml@refs/tags/.*' \
-      --certificate-oidc-issuer https://token.actions.githubusercontent.com
-    ```
-
-# Homebrew tap (docs/08 §8.3) — enable once the tap repository exists:
-# brews:
-#   - name: nexoctl
-#     ids: [nexoctl]
-#     repository:
-#       owner: r3n3r0
-#       name: homebrew-tap
-#     homepage: https://github.com/r3n3r0/nexo
-#     description: Command-line client for Nexo
-#     test: |
-#       system "#{bin}/nexoctl", "version"
+    deb/rpm packages `nexo` (server, systemd unit) and `nexoctl` (CLI) for
+    amd64 and arm64 are attached below; see docs/08-modalita-deploy.md §8.7.

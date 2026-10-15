@@ -10,6 +10,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/certs"
 	"github.com/r3n3r0/nexo/internal/service/cluster"
 	"github.com/r3n3r0/nexo/internal/service/heal"
 	"github.com/r3n3r0/nexo/internal/service/kms"
@@ -57,6 +58,15 @@ type Deps struct {
 	// KMS is the KMS of the server-side encryption, whose state and keys
 	// ServerInfo reports; nil leaves it out.
 	KMS kms.Service
+	// TLS is the TLS configuration of the listeners that ServerInfo
+	// reports, with the certificates of Keystore; nil leaves it out.
+	TLS *domain.TLSInfo
+	// Keystore serves the certificates of the listeners (nil without
+	// TLS).
+	Keystore certs.Keystore
+	// Telemetry is the state of the distributed tracing that ServerInfo
+	// reports; nil leaves it out.
+	Telemetry *domain.TelemetryInfo
 }
 
 // Option configures the facade.
@@ -101,6 +111,11 @@ func (s *service) ServerInfo(ctx context.Context) (*domain.ServerInfo, error) {
 	if s.deps.KMS != nil {
 		info.KMS = kmsInfo(ctx, s.deps.KMS, s.deps.Logger)
 	}
+	info.TLS = s.tlsInfo(ctx)
+	if s.deps.Telemetry != nil {
+		t := *s.deps.Telemetry
+		info.Telemetry = &t
+	}
 	info.Pools = poolStates(s.deps.Pools, info.Nodes)
 	if s.deps.Objects != nil {
 		buckets, err := s.deps.Objects.ListBuckets(ctx)
@@ -115,6 +130,27 @@ func (s *service) ServerInfo(ctx context.Context) (*domain.ServerInfo, error) {
 		}
 	}
 	return info, nil
+}
+
+// tlsInfo describes the TLS of the listeners: the configuration of Deps
+// with the certificates currently loaded by the keystore (nil without a
+// TLS configuration).
+func (s *service) tlsInfo(ctx context.Context) *domain.TLSInfo {
+	if s.deps.TLS == nil {
+		return nil
+	}
+	t := *s.deps.TLS
+	t.Certificates = nil
+	if s.deps.Keystore == nil {
+		return &t
+	}
+	for _, kp := range s.deps.Keystore.KeyPairs(ctx) {
+		t.Certificates = append(t.Certificates, domain.TLSCertificate{
+			Name: kp.Name, Domains: kp.Domains, IPs: kp.IPs, Subject: kp.Subject, Issuer: kp.Issuer,
+			NotBefore: kp.NotBefore, NotAfter: kp.NotAfter, Fingerprint: kp.Fingerprint,
+		})
+	}
+	return &t
 }
 
 // nodes describes the nodes of the deployment, this one first with the

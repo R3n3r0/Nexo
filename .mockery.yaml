@@ -24,6 +24,7 @@ packages:
       AdminFactory:
       AliasService:
       ConfigStore:
+      EventStream:
       Mirrorer:
       S3Client:
       S3Factory:
@@ -49,6 +50,7 @@ packages:
       DistributionManager:
       CertificateManager:
       CacheManager:
+      Diagnostics:
   github.com/r3n3r0/nexo/internal/service/accessrule:
     interfaces:
       Service:
@@ -58,6 +60,8 @@ packages:
   github.com/r3n3r0/nexo/internal/service/audit:
     interfaces:
       Service:
+      Dispatcher:
+      Peer:
   github.com/r3n3r0/nexo/internal/service/auth:
     interfaces:
       Verifier:
@@ -87,6 +91,7 @@ packages:
       DomainSource:
       HostSource:
       Sealer:
+      Keystore:
   github.com/r3n3r0/nexo/internal/service/cluster:
     interfaces:
       Notifier:
@@ -173,6 +178,16 @@ packages:
       Counter:
       Gauge:
       Histogram:
+      Exporter:
+      Peer:
+      ClusterInfo:
+      History:
+  github.com/r3n3r0/nexo/internal/service/logs:
+    interfaces:
+      Service:
+      Subscription:
+      Peer:
+      Configurator:
   github.com/r3n3r0/nexo/internal/service/match:
     interfaces:
       Service:
@@ -221,6 +236,13 @@ packages:
   github.com/r3n3r0/nexo/internal/service/sysstore:
     interfaces:
       Store:
+  github.com/r3n3r0/nexo/internal/service/trace:
+    interfaces:
+      Service:
+      Subscription:
+      Peer:
+      Span:
+      Telemetry:
   github.com/r3n3r0/nexo/internal/service/topology:
     interfaces:
       Service:
@@ -250,6 +272,7 @@ packages:
     interfaces:
       Service:
       CertificateSource:
+      ClientCASource:
   github.com/r3n3r0/nexo/internal/transport/http/console:
     interfaces:
       Assets:
@@ -288,6 +311,8 @@ packages:
       DistributionRoutes:
       CertificateRoutes:
       CacheRoutes:
+      DiagnosticsRoutes:
+      ObservabilityRoutes:
   github.com/r3n3r0/nexo/internal/transport/rpc:
     interfaces:
       Routes:
@@ -296,6 +321,8 @@ packages:
       PeerRoutes:
       BootstrapRoutes:
       CacheRoutes:
+      ObservabilityRoutes:
+      ObservabilityPeer:
       Server:
       Authenticator:
       Conn:

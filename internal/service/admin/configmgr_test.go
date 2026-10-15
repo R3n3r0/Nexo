@@ -166,8 +166,8 @@ func TestConfigManagerListAndSchema(t *testing.T) {
 	for _, s := range schema {
 		names = append(names, s.Name)
 	}
-	assert.Equal(t, []string{"access", "api", "browser", "logger", "notify_amqp", "notify_kafka", "notify_nats", "notify_postgres", "notify_redis",
-		"notify_webhook", "region", "scanner"}, names)
+	assert.Equal(t, []string{"access", "api", "audit_kafka", "audit_webhook", "browser", "logger", "notify_amqp", "notify_kafka", "notify_nats",
+		"notify_postgres", "notify_redis", "notify_webhook", "region", "scanner"}, names)
 	// Every key says whether the server applies it (regression: keys were
 	// shown as if they took effect while nothing read them).
 	applied := map[string]bool{}
@@ -176,10 +176,11 @@ func TestConfigManagerListAndSchema(t *testing.T) {
 			applied[s.Name+"."+k.Name] = k.Applied
 		}
 	}
-	for _, k := range []string{"api.root_access", "scanner.speed", "scanner.cycle", "access.block_public", "access.block_public_mode"} {
+	for _, k := range []string{"api.root_access", "scanner.speed", "scanner.cycle", "access.block_public", "access.block_public_mode",
+		"logger.level", "logger.format", "audit_webhook.endpoint", "audit_kafka.topic"} {
 		assert.True(t, applied[k], k)
 	}
-	for _, k := range []string{"api.requests_max", "browser.session_duration", "logger.level", "region.name"} {
+	for _, k := range []string{"api.requests_max", "api.requests_deadline", "browser.session_duration", "region.name", "audit_webhook.comment"} {
 		assert.False(t, applied[k], k)
 	}
 	store.EXPECT().Get(mock.Anything, mock.Anything).Return(config.KV{}, nil)

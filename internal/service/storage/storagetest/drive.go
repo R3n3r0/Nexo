@@ -445,8 +445,8 @@ func testFaultyDrive(t *testing.T, f Factory) {
 	s, dir := open(t, f)
 	require.NoError(t, s.MakeVol(ctx, "b"))
 	volDir := filepath.Join(dir, "b")
-	require.NoError(t, os.Chmod(volDir, 0o500))
-	t.Cleanup(func() { _ = os.Chmod(volDir, 0o750) })
+	require.NoError(t, os.Chmod(volDir, 0o500))       // #nosec G302 -- a directory of a test drive made read-only
+	t.Cleanup(func() { _ = os.Chmod(volDir, 0o750) }) // #nosec G302 -- restores the permissions of a test directory
 	err := s.WriteMetadata(ctx, "b", "k", version("", time.Now(), 1))
 	assert.ErrorIs(t, err, domain.ErrFaultyDisk)
 }

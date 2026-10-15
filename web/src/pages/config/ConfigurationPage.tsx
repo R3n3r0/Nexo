@@ -32,6 +32,7 @@ import {
 import { ConfigField } from './ConfigField';
 import { KmsSection } from './KmsSection';
 import { NotifyTargetsSection } from './NotifyTargetsSection';
+import { ObservabilitySection } from './ObservabilitySection';
 
 /** D-ACC-04: the block public access of the cluster, with its mode. */
 function ClusterBlockPublic() {
@@ -58,7 +59,8 @@ function asConfigDocument(value: unknown): ConfigDocument | undefined {
 
 /**
  * Configuration page (D-CFG-01): the notification targets (notify_*) with
- * a form per type and their state, the KMS, one generic key/value form per
+ * a form per type and their state, the KMS, the observability (logger,
+ * audit targets, tracing and TLS state), one generic key/value form per
  * subsystem from GET /config/schema, export and import of the whole
  * configuration.
  */
@@ -154,6 +156,7 @@ export function ConfigurationPage() {
       ) : null}
       <NotifyTargetsSection schema={schema.data} />
       <KmsSection />
+      <ObservabilitySection schema={schema.data} values={values.data} />
       <ClusterBlockPublic />
       {schema.isPending || values.isPending ? <Loader aria-label={t('common.loading')} /> : null}
       {schema.data && values.data ? (

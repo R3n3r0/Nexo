@@ -54,7 +54,6 @@ func NewInfoRoutes(deps InfoDeps, opts ...InfoOption) (InfoRoutes, error) {
 func (h *infoRoutes) Register(r chi.Router) { h.guard.register(r, h.routes()) }
 
 func (h *infoRoutes) routes() []route {
-	ni := notImplemented(h.deps.Enc)
 	return []route{
 		{http.MethodGet, "/info", global(policy.ActionAdminServerInfo), h.info},
 		{http.MethodGet, "/usage", global(policy.ActionAdminDataUsage), h.usage},
@@ -63,9 +62,7 @@ func (h *infoRoutes) routes() []route {
 		{http.MethodGet, "/heal/{id}", global(policy.ActionAdminHeal), h.healStatus},
 		{http.MethodPost, "/service/restart", global(policy.ActionAdminServiceRestart), h.serviceAction(adminsvc.ActionRestart)},
 		{http.MethodPost, "/service/stop", global(policy.ActionAdminServiceStop), h.serviceAction(adminsvc.ActionStop)},
-		// Live streams (SSE) arrive with the observability milestone.
-		{http.MethodGet, "/trace", global(policy.ActionAdminServerTrace), ni},
-		{http.MethodGet, "/logs", global(policy.ActionAdminConsoleLog), ni},
+		// The live streams (/trace, /logs) are ObservabilityRoutes.
 	}
 }
 
@@ -88,6 +85,43 @@ type ServerInfoResponse struct {
 	// KMS is the state of the KMS of the server-side encryption, with
 	// its first keys.
 	KMS *KMSInfoResponse `json:"kms,omitempty"`
+	// TLS is the state of the TLS of the listeners of the answering node.
+	TLS *TLSInfoResponse `json:"tls,omitempty"`
+	// Telemetry is the state of the distributed tracing of the answering
+	// node.
+	Telemetry *TelemetryInfoResponse `json:"telemetry,omitempty"`
+}
+
+// TLSInfoResponse is the TLS in ServerInfoResponse.
+type TLSInfoResponse struct {
+	Enabled         bool   `json:"enabled"`
+	MinVersion      string `json:"minVersion,omitempty"`
+	InternodeVerify bool   `json:"internodeVerify"`
+	// Certificates are the certificates of the certificates directory,
+	// the default one first; never their keys.
+	Certificates []TLSCertificateResponse `json:"certificates"`
+}
+
+// TLSCertificateResponse is a certificate of the listeners.
+type TLSCertificateResponse struct {
+	// Name is "" for the default certificate, the sub-directory of a
+	// certificate selected by SNI.
+	Name        string    `json:"name"`
+	Domains     []string  `json:"domains,omitempty"`
+	IPs         []string  `json:"ips,omitempty"`
+	Subject     string    `json:"subject"`
+	Issuer      string    `json:"issuer"`
+	NotBefore   time.Time `json:"notBefore"`
+	NotAfter    time.Time `json:"notAfter"`
+	Fingerprint string    `json:"fingerprint"`
+}
+
+// TelemetryInfoResponse is the distributed tracing in ServerInfoResponse.
+type TelemetryInfoResponse struct {
+	Enabled     bool    `json:"enabled"`
+	Endpoint    string  `json:"endpoint,omitempty"`
+	Protocol    string  `json:"protocol,omitempty"`
+	SampleRatio float64 `json:"sampleRatio"`
 }
 
 // KMSInfoResponse is the KMS in ServerInfoResponse.
@@ -212,6 +246,19 @@ func newServerInfoResponse(info *domain.ServerInfo) ServerInfoResponse {
 		resp.KMS = &KMSInfoResponse{Keys: k.Keys, KMSStatusResponse: newKMSStatusResponse(kms.Status{
 			Configured: k.Configured, Backend: k.Backend, DefaultKey: k.DefaultKey, Endpoints: k.Endpoints, Online: k.Online, Error: k.Error,
 		})}
+	}
+	if t := info.TLS; t != nil {
+		resp.TLS = &TLSInfoResponse{Enabled: t.Enabled, MinVersion: t.MinVersion, InternodeVerify: t.InternodeVerify,
+			Certificates: make([]TLSCertificateResponse, 0, len(t.Certificates))}
+		for _, c := range t.Certificates {
+			resp.TLS.Certificates = append(resp.TLS.Certificates, TLSCertificateResponse{
+				Name: c.Name, Domains: c.Domains, IPs: c.IPs, Subject: c.Subject, Issuer: c.Issuer,
+				NotBefore: c.NotBefore.UTC(), NotAfter: c.NotAfter.UTC(), Fingerprint: c.Fingerprint,
+			})
+		}
+	}
+	if t := info.Telemetry; t != nil {
+		resp.Telemetry = &TelemetryInfoResponse{Enabled: t.Enabled, Endpoint: t.Endpoint, Protocol: t.Protocol, SampleRatio: t.SampleRatio}
 	}
 	for _, p := range info.Pools {
 		pool := PoolResponse{Index: p.Index, Sets: p.Sets, DrivesPerSet: p.DrivesPerSet, Parity: p.Parity,

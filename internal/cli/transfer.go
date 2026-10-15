@@ -423,7 +423,7 @@ func (t Transfer) Delete(ctx context.Context, target Target, versionID string) e
 // directory, sets its modification time and renames it into place.
 func writeFileAtomic(dst string, r io.Reader, mod time.Time, progress *Progress) (int64, error) {
 	dir := filepath.Dir(dst)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil { // #nosec G301 -- directories of the user's downloads, subject to the umask like cp
 		return 0, fmt.Errorf("create %s: %w", dir, err)
 	}
 	tmp, err := os.CreateTemp(dir, ".nexoctl-*.part")

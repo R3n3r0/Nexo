@@ -19,7 +19,7 @@ func (c *codec) Decode(ctx context.Context, dst io.Writer, readers []ShardReader
 	if length == 0 {
 		return res, nil
 	}
-	pr := newParallelReader(ctx, c, readers, res.ShardErrs)
+	pr := newParallelReader(ctx, c, readers, res.ShardErrs, totalLength)
 	first, last := offset/c.blockSize, (offset+length-1)/c.blockSize
 	for b := first; b <= last; b++ {
 		blockLen, shardLen := c.blockGeometry(b, totalLength)
@@ -80,6 +80,10 @@ type parallelReader struct {
 	// shards rebuilt by the reconstruction.
 	bufs  [][]byte
 	recon [][]byte
+	// bufSize is the size of the buffers: the shard of a full block, or
+	// the shard of the only block of a smaller part (a small object reads
+	// and rebuilds bytes, not the megabytes of a block).
+	bufSize int64
 	// dropped marks the shards set aside.
 	dropped []bool
 }
@@ -90,11 +94,14 @@ type shardRead struct {
 	err error
 }
 
-func newParallelReader(ctx context.Context, c *codec, readers []ShardReader, errs []error) *parallelReader {
+// newParallelReader returns the reader of the shards of a part of
+// totalLength bytes.
+func newParallelReader(ctx context.Context, c *codec, readers []ShardReader, errs []error, totalLength int64) *parallelReader {
 	n := c.shards()
 	return &parallelReader{
 		ctx: ctx, c: c, readers: readers, errs: errs,
 		bufs: make([][]byte, n), recon: make([][]byte, n), dropped: make([]bool, n),
+		bufSize: max(min(c.shardSize, ceilDiv(totalLength, int64(c.data))), 1),
 	}
 }
 
@@ -134,7 +141,7 @@ func (p *parallelReader) readBlock(off, shardLen int64) ([][]byte, error) {
 			return false
 		}
 		if p.bufs[i] == nil {
-			p.bufs[i] = make([]byte, p.c.shardSize)
+			p.bufs[i] = make([]byte, p.bufSize)
 		}
 		launched[i] = true
 		inflight++
@@ -192,7 +199,7 @@ func (p *parallelReader) readBlock(off, shardLen int64) ([][]byte, error) {
 		}
 		if shards[i] == nil {
 			if p.recon[i] == nil {
-				p.recon[i] = make([]byte, 0, p.c.shardSize)
+				p.recon[i] = make([]byte, 0, p.bufSize)
 			}
 			shards[i] = p.recon[i][:0]
 		}

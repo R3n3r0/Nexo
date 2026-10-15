@@ -70,6 +70,65 @@ func (_c *Service_Log_Call) RunAndReturn(run func(context.Context, audit.Entry) 
 	return _c
 }
 
+// Search provides a mock function with given fields: ctx, q
+func (_m *Service) Search(ctx context.Context, q audit.Query) ([]audit.Entry, error) {
+	ret := _m.Called(ctx, q)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Search")
+	}
+
+	var r0 []audit.Entry
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, audit.Query) ([]audit.Entry, error)); ok {
+		return rf(ctx, q)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, audit.Query) []audit.Entry); ok {
+		r0 = rf(ctx, q)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]audit.Entry)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, audit.Query) error); ok {
+		r1 = rf(ctx, q)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_Search_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Search'
+type Service_Search_Call struct {
+	*mock.Call
+}
+
+// Search is a helper method to define mock.On call
+//   - ctx context.Context
+//   - q audit.Query
+func (_e *Service_Expecter) Search(ctx interface{}, q interface{}) *Service_Search_Call {
+	return &Service_Search_Call{Call: _e.mock.On("Search", ctx, q)}
+}
+
+func (_c *Service_Search_Call) Run(run func(ctx context.Context, q audit.Query)) *Service_Search_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(audit.Query))
+	})
+	return _c
+}
+
+func (_c *Service_Search_Call) Return(_a0 []audit.Entry, _a1 error) *Service_Search_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_Search_Call) RunAndReturn(run func(context.Context, audit.Query) ([]audit.Entry, error)) *Service_Search_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewService creates a new instance of Service. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewService(t interface {

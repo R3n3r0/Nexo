@@ -160,7 +160,7 @@ func loadCAs(path string) (*x509.CertPool, error) {
 	pool := x509.NewCertPool()
 	found := false
 	for _, f := range files {
-		data, err := os.ReadFile(f)
+		data, err := os.ReadFile(f) // #nosec G304 -- the client certificate files of the KES configuration
 		if err != nil {
 			return nil, fmt.Errorf("kes: CA certificate: %w", err)
 		}

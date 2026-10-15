@@ -180,7 +180,7 @@ export interface paths {
         put?: never;
         /**
          * Restart the server
-         * @description The response is sent before the process restarts (SIGHUP to the server process).
+         * @description The response is sent before the process restarts (in place, within the process; SIGHUP only reloads the TLS certificates).
          */
         post: operations["restartService"];
         delete?: never;
@@ -213,7 +213,17 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Live trace of the requests (SSE, not implemented yet) */
+        /**
+         * Live trace of the requests (Server-Sent Events)
+         * @description Streams one event per S3, Admin API, website or internode request served by
+         *     the deployment, the nodes of a cluster included (`node` restricts them),
+         *     as `text/event-stream`: `event: trace` with a TraceEvent, `event: dropped`
+         *     with a StreamDropped when the client did not keep up (the server never
+         *     waits for a slow stream: it drops events and counts them), a `: heartbeat`
+         *     comment while idle. The query strings are redacted (signatures,
+         *     credentials, tokens); headers and bodies are never part of an event.
+         *     Without `type`, every type but `rpc`.
+         */
         get: operations["serverTrace"];
         put?: never;
         post?: never;
@@ -230,8 +240,83 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Live server logs (SSE, not implemented yet) */
+        /**
+         * Live server logs (Server-Sent Events)
+         * @description Streams the log entries of the deployment, the nodes of a cluster included,
+         *     as `text/event-stream`: `event: log` with a LogEntry, `event: dropped` with
+         *     a StreamDropped, a `: heartbeat` comment while idle. `last` first replays
+         *     up to that many recent entries of each node (at most 10000). Secrets
+         *     (credentials, signatures, tokens, passwords) are redacted from the entries.
+         */
         get: operations["serverLogs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search the recent audit log
+         * @description Searches the audit records kept in memory by every node (the most recent
+         *     ones; the complete log goes to the JSON log and to the audit targets
+         *     audit_webhook and audit_kafka), newest first. An audit record is produced
+         *     for every authenticated S3 and Admin API request.
+         */
+        get: operations["searchAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The series of the metrics of the console
+         * @description The series kept by every node in memory (one point every 10 seconds for
+         *     24 hours) for the charts of the console. Allowed with `admin:Prometheus`
+         *     or `admin:ServerInfo` (either one).
+         */
+        get: operations["listMetrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/metrics/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The points of a series, per node and for the cluster
+         * @description The points of `metric` from `end - range` to `end` every `step`, for every
+         *     node (or those of `node`) and aggregated for the cluster; a point without
+         *     sample (node down, older than the buffer) is null. Allowed with
+         *     `admin:Prometheus` or `admin:ServerInfo` (either one).
+         */
+        get: operations["queryMetric"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2567,6 +2652,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Runtime profile of the node (pprof)
+         * @description Collects a profile of the node that serves the request, in the pprof format
+         *     (gzipped protocol buffer, `go tool pprof`): `cpu`, `mutex` and `block` sample
+         *     for `seconds` (1-120, default 10), `heap` and `goroutine` are snapshots. One
+         *     profile at a time per node (409 `conflict`). Allowed to root and to the
+         *     identities with `admin:Profiling` (the `diagnostics` policy).
+         */
+        get: operations["getProfile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/speedtest/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: "drive" | "object" | "net";
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Speed test of the drives, of the object layer or of the network
+         * @description Runs on the node that serves the request and removes what it wrote: `drive`
+         *     writes then reads files on every local drive; `object` uploads then downloads
+         *     objects through the object layer in a temporary bucket (`nexo-speedtest-*`);
+         *     `net` uploads files to a drive of every other node of a cluster over the
+         *     internode RPC then reads one back (501 out of a cluster). Each phase lasts
+         *     `durationSeconds` (at most 60) and writes at most 1 GiB per target; objects
+         *     and files are at most 64 MiB, the concurrency at most 64. One test at a time
+         *     per node (409 `conflict`).
+         */
+        post: operations["runSpeedtest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2820,6 +2958,46 @@ export interface components {
             pools: components["schemas"]["PoolInfo"][];
             nodes: components["schemas"]["NodeInfo"][];
             kms?: components["schemas"]["KmsInfo"];
+            tls?: components["schemas"]["TlsInfo"];
+            telemetry?: components["schemas"]["TelemetryInfo"];
+        };
+        /** @description TLS of the listeners of the node that answers (docs/07 §7.3): the certificates of its certificates directory, reloaded without restart. */
+        TlsInfo: {
+            /** @description False when the listeners serve plain HTTP. */
+            enabled: boolean;
+            /**
+             * @description Oldest TLS version accepted.
+             * @enum {string}
+             */
+            minVersion?: "1.2" | "1.3";
+            /** @description Mutual TLS between the nodes. */
+            internodeVerify: boolean;
+            /** @description The default certificate first, then those selected by SNI; never their keys. */
+            certificates: components["schemas"]["TlsCertificate"][];
+        };
+        TlsCertificate: {
+            /** @description Empty for the default certificate, the sub-directory of one selected by SNI. */
+            name: string;
+            domains?: string[];
+            ips?: string[];
+            subject: string;
+            issuer: string;
+            /** Format: date-time */
+            notBefore: string;
+            /** Format: date-time */
+            notAfter: string;
+            /** @description SHA-256 of the leaf certificate. */
+            fingerprint: string;
+        };
+        /** @description Distributed tracing (OpenTelemetry) of the node that answers (docs/07 §7.4). */
+        TelemetryInfo: {
+            /** @description The spans are exported to an OTLP collector. */
+            enabled: boolean;
+            /** @description URL of the collector, without user info nor query. */
+            endpoint?: string;
+            /** @enum {string} */
+            protocol?: "http/protobuf" | "grpc";
+            sampleRatio: number;
         };
         BucketUsage: {
             /** Format: int64 */
@@ -2976,6 +3154,123 @@ export interface components {
         ServiceAction: {
             /** @enum {string} */
             action: "restart" | "stop";
+        };
+        /** @description A request of the live trace (SSE event `trace`). */
+        TraceEvent: {
+            /** Format: date-time */
+            time: string;
+            node: string;
+            /** @enum {string} */
+            type: "s3" | "admin" | "web" | "rpc";
+            api?: string;
+            method: string;
+            path: string;
+            /** @description The query string, signatures, credentials and tokens redacted. */
+            query?: string;
+            status: number;
+            durationMs: number;
+            /** Format: int64 */
+            inputBytes: number;
+            /** Format: int64 */
+            outputBytes: number;
+            requestId?: string;
+            clientIp?: string;
+            user?: string;
+            bucket?: string;
+            error?: string;
+        };
+        /** @description A log entry (SSE event `log`). */
+        LogEntry: {
+            /** Format: date-time */
+            time: string;
+            node: string;
+            /** @enum {string} */
+            level: "DEBUG" | "INFO" | "WARN" | "ERROR";
+            message: string;
+            attrs?: {
+                [key: string]: string;
+            };
+        };
+        /** @description The events a stream lost so far (SSE event `dropped`). */
+        StreamDropped: {
+            /** Format: int64 */
+            dropped: number;
+        };
+        AuditEntry: {
+            /** Format: date-time */
+            time: string;
+            node?: string;
+            /** @enum {string} */
+            type?: "s3" | "admin";
+            requestId?: string;
+            api: string;
+            method?: string;
+            path?: string;
+            bucket?: string;
+            object?: string;
+            statusCode: number;
+            durationMs: number;
+            /**
+             * Format: int64
+             * @description Bytes received.
+             */
+            rx: number;
+            /**
+             * Format: int64
+             * @description Bytes sent.
+             */
+            tx: number;
+            remoteHost?: string;
+            userAgent?: string;
+            accessKey?: string;
+            parentUser?: string;
+            /** @description The query parameters, the sensitive ones redacted. */
+            query?: {
+                [key: string]: string;
+            };
+            error?: string;
+        };
+        AuditList: {
+            items: components["schemas"]["AuditEntry"][];
+        };
+        MetricInfo: {
+            name: string;
+            description: string;
+            unit: string;
+            /**
+             * @description How the nodes combine into the cluster series.
+             * @enum {string}
+             */
+            aggregation: "sum" | "avg" | "max";
+        };
+        MetricList: {
+            items: components["schemas"]["MetricInfo"][];
+        };
+        MetricPoint: {
+            /**
+             * Format: int64
+             * @description Unix time in seconds.
+             */
+            t: number;
+            /** @description The value, null without sample. */
+            v: number | null;
+        };
+        MetricNodeSeries: {
+            node: string;
+            points: components["schemas"]["MetricPoint"][];
+            /** @description Why the points of the node could not be read. */
+            error?: string;
+        };
+        MetricSeries: {
+            metric: components["schemas"]["MetricInfo"];
+            /** Format: date-time */
+            start: string;
+            /** Format: date-time */
+            end: string;
+            /** Format: int64 */
+            stepSeconds: number;
+            nodes: components["schemas"]["MetricNodeSeries"][];
+            cluster: components["schemas"]["MetricPoint"][];
         };
         Bucket: {
             name: string;
@@ -4748,6 +5043,39 @@ export interface components {
             topMisses: components["schemas"]["CacheObjectStat"][];
             nodes: components["schemas"]["CacheNodeStats"][];
         };
+        SpeedtestRequest: {
+            /** @description Size of each file or object (default 4 MiB). */
+            size?: number;
+            /** @description Duration of each phase (default 5). */
+            durationSeconds?: number;
+            /** @description Concurrency of the object test and of the reads of the net test (default 8). */
+            concurrency?: number;
+        };
+        SpeedtestMeasure: {
+            bytes: number;
+            operations: number;
+            elapsedSeconds: number;
+            bytesPerSecond: number;
+            operationsPerSecond: number;
+            latencyP50Ms: number;
+            latencyP99Ms: number;
+        };
+        SpeedtestTarget: {
+            /** @description A drive, a peer node, or objects. */
+            target: string;
+            write: components["schemas"]["SpeedtestMeasure"];
+            read: components["schemas"]["SpeedtestMeasure"];
+            error?: string;
+        };
+        SpeedtestResult: {
+            /** @enum {string} */
+            kind: "drive" | "object" | "net";
+            node: string;
+            size: number;
+            durationSeconds: number;
+            concurrency: number;
+            targets: components["schemas"]["SpeedtestTarget"][];
+        };
     };
     responses: {
         /** @description An error, as an RFC 9457 problem document. */
@@ -5085,18 +5413,112 @@ export interface operations {
     };
     serverTrace: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Nodes to trace (comma-separated or repeated) */
+                node?: string;
+                /** @description Request types: s3, admin, web, rpc (comma-separated) */
+                type?: string;
+                /** @description API names (PutObject, GET /buckets...), comma-separated */
+                api?: string;
+                /** @description Buckets (comma-separated) */
+                bucket?: string;
+                /** @description Status codes (404) or classes (5xx), comma-separated */
+                status?: string;
+                /** @description Only the failed requests (status >= 400) */
+                errors?: boolean;
+                /** @description Only the requests slower than this duration (500ms, 2s) */
+                threshold?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            501: components["responses"]["Problem"];
+            /** @description The stream of the events. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            400: components["responses"]["Problem"];
             default: components["responses"]["Problem"];
         };
     };
     serverLogs: {
+        parameters: {
+            query?: {
+                /** @description Nodes (comma-separated or repeated) */
+                node?: string;
+                /** @description Minimum level */
+                level?: "debug" | "info" | "warn" | "error" | "DEBUG" | "INFO" | "WARN" | "ERROR";
+                /** @description Recent entries to replay first */
+                last?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stream of the entries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            400: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    searchAudit: {
+        parameters: {
+            query?: {
+                /** @description Nodes (comma-separated or repeated) */
+                node?: string;
+                /** @description API name (PutObject, GET /buckets...) */
+                api?: string;
+                bucket?: string;
+                /** @description Access key or parent user */
+                user?: string;
+                /** @description Request type */
+                type?: "s3" | "admin";
+                /** @description Status codes (404) or classes (5xx), comma-separated */
+                status?: string;
+                /** @description Only the failed requests (status >= 400) */
+                errors?: boolean;
+                since?: string;
+                until?: string;
+                requestId?: string;
+                /** @description At most this many records (default 100, at most 1000) */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The matching audit records. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditList"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    listMetrics: {
         parameters: {
             query?: never;
             header?: never;
@@ -5105,7 +5527,49 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            501: components["responses"]["Problem"];
+            /** @description The series. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    queryMetric: {
+        parameters: {
+            query: {
+                /** @description Name of the series (GET /metrics) */
+                metric: string;
+                /** @description Span of the points (default 1h, at most 24h) */
+                range?: string;
+                /** @description Distance between two points (multiple of 10s; default keeps at most 360 points) */
+                step?: string;
+                /** @description End of the range (default now) */
+                end?: string;
+                /** @description Nodes (comma-separated or repeated) */
+                node?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The points. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricSeries"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
             default: components["responses"]["Problem"];
         };
     };
@@ -9357,6 +9821,64 @@ export interface operations {
                 };
             };
             404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    getProfile: {
+        parameters: {
+            query?: {
+                type?: "cpu" | "heap" | "goroutine" | "mutex" | "block";
+                seconds?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The profile, as an attachment named nexo-<node>-<type>.pb.gz. */
+            200: {
+                headers: {
+                    /** @description The node that collected the profile. */
+                    "X-Nexo-Node"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            400: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    runSpeedtest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: "drive" | "object" | "net";
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SpeedtestRequest"];
+            };
+        };
+        responses: {
+            /** @description The measures of every target. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpeedtestResult"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            501: components["responses"]["Problem"];
             default: components["responses"]["Problem"];
         };
     };

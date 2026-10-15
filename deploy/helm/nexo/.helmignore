@@ -1,0 +1,13 @@
+# Patterns ignored when packaging the chart.
+.DS_Store
+.git/
+.gitignore
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+.idea/
+.vscode/
+# Values of the CI checks (helm lint/template, kubeconform).
+ci/

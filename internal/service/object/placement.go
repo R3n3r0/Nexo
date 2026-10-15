@@ -81,7 +81,7 @@ func setIndex(k0, k1 uint64, key string, n int) int {
 	if n <= 1 {
 		return 0
 	}
-	return int(siphash.Hash(k0, k1, []byte(key)) % uint64(n))
+	return int(siphash.Hash(k0, k1, []byte(key)) % uint64(n)) // #nosec G115 -- n > 1 is checked above
 }
 
 // hashOrder returns the distribution of the shards of key over n drives:
@@ -92,7 +92,7 @@ func hashOrder(key string, n int) []int {
 	if n <= 0 {
 		return nil
 	}
-	start := int(crc32.ChecksumIEEE([]byte(key)) % uint32(n))
+	start := int(crc32.ChecksumIEEE([]byte(key)) % uint32(n)) // #nosec G115 -- n > 0 is checked above and is a drive count
 	out := make([]int, n)
 	for i := range out {
 		out[i] = 1 + (start+i)%n

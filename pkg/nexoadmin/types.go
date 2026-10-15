@@ -59,6 +59,49 @@ type ServerInfo struct {
 	Usage         uint64     `json:"usage"`
 	Pools         []PoolInfo `json:"pools"`
 	Nodes         []NodeInfo `json:"nodes"`
+	// TLS is the TLS of the listeners of the answering node (nil from a
+	// server that does not report it).
+	TLS *TLSInfo `json:"tls,omitempty"`
+	// Telemetry is the distributed tracing of the answering node (nil
+	// from a server that does not report it).
+	Telemetry *TelemetryInfo `json:"telemetry,omitempty"`
+}
+
+// TLSInfo is the TLS of the listeners of a node.
+type TLSInfo struct {
+	// Enabled is false when the listeners serve plain HTTP.
+	Enabled bool `json:"enabled"`
+	// MinVersion is the oldest TLS version accepted ("1.2", "1.3").
+	MinVersion string `json:"minVersion,omitempty"`
+	// InternodeVerify reports mutual TLS between the nodes.
+	InternodeVerify bool `json:"internodeVerify"`
+	// Certificates are those of the certificates directory, the default
+	// one first.
+	Certificates []TLSCertificate `json:"certificates"`
+}
+
+// TLSCertificate is a certificate of the listeners (never its key).
+type TLSCertificate struct {
+	// Name is "" for the default certificate, the sub-directory of a
+	// certificate selected by SNI.
+	Name        string    `json:"name"`
+	Domains     []string  `json:"domains,omitempty"`
+	IPs         []string  `json:"ips,omitempty"`
+	Subject     string    `json:"subject"`
+	Issuer      string    `json:"issuer"`
+	NotBefore   time.Time `json:"notBefore"`
+	NotAfter    time.Time `json:"notAfter"`
+	Fingerprint string    `json:"fingerprint"`
+}
+
+// TelemetryInfo is the distributed tracing (OpenTelemetry) of a node.
+type TelemetryInfo struct {
+	Enabled bool `json:"enabled"`
+	// Endpoint is the URL of the OTLP collector, without user info.
+	Endpoint string `json:"endpoint,omitempty"`
+	// Protocol is http/protobuf or grpc.
+	Protocol    string  `json:"protocol,omitempty"`
+	SampleRatio float64 `json:"sampleRatio"`
 }
 
 // PoolInfo is an erasure pool.

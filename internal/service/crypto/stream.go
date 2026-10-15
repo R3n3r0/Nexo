@@ -263,18 +263,18 @@ func PackageRange(plainSize, offset, length int64) (Range, error) {
 		return Range{}, fmt.Errorf("%w: range [%d,+%d) of a part of %d bytes", domain.ErrInvalidRange, offset, length, plainSize)
 	}
 	last := lastSeq(plainSize)
-	lastPlain := plainSize - int64(last)*PackageSize
+	lastPlain := plainSize - int64(last)*PackageSize // #nosec G115 -- package indexes of a non-negative int64 size divided by PackageSize
 	r := Range{last: last, lastPlain: lastPlain, length: length}
 	if length == 0 {
 		return r, nil
 	}
 	r.first = uint64(offset / PackageSize)
 	end := uint64((offset + length - 1) / PackageSize)
-	r.skip = offset - int64(r.first)*PackageSize
-	r.StoredOffset = int64(r.first) * packageStored
-	storedEnd := int64(end+1) * packageStored
+	r.skip = offset - int64(r.first)*PackageSize    // #nosec G115 -- package indexes of a non-negative int64 offset divided by PackageSize
+	r.StoredOffset = int64(r.first) * packageStored // #nosec G115 -- package indexes of a non-negative int64 offset divided by PackageSize
+	storedEnd := int64(end+1) * packageStored       // #nosec G115 -- package indexes of a non-negative int64 offset divided by PackageSize
 	if end == last {
-		storedEnd = int64(last)*packageStored + lastPlain + TagSize
+		storedEnd = int64(last)*packageStored + lastPlain + TagSize // #nosec G115 -- package indexes of a non-negative int64 size divided by PackageSize
 	}
 	r.StoredLength = storedEnd - r.StoredOffset
 	return r, nil

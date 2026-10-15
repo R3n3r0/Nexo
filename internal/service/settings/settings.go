@@ -31,10 +31,16 @@ func Applied(subsystem, key string) bool {
 		// The block public access, read by the access rules
 		// (internal/service/accessrule) at every evaluation.
 		return key == "block_public" || key == "block_public_mode"
+	case "logger":
+		// The level and the format of the server logs, applied at once by
+		// the log stream (internal/service/logs).
+		return key == "level" || key == "format"
 	}
 	// The notification targets (notify_<kind>[:<id>]) are applied by the
-	// event dispatcher, which reloads them when they change.
-	return strings.HasPrefix(subsystem, "notify_") && key != "comment"
+	// event dispatcher, which reloads them when they change; the audit
+	// targets (audit_webhook, audit_kafka) by the audit log
+	// (internal/service/audit).
+	return (strings.HasPrefix(subsystem, "notify_") || strings.HasPrefix(subsystem, "audit_")) && key != "comment"
 }
 
 // Option configures the settings service.

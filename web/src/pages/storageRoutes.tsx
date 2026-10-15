@@ -47,8 +47,9 @@ const ObjectsPage = lazyPage(
   () => import('./objects/ObjectsPage'),
   (m) => m.ObjectsPage,
 );
+// The TLS and tracing state use strings loaded on demand (i18n sections).
 const InfoPage = lazyPage(
-  () => import('./InfoPage'),
+  async () => (await Promise.all([import('./InfoPage'), loadSectionTranslations()]))[0],
   (m) => m.InfoPage,
 );
 

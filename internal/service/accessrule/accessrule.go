@@ -495,6 +495,7 @@ func sameActions(actions []string, want ...string) bool {
 		return false
 	}
 	for i := range actions {
+		// #nosec G602 -- len(actions) == len(want) is checked above
 		if !strings.EqualFold(actions[i], want[i]) {
 			return false
 		}

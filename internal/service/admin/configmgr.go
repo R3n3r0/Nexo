@@ -83,9 +83,26 @@ func knownSubsystems() []SubsystemSchema {
 			{Name: "session_duration", Type: KeyDuration, Default: "12h", Description: "Lifetime of a console session"},
 			{Name: "upload_max_size", Type: KeyInt, Default: "67108864", Description: "Largest single-request upload in bytes"},
 		}},
-		{Name: "logger", Description: "Server logs", Keys: []KeySchema{
+		{Name: "audit_webhook", Description: "Audit log to a webhook (one JSON record per authenticated request)", Keys: notifyKeys(
+			KeySchema{Name: "endpoint", Type: KeyURL, Description: "URL receiving the audit records"},
+			KeySchema{Name: "auth_token", Type: KeyString, Description: "Bearer token sent to the endpoint (or \"<scheme> <credentials>\")", Sensitive: true},
+			KeySchema{Name: "client_cert", Type: KeyString, Description: "PEM file of the client certificate"},
+			KeySchema{Name: "client_key", Type: KeyString, Description: "PEM file of the client key"},
+			KeySchema{Name: "tls_skip_verify", Type: KeyBool, Default: "off", Description: "Accept any server certificate"},
+		)},
+		{Name: "audit_kafka", Description: "Audit log to Kafka (one JSON record per authenticated request)", Keys: notifyKeys(
+			KeySchema{Name: "brokers", Type: KeyList, Description: "Brokers (host:port), comma separated"},
+			KeySchema{Name: "topic", Type: KeyString, Description: "Topic of the audit records"},
+			KeySchema{Name: "sasl", Type: KeyBool, Default: "off", Description: "Authenticate with SASL"},
+			KeySchema{Name: "sasl_username", Type: KeyString, Description: "SASL user name"},
+			KeySchema{Name: "sasl_password", Type: KeyString, Description: "SASL password", Sensitive: true},
+			KeySchema{Name: "sasl_mechanism", Type: KeyEnum, Default: "plain", Values: []string{"plain", "sha256", "sha512"}, Description: "SASL mechanism"},
+			KeySchema{Name: "tls", Type: KeyBool, Default: "off", Description: "Connect with TLS"},
+			KeySchema{Name: "tls_skip_verify", Type: KeyBool, Default: "off", Description: "Accept any server certificate"},
+		)},
+		{Name: "logger", Description: "Server logs (applied at once; unset: the --log-level and --log-format of the server)", Keys: []KeySchema{
 			{Name: "level", Type: KeyEnum, Default: "info", Values: []string{"debug", "info", "warn", "error"}, Description: "Minimum level"},
-			{Name: "format", Type: KeyEnum, Default: "text", Values: []string{"text", "json"}, Description: "Output format"},
+			{Name: "format", Type: KeyEnum, Default: "json", Values: []string{"text", "json"}, Description: "Output format"},
 		}},
 		{Name: "notify_webhook", Description: "Bucket notifications to a webhook", Keys: notifyKeys(
 			KeySchema{Name: "endpoint", Type: KeyURL, Description: "URL receiving the events"},
@@ -162,13 +179,14 @@ func notifyKeys(specific ...KeySchema) []KeySchema {
 	)
 }
 
-// subsystem returns the schema of a known subsystem. A notification target
-// subsystem may name a target id (notify_webhook:<id>, ARN
-// arn:nexo:sqs:<region>:<id>:webhook); without one it configures the
-// target "_".
+// subsystem returns the schema of a known subsystem. A notification or
+// audit target subsystem may name a target id (notify_webhook:<id>, ARN
+// arn:nexo:sqs:<region>:<id>:webhook; audit_webhook:<id>); without one it
+// configures the target "_".
 func subsystem(name string) (SubsystemSchema, error) {
 	base := name
-	if prefix, id, ok := strings.Cut(name, ":"); ok && strings.HasPrefix(prefix, "notify_") && id != "" && !strings.ContainsAny(id, ":/\\ ") {
+	if prefix, id, ok := strings.Cut(name, ":"); ok && (strings.HasPrefix(prefix, "notify_") || strings.HasPrefix(prefix, "audit_")) &&
+		id != "" && !strings.ContainsAny(id, ":/\\ ") {
 		base = prefix
 	}
 	for _, s := range configSchema() {

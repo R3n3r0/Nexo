@@ -547,3 +547,88 @@ export interface CacheEffectiveQuery {
   host?: string;
   path?: string;
 }
+
+/* Monitoring (D-MON-01..03, docs/07 §7.4): the series of the charts, the
+   live trace and logs (Server-Sent Events) and the audit log. */
+
+/** A series of the console charts (GET /metrics): its unit and how the nodes combine. */
+export type MetricInfo = Schemas['MetricInfo'];
+/** A point of a series: the unix time in seconds and the value, null without sample. */
+export type MetricPoint = Schemas['MetricPoint'];
+/** The points of one node (error tells why they could not be read). */
+export type MetricNodeSeries = Schemas['MetricNodeSeries'];
+/** GET /metrics/query: the points of every node and of the cluster. */
+export type MetricSeries = Schemas['MetricSeries'];
+/** A request of the live trace (SSE event "trace"); the query string is redacted. */
+export type TraceEvent = Schemas['TraceEvent'];
+/** s3, admin, web or rpc. */
+export type TraceType = TraceEvent['type'];
+/** An entry of the live logs (SSE event "log"), its secrets redacted. */
+export type LogEntry = Schemas['LogEntry'];
+/** DEBUG, INFO, WARN or ERROR. */
+export type LogLevel = LogEntry['level'];
+/** A record of the audit log (GET /audit). */
+export type AuditEntry = Schemas['AuditEntry'];
+/** The TLS of the listeners of the node that answers GET /info. */
+export type TlsInfo = Schemas['TlsInfo'];
+/** A certificate of the listeners (never its key). */
+export type TlsCertificate = Schemas['TlsCertificate'];
+/** The distributed tracing (OpenTelemetry) of the node that answers GET /info. */
+export type TelemetryInfo = Schemas['TelemetryInfo'];
+
+/** GET /metrics/query. Durations are Go durations ("1h", "30s"). */
+export interface MetricQuery {
+  metric: string;
+  /** Span of the points (default 1h, at most 24h). */
+  range?: string;
+  /** Distance between two points (a multiple of 10s; default: at most 360 points). */
+  step?: string;
+  /** End of the range (RFC 3339; default now). */
+  end?: string;
+  /** The nodes (default every node). */
+  nodes?: string[];
+}
+
+/** GET /trace filters; empty fields select everything (every type but rpc). */
+export interface TraceFilter {
+  nodes?: string[];
+  types?: TraceType[];
+  /** Operation names (PutObject, "GET /buckets"). */
+  apis?: string[];
+  buckets?: string[];
+  /** Status codes ("404") or classes ("5xx"). */
+  statuses?: string[];
+  /** Only the failed requests (status >= 400). */
+  errorsOnly?: boolean;
+  /** Only the requests slower than this Go duration ("500ms"). */
+  threshold?: string;
+}
+
+/** GET /logs filters. */
+export interface LogFilter {
+  nodes?: string[];
+  /** Minimum level. */
+  level?: 'debug' | 'info' | 'warn' | 'error';
+  /** Recent entries of each node replayed first (at most 10000). */
+  last?: number;
+}
+
+/** GET /audit: the recent records kept in memory by every node, newest first. */
+export interface AuditQuery {
+  nodes?: string[];
+  /** The operation (exact, case-insensitive). */
+  api?: string;
+  bucket?: string;
+  /** An access key or a parent user. */
+  user?: string;
+  type?: 's3' | 'admin';
+  /** Status codes ("404") or classes ("5xx"). */
+  statuses?: string[];
+  errorsOnly?: boolean;
+  /** RFC 3339 bounds of the time of the records. */
+  since?: string;
+  until?: string;
+  requestId?: string;
+  /** At most this many records (default 100, at most 1000). */
+  limit?: number;
+}

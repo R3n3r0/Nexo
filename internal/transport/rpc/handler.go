@@ -204,5 +204,5 @@ func writeError(w http.ResponseWriter, err error) {
 	}
 	w.Header().Set("Content-Type", contentTypeMsgpack)
 	w.WriteHeader(status)
-	_, _ = w.Write(data)
+	_, _ = w.Write(data) // #nosec G705 -- a msgpack error document of the internode RPC, not HTML
 }

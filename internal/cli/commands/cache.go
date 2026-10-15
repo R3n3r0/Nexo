@@ -323,7 +323,7 @@ func (e *env) writeYAMLDocuments(alias, output string, docs [][]byte, what strin
 		_, err := e.out.Stdout().Write(out)
 		return err
 	}
-	if err := os.WriteFile(output, out, 0o644); err != nil {
+	if err := os.WriteFile(output, out, 0o600); err != nil {
 		return err
 	}
 	return e.out.Info(cacheExportRecord{Alias: alias, File: output, Documents: len(docs)},

@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"log/slog"
+	"math"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -217,10 +218,12 @@ func newStore(deps storeDeps) (*store, error) {
 		byTag: map[string]map[string]*record{}, scopes: map[string]*scopeUsage{}, diskRecs: map[string]*record{},
 		objInv: map[objRef]uint64{}, bucketInv: map[string]uint64{}, inflight: map[uint64]int{},
 	}
+	// #nosec G115 -- memorySize is a validated non-negative size; the weigher clamps to the uint32 range
 	l1, err := otter.New(&otter.Options[string, *l1value]{
 		MaximumWeight: uint64(deps.memorySize),
 		Weigher: func(key string, v *l1value) uint32 {
-			return uint32(len(v.body) + len(key) + metaOverhead)
+			// An entry over 4 GiB weighs the most a weight can say.
+			return uint32(min(len(v.body)+len(key)+metaOverhead, math.MaxUint32))
 		},
 		// The evictions are reported on their own goroutines (the default
 		// executor): the handler takes the lock of the store, which is held
@@ -856,7 +859,7 @@ func (s *store) usage() usage {
 			h.disk += r.size
 		}
 	}
-	u.memory = int64(s.l1.WeightedSize())
+	u.memory = int64(s.l1.WeightedSize()) // #nosec G115 -- the weighted size is bounded by MaximumWeight, an int64 size
 	return u
 }
 

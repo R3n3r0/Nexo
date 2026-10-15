@@ -179,6 +179,31 @@ func (c *console) request(method, path string, body any, header http.Header) *ht
 	return resp
 }
 
+// stream opens a Server-Sent Events stream and checks that it starts at
+// once; the contract transport, which reads whole bodies, is bypassed but
+// the operation must be documented as text/event-stream.
+func (c *console) stream(path string) {
+	c.t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)
+	require.NoError(c.t, err)
+	route, _, err := c.contract.router.FindRoute(req)
+	require.NoError(c.t, err, "%s is not documented", path)
+	ok := route.Operation.Responses.Status(http.StatusOK)
+	require.NotNil(c.t, ok, "%s: no 200 response documented", path)
+	require.NotNil(c.t, ok.Value.Content.Get("text/event-stream"), "%s: not documented as text/event-stream", path)
+	resp, err := (&http.Client{Jar: c.http.Jar}).Do(req)
+	require.NoError(c.t, err)
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(c.t, http.StatusOK, resp.StatusCode)
+	assert.Equal(c.t, "text/event-stream", resp.Header.Get("Content-Type"))
+	first := make([]byte, len("retry: 3000"))
+	_, err = io.ReadFull(resp.Body, first)
+	require.NoError(c.t, err)
+	assert.Equal(c.t, "retry: 3000", string(first))
+}
+
 // call sends a request and checks the status; it returns the body.
 func (c *console) call(method, path string, body any, status int) []byte {
 	c.t.Helper()
@@ -214,7 +239,15 @@ func TestConsoleContract(t *testing.T) {
 	assert.Empty(t, perms.Denied)
 	c.call(http.MethodGet, "/info", nil, http.StatusOK)
 	c.call(http.MethodGet, "/usage", nil, http.StatusOK)
-	c.call(http.MethodGet, "/trace", nil, http.StatusNotImplemented)
+	c.stream("/trace?type=s3,admin&status=2xx,404&threshold=0s")
+	c.stream("/logs?level=info&last=5")
+	audits := decodeAs[admin.AuditListResponse](t, c.call(http.MethodGet, "/audit?type=admin&limit=10", nil, http.StatusOK))
+	assert.NotEmpty(t, audits.Items, "the console requests are audited")
+	c.call(http.MethodGet, "/audit?status=5xx", nil, http.StatusOK)
+	series := decodeAs[admin.MetricListResponse](t, c.call(http.MethodGet, "/metrics", nil, http.StatusOK))
+	require.NotEmpty(t, series.Items)
+	c.call(http.MethodGet, "/metrics/query?metric="+series.Items[0].Name+"&range=10m&step=1m", nil, http.StatusOK)
+	c.call(http.MethodGet, "/metrics/query?metric=nope", nil, http.StatusNotFound)
 	var resp *http.Response
 
 	// CSRF: a mutating request without the token is refused.

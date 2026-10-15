@@ -18,7 +18,7 @@ const (
 	EnvAddress            = "NEXO_ADDRESS"
 	EnvConsoleAddress     = "NEXO_CONSOLE_ADDRESS"
 	EnvRootUser           = "NEXO_ROOT_USER"
-	EnvRootPassword       = "NEXO_ROOT_PASSWORD"
+	EnvRootPassword       = "NEXO_ROOT_PASSWORD" // #nosec G101 -- the name of an environment variable, not a credential
 	EnvRegion             = "NEXO_REGION"
 	EnvDomain             = "NEXO_DOMAIN"
 	EnvServerURL          = "NEXO_SERVER_URL"
@@ -39,8 +39,8 @@ const (
 	EnvCacheResync        = "NEXO_CACHE_RESYNC_INTERVAL"
 	EnvSendTimeout        = "NEXO_SEND_TIMEOUT"
 	EnvTLSInternodeVerify = "NEXO_TLS_INTERNODE_VERIFY"
-	EnvKMSSecretKey       = "NEXO_KMS_SECRET_KEY"
-	EnvKMSSecretKeyPrev   = "NEXO_KMS_SECRET_KEY_PREVIOUS"
+	EnvKMSSecretKey       = "NEXO_KMS_SECRET_KEY"          // #nosec G101 -- the name of an environment variable, not a credential
+	EnvKMSSecretKeyPrev   = "NEXO_KMS_SECRET_KEY_PREVIOUS" // #nosec G101 -- the name of an environment variable, not a credential
 	EnvKMSEndpoint        = "NEXO_KMS_ENDPOINT"
 	EnvKMSKeyName         = "NEXO_KMS_KEY_NAME"
 	EnvKMSClientCert      = "NEXO_KMS_CLIENT_CERT"
@@ -90,6 +90,7 @@ func BindFlags(fs *pflag.FlagSet) {
 	bindAccessFlags(fs)
 	bindDistributionFlags(fs)
 	bindCacheFlags(fs)
+	bindTLSFlags(fs)
 }
 
 // Input is what the Loader reads from.
@@ -282,6 +283,10 @@ func (l *loader) applyEnv(cfg *Static) error {
 	if err := l.applyDistributionEnv(cfg); err != nil {
 		return err
 	}
+	l.applyTLSEnv(cfg)
+	if err := l.applyObservabilityEnv(cfg); err != nil {
+		return err
+	}
 	return l.applyCacheEnv(cfg)
 }
 
@@ -345,6 +350,9 @@ func applyFlags(cfg *Static, fs *pflag.FlagSet) error {
 		return err
 	}
 	if err := applyDistributionFlags(cfg, fs); err != nil {
+		return err
+	}
+	if err := applyTLSFlags(cfg, fs); err != nil {
 		return err
 	}
 	return applyCacheFlags(cfg, fs)

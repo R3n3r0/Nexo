@@ -73,12 +73,15 @@ decodifica una volta sola.
 | GET/POST/PUT/DELETE | `/groups`, `/groups/{g}` | Gruppi |
 | GET/POST/PUT/DELETE | `/policies`, `/policies/{p}`, POST `/policies/attach` `/detach` | Policy |
 | GET/POST/PUT/DELETE | `/access-keys`, `/access-keys/{k}` | Service account |
-| GET/PUT | `/config`, `/config/{subsys}` · POST `/config/import` · GET `/config/export` | Configurazione (lo schema `GET /config/schema` dice per ogni chiave se il server la applica, `applied`: oggi `api.root_access`, a caldo; le altre sono salvate e validate ma non ancora applicate) |
+| GET/PUT | `/config`, `/config/{subsys}` · POST `/config/import` · GET `/config/export` | Configurazione (lo schema `GET /config/schema` dice per ogni chiave se il server la applica, `applied`: tra le altre `api.root_access`, `logger.*`, `audit_*`, `notify_*`, a caldo; le altre sono salvate e validate ma non ancora applicate) |
 | POST | `/heal` · GET `/heal/{id}` | Healing |
-| GET (SSE) | `/trace`, `/logs` | Stream live |
-| GET | `/metrics/query?metric=&range=` | Serie storiche per grafici (ring buffer in memoria, opzionale Prometheus remoto) |
+| GET (SSE) | `/trace?node=&type=&api=&bucket=&status=&errors=&threshold=` · `/logs?node=&level=&last=` | Stream live (`text/event-stream`) di tutti i nodi: eventi `trace`/`log`, `dropped` quando il client perde eventi, heartbeat; query redatte, nessun header né body (`admin:ServerTrace`, `admin:ConsoleLog`; vedi [07 §7.4](07-sicurezza-operativita.md)) |
+| GET | `/audit?node=&api=&bucket=&user=&type=&status=&errors=&since=&until=&requestId=&limit=` | Ricerca nei record di audit recenti di tutti i nodi, dal più recente (`admin:ConsoleLog`) |
+| GET | `/metrics` · `/metrics/query?metric=&range=&step=&end=&node=` | Serie dei grafici (ring buffer in memoria: un punto ogni 10 s per 24 h) per nodo e aggregate sul cluster; `admin:Prometheus` **o** `admin:ServerInfo` |
 | GET | `/me/permissions` | Permessi effettivi (per UI condizionale) |
-| POST | `/service/{restart,stop}` | Controllo servizio |
+| POST | `/service/{restart,stop}` | Controllo servizio (il riavvio avviene nel processo; `SIGHUP` ricarica solo i certificati TLS) |
+| GET | `/profile?type=cpu\|heap\|goroutine\|mutex\|block&seconds=` | Profilo pprof del nodo che risponde (`admin:Profiling`: root, policy `diagnostics`), `application/octet-stream`, uno alla volta per nodo (409) |
+| POST | `/speedtest/{drive,object,net}` | Speed test del nodo che risponde (`admin:Speedtest`): dischi locali, object layer (bucket temporaneo `nexo-speedtest-*` rimosso), rete verso gli altri nodi (`501` fuori cluster); fasi di al massimo 60 s, file/oggetti ≤ 64 MiB, ≤ 1 GiB scritti per target |
 | POST/GET | `/pools/{id}/decommission`, `/rebalance` | Gestione pool (P2) |
 
 Errori in formato `application/problem+json` (RFC 9457) con `code` stabile.

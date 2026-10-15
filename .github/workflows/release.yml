@@ -1,13 +1,21 @@
 name: Release
 
+# Release of a v* tag (docs/08 §8.7, T-9.5):
+#   1. goreleaser: binaries (console embedded), archives, deb/rpm, checksums
+#      signed with cosign keyless, SBOMs, multi-arch images on ghcr.io with
+#      SBOM and provenance attestations, signed; Homebrew casks; GitHub release;
+#   2. verify (TM-11): signatures of checksums.txt and of the images, SBOM
+#      attestation, trivy scan without High/Critical vulnerabilities;
+#   3. smoke (TM-10): the binaries of every OS/arch start (QEMU for
+#      linux/arm64, Rosetta for darwin/amd64) and report the tag as version;
+#   4. helm: chart packaged with the version of the tag, pushed to
+#      oci://ghcr.io/r3n3r0/charts, signed and attached to the release.
 on:
   push:
     tags: ["v*"]
 
 permissions:
-  contents: write   # GitHub release and assets
-  packages: write   # ghcr.io images
-  id-token: write   # cosign keyless signing
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -15,12 +23,28 @@ concurrency:
 
 env:
   NODE_VERSION: "22"
+  # Pinned release tools (same versions as the Makefile).
+  GORELEASER_VERSION: v2.18.3
+  COSIGN_VERSION: v3.1.3
+  SYFT_VERSION: v1.54.1
+  HELM_VERSION: v3.22.0
+  # Registry namespace of the images and of the chart, lowercase as in
+  # .goreleaser.yaml (the owner name of the repository has capitals).
+  REGISTRY: ghcr.io/r3n3r0
+  # Identity of the keyless signatures made by this workflow (compared
+  # exactly by cosign: the repository as GitHub spells it).
+  CERT_IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}
+  CERT_ISSUER: https://token.actions.githubusercontent.com
 
 jobs:
   goreleaser:
     name: GoReleaser
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: write   # GitHub release and assets
+      packages: write   # ghcr.io images
+      id-token: write   # cosign keyless signing (Sigstore, GitHub OIDC)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -45,6 +69,8 @@ jobs:
           npm run build
           test -f dist/index.html
 
+      # buildx builds both platforms from the compiled binaries (no RUN in
+      # the target platform), QEMU only for safety.
       - uses: docker/setup-qemu-action@v3
         with:
           platforms: linux/arm64
@@ -57,18 +83,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@v4
+        with:
+          cosign-release: ${{ env.COSIGN_VERSION }}
 
       - uses: anchore/sbom-action/download-syft@v0
+        with:
+          syft-version: ${{ env.SYFT_VERSION }}
 
       - name: GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
-          version: "~> v2"
+          version: ${{ env.GORELEASER_VERSION }}
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Token allowed to push to r3n3r0/homebrew-tap; the casks are
+          # skipped without it.
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -81,7 +114,157 @@ jobs:
             dist/*.rpm
             dist/*.json
             dist/*.txt
-            dist/*.sig
-            dist/*.pem
+            dist/*.sigstore.json
+            dist/homebrew/Casks/*.rb
           if-no-files-found: ignore
           retention-days: 14
+
+  verify:
+    # TM-11: everything published can be verified by a user, and the images
+    # have no High/Critical vulnerability with a fix available.
+    name: Verify signatures, SBOM, vulnerabilities
+    needs: goreleaser
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read    # new ghcr.io packages are private until made public
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: sigstore/cosign-installer@v4
+        with:
+          cosign-release: ${{ env.COSIGN_VERSION }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-dist
+          path: dist
+
+      - name: checksums.txt signature and checksums
+        working-directory: dist
+        run: |
+          set -eux
+          cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
+            --certificate-identity "$CERT_IDENTITY" --certificate-oidc-issuer "$CERT_ISSUER"
+          sha256sum --ignore-missing -c checksums.txt
+
+      - name: Image signatures and SBOM attestations
+        run: |
+          set -eux
+          for image in nexo nexoctl; do
+            ref="${REGISTRY}/${image}:${GITHUB_REF_NAME}"
+            cosign verify "$ref" --certificate-identity "$CERT_IDENTITY" --certificate-oidc-issuer "$CERT_ISSUER" >/dev/null
+            docker buildx imagetools inspect "$ref"
+            # One SPDX document per platform, attached by BuildKit.
+            docker buildx imagetools inspect "$ref" --format '{{ json .SBOM }}' | grep -q '"SPDX'
+          done
+
+      - name: Vulnerability scan of the images (High/Critical with a fix)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/nexo:${{ github.ref_name }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+  smoke:
+    # TM-10: the binaries of the release archives start on every OS/arch and
+    # report the tag (packaging/smoke.sh: version, dry run, server, S3 round
+    # trip with nexoctl, SIGTERM; Windows stops after the dry run).
+    name: Smoke ${{ matrix.platform }}
+    needs: goreleaser
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, platform: linux_amd64}
+          - {os: ubuntu-latest, platform: linux_arm64, runner: qemu-aarch64-static}
+          - {os: macos-latest, platform: darwin_arm64}
+          - {os: macos-latest, platform: darwin_amd64, runner: arch -x86_64}
+          - {os: windows-latest, platform: windows_amd64, quick: "1"}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: packaging
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-dist
+          path: dist
+
+      - name: QEMU user emulation
+        if: matrix.runner == 'qemu-aarch64-static'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq qemu-user-static
+
+      - name: Rosetta
+        if: matrix.platform == 'darwin_amd64'
+        run: softwareupdate --install-rosetta --agree-to-license || true
+
+      - name: Extract the archives
+        run: |
+          set -eux
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p smoke
+          for name in nexo nexoctl; do
+            archive="dist/${name}_${version}_${{ matrix.platform }}"
+            if [ -f "$archive.zip" ]; then
+              unzip -o -q "$archive.zip" -d "smoke/$name"
+            else
+              mkdir -p "smoke/$name" && tar -xzf "$archive.tar.gz" -C "smoke/$name"
+            fi
+            cp smoke/$name/$name* smoke/
+          done
+          ls -la smoke
+
+      - name: packaging/smoke.sh
+        env:
+          RUNNER: ${{ matrix.runner }}
+          SMOKE_QUICK: ${{ matrix.quick }}
+        run: sh packaging/smoke.sh smoke "$GITHUB_REF_NAME"
+
+  helm:
+    name: Helm chart
+    needs: goreleaser
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write   # attach the chart to the release
+      packages: write   # oci://ghcr.io/r3n3r0/charts
+      id-token: write   # cosign keyless signing
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - uses: sigstore/cosign-installer@v4
+        with:
+          cosign-release: ${{ env.COSIGN_VERSION }}
+
+      - name: Package, push and sign
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eux
+          version="${GITHUB_REF_NAME#v}"
+          helm lint --strict deploy/helm/nexo
+          helm package deploy/helm/nexo --version "$version" --app-version "$GITHUB_REF_NAME" -d chart
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm push "chart/nexo-${version}.tgz" "oci://${REGISTRY}/charts" 2>&1 | tee push.log
+          digest="$(sed -n 's/^Digest: //p' push.log)"
+          test -n "$digest"
+          echo "${{ secrets.GITHUB_TOKEN }}" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cosign sign --yes "${REGISTRY}/charts/nexo@${digest}"
+          gh release upload "$GITHUB_REF_NAME" "chart/nexo-${version}.tgz" --clobber

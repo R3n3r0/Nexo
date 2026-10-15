@@ -37,17 +37,17 @@ const (
 	headerAmzDate         = "X-Amz-Date"
 	headerDate            = "Date"
 	headerContentSHA256   = "X-Amz-Content-Sha256"
-	headerSecurityToken   = "X-Amz-Security-Token"
+	headerSecurityToken   = "X-Amz-Security-Token" // #nosec G101 -- an S3 header name, not a credential
 	headerDecodedLength   = "X-Amz-Decoded-Content-Length"
 	headerTrailer         = "X-Amz-Trailer"
 	headerContentEncoding = "Content-Encoding"
 	queryAlgorithm        = "X-Amz-Algorithm"
-	queryCredential       = "X-Amz-Credential"
+	queryCredential       = "X-Amz-Credential" // #nosec G101 -- an S3 query parameter name, not a credential
 	queryDate             = "X-Amz-Date"
 	queryExpires          = "X-Amz-Expires"
 	querySignedHeaders    = "X-Amz-SignedHeaders"
 	querySignature        = "X-Amz-Signature"
-	querySecurityToken    = "X-Amz-Security-Token"
+	querySecurityToken    = "X-Amz-Security-Token" // #nosec G101 -- an S3 query parameter name, not a credential
 	queryContentSHA256    = "X-Amz-Content-Sha256"
 	queryV2AccessKey      = "AWSAccessKeyId"
 	queryV2Signature      = "Signature"
@@ -57,7 +57,7 @@ const (
 	amzHeaderPrefix       = "x-amz-"
 	lowerAmzDate          = "x-amz-date"
 	lowerContentSHA256    = "x-amz-content-sha256"
-	lowerSecurityToken    = "x-amz-security-token"
+	lowerSecurityToken    = "x-amz-security-token" // #nosec G101 -- an S3 header name, not a credential
 )
 
 // credentialScope is the "<access key>/<date>/<region>/<service>/aws4_request"

@@ -18,12 +18,50 @@ func normalizeKey(key string, nfc bool) string {
 }
 
 // toNFC returns s in the Unicode NFC form; s itself when it already is
-// (the common case costs no allocation).
+// (the common case costs no allocation). The invalid UTF-8 bytes are
+// kept as they are and only the valid runs between them are normalized:
+// golang.org/x/text before v0.39.0 can loop forever on invalid input
+// (GO-2026-5970), and an invalid byte is a normalization boundary anyway.
 func toNFC(s string) string {
+	if utf8.ValidString(s) {
+		return nfcValid(s)
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for len(s) > 0 {
+		n := validPrefix(s)
+		b.WriteString(nfcValid(s[:n]))
+		if n < len(s) {
+			b.WriteByte(s[n])
+			n++
+		}
+		s = s[n:]
+	}
+	return b.String()
+}
+
+// nfcValid returns the NFC form of a valid UTF-8 string.
+func nfcValid(s string) string {
 	if norm.NFC.IsNormalString(s) {
 		return s
 	}
 	return norm.NFC.String(s)
+}
+
+// validPrefix returns the length of the longest valid UTF-8 prefix of s.
+func validPrefix(s string) int {
+	for i := 0; i < len(s); {
+		if s[i] < utf8.RuneSelf {
+			i++
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && size == 1 {
+			return i
+		}
+		i += size
+	}
+	return len(s)
 }
 
 // cleanKey resolves the empty, "." and ".." segments of a key lexically:

@@ -308,8 +308,8 @@ func (v *xlVersion) signature() [4]byte {
 		_, _ = h.Write([]byte{0})
 	}
 	var b [18]byte
-	binary.BigEndian.PutUint64(b[0:], uint64(v.ModTime))
-	binary.BigEndian.PutUint64(b[8:], uint64(v.Size))
+	binary.BigEndian.PutUint64(b[0:], uint64(v.ModTime)) // #nosec G115 -- the bits of an int64 in the version signature
+	binary.BigEndian.PutUint64(b[8:], uint64(v.Size))    // #nosec G115 -- the bits of an int64 in the version signature
 	b[16], b[17] = byte(v.Type), v.Flags
 	_, _ = h.Write(b[:])
 	var out [4]byte
@@ -479,7 +479,7 @@ func (m *xlMeta) encode() ([]byte, error) {
 	copy(out, xlMetaMagic)
 	binary.BigEndian.PutUint16(out[4:], xlMetaMajor)
 	binary.BigEndian.PutUint16(out[6:], xlMetaMinor)
-	binary.BigEndian.PutUint32(out[8:], uint32(len(meta)))
+	binary.BigEndian.PutUint32(out[8:], uint32(len(meta))) // #nosec G115 -- len(meta) <= xlMetaMaxMetaSize is checked above
 	out = append(out, meta...)
 	out = binary.BigEndian.AppendUint32(out, crc32c(out))
 	section, err := m.encodeDataSection()
@@ -593,6 +593,7 @@ func xlMetaSectionEnd(raw []byte) (int, error) {
 		return 0, fmt.Errorf("%w: xl.meta: unsupported format version %d.%d", domain.ErrInvalidFormat, major, binary.BigEndian.Uint16(raw[6:]))
 	}
 	n := uint64(binary.BigEndian.Uint32(raw[8:]))
+	// #nosec G115 -- len(raw) >= xlMetaHeaderSize+xlMetaCRCSize is checked above
 	if n > xlMetaMaxMetaSize || n > uint64(len(raw)-xlMetaHeaderSize-xlMetaCRCSize) {
 		return 0, fmt.Errorf("%w: %w: xl.meta metadata section of %d bytes truncated", domain.ErrInvalidFormat, ErrFileCorrupt, n)
 	}

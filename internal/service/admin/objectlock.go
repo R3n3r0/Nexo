@@ -13,7 +13,7 @@ import (
 // headerBypassGovernance is the S3 header asking to bypass a GOVERNANCE
 // retention: the console operations that bypass it are evaluated with the
 // condition values of a request carrying it.
-const headerBypassGovernance = "x-amz-bypass-governance-retention"
+const headerBypassGovernance = "x-amz-bypass-governance-retention" // #nosec G101 -- an S3 header name, not a credential
 
 // maxAttributeParts is the largest page of parts of Attributes.
 const maxAttributeParts = 1000

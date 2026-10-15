@@ -238,8 +238,8 @@ func (s *service) HealPrefix(ctx context.Context, bucket, prefix string, opts Op
 func (sum *Summary) add(res ObjectResult, err error) {
 	sum.Objects++
 	sum.Bytes += uint64(max(res.Bytes, 0))
-	sum.Dangling += uint64(res.Dangling)
-	sum.Removed += uint64(res.Removed)
+	sum.Dangling += uint64(res.Dangling) // #nosec G115 -- non-negative counters of a heal result
+	sum.Removed += uint64(res.Removed)   // #nosec G115 -- non-negative counters of a heal result
 	switch {
 	case err != nil:
 		sum.Failed++

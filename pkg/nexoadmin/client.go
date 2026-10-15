@@ -40,6 +40,22 @@ type AdminClient interface {
 	ListHeals(ctx context.Context) (*HealJobList, error)
 	RestartService(ctx context.Context) error
 	StopService(ctx context.Context) error
+	// Profile collects a runtime profile of the node that serves the
+	// request; Speedtest runs a speed test (SpeedtestDrive,
+	// SpeedtestObject, SpeedtestNet) on it.
+	Profile(ctx context.Context, in ProfileRequest) (*Profile, error)
+	Speedtest(ctx context.Context, kind string, in SpeedtestRequest) (*SpeedtestResult, error)
+
+	// Monitoring. Trace and Logs open live streams (read them with Next
+	// until io.EOF, Close them when done): the requests served and the
+	// server logs of every node of the deployment. SearchAudit searches
+	// the recent audit records; ListMetrics and QueryMetric read the
+	// series kept by the nodes for the charts of the console.
+	Trace(ctx context.Context, opts TraceOptions) (*Stream[TraceEvent], error)
+	Logs(ctx context.Context, opts LogOptions) (*Stream[LogEntry], error)
+	SearchAudit(ctx context.Context, q AuditQuery) (*AuditList, error)
+	ListMetrics(ctx context.Context) (*MetricList, error)
+	QueryMetric(ctx context.Context, q MetricQuery) (*MetricSeries, error)
 
 	// Buckets.
 	ListBuckets(ctx context.Context, opts ListBucketsOptions) (*BucketList, error)

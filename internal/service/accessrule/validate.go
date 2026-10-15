@@ -18,7 +18,7 @@ import (
 const (
 	ruleIDPattern     = `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`
 	headerNamePattern = "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
-	secretNamePattern = `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`
+	secretNamePattern = `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$` // #nosec G101 -- the syntax of secret names, not a credential
 	methodPattern     = `^[A-Z]{1,16}$`
 	actionPattern     = `^s3:[A-Za-z*?]+$`
 	// maxListLength bounds the principals, actions and condition values

@@ -31,7 +31,7 @@ const (
 	postFieldFile            = "file"
 	postFieldPolicy          = "policy"
 	postFieldSignature       = "x-amz-signature"
-	postFieldCredential      = "x-amz-credential"
+	postFieldCredential      = "x-amz-credential" // #nosec G101 -- a POST policy form field name, not a credential
 	postFieldACL             = "acl"
 	postFieldTagging         = "tagging"
 	postFieldSuccessStatus   = "success_action_status"

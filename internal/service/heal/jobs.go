@@ -51,8 +51,8 @@ func (jb *job) record(now time.Time, item JobItem, bytes int64, dangling, remove
 	j.UpdatedAt = now
 	j.Current = strings.TrimSuffix(item.Bucket+"/"+item.Object, "/")
 	j.Bytes += uint64(max(bytes, 0))
-	j.Dangling += uint64(dangling)
-	j.Removed += uint64(removed)
+	j.Dangling += uint64(dangling) // #nosec G115 -- non-negative counters of a heal result
+	j.Removed += uint64(removed)   // #nosec G115 -- non-negative counters of a heal result
 	switch {
 	case err != nil:
 		j.Failed++

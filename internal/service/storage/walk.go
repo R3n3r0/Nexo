@@ -208,7 +208,7 @@ func (w *walker) classify(it *walkItem) walkKind {
 // never reported as prefixes. The search is depth-first and stops at the
 // first object, which is usually the first entry.
 func hasObjects(dir string) (bool, error) {
-	f, err := os.Open(dir)
+	f, err := os.Open(dir) // #nosec G304 -- a directory of a drive, resolved and checked by the storage layer
 	if err != nil {
 		return false, err
 	}

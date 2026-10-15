@@ -81,7 +81,7 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.Exec == nil {
 		d.Exec = func(ctx context.Context, name string, args []string, stdout, stderr io.Writer) error {
-			c := exec.CommandContext(ctx, name, args...)
+			c := exec.CommandContext(ctx, name, args...) // #nosec G204 -- runs the program the user asked nexoctl to run (watch --exec)
 			c.Stdout, c.Stderr = stdout, stderr
 			return c.Run()
 		}

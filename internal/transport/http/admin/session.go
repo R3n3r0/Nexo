@@ -234,6 +234,7 @@ func (h *sessionRoutes) cookie(r *http.Request, name, value string, expires time
 	if h.secure != nil {
 		secure = *h.secure
 	}
+	// #nosec G124 -- HttpOnly is set for the session cookie by the caller; Secure follows the client connection or the configuration
 	c := &http.Cookie{
 		Name:     name,
 		Value:    value,

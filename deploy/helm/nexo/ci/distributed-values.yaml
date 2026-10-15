@@ -1,0 +1,23 @@
+# Distributed: 4 pods x 2 drives, hard anti-affinity, ServiceMonitor,
+# distributions Ingress, existing credentials Secret.
+mode: distributed
+distributed:
+  replicas: 4
+  drivesPerNode: 2
+auth:
+  existingSecret: nexo-root
+podAntiAffinity: hard
+serviceMonitor:
+  enabled: true
+  bucket: true
+  labels:
+    release: prometheus
+  bearerTokenSecret:
+    name: nexo-prometheus
+config:
+  trustedProxies: [10.0.0.0/8]
+  logFormat: json
+ingress:
+  distributions:
+    enabled: true
+    hosts: [www.example.test, cdn.example.test]

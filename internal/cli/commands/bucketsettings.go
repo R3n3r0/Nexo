@@ -89,6 +89,7 @@ func newQuotaSetCmd(e *env) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("%s: %w", t, err)
 			}
+			// #nosec G115 -- display of a quota size, far below 2^63
 			return e.out.Info(quotaRecord{Target: t.String(), Bucket: t.Bucket, Type: q.Type, Size: q.Size},
 				fmt.Sprintf("Set a hard quota of %s on `%s`.", cli.HumanSize(int64(q.Size)), t))
 		},
@@ -119,14 +120,14 @@ func newQuotaInfoCmd(e *env) *cobra.Command {
 			// but not the bucket summary still gets the quota.
 			if b, err := client.GetBucket(ctx, t.Bucket); err == nil && !b.Partial {
 				rec.Used, rec.Objects = &b.Size, &b.Objects
-				usage = fmt.Sprintf("used %s in %d %s", cli.HumanSize(int64(b.Size)), b.Objects, plural(int(b.Objects), "object", "objects"))
+				usage = fmt.Sprintf("used %s in %d %s", cli.HumanSize(int64(b.Size)), b.Objects, plural(int(b.Objects), "object", "objects")) // #nosec G115 -- display of a bucket size and object count, far below 2^63
 				if q.Size > 0 {
 					usage += fmt.Sprintf(", %.1f%%", 100*float64(b.Size)/float64(q.Size))
 				}
 			}
 			text := fmt.Sprintf("`%s` has no quota", t)
 			if q.Size > 0 {
-				text = fmt.Sprintf("`%s` has a %s quota of %s", t, q.Type, cli.HumanSize(int64(q.Size)))
+				text = fmt.Sprintf("`%s` has a %s quota of %s", t, q.Type, cli.HumanSize(int64(q.Size))) // #nosec G115 -- display of a quota size, far below 2^63
 			}
 			if usage != "" {
 				text += " (" + usage + ")"

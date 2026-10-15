@@ -24,35 +24,42 @@ import (
 
 func TestProcessActions(t *testing.T) {
 	tests := []struct {
-		name    string
-		running bool
-		action  adminsvc.Action
-		sigErr  error
-		want    os.Signal
-		wantErr error
+		name        string
+		running     bool
+		action      adminsvc.Action
+		sigErr      error
+		want        os.Signal
+		wantRestart bool
+		wantErr     error
 	}{
 		{name: "outside Run", action: adminsvc.ActionStop, wantErr: domain.ErrNotImplemented},
+		{name: "restart outside Run", action: adminsvc.ActionRestart, wantErr: domain.ErrNotImplemented},
 		{name: "stop", running: true, action: adminsvc.ActionStop, want: syscall.SIGTERM},
-		{name: "restart", running: true, action: adminsvc.ActionRestart, want: syscall.SIGHUP},
-		{name: "signal failure", running: true, action: adminsvc.ActionRestart, sigErr: errors.New("no"), wantErr: errors.New("no")},
+		// SIGHUP reloads the certificates: a restart is a request to Run.
+		{name: "restart", running: true, action: adminsvc.ActionRestart, wantRestart: true},
+		{name: "signal failure", running: true, action: adminsvc.ActionStop, sigErr: errors.New("no"), wantErr: errors.New("no")},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			running := &atomic.Bool{}
 			running.Store(tt.running)
 			var got os.Signal
-			p := processActions{running: running, signal: func(s os.Signal) error { got = s; return tt.sigErr }}
+			restarted := false
+			p := processActions{running: running, signal: func(s os.Signal) error { got = s; return tt.sigErr },
+				restart: func() error { restarted = true; return nil }}
 			err := p.Handle(context.Background(), tt.action)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				if errors.Is(tt.wantErr, domain.ErrNotImplemented) {
 					assert.ErrorIs(t, err, domain.ErrNotImplemented)
 					assert.Nil(t, got, "no signal outside Run")
+					assert.False(t, restarted, "no restart outside Run")
 				}
 				return
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got)
+			assert.Equal(t, tt.wantRestart, restarted)
 		})
 	}
 }
@@ -92,7 +99,7 @@ func TestRunRestartsOnServiceRestart(t *testing.T) {
 	}
 	require.Eventually(t, ready, 10*time.Second, 10*time.Millisecond)
 	// The admin service asks for the restart the way the Admin API does.
-	adm := adminsvc.New(adminsvc.Deps{Actions: processActions{running: a.running, signal: signalSelf}})
+	adm := adminsvc.New(adminsvc.Deps{Actions: processActions{running: a.running, signal: signalSelf, restart: a.requestRestart}})
 	require.NoError(t, adm.ServiceAction(context.Background(), adminsvc.ActionRestart))
 	require.Eventually(t, func() bool { return !a.running.Load() }, 10*time.Second, 5*time.Millisecond, "the first instance stops")
 	require.Eventually(t, ready, 10*time.Second, 20*time.Millisecond, "the restarted instance serves again")

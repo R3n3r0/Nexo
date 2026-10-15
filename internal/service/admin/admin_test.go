@@ -13,6 +13,8 @@ import (
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/admin"
+	"github.com/r3n3r0/nexo/internal/service/certs"
+	certsmock "github.com/r3n3r0/nexo/internal/service/certs/mock"
 	"github.com/r3n3r0/nexo/internal/service/cluster"
 	clustermock "github.com/r3n3r0/nexo/internal/service/cluster/mock"
 	"github.com/r3n3r0/nexo/internal/service/heal"
@@ -324,6 +326,55 @@ func TestPoolStates(t *testing.T) {
 			assert.Equal(t, tt.online, set.Online)
 			assert.Equal(t, tt.drives-tt.online, set.Offline)
 			assert.Equal(t, tt.healing, set.Healing)
+		})
+	}
+}
+
+func TestServerInfoTLSAndTelemetry(t *testing.T) {
+	notAfter := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
+	pairs := []certs.KeyPair{
+		{Name: "", Domains: []string{"nexo.example.com"}, Subject: "CN=nexo", Issuer: "CN=ca", NotAfter: notAfter, Fingerprint: "ab"},
+		{Name: "other", Domains: []string{"*.example.org"}, IPs: []string{"10.0.0.1"}, Subject: "CN=other", Issuer: "CN=ca", NotAfter: notAfter, Fingerprint: "cd"},
+	}
+	tests := []struct {
+		name      string
+		tls       *domain.TLSInfo
+		keystore  bool
+		telemetry *domain.TelemetryInfo
+		wantTLS   *domain.TLSInfo
+	}{
+		{name: "not reported"},
+		{
+			name:    "plain HTTP",
+			tls:     &domain.TLSInfo{MinVersion: "1.2"},
+			wantTLS: &domain.TLSInfo{MinVersion: "1.2"},
+		},
+		{
+			name:      "certificates of the keystore",
+			tls:       &domain.TLSInfo{Enabled: true, MinVersion: "1.3", InternodeVerify: true, Certificates: []domain.TLSCertificate{{Name: "stale"}}},
+			keystore:  true,
+			telemetry: &domain.TelemetryInfo{Enabled: true, Endpoint: "http://otel:4318", Protocol: "http/protobuf", SampleRatio: 0.5},
+			wantTLS: &domain.TLSInfo{Enabled: true, MinVersion: "1.3", InternodeVerify: true, Certificates: []domain.TLSCertificate{
+				{Domains: []string{"nexo.example.com"}, Subject: "CN=nexo", Issuer: "CN=ca", NotAfter: notAfter, Fingerprint: "ab"},
+				{Name: "other", Domains: []string{"*.example.org"}, IPs: []string{"10.0.0.1"}, Subject: "CN=other", Issuer: "CN=ca", NotAfter: notAfter, Fingerprint: "cd"},
+			}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deps := admin.Deps{Clock: clock.NewFake(time.Unix(0, 0)), TLS: tt.tls, Telemetry: tt.telemetry}
+			if tt.keystore {
+				ks := certsmock.NewKeystore(t)
+				ks.EXPECT().KeyPairs(mock.Anything).Return(pairs)
+				deps.Keystore = ks
+			}
+			info, err := admin.New(deps).ServerInfo(context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantTLS, info.TLS)
+			assert.Equal(t, tt.telemetry, info.Telemetry)
+			if tt.telemetry != nil {
+				assert.NotSame(t, tt.telemetry, info.Telemetry, "a copy")
+			}
 		})
 	}
 }

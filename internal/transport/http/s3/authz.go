@@ -49,7 +49,7 @@ const (
 	actionPutObjectRetention         policy.Action = "s3:PutObjectRetention"
 	actionGetObjectLegalHold         policy.Action = "s3:GetObjectLegalHold"
 	actionPutObjectLegalHold         policy.Action = "s3:PutObjectLegalHold"
-	actionBypassGovernanceRetention  policy.Action = "s3:BypassGovernanceRetention"
+	actionBypassGovernanceRetention  policy.Action = "s3:BypassGovernanceRetention" // #nosec G101 -- an IAM action name, not a credential
 	actionGetObjectAttributes        policy.Action = "s3:GetObjectAttributes"
 	actionGetObjectVersionAttributes policy.Action = "s3:GetObjectVersionAttributes"
 )

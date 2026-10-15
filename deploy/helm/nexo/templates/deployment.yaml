@@ -1,0 +1,23 @@
+{{- include "nexo.validate" . }}
+{{- if eq .Values.mode "standalone" }}
+{{/*
+Standalone: one pod, SNSD (/data) or SNMD (/data1 ... /dataN). Recreate:
+the ReadWriteOnce volumes are released before the new pod starts.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nexo.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nexo.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "nexo.selectorLabels" . | nindent 6 }}
+  template:
+    {{- include "nexo.podTemplate" . | nindent 4 }}
+{{- end }}

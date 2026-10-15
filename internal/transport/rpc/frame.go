@@ -82,7 +82,7 @@ func (fw *frameWriter) writeDataFrame(buf []byte, n int) error {
 		return err
 	}
 	buf[0] = frameData
-	binary.BigEndian.PutUint32(buf[1:frameHeaderSize], uint32(n))
+	binary.BigEndian.PutUint32(buf[1:frameHeaderSize], uint32(n)) // #nosec G115 -- a frame payload, bounded by the frame buffers (far below 4 GiB)
 	end := frameHeaderSize + n
 	binary.BigEndian.PutUint32(buf[end:end+frameTrailer], crc32.Checksum(buf[frameHeaderSize:end], fw.table))
 	_, err := fw.raw.Write(buf[:end+frameTrailer])
@@ -91,7 +91,7 @@ func (fw *frameWriter) writeDataFrame(buf []byte, n int) error {
 
 func (fw *frameWriter) frame(typ byte, payload []byte) error {
 	fw.hdr[0] = typ
-	binary.BigEndian.PutUint32(fw.hdr[1:], uint32(len(payload)))
+	binary.BigEndian.PutUint32(fw.hdr[1:], uint32(len(payload))) // #nosec G115 -- a frame payload, bounded by the message limits (far below 4 GiB)
 	binary.BigEndian.PutUint32(fw.sum[:], crc32.Checksum(payload, fw.table))
 	if _, err := fw.w.Write(fw.hdr[:]); err != nil {
 		return err

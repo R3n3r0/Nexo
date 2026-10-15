@@ -772,18 +772,18 @@ func (s *xlStorage) CreateFile(ctx context.Context, volume, filePath string, siz
 const copyBufferSize = 1 << 20
 
 // copyFull copies src to dst writing whole buffers (the last one short).
+// The buffer is recycled whatever the size: a file of known size smaller
+// than a buffer uses its first bytes, so that it is written at once.
 func (s *xlStorage) copyFull(dst io.Writer, src io.Reader, size int64) (int64, error) {
-	var buf []byte
+	b, _ := s.copyBufs.Get().(*[]byte)
+	if b == nil {
+		nb := make([]byte, copyBufferSize)
+		b = &nb
+	}
+	defer s.copyBufs.Put(b)
+	buf := *b
 	if size >= 0 && size < copyBufferSize {
-		buf = make([]byte, max(size, 1))
-	} else {
-		b, _ := s.copyBufs.Get().(*[]byte)
-		if b == nil {
-			nb := make([]byte, copyBufferSize)
-			b = &nb
-		}
-		defer s.copyBufs.Put(b)
-		buf = *b
+		buf = buf[:max(size, 1)]
 	}
 	var written int64
 	for {

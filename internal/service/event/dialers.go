@@ -254,7 +254,20 @@ var _ PostgresDialer = postgresDialer{}
 
 // Dial implements PostgresDialer.
 func (postgresDialer) Dial(ctx context.Context, cfg PostgresConfig) (PostgresConn, error) {
-	conn, err := pgx.Connect(ctx, cfg.ConnectionString)
+	pcfg, err := pgx.ParseConfig(cfg.ConnectionString)
+	if err != nil {
+		return nil, err
+	}
+	// The simple protocol (default_query_exec_mode=simple_protocol)
+	// interpolates the arguments into the SQL text on the client, which
+	// pgx before v5.9.2 gets wrong around dollar-quoted literals
+	// (GO-2026-5004): the statements always take the extended protocol,
+	// the arguments travel apart. Unnamed statements keep PgBouncer in
+	// transaction mode working.
+	if pcfg.DefaultQueryExecMode == pgx.QueryExecModeSimpleProtocol {
+		pcfg.DefaultQueryExecMode = pgx.QueryExecModeDescribeExec
+	}
+	conn, err := pgx.ConnectConfig(ctx, pcfg)
 	if err != nil {
 		return nil, err
 	}

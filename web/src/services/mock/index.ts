@@ -17,6 +17,11 @@ import { createMockIam, type MockIamOptions } from './iam';
 import { createMockInfoService, sampleServerInfo, type MockInfoOptions } from './info';
 import { createMockKmsService } from './kms';
 import { createMockLifecycleService } from './lifecycle';
+import {
+  createMockMonitoringService,
+  type MockMonitoringOptions,
+  type MockMonitoringService,
+} from './monitoring';
 import { createMockNotificationService, type MockNotificationOptions } from './notifications';
 import { createMockObjectService } from './objects';
 import {
@@ -44,7 +49,8 @@ export interface MockServicesOptions
     MockNotificationOptions,
     MockAccessRuleOptions,
     MockDistributionOptions,
-    MockCacheOptions {
+    MockCacheOptions,
+    MockMonitoringOptions {
   /** Accepted logins; defaults to the demo credentials. */
   accounts?: Record<string, string>;
   /** Start authenticated as this account (tests of protected pages). */
@@ -54,6 +60,8 @@ export interface MockServicesOptions
 /** The mock bundle exposes the session mock so tests can expire the session. */
 export interface MockServices extends Services {
   readonly session: MockSessionService;
+  /** The monitoring mock drives the live streams of the tests. */
+  readonly monitoring: MockMonitoringService;
 }
 
 /**
@@ -144,6 +152,11 @@ export function createMockServices(options: MockServicesOptions = {}): MockServi
       options,
       options.buckets === undefined,
     ),
+    monitoring: createMockMonitoringService(
+      ctx,
+      { info: () => serverInfo, allowed: (action) => iam.allowed(action) },
+      options,
+    ),
     authEvents,
   };
 }
@@ -155,5 +168,6 @@ export { sampleDistributions } from './distributions';
 export { sampleAccessKeys, sampleGroups, samplePolicies, sampleUsers } from './iam';
 export { maxExpirySeconds, sampleShares } from './shares';
 export { sampleClusterInfo, sampleServerInfo } from './info';
+export { sampleAuditEntries, sampleMetrics, type MockMonitoringService } from './monitoring';
 export { sampleNotifyTargets, sampleObjects, type MockObjectSeed } from './storage';
 export type { MockSessionService } from './session';

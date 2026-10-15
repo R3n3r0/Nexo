@@ -87,7 +87,7 @@ func newWebhookQueue(dir string) (*webhookQueue, error) {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), docSuffix) {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		data, err := os.ReadFile(filepath.Join(dir, e.Name())) // #nosec G304 -- a job file of the queue directory of the server
 		if err != nil {
 			continue
 		}
@@ -113,7 +113,7 @@ func (q *webhookQueue) persist(j *purgeJob) error {
 	}
 	path := filepath.Join(q.dir, j.ID+docSuffix)
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o640); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)

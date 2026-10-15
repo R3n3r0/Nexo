@@ -146,7 +146,7 @@ func (s *service) checkDrives(ctx context.Context, layout *topology.Layout, rep 
 				errs = append(errs, fmt.Errorf("drive %s: %w", dir, err))
 				continue
 			}
-			data, err := os.ReadFile(filepath.Join(dir, domain.SystemBucket, storage.FormatFile))
+			data, err := os.ReadFile(filepath.Join(dir, domain.SystemBucket, storage.FormatFile)) // #nosec G304 -- the format file of a drive of the configuration
 			if errors.Is(err, fs.ErrNotExist) {
 				continue
 			}

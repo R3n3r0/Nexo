@@ -161,6 +161,58 @@ type ServerInfo struct {
 	// KMS is the state of the KMS of the server-side encryption (nil when
 	// the server does not report it).
 	KMS *KMSInfo
+	// TLS is the state of the TLS of the listeners of the node that
+	// answers (nil when the server does not report it).
+	TLS *TLSInfo
+	// Telemetry is the state of the distributed tracing (OpenTelemetry)
+	// of the node that answers (nil when the server does not report it).
+	Telemetry *TelemetryInfo
+}
+
+// TLSInfo is the state of the TLS of the listeners of a node (docs/07
+// §7.3).
+type TLSInfo struct {
+	// Enabled is false when the listeners serve plain HTTP (no
+	// certificates directory).
+	Enabled bool
+	// MinVersion is the oldest TLS version the listeners accept ("1.2",
+	// "1.3").
+	MinVersion string
+	// InternodeVerify reports mutual TLS between the nodes.
+	InternodeVerify bool
+	// Certificates are the certificates of the certificates directory, the
+	// default one (Name "") first, then those selected by SNI.
+	Certificates []TLSCertificate
+}
+
+// TLSCertificate describes a certificate of the listeners, never its key.
+type TLSCertificate struct {
+	// Name is "" for the default certificate, the name of its
+	// sub-directory for a certificate selected by SNI.
+	Name string
+	// Domains are the DNS names of the leaf certificate, IPs its
+	// addresses.
+	Domains     []string
+	IPs         []string
+	Subject     string
+	Issuer      string
+	NotBefore   time.Time
+	NotAfter    time.Time
+	Fingerprint string
+}
+
+// TelemetryInfo is the state of the distributed tracing (OpenTelemetry,
+// docs/07 §7.4).
+type TelemetryInfo struct {
+	// Enabled reports that the spans are exported to an OTLP collector.
+	Enabled bool
+	// Endpoint is the URL of the collector, without user info nor query.
+	Endpoint string
+	// Protocol is "http/protobuf" or "grpc".
+	Protocol string
+	// SampleRatio is the share (0-1) of the traces started by the node
+	// that are recorded.
+	SampleRatio float64
 }
 
 // KMSInfo is the state of the KMS of the server-side encryption.

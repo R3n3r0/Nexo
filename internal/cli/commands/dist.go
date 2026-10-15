@@ -551,7 +551,7 @@ import", for the GitOps management of the distributions.`,
 				_, err := e.out.Stdout().Write(out)
 				return err
 			}
-			if err := os.WriteFile(output, out, 0o644); err != nil {
+			if err := os.WriteFile(output, out, 0o600); err != nil {
 				return err
 			}
 			return e.out.Info(distExportRecord{Alias: alias, File: output, Distributions: len(list)},

@@ -1,0 +1,47 @@
+Nexo {{ .Chart.AppVersion }} is being deployed as "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Mode: {{ .Values.mode }}{{ if eq .Values.mode "distributed" }} ({{ include "nexo.replicas" . }} pods x {{ .Values.distributed.drivesPerNode }} drives, {{ .Values.distributed.pools }} pool(s)){{ else }} (1 pod, {{ .Values.standalone.drives }} drive(s): {{ if gt (int .Values.standalone.drives) 1 }}SNMD, erasure coding{{ else }}SNSD{{ end }}){{ end }}
+Endpoints: {{ include "nexo.endpoints" . }}
+{{- if not .Values.persistence.enabled }}
+
+WARNING: persistence.enabled=false, the drives are emptyDir volumes: the data
+is lost when a pod is deleted or rescheduled.
+{{- end }}
+
+1. Wait until the pods are ready:
+
+   kubectl -n {{ .Release.Namespace }} rollout status {{ if eq .Values.mode "distributed" }}statefulset{{ else }}deployment{{ end }}/{{ include "nexo.fullname" . }}
+
+2. Root credentials (Secret "{{ include "nexo.credentialsSecret" . }}"):
+
+   kubectl -n {{ .Release.Namespace }} get secret {{ include "nexo.credentialsSecret" . }} -o jsonpath='{.data.{{ include "nexo.userKey" . }}}' | base64 -d; echo
+   kubectl -n {{ .Release.Namespace }} get secret {{ include "nexo.credentialsSecret" . }} -o jsonpath='{.data.{{ include "nexo.passwordKey" . }}}' | base64 -d; echo
+{{- if and (not .Values.auth.existingSecret) (not .Values.auth.rootPassword) }}
+   (generated at install, kept on upgrades and by helm uninstall)
+{{- end }}
+
+3. S3 API and console:
+{{- if .Values.ingress.s3.enabled }}
+
+   S3:      {{ include "nexo.ingressURL" .Values.ingress.s3 }}
+{{- end }}
+{{- if .Values.ingress.console.enabled }}
+   Console: {{ include "nexo.ingressURL" .Values.ingress.console }}
+{{- end }}
+
+   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "nexo.fullname" . }} 9000:{{ .Values.service.s3Port }} 9001:{{ .Values.service.consolePort }}
+   # console: {{ include "nexo.scheme" . }}://localhost:9001
+   nexoctl alias set {{ .Release.Name }} {{ include "nexo.scheme" . }}://localhost:9000 <user> <password>
+   nexoctl admin info {{ .Release.Name }}
+
+   In-cluster S3 endpoint: {{ include "nexo.scheme" . }}://{{ include "nexo.serviceHost" . }}:{{ .Values.service.s3Port }}
+
+4. Check the deployment (health of every erasure set and an S3 round trip):
+
+   helm test {{ .Release.Name }} -n {{ .Release.Namespace }}
+{{- if eq .Values.mode "distributed" }}
+
+Upgrades restart one pod at a time (PodDisruptionBudget maxUnavailable={{ .Values.podDisruptionBudget.maxUnavailable }}).
+Changing distributed.pools, the root credentials or the TLS settings changes
+every node: restart all the pods together (kubectl -n {{ .Release.Namespace }} delete pod -l app.kubernetes.io/instance={{ .Release.Name }}).
+{{- end }}

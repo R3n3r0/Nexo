@@ -232,7 +232,7 @@ func validTableName(name string) bool {
 func tlsConfig(skipVerify bool) *tls.Config {
 	// The verification is skipped only when the target asks for it
 	// (tls_skip_verify, test setups).
-	return &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: skipVerify} //nolint:gosec // opt-in per target
+	return &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: skipVerify} // #nosec G402 -- InsecureSkipVerify is an explicit opt-in of the target configuration (tls_skip_verify), off by default
 }
 
 // webhookClient returns the HTTP client of a webhook target.

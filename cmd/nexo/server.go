@@ -53,7 +53,9 @@ NEXO_CONSOLE_ADDRESS). Precedence: flags > environment > --config file.`,
 			if dryRun {
 				return dryRunReport(cmd, cfg, app.WithLogger(logger))
 			}
-			opts := []app.Option{app.WithLogger(logger)}
+			// The log stream writes to stderr itself, so that the logger
+			// subsystem switches the format at runtime (docs/07 §7.4).
+			opts := []app.Option{app.WithLogger(logger), app.WithLogOutput(deps.stderr)}
 			if fsys, ok := assets(); ok {
 				opts = append(opts, app.WithAssetsFS(fsys))
 			}

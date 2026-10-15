@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
@@ -60,6 +61,9 @@ type request struct {
 	contentType string
 	// header are extra request headers (If-Match).
 	header http.Header
+	// timeout raises the timeout of the HTTP client for a request known
+	// to last (profiles, speed tests); 0 keeps it.
+	timeout time.Duration
 }
 
 // pathOf joins escaped path segments: each segment is escaped once, so a
@@ -141,7 +145,13 @@ func (c *client) send(ctx context.Context, in request) ([]byte, http.Header, err
 	if err := c.signer.sign(ctx, req, payload); err != nil {
 		return nil, nil, fmt.Errorf("nexoadmin: sign request: %w", err)
 	}
-	resp, err := c.cfg.HTTPClient.Do(req)
+	httpClient := c.cfg.HTTPClient
+	if in.timeout > 0 && httpClient.Timeout > 0 && httpClient.Timeout < in.timeout {
+		long := *httpClient
+		long.Timeout = in.timeout
+		httpClient = &long
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, nil, fmt.Errorf("nexoadmin: %s %s: %w", in.method, in.path, err)
 	}

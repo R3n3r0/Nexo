@@ -155,7 +155,7 @@ func testWalkDirTenThousandKeys(t *testing.T, f Factory) {
 	ctx := context.Background()
 	s, _ := open(t, f)
 	require.NoError(t, s.MakeVol(ctx, "b"))
-	rng := rand.New(rand.NewPCG(1, 2))
+	rng := rand.New(rand.NewPCG(1, 2)) // #nosec G404 -- a deterministic generator of test data
 	alphabet := []rune("ab-._ ~!+%é文Z09")
 	seen := map[string]bool{}
 	var keys []string

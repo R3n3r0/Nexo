@@ -80,7 +80,7 @@ func (e *env) loadPrivateKey(alias, keyID string) (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- a file the user named on the command line
 	if errors.Is(err, os.ErrNotExist) {
 		return "", false, nil
 	}
@@ -487,11 +487,11 @@ func newDistCertSetCmd(e *env) *cobra.Command {
 			}
 			var uploaded *nexoadmin.Certificate
 			if upload {
-				chain, err := os.ReadFile(certFile)
+				chain, err := os.ReadFile(certFile) // #nosec G304 -- a file the user named on the command line
 				if err != nil {
 					return err
 				}
-				key, err := os.ReadFile(keyFile)
+				key, err := os.ReadFile(keyFile) // #nosec G304 -- a file the user named on the command line
 				if err != nil {
 					return err
 				}

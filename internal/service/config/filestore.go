@@ -116,7 +116,7 @@ func writeFileAtomic(path string, data []byte) (err error) {
 		return fmt.Errorf("config file store: %w", err)
 	}
 	// Flush the directory entry (best effort: not every platform can).
-	if d, derr := os.Open(dir); derr == nil {
+	if d, derr := os.Open(dir); derr == nil { // #nosec G304 -- the directory of the configuration file of the server
 		_ = d.Sync()
 		_ = d.Close()
 	}

@@ -7,7 +7,7 @@ package clitest
 import (
 	"bytes"
 	"context"
-	"crypto/md5"
+	"crypto/md5" // #nosec G501 -- the S3 ETag of the in-memory test server
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -351,7 +351,7 @@ func (m *MemS3) newVersionLocked(b *memBucket, data []byte, contentType string, 
 		m.seq++
 		id = fmt.Sprintf("v%04d", m.seq)
 	}
-	sum := md5.Sum(data)
+	sum := md5.Sum(data) // #nosec G401 -- the S3 ETag of the in-memory test server is an MD5, not a security primitive
 	now := m.clock.Now().UTC()
 	return &memVersion{
 		id: id, data: data, etag: hex.EncodeToString(sum[:]), modTime: now,
@@ -821,6 +821,7 @@ func (m *MemS3) postPolicy(_ context.Context, in cli.PostPolicyInput) (*cli.Post
 	}
 	expires := m.clock.Now().UTC().Add(in.Expiry)
 	doc, _ := json.Marshal(map[string]any{"expiration": expires.Format(time.RFC3339), "bucket": in.Bucket, "key": key, "maxSize": in.MaxSize})
+	// #nosec G101 -- the form fields of a test POST policy, not credentials
 	fields := map[string]string{
 		"key": key, "policy": base64.StdEncoding.EncodeToString(doc),
 		"x-amz-algorithm": "AWS4-HMAC-SHA256", "x-amz-credential": "MEM/20260102/us-east-1/s3/aws4_request",

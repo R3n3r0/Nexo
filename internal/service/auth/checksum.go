@@ -1,7 +1,7 @@
 package auth
 
 import (
-	"crypto/sha1"
+	"crypto/sha1" // #nosec G505 -- the SHA1 checksum algorithm of S3, an integrity check only
 	"crypto/sha256"
 	"encoding/base64"
 	"hash"
@@ -33,7 +33,7 @@ func newChecksum(name string) (hash.Hash, string, bool) {
 	case "crc64nvme":
 		return crc64.New(crc64.MakeTable(crc64NVMEPoly)), "CRC64NVME", true
 	case "sha1":
-		return sha1.New(), "SHA1", true
+		return sha1.New(), "SHA1", true // #nosec G401 -- the S3 SHA1 checksum algorithm (x-amz-checksum-sha1), an integrity check only
 	case "sha256":
 		return sha256.New(), "SHA256", true
 	default:

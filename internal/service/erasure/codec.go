@@ -33,6 +33,18 @@ type codec struct {
 	key        []byte
 	hedgeDelay time.Duration
 	logger     *slog.Logger
+	// encodeBufs recycles the buffers of Encode (*encodeBuffers): a block
+	// and its shards, megabytes that every upload would otherwise
+	// allocate and the GC clear, whatever the size of the object.
+	encodeBufs sync.Pool
+}
+
+// encodeBuffers are the buffers of one Encode: the block read from the
+// source, the shards of a full block and the view of the current block.
+type encodeBuffers struct {
+	block  []byte
+	shards [][]byte
+	view   [][]byte
 }
 
 var _ Codec = (*codec)(nil)
@@ -181,11 +193,11 @@ func (c *codec) Encode(ctx context.Context, src io.Reader, writers []io.Writer, 
 	if err := checkWriters(writers, quorum); err != nil {
 		return 0, err
 	}
-	buf := make([]byte, c.blockSize)
-	shards := make([][]byte, c.shards())
-	for i := range shards {
-		shards[i] = make([]byte, c.shardSize)
-	}
+	// The writers never keep the shards (io.Writer) and writeShards waits
+	// for every write: the buffers are free again when Encode returns.
+	bufs := c.encodeBuffers()
+	defer c.encodeBufs.Put(bufs)
+	buf, shards, block := bufs.block, bufs.shards, bufs.view
 	var total int64
 	for {
 		if err := ctx.Err(); err != nil {
@@ -204,7 +216,6 @@ func (c *codec) Encode(ctx context.Context, src io.Reader, writers []io.Writer, 
 		}
 		total += int64(n)
 		per := ceilDiv(int64(n), int64(c.data))
-		block := make([][]byte, len(shards))
 		for i := range shards {
 			block[i] = shards[i][:per]
 		}
@@ -219,6 +230,18 @@ func (c *codec) Encode(ctx context.Context, src io.Reader, writers []io.Writer, 
 			return total, nil
 		}
 	}
+}
+
+// encodeBuffers returns recycled buffers of Encode, or new ones.
+func (c *codec) encodeBuffers() *encodeBuffers {
+	if b, ok := c.encodeBufs.Get().(*encodeBuffers); ok {
+		return b
+	}
+	b := &encodeBuffers{block: make([]byte, c.blockSize), shards: make([][]byte, c.shards()), view: make([][]byte, c.shards())}
+	for i := range b.shards {
+		b.shards[i] = make([]byte, c.shardSize)
+	}
+	return b
 }
 
 // readFull reads into buf until it is full or src returns an error. Unlike
@@ -307,7 +330,7 @@ func (c *codec) Heal(ctx context.Context, writers []io.Writer, readers []ShardRe
 	if err := checkWriters(writers, 1); err != nil {
 		return res, err
 	}
-	pr := newParallelReader(ctx, c, readers, res.ShardErrs)
+	pr := newParallelReader(ctx, c, readers, res.ShardErrs, totalLength)
 	blocks := ceilDiv(totalLength, c.blockSize)
 	for b := int64(0); b < blocks; b++ {
 		_, shardLen := c.blockGeometry(b, totalLength)

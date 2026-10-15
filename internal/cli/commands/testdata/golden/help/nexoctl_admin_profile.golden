@@ -1,0 +1,27 @@
+Collect a runtime profile of the node that serves the Admin API of the alias, in the
+pprof format: analyze it with "go tool pprof FILE". cpu, mutex and block sample for
+--duration (1s to 2m); heap and goroutine are snapshots. In a cluster each node is
+profiled through its own console address (or the alias of that node).
+
+Needs admin:Profiling (root, the diagnostics policy).
+
+Usage:
+  nexoctl admin profile [flags] ALIAS
+
+Examples:
+  nexoctl admin profile local
+  nexoctl admin profile --type heap --output heap.pb.gz local
+  nexoctl admin profile --type mutex --duration 30s local
+
+Flags:
+  -d, --duration duration   sampling of the cpu, mutex and block profiles (default 10s, at most 2m)
+  -h, --help                help for profile
+  -o, --output string       file of the profile (default: the name suggested by the server, nexo-<node>-<type>.pb.gz)
+  -t, --type string         profile: cpu, heap, goroutine, mutex or block (default "cpu")
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
