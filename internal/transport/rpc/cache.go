@@ -55,8 +55,12 @@ func (h *cacheRoutes) Register(r chi.Router) {
 		r.Post("/invalidate", unary(func(ctx context.Context, b cache.InvalidationBatch) (cache.InvalidationAck, error) {
 			return h.deps.Cache.ApplyInvalidations(ctx, b)
 		}))
-		r.Post("/status", unary(func(ctx context.Context, _ empty) (cache.SyncStatus, error) {
-			return h.deps.Cache.SyncStatus(ctx)
+		r.Post("/status", unary(func(ctx context.Context, req cache.SyncRequest) (cache.SyncStatus, error) {
+			if c, ok := CallerFromContext(ctx); ok && c.NodeID != "" {
+				// The verified caller, not what it claims.
+				req.Node = c.NodeID
+			}
+			return h.deps.Cache.SyncStatus(ctx, req)
 		}))
 		r.Post("/fetch", unary(func(ctx context.Context, req cache.PieceRequest) (cache.PieceReply, error) {
 			return h.deps.Cache.FetchPiece(ctx, req)
@@ -110,9 +114,9 @@ func (c *cacheClient) ApplyInvalidations(ctx context.Context, b cache.Invalidati
 }
 
 // SyncStatus implements cache.Node.
-func (c *cacheClient) SyncStatus(ctx context.Context) (cache.SyncStatus, error) {
+func (c *cacheClient) SyncStatus(ctx context.Context, req cache.SyncRequest) (cache.SyncStatus, error) {
 	var st cache.SyncStatus
-	err := c.deps.Conn.Call(ctx, "cache/status", empty{}, &st)
+	err := c.deps.Conn.Call(ctx, "cache/status", req, &st)
 	return st, err
 }
 

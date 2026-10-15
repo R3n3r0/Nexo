@@ -154,11 +154,35 @@ logging: { accessLog: true, target: webhook:audit }
 | `authenticated` | Richiede credenziali S3 (SigV4) o sessione console |
 | `deny` | Sempre 403/404 |
 
+Regole di accesso delle due modalità (implementazione):
+- **website**: un behavior `public` è rifiutato (403) finché il block public access del bucket (o del cluster) è
+  attivo, **qualunque cosa conceda la lettura** (una access rule per `distribution:<id>`, una bucket policy
+  pubblica): il guardrail precede la valutazione delle regole. Il flag è letto dalla cache in memoria dei metadati
+  del bucket (invalidata dal Notifier), mai con I/O sul percorso di ogni richiesta; una decisione che non si può
+  prendere (set senza quorum, metadati mai letti) risponde **503 + `Retry-After`**, mai 403. Un `deny` esplicito
+  (access rule, bucket policy) rifiuta sempre; un behavior `authenticated` richiede un allow.
+- **s3**: la distribuzione è l'intera API S3 del bucket sul dominio, governata da IAM, bucket policy e access rules
+  (un prefisso privato si protegge con una regola `deny`). Del behavior vale solo `defaultBehavior.access`:
+  `public` (default), `authenticated` (nessuna richiesta anonima) o `deny`, applicato dopo l'autenticazione SigV4.
+  Behavior per path, `signed`, `allowedMethods`, index/SPA, error page, redirect, header di risposta, CORS (vale
+  la configurazione CORS del bucket) e impostazioni di cache del behavior sono **rifiutati al salvataggio** (400):
+  niente viene accettato e poi ignorato, e `dist test` riporta la stessa decisione delle richieste reali.
+  L'ammissione (distribuzione abilitata, indirizzo, origin secret) precede anche la verifica della firma: un client
+  che aggira il proxy riceve il 403 dell'ammissione, mai gli errori SigV4.
+- I redirect regex espandono le catture del **path codificato**; un target che il browser porterebbe fuori sito
+  (`//host`, `/\host`, caratteri di controllo, backslash) non viene seguito. Il probe dell'index document di una
+  "directory" (`/dir` → `/dir/`) è autorizzato come la lettura dell'index: un oggetto negato non produce il 302.
+- CORS: `allowCredentials: true` con un'origine `*` (o wildcard) è rifiutato al salvataggio; l'origine non viene
+  mai riflessa per le regole wildcard.
+- `If-Range` (RFC 9110 §13.1.5): il range si applica solo se il validatore coincide con l'ETag forte (un ETag
+  debole non coincide mai) o con la data esatta di ultima modifica; altrimenti `200` con l'oggetto intero.
+
 Chiavi di firma: **key group** con più chiavi (rotazione senza downtime), chiave privata generata dalla dashboard
 e scaricabile una sola volta, oppure chiave pubblica caricata dall'utente. Generazione URL da CLI/dashboard/SDK.
 
 ### Risoluzione dell'host (routing)
-Per ogni richiesta, l'header `Host` (o `X-Forwarded-Host` se il proxy è fidato) viene risolto in quest'ordine:
+Per ogni richiesta, l'header `Host` (o `X-Forwarded-Host` / `Forwarded host=` di un proxy fidato, solo con
+`--trust-forwarded-host` / `NEXO_TRUST_FORWARDED_HOST=true`) viene risolto in quest'ordine:
 1. alias esatto di una distribuzione;
 2. alias wildcard di una distribuzione (match più specifico);
 3. `<bucket>.<NEXO_DOMAIN>` (virtual-host S3);
@@ -167,6 +191,12 @@ Per ogni richiesta, l'header `Host` (o `X-Forwarded-Host` se il proxy è fidato)
 
 - Tabella di routing in memoria (mappa + trie per wildcard), aggiornata **a caldo** e propagata a tutti i nodi via peer RPC.
 - Conflitti di alias (stesso dominio su due distribuzioni) rifiutati al salvataggio.
+- **Domini riservati**: un alias (esatto o wildcard) che coincide con o copre i domini principali
+  (`NEXO_SERVER_URL`, `NEXO_BROWSER_REDIRECT_URL`), un `NEXO_DOMAIN` o i virtual-host `<bucket>.<NEXO_DOMAIN>`
+  è rifiutato (400); è ammesso solo il virtual-host del bucket di origine della distribuzione stessa (e chi la
+  salva deve essere autorizzato su quel bucket). Gli alias di distribuzioni salvate prima di questa regola che la
+  violano sono esclusi dalla tabella di routing al caricamento (log di warning), così un alias non dirotta mai
+  l'endpoint S3 o i bucket di altri.
 - Listener: le distribuzioni rispondono sulla porta S3 (9000) e, opzionalmente, su listener dedicati
   `--web-address :80` e `--web-tls-address :443` per l'esposizione diretta senza proxy.
 
@@ -178,10 +208,44 @@ Per ogni richiesta, l'header `Host` (o `X-Forwarded-Host` se il proxy è fidato)
 - L'IP client usato nelle condizioni (`sourceIp`) è quello reale ricavato dagli header fidati.
 - Esempi di configurazione nginx, Caddy, Traefik, HAProxy e Cloudflare in `deploy/proxy/`.
 
+Scelte di implementazione (verificate da `test/proxy`, vedi §10.6 "Cluster e Docker"):
+- **Host inoltrato non fidato per default**: anche da un proxy fidato si usano indirizzo e schema inoltrati, ma il
+  dominio resta l'header `Host` (che tutte le configurazioni di `deploy/proxy` preservano). Alcuni proxy
+  (Cloudflare, una `location` nginx che non lo imposta) inoltrano l'`X-Forwarded-Host` del client così com'è: un
+  client potrebbe scegliere la distribuzione, le condizioni `nexo:host` e la destinazione dei redirect `httpsOnly`.
+  `--trust-forwarded-host` serve solo per i proxy che riscrivono l'`Host`.
+- **Una sola famiglia di header** per deployment (`NEXO_FORWARDED_HEADERS`: `x-forwarded`, default, oppure
+  `forwarded`): leggerle entrambe permetterebbe a un client di falsificare il proprio indirizzo attraverso un
+  proxy che imposta solo l'altra. `X-Forwarded-For` è letto da destra fino al primo indirizzo non fidato.
+- **PROXY protocol per listener** (`NEXO_PROXY_PROTOCOL=s3,console,web`), letto prima del TLS: usato solo dai
+  peer in `NEXO_TRUSTED_PROXIES`, letto e ignorato dagli altri, facoltativo anche per i proxy fidati (così
+  un proxy con `X-Forwarded-*`, le RPC internode e gli health check condividono la porta S3 con un HAProxy
+  `send-proxy-v2-ssl`); il TLV SSL rende la richiesta HTTPS (redirect `httpsOnly`, `aws:SecureTransport`).
+- **Origin secret**: `restrictions.originSecretHeader` ha un nome (default `X-Origin-Secret`) e fino a 8 valori
+  attivi insieme, tutti accettati da tutti i proxy della distribuzione. Un valore in chiaro è salvato come
+  hash (`sha256:`); un riferimento `${secret:<nome>}` è risolto su ogni nodo da `NEXO_SECRET_<NOME>` (o
+  `_FILE`, `-` e `_` equivalenti) e non finisce mai nella configurazione: è la forma consigliata con più proxy
+  (`values: ["${secret:proxy-a}", "${secret:proxy-b}"]`, un segreto per proxy, YAML senza segreti per il
+  GitOps). Un riferimento non risolvibile non accetta nessuna richiesta (fail closed). `dist origin-secret
+  rotate` genera un nuovo valore (mostrato una volta) mantenendo attivi i precedenti (`--keep`). Il controllo
+  vale in entrambe le modalità (website e s3) e precede ogni altra valutazione; le richieste S3 path-style e
+  la console sui domini principali non sono distribuzioni e non lo richiedono (si proteggono con la rete).
+- La firma degli URL di distribuzione (`dist sign-url`, `POST /distributions/{id}/sign`) e `dist test`
+  riportano il behavior del path anche quando la richiesta di prova sarebbe rifiutata dall'ammissione
+  (origin secret, indirizzo, distribuzione disabilitata): la firma di una distribuzione dietro proxy trova il
+  suo key group.
+- Un nodo di un cluster che si sta fermando risponde `503` finché gli health check non lo tolgono dal giro:
+  i proxy devono ritentare le letture su 502/503/504 (configurazioni di `deploy/proxy`).
+
 ### TLS e certificati per dominio
 - Certificati caricati (PEM) o **ACME automatico** (Let's Encrypt/ZeroSSL, challenge HTTP-01 o TLS-ALPN-01; DNS-01 P2 per wildcard).
 - In cluster: certificati e stato ACME salvati cifrati in `.nexo.sys`, rinnovo eseguito dal leader, distribuzione a tutti i nodi.
 - Selezione via **SNI**; scadenza visibile in dashboard con alert a 21 giorni.
+- Un certificato è presentato solo per gli alias delle distribuzioni **abilitate** che lo referenziano
+  (`tls.certificate: upload:<id>`, o il certificato ACME di `auto`) e solo se copre il nome e non è scaduto;
+  altrimenti il listener usa il proprio certificato (quello statico del server per i domini S3/console). Un
+  certificato caricato con un nome dei domini principali, di `NEXO_DOMAIN` o `*.<NEXO_DOMAIN>` (o una wildcard
+  che li copre) è rifiutato: chi ha `admin:ManageCertificates` non può sostituire il certificato dell'endpoint S3.
 
 ### Cache e invalidazione
 Gestione completa della cache **per distribuzione, per dominio e per percorso**: vedi [11 — Cache per dominio](11-cache-domini.md).
@@ -249,6 +313,11 @@ Tutti i comandi supportano `--json` e l'import/export YAML (gestione GitOps dell
 | GET | `/api/v1/routing/resolve?host=` (diagnostica: quale distribuzione/bucket risponde per un host) |
 
 Azioni di policy: `admin:ManageAccessRules`, `admin:ManageDistributions`, `admin:ManageCertificates`, `admin:SignDistributionURL`.
+`admin:ManageDistributions` è valutata anche sul **bucket di origine** (risorsa `arn:aws:s3:::<bucket>`): per creare e
+modificare una distribuzione (bucket attuale e nuovo), eliminarla, ruotarne l'origin secret e modificare le chiavi
+di un key group (aggiunta, rimozione, eliminazione del gruppo), autorizzate su ogni bucket di origine delle
+distribuzioni che firmano con quel gruppo. Un utente negato su un bucket non può liberarne gli alias né firmarne i
+contenuti premium.
 
 ## 10.6 Test
 
@@ -308,3 +377,18 @@ Azioni di policy: `admin:ManageAccessRules`, `admin:ManageDistributions`, `admin
 | TCD-01 | Compose con **2 proxy nginx** (domini diversi, origin secret diversi) davanti al cluster 4 nodi: entrambi i punti di accesso funzionano, accesso diretto ai nodi senza secret rifiutato |
 | TCD-02 | Nodo che serve una distribuzione viene fermato: il proxy ripiega sugli altri nodi senza errori |
 | TCD-03 | Creazione distribuzione dalla dashboard → attiva su tutti i nodi senza restart |
+
+Implementazione di TCD-01..03 (`test/proxy`, build tag `proxy`, `make test-proxy`, job CI `proxy`): i due
+proxy sono **nginx** (`X-Forwarded-*`) e **HAProxy** (PROXY protocol v2 con TLV SSL) invece di due nginx, per
+coprire entrambi i modi di descrivere il client (`deploy/docker/compose.multi-proxy.yml`). Senza Docker:
+- `TestMultiProxy` (SNSD, SNMD, cluster 4×2 in-process): due proxy Go (`httputil.ReverseProxy`) con TLS, dominio
+  e origin secret propri, bilanciamento e failover come nginx; distribuzioni create e modificate dall'Admin API
+  della console dietro il proxy A e servite subito da ogni nodo (decine di ms misurate, limite del test 3 s) (TCD-03); accesso diretto ai nodi senza
+  secret o con secret errato → 403, con secret ma senza HTTPS → redirect (TCD-01); IP reale e spoofing
+  (`X-Forwarded-For`, `Forwarded`, PROXY header di un peer non fidato) attraverso entrambi (TDS-08); nodo
+  fermato sotto carico → nessun errore client né 502, scritture e modifiche della distribuzione durante il
+  fermo, il nodo riavviato le serve (TCD-02); URL firmati di distribuzione con `IpAddress` del client reale;
+  TPS-19 sui domini custom (TCC-C-05 in [11](11-cache-domini.md#1112-test)).
+- `TestRealProxies` (cluster 4×2): gli **stessi file** nginx e HAProxy del compose, adattati agli indirizzi di
+  loopback, con i binari reali (saltato se mancano, obbligatorio con `NEXO_PROXY_REAL=1`), più le distribuzioni
+  d'esempio `multi-proxy/site.yaml`.

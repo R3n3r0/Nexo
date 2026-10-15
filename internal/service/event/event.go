@@ -36,6 +36,12 @@ const (
 	// target; no configuration subscribes to it.
 	TestEvent Name = "s3:TestEvent"
 
+	// ObjectMetadataChanged is the internal event of a change of the
+	// metadata of an object that S3 does not notify (Object Lock
+	// retention, legal hold): the hooks of the object layer (the cache)
+	// see it, Publish never delivers it to a target.
+	ObjectMetadataChanged Name = "nexo:ObjectMetadata:Changed"
+
 	// ObjectCreatedPutTagging and ObjectCreatedDeleteTagging are the names
 	// the object layer publishes for its tagging operations: the S3
 	// s3:ObjectTagging events.
@@ -54,6 +60,10 @@ func (n Name) Match(pattern Name) bool {
 	}
 	return false
 }
+
+// IsInternal reports an internal event of Nexo ("nexo:..."), never
+// delivered to the notification targets.
+func (n Name) IsInternal() bool { return strings.HasPrefix(string(n), "nexo:") }
 
 // notifiableNames are the event names (and families) a bucket notification
 // configuration may subscribe to.

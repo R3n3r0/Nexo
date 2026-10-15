@@ -294,13 +294,17 @@ export function builtinPolicies(): CachePolicy[] {
     ...completeSpec(over),
   });
   return [
-    add('aggressive', 'Long lifetimes (1d, at least 1h, at most 30d), long stale windows, zstd too.', {
-      ttl: { default: '1d', min: '1h0m0s', max: '30d' },
-      staleWhileRevalidate: '1h0m0s',
-      staleIfError: '7d',
-      negativeCaching: '1m0s',
-      compression: { algorithms: ['br', 'zstd', 'gzip'] },
-    }),
+    add(
+      'aggressive',
+      'Long lifetimes (1d, at least 1h, at most 30d), long stale windows, zstd too.',
+      {
+        ttl: { default: '1d', min: '1h0m0s', max: '30d' },
+        staleWhileRevalidate: '1h0m0s',
+        staleIfError: '7d',
+        negativeCaching: '1m0s',
+        compression: { algorithms: ['br', 'zstd', 'gzip'] },
+      },
+    ),
     add('disabled', 'No caching: every request is served by the origin.', {
       bypass: { always: true },
     }),
@@ -474,10 +478,7 @@ export function resolveLevels(
       }
     }
     spec = overlaySpec(spec, specOf(settings), level, fields);
-    if (
-      settings.autoInvalidate !== undefined &&
-      (level === 'global' || level === 'distribution')
-    ) {
+    if (settings.autoInvalidate !== undefined && (level === 'global' || level === 'distribution')) {
       eff.autoInvalidate = settings.autoInvalidate;
     }
   }
@@ -579,11 +580,7 @@ export function validateSpec(spec: CachePolicySpec): CacheIssue[] {
   duration('ttl.default', spec.ttl?.default);
   duration('ttl.min', spec.ttl?.min);
   duration('ttl.max', spec.ttl?.max);
-  const [min, def, max] = [
-    durations['ttl.min'],
-    durations['ttl.default'],
-    durations['ttl.max'],
-  ];
+  const [min, def, max] = [durations['ttl.min'], durations['ttl.default'], durations['ttl.max']];
   if (min !== undefined && def !== undefined && min > def) {
     issues.push({
       field: 'ttl.min',
@@ -625,7 +622,8 @@ export function validateSpec(spec: CachePolicySpec): CacheIssue[] {
     }
   }
   for (const c of key?.cookies ?? []) {
-    if (!isToken(c)) issues.push({ field: 'cacheKey.cookies', code: 'cookie', values: { value: c } });
+    if (!isToken(c))
+      issues.push({ field: 'cacheKey.cookies', code: 'cookie', values: { value: c } });
   }
   duration('staleWhileRevalidate', spec.staleWhileRevalidate);
   duration('staleIfError', spec.staleIfError);
@@ -847,6 +845,14 @@ export function totalRequests(counters: Pick<CacheCounters, 'requests'>): number
   return Object.values(counters.requests).reduce((sum, n) => sum + n, 0);
 }
 
+/** Requests the cache could serve (HIT, STALE, REVALIDATED, MISS, EXPIRED): not BYPASS. */
+export function cacheableRequests(requests: Readonly<Record<string, number>>): number {
+  return ['HIT', 'STALE', 'REVALIDATED', 'MISS', 'EXPIRED'].reduce(
+    (sum, r) => sum + (requests[r] ?? 0),
+    0,
+  );
+}
+
 /** A hit ratio as a percentage ("93%"); a dash without cacheable request. */
 export function formatRatio(ratio: number, requests: number, locale?: string): string {
   if (requests === 0 || !Number.isFinite(ratio)) return '—';
@@ -883,4 +889,118 @@ export function normalizeCacheHost(h: string): string {
     host = host.slice(0, i);
   }
   return host.replace(/\.$/, '');
+}
+
+/**
+ * The domain settings applying to a host (internal/service/cache
+ * domainSettings): the exact host first, then the longest wildcard
+ * matching it; -1 for none.
+ */
+export function domainOverrideIndex(
+  domains: readonly { host: string }[] | undefined,
+  host: string,
+): number {
+  const list = domains ?? [];
+  const exact = list.findIndex((d) => d.host === host);
+  if (exact >= 0) return exact;
+  let best = -1;
+  for (const [i, d] of list.entries()) {
+    if (!d.host.startsWith('*.') || !hostMatches(d.host, host)) continue;
+    if (best < 0 || d.host.length > (list[best]?.host.length ?? 0)) best = i;
+  }
+  return best;
+}
+
+/** The counters of several domains summed (the hosts below a wildcard alias). */
+export interface CombinedHostStats {
+  requests: Record<string, number>;
+  hitRatio: number;
+  bytesCache: number;
+  bytesOrigin: number;
+  memoryBytes: number;
+  diskBytes: number;
+  entries: number;
+}
+
+/** The share of the cacheable requests served from the cache. */
+export function hitRatioOf(requests: Readonly<Record<string, number>>): number {
+  const hits = (requests.HIT ?? 0) + (requests.STALE ?? 0) + (requests.REVALIDATED ?? 0);
+  const cacheable = hits + (requests.MISS ?? 0) + (requests.EXPIRED ?? 0);
+  return cacheable === 0 ? 0 : hits / cacheable;
+}
+
+/** Sums the statistics of the domains a domain of the configuration covers. */
+export function combineHostStats(
+  hosts: readonly CacheHostStats[],
+  domain: string,
+): CombinedHostStats {
+  const out: CombinedHostStats = {
+    requests: {},
+    hitRatio: 0,
+    bytesCache: 0,
+    bytesOrigin: 0,
+    memoryBytes: 0,
+    diskBytes: 0,
+    entries: 0,
+  };
+  for (const h of hosts) {
+    if (!hostMatches(domain, h.host)) continue;
+    for (const [k, v] of Object.entries(h.requests)) out.requests[k] = (out.requests[k] ?? 0) + v;
+    out.bytesCache += h.bytesCache;
+    out.bytesOrigin += h.bytesOrigin;
+    out.memoryBytes += h.memoryBytes;
+    out.diskBytes += h.diskBytes;
+    out.entries += h.entries;
+  }
+  out.hitRatio = hitRatioOf(out.requests);
+  return out;
+}
+
+/* ------------------------------------------------------------------------ */
+/* Levels                                                                   */
+/* ------------------------------------------------------------------------ */
+
+/** The settings of a level without the unset (inherited) fields. */
+export function pruneSettings(s: CacheSettings): CacheSettings {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(s)) {
+    if (v === undefined) continue;
+    if (Array.isArray(v) && v.length === 0 && k === 'purgeWebhooks') continue;
+    if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
+      const sub = Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined));
+      if (Object.keys(sub).length === 0) continue;
+      out[k] = sub;
+      continue;
+    }
+    out[k] = v;
+  }
+  return out;
+}
+
+/** Whether a level sets nothing (inherits every setting). */
+export function isEmptySettings(s: CacheSettings | undefined): boolean {
+  return s === undefined || Object.keys(pruneSettings(s)).length === 0;
+}
+
+/** The value of a dotted field of a policy, as text. */
+export function fieldValue(spec: CachePolicySpec, field: string): string {
+  const [group, name] = field.split('.') as [string, string | undefined];
+  const raw: unknown =
+    name === undefined
+      ? (spec as Record<string, unknown>)[group]
+      : ((spec as Record<string, Record<string, unknown> | undefined>)[group] ?? {})[name];
+  if (field === 'cacheKey.queryString') {
+    return queryStringText(raw as CacheQueryString | undefined);
+  }
+  if (raw === undefined || raw === null) return '—';
+  if (Array.isArray(raw)) return raw.length === 0 ? '—' : raw.join(', ');
+  if (typeof raw === 'boolean') return raw ? 'true' : 'false';
+  if (
+    field.startsWith('ttl.') ||
+    ['staleWhileRevalidate', 'staleIfError', 'negativeCaching'].includes(field)
+  ) {
+    return compactDuration(raw as string);
+  }
+  if (typeof raw === 'string') return raw === '' ? '—' : raw;
+  return typeof raw === 'number' ? String(raw) : JSON.stringify(raw);
 }

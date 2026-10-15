@@ -19,6 +19,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/cluster"
+	"github.com/r3n3r0/nexo/internal/service/match"
 	"github.com/r3n3r0/nexo/internal/service/sysstore"
 )
 
@@ -64,7 +65,7 @@ func New(deps Deps, opts ...Option) (Service, error) {
 		return nil, fmt.Errorf("%w: distribution: the notifier is required", domain.ErrInvalidArgument)
 	}
 	if deps.Matcher == nil {
-		deps.Matcher = NewMatcher()
+		deps.Matcher = match.New(match.Deps{})
 	}
 	if deps.Clock == nil {
 		deps.Clock = clock.NewReal()
@@ -124,7 +125,14 @@ func (s *service) Reload(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	s.table.Store(newTable(ds))
+	for _, d := range ds {
+		for _, a := range d.Aliases {
+			if why := s.reservedAlias(a, d.Origin.Bucket); why != "" {
+				s.deps.Logger.WarnContext(ctx, "distribution: alias not routed", "distribution", d.ID, "alias", a, "why", why)
+			}
+		}
+	}
+	s.table.Store(newTable(ds, s.reservedAlias))
 	s.keys.Store(newKeySet(groups))
 	return nil
 }
@@ -445,12 +453,23 @@ func (s *service) Test(ctx context.Context, in TestInput) (TestResult, error) {
 		method = http.MethodGet
 	}
 	secure := u.Scheme == "https"
-	p := c.plan(planRequest{
+	p := c.plan(ctx, planRequest{
 		host: u.Host, method: method, path: u.Path, escapedPath: u.EscapedPath(), rawQuery: u.RawQuery,
 		secure: secure, clientIP: in.ClientIP, header: http.Header{},
 	})
 	res.BehaviorIndex = p.behaviorIndex
 	res.Behavior = p.behavior
+	if p.admission {
+		// Refused before the path is looked at (origin secret, address,
+		// disabled): the behavior of the path is still reported, so that
+		// the signing of a URL of a distribution behind proxies finds
+		// its key group.
+		path := u.Path
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path
+		}
+		res.BehaviorIndex, res.Behavior = c.behaviorFor(ctx, path)
+	}
 	res.Bucket = c.d.Origin.Bucket
 	res.Key = p.key
 	res.RedirectStatus, res.RedirectLocation = p.redirectStatus, p.redirectLocation

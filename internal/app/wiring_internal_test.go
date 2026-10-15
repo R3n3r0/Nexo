@@ -87,7 +87,13 @@ func TestBucketPoliciesAdapter(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			store := bucketmock.NewMetadataStore(t)
-			store.EXPECT().Load(ctx, "b").Return(tc.meta, tc.loadErr).Once()
+			// The access configuration of the bucket: its cache, or the
+			// last known one while the drives cannot answer.
+			var cfg bucket.AccessConfig
+			if tc.meta != nil {
+				cfg = bucket.AccessConfig{Policy: tc.meta.Policy}
+			}
+			store.EXPECT().AccessConfig(ctx, "b").Return(cfg, tc.loadErr).Once()
 			p, err := bucketPolicies{store: store}.GetBucketPolicy(ctx, "b")
 			if tc.wantErr != nil {
 				require.Error(t, err)

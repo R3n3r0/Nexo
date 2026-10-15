@@ -1373,7 +1373,9 @@ retries and a persistent queue: cloudflare (--zone, --token), fastly (--zone is
 the service id, --token), akamai (--url, --token, --client-token,
 --client-secret), nginx (proxy_cache_purge, --url), varnish (BAN, --url) or
 generic (--url and --body templates). Without --domain, the webhook purges the
-domains not bound to another webhook. Secrets may be ${secret:NAME}.`,
+domains not bound to another webhook. Secrets may be ${secret:webhook-NAME}
+(NEXO_SECRET_WEBHOOK_NAME on the server); the endpoint must be a public
+address or a network of --cache-webhook-allow.`,
 		Example: `  nexoctl cache webhook add local sito-web --domain static.example.it --type cloudflare --zone 0123abcd --token-file cf.token
   nexoctl cache webhook add local sito-web --type varnish --url http://varnish:6081 --id varnish`,
 		Args:              exactArgs(2),
@@ -1426,10 +1428,10 @@ domains not bound to another webhook. Secrets may be ${secret:NAME}.`,
 	f.StringArrayVar(&domains, "domain", nil, "domain whose invalidations call the webhook (repeatable; default every domain)")
 	f.StringVar(&w.URL, "url", "", "API base, address of the proxy, or URL template (generic)")
 	f.StringVar(&w.Zone, "zone", "", "Cloudflare zone id, Fastly service id")
-	f.StringVar(&w.Token, "token", "", "API token (or ${secret:NAME})")
+	f.StringVar(&w.Token, "token", "", "API token (or ${secret:webhook-NAME})")
 	f.StringVar(&tokenFile, "token-file", "", "file holding the API token")
 	f.StringVar(&w.ClientToken, "client-token", "", "Akamai EdgeGrid client token")
-	f.StringVar(&w.ClientSecret, "client-secret", "", "Akamai EdgeGrid client secret (or ${secret:NAME})")
+	f.StringVar(&w.ClientSecret, "client-secret", "", "Akamai EdgeGrid client secret (or ${secret:webhook-NAME})")
 	f.StringVar(&secretFile, "client-secret-file", "", "file holding the Akamai client secret")
 	f.StringVar(&w.Network, "network", "", "Akamai network: production (default) or staging")
 	f.StringVar(&w.CPCode, "cp-code", "", "Akamai CP code (purge of a whole domain)")

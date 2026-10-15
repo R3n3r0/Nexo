@@ -565,11 +565,25 @@ func (s *service) SetBlockPublic(ctx context.Context, in BlockPublicInput) (*Blo
 
 // PublicAccessBlocked implements Service.
 func (s *service) PublicAccessBlocked(ctx context.Context, name string) (bool, error) {
-	bp, err := s.GetBlockPublic(ctx, name)
+	if s.deps.Source == nil || name == "" {
+		bp, err := s.GetBlockPublic(ctx, name)
+		if err != nil {
+			return false, err
+		}
+		return bp.Effective, nil
+	}
+	on, _, err := clusterBlockPublic(ctx, s.deps.Config, s.opts)
+	if err != nil {
+		return false, fmt.Errorf("accessrule: cluster block public access: %w", err)
+	}
+	if on {
+		return true, nil
+	}
+	cfg, err := s.deps.Source.AccessConfig(ctx, name)
 	if err != nil {
 		return false, err
 	}
-	return bp.Effective, nil
+	return cfg.BlockPublicAccess, nil
 }
 
 // onOff renders a switch of the configuration.

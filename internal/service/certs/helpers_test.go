@@ -101,6 +101,14 @@ type testNode struct {
 // of a node reach the others. leaders gives the leader election of each.
 func deployment(t testing.TB, docs *memDocs, leaders []cluster.Leader, domains certs.DomainSource, fake clock.Clock, opts ...certs.Option) []*testNode {
 	t.Helper()
+	return deploymentWith(t, docs, leaders, domains, nil, fake, opts...)
+}
+
+// deploymentWith is deployment with the binding of the hosts to the
+// certificates of the distributions.
+func deploymentWith(t testing.TB, docs *memDocs, leaders []cluster.Leader, domains certs.DomainSource, hosts certs.HostSource,
+	fake clock.Clock, opts ...certs.Option) []*testNode {
+	t.Helper()
 	sealer, err := certs.NewSealer(certs.DeriveKey("root", "root-secret", "deployment"))
 	require.NoError(t, err)
 	locks := lock.NewLocal(lock.Deps{})
@@ -122,7 +130,7 @@ func deployment(t testing.TB, docs *memDocs, leaders []cluster.Leader, domains c
 		}).Maybe()
 		svc, err := certs.New(certs.Deps{
 			Store: newStore(t, docs), Locks: locks, Notifier: n, Leader: leaders[i], Sealer: sealer, Domains: domains,
-			Clock: fake, Logger: slog.New(slog.DiscardHandler),
+			Hosts: hosts, Clock: fake, Logger: slog.New(slog.DiscardHandler),
 		}, opts...)
 		require.NoError(t, err)
 		require.NoError(t, svc.Start(context.Background()))
@@ -188,4 +196,13 @@ func (ca *testCA) leaf(t testing.TB, names []string, notBefore, notAfter time.Ti
 	require.NoError(t, err)
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})),
 		string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}))
+}
+
+// hostBindings binds hosts to certificate ids (certs.HostSource): the
+// aliases of the enabled distributions of a test.
+type hostBindings map[string]string
+
+func (h hostBindings) CertificateFor(_ context.Context, host string) (string, bool) {
+	id, ok := h[host]
+	return id, ok
 }

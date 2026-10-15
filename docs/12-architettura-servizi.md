@@ -25,6 +25,7 @@ internal/
 │   ├── iam/                # utenti, gruppi, access key, STS
 │   ├── policy/             # policy engine (IAM + bucket policy + access rules)
 │   ├── accessrule/         # regole prefix/glob/regex
+│   ├── match/              # unico matcher prefix/glob/regex (RE2) + normalizzazione chiavi: access rules, behavior, cache
 │   ├── share/              # share link gestiti e revocabili
 │   ├── config/             # configurazione dinamica
 │   ├── event/              # notifiche bucket
@@ -35,6 +36,7 @@ internal/
 │   ├── kms/ crypto/
 │   ├── session/            # sessioni console (JWT cookie + CSRF)
 │   ├── distribution/       # domini e distribuzioni
+│   ├── certs/              # certificati per dominio (upload, ACME dal leader, SNI)
 │   ├── cache/              # cache HTTP per dominio
 │   ├── metrics/ health/ audit/ trace/
 │   └── admin/              # facciata per l'Admin API (info, usage, heal…)

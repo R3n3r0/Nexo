@@ -50,6 +50,8 @@ export interface NavItem {
    * the effective permissions are known and deny it (D-UX-02).
    */
   requires?: string;
+  /** Like requires, satisfied by any of these actions. */
+  requiresAny?: readonly string[];
 }
 
 export const navigation: readonly NavItem[] = [
@@ -73,7 +75,12 @@ export const navigation: readonly NavItem[] = [
     icon: IconWorld,
     requires: 'admin:ManageDistributions',
   },
-  { key: 'cache', path: '/cache', icon: IconDatabase },
+  {
+    key: 'cache',
+    path: '/cache',
+    icon: IconDatabase,
+    requiresAny: ['admin:ManageCache', 'admin:InvalidateCache'],
+  },
   { key: 'cluster', path: '/cluster', icon: IconServer, requires: 'admin:ServerInfo' },
   { key: 'healing', path: '/healing', icon: IconFirstAidKit, requires: 'admin:Heal' },
   { key: 'monitoring', path: '/monitoring', icon: IconActivity },
@@ -100,6 +107,9 @@ export function visibleNavigation(
   permissions: { ready: boolean; can: (action: string) => boolean },
 ): NavItem[] {
   return items.filter(
-    (item) => item.requires === undefined || !permissions.ready || permissions.can(item.requires),
+    (item) =>
+      !permissions.ready ||
+      ((item.requires === undefined || permissions.can(item.requires)) &&
+        (item.requiresAny === undefined || item.requiresAny.some((a) => permissions.can(a)))),
   );
 }

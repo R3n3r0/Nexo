@@ -38,6 +38,10 @@ type options struct {
 	httpClient    *http.Client
 	lockTimeout   time.Duration
 	reconcileOn   []cluster.EventKind
+	// mainHosts and domains are the names of the deployment no uploaded
+	// certificate may carry.
+	mainHosts []string
+	domains   []string
 }
 
 func defaultOptions() options {
@@ -128,4 +132,30 @@ func WithHTTPClient(c *http.Client) Option {
 // the peers broadcast an event of these kinds (the distributions).
 func WithReconcileOn(kinds ...cluster.EventKind) Option {
 	return func(o *options) { o.reconcileOn = append(o.reconcileOn, kinds...) }
+}
+
+// WithMainHosts sets the S3 and console hosts of the deployment
+// (NEXO_SERVER_URL, NEXO_BROWSER_REDIRECT_URL): an uploaded certificate
+// for one of them, or for a wildcard covering one, is refused.
+func WithMainHosts(hosts ...string) Option {
+	return func(o *options) { o.mainHosts = append(o.mainHosts, normalizeNames(hosts)...) }
+}
+
+// WithDomains sets the virtual-host domains of the deployment
+// (NEXO_DOMAIN): an uploaded certificate for one of them, for a wildcard
+// covering one or for every bucket of one ("*.<domain>") is refused.
+func WithDomains(domains ...string) Option {
+	return func(o *options) { o.domains = append(o.domains, normalizeNames(domains)...) }
+}
+
+// normalizeNames lowercases the names and drops the empty ones and the
+// trailing dots.
+func normalizeNames(names []string) []string {
+	var out []string
+	for _, n := range names {
+		if n = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(n)), "."); n != "" {
+			out = append(out, n)
+		}
+	}
+	return out
 }

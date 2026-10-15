@@ -171,7 +171,10 @@ func TestClusterInvalidationPropagates(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrNodeOffline)
 	assert.Equal(t, int32(2), received[0].Load())
 	c.Nodes[3].Start()
-	require.Eventually(t, func() bool { return received[3].Load() == 2 }, 10*time.Second, 10*time.Millisecond)
+	// Delivered by the retry loop of node 2 once its health checks see
+	// node 4 again: a few periods, much longer on a loaded machine (the
+	// race detector, parallel packages), hence the generous bound.
+	require.Eventually(t, func() bool { return received[3].Load() == 2 }, 30*time.Second, 10*time.Millisecond)
 }
 
 // TestClusterLeader is TC-14: exactly one node runs the singleton jobs;

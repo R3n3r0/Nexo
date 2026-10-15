@@ -1,6 +1,10 @@
 package cache
 
-import "time"
+import (
+	"net/netip"
+	"slices"
+	"time"
+)
 
 // Defaults of the cache service.
 const (
@@ -11,7 +15,9 @@ const (
 )
 
 const (
-	defaultSyncInterval     = 2 * time.Second
+	defaultSyncInterval     = time.Second
+	defaultTrustLease       = 2 * time.Second
+	defaultFetchTimeout     = 5 * time.Second
 	defaultRetryInterval    = time.Second
 	defaultAckTimeout       = 2 * time.Second
 	defaultMaxPending       = 1024
@@ -43,11 +49,18 @@ type options struct {
 	retryInterval time.Duration
 	ackTimeout    time.Duration
 	maxPending    int
+	// trustLease is how long a node trusts its entries after the start
+	// of a complete comparison of the sequences; fetchTimeout bounds the
+	// wait for the owner of a key (shared mode).
+	trustLease   time.Duration
+	fetchTimeout time.Duration
 	// webhookDir is the directory of the persistent queue of the purge
-	// webhooks; webhookMin and webhookMax bound their retry delay.
-	webhookDir string
-	webhookMin time.Duration
-	webhookMax time.Duration
+	// webhooks; webhookMin and webhookMax bound their retry delay;
+	// webhookAllow are the internal networks they may reach.
+	webhookDir   string
+	webhookAllow []netip.Prefix
+	webhookMin   time.Duration
+	webhookMax   time.Duration
 	// history bounds the invalidations kept per distribution.
 	history     int
 	lockTimeout time.Duration
@@ -57,7 +70,8 @@ func defaultOptions() options {
 	return options{
 		mode: ModeLocal, memorySize: DefaultMemorySize, diskSize: DefaultDiskSize,
 		syncInterval: defaultSyncInterval, retryInterval: defaultRetryInterval, ackTimeout: defaultAckTimeout,
-		maxPending: defaultMaxPending, webhookMin: defaultWebhookMinDelay, webhookMax: defaultWebhookMaxDelay,
+		maxPending: defaultMaxPending, trustLease: defaultTrustLease, fetchTimeout: defaultFetchTimeout,
+		webhookMin: defaultWebhookMinDelay, webhookMax: defaultWebhookMaxDelay,
 		history: defaultHistory, lockTimeout: defaultLockTimeout,
 	}
 }
@@ -99,7 +113,8 @@ func WithDiskSize(n int64) Option {
 }
 
 // WithSyncInterval sets how often the node compares its invalidation
-// sequences with its peers (default 2s).
+// sequences with its peers (default 1s). It should stay below the trust
+// lease, or the entries are revalidated between two comparisons.
 func WithSyncInterval(d time.Duration) Option {
 	return func(o *options) {
 		if d > 0 {
@@ -124,6 +139,29 @@ func WithAckTimeout(d time.Duration) Option {
 	return func(o *options) {
 		if d > 0 {
 			o.ackTimeout = d
+		}
+	}
+}
+
+// WithTrustLease sets how long a node of a cluster trusts its entries
+// after the start of a comparison of the sequences with every peer
+// (default 2s). It is also the longest a write waits, before it is
+// acknowledged, for the lease of a peer it could not reach to lapse.
+func WithTrustLease(d time.Duration) Option {
+	return func(o *options) {
+		if d > 0 {
+			o.trustLease = d
+		}
+	}
+}
+
+// WithFetchTimeout bounds the wait for the owner of a key in the shared
+// mode (default 5s): an owner slower than that is skipped, the piece is
+// read from the origin without caching.
+func WithFetchTimeout(d time.Duration) Option {
+	return func(o *options) {
+		if d > 0 {
+			o.fetchTimeout = d
 		}
 	}
 }
@@ -155,6 +193,13 @@ func WithWebhookRetry(minDelay, maxDelay time.Duration) Option {
 			o.webhookMax = maxDelay
 		}
 	}
+}
+
+// WithWebhookAllow lets the purge webhooks reach these internal networks
+// (--cache-webhook-allow: an nginx or Varnish of the LAN). By default a
+// webhook only reaches public addresses, and never a node of the cluster.
+func WithWebhookAllow(networks ...netip.Prefix) Option {
+	return func(o *options) { o.webhookAllow = append(slices.Clone(o.webhookAllow), networks...) }
 }
 
 // WithHistory bounds the invalidations kept per distribution (default

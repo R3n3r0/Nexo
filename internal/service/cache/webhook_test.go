@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -100,7 +103,7 @@ func TestWebhookPayloads(t *testing.T) {
 		check func(t *testing.T, calls []hookCall)
 	}{
 		{
-			name: "cloudflare files", hook: cache.Webhook{Type: cache.WebhookCloudflare, Zone: "z1", Token: "${secret:cf}"},
+			name: "cloudflare files", hook: cache.Webhook{Type: cache.WebhookCloudflare, Zone: "z1", Token: "${secret:webhook-cf}"},
 			req: cache.InvalidationRequest{Paths: []string{"/a.html"}}, calls: 1,
 			check: func(t *testing.T, calls []hookCall) {
 				c := calls[0]
@@ -159,7 +162,7 @@ func TestWebhookPayloads(t *testing.T) {
 			},
 		},
 		{
-			name: "akamai", hook: cache.Webhook{Type: cache.WebhookAkamai, Token: "at", ClientToken: "ct", ClientSecret: "${secret:ak}"},
+			name: "akamai", hook: cache.Webhook{Type: cache.WebhookAkamai, Token: "at", ClientToken: "ct", ClientSecret: "${secret:webhook-ak}"},
 			req: cache.InvalidationRequest{Paths: []string{"/a.html"}}, calls: 1,
 			check: func(t *testing.T, calls []hookCall) {
 				c := calls[0]
@@ -203,13 +206,14 @@ func TestWebhookPayloads(t *testing.T) {
 		{
 			name: "generic template",
 			hook: cache.Webhook{Type: cache.WebhookGeneric, Method: http.MethodPut, Body: `{"urls":{{json .URLs}},"dist":"{{.Distribution}}"}`,
-				Headers: map[string]string{"X-Api-Key": "${secret:gk}", "X-Count": "{{len .Paths}}"}},
+				Token: "${secret:webhook-gk}", Headers: map[string]string{"X-Api-Key": "plain", "X-Count": "{{len .Paths}}"}},
 			req: cache.InvalidationRequest{Paths: []string{"/a.html"}}, calls: 1,
 			check: func(t *testing.T, calls []hookCall) {
 				c := calls[0]
 				assert.Equal(t, http.MethodPut, c.Method)
 				assert.Equal(t, "/purge/web", c.Path)
-				assert.Equal(t, "generic-key", c.Header.Get("X-Api-Key"))
+				assert.Equal(t, "Bearer generic-key", c.Header.Get("Authorization"))
+				assert.Equal(t, "plain", c.Header.Get("X-Api-Key"))
 				assert.Equal(t, "1", c.Header.Get("X-Count"))
 				assert.JSONEq(t, `{"urls":["https://www.example.com/a.html","https://example.com/a.html"],"dist":"web"}`, c.Body)
 			},
@@ -230,7 +234,7 @@ func TestWebhookPayloads(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			hs := newHookServer(t)
-			e := newEnv(t, envOptions{secret: secrets(t, map[string]string{"cf": "cf-token", "ak": "ak-secret", "gk": "generic-key"})})
+			e := newEnv(t, envOptions{secret: secrets(t, map[string]string{"webhook-cf": "cf-token", "webhook-ak": "ak-secret", "webhook-gk": "generic-key"})})
 			w := tt.hook
 			w.ID = "edge"
 			switch w.Type {
@@ -367,7 +371,7 @@ func TestWebhookRemoved(t *testing.T) {
 // never returned, the test call.
 func TestWebhookManagement(t *testing.T) {
 	hs := newHookServer(t)
-	e := newEnv(t, envOptions{secret: secrets(t, map[string]string{"cf": "cf-token"})})
+	e := newEnv(t, envOptions{secret: secrets(t, map[string]string{"webhook-cf": "cf-token"})})
 	ctx := context.Background()
 	for _, bad := range []cache.Webhook{
 		{ID: "Bad ID", Type: cache.WebhookNginx, URL: hs.srv.URL},
@@ -385,9 +389,9 @@ func TestWebhookManagement(t *testing.T) {
 	assert.Empty(t, added.Token, "a secret is never returned")
 	_, err = e.svc.AddWebhook(ctx, "web", cache.Webhook{ID: "cf", Type: cache.WebhookNginx, URL: hs.srv.URL})
 	require.ErrorIs(t, err, cache.ErrAlreadyExists)
-	ref, err := e.svc.AddWebhook(ctx, "web", cache.Webhook{ID: "cf2", Type: cache.WebhookCloudflare, URL: hs.srv.URL, Zone: "z", Token: "${secret:cf}"})
+	ref, err := e.svc.AddWebhook(ctx, "web", cache.Webhook{ID: "cf2", Type: cache.WebhookCloudflare, URL: hs.srv.URL, Zone: "z", Token: "${secret:webhook-cf}"})
 	require.NoError(t, err)
-	assert.Equal(t, "${secret:cf}", ref.Token, "a reference is shown")
+	assert.Equal(t, "${secret:webhook-cf}", ref.Token, "a reference is shown")
 	list, err := e.svc.ListWebhooks(ctx, "web")
 	require.NoError(t, err)
 	require.Len(t, list, 2)
@@ -430,6 +434,7 @@ func TestWebhookManagement(t *testing.T) {
 
 // TestWebhookPatterns converts the patterns of the invalidations.
 func TestWebhookPatterns(t *testing.T) {
+	e := newEnv(t, envOptions{})
 	tests := []struct {
 		pattern distribution.PathPattern
 		prefix  string
@@ -438,7 +443,7 @@ func TestWebhookPatterns(t *testing.T) {
 	}{
 		{distribution.PathPattern{Type: distribution.PatternPrefix, Pattern: "/assets/"}, "/assets/", true, `^/assets/`},
 		{distribution.PathPattern{Type: distribution.PatternGlob, Pattern: "/assets/**"}, "/assets/", true, `^/assets/.*$`},
-		{distribution.PathPattern{Type: distribution.PatternGlob, Pattern: "/img/*.{png,jpg}"}, "/img/", false, `^/img/[^/]*\.(png|jpg)$`},
+		{distribution.PathPattern{Type: distribution.PatternGlob, Pattern: "/img/*.{png,jpg}"}, "/img/", false, `^/img/[^/]*\.(?:png|jpg)$`},
 		{distribution.PathPattern{Type: distribution.PatternGlob, Pattern: "/exact.html"}, "/exact.html", false, `^/exact\.html$`},
 		{distribution.PathPattern{Type: distribution.PatternRegex, Pattern: `^/v[0-9]+/`}, "", false, `^/v[0-9]+/`},
 	}
@@ -447,7 +452,147 @@ func TestWebhookPatterns(t *testing.T) {
 			prefix, whole := cache.LiteralPrefix(tt.pattern)
 			assert.Equal(t, tt.prefix, prefix)
 			assert.Equal(t, tt.whole, whole)
-			assert.Equal(t, tt.regex, cache.PatternRegex(tt.pattern))
+			assert.Equal(t, tt.regex, cache.PatternRegex(e.svc, tt.pattern))
 		})
 	}
+}
+
+// TestWebhookSecurity: whoever manages the cache cannot read the secrets
+// of the node nor probe the internal network with the purge webhooks.
+func TestWebhookSecurity(t *testing.T) {
+	ctx := context.Background()
+	nodeSecrets := map[string]string{"proxy-a": "TOP-SECRET-ORIGIN", "webhook-cf": "cf-token"}
+
+	t.Run("no secret outside of the webhook namespace", func(t *testing.T) {
+		hs := newHookServer(t)
+		e := newEnv(t, envOptions{secret: secrets(t, nodeSecrets)})
+		for _, bad := range []cache.Webhook{
+			{ID: "leak", Type: cache.WebhookGeneric, URL: hs.srv.URL, Headers: map[string]string{"X-Leak": "${secret:proxy-a}"}},
+			{ID: "leak", Type: cache.WebhookGeneric, URL: hs.srv.URL, Headers: map[string]string{"X-Leak": "x ${secret:webhook-cf}"}},
+			{ID: "leak", Type: cache.WebhookGeneric, URL: hs.srv.URL, Token: "${secret:proxy-a}"},
+			{ID: "leak", Type: cache.WebhookCloudflare, URL: hs.srv.URL, Zone: "z", Token: "${secret:proxy-a}"},
+			{ID: "leak", Type: cache.WebhookAkamai, URL: hs.srv.URL, Token: "a", ClientToken: "b", ClientSecret: "${secret:proxy-a}"},
+		} {
+			_, err := e.svc.AddWebhook(ctx, "web", bad)
+			require.ErrorIs(t, err, cache.ErrInvalid, "%+v", bad)
+		}
+		// A configuration saved before the namespace existed sends
+		// nothing.
+		cfg := cache.DistributionConfig{Distribution: "web", Webhooks: []cache.Webhook{
+			{ID: "old", Type: cache.WebhookGeneric, URL: hs.srv.URL, Token: "${secret:proxy-a}"}}}
+		data, err := json.Marshal(cfg)
+		require.NoError(t, err)
+		e.docs.mu.Lock()
+		e.docs.docs["cache/distributions/web.json"] = data
+		e.docs.mu.Unlock()
+		require.NoError(t, cache.Reload(e.svc))
+		res, err := e.svc.TestWebhook(ctx, "web", "old")
+		require.NoError(t, err)
+		require.True(t, res.OK, res.Error)
+		calls := hs.received()
+		require.Len(t, calls, 1)
+		assert.Empty(t, calls[0].Header.Get("Authorization"))
+		for _, vs := range calls[0].Header {
+			for _, v := range vs {
+				assert.NotContains(t, v, "TOP-SECRET")
+			}
+		}
+	})
+
+	t.Run("a stored secret follows its endpoint only", func(t *testing.T) {
+		hs, attacker := newHookServer(t), newHookServer(t)
+		e := newEnv(t, envOptions{secret: secrets(t, nodeSecrets)})
+		_, err := e.svc.AddWebhook(ctx, "web", cache.Webhook{ID: "cf", Type: cache.WebhookCloudflare, URL: hs.srv.URL, Zone: "z", Token: "CF-STORED-TOKEN"})
+		require.NoError(t, err)
+		cur, err := e.svc.GetDistribution(ctx, "web")
+		require.NoError(t, err)
+		require.Empty(t, cur.Webhooks[0].Token, "masked")
+		// Re-pointed to another endpoint without its token: refused.
+		moved := cur
+		moved.Webhooks = []cache.Webhook{cur.Webhooks[0]}
+		moved.Webhooks[0].URL = attacker.srv.URL
+		_, err = e.svc.UpdateDistribution(ctx, moved, cur.ETag)
+		require.ErrorIs(t, err, cache.ErrInvalid)
+		for _, change := range []func(w *cache.Webhook){
+			func(w *cache.Webhook) { w.Zone = "other" },
+			func(w *cache.Webhook) { w.Type = cache.WebhookFastly },
+		} {
+			c := cur
+			c.Webhooks = []cache.Webhook{cur.Webhooks[0]}
+			change(&c.Webhooks[0])
+			_, err = e.svc.UpdateDistribution(ctx, c, cur.ETag)
+			require.ErrorIs(t, err, cache.ErrInvalid)
+		}
+		// Same endpoint: the stored token is kept.
+		same := cur
+		same.Webhooks = []cache.Webhook{cur.Webhooks[0]}
+		same.Webhooks[0].Domains = []string{"www.example.com"}
+		_, err = e.svc.UpdateDistribution(ctx, same, cur.ETag)
+		require.NoError(t, err)
+		res, err := e.svc.TestWebhook(ctx, "web", "cf")
+		require.NoError(t, err)
+		require.True(t, res.OK, res.Error)
+		assert.Equal(t, "Bearer CF-STORED-TOKEN", hs.received()[0].Header.Get("Authorization"))
+		assert.Empty(t, attacker.received())
+	})
+
+	t.Run("internal endpoints refused by default", func(t *testing.T) {
+		hs := newHookServer(t)
+		e := newEnv(t, envOptions{strictEgress: true})
+		_, port, err := net.SplitHostPort(hs.srv.Listener.Addr().String())
+		require.NoError(t, err)
+		for _, u := range []string{hs.srv.URL, "http://localhost:" + port, "http://[::1]:" + port, "http://10.1.2.3/", "http://169.254.169.254/latest"} {
+			_, err := e.svc.AddWebhook(ctx, "web", cache.Webhook{ID: "int", Type: cache.WebhookNginx, URL: u})
+			require.ErrorIs(t, err, cache.ErrInvalid, u)
+		}
+		// The addresses are checked when they are dialed, whatever name
+		// led to them (a rebinding included).
+		for _, addr := range []string{"127.0.0.1:80", "[::1]:443", "10.0.0.1:80", "[fd00::1]:80", "169.254.169.254:80", "100.64.1.1:80", "[::ffff:127.0.0.1]:80"} {
+			require.ErrorIs(t, cache.EgressCheck(e.svc, addr), cache.ErrInvalid, addr)
+		}
+		require.NoError(t, cache.EgressCheck(e.svc, "93.184.215.14:443"))
+		// The name of this machine resolves to an internal address: a
+		// webhook naming it is saved, and refused when it is dialed.
+		host, err := os.Hostname()
+		require.NoError(t, err)
+		addrs, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+		if err != nil || len(addrs) == 0 || cache.EgressCheck(e.svc, netip.AddrPortFrom(addrs[0], 80).String()) == nil {
+			t.Skipf("the name of this machine (%s) does not resolve to an internal address", host)
+		}
+		_, err = e.svc.AddWebhook(ctx, "web", cache.Webhook{ID: "name", Type: cache.WebhookNginx, URL: "http://" + net.JoinHostPort(host, port)})
+		require.NoError(t, err)
+		res, err := e.svc.TestWebhook(ctx, "web", "name")
+		require.NoError(t, err)
+		assert.False(t, res.OK)
+		assert.Contains(t, res.Error, "internal address")
+		assert.Empty(t, hs.received(), "never reached")
+	})
+
+	t.Run("no readback of the answers", func(t *testing.T) {
+		internal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "INTERNAL-ONLY-DATA", http.StatusForbidden)
+		}))
+		t.Cleanup(internal.Close)
+		e := newEnv(t, envOptions{})
+		_, err := e.svc.AddWebhook(ctx, "web", cache.Webhook{ID: "probe", Type: cache.WebhookGeneric, URL: internal.URL})
+		require.NoError(t, err)
+		res, err := e.svc.TestWebhook(ctx, "web", "probe")
+		require.NoError(t, err)
+		assert.False(t, res.OK)
+		assert.Equal(t, http.StatusForbidden, res.Status)
+		assert.NotContains(t, res.Error, "INTERNAL-ONLY-DATA")
+	})
+
+	t.Run("never a node of the cluster", func(t *testing.T) {
+		hs := newHookServer(t)
+		// The endpoint is this node, though the loopback is allowed.
+		e := newEnv(t, envOptions{node: hs.srv.Listener.Addr().String()})
+		_, err := e.svc.AddWebhook(ctx, "web", cache.Webhook{ID: "self", Type: cache.WebhookNginx, URL: hs.srv.URL})
+		require.NoError(t, err)
+		res, err := e.svc.TestWebhook(ctx, "web", "self")
+		require.NoError(t, err)
+		assert.False(t, res.OK)
+		assert.Contains(t, res.Error, "node of the cluster")
+		assert.Empty(t, hs.received())
+	})
 }

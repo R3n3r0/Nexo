@@ -1,12 +1,21 @@
-# Traefik v3 static configuration for a Nexo deployment.
-# Routers and services are in traefik-dynamic.yml (file provider).
+# Traefik v3 static configuration for a Nexo server or cluster. Routers,
+# services and middlewares are in traefik-dynamic.yml (file provider).
 #
-#   traefik --configFile=traefik.yml
+#   NEXO_ORIGIN_SECRET=$(openssl rand -hex 32) traefik --configFile=traefik.yml
 #
-# Important for S3 traffic: Traefik v3 defaults readTimeout to 60 s, which
-# aborts long uploads. It is disabled (0) on the entry points below.
-# Traefik passes the Host header to the backend unchanged by default
-# (passHostHeader: true) and sets X-Forwarded-* headers.
+# What Nexo needs from Traefik, and the defaults that give it:
+#   - the Host header unchanged (passHostHeader, default true): SigV4 signs
+#     it, the presigned URLs and the routing of the distributions use it;
+#   - no body limit and no buffering: Traefik streams both ways unless the
+#     buffering middleware is used (it is not);
+#   - X-Forwarded-For/Proto/Host set by Traefik: the incoming ones are
+#     dropped unless the client is in forwardedHeaders.trustedIPs;
+#   - no read timeout on long uploads: Traefik v3 defaults readTimeout to
+#     60 s, disabled (0) on the entry points below.
+#
+# Traefik has no PROXY protocol towards HTTP backends: the client address
+# reaches Nexo in X-Forwarded-For (NEXO_FORWARDED_HEADERS=x-forwarded, the
+# default) from the addresses in NEXO_TRUSTED_PROXIES.
 
 entryPoints:
   web:
@@ -28,8 +37,13 @@ entryPoints:
     http:
       tls:
         certResolver: letsencrypt
-    # Needed only when another proxy/LB sits in front of Traefik.
+    # Needed only when another proxy or load balancer (e.g. Cloudflare,
+    # see cloudflare.md) sits in front of Traefik: its X-Forwarded-For is
+    # kept and extended instead of replaced.
     # forwardedHeaders:
+    #   trustedIPs: ["173.245.48.0/20", "103.21.244.0/22"]
+    # A layer-4 load balancer sending the PROXY protocol to Traefik:
+    # proxyProtocol:
     #   trustedIPs: ["10.0.0.0/8"]
 
 providers:
@@ -42,10 +56,11 @@ certificatesResolvers:
     acme:
       email: admin@example.com
       storage: /etc/traefik/acme.json
-      # TLS-ALPN works for s3.example.com and console.example.com.
+      # TLS-ALPN works for single host names (s3, console, the domains of
+      # the distributions).
       tlsChallenge: {}
-      # A wildcard certificate (*.s3.example.com, virtual-host style
-      # buckets) needs a DNS challenge instead:
+      # Wildcards (*.s3.example.com for virtual-host style buckets,
+      # *.preview.example.com) need a DNS challenge instead:
       # dnsChallenge:
       #   provider: cloudflare
 

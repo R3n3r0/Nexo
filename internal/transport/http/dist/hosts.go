@@ -152,7 +152,18 @@ func (h *hostRouter) serveDistribution(w http.ResponseWriter, r *http.Request, r
 	}
 	d := route.Distribution
 	if d.Mode == distribution.ModeS3 {
-		if resp := h.deps.Admission.Admit(r.Context(), webRequest(r, route)); resp != nil {
+		req := webRequest(r, route)
+		resp := h.deps.Admission.Admit(r.Context(), req)
+		if resp == nil {
+			// The access of the distribution, once the request is
+			// authenticated (an authenticated default behavior refuses
+			// the anonymous requests).
+			if id, ok := middleware.IdentityFromContext(r.Context()); ok {
+				req.Identity = id
+			}
+			resp = h.deps.Admission.AuthorizeS3(r.Context(), req)
+		}
+		if resp != nil {
 			writeResponse(rec, r, resp)
 		} else {
 			next.ServeHTTP(rec, r)
@@ -181,9 +192,16 @@ func (h *hostRouter) record(r *http.Request, route distribution.Route, rec *reco
 	if format == "" {
 		format = distribution.LogFormatJSON
 	}
+	// The URI without its credentials: signed URLs of the distribution,
+	// presigned S3 URLs and session tokens would be replayable from the
+	// log.
+	uri := r.URL.EscapedPath()
+	if q := httpx.RedactRawQueryFunc(r.URL.RawQuery, httpx.IsSensitiveSignedURLParam); q != "" {
+		uri += "?" + q
+	}
 	h.deps.AccessLog.Log(ctx, AccessEntry{
 		Time: start, Distribution: d.ID, Format: format, Host: middleware.HostOf(r), Alias: route.Alias,
-		Method: r.Method, URI: r.URL.RequestURI(), Protocol: r.Proto, Status: rec.status, Bytes: rec.bytes, Duration: elapsed,
+		Method: r.Method, URI: uri, Protocol: r.Proto, Status: rec.status, Bytes: rec.bytes, Duration: elapsed,
 		ClientIP: client.IP, UserAgent: r.UserAgent(), Referer: r.Referer(), RequestID: httpx.RequestIDFrom(ctx),
 	})
 }

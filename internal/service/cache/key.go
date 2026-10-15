@@ -8,8 +8,9 @@ import (
 )
 
 // keyVersion prefixes the cache keys: a change of the key format changes
-// it, so that no entry of another format is ever matched.
-const keyVersion = "v1"
+// it, so that no entry of another format is ever matched (the disk tier
+// drops the entries of another format at startup).
+const keyVersion = "v2"
 
 // trackingParam reports a tracking parameter, dropped by the
 // normalization of the query.
@@ -106,16 +107,22 @@ func cookiesOf(h http.Header) []*http.Cookie {
 // or the distribution when the aliases share the entries), the object,
 // then the query, headers and cookies the policy selects, and the
 // credential of a request cached per credential.
+//
+// Every component is escaped so that none can contain the separators of
+// the key ('|', '?', '#', '=', '&'): an object key holding "?v=1" or
+// "|u:AK" never shares the key of another object read with that query or
+// that credential (TCC-03, TCC-11), and the suffixes of the blocks
+// ("#b<n>") and variants ("#e:<enc>") never collide with an object.
 func keyOf(p *params, scope, bucket, object string, req *Request, credential string) string {
 	var b strings.Builder
 	b.Grow(len(scope) + len(bucket) + len(object) + 16)
 	b.WriteString(keyVersion)
 	b.WriteByte('|')
-	b.WriteString(scope)
+	b.WriteString(url.QueryEscape(scope))
 	b.WriteByte('|')
-	b.WriteString(bucket)
+	b.WriteString(url.QueryEscape(bucket))
 	b.WriteByte('/')
-	b.WriteString(object)
+	b.WriteString(escapeObject(object))
 	if req == nil {
 		return b.String()
 	}
@@ -129,9 +136,9 @@ func keyOf(p *params, scope, bucket, object string, req *Request, credential str
 			v = strings.ToLower(strings.Join(strings.Fields(v), " "))
 		}
 		b.WriteString("|h:")
-		b.WriteString(strings.ToLower(h))
+		b.WriteString(url.QueryEscape(strings.ToLower(h)))
 		b.WriteByte('=')
-		b.WriteString(v)
+		b.WriteString(url.QueryEscape(v))
 	}
 	if len(p.KeyCookies) > 0 {
 		cookies := cookiesOf(req.Header)
@@ -144,16 +151,22 @@ func keyOf(p *params, scope, bucket, object string, req *Request, credential str
 				}
 			}
 			b.WriteString("|c:")
-			b.WriteString(name)
+			b.WriteString(url.QueryEscape(name))
 			b.WriteByte('=')
-			b.WriteString(v)
+			b.WriteString(url.QueryEscape(v))
 		}
 	}
 	if credential != "" {
 		b.WriteString("|u:")
-		b.WriteString(credential)
+		b.WriteString(url.QueryEscape(credential))
 	}
 	return b.String()
+}
+
+// escapeObject escapes an object key for a cache key: every byte but the
+// unreserved ones and the slashes (kept readable) is percent-encoded.
+func escapeObject(object string) string {
+	return strings.ReplaceAll(url.PathEscape(object), "%2F", "/")
 }
 
 // scopeOf is the scope part of a key: the host, or the distribution.

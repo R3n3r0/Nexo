@@ -51,6 +51,12 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
     restoreMocks: true,
+    // The page suites drive whole forms with user-event: 2-4 s each in
+    // isolation, beyond the 5 s default on a loaded CI machine. A
+    // generous budget for every test (and its hooks) rather than
+    // per-suite overrides that the next heavy suite forgets.
+    testTimeout: 20_000,
+    hookTimeout: 20_000,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],

@@ -1,0 +1,177 @@
+# Nexo cluster (4 nodes x 2 drives) behind TWO edge proxies with different
+# domains and different origin secrets (docs/10 §10.2 "Dietro uno o più
+# proxy", TCD-01..03; docs/11 TCC-C-05):
+#
+#   proxy-a  nginx    *.alpha.example   S3 API on s3.alpha.example, console on
+#                                       console.alpha.example, distributions;
+#                                       the client in X-Forwarded-For/Proto/Host
+#   proxy-b  HAProxy  *.beta.example    distributions only; the client in a
+#                                       PROXY protocol v2 header (send-proxy-v2-ssl)
+#
+# Each proxy adds its own origin secret (X-Origin-Secret) to every request:
+# the distributions accept both (${secret:proxy-a}, ${secret:proxy-b}) and
+# refuse a request that reaches a node without one. The nodes trust only
+# the two proxies (fixed addresses), accept the PROXY protocol on the S3
+# port and keep the disk tier of the distribution cache in /cache.
+#
+#   cp nexo.env.example nexo.env
+#   ./multi-proxy/gen-certs.sh                    # dev CA + certificates of both proxies
+#   printf 'NEXO_SECRET_PROXY_A=%s\nNEXO_SECRET_PROXY_B=%s\n' \
+#     "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" >> .env
+#   docker compose -f compose.multi-proxy.yml up -d
+#
+# Then create a distribution with the domains of both proxies, e.g.
+# multi-proxy/site.yaml (nexoctl dist import, or the dashboard), and try it:
+#   curl --cacert certs/edge-ca.crt --resolve www.alpha.example:8443:127.0.0.1 https://www.alpha.example:8443/
+#   curl --cacert certs/edge-ca.crt --resolve www.beta.example:9443:127.0.0.1  https://www.beta.example:9443/
+#
+# .env holds the secrets (compose reads it for the ${...} below, git
+# ignores it); the proxies receive theirs as NEXO_ORIGIN_SECRET, the nodes
+# both as NEXO_SECRET_PROXY_A and NEXO_SECRET_PROXY_B.
+name: nexo-multi-proxy
+
+x-nexo: &nexo
+  image: ${NEXO_IMAGE:-ghcr.io/r3n3r0/nexo:latest}
+  command: ["server", "--console-address", ":9001", "http://nexo{1...4}:9000/data{1...2}"]
+  env_file:
+    - nexo.env
+  environment:
+    # Only the proxies are trusted: their X-Forwarded-* headers and PROXY
+    # protocol headers. Everything else (the nodes, a client that reaches
+    # a node directly) is the client itself.
+    NEXO_TRUSTED_PROXIES: 172.30.0.11,172.30.0.12
+    # proxy-b opens its connections to the S3 port with a PROXY v2 header;
+    # proxy-a sends none and is read from its X-Forwarded-* headers.
+    NEXO_PROXY_PROTOCOL: s3
+    NEXO_FORWARDED_HEADERS: x-forwarded
+    # The origin secrets of the proxies, referenced by the distributions.
+    NEXO_SECRET_PROXY_A: ${NEXO_SECRET_PROXY_A:?set NEXO_SECRET_PROXY_A in .env}
+    NEXO_SECRET_PROXY_B: ${NEXO_SECRET_PROXY_B:?set NEXO_SECRET_PROXY_B in .env}
+    # Public URLs (behind proxy-a) of the links the console generates.
+    NEXO_SERVER_URL: ${NEXO_SERVER_URL:-https://s3.alpha.example:8443}
+    NEXO_BROWSER_REDIRECT_URL: ${NEXO_BROWSER_REDIRECT_URL:-https://console.alpha.example:8443}
+    # Disk tier of the distribution cache (docs/11), one volume per node.
+    NEXO_CACHE_DIR: /cache
+    NEXO_CACHE_SIZE: ${NEXO_CACHE_SIZE:-10GiB}
+    NEXO_CACHE_MODE: ${NEXO_CACHE_MODE:-local}
+  networks:
+    - nexo
+  healthcheck:
+    test: ["CMD", "/nexo", "healthcheck"]
+    interval: 10s
+    timeout: 3s
+    retries: 3
+    start_period: 10s
+  restart: unless-stopped
+  stop_grace_period: 30s
+
+services:
+  nexo1:
+    <<: *nexo
+    hostname: nexo1
+    volumes:
+      - d1-1:/data1
+      - d1-2:/data2
+      - c1:/cache
+
+  nexo2:
+    <<: *nexo
+    hostname: nexo2
+    volumes:
+      - d2-1:/data1
+      - d2-2:/data2
+      - c2:/cache
+
+  nexo3:
+    <<: *nexo
+    hostname: nexo3
+    volumes:
+      - d3-1:/data1
+      - d3-2:/data2
+      - c3:/cache
+
+  nexo4:
+    <<: *nexo
+    hostname: nexo4
+    volumes:
+      - d4-1:/data1
+      - d4-2:/data2
+      - c4:/cache
+
+  # Edge A: nginx, X-Forwarded-*. The template is rendered by the image
+  # (envsubst of NEXO_ORIGIN_SECRET) into /etc/nginx/conf.d/default.conf.
+  proxy-a:
+    image: nginx:1.27-alpine
+    environment:
+      NEXO_ORIGIN_SECRET: ${NEXO_SECRET_PROXY_A:?set NEXO_SECRET_PROXY_A in .env}
+    ports:
+      - "${PROXY_A_HTTP_PORT:-8080}:80"
+      - "${PROXY_A_HTTPS_PORT:-8443}:443"
+    volumes:
+      - ./multi-proxy/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./certs/proxy-a:/etc/nginx/certs:ro
+    networks:
+      nexo:
+        ipv4_address: 172.30.0.11
+    depends_on:
+      - nexo1
+      - nexo2
+      - nexo3
+      - nexo4
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "--header", "Host: s3.alpha.example", "http://127.0.0.1/nexo/health/live"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # Edge B: HAProxy, PROXY protocol v2 with the SSL information.
+  proxy-b:
+    image: haproxy:3.0-alpine
+    environment:
+      NEXO_ORIGIN_SECRET: ${NEXO_SECRET_PROXY_B:?set NEXO_SECRET_PROXY_B in .env}
+    ports:
+      - "${PROXY_B_HTTP_PORT:-8081}:8080"
+      - "${PROXY_B_HTTPS_PORT:-9443}:8443"
+    volumes:
+      - ./multi-proxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./certs/proxy-b:/usr/local/etc/haproxy/certs:ro
+    networks:
+      nexo:
+        ipv4_address: 172.30.0.12
+    depends_on:
+      - nexo1
+      - nexo2
+      - nexo3
+      - nexo4
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8404/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+networks:
+  nexo:
+    ipam:
+      config:
+        # The proxies have fixed addresses (NEXO_TRUSTED_PROXIES); the
+        # nodes get theirs from ip_range, which never includes them.
+        - subnet: 172.30.0.0/24
+          ip_range: 172.30.0.128/25
+
+volumes:
+  d1-1: {}
+  d1-2: {}
+  d2-1: {}
+  d2-2: {}
+  d3-1: {}
+  d3-2: {}
+  d4-1: {}
+  d4-2: {}
+  c1: {}
+  c2: {}
+  c3: {}
+  c4: {}

@@ -215,6 +215,12 @@ func (d *disk) load(fn func(meta *entryMeta, size int64)) error {
 			_ = os.Remove(path)
 			return nil
 		}
+		if !strings.HasPrefix(meta.Key, keyVersion+"|") {
+			// A key of another format is never looked up again.
+			d.logger.Debug("cache: dropping a disk entry of another key format", "file", path)
+			_ = os.Remove(path)
+			return nil
+		}
 		fn(meta, size)
 		return nil
 	})

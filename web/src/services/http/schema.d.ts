@@ -4503,8 +4503,12 @@ export interface components {
         };
         /**
          * @description A CDN or proxy purged on the invalidations of the distribution, with retries and a
-         *     persistent queue. Secrets (token, clientSecret) may be ${secret:<name>}; they are
-         *     masked in answers and a masked value keeps the stored one.
+         *     persistent queue. Secrets (token, clientSecret) may be ${secret:webhook-<name>}
+         *     (NEXO_SECRET_WEBHOOK_<NAME>, no other secret) and never go in the headers; they are
+         *     masked in answers, and a masked value keeps the stored one only while the type, url,
+         *     zone, clientToken and network are unchanged. The endpoint must be a public address
+         *     (or a network of --cache-webhook-allow), never a node of the cluster; the test call
+         *     reports the status, never the body of the answer.
          */
         CacheWebhook: {
             id: string;

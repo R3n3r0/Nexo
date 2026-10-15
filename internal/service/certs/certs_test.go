@@ -128,11 +128,95 @@ func TestSNISelection(t *testing.T) {
 			})
 		}
 	}
+	// Only expired certificates for a name: none (the server's own).
+	upload("expired", []string{"expired.example.com"}, now.Add(time.Minute))
+	later := deployment(t, docs, []cluster.Leader{leader(t, false)}, nil, clock.NewFake(now.Add(time.Hour)))
+	c, err := later[0].svc.GetCertificate(&tls.ClientHelloInfo{ServerName: "expired.example.com"})
+	require.NoError(t, err)
+	assert.Nil(t, c, "an expired certificate is never presented")
+
 	// A deletion reaches the other node too.
 	require.NoError(t, nodes[0].svc.Delete(ctx, "other"))
-	c, err := nodes[1].svc.GetCertificate(&tls.ClientHelloInfo{ServerName: "static.example.it"})
+	c, err = nodes[1].svc.GetCertificate(&tls.ClientHelloInfo{ServerName: "static.example.it"})
 	require.NoError(t, err)
 	assert.Nil(t, c)
+}
+
+// TestSNIScopedToDistributions: a handshake gets only the certificate the
+// distribution serving the name references (tls.certificate), valid now:
+// never another certificate that carries the name (the main S3 host, an
+// alias of another distribution), never an expired one; the listener
+// falls back to its own certificate.
+func TestSNIScopedToDistributions(t *testing.T) {
+	ctx := context.Background()
+	docs := &memDocs{docs: map[string][]byte{}}
+	fake := clock.NewFake(time.Now())
+	hosts := hostBindings{"www.example.com": "site", "a.preview.example.com": "wild", "old.example.com": "old", "gone.example.com": "missing"}
+	nodes := deploymentWith(t, docs, []cluster.Leader{leader(t, false)}, nil, hosts, fake)
+	svc := nodes[0].svc
+	ca := newCA(t, "ca")
+	now := time.Now()
+	upload := func(id string, names []string, notAfter time.Time) {
+		chain, key := ca.leaf(t, names, now.Add(-time.Hour), notAfter)
+		_, err := svc.Upload(ctx, certs.UploadInput{ID: id, ChainPEM: chain, KeyPEM: key})
+		require.NoError(t, err)
+	}
+	upload("site", []string{"www.example.com"}, now.Add(30*24*time.Hour))
+	upload("rogue", []string{"www.example.com", "s3.example.com"}, now.Add(90*24*time.Hour))
+	upload("wild", []string{"*.preview.example.com"}, now.Add(30*24*time.Hour))
+	upload("old", []string{"old.example.com"}, now.Add(24*time.Hour))
+	servedName := func(name string) string {
+		c, err := svc.GetCertificate(&tls.ClientHelloInfo{ServerName: name})
+		require.NoError(t, err)
+		if c == nil {
+			return ""
+		}
+		leaf, err := x509.ParseCertificate(c.Certificate[0])
+		require.NoError(t, err)
+		return leaf.DNSNames[0]
+	}
+	assert.Equal(t, "www.example.com", servedName("www.example.com"), "the certificate of the distribution, not the one expiring last")
+	c, err := svc.GetCertificate(&tls.ClientHelloInfo{ServerName: "www.example.com"})
+	require.NoError(t, err)
+	leaf, err := x509.ParseCertificate(c.Certificate[0])
+	require.NoError(t, err)
+	assert.Equal(t, []string{"www.example.com"}, leaf.DNSNames)
+	assert.Equal(t, "*.preview.example.com", servedName("a.preview.example.com"))
+	assert.Empty(t, servedName("s3.example.com"), "no distribution serves the main host: the certificate of the server")
+	assert.Empty(t, servedName("gone.example.com"), "a certificate that does not exist")
+	assert.Equal(t, "old.example.com", servedName("old.example.com"))
+	fake.Advance(2 * 24 * time.Hour)
+	assert.Empty(t, servedName("old.example.com"), "an expired certificate is never presented")
+}
+
+// TestUploadRefusesTheNamesOfTheDeployment: a certificate for the S3 or
+// console host, for NEXO_DOMAIN or for every bucket of it is refused.
+func TestUploadRefusesTheNamesOfTheDeployment(t *testing.T) {
+	ctx := context.Background()
+	docs := &memDocs{docs: map[string][]byte{}}
+	nodes := deployment(t, docs, []cluster.Leader{leader(t, false)}, nil, clock.NewReal(),
+		certs.WithMainHosts("S3.Example.com", "console.example.com"), certs.WithDomains("s3.example.com"))
+	ca := newCA(t, "ca")
+	now := time.Now()
+	for _, tc := range []struct {
+		names []string
+		ok    bool
+	}{
+		{names: []string{"www.example.com"}, ok: true},
+		{names: []string{"photos.s3.example.com"}, ok: true},
+		{names: []string{"www.example.com", "s3.example.com"}},
+		{names: []string{"console.example.com"}},
+		{names: []string{"*.example.com"}},
+		{names: []string{"*.s3.example.com"}},
+	} {
+		chain, key := ca.leaf(t, tc.names, now.Add(-time.Hour), now.Add(24*time.Hour))
+		_, err := nodes[0].svc.Upload(ctx, certs.UploadInput{ChainPEM: chain, KeyPEM: key})
+		if tc.ok {
+			assert.NoError(t, err, "%v", tc.names)
+			continue
+		}
+		assert.ErrorIs(t, err, domain.ErrInvalidArgument, "%v", tc.names)
+	}
 }
 
 // TestExpiryStatus checks the warning window of 21 days.

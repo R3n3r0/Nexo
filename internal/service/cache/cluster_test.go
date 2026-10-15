@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	tmock "github.com/stretchr/testify/mock"
@@ -21,6 +22,8 @@ import (
 type link struct {
 	up   atomic.Bool
 	drop atomic.Bool
+	// stall makes the owner of a key hang on its pieces (a paused node).
+	stall atomic.Bool
 }
 
 // testCluster is a cluster of cache services on one origin, connected by
@@ -30,6 +33,11 @@ type testCluster struct {
 	// links[i][j] is the link from node i to node j.
 	links [][]*link
 }
+
+// testLease is the trust lease of the test clusters: their fake clock
+// stands still, so the lease only lapses when a test advances it; it also
+// bounds the wait of a write that misses a peer.
+const testLease = 50 * time.Millisecond
 
 // newCluster starts n nodes in mode.
 func newCluster(t *testing.T, n int, mode cache.Mode, opts ...cache.Option) *testCluster {
@@ -53,7 +61,7 @@ func newCluster(t *testing.T, n int, mode cache.Mode, opts ...cache.Option) *tes
 		}
 		c.nodes[i] = newEnv(t, envOptions{
 			node: fmt.Sprintf("n%d", i+1), peers: peers, docs: shared.docs, origin: shared.origin, dists: shared.dists, clk: shared.clk,
-			opts: append([]cache.Option{cache.WithMode(mode)}, opts...),
+			opts: append([]cache.Option{cache.WithMode(mode), cache.WithTrustLease(testLease)}, opts...),
 		})
 	}
 	for i := range n {
@@ -89,15 +97,19 @@ func (c *testCluster) peer(t *testing.T, i, j int) cache.Peer {
 		}
 		return target().ApplyInvalidations(ctx, b)
 	}).Maybe()
-	m.EXPECT().SyncStatus(tmock.Anything).RunAndReturn(func(ctx context.Context) (cache.SyncStatus, error) {
+	m.EXPECT().SyncStatus(tmock.Anything, tmock.Anything).RunAndReturn(func(ctx context.Context, req cache.SyncRequest) (cache.SyncStatus, error) {
 		if err := offline(); err != nil {
 			return cache.SyncStatus{}, err
 		}
-		return target().SyncStatus(ctx)
+		return target().SyncStatus(ctx, req)
 	}).Maybe()
 	m.EXPECT().FetchPiece(tmock.Anything, tmock.Anything).RunAndReturn(func(ctx context.Context, req cache.PieceRequest) (cache.PieceReply, error) {
 		if err := offline(); err != nil {
 			return cache.PieceReply{}, err
+		}
+		if l.stall.Load() {
+			<-ctx.Done()
+			return cache.PieceReply{}, ctx.Err()
 		}
 		return target().FetchPiece(ctx, req)
 	}).Maybe()
@@ -214,8 +226,9 @@ func TestClusterIsolatedNode(t *testing.T) {
 	assert.Zero(t, cache.Entries(n3.svc))
 
 	// Lost: the invalidations never reach node 3 (asymmetric fault)
-	// while it trusts its peers; the comparison of the sequences finds
-	// the gap at the second period and drops the cache.
+	// while it trusts its peers. The first comparison of the sequences
+	// finds node 1 ahead: node 3 stops trusting its entries at once (no
+	// old content), and still behind at the second one it drops its cache.
 	n3.get("www.example.com", "/b.html")
 	require.Equal(t, "HIT", n3.get("www.example.com", "/b.html").xcache())
 	c.links[0][2].drop.Store(true)
@@ -224,9 +237,66 @@ func TestClusterIsolatedNode(t *testing.T) {
 	c.links[0][2].drop.Store(false)
 	// Forget the pending message: it is lost (the sender crashed).
 	cache.SyncPeers(n3.svc)
-	cache.SyncPeers(n3.svc)
+	assert.False(t, cache.Trusted(n3.svc), "node 1 is ahead")
 	r = n3.get("www.example.com", "/b.html")
-	assert.Equal(t, "b2", string(r.body))
+	assert.Equal(t, "b2", string(r.body), "no old content after the first comparison")
+	assert.NotEqual(t, "HIT", r.xcache())
+	// A retry had its chance (the retry interval of the tests is an
+	// hour): the message is lost.
+	n3.clk.Advance(2 * time.Hour)
+	cache.SyncPeers(n3.svc)
+	st, err = n3.svc.NodeStats(context.Background(), cache.StatsQuery{})
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), st.Flushes, "the lost invalidation drops the cache")
+	assert.True(t, cache.Trusted(n3.svc))
+	assert.Equal(t, "b2", string(n3.get("www.example.com", "/b.html").body))
+}
+
+// TestClusterTrustLease is TCC-C-04 for a node that does not notice it
+// was cut off (a paused process, a one-way partition): the write that
+// misses it waits for the trust lease of the node to lapse before it is
+// acknowledged, and the node, whose lease expired meanwhile, revalidates
+// its entries instead of serving the old content; the trust comes back
+// once the missed invalidation is applied.
+func TestClusterTrustLease(t *testing.T) {
+	c := newCluster(t, 3, cache.ModeLocal)
+	n1, n3 := c.nodes[0], c.nodes[2]
+	n1.origin.put("web", "news.html", []byte("OLD CONTENT"))
+	n3.get("www.example.com", "/news.html")
+	require.Equal(t, "HIT", n3.get("www.example.com", "/news.html").xcache())
+
+	// The invalidations to node 3 are lost; node 3 still sees its peers
+	// online.
+	c.links[0][2].drop.Store(true)
+	n1.origin.put("web", "news.html", []byte("NEW CONTENT"))
+	start := time.Now()
+	err := n1.svc.ObjectChanged(context.Background(), cache.ObjectChange{Bucket: "web", Key: "news.html"})
+	require.ErrorIs(t, err, domain.ErrNodeOffline)
+	assert.GreaterOrEqual(t, time.Since(start), testLease, "the write waits for the lease of node 3 to lapse")
+	// The time the write waited, on the clock of the nodes.
+	n1.clk.Advance(testLease)
+	assert.False(t, cache.Trusted(n3.svc), "lease expired")
+	r := n3.get("www.example.com", "/news.html")
+	assert.Equal(t, "NEW CONTENT", string(r.body))
+	assert.Equal(t, "EXPIRED", r.xcache())
+
+	// A comparison finds node 1 ahead: not trusted until the message is
+	// applied, then trusted again without a flush.
+	cache.SyncPeers(n3.svc)
+	assert.False(t, cache.Trusted(n3.svc))
+	c.links[0][2].drop.Store(false)
+	cache.RetryLinks(n1.svc)
+	assert.True(t, cache.Trusted(n3.svc), "caught up within the lease of the last comparison")
+	assert.Equal(t, "NEW CONTENT", string(n3.get("www.example.com", "/news.html").body))
+	assert.Equal(t, "HIT", n3.get("www.example.com", "/news.html").xcache())
+	st, err := n3.svc.NodeStats(context.Background(), cache.StatsQuery{})
+	require.NoError(t, err)
+	assert.Zero(t, st.Flushes)
+
+	// A write that reaches every peer does not wait.
+	start = time.Now()
+	require.NoError(t, n1.svc.ObjectChanged(context.Background(), cache.ObjectChange{Bucket: "web", Key: "other.html"}))
+	assert.Less(t, time.Since(start), testLease)
 }
 
 // TestClusterSharedMode is TCC-C-01 and TCC-C-02: in the shared mode a key
@@ -295,6 +365,35 @@ func TestClusterSharedMode(t *testing.T) {
 	for _, nd := range c.nodes {
 		assert.Equal(t, data2, nd.get("www.example.com", "/video.mp4").body, nd.node)
 	}
+}
+
+// TestClusterSharedStalledOwner is TCC-C-02 with an owner that stalls
+// (a paused process) instead of going offline: its piece is waited for a
+// bounded time, then read from the origin without caching.
+func TestClusterSharedStalledOwner(t *testing.T) {
+	const fetchTimeout = 100 * time.Millisecond
+	c := newCluster(t, 2, cache.ModeShared, cache.WithFetchTimeout(fetchTimeout))
+	n1 := c.nodes[0]
+	// A path owned by node 2.
+	path := ""
+	for i := range 64 {
+		p := fmt.Sprintf("/f%d.txt", i)
+		if cache.Owner(n1.svc, cache.KeyOf(ptr(cache.ParamsOf(cache.PolicySpec{})), "h:www.example.com", "web", p[1:], nil, "")) == "n2" {
+			path = p
+			break
+		}
+	}
+	require.NotEmpty(t, path)
+	n1.origin.put("web", path[1:], []byte("content"))
+	c.links[0][1].stall.Store(true)
+	start := time.Now()
+	r := n1.get("www.example.com", path)
+	elapsed := time.Since(start)
+	require.NoError(t, r.err)
+	assert.Equal(t, "content", string(r.body))
+	assert.Less(t, elapsed, 5*time.Second, "bounded by the fetch timeout, not the RPC timeouts")
+	assert.GreaterOrEqual(t, elapsed, fetchTimeout)
+	assert.Zero(t, cache.Entries(n1.svc), "read from the origin without caching")
 }
 
 // TestClusterSharedLocal keeps the hot objects on the node that serves

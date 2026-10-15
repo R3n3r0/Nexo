@@ -47,9 +47,18 @@ import {
   type RotateOriginSecretResult,
 } from '@/services';
 
+import { DistributionCacheTab } from './DistributionCacheTab';
 import { DistributionsHeader } from './DistributionsHeader';
 
-const tabs = ['overview', 'behaviors', 'responses', 'security', 'tls', 'document'] as const;
+const tabs = [
+  'overview',
+  'behaviors',
+  'responses',
+  'security',
+  'tls',
+  'cache',
+  'document',
+] as const;
 type DetailTab = (typeof tabs)[number];
 
 function same(a: Distribution, b: Distribution): boolean {
@@ -436,6 +445,8 @@ export function DistributionDetailPage() {
                   </Text>
                 )}
               </Stack>
+            ) : value === 'cache' ? (
+              <DistributionCacheTab distribution={base ?? current} />
             ) : value === 'tls' ? (
               <TlsPanel
                 draft={current}

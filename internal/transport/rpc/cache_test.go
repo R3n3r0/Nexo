@@ -26,7 +26,8 @@ func TestCacheOverRPC(t *testing.T) {
 		}
 		return cache.InvalidationAck{Node: "n2", LastSeq: b.Messages[len(b.Messages)-1].Seq, Removed: map[string]int{"inv-1": 3}}, nil
 	})
-	node.EXPECT().SyncStatus(tmock.Anything).Return(cache.SyncStatus{Node: "n2", Epoch: "e1", Seq: 42}, nil)
+	// The caller is the verified node of the call, not what it claims.
+	node.EXPECT().SyncStatus(tmock.Anything, cache.SyncRequest{Node: "client:9000"}).Return(cache.SyncStatus{Node: "n2", Epoch: "e1", Seq: 42}, nil)
 	node.EXPECT().FetchPiece(tmock.Anything, tmock.Anything).RunAndReturn(func(_ context.Context, req cache.PieceRequest) (cache.PieceReply, error) {
 		if string(req.Spec) == `{"changed":true}` {
 			return cache.PieceReply{}, fmt.Errorf("cache: object changed: %w", domain.ErrPreconditionFailed)
@@ -55,7 +56,7 @@ func TestCacheOverRPC(t *testing.T) {
 	_, err = peer.ApplyInvalidations(ctx, cache.InvalidationBatch{})
 	require.ErrorIs(t, err, domain.ErrInvalidArgument)
 
-	st, err := peer.SyncStatus(ctx)
+	st, err := peer.SyncStatus(ctx, cache.SyncRequest{Node: "forged:9000"})
 	require.NoError(t, err)
 	assert.Equal(t, cache.SyncStatus{Node: "n2", Epoch: "e1", Seq: 42}, st)
 
@@ -86,7 +87,7 @@ func TestCacheOverRPC(t *testing.T) {
 	require.NoError(t, err)
 	intruder, err := rpc.NewCacheClient(rpc.CacheClientDeps{Conn: dial(t, other, addr)})
 	require.NoError(t, err)
-	_, err = intruder.SyncStatus(ctx)
+	_, err = intruder.SyncStatus(ctx, cache.SyncRequest{})
 	require.ErrorIs(t, err, domain.ErrUnauthenticated)
 
 	_, err = rpc.NewCacheRoutes(rpc.CacheRoutesDeps{})

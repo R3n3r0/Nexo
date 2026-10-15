@@ -15,7 +15,7 @@ $ nexoctl access rule add mem/media --id img-pub --allow --principal * --action 
 [exit 1]
 
 $ nexoctl access rule add mem/media --id bad --allow --principal * --action read --regex ([
-! nexoctl: error: mem/media: invalid access rule: error parsing regexp: missing closing ]: `[` (invalid_access_rule)
+! nexoctl: error: mem/media: invalid access rule: missing closing ]: [ (invalid_access_rule)
 [exit 1]
 
 $ nexoctl access rule add mem/media --id x --principal * --action read

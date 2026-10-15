@@ -230,6 +230,8 @@ func newSettings(opts []Option) settings {
 	st.cfg.RootPassword = RootPassword
 	st.cfg.LogLevel = "debug"
 	st.cfg.Domain = Domain
+	// The purge webhooks of the tests are servers on the loopback.
+	st.cfg.CacheWebhookAllow = []string{"127.0.0.0/8", "::1/128"}
 	for _, o := range opts {
 		o(&st)
 	}

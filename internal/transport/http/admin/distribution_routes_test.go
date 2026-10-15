@@ -278,7 +278,7 @@ func TestDistributionRoutes(t *testing.T) {
 	})
 	t.Run("rotate", func(t *testing.T) {
 		f := newFixture(t)
-		f.dists.EXPECT().RotateOriginSecret(mock.Anything, distribution.RotateSecretInput{ID: "site", Keep: 2}).
+		f.dists.EXPECT().RotateOriginSecret(mock.Anything, mock.Anything, distribution.RotateSecretInput{ID: "site", Keep: 2}).
 			Return(&adminsvc.RotatedOriginSecret{Secret: "s3cr3t", Header: "X-Origin-Secret", Distribution: d}, nil)
 		rec := f.root(t).do(http.MethodPost, "/distributions/site/origin-secret/rotate", `{"keep":2}`)
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -304,11 +304,11 @@ func TestDistributionRoutes(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 		assert.JSONEq(t, `{"items":[]}`, rec.Body.String())
 
-		f.dists.EXPECT().DeleteKeyGroup(mock.Anything, "rel").Return(fmt.Errorf("used by site: %w", domain.ErrConflict))
+		f.dists.EXPECT().DeleteKeyGroup(mock.Anything, mock.Anything, "rel").Return(fmt.Errorf("used by site: %w", domain.ErrConflict))
 		rec = c.do(http.MethodDelete, "/keygroups/rel", nil)
 		require.Equal(t, http.StatusConflict, rec.Code)
 
-		f.dists.EXPECT().DeleteKey(mock.Anything, "rel", "K9").Return(fmt.Errorf("%w: K9", distribution.ErrKeyNotFound))
+		f.dists.EXPECT().DeleteKey(mock.Anything, mock.Anything, "rel", "K9").Return(fmt.Errorf("%w: K9", distribution.ErrKeyNotFound))
 		rec = c.do(http.MethodDelete, "/keygroups/rel/keys/K9", nil)
 		require.Equal(t, http.StatusNotFound, rec.Code)
 		assert.Equal(t, "key_not_found", problemOf(t, rec).Code)

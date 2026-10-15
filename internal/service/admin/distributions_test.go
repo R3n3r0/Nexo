@@ -127,6 +127,35 @@ func TestDistributionManagerAuthorizesOrigins(t *testing.T) {
 		_, err := e.mgr.Update(ctx, admin.SaveDistributionInput{Requester: requesterOf("op"), Distribution: d, IfMatch: `"e1"`})
 		require.NoError(t, err)
 	})
+	// The mutations that do not save a distribution are authorized on its
+	// origin bucket too: a user denied on a bucket cannot remove its
+	// distribution (and reuse its aliases), rotate its origin secret or
+	// change the keys that sign its URLs.
+	t.Run("delete, rotate and keys of a distribution of a denied bucket", func(t *testing.T) {
+		e := newDistEnv(t, allowing(t, denyBucket("secret")))
+		victim := site()
+		victim.ID, victim.Origin.Bucket = "victim", "secret"
+		victim.Behaviors = []distribution.Behavior{{Access: distribution.AccessSigned, Signing: &distribution.Signing{KeyGroup: "premium"}}}
+		e.dists.EXPECT().Get(mock.Anything, "victim").Return(victim, nil)
+		e.dists.EXPECT().List(mock.Anything).Return([]distribution.Distribution{site(), victim}, nil)
+		op := requesterOf("op")
+		require.ErrorIs(t, e.mgr.Delete(ctx, op, "victim"), domain.ErrAccessDenied)
+		_, err := e.mgr.RotateOriginSecret(ctx, op, distribution.RotateSecretInput{ID: "victim", DropPrevious: true})
+		require.ErrorIs(t, err, domain.ErrAccessDenied)
+		_, err = e.mgr.AddKey(ctx, admin.AddKeyInput{Requester: op, KeyGroup: "premium", PublicKeyPEM: "PUB"})
+		require.ErrorIs(t, err, domain.ErrAccessDenied)
+		require.ErrorIs(t, e.mgr.DeleteKey(ctx, op, "premium", "K1"), domain.ErrAccessDenied)
+		require.ErrorIs(t, e.mgr.DeleteKeyGroup(ctx, op, "premium"), domain.ErrAccessDenied)
+		// A group no distribution of a denied bucket uses.
+		e.dists.EXPECT().DeleteKey(mock.Anything, "other", "K1").Return(nil)
+		require.NoError(t, e.mgr.DeleteKey(ctx, op, "other", "K1"))
+	})
+	t.Run("delete of a distribution of an allowed bucket", func(t *testing.T) {
+		e := newDistEnv(t, allowing(t, denyBucket("secret")))
+		e.dists.EXPECT().Get(mock.Anything, "site").Return(site(), nil)
+		e.dists.EXPECT().Delete(mock.Anything, "site").Return(nil)
+		require.NoError(t, e.mgr.Delete(ctx, requesterOf("op"), "site"))
+	})
 	t.Run("update of an unknown distribution", func(t *testing.T) {
 		e := newDistEnv(t, allowAll(t))
 		e.dists.EXPECT().Get(mock.Anything, "site").Return(distribution.Distribution{}, distribution.ErrDistributionNotFound)
@@ -319,6 +348,7 @@ func TestDistributionManagerKeyGroups(t *testing.T) {
 	})
 	t.Run("add a public key", func(t *testing.T) {
 		e := newDistEnv(t, allowAll(t))
+		e.dists.EXPECT().List(mock.Anything).Return(nil, nil)
 		e.dists.EXPECT().AddPublicKey(mock.Anything, distribution.AddKeyInput{KeyGroup: "rel", PEM: "PUB", Comment: "mine"}).Return(distribution.PublicKey{ID: "K2"}, nil)
 		got, err := e.mgr.AddKey(ctx, admin.AddKeyInput{KeyGroup: "rel", PublicKeyPEM: "PUB", Comment: "mine"})
 		require.NoError(t, err)
@@ -328,6 +358,7 @@ func TestDistributionManagerKeyGroups(t *testing.T) {
 	})
 	t.Run("generate a key", func(t *testing.T) {
 		e := newDistEnv(t, allowAll(t))
+		e.dists.EXPECT().List(mock.Anything).Return(nil, nil)
 		e.dists.EXPECT().GenerateKey(mock.Anything, distribution.GenerateKeyInput{KeyGroup: "rel"}).
 			Return(distribution.GeneratedKey{PublicKey: distribution.PublicKey{ID: "K3"}, PrivateKeyPEM: "PRIV"}, nil)
 		got, err := e.mgr.AddKey(ctx, admin.AddKeyInput{KeyGroup: "rel"})
@@ -341,8 +372,9 @@ func TestDistributionManagerRotateAndResolve(t *testing.T) {
 	e := newDistEnv(t, allowAll(t))
 	d := site()
 	d.Restrictions.OriginSecretHeader = &distribution.OriginSecret{Name: "X-Proxy", Values: []string{"sha256:aa", "sha256:bb"}}
+	e.dists.EXPECT().Get(mock.Anything, "site").Return(d, nil)
 	e.dists.EXPECT().RotateOriginSecret(mock.Anything, distribution.RotateSecretInput{ID: "site", Keep: 2}).Return("s3cr3t", d, nil)
-	got, err := e.mgr.RotateOriginSecret(ctx, distribution.RotateSecretInput{ID: "site", Keep: 2})
+	got, err := e.mgr.RotateOriginSecret(ctx, requesterOf("op"), distribution.RotateSecretInput{ID: "site", Keep: 2})
 	require.NoError(t, err)
 	assert.Equal(t, &admin.RotatedOriginSecret{Secret: "s3cr3t", Header: "X-Proxy", Distribution: d}, got)
 
@@ -353,7 +385,7 @@ func TestDistributionManagerRotateAndResolve(t *testing.T) {
 	_, err = e.mgr.Resolve(ctx, " ")
 	require.ErrorIs(t, err, domain.ErrInvalidArgument)
 
-	e.dists.EXPECT().RotateOriginSecret(mock.Anything, mock.Anything).Return("", distribution.Distribution{}, distribution.ErrDistributionNotFound).Once()
-	_, err = e.mgr.RotateOriginSecret(ctx, distribution.RotateSecretInput{ID: "nope"})
+	e.dists.EXPECT().Get(mock.Anything, "nope").Return(distribution.Distribution{}, distribution.ErrDistributionNotFound).Once()
+	_, err = e.mgr.RotateOriginSecret(ctx, requesterOf("op"), distribution.RotateSecretInput{ID: "nope"})
 	require.True(t, errors.Is(err, domain.ErrNotFound))
 }

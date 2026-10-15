@@ -55,7 +55,7 @@ func (s *service) applyChange(ctx context.Context, change ObjectChange, origin b
 	}
 	sn := s.snap.Load()
 	keep := func(m *entryMeta) bool {
-		return m.Distribution != "" && !sn.resolveFor(m.Distribution, "", "/").eff.AutoInvalidate
+		return m.Distribution != "" && !sn.resolveFor(ctx, m.Distribution, "", "/").eff.AutoInvalidate
 	}
 	removed := s.store.removeObject(change.Bucket, change.Key, keep)
 	if origin || !s.shared() {
@@ -98,7 +98,7 @@ func (s *service) afterChange(ctx context.Context, change ObjectChange, removed 
 		if !strings.HasPrefix(change.Key, prefix) {
 			continue
 		}
-		if !sn.resolveFor(d.ID, "", "/").eff.AutoInvalidate {
+		if !sn.resolveFor(ctx, d.ID, "", "/").eff.AutoInvalidate {
 			continue
 		}
 		rel := strings.TrimPrefix(change.Key, prefix)
@@ -216,15 +216,7 @@ func (s *service) applyRequest(ctx context.Context, req InvalidationRequest) (in
 			if !scope(m) || m.Path == "" {
 				return false
 			}
-			if paths[m.Path] {
-				return true
-			}
-			for _, p := range patterns {
-				if p.Match(m.Path) {
-					return true
-				}
-			}
-			return false
+			return paths[m.Path] || patterns.any(ctx, m.Path)
 		}, req.Soft)
 	}
 	return n, nil

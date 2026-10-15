@@ -1,14 +1,24 @@
 # Traefik v3 dynamic configuration (file provider) for Nexo.
 #
-#   https://s3.example.com       -> S3 API        (127.0.0.1:9000)
-#   https://*.s3.example.com     -> S3 API, virtual-host style buckets
-#   https://console.example.com  -> console + Admin API (127.0.0.1:9001)
+#   https://s3.example.com         -> S3 API              (port 9000 of the nodes)
+#   https://*.s3.example.com       -> S3 API, virtual-host style buckets
+#   https://console.example.com    -> console + Admin API (port 9001 of the nodes)
+#   https://www.example.com, ...   -> distributions        (port 9000, routed by Nexo
+#                                     on the Host header)
 #
-# In nexo.env:
+# In nexo.env (docs/08 §8.5, docs/10 §10.2):
 #   NEXO_SERVER_URL=https://s3.example.com
 #   NEXO_BROWSER_REDIRECT_URL=https://console.example.com
-#   NEXO_TRUSTED_PROXIES=127.0.0.1
-#   NEXO_DOMAIN=s3.example.com      # only for virtual-host style buckets
+#   NEXO_TRUSTED_PROXIES=10.0.0.10          # the address(es) Traefik connects from
+#   NEXO_DOMAIN=s3.example.com              # only for virtual-host style buckets
+#   NEXO_SECRET_PROXY_A=<same value as NEXO_ORIGIN_SECRET of Traefik>
+# and on the distributions served here:
+#   restrictions:
+#     originSecretHeader: { name: X-Origin-Secret, values: ["${secret:proxy-a}"] }
+#
+# The file provider renders this file as a Go template: the origin secret
+# comes from the environment of Traefik (NEXO_ORIGIN_SECRET), never from
+# the file.
 
 http:
   routers:
@@ -16,17 +26,42 @@ http:
       entryPoints: ["websecure"]
       rule: "Host(`s3.example.com`) || HostRegexp(`^[a-z0-9.-]+\\.s3\\.example\\.com$`)"
       service: nexo-s3
+      middlewares: ["nexo-forwarding"]
       tls:
         certResolver: letsencrypt
         domains:
           - main: s3.example.com
             # sans: ["*.s3.example.com"]   # requires the DNS challenge
 
+    # The internode RPC shares the S3 port of the nodes but only travels
+    # between them: never expose it, on any domain (S3 and distributions;
+    # 403 for every client). The rule has no Host: it wins over every
+    # router of this entry point (highest priority).
+    nexo-rpc:
+      entryPoints: ["websecure"]
+      rule: "PathPrefix(`/nexo/rpc/`)"
+      priority: 10000
+      service: nexo-s3
+      middlewares: ["nobody"]
+      tls: {}
+
     nexo-console:
       entryPoints: ["websecure"]
       rule: "Host(`console.example.com`)"
       service: nexo-console
-      middlewares: ["console-headers"]
+      middlewares: ["nexo-forwarding", "console-headers"]
+      tls:
+        certResolver: letsencrypt
+
+    # Distributions (docs/10 §10.2): the custom domains of the website and
+    # s3 distributions. The origin secret proves that a request came
+    # through this proxy; a request that reaches a node directly without
+    # it is refused (403). One secret per proxy (see README.md).
+    nexo-distributions:
+      entryPoints: ["websecure"]
+      rule: "Host(`www.example.com`) || Host(`example.com`) || HostRegexp(`^[a-z0-9-]+\\.preview\\.example\\.com$`)"
+      service: nexo-s3
+      middlewares: ["nexo-forwarding", "nexo-origin-secret"]
       tls:
         certResolver: letsencrypt
 
@@ -36,9 +71,10 @@ http:
         # Host must reach Nexo unchanged: SigV4 signs it.
         passHostHeader: true
         servers:
-          - url: "http://127.0.0.1:9000"
-          # Cluster: list every node; Traefik balances and health-checks them.
-          # - url: "http://10.0.0.2:9000"
+          - url: "http://10.0.0.1:9000"
+          - url: "http://10.0.0.2:9000"
+          - url: "http://10.0.0.3:9000"
+          - url: "http://10.0.0.4:9000"
         healthCheck:
           path: /nexo/health/ready
           interval: 10s
@@ -48,13 +84,33 @@ http:
       loadBalancer:
         passHostHeader: true
         servers:
-          - url: "http://127.0.0.1:9001"
+          - url: "http://10.0.0.1:9001"
+          - url: "http://10.0.0.2:9001"
+          - url: "http://10.0.0.3:9001"
+          - url: "http://10.0.0.4:9001"
         healthCheck:
           path: /nexo/health/live
           interval: 10s
           timeout: 3s
 
   middlewares:
+    # Nexo reads one family of forwarding headers (default x-forwarded): a
+    # Forwarded header sent by the client is removed.
+    nexo-forwarding:
+      headers:
+        customRequestHeaders:
+          Forwarded: ""
+
+    nexo-origin-secret:
+      headers:
+        customRequestHeaders:
+          # Replaces any value a client sends.
+          X-Origin-Secret: '{{ env "NEXO_ORIGIN_SECRET" }}'
+
+    nobody:
+      ipAllowList:
+        sourceRange: ["127.0.0.1/32"]
+
     console-headers:
       headers:
         stsSeconds: 31536000

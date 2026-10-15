@@ -85,6 +85,7 @@ packages:
     interfaces:
       Service:
       DomainSource:
+      HostSource:
       Sealer:
   github.com/r3n3r0/nexo/internal/service/cluster:
     interfaces:
@@ -113,8 +114,6 @@ packages:
       KeyGroups:
       SignedRequestVerifier:
       Signer:
-      Matcher:
-      CompiledPattern:
       PublicAccessBlock:
       SecretSource:
       Website:

@@ -201,7 +201,7 @@ M3/M4 (UI e CLI) e M5 (storage) possono procedere in parallelo grazie all'interf
 | T-7b.12 | Dashboard: regole di accesso con tester, preset, block public (D-ACC-01..04) | T-7b.11 | TD-A-01..03 |
 | T-7b.13 | Dashboard: distribuzioni, wizard, behavior con tester, key group, certificati, origin secret (D-DST-01..07) | T-7b.11 | TD-D-01..05 |
 | T-7b.14 | CLI `access` e `dist` | T-7b.11 | TCL-A-*, TCL-D-* |
-| T-7b.15 | `deploy/proxy/` (nginx, Caddy, Traefik, HAProxy, Cloudflare) + compose con 2 proxy | T-7b.8 | TCD-01..03 |
+| T-7b.15 | `deploy/proxy/` (nginx, Caddy, Traefik, HAProxy, Cloudflare) + compose con 2 proxy | T-7b.8 | TCD-01..03 (`make test-proxy`: `test/proxy`, proxy Go in-process in ogni modalità e nginx/HAProxy reali con i file di `compose.multi-proxy.yml`) |
 | T-7b.16 | Metriche/access log per distribuzione (D-DST-08); la cache è in M7c | T-8.1 | — |
 
 ## M7c — Cache per dominio
@@ -220,7 +220,32 @@ M3/M4 (UI e CLI) e M5 (storage) possono procedere in parallelo grazie all'interf
 | T-7c.10 | Ispettore URL, metriche per dominio | T-7c.4, T-8.1 | TCL-C-03 |
 | T-7c.11 | Admin API + OpenAPI, CLI `cache` e `dist cache` | T-7c.6 | TCL-C-* |
 | T-7c.12 | Dashboard D-CCH-01..08 | T-7c.11 | TD-C-* |
-| T-7c.13 | Volume `/cache` nei Compose, flag `--cache-dir/--cache-size`, test compose 2 proxy | T-7c.3 | TCC-C-05 |
+| T-7c.13 | Volume `/cache` nei Compose, flag `--cache-dir/--cache-size`, test compose 2 proxy | T-7c.3 | TCC-C-05 (`make test-proxy`) |
+
+**Stato di M7b e M7c (integrazione del 2026-10-09)**: T-7b.1..T-7b.16 e T-7c.1..T-7c.13 completati in SNSD, SNMD e
+cluster. Regole di accesso, block public access, distribuzioni, key group, certificati e configurazione della cache
+stanno nel system store erasure-coded e arrivano agli altri nodi con il `cluster.Notifier`, senza restart (TAR-09:
+circa 3 ms da nodo1 a nodo4; TCD-03: decine di ms attraverso i proxy).
+
+- **Un solo matcher**: `internal/service/match` (prefix in trie, glob tradotti in RE2, regex RE2, normalizzazione NFC
+  di `//`, `.` e `..`) valuta le access rules, i behavior delle distribuzioni (servizio, `dist test` e motore
+  website: `distribution.PathPattern` è `match.Pattern`), le impostazioni per percorso, il warm-up e le purge della
+  cache; i ban Varnish dei webhook usano l'espressione RE2 del matcher (`Matcher.Expr`) e l'Admin in memoria dei
+  test della CLI lo stesso matcher. Un solo `distribution.NormalizeHost` per tabella di routing e cache.
+- Misure: TAR-10 p99 per richiesta 5,2 µs con 200 regex (limite 50 µs); risoluzione dell'host 162 ns/op con 11.000
+  alias (9.900 esatti, 1.100 wildcard); TCC-16 HIT L1 su 64 KiB p50 4,6 µs, p99 40 µs (limite 1 ms).
+- Verifiche dell'integrazione (4 CPU): `go test -race` dei package 3 min 8 s; integrazione (TM-01, con i test
+  lenti) SNSD 75 s, SNMD 47 s, cluster 246 s; CLI `test/cli` SNSD 199 s, SNMD 34 s, cluster 230 s; `make
+  test-cluster` 249 s; `NEXO_PROXY_REAL=1 make test-proxy` (proxy Go in ogni modalità, nginx e HAProxy reali) 23 s;
+  Vitest 62 file / 660 test 72 s; Playwright 112 test (chromium, snmd, cluster) 2,7 min; bundle iniziale 306,25 kB
+  gzip (limite 307,2); `golangci-lint` 0 problemi anche con i tag `cluster,compose,proxy`; `go generate` e
+  `npm run gen:api` idempotenti.
+- Smoke con il binario reale (`bin/nexo` con dashboard, SNMD 4 dischi): distribuzione website su
+  `www.example.test` ed `example.test` (header `Host`), MISS poi HIT su entrambi i domini, sei PUT consecutive
+  senza mai contenuto vecchio su nessuno dei due, regola regex `deny` su `private/` (403 anche con `%70rivate` e
+  `public/../private`, anche per oggetti già in cache), URL firmato valido (200), alterato (403) e scaduto (403).
+- Restano P2: rate limit per distribuzione (TDS-13: validato e salvato, non applicato) e challenge ACME DNS-01 per i
+  certificati wildcard.
 
 ## M8 — Osservabilità
 

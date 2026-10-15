@@ -61,6 +61,17 @@ export const DistributionActions = {
   cacheStats: 'admin:ManageCache',
 } as const;
 
+/**
+ * Policy actions of the cache pages (docs/11 §11.11): the configuration and
+ * the diagnostics need admin:ManageCache; the operations on the cached
+ * content (invalidations, warm-ups) need admin:InvalidateCache alone
+ * (TD-C-06: a deploy pipeline purges without changing the policies).
+ */
+export const CacheActions = {
+  manage: 'admin:ManageCache',
+  invalidate: 'admin:InvalidateCache',
+} as const;
+
 export interface PermissionCheck {
   /** True until the first answer of GET /me/permissions. */
   loading: boolean;

@@ -1,45 +1,80 @@
-# Caddy in front of a Nexo server with automatic HTTPS.
+# Caddy (>= 2.7) in front of a Nexo server or cluster, with automatic HTTPS.
 #
-#   https://s3.example.com       -> S3 API        (127.0.0.1:9000)
-#   https://*.s3.example.com     -> S3 API, virtual-host style buckets
-#   https://console.example.com  -> console + Admin API (127.0.0.1:9001)
+#   https://s3.example.com         -> S3 API              (port 9000 of the nodes)
+#   https://*.s3.example.com       -> S3 API, virtual-host style buckets
+#   https://console.example.com    -> console + Admin API (port 9001 of the nodes)
+#   https://www.example.com, ...   -> distributions        (port 9000, routed by Nexo
+#                                     on the Host header)
 #
-# Caddy's reverse_proxy already preserves the Host header and sets
-# X-Forwarded-For / X-Forwarded-Proto / X-Forwarded-Host, which is what
-# SigV4 and presigned URLs need. There is no request body limit by default.
+# reverse_proxy keeps the Host header of the client (what SigV4, the
+# presigned URLs and the routing of the distributions need), sets
+# X-Forwarded-For / X-Forwarded-Proto / X-Forwarded-Host, has no request
+# body limit and streams the bodies with flush_interval -1.
 #
-# In nexo.env:
+# In nexo.env (docs/08 §8.5, docs/10 §10.2):
 #   NEXO_SERVER_URL=https://s3.example.com
 #   NEXO_BROWSER_REDIRECT_URL=https://console.example.com
-#   NEXO_TRUSTED_PROXIES=127.0.0.1
-#   NEXO_DOMAIN=s3.example.com      # only for virtual-host style buckets
-
+#   NEXO_TRUSTED_PROXIES=10.0.0.10          # the address(es) Caddy connects from
+#   NEXO_DOMAIN=s3.example.com              # only for virtual-host style buckets
+#   NEXO_SECRET_PROXY_A=<same value as NEXO_ORIGIN_SECRET of Caddy>
+# and on the distributions served here:
+#   restrictions:
+#     originSecretHeader: { name: X-Origin-Secret, values: ["${secret:proxy-a}"] }
+#
+# Caddy reads the origin secret from its environment:
+#   NEXO_ORIGIN_SECRET=$(openssl rand -hex 32) caddy run --config Caddyfile
 {
-	# email admin@example.com
+	email admin@example.com
+	# Caddy is the first hop: the X-Forwarded-For of the clients is not
+	# trusted (no trusted_proxies), it is replaced by the client address.
+	servers {
+		# Long transfers: no read/write deadline on the client side.
+		timeouts {
+			read_body 0
+			write 0
+			idle 5m
+		}
+	}
+}
+
+# Settings shared by every upstream of Nexo.
+(nexo_upstream) {
+	# Every node of the cluster; Caddy balances and probes them.
+	to 10.0.0.1:{args[0]} 10.0.0.2:{args[0]} 10.0.0.3:{args[0]} 10.0.0.4:{args[0]}
+	lb_policy least_conn
+	lb_try_duration 5s
+	lb_retries 2
+	fail_duration 10s
+	health_uri /nexo/health/ready
+	health_interval 10s
+	health_timeout 3s
+	# Stream request and response bodies (large uploads, downloads, SSE).
+	flush_interval -1
+	# Nexo reads one family of forwarding headers (default x-forwarded):
+	# a Forwarded header of the client never reaches it.
+	header_up -Forwarded
+	transport http {
+		dial_timeout 5s
+		read_timeout 0
+		write_timeout 0
+		keepalive 65s
+	}
 }
 
 # S3 API. The wildcard needs a DNS challenge: build Caddy with a DNS
-# provider module (e.g. xcaddy --with github.com/caddy-dns/cloudflare) and
-# uncomment the tls block; without wildcard buckets keep only s3.example.com.
+# provider module (xcaddy --with github.com/caddy-dns/cloudflare) and
+# uncomment the tls block; without virtual-host buckets keep s3.example.com.
 s3.example.com, *.s3.example.com {
 	# tls {
 	# 	dns cloudflare {env.CLOUDFLARE_API_TOKEN}
 	# }
 
-	reverse_proxy 127.0.0.1:9000 {
-		# add the other nodes of a cluster: reverse_proxy 10.0.0.1:9000 10.0.0.2:9000 ...
-		lb_policy least_conn
-		lb_try_duration 5s
-		fail_duration 10s
+	# The internode RPC shares the S3 port but only travels between the
+	# nodes: never expose it.
+	respond /nexo/rpc/* 404
 
-		# stream request and response bodies (large uploads/downloads)
-		flush_interval -1
-		transport http {
-			read_timeout 0
-			write_timeout 0
-			dial_timeout 5s
-			keepalive 65s
-		}
+	reverse_proxy {
+		import nexo_upstream 9000
 	}
 
 	log {
@@ -49,19 +84,13 @@ s3.example.com, *.s3.example.com {
 
 # Console + Admin API (SSE/WebSocket for live logs and traces).
 console.example.com {
-	reverse_proxy 127.0.0.1:9001 {
-		flush_interval -1
-		transport http {
-			read_timeout 0
-			write_timeout 0
-			dial_timeout 5s
-		}
+	reverse_proxy {
+		import nexo_upstream 9001
+		health_uri /nexo/health/live
 	}
 
-	# Hardening headers for the SPA (CSP is set by Nexo itself).
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
-		X-Content-Type-Options "nosniff"
 		-Server
 	}
 
@@ -69,3 +98,49 @@ console.example.com {
 		output stdout
 	}
 }
+
+# Distributions (docs/10 §10.2): the custom domains of the website and s3
+# distributions. The origin secret proves that a request came through
+# this proxy: a request that reaches a node directly without it is
+# refused (403). One secret per proxy (see deploy/proxy/README.md).
+www.example.com, example.com {
+	# The internode RPC is never exposed, on any domain.
+	respond /nexo/rpc/* 404
+
+	reverse_proxy {
+		import nexo_upstream 9000
+		# Replaces any value a client sends.
+		header_up X-Origin-Secret {env.NEXO_ORIGIN_SECRET}
+
+		# Alternative to the X-Forwarded-* headers: the PROXY protocol
+		# (NEXO_PROXY_PROTOCOL=s3 on the nodes), the client address then
+		# travels at the connection level. Add `proxy_protocol v2` to the
+		# transport http block of a copy of the nexo_upstream snippet used
+		# here, and keep the origin secret.
+	}
+
+	log {
+		output stdout
+	}
+}
+
+# Many or changing domains (*.preview.example.com, one domain per
+# customer): on-demand TLS issues a certificate at the first request of a
+# host, after asking an endpoint of yours whether the host is allowed
+# (wire it to `nexoctl dist ls --json` or to GET /api/v1/routing/resolve
+# with an access key that has admin:ManageDistributions).
+# {
+# 	on_demand_tls {
+# 		ask http://127.0.0.1:5555/allowed
+# 	}
+# }
+# https:// {
+# 	tls {
+# 		on_demand
+# 	}
+# 	respond /nexo/rpc/* 404
+# 	reverse_proxy {
+# 		import nexo_upstream 9000
+# 		header_up X-Origin-Secret {env.NEXO_ORIGIN_SECRET}
+# 	}
+# }

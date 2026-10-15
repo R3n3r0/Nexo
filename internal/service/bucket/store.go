@@ -36,11 +36,20 @@ const metadataFile = ".metadata.json"
 // The cache is guarded by a generation counter bumped by every change, so
 // that a Load racing with a Save, a Delete or an Invalidate never caches
 // the document it read before the change.
+//
+// A reload of everything (Invalidate of every bucket: the precautionary
+// resync of the cluster) keeps the documents it drops as the last known
+// ones: while the drives cannot answer (no read quorum), AccessConfig
+// keeps deciding with them, as it would have without the reload, so the
+// cached answers of the distributions stay available (docs/11 TCC-07).
+// The invalidation of one bucket (a change notified by a peer), a Save
+// and a Delete forget its last known document: it is outdated.
 type metadataStore struct {
 	deps StoreDeps
 
 	mu    sync.RWMutex
 	cache map[string]*Metadata
+	known map[string]*Metadata
 	gen   uint64
 }
 
@@ -54,7 +63,7 @@ func NewStore(deps StoreDeps) (MetadataStore, error) {
 	if deps.Logger == nil {
 		deps.Logger = slog.Default()
 	}
-	return &metadataStore{deps: deps, cache: make(map[string]*Metadata)}, nil
+	return &metadataStore{deps: deps, cache: make(map[string]*Metadata), known: make(map[string]*Metadata)}, nil
 }
 
 func metadataPath(bucket string) string {
@@ -86,6 +95,7 @@ func (s *metadataStore) Load(ctx context.Context, bucket string) (*Metadata, err
 	s.mu.Lock()
 	if s.gen == gen {
 		s.cache[bucket] = m.clone()
+		delete(s.known, bucket)
 	}
 	s.mu.Unlock()
 	return m, nil
@@ -164,6 +174,7 @@ func (s *metadataStore) Save(ctx context.Context, bucket string, m *Metadata) er
 	} else {
 		delete(s.cache, bucket)
 	}
+	delete(s.known, bucket)
 	s.mu.Unlock()
 	if err != nil {
 		return fmt.Errorf("bucket: save metadata of %s: %w", bucket, err)
@@ -202,6 +213,9 @@ func (s *metadataStore) Invalidate(_ context.Context, bucket string) {
 	if bucket == "" {
 		s.mu.Lock()
 		s.gen++
+		for name, m := range s.cache {
+			s.known[name] = m
+		}
 		s.cache = make(map[string]*Metadata)
 		s.mu.Unlock()
 		return
@@ -209,12 +223,28 @@ func (s *metadataStore) Invalidate(_ context.Context, bucket string) {
 	s.drop(bucket)
 }
 
-// drop removes a cache entry and bumps the generation.
+// drop removes a cache entry, and the last known document, and bumps the
+// generation.
 func (s *metadataStore) drop(bucket string) {
 	s.mu.Lock()
 	s.gen++
 	delete(s.cache, bucket)
+	delete(s.known, bucket)
 	s.mu.Unlock()
+}
+
+// unavailable reports an error of drives that cannot answer now.
+func unavailable(err error) bool {
+	return errors.Is(err, domain.ErrReadQuorum) || errors.Is(err, domain.ErrDiskNotFound) || errors.Is(err, domain.ErrNodeOffline)
+}
+
+// lastKnown returns the last known document of a bucket dropped by a
+// reload of everything.
+func (s *metadataStore) lastKnown(bucket string) (*Metadata, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	m, ok := s.known[bucket]
+	return m, ok
 }
 
 // AccessConfig implements MetadataStore. The rules are those of the
@@ -228,22 +258,34 @@ func (s *metadataStore) AccessConfig(ctx context.Context, bucket string) (Access
 	cached, ok := s.cache[bucket]
 	s.mu.RUnlock()
 	if !ok {
-		if _, err := s.Load(ctx, bucket); err != nil {
+		var err error
+		if cached, err = s.loadAccess(ctx, bucket); err != nil {
 			return AccessConfig{}, err
 		}
-		s.mu.RLock()
-		cached, ok = s.cache[bucket]
-		s.mu.RUnlock()
-		if !ok {
-			// Changed meanwhile and not cached again: read once more.
-			m, err := s.Load(ctx, bucket)
-			if err != nil {
-				return AccessConfig{}, err
-			}
-			cached = m
-		}
 	}
-	return AccessConfig{Rules: cached.AccessRules, BlockPublicAccess: cached.BlockPublicAccess}, nil
+	return AccessConfig{Rules: cached.AccessRules, BlockPublicAccess: cached.BlockPublicAccess, Policy: cached.Policy}, nil
+}
+
+// loadAccess loads the document of AccessConfig: from the drives, or the
+// last known one while they cannot answer.
+func (s *metadataStore) loadAccess(ctx context.Context, bucket string) (*Metadata, error) {
+	m, err := s.Load(ctx, bucket)
+	if err != nil {
+		if known, ok := s.lastKnown(bucket); ok && unavailable(err) {
+			s.deps.Logger.DebugContext(ctx, "bucket: drives unavailable, deciding with the last known access configuration",
+				"bucket", bucket, "err", err)
+			return known, nil
+		}
+		return nil, err
+	}
+	s.mu.RLock()
+	cached, ok := s.cache[bucket]
+	s.mu.RUnlock()
+	if ok {
+		return cached, nil
+	}
+	// Changed meanwhile and not cached again: the copy just read.
+	return m, nil
 }
 
 // BucketConfig implements object.BucketConfigSource.

@@ -244,6 +244,11 @@ func TestObjectLockPutRetention(t *testing.T) {
 			}
 		}
 		assert.Equal(t, []event.Name{event.ObjectCreatedPut}, created, "only the upload is notified")
+		// The internal event of the hooks of the layer (the cache drops
+		// the descriptions it holds), never delivered to a target.
+		assert.Contains(t, fx.eventNames(), event.ObjectMetadataChanged)
+		assert.True(t, event.ObjectMetadataChanged.IsInternal())
+		assert.False(t, event.ObjectMetadataChanged.IsNotifiable())
 	})
 }
 

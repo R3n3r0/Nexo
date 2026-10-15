@@ -64,6 +64,15 @@ Una **cache policy** è un oggetto riutilizzabile (come in CloudFront) referenzi
 Regole di sicurezza: le risposte a richieste **autenticate** o **firmate** non vengono mai condivise tra utenti diversi;
 per i contenuti `signed` la firma viene verificata **prima** del lookup in cache e non entra nella chiave.
 
+Implementazione della chiave (versione `v2`, le voci su disco di un formato precedente sono scartate all'avvio):
+ogni componente è codificato in modo univoco (oggetto con escape del path, `/` esclusi; scope, bucket, nomi e
+valori di header e cookie, credenziale con escape della query), quindi un oggetto il cui nome contiene `?`, `|`
+o `#` non condivide mai la voce di un altro oggetto letto con una query, un header o un cookie. Ogni voce porta
+inoltre la sua identità (bucket, oggetto, versione) ed è servita solo se coincide con quella richiesta, anche dal
+proprietario in modalità `shared`. Le risposte con chiave per header o cookie portano `Vary` (gli header
+elencati, `Cookie`), oltre a `Accept-Encoding` per le varianti compresse; una `HEAD` negozia la stessa variante
+della `GET`.
+
 ## 11.3 Archiviazione della cache
 
 | Livello | Tecnologia | Uso |
@@ -73,6 +82,11 @@ per i contenuti `signed` la firma viene verificata **prima** del lookup in cache
 
 - **Quote**: globale (`--cache-size`), per distribuzione e **per dominio**; eviction LRU/LFU all'interno della quota.
 - **Request collapsing**: richieste simultanee per lo stesso oggetto non in cache producono una sola lettura dall'origine.
+  Una lettura in corso è condivisa solo se l'oggetto non è stato invalidato da quando è iniziata (barriera di
+  invalidazione registrata all'inizio, ricontrollata all'arrivo del risultato): una richiesta che inizia dopo il
+  200 di un PUT non riceve mai il contenuto letto prima. Le rivalidazioni aggiornano una voce solo con un
+  compare-and-swap sulla voce rivalidata, e una risposta negativa (404) usa la barriera presa prima della lettura
+  dell'origine: una creazione concorrente non viene mascherata.
 - La cache è **opzionale**: senza `--cache-dir` resta attivo solo L1 con limite di memoria.
 - In Docker: volume separato `/cache` nei file Compose.
 
@@ -84,9 +98,26 @@ per i contenuti `signed` la firma viene verificata **prima** del lookup in cache
 | `shared` | La chiave di cache viene assegnata a un nodo "proprietario" con **consistent hashing** (rendezvous) sui nodi del cluster: il nodo che riceve la richiesta chiede al proprietario via RPC. Una sola copia per oggetto nel cluster, cache totale = somma delle cache | Molti nodi dietro load balancer round-robin |
 | `shared+local` | Come `shared` più un piccolo L1 locale per gli oggetti più caldi | Traffico molto concentrato su pochi oggetti |
 
-- Nodo proprietario offline → si legge direttamente dall'origine (nessun errore), l'anello si ricalcola.
+- Nodo proprietario offline → si legge direttamente dall'origine (nessun errore), l'anello si ricalcola. Le chiamate
+  al proprietario (lettura di un pezzo, presenza) hanno un timeout proprio (`fetchTimeout`, default 5 s, limitato
+  dal timeout di ack per la presenza): un proprietario congelato (SIGSTOP, pausa della VM) è trattato come offline
+  e la richiesta ripiega sull'origine senza salvare.
 - Le **invalidazioni** vengono propagate a tutti i nodi via peer RPC con un numero di sequenza; un nodo che rientra
   dopo un'assenza svuota la sua cache se ha perso invalidazioni (sequenza non contigua).
+- **Trust lease** (TCC-C-04, TCC-05 in cluster): un nodo considera affidabili le sue voci solo fino a
+  `inizio dell'ultimo confronto completo delle sequenze con tutti i peer + lease` (default: confronto ogni 1 s,
+  lease 2 s, sul clock monotono). Scaduta la lease (processo congelato, partizione unidirezionale, peer in ritardo)
+  o finché un peer risulta avanti (`Seq` maggiore dell'ultimo messaggio applicato), le voci sono rivalidate con
+  l'origine prima di essere servite; un ritardo che non si chiude entro `retry + ack timeout` svuota la cache.
+  Simmetricamente, la scrittura che non riesce a consegnare l'invalidazione a un peer raggiungibile di recente
+  attende (al più una lease) che la lease di quel peer scada prima di rispondere 200: dopo il 200 di un PUT nessun
+  nodo serve più il contenuto vecchio, anche se non si è accorto di essere stato isolato.
+- **Origine senza quorum** (TCC-07): la decisione di accesso di una distribuzione non fa I/O (block public access,
+  access rules e bucket policy dalla cache in memoria dei metadati del bucket). Il reload precauzionale dello stato
+  in cache (resync periodico o dopo un congelamento) che non riesce a rileggere i metadati per mancanza di quorum
+  continua a decidere con l'ultima configurazione nota, come avrebbe fatto senza il reload; un'invalidazione
+  esplicita del bucket (modifica notificata da un peer) la scarta. Così le voci scadute sono servite `STALE`
+  (`stale-if-error`), quelle fresche `HIT`, e un path mai messo in cache risponde `503` con `Retry-After`, mai 403.
 
 ## 11.5 Invalidazione
 
@@ -103,6 +134,15 @@ per i contenuti `signed` la firma viene verificata **prima** del lookup in cache
 - **Propagazione esterna**: per ogni dominio si possono configurare **webhook di purge** verso CDN/proxy davanti a Nexo
   (Cloudflare, Fastly, Akamai, nginx `proxy_cache_purge`, Varnish `BAN`, webhook generico con template), invocati sia sulle
   invalidazioni manuali sia su quelle automatiche, con retry e coda persistente.
+- **Sicurezza dei webhook** (chi ha `admin:ManageCache` non legge i segreti del nodo né sonda la rete interna):
+  i segreti (`token`, `clientSecret`) sono in chiaro o riferimenti `${secret:webhook-<nome>}`
+  (`NEXO_SECRET_WEBHOOK_<NOME>`): nessun altro segreto del nodo (origin secret dei proxy, segreti delle access
+  rules) e nessun `${secret:}` negli header liberi. Un segreto salvato è mascherato nelle risposte e resta legato
+  alla destinazione: cambiando tipo, URL, zona, `clientToken` o rete va reinserito. Le chiamate raggiungono solo
+  indirizzi pubblici (controllo sull'indirizzo effettivamente connesso, quindi anche dopo un DNS rebinding), mai
+  un nodo del cluster; le reti interne di un nginx/Varnish si abilitano con `--cache-webhook-allow`
+  (`NEXO_CACHE_WEBHOOK_ALLOW`, CIDR separati da virgole). Nessun proxy HTTP e nessun redirect; il test di un
+  webhook riporta solo lo status, mai il corpo della risposta.
 
 ## 11.6 Preriscaldamento (warm-up)
 
@@ -198,6 +238,24 @@ Azioni di policy: `admin:ManageCache`, `admin:InvalidateCache` (assegnabile sepa
 | TCC-C-03 | PUT su nodo1 → GET da nodo3 (local e shared) | Contenuto nuovo |
 | TCC-C-04 | Nodo isolato durante un'invalidazione e poi rientrato | Svuota la cache (sequenza non contigua), nessun contenuto vecchio |
 | TCC-C-05 | Compose con 2 proxy e domini diversi: purge per un dominio non tocca l'altro | — |
+
+TCC-C-05 è verificato da `test/proxy` (`make test-proxy`) senza Docker: due proxy (Go in-process in SNSD,
+SNMD e cluster; nginx e HAProxy reali con i file di `deploy/docker/compose.multi-proxy.yml` sul cluster)
+con domini e origin secret diversi davanti alla stessa distribuzione; la cache di ogni nodo è riempita
+attraverso entrambi, la purge di un dominio (`POST /distributions/{id}/invalidations` con `domain` e `all`,
+completata su tutti i nodi) lascia `HIT` l'altro dominio su ogni nodo, la purge di un path su un dominio
+non tocca l'altro, e una scrittura S3 invalida subito entrambi i domini (TCC-05 attraverso i proxy). Le
+richieste arrivano con l'header `Host` del proxy, porta inclusa: chiave di cache e purge per dominio
+usano l'host senza porta. Nel compose ogni nodo ha il proprio volume `/cache` (`NEXO_CACHE_DIR`).
+
+Altri test end-to-end (matrice SNSD/SNMD/cluster di `test/integration`, `test/cluster`):
+- `TestCacheKeyIsUnambiguous` (TCC-03, TCC-11): behavior `signed` regex con chiave `allowlist: [v]`; la stessa
+  sequenza di byte con `?` codificato (`/downloads/v1.zip%3Fv=1`) non serve mai il contenuto firmato, un 404
+  anonimo (`/app.js%3Fv=2`) non avvelena la voce di `/app.js?v=2`, oggetti con `?` e `|` nel nome hanno voci proprie.
+- `TestCacheStaleIfOriginDown` (TCC-07, SNMD e cluster): più dischi della parità rinominati e un resync dello stato
+  dei nodi: voce scaduta `STALE`, voce fresca `HIT`, path mai in cache `503` con `Retry-After`.
+- `TestTCCC04PausedNode` (`make test-cluster`, TCC-C-04 con 4 processi, modalità `local` e `shared`): un nodo
+  congelato con SIGSTOP durante il PUT non serve mai il contenuto vecchio quando riprende.
 
 ### CLI
 | ID | Caso |

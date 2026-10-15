@@ -57,7 +57,7 @@ func (s *service) Inspect(ctx context.Context, in InspectInput) (InspectResult, 
 	}
 	req := Request{Distribution: d, Alias: route.Alias, Host: route.Host, Method: http.MethodGet, Path: u.Path, RawQuery: u.RawQuery,
 		Header: header, Secure: u.Scheme == "https", Credentials: header.Get("Authorization") != ""}
-	r := s.snap.Load().resolveFor(d.ID, route.Host, path)
+	r := s.snap.Load().resolveFor(ctx, d.ID, route.Host, path)
 	res.Policy = r.eff
 	if reason := bypassReason(&r.p, &req); reason != "" && !res.Bypass {
 		res.Bypass, res.Reason = true, reason
@@ -101,7 +101,9 @@ func (s *service) presenceEverywhere(ctx context.Context, key string) []NodePres
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			rep, err := p.Presence(ctx, PresenceRequest{Keys: []string{key}})
+			cctx, cancel := context.WithTimeout(ctx, s.opts.ackTimeout)
+			defer cancel()
+			rep, err := p.Presence(cctx, PresenceRequest{Keys: []string{key}})
 			if err != nil || len(rep.Entries) == 0 {
 				if err != nil {
 					out[i+1].Error = err.Error()

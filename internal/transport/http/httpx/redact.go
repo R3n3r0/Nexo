@@ -48,6 +48,24 @@ func RedactQuery(q url.Values) url.Values {
 // sensitive parameters replaced by RedactedValue; everything else keeps
 // its original encoding and order. A name that does not decode is kept.
 func RedactRawQuery(raw string) string {
+	return RedactRawQueryFunc(raw, IsSensitiveQueryParam)
+}
+
+// IsSensitiveSignedURLParam reports, beyond IsSensitiveQueryParam, the
+// parameters of the signed URLs of the distributions (Signature, Policy,
+// Key-Pair-Id): their access logs never keep a replayable URL. Policy is
+// not redacted by the generic logs, where "?policy" is an S3 subresource.
+func IsSensitiveSignedURLParam(name string) bool {
+	switch strings.ToLower(name) {
+	case "policy", "key-pair-id":
+		return true
+	}
+	return IsSensitiveQueryParam(name)
+}
+
+// RedactRawQueryFunc is RedactRawQuery with the parameters sensitive
+// selects.
+func RedactRawQueryFunc(raw string, sensitive func(name string) bool) string {
 	if raw == "" {
 		return ""
 	}
@@ -56,7 +74,7 @@ func RedactRawQuery(raw string) string {
 	for i, pair := range pairs {
 		k, _, _ := strings.Cut(pair, "=")
 		name, err := url.QueryUnescape(k)
-		if err != nil || !IsSensitiveQueryParam(name) {
+		if err != nil || !sensitive(name) {
 			continue
 		}
 		pairs[i] = k + "=" + RedactedValue

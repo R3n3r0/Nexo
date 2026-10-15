@@ -112,10 +112,56 @@ func (m *distributionManager) authorizeOrigin(ctx context.Context, req Requester
 	return authorizeAll(ctx, m.deps.Authz, req, bucket, "", policy.ActionAdminManageDistributions)
 }
 
+// authorizeDistribution authorizes admin:ManageDistributions on the
+// origin bucket of the distribution id.
+func (m *distributionManager) authorizeDistribution(ctx context.Context, req Requester, id string) error {
+	d, err := m.deps.Distributions.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	return m.authorizeOrigin(ctx, req, d.Origin.Bucket)
+}
+
+// authorizeKeyGroup authorizes admin:ManageDistributions on the origin
+// bucket of every distribution whose behaviors sign with the key group:
+// its keys sign the URLs of all of them.
+func (m *distributionManager) authorizeKeyGroup(ctx context.Context, req Requester, group string) error {
+	ds, err := m.deps.Distributions.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, d := range ds {
+		if usesKeyGroup(d, group) {
+			if err := m.authorizeOrigin(ctx, req, d.Origin.Bucket); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// usesKeyGroup reports a distribution with a behavior signed by group.
+func usesKeyGroup(d distribution.Distribution, group string) bool {
+	group = strings.TrimSpace(group)
+	signs := func(b distribution.Behavior) bool { return b.Signing != nil && b.Signing.KeyGroup == group }
+	if signs(d.DefaultBehavior) {
+		return true
+	}
+	for _, b := range d.Behaviors {
+		if signs(b) {
+			return true
+		}
+	}
+	return false
+}
+
 // Delete implements DistributionManager: the cache settings of the
 // distribution go with it (a failure there is logged: the distribution is
 // removed and serves nothing any more).
-func (m *distributionManager) Delete(ctx context.Context, id string) error {
+func (m *distributionManager) Delete(ctx context.Context, req Requester, id string) error {
+	if err := m.authorizeDistribution(ctx, req, id); err != nil {
+		return err
+	}
 	if err := m.deps.Distributions.Delete(ctx, id); err != nil {
 		return err
 	}
@@ -182,7 +228,10 @@ func exactAlias(d distribution.Distribution) string {
 }
 
 // RotateOriginSecret implements DistributionManager.
-func (m *distributionManager) RotateOriginSecret(ctx context.Context, in distribution.RotateSecretInput) (*RotatedOriginSecret, error) {
+func (m *distributionManager) RotateOriginSecret(ctx context.Context, req Requester, in distribution.RotateSecretInput) (*RotatedOriginSecret, error) {
+	if err := m.authorizeDistribution(ctx, req, in.ID); err != nil {
+		return nil, err
+	}
 	secret, d, err := m.deps.Distributions.RotateOriginSecret(ctx, in)
 	if err != nil {
 		return nil, err
@@ -367,12 +416,18 @@ func (m *distributionManager) CreateKeyGroup(ctx context.Context, in CreateKeyGr
 }
 
 // DeleteKeyGroup implements DistributionManager.
-func (m *distributionManager) DeleteKeyGroup(ctx context.Context, id string) error {
+func (m *distributionManager) DeleteKeyGroup(ctx context.Context, req Requester, id string) error {
+	if err := m.authorizeKeyGroup(ctx, req, id); err != nil {
+		return err
+	}
 	return m.deps.Distributions.DeleteKeyGroup(ctx, id)
 }
 
 // AddKey implements DistributionManager.
 func (m *distributionManager) AddKey(ctx context.Context, in AddKeyInput) (*AddedKey, error) {
+	if err := m.authorizeKeyGroup(ctx, in.Requester, in.KeyGroup); err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(in.PublicKeyPEM) != "" {
 		if in.Algorithm != "" || in.Bits != 0 {
 			return nil, fmt.Errorf("%w: the algorithm and the size are those of the public key provided", domain.ErrInvalidArgument)
@@ -393,6 +448,9 @@ func (m *distributionManager) AddKey(ctx context.Context, in AddKeyInput) (*Adde
 }
 
 // DeleteKey implements DistributionManager.
-func (m *distributionManager) DeleteKey(ctx context.Context, group, keyID string) error {
+func (m *distributionManager) DeleteKey(ctx context.Context, req Requester, group, keyID string) error {
+	if err := m.authorizeKeyGroup(ctx, req, group); err != nil {
+		return err
+	}
 	return m.deps.Distributions.DeleteKey(ctx, group, keyID)
 }

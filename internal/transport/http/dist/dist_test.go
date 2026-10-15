@@ -130,6 +130,14 @@ func TestHostRouter(t *testing.T) {
 		}
 		return nil
 	}).Maybe()
+	// The access of the s3 distribution, once authenticated: /private
+	// needs credentials.
+	admission.EXPECT().AuthorizeS3(tmock.Anything, tmock.Anything).RunAndReturn(func(_ context.Context, req distribution.WebRequest) *distribution.WebResponse {
+		if req.Path == "/private" && (req.Identity == nil || req.Identity.IsAnonymous) {
+			return plainResponse(http.StatusForbidden, "credentials")
+		}
+		return nil
+	}).Maybe()
 	registry := metrics.New(metrics.Deps{Logger: slog.New(slog.DiscardHandler)})
 	var logged bytes.Buffer
 	accessLog := dist.NewAccessLog(dist.AccessLogDeps{Logger: slog.New(slog.NewTextHandler(&logged, nil))})
@@ -145,17 +153,21 @@ func TestHostRouter(t *testing.T) {
 	webListener := build(dist.WithDistributionsOnly(), dist.WithPassthrough(dist.ChallengePrefix))
 
 	tests := []struct {
-		name    string
-		handler http.Handler
-		host    string
-		path    string
-		secret  string
-		status  int
-		body    string
+		name     string
+		handler  http.Handler
+		host     string
+		path     string
+		secret   string
+		identity bool
+		status   int
+		body     string
 	}{
 		{name: "website on S3 listener", handler: s3Listener, host: "www.example.com:9000", path: "/", status: 200, body: "website site"},
 		{name: "s3 distribution admitted", handler: s3Listener, host: "s3.cliente.it", path: "/key", secret: "ok", status: 200, body: "s3 api"},
 		{name: "s3 distribution refused", handler: s3Listener, host: "s3.cliente.it", path: "/key", status: 403, body: "denied"},
+		{name: "s3 distribution anonymous", handler: s3Listener, host: "s3.cliente.it", path: "/private", secret: "ok", status: 403, body: "credentials"},
+		{name: "s3 distribution authenticated", handler: s3Listener, host: "s3.cliente.it", path: "/private", secret: "ok", identity: true,
+			status: 200, body: "s3 api"},
 		{name: "virtual host to the API", handler: s3Listener, host: "bucket.s3.example", path: "/key", status: 200, body: "s3 api"},
 		{name: "path style to the API", handler: s3Listener, host: "127.0.0.1:9000", path: "/bucket/key", status: 200, body: "s3 api"},
 		{name: "misdirected", handler: s3Listener, host: "unknown.example", path: "/", status: 421},
@@ -169,6 +181,9 @@ func TestHostRouter(t *testing.T) {
 			r.Host = tc.host
 			if tc.secret != "" {
 				r.Header.Set("X-Origin-Secret", tc.secret)
+			}
+			if tc.identity {
+				r = r.WithContext(middleware.WithIdentity(r.Context(), &domain.Identity{AccessKey: "alice", AuthType: domain.AuthTypeHeader}))
 			}
 			w := httptest.NewRecorder()
 			tc.handler.ServeHTTP(w, r)
@@ -184,12 +199,49 @@ func TestHostRouter(t *testing.T) {
 	registry.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	text := w.Body.String()
 	assert.Contains(t, text, `nexo_distribution_requests_total{distribution="site",host="www.example.com",status="200"} 2`)
-	assert.Contains(t, text, `nexo_distribution_requests_total{distribution="s3d",host="s3.cliente.it",status="403"} 1`)
+	assert.Contains(t, text, `nexo_distribution_requests_total{distribution="s3d",host="s3.cliente.it",status="403"} 2`)
 	assert.Contains(t, text, `nexo_distribution_bytes_served_total{distribution="site",host="www.example.com"} 24`)
 	assert.Contains(t, text, `nexo_distribution_request_duration_seconds_count{distribution="site"} 2`)
 	// Access log in the combined format for the distribution enabling it.
 	assert.Contains(t, logged.String(), `\"GET / HTTP/1.1\" 200 12 \"-\" \"-\"`)
 	assert.NotContains(t, logged.String(), "s3d")
+
+	// The access log never keeps a replayable URL: signed URL of the
+	// distribution, presigned S3 URL, session token.
+	logged.Reset()
+	signed := "/dl.zip?v=1&Expires=1700000000&Policy=cG9saWN5&Signature=SIGVALUE&Key-Pair-Id=KP1&X-Amz-Credential=AKID%2Fx&X-Amz-Security-Token=TOKVALUE"
+	r := httptest.NewRequest(http.MethodGet, "http://www.example.com"+signed, nil)
+	s3Listener.ServeHTTP(httptest.NewRecorder(), r)
+	line := logged.String()
+	assert.Contains(t, line, "/dl.zip?v=1&Expires=1700000000&Policy=REDACTED&Signature=REDACTED&Key-Pair-Id=REDACTED")
+	for _, secret := range []string{"SIGVALUE", "cG9saWN5", "KP1", "AKID", "TOKVALUE"} {
+		assert.NotContains(t, line, secret)
+	}
+}
+
+// TestRefusedS3Request selects the requests of an s3 distribution that
+// its admission refuses: the authentication of the listener skips them.
+func TestRefusedS3Request(t *testing.T) {
+	admission := distmock.NewWebsite(t)
+	admission.EXPECT().Admit(tmock.Anything, tmock.Anything).RunAndReturn(func(_ context.Context, req distribution.WebRequest) *distribution.WebResponse {
+		if req.Header.Get("X-Origin-Secret") != "ok" {
+			return plainResponse(http.StatusForbidden, "denied")
+		}
+		return nil
+	}).Maybe()
+	refused := dist.RefusedS3Request(resolver(t), admission)
+	req := func(host, secret string) *http.Request {
+		r := httptest.NewRequest(http.MethodGet, "http://"+host+"/key", nil)
+		r.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=AKID/20260101/us-east-1/s3/aws4_request")
+		if secret != "" {
+			r.Header.Set("X-Origin-Secret", secret)
+		}
+		return r
+	}
+	assert.True(t, refused(req("s3.cliente.it", "")), "no origin secret: refused before the signature")
+	assert.False(t, refused(req("s3.cliente.it", "ok")))
+	assert.False(t, refused(req("www.example.com", "")), "a website distribution")
+	assert.False(t, refused(req("bucket.s3.example", "")), "not a distribution")
 }
 
 func TestChallengeRoutes(t *testing.T) {

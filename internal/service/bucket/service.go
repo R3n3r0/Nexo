@@ -85,6 +85,9 @@ type AccessConfig struct {
 	Rules *AccessRules
 	// BlockPublicAccess is the block public access of the bucket.
 	BlockPublicAccess bool
+	// Policy is the stored bucket policy document, nil when none. It is
+	// shared with the cache of the store and must not be modified.
+	Policy []byte
 }
 
 // AccessRulesChange is the outcome of SetAccessRules.
@@ -125,10 +128,13 @@ type MetadataStore interface {
 	// empty) so that the next Load reads the drives: the hook of the peer
 	// notifications sent when another node changes a bucket.
 	Invalidate(ctx context.Context, bucket string)
-	// AccessConfig returns the access rules and the block public access of
-	// a bucket from the cache (loading the document when missing), without
-	// copying the rest of the metadata: the evaluation of the access rules
-	// calls it at every request. A missing bucket has none.
+	// AccessConfig returns the access rules, the block public access and
+	// the policy of a bucket from the cache (loading the document when
+	// missing), without copying the rest of the metadata: the access
+	// decisions call it at every request. A missing bucket has none. While
+	// the drives cannot answer (domain.ErrReadQuorum), a bucket whose
+	// document was dropped by a reload of everything (Invalidate of every
+	// bucket) is decided with its last known document.
 	AccessConfig(ctx context.Context, bucket string) (AccessConfig, error)
 }
 

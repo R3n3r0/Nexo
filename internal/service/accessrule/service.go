@@ -292,7 +292,14 @@ type Deps struct {
 	// and the cluster level cannot be changed.
 	Config config.Service
 	// Audit records every change. Optional (the changes are logged).
-	Audit  audit.Service
+	Audit audit.Service
+	// Source reads the block public access of PublicAccessBlocked from
+	// the cache of the bucket metadata, which the notifier keeps current
+	// (bucket.MetadataStore): the public behaviors of the distributions
+	// check it on every request, without a read of the drives (a set
+	// without quorum still serves its cached content). Optional: without
+	// it the flag is read through Buckets.
+	Source ConfigSource
 	Clock  clock.Clock
 	Logger *slog.Logger
 }

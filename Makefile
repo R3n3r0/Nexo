@@ -19,7 +19,7 @@ PKGS        := ./...
 
 export CGO_ENABLED ?= 0
 
-.PHONY: all build build-go build-web build-embedded e2e test test-race test-integration test-cluster test-compose test-s3compat bench-rpc lint web-lint \
+.PHONY: all build build-go build-web build-embedded e2e test test-race test-integration test-cluster test-compose test-proxy test-s3compat bench-rpc lint web-lint \
         web-test generate fmt clean run-single run-snmd run-cluster docker help
 
 all: build
@@ -57,6 +57,10 @@ test-integration:
 ## test-cluster: run the multi-process cluster tests (TC-*, build tag "cluster") against a fresh bin/nexo
 test-cluster:
 	$(GO) test $(GOFLAGS) -tags cluster -count=1 -timeout 40m -v ./test/cluster/...
+
+## test-proxy: run Nexo behind two edge proxies with their own domains and origin secrets (TCD-01..03, TCC-C-05, TPS-19 on custom domains; build tag "proxy", Linux): in-process proxies in every mode, and the nginx/HAProxy files of compose.multi-proxy.yml with the real binaries when installed (NEXO_PROXY_REAL=1 requires them)
+test-proxy:
+	CGO_ENABLED=1 $(GO) test $(GOFLAGS) -tags proxy -race -count=1 -timeout 15m ./test/proxy/...
 
 ## test-s3compat: run the Ceph s3-tests compatibility suite against a fresh bin/nexo (SNMD; NEXO_S3TESTS_MODE=snsd|cluster), test/compat, nightly CI
 test-s3compat: build-go

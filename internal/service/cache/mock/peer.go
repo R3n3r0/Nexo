@@ -388,9 +388,9 @@ func (_c *Peer_StartWarm_Call) RunAndReturn(run func(context.Context, cache.Warm
 	return _c
 }
 
-// SyncStatus provides a mock function with given fields: ctx
-func (_m *Peer) SyncStatus(ctx context.Context) (cache.SyncStatus, error) {
-	ret := _m.Called(ctx)
+// SyncStatus provides a mock function with given fields: ctx, req
+func (_m *Peer) SyncStatus(ctx context.Context, req cache.SyncRequest) (cache.SyncStatus, error) {
+	ret := _m.Called(ctx, req)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SyncStatus")
@@ -398,17 +398,17 @@ func (_m *Peer) SyncStatus(ctx context.Context) (cache.SyncStatus, error) {
 
 	var r0 cache.SyncStatus
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context) (cache.SyncStatus, error)); ok {
-		return rf(ctx)
+	if rf, ok := ret.Get(0).(func(context.Context, cache.SyncRequest) (cache.SyncStatus, error)); ok {
+		return rf(ctx, req)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context) cache.SyncStatus); ok {
-		r0 = rf(ctx)
+	if rf, ok := ret.Get(0).(func(context.Context, cache.SyncRequest) cache.SyncStatus); ok {
+		r0 = rf(ctx, req)
 	} else {
 		r0 = ret.Get(0).(cache.SyncStatus)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = rf(ctx)
+	if rf, ok := ret.Get(1).(func(context.Context, cache.SyncRequest) error); ok {
+		r1 = rf(ctx, req)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -423,13 +423,14 @@ type Peer_SyncStatus_Call struct {
 
 // SyncStatus is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *Peer_Expecter) SyncStatus(ctx interface{}) *Peer_SyncStatus_Call {
-	return &Peer_SyncStatus_Call{Call: _e.mock.On("SyncStatus", ctx)}
+//   - req cache.SyncRequest
+func (_e *Peer_Expecter) SyncStatus(ctx interface{}, req interface{}) *Peer_SyncStatus_Call {
+	return &Peer_SyncStatus_Call{Call: _e.mock.On("SyncStatus", ctx, req)}
 }
 
-func (_c *Peer_SyncStatus_Call) Run(run func(ctx context.Context)) *Peer_SyncStatus_Call {
+func (_c *Peer_SyncStatus_Call) Run(run func(ctx context.Context, req cache.SyncRequest)) *Peer_SyncStatus_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context))
+		run(args[0].(context.Context), args[1].(cache.SyncRequest))
 	})
 	return _c
 }
@@ -439,7 +440,7 @@ func (_c *Peer_SyncStatus_Call) Return(_a0 cache.SyncStatus, _a1 error) *Peer_Sy
 	return _c
 }
 
-func (_c *Peer_SyncStatus_Call) RunAndReturn(run func(context.Context) (cache.SyncStatus, error)) *Peer_SyncStatus_Call {
+func (_c *Peer_SyncStatus_Call) RunAndReturn(run func(context.Context, cache.SyncRequest) (cache.SyncStatus, error)) *Peer_SyncStatus_Call {
 	_c.Call.Return(run)
 	return _c
 }
