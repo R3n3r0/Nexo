@@ -35,7 +35,7 @@ type dispatcher struct {
 	enc     httpx.Encoder
 	domains []string
 	// hostBuckets resolves the custom hosts of the buckets (nil: none).
-	hostBuckets HostBuckets
+	hostBuckets httpx.HostBucketResolver
 	ops         map[opKey][]opEntry
 }
 
@@ -101,6 +101,7 @@ func (d *dispatcher) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.SetOperationName(r.Context(), e.op.Name)
+	httpx.SetOperationTarget(r.Context(), t.bucket, t.key)
 	if t.scope == ScopeObject && len(t.key) > domain.MaxObjectKeyLength {
 		d.enc.WriteS3Error(w, r, domain.NewS3Error(domain.ErrInvalidObjectName, "KeyTooLongError", "Your key is too long."))
 		return
@@ -131,10 +132,13 @@ func (d *dispatcher) resolve(r *http.Request) target {
 }
 
 // hostBucket returns the bucket a request addresses by host: a custom
-// host of a bucket (HostBuckets), then "{bucket}.{domain}".
+// host of a bucket (HostBuckets), then "{bucket}.{domain}". The custom
+// hosts never take the reserved "/nexo/" paths (domain.SystemPathPrefix):
+// there they are the health probes, the metrics or an S3 error, as on any
+// host that is not a virtual host.
 func (d *dispatcher) hostBucket(r *http.Request) (string, bool) {
-	if d.hostBuckets != nil {
-		if bucket, ok := d.hostBuckets(middleware.HostOf(r)); ok {
+	if d.hostBuckets != nil && !strings.HasPrefix(r.URL.Path, domain.SystemPathPrefix) {
+		if bucket, ok := d.hostBuckets.BucketOfHost(middleware.HostOf(r)); ok {
 			return bucket, true
 		}
 	}

@@ -238,6 +238,17 @@ fra M7 e la release corrente: verificato da TM-13. Una release che cambia un for
 release precedente rifiuta i dischi senza toccarli: in quel caso il downgrade non è supportato e va annunciato
 nelle note di rilascio.
 
+Prima di aggiornare il primo nodo da `v0.7.0` (sezione «Aggiornamento» del [CHANGELOG](../CHANGELOG.md)):
+
+1. con `--tls-internode-verify`, copiare la CA che firma i certificati dei nodi in `CAs/` della directory dei
+   certificati su **tutti** i nodi: i certificati client dei peer sono verificati solo con `CAs/` (e con la foglia
+   di default), non più con la catena di `public.crt`; senza, ogni nodo aggiornato rifiuta l'RPC dei peer fino alla
+   perdita del quorum. `nexo server --dry-run` lo segnala con un avviso;
+2. chi serve distribuzioni sulla porta S3 senza `--server-url`/`--domain` imposta `NEXO_S3_DISTRIBUTIONS=on` (o
+   `NEXO_SERVER_URL`/`NEXO_DOMAIN`), altrimenti i domini smettono di rispondere sulla porta 9000;
+3. durante il rolling upgrade le GET coordinate da un nodo aggiornato con dischi su nodi `v0.7.0` (senza
+   `storage/open-file`) tengono il lock di lettura fino alla fine, come in `v0.7.0` (TestMixedClusterPinnedRead).
+
 ## 8.7 Rilascio (T-9.5)
 
 Un tag `v*` avvia [`.github/workflows/release.yml`](../.github/workflows/release.yml): GoReleaser v2.18.3 con
@@ -249,7 +260,7 @@ Un tag `v*` avvia [`.github/workflows/release.yml`](../.github/workflows/release
 | Artefatto | Dettaglio |
 |-----------|-----------|
 | Binari | `nexo` (con la console, `-tags embedui`) per linux/darwin/windows × amd64/arm64 (non windows/arm64); `nexoctl` anche per windows/arm64. Statici (`CGO_ENABLED=0`), `-trimpath`, data e mtime = commit (riproducibili); `nexo version` stampa il tag |
-| Archivi | `nexo_X.Y.Z_<os>_<arch>.tar.gz` (`.zip` su Windows) con README, unit e file env di systemd; `nexoctl_…` con i completamenti bash/zsh/fish; archivio dei sorgenti `nexo_X.Y.Z_source.tar.gz` |
+| Archivi | `nexo_X.Y.Z_<os>_<arch>.tar.gz` con LICENSE, README, unit e file env di systemd (`.zip` su Windows, con LICENSE e README soli: build e archivio `nexo-windows`); `nexoctl_…` con i completamenti bash/zsh/fish; archivio dei sorgenti `nexo_X.Y.Z_source.tar.gz` |
 | Pacchetti | `.deb` e `.rpm` per amd64/arm64: `nexo` (binario in `/usr/bin`, unit in `/usr/lib/systemd/system`, `/etc/default/nexo` come conffile `0640 root:nexo` con la password vuota, utente `nexo` creato da `preinstall` con `useradd` (deb: `Pre-Depends: passwd`) e dichiarato in `/usr/lib/sysusers.d/nexo.conf`, `/var/lib/nexo/data`; mai avviato né riavviato dagli script; la rimozione ferma il servizio e conserva i dati) e `nexoctl` (binario e completamenti); `nexo` raccomanda `nexoctl` |
 | Checksum | `checksums.txt` (SHA-256 di archivi, pacchetti, SBOM, sorgenti) + `checksums.txt.sigstore.json` (bundle cosign: firma, certificato, voce del log di trasparenza Rekor) |
 | SBOM | Un documento SPDX JSON per archivio (`<archivio>.sbom.json`, syft v1.54.1): moduli Go e toolchain di ogni binario. I pacchetti contengono gli stessi binari linux degli archivi |

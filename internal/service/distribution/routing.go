@@ -117,6 +117,51 @@ func (t *table) lookupWildcard(host string) (routeEntry, bool) {
 
 // Resolve implements Resolver.
 func (s *service) Resolve(_ context.Context, host string) Route {
+	return s.resolve(host, true)
+}
+
+// ListenerResolver implements Service.
+func (s *service) ListenerResolver(serveAliases bool) Resolver {
+	return listenerResolver{s: s, aliases: serveAliases}
+}
+
+// listenerResolver is the resolver of a listener (Service.ListenerResolver).
+type listenerResolver struct {
+	s       *service
+	aliases bool
+}
+
+var _ Resolver = listenerResolver{}
+
+// Resolve implements Resolver.
+func (l listenerResolver) Resolve(_ context.Context, host string) Route {
+	return l.s.resolve(host, l.aliases)
+}
+
+// Covers reports whether the wildcard alias "*.<suffix>" covers alias: an
+// exact host below the suffix, or a more specific wildcard
+// ("*.app.example.com" under "*.example.com"). Both are compared in their
+// normalized form; a wildcard covers neither itself nor a host that is not
+// a wildcard.
+func Covers(wildcard, alias string) bool {
+	wildcard, alias = normalizeAliasName(wildcard), normalizeAliasName(alias)
+	suffix, ok := strings.CutPrefix(wildcard, "*.")
+	if !ok || alias == wildcard {
+		return false
+	}
+	return strings.HasSuffix(strings.TrimPrefix(alias, "*."), "."+suffix)
+}
+
+// normalizeAliasName lowercases an alias and drops its surrounding spaces
+// and trailing dot (the comparison form of normalizeAlias, without its
+// validation).
+func normalizeAliasName(a string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(a)), ".")
+}
+
+// resolve resolves host; aliases selects whether the aliases of the
+// distributions are routed (Service.ListenerResolver).
+func (s *service) resolve(host string, aliases bool) Route {
 	t := s.table.Load()
 	h := normalizeHost(host)
 	r := Route{Host: h}
@@ -124,11 +169,13 @@ func (s *service) Resolve(_ context.Context, host string) Route {
 		r.Kind = RouteMain
 		return r
 	}
-	if e, ok := t.exact[h]; ok {
-		return distributionRoute(r, e)
-	}
-	if e, ok := t.lookupWildcard(h); ok {
-		return distributionRoute(r, e)
+	if aliases {
+		if e, ok := t.exact[h]; ok {
+			return distributionRoute(r, e)
+		}
+		if e, ok := t.lookupWildcard(h); ok {
+			return distributionRoute(r, e)
+		}
 	}
 	for _, d := range s.opts.domains {
 		if h == d {

@@ -623,6 +623,54 @@ func (_c *Service_ListKeyGroups_Call) RunAndReturn(run func(context.Context) ([]
 	return _c
 }
 
+// ListenerResolver provides a mock function with given fields: serveAliases
+func (_m *Service) ListenerResolver(serveAliases bool) distribution.Resolver {
+	ret := _m.Called(serveAliases)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListenerResolver")
+	}
+
+	var r0 distribution.Resolver
+	if rf, ok := ret.Get(0).(func(bool) distribution.Resolver); ok {
+		r0 = rf(serveAliases)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(distribution.Resolver)
+		}
+	}
+
+	return r0
+}
+
+// Service_ListenerResolver_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListenerResolver'
+type Service_ListenerResolver_Call struct {
+	*mock.Call
+}
+
+// ListenerResolver is a helper method to define mock.On call
+//   - serveAliases bool
+func (_e *Service_Expecter) ListenerResolver(serveAliases interface{}) *Service_ListenerResolver_Call {
+	return &Service_ListenerResolver_Call{Call: _e.mock.On("ListenerResolver", serveAliases)}
+}
+
+func (_c *Service_ListenerResolver_Call) Run(run func(serveAliases bool)) *Service_ListenerResolver_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(bool))
+	})
+	return _c
+}
+
+func (_c *Service_ListenerResolver_Call) Return(_a0 distribution.Resolver) *Service_ListenerResolver_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Service_ListenerResolver_Call) RunAndReturn(run func(bool) distribution.Resolver) *Service_ListenerResolver_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Reload provides a mock function with given fields: ctx
 func (_m *Service) Reload(ctx context.Context) error {
 	ret := _m.Called(ctx)

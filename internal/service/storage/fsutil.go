@@ -380,9 +380,10 @@ func (c *ctxReader) Read(p []byte) (int, error) {
 	return c.r.Read(p)
 }
 
-// sectionReadCloser closes the file when the section is closed.
+// sectionReadCloser closes the file when the section is closed. It seeks
+// (io.Seeker) within the section.
 type sectionReadCloser struct {
-	io.Reader
+	*io.SectionReader
 	f *os.File
 }
 

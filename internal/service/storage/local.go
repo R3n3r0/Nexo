@@ -836,7 +836,23 @@ func (s *xlStorage) ReadFileStream(ctx context.Context, volume, filePath string,
 		_ = f.Close()
 		return nil, fmt.Errorf("%w: %s/%s has %d bytes, want [%d, %d)", ErrFileCorrupt, volume, filePath, size, offset, offset+length)
 	}
-	return &sectionReadCloser{Reader: io.NewSectionReader(f, offset, length), f: f}, nil
+	return &sectionReadCloser{SectionReader: io.NewSectionReader(f, offset, length), f: f}, nil
+}
+
+// OpenFile implements StorageAPI.
+func (s *xlStorage) OpenFile(ctx context.Context, volume, filePath string) (FileHandle, error) {
+	if err := s.checkOpen(ctx); err != nil {
+		return nil, err
+	}
+	name, err := s.filePath(volume, filePath)
+	if err != nil {
+		return nil, err
+	}
+	f, st, err := openFile(name)
+	if err != nil {
+		return nil, s.fsErr(volume, filePath, err)
+	}
+	return &fileHandle{f: f, size: st.Size(), name: volume + "/" + filePath}, nil
 }
 
 // RenameData implements StorageAPI. The new xl.meta is staged and synced

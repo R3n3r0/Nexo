@@ -18,7 +18,7 @@ $ nexoctl admin cluster import mem backup.zip --mode wipe
 [exit 2]
 
 $ nexoctl admin cluster import mem junk.zip
-! nexoctl: error: import junk.zip: cluster archive: not a zip file: zip: not a valid zip file (invalid_argument)
+! nexoctl: error: import junk.zip: invalid argument: cluster archive: not a zip file: zip: not a valid zip file (invalid_argument)
 [exit 1]
 
 $ nexoctl admin lock list mem

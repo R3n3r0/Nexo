@@ -348,12 +348,30 @@ func (r *partsReader) openNext() error {
 	return nil
 }
 
-// pin implements pinnable.
+// partsCovered returns the number of parts [offset, offset+length) of fi
+// spans, or -1 when the range goes beyond its parts (no I/O).
+func partsCovered(fi storage.FileInfo, offset, length int64) int {
+	n := 0
+	for off, rem := offset, length; rem > 0; n++ {
+		_, _, partLen, ok := locatePart(fi, off, rem)
+		if !ok || partLen <= 0 {
+			return -1
+		}
+		off, rem = off+partLen, rem-partLen
+	}
+	return n
+}
+
+// pin implements pinnable. A range over more than max parts is read under
+// the lock without opening anything first.
 func (r *partsReader) pin(max int) bool {
+	if n := partsCovered(r.fi, r.offset, r.remaining); n < 0 || n > max {
+		return false
+	}
 	var opened []pinnedStream
 	for off, rem := r.offset, r.remaining; rem > 0; {
 		part, partOff, partLen, ok := locatePart(r.fi, off, rem)
-		if !ok || len(opened) == max {
+		if !ok {
 			closePinned(opened)
 			return false
 		}

@@ -36,7 +36,7 @@ import { TrafficTable } from '@/components/distributions/TrafficTable';
 import { RevealOnceModal } from '@/components/common/RevealOnceModal';
 import { ConfirmDialog, ErrorAlert } from '@/components/iam/common';
 import { distributionKeys } from '@/lib/accessQueries';
-import { editable, signingKeyGroups } from '@/lib/distributions';
+import { editable, invalidSourceIps, signingKeyGroups } from '@/lib/distributions';
 import { problemMessage } from '@/lib/problem';
 import { storageKeys } from '@/lib/storageKeys';
 import {
@@ -253,7 +253,7 @@ export function DistributionDetailPage() {
                   <Button
                     leftSection={<IconDeviceFloppy size={16} />}
                     loading={save.isPending}
-                    disabled={!dirty}
+                    disabled={!dirty || (draft !== null && invalidSourceIps(draft).length > 0)}
                     onClick={() => {
                       if (draft !== null) save.mutate(draft);
                     }}

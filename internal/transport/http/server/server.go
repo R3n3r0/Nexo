@@ -106,11 +106,54 @@ func WithoutH2C() Option {
 	return func(s *service) { s.h2c = false }
 }
 
-// HTTP/2 tuning of the listeners (see Start).
+// WithSendTimeout bounds how long a write of a response may stall
+// (default httpx.DefaultSendTimeout; <= 0 disables the bound): every
+// response of the server, see stallGuard.
+func WithSendTimeout(d time.Duration) Option {
+	return func(s *service) { s.sendTimeout = d }
+}
+
+// WithHTTP2Windows sets the HTTP/2 receive windows (per stream and per
+// connection) and the largest frame the listener accepts. The defaults
+// are the ones of net/http (1 MiB windows, 16 KiB frames): the request
+// bodies the server may buffer for a connection are bounded by the
+// connection window, so only the listener that serves the internode RPC
+// of a cluster takes the larger RPCStreamWindow, RPCConnWindow and
+// RPCMaxFrameSize.
+func WithHTTP2Windows(stream, conn, maxFrame int) Option {
+	return func(s *service) {
+		s.http2.MaxReceiveBufferPerStream = stream
+		s.http2.MaxReceiveBufferPerConnection = conn
+		s.http2.MaxReadFrameSize = maxFrame
+	}
+}
+
+// WithMaxConcurrentStreams bounds the concurrent HTTP/2 streams (requests)
+// of a connection (default DefaultMaxConcurrentStreams).
+func WithMaxConcurrentStreams(n int) Option {
+	return func(s *service) {
+		if n > 0 {
+			s.http2.MaxConcurrentStreams = n
+		}
+	}
+}
+
+// HTTP/2 tuning of the listeners.
 const (
-	http2StreamWindow = 16 << 20
-	http2ConnWindow   = 64 << 20
-	http2MaxFrameSize = 1 << 20
+	// DefaultMaxConcurrentStreams bounds the concurrent requests of an
+	// HTTP/2 connection (net/http allows 250): a browser opens at most
+	// about a hundred, the RPC client opens another connection to a peer
+	// beyond it.
+	DefaultMaxConcurrentStreams = 128
+	// RPCStreamWindow, RPCConnWindow and RPCMaxFrameSize tune the
+	// listener of the internode RPC (WithHTTP2Windows): the shard
+	// streams move megabytes, and receive windows of a few MiB and
+	// large frames keep a stream from stalling on flow control and cut
+	// the frames per byte. The connection window bounds what one
+	// connection may have the server buffer.
+	RPCStreamWindow = 8 << 20
+	RPCConnWindow   = 16 << 20
+	RPCMaxFrameSize = 1 << 20
 )
 
 type service struct {
@@ -136,6 +179,10 @@ type service struct {
 	// proxyProtocol accepts the PROXY protocol from proxyTrusted.
 	proxyProtocol bool
 	proxyTrusted  []string
+	// sendTimeout bounds the stalls of the responses (stallGuard);
+	// http2 is the HTTP/2 configuration of the listener.
+	sendTimeout time.Duration
+	http2       http.HTTP2Config
 
 	handler http.Handler
 
@@ -160,6 +207,8 @@ func New(deps Deps, opts ...Option) Service {
 		idleTimeout:       2 * time.Minute,
 		shutdownTimeout:   30 * time.Second,
 		h2c:               true,
+		sendTimeout:       httpx.DefaultSendTimeout,
+		http2:             http.HTTP2Config{MaxConcurrentStreams: DefaultMaxConcurrentStreams},
 	}
 	for _, o := range opts {
 		o(s)
@@ -182,7 +231,12 @@ func (s *service) build() http.Handler {
 		}
 	}
 	mws := append(append([]middleware.Middleware(nil), s.deps.Middlewares...), s.deps.Hosts)
-	return middleware.Chain(r, mws...)
+	h := middleware.Chain(r, mws...)
+	if s.sendTimeout > 0 {
+		// Outermost: every write of every response is bounded.
+		h = stallGuard(h, s.sendTimeout)
+	}
+	return h
 }
 
 // Handler implements Service.
@@ -224,21 +278,16 @@ func (s *service) Start(ctx context.Context) error {
 		ln = pln
 	}
 	handler := s.handler
+	h2cfg := s.http2
 	srv := &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: s.readHeaderTimeout,
 		IdleTimeout:       s.idleTimeout,
 		ErrorLog:          slog.NewLogLogger(s.deps.Logger.Handler(), slog.LevelWarn),
 		TLSConfig:         tlsCfg,
-		// The internode RPC streams erasure shards over HTTP/2: receive
-		// windows of a few MiB and large frames keep a stream from
-		// stalling on flow control and cut the frames per byte (the
-		// defaults are 1 MiB windows and 16 KiB frames).
-		HTTP2: &http.HTTP2Config{
-			MaxReceiveBufferPerStream:     http2StreamWindow,
-			MaxReceiveBufferPerConnection: http2ConnWindow,
-			MaxReadFrameSize:              http2MaxFrameSize,
-		},
+		// The windows of net/http unless the listener serves the
+		// internode RPC (WithHTTP2Windows).
+		HTTP2: &h2cfg,
 	}
 	if s.proxyProtocol {
 		srv.ConnContext = proxyConnContext

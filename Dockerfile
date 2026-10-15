@@ -83,11 +83,13 @@ LABEL org.opencontainers.image.title="Nexo" \
       org.opencontainers.image.url="https://github.com/r3n3r0/nexo" \
       org.opencontainers.image.source="https://github.com/r3n3r0/nexo" \
       org.opencontainers.image.documentation="https://github.com/r3n3r0/nexo/tree/main/docs" \
+      org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.vendor="r3n3r0" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${COMMIT}" \
       org.opencontainers.image.created="${DATE}"
 
+COPY LICENSE /LICENSE
 COPY --from=go /out/nexo /nexo
 COPY --from=go /out/nexoctl /nexoctl
 COPY --from=go --chown=65532:65532 /out/data /data

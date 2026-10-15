@@ -759,7 +759,7 @@ func uniq(s []string) []string {
 // read returns one complete, consistent object.
 //
 // In the erasure-coded modes a request may wait beyond the lock timeout
-// under this contention and be refused with 503 SlowDown, which an SDK
+// under this contention and be refused with 503 XNexoLockTimeout, which an SDK
 // retries (as it does for S3): the clients of this test retry, the
 // consistency checks are the same. In a cluster the contenders compete on
 // the quorum of the lock servers of every node (dsync), which has no

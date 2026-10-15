@@ -66,6 +66,17 @@ func (r *bitrotReader) stream(off int64) (io.ReadCloser, error) {
 	if r.rc != nil && r.pos == off {
 		return r.rc, nil
 	}
+	if r.rc != nil && r.pos >= 0 && off > r.pos {
+		// A shard the decoding did not read for some blocks: a seekable
+		// stream (a local file) moves forward instead of being reopened,
+		// which also keeps reading the file it opened.
+		if s, ok := r.rc.(io.Seeker); ok {
+			if _, err := s.Seek(off-r.pos, io.SeekCurrent); err == nil {
+				r.pos = off
+				return r.rc, nil
+			}
+		}
+	}
 	if r.rc != nil {
 		_ = r.rc.Close()
 		r.rc = nil

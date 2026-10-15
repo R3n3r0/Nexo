@@ -696,10 +696,14 @@ func (e *erasureSet) ReadData(ctx context.Context, volume, path string, fi stora
 	return rc, err
 }
 
-// OpenData implements store: the shards of the local drives and, in
-// shard order, enough remote ones to reach D are opened before it returns
-// (pinned when D of them are); the others are opened by the decoding when
-// one of those fails.
+// OpenData implements store: before it returns, a handle is opened on the
+// shard of every online drive (a local file, or a file the node of a
+// remote drive keeps open: no data moves), and the streams of the remote
+// shards the decoding reads first (data shards first) until D shards are
+// covered. The read is pinned when D shards are: the shards the decoding
+// adds later (a bitrot, a failing or slow drive) read through their handle
+// the version the read resolved, even when a writer replaced or deleted it
+// once the lock was released (docs/02 §2.4).
 func (e *erasureSet) OpenData(ctx context.Context, volume, path string, fi storage.FileInfo, part storage.PartInfo, offset, length int64) (io.ReadCloser, bool, error) {
 	return e.readData(ctx, volume, path, fi, part, offset, length, true)
 }
@@ -737,7 +741,7 @@ func (e *erasureSet) readData(ctx context.Context, volume, path string, fi stora
 		}
 		shard := shardOf(fi.Erasure, i)
 		readers[shard] = codec.BitrotReader(dctx, func(ctx context.Context, off int64) (io.ReadCloser, error) {
-			if rc := pre.take(shard, off); rc != nil {
+			if rc := pre.take(ctx, shard, off); rc != nil {
 				return rc, nil
 			}
 			return d.ReadFileStream(ctx, volume, dataPath, off, -1)
@@ -751,7 +755,7 @@ func (e *erasureSet) readData(ctx context.Context, volume, path string, fi stora
 				_ = r.Close()
 			}
 		}
-		pre.close()
+		pre.close(ctx)
 	}
 	dr.discard = closeReaders
 	dr.start = func() {
@@ -767,104 +771,208 @@ func (e *erasureSet) readData(ctx context.Context, volume, path string, fi stora
 			_ = pw.CloseWithError(err)
 		}()
 	}
-	return dr, eager && pre.len() >= codec.DataShards() && pinnedReads, nil
+	return dr, eager && pre.pinned(codec.DataShards()) && pinnedReads, nil
 }
 
-// preopened holds the shard streams a read opened before decoding, all
-// positioned at the shard file offset of the first block of the read; the
-// shard readers take them instead of opening their stream.
+// preopened is what a read opened before decoding, so that it reads the
+// version it resolved after releasing its lock: the streams of the remote
+// shards the decoding reads first, positioned at the shard file offset of
+// the first block of the read (taken once by their shard reader), and a
+// handle on every other online shard, which serves its shard reader at any
+// offset, as often as needed.
 type preopened struct {
 	mu      sync.Mutex
 	off     int64
 	streams map[int]io.ReadCloser // by shard index
+	handles map[int]pinnedHandle  // by shard index
+	// incomplete is set when an online drive could not open its shard
+	// for a reason other than a missing shard (a node of an older
+	// release without storage/open-file, a full handle table, a network
+	// error): its shard would be read later by path, possibly another
+	// version, so the read is not pinned.
+	incomplete bool
 }
 
-// take returns the stream of shard opened at file offset off, nil when
-// there is none (each stream is taken once).
-func (p *preopened) take(shard int, off int64) io.ReadCloser {
+// pinnedHandle is the handle of a shard and whether its drive is remote
+// (its close is a call to the node, made in the background).
+type pinnedHandle struct {
+	h      storage.FileHandle
+	remote bool
+}
+
+// take returns the stream of shard positioned at file offset off: its
+// preopened stream (moved forward when off is past the first block), or a
+// new stream of its handle; nil when the shard has neither (the shard
+// reader then opens the file by path).
+func (p *preopened) take(ctx context.Context, shard int, off int64) io.ReadCloser {
 	if p == nil {
 		return nil
 	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	if off != p.off {
+	rc, ok := p.streams[shard]
+	delete(p.streams, shard)
+	ph, pinned := p.handles[shard]
+	closed := p.streams == nil
+	p.mu.Unlock()
+	if closed {
 		return nil
 	}
-	rc := p.streams[shard]
-	delete(p.streams, shard)
+	if ok {
+		if off == p.off {
+			return rc
+		}
+		if off > p.off {
+			if _, err := io.CopyN(io.Discard, rc, off-p.off); err == nil {
+				return rc
+			}
+		}
+		_ = rc.Close()
+	}
+	if !pinned {
+		return nil
+	}
+	rc, err := ph.h.ReadStream(ctx, off, -1)
+	if err != nil {
+		return nil
+	}
 	return rc
 }
 
-// len returns the number of streams opened and not taken yet.
-func (p *preopened) len() int {
+// pinned reports a read pinned to its version: every online drive holds a
+// handle or a stream of its shard, or answered that the shard is missing
+// (there is nothing to pin there), and at least dataShards shards are
+// held. Otherwise the caller keeps the lock of the object until the end of
+// the read, as a read of more than the pinned parts does.
+func (p *preopened) pinned(dataShards int) bool {
+	if p == nil {
+		return false
+	}
+	p.mu.Lock()
+	incomplete := p.incomplete
+	p.mu.Unlock()
+	return !incomplete && p.covered() >= dataShards
+}
+
+// covered returns the number of shards the read pinned: preopened streams
+// and handles.
+func (p *preopened) covered() int {
 	if p == nil {
 		return 0
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return len(p.streams)
+	n := len(p.handles)
+	for shard := range p.streams {
+		if _, dup := p.handles[shard]; !dup {
+			n++
+		}
+	}
+	return n
 }
 
-// close closes the streams no shard reader took.
-func (p *preopened) close() {
+// close closes the streams no shard reader took and the handles (the
+// remote ones in the background: the end of the read does not wait for
+// their nodes). The shard readers are closed first.
+func (p *preopened) close(ctx context.Context) {
 	if p == nil {
 		return
 	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	for _, rc := range p.streams {
+	streams, handles := p.streams, p.handles
+	p.streams, p.handles = nil, nil
+	p.mu.Unlock()
+	for _, rc := range streams {
 		_ = rc.Close()
 	}
-	p.streams = nil
+	ctx = context.WithoutCancel(ctx)
+	var remote []storage.FileHandle
+	for _, ph := range handles {
+		if ph.remote {
+			remote = append(remote, ph.h)
+			continue
+		}
+		_ = ph.h.Close(ctx)
+	}
+	if len(remote) > 0 {
+		go func() {
+			for _, h := range remote {
+				_ = h.Close(ctx)
+			}
+		}()
+	}
 }
 
-// preopen opens the shard streams of a read from offset of a part: every
-// shard of a local drive (an open file costs nothing until read), and
-// remote ones in shard order (data shards first, as the decoding reads
-// them) until D are open. Shards that fail to open are left to the
-// decoding, which reports them.
+// preopen opens what a read from offset of a part needs to be pinned: a
+// handle on the shard of every online drive (local files cost a
+// descriptor, remote ones a call that moves no data) and, in shard order
+// (data shards first, as the decoding reads them), the streams of the
+// remote shards the decoding starts with until D shards are covered by a
+// local handle or a stream, which saves their first round trip. Shards
+// that fail to open are left to the decoding, which reports them; a
+// failure other than a missing shard leaves the read unpinned (pinned).
 func (e *erasureSet) preopen(ctx context.Context, codec erasure.Codec, fi storage.FileInfo, volume, dataPath string, offset int64) *preopened {
 	pre := &preopened{
 		off:     offset / codec.BlockSize() * (erasure.BitrotHashSize + codec.ShardSize()),
 		streams: map[int]io.ReadCloser{},
+		handles: map[int]pinnedHandle{},
 	}
 	type shardDrive struct {
 		shard int
 		d     storage.StorageAPI
 	}
-	var local, remote []shardDrive
+	var online []shardDrive
+	local := 0
 	for i, d := range e.drives {
 		if !isOnline(d) {
 			continue
 		}
-		sd := shardDrive{shard: shardOf(fi.Erasure, i), d: d}
+		online = append(online, shardDrive{shard: shardOf(fi.Erasure, i), d: d})
 		if d.Endpoint().IsLocal {
-			local = append(local, sd)
-		} else {
-			remote = append(remote, sd)
+			local++
 		}
 	}
-	slices.SortFunc(remote, func(a, b shardDrive) int { return a.shard - b.shard })
-	open := func(batch []shardDrive) {
-		rcs := make([]io.ReadCloser, len(batch))
-		_ = parallel(len(batch), func(i int) error {
-			rc, err := batch[i].d.ReadFileStream(ctx, volume, dataPath, pre.off, -1)
-			rcs[i] = rc
-			return err
-		})
-		for i, rc := range rcs {
-			if rc != nil {
-				pre.streams[batch[i].shard] = rc
-			}
+	slices.SortFunc(online, func(a, b shardDrive) int { return a.shard - b.shard })
+	// The remote shards streamed from the start: in shard order, until the
+	// local shards and they reach D.
+	streamed := map[int]bool{}
+	for _, sd := range online {
+		if local+len(streamed) >= codec.DataShards() {
+			break
+		}
+		if !sd.d.Endpoint().IsLocal {
+			streamed[sd.shard] = true
 		}
 	}
-	open(local)
-	for need := codec.DataShards() - len(pre.streams); need > 0 && len(remote) > 0; need = codec.DataShards() - len(pre.streams) {
-		batch := remote[:min(need, len(remote))]
-		remote = remote[len(batch):]
-		open(batch)
+	handles := make([]storage.FileHandle, len(online))
+	streams := make([]io.ReadCloser, len(online))
+	errs := make([]error, len(online))
+	_ = parallel(len(online), func(i int) error {
+		sd := online[i]
+		if streamed[sd.shard] {
+			streams[i], errs[i] = sd.d.ReadFileStream(ctx, volume, dataPath, pre.off, -1)
+			return nil
+		}
+		handles[i], errs[i] = sd.d.OpenFile(ctx, volume, dataPath)
+		return nil
+	})
+	for i, sd := range online {
+		if streams[i] != nil {
+			pre.streams[sd.shard] = streams[i]
+		}
+		if handles[i] != nil {
+			pre.handles[sd.shard] = pinnedHandle{h: handles[i], remote: !sd.d.Endpoint().IsLocal}
+		}
+		if errs[i] != nil && !missingShard(errs[i]) {
+			pre.incomplete = true
+		}
 	}
 	return pre
+}
+
+// missingShard reports the error of a drive that has no file for the
+// shard: nothing of the version is there to pin.
+func missingShard(err error) bool {
+	return errors.Is(err, domain.ErrObjectNotFound) || errors.Is(err, domain.ErrBucketNotFound)
 }
 
 // decodeReader is the body of an erasure-coded part: the output of the

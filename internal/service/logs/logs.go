@@ -478,7 +478,9 @@ type redactor struct {
 
 func newRedactor() *redactor {
 	return &redactor{
-		query:  regexp.MustCompile(`(?i)((?:x-amz-signature|x-amz-credential|x-amz-security-token|signature|awsaccesskeyid|key-pair-id|token|access_token)=)[^&\s"']+`),
+		// The parameters of domain.IsSensitiveParam, the predicate of
+		// every redaction (logs, audit, access logs, trace).
+		query:  regexp.MustCompile(domain.SensitiveParamPattern() + `[^&\s"']+`),
 		bearer: regexp.MustCompile(`(?i)\b(bearer|basic|aws4-hmac-sha256)\s+[^\s"']+`),
 	}
 }
@@ -499,7 +501,7 @@ func sensitiveKey(key string) bool {
 }
 
 // redactedValue replaces a secret.
-const redactedValue = "REDACTED"
+const redactedValue = domain.RedactedValue
 
 // value redacts the signatures, credentials and authorization schemes
 // found in a text.

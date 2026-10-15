@@ -298,7 +298,7 @@ func (d *dispatcher) Publish(ctx context.Context, e Event) error {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	if !d.started || d.closed {
-		return fmt.Errorf("event: dispatcher not running: %w", domain.ErrConflict)
+		return fmt.Errorf("%w: the event dispatcher is not running", domain.ErrConflict)
 	}
 	select {
 	case d.queue <- e:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/r3n3r0/nexo/internal/domain"
 )
@@ -42,19 +43,27 @@ type S3Codes struct {
 	InvalidRange          S3Code
 	NotImplemented        S3Code
 	SlowDown              S3Code
-	QuotaExceeded         S3Code
-	ObjectLocked          S3Code
-	StorageFull           S3Code
-	InternalError         S3Code
-	MethodNotAllowed      S3Code
-	NoSuchUser            S3Code
-	UserAlreadyExists     S3Code
-	NoSuchPolicy          S3Code
-	NoSuchGroup           S3Code
-	RequestTimeout        S3Code
-	Conflict              S3Code
-	BadDigest             S3Code
-	InvalidFormat         S3Code
+	// SlowDownRead and SlowDownWrite report a set that lost its read or
+	// write quorum (too many drives or nodes offline), LockTimeout a lock
+	// that could not be acquired in time and ServiceUnavailable a drive or
+	// node offline: all 503, retryable.
+	SlowDownRead       S3Code
+	SlowDownWrite      S3Code
+	LockTimeout        S3Code
+	ServiceUnavailable S3Code
+	QuotaExceeded      S3Code
+	ObjectLocked       S3Code
+	StorageFull        S3Code
+	InternalError      S3Code
+	MethodNotAllowed   S3Code
+	NoSuchUser         S3Code
+	UserAlreadyExists  S3Code
+	NoSuchPolicy       S3Code
+	NoSuchGroup        S3Code
+	RequestTimeout     S3Code
+	Conflict           S3Code
+	BadDigest          S3Code
+	InvalidFormat      S3Code
 
 	// Codes raised with an explicit *domain.S3Error code: their HTTP
 	// status is the canonical one of the code, whatever the wrapped
@@ -96,7 +105,7 @@ func (c S3Codes) all() []S3Code {
 		c.InvalidAccessKeyID, c.SignatureDoesNotMatch, c.RequestTimeTooSkewed, c.InvalidBucketName,
 		c.InvalidObjectName, c.InvalidArgument, c.MalformedXML, c.NoSuchUpload, c.InvalidPart, c.InvalidPartOrder,
 		c.EntityTooSmall, c.EntityTooLarge, c.PreconditionFailed, c.NotModified, c.InvalidRange, c.NotImplemented,
-		c.SlowDown, c.QuotaExceeded, c.ObjectLocked, c.StorageFull, c.InternalError, c.MethodNotAllowed,
+		c.SlowDown, c.SlowDownRead, c.SlowDownWrite, c.LockTimeout, c.ServiceUnavailable, c.QuotaExceeded, c.ObjectLocked, c.StorageFull, c.InternalError, c.MethodNotAllowed,
 		c.NoSuchUser, c.UserAlreadyExists, c.NoSuchPolicy, c.NoSuchGroup, c.RequestTimeout, c.Conflict,
 		c.BadDigest, c.InvalidFormat,
 		c.InvalidDigest, c.KeyTooLongError, c.MetadataTooLarge, c.MissingContentLength, c.InvalidPartNumber,
@@ -134,7 +143,11 @@ func DefaultS3Codes() S3Codes {
 		NotModified:           S3Code{"NotModified", "Not Modified", http.StatusNotModified},
 		InvalidRange:          S3Code{"InvalidRange", "The requested range is not satisfiable", http.StatusRequestedRangeNotSatisfiable},
 		NotImplemented:        S3Code{"NotImplemented", "A header you provided implies functionality that is not implemented", http.StatusNotImplemented},
-		SlowDown:              S3Code{"SlowDown", "Resource requested is unreadable, please reduce your request rate", http.StatusServiceUnavailable},
+		SlowDown:              S3Code{"SlowDown", "Please reduce your request rate.", http.StatusServiceUnavailable},
+		SlowDownRead:          S3Code{"SlowDownRead", "The deployment has lost its read quorum (too many drives or nodes offline), please retry later.", http.StatusServiceUnavailable},
+		SlowDownWrite:         S3Code{"SlowDownWrite", "The deployment has lost its write quorum (too many drives or nodes offline), please retry later.", http.StatusServiceUnavailable},
+		LockTimeout:           S3Code{"XNexoLockTimeout", "The resource is locked by another operation, or too many nodes are offline to lock it, please retry later.", http.StatusServiceUnavailable},
+		ServiceUnavailable:    S3Code{"ServiceUnavailable", "A drive or node needed by the request is offline, please retry later.", http.StatusServiceUnavailable},
 		QuotaExceeded:         S3Code{"XNexoQuotaExceeded", "Bucket quota exceeded", http.StatusInsufficientStorage},
 		ObjectLocked:          S3Code{"XNexoObjectLocked", "Object is WORM protected and cannot be overwritten or deleted", http.StatusForbidden},
 		StorageFull:           S3Code{"XNexoStorageFull", "Storage backend has reached its minimum free drive threshold. Please delete a few objects to proceed.", http.StatusInsufficientStorage},
@@ -186,59 +199,83 @@ type errorMapping struct {
 	code    S3Code
 	status  int
 	problem string
+	// detail is the message of the problem document: a curated text,
+	// never the chain of the error (its internal context stays in the
+	// logs, with the request id).
+	detail string
+	// reason tells how the problem reports the cause a service phrased
+	// for the caller after the sentinel ("%w: <reason>": the invalid
+	// field, the missing permission, the unknown resource...).
+	reason reasonMode
 }
+
+// reasonMode is how a problem reports the reason of its error.
+type reasonMode int
+
+const (
+	// noReason: the curated message only (the reason is internal
+	// context, or the class needs no more).
+	noReason reasonMode = iota
+	// reasonAlone: the reason replaces the curated message (it explains
+	// the error on its own: "logger.level: verbose is not a level").
+	reasonAlone
+	// reasonQualified: the reason completes the curated message ("The
+	// resource does not exist: healing job h1").
+	reasonQualified
+)
 
 // mappings builds the sentinel table from a code table. Sentinels are
 // distinct, so at most one entry matches an error.
 func mappings(c S3Codes) []errorMapping {
+	const reason, qualified, curated = reasonAlone, reasonQualified, noReason
 	return []errorMapping{
-		{domain.ErrBucketNotFound, c.NoSuchBucket, http.StatusNotFound, "bucket_not_found"},
-		{domain.ErrBucketAlreadyExists, c.BucketAlreadyExists, http.StatusConflict, "bucket_already_exists"},
-		{domain.ErrBucketNotEmpty, c.BucketNotEmpty, http.StatusConflict, "bucket_not_empty"},
-		{domain.ErrInvalidBucketName, c.InvalidBucketName, http.StatusBadRequest, "invalid_bucket_name"},
-		{domain.ErrObjectNotFound, c.NoSuchKey, http.StatusNotFound, "object_not_found"},
-		{domain.ErrInvalidObjectName, c.InvalidObjectName, http.StatusBadRequest, "invalid_object_name"},
-		{domain.ErrNoSuchVersion, c.NoSuchVersion, http.StatusNotFound, "version_not_found"},
-		{domain.ErrNoSuchUpload, c.NoSuchUpload, http.StatusNotFound, "upload_not_found"},
-		{domain.ErrInvalidPart, c.InvalidPart, http.StatusBadRequest, "invalid_part"},
-		{domain.ErrInvalidPartOrder, c.InvalidPartOrder, http.StatusBadRequest, "invalid_part_order"},
-		{domain.ErrEntityTooSmall, c.EntityTooSmall, http.StatusBadRequest, "entity_too_small"},
-		{domain.ErrEntityTooLarge, c.EntityTooLarge, http.StatusRequestEntityTooLarge, "entity_too_large"},
-		{domain.ErrPreconditionFailed, c.PreconditionFailed, http.StatusPreconditionFailed, "precondition_failed"},
-		{domain.ErrNotModified, c.NotModified, http.StatusNotModified, "not_modified"},
-		{domain.ErrInvalidRange, c.InvalidRange, http.StatusRequestedRangeNotSatisfiable, "invalid_range"},
-		{domain.ErrAccessDenied, c.AccessDenied, http.StatusForbidden, "access_denied"},
-		{domain.ErrUnauthenticated, c.AccessDenied, http.StatusUnauthorized, "unauthenticated"},
-		{domain.ErrInvalidAccessKey, c.InvalidAccessKeyID, http.StatusUnauthorized, "invalid_access_key"},
-		{domain.ErrSignatureMismatch, c.SignatureDoesNotMatch, http.StatusUnauthorized, "signature_mismatch"},
-		{domain.ErrRequestExpired, c.RequestTimeTooSkewed, http.StatusUnauthorized, "request_expired"},
-		{domain.ErrTooManyRequests, c.SlowDown, http.StatusTooManyRequests, "too_many_requests"},
-		{domain.ErrUserNotFound, c.NoSuchUser, http.StatusNotFound, "user_not_found"},
-		{domain.ErrUserAlreadyExists, c.UserAlreadyExists, http.StatusConflict, "user_already_exists"},
-		{domain.ErrPolicyNotFound, c.NoSuchPolicy, http.StatusNotFound, "policy_not_found"},
-		{domain.ErrGroupNotFound, c.NoSuchGroup, http.StatusNotFound, "group_not_found"},
-		{domain.ErrShareNotFound, c.NoSuchKey, http.StatusNotFound, "share_not_found"},
-		{domain.ErrNotFound, c.NoSuchKey, http.StatusNotFound, "not_found"},
-		{domain.ErrNotImplemented, c.NotImplemented, http.StatusNotImplemented, "not_implemented"},
-		{domain.ErrStorageFull, c.StorageFull, http.StatusInsufficientStorage, "storage_full"},
-		{domain.ErrDiskNotFound, c.SlowDown, http.StatusServiceUnavailable, "disk_not_found"},
-		{domain.ErrNodeOffline, c.SlowDown, http.StatusServiceUnavailable, "node_offline"},
-		{domain.ErrFaultyDisk, c.SlowDown, http.StatusServiceUnavailable, "faulty_disk"},
-		{domain.ErrReadQuorum, c.SlowDown, http.StatusServiceUnavailable, "read_quorum"},
-		{domain.ErrWriteQuorum, c.SlowDown, http.StatusServiceUnavailable, "write_quorum"},
-		{domain.ErrLockTimeout, c.SlowDown, http.StatusServiceUnavailable, "lock_timeout"},
-		{domain.ErrQuotaExceeded, c.QuotaExceeded, http.StatusInsufficientStorage, "quota_exceeded"},
-		{domain.ErrObjectLocked, c.ObjectLocked, http.StatusForbidden, "object_locked"},
-		{domain.ErrInvalidFormat, c.InvalidFormat, http.StatusInternalServerError, "invalid_format"},
-		{domain.ErrFormatMismatch, c.InvalidFormat, http.StatusInternalServerError, "format_mismatch"},
-		{domain.ErrInvalidLayout, c.InvalidFormat, http.StatusInternalServerError, "invalid_layout"},
-		{domain.ErrInvalidArgument, c.InvalidArgument, http.StatusBadRequest, "invalid_argument"},
-		{domain.ErrMalformedXML, c.MalformedXML, http.StatusBadRequest, "malformed_xml"},
-		{domain.ErrConflict, c.Conflict, http.StatusConflict, "conflict"},
-		{domain.ErrMethodNotAllowed, c.MethodNotAllowed, http.StatusMethodNotAllowed, "method_not_allowed"},
-		{domain.ErrBadDigest, c.BadDigest, http.StatusBadRequest, "bad_digest"},
-		{domain.ErrChecksumMismatch, c.BadDigest, http.StatusBadRequest, "checksum_mismatch"},
-		{context.DeadlineExceeded, c.RequestTimeout, http.StatusRequestTimeout, "request_timeout"},
+		{domain.ErrBucketNotFound, c.NoSuchBucket, http.StatusNotFound, "bucket_not_found", "The bucket does not exist.", curated},
+		{domain.ErrBucketAlreadyExists, c.BucketAlreadyExists, http.StatusConflict, "bucket_already_exists", "A bucket with this name already exists.", curated},
+		{domain.ErrBucketNotEmpty, c.BucketNotEmpty, http.StatusConflict, "bucket_not_empty", "The bucket is not empty.", curated},
+		{domain.ErrInvalidBucketName, c.InvalidBucketName, http.StatusBadRequest, "invalid_bucket_name", "The bucket name is not valid.", reason},
+		{domain.ErrObjectNotFound, c.NoSuchKey, http.StatusNotFound, "object_not_found", "The object does not exist.", curated},
+		{domain.ErrInvalidObjectName, c.InvalidObjectName, http.StatusBadRequest, "invalid_object_name", "The object name is not valid.", reason},
+		{domain.ErrNoSuchVersion, c.NoSuchVersion, http.StatusNotFound, "version_not_found", "The version does not exist.", curated},
+		{domain.ErrNoSuchUpload, c.NoSuchUpload, http.StatusNotFound, "upload_not_found", "The multipart upload does not exist.", curated},
+		{domain.ErrInvalidPart, c.InvalidPart, http.StatusBadRequest, "invalid_part", "One or more parts are missing or do not match their entity tag.", reason},
+		{domain.ErrInvalidPartOrder, c.InvalidPartOrder, http.StatusBadRequest, "invalid_part_order", "The parts are not in ascending order.", reason},
+		{domain.ErrEntityTooSmall, c.EntityTooSmall, http.StatusBadRequest, "entity_too_small", "The upload is smaller than the minimum allowed size.", reason},
+		{domain.ErrEntityTooLarge, c.EntityTooLarge, http.StatusRequestEntityTooLarge, "entity_too_large", "The upload exceeds the maximum allowed size.", reason},
+		{domain.ErrPreconditionFailed, c.PreconditionFailed, http.StatusPreconditionFailed, "precondition_failed", "A precondition of the request does not hold.", reason},
+		{domain.ErrNotModified, c.NotModified, http.StatusNotModified, "not_modified", "Not modified.", curated},
+		{domain.ErrInvalidRange, c.InvalidRange, http.StatusRequestedRangeNotSatisfiable, "invalid_range", "The requested range is not satisfiable.", reason},
+		{domain.ErrAccessDenied, c.AccessDenied, http.StatusForbidden, "access_denied", "Access denied.", reason},
+		{domain.ErrUnauthenticated, c.AccessDenied, http.StatusUnauthorized, "unauthenticated", "Authentication required.", reason},
+		{domain.ErrInvalidAccessKey, c.InvalidAccessKeyID, http.StatusUnauthorized, "invalid_access_key", "The access key does not exist.", curated},
+		{domain.ErrSignatureMismatch, c.SignatureDoesNotMatch, http.StatusUnauthorized, "signature_mismatch", "The request signature does not match: check the secret key.", curated},
+		{domain.ErrRequestExpired, c.RequestTimeTooSkewed, http.StatusUnauthorized, "request_expired", "The request has expired, or the clocks of the client and of the server differ too much.", curated},
+		{domain.ErrTooManyRequests, c.SlowDown, http.StatusTooManyRequests, "too_many_requests", "Too many requests, please retry later.", reason},
+		{domain.ErrUserNotFound, c.NoSuchUser, http.StatusNotFound, "user_not_found", "The user or access key does not exist.", curated},
+		{domain.ErrUserAlreadyExists, c.UserAlreadyExists, http.StatusConflict, "user_already_exists", "The user or access key already exists.", curated},
+		{domain.ErrPolicyNotFound, c.NoSuchPolicy, http.StatusNotFound, "policy_not_found", "The policy does not exist.", curated},
+		{domain.ErrGroupNotFound, c.NoSuchGroup, http.StatusNotFound, "group_not_found", "The group does not exist.", curated},
+		{domain.ErrShareNotFound, c.NoSuchKey, http.StatusNotFound, "share_not_found", "The share link does not exist.", curated},
+		{domain.ErrNotFound, c.NoSuchKey, http.StatusNotFound, "not_found", "The resource does not exist.", qualified},
+		{domain.ErrNotImplemented, c.NotImplemented, http.StatusNotImplemented, "not_implemented", "The operation is not implemented by this deployment.", reason},
+		{domain.ErrStorageFull, c.StorageFull, http.StatusInsufficientStorage, "storage_full", "The drives have reached their minimum free space: delete some objects to proceed.", curated},
+		{domain.ErrDiskNotFound, c.ServiceUnavailable, http.StatusServiceUnavailable, "disk_not_found", "A drive needed by the request is offline, please retry later.", curated},
+		{domain.ErrNodeOffline, c.ServiceUnavailable, http.StatusServiceUnavailable, "node_offline", "A node needed by the request is offline, please retry later.", curated},
+		{domain.ErrFaultyDisk, c.ServiceUnavailable, http.StatusServiceUnavailable, "faulty_disk", "A drive needed by the request is faulty, please retry later.", curated},
+		{domain.ErrReadQuorum, c.SlowDownRead, http.StatusServiceUnavailable, "read_quorum", c.SlowDownRead.Description, curated},
+		{domain.ErrWriteQuorum, c.SlowDownWrite, http.StatusServiceUnavailable, "write_quorum", c.SlowDownWrite.Description, curated},
+		{domain.ErrLockTimeout, c.LockTimeout, http.StatusServiceUnavailable, "lock_timeout", c.LockTimeout.Description, curated},
+		{domain.ErrQuotaExceeded, c.QuotaExceeded, http.StatusInsufficientStorage, "quota_exceeded", "The bucket quota is exceeded.", reason},
+		{domain.ErrObjectLocked, c.ObjectLocked, http.StatusForbidden, "object_locked", "The object is protected by Object Lock.", reason},
+		{domain.ErrInvalidFormat, c.InvalidFormat, http.StatusInternalServerError, "invalid_format", "The on-disk format is invalid or inconsistent.", curated},
+		{domain.ErrFormatMismatch, c.InvalidFormat, http.StatusInternalServerError, "format_mismatch", "The on-disk format is invalid or inconsistent.", curated},
+		{domain.ErrInvalidLayout, c.InvalidFormat, http.StatusInternalServerError, "invalid_layout", "The deployment layout is invalid.", curated},
+		{domain.ErrInvalidArgument, c.InvalidArgument, http.StatusBadRequest, "invalid_argument", "Invalid argument.", reason},
+		{domain.ErrMalformedXML, c.MalformedXML, http.StatusBadRequest, "malformed_xml", "The XML document is not well-formed.", reason},
+		{domain.ErrConflict, c.Conflict, http.StatusConflict, "conflict", "The request conflicts with the current state of the resource.", reason},
+		{domain.ErrMethodNotAllowed, c.MethodNotAllowed, http.StatusMethodNotAllowed, "method_not_allowed", "The method is not allowed on this resource.", reason},
+		{domain.ErrBadDigest, c.BadDigest, http.StatusBadRequest, "bad_digest", "The checksum does not match the content.", reason},
+		{domain.ErrChecksumMismatch, c.BadDigest, http.StatusBadRequest, "checksum_mismatch", "The checksum does not match the content.", reason},
+		{context.DeadlineExceeded, c.RequestTimeout, http.StatusRequestTimeout, "request_timeout", "The request timed out.", curated},
 	}
 }
 
@@ -307,13 +344,50 @@ type Problem struct {
 	RequestID string `json:"requestId,omitempty"`
 }
 
-// ProblemFromError implements Encoder. Unknown errors become a generic 500
-// without leaking the error text.
+// ProblemFromError implements Encoder. The detail is curated (problemDetail):
+// the chain of the error, with its internal context (packages, paths,
+// drives), is never sent; unknown errors become a generic 500 without
+// detail.
 func (c *codec) ProblemFromError(err error) Problem {
 	for _, m := range c.mappings {
 		if errors.Is(err, m.err) {
-			return Problem{Title: http.StatusText(m.status), Status: m.status, Code: m.problem, Detail: err.Error()}
+			return Problem{Title: http.StatusText(m.status), Status: m.status, Code: m.problem, Detail: problemDetail(err, m)}
 		}
 	}
 	return Problem{Title: http.StatusText(http.StatusInternalServerError), Status: http.StatusInternalServerError, Code: "internal_error"}
+}
+
+// problemDetail is the detail of the problem of err, which matches m: the
+// message of a *domain.S3Error, the reason the service phrased after the
+// sentinel for the classes that report it (m.reason), the curated message
+// of the class otherwise. A reason that is a bare name (a quoted
+// identifier, no sentence) always completes the curated message.
+func problemDetail(err error, m errorMapping) string {
+	var s3err *domain.S3Error
+	if errors.As(err, &s3err) && s3err.Message != "" {
+		return s3err.Message
+	}
+	if m.reason == noReason {
+		return m.detail
+	}
+	r := reasonOf(err.Error(), m.err.Error())
+	switch {
+	case r == "":
+		return m.detail
+	case m.reason == reasonQualified || !strings.ContainsAny(r, " \t"):
+		return strings.TrimSuffix(m.detail, ".") + ": " + r
+	default:
+		return r
+	}
+}
+
+// reasonOf returns the text that follows the last "<sentinel>: " of msg,
+// "" when there is none: services phrase the cause of an error for the
+// caller after the sentinel they wrap ("%w: <reason>").
+func reasonOf(msg, sentinel string) string {
+	i := strings.LastIndex(msg, sentinel+": ")
+	if i < 0 {
+		return ""
+	}
+	return strings.TrimSpace(msg[i+len(sentinel)+2:])
 }

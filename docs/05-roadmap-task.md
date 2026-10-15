@@ -305,7 +305,7 @@ circa 3 ms da nodo1 a nodo4; TCD-03: decine di ms attraverso i proxy).
 
 **Stato di T-9.2, T-9.3, T-9.4 (hardening).**
 - T-9.2: benchmark `warp` v1.8.2 in SNSD, SNMD e cluster di 4 processi (`make bench`, `test/bench/warp.sh`),
-  profiling via Admin API (`GET /api/v1/profile`, `nexoctl admin profile`) e speed test (`POST /api/v1/speedtest/*`,
+  profiling via Admin API (`POST /api/v1/profile`, `nexoctl admin profile`) e speed test (`POST /api/v1/speedtest/*`,
   `nexoctl admin speedtest`, S-OPS-11, anticipato da T-10.7); ottimizzazioni misurate (buffer di erasure coding
   riciclati e dimensionati sulla parte, buffer di scrittura dei drive riciclati): report in
   [docs/bench/README.md](bench/README.md). O_DIRECT e zero-copy restano aperti.

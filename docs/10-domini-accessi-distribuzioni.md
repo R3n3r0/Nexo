@@ -191,14 +191,33 @@ Per ogni richiesta, l'header `Host` (o `X-Forwarded-Host` / `Forwarded host=` di
 
 - Tabella di routing in memoria (mappa + trie per wildcard), aggiornata **a caldo** e propagata a tutti i nodi via peer RPC.
 - Conflitti di alias (stesso dominio su due distribuzioni) rifiutati al salvataggio.
-- **Domini riservati**: un alias (esatto o wildcard) che coincide con o copre i domini principali
-  (`NEXO_SERVER_URL`, `NEXO_BROWSER_REDIRECT_URL`), un `NEXO_DOMAIN` o i virtual-host `<bucket>.<NEXO_DOMAIN>`
-  è rifiutato (400); è ammesso solo il virtual-host del bucket di origine della distribuzione stessa (e chi la
-  salva deve essere autorizzato su quel bucket). Gli alias di distribuzioni salvate prima di questa regola che la
-  violano sono esclusi dalla tabella di routing al caricamento (log di warning), così un alias non dirotta mai
-  l'endpoint S3 o i bucket di altri.
-- Listener: le distribuzioni rispondono sulla porta S3 (9000) e, opzionalmente, su listener dedicati
-  `--web-address :80` e `--web-tls-address :443` per l'esposizione diretta senza proxy.
+- **Domini riservati**: un alias (esatto o wildcard) che coincide con o copre i nomi su cui risponde il
+  deployment è rifiutato (409): i domini principali (`NEXO_SERVER_URL`, `NEXO_BROWSER_REDIRECT_URL`), un
+  `NEXO_DOMAIN` o i virtual-host `<bucket>.<NEXO_DOMAIN>`, gli host degli endpoint dei nodi (le chiamate RPC e le
+  sonde tra i peer), gli host di `--address`/`--console-address`, `localhost` e il nome della macchina (anche
+  senza dominio); gli indirizzi IP non sono mai alias validi. È ammesso solo il virtual-host del bucket di
+  origine della distribuzione stessa (e chi la salva deve essere autorizzato su quel bucket). Gli alias di
+  distribuzioni salvate prima di questa regola che la violano sono esclusi dalla tabella di routing al
+  caricamento (log di warning), così un alias non dirotta mai l'endpoint S3, il cluster o i bucket di altri.
+- **Wildcard di altre distribuzioni**: un alias esatto o una wildcard più specifica che cade sotto la wildcard
+  di un'altra distribuzione (`app.corp.example` sotto `*.corp.example`) vince il routing e le sottrae quegli
+  host: chi lo salva deve avere `admin:ManageDistributions` anche sul bucket di origine di quella distribuzione
+  (403 altrimenti).
+- **Percorsi riservati**: sul listener S3 i percorsi `/nexo/` (sonde di salute, metriche, RPC internode) non
+  sono mai instradati a una distribuzione, qualunque sia l'host: un load balancer o un peer che raggiunge il
+  nodo con un nome usato anche come alias riceve sempre il server. Solo i virtual host di `NEXO_DOMAIN` li
+  trattano come chiavi del proprio bucket. Gli oggetti `nexo/...` di un sito sono serviti dai listener web.
+- Listener: le distribuzioni rispondono sui listener dedicati `--web-address :80` e `--web-tls-address :443`
+  (solo distribuzioni, `421` per ogni altro host) e sulla porta S3 (9000) secondo `--s3-distributions`
+  (`NEXO_S3_DISTRIBUTIONS`): `auto` (default) solo quando il deployment dichiara i nomi dell'endpoint S3
+  (`NEXO_SERVER_URL` o `NEXO_DOMAIN`, che diventano riservati), `on` sempre (opt-in esplicito: l'operatore
+  garantisce che i client S3 non usano altri nomi), `off` mai. La porta S3 risponde a ogni nome che la
+  raggiunge (load balancer, nomi di servizio Kubernetes, alias DNS): senza nomi dichiarati nulla distingue un
+  alias da un nome usato dai client S3.
+- **Ripristino**: `nexo server --no-distributions` (`NEXO_NO_DISTRIBUTIONS=true`) non instrada nessun host a una
+  distribuzione su nessun listener, mentre le distribuzioni restano leggibili e modificabili dall'Admin API: si
+  avviano così i nodi per rimuovere o correggere una distribuzione che impedisce il funzionamento del
+  deployment, poi si riavviano senza l'opzione.
 
 ### Dietro uno o più proxy
 - `NEXO_TRUSTED_PROXIES` (CIDR): solo da questi indirizzi si accettano `X-Forwarded-For/Proto/Host`, `Forwarded` (RFC 7239)

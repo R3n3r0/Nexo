@@ -252,10 +252,14 @@ func sum(samples map[string]float64, family string, fragments ...string) (float6
 // TestClusterMetrics scrapes the cluster and bucket endpoints of the
 // first node after requests served by the last one (T-8.1): the families
 // of every node with their server label, the cluster families from the
-// state of the deployment, the bucket families summed over the nodes; and
-// the series of the console aggregated over the nodes (T-8.2).
+// state of the deployment, the bucket families summed over the nodes; the
+// objects and the space of the server info, the data usage and the
+// cluster families agree (regression: the server info and
+// nexo_cluster_objects summed counters the bucket listing never fills,
+// always 0); and the series of the console aggregated over the nodes
+// (T-8.2).
 //
-// covers: S-OPS-05, D-MON-01, S-OPS-04
+// covers: D-MON-01, S-OPS-04, S-OPS-08, D-DASH-01
 func TestClusterMetrics(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t, testutil.WithConfig(func(c *config.Static) { c.PrometheusAuthType = config.PrometheusAuthPublic }))
@@ -294,6 +298,20 @@ func TestClusterMetrics(t *testing.T) {
 		assert.Positive(t, rpc, "the internode calls are measured")
 	}
 
+	admin := nodeAdmin(t, e)
+	info, err := admin.ServerInfo(e.ctx)
+	require.NoError(t, err)
+	usage, err := admin.DataUsage(e.ctx)
+	require.NoError(t, err)
+	assert.EqualValues(t, 3, info.Objects, "the objects of the deployment")
+	assert.EqualValues(t, 15, info.Usage)
+	assert.Equal(t, usage.ObjectsCount, info.Objects, "server info and data usage agree")
+	assert.Equal(t, usage.TotalSize, info.Usage)
+	objects, _ := sum(cluster, "nexo_cluster_objects")
+	assert.InDelta(t, 3, objects, 0)
+	used, _ := sum(cluster, "nexo_cluster_usage_bytes")
+	assert.InDelta(t, 15, used, 0)
+
 	bucket := scrape(t, first+"/nexo/metrics/v1/bucket")
 	rx, _ := sum(bucket, "nexo_bucket_traffic_received_bytes_total", `bucket="measured"`)
 	assert.InDelta(t, 15, rx, 0, "summed over the nodes")
@@ -306,7 +324,6 @@ func TestClusterMetrics(t *testing.T) {
 	assert.Positive(t, n)
 
 	// The series of the console: every node, and the cluster.
-	admin := nodeAdmin(t, e)
 	require.Eventually(t, func() bool {
 		series, err := admin.QueryMetric(e.ctx, nexoadmin.MetricQuery{Metric: "drives_online", Range: 5 * time.Minute})
 		require.NoError(t, err)

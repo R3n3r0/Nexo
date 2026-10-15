@@ -26,7 +26,7 @@ $ nexoctl quota set mem/photos/key --size 1GiB
 [exit 2]
 
 $ nexoctl quota set bob/photos --size 1GiB
-! nexoctl: error: bob/photos: admin:SetBucketQuota: no policy allows admin:SetBucketQuota (access_denied)
+! nexoctl: error: bob/photos: access denied: admin:SetBucketQuota: no policy allows admin:SetBucketQuota (access_denied)
 [exit 4]
 
 $ nexoctl quota clear mem/photos

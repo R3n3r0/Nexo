@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/r3n3r0/nexo/internal/config"
+	"github.com/r3n3r0/nexo/internal/service/cache"
 	"github.com/r3n3r0/nexo/internal/testutil"
 )
 
@@ -58,6 +59,72 @@ func TestStalledDownloadReleasesLock(t *testing.T) {
 	require.NoError(t, err, "the overwrite gets the lock of the stalled download")
 	assert.Less(t, time.Since(start), 15*time.Second, "well before the lock timeout (30s)")
 	assert.Equal(t, []byte("small"), e.get("stall", "big"))
+}
+
+// TestStalledWebsiteDownloadReleasesLock: an anonymous client of a public
+// website that stops reading an object of more than 8 parts (read under
+// the lock of its key, docs/02 §2.4) has its response aborted after the
+// send timeout, like an S3 download: an overwrite and a delete of the
+// owner do not fail with XNexoLockTimeout (regression: the website
+// downloads had no stall bound and held the lock for as long as the
+// client stayed connected).
+//
+// covers: S-DST-01
+func TestStalledWebsiteDownloadReleasesLock(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t, testutil.WithConfig(func(c *config.Static) {
+		c.SendTimeout = 500 * time.Millisecond
+		c.WebAddress = "127.0.0.1:0"
+	}))
+	e.mkBucket("stallweb")
+	part := bytes.Repeat([]byte("m"), 5<<20)
+	upload := func() {
+		up, err := e.root.CreateMultipartUpload(e.ctx, &s3.CreateMultipartUploadInput{Bucket: aws.String("stallweb"), Key: aws.String("mp.bin")})
+		require.NoError(t, err)
+		var done []types.CompletedPart
+		for n := int32(1); n <= 9; n++ {
+			out, err := e.root.UploadPart(e.ctx, &s3.UploadPartInput{Bucket: aws.String("stallweb"), Key: aws.String("mp.bin"), UploadId: up.UploadId,
+				PartNumber: aws.Int32(n), Body: bytes.NewReader(part)})
+			require.NoError(t, err)
+			done = append(done, types.CompletedPart{PartNumber: aws.Int32(n), ETag: out.ETag})
+		}
+		_, err = e.root.CompleteMultipartUpload(e.ctx, &s3.CompleteMultipartUploadInput{Bucket: aws.String("stallweb"), Key: aws.String("mp.bin"),
+			UploadId: up.UploadId, MultipartUpload: &types.CompletedMultipartUpload{Parts: done}})
+		require.NoError(t, err)
+	}
+	upload()
+	e.cacheSite("stall-site", "stallweb", "stall.site.test")
+	// Without the cache: the download reads the object itself.
+	e.setCache(cache.DistributionConfig{Distribution: "stall-site", Cache: cache.Settings{Enabled: aws.Bool(false)}})
+
+	// stall starts an anonymous download of the object of 9 parts that
+	// stops reading after the status line.
+	stall := func() net.Conn {
+		conn, err := net.Dial("tcp", e.srv.Nodes[0].App.WebAddr())
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = conn.Close() })
+		_, err = io.WriteString(conn, "GET /mp.bin HTTP/1.1\r\nHost: stall.site.test\r\n\r\n")
+		require.NoError(t, err)
+		status, err := bufio.NewReaderSize(conn, 64).ReadString('\n')
+		require.NoError(t, err)
+		require.Contains(t, status, "200")
+		return conn
+	}
+
+	conn := stall()
+	start := time.Now()
+	_, err := e.root.PutObject(e.ctx, &s3.PutObjectInput{Bucket: aws.String("stallweb"), Key: aws.String("mp.bin"), Body: strings.NewReader("small")})
+	require.NoError(t, err, "the overwrite gets the lock of the stalled website download")
+	assert.Less(t, time.Since(start), 15*time.Second, "well before the lock timeout (30s)")
+	assert.Equal(t, []byte("small"), e.get("stallweb", "mp.bin"))
+	_ = conn.Close()
+
+	upload()
+	stall()
+	start = time.Now()
+	_, err = e.root.DeleteObject(e.ctx, &s3.DeleteObjectInput{Bucket: aws.String("stallweb"), Key: aws.String("mp.bin")})
+	require.NoError(t, err, "the delete gets the lock of the stalled website download")
+	assert.Less(t, time.Since(start), 15*time.Second, "well before the lock timeout (30s)")
 }
 
 // TestStalledDownloadIsASnapshot: a GET releases the lock of its key once

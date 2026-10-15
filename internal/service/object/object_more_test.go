@@ -456,7 +456,7 @@ func TestHealthAndFaultTolerance(t *testing.T) {
 		assert.True(t, h.Healthy)
 		assert.Equal(t, 3, h.WriteQuorum, "data == parity → data+1")
 		assert.Equal(t, 2, h.ReadQuorum)
-		assert.True(t, svc.Health(ctx, object.HealthOptions{Maintenance: true}).Healthy, "4 drives with write quorum 3 tolerate one loss")
+		assert.False(t, svc.Health(ctx, object.HealthOptions{Maintenance: true}).Healthy, "a single node cannot go down")
 
 		// Shard files carry the per-block bitrot hashes.
 		files, err := filepath.Glob(filepath.Join(fx.roots[0], "bkt", "k", "*", "part.1"))

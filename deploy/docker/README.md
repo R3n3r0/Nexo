@@ -167,7 +167,7 @@ cp nexo.env.example nexo.env
 printf 'NEXO_SECRET_PROXY_A=%s\nNEXO_SECRET_PROXY_B=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" >> .env
 docker compose -f compose.multi-proxy.yml up -d
 
-nexoctl alias set local https://s3.alpha.example:8443 admin change-me-please   # with --resolve or /etc/hosts
+nexoctl alias set local https://s3.alpha.example:8443 admin "$NEXO_ROOT_PASSWORD"   # with --resolve or /etc/hosts
 nexoctl mb local/web && nexoctl cp index.html local/web/ && nexoctl mb local/files
 nexoctl dist import local multi-proxy/site.yaml
 curl --cacert certs/edge-ca.crt --resolve www.alpha.example:8443:127.0.0.1 https://www.alpha.example:8443/
@@ -203,7 +203,8 @@ PROMETHEUS_CONFIG=prometheus.cluster.yml \
 
 - Prometheus: <http://localhost:9090>, config in `observability/prometheus.{single,cluster}.yml`,
   example alerts in `observability/alerts.yml`.
-- Grafana: <http://localhost:3000> (`admin`/`admin`, change with `GRAFANA_ADMIN_*`), datasource and the
+- Grafana: <http://localhost:3000> (user `GRAFANA_ADMIN_USER`, default `admin`, password `GRAFANA_ADMIN_PASSWORD`, required;
+  Grafana and Prometheus listen on 127.0.0.1, `GRAFANA_BIND`/`PROMETHEUS_BIND` publish them), datasource and the
   dashboard *Nexo / Overview* are provisioned from `observability/grafana/`.
 - Nexo exposes metrics on the S3 port at `/nexo/metrics/v1/{cluster,node,bucket}`. Set
   `NEXO_PROMETHEUS_AUTH_TYPE=public` in `nexo.env` or configure a bearer token in the Prometheus files.

@@ -166,8 +166,28 @@ func TestConnBoundsReplies(t *testing.T) {
 // testPKI is a CA and a certificate it signed for 127.0.0.1, usable as a
 // server and as a client certificate.
 type testPKI struct {
-	pool *x509.CertPool
-	cert tls.Certificate
+	pool   *x509.CertPool
+	cert   tls.Certificate
+	ca     *x509.Certificate
+	caKey  *ecdsa.PrivateKey
+	serial int64
+}
+
+// issue returns a certificate of the CA for the DNS name, usable as a
+// client certificate.
+func (p *testPKI) issue(t *testing.T, name string) tls.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	p.serial++
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(100 + p.serial), Subject: pkix.Name{CommonName: name}, DNSNames: []string{name},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), KeyUsage: x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, p.ca, &key.PublicKey, p.caKey)
+	require.NoError(t, err)
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
 }
 
 func newTestPKI(t *testing.T) testPKI {
@@ -195,7 +215,7 @@ func newTestPKI(t *testing.T) testPKI {
 	require.NoError(t, err)
 	pool := x509.NewCertPool()
 	pool.AddCert(ca)
-	return testPKI{pool: pool, cert: tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}}
+	return testPKI{pool: pool, cert: tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, ca: ca, caKey: caKey}
 }
 
 // TestServerMutualTLS: with WithClientCertRequired the internode calls
@@ -220,5 +240,34 @@ func TestServerMutualTLS(t *testing.T) {
 	require.NoError(t, dial(t, newAuth(t, "client:9000"), addr, rpc.WithTLSConfig(withCert)).Call(ctx, "health/ping", struct{}{}, nil))
 	withoutCert := &tls.Config{RootCAs: pki.pool, MinVersion: tls.VersionTLS12}
 	err = dial(t, newAuth(t, "client:9000"), addr, rpc.WithTLSConfig(withoutCert)).Call(ctx, "health/ping", struct{}{}, nil)
+	require.ErrorIs(t, err, domain.ErrUnauthenticated)
+}
+
+// TestServerMutualTLSBindsTheNodes: with WithClientCertHosts a client
+// certificate of a trusted CA must name a node of the deployment
+// (regression: any certificate of the CA, issued for another service,
+// passed the mutual TLS).
+func TestServerMutualTLSBindsTheNodes(t *testing.T) {
+	ctx := context.Background()
+	pki := newTestPKI(t)
+	ln := listen(t)
+	addr := ln.Addr().String()
+	s, err := rpc.NewServer(rpc.ServerDeps{Auth: newAuth(t, addr), Logger: discard()},
+		rpc.WithClientCertRequired(), rpc.WithClientCertHosts("node1.cluster.test", "127.0.0.1"))
+	require.NoError(t, err)
+	srv := httptest.NewUnstartedServer(s)
+	_ = srv.Listener.Close()
+	srv.Listener = ln
+	srv.EnableHTTP2 = true
+	srv.TLS = &tls.Config{Certificates: []tls.Certificate{pki.cert}, ClientAuth: tls.VerifyClientCertIfGiven, ClientCAs: pki.pool}
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+
+	node := &tls.Config{RootCAs: pki.pool, Certificates: []tls.Certificate{pki.cert}, MinVersion: tls.VersionTLS12}
+	require.NoError(t, dial(t, newAuth(t, "client:9000"), addr, rpc.WithTLSConfig(node)).Call(ctx, "health/ping", struct{}{}, nil))
+
+	other := pki.issue(t, "evil-unrelated-service")
+	stranger := &tls.Config{RootCAs: pki.pool, Certificates: []tls.Certificate{other}, MinVersion: tls.VersionTLS12}
+	err = dial(t, newAuth(t, "client:9000"), addr, rpc.WithTLSConfig(stranger)).Call(ctx, "health/ping", struct{}{}, nil)
 	require.ErrorIs(t, err, domain.ErrUnauthenticated)
 }

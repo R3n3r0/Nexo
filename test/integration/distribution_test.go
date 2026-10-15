@@ -134,9 +134,10 @@ func TestDistributionWebsite(t *testing.T) {
 		{name: "unsatisfiable range", host: "www.site.test", path: "/range.txt", hdr: http.Header{"Range": {"bytes=50-"}}, status: 416,
 			headers: map[string]string{"Content-Range": "bytes */10"}},
 		{name: "method not allowed", host: "www.site.test", path: "/range.txt", status: 405},
-		// The system paths of the listener are paths of the site.
-		{name: "internode path", host: "www.site.test", path: "/nexo/rpc/v1/storage/x", status: 200, body: "<h1>home</h1>"},
-		{name: "health path", host: "www.site.test", path: "/nexo/health/live", status: 200, body: "<h1>home</h1>"},
+		// The reserved paths of the S3 listener stay the server's whatever
+		// the host (TestDistributionAliasTakeover): the health probe
+		// answers, not the site.
+		{name: "health path", host: "www.site.test", path: "/nexo/health/live", status: 200},
 	}
 	for _, base := range e.nodeURLs() {
 		for _, tc := range tests {
@@ -149,6 +150,9 @@ func TestDistributionWebsite(t *testing.T) {
 				assert.Equal(t, tc.status, resp.StatusCode, "%s", resp.Body)
 				if tc.body != "" {
 					assert.Equal(t, tc.body, string(resp.Body))
+				}
+				if tc.name == "health path" {
+					assert.NotContains(t, string(resp.Body), "<h1>home</h1>")
 				}
 				for k, v := range tc.headers {
 					assert.Equal(t, v, resp.Header.Get(k), k)

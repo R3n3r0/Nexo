@@ -3,7 +3,10 @@ version: "2"
 run:
   timeout: 5m
   tests: true
-  build-tags: [cluster, proxy]
+  # Every tagged test tree is linted: the multi-process cluster, proxy,
+  # compose and upgrade tests and the test hooks of bin/nexo (nexotest;
+  # the default variant of those hooks is covered by go vet ./...).
+  build-tags: [cluster, proxy, compose, upgrade, nexotest]
 
 linters:
   default: none

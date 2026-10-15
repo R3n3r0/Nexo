@@ -12,7 +12,7 @@ $ nexoctl admin notify targets test mem audit:kafka
 [exit 1]
 
 $ nexoctl admin notify targets test mem ghost:webhook
-! nexoctl: error: target "ghost:webhook": notification target ghost:webhook does not exist (not_found)
+! nexoctl: error: target "ghost:webhook": not found: notification target ghost:webhook does not exist (not_found)
 [exit 3]
 
 $ nexoctl event ls mem/photos

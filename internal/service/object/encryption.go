@@ -443,15 +443,24 @@ func (r *encryptedReader) openNext() error {
 }
 
 // pin implements pinnable: the ciphertext streams of the parts of the
-// range are opened up front (inline data needs none).
+// range are opened up front (inline data needs none). A range over more
+// than max parts is read under the lock without opening anything first.
 func (r *encryptedReader) pin(max int) bool {
 	if r.fi.DataDir == "" {
 		return true
 	}
+	parts := 0
+	for off, rem := r.offset, r.remaining; rem > 0; parts++ {
+		rd, err := r.locate(off, rem)
+		if err != nil || parts == max {
+			return false
+		}
+		off, rem = off+rd.partLen, rem-rd.partLen
+	}
 	var opened []pinnedStream
 	for off, rem := r.offset, r.remaining; rem > 0; {
 		rd, err := r.locate(off, rem)
-		if err != nil || len(opened) == max {
+		if err != nil {
 			closePinned(opened)
 			return false
 		}

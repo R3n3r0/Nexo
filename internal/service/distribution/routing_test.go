@@ -3,14 +3,18 @@ package distribution_test
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/cluster"
 	"github.com/r3n3r0/nexo/internal/service/distribution"
+	"github.com/r3n3r0/nexo/internal/service/lock"
 )
 
 // TestResolve covers the host resolution order of docs/10 §10.2 (TDS-01).
@@ -225,4 +229,107 @@ func FuzzResolve(f *testing.F) {
 			t.Fatalf("host %q resolved to %s through %s", host, r.Distribution.ID, r.Alias)
 		}
 	})
+}
+
+// TestReservedDeploymentHosts: the hosts the deployment answers on (node
+// endpoints, localhost, the machine name: WithMainHosts) are reserved like
+// the S3 domain, exactly and under a wildcard, and an alias saved before
+// the reservation is never routed (regression: an alias "localhost" took
+// over the S3 endpoint, the health probes and the internode RPC of a
+// cluster reached through it).
+func TestReservedDeploymentHosts(t *testing.T) {
+	ctx := context.Background()
+	docs := &memDocs{docs: map[string][]byte{}}
+	newOn := func(opts ...distribution.Option) distribution.Service {
+		svc, err := distribution.New(distribution.Deps{Store: newStore(t, docs), Locks: lock.NewLocal(lock.Deps{}),
+			Notifier: cluster.NewLocalNotifier(cluster.NotifierDeps{NodeID: "n1", Logger: slog.New(slog.DiscardHandler)}),
+			Clock:    clock.NewReal(), Logger: slog.New(slog.DiscardHandler)}, opts...)
+		require.NoError(t, err)
+		require.NoError(t, svc.Start(ctx))
+		t.Cleanup(func() { _ = svc.Stop(ctx) })
+		return svc
+	}
+	reserved := distribution.WithMainHosts("node1.cluster.test:9000", "localhost", "nexo-host")
+	svc := newOn(reserved)
+	for _, alias := range []string{"node1.cluster.test", "*.cluster.test", "localhost", "LOCALHOST.", "nexo-host"} {
+		_, err := svc.Create(ctx, sample("x", alias))
+		require.ErrorIs(t, err, distribution.ErrAliasConflict, alias)
+	}
+	_, err := svc.Create(ctx, sample("ok", "node1.other.test"))
+	require.NoError(t, err, "a sibling of a reserved host stays usable")
+
+	// Saved by a node that did not reserve them (an older version).
+	legacy := newOn()
+	_, err = legacy.Create(ctx, sample("legacy", "localhost", "node1.cluster.test", "www.legacy.test"))
+	require.NoError(t, err)
+	require.NoError(t, svc.Reload(ctx))
+	assert.Equal(t, distribution.RouteMain, svc.Resolve(ctx, "localhost:9000").Kind)
+	assert.Equal(t, distribution.RouteMain, svc.Resolve(ctx, "node1.cluster.test").Kind)
+	assert.Equal(t, distribution.RouteDistribution, svc.Resolve(ctx, "www.legacy.test").Kind, "the other aliases keep routing")
+}
+
+// TestListenerResolver: a listener that does not serve the distributions
+// resolves their aliases as if they did not exist (the S3 listener without
+// --s3-distributions), the other listeners route them.
+func TestListenerResolver(t *testing.T) {
+	ctx := context.Background()
+	for _, misdirected := range []bool{false, true} {
+		svc := newService(t, distribution.WithDomains("s3.sec.test"), distribution.WithUnknownHostMisdirected(misdirected))
+		_, err := svc.Create(ctx, sample("site", "www.site.test", "web.s3.sec.test", "*.preview.site.test"))
+		require.NoError(t, err)
+
+		all := svc.ListenerResolver(true)
+		assert.Equal(t, distribution.RouteDistribution, all.Resolve(ctx, "www.site.test").Kind)
+		assert.Equal(t, distribution.RouteDistribution, all.Resolve(ctx, "a.preview.site.test").Kind)
+
+		none := svc.ListenerResolver(false)
+		unknown := distribution.RoutePathStyle
+		if misdirected {
+			unknown = distribution.RouteMisdirected
+		}
+		assert.Equal(t, unknown, none.Resolve(ctx, "www.site.test").Kind)
+		assert.Equal(t, unknown, none.Resolve(ctx, "a.preview.site.test").Kind)
+		vhost := none.Resolve(ctx, "web.s3.sec.test")
+		assert.Equal(t, distribution.RouteVirtualHost, vhost.Kind, "the alias of its own virtual host stays the virtual host")
+		assert.Equal(t, "web", vhost.Bucket)
+		assert.Equal(t, distribution.RouteMain, none.Resolve(ctx, "127.0.0.1:9000").Kind)
+	}
+}
+
+// TestRoutingDisabled: in recovery mode (--no-distributions) no host is
+// routed, while the distributions stay readable and removable.
+func TestRoutingDisabled(t *testing.T) {
+	ctx := context.Background()
+	svc := newService(t, distribution.WithRoutingDisabled(true))
+	_, err := svc.Create(ctx, sample("site", "www.site.test", "*.preview.site.test"))
+	require.NoError(t, err)
+	assert.Equal(t, distribution.RoutePathStyle, svc.Resolve(ctx, "www.site.test").Kind)
+	assert.Equal(t, distribution.RoutePathStyle, svc.Resolve(ctx, "a.preview.site.test").Kind)
+	list, err := svc.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	require.NoError(t, svc.Delete(ctx, "site"))
+}
+
+// TestCovers: the wildcard aliases that cover another alias (the subdomain
+// hijack the Admin API authorizes against the wildcard's owner).
+func TestCovers(t *testing.T) {
+	tests := []struct {
+		wildcard, alias string
+		want            bool
+	}{
+		{"*.corp.test", "app.corp.test", true},
+		{"*.corp.test", "a.b.corp.test", true},
+		{"*.corp.test", "*.x.corp.test", true},
+		{"*.Corp.Test.", "APP.corp.test", true},
+		{"*.corp.test", "*.corp.test", false},
+		{"*.corp.test", "corp.test", false},
+		{"*.corp.test", "app.corp.test.evil", false},
+		{"*.corp.test", "appcorp.test", false},
+		{"app.corp.test", "app.corp.test", false},
+		{"www.corp.test", "a.www.corp.test", false},
+	}
+	for _, tc := range tests {
+		assert.Equal(t, tc.want, distribution.Covers(tc.wildcard, tc.alias), "%s covers %s", tc.wildcard, tc.alias)
+	}
 }

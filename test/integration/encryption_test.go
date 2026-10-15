@@ -329,6 +329,8 @@ func TestServerSideEncryptionCustomerKeys(t *testing.T) {
 // bucket applies to the writes without encryption headers, the S3 ones
 // and those proxied by the console; without KMS it is refused, and so is
 // SSE-S3.
+//
+// covers: S-BKT-11
 func TestBucketDefaultEncryption(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t, testutil.WithKMS())

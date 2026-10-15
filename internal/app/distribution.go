@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -27,11 +28,11 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/service/sysstore"
+	"github.com/r3n3r0/nexo/internal/service/topology"
 	"github.com/r3n3r0/nexo/internal/service/trace"
 	"github.com/r3n3r0/nexo/internal/transport/http/dist"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
-	"github.com/r3n3r0/nexo/internal/transport/http/s3"
 	"github.com/r3n3r0/nexo/internal/transport/http/server"
 )
 
@@ -51,8 +52,11 @@ type distStack struct {
 	// the service and in the website engine) and of the cache: one
 	// pattern syntax and one path normalization.
 	matcher match.Service
-	// s3Hosts is the host router of the S3 listener.
-	s3Hosts dist.HostRouter
+	// s3Hosts is the host router of the S3 listener; s3Routes resolves
+	// its hosts (the aliases only when the listener serves the
+	// distributions, config.Static.ServesDistributionsOnS3).
+	s3Hosts  dist.HostRouter
+	s3Routes distribution.Resolver
 	// webSrv and webTLSSrv are the web listeners (nil when not
 	// configured).
 	webSrv    server.Service
@@ -90,8 +94,9 @@ func newDistCore(d distCoreDeps) (*distStack, error) {
 	}
 	distOpts := []distribution.Option{
 		distribution.WithDomains(domainsOf(d.cfg)...),
-		distribution.WithMainHosts(mainHosts(d.cfg)...),
+		distribution.WithMainHosts(deploymentHosts(d.cfg, d.f.layout)...),
 		distribution.WithUnknownHostMisdirected(d.cfg.UnknownHost == config.UnknownHostMisdirected),
+		distribution.WithRoutingDisabled(d.cfg.NoDistributions),
 	}
 	raw, err := distribution.New(distribution.Deps{
 		Store: docs, Locks: d.f.locks, Notifier: d.f.notifier, Matcher: d.matcher, Clock: d.clock, Logger: logger,
@@ -123,19 +128,33 @@ func newDistCore(d distCoreDeps) (*distStack, error) {
 	if err != nil {
 		return nil, err
 	}
+	if !d.cfg.ServesDistributionsOnS3() && !d.cfg.NoDistributions {
+		logger.Info("the S3 listener does not serve the distributions: name the S3 endpoint (--server-url or --domain), " +
+			"opt in with --s3-distributions on, or serve them on --web-address/--web-tls-address")
+	}
 	return &distStack{
-		service: reconcilingDistributions{Service: raw, certs: certSvc},
-		raw:     raw,
-		certs:   certSvc,
-		signer:  distribution.NewSigner(distribution.SignerDeps{Clock: d.clock}),
-		matcher: d.matcher,
-		logger:  logger,
+		service:  reconcilingDistributions{Service: raw, certs: certSvc},
+		raw:      raw,
+		s3Routes: raw.ListenerResolver(d.cfg.ServesDistributionsOnS3()),
+		certs:    certSvc,
+		signer:   distribution.NewSigner(distribution.SignerDeps{Clock: d.clock}),
+		matcher:  d.matcher,
+		logger:   logger,
 	}, nil
 }
 
-// hostBuckets resolves the hosts of the s3 distributions for the S3 API.
-func (s *distStack) hostBuckets() s3.HostBuckets {
-	return s3.HostBuckets(dist.S3BucketOfHost(s.raw))
+// hostBuckets resolves the hosts of the s3 distributions the S3 listener
+// serves, for the S3 API (which never applies it to the reserved
+// "/nexo/" paths: httpx.HostBucketResolver).
+func (s *distStack) hostBuckets() httpx.HostBucketResolver {
+	return dist.S3BucketOfHost(s.s3Routes)
+}
+
+// systemRequest selects the requests of the S3 listener under the reserved
+// "/nexo/" prefix (health, metrics, internode RPC): no distribution takes
+// them, whatever their host (domain.SystemPathPrefix).
+func systemRequest(r *http.Request) bool {
+	return strings.HasPrefix(r.URL.Path, domain.SystemPathPrefix)
 }
 
 // authSkip leaves to the website routes the requests of the website
@@ -143,17 +162,20 @@ func (s *distStack) hostBuckets() s3.HostBuckets {
 // behaviors and never answer S3 XML); skip selects the other requests the
 // authentication leaves alone (the metrics routes, path-style only).
 func (s *distStack) authSkip(skip func(*http.Request) bool) func(*http.Request) bool {
-	website := dist.WebsiteRequest(s.raw)
+	website := dist.WebsiteRequest(s.s3Routes)
 	s3Host := s.hostBuckets()
 	return func(r *http.Request) bool {
+		if systemRequest(r) {
+			return skip != nil && skip(r)
+		}
 		if website(r) {
 			return true
 		}
-		if _, ok := s3Host(middleware.HostOf(r)); ok {
+		if _, ok := s3Host.BucketOfHost(middleware.HostOf(r)); ok {
 			// An object key of an s3 distribution, whatever its path; a
 			// request its admission refuses (origin secret, address) is
 			// not authenticated at all: the host router refuses it first.
-			return s.website != nil && dist.RefusedS3Request(s.raw, s.website)(r)
+			return s.website != nil && dist.RefusedS3Request(s.s3Routes, s.website)(r)
 		}
 		return skip != nil && skip(r)
 	}
@@ -164,8 +186,10 @@ func (s *distStack) authSkip(skip func(*http.Request) bool) func(*http.Request) 
 func (s *distStack) authService(service func(*http.Request) string) func(*http.Request) string {
 	s3Host := s.hostBuckets()
 	return func(r *http.Request) string {
-		if _, ok := s3Host(middleware.HostOf(r)); ok {
-			return auth.ServiceS3
+		if !systemRequest(r) {
+			if _, ok := s3Host.BucketOfHost(middleware.HostOf(r)); ok {
+				return auth.ServiceS3
+			}
 		}
 		return service(r)
 	}
@@ -213,6 +237,9 @@ func (s *distStack) composeHTTP(d distHTTPDeps) error {
 		return err
 	}
 	s.website = website
+	// The downloads of the websites are bounded like the ones of the S3
+	// API (NEXO_SEND_TIMEOUT, default 20s): a client that stops reading
+	// releases the read lock of the object (docs/02 §2.4).
 	var websiteOpts []dist.WebsiteOption
 	if d.cfg.SendTimeout > 0 {
 		websiteOpts = append(websiteOpts, dist.WithSendTimeout(d.cfg.SendTimeout))
@@ -224,7 +251,12 @@ func (s *distStack) composeHTTP(d distHTTPDeps) error {
 	accessLog := dist.NewAccessLog(dist.AccessLogDeps{Logger: d.logger.With("component", "distribution-access")})
 	hostDeps := dist.HostRouterDeps{Resolver: s.raw, Website: routes, Admission: website, Registry: d.registry, AccessLog: accessLog,
 		Cache: d.cache, Clock: d.clock, Logger: s.logger}
-	if s.s3Hosts, err = dist.NewHostRouter(hostDeps, dist.WithListenerName("s3")); err != nil {
+	// The S3 listener: its aliases only when it serves the distributions,
+	// and never the reserved "/nexo/" paths (health probes, metrics and
+	// internode RPC stay the server's whatever the host).
+	s3Deps := hostDeps
+	s3Deps.Resolver = s.s3Routes
+	if s.s3Hosts, err = dist.NewHostRouter(s3Deps, dist.WithListenerName("s3"), dist.WithPassthrough(domain.SystemPathPrefix)); err != nil {
 		return err
 	}
 	if d.cfg.WebAddress == "" && d.cfg.WebTLSAddress == "" {
@@ -347,6 +379,9 @@ func webMiddlewares(d distHTTPDeps) ([]middleware.Middleware, error) {
 // web listeners.
 func webServerOptions(cfg config.Static, addr, name string) []server.Option {
 	opts := []server.Option{server.WithAddr(addr), server.WithName(name), server.WithMinTLSVersion(tlsMinVersion(cfg))}
+	if cfg.SendTimeout > 0 {
+		opts = append(opts, server.WithSendTimeout(cfg.SendTimeout))
+	}
 	if cfg.ProxyProtocolOn(config.ListenerWeb) {
 		opts = append(opts, server.WithProxyProtocol(cfg.TrustedProxies...))
 	}
@@ -359,6 +394,36 @@ func mainHosts(cfg config.Static) []string {
 	for _, raw := range []string{cfg.ServerURL, cfg.BrowserRedirectURL} {
 		if u, err := url.Parse(raw); err == nil && u.Hostname() != "" {
 			out = append(out, u.Hostname())
+		}
+	}
+	return out
+}
+
+// deploymentHosts are the host names the deployment itself answers on,
+// which no alias of a distribution may take (docs/10 §10.2): the S3 and
+// console URLs (mainHosts), the hosts of the node endpoints (the peers
+// reach each other's RPC and health probes through them), the hosts of the
+// S3 and console listen addresses, "localhost" and the host name of this
+// machine (and its first label). IP literals are never valid aliases.
+func deploymentHosts(cfg config.Static, layout *topology.Layout) []string {
+	out := mainHosts(cfg)
+	if layout != nil {
+		for _, ep := range layout.Endpoints() {
+			if ep.Host != "" {
+				out = append(out, ep.Host)
+			}
+		}
+	}
+	for _, addr := range []string{cfg.Address, cfg.ConsoleAddress} {
+		if host, _, err := net.SplitHostPort(addr); err == nil && host != "" {
+			out = append(out, host)
+		}
+	}
+	out = append(out, "localhost")
+	if name, err := os.Hostname(); err == nil && name != "" {
+		out = append(out, name)
+		if short, _, ok := strings.Cut(name, "."); ok && short != "" {
+			out = append(out, short)
 		}
 	}
 	return out
@@ -528,22 +593,4 @@ func (s *distStack) tlsOptions(cfg config.Static) []server.Option {
 		return nil
 	}
 	return []server.Option{server.WithCertificates(s.certs)}
-}
-
-// requestPredicate is a request selector installed after its owner was
-// built (the RPC server of a cluster node, before the services).
-type requestPredicate struct {
-	fn atomic.Pointer[func(*http.Request) bool]
-}
-
-// set installs the selector.
-func (p *requestPredicate) set(fn func(*http.Request) bool) { p.fn.Store(&fn) }
-
-// match reports whether the installed selector selects r (false before
-// set).
-func (p *requestPredicate) match(r *http.Request) bool {
-	if fn := p.fn.Load(); fn != nil {
-		return (*fn)(r)
-	}
-	return false
 }

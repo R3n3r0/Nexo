@@ -42,12 +42,13 @@ func TestMapS3ErrorTable(t *testing.T) {
 		{domain.ErrNotModified, "NotModified", 304},
 		{domain.ErrInvalidRange, "InvalidRange", 416},
 		{domain.ErrNotImplemented, "NotImplemented", 501},
-		{domain.ErrDiskNotFound, "SlowDown", 503},
-		{domain.ErrNodeOffline, "SlowDown", 503},
-		{domain.ErrFaultyDisk, "SlowDown", 503},
-		{domain.ErrReadQuorum, "SlowDown", 503},
-		{domain.ErrWriteQuorum, "SlowDown", 503},
-		{domain.ErrLockTimeout, "SlowDown", 503},
+		{domain.ErrDiskNotFound, "ServiceUnavailable", 503},
+		{domain.ErrNodeOffline, "ServiceUnavailable", 503},
+		{domain.ErrFaultyDisk, "ServiceUnavailable", 503},
+		{domain.ErrReadQuorum, "SlowDownRead", 503},
+		{domain.ErrWriteQuorum, "SlowDownWrite", 503},
+		{domain.ErrLockTimeout, "XNexoLockTimeout", 503},
+		{domain.ErrLockLost, "XNexoLockTimeout", 503},
 		{domain.ErrTooManyRequests, "SlowDown", 503},
 		{domain.ErrQuotaExceeded, "XNexoQuotaExceeded", 507},
 		{domain.ErrStorageFull, "XNexoStorageFull", 507},
@@ -144,7 +145,7 @@ func TestProblemFromError(t *testing.T) {
 	assert.Equal(t, 403, p.Status)
 	assert.Equal(t, "access_denied", p.Code)
 	assert.Equal(t, "Forbidden", p.Title)
-	assert.Contains(t, p.Detail, "access denied")
+	assert.Equal(t, "Access denied.", p.Detail)
 
 	p = c.ProblemFromError(fmt.Errorf("share abc: %w", domain.ErrShareNotFound))
 	assert.Equal(t, 404, p.Status)
@@ -232,5 +233,79 @@ func TestS3CodesAreUnique(t *testing.T) {
 		seen[code.Code] = true
 		assert.NotEmpty(t, code.Description)
 		assert.NotZero(t, code.HTTPStatus)
+	}
+}
+
+// TestQuorumErrorMessages: a lost quorum is not a request rate to reduce,
+// and a write is not "unreadable": every unavailability class has its own
+// code and message (503, retryable).
+func TestQuorumErrorMessages(t *testing.T) {
+	c := httpx.New()
+	write, msg := c.MapS3Error(fmt.Errorf("bucket: create b: %w", domain.ErrWriteQuorum))
+	assert.Equal(t, "SlowDownWrite", write.Code)
+	assert.Contains(t, msg, "write quorum")
+	read, msg := c.MapS3Error(fmt.Errorf("object: get b/k: %w", domain.ErrReadQuorum))
+	assert.Equal(t, "SlowDownRead", read.Code)
+	assert.Contains(t, msg, "read quorum")
+	lock, msg := c.MapS3Error(fmt.Errorf("erasure: lock b: %w: resource \"b\" after 30s (quorum 3 of 4 lock servers)", domain.ErrLockTimeout))
+	assert.Equal(t, "XNexoLockTimeout", lock.Code)
+	assert.Contains(t, msg, "locked")
+	for _, m := range []string{write.Description, read.Description, lock.Description} {
+		assert.NotContains(t, m, "unreadable")
+		assert.NotContains(t, m, "reduce your request rate")
+	}
+	slow, _ := c.MapS3Error(domain.ErrTooManyRequests)
+	assert.Equal(t, "SlowDown", slow.Code)
+	assert.NotContains(t, slow.Description, "unreadable")
+}
+
+// TestProblemDetailIsCurated: the problem documents never carry the chain
+// of the error (packages, paths, sentinels): a curated message per class,
+// or the reason the service phrased for the caller after the sentinel.
+func TestProblemDetailIsCurated(t *testing.T) {
+	c := httpx.New()
+	tests := []struct {
+		name string
+		err  error
+		code string
+		want string
+	}{
+		{"bucket not found", fmt.Errorf("bucket: nope: fs: stat bucket nope: %w: nope", domain.ErrBucketNotFound),
+			"bucket_not_found", "The bucket does not exist."},
+		{"listing a missing bucket", fmt.Errorf("fs: list nope: %w: nope", domain.ErrBucketNotFound),
+			"bucket_not_found", "The bucket does not exist."},
+		{"write quorum", fmt.Errorf("bucket: create q: erasure: %w", domain.ErrWriteQuorum),
+			"write_quorum", c.Codes().SlowDownWrite.Description},
+		{"lock timeout", fmt.Errorf("bucket: create qlost: erasure: lock qlost: %w: resource \"qlost\" after 30s (quorum 3 of 4 lock servers)", domain.ErrLockTimeout),
+			"lock_timeout", c.Codes().LockTimeout.Description},
+		{"drive offline", fmt.Errorf("storage: /data/d3: %w", domain.ErrDiskNotFound),
+			"disk_not_found", "A drive needed by the request is offline, please retry later."},
+		{"on-disk format", fmt.Errorf("format: /data/d1/.nexo.sys/format.json: %w", domain.ErrInvalidFormat),
+			"invalid_format", "The on-disk format is invalid or inconsistent."},
+		{"reason of an invalid argument", fmt.Errorf("admin: config: %w: logger.level: \"verbose\" is not a level", domain.ErrInvalidArgument),
+			"invalid_argument", "logger.level: \"verbose\" is not a level"},
+		{"reason of a denial", fmt.Errorf("admin: %w: admin:ListUsers: no policy allows admin:ListUsers", domain.ErrAccessDenied),
+			"access_denied", "admin:ListUsers: no policy allows admin:ListUsers"},
+		{"denial without reason", fmt.Errorf("cache: b/k: %w", domain.ErrAccessDenied),
+			"access_denied", "Access denied."},
+		{"named resource", fmt.Errorf("heal: %w: \"h1\"", domain.ErrNotFound),
+			"not_found", "The resource does not exist: \"h1\""},
+		{"described resource", fmt.Errorf("heal: %w: healing job \"h1\"", domain.ErrNotFound),
+			"not_found", "The resource does not exist: healing job \"h1\""},
+		{"message of an S3 error", &domain.S3Error{Message: "The AWS Access Key Id you provided does not exist in our records.",
+			Err: fmt.Errorf("%w: nobody99", domain.ErrInvalidAccessKey)},
+			"invalid_access_key", "The AWS Access Key Id you provided does not exist in our records."},
+		{"access key", fmt.Errorf("auth: %w: nobody99", domain.ErrInvalidAccessKey),
+			"invalid_access_key", "The access key does not exist."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := c.ProblemFromError(tt.err)
+			assert.Equal(t, tt.code, p.Code)
+			assert.Equal(t, tt.want, p.Detail)
+			for _, leak := range []string{"fs:", "erasure:", "storage:", "/data/", "bucket:", "nobody99"} {
+				assert.NotContains(t, p.Detail, leak)
+			}
+		})
 	}
 }

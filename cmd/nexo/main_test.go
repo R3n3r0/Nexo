@@ -53,6 +53,19 @@ func TestVersionCommand(t *testing.T) {
 	cmd.SetArgs([]string{"version", "--json"})
 	require.NoError(t, cmd.Execute())
 	assert.Contains(t, out.String(), `"version": "dev"`)
+
+	// nexo --version prints the same line as nexo version (regression:
+	// "unknown flag: --version", while nexoctl --version works).
+	out.Reset()
+	cmd = newRootCmd(deps)
+	cmd.SetArgs([]string{"version"})
+	require.NoError(t, cmd.Execute())
+	want := out.String()
+	out.Reset()
+	cmd = newRootCmd(deps)
+	cmd.SetArgs([]string{"--version"})
+	require.NoError(t, cmd.Execute())
+	assert.Equal(t, want, out.String())
 }
 
 // covers: S-OPS-03, S-OPS-13
@@ -268,6 +281,57 @@ func TestServerDryRunMatrix(t *testing.T) {
 				return []string{"--certs-dir", filepath.Join(dir, "nothing"), filepath.Join(dir, "data")}
 			},
 			wantErr: "certificates",
+		},
+		// The web listeners of the distributions and the CA of a private
+		// ACME server are checked like the rest (regression: the dry run
+		// answered "configuration OK" and the start failed).
+		{
+			name: "web listeners",
+			setup: func(_ *testing.T, dir string) []string {
+				return []string{"--web-address", "127.0.0.1:0", "--web-tls-address", "127.0.0.1:0", filepath.Join(dir, "data")}
+			},
+			wantOut: []string{"configuration OK"},
+		},
+		{
+			name: "web address with an unknown port",
+			setup: func(_ *testing.T, dir string) []string {
+				return []string{"--web-address", "bogus:xx", filepath.Join(dir, "data")}
+			},
+			wantErr: "web address",
+		},
+		{
+			name: "web TLS address in use",
+			setup: func(t *testing.T, dir string) []string {
+				ln, err := net.Listen("tcp", "127.0.0.1:0")
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = ln.Close() })
+				return []string{"--web-tls-address", ln.Addr().String(), filepath.Join(dir, "data")}
+			},
+			wantErr: "web TLS address",
+		},
+		{
+			name: "missing ACME CA certificate",
+			setup: func(_ *testing.T, dir string) []string {
+				return []string{"--acme-ca-cert", filepath.Join(dir, "nonexistent.pem"), filepath.Join(dir, "data")}
+			},
+			wantErr: "acme CA certificate",
+		},
+		{
+			name: "ACME CA certificate without PEM",
+			setup: func(t *testing.T, dir string) []string {
+				file := filepath.Join(dir, "ca.pem")
+				require.NoError(t, os.WriteFile(file, []byte("not a certificate"), 0o600))
+				return []string{"--acme-ca-cert", file, filepath.Join(dir, "data")}
+			},
+			wantErr: "holds no PEM certificate",
+		},
+		{
+			name: "valid ACME CA certificate",
+			setup: func(t *testing.T, dir string) []string {
+				selfSigned(t, dir, now.Add(-time.Hour), now.Add(240*time.Hour))
+				return []string{"--acme-ca-cert", filepath.Join(dir, "public.crt"), filepath.Join(dir, "data")}
+			},
+			wantOut: []string{"configuration OK"},
 		},
 	}
 	for _, tt := range tests {

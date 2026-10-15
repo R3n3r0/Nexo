@@ -54,7 +54,7 @@ ID             OWNER            ACCESS   EXPIRES                 TARGET
 sh0005         alice            download 2026-01-09 03:04:05 UTC alice/pub/docs/report.pdf
 
 $ nexoctl share list alice --user admin
-! nexoctl: error: admin:ManageShares: no policy allows admin:ManageShares (access_denied)
+! nexoctl: error: access denied: admin:ManageShares: no policy allows admin:ManageShares (access_denied)
 [exit 4]
 
 $ nexoctl share list mem/pub/docs
@@ -85,7 +85,7 @@ $ nexoctl share revoke --user alice mem sh0002
 [exit 2]
 
 $ nexoctl share revoke alice sh0002
-! nexoctl: error: revoke share "sh0002": admin:ManageShares: no policy allows admin:ManageShares (access_denied)
+! nexoctl: error: revoke share "sh0002": access denied: admin:ManageShares: no policy allows admin:ManageShares (access_denied)
 [exit 4]
 
 $ nexoctl share revoke --all --user alice mem

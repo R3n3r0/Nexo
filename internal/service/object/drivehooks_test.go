@@ -47,6 +47,20 @@ type driveFaults struct {
 	failDelete   func(path string) error
 	// failDeleteVersion, when set, fails every DeleteVersion.
 	failDeleteVersion error
+	// remote reports the drive as a drive of another node
+	// (Endpoint().IsLocal false), as the drives a read pins by handle.
+	remote bool
+	// brokenReads fails every read of the open data streams, including
+	// those opened before (a drive failing in the middle of a read).
+	brokenReads bool
+	// failOpenFile, when set, fails every OpenFile (a peer of an older
+	// release without storage/open-file, a full handle table).
+	failOpenFile error
+	// opens counts the data files opened (ReadFileStream, OpenFile).
+	opens int
+	// host, when set, is the host of the endpoint of the drive (the
+	// node it belongs to).
+	host string
 }
 
 func (f *driveFaults) set(fn func(f *driveFaults)) {
@@ -60,7 +74,59 @@ func (f *driveFaults) get() driveFaults {
 	defer f.mu.Unlock()
 	return driveFaults{offline: f.offline, slowReads: f.slowReads, full: f.full, failCommit: f.failCommit, diskInfo: f.diskInfo,
 		failRename: f.failRename, beforeCommit: f.beforeCommit, failWriteAll: f.failWriteAll, failDelete: f.failDelete,
-		failDeleteVersion: f.failDeleteVersion}
+		failDeleteVersion: f.failDeleteVersion, remote: f.remote, brokenReads: f.brokenReads, failOpenFile: f.failOpenFile, opens: f.opens, host: f.host}
+}
+
+// opened counts a data file opened and returns the faults in effect.
+func (f *driveFaults) opened() driveFaults {
+	f.mu.Lock()
+	f.opens++
+	f.mu.Unlock()
+	return f.get()
+}
+
+// faultyReader fails its reads once the drive breaks (brokenReads).
+type faultyReader struct {
+	rc io.ReadCloser
+	f  *driveFaults
+}
+
+func (r *faultyReader) Read(p []byte) (int, error) {
+	if r.f.get().brokenReads {
+		return 0, fmt.Errorf("%w: injected: read failed", domain.ErrFaultyDisk)
+	}
+	return r.rc.Read(p)
+}
+
+func (r *faultyReader) Close() error { return r.rc.Close() }
+
+// hookedStream wraps a data stream with the read faults of the drive.
+func hookedStream(ctx context.Context, rc io.ReadCloser, slow time.Duration, f *driveFaults) io.ReadCloser {
+	rc = &faultyReader{rc: rc, f: f}
+	if slow > 0 {
+		return &slowReader{ctx: ctx, rc: rc, delay: slow}
+	}
+	return rc
+}
+
+// hookedHandle wraps a file handle (generated mock) with the read faults
+// of the drive.
+func hookedHandle(t *testing.T, base storage.FileHandle, f *driveFaults) storage.FileHandle {
+	m := storagemock.NewFileHandle(t)
+	m.EXPECT().Size().RunAndReturn(base.Size).Maybe()
+	m.EXPECT().ReadStream(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, off, length int64) (io.ReadCloser, error) {
+		st := f.get()
+		if st.offline {
+			return nil, errOffline()
+		}
+		rc, err := base.ReadStream(ctx, off, length)
+		if err != nil {
+			return nil, err
+		}
+		return hookedStream(ctx, rc, st.slowReads, f), nil
+	}).Maybe()
+	m.EXPECT().Close(mock.Anything).RunAndReturn(base.Close).Maybe()
+	return m
 }
 
 func errOffline() error { return fmt.Errorf("%w: injected: drive offline", domain.ErrDiskNotFound) }
@@ -91,7 +157,17 @@ func hookedDrive(t *testing.T, base storage.StorageAPI, f *driveFaults) *storage
 	t.Helper()
 	m := storagemock.NewStorageAPI(t)
 	off := func() bool { return f.get().offline }
-	m.EXPECT().Endpoint().RunAndReturn(base.Endpoint).Maybe()
+	m.EXPECT().Endpoint().RunAndReturn(func() domain.Endpoint {
+		ep := base.Endpoint()
+		st := f.get()
+		if st.remote {
+			ep.IsLocal = false
+		}
+		if st.host != "" {
+			ep.Host = st.host
+		}
+		return ep
+	}).Maybe()
 	m.EXPECT().IsOnline().RunAndReturn(func() bool { return !off() && base.IsOnline() }).Maybe()
 	m.EXPECT().Healing().RunAndReturn(base.Healing).Maybe()
 	m.EXPECT().DiskInfo(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, opts storage.DiskInfoOptions) (domain.DiskInfo, error) {
@@ -172,15 +248,30 @@ func hookedDrive(t *testing.T, base storage.StorageAPI, f *driveFaults) *storage
 		}).Maybe()
 	m.EXPECT().ReadFileStream(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(ctx context.Context, v, p string, off, length int64) (io.ReadCloser, error) {
-			st := f.get()
+			st := f.opened()
 			if st.offline {
 				return nil, errOffline()
 			}
 			rc, err := base.ReadFileStream(ctx, v, p, off, length)
-			if err != nil || st.slowReads == 0 {
-				return rc, err
+			if err != nil {
+				return nil, err
 			}
-			return &slowReader{ctx: ctx, rc: rc, delay: st.slowReads}, nil
+			return hookedStream(ctx, rc, st.slowReads, f), nil
+		}).Maybe()
+	m.EXPECT().OpenFile(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
+		func(ctx context.Context, v, p string) (storage.FileHandle, error) {
+			st := f.opened()
+			switch {
+			case st.offline:
+				return nil, errOffline()
+			case st.failOpenFile != nil:
+				return nil, st.failOpenFile
+			}
+			h, err := base.OpenFile(ctx, v, p)
+			if err != nil {
+				return nil, err
+			}
+			return hookedHandle(t, h, f), nil
 		}).Maybe()
 	m.EXPECT().RenameData(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(ctx context.Context, sv, sp string, fi storage.FileInfo, dv, dp string, o storage.RenameOptions) (storage.RenameDataResult, error) {

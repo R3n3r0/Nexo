@@ -112,3 +112,51 @@ describe('Configuration page (D-CFG-01)', () => {
     ).toBeInTheDocument();
   });
 });
+
+// covers: D-ACC-04
+describe('Block public access of the cluster (D-ACC-04)', () => {
+  it('turns it on for every bucket and changes its mode', async () => {
+    const user = userEvent.setup();
+    const { services } = renderPage();
+    const section = await screen.findByRole('region', { name: 'Block public access (cluster)' });
+    const toggle = () =>
+      within(section).getByRole('switch', { name: 'Block public access on every bucket' });
+    // Read-only until the permissions are loaded.
+    await waitFor(() => {
+      expect(toggle()).toBeEnabled();
+    });
+    expect(toggle()).not.toBeChecked();
+    expect(within(section).getByText('Not blocked')).toBeInTheDocument();
+
+    await user.click(toggle());
+    expect(await within(section).findByText('Public access blocked')).toBeInTheDocument();
+    expect(toggle()).toBeChecked();
+    // It applies to every bucket, whatever its own setting.
+    expect(await services.accessRules.getBlockPublic('media')).toMatchObject({
+      enabled: false,
+      cluster: true,
+      effective: true,
+    });
+
+    expect(
+      within(section).getByText(
+        'Allow rules for everyone are refused when saved, the stored ones are ignored.',
+      ),
+    ).toBeInTheDocument();
+    await user.click(within(section).getByRole('radio', { name: 'Ignore' }));
+    expect(
+      await within(section).findByText('Allow rules for everyone are accepted but ignored.'),
+    ).toBeInTheDocument();
+    expect(await services.accessRules.getBlockPublic()).toMatchObject({
+      enabled: true,
+      mode: 'ignore',
+    });
+
+    await user.click(toggle());
+    expect(await within(section).findByText('Not blocked')).toBeInTheDocument();
+    expect(await services.accessRules.getBlockPublic('media')).toMatchObject({
+      cluster: false,
+      effective: false,
+    });
+  });
+});

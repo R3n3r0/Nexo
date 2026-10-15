@@ -15,7 +15,7 @@ $ nexoctl access rule add mem/media --id img-pub --allow --principal * --action 
 [exit 1]
 
 $ nexoctl access rule add mem/media --id bad --allow --principal * --action read --regex ([
-! nexoctl: error: mem/media: invalid access rule: missing closing ]: [ (invalid_access_rule)
+! nexoctl: error: mem/media: invalid argument: invalid access rule: missing closing ]: [ (invalid_access_rule)
 [exit 1]
 
 $ nexoctl access rule add mem/media --id x --principal * --action read
@@ -147,7 +147,7 @@ $ nexoctl access block-public status mem/site
 Public access of `mem/site`: blocked (cluster: off, mode reject, bucket: on).
 
 $ nexoctl access rule add mem/site --id pub2 --allow --principal * --action read
-! nexoctl: error: mem/site: invalid access rule: public access is blocked: a rule cannot allow everyone ("*") (public_access_blocked)
+! nexoctl: error: mem/site: access denied: invalid access rule: public access is blocked: a rule cannot allow everyone ("*") (public_access_blocked)
 [exit 4]
 
 $ nexoctl access block-public off mem/site

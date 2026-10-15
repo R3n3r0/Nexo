@@ -216,10 +216,54 @@ func localConfig(ctx context.Context, nodeID string, deps BootstrapDeps, opts bo
 	if err := ctx.Err(); err != nil {
 		return NodeConfig{}, err
 	}
+	var endpoints []string
+	for _, ep := range deps.Layout.Endpoints() {
+		endpoints = append(endpoints, ep.String())
+	}
 	return NodeConfig{
 		NodeID: nodeID, TopologyHash: deps.Layout.Hash(), Mode: deps.Layout.Mode, Version: opts.version,
-		DeploymentID: deploymentID, KMSFingerprint: opts.kmsFingerprint, Time: deps.Clock.Now(),
+		DeploymentID: deploymentID, KMSFingerprint: opts.kmsFingerprint, Time: deps.Clock.Now(), Endpoints: endpoints,
 	}, nil
+}
+
+// endpointDiff describes the endpoints only one of two command lines
+// names ("" when a list is unknown or both name the same ones).
+func endpointDiff(ours, theirs []string) string {
+	if len(ours) == 0 || len(theirs) == 0 {
+		return ""
+	}
+	only := func(a, b []string) []string {
+		in := make(map[string]bool, len(b))
+		for _, e := range b {
+			in[e] = true
+		}
+		var out []string
+		for _, e := range a {
+			if !in[e] {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+	list := func(eps []string) string {
+		const shown = 4
+		if len(eps) > shown {
+			return strings.Join(eps[:shown], " ") + fmt.Sprintf(" (+%d more)", len(eps)-shown)
+		}
+		return strings.Join(eps, " ")
+	}
+	here, there := only(ours, theirs), only(theirs, ours)
+	var parts []string
+	if len(here) > 0 {
+		parts = append(parts, "only on this node: "+list(here))
+	}
+	if len(there) > 0 {
+		parts = append(parts, "only on that node: "+list(there))
+	}
+	if len(parts) == 0 && !slices.Equal(ours, theirs) {
+		parts = append(parts, "same endpoints in another order")
+	}
+	return strings.Join(parts, "; ")
 }
 
 // kmsLabel shows a KMS fingerprint in the messages ("none" without KMS).
@@ -329,7 +373,11 @@ func (b *bootstrapper) verifyPeers(ctx context.Context) error {
 			case a.err != nil:
 				offline = append(offline, id)
 			case a.cfg.TopologyHash != ours.TopologyHash || a.cfg.Mode != ours.Mode:
-				topoDiff = append(topoDiff, fmt.Sprintf("%s (topology %s, mode %s)", id, shortHash(a.cfg.TopologyHash), a.cfg.Mode))
+				detail := fmt.Sprintf("topology %s, mode %s", shortHash(a.cfg.TopologyHash), a.cfg.Mode)
+				if diff := endpointDiff(ours.Endpoints, a.cfg.Endpoints); diff != "" {
+					detail += "; " + diff
+				}
+				topoDiff = append(topoDiff, fmt.Sprintf("%s (%s)", id, detail))
 			case !domain.CompatibleVersions(a.cfg.Version, ours.Version):
 				versionDiff = append(versionDiff, fmt.Sprintf("%s (version %s)", id, a.cfg.Version))
 			case a.cfg.KMSFingerprint != ours.KMSFingerprint:
@@ -390,7 +438,11 @@ func (b *bootstrapper) waitFormats(ctx context.Context) (BootstrapResult, error)
 	layout := b.deps.Layout
 	first := layout.Pools[0].Endpoints[0]
 	empty := map[string]int{}
-	healing := map[string]domain.Endpoint{}
+	// healing are the local drives formatted as replacements in a set
+	// holding data; joined the ones formatted in a set holding only the
+	// configuration written at the bootstrap (a node that started after
+	// the others formatted a fresh deployment).
+	healing, joined := map[string]domain.Endpoint{}, map[string]domain.Endpoint{}
 	w := b.newWaiter()
 	for {
 		states, err := b.readFormats(ctx)
@@ -431,7 +483,7 @@ func (b *bootstrapper) waitFormats(ctx context.Context) (BootstrapResult, error)
 				}
 				wrote = wrote || n > 0
 			default:
-				n, err := b.formatReplacements(ctx, pool, poolStates, refs[p], empty, healing)
+				n, err := b.formatReplacements(ctx, pool, poolStates, refs[p], empty, healing, joined)
 				if err != nil {
 					return BootstrapResult{}, err
 				}
@@ -446,7 +498,7 @@ func (b *bootstrapper) waitFormats(ctx context.Context) (BootstrapResult, error)
 			continue // read back what was written
 		}
 		if len(waiting) == 0 && len(empty) == 0 {
-			return b.result(deploymentID, states, healing), nil
+			return b.result(deploymentID, states, healing, joined), nil
 		}
 		if len(waiting) == 0 {
 			// Quorum reached, but local empty drives are settling before
@@ -596,9 +648,10 @@ func (b *bootstrapper) formatPool(ctx context.Context, pool topology.Pool, state
 
 // formatReplacements formats the local drives found empty in a formatted
 // pool (replaced or wiped drives) with the document of their position and
-// marks them for healing. It returns how many it wrote.
+// marks them for healing (healing, or joined when their set holds only the
+// configuration of the bootstrap). It returns how many it wrote.
 func (b *bootstrapper) formatReplacements(ctx context.Context, pool topology.Pool, states []driveFormat, ref *topology.FormatV1,
-	empty map[string]int, healing map[string]domain.Endpoint,
+	empty map[string]int, healing, joined map[string]domain.Endpoint,
 ) (int, error) {
 	n := 0
 	for i, s := range states {
@@ -618,7 +671,8 @@ func (b *bootstrapper) formatReplacements(ctx context.Context, pool topology.Poo
 			b.deps.Logger.Warn("cluster: cannot format replacement drive", "drive", key, "err", err)
 			continue
 		}
-		if !b.setHoldsData(ctx, pool, states, set) {
+		content := b.setContent(ctx, pool, states, set)
+		if content == setEmpty {
 			// The set holds nothing yet (a fresh deployment whose first
 			// format did not reach this drive): there is nothing to heal.
 			delete(empty, key)
@@ -638,22 +692,46 @@ func (b *bootstrapper) formatReplacements(ctx context.Context, pool topology.Poo
 		if err := b.drives[key].WriteAll(ctx, domain.SystemBucket, storage.HealingFile, tracker); err != nil {
 			b.deps.Logger.Warn("cluster: cannot mark drive for healing", "drive", key, "err", err)
 		}
-		healing[key] = s.ep
 		delete(empty, key)
 		n++
+		if content == setConfigOnly {
+			// The regular first start of a node after its peers: the set
+			// holds the configuration they wrote at the bootstrap, which
+			// the healing copies here. Not a failure.
+			joined[key] = s.ep
+			b.deps.Logger.Info("cluster: drive joined a fresh deployment, healing its system configuration",
+				"drive", key, "pool", pool.Index+1, "set", set+1, "disk", disk+1)
+			continue
+		}
+		healing[key] = s.ep
 		b.deps.Logger.Warn("cluster: empty drive in an existing deployment formatted and marked for healing",
 			"drive", key, "pool", pool.Index+1, "set", set+1, "disk", disk+1)
 	}
 	return n, ctx.Err()
 }
 
-// setHoldsData reports whether the formatted drives of set hold data a
-// replaced drive must receive: a bucket, or a system document (bucket
-// metadata, configuration, IAM). When a drive cannot tell, it holds data.
-func (b *bootstrapper) setHoldsData(ctx context.Context, pool topology.Pool, states []driveFormat, set int) bool {
+// setContent is what the formatted drives of a set hold.
+type setContent int
+
+const (
+	// setEmpty: nothing (a fresh deployment).
+	setEmpty setContent = iota
+	// setConfigOnly: only the system configuration the nodes write at
+	// their bootstrap (no bucket, no bucket metadata).
+	setConfigOnly
+	// setData: buckets or bucket metadata (or a drive that cannot tell).
+	setData
+)
+
+// setContent reports what the formatted drives of set hold that a
+// replaced drive must receive: buckets or bucket metadata (setData), only
+// the system configuration (configuration, IAM: setConfigOnly), or
+// nothing. When a drive cannot tell, it holds data.
+func (b *bootstrapper) setContent(ctx context.Context, pool topology.Pool, states []driveFormat, set int) setContent {
 	callCtx, cancel := context.WithTimeout(ctx, b.opts.timeout)
 	defer cancel()
 	checked := 0
+	content := setEmpty
 	for i := set * pool.SetDriveCount; i < (set+1)*pool.SetDriveCount && i < len(states); i++ {
 		if states[i].doc == nil {
 			continue
@@ -664,22 +742,29 @@ func (b *bootstrapper) setHoldsData(ctx context.Context, pool topology.Pool, sta
 		}
 		vols, err := d.ListVols(callCtx)
 		if err != nil {
-			return true
+			return setData
 		}
 		for _, v := range vols {
 			if !strings.HasPrefix(v.Name, ".") {
-				return true
+				return setData
 			}
 		}
-		for _, dir := range []string{storage.BucketsDir, storage.ConfigDir} {
-			infos, err := d.StatInfoFile(callCtx, domain.SystemBucket, dir+"/*", true)
-			if err != nil || len(infos) > 0 {
-				return true
-			}
+		if infos, err := d.StatInfoFile(callCtx, domain.SystemBucket, storage.BucketsDir+"/*", true); err != nil || len(infos) > 0 {
+			return setData
+		}
+		infos, err := d.StatInfoFile(callCtx, domain.SystemBucket, storage.ConfigDir+"/*", true)
+		switch {
+		case err != nil:
+			return setData
+		case len(infos) > 0:
+			content = setConfigOnly
 		}
 		checked++
 	}
-	return checked == 0
+	if checked == 0 {
+		return setData
+	}
+	return content
 }
 
 func (b *bootstrapper) writeFormat(ctx context.Context, ep domain.Endpoint, doc *topology.FormatV1) error {
@@ -692,7 +777,7 @@ func (b *bootstrapper) writeFormat(ctx context.Context, ep domain.Endpoint, doc 
 	return b.drives[ep.String()].WriteAll(callCtx, domain.SystemBucket, storage.FormatFile, data)
 }
 
-func (b *bootstrapper) result(deploymentID string, states [][]driveFormat, healing map[string]domain.Endpoint) BootstrapResult {
+func (b *bootstrapper) result(deploymentID string, states [][]driveFormat, healing, joined map[string]domain.Endpoint) BootstrapResult {
 	res := BootstrapResult{DeploymentID: deploymentID}
 	for _, pool := range states {
 		for _, s := range pool {
@@ -704,7 +789,12 @@ func (b *bootstrapper) result(deploymentID string, states [][]driveFormat, heali
 	for _, ep := range healing {
 		res.Healing = append(res.Healing, ep)
 	}
-	slices.SortFunc(res.Healing, func(a, b domain.Endpoint) int { return strings.Compare(a.String(), b.String()) })
+	for _, ep := range joined {
+		res.Joined = append(res.Joined, ep)
+	}
+	byName := func(a, b domain.Endpoint) int { return strings.Compare(a.String(), b.String()) }
+	slices.SortFunc(res.Healing, byName)
+	slices.SortFunc(res.Joined, byName)
 	return res
 }
 

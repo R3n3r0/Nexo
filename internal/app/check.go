@@ -17,8 +17,9 @@ type CheckReport = preflight.Report
 // here, then the checks of the preflight service on the topology of the
 // configuration (mode, erasure sets, this node among the URL endpoints),
 // the storage classes, the local drives and their formats, the listen
-// addresses and the TLS certificates. Every problem found is returned,
-// joined.
+// addresses (S3, console and the web listeners of the distributions), the
+// TLS certificates and the CA of a private ACME server. Every problem
+// found is returned, joined.
 func DryRun(ctx context.Context, cfg config.Static, opts ...Option) (*CheckReport, error) {
 	o := options{logger: slog.New(slog.DiscardHandler)}
 	for _, opt := range opts {
@@ -43,9 +44,21 @@ func DryRun(ctx context.Context, cfg config.Static, opts ...Option) (*CheckRepor
 		},
 		StorageClassStandard: cfg.StorageClassStandard,
 		StorageClassRRS:      cfg.StorageClassRRS,
+		ACMECACert:           cfg.ACMECACert,
+	}
+	// The listeners of the distributions, when configured (--web-address,
+	// --web-tls-address), are checked like the others.
+	for _, web := range []preflight.Address{
+		{Name: "web address", Addr: cfg.WebAddress},
+		{Name: "web TLS address", Addr: cfg.WebTLSAddress},
+	} {
+		if web.Addr != "" {
+			in.Listen = append(in.Listen, web)
+		}
 	}
 	if cfg.TLSEnabled() {
 		in.CertsDir = cfg.CertsDir
+		in.InternodeVerify = cfg.TLSInternodeVerify
 	}
 	return checks.Check(ctx, in)
 }

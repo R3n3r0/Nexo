@@ -129,12 +129,18 @@ type AdminError struct {
 	API *nexoadmin.APIError
 	// Endpoint is the Admin API URL of the alias.
 	Endpoint string
+	// Alias is the alias the request was sent to (set by the client of
+	// an alias): ErrorMessage names it when the command did not.
+	Alias string
 	// sentinel is the domain error selected by the code or the status.
 	sentinel error
 }
 
-// Error implements error: the detail of the problem with its stable code,
-// then one line per located error of a malformed policy document.
+// Error implements error, in the format of the S3 errors: the class of
+// the error (its domain sentinel), the detail of the problem and its
+// stable code ("bucket not found: The bucket does not exist.
+// (bucket_not_found)"), then one line per located error of a malformed
+// policy document.
 func (e *AdminError) Error() string {
 	if strings.HasPrefix(strings.TrimSpace(e.API.Detail), "<") {
 		// An XML (S3) or HTML answer: the URL is not the Admin API.
@@ -149,6 +155,10 @@ func (e *AdminError) Error() string {
 		text = http.StatusText(e.API.Status)
 	}
 	var b strings.Builder
+	if d := e.description(); d != "" && !strings.Contains(strings.ToLower(text), d) {
+		b.WriteString(d)
+		b.WriteString(": ")
+	}
 	b.WriteString(text)
 	if e.API.Code != "" {
 		fmt.Fprintf(&b, " (%s)", e.API.Code)
@@ -161,6 +171,20 @@ func (e *AdminError) Error() string {
 		b.WriteString(d.String())
 	}
 	return b.String()
+}
+
+// description is the class of the error: the text of its sentinel without
+// the sentinels it wraps ("bucket not found", "access denied"), "" without
+// a sentinel.
+func (e *AdminError) description() string {
+	if e.sentinel == nil {
+		return ""
+	}
+	if errors.Is(e.sentinel, ErrAdminNotFound) {
+		return domain.ErrNotFound.Error()
+	}
+	d, _, _ := strings.Cut(e.sentinel.Error(), ": ")
+	return strings.ToLower(d)
 }
 
 // Unwrap returns the domain sentinel and the problem of the server.
@@ -384,13 +408,25 @@ func MapAdminError(err error, endpoint string) error {
 	if errors.Is(err, context.Canceled) {
 		return err
 	}
+	// A network failure reads like the one of the S3 API ("cannot reach
+	// <url>: connection refused"), with the option that sets the URL.
+	if u, ok := unreachable(err); ok {
+		if endpoint != "" {
+			u.Endpoint = endpoint
+		}
+		u.Hint = adminURLHint
+		return u
+	}
 	var netErr net.Error
 	var urlErr *url.Error
 	if errors.As(err, &netErr) || errors.As(err, &urlErr) {
-		return fmt.Errorf("%w (cannot reach the Admin API at %s: set it with \"nexoctl alias set --admin-url\")", err, endpoint)
+		return fmt.Errorf("cannot reach the Admin API at %s: %w (%s)", endpoint, err, adminURLHint)
 	}
 	return err
 }
+
+// adminURLHint tells how to point an alias at the Admin API.
+const adminURLHint = `the Admin API: check the console address, or set it with "nexoctl alias set --admin-url"`
 
 // adminClient is the AdminClient of one alias: pkg/nexoadmin with the
 // errors mapped by MapAdminError.
@@ -402,13 +438,24 @@ type adminClient struct {
 
 var _ AdminClient = (*adminClient)(nil)
 
-// mapped returns v and err converted by MapAdminError.
+// mapped returns v and err converted by mapError.
 func mapped[T any](c *adminClient, v T, err error) (T, error) {
 	if err != nil {
 		var zero T
-		return zero, MapAdminError(err, c.endpoint)
+		return zero, c.mapError(err)
 	}
 	return v, nil
+}
+
+// mapError converts err with MapAdminError and records the alias in the
+// *AdminError.
+func (c *adminClient) mapError(err error) error {
+	err = MapAdminError(err, c.endpoint)
+	var ae *AdminError
+	if errors.As(err, &ae) {
+		ae.Alias = c.alias
+	}
+	return err
 }
 
 // ServerInfo implements AdminClient.

@@ -143,6 +143,15 @@ func IsSystemBucket(name string) bool { return name == SystemBucket }
 // be written but not read back. MinIO reserves "minio" the same way.
 const ReservedBucket = "nexo"
 
+// SystemPathPrefix is the path prefix the S3 port keeps for the server:
+// the health probes, the metrics and the internode RPC
+// ("/nexo/health/...", "/nexo/metrics/...", "/nexo/rpc/..."). On the S3
+// listener it is never routed by host to a distribution (an alias that
+// captured the host a load balancer or a peer uses would otherwise take
+// over the probes and the cluster protocol); only the virtual hosts of
+// NEXO_DOMAIN keep it as an object key of their bucket.
+const SystemPathPrefix = "/" + ReservedBucket + "/"
+
 // IsReservedBucket reports whether name cannot be used for a bucket: the
 // system metadata bucket and ReservedBucket. Services refuse such names
 // with ErrInvalidBucketName.

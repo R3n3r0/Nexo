@@ -22,3 +22,5 @@ keywords:
 maintainers:
   - name: r3n3r0
     url: https://github.com/r3n3r0
+annotations:
+  artifacthub.io/license: Apache-2.0

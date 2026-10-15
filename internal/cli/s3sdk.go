@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -97,8 +98,15 @@ func (f *s3Factory) Client(_ context.Context, a Alias, opts ClientOptions) (S3Cl
 		Credentials: credentials.NewStaticCredentialsProvider(a.AccessKey, a.SecretKey, ""),
 		// No overall timeout: transfers of large objects take as long as
 		// they take; Ctrl-C cancels the context.
-		HTTPClient:       &http.Client{Transport: rt},
-		RetryMaxAttempts: 3,
+		HTTPClient: &http.Client{Transport: rt},
+		// Three attempts, none more on a deployment without quorum
+		// (noQuorumRetry).
+		Retryer: func() aws.Retryer {
+			return retry.NewStandard(func(o *retry.StandardOptions) {
+				o.MaxAttempts = 3
+				o.Retryables = append([]retry.IsErrorRetryable{retry.IsErrorRetryableFunc(noQuorumRetry)}, o.Retryables...)
+			})
+		},
 	}
 	pathStyle := UsePathStyle(a)
 	api := s3.NewFromConfig(cfg, func(o *s3.Options) {

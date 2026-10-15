@@ -438,6 +438,13 @@ type Service interface {
 	Test(ctx context.Context, in TestInput) (TestResult, error)
 	// Reload reloads every distribution and key group from the store.
 	Reload(ctx context.Context) error
+	// ListenerResolver returns the resolver of a listener: the aliases of
+	// the distributions resolve to them only when serveAliases is true;
+	// otherwise a host resolves as it would without the distributions
+	// (virtual host, main domain, path-style or misdirected): the S3
+	// listener of a deployment that did not opt in to serving the
+	// distributions there. Pure accessor: no I/O.
+	ListenerResolver(serveAliases bool) Resolver
 }
 
 // RotateSecretInput are the parameters of RotateOriginSecret.

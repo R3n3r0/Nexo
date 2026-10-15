@@ -9,8 +9,13 @@
 #   PROMETHEUS_CONFIG=prometheus.cluster.yml \
 #     docker compose -f compose.cluster.yml -f compose.observability.yml up -d
 #
-#   open http://localhost:3000   # Grafana (admin / admin by default, see GRAFANA_*)
+#   GRAFANA_ADMIN_PASSWORD=<a password> docker compose ... up -d   (required)
+#   open http://localhost:3000   # Grafana (GRAFANA_ADMIN_USER, default admin)
 #   open http://localhost:9090   # Prometheus
+#
+# Both listen on 127.0.0.1 only: set GRAFANA_BIND / PROMETHEUS_BIND (e.g.
+# 0.0.0.0) to publish them, behind authentication for Prometheus (it has
+# none of its own).
 #
 # Nexo exposes metrics on :9000 under /nexo/metrics/v1/{cluster,node,bucket};
 # set NEXO_PROMETHEUS_AUTH_TYPE=public in nexo.env or configure a bearer
@@ -22,20 +27,19 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
-      - --web.enable-lifecycle
     volumes:
       - ./observability/${PROMETHEUS_CONFIG:-prometheus.single.yml}:/etc/prometheus/prometheus.yml:ro
       - ./observability/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus-data:/prometheus
     ports:
-      - "${PROMETHEUS_PORT:-9090}:9090"
+      - "${PROMETHEUS_BIND:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
     restart: unless-stopped
 
   grafana:
     image: grafana/grafana:11.6.0
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD}
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
@@ -44,7 +48,7 @@ services:
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     ports:
-      - "${GRAFANA_PORT:-3000}:3000"
+      - "${GRAFANA_BIND:-127.0.0.1}:${GRAFANA_PORT:-3000}:3000"
     depends_on:
       - prometheus
     restart: unless-stopped

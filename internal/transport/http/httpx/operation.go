@@ -11,6 +11,12 @@ import (
 type OperationHolder struct {
 	mu   sync.Mutex
 	name string
+	// bucket and object are the target the handler resolved (target
+	// reports whether one was recorded).
+	bucket, object string
+	target         bool
+	// err is the error a handler answered with (SetOperationError).
+	err error
 }
 
 type operationKey struct{}
@@ -44,4 +50,54 @@ func (h *OperationHolder) Name() string {
 func OperationNameFrom(ctx context.Context) string {
 	h, _ := ctx.Value(operationKey{}).(*OperationHolder)
 	return h.Name()
+}
+
+// SetOperationTarget records the bucket and object a handler resolved for
+// the request (the bucket of a custom domain, of a virtual host or of the
+// path), so that the observers of the request (audit, metrics, traces)
+// report what was actually read or written, when a holder is present.
+func SetOperationTarget(ctx context.Context, bucket, object string) {
+	if h, ok := ctx.Value(operationKey{}).(*OperationHolder); ok {
+		h.mu.Lock()
+		h.bucket, h.object, h.target = bucket, object, true
+		h.mu.Unlock()
+	}
+}
+
+// Target returns the recorded bucket and object; ok is false when none
+// was recorded.
+func (h *OperationHolder) Target() (bucket, object string, ok bool) {
+	if h == nil {
+		return "", "", false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.bucket, h.object, h.target
+}
+
+// OperationTargetFrom returns the target recorded in the context.
+func OperationTargetFrom(ctx context.Context) (bucket, object string, ok bool) {
+	h, _ := ctx.Value(operationKey{}).(*OperationHolder)
+	return h.Target()
+}
+
+// SetOperationError records the error a handler answered with, when a
+// holder is present: the responses carry a curated message, the logs of
+// the request (middleware.NewLogging) its whole chain with the request id.
+func SetOperationError(ctx context.Context, err error) {
+	if h, ok := ctx.Value(operationKey{}).(*OperationHolder); ok && err != nil {
+		h.mu.Lock()
+		h.err = err
+		h.mu.Unlock()
+	}
+}
+
+// Err returns the recorded error (nil when none).
+func (h *OperationHolder) Err() error {
+	if h == nil {
+		return nil
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.err
 }

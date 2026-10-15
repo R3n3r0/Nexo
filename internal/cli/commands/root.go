@@ -12,8 +12,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -59,6 +61,7 @@ func Main(ctx context.Context, deps Deps, args []string) int {
 		// before the command runs: usage errors.
 		err = cli.UsageError("%v", err)
 	}
+	err = e.explainMissingPath(ctx, err)
 	e.printer().Error(err)
 	if cli.ExitCode(err) == cli.ExitUsage && !e.printer().JSON() && cmd != nil {
 		_, _ = fmt.Fprintf(deps.Stderr, "Run '%s --help' for usage.\n", cmd.CommandPath())
@@ -213,4 +216,28 @@ func batchError(what string, failed, total int, first error) error {
 		first = errors.New("unknown failure")
 	}
 	return fmt.Errorf("%d of %d %s failed: %w", failed, total, what, first)
+}
+
+// explainMissingPath adds a hint to a local path that does not exist and
+// was probably meant as a remote location: "ALIAS/..." whose first segment
+// is neither an alias nor a local entry (regression: "stat
+// nosuchalias/foto: no such file or directory" said nothing of the alias).
+func (e *env) explainMissingPath(ctx context.Context, err error) error {
+	var pathErr *fs.PathError
+	if !errors.As(err, &pathErr) || !errors.Is(err, fs.ErrNotExist) || filepath.IsAbs(pathErr.Path) {
+		return err
+	}
+	first, rest, found := strings.Cut(filepath.ToSlash(pathErr.Path), "/")
+	if !found || rest == "" || first == "" || first == "." || first == ".." {
+		return err
+	}
+	if _, serr := os.Lstat(first); serr == nil {
+		return err
+	}
+	if aliases, aerr := e.loadAliases(ctx); aerr == nil {
+		if _, ok := aliases[first]; ok {
+			return err
+		}
+	}
+	return fmt.Errorf(`%w (no alias named %q and no local %q: see "nexoctl alias list")`, err, first, first)
 }

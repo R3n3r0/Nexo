@@ -13,6 +13,7 @@
 // NEXO_COMPOSE_S3 and NEXO_COMPOSE_CONSOLE are the URLs of the load
 // balancer (default http://localhost:9000 and http://localhost:9001),
 // NEXO_COMPOSE_USER and NEXO_COMPOSE_PASSWORD the root credentials of
-// nexo.env (default those of nexo.env.example), NEXO_COMPOSE_STOP the
+// nexo.env (default user admin; the password is required, the example
+// leaves it empty), NEXO_COMPOSE_STOP the
 // service stopped by TM-06 (default nexo3).
 package compose

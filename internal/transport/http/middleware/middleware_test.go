@@ -28,6 +28,7 @@ import (
 	metricsmock "github.com/r3n3r0/nexo/internal/service/metrics/mock"
 	"github.com/r3n3r0/nexo/internal/service/session"
 	sessionmock "github.com/r3n3r0/nexo/internal/service/session/mock"
+	"github.com/r3n3r0/nexo/internal/testutil/redaction"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 	httpxmock "github.com/r3n3r0/nexo/internal/transport/http/httpx/mock"
 	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
@@ -154,6 +155,15 @@ func TestLogging(t *testing.T) {
 	assert.Equal(t, "X-Amz-Credential=REDACTED&X-Amz-Signature=REDACTED&X-Amz-Expires=60", rec["query"])
 	assert.NotContains(t, buf.String(), "f8de")
 
+	// The table every redaction shares (regression: token and password
+	// values reached the stderr log).
+	buf.Reset()
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/bucket/key?"+redaction.Query, nil))
+	assert.Empty(t, redaction.Leaks(buf.String()))
+	for _, kept := range redaction.Kept() {
+		assert.Contains(t, buf.String(), kept)
+	}
+
 	// Below the configured level nothing is written; the defaults apply
 	// without a logger or a clock.
 	buf.Reset()
@@ -161,6 +171,52 @@ func TestLogging(t *testing.T) {
 		ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
 	assert.Empty(t, buf.String())
 	assert.NotNil(t, middleware.NewLogging(middleware.LoggingDeps{}))
+}
+
+// TestLoggingRecordsTheErrorChain: the problem documents carry a curated
+// detail, so the chain of the error must reach the log of the request,
+// with its request id; a server failure is logged above the debug level
+// of the access log.
+func TestLoggingRecordsTheErrorChain(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	enc := httpx.New()
+	failing := func(err error) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { enc.WriteProblemError(w, r, err) })
+	}
+	tests := []struct {
+		name   string
+		err    error
+		status int
+		level  string
+	}{
+		{"quorum lost", fmt.Errorf("bucket: create q: erasure: lock q: %w: resource \"q\" after 30s", domain.ErrLockTimeout), http.StatusServiceUnavailable, "WARN"},
+		{"internal", errors.New("fs: rename /data/d1/tmp: input/output error"), http.StatusInternalServerError, "ERROR"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buf.Reset()
+			h := middleware.Chain(failing(tt.err),
+				middleware.NewRequestID(middleware.RequestIDDeps{IDs: fixedIDs(t)}),
+				middleware.NewLogging(middleware.LoggingDeps{Logger: logger}, middleware.WithLogLevel(slog.LevelDebug)))
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/buckets", nil))
+			assert.Equal(t, tt.status, rec.Code)
+			assert.NotContains(t, rec.Body.String(), tt.err.Error(), "the chain stays out of the response")
+			var line map[string]any
+			require.NoError(t, json.Unmarshal(buf.Bytes(), &line), buf.String())
+			assert.Equal(t, tt.err.Error(), line["error"])
+			assert.Equal(t, "REQ", line["request_id"])
+			assert.Equal(t, tt.level, line["level"])
+		})
+	}
+
+	// A client error keeps the level of the access log.
+	buf.Reset()
+	middleware.NewLogging(middleware.LoggingDeps{Logger: logger}, middleware.WithLogLevel(slog.LevelDebug)).
+		Wrap(failing(fmt.Errorf("x: %w", domain.ErrBucketNotFound))).
+		ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/v1/buckets/nope", nil))
+	assert.Empty(t, buf.String())
 }
 
 func TestCORS(t *testing.T) {
@@ -418,21 +474,40 @@ func TestAudit(t *testing.T) {
 			},
 		},
 		{
-			name: "unnamed operation outside S3", target: "/nexo/health/live",
+			name: "unnamed operation", target: "/",
 			check: func(t *testing.T, e audit.Entry) {
-				assert.Equal(t, "GET /nexo/health/live", e.API.Name)
+				assert.Equal(t, "GET /", e.API.Name)
 				assert.Empty(t, e.API.Bucket)
 				assert.Empty(t, e.AccessKey)
 				assert.Nil(t, e.ReqQuery)
 			},
 		},
+		{
+			name: "secrets of every kind redacted", target: "/photos/a.jpg?" + redaction.Query,
+			check: func(t *testing.T, e audit.Entry) {
+				raw, err := json.Marshal(e)
+				require.NoError(t, err)
+				assert.Empty(t, redaction.Leaks(string(raw)))
+				assert.Equal(t, "10", e.ReqQuery["max-keys"])
+			},
+		},
+		// The probes are not audited (nil check): they would push the
+		// requests of the users out of the ring.
+		{name: "health probe", target: "/nexo/health/ready"},
+		{name: "anonymous metrics scrape", target: "/nexo/metrics/v1/node"},
+		{
+			name: "authenticated metrics scrape", target: "/nexo/metrics/v1/node", identity: &domain.Identity{AccessKey: "AKIA1"},
+			check: func(t *testing.T, e audit.Entry) { assert.Equal(t, "AKIA1", e.AccessKey) },
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			auditor.EXPECT().Log(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, e audit.Entry) error {
-				tt.check(t, e)
-				return errors.New("sink down: the request is not affected")
-			}).Once()
+			if tt.check != nil {
+				auditor.EXPECT().Log(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, e audit.Entry) error {
+					tt.check(t, e)
+					return errors.New("sink down: the request is not affected")
+				}).Once()
+			}
 			h := m.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if tt.operation != "" {
 					httpx.SetOperationName(r.Context(), tt.operation)

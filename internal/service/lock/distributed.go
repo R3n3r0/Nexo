@@ -234,14 +234,27 @@ func (d *distributed) acquire(ctx context.Context, resource string, timeout time
 		releases.Wait()
 		return nil, err
 	}
+	// unreachable counts the consecutive attempts that could not reach the
+	// quorum because too many servers are offline (their nodes are down or
+	// cut off): waiting for the timeout would not change the answer, so
+	// the second such attempt in a row gives up at once.
+	unreachable := 0
 	for {
-		acq, err := d.tryAcquire(ctx, resource, write, quorum, deadline, &releases)
+		acq, offline, err := d.tryAcquire(ctx, resource, write, quorum, deadline, &releases)
 		if err != nil {
 			return fail(err)
 		}
 		if acq != nil {
 			acq.startRefresh()
 			return acq, nil
+		}
+		if reachable := len(d.deps.Servers) - offline; reachable < quorum {
+			if unreachable++; unreachable >= unreachableAttempts {
+				return fail(fmt.Errorf("%w: resource %q: %d of %d lock servers reachable, %d needed (too many nodes offline)",
+					domain.ErrLockTimeout, resource, reachable, len(d.deps.Servers), quorum))
+			}
+		} else {
+			unreachable = 0
 		}
 		if err := ctx.Err(); err != nil {
 			return fail(err)
@@ -287,13 +300,20 @@ type grantResult struct {
 	err     error
 }
 
+// unreachableAttempts is the number of consecutive attempts that find the
+// quorum of lock servers offline before an acquisition fails without
+// waiting for its timeout (one attempt could meet a transient failure).
+const unreachableAttempts = 2
+
 // tryAcquire runs one acquisition attempt with a fresh UID: it returns the
 // acquisition as soon as the quorum granted it, or nil when the quorum
-// cannot be reached anymore (the grants obtained are then released).
+// cannot be reached anymore (the grants obtained are then released), with
+// the number of servers found offline (domain.ErrNodeOffline) among the
+// answers it waited for.
 // Calls still in flight are drained in the background; their grants belong
 // to the acquisition and are released with it (failed attempts register
 // their background release in releases).
-func (d *distributed) tryAcquire(ctx context.Context, resource string, write bool, quorum int, deadline time.Time, releases *sync.WaitGroup) (*acquisition, error) {
+func (d *distributed) tryAcquire(ctx context.Context, resource string, write bool, quorum int, deadline time.Time, releases *sync.WaitGroup) (*acquisition, int, error) {
 	servers := d.deps.Servers
 	args := Args{UID: uuid.NewString(), Resources: []string{resource}, Owner: d.deps.Owner, Quorum: quorum}
 	callCtx, cancel := context.WithTimeout(ctx, d.opts.callTimeout)
@@ -315,7 +335,7 @@ func (d *distributed) tryAcquire(ctx context.Context, resource string, write boo
 		}()
 	}
 	granted := make([]bool, len(servers))
-	count, pending := 0, len(servers)
+	count, pending, offline := 0, len(servers), 0
 	var errs []error
 	for pending > 0 && count < quorum && count+pending >= quorum {
 		r := <-results
@@ -325,6 +345,9 @@ func (d *distributed) tryAcquire(ctx context.Context, resource string, write boo
 			count++
 		} else if r.err != nil {
 			errs = append(errs, r.err)
+			if errors.Is(r.err, domain.ErrNodeOffline) {
+				offline++
+			}
 		}
 	}
 	acq := &acquisition{d: d, args: args, write: write, quorum: quorum, drained: make(chan struct{})}
@@ -339,7 +362,7 @@ func (d *distributed) tryAcquire(ctx context.Context, resource string, write boo
 	}()
 	if count >= quorum {
 		acq.ctx, acq.cancel = context.WithCancelCause(ctx)
-		return acq, nil
+		return acq, 0, nil
 	}
 	releases.Add(1)
 	if err := ctx.Err(); err != nil {
@@ -347,7 +370,7 @@ func (d *distributed) tryAcquire(ctx context.Context, resource string, write boo
 			defer releases.Done()
 			acq.releaseServers(context.WithoutCancel(ctx), "acquisition canceled")
 		}()
-		return nil, err
+		return nil, offline, err
 	}
 	d.deps.Logger.LogAttrs(ctx, slog.LevelDebug, "lock: quorum not reached, retrying",
 		slog.String("resource", resource), slog.Bool("write", write), slog.Int("granted", count),
@@ -360,7 +383,7 @@ func (d *distributed) tryAcquire(ctx context.Context, resource string, write boo
 		defer releases.Done()
 		acq.releaseServers(context.WithoutCancel(ctx), "acquisition failed")
 	}()
-	return nil, nil
+	return nil, offline, nil
 }
 
 // acquisition is a lock held on a quorum of servers. It implements

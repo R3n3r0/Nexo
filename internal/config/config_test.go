@@ -212,7 +212,9 @@ func TestValidate(t *testing.T) {
 		mutate func(*config.Static)
 		want   string
 	}{
-		{"short password", func(s *config.Static) { s.RootPassword = "short" }, "root password"},
+		// A password set but too short is not "required" (regression).
+		{"short password", func(s *config.Static) { s.RootPassword = "short" }, "root password must be at least 8 characters (NEXO_ROOT_PASSWORD has 5)"},
+		{"missing password", func(s *config.Static) { s.RootPassword = "" }, "root password is required (NEXO_ROOT_PASSWORD, at least 8 characters)"},
 		{"short user", func(s *config.Static) { s.RootUser = "ab" }, "root user"},
 		{"no endpoints", func(s *config.Static) { s.Endpoints = nil }, "endpoint"},
 		{"bad address", func(s *config.Static) { s.Address = "9000" }, "address"},

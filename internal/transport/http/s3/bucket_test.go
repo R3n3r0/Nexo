@@ -65,7 +65,7 @@ func TestListBuckets(t *testing.T) {
 	}
 
 	f.buckets.EXPECT().ListPage(mock.Anything, bucket.ListPageInput{}).Return(bucket.ListPageResult{}, domain.ErrReadQuorum).Once()
-	requireError(t, f.do(http.MethodGet, "/", ""), http.StatusServiceUnavailable, "SlowDown")
+	requireError(t, f.do(http.MethodGet, "/", ""), http.StatusServiceUnavailable, "SlowDownRead")
 }
 
 func TestCreateBucket(t *testing.T) {

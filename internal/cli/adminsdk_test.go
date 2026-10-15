@@ -124,7 +124,7 @@ func TestAdminErrorMessages(t *testing.T) {
 		},
 	}
 	err := cli.MapAdminError(located, "http://admin.test")
-	assert.Equal(t, "policy has 2 errors (malformed_policy)\n"+
+	assert.Equal(t, "malformed policy: policy has 2 errors (malformed_policy)\n"+
 		"  line 4, column 7: statement 1 (A), Action: unknown action\n"+
 		"  line 9, column 2: trailing data", err.Error())
 	details := cli.ErrorDetails(err)
@@ -134,7 +134,7 @@ func TestAdminErrorMessages(t *testing.T) {
 	// A detail already in the message is not repeated.
 	once := cli.MapAdminError(&nexoadmin.APIError{Status: 400, Code: "malformed_policy", Detail: "line 2, column 3: bad",
 		Errors: []nexoadmin.PolicyError{{Line: 2, Column: 3, Message: "bad"}}}, "")
-	assert.Equal(t, "line 2, column 3: bad (malformed_policy)", once.Error())
+	assert.Equal(t, "malformed policy: line 2, column 3: bad (malformed_policy)", once.Error())
 
 	// An S3 (XML) answer means the URL is not the Admin API.
 	xml := cli.MapAdminError(&nexoadmin.APIError{Status: 404, Code: "not_found", Detail: "<?xml version=\"1.0\"?><Error/>"}, "http://localhost:9000")
@@ -181,6 +181,18 @@ func TestAdminFactoryAgainstServer(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrUserNotFound)
 	assert.Equal(t, cli.ExitNotFound, cli.ExitCode(err))
 
+	// The errors read like the S3 ones (alias, class, curated message,
+	// code), without the internal chain of the server.
+	_, err = client.GetBucketQuota(ctx, "nope")
+	require.Error(t, err)
+	assert.Equal(t, "bucket not found: The bucket does not exist. (bucket_not_found)", err.Error())
+	assert.NotContains(t, err.Error(), "fs:")
+	assert.Equal(t, cli.ExitNotFound, cli.ExitCode(err))
+	// A command that names no target gets the alias.
+	assert.Equal(t, "local: bucket not found: The bucket does not exist. (bucket_not_found)", cli.ErrorMessage(err))
+	assert.Equal(t, "local/nope: bucket not found: The bucket does not exist. (bucket_not_found)",
+		cli.ErrorMessage(fmt.Errorf("local/nope: %w", err)), "the alias is not repeated")
+
 	// alice has no admin permission: 403, exit code 4.
 	aliceAlias := alias
 	aliceAlias.AccessKey, aliceAlias.SecretKey = "alice", "alice-secret-1"
@@ -197,6 +209,15 @@ func TestAdminFactoryAgainstServer(t *testing.T) {
 	require.NoError(t, err)
 	_, err = bad.ServerInfo(ctx)
 	assert.Equal(t, cli.ExitAccess, cli.ExitCode(err))
+	unknown := alias
+	unknown.AccessKey = "nobody99"
+	nobody, err := factory.Client(ctx, unknown, cli.ClientOptions{})
+	require.NoError(t, err)
+	_, err = nobody.ServerInfo(ctx)
+	assert.Equal(t, cli.ExitAccess, cli.ExitCode(err))
+	msg := cli.ErrorMessage(err)
+	assert.Regexp(t, `^local: invalid access key: .+ \(invalid_access_key\)$`, msg)
+	assert.NotContains(t, msg, ".: invalid access key")
 
 	// The S3 listener is not the Admin API.
 	s3Only := alias
@@ -214,7 +235,11 @@ func TestAdminFactoryAgainstServer(t *testing.T) {
 	require.NoError(t, err)
 	_, err = dc.ServerInfo(ctx)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "cannot reach the Admin API at http://127.0.0.1:1")
+	// The same form as the S3 errors (regression: the raw Go chain
+	// "nexoadmin: GET /info: Get ...: dial tcp ...").
+	assert.Equal(t, `cannot reach http://127.0.0.1:1: connection refused (the Admin API: check the console address, or set it with "nexoctl alias set --admin-url")`, err.Error())
+	var unreachable *cli.UnreachableError
+	assert.ErrorAs(t, err, &unreachable)
 	assert.Equal(t, cli.ExitError, cli.ExitCode(err))
 
 	_, err = factory.Client(ctx, cli.Alias{Name: "x", URL: "nope"}, cli.ClientOptions{})

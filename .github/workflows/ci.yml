@@ -52,7 +52,7 @@ jobs:
 
       - name: gofmt
         run: |
-          out="$(gofmt -l $(git ls-files '*.go'))"
+          out="$(git ls-files -z '*.go' | xargs -0 gofmt -l)"
           if [ -n "$out" ]; then
             echo "files need gofmt:"; echo "$out"; exit 1
           fi
@@ -65,6 +65,7 @@ jobs:
           go vet -tags cluster ./test/cluster/...
           go vet -tags compose ./test/compose/...
           go vet -tags proxy ./test/proxy/...
+          go vet -tags upgrade ./test/upgrade/...
 
       - name: traceability matrix (docs/06 §6.8)
         run: make traceability-check
@@ -132,8 +133,8 @@ jobs:
           CGO_ENABLED: "1"
         # The integration suite and the CLI scripts run per mode below.
         run: |
-          go test -race -count=1 -shuffle=on -coverprofile=coverage.txt -covermode=atomic \
-            $(go list ./... | grep -v -e '/test/cli$' -e '/test/integration$')
+          mapfile -t pkgs < <(go list ./... | grep -v -e '/test/cli$' -e '/test/integration$')
+          go test -race -count=1 -shuffle=on -coverprofile=coverage.txt -covermode=atomic "${pkgs[@]}"
 
       - name: Coverage summary
         if: always()
@@ -1034,6 +1035,7 @@ jobs:
           NEXO_IMAGE: nexo:ci
         run: |
           cp nexo.env.example nexo.env
+          sed -i 's/^NEXO_ROOT_PASSWORD=$/NEXO_ROOT_PASSWORD=ci-password-123/' nexo.env
           echo "NEXO_SERVER_URL=http://localhost:9000" >> nexo.env
           docker compose -f compose.cluster.yml up -d
           for _ in $(seq 1 90); do
@@ -1046,6 +1048,7 @@ jobs:
         env:
           NEXO_IMAGE: nexo:ci
           NEXO_COMPOSE_FILE: deploy/docker/compose.cluster.yml
+          NEXO_COMPOSE_PASSWORD: ci-password-123
         run: go test -tags compose -count=1 -v -timeout 20m ./test/compose/...
 
       - name: Compose logs
@@ -1094,8 +1097,8 @@ jobs:
             docker compose -f "$f" config --quiet
           done
           NEXO_SECRET_PROXY_A=a NEXO_SECRET_PROXY_B=b docker compose -f compose.multi-proxy.yml config --quiet
-          docker compose -f compose.single.yml -f compose.observability.yml config --quiet
-          PROMETHEUS_CONFIG=prometheus.cluster.yml docker compose -f compose.cluster.yml -f compose.observability.yml config --quiet
+          GRAFANA_ADMIN_PASSWORD=ci docker compose -f compose.single.yml -f compose.observability.yml config --quiet
+          GRAFANA_ADMIN_PASSWORD=ci PROMETHEUS_CONFIG=prometheus.cluster.yml docker compose -f compose.cluster.yml -f compose.observability.yml config --quiet
 
       - name: nginx configs
         run: |

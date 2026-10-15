@@ -15,6 +15,8 @@ type options struct {
 	mainHosts []string
 	// misdirected answers 421 for the unknown hosts.
 	misdirected bool
+	// noRouting keeps the routing table empty (recovery mode).
+	noRouting   bool
 	lockTimeout time.Duration
 	// maxDistributions bounds the number of distributions.
 	maxDistributions int
@@ -36,9 +38,13 @@ func WithDomains(domains ...string) Option {
 	}
 }
 
-// WithMainHosts sets the host names of the S3 API and of the console
-// (NEXO_SERVER_URL, NEXO_BROWSER_REDIRECT_URL): they resolve to RouteMain
-// and cannot be aliases of a distribution.
+// WithMainHosts sets the host names the deployment itself answers on: the
+// S3 API and the console (NEXO_SERVER_URL, NEXO_BROWSER_REDIRECT_URL), the
+// hosts of the node endpoints, the listen addresses, "localhost" and the
+// host name of the machine. They resolve to RouteMain and cannot be
+// aliases of a distribution (nor be covered by a wildcard alias): an
+// alias capturing one of them would take over the S3 endpoint, the health
+// probes or the internode RPC of the deployment.
 func WithMainHosts(hosts ...string) Option {
 	return func(o *options) {
 		for _, h := range hosts {
@@ -54,6 +60,14 @@ func WithMainHosts(hosts ...string) Option {
 // serving them the path-style S3 API.
 func WithUnknownHostMisdirected(on bool) Option {
 	return func(o *options) { o.misdirected = on }
+}
+
+// WithRoutingDisabled keeps the routing table empty: no host resolves to
+// a distribution, while the distributions stay readable and editable
+// (nexo server --no-distributions, the recovery of a deployment whose
+// distributions keep the API from working).
+func WithRoutingDisabled(on bool) Option {
+	return func(o *options) { o.noRouting = on }
 }
 
 // WithLockTimeout bounds the wait for the configuration lock (default

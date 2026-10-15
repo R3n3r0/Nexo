@@ -27,6 +27,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/r3n3r0/nexo/internal/lifecycle"
 )
 
 // Prefix is the path below which the internode RPC is served.
@@ -43,7 +45,12 @@ type Routes interface {
 }
 
 // StorageRoutes exposes the local drives of the node ("/storage/...").
-type StorageRoutes interface{ Routes }
+type StorageRoutes interface {
+	Routes
+	// Runner sweeps the file handles the peers forgot (open-file) and
+	// closes every handle when the node stops.
+	lifecycle.Runner
+}
 
 // LockRoutes exposes the in-memory lock server of the node ("/lock/...").
 type LockRoutes interface{ Routes }

@@ -301,6 +301,35 @@ func TestKeystoreWatchReloads(t *testing.T) {
 	}
 }
 
+// TestKeystoreStartSeesEarlierRotation: a rotation between the load of
+// the keystore (Build) and Start produces no file event, and with the poll
+// disabled it is only noticed because Start compares the files with the
+// material once the watches are registered (regression: the watches were
+// registered asynchronously by the goroutine of Start, and a rotation in
+// that window stayed ignored until the poll).
+func TestKeystoreStartSeesEarlierRotation(t *testing.T) {
+	dir := t.TempDir()
+	ca := newCA(t, "CA")
+	chain, key := ca.issue(t, pairSpec{names: []string{"s3.example.org"}})
+	writeKeyPair(t, dir, chain, key)
+	ks, err := newKeystore(t, dir, certs.WithKeystoreDebounce(time.Hour), certs.WithKeystorePoll(-1))
+	require.NoError(t, err)
+
+	newChain, newKey := ca.issue(t, pairSpec{names: []string{"s3.example.org"}})
+	staged := filepath.Join(t.TempDir(), "staged")
+	writeKeyPair(t, staged, newChain, newKey)
+	require.NoError(t, os.Rename(filepath.Join(staged, certs.PrivateKeyFile), filepath.Join(dir, certs.PrivateKeyFile)))
+	require.NoError(t, os.Rename(filepath.Join(staged, certs.PublicCertFile), filepath.Join(dir, certs.PublicCertFile)))
+
+	ctx := context.Background()
+	require.NoError(t, ks.Start(ctx))
+	t.Cleanup(func() { _ = ks.Stop(ctx) })
+	// No poll and a debounce of one hour: only Start itself can have
+	// installed the new pair.
+	assert.Equal(t, leafOf(t, newChain).Raw, handshake(t, ks, "s3.example.org").Raw,
+		"the rotation before Start is served when Start returns")
+}
+
 func TestKeystoreFollowsSymlinks(t *testing.T) {
 	if _, err := os.Lstat("/proc"); err != nil {
 		t.Skip("symbolic links of the test need a Unix file system")
@@ -340,4 +369,27 @@ func TestKeystoreFollowsSymlinks(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return string(handshake(t, ks, "s3.example.org").Raw) == string(leafOf(t, newChain).Raw)
 	}, 5*time.Second, 20*time.Millisecond, "the renewal behind the symbolic links is served")
+}
+
+// TestKeystoreClientCAsExcludeTheIssuers: an issuing CA in the chain of
+// public.crt verifies the peers as servers but never as clients: only the
+// CAs of CAs/ and the default certificate itself do (regression: any
+// certificate of the intermediate passed the mutual TLS of the internode
+// calls).
+func TestKeystoreClientCAsExcludeTheIssuers(t *testing.T) {
+	dir := t.TempDir()
+	issuing := newCA(t, "Corp Issuing CA")
+	leaf, key := issuing.issue(t, pairSpec{names: []string{"localhost"}})
+	writeKeyPair(t, dir, leaf+issuing.pem, key)
+	ks, err := newKeystore(t, dir, certs.WithoutSystemRoots())
+	require.NoError(t, err)
+
+	foreign, _ := issuing.issue(t, pairSpec{names: []string{"evil-unrelated-service"}})
+	verify := func(chain string, pool *x509.CertPool) error {
+		_, err := leafOf(t, chain).Verify(x509.VerifyOptions{Roots: pool, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageAny}})
+		return err
+	}
+	assert.Error(t, verify(foreign, ks.ClientCAs()), "a certificate of the issuer of public.crt is no client of the cluster")
+	assert.NoError(t, verify(foreign, ks.RootCAs()), "the issuer verifies the servers")
+	assert.NoError(t, verify(leaf, ks.ClientCAs()), "the shared certificate of the cluster is a client")
 }

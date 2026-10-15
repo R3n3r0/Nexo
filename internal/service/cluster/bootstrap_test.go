@@ -67,6 +67,9 @@ type peerState struct {
 	hash    atomic.Value
 	version atomic.Value
 	kms     atomic.Value
+	// endpoints are the endpoints the peer reports (none by default, as
+	// a node of an older release).
+	endpoints atomic.Value
 }
 
 // peers returns the bootstrap peers of node n, answering like nodes
@@ -91,8 +94,9 @@ func (d *deployment) peers(t *testing.T, n int, l *topology.Layout) ([]cluster.B
 			if !st.online.Load() {
 				return cluster.NodeConfig{}, domain.ErrNodeOffline
 			}
+			eps, _ := st.endpoints.Load().([]string)
 			return cluster.NodeConfig{NodeID: id, TopologyHash: st.hash.Load().(string), Mode: l.Mode,
-				Version: st.version.Load().(string), KMSFingerprint: st.kms.Load().(string), Time: time.Now()}, nil
+				Version: st.version.Load().(string), KMSFingerprint: st.kms.Load().(string), Time: time.Now(), Endpoints: eps}, nil
 		}).Maybe()
 		out = append(out, p)
 		states = append(states, st)
@@ -317,20 +321,68 @@ func TestBootstrapUnformattedDriveWithoutData(t *testing.T) {
 	formatOf(t, drives[local])
 }
 
+// TestBootstrapLateNodeOfFreshDeployment: the drive of a node that starts
+// after its peers formatted a fresh deployment and wrote its configuration
+// is formatted, and the healing copies that configuration, but it is a
+// drive that joined the deployment, not a replacement (regression: the
+// regular first start of a cluster logged replaced drives and a heal).
+func TestBootstrapLateNodeOfFreshDeployment(t *testing.T) {
+	ctx := context.Background()
+	d := newDeployment(t)
+	first, _ := d.bootstrapper(t, 0, d.drives(t, d.layout(t, 0)))
+	_, err := first.Bootstrap(ctx)
+	require.NoError(t, err)
+	l := d.layout(t, 1)
+	drives := d.drives(t, l)
+	local := -1
+	for i, ep := range l.Endpoints() {
+		if ep.IsLocal {
+			local = i
+			break
+		}
+	}
+	// The configuration the started nodes wrote at their bootstrap.
+	for i, dr := range drives {
+		if i != local {
+			require.NoError(t, dr.WriteAll(ctx, domain.SystemBucket, storage.ConfigDir+"/config.json", []byte(`{}`)))
+		}
+	}
+	require.NoError(t, drives[local].Delete(ctx, domain.SystemBucket, storage.FormatFile, storage.DeleteOptions{}))
+	second, _ := d.bootstrapper(t, 1, drives)
+	res, err := second.Bootstrap(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, res.Healing, "not a replacement")
+	require.Len(t, res.Joined, 1)
+	assert.Equal(t, l.Endpoints()[local].String(), res.Joined[0].String())
+	assert.NotNil(t, drives[local].Healing(), "the healing copies the configuration")
+	formatOf(t, drives[local])
+}
+
 // TestBootstrapTopologyMismatch (TC-02): a node whose topology differs
 // from the majority refuses to start; the majority goes on without it.
 func TestBootstrapTopologyMismatch(t *testing.T) {
 	ctx := context.Background()
 	d := newDeployment(t)
 	odd, states := d.bootstrapper(t, 3, d.drives(t, d.layout(t, 3)))
-	for _, st := range states {
+	cfg, err := odd.LocalConfig(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, cfg.Endpoints)
+	// The others name another last drive: the error names the endpoints
+	// that differ (regression: only the nodes and the hashes).
+	theirs := append(append([]string(nil), cfg.Endpoints[:len(cfg.Endpoints)-1]...), "http://127.0.0.1:19104/elsewhere")
+	for i, st := range states {
 		st.hash.Store("another-topology")
+		if i > 0 {
+			st.endpoints.Store(theirs)
+		}
 	}
-	_, err := odd.Bootstrap(ctx)
+	_, err = odd.Bootstrap(ctx)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, cluster.ErrTopologyMismatch)
 	assert.ErrorIs(t, err, domain.ErrInvalidLayout)
 	assert.Contains(t, err.Error(), "127.0.0.1:19101")
+	assert.Contains(t, err.Error(), "only on this node: "+cfg.Endpoints[len(cfg.Endpoints)-1])
+	assert.Contains(t, err.Error(), "only on that node: http://127.0.0.1:19104/elsewhere")
 
 	first, states := d.bootstrapper(t, 0, d.drives(t, d.layout(t, 0)))
 	states[2].hash.Store("another-topology")

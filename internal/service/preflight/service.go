@@ -36,6 +36,13 @@ type Input struct {
 	// CertsDir holds the TLS key pair (public.crt, private.key); empty
 	// without TLS.
 	CertsDir string
+	// InternodeVerify reports --tls-internode-verify: the client
+	// certificates of the nodes are verified with the CAs of CAs/ in
+	// CertsDir and the default certificate only.
+	InternodeVerify bool
+	// ACMECACert is the PEM file of the CA of a private ACME server
+	// (--acme-ca-cert); empty for the public ACME CAs.
+	ACMECACert string
 }
 
 // Report describes a validated configuration.

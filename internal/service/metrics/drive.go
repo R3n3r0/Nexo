@@ -201,6 +201,14 @@ func (d *measuredDrive) ReadFileStream(ctx context.Context, volume, path string,
 	return rc, err
 }
 
+// OpenFile implements storage.StorageAPI (the time to open the file).
+func (d *measuredDrive) OpenFile(ctx context.Context, volume, path string) (storage.FileHandle, error) {
+	start := time.Now()
+	h, err := d.next.OpenFile(ctx, volume, path)
+	d.done(ctx, "open_file", start, err)
+	return h, err
+}
+
 // RenameData implements storage.StorageAPI.
 func (d *measuredDrive) RenameData(ctx context.Context, srcVolume, srcPath string, fi storage.FileInfo, dstVolume, dstPath string, opts storage.RenameOptions) (storage.RenameDataResult, error) {
 	start := time.Now()

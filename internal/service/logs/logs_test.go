@@ -20,6 +20,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/config"
 	"github.com/r3n3r0/nexo/internal/service/logs"
 	logsmock "github.com/r3n3r0/nexo/internal/service/logs/mock"
+	"github.com/r3n3r0/nexo/internal/testutil/redaction"
 )
 
 // syncBuffer is a bytes.Buffer safe for the concurrent writes of slog.
@@ -182,6 +183,17 @@ func TestRedaction(t *testing.T) {
 	assert.Equal(t, "REDACTED", e.Attrs["headers.Cookie"])
 	assert.Contains(t, e.Attrs["query"], "list-type=2", "the rest of the value stays")
 	assert.Contains(t, e.Attrs["url"], "x=1")
+
+	// The table every redaction shares (regression: password and secret
+	// values reached the log stream).
+	logger.Info("http request", "query", redaction.Query, "url", "https://example.com/x?"+redaction.Query)
+	e = next(t, sub)
+	raw, err = json.Marshal(e)
+	require.NoError(t, err)
+	assert.Empty(t, redaction.Leaks(string(raw)))
+	for _, kept := range redaction.Kept() {
+		assert.Contains(t, e.Attrs["query"], kept)
+	}
 }
 
 // covers: S-OPS-07

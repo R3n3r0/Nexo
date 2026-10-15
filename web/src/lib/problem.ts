@@ -9,14 +9,20 @@ const knownCodes = [
   'bucket_not_empty',
   'bucket_not_found',
   'conflict',
+  'disk_not_found',
   'entity_too_large',
+  'faulty_disk',
   'invalid_bucket_name',
   'invalid_object_name',
+  'lock_timeout',
   'malformed_policy',
   'network_error',
+  'node_offline',
   'object_locked',
   'object_not_found',
   'quota_exceeded',
+  'read_quorum',
+  'write_quorum',
 ] as const;
 
 type KnownCode = (typeof knownCodes)[number];

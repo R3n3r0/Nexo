@@ -47,9 +47,12 @@ func load(t *testing.T) settings {
 		s3:       strings.TrimSuffix(env("NEXO_COMPOSE_S3", "http://localhost:9000"), "/"),
 		console:  strings.TrimSuffix(env("NEXO_COMPOSE_CONSOLE", "http://localhost:9001"), "/"),
 		user:     env("NEXO_COMPOSE_USER", "admin"),
-		password: env("NEXO_COMPOSE_PASSWORD", "change-me-please"),
+		password: env("NEXO_COMPOSE_PASSWORD", ""),
 		file:     env("NEXO_COMPOSE_FILE", "deploy/docker/compose.cluster.yml"),
 		stop:     env("NEXO_COMPOSE_STOP", "nexo3"),
+	}
+	if s.password == "" {
+		t.Fatal("NEXO_COMPOSE_PASSWORD: the root password of nexo.env is required (nexo.env.example leaves it empty)")
 	}
 	waitReady(t, s, 3*time.Minute)
 	return s

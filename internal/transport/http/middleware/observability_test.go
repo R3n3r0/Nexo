@@ -23,6 +23,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/trace"
 	tracemock "github.com/r3n3r0/nexo/internal/service/trace/mock"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
+	httpxmock "github.com/r3n3r0/nexo/internal/transport/http/httpx/mock"
 	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
 )
 
@@ -287,5 +288,57 @@ func TestAuditSharesHolders(t *testing.T) {
 	require.NoError(t, err)
 	for _, s := range secrets {
 		assert.NotContains(t, string(raw), s, "a secret reached the audit log")
+	}
+}
+
+// TestAuditTargetOfCustomDomains: the audit records the bucket and object
+// a request actually used: the origin bucket of the custom domain of an
+// s3 distribution (target middleware), refused or served, and the target
+// the handler records (regression: the bucket was read from the path, so
+// a write to webteam/victim/payroll.txt through a custom domain was
+// audited as victim/payroll.txt).
+func TestAuditTargetOfCustomDomains(t *testing.T) {
+	hostBuckets := httpxmock.NewHostBucketResolver(t)
+	hostBuckets.EXPECT().BucketOfHost(mock.Anything).RunAndReturn(func(host string) (string, bool) {
+		return "webteam", strings.HasPrefix(host, "s3take.test")
+	}).Maybe()
+	tests := []struct {
+		name, host, path string
+		handlerTarget    []string
+		bucket, object   string
+	}{
+		{name: "custom domain, refused before the handler", host: "s3take.test:9000", path: "/victim/payroll.txt",
+			bucket: "webteam", object: "victim/payroll.txt"},
+		{name: "custom domain, served", host: "s3take.test", path: "/victim/payroll.txt", handlerTarget: []string{"webteam", "victim/payroll.txt"},
+			bucket: "webteam", object: "victim/payroll.txt"},
+		{name: "reserved path of a custom domain", host: "s3take.test", path: "/nexo/rpc/v1/peer/x"},
+		{name: "virtual host", host: "photos.s3.example.com", path: "/a.jpg", bucket: "photos", object: "a.jpg"},
+		{name: "path style", host: "127.0.0.1:9000", path: "/victim/payroll.txt", bucket: "victim", object: "payroll.txt"},
+		{name: "the handler decides", host: "127.0.0.1", path: "/x/y", handlerTarget: []string{"site", "index.html"}, bucket: "site", object: "index.html"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			auditor := auditmock.NewService(t)
+			var entry audit.Entry
+			auditor.EXPECT().Log(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, e audit.Entry) error {
+				entry = e
+				return nil
+			}).Once()
+			auditMW, err := middleware.NewAudit(middleware.AuditDeps{Auditor: auditor}, middleware.WithAuditType(middleware.AuditTypeS3),
+				middleware.WithAuditDomains("s3.example.com"))
+			require.NoError(t, err)
+			target := middleware.NewTarget(middleware.TargetDeps{HostBuckets: hostBuckets}, middleware.WithTargetDomains("s3.example.com"))
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tt.handlerTarget != nil {
+					httpx.SetOperationTarget(r.Context(), tt.handlerTarget[0], tt.handlerTarget[1])
+				}
+				w.WriteHeader(http.StatusForbidden)
+			})
+			req := httptest.NewRequest(http.MethodPut, tt.path, nil)
+			req.Host = tt.host
+			middleware.Chain(handler, target, auditMW).ServeHTTP(httptest.NewRecorder(), req)
+			assert.Equal(t, tt.bucket, entry.API.Bucket)
+			assert.Equal(t, tt.object, entry.API.Object)
+		})
 	}
 }

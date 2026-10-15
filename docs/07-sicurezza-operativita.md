@@ -80,8 +80,12 @@ target di fuzzing (`make fuzz`), è in [docs/security/threat-model.md](security/
   - `<nome>/public.crt` + `<nome>/private.key`: certificati aggiuntivi scelti per **SNI** sui nomi DNS della foglia
     (esatto, poi wildcard di un livello; a parità vince il valido che scade per ultimo); le cartelle nascoste (`..data`
     dei secret Kubernetes) e quelle senza coppia sono ignorate;
-  - `CAs/*`: CA fidate per i peer (verifica dei certificati client con `--tls-internode-verify` e dei server nelle
-    chiamate internode, insieme alle radici di sistema e a `public.crt`).
+  - `CAs/*`: CA fidate per i peer. I certificati **client** dei peer (`--tls-internode-verify`) sono verificati solo
+    con le CA di `CAs/` e con il certificato di default stesso (un cluster che condivide un unico certificato),
+    **mai** con gli intermedi della catena di `public.crt`: una CA che emette il certificato del server non diventa
+    fidata per ogni certificato che ha emesso. Il certificato client deve inoltre nominare (SAN DNS o IP) l'host di
+    un endpoint dei nodi. I certificati **server** dei peer sono verificati con le radici di sistema, `CAs/` e la
+    catena di `public.crt`.
 - **Hot reload senza restart né interruzione**: la directory (e quelle dei bersagli dei link simbolici, come `live/` e
   `archive/` di certbot) è osservata con fsnotify e un debounce di 500 ms, con una scansione di sicurezza ogni minuto;
   `SIGHUP` (`systemctl reload nexo`) ricarica subito anche i certificati delle distribuzioni. Ogni handshake legge il
@@ -95,7 +99,9 @@ target di fuzzing (`make fuzz`), è in [docs/security/threat-model.md](security/
 - **Politica**: TLS 1.2 minimo (`--tls-min-version` / `NEXO_TLS_MIN_VERSION`: `1.2` o `1.3`), TLS 1.3 negoziato con ogni
   client che lo supporta; in TLS 1.2 solo suite ECDHE con AEAD (AES-GCM, ChaCha20-Poly1305); ALPN `h2`, `http/1.1`.
 - Opzione `--tls-internode-verify` per mTLS tra nodi: il nodo presenta il certificato corrente del keystore (anche
-  dopo una rotazione) e verifica quello dei peer con le CA correnti. La fiducia verso i server dei peer (radici del
+  dopo una rotazione) e verifica quello dei peer con le CA correnti di `CAs/` (o il certificato condiviso): il
+  certificato deve nominare uno degli host degli endpoint, così un certificato della stessa CA emesso per un altro
+  servizio non passa. Con certificati di nodo emessi da una CA privata, la CA va messa in `CAs/`. La fiducia verso i server dei peer (radici del
   client internode) è fissata all'avvio: la sostituzione della **CA** (o di un certificato autofirmato usato come
   radice) richiede un riavvio a rotazione dei nodi; il rinnovo di una foglia firmata dalla stessa CA no.
 
@@ -135,7 +141,9 @@ target di fuzzing (`make fuzz`), è in [docs/security/threat-model.md](security/
   l'aggregato del cluster (somma, media o massimo secondo la serie). Richiede `admin:Prometheus` **o** `admin:ServerInfo`.
 - **Trace live** (S-OPS-07, D-MON-02): `GET /api/v1/trace` (Server-Sent Events, `admin:ServerTrace`) pubblica una
   richiesta S3, console, sito o RPC per evento (ora, nodo, API, metodo, percorso, query **redatta** — firme,
-  credenziali, token —, stato, durata, byte, request id, IP, utente, errore) di tutti i nodi, con filtri `node`,
+  credenziali, token, password, SSE-C, URL firmati delle distribuzioni e i nomi usuali delle credenziali applicative
+  dei siti serviti (`apikey`, `api_key`, `api-key`, `x-api-key`, `auth`, `sig`, `jwt`, `session`, `sid`); gli
+  altri parametri applicativi restano in chiaro —, stato, durata, byte, request id, IP, utente, errore) di tutti i nodi, con filtri `node`,
   `type`, `api`, `bucket`, `status` (codici o classi `5xx`), `errors`, `threshold`. Header e body non sono mai
   pubblicati. Senza sottoscrittori il costo è nullo; un client lento perde eventi (evento `dropped` con il contatore,
   `nexo_trace_dropped_total`) senza mai rallentare le richieste; heartbeat ogni 15 s.
@@ -145,7 +153,8 @@ target di fuzzing (`make fuzz`), è in [docs/security/threat-model.md](security/
   `--log-level`/`--log-format`). Segreti (Authorization, firme, credenziali, token, password, cookie, chiavi SSE-C)
   redatti dai flussi.
 - **Audit** (S-OPS-06, D-MON-03): un record per ogni richiesta S3 e console (identità, azione/API, risorsa, IP,
-  esito, latenza, request id, nodo, byte), scritto nel log JSON (`msg=audit`), tenuto in memoria (ultimi 10000 per
+  esito, latenza, request id, nodo, byte), tranne le sonde di salute (`/nexo/health/*`) e gli scrape anonimi
+  delle metriche (`/nexo/metrics/*` senza identità), scritto nel log JSON (`msg=audit`), tenuto in memoria (ultimi 10000 per
   nodo, ricerca `GET /api/v1/audit` con `admin:ConsoleLog`, aggregata sui nodi) e consegnato ai target
   `audit_webhook[:<id>]` e `audit_kafka[:<id>]` (stesse chiavi dei target `notify_*` di pari tipo, coda persistente
   in `<primo drive>/.nexo.sys/audit`, applicati a caldo). Il webhook riceve un documento JSON per record; Kafka un
@@ -195,8 +204,6 @@ target di fuzzing (`make fuzz`), è in [docs/security/threat-model.md](security/
 | `NEXO_KMS_CAPATH` | radici di sistema | CA (file o directory PEM) che firmano i certificati dei server KES |
 | `NEXO_SSEC_ALLOW_INSECURE` | `off` | Accetta chiavi SSE-C su HTTP in chiaro: **solo test e sviluppo** |
 | `api.cors_allow_origin` (config, `nexoctl admin config set`, applicata a caldo) | `*` | Origini CORS ammesse per tutto il deployment (separate da virgola, `*` o vuoto: ogni origine): vale per le richieste di servizio e per i bucket **senza** configurazione CORS, la cui preflight risponde 200 invece del 403 di S3 (vedi [02 §2.4](02-funzionalita.md)); la configurazione CORS di un bucket la sostituisce per quel bucket |
-| `NEXO_BROWSER` | `on` | Abilita/disabilita la console |
-| `NEXO_CONSOLE_SESSION_DURATION` | `12h` | Durata sessione console |
 | `NEXO_PROMETHEUS_AUTH_TYPE` | `jwt` | `jwt` o `public`. Con `jwt` le rotte `/nexo/metrics/v1/*` richiedono `Authorization: Bearer <JWT>`: HMAC (HS256/384/512) firmato con la secret key del `sub` (access key), `iss=prometheus`, `exp` obbligatorio (formato di `mc admin prometheus generate`); l'identità deve avere `admin:Prometheus` (root o policy `diagnostics`). Il token non è mai una credenziale S3 |
 | `--certs-dir` / `NEXO_CERTS_DIR` | — (TLS disattivato) | Certificati TLS (§7.3), ricaricati a caldo |
 | `--tls-min-version` / `NEXO_TLS_MIN_VERSION` | `1.2` | Versione TLS minima accettata dai listener (`1.2` o `1.3`) |
@@ -206,8 +213,13 @@ target di fuzzing (`make fuzz`), è in [docs/security/threat-model.md](security/
 | `logger.level` / `logger.format` (config, applicate a caldo) | `--log-level` / `--log-format` | Livello e formato dei log |
 | `audit_webhook[:<id>]` / `audit_kafka[:<id>]` (config, applicate a caldo) | — | Target del log di audit (chiavi dei `notify_webhook`/`notify_kafka`) |
 
+La console è sempre servita sul listener della console (`--console-address`, che serve anche l'Admin API):
+non esiste una variabile per disattivarla, si limita l'esposizione della porta (firewall, proxy). La durata
+di una sessione della console è fissa a 12 ore (non configurabile); il logout e la rotazione del secret la
+revocano prima.
+
 ## 7.7 Diagnostica (S-OPS-11)
-- **Profiling pprof** solo tramite Admin API (`GET /api/v1/profile`, `nexoctl admin profile`): nessun endpoint
+- **Profiling pprof** solo tramite Admin API (`POST /api/v1/profile`, `nexoctl admin profile`): nessun endpoint
   `/debug/pprof` è esposto sui listener. Richiede `admin:Profiling` (root e policy `diagnostics`; `consoleAdmin`
   tramite `admin:*`). `cpu`, `mutex` e `block` campionano per 1–120 s (default 10 s; il campionamento di mutex e
   block è attivo solo durante la richiesta), `heap` e `goroutine` sono istantanei; un profilo alla volta per nodo.

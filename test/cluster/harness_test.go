@@ -52,11 +52,14 @@ const (
 
 // clusterEnv tunes the internode protocol of the test deployments so that
 // the failure scenarios resolve in seconds: orphan locks expire after 6s
-// (refreshed every 2s) and an internode call gives up after 5s.
+// (refreshed every 2s) and an internode call gives up after 5s. The
+// distributions of the tests are reached through the S3 port, which names
+// no S3 endpoint: the S3 listener serves them on opt-in.
 var clusterEnv = map[string]string{
 	"NEXO_LOCK_STALE_AFTER":      "6s",
 	"NEXO_LOCK_REFRESH_INTERVAL": "2s",
 	"NEXO_RPC_CALL_TIMEOUT":      "5s",
+	"NEXO_S3_DISTRIBUTIONS":      "on",
 }
 
 // staleAfter is NEXO_LOCK_STALE_AFTER of clusterEnv.

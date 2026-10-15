@@ -158,7 +158,7 @@ type APIDeps struct {
 	Domains []string
 	// HostBuckets resolves the custom hosts of the buckets (the s3
 	// distributions), before the domains; nil resolves none.
-	HostBuckets HostBuckets
+	HostBuckets httpx.HostBucketResolver
 	// System are the routes the listener serves beside the S3 API under
 	// the reserved "/nexo/" prefix (HealthRoutes, MetricsRoutes). They
 	// answer path-style requests only: the path of a virtual-host request

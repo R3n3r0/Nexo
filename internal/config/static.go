@@ -97,10 +97,12 @@ type Static struct {
 	// without invalidation: the safety net of the invalidations a node
 	// missed (environment only; zero keeps the default 2m).
 	CacheResyncInterval time.Duration `json:"-"`
-	// SendTimeout bounds how long the body of an object download may stall
-	// (environment only; zero keeps the default 20s): a client that stops
-	// reading has its response aborted, releasing the read lock of the
-	// object (docs/02 §2.4).
+	// SendTimeout bounds how long a write of a response may stall
+	// (environment only; zero keeps the default 20s): every response of
+	// every listener (S3 and website downloads, console, Admin API), so
+	// that a client that stops reading has its response aborted, releasing
+	// the read lock of the object (docs/02 §2.4) and what the server
+	// buffered for it.
 	SendTimeout time.Duration `json:"-"`
 
 	// KMS of the server-side encryption (docs/07 §7.2): the builtin KMS
@@ -166,6 +168,16 @@ type Static struct {
 	// alias, virtual host or main domain: UnknownHostPathStyle (default)
 	// or UnknownHostMisdirected (421).
 	UnknownHost string `json:"unknownHost,omitempty"`
+	// S3Distributions tells whether the S3 listener serves the
+	// distributions: S3DistributionsAuto (default: when ServerURL or
+	// Domain names the S3 endpoint), S3DistributionsOn (explicit opt-in)
+	// or S3DistributionsOff (only the web listeners serve them). See
+	// ServesDistributionsOnS3.
+	S3Distributions string `json:"s3Distributions,omitempty"`
+	// NoDistributions routes no host to a distribution on any listener
+	// (recovery from a distribution that keeps the deployment from
+	// working); they stay readable and editable through the Admin API.
+	NoDistributions bool `json:"noDistributions,omitempty"`
 	// ACMEDirectory, ACMEEmail and ACMEChallenge configure the automatic
 	// certificates (tls.certificate "auto"): the directory of the CA
 	// (default Let's Encrypt), the contact of the account and the
@@ -225,6 +237,7 @@ func Default() Static {
 		AccessRulesMax:        DefaultAccessRulesMax,
 		KeyNormalization:      KeyNormalizationNFC,
 		BlockPublicAccessMode: BlockPublicReject,
+		S3Distributions:       S3DistributionsAuto,
 	}
 }
 
@@ -243,12 +256,8 @@ func (s Static) Validate() error {
 	if s.Address == s.ConsoleAddress && !isEphemeralPort(s.Address) {
 		errs = append(errs, errors.New("address and console address must differ"))
 	}
-	if len(s.RootUser) < MinRootUserLength {
-		errs = append(errs, fmt.Errorf("root user is required (NEXO_ROOT_USER, at least %d characters)", MinRootUserLength))
-	}
-	if len(s.RootPassword) < MinRootPasswordLength {
-		errs = append(errs, fmt.Errorf("root password is required (NEXO_ROOT_PASSWORD, at least %d characters)", MinRootPasswordLength))
-	}
+	errs = append(errs, credentialLength("root user", "NEXO_ROOT_USER", s.RootUser, MinRootUserLength)...)
+	errs = append(errs, credentialLength("root password", "NEXO_ROOT_PASSWORD", s.RootPassword, MinRootPasswordLength)...)
 	if s.Region == "" {
 		errs = append(errs, errors.New("region must not be empty"))
 	}
@@ -405,6 +414,18 @@ func validateAddr(addr string) error {
 	}
 	if host != "" && net.ParseIP(host) == nil && strings.ContainsAny(host, " /") {
 		return fmt.Errorf("%q has an invalid host", addr)
+	}
+	return nil
+}
+
+// credentialLength checks a root credential: missing, or set but shorter
+// than minLen (the length only, never the value, is reported).
+func credentialLength(what, env, value string, minLen int) []error {
+	switch {
+	case value == "":
+		return []error{fmt.Errorf("%s is required (%s, at least %d characters)", what, env, minLen)}
+	case len(value) < minLen:
+		return []error{fmt.Errorf("%s must be at least %d characters (%s has %d)", what, minLen, env, len(value))}
 	}
 	return nil
 }

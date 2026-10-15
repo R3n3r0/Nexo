@@ -399,9 +399,16 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		// distributed tracing.
 		TLS: tlsInfoOf(cfg), Keystore: f.keystore, Telemetry: telemetryInfoOf(cfg, f.obs),
 	})
-	healthSvc := health.New(health.Deps{Readiness: map[string]health.Check{
-		"storage": object.ReadinessCheck(objects),
-	}})
+	// /nexo/health/cluster: the nodes and drives of the deployment that
+	// answer, the write quorum and whether one more node may go down.
+	healthSvc := health.New(health.Deps{
+		Readiness: map[string]health.Check{"storage": object.ReadinessCheck(objects)},
+		Nodes:     f.info.Nodes,
+		Quorum: func(ctx context.Context, maintenance bool) (bool, string) {
+			h := objects.Health(ctx, object.HealthOptions{Maintenance: maintenance})
+			return h.Healthy, h.Message
+		},
+	})
 	// Observability (observability.go): the scrape endpoints, the cluster
 	// view of the logs, the families read from the services at every
 	// scrape, the audit targets and the logger configuration.
@@ -476,7 +483,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		Middlewares: append(s3Middlewares, lifecycleRoutes, notificationRoutes),
 		Hosts:       distStack.s3Hosts,
 		Logger:      logger,
-	}, append(serverOptions(cfg, f.keystore, cfg.Address, "s3"), distStack.tlsOptions(cfg)...)...)
+	}, append(append(serverOptions(cfg, f.keystore, cfg.Address, "s3"), distStack.tlsOptions(cfg)...), gatedOptions(f)...)...)
 
 	// Console + Admin API server (:9001).
 	consoleMiddlewares, err := consoleMiddlewares(middlewareDeps{
@@ -507,7 +514,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		},
 		Middlewares: consoleMiddlewares,
 		Logger:      logger,
-	}, serverOptions(cfg, f.keystore, cfg.ConsoleAddress, "console")...)
+	}, append(serverOptions(cfg, f.keystore, cfg.ConsoleAddress, "console"), gatedOptions(f)...)...)
 
 	caches := cluster.Caches{IAM: identities, Config: dynConfig, Buckets: stores.buckets}
 	if stores.sharedPolicies != nil {
@@ -577,6 +584,17 @@ func (s *services) runners() lifecycle.Runner {
 			return herr
 		},
 	})
+}
+
+// gatedOptions are the options of the S3 and console servers whose
+// handlers a cluster node serves behind the gate of its own listeners
+// (App.joinCluster): those listeners already bound the stalls of the
+// responses.
+func gatedOptions(f *foundation) []server.Option {
+	if !f.distributed() {
+		return nil
+	}
+	return []server.Option{server.WithSendTimeout(0)}
 }
 
 // sendTimeoutOpt bounds the stalls of the object downloads

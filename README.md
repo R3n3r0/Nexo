@@ -97,7 +97,7 @@ Servono Go (versione in `go.mod`) e, per la console, Node.js.
 | `make test-cluster` | test del cluster con 4 processi `bin/nexo` reali (kill, pausa, riavvio) |
 | `make test-s3compat` | suite di compatibilità Ceph `s3-tests` |
 | `make lint` / `make web-lint` / `make web-test` / `make e2e` | lint Go, lint e test della console, Playwright |
-| `make run-cluster` | cluster locale di 4 processi su `127.0.0.1:{9101...9104}` (Linux) |
+| `make run-cluster` | cluster locale di 4 processi con S3 su `127.0.0.1:9101`, `9103`, `9105`, `9107` e console sulla porta successiva (Linux) |
 | `make docs` / `make docs-check` | riferimento della CLI in `docs/user/cli` |
 | `make traceability` / `make traceability-check` | matrice funzionalità → test in `test/TRACEABILITY.md` |
 | `make security` | govulncheck, gosec e `npm audit` |
@@ -105,3 +105,9 @@ Servono Go (versione in `go.mod`) e, per la console, Node.js.
 
 Il codice segue la convenzione di [docs/12](docs/12-architettura-servizi.md): ogni servizio ha
 un'interfaccia e un'implementazione non esportata, la composizione avviene solo in `internal/app`.
+
+## Licenza
+
+Nexo è distribuito con la [Apache License 2.0](LICENSE). Archivi, pacchetti deb/rpm e immagini dei container
+riportano la licenza (file `LICENSE`, `/usr/share/doc/<pacchetto>/copyright`, `%license`, label
+`org.opencontainers.image.licenses`).

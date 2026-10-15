@@ -118,15 +118,16 @@ func (s *service) ServerInfo(ctx context.Context) (*domain.ServerInfo, error) {
 	}
 	info.Pools = poolStates(s.deps.Pools, info.Nodes)
 	if s.deps.Objects != nil {
-		buckets, err := s.deps.Objects.ListBuckets(ctx)
-		if err == nil {
+		// The objects and the space used come from the same source as
+		// DataUsage (the last cycle of the scanner): the listing of the
+		// buckets does not count them.
+		if du, err := s.DataUsage(ctx); err == nil {
+			info.Buckets, info.Objects, info.Usage = du.BucketsCount, du.ObjectsCount, du.TotalSize
+		} else if buckets, lerr := s.deps.Objects.ListBuckets(ctx); lerr == nil {
+			s.deps.Logger.WarnContext(ctx, "admin: data usage for server info", "err", err)
 			info.Buckets = uint64(len(buckets))
-			for _, b := range buckets {
-				info.Objects += b.Objects
-				info.Usage += b.Size
-			}
 		} else {
-			s.deps.Logger.Warn("admin: list buckets for server info", "err", err)
+			s.deps.Logger.WarnContext(ctx, "admin: list buckets for server info", "err", lerr)
 		}
 	}
 	return info, nil
@@ -251,7 +252,7 @@ func (s *service) diskInfo(ctx context.Context, d storage.StorageAPI) domain.Dis
 // DataUsage implements Service.
 func (s *service) DataUsage(ctx context.Context) (*DataUsage, error) {
 	if s.deps.Objects == nil {
-		return nil, fmt.Errorf("admin: data usage: %w", domain.ErrNotImplemented)
+		return nil, fmt.Errorf("%w: no data usage without an object layer", domain.ErrNotImplemented)
 	}
 	if s.deps.Scanner != nil {
 		u, err := s.deps.Scanner.Usage(ctx)
@@ -324,7 +325,7 @@ func (du *DataUsage) add(name string, b BucketUsage) {
 // without healing.
 func (s *service) healer() (heal.Service, error) {
 	if s.deps.Heal == nil {
-		return nil, fmt.Errorf("admin: heal: healing needs an erasure-coded deployment: %w", domain.ErrNotImplemented)
+		return nil, fmt.Errorf("%w: healing needs an erasure-coded deployment (several drives)", domain.ErrNotImplemented)
 	}
 	return s.deps.Heal, nil
 }
@@ -379,7 +380,7 @@ func (s *service) ServiceAction(ctx context.Context, action Action) error {
 		return fmt.Errorf("%w: unknown service action %q", domain.ErrInvalidArgument, action)
 	}
 	if s.deps.Actions == nil {
-		return fmt.Errorf("admin: service %s: %w", action, domain.ErrNotImplemented)
+		return fmt.Errorf("%w: this server cannot %s itself", domain.ErrNotImplemented, action)
 	}
 	return s.deps.Actions.Handle(ctx, action)
 }

@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -14,6 +15,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
+	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
 
 // ServerDeps are the dependencies of the RPC server.
@@ -158,6 +160,10 @@ func (s *server) authenticate(next http.Handler) http.Handler {
 			s.fail(w, r, remote, refusedClientCert, fmt.Errorf("%w: rpc: the internode calls need a verified client certificate", domain.ErrUnauthenticated))
 			return
 		}
+		if s.opts.clientCert && !s.nodeCertificate(r.TLS) {
+			s.fail(w, r, remote, refusedClientCert, fmt.Errorf("%w: rpc: the client certificate names no node of the deployment", domain.ErrUnauthenticated))
+			return
+		}
 		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if !ok {
 			token = ""
@@ -183,6 +189,9 @@ func (s *server) authenticate(next http.Handler) http.Handler {
 			s.refuse(w, r, remote, refusedUnbound, fmt.Errorf("%w: rpc: this node is not bound to a deployment yet", domain.ErrAccessDenied))
 			return
 		}
+		// An authenticated peer: its shard streams follow the pace of the
+		// S3 client downstream, which the S3 listener bounds itself.
+		httpx.LiftSendBound(ctx)
 		next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, claimsKey{}, claims)))
 	})
 }
@@ -234,4 +243,23 @@ func formatCall(path string) bool { return path == "/storage/write-all" }
 // ping answers the health probe of a Conn.
 func (s *server) ping(context.Context, struct{}) (pingReply, error) {
 	return pingReply{Node: s.deps.Auth.NodeID(), Protocol: ProtocolVersion, Time: s.deps.Clock.Now()}, nil
+}
+
+// nodeCertificate reports whether the verified client certificate of a
+// call names a node of the deployment (WithClientCertHosts; any verified
+// certificate without hosts).
+func (s *server) nodeCertificate(cs *tls.ConnectionState) bool {
+	if len(s.opts.clientHosts) == 0 {
+		return true
+	}
+	if cs == nil || len(cs.PeerCertificates) == 0 {
+		return false
+	}
+	leaf := cs.PeerCertificates[0]
+	for _, h := range s.opts.clientHosts {
+		if leaf.VerifyHostname(h) == nil {
+			return true
+		}
+	}
+	return false
 }

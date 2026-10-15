@@ -151,6 +151,9 @@ export function spawnNexo(options: SpawnOptions): number {
       NEXO_ROOT_PASSWORD: rootCredentials.secretKey,
       NEXO_LOG_FORMAT: 'text',
       NEXO_LOG_LEVEL: 'info',
+      // The distributions of the suite are reached through the S3 port
+      // (the test domains point to it), which names no S3 endpoint.
+      NEXO_S3_DISTRIBUTIONS: 'on',
       ...options.env,
     },
   });

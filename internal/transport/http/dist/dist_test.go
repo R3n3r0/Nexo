@@ -24,8 +24,10 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/distribution"
 	distmock "github.com/r3n3r0/nexo/internal/service/distribution/mock"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
+	"github.com/r3n3r0/nexo/internal/testutil/redaction"
 	"github.com/r3n3r0/nexo/internal/transport/http/dist"
 	dtmock "github.com/r3n3r0/nexo/internal/transport/http/dist/mock"
+	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
 )
 
@@ -113,6 +115,49 @@ func TestWebsiteRoutesDecodeAndEncode(t *testing.T) {
 
 	_, err = dist.NewWebsiteRoutes(dist.WebsiteDeps{})
 	require.ErrorIs(t, err, domain.ErrInvalidArgument)
+}
+
+// deadlineRecorder is a ResponseWriter that records the write deadlines
+// its handler sets (http.ResponseController).
+type deadlineRecorder struct {
+	*httptest.ResponseRecorder
+	deadlines []time.Time
+}
+
+func (w *deadlineRecorder) SetWriteDeadline(d time.Time) error {
+	w.deadlines = append(w.deadlines, d)
+	return nil
+}
+
+// TestWebsiteRoutesSendTimeout: the downloads of a website are bounded by
+// default like the S3 ones (httpx.DefaultSendTimeout), and by the
+// configured timeout (regression: without NEXO_SEND_TIMEOUT a website
+// download had no stall bound, and an anonymous client that stopped
+// reading held the read lock of the object).
+func TestWebsiteRoutesSendTimeout(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		opts []dist.WebsiteOption
+		want time.Duration
+	}{
+		{name: "default", want: httpx.DefaultSendTimeout},
+		{name: "configured", opts: []dist.WebsiteOption{dist.WithSendTimeout(3 * time.Second)}, want: 3 * time.Second},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			engine := distmock.NewWebsite(t)
+			engine.EXPECT().Serve(tmock.Anything, tmock.Anything).Return(plainResponse(http.StatusOK, "hello"), nil)
+			routes, err := dist.NewWebsiteRoutes(dist.WebsiteDeps{Website: engine, Resolver: resolver(t)}, tt.opts...)
+			require.NoError(t, err)
+			w := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+			start := time.Now()
+			routes.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://www.example.com/x", nil))
+			assert.Equal(t, "hello", w.Body.String())
+			require.NotEmpty(t, w.deadlines, "the body is written under a deadline")
+			first := w.deadlines[0]
+			assert.WithinDuration(t, start.Add(tt.want), first, 2*time.Second)
+			assert.True(t, w.deadlines[len(w.deadlines)-1].IsZero(), "the deadline is cleared at the end")
+		})
+	}
 }
 
 // TestHostRouter covers the routing by Host on the S3 and web listeners.
@@ -219,6 +264,12 @@ func TestHostRouter(t *testing.T) {
 	for _, secret := range []string{"SIGVALUE", "cG9saWN5", "KP1", "AKID", "TOKVALUE"} {
 		assert.NotContains(t, line, secret)
 	}
+
+	// The table every redaction shares.
+	logged.Reset()
+	s3Listener.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://www.example.com/dl.zip?"+redaction.Query, nil))
+	assert.Empty(t, redaction.Leaks(logged.String()))
+	assert.Contains(t, logged.String(), "max-keys=10")
 }
 
 // TestRefusedS3Request selects the requests of an s3 distribution that

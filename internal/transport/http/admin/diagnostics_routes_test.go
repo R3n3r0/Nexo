@@ -51,7 +51,7 @@ func TestProfileRoute(t *testing.T) {
 					call.Return(&adminsvc.Profile{Type: tt.want.Type, Node: "127.0.0.1:9000", Duration: tt.want.Duration, Data: []byte("pprof")}, nil)
 				}
 			}
-			rec := f.root(t).do(http.MethodGet, "/profile"+tt.query, nil)
+			rec := f.root(t).do(http.MethodPost, "/profile"+tt.query, nil)
 			require.Equal(t, tt.status, rec.Code, rec.Body.String())
 			if tt.code != "" {
 				assert.Equal(t, tt.code, problemOf(t, rec).Code)

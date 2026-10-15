@@ -160,7 +160,15 @@ func ErrorMessage(err error) string {
 	if ExitCode(err) == ExitInterrupted {
 		return "interrupted"
 	}
-	return err.Error()
+	msg := err.Error()
+	// An error of the Admin API names its alias when the command did not
+	// name its target ("nexoctl admin info local").
+	var admin *AdminError
+	if errors.As(err, &admin) && admin.Alias != "" &&
+		!strings.HasPrefix(msg, admin.Alias+":") && !strings.HasPrefix(msg, admin.Alias+"/") {
+		return admin.Alias + ": " + msg
+	}
+	return msg
 }
 
 // Paint colors s when colors are enabled.

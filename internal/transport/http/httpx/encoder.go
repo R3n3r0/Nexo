@@ -176,8 +176,13 @@ func (c *codec) WriteProblem(w http.ResponseWriter, r *http.Request, p Problem) 
 	c.writeJSON(w, p.Status, ContentTypeProblem, p)
 }
 
-// WriteProblemError implements Encoder.
+// WriteProblemError implements Encoder. The error is recorded for the logs
+// of the request (SetOperationError): the problem only carries its
+// curated detail.
 func (c *codec) WriteProblemError(w http.ResponseWriter, r *http.Request, err error) {
+	if r != nil {
+		SetOperationError(r.Context(), err)
+	}
 	c.WriteProblem(w, r, c.ProblemFromError(err))
 }
 

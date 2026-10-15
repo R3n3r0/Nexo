@@ -58,7 +58,7 @@ var _ EventStream[nexoadmin.TraceEvent] = (*adminStream[nexoadmin.TraceEvent])(n
 func (s *adminStream[T]) Next() (*T, error) {
 	v, err := s.stream.Next()
 	if err != nil && !errors.Is(err, io.EOF) {
-		return nil, MapAdminError(err, s.client.endpoint)
+		return nil, s.client.mapError(err)
 	}
 	return v, err
 }

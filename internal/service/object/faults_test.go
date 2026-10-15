@@ -44,6 +44,7 @@ func delegatingDrive(t *testing.T, base storage.StorageAPI, intercept func(next 
 	m.EXPECT().DeleteVersion(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(base.DeleteVersion).Maybe()
 	m.EXPECT().CreateFile(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(base.CreateFile).Maybe()
 	m.EXPECT().ReadFileStream(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(base.ReadFileStream).Maybe()
+	m.EXPECT().OpenFile(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(base.OpenFile).Maybe()
 	m.EXPECT().RenameData(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(intercept(base.RenameData)).Maybe()
 	m.EXPECT().RenameFile(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(base.RenameFile).Maybe()

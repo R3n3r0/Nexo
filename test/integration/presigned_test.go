@@ -121,7 +121,12 @@ func TestPresignedExpiresBounds(t *testing.T) {
 	} {
 		t.Run(tc.expires, func(t *testing.T) {
 			raw := e.srv.S3URL + "/bounds/obj?X-Amz-Expires=" + tc.expires
-			resp := presignedDo(t, http.MethodGet, e.presignRaw(http.MethodGet, raw, e.rootCreds(), nil, time.Now()), nil, nil)
+			// Signed a few seconds ahead (a URL is valid from its date
+			// minus the tolerated skew): X-Amz-Date counts whole seconds,
+			// so a URL of 1 second signed now could expire before a slow
+			// runner sends it (regression: flaky under -race).
+			at := time.Now().Truncate(time.Second).Add(10 * time.Second)
+			resp := presignedDo(t, http.MethodGet, e.presignRaw(http.MethodGet, raw, e.rootCreds(), nil, at), nil, nil)
 			if tc.ok {
 				assert.Equal(t, http.StatusOK, resp.StatusCode, "%s", resp.Body)
 				return
