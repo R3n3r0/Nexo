@@ -144,6 +144,7 @@ File forniti in `deploy/docker/`:
 | `compose.snmd.yml` | SNMD con 4 volumi |
 | `compose.cluster.yml` + `nginx.conf` | Cluster 4 nodi × 2 dischi con load balancer (sticky non necessario) |
 | `compose.cluster-tls.yml` | Cluster con TLS (certificati montati in `/certs`) |
+| `compose.multi-proxy.yml` + `multi-proxy/` | Cluster 4 nodi × 2 dischi dietro **due proxy** (nginx con `X-Forwarded-*`, HAProxy con PROXY protocol v2), domini e origin secret diversi, volume `/cache` per nodo (§8.5) |
 | `compose.observability.yml` | Prometheus + Grafana con dashboard Nexo preconfigurate |
 
 ### Altri orchestratori
@@ -152,10 +153,47 @@ File forniti in `deploy/docker/`:
 
 ## 8.5 Reverse proxy e URL pubblici
 Fondamentale perché gli **URL presigned** restino validi dietro proxy/load balancer:
-- la firma SigV4 include l'header `Host`: il proxy deve inoltrarlo invariato (`proxy_set_header Host $http_host`);
+- la firma SigV4 include l'header `Host`: il proxy deve inoltrarlo invariato, porta inclusa
+  (`proxy_set_header Host $http_host`); lo stesso header sceglie la distribuzione (docs/10 §10.2);
 - `NEXO_SERVER_URL` (es. `https://s3.example.com`) è l'URL pubblico usato da console e CLI per generare link
   condivisibili; `NEXO_BROWSER_REDIRECT_URL` è l'URL pubblico della console;
-- supporto a `X-Forwarded-Proto/Host` solo da proxy fidati (`NEXO_TRUSTED_PROXIES`).
+- il client reale (indirizzo e HTTPS) arriva da proxy fidati (`NEXO_TRUSTED_PROXIES`) in **una** famiglia di
+  header, scelta con `NEXO_FORWARDED_HEADERS`: `x-forwarded` (default: `X-Forwarded-For/Proto/Host`) oppure
+  `forwarded` (RFC 7239); l'altra famiglia è ignorata, perché un proxy la inoltra così come l'ha mandata il
+  client. `X-Forwarded-For` è letto da destra: le voci aggiunte dal client a sinistra non contano;
+- in alternativa il **PROXY protocol** v1/v2 sui listener elencati in `NEXO_PROXY_PROTOCOL` (`s3`, `console`,
+  `web`): l'header è letto prima del TLS, usato solo se la connessione viene da un proxy fidato (letto e
+  ignorato altrimenti) e facoltativo (un proxy fidato che manda `X-Forwarded-*`, le RPC internode e gli
+  health check si connettono senza); il TLV SSL di `send-proxy-v2-ssl` rende la richiesta HTTPS;
+- body illimitato, niente buffering, timeout lunghi; `/nexo/rpc/` mai esposto sul dominio pubblico;
+- un nodo che si sta fermando risponde `503` (anche `/nexo/health/ready`) finché gli health check non lo tolgono
+  dal giro: il proxy ritenta le letture su un altro nodo (nginx `proxy_next_upstream ... http_503`, HAProxy
+  `retry-on ... 503` limitato a `GET/HEAD/OPTIONS`), gli SDK S3 ritentano le scritture.
+
+Configurazioni complete e commentate in `deploy/proxy/` (nginx, Caddy, Traefik, HAProxy, Cloudflare) per S3,
+console e distribuzioni, con l'**origin secret** di ogni proxy (docs/10 §10.2).
+
+### Più proxy davanti allo stesso cluster (`compose.multi-proxy.yml`)
+| Servizio | Proxy | Domini | Client verso Nexo |
+|----------|-------|--------|-------------------|
+| `proxy-a` | nginx (`multi-proxy/nginx.conf.template`) | `s3.alpha.example` (S3), `console.alpha.example`, `*.alpha.example` (distribuzioni) | `X-Forwarded-*` |
+| `proxy-b` | HAProxy (`multi-proxy/haproxy.cfg`) | `*.beta.example` (distribuzioni) | PROXY protocol v2 con TLV SSL |
+
+- I nodi si fidano solo dei due proxy (indirizzi fissi sulla rete compose, fuori dall'`ip_range` assegnato ai
+  nodi) e accettano il PROXY protocol sulla porta S3 (`NEXO_PROXY_PROTOCOL=s3`).
+- Ogni proxy aggiunge il proprio `X-Origin-Secret`; le distribuzioni lo referenziano per nome
+  (`${secret:proxy-a}`, `${secret:proxy-b}`), risolto su ogni nodo da `NEXO_SECRET_PROXY_A/B` (valori in `.env`):
+  una richiesta che arriva a un nodo senza uno dei due segreti è rifiutata (403).
+- Volume `/cache` per nodo (cache delle distribuzioni, docs/11).
+- `multi-proxy/gen-certs.sh` crea CA e certificati di sviluppo dei due proxy, `multi-proxy/site.yaml` due
+  distribuzioni d'esempio (website e s3) servite da entrambi.
+
+Verifica: `make test-proxy` (`test/proxy`, build tag `proxy`, job CI `proxy`) esegue TCD-01..03, TCC-C-05 e
+TPS-19 sui domini custom con due proxy Go in-process (uno `X-Forwarded-*`, uno PROXY protocol v2) in SNSD,
+SNMD e cluster, e gli **stessi file** nginx/HAProxy di `compose.multi-proxy.yml` con i binari reali davanti a un
+cluster di 4 nodi (`TestRealProxies`; job CI con `NEXO_PROXY_REAL=1`). Il job `deploy-files` valida inoltre
+la sintassi di tutte le configurazioni di `deploy/proxy` e del compose (`nginx -t`, `haproxy -c`,
+`caddy validate`, `docker compose config`).
 
 ## 8.6 Test specifici di modalità e rilascio
 

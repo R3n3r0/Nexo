@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"sort"
 	"strings"
 	"sync"
@@ -99,9 +100,22 @@ type origin struct {
 	infos atomic.Int64
 	// fail makes every read fail with this error (a set without quorum).
 	fail error
-	// gate, when set, blocks the reads until it is closed.
-	gate chan struct{}
+	// gate, when set, blocks the reads (those gateWhen selects, every one
+	// without it) once they have looked the object up, until it is
+	// closed; parked counts the reads that reached it.
+	gate     chan struct{}
+	gateWhen func(read readKind) bool
+	parked   atomic.Int64
 }
+
+// readKind tells the reads of the origin apart for the gates.
+type readKind int
+
+const (
+	readInfo readKind = iota
+	readObject
+	readRange
+)
 
 func newOrigin(clk clock.Clock) *origin {
 	return &origin{objects: map[string]memObject{}, clk: clk}
@@ -127,12 +141,38 @@ func (o *origin) setFail(err error) {
 	o.mu.Unlock()
 }
 
-func (o *origin) lookup(bucket, key string) (memObject, error) {
+// remove deletes an object.
+func (o *origin) remove(bucket, key string) {
 	o.mu.Lock()
-	gate, fail := o.gate, o.fail
+	defer o.mu.Unlock()
+	delete(o.objects, bucket+"/"+key)
+}
+
+// hold parks the reads when selects (every read with nil) until the
+// returned function is called.
+func (o *origin) hold(when func(readKind) bool) (release func()) {
+	gate := make(chan struct{})
+	o.mu.Lock()
+	o.gate, o.gateWhen = gate, when
+	o.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			o.mu.Lock()
+			o.gate, o.gateWhen = nil, nil
+			o.mu.Unlock()
+			close(gate)
+		})
+	}
+}
+
+func (o *origin) lookup(bucket, key string, kind readKind) (memObject, error) {
+	o.mu.Lock()
+	gate, when, fail := o.gate, o.gateWhen, o.fail
 	obj, ok := o.objects[bucket+"/"+key]
 	o.mu.Unlock()
-	if gate != nil {
+	if gate != nil && (when == nil || when(kind)) {
+		o.parked.Add(1)
 		<-gate
 	}
 	if fail != nil {
@@ -162,7 +202,11 @@ func (o *origin) layer(t testing.TB) *objmock.Service {
 	m.EXPECT().GetObject(tmock.Anything, tmock.Anything, tmock.Anything, tmock.Anything).RunAndReturn(
 		func(_ context.Context, bucket, key string, opts object.GetObjectOptions) (*object.Reader, error) {
 			o.gets.Add(1)
-			obj, err := o.lookup(bucket, key)
+			kind := readObject
+			if opts.Range != nil {
+				kind = readRange
+			}
+			obj, err := o.lookup(bucket, key, kind)
 			if err != nil {
 				return nil, err
 			}
@@ -180,7 +224,7 @@ func (o *origin) layer(t testing.TB) *objmock.Service {
 	m.EXPECT().GetObjectInfo(tmock.Anything, tmock.Anything, tmock.Anything, tmock.Anything).RunAndReturn(
 		func(_ context.Context, bucket, key string, opts object.GetObjectOptions) (domain.ObjectInfo, error) {
 			o.infos.Add(1)
-			obj, err := o.lookup(bucket, key)
+			obj, err := o.lookup(bucket, key, readInfo)
 			if err != nil {
 				return domain.ObjectInfo{}, err
 			}
@@ -325,6 +369,9 @@ type envOptions struct {
 	secret cache.SecretSource
 	reg    metrics.Registry
 	noStop bool
+	// strictEgress keeps the default egress policy of the webhooks (the
+	// test endpoints are on the loopback, allowed otherwise).
+	strictEgress bool
 }
 
 // newEnv starts a cache service.
@@ -350,13 +397,22 @@ func newEnv(t testing.TB, eo envOptions) *env {
 		Origin: eo.origin.layer(t), Store: newStore(t, eo.docs), Locks: lock.NewLocal(lock.Deps{}), Notifier: local,
 		Distributions: eo.dists.mock(t), Peers: eo.peers, NodeID: eo.node, HTTP: eo.http, Secrets: eo.secret,
 		Registry: eo.reg, Clock: eo.clk, Logger: slog.New(slog.DiscardHandler),
-	}, append([]cache.Option{cache.WithSyncInterval(time.Hour), cache.WithRetryInterval(time.Hour)}, eo.opts...)...)
+	}, append(baseOptions(eo), eo.opts...)...)
 	require.NoError(t, err)
 	require.NoError(t, svc.Start(context.Background()))
 	if !eo.noStop {
 		t.Cleanup(func() { _ = svc.Stop(context.Background()) })
 	}
 	return &env{t: t, svc: svc, origin: eo.origin, dists: eo.dists, clk: eo.clk, docs: eo.docs, node: eo.node, local: local}
+}
+
+// baseOptions are the options of every test service.
+func baseOptions(eo envOptions) []cache.Option {
+	out := []cache.Option{cache.WithSyncInterval(time.Hour), cache.WithRetryInterval(time.Hour)}
+	if !eo.strictEgress {
+		out = append(out, cache.WithWebhookAllow(netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128")))
+	}
+	return out
 }
 
 // result is what a request through the cache got.
@@ -498,3 +554,9 @@ const (
 	timeout = 10 * time.Second
 	tick    = 10 * time.Millisecond
 )
+
+// md5hex is the ETag the origin of the tests gives to data.
+func md5hex(data []byte) string {
+	sum := md5.Sum(data)
+	return hex.EncodeToString(sum[:])
+}

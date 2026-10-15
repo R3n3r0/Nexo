@@ -459,6 +459,9 @@ func (s *service) Upload(ctx context.Context, in UploadInput) (Certificate, erro
 	if err != nil {
 		return Certificate{}, err
 	}
+	if err := s.checkReserved(meta.Domains); err != nil {
+		return Certificate{}, err
+	}
 	id := strings.TrimSpace(in.ID)
 	if id == "" {
 		id = idFromDomain(meta.Domains[0])
@@ -481,6 +484,39 @@ func (s *service) Upload(ctx context.Context, in UploadInput) (Certificate, erro
 	}
 	s.deps.Logger.InfoContext(ctx, "certs: certificate uploaded", "id", id, "domains", meta.Domains, "notAfter", meta.NotAfter)
 	return out, nil
+}
+
+// checkReserved refuses the names of the deployment: a certificate for
+// the S3 or console host, or for the virtual hosts of the buckets, would
+// replace the certificate of the server (or intercept its clients).
+func (s *service) checkReserved(names []string) error {
+	for _, n := range names {
+		for _, h := range s.opts.mainHosts {
+			if covers(n, h) {
+				return fmt.Errorf("%w: %s covers the host %s of the deployment", ErrInvalidCertificate, n, h)
+			}
+		}
+		for _, d := range s.opts.domains {
+			if covers(n, d) || n == "*."+d {
+				return fmt.Errorf("%w: %s covers the domain %s of the deployment", ErrInvalidCertificate, n, d)
+			}
+		}
+	}
+	return nil
+}
+
+// covers reports a certificate name (exact, or "*.parent" for one label)
+// that matches host.
+func covers(name, host string) bool {
+	if name == host {
+		return true
+	}
+	parent, ok := strings.CutPrefix(name, "*.")
+	if !ok {
+		return false
+	}
+	_, hostParent, ok := strings.Cut(host, ".")
+	return ok && hostParent == parent
 }
 
 // Get implements Service: it reads the store.
@@ -548,6 +584,23 @@ func (s *service) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, 
 	}
 	ix := s.certs.Load()
 	now := s.deps.Clock.Now()
+	if s.deps.Hosts != nil {
+		ctx := hello.Context()
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		// Only the certificate of the distribution serving the name:
+		// never another certificate that happens to carry it.
+		id, ok := s.deps.Hosts.CertificateFor(ctx, name)
+		if !ok {
+			return nil, nil
+		}
+		l := ix.byID[id]
+		if l == nil || !unexpired(l, now) || !slices.ContainsFunc(l.meta.Domains, func(d string) bool { return covers(d, name) }) {
+			return nil, nil
+		}
+		return l.cert, nil
+	}
 	if c := best(ix.exact[name], now); c != nil {
 		return c, nil
 	}
@@ -559,13 +612,19 @@ func (s *service) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, 
 	return nil, nil
 }
 
-// best returns the certificate valid now that expires last, or the one
-// expiring last when none is valid.
+// best returns the certificate valid now that expires last, or the
+// unexpired one expiring last when none is valid yet (a certificate just
+// issued, seen by a node whose clock is a little behind); nil when every
+// one expired: the listener falls back to its own certificate rather
+// than presenting an expired one.
 func best(list []*loaded, now time.Time) *tls.Certificate {
 	var pick *loaded
 	pickValid := false
 	for _, l := range list {
-		valid := !now.Before(l.meta.NotBefore) && now.Before(l.meta.NotAfter)
+		if !unexpired(l, now) {
+			continue
+		}
+		valid := !now.Before(l.meta.NotBefore)
 		switch {
 		case pick == nil, valid && !pickValid, valid == pickValid && l.meta.NotAfter.After(pick.meta.NotAfter):
 			pick, pickValid = l, valid
@@ -576,6 +635,9 @@ func best(list []*loaded, now time.Time) *tls.Certificate {
 	}
 	return pick.cert
 }
+
+// unexpired reports a certificate that has not expired at now.
+func unexpired(l *loaded, now time.Time) bool { return now.Before(l.meta.NotAfter) }
 
 // alpnCertificate returns the TLS-ALPN-01 certificate of a domain.
 func (s *service) alpnCertificate(ctx context.Context, name string) (*tls.Certificate, error) {

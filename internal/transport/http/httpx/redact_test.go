@@ -53,6 +53,13 @@ func TestRedactRawQuery(t *testing.T) {
 	}
 }
 
+func TestRedactSignedURL(t *testing.T) {
+	raw := "v=1&Expires=1700000000&Policy=eyJTdGF0ZW1lbnQiOltdfQ__&Signature=abc~&Key-Pair-Id=k1&X-Amz-Credential=AK%2Fx"
+	assert.Equal(t, "v=1&Expires=1700000000&Policy=REDACTED&Signature=REDACTED&Key-Pair-Id=REDACTED&X-Amz-Credential=REDACTED",
+		httpx.RedactRawQueryFunc(raw, httpx.IsSensitiveSignedURLParam))
+	assert.Equal(t, "policy", httpx.RedactRawQuery("policy"), "the S3 subresource of the generic logs")
+}
+
 func TestRedactQuery(t *testing.T) {
 	assert.Nil(t, httpx.RedactQuery(nil))
 	q := url.Values{"X-Amz-Signature": {"a", "b"}, "prefix": {"p"}, "X-Amz-Credential": {"AKIA/x"}}

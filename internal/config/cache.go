@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"math"
+	"net/netip"
 	"strconv"
 	"strings"
 
@@ -31,6 +32,9 @@ const (
 	EnvCacheSize   = "NEXO_CACHE_SIZE"
 	EnvCacheMemory = "NEXO_CACHE_MEMORY"
 	EnvCacheMode   = "NEXO_CACHE_MODE"
+	// EnvCacheWebhookAllow lists, comma separated, the internal networks
+	// the purge webhooks may reach.
+	EnvCacheWebhookAllow = "NEXO_CACHE_WEBHOOK_ALLOW"
 )
 
 // Flags of the cache.
@@ -39,6 +43,8 @@ const (
 	FlagCacheSize   = "cache-size"
 	FlagCacheMemory = "cache-memory"
 	FlagCacheMode   = "cache-mode"
+	// FlagCacheWebhookAllow is repeatable (or comma separated).
+	FlagCacheWebhookAllow = "cache-webhook-allow"
 )
 
 // bindCacheFlags defines the flags of the cache.
@@ -47,6 +53,7 @@ func bindCacheFlags(fs *pflag.FlagSet) {
 	fs.String(FlagCacheSize, "", "size of the distribution cache (the disk tier with --cache-dir, the memory tier without), e.g. 10GiB")
 	fs.String(FlagCacheMemory, "", "size of the memory tier of the distribution cache, e.g. 256MiB")
 	fs.String(FlagCacheMode, CacheModeLocal, "cache of a cluster: local (one per node), shared (one owner per key) or shared+local")
+	fs.StringSlice(FlagCacheWebhookAllow, nil, "internal networks (CIDR or address) the purge webhooks of the cache may reach, e.g. 10.0.0.0/8 for an nginx or Varnish of the LAN; by default only public addresses")
 }
 
 // applyCacheEnv reads the environment of the cache.
@@ -56,6 +63,9 @@ func (l *loader) applyCacheEnv(cfg *Static) error {
 	}
 	if v, ok := l.env(EnvCacheMode); ok {
 		cfg.CacheMode = strings.ToLower(strings.TrimSpace(v))
+	}
+	if v, ok := l.env(EnvCacheWebhookAllow); ok {
+		cfg.CacheWebhookAllow = splitList(v)
 	}
 	for key, dst := range map[string]*int64{EnvCacheSize: &cfg.CacheSize, EnvCacheMemory: &cfg.CacheMemory} {
 		if v, ok := l.env(key); ok && strings.TrimSpace(v) != "" {
@@ -91,6 +101,13 @@ func applyCacheFlags(cfg *Static, fs *pflag.FlagSet) error {
 	} else if ok {
 		cfg.CacheMode = strings.ToLower(v)
 	}
+	if f := fs.Lookup(FlagCacheWebhookAllow); f != nil && fs.Changed(FlagCacheWebhookAllow) {
+		v, err := fs.GetStringSlice(FlagCacheWebhookAllow)
+		if err != nil {
+			return fmt.Errorf("read flags: %w", err)
+		}
+		cfg.CacheWebhookAllow = splitList(strings.Join(v, ","))
+	}
 	for flag, dst := range map[string]*int64{FlagCacheSize: &cfg.CacheSize, FlagCacheMemory: &cfg.CacheMemory} {
 		v, ok, err := get(flag)
 		if err != nil {
@@ -119,7 +136,28 @@ func (s Static) validateCache() []error {
 	if s.CacheSize < 0 || s.CacheMemory < 0 {
 		errs = append(errs, fmt.Errorf("cache sizes must not be negative"))
 	}
+	if _, err := s.CacheWebhookNetworks(); err != nil {
+		errs = append(errs, err)
+	}
 	return errs
+}
+
+// CacheWebhookNetworks parses CacheWebhookAllow: a CIDR, or an address
+// (a network of one address).
+func (s Static) CacheWebhookNetworks() ([]netip.Prefix, error) {
+	out := make([]netip.Prefix, 0, len(s.CacheWebhookAllow))
+	for _, v := range s.CacheWebhookAllow {
+		if p, err := netip.ParsePrefix(v); err == nil {
+			out = append(out, p.Masked())
+			continue
+		}
+		a, err := netip.ParseAddr(v)
+		if err != nil {
+			return nil, fmt.Errorf("cache webhook network %q must be a CIDR or an address", v)
+		}
+		out = append(out, netip.PrefixFrom(a, a.BitLen()))
+	}
+	return out, nil
 }
 
 // ParseSize parses a size in bytes: a number, or a number with a unit

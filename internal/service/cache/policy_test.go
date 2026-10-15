@@ -321,10 +321,10 @@ func TestDistributionConfigValidation(t *testing.T) {
 	// update omits them.
 	cfg := e.setDist(cache.DistributionConfig{Distribution: "web", Webhooks: []cache.Webhook{
 		{ID: "cf", Type: cache.WebhookCloudflare, Zone: "z", Token: "secret-token"},
-		{ID: "ref", Type: cache.WebhookCloudflare, Zone: "z", Token: "${secret:cf}"},
+		{ID: "ref", Type: cache.WebhookCloudflare, Zone: "z", Token: "${secret:webhook-cf}"},
 	}})
 	assert.Empty(t, cfg.Webhooks[0].Token)
-	assert.Equal(t, "${secret:cf}", cfg.Webhooks[1].Token)
+	assert.Equal(t, "${secret:webhook-cf}", cfg.Webhooks[1].Token)
 	cfg.Webhooks[0].Domains = []string{"www.example.com"}
 	e.setDist(cfg)
 	e.docs.mu.Lock()

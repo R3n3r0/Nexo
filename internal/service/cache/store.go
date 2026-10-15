@@ -393,6 +393,13 @@ func (s *store) invalidatedSince(ref objRef, since uint64) bool {
 	return s.globalInv > since || s.bucketInv[ref.bucket] > since || s.objInv[ref] > since
 }
 
+// invalidated is invalidatedSince for the callers without the lock.
+func (s *store) invalidated(ref objRef, since uint64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.invalidatedSince(ref, since)
+}
+
 // put stores an entry filled since the barrier; quotas are the scopes it
 // counts in. It reports whether the entry was stored.
 func (s *store) put(meta *entryMeta, body []byte, since uint64, quotas []quota) bool {
@@ -488,13 +495,16 @@ func (s *store) makeRoomLocked(q quota, size int64) {
 	}
 }
 
-// update replaces the description of an entry (revalidation, soft
-// purge), keeping its content.
-func (s *store) update(meta *entryMeta) bool {
+// update replaces the description of an entry, keeping its content, as a
+// compare-and-swap: only when the record still holds old (the description
+// the caller revalidated) and the object was not invalidated since the
+// barrier taken before the origin was read. A revalidation never dresses
+// a newer entry with the description of an older version (TCC-04/05).
+func (s *store) update(old, meta *entryMeta, since uint64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rec := s.recs[meta.Key]
-	if rec == nil {
+	if rec == nil || rec.dead.Load() || rec.meta.Load() != old || s.invalidatedSince(objRef{meta.Bucket, meta.Object}, since) {
 		return false
 	}
 	rec.meta.Store(meta)
@@ -704,6 +714,18 @@ func (s *store) removeObject(bucket, object string, keep func(*entryMeta) bool) 
 	return out
 }
 
+// dropObject drops the entries of an object found missing by a
+// revalidation. It is not an invalidation: the fills in flight keep their
+// barrier, so a creation seen meanwhile still refuses the negative entry
+// the revalidation stores (TCC-12).
+func (s *store) dropObject(bucket, object string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, rec := range s.byObject[objRef{bucket, object}] {
+		s.removeLocked(rec)
+	}
+}
+
 // removeBucket drops the entries of a bucket.
 func (s *store) removeBucket(bucket string) int {
 	s.mu.Lock()
@@ -775,6 +797,20 @@ func (s *store) removeRecs(seq func(yield func(*record) bool), fn func(*entryMet
 		s.removeLocked(r)
 	}
 	return len(victims)
+}
+
+// unverifyBefore marks the entries stored before t unverified: they are
+// revalidated with the origin before they are served.
+func (s *store) unverifyBefore(t time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, r := range s.recs {
+		if m := r.meta.Load(); !m.Unverified && m.StoredAt.Before(t) {
+			nm := *m
+			nm.Unverified = true
+			r.meta.Store(&nm)
+		}
+	}
 }
 
 // clear drops every entry.

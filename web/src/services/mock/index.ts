@@ -3,6 +3,7 @@ import { createAuthEventEmitter } from '../events';
 import type { Services } from '../interfaces';
 import { createMockAccessRuleService, type MockAccessRuleOptions } from './accessRules';
 import { createMockBucketService, sampleBuckets, type MockBucketOptions } from './buckets';
+import { createMockCacheService, type MockCacheOptions } from './cache';
 import { createMockConfigService, type MockConfigOptions } from './config';
 import {
   createMockCertificateService,
@@ -42,7 +43,8 @@ export interface MockServicesOptions
     MockConfigOptions,
     MockNotificationOptions,
     MockAccessRuleOptions,
-    MockDistributionOptions {
+    MockDistributionOptions,
+    MockCacheOptions {
   /** Accepted logins; defaults to the demo credentials. */
   accounts?: Record<string, string>;
   /** Start authenticated as this account (tests of protected pages). */
@@ -122,12 +124,33 @@ export function createMockServices(options: MockServicesOptions = {}): MockServi
     distributions: createMockDistributionService(ctx, dist),
     keyGroups: createMockKeyGroupService(ctx, dist),
     certificates: createMockCertificateService(ctx, dist),
+    cache: createMockCacheService(
+      ctx,
+      {
+        dist,
+        actor: () => session.currentAccessKey() ?? '',
+        keysOf: (bucket) => {
+          const state = storage.buckets.get(bucket);
+          if (state === undefined) return [];
+          const out: { key: string; size: number }[] = [];
+          for (const [key, versions] of state.keys) {
+            const latest = versions[0];
+            if (latest !== undefined && !latest.isDeleteMarker)
+              out.push({ key, size: latest.size });
+          }
+          return out;
+        },
+      },
+      options,
+      options.buckets === undefined,
+    ),
     authEvents,
   };
 }
 
 export { isValidBucketName, sampleBuckets } from './buckets';
 export { sampleConfigSchema } from './config';
+export { sampleCacheConfig, sampleCacheStats } from './cache';
 export { sampleDistributions } from './distributions';
 export { sampleAccessKeys, sampleGroups, samplePolicies, sampleUsers } from './iam';
 export { maxExpirySeconds, sampleShares } from './shares';

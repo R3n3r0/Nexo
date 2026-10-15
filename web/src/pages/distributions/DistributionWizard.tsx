@@ -27,6 +27,7 @@ import { ErrorAlert } from '@/components/iam/common';
 import { distributionKeys } from '@/lib/accessQueries';
 import {
   accessModes,
+  s3AccessModes,
   aliasIssue,
   isValidDistributionId,
   newDistribution,
@@ -129,7 +130,11 @@ export function DistributionWizard() {
 
   const behavior = draft.defaultBehavior ?? {};
   const website = (draft.mode ?? 'website') === 'website';
-  const access: DistributionAccess = behavior.access ?? 'public';
+  const modes = website ? accessModes : s3AccessModes;
+  const chosen: DistributionAccess = behavior.access ?? 'public';
+  // The s3 mode has no signed access: a choice made in the website mode
+  // falls back to public.
+  const access: DistributionAccess = modes.includes(chosen) ? chosen : 'public';
   const tls = tlsMode(draft);
 
   const issues = {
@@ -169,6 +174,7 @@ export function DistributionWizard() {
     const { pathPrefix, ...origin } = draft.origin;
     const prefix = website ? (pathPrefix ?? '').trim() : '';
     const def = { ...(draft.defaultBehavior ?? {}) };
+    if (def.access !== undefined) def.access = access;
     if (!website || (def.indexDocument ?? '') === '') delete def.indexDocument;
     if (!website || (def.spaFallback ?? '') === '') delete def.spaFallback;
     if (access !== 'signed') delete def.signing;
@@ -332,7 +338,7 @@ export function DistributionWizard() {
                 <ChoiceField
                   label={t('distributions.fields.access')}
                   value={access}
-                  choices={accessModes.map((a) => ({
+                  choices={modes.map((a) => ({
                     value: a,
                     label: t(`distributions.access.${a}`),
                     description: t(`distributions.accessHelp.${a}`),

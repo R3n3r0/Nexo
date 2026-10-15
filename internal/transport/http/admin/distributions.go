@@ -327,7 +327,7 @@ func (h *distributionRoutes) update(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *distributionRoutes) remove(w http.ResponseWriter, r *http.Request) {
-	if err := h.deps.Distributions.Delete(r.Context(), chi.URLParam(r, "id")); err != nil {
+	if err := h.deps.Distributions.Delete(r.Context(), requesterOf(r), chi.URLParam(r, "id")); err != nil {
 		h.fail(w, r, err)
 		return
 	}
@@ -358,7 +358,7 @@ func (h *distributionRoutes) rotate(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	res, err := h.deps.Distributions.RotateOriginSecret(r.Context(), distribution.RotateSecretInput{
+	res, err := h.deps.Distributions.RotateOriginSecret(r.Context(), requesterOf(r), distribution.RotateSecretInput{
 		ID: chi.URLParam(r, "id"), Header: in.Header, Keep: in.Keep, DropPrevious: in.DropPrevious,
 	})
 	if err != nil {
@@ -448,7 +448,7 @@ func (h *distributionRoutes) getKeyGroup(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *distributionRoutes) deleteKeyGroup(w http.ResponseWriter, r *http.Request) {
-	if err := h.deps.Distributions.DeleteKeyGroup(r.Context(), chi.URLParam(r, "id")); err != nil {
+	if err := h.deps.Distributions.DeleteKeyGroup(r.Context(), requesterOf(r), chi.URLParam(r, "id")); err != nil {
 		h.fail(w, r, err)
 		return
 	}
@@ -471,7 +471,7 @@ func (h *distributionRoutes) addKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	res, err := h.deps.Distributions.AddKey(r.Context(), adminsvc.AddKeyInput{
-		KeyGroup: chi.URLParam(r, "id"), PublicKeyPEM: in.PublicKeyPEM, Algorithm: in.Algorithm, Bits: in.Bits, Comment: in.Comment,
+		Requester: requesterOf(r), KeyGroup: chi.URLParam(r, "id"), PublicKeyPEM: in.PublicKeyPEM, Algorithm: in.Algorithm, Bits: in.Bits, Comment: in.Comment,
 	})
 	if err != nil {
 		h.fail(w, r, err)
@@ -481,7 +481,7 @@ func (h *distributionRoutes) addKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *distributionRoutes) deleteKey(w http.ResponseWriter, r *http.Request) {
-	if err := h.deps.Distributions.DeleteKey(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "key")); err != nil {
+	if err := h.deps.Distributions.DeleteKey(r.Context(), requesterOf(r), chi.URLParam(r, "id"), chi.URLParam(r, "key")); err != nil {
 		h.fail(w, r, err)
 		return
 	}

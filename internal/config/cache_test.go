@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -27,6 +28,8 @@ func TestCacheFromEnvAndFlags(t *testing.T) {
 		config.EnvCacheSize:   "20GiB",
 		config.EnvCacheMemory: "512MiB",
 		config.EnvCacheMode:   "Shared",
+		// The purge webhooks may reach these internal networks.
+		config.EnvCacheWebhookAllow: "10.0.0.0/8, 192.168.1.10 ,",
 	})
 	l := config.NewLoader(config.WithEnv(envOf(env)), config.WithEnviron(environOf(env)))
 	cfg, err := l.Load(context.Background(), config.Input{Args: []string{"/data"}})
@@ -35,11 +38,17 @@ func TestCacheFromEnvAndFlags(t *testing.T) {
 	assert.Equal(t, int64(20<<30), cfg.CacheSize)
 	assert.Equal(t, int64(512<<20), cfg.CacheMemory)
 	assert.Equal(t, config.CacheModeShared, cfg.CacheMode)
+	assert.Equal(t, []string{"10.0.0.0/8", "192.168.1.10"}, cfg.CacheWebhookAllow)
+	nets, err := cfg.CacheWebhookNetworks()
+	require.NoError(t, err)
+	assert.Equal(t, "[10.0.0.0/8 192.168.1.10/32]", fmt.Sprint(nets))
 
 	// The flags win over the environment.
 	cfg, err = l.Load(context.Background(), config.Input{Args: []string{"/data"}, Flags: flagsFrom(t,
-		"--cache-dir", "/mnt/nvme/cache", "--cache-size", "1.5G", "--cache-memory", "64M", "--cache-mode", "shared+local")})
+		"--cache-dir", "/mnt/nvme/cache", "--cache-size", "1.5G", "--cache-memory", "64M", "--cache-mode", "shared+local",
+		"--cache-webhook-allow", "fd00::/8", "--cache-webhook-allow", "172.16.0.0/12")})
 	require.NoError(t, err)
+	assert.Equal(t, []string{"fd00::/8", "172.16.0.0/12"}, cfg.CacheWebhookAllow)
 	assert.Equal(t, "/mnt/nvme/cache", cfg.CacheDir)
 	assert.Equal(t, int64(1.5*(1<<30)), cfg.CacheSize)
 	assert.Equal(t, int64(64<<20), cfg.CacheMemory)
@@ -57,6 +66,8 @@ func TestCacheValidation(t *testing.T) {
 		{name: "negative memory", env: map[string]string{config.EnvCacheMemory: "-1"}},
 		{name: "flag size", flags: []string{"--cache-size", "10 parsecs"}},
 		{name: "flag mode", flags: []string{"--cache-mode", "global"}},
+		{name: "webhook network", env: map[string]string{config.EnvCacheWebhookAllow: "lan"}},
+		{name: "flag webhook network", flags: []string{"--cache-webhook-allow", "10.0.0.0/33"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

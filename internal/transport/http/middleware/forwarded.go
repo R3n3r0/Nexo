@@ -52,10 +52,23 @@ func WithForwardedHeaders(h ForwardedHeaders) ForwardedOption {
 	}
 }
 
+// WithForwardedHost trusts the host the trusted proxies forward
+// (X-Forwarded-Host, Forwarded host=). It is off by default: the Host
+// header, which every proxy configuration of deploy/proxy preserves, is
+// the host the client addressed, while some proxies (Cloudflare, an
+// nginx location that does not set it) pass a client's X-Forwarded-Host
+// through unchanged, which would let the client pick the distribution,
+// the nexo:host conditions and the targets of the httpsOnly redirects.
+// The forwarded address and scheme are trusted either way.
+func WithForwardedHost(trust bool) ForwardedOption {
+	return func(f *forwarded) { f.trustHost = trust }
+}
+
 type forwarded struct {
-	raw     []string
-	trusted []netip.Prefix
-	headers ForwardedHeaders
+	raw       []string
+	trusted   []netip.Prefix
+	headers   ForwardedHeaders
+	trustHost bool
 }
 
 var _ Middleware = (*forwarded)(nil)
@@ -65,9 +78,9 @@ var _ Middleware = (*forwarded)(nil)
 // PROXY protocol header of a trusted proxy, see server.WithProxyProtocol)
 // or, when the peer is a trusted proxy, the nearest untrusted address of
 // the forwarding headers (read from the right, so that a client cannot
-// forge the entries the proxies append), the scheme and the host they
-// forward. An invalid proxy or header family is a wiring error
-// (domain.ErrInvalidArgument).
+// forge the entries the proxies append), the scheme they forward, and the
+// host they forward with WithForwardedHost. An invalid proxy or header
+// family is a wiring error (domain.ErrInvalidArgument).
 func NewForwarded(_ ForwardedDeps, opts ...ForwardedOption) (Middleware, error) {
 	f := &forwarded{headers: HeadersXForwarded}
 	for _, o := range opts {
@@ -112,8 +125,8 @@ type Client struct {
 	Secure bool
 	// Host is the host the client addressed, as sent (with its port, if
 	// any): the Host header, or the host a trusted proxy forwarded
-	// (X-Forwarded-Host, Forwarded host=). The routing of the
-	// distributions resolves it.
+	// (X-Forwarded-Host, Forwarded host=) when WithForwardedHost trusts
+	// it. The routing of the distributions resolves it.
 	Host string
 }
 
@@ -235,7 +248,7 @@ func (f *forwarded) client(r *http.Request) Client {
 	case "http":
 		c.Secure = r.TLS != nil
 	}
-	if client.host != "" {
+	if f.trustHost && client.host != "" {
 		c.Host = client.host
 	}
 	return c

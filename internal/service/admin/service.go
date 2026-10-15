@@ -1750,16 +1750,19 @@ type DistributionManager interface {
 	// Update replaces a distribution; a non-empty IfMatch must equal its
 	// ETag (domain.ErrPreconditionFailed).
 	Update(ctx context.Context, in SaveDistributionInput) (distribution.Distribution, error)
-	// Delete removes a distribution.
-	Delete(ctx context.Context, id string) error
+	// Delete removes a distribution; the requester must be allowed to
+	// manage the distributions of its origin bucket (a user denied on a
+	// bucket cannot free the aliases of its distribution for another one).
+	Delete(ctx context.Context, req Requester, id string) error
 	// Test reports how the distribution would serve a URL: the behavior,
 	// the access, the object, the redirection or refusal and the response
 	// headers. A URL whose host the distribution does not serve is
 	// domain.ErrInvalidArgument.
 	Test(ctx context.Context, in TestDistributionInput) (distribution.TestResult, error)
 	// RotateOriginSecret generates a new origin secret, returned in clear
-	// once, keeping the most recent previous ones active.
-	RotateOriginSecret(ctx context.Context, in distribution.RotateSecretInput) (*RotatedOriginSecret, error)
+	// once, keeping the most recent previous ones active; the requester
+	// must be allowed on the origin bucket.
+	RotateOriginSecret(ctx context.Context, req Requester, in distribution.RotateSecretInput) (*RotatedOriginSecret, error)
 	// Sign signs a URL, or the cookies of a resource, of a signed behavior
 	// of the distribution with a private key of its key group (the server
 	// never stores the private keys: the caller provides it).
@@ -1777,12 +1780,14 @@ type DistributionManager interface {
 	CreateKeyGroup(ctx context.Context, in CreateKeyGroupInput) (*CreatedKeyGroup, error)
 	// DeleteKeyGroup removes a key group no distribution references
 	// (domain.ErrConflict otherwise).
-	DeleteKeyGroup(ctx context.Context, id string) error
+	DeleteKeyGroup(ctx context.Context, req Requester, id string) error
 	// AddKey adds a public key provided by the user to a key group, or
-	// generates a key pair without one.
+	// generates a key pair without one. The keys of a group sign for
+	// every distribution that uses it: the requester must be allowed on
+	// the origin bucket of each of them.
 	AddKey(ctx context.Context, in AddKeyInput) (*AddedKey, error)
-	// DeleteKey removes a key from its group.
-	DeleteKey(ctx context.Context, group, keyID string) error
+	// DeleteKey removes a key from its group (authorized like AddKey).
+	DeleteKey(ctx context.Context, req Requester, group, keyID string) error
 }
 
 // SaveDistributionInput are the parameters of DistributionManager.Create
@@ -1887,7 +1892,8 @@ type CreatedKeyGroup struct {
 
 // AddKeyInput are the parameters of DistributionManager.AddKey.
 type AddKeyInput struct {
-	KeyGroup string
+	Requester Requester
+	KeyGroup  string
 	// PublicKeyPEM adds a public key provided by the user (PKIX "PUBLIC
 	// KEY", Ed25519 or RSA); without it a key pair is generated with
 	// Algorithm and Bits.

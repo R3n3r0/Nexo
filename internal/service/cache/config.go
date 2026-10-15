@@ -51,8 +51,8 @@ type compiledDist struct {
 	// wildcard ones, the longest suffix first.
 	exact     map[string]int
 	wild      []int
-	behaviors []distribution.CompiledPattern
-	warm      []distribution.CompiledPattern
+	behaviors pathPatterns
+	warm      pathPatterns
 	// fp identifies the settings that change what is cached.
 	fp string
 }
@@ -72,13 +72,8 @@ func (c *compiledDist) domainFor(host string) int {
 
 // behaviorFor returns the index of the first behavior matching path (-1:
 // none).
-func (c *compiledDist) behaviorFor(path string) int {
-	for i, p := range c.behaviors {
-		if p.Match(path) {
-			return i
-		}
-	}
-	return -1
+func (c *compiledDist) behaviorFor(ctx context.Context, path string) int {
+	return c.behaviors.first(ctx, path)
 }
 
 // snapshot is the cache configuration of the cluster, swapped atomically
@@ -93,11 +88,11 @@ type snapshot struct {
 
 // resolveFor returns the effective policy of a path of a host of a
 // distribution.
-func (sn *snapshot) resolveFor(id, host, path string) *resolution {
+func (sn *snapshot) resolveFor(ctx context.Context, id, host, path string) *resolution {
 	cd := sn.dists[id]
 	di, bi := -1, -1
 	if cd != nil {
-		di, bi = cd.domainFor(host), cd.behaviorFor(path)
+		di, bi = cd.domainFor(host), cd.behaviorFor(ctx, path)
 	}
 	key := id + "\x00" + strconv.Itoa(di) + "\x00" + strconv.Itoa(bi)
 	if v, ok := sn.memo.Load(key); ok {
@@ -673,7 +668,9 @@ func (s *service) UpdateDistribution(ctx context.Context, cfg DistributionConfig
 	if ifMatch != "" && strings.Trim(ifMatch, `"`) != cur.ETag {
 		return DistributionConfig{}, fmt.Errorf("cache settings of %s changed (ETag %s): %w", cfg.Distribution, cur.ETag, domain.ErrPreconditionFailed)
 	}
-	keepSecrets(&cfg, cur)
+	if err := keepSecrets(&cfg, cur); err != nil {
+		return DistributionConfig{}, err
+	}
 	if err := s.validateDistConfig(ctx, &cfg, d, policies); err != nil {
 		return DistributionConfig{}, err
 	}
@@ -694,8 +691,11 @@ func (s *service) storeDistConfig(ctx context.Context, cfg DistributionConfig) (
 }
 
 // keepSecrets keeps the stored secrets of the webhooks given without
-// them.
-func keepSecrets(cfg *DistributionConfig, cur DistributionConfig) {
+// them (masked), only while the webhook keeps its destination: a secret is
+// never sent to an endpoint other than the one it was entered for, so a
+// webhook whose type, URL, zone or Akamai client changed needs its secrets
+// again.
+func keepSecrets(cfg *DistributionConfig, cur DistributionConfig) error {
 	stored := map[string]Webhook{}
 	for _, w := range cur.Webhooks {
 		stored[w.ID] = w
@@ -705,13 +705,31 @@ func keepSecrets(cfg *DistributionConfig, cur DistributionConfig) {
 		if !ok {
 			continue
 		}
-		if w.Token == secretMask {
-			cfg.Webhooks[i].Token = old.Token
-		}
-		if w.ClientSecret == secretMask {
-			cfg.Webhooks[i].ClientSecret = old.ClientSecret
+		sameTarget := old.Type == w.Type && old.URL == w.URL && old.Zone == w.Zone && old.ClientToken == w.ClientToken &&
+			old.Network == w.Network
+		for _, f := range []struct {
+			name     string
+			now, was string
+			dst      *string
+		}{
+			{"token", w.Token, old.Token, &cfg.Webhooks[i].Token},
+			{"clientSecret", w.ClientSecret, old.ClientSecret, &cfg.Webhooks[i].ClientSecret},
+		} {
+			if f.now != secretMask || f.was == "" {
+				continue
+			}
+			if !sameTarget {
+				if _, ref := secretRef(f.was); !ref {
+					return fmt.Errorf("%w: webhook %s: its type, URL or zone changed: enter its %s again", ErrInvalid, w.ID, f.name)
+				}
+				// A reference is shown, not masked: an empty value
+				// drops it.
+				continue
+			}
+			*f.dst = f.was
 		}
 	}
+	return nil
 }
 
 // validateDistConfig checks and normalizes the configuration of
@@ -720,7 +738,7 @@ func (s *service) validateDistConfig(ctx context.Context, cfg *DistributionConfi
 	webhooks := map[string]bool{}
 	for i := range cfg.Webhooks {
 		w := &cfg.Webhooks[i]
-		if err := validateWebhook(w); err != nil {
+		if err := s.validateWebhook(w); err != nil {
 			return fmt.Errorf("webhooks[%d]: %w", i, err)
 		}
 		if webhooks[w.ID] {
@@ -787,14 +805,9 @@ func domainOf(d distribution.Distribution, host string) bool {
 	return false
 }
 
-// normalizeHost lowercases a host and strips its port and trailing dot.
-func normalizeHost(h string) string {
-	h = strings.ToLower(strings.TrimSpace(h))
-	if i := strings.LastIndexByte(h, ':'); i > 0 && !strings.Contains(h[i:], "]") && strings.Count(h, ":") == 1 {
-		h = h[:i]
-	}
-	return strings.TrimSuffix(h, ".")
-}
+// normalizeHost is the canonical host of the distributions: the cache
+// compares the hosts exactly as the routing table does.
+func normalizeHost(h string) string { return distribution.NormalizeHost(h) }
 
 // DeleteDistribution implements Manager.
 func (s *service) DeleteDistribution(ctx context.Context, id string) error {
@@ -823,7 +836,7 @@ func (s *service) Effective(ctx context.Context, in EffectiveInput) (EffectivePo
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}
-	return s.snap.Load().resolveFor(in.Distribution, normalizeHost(in.Host), path).eff, nil
+	return s.snap.Load().resolveFor(ctx, in.Distribution, normalizeHost(in.Host), path).eff, nil
 }
 
 // --- Manager: webhooks ---------------------------------------------------------------

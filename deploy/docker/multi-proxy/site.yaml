@@ -1,0 +1,47 @@
+# Distributions of compose.multi-proxy.yml, one per mode, each served by
+# both proxies on a domain of each (docs/10 §10.2):
+#
+#   nexoctl alias set local https://s3.alpha.example:8443 admin change-me-please
+#   nexoctl mb local/web && nexoctl cp index.html local/web/
+#   nexoctl mb local/files
+#   nexoctl dist import local multi-proxy/site.yaml
+#
+# The origin secrets are references: every node resolves them from
+# NEXO_SECRET_PROXY_A and NEXO_SECRET_PROXY_B (set in .env), the proxies
+# send the same values. A request that reaches a node without one of them
+# is refused (403).
+id: site
+enabled: true
+aliases:
+  - www.alpha.example          # through proxy-a (nginx)
+  - www.beta.example           # through proxy-b (HAProxy)
+origin:
+  bucket: web
+mode: website
+defaultBehavior:
+  access: public
+  indexDocument: index.html
+  spaFallback: /index.html
+redirects:
+  - httpsOnly: true            # the proxies tell Nexo the client used HTTPS
+restrictions:
+  originSecretHeader:
+    name: X-Origin-Secret
+    values: ["${secret:proxy-a}", "${secret:proxy-b}"]
+tls:
+  certificate: none            # TLS terminated by the proxies
+---
+id: files
+enabled: true
+aliases:
+  - files.alpha.example
+  - files.beta.example
+origin:
+  bucket: files
+mode: s3                       # an S3 endpoint per domain: SigV4 and presigned URLs with the public host
+restrictions:
+  originSecretHeader:
+    name: X-Origin-Secret
+    values: ["${secret:proxy-a}", "${secret:proxy-b}"]
+tls:
+  certificate: none

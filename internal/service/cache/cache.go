@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"hash/crc32"
 	"log/slog"
-	"net/http"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -18,6 +17,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/cluster"
 	"github.com/r3n3r0/nexo/internal/service/distribution"
+	"github.com/r3n3r0/nexo/internal/service/match"
 )
 
 // service implements Service.
@@ -48,10 +48,16 @@ type service struct {
 	seq     atomic.Uint64
 	orderMu sync.Mutex
 	links   []*link
-	// Receiving side: what each peer sent, the trust in the entries.
-	recvMu  sync.Mutex
-	origins map[string]*originState
-	trust   atomic.Bool
+	// Receiving side: what each peer sent, the trust in the entries (the
+	// end of the lease of the last complete comparison of the sequences,
+	// nil when revoked; the peers this node is behind).
+	recvMu     sync.Mutex
+	origins    map[string]*originState
+	trustUntil atomic.Pointer[time.Time]
+	lagging    atomic.Int32
+	// polled is when each peer last compared this node's sequence.
+	pollMu sync.Mutex
+	polled map[string]time.Time
 	// syncNow asks the background loop for a comparison of the sequences
 	// at once (a node that lost the trust in its entries), at most one
 	// per syncKickMin (syncKicked, unix nanoseconds).
@@ -61,6 +67,7 @@ type service struct {
 	histState
 
 	webhooks  *webhookQueue
+	egress    *egress
 	warmSlots chan struct{}
 
 	stats         statsState
@@ -97,7 +104,7 @@ func New(deps Deps, opts ...Option) (Service, error) {
 		return nil, fmt.Errorf("%w: cache: the distributions are required", domain.ErrInvalidArgument)
 	}
 	if deps.Matcher == nil {
-		deps.Matcher = distribution.NewMatcher()
+		deps.Matcher = match.New(match.Deps{})
 	}
 	if deps.Clock == nil {
 		deps.Clock = clock.NewReal()
@@ -108,15 +115,16 @@ func New(deps Deps, opts ...Option) (Service, error) {
 	if deps.NodeID == "" {
 		deps.NodeID = cluster.LocalNodeID
 	}
-	if deps.HTTP == nil {
-		deps.HTTP = &http.Client{
-			Timeout:       webhookTimeout,
-			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-		}
-	}
 	o := defaultOptions()
 	for _, opt := range opts {
 		opt(&o)
+	}
+	eg := &egress{allow: o.webhookAllow, nodes: []string{deps.NodeID}}
+	for _, p := range deps.Peers {
+		eg.nodes = append(eg.nodes, p.NodeID())
+	}
+	if deps.HTTP == nil {
+		deps.HTTP = eg.client()
 	}
 	switch o.mode {
 	case ModeLocal, ModeShared, ModeSharedLocal:
@@ -131,7 +139,7 @@ func New(deps Deps, opts ...Option) (Service, error) {
 		return nil, err
 	}
 	s := &service{
-		deps: deps, opts: o, epoch: hex.EncodeToString(rnd[:]), crc: crcTable(), origins: map[string]*originState{},
+		deps: deps, opts: o, egress: eg, epoch: hex.EncodeToString(rnd[:]), crc: crcTable(), origins: map[string]*originState{}, polled: map[string]time.Time{},
 		warmSlots: make(chan struct{}, warmOnWriteSlots), syncNow: make(chan struct{}, 1),
 		histState: histState{history: map[string]*Invalidation{}, saved: map[string]bool{}},
 		stats:     statsState{hosts: map[[2]string]*hostCounters{}, objects: map[[3]string]*objectCounters{}},
@@ -156,6 +164,7 @@ func New(deps Deps, opts ...Option) (Service, error) {
 		return nil, err
 	}
 	s.store = st
+	s.flights.st = st
 	queueDir := o.webhookDir
 	if queueDir == "" && o.dir != "" {
 		queueDir = filepath.Join(o.dir, "webhooks")

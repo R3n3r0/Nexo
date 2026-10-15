@@ -317,19 +317,26 @@ func (s *service) TestWebhook(ctx context.Context, dist, id string) (WebhookTest
 		res.Status = http.StatusOK
 	}
 	if err != nil {
+		// The status only: the body of an endpoint is never echoed back.
 		res.Error = err.Error()
 	}
 	return res, nil
 }
 
-// statusError is a refusal of a webhook endpoint.
+// statusError is a refusal of a webhook endpoint. It carries the status
+// only: the answer of an endpoint is never reported (a webhook pointed at
+// an internal service would read it back).
 type statusError struct {
 	status int
-	body   string
+	// rejected reports a 2xx answer whose JSON says success: false.
+	rejected bool
 }
 
 func (e *statusError) Error() string {
-	return fmt.Sprintf("webhook answered %d %s: %s", e.status, http.StatusText(e.status), e.body)
+	if e.rejected {
+		return fmt.Sprintf("webhook answered %d %s with success false", e.status, http.StatusText(e.status))
+	}
+	return fmt.Sprintf("webhook answered %d %s", e.status, http.StatusText(e.status))
 }
 
 // sendPurge sends the calls of a job to a webhook (a connection test with
@@ -358,14 +365,14 @@ func (s *service) do(req *http.Request) error {
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxWebhookBody))
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return &statusError{status: resp.StatusCode, body: strings.TrimSpace(string(body))}
+		return &statusError{status: resp.StatusCode}
 	}
 	if strings.Contains(resp.Header.Get("Content-Type"), "json") {
 		var r struct {
 			Success *bool `json:"success"`
 		}
 		if json.Unmarshal(body, &r) == nil && r.Success != nil && !*r.Success {
-			return &statusError{status: resp.StatusCode, body: strings.TrimSpace(string(body))}
+			return &statusError{status: resp.StatusCode, rejected: true}
 		}
 	}
 	return nil
@@ -405,45 +412,23 @@ func literalPrefix(p distribution.PathPattern) (prefix string, whole bool) {
 	return "", false
 }
 
-// patternRegex is a regular expression of a pattern (Varnish bans).
-func patternRegex(p distribution.PathPattern) string {
-	switch p.Type {
-	case distribution.PatternRegex:
-		return p.Pattern
-	case distribution.PatternPrefix:
-		return "^" + regexp.QuoteMeta(p.Pattern)
+// patternRegex is the regular expression of a pattern for the Varnish
+// bans: the RE2 expression the matcher evaluates the pattern with (RE2 is
+// a subset of PCRE), so that the external caches purge exactly what Nexo
+// purges.
+func (s *service) patternRegex(ctx context.Context, p distribution.PathPattern) string {
+	m, err := s.deps.Matcher.Compile(ctx, p)
+	if err != nil {
+		// The patterns are validated with the invalidation: ban the
+		// literal path only.
+		return "^" + regexp.QuoteMeta(p.Pattern) + "$"
 	}
-	var b strings.Builder
-	b.WriteString("^")
-	for i := 0; i < len(p.Pattern); i++ {
-		c := p.Pattern[i]
-		switch {
-		case c == '*' && i+1 < len(p.Pattern) && p.Pattern[i+1] == '*':
-			b.WriteString(".*")
-			i++
-		case c == '*':
-			b.WriteString("[^/]*")
-		case c == '?':
-			b.WriteString("[^/]")
-		case c == '{':
-			b.WriteString("(")
-		case c == '}':
-			b.WriteString(")")
-		case c == ',':
-			b.WriteString("|")
-		case c == '[' || c == ']':
-			b.WriteByte(c)
-		default:
-			b.WriteString(regexp.QuoteMeta(string(c)))
-		}
-	}
-	b.WriteString("$")
-	return b.String()
+	return m.Expr()
 }
 
 // purgeRequests builds the calls of a job for the type of the webhook.
 func (s *service) purgeRequests(ctx context.Context, w Webhook, j *purgeJob, test bool) ([]*http.Request, error) {
-	token := s.resolveSecret(ctx, w.Token)
+	token := s.webhookSecret(ctx, w.Token)
 	newReq := func(method, target string, body []byte, ctype string) (*http.Request, error) {
 		var rd io.Reader
 		if body != nil {
@@ -609,7 +594,7 @@ func (s *service) purgeRequests(ctx context.Context, w Webhook, j *purgeJob, tes
 			if err != nil {
 				return nil, err
 			}
-			edgeGridSign(r, body, w.ClientToken, token, s.resolveSecret(ctx, w.ClientSecret), s.now())
+			edgeGridSign(r, body, w.ClientToken, token, s.webhookSecret(ctx, w.ClientSecret), s.now())
 			out = append(out, r)
 		}
 	case WebhookNginx:
@@ -660,7 +645,7 @@ func (s *service) purgeRequests(ctx context.Context, w Webhook, j *purgeJob, tes
 			res = append(res, "^"+regexp.QuoteMeta(p)+"$")
 		}
 		for _, p := range j.Patterns {
-			res = append(res, patternRegex(p))
+			res = append(res, s.patternRegex(ctx, p))
 		}
 		switch {
 		case len(j.Tags) > 0:
@@ -703,11 +688,13 @@ func (s *service) purgeRequests(ctx context.Context, w Webhook, j *purgeJob, tes
 			return nil, err
 		}
 		for k, v := range w.Headers {
+			// Plain values: the secrets go in the token, never in a
+			// free-form header.
 			hv, err := render(v, data)
 			if err != nil {
 				return nil, err
 			}
-			r.Header.Set(k, s.expandSecrets(ctx, hv))
+			r.Header.Set(k, hv)
 		}
 		if token != "" && r.Header.Get("Authorization") == "" {
 			r.Header.Set("Authorization", "Bearer "+token)
@@ -765,8 +752,10 @@ func edgeGridSign(r *http.Request, body []byte, clientToken, accessToken, client
 	r.Header.Set("Authorization", authHeader+"signature="+mac(signingKey, data))
 }
 
-// validateWebhook checks a webhook definition.
-func validateWebhook(w *Webhook) error {
+// validateWebhook checks a webhook definition: its endpoint against the
+// egress policy (an internal address literal is refused), its secrets in
+// the webhook namespace, no secret reference in its headers.
+func (s *service) validateWebhook(w *Webhook) error {
 	if !validName(w.ID) {
 		return fmt.Errorf("%w: webhook id %q: lowercase letters, digits, '.', '_' and '-'", ErrInvalid, w.ID)
 	}
@@ -778,10 +767,16 @@ func validateWebhook(w *Webhook) error {
 	}
 	checkURL := func(raw string) error {
 		u, err := url.Parse(raw)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
 			return fmt.Errorf("%w: webhook url %q must be an http(s) URL", ErrInvalid, raw)
 		}
-		return nil
+		return s.egress.checkURLHost(u.Hostname())
+	}
+	for field, v := range map[string]string{"token": w.Token, "clientSecret": w.ClientSecret} {
+		if name, ref := secretRef(v); ref && !webhookSecretName(name) {
+			return fmt.Errorf("%w: webhook %s references ${secret:%s}: the secrets of a webhook are named webhook-<name> (NEXO_SECRET_WEBHOOK_<NAME>)",
+				ErrInvalid, field, name)
+		}
 	}
 	switch w.Type {
 	case WebhookCloudflare, WebhookFastly:
@@ -841,6 +836,9 @@ func validateWebhook(w *Webhook) error {
 		if !validToken(k) || strings.ContainsAny(v, "\r\n") {
 			return fmt.Errorf("%w: webhook header %q", ErrInvalid, k)
 		}
+		if strings.Contains(v, "${secret:") {
+			return fmt.Errorf("%w: webhook header %q: a secret goes in the token of the webhook, not in a header", ErrInvalid, k)
+		}
 	}
 	return nil
 }
@@ -870,15 +868,15 @@ func (s *service) resolveSecret(ctx context.Context, v string) string {
 	return value
 }
 
-// secretPattern finds the references in a header value.
-func secretPattern() *regexp.Regexp { return regexp.MustCompile(`\$\{secret:[^}]+\}`) }
-
-// expandSecrets resolves the secret references of a header value.
-func (s *service) expandSecrets(ctx context.Context, v string) string {
-	if !strings.Contains(v, "${secret:") {
-		return v
+// webhookSecret resolves a secret of a webhook: in clear, or a reference
+// of the webhook namespace (any other reference resolves to nothing, also
+// for the configurations saved before the namespace existed).
+func (s *service) webhookSecret(ctx context.Context, v string) string {
+	if name, ref := secretRef(v); ref && !webhookSecretName(name) {
+		s.deps.Logger.WarnContext(ctx, "cache: a webhook references a secret outside of the webhook namespace: not sent", "secret", name)
+		return ""
 	}
-	return secretPattern().ReplaceAllStringFunc(v, func(ref string) string { return s.resolveSecret(ctx, ref) })
+	return s.resolveSecret(ctx, v)
 }
 
 // cmpOr returns v, or def when v is empty.

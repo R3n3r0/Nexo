@@ -16,9 +16,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/match"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 )
@@ -42,7 +44,7 @@ const maxUploadSize = 5 << 30
 // --- compiled distribution -------------------------------------------------------
 
 type compiledBehavior struct {
-	pattern CompiledPattern
+	pattern match.Matcher
 	eff     Behavior
 }
 
@@ -53,7 +55,10 @@ type compiledRedirect struct {
 
 // compiledDistribution is a distribution ready to serve requests.
 type compiledDistribution struct {
-	d          *Distribution
+	d *Distribution
+	// paths normalizes the request paths the behaviors are matched
+	// against.
+	paths      match.Service
 	def        Behavior
 	behaviors  []compiledBehavior
 	redirects  []compiledRedirect
@@ -70,15 +75,15 @@ type compiledDistribution struct {
 // compileDistribution compiles the patterns, expressions and address
 // lists of a (validated) distribution; secrets resolves the origin
 // secrets given by name (nil: none resolves).
-func compileDistribution(ctx context.Context, m Matcher, d *Distribution, secrets ...SecretSource) (*compiledDistribution, error) {
-	c := &compiledDistribution{d: d, def: effectiveBehavior(Behavior{}, d.DefaultBehavior), errorPages: map[int]ErrorPage{}}
+func compileDistribution(ctx context.Context, m match.Service, d *Distribution, secrets ...SecretSource) (*compiledDistribution, error) {
+	c := &compiledDistribution{d: d, paths: m, def: effectiveBehavior(Behavior{}, d.DefaultBehavior), errorPages: map[int]ErrorPage{}}
 	for i, b := range d.Behaviors {
 		if b.PathPattern == nil {
 			return nil, fmt.Errorf("%w: behaviors[%d] has no path pattern", ErrInvalid, i)
 		}
 		p, err := m.Compile(ctx, *b.PathPattern)
 		if err != nil {
-			return nil, fmt.Errorf("behaviors[%d]: %w", i, err)
+			return nil, fmt.Errorf("%w: behaviors[%d]: %w", ErrInvalid, i, err)
 		}
 		c.behaviors = append(c.behaviors, compiledBehavior{pattern: p, eff: effectiveBehavior(d.DefaultBehavior, b)})
 	}
@@ -137,10 +142,16 @@ func compileDistribution(ctx context.Context, m Matcher, d *Distribution, secret
 	return c, nil
 }
 
-// behaviorFor returns the first behavior matching path (-1: the default).
-func (c *compiledDistribution) behaviorFor(path string) (int, Behavior) {
+// behaviorFor returns the first behavior matching the normalized form of
+// path (-1: the default): "/assets/../internal/x" and "//internal/x" are
+// matched as "/internal/x".
+func (c *compiledDistribution) behaviorFor(ctx context.Context, path string) (int, Behavior) {
+	if len(c.behaviors) == 0 {
+		return -1, c.def
+	}
+	key := c.paths.Normalize(ctx, path)
 	for i, b := range c.behaviors {
-		if b.pattern.Match(path) {
+		if b.pattern.Match(key).Matched {
 			return i, b.eff
 		}
 	}
@@ -225,10 +236,21 @@ func (c *compiledDistribution) admit(req planRequest) (int, string) {
 }
 
 // plan decides how a request to a website distribution is served.
-func (c *compiledDistribution) plan(req planRequest) plan {
+func (c *compiledDistribution) plan(ctx context.Context, req planRequest) plan {
 	p := plan{behaviorIndex: -1, behavior: c.def}
 	if status, reason := c.admit(req); status != 0 {
 		p.refusalStatus, p.refusal, p.admission = status, reason, true
+		return p
+	}
+	if c.d.Mode == ModeS3 {
+		// The S3 API serves the request (its methods, its keys, IAM and
+		// the policies): only the access of the default behavior applies
+		// (checkS3Mode refuses the rest).
+		if c.def.Access == AccessDeny {
+			p.refusalStatus, p.refusal = http.StatusForbidden, "access denied by the distribution"
+			return p
+		}
+		p.key = strings.TrimPrefix(req.path, "/")
 		return p
 	}
 	if status, loc := c.redirect(req); status != 0 {
@@ -239,7 +261,7 @@ func (c *compiledDistribution) plan(req planRequest) plan {
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}
-	p.behaviorIndex, p.behavior = c.behaviorFor(path)
+	p.behaviorIndex, p.behavior = c.behaviorFor(ctx, path)
 	if !slices.Contains(p.behavior.AllowedMethods, req.method) {
 		p.refusalStatus, p.refusal = http.StatusMethodNotAllowed, "method "+req.method+" is not allowed"
 		return p
@@ -308,21 +330,56 @@ func (c *compiledDistribution) redirect(req planRequest) (int, string) {
 			if m == nil {
 				continue
 			}
-			target := string(r.re.ExpandString(nil, r.r.To, req.path, m))
-			if strings.HasPrefix(target, "/") && !strings.HasPrefix(target, "//") {
-				if req.rawQuery != "" && !strings.Contains(target, "?") {
-					target += "?" + req.rawQuery
-				}
-				return r.r.Status, target
+			target := expandEscaped(r.re, r.r.To, req.path, m)
+			if !safeRedirectTarget(target) {
+				// A target that is neither a path of the site nor an
+				// absolute http(s) URL is not followed: "//evil",
+				// "/\evil" and "/\t/evil" leave the site in a browser.
+				continue
 			}
-			if u, err := url.Parse(target); err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" {
-				return r.r.Status, target
+			if strings.HasPrefix(target, "/") && req.rawQuery != "" && !strings.Contains(target, "?") {
+				target += "?" + req.rawQuery
 			}
-			// A target that is neither a path nor an absolute URL is not
-			// followed: a protocol-relative "//evil" would leave the site.
+			return r.r.Status, target
 		}
 	}
 	return 0, ""
+}
+
+// expandEscaped expands the template of a redirect with the groups of
+// match m of re in src, each group escaped as a path (its slashes kept):
+// a capture of the decoded path cannot inject a query, a fragment, a
+// backslash or a control character into the target.
+func expandEscaped(re *regexp.Regexp, template, src string, m []int) string {
+	var esc strings.Builder
+	idx := make([]int, len(m))
+	for i := 0; i+1 < len(m); i += 2 {
+		if m[i] < 0 {
+			idx[i], idx[i+1] = -1, -1
+			continue
+		}
+		idx[i] = esc.Len()
+		esc.WriteString(strings.ReplaceAll(url.PathEscape(src[m[i]:m[i+1]]), "%2F", "/"))
+		idx[i+1] = esc.Len()
+	}
+	return string(re.ExpandString(nil, template, esc.String(), idx))
+}
+
+// safeRedirectTarget reports a redirect target that stays a path of the
+// site ("/x", never "//x") or is an absolute http(s) URL with a host:
+// no backslash and no control character anywhere (browsers turn
+// "/\host" and "/<TAB>/host" into "//host").
+func safeRedirectTarget(target string) bool {
+	for i := 0; i < len(target); i++ {
+		if c := target[i]; c < 0x20 || c == 0x7f || c == '\\' {
+			return false
+		}
+	}
+	if strings.HasPrefix(target, "/") {
+		return !strings.HasPrefix(target, "//")
+	}
+	u, err := url.Parse(target)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" && u.User == nil
 }
 
 // hexDecode decodes a hex string (an invalid one gives nil).
@@ -389,7 +446,7 @@ func NewWebsite(deps WebsiteDeps, opts ...WebsiteOption) (Website, error) {
 		return nil, fmt.Errorf("%w: website: the signature verifier is required", domain.ErrInvalidArgument)
 	}
 	if deps.Matcher == nil {
-		deps.Matcher = NewMatcher()
+		deps.Matcher = match.New(match.Deps{})
 	}
 	if deps.Clock == nil {
 		deps.Clock = clock.NewReal()
@@ -456,6 +513,23 @@ func (w *website) Admit(ctx context.Context, req WebRequest) *WebResponse {
 	return nil
 }
 
+// AuthorizeS3 implements Website.
+func (w *website) AuthorizeS3(ctx context.Context, req WebRequest) *WebResponse {
+	d := req.Route.Distribution
+	if d == nil || d.Mode != ModeS3 {
+		return nil
+	}
+	c, err := w.compile(ctx, d)
+	if err != nil {
+		w.deps.Logger.ErrorContext(ctx, "distribution: cannot compile", "id", d.ID, "err", err)
+		return w.plain(http.StatusInternalServerError, "the distribution configuration is invalid", OutcomeError)
+	}
+	if c.def.Access == AccessAuthenticated && (req.Identity == nil || req.Identity.IsAnonymous) {
+		return w.plain(http.StatusForbidden, "credentials are required", OutcomeDenied)
+	}
+	return nil
+}
+
 // Serve implements Website.
 func (w *website) Serve(ctx context.Context, req WebRequest) (*WebResponse, error) {
 	d := req.Route.Distribution
@@ -471,16 +545,16 @@ func (w *website) Serve(ctx context.Context, req WebRequest) (*WebResponse, erro
 		return w.plain(http.StatusInternalServerError, "the distribution configuration is invalid", OutcomeError), nil
 	}
 	resp := w.serve(ctx, c, req)
-	w.finish(c, req, resp)
+	w.finish(ctx, c, req, resp)
 	return resp, nil
 }
 
 // finish adds the headers of the distribution and of the engine.
-func (w *website) finish(c *compiledDistribution, req WebRequest, resp *WebResponse) {
+func (w *website) finish(ctx context.Context, c *compiledDistribution, req WebRequest, resp *WebResponse) {
 	if resp.Header == nil {
 		resp.Header = http.Header{}
 	}
-	_, b := c.behaviorFor(cleanPath(req.Path))
+	_, b := c.behaviorFor(ctx, cleanPath(req.Path))
 	for k, v := range c.responseHeaders(b) {
 		resp.Header.Set(k, v)
 	}
@@ -501,7 +575,7 @@ func cleanPath(p string) string {
 
 // serve answers a request of a compiled website distribution.
 func (w *website) serve(ctx context.Context, c *compiledDistribution, req WebRequest) *WebResponse {
-	p := c.plan(toPlanRequest(req))
+	p := c.plan(ctx, toPlanRequest(req))
 	switch {
 	case p.redirectStatus != 0:
 		return w.redirectTo(p.redirectStatus, p.redirectLocation)
@@ -554,16 +628,20 @@ func (w *website) serveAllowed(ctx context.Context, c *compiledDistribution, req
 		key += b.IndexDocument
 	}
 	if status, reason := w.authorize(ctx, c, req, b, policy.ActionGetObject, key); status != 0 {
-		return w.errorPage(ctx, c, req, status, reason)
+		return w.refuse(ctx, c, req, status, reason)
 	}
 	resp, notFound := w.readObject(ctx, c, req, b, key, OutcomeObject)
 	if !notFound {
 		return resp
 	}
 	// "dir" without its slash: S3 websites redirect to "dir/" when it has
-	// an index document.
-	if !p.directory && b.IndexDocument != "" {
-		if _, err := w.deps.Objects.GetObjectInfo(ctx, c.d.Origin.Bucket, key+"/"+b.IndexDocument, object.GetObjectOptions{}); err == nil {
+	// an index document the viewer may read (never an oracle of the
+	// existence of a denied one).
+	if index := key + "/" + b.IndexDocument; !p.directory && b.IndexDocument != "" {
+		if status, _ := w.authorize(ctx, c, req, b, policy.ActionGetObject, index); status != 0 {
+			return w.notFound(ctx, c, req, b)
+		}
+		if _, err := w.deps.Objects.GetObjectInfo(ctx, c.d.Origin.Bucket, index, object.GetObjectOptions{}); err == nil {
 			loc := req.EscapedPath + "/"
 			if req.RawQuery != "" {
 				loc += "?" + req.RawQuery
@@ -572,6 +650,17 @@ func (w *website) serveAllowed(ctx context.Context, c *compiledDistribution, req
 		}
 	}
 	return w.notFound(ctx, c, req, b)
+}
+
+// refuse answers a refusal of the access: with the error page of its
+// status; a decision that could not be taken (the inputs unavailable, a
+// set without quorum) is a 503 to retry, never a 403.
+func (w *website) refuse(ctx context.Context, c *compiledDistribution, req WebRequest, status int, reason string) *WebResponse {
+	resp := w.errorPage(ctx, c, req, status, reason)
+	if status == http.StatusServiceUnavailable {
+		resp.Header.Set("Retry-After", "1")
+	}
+	return resp
 }
 
 // notFound answers a missing object: the SPA fallback, or the 404 page.
@@ -591,6 +680,26 @@ func (w *website) notFound(ctx context.Context, c *compiledDistribution, req Web
 	return w.errorPage(ctx, c, req, http.StatusNotFound, "not found")
 }
 
+// ifRangeMatches reports an If-Range validator naming the version of
+// info: a strong entity tag equal to its ETag (a weak one never matches),
+// or the exact date of its last modification.
+func ifRangeMatches(v string, info domain.ObjectInfo) bool {
+	v = strings.TrimSpace(v)
+	if strings.HasPrefix(v, `"`) || strings.HasPrefix(v, "W/") {
+		return !strings.HasPrefix(v, "W/") && info.ETag != "" && v == `"`+info.ETag+`"`
+	}
+	t, err := http.ParseTime(v)
+	return err == nil && !info.ModTime.IsZero() && t.Equal(info.ModTime.UTC().Truncate(time.Second))
+}
+
+// stripRange returns h without the range headers.
+func stripRange(h http.Header) http.Header {
+	out := h.Clone()
+	out.Del("Range")
+	out.Del("If-Range")
+	return out
+}
+
 // stripConditional returns h without the conditional and range headers.
 func stripConditional(h http.Header) http.Header {
 	out := h.Clone()
@@ -600,10 +709,13 @@ func stripConditional(h http.Header) http.Header {
 	return out
 }
 
-// authorize decides whether the viewer may perform action on key: an
-// explicit deny refuses (access rules, bucket policy), a public or signed
-// behavior allows otherwise (the public ones unless the public access of
-// the bucket is blocked), an authenticated behavior needs an allow.
+// authorize decides whether the viewer may perform action on key: a
+// public behavior is refused while the block public access of the bucket
+// is on (docs/10 §10.2, whatever grants the read: a rule for
+// distribution:<id>, a public bucket policy), an explicit deny refuses
+// (access rules, bucket policy), a public or signed behavior allows
+// otherwise, an authenticated behavior needs an allow. An input that
+// cannot be read (a set without quorum) answers 503, never 403.
 func (w *website) authorize(ctx context.Context, c *compiledDistribution, req WebRequest, b Behavior, action policy.Action, key string) (int, string) {
 	id := domain.Anonymous()
 	authenticated := b.Access == AccessAuthenticated
@@ -616,6 +728,20 @@ func (w *website) authorize(ctx context.Context, c *compiledDistribution, req We
 		}
 		id = req.Identity
 	}
+	if b.Access == AccessPublic && w.deps.PublicAccess != nil {
+		// Read from the cache of the bucket metadata (no I/O on the
+		// path of every request, cache HITs included).
+		blocked, err := w.deps.PublicAccess.PublicAccessBlocked(ctx, c.d.Origin.Bucket)
+		switch {
+		case errors.Is(err, domain.ErrBucketNotFound):
+			// The read answers 404.
+		case err != nil:
+			w.deps.Logger.WarnContext(ctx, "distribution: block public access unknown, retry later", "bucket", c.d.Origin.Bucket, "err", err)
+			return http.StatusServiceUnavailable, "the access cannot be decided now"
+		case blocked:
+			return http.StatusForbidden, "public access is blocked"
+		}
+	}
 	now := w.deps.Clock.Now()
 	client := &policy.RequestClient{IP: req.ClientIP, Secure: req.Secure, UserAgent: req.Header.Get("User-Agent"), Referer: req.Header.Get("Referer")}
 	conds := policy.RequestConditions(policy.Request{
@@ -627,6 +753,9 @@ func (w *website) authorize(ctx context.Context, c *compiledDistribution, req We
 	})
 	if err != nil {
 		w.deps.Logger.WarnContext(ctx, "distribution: policy evaluation failed", "id", c.d.ID, "key", key, "err", err)
+		if unavailable(err) {
+			return http.StatusServiceUnavailable, "the access cannot be decided now"
+		}
 		return http.StatusInternalServerError, "the access cannot be decided"
 	}
 	if dec.Allowed {
@@ -636,17 +765,13 @@ func (w *website) authorize(ctx context.Context, c *compiledDistribution, req We
 	if authenticated || explicit {
 		return http.StatusForbidden, "access denied"
 	}
-	if b.Access == AccessPublic && w.deps.PublicAccess != nil {
-		blocked, err := w.deps.PublicAccess.PublicAccessBlocked(ctx, c.d.Origin.Bucket)
-		if err != nil {
-			w.deps.Logger.WarnContext(ctx, "distribution: block public access unknown, refusing", "bucket", c.d.Origin.Bucket, "err", err)
-			return http.StatusForbidden, "access denied"
-		}
-		if blocked {
-			return http.StatusForbidden, "public access is blocked"
-		}
-	}
 	return 0, ""
+}
+
+// unavailable reports an error of a storage that cannot answer now.
+func unavailable(err error) bool {
+	return errors.Is(err, domain.ErrReadQuorum) || errors.Is(err, domain.ErrWriteQuorum) || errors.Is(err, domain.ErrLockTimeout) ||
+		errors.Is(err, domain.ErrDiskNotFound) || errors.Is(err, domain.ErrNodeOffline)
 }
 
 // authTypeOf is the s3:authType of the viewer identity.
@@ -663,6 +788,34 @@ func (w *website) readObject(ctx context.Context, c *compiledDistribution, req W
 	bucket := c.d.Origin.Bucket
 	conds := conditionsOf(req.Header)
 	rng := rangeOf(req.Header)
+	// If-Range (RFC 9110 §13.1.5): the range applies only to the version
+	// the client has; otherwise the whole object is sent.
+	if ir := req.Header.Get("If-Range"); rng != nil && ir != "" {
+		info, err := w.deps.Objects.GetObjectInfo(ctx, bucket, key, object.GetObjectOptions{Range: rng})
+		if err != nil {
+			return w.readError(ctx, c, req, b, key, err)
+		}
+		switch {
+		case !ifRangeMatches(ir, info):
+			rng = nil
+		case conds.IfMatch == "" && info.ETag != "":
+			// The range is of this version: pinned against a write
+			// between the two reads.
+			conds.IfMatch = `"` + info.ETag + `"`
+			pinned := req
+			pinned.Header = req.Header.Clone()
+			pinned.Header.Del("If-Range")
+			pinned.Header.Set("If-Match", conds.IfMatch)
+			resp, notFound := w.readObject(ctx, c, pinned, b, key, outcome)
+			if resp != nil && resp.Status == http.StatusPreconditionFailed {
+				// Changed meanwhile: the validator no longer matches.
+				whole := req
+				whole.Header = stripRange(req.Header)
+				return w.readObject(ctx, c, whole, b, key, outcome)
+			}
+			return resp, notFound
+		}
+	}
 	opts := object.GetObjectOptions{Conditions: conds, Range: rng}
 	if req.Method == http.MethodHead {
 		info, err := w.deps.Objects.GetObjectInfo(ctx, bucket, key, object.GetObjectOptions{Conditions: conds})
@@ -888,19 +1041,28 @@ func simpleCORS(p *corsPolicy, origin string) http.Header {
 	if !p.rule.MatchesOrigin(origin) {
 		return h
 	}
-	// Credentials never go with "*": the origin is echoed.
-	if p.rule.AllowsAnyOrigin() && !p.credentials {
+	// Credentials never go with a wildcard origin (validateCORS refuses
+	// it; a configuration saved before is served without them): any site
+	// would read the answers made with the cookies of the viewer.
+	credentials := p.credentials && !p.wildcardOrigin()
+	if p.rule.AllowsAnyOrigin() {
 		h.Set("Access-Control-Allow-Origin", "*")
 	} else {
 		h.Set("Access-Control-Allow-Origin", origin)
 	}
-	if p.credentials {
+	if credentials {
 		h.Set("Access-Control-Allow-Credentials", "true")
 	}
 	if len(p.rule.ExposeHeaders) > 0 {
 		h.Set("Access-Control-Expose-Headers", strings.Join(p.rule.ExposeHeaders, ", "))
 	}
 	return h
+}
+
+// wildcardOrigin reports a policy with an origin pattern ("*",
+// "https://*.example.com").
+func (p *corsPolicy) wildcardOrigin() bool {
+	return slices.ContainsFunc(p.rule.AllowedOrigins, func(o string) bool { return strings.Contains(o, "*") })
 }
 
 func splitHeaderList(values []string) []string {

@@ -29,6 +29,14 @@ describe('visibleNavigation (D-UX-02)', () => {
     expect(visible).not.toContain('configuration');
   });
 
+  it('shows the cache to a user who may manage it or only invalidate it', () => {
+    const visible = (actions: string[]) =>
+      keys(visibleNavigation(navigation, { ready: true, can: (a) => actions.includes(a) }));
+    expect(visible(['admin:InvalidateCache'])).toContain('cache');
+    expect(visible(['admin:ManageCache'])).toContain('cache');
+    expect(visible(['admin:ListUsers'])).not.toContain('cache');
+  });
+
   it('hides the admin menu of a user without admin permissions', async () => {
     renderRoutes(createRoutes(), {
       initialEntries: ['/access-keys'],

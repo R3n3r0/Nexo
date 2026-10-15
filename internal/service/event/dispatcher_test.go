@@ -117,6 +117,9 @@ func TestDispatcherDeliversByTargetFilter(t *testing.T) {
 	require.NoError(t, d.Publish(ctx, e))
 	require.NoError(t, d.Publish(ctx, objectEvent(event.ObjectRemovedDelete, "photos", "x")), "filtered by event")
 	require.NoError(t, d.Publish(ctx, objectEvent(event.ObjectCreatedPut, "other", "x")), "filtered by bucket")
+	// An internal event (for the hooks of the object layer) is never
+	// delivered, whatever the filters.
+	require.NoError(t, d.Publish(ctx, objectEvent(event.ObjectMetadataChanged, "photos", "a b.jpg")))
 
 	h.waitFor(t, 1)
 	stop(t, d)

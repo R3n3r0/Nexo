@@ -60,6 +60,13 @@ type pieceSpec struct {
 	identityInfo *domain.ObjectInfo
 }
 
+// owns reports an entry of the object, distribution and host of the
+// piece: a lookup never serves the entry of another object, whatever its
+// key (the key is not trusted as the identity of the content).
+func (ps *pieceSpec) owns(m *entryMeta) bool {
+	return m != nil && m.Bucket == ps.Bucket && m.Object == ps.Object && m.Distribution == ps.Distribution && m.Host == ps.Host
+}
+
 // quotas are the quota scopes of the piece.
 func (ps *pieceSpec) quotas() []quota {
 	out := make([]quota, 0, len(ps.QuotaIDs))
@@ -89,10 +96,10 @@ type readSpec struct {
 
 // specFor resolves the policy and the key of an object of the request of
 // ex.
-func (s *service) specFor(ex *exchange, bucket, objectKey string) *readSpec {
+func (s *service) specFor(ctx context.Context, ex *exchange, bucket, objectKey string) *readSpec {
 	rel := strings.TrimPrefix(objectKey, ex.keyPrefix)
 	path := "/" + rel
-	res := s.snap.Load().resolveFor(ex.dist.ID, ex.req.Host, path)
+	res := s.snap.Load().resolveFor(ctx, ex.dist.ID, ex.req.Host, path)
 	sp := &readSpec{p: res.p, dist: ex.dist.ID, host: ex.req.Host, bucket: bucket, object: objectKey, path: path, policy: res.eff.PolicyName}
 	sp.base = keyOf(&sp.p, scopeOf(&sp.p, sp.dist, sp.host), bucket, objectKey, &ex.req, ex.credential)
 	domainScope := res.domainKey
@@ -144,7 +151,7 @@ func (s *service) GetObject(ctx context.Context, bucket, key string, opts object
 	if !ex.usable(bucket, opts) {
 		return nil, false, nil
 	}
-	sp := s.specFor(ex, bucket, key)
+	sp := s.specFor(ctx, ex, bucket, key)
 	if !sp.p.Enabled {
 		ex.record(ResultBypass, nil)
 		return nil, false, nil
@@ -228,7 +235,7 @@ func (s *service) GetObjectInfo(ctx context.Context, bucket, key string, opts ob
 	if !ex.usable(bucket, opts) {
 		return domain.ObjectInfo{}, false, nil
 	}
-	sp := s.specFor(ex, bucket, key)
+	sp := s.specFor(ctx, ex, bucket, key)
 	if !sp.p.Enabled {
 		ex.record(ResultBypass, nil)
 		return domain.ObjectInfo{}, false, nil
@@ -249,11 +256,18 @@ func (s *service) GetObjectInfo(ctx context.Context, bucket, key string, opts ob
 	}
 	info := *m.Info
 	vary := false
-	if m.Kind != kindHead && s.compressible(ex, sp, info) {
+	if m.Kind != kindHead && opts.Range == nil && s.compressible(ex, sp, info) {
 		vary = true
-		if enc := negotiate(ex.req.Header.Get("Accept-Encoding"), sp.p.Algorithms); enc != "" && m.Kind == kindObject {
+		// The variant a GET would serve, also when only the description
+		// is cached (it is then compressed from the origin): HEAD and GET
+		// answer the same validators (RFC 9110 §9.3.2).
+		if enc := negotiate(ex.req.Header.Get("Accept-Encoding"), sp.p.Algorithms); enc != "" {
 			base := info
-			if vp, err := s.getPiece(ctx, sp.variantSpec(enc, &base, pc.body)); err == nil && vp.meta.Encoding == enc && vp.meta.Info != nil {
+			var identity []byte
+			if m.Kind == kindObject {
+				identity = pc.body
+			}
+			if vp, err := s.getPiece(ctx, sp.variantSpec(enc, &base, identity)); err == nil && vp.meta.Encoding == enc && vp.meta.Info != nil {
 				info = *vp.meta.Info
 			}
 		}
@@ -274,6 +288,7 @@ func (s *service) note(ex *exchange, sp *readSpec, pc piece, vary bool) {
 	ex.record(pc.result, func(ex *exchange) {
 		ex.key = sp.base
 		ex.vary = vary
+		ex.varyOn = sp.p.varyHeaders()
 		ex.browserCC = sp.p.BrowserCC
 		ex.policy = sp.policy
 		ex.path = sp.path
@@ -313,15 +328,18 @@ func (s *service) localPiece(ctx context.Context, ps *pieceSpec) (piece, error) 
 func (s *service) localObject(ctx context.Context, ps *pieceSpec) (piece, error) {
 	now := s.now()
 	if !ps.NoStore {
-		if meta, body, _, ok := s.store.get(ctx, ps.Key); ok {
+		if meta, body, _, ok := s.store.get(ctx, ps.Key); ok && ps.owns(meta) {
 			switch meta.Kind {
-			case kindPass, kindNegative:
+			case kindPass:
 				if now.Before(meta.Expires) {
-					r := ResultHit
-					if meta.Kind == kindPass {
-						r = ResultBypass
-					}
-					return piece{meta: meta, result: r}, nil
+					return piece{meta: meta, result: ResultBypass}, nil
+				}
+			case kindNegative:
+				// A refusal is content too: served only while the node
+				// receives every invalidation (an object created on a
+				// peer is visible at once, TCC-12).
+				if now.Before(meta.Expires) && !meta.Unverified && s.trusted() {
+					return piece{meta: meta, result: ResultHit}, nil
 				}
 			case kindInfo:
 				if !ps.WantBody {
@@ -354,11 +372,16 @@ func (s *service) serveEntry(ctx context.Context, ps *pieceSpec, meta *entryMeta
 
 // fill runs a fill of the piece once for the concurrent callers.
 func (s *service) fill(ctx context.Context, prefix string, ps *pieceSpec, fetch func(context.Context, *pieceSpec) (piece, error)) (piece, error) {
-	p, err, _ := s.flights.do(prefix+ps.Key, func() (piece, error) {
+	// The blocks and variants of two versions never share a call.
+	p, err, shared := s.flights.do(prefix+ps.Key+"\x00"+ps.ETag, objRef{ps.Bucket, ps.Object}, func() (piece, error) {
 		// The fill outlives a caller that goes away: the others wait for
 		// it.
 		return fetch(context.WithoutCancel(ctx), ps)
 	})
+	if shared && err == nil && !ps.owns(p.meta) {
+		// Never the content of another object.
+		return fetch(context.WithoutCancel(ctx), ps)
+	}
 	return p, err
 }
 
@@ -383,8 +406,10 @@ func (s *service) refreshAsync(ctx context.Context, ps *pieceSpec, meta *entryMe
 // it is fresh again (REVALIDATED), changed it is read again (EXPIRED); an
 // origin that fails serves it stale within stale-if-error (STALE).
 func (s *service) revalidate(ctx context.Context, ps *pieceSpec, meta *entryMeta, body []byte) (piece, error) {
-	p, err, _ := s.flights.do("r|"+ps.Key, func() (piece, error) {
+	p, err, _ := s.flights.do("r|"+ps.Key, objRef{ps.Bucket, ps.Object}, func() (piece, error) {
 		cctx := context.WithoutCancel(ctx)
+		// The barrier is taken before the origin is read: a write
+		// acknowledged meanwhile refuses what this revalidation stores.
 		since := s.store.begin()
 		defer s.store.end(since)
 		info, err := s.deps.Origin.GetObjectInfo(cctx, ps.Bucket, ps.Object, object.GetObjectOptions{})
@@ -392,10 +417,8 @@ func (s *service) revalidate(ctx context.Context, ps *pieceSpec, meta *entryMeta
 		now := s.now()
 		if err != nil {
 			if neg := negativeOf(err); neg != nil {
-				s.store.removeObject(ps.Bucket, ps.Object, nil)
-				after := s.store.begin()
-				defer s.store.end(after)
-				p, err := s.storeNegative(ps, neg, after, now)
+				s.store.dropObject(ps.Bucket, ps.Object)
+				p, err := s.storeNegative(ps, neg, since, now)
 				p.result = ResultExpired
 				return p, err
 			}
@@ -412,12 +435,18 @@ func (s *service) revalidate(ctx context.Context, ps *pieceSpec, meta *entryMeta
 			if !f.cacheable {
 				nm.Expires = now
 			}
-			s.store.update(&nm)
-			s.markVerified(ps)
+			// Only the entry revalidated, and only if no write came
+			// meanwhile; this request is served either way (the origin
+			// confirmed the version after it began).
+			if s.store.update(meta, &nm, since) {
+				s.markVerified(ps, since)
+			}
 			return piece{meta: &nm, body: body, result: ResultRevalidated}, nil
 		}
 		// Changed: the entries of the object on this node are outdated.
-		s.store.removeObject(ps.Bucket, ps.Object, nil)
+		// A drop, not an invalidation: the write already set its barrier
+		// (and the callers of this revalidation keep its result).
+		s.store.dropObject(ps.Bucket, ps.Object)
 		var p piece
 		if ps.WantBody || meta.Kind != kindInfo {
 			p, err = s.fetchObject(cctx, ps)
@@ -434,12 +463,12 @@ func (s *service) revalidate(ctx context.Context, ps *pieceSpec, meta *entryMeta
 
 // markVerified clears the unverified flag of the blocks and variants of a
 // version confirmed by the origin.
-func (s *service) markVerified(ps *pieceSpec) {
+func (s *service) markVerified(ps *pieceSpec, since uint64) {
 	for _, k := range s.store.keysOf(ps.Bucket, ps.Object) {
 		if m, _, ok := s.store.peek(k); ok && m.Unverified {
 			nm := *m
 			nm.Unverified = false
-			s.store.update(&nm)
+			s.store.update(m, &nm, since)
 		}
 	}
 }
@@ -553,7 +582,7 @@ func (s *service) storeNegative(ps *pieceSpec, neg *negative, since uint64, now 
 // localBlock serves a block of a version.
 func (s *service) localBlock(ctx context.Context, ps *pieceSpec) (piece, error) {
 	if !ps.NoStore {
-		if meta, body, _, ok := s.store.get(ctx, ps.Key); ok && meta.Kind == kindBlock && meta.ETag == ps.ETag {
+		if meta, body, _, ok := s.store.get(ctx, ps.Key); ok && ps.owns(meta) && meta.Kind == kindBlock && meta.ETag == ps.ETag {
 			return piece{meta: meta, body: body, result: ResultHit}, nil
 		}
 	}
@@ -576,7 +605,7 @@ func (s *service) fetchBlock(ctx context.Context, ps *pieceSpec) (piece, error) 
 	s.countOrigin()
 	if err != nil {
 		if errors.Is(err, domain.ErrPreconditionFailed) || negativeOf(err) != nil {
-			s.store.removeObject(ps.Bucket, ps.Object, nil)
+			s.store.dropObject(ps.Bucket, ps.Object)
 			return piece{}, errObjectChanged
 		}
 		return piece{}, err
@@ -601,7 +630,7 @@ const identityEncoding = "identity"
 // localVariant serves a compressed variant of a version.
 func (s *service) localVariant(ctx context.Context, ps *pieceSpec) (piece, error) {
 	if !ps.NoStore {
-		if meta, body, _, ok := s.store.get(ctx, ps.Key); ok && meta.Kind == kindVariant && meta.ETag == ps.ETag {
+		if meta, body, _, ok := s.store.get(ctx, ps.Key); ok && ps.owns(meta) && meta.Kind == kindVariant && meta.ETag == ps.ETag {
 			return piece{meta: meta, body: body, result: ResultHit}, nil
 		}
 	}

@@ -117,13 +117,15 @@ const lightTextDarkening: Record<string, number> = {
 
 /**
  * CSS variables raising the contrast of the secondary text (dimmed), of the
- * placeholders and of the text of the "light" variant (badges, light
- * buttons, active links) to WCAG AA in both colour schemes.
+ * placeholders, of the errors and of the text of the "light" variant
+ * (badges, light buttons, active links) to WCAG AA in both colour schemes.
  */
 export const cssVariablesResolver: CSSVariablesResolver = (current) => {
   const light: Record<string, string> = {
     '--mantine-color-dimmed': '#5c636a',
     '--mantine-color-placeholder': '#666e75',
+    // The validation messages and the invalid inputs: red 6 is 3.3:1 on white.
+    '--mantine-color-error': 'var(--mantine-color-red-9)',
   };
   for (const [name, shades] of Object.entries({ ...DEFAULT_THEME.colors, ...current.colors })) {
     if (name === 'dark' || shades[9] === undefined) continue;

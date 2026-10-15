@@ -35,7 +35,7 @@ type table struct {
 // normalized and unique (Validate refuses the conflicts): a duplicate
 // left by a concurrent write is resolved in favor of the smallest id, the
 // same on every node.
-func newTable(ds []*Distribution) *table {
+func newTable(ds []*Distribution, reserved ...func(alias, bucket string) string) *table {
 	sorted := slices.Clone(ds)
 	slices.SortFunc(sorted, func(a, b *Distribution) int { return strings.Compare(a.ID, b.ID) })
 	t := &table{
@@ -48,6 +48,11 @@ func newTable(ds []*Distribution) *table {
 		t.byID[d.ID] = d
 		for _, a := range d.Aliases {
 			if _, taken := t.aliases[a]; taken {
+				continue
+			}
+			if len(reserved) > 0 && reserved[0] != nil && reserved[0](a, d.Origin.Bucket) != "" {
+				// Saved before the domains of the deployment reserved it:
+				// never routed (Reload logs it).
 				continue
 			}
 			t.aliases[a] = d.ID

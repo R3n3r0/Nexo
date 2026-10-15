@@ -372,14 +372,16 @@ var _ policy.BucketPolicyProvider = bucketPolicies{}
 
 // GetBucketPolicy implements policy.BucketPolicyProvider.
 func (b bucketPolicies) GetBucketPolicy(ctx context.Context, name string) ([]byte, error) {
-	m, err := b.store.Load(ctx, name)
+	// The access configuration: from the cache, or the last known one
+	// while the drives cannot answer.
+	cfg, err := b.store.AccessConfig(ctx, name)
 	if err != nil {
 		return nil, err
 	}
-	if len(m.Policy) == 0 {
+	if len(cfg.Policy) == 0 {
 		return nil, fmt.Errorf("bucket %s: %w", name, domain.ErrPolicyNotFound)
 	}
-	return m.Policy, nil
+	return cfg.Policy, nil
 }
 
 // publicS3URL is the public URL of the S3 API the share links point to:
@@ -437,6 +439,9 @@ type middlewareDeps struct {
 	// forwardedHeaders is the header family the trusted proxies set
 	// (x-forwarded or forwarded, RFC 7239).
 	forwardedHeaders string
+	// trustForwardedHost uses the host the trusted proxies forward
+	// (config.Static.TrustForwardedHost).
+	trustForwardedHost bool
 	// dist routes the requests of the distributions around the S3
 	// authentication (nil: none).
 	dist *distStack
@@ -452,7 +457,7 @@ type middlewareDeps struct {
 // (docs/04 §4.3).
 func s3Middlewares(d middlewareDeps) ([]middleware.Middleware, error) {
 	forwarded, err := middleware.NewForwarded(middleware.ForwardedDeps{}, middleware.WithTrustedProxies(d.trustedProxies...),
-		middleware.WithForwardedHeaders(middleware.ForwardedHeaders(d.forwardedHeaders)))
+		middleware.WithForwardedHeaders(middleware.ForwardedHeaders(d.forwardedHeaders)), middleware.WithForwardedHost(d.trustForwardedHost))
 	if err != nil {
 		return nil, err
 	}
@@ -498,7 +503,7 @@ func consoleMiddlewares(d middlewareDeps) ([]middleware.Middleware, error) {
 	// The client of a request (login throttling, aws:SourceIp, Secure
 	// cookies) is the one behind the trusted proxies.
 	forwarded, err := middleware.NewForwarded(middleware.ForwardedDeps{}, middleware.WithTrustedProxies(d.trustedProxies...),
-		middleware.WithForwardedHeaders(middleware.ForwardedHeaders(d.forwardedHeaders)))
+		middleware.WithForwardedHeaders(middleware.ForwardedHeaders(d.forwardedHeaders)), middleware.WithForwardedHost(d.trustForwardedHost))
 	if err != nil {
 		return nil, err
 	}

@@ -10,6 +10,7 @@ UID 65532). The deployment mode is chosen by the arguments of `nexo server`, not
 | `compose.snmd.yml` | SNMD: one container, 4 volumes, erasure coding (`server /data{1...4}`) |
 | `compose.cluster.yml` + `nginx.conf` | Cluster 4 nodes × 2 drives behind an nginx load balancer (9000 S3, 9001 console) |
 | `compose.cluster-tls.yml` + `nginx-tls.conf` | Same cluster with TLS: `./certs` mounted at `/certs`, nginx in TCP passthrough |
+| `compose.multi-proxy.yml` + `multi-proxy/` | Cluster 4 nodes × 2 drives behind **two edge proxies** (nginx and HAProxy) with different domains and origin secrets |
 | `compose.observability.yml` | Prometheus + Grafana overlay with a provisioned Nexo dashboard |
 | `nexo.env.example` | Template for `nexo.env` (root credentials and options) |
 | `gen-dev-certs.sh` | Development CA and certificate for the TLS cluster |
@@ -146,6 +147,47 @@ curl --cacert certs/CAs/ca.crt https://localhost:9001/nexo/health/live
 `localhost` (healthcheck) and the public hostname. nginx (`nginx-tls.conf`) balances TCP connections
 without terminating TLS, so the certificate the client sees is Nexo's and presigned URLs stay valid.
 To terminate TLS at the edge instead, see [deploy/proxy](../proxy/).
+
+### Cluster behind two proxies (distributions)
+
+`compose.multi-proxy.yml` is the deployment of docs/10 §10.2 "Dietro uno o più proxy": the same
+4-node cluster (with its `/cache` volumes) behind two access points with their own domains, each
+proving with its own **origin secret** that a request came through it.
+
+| Service | Proxy | Domains | Ports (host) | Client address to Nexo |
+|---------|-------|---------|--------------|------------------------|
+| `proxy-a` | nginx (`multi-proxy/nginx.conf.template`) | `s3.alpha.example` (S3 API), `console.alpha.example`, `*.alpha.example` (distributions) | 8080, 8443 | `X-Forwarded-For/Proto/Host` |
+| `proxy-b` | HAProxy (`multi-proxy/haproxy.cfg`) | `*.beta.example` (distributions) | 8081, 9443 | PROXY protocol v2 with the SSL TLV |
+
+```bash
+cp nexo.env.example nexo.env
+./multi-proxy/gen-certs.sh                     # dev CA (certs/edge-ca.crt) + a certificate per proxy
+printf 'NEXO_SECRET_PROXY_A=%s\nNEXO_SECRET_PROXY_B=%s\n' "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" >> .env
+docker compose -f compose.multi-proxy.yml up -d
+
+nexoctl alias set local https://s3.alpha.example:8443 admin change-me-please   # with --resolve or /etc/hosts
+nexoctl mb local/web && nexoctl cp index.html local/web/ && nexoctl mb local/files
+nexoctl dist import local multi-proxy/site.yaml
+curl --cacert certs/edge-ca.crt --resolve www.alpha.example:8443:127.0.0.1 https://www.alpha.example:8443/
+curl --cacert certs/edge-ca.crt --resolve www.beta.example:9443:127.0.0.1  https://www.beta.example:9443/
+```
+
+- The nodes trust only the two proxies (`NEXO_TRUSTED_PROXIES`, fixed addresses on the compose
+  network, outside the `ip_range` the nodes get theirs from) and accept the PROXY protocol on the
+  S3 port (`NEXO_PROXY_PROTOCOL=s3`): proxy-b sends it, proxy-a sends `X-Forwarded-*` instead.
+- `.env` holds the two secrets: the nodes get both (`NEXO_SECRET_PROXY_A`, `NEXO_SECRET_PROXY_B`),
+  each proxy its own (`NEXO_ORIGIN_SECRET`). The distributions of `multi-proxy/site.yaml` reference
+  them (`${secret:proxy-a}`, `${secret:proxy-b}`): a request without one, sent straight to a node,
+  is refused with `403`.
+- A distribution created from the dashboard, the CLI or the Admin API answers on every node at
+  once; stopping a node (`docker compose -f compose.multi-proxy.yml stop nexo3`) is invisible to
+  the clients of both proxies (nginx `proxy_next_upstream`, HAProxy `retry-on` + health checks);
+  a purge of one domain (`nexoctl cache purge local site --domain www.alpha.example --all`) leaves
+  the cache of the other domain untouched.
+
+The same two configurations run in `make test-proxy` with the real nginx and haproxy binaries
+(`test/proxy`, `TestRealProxies`), and examples for Caddy, Traefik and Cloudflare are in
+[deploy/proxy](../proxy/).
 
 ## Observability
 

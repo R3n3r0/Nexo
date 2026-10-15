@@ -4,7 +4,8 @@ name: CI
 # tests, the integration suite and the CLI scripts in every deployment mode
 # (SNSD, SNMD, cluster in-process; docs/08 §8.6 TM-01, TM-02), the
 # Playwright suite against bin/nexo in every mode (single drive, 4 drives,
-# 4 processes) and the image smoke tests; a merge on main adds the
+# 4 processes), Nexo behind two edge proxies (test/proxy) and the image
+# smoke tests; a merge on main adds the
 # multi-process cluster smoke; the nightly run adds the whole cluster suite
 # (TC-*), the slow integration tests, the internode RPC benchmarks and the
 # Ceph s3-tests compatibility suite.
@@ -57,6 +58,7 @@ jobs:
           go vet -tags nexotest ./cmd/nexo
           go vet -tags cluster ./test/cluster/...
           go vet -tags compose ./test/compose/...
+          go vet -tags proxy ./test/proxy/...
 
       - name: go generate is a no-op (mocks are up to date)
         run: |
@@ -145,6 +147,39 @@ jobs:
           CGO_ENABLED: "1"
           NEXO_CLI_MODE: ${{ matrix.cliMode }}
         run: go test -race -count=1 ${{ matrix.cli }} ./test/cli/...
+
+  proxy:
+    # docs/10 §10.6 TCD-01..03, docs/11 TCC-C-05, docs/09 TPS-19 on the
+    # custom domains: Nexo behind two edge proxies with their own domains
+    # and origin secrets (test/proxy, build tag "proxy"). In-process Go
+    # proxies (X-Forwarded-* and PROXY protocol v2) in every mode, then the
+    # real nginx and HAProxy running the files of
+    # deploy/docker/compose.multi-proxy.yml in front of a 4-node cluster.
+    name: Proxies (TCD-01..03, TCC-C-05)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install nginx and HAProxy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nginx haproxy
+          # The tests start their own processes with their own files.
+          sudo systemctl stop nginx haproxy || true
+          nginx -v
+          haproxy -v | head -n 1
+
+      - name: make test-proxy
+        env:
+          # The real proxies are required here: a missing binary fails.
+          NEXO_PROXY_REAL: "1"
+        run: make test-proxy
 
   web:
     name: Web console
@@ -698,6 +733,7 @@ jobs:
           for f in compose.single.yml compose.snmd.yml compose.cluster.yml compose.cluster-tls.yml; do
             docker compose -f "$f" config --quiet
           done
+          NEXO_SECRET_PROXY_A=a NEXO_SECRET_PROXY_B=b docker compose -f compose.multi-proxy.yml config --quiet
           docker compose -f compose.single.yml -f compose.observability.yml config --quiet
           PROMETHEUS_CONFIG=prometheus.cluster.yml docker compose -f compose.cluster.yml -f compose.observability.yml config --quiet
 
@@ -706,6 +742,38 @@ jobs:
           for f in nginx.conf nginx-tls.conf; do
             docker run --rm -v "$PWD/deploy/docker/$f:/etc/nginx/nginx.conf:ro" nginx:1.27-alpine nginx -t
           done
+
+      - name: Proxy configs (deploy/proxy, compose.multi-proxy.yml)
+        run: |
+          set -eux
+          # Development certificates: the edges of compose.multi-proxy.yml,
+          # and one self-signed pair for the examples of deploy/proxy.
+          deploy/docker/multi-proxy/gen-certs.sh
+          certs="$(mktemp -d)"
+          openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 2 -subj /CN=example.com \
+            -keyout "$certs/privkey.pem" -out "$certs/fullchain.pem"
+          for d in s3.example.com console.example.com example.com; do
+            mkdir -p "$certs/$d" && cp "$certs/fullchain.pem" "$certs/privkey.pem" "$certs/$d/"
+          done
+          mkdir -p "$certs/haproxy" && cat "$certs/fullchain.pem" "$certs/privkey.pem" > "$certs/haproxy/example.pem"
+          chmod -R a+rX "$certs"
+
+          # compose.multi-proxy.yml: the nginx template rendered by the image, HAProxy.
+          docker run --rm -e NEXO_ORIGIN_SECRET=x \
+            -v "$PWD/deploy/docker/multi-proxy/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro" \
+            -v "$PWD/deploy/docker/certs/proxy-a:/etc/nginx/certs:ro" nginx:1.27-alpine nginx -t
+          docker run --rm -e NEXO_ORIGIN_SECRET=x \
+            -v "$PWD/deploy/docker/multi-proxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro" \
+            -v "$PWD/deploy/docker/certs/proxy-b:/usr/local/etc/haproxy/certs:ro" \
+            haproxy:3.0-alpine haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg
+
+          # deploy/proxy examples.
+          docker run --rm -v "$PWD/deploy/proxy/nginx.conf:/etc/nginx/conf.d/default.conf:ro" \
+            -v "$certs:/etc/nginx/certs:ro" nginx:1.27-alpine nginx -t
+          docker run --rm -e NEXO_ORIGIN_SECRET=x -v "$PWD/deploy/proxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro" \
+            -v "$certs/haproxy:/usr/local/etc/haproxy/certs:ro" haproxy:3.0-alpine haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg
+          docker run --rm -v "$PWD/deploy/proxy/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2.10-alpine \
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
       - name: Grafana dashboard JSON
         run: python3 -m json.tool deploy/docker/observability/grafana/dashboards/nexo-overview.json >/dev/null

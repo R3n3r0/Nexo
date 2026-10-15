@@ -5,10 +5,7 @@ import { type FormDownloadOptions, submitFormDownload } from './formDownload';
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 /** Query parameters; an array repeats the parameter (header=a&header=b). */
-export type QueryParams = Record<
-  string,
-  string | number | boolean | readonly string[] | undefined
->;
+export type QueryParams = Record<string, string | number | boolean | readonly string[] | undefined>;
 
 export interface RequestOptions {
   method?: HttpMethod;

@@ -1,9 +1,12 @@
 package cache
 
 import (
+	"context"
+	"net/netip"
 	"time"
 
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/distribution"
 )
 
 // Exports of the unexported helpers for the external tests.
@@ -56,11 +59,14 @@ func Compress(enc string, body []byte) ([]byte, error) { return compress(enc, bo
 // BypassReason tells why a request skips the cache.
 func BypassReason(p *Params, req *Request) string { return bypassReason(p, req) }
 
-// LiteralPrefix and PatternRegex convert the patterns for the webhooks.
-var (
-	LiteralPrefix = literalPrefix
-	PatternRegex  = patternRegex
-)
+// LiteralPrefix converts the patterns for the webhooks.
+var LiteralPrefix = literalPrefix
+
+// PatternRegex is the regular expression of a pattern for the Varnish
+// bans.
+func PatternRegex(s Service, p distribution.PathPattern) string {
+	return s.(*service).patternRegex(context.Background(), p)
+}
 
 // Owner returns the node owning a key (shared mode).
 func Owner(s Service, key string) string {
@@ -103,3 +109,16 @@ func SendWebhooks(s Service) { s.(*service).sendDue(s.(*service).lifeContext()) 
 
 // ScopeBytes returns the bytes of a quota scope.
 func ScopeBytes(s Service, id string) int64 { return s.(*service).store.scopeBytes(id) }
+
+// Reload reloads the configuration from the system store.
+func Reload(s Service) error { return s.(*service).Reload(context.Background()) }
+
+// EgressCheck applies the egress policy of the webhooks to an address
+// ("ip:port") as the dialer does.
+func EgressCheck(s Service, addr string) error {
+	ap, err := netip.ParseAddrPort(addr)
+	if err != nil {
+		return err
+	}
+	return s.(*service).egress.checkAddr(ap)
+}

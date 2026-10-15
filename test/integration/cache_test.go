@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +23,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/config"
 	"github.com/r3n3r0/nexo/internal/service/cache"
+	"github.com/r3n3r0/nexo/internal/service/cluster"
 	"github.com/r3n3r0/nexo/internal/service/distribution"
 	"github.com/r3n3r0/nexo/internal/testutil"
 )
@@ -517,5 +519,156 @@ func TestCacheSharedMode(t *testing.T) {
 	for _, base := range e.nodeURLs() {
 		r := hostRequest(t, http.MethodGet, base, "media.shared.test", "/video.mp4", nil)
 		assert.Equal(t, strings.Repeat("w", 64<<10), string(r.Body), base)
+	}
+}
+
+// TestCacheKeyIsUnambiguous is TCC-03 and TCC-11 with the characters the
+// key uses as separators: an object whose name holds a '?' or a '|' never
+// shares the entry of another object read with a query, so a signed
+// behavior is not bypassed through an escaped '?' and an anonymous 404
+// never poisons the entry of a real object.
+//
+// covers: S-CCH-01, S-CCH-04
+func TestCacheKeyIsUnambiguous(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	e.mkBucket("keyed")
+	e.putTyped("keyed", "downloads/v1.zip", "PREMIUM-CONTENT", "application/zip")
+	e.putTyped("keyed", "app.js", "console.log(2)", "text/javascript")
+	e.putTyped("keyed", "odd", "PLAIN", "text/plain")
+	e.putTyped("keyed", "odd?v=1", "ODD", "text/plain")
+	e.putTyped("keyed", "pipe|q:v=1", "PIPE", "text/plain")
+	dists := e.srv.Nodes[0].App.Distributions()
+	_, err := dists.CreateKeyGroup(e.ctx, "keyed-keys", "downloads")
+	require.NoError(t, err)
+	k, err := dists.GenerateKey(e.ctx, distribution.GenerateKeyInput{KeyGroup: "keyed-keys"})
+	require.NoError(t, err)
+	_, err = dists.Create(e.ctx, distribution.Distribution{
+		ID: "keyed-site", Enabled: true, Aliases: []string{"keyed.test"}, Mode: distribution.ModeWebsite,
+		Origin:          distribution.Origin{Bucket: "keyed"},
+		DefaultBehavior: distribution.Behavior{Access: distribution.AccessPublic},
+		Behaviors: []distribution.Behavior{{
+			PathPattern: &distribution.PathPattern{Type: distribution.PatternRegex, Pattern: `^/downloads/.*\.(zip|iso)$`},
+			Access:      distribution.AccessSigned, Signing: &distribution.Signing{KeyGroup: "keyed-keys"},
+		}},
+	})
+	require.NoError(t, err)
+	e.cacheSynced()
+	// The cache key of the docs/11 example: the query parameter v only.
+	e.setCache(cache.DistributionConfig{Distribution: "keyed-site", Cache: cache.Settings{PolicySpec: cache.PolicySpec{
+		CacheKey: &cache.KeyPolicy{QueryString: &cache.QueryString{Mode: cache.QueryAllowlist, Params: []string{"v"}}}}}})
+	signer := e.srv.Nodes[0].App.DistributionSigner()
+	u, err := signer.SignURL(e.ctx, distribution.SignInput{URL: "http://keyed.test/downloads/v1.zip?v=1", KeyPairID: k.PublicKey.ID,
+		PrivateKeyPEM: k.PrivateKeyPEM, Expires: time.Now().Add(time.Hour)})
+	require.NoError(t, err)
+	parsed, err := url.Parse(u)
+	require.NoError(t, err)
+	signed := parsed.RequestURI()
+
+	for _, base := range e.nodeURLs() {
+		get := func(path string) response { return hostRequest(t, http.MethodGet, base, "keyed.test", path, nil) }
+		for range 2 {
+			r := get(signed)
+			require.Equal(t, http.StatusOK, r.StatusCode, "%s", r.Body)
+			assert.Equal(t, "PREMIUM-CONTENT", string(r.Body))
+		}
+		// The same bytes with an escaped '?': another object, which the
+		// signed behavior does not match and the origin does not have.
+		for range 2 {
+			r := get("/downloads/v1.zip%3Fv=1")
+			assert.NotEqual(t, http.StatusOK, r.StatusCode, base)
+			assert.NotContains(t, string(r.Body), "PREMIUM", base)
+		}
+		assert.Equal(t, http.StatusForbidden, get("/downloads/v1.zip?v=1").StatusCode, "unsigned")
+
+		// An anonymous 404 does not poison the entry of a real object.
+		for range 2 {
+			assert.Equal(t, http.StatusNotFound, get("/app.js%3Fv=2").StatusCode, base)
+		}
+		for range 2 {
+			r := get("/app.js?v=2")
+			assert.Equal(t, http.StatusOK, r.StatusCode, base)
+			assert.Equal(t, "console.log(2)", string(r.Body), base)
+		}
+
+		// Objects whose names hold the separators: each one its own entry.
+		for range 2 {
+			for path, want := range map[string]string{"/odd?v=1": "PLAIN", "/odd%3Fv=1": "ODD", "/pipe%7Cq:v=1": "PIPE", "/pipe%7Cq:v=1?v=1": "PIPE"} {
+				r := get(path)
+				assert.Equal(t, http.StatusOK, r.StatusCode, "%s %s", base, path)
+				assert.Equal(t, want, string(r.Body), "%s %s", base, path)
+			}
+		}
+		assert.Equal(t, "HIT", xcache(get("/odd%3Fv=1")), base)
+		assert.Equal(t, "HIT", xcache(get("/odd?v=1")), base)
+	}
+}
+
+// TestCacheStaleIfOriginDown is TCC-07 end to end: with the origin
+// without read quorum (the drives of the deployment taken away), the
+// expired entries are served stale (stale-if-error), the fresh ones as
+// HITs, and a path never cached answers 503 to retry, never a 403 (the
+// access of the distribution is decided from the metadata in memory).
+// SNSD has no quorum to lose: the test runs in SNMD and in the cluster.
+//
+// covers: S-CCH-05
+func TestCacheStaleIfOriginDown(t *testing.T) {
+	if modeOf(t) == modeSNSD {
+		t.Skip("one drive: TCC-07 needs an erasure-coded origin (SNMD, cluster)")
+	}
+	t.Parallel()
+	e := newEnv(t)
+	e.mkBucket("tcc07")
+	put := func(key, body, cc string) {
+		_, err := e.root.PutObject(e.ctx, &s3.PutObjectInput{Bucket: aws.String("tcc07"), Key: aws.String(key),
+			Body: strings.NewReader(body), ContentType: aws.String("text/html"), CacheControl: aws.String(cc)})
+		require.NoError(t, err)
+	}
+	put("st.html", "STALE COPY", "max-age=1, stale-if-error=600")
+	put("fresh.html", "FRESH COPY", "max-age=600")
+	put("missing-later.html", "NEVER CACHED", "max-age=600")
+	e.cacheSite("tcc07-site", "tcc07", "stale.tcc07.test")
+	for _, base := range e.nodeURLs() {
+		for _, p := range []string{"/st.html", "/fresh.html"} {
+			require.Eventually(t, func() bool {
+				return xcache(hostRequest(t, http.MethodGet, base, "stale.tcc07.test", p, nil)) == "HIT"
+			}, 10*time.Second, 20*time.Millisecond, "%s %s cached", base, p)
+		}
+	}
+	// st.html expires.
+	time.Sleep(1500 * time.Millisecond)
+
+	// More drives than the parity away: no read quorum. They are put
+	// back before the deployment stops.
+	dirs := e.srv.DriveDirs()
+	for _, dir := range dirs[:len(dirs)/2+1] {
+		away := dir + ".away"
+		require.NoError(t, os.Rename(dir, away))
+		t.Cleanup(func() {
+			_ = os.RemoveAll(dir)
+			_ = os.Rename(away, dir)
+		})
+	}
+	// The periodic reload of the state cached by the nodes runs while the
+	// drives cannot answer: the access stays decidable (the last known
+	// configuration of the bucket).
+	for _, n := range e.srv.Nodes {
+		_ = n.App.Notifier().Deliver(e.ctx, cluster.Event{Kind: cluster.EventResync, Name: "TCC-07", Origin: n.App.NodeID(), Time: time.Now()})
+	}
+	for _, base := range e.nodeURLs() {
+		get := func(path string) response { return hostRequest(t, http.MethodGet, base, "stale.tcc07.test", path, nil) }
+		for range 2 {
+			r := get("/st.html")
+			assert.Equal(t, http.StatusOK, r.StatusCode, "%s %s", base, r.Body)
+			assert.Equal(t, "STALE COPY", string(r.Body), base)
+			assert.Equal(t, "STALE", xcache(r), base)
+		}
+		r := get("/fresh.html")
+		assert.Equal(t, http.StatusOK, r.StatusCode, "%s %s", base, r.Body)
+		assert.Equal(t, "FRESH COPY", string(r.Body), base)
+		assert.Equal(t, "HIT", xcache(r), base)
+		r = get("/missing-later.html")
+		assert.Equal(t, http.StatusServiceUnavailable, r.StatusCode, "%s %s", base, r.Body)
+		assert.NotEmpty(t, r.Header.Get("Retry-After"), base)
 	}
 }

@@ -224,6 +224,9 @@ func TestEventsHook(t *testing.T) {
 		event.NewEvent(event.ObjectRemovedDeleteMarkerCreated, "us-east-1", t0),
 		event.NewEvent(event.ObjectTaggingPut, "us-east-1", t0),
 		event.NewEvent(event.BucketRemoved, "us-east-1", t0),
+		// A retention or legal hold change (docs/11 §11.5 "cambio
+		// metadati").
+		event.NewEvent(event.ObjectMetadataChanged, "us-east-1", t0),
 	}
 	for i := range evs {
 		evs[i].S3.Bucket.Name = "web"
@@ -235,10 +238,11 @@ func TestEventsHook(t *testing.T) {
 	for _, ev := range evs {
 		require.NoError(t, hook.Publish(ctx, ev))
 	}
-	require.Len(t, changes, 4)
+	require.Len(t, changes, 5)
 	assert.Equal(t, []string{"t1", "t2"}, changes[0].Tags)
 	assert.True(t, changes[3].BucketWide)
-	assert.Equal(t, 5, published)
+	assert.Equal(t, cache.ObjectChange{Bucket: "web", Key: "a.txt", Event: string(event.ObjectMetadataChanged)}, changes[4])
+	assert.Equal(t, 6, published, "every event reaches the notification service (which drops the internal ones)")
 	_, err = cache.NewEvents(cache.EventsDeps{})
 	require.ErrorIs(t, err, domain.ErrInvalidArgument)
 }

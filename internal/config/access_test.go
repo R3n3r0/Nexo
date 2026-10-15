@@ -40,6 +40,7 @@ func TestAccessDefaults(t *testing.T) {
 	assert.Equal(t, config.KeyNormalizationNFC, cfg.KeyNormalization)
 	assert.False(t, cfg.BlockPublicAccess)
 	assert.Equal(t, config.BlockPublicReject, cfg.BlockPublicAccessMode)
+	assert.False(t, cfg.TrustForwardedHost, "the Host header by default")
 	assert.Empty(t, cfg.Secrets)
 	assert.False(t, cfg.ProxyProtocolOn(config.ListenerS3))
 }
@@ -53,6 +54,7 @@ func TestAccessFromEnvAndFlags(t *testing.T) {
 		config.EnvKeyNormalization:      "none",
 		config.EnvBlockPublicAccess:     "true",
 		config.EnvBlockPublicAccessMode: "ignore",
+		config.EnvTrustForwardedHost:    "true",
 		"NEXO_SECRET_PROXY_TOKEN":       "s3cr3t",
 		"NEXO_SECRET_FROM_FILE_FILE":    "/run/secrets/token",
 		"NEXO_SECRET_":                  "ignored",
@@ -66,6 +68,7 @@ func TestAccessFromEnvAndFlags(t *testing.T) {
 	assert.True(t, cfg.ProxyProtocolOn(config.ListenerWeb))
 	assert.False(t, cfg.ProxyProtocolOn(config.ListenerConsole))
 	assert.Equal(t, config.ForwardedHeadersRFC7239, cfg.ForwardedHeaders)
+	assert.True(t, cfg.TrustForwardedHost)
 	assert.Equal(t, 50, cfg.AccessRulesMax)
 	assert.Equal(t, config.KeyNormalizationNone, cfg.KeyNormalization)
 	assert.True(t, cfg.BlockPublicAccess)
@@ -74,10 +77,11 @@ func TestAccessFromEnvAndFlags(t *testing.T) {
 
 	cfg, err = l.Load(context.Background(), config.Input{Args: []string{"/data"}, Flags: flagsFrom(t,
 		"--proxy-protocol", "console", "--forwarded-headers", "x-forwarded", "--access-rules-max", "7",
-		"--key-normalization", "nfc", "--block-public-access=false", "--block-public-access-mode", "reject")})
+		"--key-normalization", "nfc", "--block-public-access=false", "--block-public-access-mode", "reject", "--trust-forwarded-host=false")})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"console"}, cfg.ProxyProtocol)
 	assert.Equal(t, config.ForwardedHeadersX, cfg.ForwardedHeaders)
+	assert.False(t, cfg.TrustForwardedHost)
 	assert.Equal(t, 7, cfg.AccessRulesMax)
 	assert.Equal(t, config.KeyNormalizationNFC, cfg.KeyNormalization)
 	assert.False(t, cfg.BlockPublicAccess)
@@ -98,6 +102,7 @@ func TestAccessValidation(t *testing.T) {
 		{"rules max", map[string]string{config.EnvAccessRulesMax: "0"}, "access rules max"},
 		{"rules max not a number", map[string]string{config.EnvAccessRulesMax: "many"}, config.EnvAccessRulesMax},
 		{"block not a bool", map[string]string{config.EnvBlockPublicAccess: "maybe"}, config.EnvBlockPublicAccess},
+		{"trust forwarded host not a bool", map[string]string{config.EnvTrustForwardedHost: "maybe"}, config.EnvTrustForwardedHost},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

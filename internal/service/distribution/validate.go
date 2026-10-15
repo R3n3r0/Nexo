@@ -43,8 +43,13 @@ func defaultMethods() []string {
 	return []string{http.MethodGet, http.MethodHead, http.MethodOptions}
 }
 
-// normalizeHost lowercases a host, removes its port and its trailing dot;
-// an IPv6 literal loses its brackets.
+// NormalizeHost is the canonical form of a host of a request or of an
+// alias, the one the routing table, the cache (its domains, keys and
+// purges) and the access logs compare: lowercase, without port and
+// trailing dot; an IPv6 literal loses its brackets.
+func NormalizeHost(h string) string { return normalizeHost(h) }
+
+// normalizeHost implements NormalizeHost.
 func normalizeHost(h string) string {
 	h = strings.TrimSpace(h)
 	if h == "" {
@@ -245,6 +250,11 @@ func validateCORS(c *CORS, where string) error {
 		if o == "" || strings.Count(o, "*") > 1 || !validHeaderValue(o) {
 			return fmt.Errorf("%w: %s CORS: invalid origin %q", ErrInvalid, where, o)
 		}
+		if c.AllowCredentials && strings.Contains(o, "*") {
+			// As browsers and S3: any site matching the pattern would read
+			// the answers made with the cookies of the viewer.
+			return fmt.Errorf("%w: %s CORS: allowCredentials needs exact origins, not %q", ErrInvalid, where, o)
+		}
 	}
 	for i, m := range c.AllowedMethods {
 		m = strings.ToUpper(strings.TrimSpace(m))
@@ -275,8 +285,13 @@ func (s *service) validateBehavior(ctx context.Context, b *Behavior, where strin
 			return fmt.Errorf("%w: %s: pathPattern is required", ErrInvalid, where)
 		}
 		b.PathPattern.Type = PatternType(strings.ToLower(string(b.PathPattern.Type)))
+		if b.PathPattern.Pattern == "" {
+			// An empty prefix would match every path: the default
+			// behavior is the place for that.
+			return fmt.Errorf("%w: %s: pathPattern.pattern is required", ErrInvalid, where)
+		}
 		if _, err := s.deps.Matcher.Compile(ctx, *b.PathPattern); err != nil {
-			return fmt.Errorf("%s: %w", where, err)
+			return fmt.Errorf("%w: %s: %w", ErrInvalid, where, err)
 		}
 	}
 	switch b.Access {
@@ -352,8 +367,8 @@ func (s *service) normalize(ctx context.Context, d Distribution) (Distribution, 
 			continue
 		}
 		seen[n] = true
-		if slices.Contains(s.opts.mainHosts, n) {
-			return d, fmt.Errorf("%w: alias %q is the S3 or console domain of the deployment", ErrAliasConflict, n)
+		if why := s.reservedAlias(n, d.Origin.Bucket); why != "" {
+			return d, fmt.Errorf("%w: alias %q %s", ErrAliasConflict, n, why)
 		}
 		aliases = append(aliases, n)
 	}
@@ -374,6 +389,9 @@ func (s *service) normalize(ctx context.Context, d Distribution) (Distribution, 
 	d.Origin.PathPrefix = prefix
 
 	if err := s.validateBehavior(ctx, &d.DefaultBehavior, "defaultBehavior", true); err != nil {
+		return d, err
+	}
+	if err := checkS3Mode(d); err != nil {
 		return d, err
 	}
 	if len(d.Behaviors) > MaxBehaviors {
@@ -449,6 +467,75 @@ func (s *service) normalize(ctx context.Context, d Distribution) (Distribution, 
 		return d, fmt.Errorf("%w: logging.format %q must be json or combined", ErrInvalid, d.Logging.Format)
 	}
 	return d, nil
+}
+
+// reservedAlias tells why an alias (normalized) may not be used by a
+// distribution of bucket ("" when it may): the aliases are resolved
+// before the virtual hosts and the main domains, so an alias equal to a
+// main host (--server-url, --browser-redirect-url) or a wildcard covering
+// one, and an alias in the virtual-host space of a --domain (or a
+// wildcard covering it) would capture the S3 endpoint of the deployment
+// or of other buckets. The virtual host of the origin bucket itself is
+// the only exception.
+func (s *service) reservedAlias(alias, bucket string) string {
+	wild, isWild := strings.CutPrefix(alias, "*.")
+	for _, m := range s.opts.mainHosts {
+		if (!isWild && alias == m) || (isWild && strings.HasSuffix(m, "."+wild)) {
+			return "covers the S3 or console domain " + m + " of the deployment"
+		}
+	}
+	for _, dom := range s.opts.domains {
+		switch {
+		case !isWild && alias == dom, isWild && (wild == dom || strings.HasSuffix(dom, "."+wild)):
+			return "covers the domain " + dom + " of the deployment"
+		case isWild && strings.HasSuffix(wild, "."+dom):
+			return "covers virtual hosts of the buckets of the domain " + dom
+		case !isWild && strings.HasSuffix(alias, "."+dom) && alias != bucket+"."+dom:
+			return "is the virtual host of another bucket of the domain " + dom
+		}
+	}
+	return ""
+}
+
+// checkS3Mode refuses the settings the s3 mode does not apply: an s3
+// distribution is the whole S3 API of its bucket on a custom domain,
+// governed by IAM, the bucket policy and the access rules (a deny rule
+// keeps a prefix private). Of the behaviors only the access of the
+// default one applies: public, authenticated (no anonymous request) or
+// deny. Nothing is accepted that would be silently ignored.
+func checkS3Mode(d Distribution) error {
+	if d.Mode != ModeS3 {
+		return nil
+	}
+	websiteOnly := func(what string) error {
+		return fmt.Errorf("%w: %s apply to the website mode only: an s3 distribution is governed by IAM, the bucket policy and the access rules", ErrInvalid, what)
+	}
+	b := d.DefaultBehavior
+	switch {
+	case len(d.Behaviors) > 0:
+		return websiteOnly("path behaviors (an access rule denies a prefix)")
+	case len(d.ErrorPages) > 0:
+		return websiteOnly("error pages")
+	case len(d.Redirects) > 0:
+		return websiteOnly("redirects")
+	case len(d.Headers.Response) > 0 || len(b.ResponseHeaders) > 0:
+		return websiteOnly("response headers")
+	case d.Headers.CORS != nil || b.CORS != nil:
+		return websiteOnly("CORS settings (the CORS configuration of the bucket applies)")
+	case len(b.AllowedMethods) > 0:
+		return websiteOnly("allowed methods (the S3 API decides the methods)")
+	case b.IndexDocument != "" || b.SPAFallback != "":
+		return websiteOnly("index documents and SPA fallbacks")
+	case b.Cache != nil:
+		return websiteOnly("behavior cache settings (the cache settings of the distribution apply)")
+	case b.Signing != nil:
+		return websiteOnly("signed URLs")
+	}
+	switch b.Access {
+	case "", AccessPublic, AccessAuthenticated, AccessDeny:
+		return nil
+	}
+	return fmt.Errorf("%w: defaultBehavior.access %q: the s3 mode supports public, authenticated or deny", ErrInvalid, b.Access)
 }
 
 // checkEffective checks the rules that depend on the inherited fields of

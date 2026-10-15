@@ -247,6 +247,7 @@ Matrice CI:
 | Playwright dashboard | ogni PR (smoke) / merge (completa) | — | notturna |
 | s3-tests / mint | notturna | notturna | notturna |
 | Smoke immagine Docker e binari | ogni PR | — | ogni PR (compose up + test base) |
+| Più proxy davanti al deployment (`test/proxy`, TCD-01..03, TCC-C-05; job `proxy`) | ogni PR | ogni PR | ogni PR (proxy Go in-process e nginx/HAProxy reali di `compose.multi-proxy.yml`) |
 
 Test di **regole di accesso, domini e distribuzioni** (server, CLI, dashboard, cluster con più proxy):
 [10 §10.6](10-domini-accessi-distribuzioni.md#106-test) — TAR-*, TDS-*, TCL-A-*, TCL-D-*, TD-A-*, TD-D-*, TCD-*.

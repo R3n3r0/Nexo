@@ -74,13 +74,17 @@ func newCache(d cacheDeps) (cache.Service, error) {
 		}
 	}
 	opts = append(opts, cache.WithMemorySize(memory))
+	allow, err := d.cfg.CacheWebhookNetworks()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", domain.ErrInvalidArgument, err)
+	}
+	if len(allow) > 0 {
+		opts = append(opts, cache.WithWebhookAllow(allow...))
+	}
 	deps := cache.Deps{
 		Origin: d.objects, Store: docs, Locks: d.f.locks, Notifier: d.f.notifier, Distributions: d.dist.raw,
 		Peers: d.f.cachePeers, NodeID: d.f.nodeID, Secrets: secretSource{store: accessrule.NewStaticSecrets(d.cfg.Secrets)},
-		Registry: d.registry, Clock: d.clock, Logger: logger,
-	}
-	if d.matcher != nil {
-		deps.Matcher = matchAdapter{m: d.matcher}
+		Matcher: d.matcher, Registry: d.registry, Clock: d.clock, Logger: logger,
 	}
 	svc, err := cache.New(deps, opts...)
 	if err != nil {
@@ -141,12 +145,12 @@ func (h *cacheNodeHolder) ApplyInvalidations(ctx context.Context, b cache.Invali
 }
 
 // SyncStatus implements cache.Node.
-func (h *cacheNodeHolder) SyncStatus(ctx context.Context) (cache.SyncStatus, error) {
+func (h *cacheNodeHolder) SyncStatus(ctx context.Context, req cache.SyncRequest) (cache.SyncStatus, error) {
 	n, err := h.get()
 	if err != nil {
 		return cache.SyncStatus{}, err
 	}
-	return n.SyncStatus(ctx)
+	return n.SyncStatus(ctx, req)
 }
 
 // FetchPiece implements cache.Node.

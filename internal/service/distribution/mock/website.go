@@ -71,6 +71,55 @@ func (_c *Website_Admit_Call) RunAndReturn(run func(context.Context, distributio
 	return _c
 }
 
+// AuthorizeS3 provides a mock function with given fields: ctx, req
+func (_m *Website) AuthorizeS3(ctx context.Context, req distribution.WebRequest) *distribution.WebResponse {
+	ret := _m.Called(ctx, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AuthorizeS3")
+	}
+
+	var r0 *distribution.WebResponse
+	if rf, ok := ret.Get(0).(func(context.Context, distribution.WebRequest) *distribution.WebResponse); ok {
+		r0 = rf(ctx, req)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*distribution.WebResponse)
+		}
+	}
+
+	return r0
+}
+
+// Website_AuthorizeS3_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AuthorizeS3'
+type Website_AuthorizeS3_Call struct {
+	*mock.Call
+}
+
+// AuthorizeS3 is a helper method to define mock.On call
+//   - ctx context.Context
+//   - req distribution.WebRequest
+func (_e *Website_Expecter) AuthorizeS3(ctx interface{}, req interface{}) *Website_AuthorizeS3_Call {
+	return &Website_AuthorizeS3_Call{Call: _e.mock.On("AuthorizeS3", ctx, req)}
+}
+
+func (_c *Website_AuthorizeS3_Call) Run(run func(ctx context.Context, req distribution.WebRequest)) *Website_AuthorizeS3_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(distribution.WebRequest))
+	})
+	return _c
+}
+
+func (_c *Website_AuthorizeS3_Call) Return(_a0 *distribution.WebResponse) *Website_AuthorizeS3_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Website_AuthorizeS3_Call) RunAndReturn(run func(context.Context, distribution.WebRequest) *distribution.WebResponse) *Website_AuthorizeS3_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Serve provides a mock function with given fields: ctx, req
 func (_m *Website) Serve(ctx context.Context, req distribution.WebRequest) (*distribution.WebResponse, error) {
 	ret := _m.Called(ctx, req)

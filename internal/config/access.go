@@ -43,6 +43,7 @@ const DefaultAccessRulesMax = 200
 const (
 	EnvProxyProtocol         = "NEXO_PROXY_PROTOCOL"
 	EnvForwardedHeaders      = "NEXO_FORWARDED_HEADERS"
+	EnvTrustForwardedHost    = "NEXO_TRUST_FORWARDED_HOST"
 	EnvAccessRulesMax        = "NEXO_ACCESS_RULES_MAX"
 	EnvKeyNormalization      = "NEXO_KEY_NORMALIZATION"
 	EnvBlockPublicAccess     = "NEXO_BLOCK_PUBLIC_ACCESS"
@@ -57,6 +58,7 @@ const (
 const (
 	FlagProxyProtocol         = "proxy-protocol"
 	FlagForwardedHeaders      = "forwarded-headers"
+	FlagTrustForwardedHost    = "trust-forwarded-host"
 	FlagAccessRulesMax        = "access-rules-max"
 	FlagKeyNormalization      = "key-normalization"
 	FlagBlockPublicAccess     = "block-public-access"
@@ -69,6 +71,7 @@ func bindAccessFlags(fs *pflag.FlagSet) {
 	d := Default()
 	fs.StringSlice(FlagProxyProtocol, nil, "listeners accepting the PROXY protocol v1/v2 from the trusted proxies: s3, console, web")
 	fs.String(FlagForwardedHeaders, d.ForwardedHeaders, "headers the trusted proxies set: x-forwarded (X-Forwarded-For/Proto/Host) or forwarded (RFC 7239)")
+	fs.Bool(FlagTrustForwardedHost, false, "use the host the trusted proxies forward (X-Forwarded-Host, Forwarded host=) instead of the Host header; only for proxies that overwrite it")
 	fs.Int(FlagAccessRulesMax, d.AccessRulesMax, "maximum number of access rules of a bucket")
 	fs.String(FlagKeyNormalization, d.KeyNormalization, "Unicode normalization of the keys matched by the access rules: nfc or none")
 	fs.Bool(FlagBlockPublicAccess, false, "block the access rules granting everyone (cluster level, until changed at runtime)")
@@ -103,6 +106,13 @@ func (l *loader) applyAccessEnv(cfg *Static) error {
 			return fmt.Errorf("%s: %w", EnvBlockPublicAccess, err)
 		}
 		cfg.BlockPublicAccess = b
+	}
+	if v, ok := l.env(EnvTrustForwardedHost); ok && strings.TrimSpace(v) != "" {
+		b, err := strconv.ParseBool(strings.TrimSpace(v))
+		if err != nil {
+			return fmt.Errorf("%s: %w", EnvTrustForwardedHost, err)
+		}
+		cfg.TrustForwardedHost = b
 	}
 	return l.applySecrets(cfg)
 }
@@ -157,6 +167,11 @@ func applyAccessFlags(cfg *Static, fs *pflag.FlagSet) error {
 		v, err := fs.GetBool(FlagBlockPublicAccess)
 		errs = append(errs, err)
 		cfg.BlockPublicAccess = v
+	}
+	if fs.Changed(FlagTrustForwardedHost) {
+		v, err := fs.GetBool(FlagTrustForwardedHost)
+		errs = append(errs, err)
+		cfg.TrustForwardedHost = v
 	}
 	if err := errors.Join(errs...); err != nil {
 		return fmt.Errorf("read flags: %w", err)

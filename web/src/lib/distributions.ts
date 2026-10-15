@@ -26,6 +26,9 @@ export const accessModes: readonly DistributionAccess[] = [
   'deny',
 ];
 
+/** The access modes of the s3 mode: signed URLs are a website feature (docs/10 §10.2). */
+export const s3AccessModes: readonly DistributionAccess[] = ['public', 'authenticated', 'deny'];
+
 /** Days before the expiry from which a certificate is highlighted (docs/10: 21 days). */
 export const expiryWarningDays = 21;
 

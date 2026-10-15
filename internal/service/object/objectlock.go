@@ -20,11 +20,15 @@ const (
 	metaLockLegalHold   = "x-amz-object-lock-legal-hold"
 )
 
-// noEvent is the event of the Object Lock changes (retention, legal hold):
-// none, as in S3, which has no event type for them. MinIO publishes them
-// as s3:ObjectCreated:PutRetention and :PutLegalHold, which every
-// s3:ObjectCreated:* subscriber would read as a new object (docs/02 §2.4).
-const noEvent event.Name = ""
+// lockEvent is the event of the Object Lock changes (retention, legal
+// hold): the internal ObjectMetadataChanged, never notified, as in S3,
+// which has no event type for them (MinIO publishes them as
+// s3:ObjectCreated:PutRetention and :PutLegalHold, which every
+// s3:ObjectCreated:* subscriber would read as a new object, docs/02
+// §2.4). The hooks of the layer see it: the cache drops the descriptions
+// of the object it holds (their x-amz-object-lock-* headers, docs/11
+// §11.5).
+const lockEvent = event.ObjectMetadataChanged
 
 // errBucketNotLocked is the S3 answer to an Object Lock setting on a
 // bucket created without object locking.
@@ -214,7 +218,7 @@ func (l *layer) PutObjectRetention(ctx context.Context, bucket, key string, rete
 		}
 		setRetentionMeta(meta, retention)
 		return nil
-	}, noEvent)
+	}, lockEvent)
 }
 
 // GetObjectLegalHold implements Service.
@@ -244,5 +248,5 @@ func (l *layer) PutObjectLegalHold(ctx context.Context, bucket, key string, hold
 	return l.updateMeta(ctx, bucket, key, opts.VersionID, func(_ storage.FileInfo, meta map[string]string) error {
 		setLegalHoldMeta(meta, hold)
 		return nil
-	}, noEvent)
+	}, lockEvent)
 }

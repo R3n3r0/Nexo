@@ -33,6 +33,7 @@ func TestResolve(t *testing.T) {
 	s3d := sample("s3-cliente", "s3.cliente.it")
 	s3d.Mode = distribution.ModeS3
 	s3d.Origin.Bucket = "cliente"
+	s3d.DefaultBehavior.IndexDocument = "" // a website setting
 	_, err = svc.Create(ctx, s3d)
 	require.NoError(t, err)
 
@@ -129,6 +130,49 @@ func TestAliasConflicts(t *testing.T) {
 	require.NoError(t, err)
 	_, err = svc.Update(ctx, a, a.ETag)
 	require.ErrorIs(t, err, domain.ErrPreconditionFailed, "stale ETag")
+}
+
+// TestReservedAliases covers TDS-01/TDS-02 for the domains of the
+// deployment: no alias, exact or wildcard, captures the S3 endpoint
+// (--server-url), the --domain or the virtual hosts of other buckets.
+func TestReservedAliases(t *testing.T) {
+	ctx := context.Background()
+	svc := newService(t, distribution.WithDomains("s3.sec.test"), distribution.WithMainHosts("s3.example.test"))
+	withBucket := func(bucket string, aliases ...string) distribution.Distribution {
+		d := sample("x", aliases...)
+		d.Origin.Bucket = bucket
+		return d
+	}
+	tests := []struct {
+		name string
+		d    distribution.Distribution
+		ok   bool
+	}{
+		{name: "main host", d: sample("x", "s3.example.test")},
+		{name: "wildcard over the main host", d: sample("x", "*.example.test")},
+		{name: "the domain", d: sample("x", "s3.sec.test")},
+		{name: "wildcard over the domain", d: sample("x", "*.sec.test")},
+		{name: "every virtual host", d: withBucket("attacker", "*.s3.sec.test")},
+		{name: "virtual hosts of dotted buckets", d: withBucket("attacker", "*.foo.s3.sec.test")},
+		{name: "virtual host of another bucket", d: withBucket("attacker", "victim.s3.sec.test")},
+		{name: "virtual host of its own bucket", d: withBucket("web", "web.s3.sec.test"), ok: true},
+		{name: "unrelated domain", d: sample("x", "www.example.com"), ok: true},
+		{name: "sibling of the main host", d: sample("x", "cdn.example.test"), ok: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			created, err := svc.Create(ctx, tc.d)
+			if tc.ok {
+				require.NoError(t, err)
+				require.NoError(t, svc.Delete(ctx, created.ID))
+				return
+			}
+			require.ErrorIs(t, err, distribution.ErrAliasConflict)
+		})
+	}
+	// The endpoints stay with the deployment.
+	assert.Equal(t, distribution.RouteVirtualHost, svc.Resolve(ctx, "victim.s3.sec.test").Kind)
+	assert.Equal(t, distribution.RouteMain, svc.Resolve(ctx, "s3.example.test").Kind)
 }
 
 // BenchmarkResolve measures the routing table with 9900 exact and 1100

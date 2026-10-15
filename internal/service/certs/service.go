@@ -114,6 +114,16 @@ type DomainSource interface {
 	ACMEDomains(ctx context.Context) ([]ManagedDomains, error)
 }
 
+// HostSource names the certificate a TLS handshake may use for a host:
+// the one the enabled distribution serving the host references
+// (tls.certificate "upload:<id>", or the ACME certificate of "auto"). It
+// reads the in-memory routing table: no I/O on the handshakes.
+type HostSource interface {
+	// CertificateFor returns the id of the certificate of host; ok is
+	// false when no enabled distribution serving host references one.
+	CertificateFor(ctx context.Context, host string) (id string, ok bool)
+}
+
 // Sealer encrypts the private keys stored in the system store.
 type Sealer interface {
 	Seal(ctx context.Context, plaintext, aad []byte) ([]byte, error)
@@ -127,7 +137,8 @@ type Service interface {
 	lifecycle.Runner
 	// Upload validates and stores a certificate (domain.ErrInvalidArgument
 	// for a broken chain, a key that does not match, no DNS name, an
-	// expired certificate).
+	// expired certificate, a name of the deployment: WithMainHosts,
+	// WithDomains).
 	Upload(ctx context.Context, in UploadInput) (Certificate, error)
 	// Get returns a certificate (ErrCertificateNotFound).
 	Get(ctx context.Context, id string) (Certificate, error)
@@ -136,9 +147,11 @@ type Service interface {
 	// Delete removes a certificate.
 	Delete(ctx context.Context, id string) error
 	// GetCertificate selects the certificate of a TLS handshake (the
-	// tls.Config callback: the context is hello.Context()). It returns
-	// nil, nil when no certificate matches, so that the listener falls
-	// back to its own.
+	// tls.Config callback: the context is hello.Context()): the
+	// certificate the distribution serving the name references (Hosts),
+	// when it covers the name and is valid now. It returns nil, nil
+	// otherwise, so that the listener falls back to its own (the main S3
+	// and console hosts always keep the certificate of the server).
 	GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error)
 	// HTTPChallenge returns the key authorization of an HTTP-01 token
 	// (ErrChallengeNotFound).
@@ -168,6 +181,10 @@ type Deps struct {
 	Sealer Sealer
 	// Domains lists the ACME certificates; nil disables ACME.
 	Domains DomainSource
+	// Hosts binds the names of the handshakes to the certificates of the
+	// distributions; nil serves every certificate for the names it
+	// carries (tests only).
+	Hosts HostSource
 	// Metrics exposes the expiration of the certificates (optional).
 	Metrics metrics.Registry
 	Clock   clock.Clock

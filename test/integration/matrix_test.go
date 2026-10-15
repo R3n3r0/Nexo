@@ -165,6 +165,8 @@ func suite() []suiteTest {
 		{name: "TestCacheSecurity", fn: TestCacheSecurity},
 		{name: "TestCacheDomainsAndConfig", fn: TestCacheDomainsAndConfig},
 		{name: "TestCacheSharedMode", fn: TestCacheSharedMode},
+		{name: "TestCacheKeyIsUnambiguous", fn: TestCacheKeyIsUnambiguous},
+		{name: "TestCacheStaleIfOriginDown", fn: TestCacheStaleIfOriginDown},
 	}
 }
 

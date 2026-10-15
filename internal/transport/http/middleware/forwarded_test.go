@@ -22,6 +22,8 @@ func TestForwardedClient(t *testing.T) {
 		name    string
 		trusted []string
 		family  middleware.ForwardedHeaders
+		// host trusts the forwarded host (WithForwardedHost).
+		host    bool
 		remote  string
 		tls     bool
 		proxied *middleware.ProxyConn
@@ -31,12 +33,20 @@ func TestForwardedClient(t *testing.T) {
 		{name: "no proxy configured: the peer", remote: "203.0.113.9:5000",
 			headers: map[string][]string{"X-Forwarded-For": {"198.51.100.1"}, "X-Forwarded-Proto": {"https"}, "X-Forwarded-Host": {"cdn.example.com"}},
 			want:    middleware.Client{IP: "203.0.113.9", Host: host}},
-		{name: "untrusted peer: headers ignored", trusted: []string{"10.0.0.0/8"}, remote: "203.0.113.9:5000",
+		{name: "untrusted peer: headers ignored", trusted: []string{"10.0.0.0/8"}, host: true, remote: "203.0.113.9:5000",
 			headers: map[string][]string{"X-Forwarded-For": {"198.51.100.1"}, "X-Forwarded-Proto": {"https"}, "X-Forwarded-Host": {"cdn.example.com"}},
 			want:    middleware.Client{IP: "203.0.113.9", Host: host}},
-		{name: "trusted proxy: the forwarded client", trusted: []string{"10.0.0.1"}, remote: "10.0.0.1:5000",
+		{name: "trusted proxy: the forwarded client", trusted: []string{"10.0.0.1"}, host: true, remote: "10.0.0.1:5000",
 			headers: map[string][]string{"X-Forwarded-For": {"198.51.100.1"}, "X-Forwarded-Proto": {"https"}, "X-Forwarded-Host": {"cdn.example.com"}},
 			want:    middleware.Client{IP: "198.51.100.1", Secure: true, Host: "cdn.example.com"}},
+		// A proxy that passes the X-Forwarded-Host of the client through
+		// (Cloudflare): the forwarded host is ignored unless trusted.
+		{name: "trusted proxy: the forwarded host is not trusted by default", trusted: []string{"10.0.0.1"}, remote: "10.0.0.1:5000",
+			headers: map[string][]string{"X-Forwarded-For": {"198.51.100.1"}, "X-Forwarded-Proto": {"https"}, "X-Forwarded-Host": {"evil.example.com"}},
+			want:    middleware.Client{IP: "198.51.100.1", Secure: true, Host: host}},
+		{name: "forwarded: host= not trusted by default", trusted: []string{"10.0.0.0/8"}, family: middleware.HeadersForwarded, remote: "10.0.0.1:5000",
+			headers: map[string][]string{"Forwarded": {`for=198.51.100.17;proto=https;host=evil.example.com`}},
+			want:    middleware.Client{IP: "198.51.100.17", Secure: true, Host: host}},
 		{name: "forged entries left of the client are ignored", trusted: []string{"10.0.0.0/8"}, remote: "10.0.0.2:5000",
 			headers: map[string][]string{"X-Forwarded-For": {"1.2.3.4, 198.51.100.1", "10.0.0.7"}},
 			want:    middleware.Client{IP: "198.51.100.1", Host: host}},
@@ -54,16 +64,16 @@ func TestForwardedClient(t *testing.T) {
 		{name: "last proto wins", trusted: []string{"10.0.0.1"}, remote: "10.0.0.1:5000",
 			headers: map[string][]string{"X-Forwarded-Proto": {"https, http"}},
 			want:    middleware.Client{IP: "10.0.0.1", Host: host}},
-		{name: "host without client", trusted: []string{"10.0.0.1"}, remote: "10.0.0.1:5000",
+		{name: "host without client", trusted: []string{"10.0.0.1"}, host: true, remote: "10.0.0.1:5000",
 			headers: map[string][]string{"X-Forwarded-Host": {"a.example.com, www.example.com:8443"}},
 			want:    middleware.Client{IP: "10.0.0.1", Host: "www.example.com:8443"}},
 		{name: "direct tls", remote: "203.0.113.9:5000", tls: true,
 			want: middleware.Client{IP: "203.0.113.9", Secure: true, Host: host}},
 		// RFC 7239.
-		{name: "forwarded: trusted proxy", trusted: []string{"10.0.0.0/8"}, family: middleware.HeadersForwarded, remote: "10.0.0.1:5000",
+		{name: "forwarded: trusted proxy", trusted: []string{"10.0.0.0/8"}, family: middleware.HeadersForwarded, host: true, remote: "10.0.0.1:5000",
 			headers: map[string][]string{"Forwarded": {`for=198.51.100.17;proto=https;host=www.example.com`}},
 			want:    middleware.Client{IP: "198.51.100.17", Secure: true, Host: "www.example.com"}},
-		{name: "forwarded: chain and quoted ipv6 with port", trusted: []string{"10.0.0.0/8"}, family: middleware.HeadersForwarded, remote: "10.0.0.1:5000",
+		{name: "forwarded: chain and quoted ipv6 with port", trusted: []string{"10.0.0.0/8"}, family: middleware.HeadersForwarded, host: true, remote: "10.0.0.1:5000",
 			headers: map[string][]string{"Forwarded": {`for=192.0.2.43, for="[2001:db8:cafe::17]:4711";proto=http;host="cdn.example.com", for=10.0.0.5;proto=https`}},
 			want:    middleware.Client{IP: "2001:db8:cafe::17", Host: "cdn.example.com"}},
 		{name: "forwarded: several headers, port of ipv4", trusted: []string{"10.0.0.0/8"}, family: middleware.HeadersForwarded, remote: "10.0.0.1:5000",
@@ -75,18 +85,18 @@ func TestForwardedClient(t *testing.T) {
 		{name: "forwarded: obfuscated node", trusted: []string{"10.0.0.0/8"}, family: middleware.HeadersForwarded, remote: "10.0.0.1:5000",
 			headers: map[string][]string{"Forwarded": {`for=_hidden`}},
 			want:    middleware.Client{IP: "10.0.0.1", Host: host}},
-		{name: "forwarded: semicolon inside quotes", trusted: []string{"10.0.0.0/8"}, family: middleware.HeadersForwarded, remote: "10.0.0.1:5000",
+		{name: "forwarded: semicolon inside quotes", trusted: []string{"10.0.0.0/8"}, family: middleware.HeadersForwarded, host: true, remote: "10.0.0.1:5000",
 			headers: map[string][]string{"Forwarded": {`host="a;b,c";for=198.51.100.2`}},
 			want:    middleware.Client{IP: "198.51.100.2", Host: "a;b,c"}},
-		{name: "forwarded: untrusted peer", trusted: []string{"10.0.0.0/8"}, family: middleware.HeadersForwarded, remote: "203.0.113.9:5000",
+		{name: "forwarded: untrusted peer", trusted: []string{"10.0.0.0/8"}, family: middleware.HeadersForwarded, host: true, remote: "203.0.113.9:5000",
 			headers: map[string][]string{"Forwarded": {`for=198.51.100.17;proto=https;host=evil.com`}},
 			want:    middleware.Client{IP: "203.0.113.9", Host: host}},
 		// Only the configured family is read: the other one is what the
 		// client sent, forwarded as is by the proxy.
-		{name: "x-forwarded family ignores a forged Forwarded", trusted: []string{"10.0.0.0/8"}, remote: "10.0.0.1:5000",
+		{name: "x-forwarded family ignores a forged Forwarded", trusted: []string{"10.0.0.0/8"}, host: true, remote: "10.0.0.1:5000",
 			headers: map[string][]string{"Forwarded": {`for=1.2.3.4;host=evil.com`}, "X-Forwarded-For": {"198.51.100.1"}},
 			want:    middleware.Client{IP: "198.51.100.1", Host: host}},
-		{name: "forwarded family ignores a forged X-Forwarded-For", trusted: []string{"10.0.0.0/8"}, family: middleware.HeadersForwarded, remote: "10.0.0.1:5000",
+		{name: "forwarded family ignores a forged X-Forwarded-For", trusted: []string{"10.0.0.0/8"}, family: middleware.HeadersForwarded, host: true, remote: "10.0.0.1:5000",
 			headers: map[string][]string{"X-Forwarded-For": {"1.2.3.4"}, "X-Forwarded-Host": {"evil.com"}, "Forwarded": {"for=198.51.100.1"}},
 			want:    middleware.Client{IP: "198.51.100.1", Host: host}},
 		// PROXY protocol: the listener already substituted the source of
@@ -101,7 +111,8 @@ func TestForwardedClient(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mw, err := middleware.NewForwarded(middleware.ForwardedDeps{}, middleware.WithTrustedProxies(tt.trusted...), middleware.WithForwardedHeaders(tt.family))
+			mw, err := middleware.NewForwarded(middleware.ForwardedDeps{}, middleware.WithTrustedProxies(tt.trusted...), middleware.WithForwardedHeaders(tt.family),
+				middleware.WithForwardedHost(tt.host))
 			require.NoError(t, err)
 			var got middleware.Client
 			h := mw.Wrap(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { got = middleware.ClientOf(r) }))

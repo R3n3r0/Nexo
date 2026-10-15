@@ -42,6 +42,39 @@ func TestValidate(t *testing.T) {
 			d.Mode = distribution.ModeS3
 			d.Origin.PathPrefix = "/prod"
 		})},
+		{name: "s3 mode with path behaviors", d: mutate(func(d *distribution.Distribution) {
+			d.Mode, d.DefaultBehavior.IndexDocument = distribution.ModeS3, ""
+			d.Behaviors = []distribution.Behavior{{PathPattern: &distribution.PathPattern{Type: distribution.PatternPrefix, Pattern: "/internal/"},
+				Access: distribution.AccessDeny}}
+		})},
+		{name: "s3 mode with signed access", d: mutate(func(d *distribution.Distribution) {
+			d.Mode, d.DefaultBehavior = distribution.ModeS3, distribution.Behavior{Access: distribution.AccessSigned,
+				Signing: &distribution.Signing{KeyGroup: "rilasci"}}
+		})},
+		{name: "s3 mode with methods", d: mutate(func(d *distribution.Distribution) {
+			d.Mode, d.DefaultBehavior = distribution.ModeS3, distribution.Behavior{AllowedMethods: []string{"GET"}}
+		})},
+		{name: "s3 mode with an index document", d: mutate(func(d *distribution.Distribution) { d.Mode = distribution.ModeS3 })},
+		{name: "s3 mode with error pages", d: mutate(func(d *distribution.Distribution) {
+			d.Mode, d.DefaultBehavior.IndexDocument = distribution.ModeS3, ""
+			d.ErrorPages = []distribution.ErrorPage{{Status: 404, Path: "/404.html"}}
+		})},
+		{name: "s3 mode with response headers", d: mutate(func(d *distribution.Distribution) {
+			d.Mode, d.DefaultBehavior.IndexDocument = distribution.ModeS3, ""
+			d.Headers.Response = map[string]string{"X-Frame-Options": "DENY"}
+		})},
+		{name: "s3 mode authenticated", valid: true, d: mutate(func(d *distribution.Distribution) {
+			d.Mode, d.DefaultBehavior = distribution.ModeS3, distribution.Behavior{Access: distribution.AccessAuthenticated}
+		})},
+		{name: "CORS credentials with any origin", d: mutate(func(d *distribution.Distribution) {
+			d.Headers.CORS = &distribution.CORS{AllowedOrigins: []string{"*"}, AllowCredentials: true}
+		})},
+		{name: "CORS credentials with an origin pattern", d: mutate(func(d *distribution.Distribution) {
+			d.Headers.CORS = &distribution.CORS{AllowedOrigins: []string{"https://*.example.com"}, AllowCredentials: true}
+		})},
+		{name: "CORS credentials with exact origins", valid: true, d: mutate(func(d *distribution.Distribution) {
+			d.Headers.CORS = &distribution.CORS{AllowedOrigins: []string{"https://app.example.com"}, AllowCredentials: true}
+		})},
 		{name: "invalid id", d: mutate(func(d *distribution.Distribution) { d.ID = "Site/1" })},
 		{name: "no alias", d: mutate(func(d *distribution.Distribution) { d.Aliases = nil })},
 		{name: "invalid alias", d: mutate(func(d *distribution.Distribution) { d.Aliases = []string{"www.exa mple.com"} })},
@@ -246,7 +279,44 @@ func TestServiceTest(t *testing.T) {
 			}
 		})
 	}
-	res, err := svc.Test(ctx, distribution.TestInput{URL: "https://unknown.example.net/"})
+	// Refused by the admission (no origin secret: the request of a proxy
+	// without its header): the behavior of the path is still reported.
+	d, err = svc.Get(ctx, "site")
+	require.NoError(t, err)
+	d.Restrictions.OriginSecretHeader = &distribution.OriginSecret{Value: "proxy-secret"}
+	_, err = svc.Update(ctx, d, "")
+	require.NoError(t, err)
+	res, err := svc.Test(ctx, distribution.TestInput{URL: "https://www.example.com/internal/x"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, res.RefusalStatus, res.Refusal)
+	assert.Equal(t, 2, res.BehaviorIndex)
+	assert.Equal(t, distribution.AccessDeny, res.Behavior.Access)
+
+	// The s3 mode: the S3 API decides the methods and the keys; only the
+	// access of the default behavior applies (TCL-D-03 coherent with the
+	// requests).
+	s3d := distribution.Distribution{ID: "s3ep", Enabled: true, Aliases: []string{"s3.cliente.test"}, Mode: distribution.ModeS3,
+		Origin: distribution.Origin{Bucket: "cliente"}, DefaultBehavior: distribution.Behavior{Access: distribution.AccessAuthenticated}}
+	_, err = svc.Create(ctx, s3d)
+	require.NoError(t, err)
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+		res, err = svc.Test(ctx, distribution.TestInput{URL: "https://s3.cliente.test/internal/secret.txt", Method: method})
+		require.NoError(t, err)
+		assert.Zero(t, res.RefusalStatus, "%s: %s", method, res.Refusal)
+		assert.Equal(t, "internal/secret.txt", res.Key)
+		assert.Equal(t, distribution.AccessAuthenticated, res.Behavior.Access)
+		assert.Empty(t, res.ResponseHeaders)
+	}
+	s3d, err = svc.Get(ctx, "s3ep")
+	require.NoError(t, err)
+	s3d.DefaultBehavior.Access = distribution.AccessDeny
+	_, err = svc.Update(ctx, s3d, "")
+	require.NoError(t, err)
+	res, err = svc.Test(ctx, distribution.TestInput{URL: "https://s3.cliente.test/a"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, res.RefusalStatus)
+
+	res, err = svc.Test(ctx, distribution.TestInput{URL: "https://unknown.example.net/"})
 	require.NoError(t, err)
 	assert.Equal(t, distribution.RoutePathStyle, res.Route.Kind)
 	_, err = svc.Test(ctx, distribution.TestInput{URL: "ftp://x"})

@@ -146,6 +146,8 @@ export const adminActions: readonly string[] = [
   'admin:ManageDistributions',
   'admin:ManageCertificates',
   'admin:SignDistributionURL',
+  'admin:ManageCache',
+  'admin:InvalidateCache',
 ];
 
 /** Every action the editor proposes, wildcards first. */
@@ -280,6 +282,8 @@ export const consoleActionScopes: ReadonlyArray<readonly [string, ActionScope]> 
     'admin:ManageDistributions',
     'admin:ManageCertificates',
     'admin:SignDistributionURL',
+    'admin:ManageCache',
+    'admin:InvalidateCache',
     's3:ListAllMyBuckets',
     's3:CreateBucket',
   ].map((a) => [a, 'global'] as const),

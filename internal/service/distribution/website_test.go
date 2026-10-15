@@ -124,12 +124,21 @@ type engineFixture struct {
 	engine  distribution.Website
 	state   *bucketState
 	blocked bool
-	seen    []string
+	// blockErr fails the lookups of the block public access.
+	blockErr error
+	seen     []string
 }
 
 func newEngine(t *testing.T, denied map[string]bool) *engineFixture {
 	t.Helper()
-	fx := &engineFixture{state: &bucketState{objects: map[string]string{}, types: map[string]string{}}}
+	fx := &engineFixture{}
+	return fx.start(t, policyEngine(t, denied, &fx.seen))
+}
+
+// start builds the engine of fx with the policy engine pol.
+func (fx *engineFixture) start(t *testing.T, pol policy.Service) *engineFixture {
+	t.Helper()
+	fx.state = &bucketState{objects: map[string]string{}, types: map[string]string{}}
 	sigs := distmock.NewSignedRequestVerifier(t)
 	sigs.EXPECT().VerifySignedRequest(tmock.Anything, tmock.Anything).RunAndReturn(func(_ context.Context, in distribution.SignedRequest) error {
 		if strings.Contains(in.RawQuery, "Signature=good") || in.Cookies[distribution.CookieSignature] == "good" {
@@ -139,10 +148,10 @@ func newEngine(t *testing.T, denied map[string]bool) *engineFixture {
 	}).Maybe()
 	pab := distmock.NewPublicAccessBlock(t)
 	pab.EXPECT().PublicAccessBlocked(tmock.Anything, "web").RunAndReturn(func(context.Context, string) (bool, error) {
-		return fx.blocked, nil
+		return fx.blocked, fx.blockErr
 	}).Maybe()
 	engine, err := distribution.NewWebsite(distribution.WebsiteDeps{
-		Objects: objectLayer(t, fx.state), Policy: policyEngine(t, denied, &fx.seen), Signatures: sigs, PublicAccess: pab,
+		Objects: objectLayer(t, fx.state), Policy: pol, Signatures: sigs, PublicAccess: pab,
 		Logger: slog.New(slog.DiscardHandler),
 	}, distribution.WithServerHeader("Nexo"))
 	require.NoError(t, err)
@@ -486,4 +495,148 @@ func TestOriginSecretReference(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.Status)
 	resp, _ = fx.do(t, &stored, webRequest{url: "https://www.example.com/", header: http.Header{"X-Origin-Secret": {""}}})
 	assert.Equal(t, http.StatusForbidden, resp.Status, "an unresolved secret matches nothing")
+}
+
+// TestWebsiteBlockPublicAccess is TAR-08 for the distributions: a public
+// behavior refuses its requests while the block public access is on,
+// whatever grants the read (an access rule for distribution:<id>, a
+// public bucket policy); an unknown setting is a 503 to retry.
+func TestWebsiteBlockPublicAccess(t *testing.T) {
+	d := sample("bpa", "www.example.com")
+	pol := polmock.NewService(t)
+	// Every read is allowed explicitly (an access rule allowing
+	// distribution:bpa).
+	pol.EXPECT().Evaluate(tmock.Anything, tmock.Anything).Return(policy.Decision{Allowed: true, Source: policy.SourceAccessRule}, nil).Maybe()
+	fx := (&engineFixture{}).start(t, pol)
+	fx.put("a.txt", "PUBLIC?", "text/plain")
+	resp, body := fx.do(t, &d, webRequest{url: "https://www.example.com/a.txt"})
+	require.Equal(t, http.StatusOK, resp.Status)
+	assert.Equal(t, "PUBLIC?", body)
+
+	fx.blocked = true
+	resp, body = fx.do(t, &d, webRequest{url: "https://www.example.com/a.txt"})
+	assert.Equal(t, http.StatusForbidden, resp.Status, "blocked although a rule allows the distribution")
+	assert.NotContains(t, body, "PUBLIC?")
+
+	fx.blocked, fx.blockErr = false, domain.ErrReadQuorum
+	resp, _ = fx.do(t, &d, webRequest{url: "https://www.example.com/a.txt"})
+	assert.Equal(t, http.StatusServiceUnavailable, resp.Status, "not decided: retry, never 403")
+	assert.Equal(t, "1", resp.Header.Get("Retry-After"))
+
+	fx.blockErr = domain.ErrBucketNotFound
+	resp, _ = fx.do(t, &d, webRequest{url: "https://www.example.com/a.txt"})
+	assert.Equal(t, http.StatusOK, resp.Status, "the read decides a missing bucket")
+}
+
+// TestWebsiteSecurity covers the redirects that would leave the site, the
+// existence oracle of the index documents, CORS with credentials and the
+// If-Range of the ranges (TDS-03, TDS-05, TDS-12).
+func TestWebsiteSecurity(t *testing.T) {
+	d := sample("sec", "www.example.com")
+	d.Redirects = []distribution.Redirect{
+		{From: `^/go/(.*)$`, To: "/$1", Status: http.StatusFound},
+		// A template that would make "/\\host": never followed.
+		{From: `^/bs/(.*)$`, To: `/\$1`, Status: http.StatusFound},
+	}
+	d.ErrorPages = []distribution.ErrorPage{{Status: 403, Path: "/404.html", ResponseStatus: 404}, {Status: 404, Path: "/404.html"}}
+	d.Behaviors = []distribution.Behavior{
+		{PathPattern: &distribution.PathPattern{Type: distribution.PatternPrefix, Pattern: "/api/"},
+			CORS: &distribution.CORS{AllowedOrigins: []string{"*"}, AllowCredentials: true}},
+	}
+	fx := newEngine(t, map[string]bool{"vault/index.html": true})
+	fx.put("404.html", "missing", "text/html")
+	fx.put("docs/index.html", "docs", "text/html")
+	fx.put("vault/index.html", "secret", "text/html")
+	fx.put("api/data.json", "{}", "application/json")
+	fx.put("big.bin", "0123456789", "application/octet-stream")
+	etag := `"etag-big.bin"`
+	modified := "Thu, 01 Jan 2026 00:00:00 GMT"
+
+	tests := []struct {
+		name     string
+		req      webRequest
+		status   int
+		body     string
+		location string
+		headers  map[string]string
+	}{
+		{name: "redirect kept on the site", req: webRequest{url: "https://www.example.com/go/a/b"}, status: 302, location: "/a/b"},
+		{name: "redirect capture escaped", req: webRequest{url: "https://www.example.com/go/a%20b%3Fx"}, status: 302, location: "/a%20b%3Fx"},
+		// The captures are escaped: a browser never reads them as "//host".
+		{name: "backslash stays a path", req: webRequest{url: "https://www.example.com/go/%5Cevil.example/x"}, status: 302,
+			location: "/%5Cevil.example/x"},
+		{name: "tab stays a path", req: webRequest{url: "https://www.example.com/go/%09/evil.example/x"}, status: 302,
+			location: "/%09/evil.example/x"},
+		{name: "protocol-relative not followed", req: webRequest{url: "https://www.example.com/go//evil.example/x"}, status: 404},
+		{name: "backslash target not followed", req: webRequest{url: "https://www.example.com/bs/evil.example"}, status: 404},
+		{name: "index of an allowed directory", req: webRequest{url: "https://www.example.com/docs"}, status: 302, location: "/docs/"},
+		{name: "no oracle of a denied index", req: webRequest{url: "https://www.example.com/vault"}, status: 404, body: "missing"},
+		{name: "same answer as a missing path", req: webRequest{url: "https://www.example.com/nothing"}, status: 404, body: "missing"},
+		{name: "no credentials with a wildcard origin", req: webRequest{url: "https://www.example.com/api/data.json",
+			header: http.Header{"Origin": {"https://evil.example"}}}, status: 200,
+			headers: map[string]string{"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Credentials": ""}},
+		{name: "If-Range strong match", req: webRequest{url: "https://www.example.com/big.bin",
+			header: http.Header{"Range": {"bytes=2-5"}, "If-Range": {etag}}}, status: 206, body: "2345"},
+		{name: "If-Range mismatch sends the whole object", req: webRequest{url: "https://www.example.com/big.bin",
+			header: http.Header{"Range": {"bytes=2-5"}, "If-Range": {`"deadbeef"`}}}, status: 200, body: "0123456789",
+			headers: map[string]string{"Content-Length": "10", "Content-Range": ""}},
+		{name: "If-Range weak never matches", req: webRequest{url: "https://www.example.com/big.bin",
+			header: http.Header{"Range": {"bytes=2-5"}, "If-Range": {"W/" + etag}}}, status: 200, body: "0123456789"},
+		{name: "If-Range date match", req: webRequest{url: "https://www.example.com/big.bin",
+			header: http.Header{"Range": {"bytes=0-1"}, "If-Range": {modified}}}, status: 206, body: "01"},
+		{name: "If-Range date mismatch", req: webRequest{url: "https://www.example.com/big.bin",
+			header: http.Header{"Range": {"bytes=0-1"}, "If-Range": {"Fri, 02 Jan 2026 00:00:00 GMT"}}}, status: 200, body: "0123456789"},
+		{name: "HEAD If-Range mismatch", req: webRequest{method: http.MethodHead, url: "https://www.example.com/big.bin",
+			header: http.Header{"Range": {"bytes=2-5"}, "If-Range": {`"deadbeef"`}}}, status: 200,
+			headers: map[string]string{"Content-Length": "10", "Content-Range": ""}},
+		{name: "HEAD If-Range match", req: webRequest{method: http.MethodHead, url: "https://www.example.com/big.bin",
+			header: http.Header{"Range": {"bytes=2-5"}, "If-Range": {etag}}}, status: 206,
+			headers: map[string]string{"Content-Length": "4", "Content-Range": "bytes 2-5/10"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, body := fx.do(t, &d, tc.req)
+			assert.Equal(t, tc.status, resp.Status, body)
+			if tc.body != "" {
+				assert.Equal(t, tc.body, body)
+			}
+			assert.Equal(t, tc.location, resp.Header.Get("Location"))
+			for k, v := range tc.headers {
+				assert.Equal(t, v, resp.Header.Get(k), k)
+			}
+		})
+	}
+}
+
+// TestWebsiteS3ModeAccess is TDS-04/TDS-05 in the s3 mode: the admission
+// before the authentication, then the access of the default behavior.
+func TestWebsiteS3ModeAccess(t *testing.T) {
+	ctx := context.Background()
+	fx := newEngine(t, nil)
+	req := func(d *distribution.Distribution, id *domain.Identity) distribution.WebRequest {
+		return distribution.WebRequest{Route: distribution.Route{Kind: distribution.RouteDistribution, Distribution: d}, Method: http.MethodPut,
+			Path: "/internal/secret.txt", Header: http.Header{}, ClientIP: "192.0.2.1", Identity: id}
+	}
+	alice := &domain.Identity{AccessKey: "alice", AuthType: domain.AuthTypeHeader}
+	public := distribution.Distribution{ID: "s3p", Enabled: true, Mode: distribution.ModeS3, Origin: distribution.Origin{Bucket: "web"}}
+	assert.Nil(t, fx.engine.Admit(ctx, req(&public, nil)))
+	assert.Nil(t, fx.engine.AuthorizeS3(ctx, req(&public, nil)), "IAM and the policies decide")
+
+	authn := public
+	authn.ID, authn.DefaultBehavior.Access = "s3a", distribution.AccessAuthenticated
+	assert.Nil(t, fx.engine.Admit(ctx, req(&authn, nil)), "the identity is not known before the authentication")
+	resp := fx.engine.AuthorizeS3(ctx, req(&authn, nil))
+	require.NotNil(t, resp)
+	assert.Equal(t, http.StatusForbidden, resp.Status)
+	assert.Nil(t, fx.engine.AuthorizeS3(ctx, req(&authn, alice)))
+	assert.NotNil(t, fx.engine.AuthorizeS3(ctx, req(&authn, domain.Anonymous())))
+
+	deny := public
+	deny.ID, deny.DefaultBehavior.Access = "s3d", distribution.AccessDeny
+	resp = fx.engine.Admit(ctx, req(&deny, alice))
+	require.NotNil(t, resp)
+	assert.Equal(t, http.StatusForbidden, resp.Status)
+
+	site := sample("site", "www.example.com")
+	assert.Nil(t, fx.engine.AuthorizeS3(ctx, req(&site, nil)), "not an s3 distribution")
 }

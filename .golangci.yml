@@ -3,7 +3,7 @@ version: "2"
 run:
   timeout: 5m
   tests: true
-  build-tags: [cluster]
+  build-tags: [cluster, proxy]
 
 linters:
   default: none

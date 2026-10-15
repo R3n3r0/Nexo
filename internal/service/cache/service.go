@@ -59,6 +59,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/distribution"
 	"github.com/r3n3r0/nexo/internal/service/event"
 	"github.com/r3n3r0/nexo/internal/service/lock"
+	"github.com/r3n3r0/nexo/internal/service/match"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/sysstore"
@@ -346,8 +347,11 @@ const (
 
 // Webhook purges a CDN or a proxy in front of the cluster on the
 // invalidations of a distribution. Secrets (Token, ClientSecret) may be
-// given as "${secret:<name>}" (NEXO_SECRET_<NAME>); they are never
-// returned.
+// given as "${secret:webhook-<name>}" (NEXO_SECRET_WEBHOOK_<NAME>, no
+// other secret of the node); they are never returned, and a masked secret
+// keeps the stored one only while the webhook keeps its destination. The
+// endpoints are public addresses (or networks of WithWebhookAllow), never
+// a node of the cluster.
 type Webhook struct {
 	// ID is lowercase letters, digits, '.', '_' and '-' (at most 64).
 	ID   string `json:"id" yaml:"id"`
@@ -886,6 +890,15 @@ type Operations interface {
 	Stats(ctx context.Context, q StatsQuery) (StatsReport, error)
 }
 
+// SyncRequest asks a node for its invalidation sequence.
+type SyncRequest struct {
+	// Node is the node asking (the internode RPC sets the verified
+	// caller): the answering node remembers when each peer last compared
+	// its sequence, to wait for the trust of a peer it could not reach to
+	// lapse before it acknowledges a write.
+	Node string `json:"node,omitempty"`
+}
+
 // SyncStatus is the invalidation sequence of a node: the peers compare it
 // with what they received to detect the invalidations they missed.
 type SyncStatus struct {
@@ -958,8 +971,9 @@ type Node interface {
 	// ApplyInvalidations applies a batch of invalidations of a peer, in
 	// order, and drops the whole cache when the sequence has a gap.
 	ApplyInvalidations(ctx context.Context, batch InvalidationBatch) (InvalidationAck, error)
-	// SyncStatus returns the invalidation sequence of this node.
-	SyncStatus(ctx context.Context) (SyncStatus, error)
+	// SyncStatus returns the invalidation sequence of this node to the
+	// peer req.Node.
+	SyncStatus(ctx context.Context, req SyncRequest) (SyncStatus, error)
 	// FetchPiece serves a piece this node owns, from its cache or the
 	// origin (shared mode).
 	FetchPiece(ctx context.Context, req PieceRequest) (PieceReply, error)
@@ -1033,18 +1047,20 @@ type Deps struct {
 	Notifier cluster.Notifier
 	// Distributions resolves the hosts and the distributions (required).
 	Distributions Distributions
-	// Matcher compiles the path patterns (default
-	// distribution.NewMatcher()).
-	Matcher distribution.Matcher
+	// Matcher compiles the path patterns and normalizes the request paths
+	// (default match.New: the matcher of the access rules and of the
+	// distribution behaviors).
+	Matcher match.Service
 	// Peers are the caches of the other nodes (none on a single node).
 	Peers []Peer
 	// NodeID identifies this node ("local" on a single node).
 	NodeID string
-	// Secrets resolves the ${secret:<name>} of the webhooks and of the
-	// debug header (optional).
+	// Secrets resolves the ${secret:webhook-<name>} of the webhooks and
+	// the ${secret:<name>} of the debug header (optional).
 	Secrets SecretSource
-	// HTTP sends the webhook calls (default an http.Client that follows
-	// no redirect).
+	// HTTP sends the webhook calls (default an http.Client without proxy
+	// that follows no redirect and dials only the addresses the egress
+	// policy allows).
 	HTTP HTTPDoer
 	// Registry receives the metrics (optional).
 	Registry metrics.Registry

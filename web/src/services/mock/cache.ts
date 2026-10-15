@@ -108,7 +108,9 @@ export function sampleCacheConfig(): DistributionCache[] {
         },
         { pathPattern: { type: 'regex', pattern: '^/api/' }, cache: { enabled: false } },
       ],
-      webhooks: [{ id: 'cloudflare-www', type: 'cloudflare', zone: 'f1d2', domains: [] }],
+      webhooks: [
+        { id: 'cloudflare-www', type: 'cloudflare', zone: 'f1d2', token: 'cf-token', domains: [] },
+      ],
       warmOnWrite: [{ type: 'glob', pattern: '/index.html' }],
     },
   ];
@@ -131,7 +133,11 @@ export function sampleCacheStats(nodes: readonly string[]): CacheStats {
     {
       distribution: 'sito-web',
       host: 'www.example.com',
-      ...counters({ HIT: 158_200, MISS: 9_800, STALE: 2_100, REVALIDATED: 640, EXPIRED: 300 }, 9.1e9, 0.93),
+      ...counters(
+        { HIT: 158_200, MISS: 9_800, STALE: 2_100, REVALIDATED: 640, EXPIRED: 300 },
+        9.1e9,
+        0.93,
+      ),
       entries: 1_840,
       memoryBytes: 412_000_000,
       diskBytes: 6_200_000_000,
@@ -162,16 +168,42 @@ export function sampleCacheStats(nodes: readonly string[]): CacheStats {
     },
   ];
   const top: CacheObjectStat[] = [
-    { distribution: 'sito-web', host: 'www.example.com', path: '/index.html', requests: 48_210, misses: 310 },
-    { distribution: 'sito-web', host: 'www.example.com', path: '/assets/app.js', requests: 41_005, misses: 12 },
-    { distribution: 'sito-web', host: 'www.example.com', path: '/assets/app.css', requests: 40_870, misses: 9 },
+    {
+      distribution: 'sito-web',
+      host: 'www.example.com',
+      path: '/index.html',
+      requests: 48_210,
+      misses: 310,
+    },
+    {
+      distribution: 'sito-web',
+      host: 'www.example.com',
+      path: '/assets/app.js',
+      requests: 41_005,
+      misses: 12,
+    },
+    {
+      distribution: 'sito-web',
+      host: 'www.example.com',
+      path: '/assets/app.css',
+      requests: 40_870,
+      misses: 9,
+    },
     { distribution: 'sito-web', host: 'example.com', path: '/', requests: 3_900, misses: 2_100 },
-    { distribution: 'download', host: 'download.example.com', path: '/downloads/v1.zip', requests: 980, misses: 220 },
+    {
+      distribution: 'download',
+      host: 'download.example.com',
+      path: '/downloads/v1.zip',
+      requests: 980,
+      misses: 220,
+    },
   ];
   return aggregate(hosts, top, nodes);
 }
 
-function sumRequests(list: readonly { requests: Record<string, number> }[]): Record<string, number> {
+function sumRequests(
+  list: readonly { requests: Record<string, number> }[],
+): Record<string, number> {
   const out: Record<string, number> = {};
   for (const item of list) {
     for (const [k, v] of Object.entries(item.requests)) out[k] = (out[k] ?? 0) + v;
@@ -225,7 +257,10 @@ function aggregate(
       invalidations: share(sum((h) => h.entries) * 2, i),
       flushes: 0,
       synced: true,
-      originReads: share(sum((h) => (h.requests.MISS ?? 0) + (h.requests.BYPASS ?? 0)), i),
+      originReads: share(
+        sum((h) => (h.requests.MISS ?? 0) + (h.requests.BYPASS ?? 0)),
+        i,
+      ),
       webhookQueue: 0,
       hosts: nodeHosts,
       topObjects: top,
@@ -275,15 +310,27 @@ function validateWebhook(w: CacheWebhook, d: Distribution): CacheWebhook {
   if (!['cloudflare', 'fastly', 'akamai', 'nginx', 'varnish', 'generic'].includes(w.type)) {
     throw invalid(`webhook ${w.id}: unknown type "${String(w.type)}"`);
   }
-  if ((w.type === 'cloudflare' || w.type === 'fastly') && (w.zone ?? '') === '') {
-    throw invalid(`webhook ${w.id}: zone is required`);
+  const need = (field: string, v: string | undefined) => {
+    if ((v ?? '') === '') throw invalid(`webhook ${w.id}: a ${w.type} webhook needs ${field}`);
+  };
+  if (w.type === 'cloudflare' || w.type === 'fastly') {
+    need('zone', w.zone);
+    need('token', w.token);
+  } else if (w.type === 'akamai') {
+    need('url', w.url);
+    need('token', w.token);
+    need('clientToken', w.clientToken);
+    need('clientSecret', w.clientSecret);
+  } else {
+    need('url', w.url);
   }
-  if (['nginx', 'varnish', 'generic', 'akamai'].includes(w.type) && (w.url ?? '') === '') {
-    throw invalid(`webhook ${w.id}: url is required`);
+  if (w.url !== undefined && w.url !== '' && !/^https?:\/\/[^/]/.test(w.url)) {
+    throw invalid(`webhook url "${w.url}" must be an http(s) URL`);
   }
   const domains = (w.domains ?? []).map(normalizeCacheHost);
   for (const h of domains) {
-    if (!isDomainOf(d.aliases, h)) throw invalid(`webhook ${w.id}: "${h}" is not a domain of ${d.id}`);
+    if (!isDomainOf(d.aliases, h))
+      throw invalid(`webhook ${w.id}: "${h}" is not a domain of ${d.id}`);
   }
   return { ...w, ...(w.domains === undefined ? {} : { domains }) };
 }
@@ -303,7 +350,8 @@ export function createMockCacheService(
   samples: boolean,
 ): CacheService {
   const { dist } = deps;
-  const nodes = options.cacheNodes ?? (samples ? ['node-1', 'node-2', 'node-3', 'node-4'] : ['local']);
+  const nodes =
+    options.cacheNodes ?? (samples ? ['node-1', 'node-2', 'node-3', 'node-4'] : ['local']);
   const steps = options.cacheSteps ?? 1;
   const manage = () => {
     dist.guard('admin:ManageCache');
@@ -336,7 +384,8 @@ export function createMockCacheService(
   const progress = new Map<string, Progress>();
   const warmJobs = new Map<string, CacheWarmJob>();
   const entries = new Map<string, CachedEntry>();
-  const stats = options.cacheStats ?? (samples ? sampleCacheStats(nodes) : aggregate([], [], nodes));
+  const stats =
+    options.cacheStats ?? (samples ? sampleCacheStats(nodes) : aggregate([], [], nodes));
 
   function distribution(id: string): Distribution {
     const d = dist.distributions.get(id);
@@ -380,10 +429,16 @@ export function createMockCacheService(
         domainQuota = d?.cache.quota;
       }
       behavior = behaviorFor(
-        { id, aliases: [], origin: { bucket: '' }, behaviors: (cfg.behaviors ?? []).map((b) => ({ pathPattern: b.pathPattern })) },
+        {
+          id,
+          aliases: [],
+          origin: { bucket: '' },
+          behaviors: (cfg.behaviors ?? []).map((b) => ({ pathPattern: b.pathPattern })),
+        },
         path,
       );
-      if (behavior >= 0) levels.push({ level: 'behavior', settings: cfg.behaviors?.[behavior]?.cache });
+      if (behavior >= 0)
+        levels.push({ level: 'behavior', settings: cfg.behaviors?.[behavior]?.cache });
     }
     const eff = resolveLevels(levels, policies);
     eff.behavior = behavior;
@@ -416,18 +471,21 @@ export function createMockCacheService(
     const stored = new Map((current.webhooks ?? []).map((w) => [w.id, w]));
     const outWebhooks: CacheWebhook[] = [];
     for (const raw of cfg.webhooks ?? []) {
-      const w = validateWebhook(raw, d);
+      // A masked (absent) secret keeps the stored one.
+      const old = stored.get(raw.id);
+      const w = validateWebhook(
+        {
+          ...raw,
+          ...((raw.token ?? '') === '' && old?.token !== undefined ? { token: old.token } : {}),
+          ...((raw.clientSecret ?? '') === '' && old?.clientSecret !== undefined
+            ? { clientSecret: old.clientSecret }
+            : {}),
+        },
+        d,
+      );
       if (webhooks.has(w.id)) throw invalid(`webhook ${w.id} defined twice`);
       webhooks.add(w.id);
-      // A masked secret keeps the stored one.
-      const old = stored.get(w.id);
-      outWebhooks.push({
-        ...w,
-        ...(w.token === undefined && old?.token !== undefined ? { token: old.token } : {}),
-        ...(w.clientSecret === undefined && old?.clientSecret !== undefined
-          ? { clientSecret: old.clientSecret }
-          : {}),
-      });
+      outWebhooks.push(w);
     }
     validateSettingsLevel('cache.', cfg.cache, webhooks);
     if ((cfg.cache.purgeWebhooks ?? []).length > 0) {
@@ -516,9 +574,12 @@ export function createMockCacheService(
   }
 
   function readInvalidation(inv: CacheInvalidation): CacheInvalidation {
-    if (advance(inv.id, inv, (n) => {
-      n.state = 'completed';
-    }) || inv.nodes.every((n) => n.state === 'completed')) {
+    if (
+      advance(inv.id, inv, (n) => {
+        n.state = 'completed';
+      }) ||
+      inv.nodes.every((n) => n.state === 'completed')
+    ) {
       inv.state = 'completed';
     }
     return clone(inv);
@@ -570,7 +631,10 @@ export function createMockCacheService(
     }
   }
 
-  function warmTargets(d: Distribution, req: CacheWarmJob['request']): { path: string; size: number }[] {
+  function warmTargets(
+    d: Distribution,
+    req: CacheWarmJob['request'],
+  ): { path: string; size: number }[] {
     const prefix = (d.origin.pathPrefix ?? '').replace(/^\/+/, '').replace(/\/?$/, '/');
     const base = prefix === '/' ? '' : prefix;
     const keys = deps.keysOf(d.origin.bucket);
@@ -594,14 +658,15 @@ export function createMockCacheService(
     }
     if (req.pattern !== undefined) {
       const c = compileKeyPattern(req.pattern);
-      if (c.ok) for (const [path, size] of byPath) if (c.compiled.match(path).matched) out.push({ path, size });
+      if (c.ok)
+        for (const [path, size] of byPath)
+          if (c.compiled.match(path).matched) out.push({ path, size });
     }
     return out;
   }
 
   function readWarm(job: CacheWarmJob): CacheWarmJob {
-    const done = advance(job.id, job, (n) => {
-      const node = n as CacheWarmJob['nodes'][number];
+    const done = advance(job.id, job, (node) => {
       node.state = node.failed > 0 && node.failed === node.total ? 'failed' : 'completed';
       node.done = node.total;
     });
@@ -643,7 +708,8 @@ export function createMockCacheService(
   function filteredStats(distributionId: string, host: string, top: number): CacheStats {
     if (distributionId === '' && host === '') return clone(trimTop(stats, top));
     const keep = (h: { distribution: string; host: string }) =>
-      (distributionId === '' || h.distribution === distributionId) && (host === '' || h.host === host);
+      (distributionId === '' || h.distribution === distributionId) &&
+      (host === '' || h.host === host);
     return trimTop(aggregate(stats.hosts.filter(keep), stats.topObjects.filter(keep), nodes), top);
   }
 
@@ -652,7 +718,11 @@ export function createMockCacheService(
       ...s,
       topObjects: s.topObjects.slice(0, top),
       topMisses: s.topMisses.slice(0, top),
-      nodes: s.nodes.map((n) => ({ ...n, topObjects: n.topObjects.slice(0, top), topMisses: n.topMisses.slice(0, top) })),
+      nodes: s.nodes.map((n) => ({
+        ...n,
+        topObjects: n.topObjects.slice(0, top),
+        topMisses: n.topMisses.slice(0, top),
+      })),
     };
   }
 
@@ -666,7 +736,8 @@ export function createMockCacheService(
       await ctx.delay();
       manage();
       const p = policies.get(name);
-      if (p === undefined) throw notFound('cache_policy_not_found', `cache policy not found: ${name}`);
+      if (p === undefined)
+        throw notFound('cache_policy_not_found', `cache policy not found: ${name}`);
       return clone(p);
     },
     async createPolicy(policy) {
@@ -722,8 +793,10 @@ export function createMockCacheService(
       await ctx.delay();
       manage();
       const current = policies.get(name);
-      if (current === undefined) throw notFound('cache_policy_not_found', `cache policy not found: ${name}`);
-      if (current.builtin === true) throw problem(409, 'builtin_cache_policy', `${name} is a built-in policy`);
+      if (current === undefined)
+        throw notFound('cache_policy_not_found', `cache policy not found: ${name}`);
+      if (current.builtin === true)
+        throw problem(409, 'builtin_cache_policy', `${name} is a built-in policy`);
       const used =
         settings.cache.policy === name ||
         [...configs.values()].some(
@@ -738,7 +811,10 @@ export function createMockCacheService(
     async previewPolicy(policy) {
       await ctx.delay();
       manage();
-      const issue = validatePolicy({ ...policy, name: policy.name === '' ? 'preview' : policy.name })[0];
+      const issue = validatePolicy({
+        ...policy,
+        name: policy.name === '' ? 'preview' : policy.name,
+      })[0];
       if (issue !== undefined) throw invalid(issueText(issue));
       const { etag: _e, updatedAt: _u, builtin: _b, ...body } = policy;
       const complete = builtinComplete(body);
@@ -795,7 +871,11 @@ export function createMockCacheService(
       const d = distribution(id);
       const current = configOf(id);
       if (ifMatch !== undefined && ifMatch !== '' && ifMatch !== current.etag) {
-        throw problem(412, 'precondition_failed', 'the cache settings changed since they were read');
+        throw problem(
+          412,
+          'precondition_failed',
+          'the cache settings changed since they were read',
+        );
       }
       const { etag: _e, updatedAt: _u, ...body } = config;
       return storeConfig(validateConfig(body, d, current));
@@ -823,8 +903,13 @@ export function createMockCacheService(
         }
         const host = url.hostname;
         d = [...dist.distributions.values()].find((x) => isDomainOf(x.aliases, host));
-        if (d === undefined) throw notFound('distribution_not_found', `no distribution serves ${host}`);
-        if (input.distribution !== undefined && input.distribution !== '' && input.distribution !== d.id) {
+        if (d === undefined)
+          throw notFound('distribution_not_found', `no distribution serves ${host}`);
+        if (
+          input.distribution !== undefined &&
+          input.distribution !== '' &&
+          input.distribution !== d.id
+        ) {
           throw invalid(`${host} is not a domain of ${input.distribution}`);
         }
       }
@@ -1051,9 +1136,13 @@ export function createMockCacheService(
       manage();
       distribution(id);
       const w = (configOf(id).webhooks ?? []).find((x) => x.id === webhookId);
-      if (w === undefined) throw notFound('webhook_not_found', `purge webhook not found: ${webhookId}`);
+      if (w === undefined)
+        throw notFound('webhook_not_found', `purge webhook not found: ${webhookId}`);
       // An address on an unreachable port fails like a real call would.
-      if (w.url !== undefined && /:(1|9)\/?/.test(new URL(w.url.replace(/\{\{.*?\}\}/g, 'x')).host.slice(-2))) {
+      if (
+        w.url !== undefined &&
+        /:(1|9)\/?/.test(new URL(w.url.replace(/\{\{.*?\}\}/g, 'x')).host.slice(-2))
+      ) {
         return { ok: false, error: 'connection refused', durationMs: 3 };
       }
       return { ok: true, status: 200, durationMs: 42 };
@@ -1081,8 +1170,20 @@ function overlay<T extends object>(base: T, over: object): T {
   for (const [k, v] of Object.entries(over)) {
     if (v === undefined) continue;
     const cur = out[k];
-    if (typeof v === 'object' && !Array.isArray(v) && v !== null && typeof cur === 'object' && cur !== null && !Array.isArray(cur)) {
-      out[k] = { ...cur, ...Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined)) };
+    if (
+      typeof v === 'object' &&
+      !Array.isArray(v) &&
+      v !== null &&
+      typeof cur === 'object' &&
+      cur !== null &&
+      !Array.isArray(cur)
+    ) {
+      out[k] = {
+        ...cur,
+        ...Object.fromEntries(
+          Object.entries(v as Record<string, unknown>).filter(([, x]) => x !== undefined),
+        ),
+      };
     } else {
       out[k] = structuredClone(v);
     }

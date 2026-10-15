@@ -34,12 +34,19 @@ import (
 // (middleware.ClientOf, behind the forwarded-client middleware).
 func echoServer(t *testing.T, trusted []string, family middleware.ForwardedHeaders, opts ...server.Option) server.Service {
 	t.Helper()
+	return echoServerWith(t, []middleware.ForwardedOption{middleware.WithTrustedProxies(trusted...), middleware.WithForwardedHeaders(family)}, opts...)
+}
+
+// echoServerWith is echoServer with the options of the forwarded-client
+// middleware.
+func echoServerWith(t *testing.T, fwdOpts []middleware.ForwardedOption, opts ...server.Option) server.Service {
+	t.Helper()
 	routes := httpx.RoutesFunc(func(r chi.Router) {
 		r.Get("/whoami", func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(middleware.ClientOf(r))
 		})
 	})
-	fwd, err := middleware.NewForwarded(middleware.ForwardedDeps{}, middleware.WithTrustedProxies(trusted...), middleware.WithForwardedHeaders(family))
+	fwd, err := middleware.NewForwarded(middleware.ForwardedDeps{}, fwdOpts...)
 	require.NoError(t, err)
 	srv := server.New(server.Deps{Routes: []httpx.Routes{routes}, Middlewares: []middleware.Middleware{fwd}},
 		append([]server.Option{server.WithAddr("127.0.0.1:0"), server.WithReadHeaderTimeout(2 * time.Second)}, opts...)...)
@@ -183,15 +190,16 @@ func TestProxyProtocolInvalidProxy(t *testing.T) {
 
 // TestForwardedHeadersBehindReverseProxies is TDS-08 for the forwarding
 // headers: a Go reverse proxy (httputil.ReverseProxy) in front of the
-// server forwards the client, the scheme and the host; a client that
-// reaches the server directly cannot forge them; Forwarded (RFC 7239) is
-// read when configured.
+// server forwards the client, the scheme and, when the server trusts it
+// (a proxy that rewrites the Host), the host; a client that reaches the
+// server directly cannot forge them; Forwarded (RFC 7239) is read when
+// configured.
 func TestForwardedHeadersBehindReverseProxies(t *testing.T) {
-	backend := echoServer(t, []string{"127.0.0.1"}, "")
+	backend := echoServerWith(t, []middleware.ForwardedOption{middleware.WithTrustedProxies("127.0.0.1"), middleware.WithForwardedHost(true)})
 	target, err := url.Parse("http://" + backend.Addr())
 	require.NoError(t, err)
 	proxy := &httputil.ReverseProxy{Rewrite: func(r *httputil.ProxyRequest) {
-		r.SetURL(target)
+		r.SetURL(target) // rewrites the Host
 		r.SetXForwarded()
 	}}
 	front := listenProxy(t, proxy)
@@ -205,6 +213,26 @@ func TestForwardedHeadersBehindReverseProxies(t *testing.T) {
 	assert.Equal(t, "127.0.0.1", got.IP, "the address the proxy saw, not the forged one")
 	assert.Equal(t, "cdn.example.com", got.Host)
 	assert.False(t, got.Secure)
+
+	// A proxy that preserves the Host and passes the X-Forwarded-Host of
+	// the client through (Cloudflare): by default the server routes on the
+	// Host header and ignores it.
+	plain := echoServer(t, []string{"127.0.0.1"}, "")
+	plainTarget, err := url.Parse("http://" + plain.Addr())
+	require.NoError(t, err)
+	passThrough := listenProxy(t, &httputil.ReverseProxy{Rewrite: func(r *httputil.ProxyRequest) {
+		r.SetURL(plainTarget)
+		r.Out.Host = r.In.Host
+		r.Out.Header["X-Forwarded-For"] = []string{"198.51.100.4"}
+		r.Out.Header["X-Forwarded-Proto"] = []string{"https"}
+		r.Out.Header["X-Forwarded-Host"] = r.In.Header["X-Forwarded-Host"]
+	}})
+	req, err = http.NewRequest(http.MethodGet, "http://"+passThrough+"/whoami", nil)
+	require.NoError(t, err)
+	req.Host = "www.example.com"
+	req.Header.Set("X-Forwarded-Host", "admin.victim.example")
+	got = doJSON(t, req)
+	assert.Equal(t, middleware.Client{IP: "198.51.100.4", Secure: true, Host: "www.example.com"}, got)
 
 	// Directly, from a peer that is not a proxy: the forged headers are
 	// ignored.
@@ -220,7 +248,8 @@ func TestForwardedHeadersBehindReverseProxies(t *testing.T) {
 	assert.Equal(t, untrusted.Addr(), got.Host)
 
 	// RFC 7239 from a proxy that writes Forwarded.
-	fwdBackend := echoServer(t, []string{"127.0.0.1"}, middleware.HeadersForwarded)
+	fwdBackend := echoServerWith(t, []middleware.ForwardedOption{middleware.WithTrustedProxies("127.0.0.1"),
+		middleware.WithForwardedHeaders(middleware.HeadersForwarded), middleware.WithForwardedHost(true)})
 	fwdTarget, err := url.Parse("http://" + fwdBackend.Addr())
 	require.NoError(t, err)
 	fwdProxy := &httputil.ReverseProxy{Rewrite: func(r *httputil.ProxyRequest) {

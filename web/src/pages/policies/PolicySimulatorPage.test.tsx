@@ -13,7 +13,7 @@ describe('Policy simulator (D-POL-03)', () => {
   // it past the default 5 s.
   it(
     'shows the decision, the deciding statement and every evaluation',
-    { timeout: 15_000 },
+    { timeout: 30_000 },
     async () => {
       const user = userEvent.setup();
       const services = createMockServices({ initialAccessKey: 'nexoadmin' });

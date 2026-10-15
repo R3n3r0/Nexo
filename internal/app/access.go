@@ -42,10 +42,11 @@ func newAccessEvaluator(cfg config.Static, buckets bucket.MetadataStore, dyn con
 	return w, err
 }
 
-// service builds the service managing the access rules.
-func (w accessWiring) service(buckets bucket.Service, policies policy.Service, dyn configsvc.Service, auditor audit.Service, clk clock.Clock, logger *slog.Logger) (accessrule.Service, error) {
+// service builds the service managing the access rules; source is the
+// cache of the bucket metadata its block public access is read from.
+func (w accessWiring) service(buckets bucket.Service, source accessrule.ConfigSource, policies policy.Service, dyn configsvc.Service, auditor audit.Service, clk clock.Clock, logger *slog.Logger) (accessrule.Service, error) {
 	return accessrule.New(accessrule.Deps{
-		Buckets: buckets, Policy: policies, Matcher: w.matcher, Config: dyn, Audit: auditor,
+		Buckets: buckets, Source: source, Policy: policies, Matcher: w.matcher, Config: dyn, Audit: auditor,
 		Clock: clk, Logger: logger.With("component", "accessrule"),
 	}, w.opts...)
 }

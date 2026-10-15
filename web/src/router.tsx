@@ -14,7 +14,8 @@ import { OverviewPage } from '@/pages/OverviewPage';
 import { clusterRoutes } from '@/pages/clusterRoutes';
 import { distributionRoutes } from '@/pages/distributionRoutes';
 import { iamRoutes } from '@/pages/iamRoutes';
-import { CachePage, MonitoringPage } from '@/pages/placeholders';
+import { cacheRoutes } from '@/pages/cacheRoutes';
+import { MonitoringPage } from '@/pages/placeholders';
 import { storageRoutes } from '@/pages/storageRoutes';
 import { UploadProvider } from '@/upload/UploadProvider';
 
@@ -49,7 +50,7 @@ export function createRoutes(options: RouteOptions = {}): RouteObject[] {
             ...storageRoutes(),
             ...iamRoutes(),
             ...distributionRoutes(),
-            { path: 'cache', element: <CachePage /> },
+            ...cacheRoutes(),
             ...clusterRoutes(),
             { path: 'monitoring', element: <MonitoringPage /> },
             { path: '*', element: <NotFoundPage /> },

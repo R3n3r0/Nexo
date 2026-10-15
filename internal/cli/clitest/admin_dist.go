@@ -4,12 +4,12 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"path"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -20,6 +20,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/cli"
 	climock "github.com/r3n3r0/nexo/internal/cli/mock"
+	"github.com/r3n3r0/nexo/internal/service/match"
 	"github.com/r3n3r0/nexo/pkg/nexoadmin"
 )
 
@@ -192,8 +193,13 @@ func (s *memSession) validateRules(bucket string, rules []nexoadmin.BucketAccess
 		seen[r.ID] = true
 		if r.Match != nil {
 			if _, err := memPattern(*r.Match); err != nil {
+				pos, msg := 1, err.Error()
+				var pe *match.PatternError
+				if errors.As(err, &pe) {
+					pos, msg = pe.Position, pe.Msg
+				}
 				return accessRuleError(http.StatusBadRequest, nexoadmin.CodeInvalidAccessRule,
-					nexoadmin.AccessRuleError{Rule: i + 1, ID: r.ID, Field: "match.pattern", Position: 1, Message: err.Error()})
+					nexoadmin.AccessRuleError{Rule: i + 1, ID: r.ID, Field: "match.pattern", Position: pos, Message: msg})
 			}
 		}
 		d := s.distLocked()
@@ -224,56 +230,28 @@ func (s *memSession) setAccessRules(_ context.Context, bucket string, rules []ne
 	return s.configLocked(bucket), nil
 }
 
-// memPattern compiles a pattern of keys.
-func memPattern(p nexoadmin.KeyPattern) (*regexp.Regexp, error) {
-	expr := ""
-	switch p.Type {
-	case nexoadmin.PatternPrefix:
-		expr = "^" + regexp.QuoteMeta(p.Pattern)
-	case nexoadmin.PatternGlob:
-		expr = "^" + globExpr(p.Pattern) + "$"
-	case nexoadmin.PatternRegex:
-		expr = p.Pattern
-	default:
-		return nil, fmt.Errorf("unknown pattern type %q", p.Type)
+// memPattern compiles a pattern of keys with the matcher of the server
+// (internal/service/match), so that the in-memory admin matches the keys
+// and the paths exactly like Nexo.
+func memPattern(p nexoadmin.KeyPattern) (memMatcher, error) {
+	ctx := context.Background()
+	svc := match.New(match.Deps{})
+	m, err := svc.Compile(ctx, match.Pattern{Type: match.Type(p.Type), Pattern: p.Pattern, CaseInsensitive: p.CaseInsensitive})
+	if err != nil {
+		return memMatcher{}, err
 	}
-	if p.CaseInsensitive {
-		expr = "(?i)" + expr
-	}
-	return regexp.Compile(expr)
+	return memMatcher{svc: svc, m: m}, nil
 }
 
-// globExpr converts a glob to a regular expression.
-func globExpr(g string) string {
-	var b strings.Builder
-	for i := 0; i < len(g); i++ {
-		switch c := g[i]; c {
-		case '*':
-			if i+1 < len(g) && g[i+1] == '*' {
-				b.WriteString(".*")
-				i++
-				if i+1 < len(g) && g[i+1] == '/' {
-					b.WriteString("/?")
-					i++
-				}
-				continue
-			}
-			b.WriteString("[^/]*")
-		case '?':
-			b.WriteString("[^/]")
-		case '{':
-			b.WriteString("(")
-		case '}':
-			b.WriteString(")")
-		case ',':
-			b.WriteString("|")
-		case '[', ']':
-			b.WriteByte(c)
-		default:
-			b.WriteString(regexp.QuoteMeta(string(c)))
-		}
-	}
-	return b.String()
+// memMatcher matches the normalized keys and paths.
+type memMatcher struct {
+	svc match.Service
+	m   match.Matcher
+}
+
+// MatchString reports whether the pattern matches s.
+func (m memMatcher) MatchString(s string) bool {
+	return m.m.Match(m.svc.Normalize(context.Background(), s)).Matched
 }
 
 // actionClass maps an action of a test to its class.

@@ -193,8 +193,10 @@ func TestAccessRulesBehindProxies(t *testing.T) {
 	assert.Equal(t, http.StatusOK, e.rawStatus(e.srv.S3URL, "/edge/lan/a", fwd("X-Forwarded-For", "2001:db8::9")))
 	assert.Equal(t, http.StatusForbidden, e.rawStatus(e.srv.S3URL, "/edge/lan/a", fwd("X-Forwarded-For", "11.1.2.3")))
 	assert.Equal(t, http.StatusForbidden, e.rawStatus(e.srv.S3URL, "/edge/lan/a", nil), "the proxy itself")
-	assert.Equal(t, http.StatusOK, e.rawStatus(e.srv.S3URL, "/edge/cdn/a", fwd("X-Forwarded-Host", "cdn.example.com")))
-	assert.Equal(t, http.StatusForbidden, e.rawStatus(e.srv.S3URL, "/edge/cdn/a", fwd("X-Forwarded-Host", "www.example.com")))
+	// The forwarded host is not trusted by default (--trust-forwarded-host):
+	// the proxies preserve the Host header, and some pass the
+	// X-Forwarded-Host of the client through.
+	assert.Equal(t, http.StatusForbidden, e.rawStatus(e.srv.S3URL, "/edge/cdn/a", fwd("X-Forwarded-Host", "cdn.example.com")))
 	assert.Equal(t, http.StatusOK, e.rawStatus(e.srv.S3URL, "/edge/tls/a", fwd("X-Forwarded-Proto", "https")))
 	assert.Equal(t, http.StatusForbidden, e.rawStatus(e.srv.S3URL, "/edge/tls/a", fwd("X-Forwarded-Proto", "http")))
 	assert.Equal(t, http.StatusForbidden, e.rawStatus(e.srv.S3URL, "/edge/window/a", nil), "outside the time window")

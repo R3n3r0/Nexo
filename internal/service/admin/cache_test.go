@@ -12,7 +12,6 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/admin"
-	adminmock "github.com/r3n3r0/nexo/internal/service/admin/mock"
 	"github.com/r3n3r0/nexo/internal/service/cache"
 	cachemock "github.com/r3n3r0/nexo/internal/service/cache/mock"
 	"github.com/r3n3r0/nexo/internal/service/distribution"
@@ -350,14 +349,15 @@ func TestDistributionManagerDeleteDropsCache(t *testing.T) {
 	dists := distmock.NewService(t)
 	caches := cachemock.NewManager(t)
 	m, err := admin.NewDistributionManager(admin.DistributionManagerDeps{
-		Distributions: dists, Signer: distmock.NewSigner(t), Authz: adminmock.NewAuthorizer(t), Cache: caches,
+		Distributions: dists, Signer: distmock.NewSigner(t), Authz: allowAll(t), Cache: caches,
 	})
 	require.NoError(t, err)
+	dists.EXPECT().Get(mock.Anything, "site").Return(distribution.Distribution{ID: "site", Origin: distribution.Origin{Bucket: "web"}}, nil)
 	dists.EXPECT().Delete(mock.Anything, "site").Return(nil).Twice()
 	caches.EXPECT().DeleteDistribution(mock.Anything, "site").Return(nil).Once()
-	require.NoError(t, m.Delete(ctx, "site"))
+	require.NoError(t, m.Delete(ctx, requesterOf("op"), "site"))
 	caches.EXPECT().DeleteDistribution(mock.Anything, "site").Return(domain.ErrNodeOffline).Once()
-	require.NoError(t, m.Delete(ctx, "site"))
-	dists.EXPECT().Delete(mock.Anything, "nope").Return(distribution.ErrDistributionNotFound).Once()
-	require.ErrorIs(t, m.Delete(ctx, "nope"), distribution.ErrDistributionNotFound)
+	require.NoError(t, m.Delete(ctx, requesterOf("op"), "site"))
+	dists.EXPECT().Get(mock.Anything, "nope").Return(distribution.Distribution{}, distribution.ErrDistributionNotFound).Once()
+	require.ErrorIs(t, m.Delete(ctx, requesterOf("op"), "nope"), distribution.ErrDistributionNotFound)
 }

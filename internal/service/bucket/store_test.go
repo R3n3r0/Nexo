@@ -225,3 +225,85 @@ func TestMetadataStoreOnDocuments(t *testing.T) {
 		require.NoError(t, err)
 	}
 }
+
+// flakyDocs is a document store whose reads fail (no read quorum) while
+// down is set.
+type flakyDocs struct {
+	sysstore.Store
+	mu   sync.Mutex
+	docs map[string][]byte
+	down bool
+}
+
+func (f *flakyDocs) Get(_ context.Context, path string) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.down {
+		return nil, domain.ErrReadQuorum
+	}
+	d, ok := f.docs[path]
+	if !ok {
+		return nil, sysstore.ErrNotFound
+	}
+	return d, nil
+}
+
+func (f *flakyDocs) Put(_ context.Context, path string, data []byte) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.docs[path] = data
+	return nil
+}
+
+func (f *flakyDocs) setDown(down bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.down = down
+}
+
+// TestAccessConfigKeepsLastKnownWhileUnavailable is TCC-07 at the source
+// of the access decisions: a reload of everything (the periodic resync of
+// the cluster) while the drives have no read quorum keeps deciding with
+// the last known access configuration, while the invalidation of the
+// bucket (a change notified by a peer) forgets it.
+func TestAccessConfigKeepsLastKnownWhileUnavailable(t *testing.T) {
+	ctx := context.Background()
+	docs := &flakyDocs{docs: map[string][]byte{}}
+	writer, err := bucket.NewStore(bucket.StoreDeps{Docs: docs})
+	require.NoError(t, err)
+	st, err := bucket.NewStore(bucket.StoreDeps{Docs: docs, Logger: slog.New(slog.DiscardHandler)})
+	require.NoError(t, err)
+	policy := json.RawMessage(`{"Version":"2012-10-17","Statement":[]}`)
+	require.NoError(t, writer.Save(ctx, "site", &bucket.Metadata{BlockPublicAccess: true, Policy: policy}))
+	cfg, err := st.AccessConfig(ctx, "site")
+	require.NoError(t, err)
+	require.True(t, cfg.BlockPublicAccess)
+	assert.JSONEq(t, string(policy), string(cfg.Policy))
+
+	docs.setDown(true)
+	st.Invalidate(ctx, "")
+	cfg, err = st.AccessConfig(ctx, "site")
+	require.NoError(t, err, "the last known configuration while the drives cannot answer")
+	assert.True(t, cfg.BlockPublicAccess)
+	assert.JSONEq(t, string(policy), string(cfg.Policy))
+	_, err = st.Load(ctx, "site")
+	require.ErrorIs(t, err, domain.ErrReadQuorum, "Load (the writers) never falls back")
+	_, err = st.AccessConfig(ctx, "other")
+	require.ErrorIs(t, err, domain.ErrReadQuorum, "never known")
+
+	// Back: the reload happens.
+	docs.setDown(false)
+	require.NoError(t, writer.Save(ctx, "site", &bucket.Metadata{}))
+	cfg, err = st.AccessConfig(ctx, "site")
+	require.NoError(t, err)
+	assert.False(t, cfg.BlockPublicAccess)
+	assert.Empty(t, cfg.Policy)
+
+	// A change notified for the bucket: its last known document is
+	// outdated, never used.
+	docs.setDown(true)
+	st.Invalidate(ctx, "")
+	st.Invalidate(ctx, "site")
+	_, err = st.AccessConfig(ctx, "site")
+	require.ErrorIs(t, err, domain.ErrReadQuorum)
+}

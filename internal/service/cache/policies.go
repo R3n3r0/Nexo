@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/r3n3r0/nexo/internal/service/distribution"
+	"github.com/r3n3r0/nexo/internal/service/match"
 )
 
 // Limits of the policies.
@@ -673,6 +674,19 @@ func matchMedia(ct string, patterns []string) bool {
 	return false
 }
 
+// varyHeaders are the request headers the keys of the policy depend on:
+// the responses name them in Vary.
+func (p *params) varyHeaders() []string {
+	if len(p.KeyHeaders) == 0 && len(p.KeyCookies) == 0 {
+		return nil
+	}
+	out := slices.Clone(p.KeyHeaders)
+	if len(p.KeyCookies) > 0 {
+		out = append(out, "Cookie")
+	}
+	return out
+}
+
 // typeAllowed applies the content type filter of a policy.
 func (p *params) typeAllowed(ct string) bool {
 	if len(p.DenyTypes) > 0 && matchMedia(ct, p.DenyTypes) {
@@ -695,15 +709,43 @@ func hostMatches(d, host string) bool {
 	return d == host
 }
 
+// pathPatterns are compiled path patterns, matched against the normalized
+// request paths (match.Service.Normalize: "/a//b" and "/x/../a/b" are
+// "/a/b"), like the behaviors of the distributions.
+type pathPatterns struct {
+	paths    match.Service
+	matchers []match.Matcher
+}
+
+// first returns the index of the first pattern matching path (-1: none).
+func (p pathPatterns) first(ctx context.Context, path string) int {
+	if len(p.matchers) == 0 {
+		return -1
+	}
+	key := p.paths.Normalize(ctx, path)
+	for i, m := range p.matchers {
+		if m.Match(key).Matched {
+			return i
+		}
+	}
+	return -1
+}
+
+// any reports whether a pattern matches path.
+func (p pathPatterns) any(ctx context.Context, path string) bool { return p.first(ctx, path) >= 0 }
+
 // compilePatterns compiles path patterns.
-func compilePatterns(ctx context.Context, m distribution.Matcher, ps []distribution.PathPattern, where string) ([]distribution.CompiledPattern, error) {
-	out := make([]distribution.CompiledPattern, 0, len(ps))
+func compilePatterns(ctx context.Context, m match.Service, ps []distribution.PathPattern, where string) (pathPatterns, error) {
+	out := pathPatterns{paths: m, matchers: make([]match.Matcher, 0, len(ps))}
 	for i, p := range ps {
+		if p.Pattern == "" {
+			return pathPatterns{}, fmt.Errorf("%w: %s[%d]: the pattern is required", ErrInvalid, where, i)
+		}
 		c, err := m.Compile(ctx, p)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %s[%d]: %v", ErrInvalid, where, i, err)
+			return pathPatterns{}, fmt.Errorf("%w: %s[%d]: %v", ErrInvalid, where, i, err)
 		}
-		out = append(out, c)
+		out.matchers = append(out.matchers, c)
 	}
 	return out, nil
 }

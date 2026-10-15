@@ -137,6 +137,11 @@ type Static struct {
 	// "x-forwarded" (X-Forwarded-For/Proto/Host, the default) or
 	// "forwarded" (RFC 7239).
 	ForwardedHeaders string `json:"forwardedHeaders,omitempty"`
+	// TrustForwardedHost uses the host the trusted proxies forward
+	// (X-Forwarded-Host, Forwarded host=) instead of the Host header (off
+	// by default: the proxies of deploy/proxy preserve the Host, and some
+	// pass the X-Forwarded-Host of the client through unchanged).
+	TrustForwardedHost bool `json:"trustForwardedHost,omitempty"`
 	// AccessRulesMax bounds the access rules of a bucket (default 200).
 	AccessRulesMax int `json:"accessRulesMax,omitempty"`
 	// KeyNormalization is the Unicode normalization of the keys the
@@ -178,6 +183,9 @@ type Static struct {
 	CacheSize   int64  `json:"cacheSize,omitempty"`
 	CacheMemory int64  `json:"cacheMemory,omitempty"`
 	CacheMode   string `json:"cacheMode,omitempty"`
+	// CacheWebhookAllow are the internal networks (CIDR or address) the
+	// purge webhooks may reach: by default only public addresses.
+	CacheWebhookAllow []string `json:"cacheWebhookAllow,omitempty"`
 
 	// Secrets are the secrets the access rules reference as
 	// ${secret:<name>}: the NEXO_SECRET_<NAME> variables (or their _FILE

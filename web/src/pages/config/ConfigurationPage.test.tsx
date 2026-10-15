@@ -25,7 +25,7 @@ describe('Configuration page (D-CFG-01)', () => {
   // The form re-renders the whole configuration on every keystroke: the
   // values are pasted (one input event) and the test has a generous
   // timeout, so that a loaded machine slows it down without failing it.
-  it('edits a subsystem with validation', { timeout: 15_000 }, async () => {
+  it('edits a subsystem with validation', { timeout: 30_000 }, async () => {
     const user = userEvent.setup();
     const { services } = renderPage();
     const region = await screen.findByRole('textbox', { name: 'name' });

@@ -39,7 +39,7 @@ func (s *service) Warm(ctx context.Context, req WarmRequest) (WarmJob, error) {
 	if err != nil {
 		return WarmJob{}, err
 	}
-	if err := s.validateWarm(&req, d); err != nil {
+	if err := s.validateWarm(ctx, &req, d); err != nil {
 		return WarmJob{}, err
 	}
 	job := WarmJob{ID: s.newID("warm"), Request: req, CreatedAt: s.now().UTC(), State: WarmRunning}
@@ -69,7 +69,7 @@ func (s *service) Warm(ctx context.Context, req WarmRequest) (WarmJob, error) {
 }
 
 // validateWarm checks a warm-up and fills its defaults.
-func (s *service) validateWarm(req *WarmRequest, d distribution.Distribution) error {
+func (s *service) validateWarm(ctx context.Context, req *WarmRequest, d distribution.Distribution) error {
 	if req.Domain == "" {
 		for _, a := range d.Aliases {
 			if !strings.HasPrefix(a, "*.") {
@@ -100,8 +100,8 @@ func (s *service) validateWarm(req *WarmRequest, d distribution.Distribution) er
 		return fmt.Errorf("%w: prefix %q must start with /", ErrInvalid, req.Prefix)
 	}
 	if req.Pattern != nil {
-		if _, err := s.deps.Matcher.Compile(context.Background(), *req.Pattern); err != nil {
-			return fmt.Errorf("%w: pattern: %v", ErrInvalid, err)
+		if _, err := compilePatterns(ctx, s.deps.Matcher, []distribution.PathPattern{*req.Pattern}, "pattern"); err != nil {
+			return err
 		}
 	}
 	if len(req.Paths)+len(req.URLs) == 0 && req.Prefix == "" && req.Pattern == nil {
@@ -127,7 +127,7 @@ func (s *service) StartWarm(ctx context.Context, job WarmJob) error {
 		return err
 	}
 	req := job.Request
-	if err := s.validateWarm(&req, d); err != nil {
+	if err := s.validateWarm(ctx, &req, d); err != nil {
 		return err
 	}
 	job.Request = req
@@ -225,13 +225,14 @@ func (s *service) warmPaths(ctx context.Context, req WarmRequest, d distribution
 	if req.Prefix == "" && req.Pattern == nil {
 		return out, nil
 	}
-	var pattern distribution.CompiledPattern
+	var pattern *pathPatterns
 	listPrefix := req.Prefix
 	if req.Pattern != nil {
-		var err error
-		if pattern, err = s.deps.Matcher.Compile(ctx, *req.Pattern); err != nil {
+		compiled, err := compilePatterns(ctx, s.deps.Matcher, []distribution.PathPattern{*req.Pattern}, "pattern")
+		if err != nil {
 			return nil, err
 		}
+		pattern = &compiled
 		if pre, _ := literalPrefix(*req.Pattern); len(pre) > len(listPrefix) {
 			listPrefix = pre
 		}
@@ -245,7 +246,7 @@ func (s *service) warmPaths(ctx context.Context, req WarmRequest, d distribution
 		}
 		for _, o := range res.Objects {
 			p := "/" + strings.TrimPrefix(o.Key, keyPrefixOf(d))
-			if strings.HasSuffix(o.Key, "/") || (req.Prefix != "" && !strings.HasPrefix(p, req.Prefix)) || (pattern != nil && !pattern.Match(p)) {
+			if strings.HasSuffix(o.Key, "/") || (req.Prefix != "" && !strings.HasPrefix(p, req.Prefix)) || (pattern != nil && !pattern.any(ctx, p)) {
 				continue
 			}
 			add(p)
@@ -349,18 +350,11 @@ func (s *service) warmOnWrite(ctx context.Context, change ObjectChange) {
 	for _, d := range s.distributionsOf(change.Bucket) {
 		cd := sn.dists[d.ID]
 		prefix := keyPrefixOf(d)
-		if cd == nil || len(cd.warm) == 0 || !strings.HasPrefix(change.Key, prefix) {
+		if cd == nil || len(cd.warm.matchers) == 0 || !strings.HasPrefix(change.Key, prefix) {
 			continue
 		}
 		path := "/" + strings.TrimPrefix(change.Key, prefix)
-		matched := false
-		for _, p := range cd.warm {
-			if p.Match(path) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
+		if !cd.warm.any(ctx, path) {
 			continue
 		}
 		hosts := []string{}
@@ -386,7 +380,7 @@ func (s *service) warmOnWrite(ctx context.Context, change ObjectChange) {
 					s.deps.Logger.DebugContext(life, "cache: warm-up on write failed", "key", change.Key, "host", h, "err", err)
 				}
 			}()
-			if !sn.resolveFor(d.ID, h, path).p.IncludeHost {
+			if !sn.resolveFor(ctx, d.ID, h, path).p.IncludeHost {
 				// The aliases share the entries: one read warms them all.
 				break
 			}

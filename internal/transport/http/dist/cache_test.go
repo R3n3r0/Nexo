@@ -61,6 +61,7 @@ func TestHostRouterCache(t *testing.T) {
 	}).Maybe()
 	admission := distmock.NewWebsite(t)
 	admission.EXPECT().Admit(tmock.Anything, tmock.Anything).Return(nil).Maybe()
+	admission.EXPECT().AuthorizeS3(tmock.Anything, tmock.Anything).Return(nil).Maybe()
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Context().Value(exchangeKey{}) != nil {
 			_, _ = io.WriteString(w, "s3 on domain")

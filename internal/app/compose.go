@@ -303,7 +303,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	if err != nil {
 		return nil, err
 	}
-	accessRules, err := access.service(buckets, policies, dynConfig, auditor, d.clock, logger)
+	accessRules, err := access.service(buckets, stores.buckets, policies, dynConfig, auditor, d.clock, logger)
 	if err != nil {
 		return nil, fmt.Errorf("access rules: %w", err)
 	}
@@ -388,7 +388,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	s3Middlewares, err := s3Middlewares(middlewareDeps{
 		logger: logger, clock: d.clock, codec: codec, ids: ids,
 		registry: registry, verifier: verifier, auditor: auditor, domains: domainsOf(cfg),
-		trustedProxies: cfg.TrustedProxies, forwardedHeaders: cfg.ForwardedHeaders, dist: distStack,
+		trustedProxies: cfg.TrustedProxies, forwardedHeaders: cfg.ForwardedHeaders, trustForwardedHost: cfg.TrustForwardedHost, dist: distStack,
 	})
 	if err != nil {
 		return nil, err
@@ -438,7 +438,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	// Console + Admin API server (:9001).
 	consoleMiddlewares, err := consoleMiddlewares(middlewareDeps{
 		logger: logger, clock: d.clock, codec: codec, ids: ids, registry: registry, trustedProxies: cfg.TrustedProxies,
-		forwardedHeaders: cfg.ForwardedHeaders,
+		forwardedHeaders: cfg.ForwardedHeaders, trustForwardedHost: cfg.TrustForwardedHost,
 	})
 	if err != nil {
 		return nil, err

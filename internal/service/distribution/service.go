@@ -65,6 +65,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/lifecycle"
 	"github.com/r3n3r0/nexo/internal/service/cluster"
 	"github.com/r3n3r0/nexo/internal/service/lock"
+	"github.com/r3n3r0/nexo/internal/service/match"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/service/sysstore"
@@ -102,19 +103,25 @@ const (
 	AccessDeny Access = "deny"
 )
 
-// PatternType is the syntax of a path pattern.
-type PatternType string
+// PatternType is the syntax of a path pattern: the one of the access
+// rules (match.Type), so that behaviors, cache settings and access rules
+// share a single matcher (internal/service/match).
+type PatternType = match.Type
 
 // Path pattern syntaxes (docs/10 §10.1 "Tipi di pattern").
 const (
 	// PatternPrefix is a literal prefix.
-	PatternPrefix PatternType = "prefix"
+	PatternPrefix = match.TypePrefix
 	// PatternGlob supports "*" (one segment), "**" (any number of
 	// segments), "?", "[abc]" and "{a,b}".
-	PatternGlob PatternType = "glob"
+	PatternGlob = match.TypeGlob
 	// PatternRegex is an RE2 regular expression (linear time).
-	PatternRegex PatternType = "regex"
+	PatternRegex = match.TypeRegex
 )
+
+// MaxPatternLength bounds a path pattern or a redirect expression, in
+// characters (docs/10 §10.1).
+const MaxPatternLength = match.MaxPatternLength
 
 // PrincipalPrefix prefixes the id of a distribution in the principal of
 // the access rules ("distribution:sito-web"): every policy evaluation of a
@@ -130,12 +137,9 @@ const (
 )
 
 // PathPattern selects the request paths of a behavior. The path includes
-// its leading "/" and is decoded.
-type PathPattern struct {
-	Type            PatternType `json:"type" yaml:"type"`
-	Pattern         string      `json:"pattern" yaml:"pattern"`
-	CaseInsensitive bool        `json:"caseInsensitive,omitempty" yaml:"caseInsensitive,omitempty"`
-}
+// its leading "/", is decoded and is matched in its normalized form
+// (match.Service.Normalize): it is the pattern of the access rules.
+type PathPattern = match.Pattern
 
 // Origin is the bucket (and prefix) a distribution serves.
 type Origin struct {
@@ -585,19 +589,6 @@ type Signer interface {
 	SignCookies(ctx context.Context, in SignInput) ([]SignedCookie, error)
 }
 
-// Matcher compiles the path patterns of the behaviors. The access rules
-// provide a richer implementation (normalization, limits); NewMatcher is
-// the built-in one.
-type Matcher interface {
-	Compile(ctx context.Context, p PathPattern) (CompiledPattern, error)
-}
-
-// CompiledPattern matches decoded request paths. Match is a pure
-// function: the documented exception to the context rule.
-type CompiledPattern interface {
-	Match(path string) bool
-}
-
 // SecretSource resolves the secrets referenced as "${secret:<name>}" (the
 // NEXO_SECRET_<NAME> variables): an origin secret may name one instead of
 // carrying its value.
@@ -623,8 +614,9 @@ type Deps struct {
 	// Notifier broadcasts the changes to the peers and delivers theirs
 	// (required; the local notifier on a single node).
 	Notifier cluster.Notifier
-	// Matcher compiles the path patterns (default NewMatcher()).
-	Matcher Matcher
+	// Matcher compiles the path patterns and normalizes the request paths
+	// (default match.New: the matcher of the access rules).
+	Matcher match.Service
 	Clock   clock.Clock
 	Logger  *slog.Logger
 }
@@ -679,10 +671,18 @@ type Website interface {
 	// request the transport must not have sent (no distribution).
 	Serve(ctx context.Context, req WebRequest) (*WebResponse, error)
 	// Admit applies to a request of any mode the checks that come before
-	// the origin: disabled distribution, source IP, origin secret, a
-	// default behavior denying everything. It returns the refusal, nil
-	// when the request may go on (to the S3 API for the s3 mode).
+	// the origin and before its authentication (docs/10 §10.2: the origin
+	// secret "precede ogni altra valutazione"): disabled distribution,
+	// source IP, origin secret, a default behavior denying everything. It
+	// returns the refusal, nil when the request may go on (to the S3 API
+	// for the s3 mode).
 	Admit(ctx context.Context, req WebRequest) *WebResponse
+	// AuthorizeS3 applies the access of an s3 distribution to a request
+	// once authenticated (req.Identity): an authenticated default
+	// behavior refuses the anonymous requests. nil when the request may
+	// go on to the S3 API (IAM and the policies decide), and for the
+	// other modes.
+	AuthorizeS3(ctx context.Context, req WebRequest) *WebResponse
 }
 
 // WebsiteDeps are the dependencies of the website engine.
@@ -694,9 +694,10 @@ type WebsiteDeps struct {
 	// Signatures verifies the signed URLs and cookies (required: the
 	// distribution Service).
 	Signatures SignedRequestVerifier
-	// Matcher compiles the path patterns of the behaviors (default
-	// NewMatcher()).
-	Matcher Matcher
+	// Matcher compiles the path patterns of the behaviors and normalizes
+	// the request paths (default match.New: the matcher of the access
+	// rules).
+	Matcher match.Service
 	// PublicAccess reports the block public access of the buckets;
 	// nil blocks nothing.
 	PublicAccess PublicAccessBlock

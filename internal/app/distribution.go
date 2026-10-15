@@ -46,6 +46,10 @@ type distStack struct {
 	certs   certs.Service
 	signer  distribution.Signer
 	website distribution.Website
+	// matcher is the matcher of the access rules, of the behaviors (in
+	// the service and in the website engine) and of the cache: one
+	// pattern syntax and one path normalization.
+	matcher match.Service
 	// s3Hosts is the host router of the S3 listener.
 	s3Hosts dist.HostRouter
 	// webSrv and webTLSSrv are the web listeners (nil when not
@@ -88,12 +92,8 @@ func newDistCore(d distCoreDeps) (*distStack, error) {
 		distribution.WithMainHosts(mainHosts(d.cfg)...),
 		distribution.WithUnknownHostMisdirected(d.cfg.UnknownHost == config.UnknownHostMisdirected),
 	}
-	var matcher distribution.Matcher
-	if d.matcher != nil {
-		matcher = matchAdapter{m: d.matcher}
-	}
 	raw, err := distribution.New(distribution.Deps{
-		Store: docs, Locks: d.f.locks, Notifier: d.f.notifier, Matcher: matcher, Clock: d.clock, Logger: logger,
+		Store: docs, Locks: d.f.locks, Notifier: d.f.notifier, Matcher: d.matcher, Clock: d.clock, Logger: logger,
 	}, distOpts...)
 	if err != nil {
 		return nil, err
@@ -105,6 +105,7 @@ func newDistCore(d distCoreDeps) (*distStack, error) {
 	certOpts := []certs.Option{
 		certs.WithACMEDirectory(d.cfg.ACMEDirectory), certs.WithACMEEmail(d.cfg.ACMEEmail),
 		certs.WithChallenge(d.cfg.ACMEChallenge), certs.WithReconcileOn(distribution.EventDistribution),
+		certs.WithMainHosts(mainHosts(d.cfg)...), certs.WithDomains(domainsOf(d.cfg)...),
 	}
 	if d.cfg.ACMECACert != "" {
 		client, err := acmeHTTPClient(d.cfg.ACMECACert)
@@ -115,7 +116,8 @@ func newDistCore(d distCoreDeps) (*distStack, error) {
 	}
 	certSvc, err := certs.New(certs.Deps{
 		Store: docs, Locks: d.f.locks, Notifier: d.f.notifier, Leader: d.f.leader, Sealer: sealer,
-		Domains: acmeDomains{dists: raw}, Metrics: d.registry, Clock: d.clock, Logger: d.logger.With("component", "certs"),
+		Domains: acmeDomains{dists: raw}, Hosts: certificateHosts{routes: raw}, Metrics: d.registry, Clock: d.clock,
+		Logger: d.logger.With("component", "certs"),
 	}, certOpts...)
 	if err != nil {
 		return nil, err
@@ -125,6 +127,7 @@ func newDistCore(d distCoreDeps) (*distStack, error) {
 		raw:     raw,
 		certs:   certSvc,
 		signer:  distribution.NewSigner(distribution.SignerDeps{Clock: d.clock}),
+		matcher: d.matcher,
 		logger:  logger,
 	}, nil
 }
@@ -146,8 +149,10 @@ func (s *distStack) authSkip(skip func(*http.Request) bool) func(*http.Request) 
 			return true
 		}
 		if _, ok := s3Host(middleware.HostOf(r)); ok {
-			// An object key of an s3 distribution, whatever its path.
-			return false
+			// An object key of an s3 distribution, whatever its path; a
+			// request its admission refuses (origin secret, address) is
+			// not authenticated at all: the host router refuses it first.
+			return s.website != nil && dist.RefusedS3Request(s.raw, s.website)(r)
 		}
 		return skip != nil && skip(r)
 	}
@@ -192,7 +197,7 @@ func (s *distStack) composeHTTP(d distHTTPDeps) error {
 		secrets = secretSource{store: d.secrets}
 	}
 	website, err := distribution.NewWebsite(distribution.WebsiteDeps{
-		Objects: d.objects, Policy: d.policy, Signatures: s.raw, PublicAccess: d.publicAccess, Secrets: secrets,
+		Objects: d.objects, Policy: d.policy, Signatures: s.raw, Matcher: s.matcher, PublicAccess: d.publicAccess, Secrets: secrets,
 		Clock: d.clock, Logger: s.logger,
 	}, distribution.WithServerHeader("Nexo"))
 	if err != nil {
@@ -294,7 +299,7 @@ func (s *distStack) runner() lifecycle.Runner {
 // metrics (the website routes authenticate their own requests).
 func webMiddlewares(d distHTTPDeps) ([]middleware.Middleware, error) {
 	forwarded, err := middleware.NewForwarded(middleware.ForwardedDeps{}, middleware.WithTrustedProxies(d.cfg.TrustedProxies...),
-		middleware.WithForwardedHeaders(middleware.ForwardedHeaders(d.cfg.ForwardedHeaders)))
+		middleware.WithForwardedHeaders(middleware.ForwardedHeaders(d.cfg.ForwardedHeaders)), middleware.WithForwardedHost(d.cfg.TrustForwardedHost))
 	if err != nil {
 		return nil, err
 	}
@@ -379,13 +384,43 @@ func (a acmeDomains) ACMEDomains(ctx context.Context) ([]certs.ManagedDomains, e
 		if !d.Enabled || d.TLS.Certificate != distribution.CertificateAuto {
 			continue
 		}
-		id := "acme-" + d.ID
-		if len(id) > 64 {
-			id = id[:64]
-		}
-		out = append(out, certs.ManagedDomains{ID: strings.TrimRight(id, "-._"), Domains: d.Aliases})
+		out = append(out, certs.ManagedDomains{ID: acmeCertificateID(d.ID), Domains: d.Aliases})
 	}
 	return out, nil
+}
+
+// acmeCertificateID is the id of the ACME certificate of a distribution.
+func acmeCertificateID(distributionID string) string {
+	id := "acme-" + distributionID
+	if len(id) > 64 {
+		id = id[:64]
+	}
+	return strings.TrimRight(id, "-._")
+}
+
+// certificateHosts binds the hosts of the TLS handshakes to the
+// certificate of the enabled distribution serving them (its routing
+// table: no I/O).
+type certificateHosts struct {
+	routes distribution.Resolver
+}
+
+var _ certs.HostSource = certificateHosts{}
+
+// CertificateFor implements certs.HostSource.
+func (h certificateHosts) CertificateFor(ctx context.Context, host string) (string, bool) {
+	route := h.routes.Resolve(ctx, host)
+	d := route.Distribution
+	if route.Kind != distribution.RouteDistribution || d == nil || !d.Enabled {
+		return "", false
+	}
+	if d.TLS.Certificate == distribution.CertificateAuto {
+		return acmeCertificateID(d.ID), true
+	}
+	if id, ok := strings.CutPrefix(d.TLS.Certificate, distribution.CertificateUploadPrefix); ok && id != "" {
+		return id, true
+	}
+	return "", false
 }
 
 // reconcilingDistributions asks the certificate job for a reconciliation
@@ -431,34 +466,6 @@ func (r reconcilingDistributions) Delete(ctx context.Context, id string) error {
 		r.certs.Trigger(ctx)
 	}
 	return err
-}
-
-// matchAdapter makes the matcher of the access rules the matcher of the
-// behaviors: one pattern syntax (and one normalization) for both.
-type matchAdapter struct {
-	m match.Service
-}
-
-var _ distribution.Matcher = matchAdapter{}
-
-// Compile implements distribution.Matcher.
-func (a matchAdapter) Compile(ctx context.Context, p distribution.PathPattern) (distribution.CompiledPattern, error) {
-	m, err := a.m.Compile(ctx, match.Pattern{Type: match.Type(p.Type), Pattern: p.Pattern, CaseInsensitive: p.CaseInsensitive})
-	if err != nil {
-		return nil, err
-	}
-	return compiledMatch{svc: a.m, m: m}, nil
-}
-
-// compiledMatch matches the normalized request paths.
-type compiledMatch struct {
-	svc match.Service
-	m   match.Matcher
-}
-
-// Match implements distribution.CompiledPattern.
-func (c compiledMatch) Match(path string) bool {
-	return c.m.Match(c.svc.Normalize(context.Background(), path)).Matched
 }
 
 // secretSource resolves the ${secret:<name>} origin secrets with the

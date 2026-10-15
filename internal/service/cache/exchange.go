@@ -40,6 +40,9 @@ type exchange struct {
 	key       string
 	node      string
 	vary      bool
+	// varyOn are the request headers the key of the entry depends on
+	// (cacheKey.headers, Cookie for cacheKey.cookies).
+	varyOn    []string
 	browserCC string
 	policy    string
 	path      string
@@ -73,7 +76,7 @@ func (s *service) Begin(ctx context.Context, req Request) (context.Context, Exch
 		path = "/" + path
 	}
 	sn := s.snap.Load()
-	res := sn.resolveFor(d.ID, req.Host, path)
+	res := sn.resolveFor(ctx, d.ID, req.Host, path)
 	ex.bypass = bypassReason(&res.p, &ex.req)
 	if ex.bypass == "" && req.Credentials {
 		// A policy that does not bypass the credentials caches such
@@ -128,6 +131,7 @@ func (ex *exchange) record(r Result, fn func(ex *exchange)) {
 	ex.result = r
 	ex.fromCache = r == ResultHit || r == ResultStale || r == ResultRevalidated
 	ex.age = 0
+	ex.varyOn = nil
 	if fn != nil {
 		fn(ex)
 	}
@@ -146,6 +150,12 @@ func (ex *exchange) Decorate(status int, h http.Header) {
 	}
 	if ex.vary && !varyHas(h, "Accept-Encoding") {
 		h.Add("Vary", "Accept-Encoding")
+	}
+	// A cache in front of Nexo keys the response like Nexo does.
+	for _, name := range ex.varyOn {
+		if !varyHas(h, name) {
+			h.Add("Vary", name)
+		}
 	}
 	if ex.browserCC != "" && (status == http.StatusOK || status == http.StatusPartialContent || status == http.StatusNotModified) {
 		h.Set("Cache-Control", ex.browserCC)

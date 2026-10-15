@@ -200,17 +200,17 @@ func (_c *DistributionManager_CreateKeyGroup_Call) RunAndReturn(run func(context
 	return _c
 }
 
-// Delete provides a mock function with given fields: ctx, id
-func (_m *DistributionManager) Delete(ctx context.Context, id string) error {
-	ret := _m.Called(ctx, id)
+// Delete provides a mock function with given fields: ctx, req, id
+func (_m *DistributionManager) Delete(ctx context.Context, req admin.Requester, id string) error {
+	ret := _m.Called(ctx, req, id)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Delete")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = rf(ctx, id)
+	if rf, ok := ret.Get(0).(func(context.Context, admin.Requester, string) error); ok {
+		r0 = rf(ctx, req, id)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -225,14 +225,15 @@ type DistributionManager_Delete_Call struct {
 
 // Delete is a helper method to define mock.On call
 //   - ctx context.Context
+//   - req admin.Requester
 //   - id string
-func (_e *DistributionManager_Expecter) Delete(ctx interface{}, id interface{}) *DistributionManager_Delete_Call {
-	return &DistributionManager_Delete_Call{Call: _e.mock.On("Delete", ctx, id)}
+func (_e *DistributionManager_Expecter) Delete(ctx interface{}, req interface{}, id interface{}) *DistributionManager_Delete_Call {
+	return &DistributionManager_Delete_Call{Call: _e.mock.On("Delete", ctx, req, id)}
 }
 
-func (_c *DistributionManager_Delete_Call) Run(run func(ctx context.Context, id string)) *DistributionManager_Delete_Call {
+func (_c *DistributionManager_Delete_Call) Run(run func(ctx context.Context, req admin.Requester, id string)) *DistributionManager_Delete_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
+		run(args[0].(context.Context), args[1].(admin.Requester), args[2].(string))
 	})
 	return _c
 }
@@ -242,22 +243,22 @@ func (_c *DistributionManager_Delete_Call) Return(_a0 error) *DistributionManage
 	return _c
 }
 
-func (_c *DistributionManager_Delete_Call) RunAndReturn(run func(context.Context, string) error) *DistributionManager_Delete_Call {
+func (_c *DistributionManager_Delete_Call) RunAndReturn(run func(context.Context, admin.Requester, string) error) *DistributionManager_Delete_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// DeleteKey provides a mock function with given fields: ctx, group, keyID
-func (_m *DistributionManager) DeleteKey(ctx context.Context, group string, keyID string) error {
-	ret := _m.Called(ctx, group, keyID)
+// DeleteKey provides a mock function with given fields: ctx, req, group, keyID
+func (_m *DistributionManager) DeleteKey(ctx context.Context, req admin.Requester, group string, keyID string) error {
+	ret := _m.Called(ctx, req, group, keyID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DeleteKey")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
-		r0 = rf(ctx, group, keyID)
+	if rf, ok := ret.Get(0).(func(context.Context, admin.Requester, string, string) error); ok {
+		r0 = rf(ctx, req, group, keyID)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -272,15 +273,16 @@ type DistributionManager_DeleteKey_Call struct {
 
 // DeleteKey is a helper method to define mock.On call
 //   - ctx context.Context
+//   - req admin.Requester
 //   - group string
 //   - keyID string
-func (_e *DistributionManager_Expecter) DeleteKey(ctx interface{}, group interface{}, keyID interface{}) *DistributionManager_DeleteKey_Call {
-	return &DistributionManager_DeleteKey_Call{Call: _e.mock.On("DeleteKey", ctx, group, keyID)}
+func (_e *DistributionManager_Expecter) DeleteKey(ctx interface{}, req interface{}, group interface{}, keyID interface{}) *DistributionManager_DeleteKey_Call {
+	return &DistributionManager_DeleteKey_Call{Call: _e.mock.On("DeleteKey", ctx, req, group, keyID)}
 }
 
-func (_c *DistributionManager_DeleteKey_Call) Run(run func(ctx context.Context, group string, keyID string)) *DistributionManager_DeleteKey_Call {
+func (_c *DistributionManager_DeleteKey_Call) Run(run func(ctx context.Context, req admin.Requester, group string, keyID string)) *DistributionManager_DeleteKey_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string))
+		run(args[0].(context.Context), args[1].(admin.Requester), args[2].(string), args[3].(string))
 	})
 	return _c
 }
@@ -290,22 +292,22 @@ func (_c *DistributionManager_DeleteKey_Call) Return(_a0 error) *DistributionMan
 	return _c
 }
 
-func (_c *DistributionManager_DeleteKey_Call) RunAndReturn(run func(context.Context, string, string) error) *DistributionManager_DeleteKey_Call {
+func (_c *DistributionManager_DeleteKey_Call) RunAndReturn(run func(context.Context, admin.Requester, string, string) error) *DistributionManager_DeleteKey_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// DeleteKeyGroup provides a mock function with given fields: ctx, id
-func (_m *DistributionManager) DeleteKeyGroup(ctx context.Context, id string) error {
-	ret := _m.Called(ctx, id)
+// DeleteKeyGroup provides a mock function with given fields: ctx, req, id
+func (_m *DistributionManager) DeleteKeyGroup(ctx context.Context, req admin.Requester, id string) error {
+	ret := _m.Called(ctx, req, id)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DeleteKeyGroup")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
-		r0 = rf(ctx, id)
+	if rf, ok := ret.Get(0).(func(context.Context, admin.Requester, string) error); ok {
+		r0 = rf(ctx, req, id)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -320,14 +322,15 @@ type DistributionManager_DeleteKeyGroup_Call struct {
 
 // DeleteKeyGroup is a helper method to define mock.On call
 //   - ctx context.Context
+//   - req admin.Requester
 //   - id string
-func (_e *DistributionManager_Expecter) DeleteKeyGroup(ctx interface{}, id interface{}) *DistributionManager_DeleteKeyGroup_Call {
-	return &DistributionManager_DeleteKeyGroup_Call{Call: _e.mock.On("DeleteKeyGroup", ctx, id)}
+func (_e *DistributionManager_Expecter) DeleteKeyGroup(ctx interface{}, req interface{}, id interface{}) *DistributionManager_DeleteKeyGroup_Call {
+	return &DistributionManager_DeleteKeyGroup_Call{Call: _e.mock.On("DeleteKeyGroup", ctx, req, id)}
 }
 
-func (_c *DistributionManager_DeleteKeyGroup_Call) Run(run func(ctx context.Context, id string)) *DistributionManager_DeleteKeyGroup_Call {
+func (_c *DistributionManager_DeleteKeyGroup_Call) Run(run func(ctx context.Context, req admin.Requester, id string)) *DistributionManager_DeleteKeyGroup_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string))
+		run(args[0].(context.Context), args[1].(admin.Requester), args[2].(string))
 	})
 	return _c
 }
@@ -337,7 +340,7 @@ func (_c *DistributionManager_DeleteKeyGroup_Call) Return(_a0 error) *Distributi
 	return _c
 }
 
-func (_c *DistributionManager_DeleteKeyGroup_Call) RunAndReturn(run func(context.Context, string) error) *DistributionManager_DeleteKeyGroup_Call {
+func (_c *DistributionManager_DeleteKeyGroup_Call) RunAndReturn(run func(context.Context, admin.Requester, string) error) *DistributionManager_DeleteKeyGroup_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -629,9 +632,9 @@ func (_c *DistributionManager_Resolve_Call) RunAndReturn(run func(context.Contex
 	return _c
 }
 
-// RotateOriginSecret provides a mock function with given fields: ctx, in
-func (_m *DistributionManager) RotateOriginSecret(ctx context.Context, in distribution.RotateSecretInput) (*admin.RotatedOriginSecret, error) {
-	ret := _m.Called(ctx, in)
+// RotateOriginSecret provides a mock function with given fields: ctx, req, in
+func (_m *DistributionManager) RotateOriginSecret(ctx context.Context, req admin.Requester, in distribution.RotateSecretInput) (*admin.RotatedOriginSecret, error) {
+	ret := _m.Called(ctx, req, in)
 
 	if len(ret) == 0 {
 		panic("no return value specified for RotateOriginSecret")
@@ -639,19 +642,19 @@ func (_m *DistributionManager) RotateOriginSecret(ctx context.Context, in distri
 
 	var r0 *admin.RotatedOriginSecret
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, distribution.RotateSecretInput) (*admin.RotatedOriginSecret, error)); ok {
-		return rf(ctx, in)
+	if rf, ok := ret.Get(0).(func(context.Context, admin.Requester, distribution.RotateSecretInput) (*admin.RotatedOriginSecret, error)); ok {
+		return rf(ctx, req, in)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, distribution.RotateSecretInput) *admin.RotatedOriginSecret); ok {
-		r0 = rf(ctx, in)
+	if rf, ok := ret.Get(0).(func(context.Context, admin.Requester, distribution.RotateSecretInput) *admin.RotatedOriginSecret); ok {
+		r0 = rf(ctx, req, in)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*admin.RotatedOriginSecret)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, distribution.RotateSecretInput) error); ok {
-		r1 = rf(ctx, in)
+	if rf, ok := ret.Get(1).(func(context.Context, admin.Requester, distribution.RotateSecretInput) error); ok {
+		r1 = rf(ctx, req, in)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -666,14 +669,15 @@ type DistributionManager_RotateOriginSecret_Call struct {
 
 // RotateOriginSecret is a helper method to define mock.On call
 //   - ctx context.Context
+//   - req admin.Requester
 //   - in distribution.RotateSecretInput
-func (_e *DistributionManager_Expecter) RotateOriginSecret(ctx interface{}, in interface{}) *DistributionManager_RotateOriginSecret_Call {
-	return &DistributionManager_RotateOriginSecret_Call{Call: _e.mock.On("RotateOriginSecret", ctx, in)}
+func (_e *DistributionManager_Expecter) RotateOriginSecret(ctx interface{}, req interface{}, in interface{}) *DistributionManager_RotateOriginSecret_Call {
+	return &DistributionManager_RotateOriginSecret_Call{Call: _e.mock.On("RotateOriginSecret", ctx, req, in)}
 }
 
-func (_c *DistributionManager_RotateOriginSecret_Call) Run(run func(ctx context.Context, in distribution.RotateSecretInput)) *DistributionManager_RotateOriginSecret_Call {
+func (_c *DistributionManager_RotateOriginSecret_Call) Run(run func(ctx context.Context, req admin.Requester, in distribution.RotateSecretInput)) *DistributionManager_RotateOriginSecret_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(distribution.RotateSecretInput))
+		run(args[0].(context.Context), args[1].(admin.Requester), args[2].(distribution.RotateSecretInput))
 	})
 	return _c
 }
@@ -683,7 +687,7 @@ func (_c *DistributionManager_RotateOriginSecret_Call) Return(_a0 *admin.Rotated
 	return _c
 }
 
-func (_c *DistributionManager_RotateOriginSecret_Call) RunAndReturn(run func(context.Context, distribution.RotateSecretInput) (*admin.RotatedOriginSecret, error)) *DistributionManager_RotateOriginSecret_Call {
+func (_c *DistributionManager_RotateOriginSecret_Call) RunAndReturn(run func(context.Context, admin.Requester, distribution.RotateSecretInput) (*admin.RotatedOriginSecret, error)) *DistributionManager_RotateOriginSecret_Call {
 	_c.Call.Return(run)
 	return _c
 }
