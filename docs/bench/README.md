@@ -13,7 +13,7 @@ riferimento degli obiettivi (4 nodi NVMe, 25 GbE).
 | Kernel | Linux 6.18 |
 | Drive | tmpfs (`/dev/shm`, `BENCH_TMPFS=1`): misura lo stack software, non i dischi |
 | Rete | loopback (`127.0.0.1`), client e server sulla stessa macchina |
-| Go | 1.24.7 (`go.mod`), build `-trimpath` |
+| Go | 1.24.7 (il `go.mod` di M9; dalla v1.0 la toolchain è 1.26.9), build `-trimpath` |
 | Client | `github.com/minio/warp` v1.8.2 (minio-go: firma SigV4 in streaming su HTTP) |
 
 Riferimenti grezzi della stessa macchina, misurati con lo speed test di Nexo (`POST /api/v1/speedtest/*`,

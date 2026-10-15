@@ -1,3 +1,4 @@
+# covers: C-DST-01
 # TCL-D-01: dist create with two domains: the requests for both hosts serve
 # the content (the domains are simulated with the Host header).
 # TCL-D-02: dist sign-url with the stored key of the key group: the URL is

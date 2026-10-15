@@ -59,7 +59,7 @@ func Follow[T any](ctx context.Context, open func(context.Context) (EventStream[
 		} else {
 			first = false
 			delay = base
-			done, readErr := drain(ctx, stream, each, opts, &count)
+			done, readErr := drainStream(ctx, stream, each, opts, &count)
 			if done || ctx.Err() != nil {
 				return readErr
 			}
@@ -82,9 +82,9 @@ func Follow[T any](ctx context.Context, open func(context.Context) (EventStream[
 	}
 }
 
-// drain reads stream until it ends or fails (the error is returned with
+// drainStream reads stream until it ends or fails (the error is returned with
 // done false) or Follow must stop (done true, with the error of each).
-func drain[T any](ctx context.Context, stream EventStream[T], each func(*T) error, opts FollowOptions, count *int) (done bool, err error) {
+func drainStream[T any](ctx context.Context, stream EventStream[T], each func(*T) error, opts FollowOptions, count *int) (done bool, err error) {
 	defer func() { _ = stream.Close() }()
 	var dropped uint64
 	report := func() {

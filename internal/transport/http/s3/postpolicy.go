@@ -162,6 +162,10 @@ func readPostForm(r *http.Request, bucketName string) (auth.PostForm, *multipart
 			return auth.PostForm{}, nil, malformedPost("The body of your POST request is not well-formed multipart/form-data.")
 		}
 		name := strings.ToLower(part.FormName())
+		if name == "" {
+			// Every part of a form names its field (RFC 7578 §4.2).
+			return auth.PostForm{}, nil, malformedPost("The body of your POST request is not well-formed multipart/form-data.")
+		}
 		if name == postFieldFile {
 			form.FileName = baseName(part.FileName())
 			return form, part, nil
@@ -174,9 +178,7 @@ func readPostForm(r *http.Request, bucketName string) (auth.PostForm, *multipart
 		if len(value) > maxPostFieldSize || total > maxPostFormSize {
 			return auth.PostForm{}, nil, domain.NewS3Error(domain.ErrInvalidArgument, "MaxMessageLengthExceeded", "The form fields of your POST request are too large.")
 		}
-		if name != "" {
-			form.Fields[name] = string(value)
-		}
+		form.Fields[name] = string(value)
 	}
 }
 
@@ -263,6 +265,7 @@ func (h *postPolicyRoutes) respond(w http.ResponseWriter, r *http.Request, form 
 	w.Header().Set("ETag", etag)
 	w.Header().Set("Location", location)
 	setWrittenVersion(w, info.VersionID)
+	writeChecksum(w, info.Checksum)
 	writeSSEHeaders(w, info.Encryption)
 	if redirect, ok := successRedirect(form.Fields, bucketName, key, etag); ok {
 		w.Header().Set("Location", redirect)

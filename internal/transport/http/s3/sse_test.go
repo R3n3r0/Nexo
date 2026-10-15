@@ -266,6 +266,7 @@ func TestPutBucketEncryption(t *testing.T) {
 	}
 }
 
+// covers: S-BKT-09
 func TestQuotaExceeded(t *testing.T) {
 	f := newFixture(t)
 	f.objects.EXPECT().PutObject(mock.Anything, mock.Anything).

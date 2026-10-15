@@ -1,0 +1,46 @@
+## nexoctl admin metrics query
+
+Show the points of a series of metrics
+
+### Synopsis
+
+Show the points of a series (see "nexoctl admin metrics list") over --range, ending
+now or at --end: one row per point, the cluster value then the value of each node (a
+dash where a node has no sample).
+
+```
+nexoctl admin metrics query [flags] ALIAS METRIC
+```
+
+### Examples
+
+```
+  nexoctl admin metrics query local s3_requests
+  nexoctl admin metrics query --range 6h --step 5m local s3_latency_p99
+  nexoctl admin metrics query --node n1:9000 --json local drives_online
+```
+
+### Options
+
+```
+      --end string       end of the range: a duration before now (30m) or a date (RFC 3339; default now)
+  -h, --help             help for query
+      --node strings     nodes of a cluster (host:port; default all)
+      --range duration   span of the points (default 1h, at most 24h)
+      --step duration    distance between two points (default: chosen by the server, at least 10s)
+```
+
+### Options inherited from parent commands
+
+```
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+```
+
+### SEE ALSO
+
+* [nexoctl admin metrics](nexoctl_admin_metrics.md)	 - Query the recent metrics kept by the server
+

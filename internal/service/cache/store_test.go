@@ -31,6 +31,8 @@ func diskFiles(t *testing.T, s cache.Service) []string {
 
 // TestDomainQuota is TCC-13: a domain stays within its quota by evicting
 // its least recently used entries; the other domains keep theirs.
+//
+// covers: S-DST-07
 func TestDomainQuota(t *testing.T) {
 	e := newEnv(t, envOptions{})
 	const objSize = 10 << 10
@@ -98,6 +100,8 @@ func TestMemoryTierEviction(t *testing.T) {
 // back after the memory tier lost them, reloaded unverified after a
 // restart (revalidated before they are served), the encrypted objects
 // never written.
+//
+// covers: S-DST-07
 func TestDiskTier(t *testing.T) {
 	dir := t.TempDir()
 	docs := &memDocs{docs: map[string][]byte{}}
@@ -141,6 +145,8 @@ func TestDiskTier(t *testing.T) {
 // TestDiskCorruption is TCC-14: a corrupt or missing file is dropped and
 // the object served from the origin; a cache directory removed or made
 // unwritable at runtime never fails a request.
+//
+// covers: S-DST-07
 func TestDiskCorruption(t *testing.T) {
 	dir := t.TempDir()
 	e := newEnv(t, envOptions{opts: []cache.Option{cache.WithDir(dir), cache.WithMemorySize(64 << 10)}})

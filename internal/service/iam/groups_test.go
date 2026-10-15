@@ -13,6 +13,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/policy"
 )
 
+// covers: S-IAM-05
 func TestGroupLifecycle(t *testing.T) {
 	ctx := context.Background()
 	svc, _ := newIAM(t, nil)
@@ -64,6 +65,7 @@ func TestGroupLifecycle(t *testing.T) {
 	assert.Empty(t, id.PolicyNames)
 }
 
+// covers: S-IAM-05
 func TestGroupErrors(t *testing.T) {
 	ctx := context.Background()
 	svc, _ := newIAM(t, nil)

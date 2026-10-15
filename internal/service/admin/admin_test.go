@@ -26,6 +26,7 @@ import (
 	storagemock "github.com/r3n3r0/nexo/internal/service/storage/mock"
 )
 
+// covers: S-OPS-08
 func TestServerInfo(t *testing.T) {
 	start := time.Date(2026, 10, 7, 8, 0, 0, 0, time.UTC)
 	clk := clock.NewFake(start)
@@ -225,6 +226,8 @@ func TestServerInfoHealingProgress(t *testing.T) {
 // this one first with its own drives, the unreachable ones offline, the
 // clock offset of the peers that answer and the state of the erasure
 // sets; a failure to reach the peers falls back to this node.
+//
+// covers: S-OPS-08
 func TestServerInfoCluster(t *testing.T) {
 	ep, _ := domain.ParseEndpoint("http://n1:9000/data1")
 	d := storagemock.NewStorageAPI(t)

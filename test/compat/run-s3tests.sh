@@ -16,16 +16,20 @@
 #      action), "alt" and "tenant" (list and create buckets only: Nexo has
 #      a single account, the grants of another account are modeled with
 #      bucket policies) and the KMS keys testkey-1 and testkey-2;
-#   5. writes s3tests.conf and runs test_s3.py with pytest, deselecting the
-#      tests of test/compat/excluded.txt (each with its reason);
+#   5. writes s3tests.conf and runs every functional file of the suite
+#      (test_s3.py, test_headers.py, test_iam.py, test_sts.py,
+#      test_s3select.py, test_sns.py, test_s3control.py) with pytest,
+#      deselecting the tests of test/compat/excluded.txt (each with its
+#      category and reason);
 #   6. writes report.txt, report.json and junit.xml in the report directory
-#      (per functional group and per test).
+#      (per functional group, per exclusion category and per test).
 #
 # When git or pip cannot reach the network the run is skipped (exit 0, the
 # reason in report/SKIPPED) unless NEXO_S3TESTS_REQUIRE_NETWORK=1 (CI).
-# The exit status is 1 when a target group (versioning, object lock,
-# multipart, tagging, SSE-C, CORS, checksum) passes less than 90% of its
-# applicable tests, or with NEXO_S3TESTS_STRICT=1 when any test fails.
+# The exit status is 1 when a group with applicable tests passes less than
+# NEXO_S3TESTS_THRESHOLD of them (95%, T-9.1), with NEXO_S3TESTS_STRICT=1
+# when any test fails, and with NEXO_S3TESTS_CHECK_EXCLUDED when an
+# excluded test passes (its exclusion is no longer justified).
 #
 # Environment:
 #   S3TESTS_REPO, S3TESTS_COMMIT    the suite and its pinned commit
@@ -38,6 +42,12 @@
 #   NEXO_S3TESTS_STRICT=1           fail on any failed test
 #   NEXO_S3TESTS_TIMEOUT            timeout of the pytest run (default 90m)
 #   NEXO_S3TESTS_MODE               snmd (default), snsd or cluster
+#   NEXO_S3TESTS_FILES              files of s3tests/functional to run
+#                                   (default: every test_*.py of the suite)
+#   NEXO_S3TESTS_THRESHOLD          pass rate of every group (default 0.95)
+#   NEXO_S3TESTS_CHECK_EXCLUDED     "names": also run the tests excluded by
+#                                   name and fail if one passes; "all": the
+#                                   marker exclusions too
 #   PYTHON                          interpreter of the venv (default python3)
 set -euo pipefail
 
@@ -53,17 +63,18 @@ REQUIRE_NETWORK="${NEXO_S3TESTS_REQUIRE_NETWORK:-0}"
 STRICT="${NEXO_S3TESTS_STRICT:-0}"
 TIMEOUT="${NEXO_S3TESTS_TIMEOUT:-90m}"
 MODE="${NEXO_S3TESTS_MODE:-snmd}"
+FILES="${NEXO_S3TESTS_FILES:-test_s3.py test_headers.py test_iam.py test_sts.py test_s3select.py test_sns.py test_s3control.py}"
+THRESHOLD="${NEXO_S3TESTS_THRESHOLD:-0.95}"
+CHECK_EXCLUDED="${NEXO_S3TESTS_CHECK_EXCLUDED:-}"
 PYTHON="${PYTHON:-python3}"
 
 if [[ "${1:-}" == "--" ]]; then
 	shift
 fi
 
-# The local server is never reached through a proxy.
-export NO_PROXY="127.0.0.1,localhost${NO_PROXY:+,$NO_PROXY}"
-export no_proxy="$NO_PROXY"
-
 log() { printf 's3-tests: %s\n' "$*" >&2; }
+# shellcheck source=test/compat/lib.sh
+. "$COMPAT/lib.sh"
 
 skip() {
 	mkdir -p "$REPORT_DIR"
@@ -79,6 +90,10 @@ skip() {
 case "$MODE" in
 snsd | snmd | cluster) ;;
 *) log "unknown NEXO_S3TESTS_MODE: $MODE (snsd, snmd or cluster)"; exit 2 ;;
+esac
+case "$CHECK_EXCLUDED" in
+"" | names | all) ;;
+*) log "unknown NEXO_S3TESTS_CHECK_EXCLUDED: $CHECK_EXCLUDED (names or all)"; exit 2 ;;
 esac
 
 for tool in git curl openssl "$PYTHON"; do
@@ -119,49 +134,10 @@ if [[ "$(cat "$VENV/.nexo-stamp" 2>/dev/null || true)" != "$stamp" ]]; then
 fi
 
 # 3. The server (NEXO_S3TESTS_MODE), TLS, builtin KMS.
-if [[ "${NEXO_S3TESTS_BUILD:-0}" == "1" || ! -x "$NEXO_BIN" || ! -x "$NEXOCTL_BIN" ]]; then
-	log "building bin/nexo and bin/nexoctl"
-	(cd "$ROOT" && CGO_ENABLED=0 go build -trimpath -o "$NEXO_BIN" ./cmd/nexo && CGO_ENABLED=0 go build -trimpath -o "$NEXOCTL_BIN" ./cmd/nexoctl)
-fi
-
+compat_build "${NEXO_S3TESTS_BUILD:-0}"
 CERTS="$WORK/certs"
-if [[ ! -s "$CERTS/public.crt" ]]; then
-	mkdir -p "$CERTS"
-	openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
-		-subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
-		-keyout "$CERTS/private.key" -out "$CERTS/public.crt" 2>/dev/null
-fi
-
-free_port() { "$PYTHON" -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'; }
-# free_ports N prints the first of N consecutive free ports (the cluster
-# endpoints span them with an ellipsis).
-free_ports() {
-	"$PYTHON" - "$1" <<'PY'
-import random, socket, sys
-n = int(sys.argv[1])
-for _ in range(200):
-    base = random.randrange(20000, 60000 - n)
-    socks = []
-    try:
-        for p in range(base, base + n):
-            s = socket.socket()
-            s.bind(("127.0.0.1", p))
-            socks.append(s)
-    except OSError:
-        continue
-    finally:
-        for s in socks:
-            s.close()
-    print(base)
-    sys.exit(0)
-sys.exit("no free port range")
-PY
-}
-
-rand() { openssl rand -hex "$1"; }
+compat_certs "$CERTS"
 ROOT_USER="s3tests-root"
-ROOT_PASSWORD="$(rand 16)"
-KMS_KEY="s3tests-default:$(openssl rand -base64 32)"
 # The access keys of the sample configuration of the suite; the secret
 # keys have the AWS length (40) and the main one contains '/' and '+'
 # (signature canonicalization).
@@ -171,83 +147,7 @@ ALT_AK="NOPQRSTUVWXYZABCDEFG"
 ALT_SK="nopqrstuvwxyzabcdefghijklmnabcdefghijklm"
 TENANT_AK="HIJKLMNOPQRSTUVWXYZA"
 TENANT_SK="opqrstuvwxyzabcdefghijklmnopqrstuvwxyzab"
-
-DATA="$WORK/data"
-rm -rf "$DATA"
-NODES=()
-PIDS=()
-cleanup() {
-	local pid
-	for pid in "${PIDS[@]}"; do
-		kill "$pid" 2>/dev/null || true
-	done
-	for pid in "${PIDS[@]}"; do
-		wait "$pid" 2>/dev/null || true
-	done
-}
-trap cleanup EXIT
-
-# start_node NAME S3_PORT CONSOLE_PORT ENDPOINT... starts a node in
-# $DATA/NAME (its working directory, see the cluster endpoints).
-start_node() {
-	local name="$1" s3="$2" console="$3"
-	shift 3
-	mkdir -p "$DATA/$name"
-	(
-		cd "$DATA/$name"
-		NEXO_ROOT_USER="$ROOT_USER" NEXO_ROOT_PASSWORD="$ROOT_PASSWORD" NEXO_KMS_SECRET_KEY="$KMS_KEY" \
-			exec "$NEXO_BIN" server --address "127.0.0.1:$s3" --console-address "127.0.0.1:$console" \
-			--certs-dir "$CERTS" --log-format text --log-level warn "$@"
-	) >"$REPORT_DIR/nexo-$name.log" 2>&1 &
-	NODES+=("$name:$s3")
-	PIDS+=("$!")
-}
-
-case "$MODE" in
-snsd)
-	S3_PORT="$(free_port)"
-	CONSOLE_PORT="$(free_port)"
-	start_node n1 "$S3_PORT" "$CONSOLE_PORT" "$DATA/n1/d1"
-	;;
-snmd)
-	S3_PORT="$(free_port)"
-	CONSOLE_PORT="$(free_port)"
-	start_node n1 "$S3_PORT" "$CONSOLE_PORT" "$DATA/n1/d{1...4}"
-	;;
-cluster)
-	# 4 nodes of 2 drives on consecutive ports; every node runs the same
-	# endpoints, /proc/self/cwd being its own directory (Linux).
-	S3_PORT="$(free_ports 4)"
-	CONSOLE_PORT="$(free_port)"
-	for i in 1 2 3 4; do
-		console="$CONSOLE_PORT"
-		[[ "$i" == "1" ]] || console="$(free_port)"
-		start_node "n$i" "$((S3_PORT + i - 1))" "$console" \
-			"https://127.0.0.1:{$S3_PORT...$((S3_PORT + 3))}/proc/self/cwd/d{1...2}"
-	done
-	;;
-esac
-S3_URL="https://127.0.0.1:$S3_PORT"
-ADMIN_URL="https://127.0.0.1:$CONSOLE_PORT"
-log "starting bin/nexo ($MODE, ${#NODES[@]} node(s)) on $S3_URL"
-
-node_logs() {
-	local n
-	for n in "${NODES[@]}"; do
-		log "--- ${n%%:*}:"
-		tail -n 30 "$REPORT_DIR/nexo-${n%%:*}.log" >&2 || true
-	done
-}
-deadline=$((SECONDS + 120))
-for n in "${NODES[@]}"; do
-	until curl -sfk -o /dev/null "https://127.0.0.1:${n##*:}/nexo/health/ready"; do
-		for pid in "${PIDS[@]}"; do
-			kill -0 "$pid" 2>/dev/null || { log "bin/nexo exited"; node_logs; exit 1; }
-		done
-		((SECONDS < deadline)) || { log "bin/nexo not ready after 120s"; node_logs; exit 1; }
-		sleep 0.5
-	done
-done
+compat_start "$MODE" "$WORK/data" "$CERTS"
 
 # 4. Users, policies and KMS keys with nexoctl.
 export NEXOCTL_CONFIG_DIR="$WORK/nexoctl"
@@ -329,7 +229,12 @@ user_id = s3tests-iam-alt-root
 email = iam-alt-root@nexo.test
 EOF
 
-log "running test_s3.py (report in $REPORT_DIR)"
+TARGETS=()
+for f in $FILES; do
+	[[ -f "$SUITE/s3tests/functional/$f" ]] || { log "no s3tests/functional/$f in the suite"; exit 2; }
+	TARGETS+=("s3tests/functional/$f")
+done
+log "running $FILES (report in $REPORT_DIR)"
 status=0
 (
 	cd "$SUITE"
@@ -340,8 +245,9 @@ status=0
 	export REQUESTS_CA_BUNDLE="$CERTS/public.crt" SSL_CERT_FILE="$CERTS/public.crt"
 	S3TEST_CONF="$CONF" PYTHONPATH="$COMPAT" PYTHONDONTWRITEBYTECODE=1 \
 		NEXO_S3TESTS_SUITE="ceph/s3-tests" NEXO_S3TESTS_COMMIT="$S3TESTS_COMMIT" NEXO_S3TESTS_MODE="$MODE" \
-		timeout "$TIMEOUT" "$VENV/bin/python" -m pytest s3tests/functional/test_s3.py \
+		timeout "$TIMEOUT" "$VENV/bin/python" -m pytest "${TARGETS[@]}" \
 		-p nexo_s3tests --nexo-excluded "$COMPAT/excluded.txt" --nexo-report-dir "$REPORT_DIR" \
+		--nexo-threshold "$THRESHOLD" --nexo-check-excluded "$CHECK_EXCLUDED" \
 		--junitxml "$REPORT_DIR/junit.xml" -p no:cacheprovider -q -rN --tb=short "$@" \
 		>"$REPORT_DIR/pytest.log" 2>&1
 ) || status=$?
@@ -359,8 +265,16 @@ if [[ ! -s "$REPORT_DIR/report.json" ]]; then
 fi
 met="$("$PYTHON" -c 'import json, sys; print(json.load(open(sys.argv[1]))["target"]["met"])' "$REPORT_DIR/report.json")"
 if [[ "$met" != "True" ]]; then
-	log "the target groups pass less than 90% of their applicable tests"
+	log "some groups pass less than $THRESHOLD of their applicable tests"
 	exit 1
+fi
+if [[ -n "$CHECK_EXCLUDED" ]]; then
+	passing="$("$PYTHON" -c 'import json, sys; print("\n".join(json.load(open(sys.argv[1]))["check"]["passing"]))' "$REPORT_DIR/report.json")"
+	if [[ -n "$passing" ]]; then
+		log "excluded tests that pass (remove their exclusion):"
+		printf '%s\n' "$passing" >&2
+		exit 1
+	fi
 fi
 if [[ "$STRICT" == "1" && "$status" == "1" ]]; then
 	log "some tests failed (NEXO_S3TESTS_STRICT=1)"

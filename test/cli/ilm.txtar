@@ -1,3 +1,4 @@
+# covers: C-OBJ-09, S-BKT-07
 # T-7.10, TS-U-11: ilm rule add/edit/ls/rm/export/import through the S3
 # lifecycle API and ilm apply through the Admin API.
 

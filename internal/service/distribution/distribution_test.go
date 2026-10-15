@@ -13,6 +13,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/distribution"
 )
 
+// covers: S-DST-01, S-DST-03
 func TestValidate(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t)
@@ -169,6 +170,8 @@ func TestValidate(t *testing.T) {
 
 // TestPropagation creates a distribution on a node and resolves it on the
 // others without restart (TCD-03 at the service level).
+//
+// covers: S-DST-01, S-STO-06
 func TestPropagation(t *testing.T) {
 	ctx := context.Background()
 	nodes := newDeployment(t, 3)
@@ -199,6 +202,7 @@ func TestPropagation(t *testing.T) {
 	assert.Empty(t, sortedAliases(list))
 }
 
+// covers: S-DST-05
 func TestEnableAndRotateOriginSecret(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t)
@@ -233,6 +237,8 @@ func TestEnableAndRotateOriginSecret(t *testing.T) {
 
 // TestServiceTest covers nexoctl dist test: behavior, key, redirect and
 // headers of a URL (TDS-05 at the service level).
+//
+// covers: S-DST-03
 func TestServiceTest(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t)

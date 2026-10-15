@@ -15,6 +15,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/iam"
 )
 
+// covers: S-IAM-07
 func TestAssumeRole(t *testing.T) {
 	ctx := context.Background()
 	store := iam.NewMemoryStore()
@@ -87,6 +88,7 @@ func TestAssumeRole(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrAccessDenied)
 }
 
+// covers: S-IAM-07
 func TestAssumeRoleValidation(t *testing.T) {
 	ctx := context.Background()
 	svc, _ := newIAM(t, nil)
@@ -128,6 +130,8 @@ func TestAssumeRoleValidation(t *testing.T) {
 
 // TestSTSTokenTampering edits the persisted session tokens: a forged or
 // swapped token never resolves.
+//
+// covers: S-IAM-07
 func TestSTSTokenTampering(t *testing.T) {
 	ctx := context.Background()
 	store := iam.NewMemoryStore()

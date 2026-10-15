@@ -38,6 +38,8 @@ func TestNewRequiresDependencies(t *testing.T) {
 // TestInvalidRules is TAR-02 for the rules: an invalid regex or glob is
 // located (rule, field, position), a pattern too long or too many rules
 // are refused; every problem is domain.ErrInvalidArgument.
+//
+// covers: S-ACC-01
 func TestInvalidRules(t *testing.T) {
 	f := newFixture(t, accessrule.WithMaxRules(3))
 	valid := func(id string) accessrule.Rule { return rule(id, 1, allow, list("*"), list("read"), nil, nil) }
@@ -234,6 +236,8 @@ func TestAuditDiff(t *testing.T) {
 // allow rules for everyone are refused when saved (reject) or ignored in
 // the evaluation (ignore, and the rules stored before a reject); deny
 // rules and the other principals keep applying; the tester reports it.
+//
+// covers: S-ACC-03
 func TestBlockPublicAccess(t *testing.T) {
 	public := rule("public", 10, allow, list("*", "user:mario"), list("read"), nil, nil)
 	guard := rule("guard", 1, deny, list("*"), list("all"), prefixP("secret/"), nil)
@@ -337,6 +341,8 @@ func TestBlockPublicAccess(t *testing.T) {
 
 // TestPresets checks the public presets, their replacement and the
 // public status of the bucket.
+//
+// covers: S-ACC-03
 func TestPresets(t *testing.T) {
 	f := newFixture(t)
 	anon := domain.Anonymous()
@@ -421,6 +427,8 @@ func ids(rules []accessrule.Rule) []string {
 // TestTester checks the rule tester (D-ACC-02, nexoctl access test): the
 // rules that match each key, the outcome of the rules, the final decision
 // with every source and the deciding rule.
+//
+// covers: S-ACC-04
 func TestTester(t *testing.T) {
 	f := newFixture(t)
 	f.put(

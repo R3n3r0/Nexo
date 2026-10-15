@@ -1,0 +1,50 @@
+# covers: C-ADM-08, S-OPS-04, S-OPS-06
+# C-ADM-08, S-OPS-06, D-MON-01: admin logs follows the server logs until
+# --timeout, admin audit finds the records of the requests, admin metrics
+# lists and queries the series of the console.
+
+exec nexoctl mb local/audited
+exec nexoctl cp a.txt local/audited/a.txt
+expectcode 3 nexoctl stat local/audited/missing.txt
+
+# The live logs: the recent entries first, then the new ones.
+exec nexoctl admin logs --last 20 --timeout 500ms local
+stdout 'Following the logs of "local" \(Ctrl-C to stop\)\.'
+exec nexoctl admin logs --level error --timeout 300ms --json local
+expectcode 2 nexoctl admin logs --level trace local
+expectcode 2 nexoctl admin logs --last 10001 local
+
+# The audit log: newest first, filtered on the server.
+eventually 10s -match 'PutObject +audited/a.txt' nexoctl admin audit --bucket audited --since 1h local
+stdout '^TIME +STATUS +DURATION +USER +API +RESOURCE$'
+stdout '^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3} 200 .* '$NEXO_ROOT_USER' +PutObject +audited/a.txt$'
+exec nexoctl admin audit --action PutObject --user $NEXO_ROOT_USER --json local
+jsonlines stdout
+stdout '"api":"PutObject","method":"PUT","path":"/audited/a.txt","bucket":"audited","object":"a.txt","statusCode":200'
+exec nexoctl admin audit --errors --status 404 --bucket audited local
+stdout ' 404 '
+! stdout ' 200 '
+exec nexoctl admin audit --user nobody local
+stdout 'No audit record matches.'
+expectcode 2 nexoctl admin audit --since yesterday local
+expectcode 2 nexoctl admin audit --since 1h --until 2h local
+
+# The series of the console, per node and for the cluster.
+exec nexoctl admin metrics list local
+stdout '^NAME +UNIT +AGG +DESCRIPTION$'
+stdout '^s3_requests +req/s +sum +S3 requests per second$'
+stdout '^s3_latency_p99 +seconds +max '
+stdout '^drive_used_bytes +bytes +sum '
+exec nexoctl admin metrics query --range 5m local s3_requests
+stdout '^s3_requests: S3 requests per second \(req/s, sum of the nodes\)$'
+stdout '^TIME +CLUSTER '
+exec nexoctl admin metrics query --range 10m --step 1m --json local drive_used_bytes
+jsonlines stdout
+openapischema stdout MetricInfo metric
+stdout '"stepSeconds":60'
+! exec nexoctl admin metrics query local nope
+stderr 'nope'
+expectcode 2 nexoctl admin metrics query --range -1h local s3_requests
+
+-- a.txt --
+audited data

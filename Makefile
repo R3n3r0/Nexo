@@ -44,12 +44,19 @@ KUBECONFORM         ?= kubeconform
 HADOLINT            ?= hadolint
 RELEASE_SKIP        ?= docker,sign
 KUBE_VERSIONS       ?= 1.27.0 1.34.0
+# User documentation (docs/user, mkdocs.yml): the generated CLI reference,
+# the MkDocs site (MkDocs and Material for MkDocs, versions of the CI job
+# "docs") and the static page of the Admin API rendered by Redocly.
+DOCS_CLI_DIR        ?= docs/user/cli
+MKDOCS              ?= mkdocs
+REDOCLY_VERSION     ?= 2.56.1
 
 export CGO_ENABLED ?= 0
 
-.PHONY: all build build-go build-web build-embedded e2e test test-race test-integration test-cluster test-compose test-proxy test-s3compat bench-rpc lint web-lint \
+.PHONY: all build build-go build-web build-embedded e2e test test-race test-integration test-cluster test-compose test-proxy test-s3compat test-mint test-upgrade bench-rpc lint web-lint \
         web-test generate fmt clean run-single run-snmd run-cluster docker docker-nexoctl help security fuzz bench \
-        release-tools release-check release-snapshot release-smoke helm-lint systemd-verify hadolint packaging
+        release-tools release-check release-snapshot release-smoke helm-lint systemd-verify hadolint packaging \
+        docs docs-check docs-api docs-site traceability traceability-check
 
 all: build
 
@@ -94,6 +101,14 @@ test-proxy:
 ## test-s3compat: run the Ceph s3-tests compatibility suite against a fresh bin/nexo (SNMD; NEXO_S3TESTS_MODE=snsd|cluster), test/compat, nightly CI
 test-s3compat: build-go
 	test/compat/run-s3tests.sh
+
+## test-mint: run the SDK suites of MinIO Mint without Docker against a fresh bin/nexo (SNMD; NEXO_MINT_MODE=snsd|cluster, NEXO_MINT_SDKS selects suites), test/compat, nightly CI
+test-mint: build-go
+	test/compat/run-mint.sh
+
+## test-upgrade: upgrade tests (T-9.8, build tag "upgrade", Linux): the release before (NEXO_UPGRADE_FROM, default 224bb31, built from git) writes SNMD and cluster deployments, the working tree takes them over (SNMD, rolling upgrade of 4 nodes under load) and the release before is started again (downgrade)
+test-upgrade:
+	$(GO) test $(GOFLAGS) -tags upgrade -count=1 -timeout 30m -v ./test/upgrade/...
 
 ## test-compose: run TM-06/TM-09 against a running deploy/docker/compose.cluster.yml (build tag "compose", nightly CI)
 test-compose:
@@ -147,6 +162,29 @@ e2e:
 ## generate: run go generate (mocks via mockery)
 generate:
 	$(GO) generate $(PKGS)
+
+## docs: generate the Markdown reference of the nexoctl commands in docs/user/cli (hidden command nexoctl gendocs)
+docs:
+	$(GO) run ./cmd/nexoctl gendocs $(DOCS_CLI_DIR)
+
+## docs-check: fail when the CLI reference of docs/user/cli does not match the commands (CI job "docs")
+docs-check: docs
+	@if ! git diff --quiet -- $(DOCS_CLI_DIR) || [ -n "$$(git status --porcelain -- $(DOCS_CLI_DIR))" ]; then \
+	  git status --short -- $(DOCS_CLI_DIR); \
+	  echo "$(DOCS_CLI_DIR) is stale: run make docs and commit the result"; exit 1; \
+	fi
+
+## docs-api: render api/openapi.yaml as a static HTML page (Redocly, npx) in bin/docs/admin-api.html
+docs-api:
+	@mkdir -p $(BIN_DIR)/docs
+	npx --yes @redocly/cli@$(REDOCLY_VERSION) build-docs api/openapi.yaml --disableGoogleFont \
+	  --title "Nexo Admin API" -o $(BIN_DIR)/docs/admin-api.html
+
+## docs-site: build the user documentation site of mkdocs.yml in bin/site (mkdocs build --strict, then the Admin API page next to its reference page: bin/site/riferimenti/admin-api/redoc.html)
+docs-site: docs
+	$(MKDOCS) build --strict -f mkdocs.yml -d $(CURDIR)/$(BIN_DIR)/site
+	$(MAKE) docs-api
+	cp $(BIN_DIR)/docs/admin-api.html $(BIN_DIR)/site/riferimenti/admin-api/redoc.html
 
 ## fmt: format Go sources
 fmt:
@@ -231,6 +269,14 @@ hadolint:
 
 ## packaging: every packaging check that needs no Docker daemon: release-check, helm-lint, systemd-verify, hadolint
 packaging: release-check helm-lint systemd-verify hadolint
+
+## traceability: regenerate test/TRACEABILITY.md, the features of docs/02 mapped to the tests tagged "covers: <code>" (docs/06 §6.8; tool in cmd/tools/traceability, not part of any release binary)
+traceability:
+	$(GO) run ./cmd/tools/traceability
+
+## traceability-check: fail when a P0/P1 feature has no test, a tag names a code outside the catalog or test/TRACEABILITY.md is stale (CI and release)
+traceability-check:
+	$(GO) run ./cmd/tools/traceability -check
 
 ## help: list the targets
 help:

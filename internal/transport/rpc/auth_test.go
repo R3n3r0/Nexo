@@ -4,11 +4,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"io"
-	"net"
 	"net/http"
 	"strings"
 	"testing"
@@ -17,7 +15,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmihailenco/msgpack/v5"
-	"golang.org/x/net/http2"
 
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
@@ -164,9 +161,7 @@ func TestTokenReplayOverTheWire(t *testing.T) {
 	require.NoError(t, client.WriteAll(ctx, domain.SystemBucket, "config/legit", []byte("ok")))
 	require.NotNil(t, captured)
 
-	h2 := &http.Client{Transport: &http2.Transport{AllowHTTP: true, DialTLSContext: func(ctx context.Context, network, a string, _ *tls.Config) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, network, a)
-	}}}
+	h2 := h2Client()
 	send := func(path string, payload []byte) int {
 		req, err := http.NewRequest(http.MethodPost, srv.URL+path, bytes.NewReader(payload))
 		require.NoError(t, err)
@@ -245,9 +240,7 @@ func TestRPCUnauthenticatedAnswer(t *testing.T) {
 		"iss": "nexo", "aud": []string{"nexo-internode", addr}, "iat": now.Unix(), "exp": now.Add(time.Minute).Unix(),
 		"node": "evil", "dep": "x", "pv": rpc.ProtocolVersion, "ver": "dev",
 	})
-	client := &http.Client{Transport: &http2.Transport{AllowHTTP: true, DialTLSContext: func(ctx context.Context, network, a string, _ *tls.Config) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, network, a)
-	}}}
+	client := h2Client()
 	req, err := http.NewRequest(http.MethodPost, srv.URL+"/nexo/rpc/v1/health/ping", strings.NewReader(""))
 	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+tok)

@@ -131,6 +131,7 @@ func TestNewDistributedValidation(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
 }
 
+// covers: S-STO-07
 func TestDistributedLockerSemantics(t *testing.T) {
 	ctx := context.Background()
 	c := newCluster(t, 4, nil)
@@ -226,6 +227,8 @@ func TestDistributedOfflineServers(t *testing.T) {
 
 // TestDistributedRefreshLosesQuorum: when the renewal no longer reaches the
 // quorum, the lock context is canceled so that the operation aborts.
+//
+// covers: S-STO-07
 func TestDistributedRefreshLosesQuorum(t *testing.T) {
 	ctx := context.Background()
 	c := newCluster(t, 4, nil)
@@ -252,6 +255,8 @@ func TestDistributedRefreshLosesQuorum(t *testing.T) {
 // crashes while holding a write lock (it never refreshes nor releases it);
 // the servers expire the orphan after the stale timeout and the other
 // writers resume.
+//
+// covers: S-STO-07
 func TestDistributedCrashedHolder(t *testing.T) {
 	ctx := context.Background()
 	clk := clock.NewFake(time.Now())
@@ -286,6 +291,8 @@ func TestDistributedCrashedHolder(t *testing.T) {
 
 // TestDistributedPartition: with the servers split 2+2, no side can take a
 // write lock (no split brain); read locks need only n/2 servers.
+//
+// covers: S-STO-07
 func TestDistributedPartition(t *testing.T) {
 	ctx := context.Background()
 	c := newCluster(t, 4, nil)
@@ -320,6 +327,8 @@ func TestDistributedPartition(t *testing.T) {
 
 // TestDistributedMutualExclusion runs concurrent writers and readers from
 // three nodes and checks that a writer is always alone.
+//
+// covers: S-STO-07
 func TestDistributedMutualExclusion(t *testing.T) {
 	ctx := context.Background()
 	c := newCluster(t, 3, nil)

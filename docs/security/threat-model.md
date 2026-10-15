@@ -137,12 +137,12 @@ in `--trusted-proxies`.
 
 ### 10.1 govulncheck
 
-Aggiornamenti applicati (compatibili con `go 1.24`): `github.com/go-chi/chi/v5` v5.2.2 (open redirect GO-2025-3770),
+Aggiornamenti applicati in M9 (compatibili con `go 1.24`): `github.com/go-chi/chi/v5` v5.2.2 (open redirect GO-2025-3770),
 `github.com/rabbitmq/amqp091-go` v1.13.0 (otto vulnerabilità del client AMQP: DoS, OOM, overflow, TLS senza versione
 minima, credenziali esposte), `github.com/aws/aws-sdk-go-v2/service/s3` v1.97.3 e
 `aws/protocol/eventstream` v1.7.8 (panic del decoder EventStream GO-2026-5764).
 
-Mitigazioni nel codice per vulnerabilità i cui fix richiedono una toolchain più recente:
+Mitigazioni nel codice, introdotte in M9 per vulnerabilità i cui fix richiedevano una toolchain più recente:
 
 | Vulnerabilità | Raggiungibilità | Mitigazione |
 |---------------|-----------------|-------------|
@@ -150,25 +150,30 @@ Mitigazioni nel codice per vulnerabilità i cui fix richiedono una toolchain pi�
 | GO-2026-5004 (pgx, SQL injection con letterali dollar-quoted nel protocollo semplice) | `postgresConn.Exec` | Protocollo esteso forzato (`event/dialers.go`); gli statement sono statici |
 | GO-2026-6629 (`x/text/secure/precis`, panic) | solo via `pgx.Connect` (SCRAM sulla password configurata) | Input dell'amministratore, non dei client |
 
-**Restano aperte** (fix disponibili solo con Go ≥ 1.26): le vulnerabilità della libreria standard di Go 1.24
-(`net/http`, `crypto/tls`, `crypto/x509`, `encoding/xml`, `encoding/asn1`, `net/url`, `net/textproto`, `os`) e di
-`golang.org/x/net` (HTTP/2: GO-2026-6617, -6612, -6611, -6610, -6603, -4918, -4559; idna GO-2026-5026),
-`golang.org/x/text` < 0.39/0.41, pgx < 5.9.2 e, con il tracing OpenTelemetry di M8, `go.opentelemetry.io/otel` < 1.45
-(exporter OTLP e SDK) e `google.golang.org/grpc` < 1.83.1. Go 1.24 non riceve più patch di sicurezza; i fix di
-`x/net` v0.60.0 richiedono `go 1.26`, quelli di `x/text` v0.41.0, pgx v5.9.2, otel v1.45.0 e grpc v1.83.1 `go 1.25`. Remediation (decisione dell'integratore,
-perché cambia la toolchain di tutto il repository):
+**Toolchain aggiornata con la v1.0** (integrazione finale): le vulnerabilità della libreria standard di Go 1.24
+(`net/http`, `crypto/tls`, `crypto/x509`, `encoding/xml`, `encoding/asn1`, `net/url`, `net/textproto`, `os`) e quelle
+di `golang.org/x/net` (HTTP/2: GO-2026-6617, -6612, -6611, -6610, -6603, -4918, -4559; idna GO-2026-5026),
+`golang.org/x/text`, pgx, `go.opentelemetry.io/otel` e `google.golang.org/grpc` sono chiuse passando a:
 
 ```sh
-go get go@1.26.9 golang.org/x/net@v0.60.0 golang.org/x/text@v0.41.0 github.com/jackc/pgx/v5@v5.9.2 \
+go get go@1.26.9 golang.org/x/net@v0.60.0 golang.org/x/text@v0.42.0 github.com/jackc/pgx/v5@v5.9.2 \
   go.opentelemetry.io/otel@v1.45.0 go.opentelemetry.io/otel/sdk@v1.45.0 \
   go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.45.0 \
-  go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc@v1.45.0 google.golang.org/grpc@v1.83.1
+  go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc@v1.45.0 \
+  google.golang.org/grpc@v1.83.2 github.com/klauspost/compress@v1.18.7 github.com/go-chi/chi/v5@v5.3.0
 go mod tidy
-# CI: GOLANGCI_LINT_VERSION v2.14.0 (golangci-lint 2.5.0 è compilato con Go 1.25.1 e rifiuta i moduli go 1.26);
-# deploy/docker/Dockerfile: GO_VERSION 1.26.9; il job security torna verde.
 ```
 
-Finché la toolchain non è aggiornata il job `security` della CI fallisce sul passo govulncheck: è il segnale atteso.
+(`x/net` v0.60.0 richiede `x/text` v0.42.0; grpc v1.83.2, `klauspost/compress` v1.18.7 e chi v5.3.0 chiudono
+GO-2026-6443, GO-2026-5841 e GO-2026-5774/5775/5777/4316, presenti nei moduli ma non raggiunti.) La CI usa
+golangci-lint v2.14.0 (la 2.5.0 è compilata con Go 1.25.1 e rifiuta i moduli `go 1.26`) e i Dockerfile
+`GO_VERSION=1.26.9`. Con `x/net` v0.60.0 il trasporto HTTP/2 di `x/net/http2` e `h2c` sono deprecati: il client RPC
+internodo usa l'HTTP/2 di `net/http` (`http.Transport` con `Protocols` HTTP/2 o HTTP/2 in chiaro e `HTTP2Config`,
+`internal/transport/rpc/conn.go`), come già faceva il server (`http.Server.Protocols`).
+
+`govulncheck@v1.1.4 ./...` (eseguito con la toolchain di `go.mod`, `GOTOOLCHAIN=go1.26.9` in locale): **nessuna
+vulnerabilità raggiunta**; resta solo GO-2026-5932 in `golang.org/x/crypto` (nessuna versione corretta, non raggiunta).
+Le mitigazioni della tabella sopra restano nel codice come difesa in profondità.
 
 ### 10.2 gosec
 
@@ -226,8 +231,8 @@ rifiutato (`internal/domain/endpoint.go`, corpus in `internal/domain/testdata/fu
 
 ## 12. Rischi residui consolidati e raccomandazioni
 
-1. **Toolchain Go 1.24 senza patch**: vulnerabilità di `net/http`, HTTP/2, `crypto/tls`/`x509` aperte finché non si
-   applica §10.1. Priorità alta per l'integratore.
+1. **Toolchain**: con la v1.0 Go 1.26.9 e i moduli aggiornati (§10.1), `govulncheck` senza vulnerabilità raggiunte;
+   ogni release deve ripetere `make security` e aggiornare la toolchain alle patch di Go.
 2. **Nessun rate limit per client sull'API S3 e sui domini pubblici**: mettere Nexo dietro un reverse proxy con
    limiti di richieste e connessioni (configurazioni in `deploy/proxy`).
 3. **TLS opzionale**: senza TLS cookie della console, firme replayabili nella finestra di skew e traffico internode

@@ -105,6 +105,13 @@ type S3ErrorResponse struct {
 
 // WriteXML implements Encoder.
 func (c *codec) WriteXML(w http.ResponseWriter, status int, v any) {
+	c.writeXML(w, status, v, false)
+}
+
+// writeXML writes v as an XML document. plainQuotes keeps the quotes of the
+// text as they are (encoding/xml writes them as character references),
+// valid only for documents without attributes, such as S3 errors.
+func (c *codec) writeXML(w http.ResponseWriter, status int, v any, plainQuotes bool) {
 	var buf bytes.Buffer
 	buf.WriteString(xml.Header)
 	enc := xml.NewEncoder(&buf)
@@ -115,10 +122,15 @@ func (c *codec) WriteXML(w http.ResponseWriter, status int, v any) {
 		http.Error(w, "encoding error", http.StatusInternalServerError)
 		return
 	}
+	out := buf.Bytes()
+	if plainQuotes {
+		out = bytes.ReplaceAll(out, []byte("&#34;"), []byte(`"`))
+		out = bytes.ReplaceAll(out, []byte("&#39;"), []byte("'"))
+	}
 	w.Header().Set("Content-Type", ContentTypeXML)
-	w.Header().Set("Content-Length", fmt.Sprint(buf.Len()))
+	w.Header().Set("Content-Length", fmt.Sprint(len(out)))
 	w.WriteHeader(status)
-	_, _ = w.Write(buf.Bytes())
+	_, _ = w.Write(out)
 }
 
 // WriteJSON implements Encoder.
@@ -185,13 +197,15 @@ func (c *codec) WriteS3Error(w http.ResponseWriter, r *http.Request, err error) 
 		w.WriteHeader(code.HTTPStatus)
 		return
 	}
-	c.WriteXML(w, code.HTTPStatus, S3ErrorResponse{
+	// The messages read as S3 writes them (some quote policy conditions
+	// or values, and clients match them as text).
+	c.writeXML(w, code.HTTPStatus, S3ErrorResponse{
 		Code:      code.Code,
 		Message:   message,
 		Resource:  resource,
 		RequestID: requestID,
 		HostID:    hostID,
-	})
+	}, true)
 }
 
 // DecodeXML implements Decoder.

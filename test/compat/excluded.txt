@@ -1,83 +1,98 @@
-# Tests of ceph/s3-tests (test_s3.py) that do not apply to Nexo, deselected
-# by run-s3tests.sh. One exclusion per line: "<selector> | <reason>", where
-# the selector is a test name ("*" and "?" are wildcards, brackets are
+# Tests of ceph/s3-tests (every functional file run by run-s3tests.sh:
+# test_s3.py, test_headers.py, test_iam.py, test_sts.py, test_s3select.py,
+# test_sns.py, test_s3control.py) that do not apply to Nexo, deselected by
+# run-s3tests.sh. One exclusion per line:
+#
+#   <selector> | <category> | <reason>
+#
+# The selector is a test name ("*" and "?" are wildcards, brackets are
 # literal: a parametrized test can be named with its parameters) or
-# "marker:<name>"; the first matching line gives the reason reported for
-# the test. Every exclusion names the feature it depends on and why Nexo
-# does not provide it (docs/02 catalog, docs/05 roadmap), or the Ceph RGW
-# behavior the test expects where S3 (and Nexo) behave otherwise. The
-# report lists the selectors that match no test.
+# "marker:<name>"; the first matching line gives the category and reason
+# reported for the test. The category says how the reason is verified:
+#
+#   rgw             the suite marks the test itself (fails_on_aws, an RGW
+#                   extension marker): RGW behavior that AWS S3 does not have
+#   deprecated      API deprecated by AWS, a non-goal of Nexo (Signature V2,
+#                   BitTorrent): docs/01 §1.1
+#   p2              feature P2 of the docs/02 catalog (ID in the reason),
+#                   planned after v1.0 (docs/05 M10)
+#   out-of-catalog  AWS API outside the docs/02 catalog (IAM, STS with IAM
+#                   roles, SNS, S3 Control, server access logging, website
+#                   and public access block S3 APIs)
+#   aws             the test expects RGW's answer where Amazon S3 answers
+#                   otherwise; Nexo answers as S3 (docs/02 §2.4)
+#   design          documented difference of Nexo (docs/02 §2.4)
+#   suite           the test cannot send the request it describes (botocore
+#                   rewrites the header the test sets; the suite marks it
+#                   fails_on_rgw with a TODO saying so)
+#
+# NEXO_S3TESTS_CHECK_EXCLUDED=names runs the tests excluded by name too
+# and fails when one of them passes (its exclusion is no longer
+# justified); the report lists the selectors that match no test.
 
 # --- Behaviors specific to Ceph RGW (the suite marks them itself) --------
-marker:fails_on_aws | RGW-specific expectation that AWS S3 itself fails (marker fails_on_aws: RGW extensions such as x-rgw-* headers, allow-unordered, account usage, lc_debug_interval compressed days); Nexo follows AWS
-marker:appendobject | RGW append-object extension, not an S3 API
+marker:fails_on_aws | rgw | RGW-specific expectation that AWS S3 itself fails (marker fails_on_aws: RGW extensions such as x-rgw-* headers, allow-unordered, account usage, lc_debug_interval compressed days); Nexo follows AWS
 
 # --- Features outside the catalog of docs/02 or postponed ----------------
-marker:bucket_logging | Server access logging (PutBucketLogging): not in the docs/02 catalog
-marker:bucket_logging_cleanup | Server access logging (PutBucketLogging): not in the docs/02 catalog
-marker:fails_without_logging_rollover | Server access logging (PutBucketLogging): not in the docs/02 catalog
-marker:cloud_transition | Lifecycle transition to a remote tier: S-STO-12 / S-BKT-07 transition, P2 (M10)
-marker:cloud_restore | RestoreObject from a remote tier: S-STO-12, P2 (M10)
-marker:lifecycle_transition | Lifecycle transition between storage classes: S-BKT-07 transition, P2 (M10)
-marker:storage_class | Storage classes beyond STANDARD/REDUCED_REDUNDANCY (transitions between them): P2 (M10)
-marker:s3website | Static website hosting through the S3 API (PutBucketWebsite): Nexo serves websites through distributions (S-DST-02, M7b)
-marker:s3website_routing_rules | Static website hosting through the S3 API (PutBucketWebsite): Nexo serves websites through distributions (S-DST-02, M7b)
-marker:s3website_redirect_location | Static website hosting through the S3 API (PutBucketWebsite): Nexo serves websites through distributions (S-DST-02, M7b)
-marker:sns | SNS topics: Nexo notifications go to its own targets (S-BKT-10), not to an SNS API
-marker:s3select | SelectObjectContent: S-OBJ-16, P2
-marker:iam_account | IAM API (accounts): Nexo has a single account managed through the Admin API (S-IAM-*)
-marker:iam_cross_account | IAM API (accounts): Nexo has a single account managed through the Admin API (S-IAM-*)
-marker:iam_role | IAM API (roles): Nexo has a single account managed through the Admin API (S-IAM-*)
-marker:iam_user | IAM API (users): Nexo has a single account managed through the Admin API (S-IAM-*)
-marker:iam_tenant | RGW tenants: Nexo has a single bucket namespace
-marker:role_policy | IAM API (role policies): not provided
-marker:user_policy | IAM API (user policies): Nexo manages policies through the Admin API (S-IAM-04)
-marker:group | IAM API (groups): Nexo manages groups through the Admin API (S-IAM-05)
-marker:group_policy | IAM API (group policies): Nexo manages groups through the Admin API (S-IAM-05)
-marker:s3control | S3 Control API (account public access block): not provided
-test_get_object_torrent | BitTorrent (GetObjectTorrent): deprecated by AWS, a non-goal of Nexo (docs/01 §1.1, non-goals)
-test_*_public_block* | S3 PutPublicAccessBlock API: block public access is S-ACC-03 (Nexo access rules, M7b), not provided through the S3 API yet
-test_block_public_* | S3 PutPublicAccessBlock API: block public access is S-ACC-03 (Nexo access rules, M7b), not provided through the S3 API yet
-test_delete_marker_expiration | Lifecycle in seconds: the test relies on RGW's rgw_lc_debug_interval (a lifecycle day lasting a few seconds); Nexo expiration is covered with a simulated clock (test/integration TestLifecycle*)
+marker:bucket_logging | out-of-catalog | Server access logging (PutBucketLogging): not in the docs/02 catalog
+marker:bucket_logging_cleanup | out-of-catalog | Server access logging (PutBucketLogging): not in the docs/02 catalog
+marker:fails_without_logging_rollover | out-of-catalog | Server access logging (PutBucketLogging): not in the docs/02 catalog
+marker:cloud_transition | p2 | Lifecycle transition to a remote tier: S-STO-12 / S-BKT-07 transition, P2 (M10)
+marker:cloud_restore | p2 | RestoreObject from a remote tier: S-STO-12, P2 (M10)
+marker:lifecycle_transition | p2 | Lifecycle transition between storage classes: S-BKT-07 transition, P2 (M10)
+marker:sns | out-of-catalog | SNS topics: Nexo notifications go to its own targets (S-BKT-10), not to an SNS API
+marker:s3select | p2 | SelectObjectContent: S-OBJ-16, P2
+marker:iam_account | out-of-catalog | IAM API (accounts): Nexo has a single account managed through the Admin API (S-IAM-*)
+marker:iam_cross_account | out-of-catalog | IAM API (accounts): Nexo has a single account managed through the Admin API (S-IAM-*)
+marker:iam_role | out-of-catalog | IAM API (roles): Nexo has a single account managed through the Admin API (S-IAM-*)
+marker:iam_user | out-of-catalog | IAM API (users): Nexo has a single account managed through the Admin API (S-IAM-*)
+marker:iam_tenant | rgw | RGW tenants: Nexo has a single bucket namespace
+marker:role_policy | out-of-catalog | IAM API (role policies): not provided
+marker:user_policy | out-of-catalog | IAM API (user policies): Nexo manages policies through the Admin API (S-IAM-04)
+marker:group | out-of-catalog | IAM API (groups): Nexo manages groups through the Admin API (S-IAM-05)
+marker:group_policy | out-of-catalog | IAM API (group policies): Nexo manages groups through the Admin API (S-IAM-05)
+marker:s3control | out-of-catalog | S3 Control API (account public access block): not provided
+marker:test_of_sts | out-of-catalog | STS with roles and users created through the IAM API (CreateRole, CreateUser, GetCallerIdentity of an RGW account root): Nexo has no IAM API; AssumeRole with the credentials of a Nexo user (S-IAM-07) is covered by test/integration (TestSTS*)
+marker:webidentity_test | p2 | AssumeRoleWithWebIdentity with an OIDC provider (Keycloak): S-IAM-08, P2 (M10)
+marker:abac_test | p2 | AssumeRoleWithWebIdentity with OIDC token tags (ABAC): S-IAM-08, P2 (M10)
+marker:token_claims_trust_policy_test | p2 | AssumeRoleWithWebIdentity with OIDC token claims: S-IAM-08, P2 (M10)
+marker:token_principal_tag_role_policy_test | p2 | AssumeRoleWithWebIdentity with OIDC principal tags: S-IAM-08, P2 (M10)
+marker:token_request_tag_trust_policy_test | p2 | AssumeRoleWithWebIdentity with OIDC request tags: S-IAM-08, P2 (M10)
+marker:token_resource_tags_test | p2 | AssumeRoleWithWebIdentity with OIDC resource tags: S-IAM-08, P2 (M10)
+marker:token_role_tags_test | p2 | AssumeRoleWithWebIdentity with OIDC role tags: S-IAM-08, P2 (M10)
+marker:token_tag_keys_test | p2 | AssumeRoleWithWebIdentity with OIDC tag keys: S-IAM-08, P2 (M10)
+test_get_object_torrent | deprecated | BitTorrent (GetObjectTorrent): deprecated by AWS, a non-goal of Nexo (docs/01 §1.1, non-goals)
+test_*_public_block* | out-of-catalog | S3 PutPublicAccessBlock API: Nexo blocks public access per cluster or bucket with its access rules (S-ACC-03: Admin API /access/block-public and /buckets/{bucket}/block-public, nexoctl access block), not through the S3 API
+test_block_public_* | out-of-catalog | S3 PutPublicAccessBlock API: Nexo blocks public access per cluster or bucket with its access rules (S-ACC-03: Admin API /access/block-public and /buckets/{bucket}/block-public, nexoctl access block), not through the S3 API
+test_delete_marker_expiration | rgw | Lifecycle in seconds: the test relies on RGW's rgw_lc_debug_interval (a lifecycle day lasting a few seconds); Nexo expiration is covered with a simulated clock (test/integration TestLifecycle*)
 
 # --- AWS Signature Version 2 (deprecated by AWS, docs/01 §1.1, non-goals) ------------
 # POST policies signed with AWSAccessKeyId + HMAC-SHA1 and clients with
 # signature_version='s3': Nexo authenticates SigV4 only (S-IAM-02).
 
-test_post_object_authenticated_request | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_upload_larger_than_chunk | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_set_key_from_filename | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_ignored_header | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_case_insensitive_condition_fields | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_escaped_field_values | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_invalid_signature | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_invalid_access_key | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_invalid_date_format | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_no_key_specified | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_missing_signature | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_missing_policy_condition | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_user_specified_header | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_request_missing_policy_specified_field | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_condition_is_case_sensitive | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_expires_is_case_sensitive | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_expired_policy | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_wrong_bucket | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_invalid_request_field_value | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_missing_expires_condition | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_missing_conditions_list | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_upload_size_limit_exceeded | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_missing_content_length_argument | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_invalid_content_length_argument | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_upload_size_below_minimum | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_upload_size_rgw_chunk_size_bug | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_empty_conditions | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_encryption_sse_c_post_object_authenticated_request | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_sse_kms_post_object_authenticated_request | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_tags_authenticated_request | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_sse_s3_default_post_object_authenticated_request | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_sse_kms_default_post_object_authenticated_request | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_post_object_upload_checksum | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
-test_cors_presigned_*_v2 | AWS Signature V2 (presigned URL with signature_version s3): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
+test_post_object_authenticated_request | deprecated | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
+test_post_object_upload_larger_than_chunk | deprecated | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
+test_post_object_set_key_from_filename | deprecated | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
+test_post_object_ignored_header | deprecated | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
+test_post_object_case_insensitive_condition_fields | deprecated | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
+test_post_object_escaped_field_values | deprecated | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
+test_post_object_invalid_signature | deprecated | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
+test_post_object_invalid_access_key | deprecated | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
+test_post_object_missing_policy_condition | deprecated | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
+test_post_object_user_specified_header | deprecated | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
+test_post_object_request_missing_policy_specified_field | deprecated | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
+test_post_object_expired_policy | deprecated | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
+test_post_object_wrong_bucket | deprecated | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
+test_post_object_invalid_request_field_value | deprecated | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
+test_post_object_upload_size_rgw_chunk_size_bug | deprecated | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
+test_encryption_sse_c_post_object_authenticated_request | deprecated | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
+test_sse_kms_post_object_authenticated_request | deprecated | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
+test_post_object_tags_authenticated_request | deprecated | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
+test_sse_s3_default_post_object_authenticated_request | deprecated | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
+test_sse_kms_default_post_object_authenticated_request | deprecated | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
+test_post_object_upload_checksum | deprecated | AWS Signature V2 (POST policy signed with AWSAccessKeyId/HMAC-SHA1): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
+marker:auth_aws2 | deprecated | AWS Signature V2 (test_headers.py, requests signed with signature_version='s3'): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
+test_cors_presigned_*_v2 | deprecated | AWS Signature V2 (presigned URL with signature_version s3): Nexo accepts SigV4 only (S-IAM-02, docs/01 §1.1, non-goals)
 
 # --- ACLs (S-BKT-13, P2) ---------------------------------------------------
 # Nexo behaves like an S3 bucket with Object Ownership "BucketOwnerEnforced"
@@ -87,151 +102,163 @@ test_cors_presigned_*_v2 | AWS Signature V2 (presigned URL with signature_versio
 # access rules (S-BKT-03, S-ACC-*). These tests need canned ACLs such as
 # public-read, explicit grants or the ACL owner/grantee model.
 
-test_100_continue | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_access_bucket_private_object_publicread | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_access_bucket_private_object_publicreadwrite | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_access_bucket_private_objectv2_publicread | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_access_bucket_private_objectv2_publicreadwrite | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_access_bucket_publicread_object_private | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_access_bucket_publicread_object_publicread | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_access_bucket_publicread_object_publicreadwrite | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_access_bucket_publicreadwrite_object_private | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_access_bucket_publicreadwrite_object_publicread | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_access_bucket_publicreadwrite_object_publicreadwrite | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_block_public_object_canned_acls | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_block_public_put_bucket_acls | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_bucket_acl_canned | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_bucket_acl_canned_authenticatedread | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_bucket_acl_canned_during_create | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_bucket_acl_canned_publicreadwrite | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_bucket_acl_grant_email | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_bucket_acl_grant_email_not_exist | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_bucket_acl_grant_nonexist_user | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_bucket_acl_grant_userid_fullcontrol | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_bucket_acl_grant_userid_read | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_bucket_acl_grant_userid_readacp | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_bucket_acl_grant_userid_write | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_bucket_acl_grant_userid_writeacp | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_bucket_acl_revoke_all | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_bucket_concurrent_set_canned_acl | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_bucket_create_delete_bucket_ownership | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_bucket_header_acl_grants | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_bucket_list_objects_anonymous | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_bucket_listv2_objects_anonymous | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_bucket_policy_acl | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_bucket_policy_put_obj_grant | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_bucket_recreate_new_acl | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_bucket_recreate_overwrite_acl | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_bucketv2_policy_acl | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_cors_header_option | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_cors_origin_response | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_cors_origin_wildcard | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_cors_presigned_get_object | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_cors_presigned_get_object_tenant | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_cors_presigned_get_object_tenant_v2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_cors_presigned_get_object_v2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_cors_presigned_put_object | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_cors_presigned_put_object_tenant | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_cors_presigned_put_object_tenant_v2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_cors_presigned_put_object_tenant_with_acl | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_cors_presigned_put_object_v2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_cors_presigned_put_object_with_acl | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_create_bucket_bucket_owner_enforced | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_create_bucket_bucket_owner_preferred | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_create_bucket_object_writer | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_expected_bucket_owner | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_get_authpublic_acl_bucket_policy_status | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_get_public_acl_bucket_policy_status | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_ignore_public_acls | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_list_multipart_upload_owner | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_acl | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_acl_canned | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_acl_canned_authenticatedread | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_acl_canned_bucketownerfullcontrol | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_acl_canned_bucketownerread | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_acl_canned_during_create | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_acl_canned_publicreadwrite | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_acl_full_control_verify_attributes | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_acl_full_control_verify_owner | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_acl_read | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_acl_readacp | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_acl_write | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_acl_writeacp | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_anon_put_write_access | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_copy_canned_acl | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_copy_not_owned_object_bucket | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_delete_key_bucket_gone | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_header_acl_grants | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_presigned_put_object_with_acl_tenant | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_raw_authenticated | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_raw_authenticated_bucket_acl | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_raw_authenticated_bucket_gone | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_raw_authenticated_object_acl | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_raw_authenticated_object_gone | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_raw_get | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_raw_get_bucket_acl | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_raw_get_bucket_gone | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_raw_get_object_acl | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_raw_get_object_gone | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_raw_get_x_amz_expires_not_expired | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_raw_get_x_amz_expires_not_expired_tenant | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_raw_get_x_amz_expires_out_max_range | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_raw_get_x_amz_expires_out_positive_range | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_object_raw_get_x_amz_expires_out_range_zero | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_post_object_anonymous_request | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_post_object_authenticated_no_content_type | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_post_object_authenticated_request_bad_access_key | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_post_object_set_invalid_success_code | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_post_object_set_success_code | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_post_object_success_redirect_action | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_post_object_tags_anonymous_request | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_put_bucket_acl_grant_group_read | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_put_bucket_ownership_bucket_owner_enforced | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_put_bucket_ownership_bucket_owner_preferred | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_put_bucket_ownership_object_writer | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_versioned_object_acl | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
-test_versioned_object_acl_no_version_specified | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_100_continue | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_access_bucket_private_object_publicread | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_access_bucket_private_object_publicreadwrite | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_access_bucket_private_objectv2_publicread | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_access_bucket_private_objectv2_publicreadwrite | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_access_bucket_publicread_object_private | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_access_bucket_publicread_object_publicread | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_access_bucket_publicread_object_publicreadwrite | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_access_bucket_publicreadwrite_object_private | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_access_bucket_publicreadwrite_object_publicread | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_access_bucket_publicreadwrite_object_publicreadwrite | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_block_public_object_canned_acls | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_block_public_put_bucket_acls | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_bucket_acl_canned | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_bucket_acl_canned_authenticatedread | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_bucket_acl_canned_during_create | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_bucket_acl_canned_publicreadwrite | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_bucket_acl_grant_email | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_bucket_acl_grant_email_not_exist | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_bucket_acl_grant_nonexist_user | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_bucket_acl_grant_userid_fullcontrol | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_bucket_acl_grant_userid_read | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_bucket_acl_grant_userid_readacp | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_bucket_acl_grant_userid_write | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_bucket_acl_grant_userid_writeacp | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_bucket_acl_revoke_all | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_bucket_concurrent_set_canned_acl | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_bucket_create_delete_bucket_ownership | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_bucket_header_acl_grants | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_bucket_list_objects_anonymous | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_bucket_listv2_objects_anonymous | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_bucket_policy_acl | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_bucket_policy_put_obj_grant | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_bucket_recreate_new_acl | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_bucket_recreate_overwrite_acl | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_bucketv2_policy_acl | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_cors_header_option | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_cors_origin_response | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_cors_origin_wildcard | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_cors_presigned_get_object | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_cors_presigned_get_object_tenant | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_cors_presigned_get_object_tenant_v2 | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_cors_presigned_get_object_v2 | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_cors_presigned_put_object | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_cors_presigned_put_object_tenant | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_cors_presigned_put_object_tenant_v2 | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_cors_presigned_put_object_tenant_with_acl | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_cors_presigned_put_object_v2 | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_cors_presigned_put_object_with_acl | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_create_bucket_bucket_owner_enforced | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_create_bucket_bucket_owner_preferred | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_create_bucket_object_writer | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_expected_bucket_owner | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_get_authpublic_acl_bucket_policy_status | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_get_public_acl_bucket_policy_status | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_ignore_public_acls | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_list_multipart_upload_owner | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_acl | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_acl_canned | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_acl_canned_authenticatedread | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_acl_canned_bucketownerfullcontrol | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_acl_canned_bucketownerread | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_acl_canned_during_create | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_acl_canned_publicreadwrite | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_acl_full_control_verify_attributes | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_acl_full_control_verify_owner | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_acl_read | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_acl_readacp | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_acl_write | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_acl_writeacp | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_anon_put_write_access | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_copy_canned_acl | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_copy_not_owned_object_bucket | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_delete_key_bucket_gone | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_header_acl_grants | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_raw_authenticated | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_raw_authenticated_bucket_acl | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_raw_authenticated_bucket_gone | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_raw_authenticated_object_acl | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_raw_authenticated_object_gone | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_raw_get | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_raw_get_bucket_acl | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_raw_get_bucket_gone | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_raw_get_object_acl | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_raw_get_object_gone | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_raw_get_x_amz_expires_not_expired | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_raw_get_x_amz_expires_not_expired_tenant | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_raw_get_x_amz_expires_out_max_range | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_raw_get_x_amz_expires_out_positive_range | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_object_raw_get_x_amz_expires_out_range_zero | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_post_object_anonymous_request | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_post_object_authenticated_no_content_type | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_post_object_authenticated_request_bad_access_key | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_post_object_set_invalid_success_code | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_post_object_set_success_code | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_post_object_success_redirect_action | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_post_object_tags_anonymous_request | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_put_bucket_acl_grant_group_read | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_put_bucket_ownership_bucket_owner_enforced | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_put_bucket_ownership_bucket_owner_preferred | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_put_bucket_ownership_object_writer | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_versioned_object_acl | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
+test_versioned_object_acl_no_version_specified | p2 | ACLs (canned ACL other than private, grants or writer ownership): S-BKT-13, P2; Nexo enforces bucket-owner object ownership as AWS does by default since 2023 and grants access with policies
 
 # --- Single account, single namespace ---------------------------------------
-test_bucket_create_exists_nonowner | Buckets owned by another account: Nexo has a single account (the users of S-IAM-*), a bucket that exists is "owned by you" (BucketAlreadyOwnedByYou)
-test_bucket_policy_upload_part_copy | Bucket owned by the alt account: Nexo has a single account, a user has the rights of its policies, not those of an owner of the buckets it created (the alt user of the suite cannot be both a stranger to main's buckets and the owner of its own)
-test_bucket_policy_put_obj_copy_source | Objects owned by their writer (ACL ownership): with bucket-owner object ownership the alt user needs a policy to read what it wrote (S-BKT-13)
-test_bucket_policy_put_obj_copy_source_meta | Objects owned by their writer (ACL ownership): with bucket-owner object ownership the alt user needs a policy to read what it wrote (S-BKT-13)
-test_bucket_policy_different_tenant | RGW tenants (tenant:bucket names): Nexo has a single bucket namespace
-test_bucket_policy_tenanted_bucket | RGW tenants (tenant:bucket names): Nexo has a single bucket namespace
+test_bucket_create_exists_nonowner | design | Buckets owned by another account: Nexo has a single account (the users of S-IAM-*), a bucket that exists is "owned by you" (BucketAlreadyOwnedByYou)
+test_bucket_policy_upload_part_copy | design | Bucket owned by the alt account: Nexo has a single account, a user has the rights of its policies, not those of an owner of the buckets it created (the alt user of the suite cannot be both a stranger to main's buckets and the owner of its own)
+test_bucket_policy_put_obj_copy_source | design | Objects owned by their writer (ACL ownership): with bucket-owner object ownership the alt user needs a policy to read what it wrote (S-BKT-13)
+test_bucket_policy_put_obj_copy_source_meta | design | Objects owned by their writer (ACL ownership): with bucket-owner object ownership the alt user needs a policy to read what it wrote (S-BKT-13)
+test_object_presigned_put_object_with_acl_tenant | design | The tenant user writes to the bucket it just created (x-amz-acl private): in Nexo's single account a user has the rights of its policies, not those of the owner of the buckets it creates, and the tenant user of the run may only list and create buckets (the variant with the main user passes)
+test_bucket_policy_different_tenant | design | RGW tenants (tenant:bucket names): Nexo has a single bucket namespace
+test_bucket_policy_tenanted_bucket | design | RGW tenants (tenant:bucket names): Nexo has a single bucket namespace
 
 # --- Storage layout ----------------------------------------------------------
 # Objects are directories of the drives (xl.meta next to the data, docs/01
 # §1.5, as MinIO): a key cannot also be the prefix of other keys.
-test_bucket_list_delimiter_basic | Key that is also a prefix of other keys ("foo/bar" and "foo/bar/xyzzy"): refused with XNexoParentIsObject by the on-disk layout (docs/01 §1.5, docs/02 §2.4)
-test_bucket_listv2_delimiter_basic | Key that is also a prefix of other keys ("foo/bar" and "foo/bar/xyzzy"): refused with XNexoParentIsObject by the on-disk layout (docs/01 §1.5, docs/02 §2.4)
+test_bucket_list_delimiter_basic | design | Key that is also a prefix of other keys ("foo/bar" and "foo/bar/xyzzy"): refused with XNexoParentIsObject by the on-disk layout (docs/01 §1.5, docs/02 §2.4)
+test_bucket_listv2_delimiter_basic | design | Key that is also a prefix of other keys ("foo/bar" and "foo/bar/xyzzy"): refused with XNexoParentIsObject by the on-disk layout (docs/01 §1.5, docs/02 §2.4)
 
 # --- RGW expectations where S3 (and Nexo) answer otherwise -----------------
-test_multipart_get_part | GetObject with a partNumber beyond the parts: S3 answers 416 InvalidPartNumber (as Nexo and MinIO); the test expects RGW's 400 InvalidPart
-test_multipart_single_get_part | GetObject with a partNumber beyond the parts: S3 answers 416 InvalidPartNumber (as Nexo and MinIO); the test expects RGW's 400 InvalidPart
-test_non_multipart_get_part | GetObject with a partNumber beyond the parts: S3 answers 416 InvalidPartNumber (as Nexo and MinIO); the test expects RGW's 400 InvalidPart
-test_multipart_sse_c_get_part | GetObject with a partNumber beyond the parts: S3 answers 416 InvalidPartNumber (as Nexo and MinIO); the test expects RGW's 400 InvalidPart
-test_non_multipart_sse_c_get_part | GetObject with a partNumber beyond the parts: S3 answers 416 InvalidPartNumber (as Nexo and MinIO); the test expects RGW's 400 InvalidPart
-test_encryption_sse_c_other_key | SSE-C request with another key than the object's: S3 answers 403 AccessDenied (as Nexo, docs/05 T-7.5); the test expects RGW's 400
-test_encryption_sse_c_multipart_invalid_chunks_1 | SSE-C part uploaded with another key than the upload's: S3 answers 403 AccessDenied (as Nexo, docs/05 T-7.5); the test expects RGW's 400
-test_copy_part_enc[*-sse-c-*] | SSE-C part uploaded with another key than the upload's: S3 answers 403 AccessDenied (as Nexo, docs/05 T-7.5); the test expects RGW's 400
-test_sse_kms_no_key | SSE-KMS without a key id: S3 (and Nexo) use the default KMS key (aws/s3, NEXO_KMS default key); the test expects RGW's refusal
-test_encryption_sse_c_multipart_bad_download | SSE-C GET with another key than the object's: S3 answers 403 AccessDenied (as Nexo, docs/05 T-7.5); the test expects RGW's 400
-test_multipart_resend_first_finishes_last | CompleteMultipartUpload listing part 1 twice (the ETags of both uploads of the part): Nexo keeps the last upload of a part number, as S3, and refuses a list that is not strictly ascending (400 InvalidPartOrder); the test expects RGW to skip the stale entry
-test_delete_marker_nonversioned | HEAD of a deleted key of an unversioned bucket: S3 (and Nexo) omit x-amz-delete-marker when it would be false; the test expects RGW's "x-amz-delete-marker: false"
-test_get_bucket_policy_status | GetBucketPolicyStatus of a bucket without policy: S3 (and Nexo) answer 404 NoSuchBucketPolicy; the test expects RGW's IsPublic=false (the public/non-public evaluation passes in test_get_nonpublicpolicy_principal_bucket_policy_status)
-test_get_*policy_acl_bucket_policy_status | GetBucketPolicyStatus of a bucket without policy: S3 (and Nexo) answer 404 NoSuchBucketPolicy, which the test calls before setting its policy; the test expects RGW's IsPublic=false
-test_head_object_404_with_policy_prefix | HEAD by a requester granted s3:ListBucket only (no s3:GetObject): Nexo authorizes s3:GetObject before looking the key up and answers 403, as for any object request it does not allow; RGW answers 404 for keys matching the s3:prefix of the grant
-test_object_read_unreadable | Key with C1 control characters ("\xae\x8a-"): AWS refuses the URI (400); Nexo, like RGW (the test is marked fails_on_rgw), accepts any UTF-8 key and answers 404 for a missing one
-test_object_set_get_unicode_metadata | Non-ASCII metadata value: botocore sends it UTF-8 encoded and decodes response headers as ISO-8859-1, so it round-trips only if the server transcodes it; Nexo, like RGW (marked fails_on_rgw), returns the bytes it received (intact for SDKs that read headers as UTF-8: Go, JavaScript)
-test_put_excess_tags | More than 10 object tags: S3 answers 400 BadRequest "Object tags cannot be greater than 10" (as Nexo); the test expects RGW's InvalidTag
-test_object_raw_put_authenticated_expired | Presigned URL with a negative X-Amz-Expires: S3 refuses it as malformed (400 AuthorizationQueryParametersError, as Nexo and MinIO); the test expects RGW's 403
-test_bucket_create_exists | Re-creating one's own bucket: Nexo answers 409 BucketAlreadyOwnedByYou as S3 does in every region but the legacy us-east-1 quirk (200), which the test (and its "e.status" check) relies on
-test_bucket_recreate_not_overriding | Re-creating one's own bucket: Nexo answers 409 BucketAlreadyOwnedByYou as S3 does in every region but the legacy us-east-1 quirk (200), which the test relies on
-test_bucket_list_return_data_versioning | The test creates its bucket twice (get_new_bucket, then _create_objects on the same name) and relies on the legacy us-east-1 200; Nexo answers 409 BucketAlreadyOwnedByYou as S3 elsewhere
-test_versioning_concurrent_multi_object_delete | The test creates its bucket twice (get_new_bucket, then _create_objects on the same name) and relies on the legacy us-east-1 200; Nexo answers 409 BucketAlreadyOwnedByYou as S3 elsewhere
-test_bucket_policy_put_obj_request_obj_tag | Test defect (marked fails_on_rgw): the x-amz-tagging header is registered on the main client, so the alt client's PutObject carries no tag and is rightly denied
-test_bucket_policy_set_condition_operator_end_with_IfExists | Expects an Allow-only bucket policy to deny the bucket owner's own user: in S3 (and Nexo) a non-matching Allow does not deny a user whose identity policy allows (RGW evaluates the bucket policy first)
-test_bucket_policy_allow_notprincipal | Allow with NotPrincipal: accepted by S3 (discouraged) and by Nexo (anonymous access rules use it); the test expects RGW's refusal
-test_bucket_policy_another_bucket | Bucket policy naming the resources of every bucket (arn:aws:s3:::*): Nexo requires the resources of a bucket policy to be in its bucket (MalformedPolicy)
-test_bucketv2_policy_another_bucket | Bucket policy naming the resources of every bucket (arn:aws:s3:::*): Nexo requires the resources of a bucket policy to be in its bucket (MalformedPolicy)
+test_multipart_get_part | aws | GetObject with a partNumber beyond the parts: S3 answers 416 InvalidPartNumber (as Nexo and MinIO); the test expects RGW's 400 InvalidPart
+test_multipart_single_get_part | aws | GetObject with a partNumber beyond the parts: S3 answers 416 InvalidPartNumber (as Nexo and MinIO); the test expects RGW's 400 InvalidPart
+test_non_multipart_get_part | aws | GetObject with a partNumber beyond the parts: S3 answers 416 InvalidPartNumber (as Nexo and MinIO); the test expects RGW's 400 InvalidPart
+test_multipart_sse_c_get_part | aws | GetObject of an SSE-C object with a partNumber beyond the parts and no SSE-C key: S3 (and Nexo) answer 400 InvalidRequest for the missing key, 416 InvalidPartNumber with the key; the test expects RGW's 400 InvalidPart
+test_non_multipart_sse_c_get_part | aws | GetObject with a partNumber beyond the parts: S3 answers 416 InvalidPartNumber (as Nexo and MinIO); the test expects RGW's 400 InvalidPart
+test_encryption_sse_c_other_key | aws | SSE-C request with another key than the object's: S3 answers 403 AccessDenied (as Nexo, docs/05 T-7.5); the test expects RGW's 400
+test_encryption_sse_c_multipart_invalid_chunks_1 | aws | SSE-C part uploaded with another key than the upload's: S3 answers 403 AccessDenied (as Nexo, docs/05 T-7.5); the test expects RGW's 400
+test_copy_part_enc[*-sse-c-*] | aws | SSE-C part uploaded with another key than the upload's: S3 answers 403 AccessDenied (as Nexo, docs/05 T-7.5); the test expects RGW's 400
+test_sse_kms_no_key | aws | SSE-KMS without a key id: S3 (and Nexo) use the default KMS key (aws/s3, NEXO_KMS default key); the test expects RGW's refusal
+test_encryption_sse_c_multipart_bad_download | aws | SSE-C GET with another key than the object's: S3 answers 403 AccessDenied (as Nexo, docs/05 T-7.5); the test expects RGW's 400
+test_multipart_resend_first_finishes_last | aws | CompleteMultipartUpload listing part 1 twice (the ETags of both uploads of the part): Nexo keeps the last upload of a part number, as S3, and refuses a list that is not strictly ascending (400 InvalidPartOrder); the test expects RGW to skip the stale entry
+test_delete_marker_nonversioned | aws | HEAD of a deleted key of an unversioned bucket: S3 (and Nexo) omit x-amz-delete-marker when it would be false; the test expects RGW's "x-amz-delete-marker: false"
+test_get_bucket_policy_status | aws | GetBucketPolicyStatus of a bucket without policy: S3 (and Nexo) answer 404 NoSuchBucketPolicy; the test expects RGW's IsPublic=false (the public/non-public evaluation passes in test_get_nonpublicpolicy_principal_bucket_policy_status)
+test_get_*policy_acl_bucket_policy_status | aws | GetBucketPolicyStatus of a bucket without policy: S3 (and Nexo) answer 404 NoSuchBucketPolicy, which the test calls before setting its policy; the test expects RGW's IsPublic=false
+test_head_object_404_with_policy_prefix | aws | HEAD by a requester granted s3:ListBucket only (no s3:GetObject): Nexo authorizes s3:GetObject before looking the key up and answers 403, as for any object request it does not allow; RGW answers 404 for keys matching the s3:prefix of the grant
+test_object_read_unreadable | aws | Key with C1 control characters ("\xae\x8a-"): AWS refuses the URI (400); Nexo, like RGW (the test is marked fails_on_rgw), accepts any UTF-8 key and answers 404 for a missing one
+test_object_set_get_unicode_metadata | aws | Non-ASCII metadata value: botocore sends it UTF-8 encoded and decodes response headers as ISO-8859-1, so it round-trips only if the server transcodes it; Nexo, like RGW (marked fails_on_rgw), returns the bytes it received (intact for SDKs that read headers as UTF-8: Go, JavaScript)
+test_put_excess_tags | aws | More than 10 object tags: S3 answers 400 BadRequest "Object tags cannot be greater than 10" (as Nexo); the test expects RGW's InvalidTag
+test_object_raw_put_authenticated_expired | aws | Presigned URL with a negative X-Amz-Expires: S3 refuses it as malformed (400 AuthorizationQueryParametersError, as Nexo and MinIO); the test expects RGW's 403
+test_bucket_create_exists | aws | Re-creating one's own bucket: Nexo answers 409 BucketAlreadyOwnedByYou as S3 does in every region but the legacy us-east-1 quirk (200), which the test (and its "e.status" check) relies on
+test_bucket_recreate_not_overriding | aws | Re-creating one's own bucket: Nexo answers 409 BucketAlreadyOwnedByYou as S3 does in every region but the legacy us-east-1 quirk (200), which the test relies on
+test_bucket_list_return_data_versioning | aws | The test creates its bucket twice (get_new_bucket, then _create_objects on the same name) and relies on the legacy us-east-1 200; Nexo answers 409 BucketAlreadyOwnedByYou as S3 elsewhere
+test_versioning_concurrent_multi_object_delete | aws | The test creates its bucket twice (get_new_bucket, then _create_objects on the same name) and relies on the legacy us-east-1 200; Nexo answers 409 BucketAlreadyOwnedByYou as S3 elsewhere
+test_bucket_policy_put_obj_request_obj_tag | aws | Test defect (marked fails_on_rgw): the x-amz-tagging header is registered on the main client, so the alt client's PutObject carries no tag and is rightly denied
+test_bucket_policy_set_condition_operator_end_with_IfExists | aws | Expects an Allow-only bucket policy to deny the bucket owner's own user: in S3 (and Nexo) a non-matching Allow does not deny a user whose identity policy allows (RGW evaluates the bucket policy first)
+test_bucket_policy_allow_notprincipal | aws | Allow with NotPrincipal: accepted by S3 (discouraged) and by Nexo (anonymous access rules use it); the test expects RGW's refusal
+test_bucket_policy_another_bucket | aws | Bucket policy naming the resources of every bucket (arn:aws:s3:::*): Nexo requires the resources of a bucket policy to be in its bucket (MalformedPolicy)
+test_bucketv2_policy_another_bucket | aws | Bucket policy naming the resources of every bucket (arn:aws:s3:::*): Nexo requires the resources of a bucket policy to be in its bucket (MalformedPolicy)
+test_get_multipart_checksum_object_attributes | aws | CompleteMultipartUpload of an upload created with ChecksumAlgorithm SHA256 (COMPOSITE) without the checksum of each part: S3 answers 400 InvalidRequest "The complete request must include the checksum for each part" (as Nexo, docs/02 §2.4); the test expects RGW to accept it
+
+# --- test_headers.py ---------------------------------------------------------
+test_object_create_bad_expect_mismatch | design | Expect header other than 100-continue ("Expect: 200"): the Go HTTP server answers 417 Expectation Failed before Nexo sees the request, as RFC 9110 §10.1.1 allows (as MinIO, docs/02 §2.4); the test expects the header to be ignored
+test_bucket_create_bad_expect_mismatch | design | Expect header other than 100-continue ("Expect: 200"): the Go HTTP server answers 417 Expectation Failed before Nexo sees the request, as RFC 9110 §10.1.1 allows (as MinIO, docs/02 §2.4); the test expects the header to be ignored
+test_object_acl_create_contentlength_none | p2 | PutObjectAcl with the canned ACL public-read: S-BKT-13, P2 (Nexo enforces bucket-owner object ownership)
+test_object_create_bad_authorization_empty | suite | Authorization set by a before-call hook: botocore signs the request afterwards and replaces it, so the request is valid (TODO of the fails_on_rgw marker: "once we have learned how to remove the authorization header")
+test_object_create_bad_authorization_none | suite | Authorization removed by a before-call hook: botocore signs the request afterwards and adds it, so the request is valid (TODO of the fails_on_rgw marker)
+test_bucket_create_bad_authorization_empty | suite | Authorization set by a before-call hook: botocore signs the request afterwards and replaces it, so the request is valid (TODO of the fails_on_rgw marker)
+test_bucket_create_bad_authorization_none | suite | Authorization removed by a before-call hook: botocore signs the request afterwards and adds it, so the request is valid (TODO of the fails_on_rgw marker)
+test_object_create_bad_contentlength_empty | suite | Content-Length set to "" by a before-call hook: botocore (aws-chunked body of the default CRC trailer) sets it again, so the request is valid (TODO of the fails_on_rgw marker: "once we have learned how to remove the content-length header")
+test_object_create_bad_contentlength_none | suite | Content-Length removed by a before-call hook: botocore (aws-chunked body of the default CRC trailer) sets it again, so the request is valid (TODO of the fails_on_rgw marker)

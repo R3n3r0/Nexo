@@ -144,8 +144,10 @@ func suite() []suiteTest {
 		{name: "TestConsoleUploadEncryption", fn: TestConsoleUploadEncryption},
 		{name: "TestConsoleKeepsEncryption", fn: TestConsoleKeepsEncryption},
 		{name: "TestStalledDownloadReleasesLock", fn: TestStalledDownloadReleasesLock},
+		{name: "TestStalledDownloadIsASnapshot", fn: TestStalledDownloadIsASnapshot},
 		{name: "TestMultipartCompletionRetry", fn: TestMultipartCompletionRetry},
 		{name: "TestMultipartCompletionValidation", fn: TestMultipartCompletionValidation},
+		{name: "TestRequestHeaderValidation", fn: TestRequestHeaderValidation},
 		{name: "TestS3ResponseDetails", fn: TestS3ResponseDetails},
 		{name: "TestObjectLockValidation", fn: TestObjectLockValidation},
 		{name: "TestSSECustomerKeyRequirements", fn: TestSSECustomerKeyRequirements},
@@ -179,7 +181,7 @@ func suite() []suiteTest {
 // the test process. The modes run in parallel, and so do the tests that
 // call t.Parallel.
 //
-// covers: S-DEP-01
+// covers: S-STO-00, S-STO-02, S-STO-06
 func TestDeploymentModes(t *testing.T) {
 	for _, mode := range []string{modeSNMD, modeCluster} {
 		t.Run(mode, func(t *testing.T) {

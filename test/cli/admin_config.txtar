@@ -1,3 +1,4 @@
+# covers: C-ADM-06
 # TCL-E-14: admin config set/get/export/import round-trip identically.
 # C-ADM-06.
 

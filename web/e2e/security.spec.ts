@@ -40,6 +40,7 @@ async function sessionToken(request: APIRequestContext): Promise<string> {
 const nexoBinary = () => process.env.NEXO_E2E_BINARY || join(repoRoot, 'bin', 'nexo');
 
 test.describe('console security', () => {
+  // covers: D-AUTH-01
   test('TD-S-01 a mutating request without the CSRF token is refused', async ({ page, api }) => {
     await page.goto('/');
     const csrf = await sessionToken(page.request);
@@ -75,6 +76,7 @@ test.describe('console security', () => {
   test.describe('cookies', () => {
     test.use({ storageState: anonymous });
 
+    // covers: D-AUTH-01
     test('TD-S-02 session cookies are HttpOnly, SameSite=Strict, and Secure over TLS', async ({
       page,
       context,
@@ -142,6 +144,7 @@ test.describe('console security', () => {
     });
   });
 
+  // covers: D-AUTH-01
   test('TD-S-08 a page served by the S3 port cannot act in the console session', async ({
     browser,
     nexo,
@@ -206,6 +209,7 @@ test.describe('console security', () => {
     }
   });
 
+  // covers: D-OBJ-01
   test('TD-S-03 an object key with markup is shown as text, never executed', async ({
     page,
     api,
@@ -244,6 +248,7 @@ test.describe('console security', () => {
     }
   });
 
+  // covers: D-OBJ-05
   test('TD-S-04 HTML and SVG objects are never rendered in the console origin', async ({
     page,
     api,

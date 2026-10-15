@@ -112,6 +112,8 @@ func TestAccessRulesSource(t *testing.T) {
 
 // TestAccessRulesInSimulator checks that the simulator traces the rules
 // and names the deciding one, even after an explicit deny.
+//
+// covers: S-IAM-04b, S-ACC-04
 func TestAccessRulesInSimulator(t *testing.T) {
 	rules := policymock.NewAccessRules(t)
 	evaluated := []policy.EvaluatedRule{{RuleMatch: *denyRule("d"), Matched: true}, {RuleMatch: *allowRule("a"), Mismatch: policy.RuleMismatchKey}}

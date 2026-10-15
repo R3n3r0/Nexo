@@ -139,6 +139,7 @@ func newNodeRegistry(t *testing.T, requests, bucketBytes float64) metrics.Regist
 	return reg
 }
 
+// covers: S-OPS-04
 func TestExporterLocalAndNode(t *testing.T) {
 	ctx := context.Background()
 	exp, err := metrics.NewExporter(metrics.ExporterDeps{Registry: newNodeRegistry(t, 2, 100), NodeID: "n1:9000"})
@@ -174,6 +175,7 @@ func TestExporterLocalAndNode(t *testing.T) {
 	require.Error(t, exp.WriteText(cancelled, &buf, gathered))
 }
 
+// covers: S-OPS-04
 func TestExporterCluster(t *testing.T) {
 	ctx := context.Background()
 	remote := newNodeRegistry(t, 5, 0)
@@ -251,6 +253,7 @@ func TestExporterClusterInfoUnavailable(t *testing.T) {
 	assert.InDelta(t, 1, valueOf(t, fams, "nexo_s3_requests_total", map[string]string{"api": "PutObject", "server": "local"}), 0)
 }
 
+// covers: S-OPS-04
 func TestExporterBucket(t *testing.T) {
 	ctx := context.Background()
 	remote := newNodeRegistry(t, 0, 50)

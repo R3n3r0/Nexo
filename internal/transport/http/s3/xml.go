@@ -118,7 +118,11 @@ type DeleteMarkerEntry struct {
 	Owner        Owner  `xml:"Owner"`
 }
 
-// ListVersionsResult is the body of ListObjectVersions.
+// ListVersionsResult is the body of ListObjectVersions. Versions and
+// DeleteMarkers are the decoded view; the response encodes them in listing
+// order, interleaved as S3 does (versionEntries), so that the clients that
+// read them in document order (minio-go) see the versions of a key from
+// the latest one, delete markers included.
 type ListVersionsResult struct {
 	XMLName             xml.Name            `xml:"http://s3.amazonaws.com/doc/2006-03-01/ ListVersionsResult"`
 	Name                string              `xml:"Name"`
@@ -134,6 +138,71 @@ type ListVersionsResult struct {
 	Versions            []VersionEntry      `xml:"Version"`
 	DeleteMarkers       []DeleteMarkerEntry `xml:"DeleteMarker"`
 	CommonPrefixes      []CommonPrefix      `xml:"CommonPrefixes"`
+
+	// entries is the listing order of Versions and DeleteMarkers (nil:
+	// the versions, then the delete markers).
+	entries []versionListEntry
+}
+
+// versionListEntry is a Version or a DeleteMarker element of the listing.
+type versionListEntry struct {
+	version *VersionEntry
+	marker  *DeleteMarkerEntry
+}
+
+// MarshalXML implements xml.Marshaler.
+func (e versionListEntry) MarshalXML(enc *xml.Encoder, _ xml.StartElement) error {
+	if e.marker != nil {
+		return enc.EncodeElement(e.marker, xml.StartElement{Name: xml.Name{Local: "DeleteMarker"}})
+	}
+	return enc.EncodeElement(e.version, xml.StartElement{Name: xml.Name{Local: "Version"}})
+}
+
+// addVersion appends a version to the listing.
+func (r *ListVersionsResult) addVersion(v VersionEntry) {
+	r.Versions = append(r.Versions, v)
+	r.entries = append(r.entries, versionListEntry{version: &r.Versions[len(r.Versions)-1]})
+}
+
+// addDeleteMarker appends a delete marker to the listing.
+func (r *ListVersionsResult) addDeleteMarker(m DeleteMarkerEntry) {
+	r.DeleteMarkers = append(r.DeleteMarkers, m)
+	r.entries = append(r.entries, versionListEntry{marker: &r.DeleteMarkers[len(r.DeleteMarkers)-1]})
+}
+
+// MarshalXML implements xml.Marshaler: the versions and delete markers in
+// listing order.
+func (r ListVersionsResult) MarshalXML(enc *xml.Encoder, _ xml.StartElement) error {
+	entries := r.entries
+	if entries == nil {
+		for i := range r.Versions {
+			entries = append(entries, versionListEntry{version: &r.Versions[i]})
+		}
+		for i := range r.DeleteMarkers {
+			entries = append(entries, versionListEntry{marker: &r.DeleteMarkers[i]})
+		}
+	}
+	wire := struct {
+		XMLName             xml.Name           `xml:"http://s3.amazonaws.com/doc/2006-03-01/ ListVersionsResult"`
+		Name                string             `xml:"Name"`
+		Prefix              string             `xml:"Prefix"`
+		KeyMarker           string             `xml:"KeyMarker"`
+		VersionIDMarker     string             `xml:"VersionIdMarker"`
+		NextKeyMarker       string             `xml:"NextKeyMarker,omitempty"`
+		NextVersionIDMarker string             `xml:"NextVersionIdMarker,omitempty"`
+		MaxKeys             int                `xml:"MaxKeys"`
+		Delimiter           string             `xml:"Delimiter,omitempty"`
+		EncodingType        string             `xml:"EncodingType,omitempty"`
+		IsTruncated         bool               `xml:"IsTruncated"`
+		Entries             []versionListEntry `xml:"Version"`
+		CommonPrefixes      []CommonPrefix     `xml:"CommonPrefixes"`
+	}{
+		Name: r.Name, Prefix: r.Prefix, KeyMarker: r.KeyMarker, VersionIDMarker: r.VersionIDMarker,
+		NextKeyMarker: r.NextKeyMarker, NextVersionIDMarker: r.NextVersionIDMarker, MaxKeys: r.MaxKeys,
+		Delimiter: r.Delimiter, EncodingType: r.EncodingType, IsTruncated: r.IsTruncated,
+		Entries: entries, CommonPrefixes: r.CommonPrefixes,
+	}
+	return enc.Encode(wire)
 }
 
 // VersioningConfiguration is the body of GetBucketVersioning.
@@ -234,6 +303,9 @@ type Grantee struct {
 	Type        string `xml:"xsi:type,attr"`
 	ID          string `xml:"ID"`
 	DisplayName string `xml:"DisplayName"`
+	// TypeElement repeats the type as an element, which the MinIO SDKs
+	// (minio-java) require; the AWS SDKs read the attribute and ignore it.
+	TypeElement string `xml:"Type,omitempty"`
 }
 
 // Grant is one ACL grant.

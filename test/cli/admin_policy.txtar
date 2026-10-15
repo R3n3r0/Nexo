@@ -1,3 +1,4 @@
+# covers: C-ADM-04
 # TCL-E-11: a policy file with a JSON error is rejected with its line and
 # column. TCL-E-12: attach/detach change the permissions of the user at
 # once. TCL-P-05: admin policy simulate agrees with the real operations.

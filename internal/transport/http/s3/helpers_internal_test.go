@@ -216,6 +216,9 @@ func TestChecksumFromHeaders(t *testing.T) {
 		{name: "sdk algorithm disagreeing", headers: map[string]string{"x-amz-checksum-sha1": "s", httpx.HeaderAmzSDKChecksumAlgorithm: "crc32"}, code: "InvalidRequest"},
 		{name: "two headers", headers: map[string]string{"x-amz-checksum-sha1": "s", "x-amz-checksum-crc32": "c"}, code: "InvalidRequest"},
 		{name: "unsupported trailer", headers: map[string]string{httpx.HeaderAmzTrailer: "x-amz-checksum-md5"}, code: "InvalidRequest"},
+		{name: "unsupported header", headers: map[string]string{"x-amz-checksum-md5": "1B2M2Y8AsgTpgAmY7PhCfg=="}, code: "InvalidRequest"},
+		{name: "unsupported sdk algorithm", headers: map[string]string{httpx.HeaderAmzSDKChecksumAlgorithm: "SHA512"}, code: "InvalidRequest"},
+		{name: "checksum parameters are not checksums", headers: map[string]string{"x-amz-checksum-type": "COMPOSITE", "x-amz-checksum-mode": "ENABLED", "x-amz-checksum-algorithm": "CRC32"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

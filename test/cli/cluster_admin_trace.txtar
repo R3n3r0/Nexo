@@ -1,0 +1,39 @@
+# covers: C-ADM-08
+# T-8.3, TCL-E-17 (cluster of 4 nodes): admin trace through the first node
+# shows the requests served by every node, each with its node id; --node
+# keeps the requests of one node. admin logs and admin audit read every
+# node too. C-ADM-08.
+
+exec nexoctl alias set node3 $NEXO_URL3 $NEXO_ROOT_USER $NEXO_ROOT_PASSWORD --admin-url $NEXO_ADMIN_URL3
+exec nexoctl mb local/spread
+
+[windows] skip 'the trace is stopped with SIGINT'
+exec nexoctl admin trace --type s3 --api PutObject --bucket spread local &all&
+exec nexoctl admin trace --type s3 --api PutObject --node $NEXO_NODE3 local &one&
+sleep 2s
+exec nexoctl cp a.txt node3/spread/from3.txt
+exec nexoctl cp a.txt local/spread/from1.txt
+sleep 1s
+kill -INT all
+wait all
+stdout ' '$NEXO_NODE3' s3 +PutObject +200 .* PUT /spread/from3.txt'
+stdout ' s3 +PutObject +200 .* PUT /spread/from1.txt'
+kill -INT one
+wait one
+stdout ' '$NEXO_NODE3' s3 +PutObject +200 .* PUT /spread/from3.txt'
+! stdout 'from1.txt'
+
+# The audit records of every node.
+eventually 10s -match 'from3.txt' nexoctl admin audit --bucket spread --action PutObject --json local
+stdout '"node":"'$NEXO_NODE3'"'
+exec nexoctl admin audit --bucket spread --action PutObject --node $NEXO_NODE3 local
+stdout 'spread/from3.txt'
+! stdout 'spread/from1.txt'
+
+# The logs of every node, the recent entries first.
+exec nexoctl admin logs --last 5 --timeout 1s --json local
+jsonlines stdout
+stdout '"node":"'$NEXO_NODE3'"'
+
+-- a.txt --
+data of the cluster

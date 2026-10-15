@@ -1,3 +1,4 @@
+# covers: C-OBJ-03
 # TCL-E-04: Ctrl-C during a multipart cp aborts the upload: nothing is
 # left on the server.
 

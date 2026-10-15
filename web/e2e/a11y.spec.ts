@@ -24,6 +24,7 @@ async function settle(page: Page) {
   await expect(page.locator('.mantine-Skeleton-root')).toHaveCount(0);
 }
 
+// covers: D-UX-01
 test.describe('TD-E-19 accessibility (axe-core: no serious or critical violation)', () => {
   test.describe('signed out', () => {
     test.use({ storageState: anonymous });

@@ -231,14 +231,21 @@ func (v *verifier) VerifyPresigned(ctx context.Context, r *http.Request) (*domai
 		return nil, errExpired("Request has expired.")
 	}
 	// The payload is UNSIGNED-PAYLOAD unless the URL (or, as some SDKs
-	// sign it, the X-Amz-Content-Sha256 header) declares a hash.
+	// sign it, the X-Amz-Content-Sha256 header) declares a hash. A
+	// malformed parameter of the URL is a malformed URL; a malformed header
+	// is the payload hash of a canonical request no signer computed, a
+	// signature mismatch (as S3 and MinIO answer).
 	payloadHash := unsignedPayload
 	h := q.Get(queryContentSHA256)
-	if h == "" {
+	fromHeader := h == ""
+	if fromHeader {
 		h = r.Header.Get(headerContentSHA256)
 	}
 	if h != "" {
 		if h != unsignedPayload && !isSignature(h) {
+			if fromHeader {
+				return nil, errSignature("malformed x-amz-content-sha256 header in a presigned request")
+			}
 			return nil, errQuery("X-Amz-Content-Sha256 must be UNSIGNED-PAYLOAD or the hex SHA-256 of the payload.")
 		}
 		payloadHash = strings.ToLower(h)
@@ -331,13 +338,27 @@ func requestTime(r *http.Request) (time.Time, error) {
 		return t, nil
 	}
 	if s := r.Header.Get(headerDate); s != "" {
-		t, err := http.ParseTime(s)
+		t, err := parseDateHeader(s)
 		if err != nil {
 			return time.Time{}, errMissingDate()
 		}
 		return t.UTC(), nil
 	}
 	return time.Time{}, errMissingDate()
+}
+
+// parseDateHeader parses the Date header of a signed request: the HTTP
+// formats (RFC 7231: IMF-fixdate, RFC 850, asctime) and RFC 1123 with a
+// numeric zone ("Thu, 15 Oct 2026 11:35:55 -0000"), which Python clients
+// (email.utils.formatdate, botocore) send.
+func parseDateHeader(s string) (time.Time, error) {
+	if t, err := http.ParseTime(s); err == nil {
+		return t, nil
+	}
+	if t, err := time.Parse(time.RFC1123Z, s); err == nil {
+		return t, nil
+	}
+	return time.Parse(time.RFC1123, s)
 }
 
 // checkScope validates the credential scope against the request date, the

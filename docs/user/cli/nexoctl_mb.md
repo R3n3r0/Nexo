@@ -1,0 +1,46 @@
+## nexoctl mb
+
+Make buckets
+
+### Synopsis
+
+Make buckets. --with-lock creates them with Object Lock (WORM retention and
+legal holds, see "nexoctl retention" and "nexoctl legalhold"), which implies
+versioning; an existing bucket can get it later only once its versioning is
+enabled.
+
+```
+nexoctl mb [flags] ALIAS/BUCKET...
+```
+
+### Examples
+
+```
+  nexoctl mb --with-versioning local/photos
+  nexoctl mb --with-lock local/vault
+```
+
+### Options
+
+```
+  -h, --help              help for mb
+  -p, --ignore-existing   do not fail when the bucket already exists
+      --region string     location constraint (default: the region of the alias)
+  -l, --with-lock         create the bucket with Object Lock (implies versioning)
+      --with-versioning   enable versioning on the new bucket
+```
+
+### Options inherited from parent commands
+
+```
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+```
+
+### SEE ALSO
+
+* [nexoctl](nexoctl.md)	 - Nexo command-line client
+

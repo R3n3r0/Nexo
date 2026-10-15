@@ -5,10 +5,8 @@ package mock
 import (
 	context "context"
 
-	cluster "github.com/r3n3r0/nexo/internal/service/cluster"
-
 	domain "github.com/r3n3r0/nexo/internal/domain"
-
+	cluster "github.com/r3n3r0/nexo/internal/service/cluster"
 	mock "github.com/stretchr/testify/mock"
 )
 

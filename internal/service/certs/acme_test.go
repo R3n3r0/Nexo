@@ -158,6 +158,8 @@ func verifyServed(t *testing.T, svc certs.Service, name string, roots *x509.Cert
 // TestACME obtains, serves and renews certificates from Pebble with both
 // challenges, in a deployment of two nodes where only the leader orders
 // and both serve (TDS-10).
+//
+// covers: S-DST-06
 func TestACME(t *testing.T) {
 	if testing.Short() {
 		t.Skip("ACME against Pebble skipped with -short")

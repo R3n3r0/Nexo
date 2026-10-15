@@ -21,6 +21,7 @@ function open(path: string, services: Services = admin()) {
 
 /** D-DST-01..07 on the mocks (TD-D-01..05). */
 describe('distributions', () => {
+  // covers: D-DST-01
   it('D-DST-01 lists the distributions with domains, certificates and traffic', async () => {
     open('/distributions');
     const table = await screen.findByRole('table', { name: 'Distributions' });
@@ -35,6 +36,7 @@ describe('distributions', () => {
     expect(await within(row).findByText('186,550 requests')).toBeInTheDocument();
   });
 
+  // covers: D-DST-01, D-DST-02
   it('TD-D-01 creates a distribution with two domains through the wizard', async () => {
     const { user, services, router } = open('/distributions/-/new');
     const wizard = await screen.findByRole('region', { name: 'New distribution' });
@@ -92,6 +94,7 @@ describe('distributions', () => {
     });
   });
 
+  // covers: D-DST-03, D-DST-04
   it('TD-D-02 adds a behavior, saves with If-Match and tests a URL', async () => {
     const services = admin();
     // Without origin secret: the tester sends no header.
@@ -133,6 +136,7 @@ describe('distributions', () => {
     expect(within(result).getByText('public, max-age=31536000, immutable')).toBeInTheDocument();
   });
 
+  // covers: D-DST-04
   it('D-DST-04 applies the recommended security headers and the SPA fallback', async () => {
     const { user, services } = open('/distributions/download/responses');
     const headers = await screen.findByRole('region', { name: 'Headers and CORS' });
@@ -147,6 +151,7 @@ describe('distributions', () => {
     });
   });
 
+  // covers: D-DST-06
   it('D-DST-06 rotates the origin secret and shows it once', async () => {
     const { user } = open('/distributions/sito-web/security');
     const secret = await screen.findByRole('region', { name: 'Origin secret' });
@@ -166,6 +171,7 @@ describe('distributions', () => {
     expect(within(secret).getByText('2 active secrets in X-Origin-Secret')).toBeInTheDocument();
   });
 
+  // covers: D-DST-05
   it('TD-D-03 shows the private key of a new key group once and signs a URL with it', async () => {
     const { user, services } = open('/distributions/-/key-groups');
     await waitFor(() => {
@@ -208,6 +214,7 @@ describe('distributions', () => {
     );
   });
 
+  // covers: D-DST-07
   it('TD-D-04 highlights the expiring certificates and reports an invalid upload', async () => {
     const { user, services } = open('/distributions/-/certificates');
     const table = await screen.findByRole('table', { name: 'TLS certificates' });
@@ -251,6 +258,7 @@ describe('distributions', () => {
     expect((await services.certificates.list()).items).toHaveLength(2);
   });
 
+  // covers: D-DST-01, D-UX-02
   it('TD-D-05 refuses the pages to a user without admin:ManageDistributions', async () => {
     const services = createMockServices({
       accounts: { nexoadmin: 'nexoadmin', reader: 'reader-secret' },

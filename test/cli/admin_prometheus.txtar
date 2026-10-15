@@ -1,0 +1,44 @@
+# covers: C-ADM-12, S-OPS-04
+# C-ADM-12 (docs/07 §7.4): admin prometheus generate prints the scrape
+# configuration of the metrics with a bearer JWT signed with the secret
+# key of the alias; the metrics endpoint accepts it, and refuses the
+# scrapes without it.
+
+exec nexoctl admin prometheus generate local
+stdout '^# Nexo cluster metrics of nexoctl alias "local" \(access key '$NEXO_ROOT_USER'\), token valid until '
+stdout '^scrape_configs:$'
+stdout '^  - job_name: "nexo-cluster"$'
+stdout '^    metrics_path: "/nexo/metrics/v1/cluster"$'
+stdout '^    authorization:$'
+stdout '^      type: Bearer$'
+stdout '^      credentials: "ey[A-Za-z0-9_.-]+"$'
+stdout '^      - targets: \["127\.0\.0\.1:\d+"\]$'
+! stdout $NEXO_ROOT_PASSWORD
+
+# The token of the configuration scrapes every endpoint.
+exec nexoctl admin prometheus generate --json --expiry 1h local node
+jsonlines stdout
+jsonfield stdout token TOKEN
+jsonfield stdout metricsPath MPATH
+http -H 'Authorization: Bearer '$TOKEN $NEXO_URL$MPATH
+stdout '^nexo_node_uptime_seconds'
+stdout 'go_goroutines'
+http -H 'Authorization: Bearer '$TOKEN $NEXO_URL/nexo/metrics/v1/cluster
+stdout 'nexo_cluster_nodes_online'
+exec nexoctl admin prometheus generate --job nexo-buckets local bucket
+stdout '^  - job_name: "nexo-buckets"$'
+stdout '^    scrape_interval: 1m$'
+http -status 403 $NEXO_URL/nexo/metrics/v1/node
+http -status 403 -H 'Authorization: Bearer not-a-token' $NEXO_URL/nexo/metrics/v1/node
+
+# A token of a user without admin:Prometheus is refused.
+exec nexoctl admin user add local reader reader-secret-1
+exec nexoctl admin policy attach local readonly --user reader
+exec nexoctl alias set reader $NEXO_URL reader reader-secret-1 --admin-url $NEXO_ADMIN_URL
+exec nexoctl admin prometheus generate --json reader node
+jsonfield stdout token READER
+http -status 403 -H 'Authorization: Bearer '$READER $NEXO_URL/nexo/metrics/v1/node
+
+expectcode 2 nexoctl admin prometheus generate local drives
+expectcode 2 nexoctl admin prometheus generate --expiry 2020-01-01 local
+expectcode 3 nexoctl admin prometheus generate missing

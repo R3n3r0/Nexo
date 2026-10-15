@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -55,24 +54,34 @@ type adminPrometheusRecord struct {
 	Alias string `json:"alias"`
 	Type  string `json:"type"`
 	cli.PrometheusScrape
-	Token     string    `json:"token"`
-	ExpiresAt time.Time `json:"expiresAt"`
+	// Token and ExpiresAt are absent for a public endpoint (--public).
+	Token     string     `json:"token,omitempty"`
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
 	// Config is the scrape_configs section of prometheus.yml.
 	Config string `json:"config"`
 }
 
-// traceTypes are the request types of the live trace.
-var traceTypes = []string{"s3", "admin", "web", "rpc"}
+// traceTypes returns the request types of the live trace.
+func traceTypes() []string { return []string{"s3", "admin", "web", "rpc"} }
 
-// statusFilterRE matches a status code (404) or class (5xx).
-var statusFilterRE = regexp.MustCompile(`^[1-5]([0-9]{2}|xx)$`)
+// isStatusFilter reports whether v (lower case) is a status code (404) or
+// class (5xx).
+func isStatusFilter(v string) bool {
+	if len(v) != 3 || v[0] < '1' || v[0] > '5' {
+		return false
+	}
+	if v[1:] == "xx" {
+		return true
+	}
+	return v[1] >= '0' && v[1] <= '9' && v[2] >= '0' && v[2] <= '9'
+}
 
 // checkStatuses validates and normalizes --status.
 func checkStatuses(values []string) ([]string, error) {
 	out := make([]string, 0, len(values))
 	for _, v := range values {
 		v = strings.ToLower(strings.TrimSpace(v))
-		if !statusFilterRE.MatchString(v) {
+		if !isStatusFilter(v) {
 			return nil, cli.UsageError("--status %q must be a status code (404) or class (5xx)", v)
 		}
 		out = append(out, v)
@@ -143,7 +152,7 @@ the trace. The internode calls (type rpc) are shown only when asked with --type.
 The stream lasts until Ctrl-C, --timeout or --count, and reconnects by itself when the
 server restarts. With --json each request is a JSON line {"alias":...,"trace":{...}}.
 
-Needs admin:ServerTrace (root, consoleAdmin).`,
+Needs admin:ServerTrace (root, consoleAdmin, the diagnostics policy).`,
 		Example: "  nexoctl admin trace local\n  nexoctl admin trace --errors --type s3,admin local\n" +
 			"  nexoctl admin trace --api PutObject,GetObject --bucket photos --min-duration 500ms local\n" +
 			"  nexoctl admin trace --status 5xx,404 --node n1:9000 --json local",
@@ -156,7 +165,7 @@ Needs admin:ServerTrace (root, consoleAdmin).`,
 			opts := nexoadmin.TraceOptions{Nodes: stream.nodes, APIs: apis, Buckets: buckets, ErrorsOnly: errorsOnly, Threshold: minDuration}
 			for _, t := range types {
 				t = strings.ToLower(strings.TrimSpace(t))
-				if !slices.Contains(traceTypes, t) {
+				if !slices.Contains(traceTypes(), t) {
 					return cli.UsageError("--type %q must be s3, admin, web or rpc", t)
 				}
 				opts.Types = append(opts.Types, t)
@@ -173,12 +182,9 @@ Needs admin:ServerTrace (root, consoleAdmin).`,
 			if err != nil {
 				return err
 			}
-			open := func(ctx context.Context) (cli.EventStream[nexoadmin.TraceEvent], error) {
-				return client.Trace(ctx, opts)
-			}
 			first := true
 			err = follow(ctx, e, &stream, "trace", func(ctx context.Context) (cli.EventStream[nexoadmin.TraceEvent], error) {
-				s, err := open(ctx)
+				s, err := client.Trace(ctx, opts)
 				if err == nil && first {
 					first = false
 					_ = e.out.Note(fmt.Sprintf("Tracing the requests of %q (Ctrl-C to stop).", alias))
@@ -262,8 +268,8 @@ func formatMs(ms float64) string {
 	}
 }
 
-// logLevels are the levels of the server logs, lowest first.
-var logLevels = []string{"debug", "info", "warn", "error"}
+// logLevels returns the levels of the server logs, lowest first.
+func logLevels() []string { return []string{"debug", "info", "warn", "error"} }
 
 func newAdminLogsCmd(e *env) *cobra.Command {
 	var (
@@ -280,7 +286,7 @@ the --last recent entries of each node first, then the new ones, at --level or a
 The stream lasts until Ctrl-C, --timeout or --count, and reconnects by itself when the
 server restarts. With --json each entry is a JSON line {"alias":...,"log":{...}}.
 
-Needs admin:ConsoleLog (root, consoleAdmin).`,
+Needs admin:ConsoleLog (root, consoleAdmin, the diagnostics policy).`,
 		Example:           "  nexoctl admin logs local\n  nexoctl admin logs --level warn --last 100 local\n  nexoctl admin logs --node n2:9000 --json local",
 		Args:              exactArgs(1),
 		ValidArgsFunction: completeAliasNames(e),
@@ -289,7 +295,7 @@ Needs admin:ConsoleLog (root, consoleAdmin).`,
 				return err
 			}
 			level = strings.ToLower(strings.TrimSpace(level))
-			if level != "" && !slices.Contains(logLevels, level) {
+			if level != "" && !slices.Contains(logLevels(), level) {
 				return cli.UsageError("--level %q must be debug, info, warn or error", level)
 			}
 			if last < 0 || last > 10000 {
@@ -371,7 +377,7 @@ user, operation, bucket/object and error.
 
 --since and --until take a duration before now (15m, 2h, 7d) or a date (RFC 3339).
 
-Needs admin:ServerTrace (root, consoleAdmin).`,
+Needs admin:ConsoleLog (root, consoleAdmin, the diagnostics policy).`,
 		Example: "  nexoctl admin audit local\n  nexoctl admin audit --user alice --since 1h local\n" +
 			"  nexoctl admin audit --action DeleteObject --bucket photos --since 2026-10-15T09:00:00Z local\n" +
 			"  nexoctl admin audit --errors --status 403 --limit 1000 --json local",
@@ -642,6 +648,7 @@ func newAdminPrometheusGenerateCmd(e *env) *cobra.Command {
 	var (
 		expiry string
 		job    string
+		public bool
 	)
 	cmd := &cobra.Command{
 		Use:   "generate [flags] ALIAS [cluster|node|bucket]",
@@ -658,9 +665,10 @@ JWT (HS512, issuer "prometheus") signed locally with the secret key of the alias
 whose subject is its access key, valid until --expiry. The access key needs
 admin:Prometheus (root, consoleAdmin, the diagnostics policy): prefer a dedicated
 access key with the diagnostics policy. The token stops working when it expires or
-when the secret key changes; keep the configuration as secret as the key.`,
+when the secret key changes; keep the configuration as secret as the key. With
+NEXO_PROMETHEUS_AUTH_TYPE=public the endpoints need no token: see --public.`,
 		Example: "  nexoctl admin prometheus generate local\n  nexoctl admin prometheus generate --expiry 30d local node\n" +
-			"  nexoctl admin prometheus generate local bucket >> prometheus.yml",
+			"  nexoctl admin prometheus generate local bucket >> prometheus.yml\n  nexoctl admin prometheus generate --public local",
 		Args:              cobra.RangeArgs(1, 2),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -673,9 +681,15 @@ when the secret key changes; keep the configuration as secret as the key.`,
 			default:
 				return cli.UsageError("metrics %q must be cluster, node or bucket", args[1])
 			}
-			exp, err := e.parseExpiration(expiry)
-			if err != nil {
-				return err
+			if public && cmd.Flags().Changed("expiry") {
+				return cli.UsageError("--public and --expiry are mutually exclusive: a public endpoint takes no token")
+			}
+			var exp time.Time
+			if !public {
+				var err error
+				if exp, err = e.parseExpiration(expiry); err != nil {
+					return err
+				}
 			}
 			ctx := cmd.Context()
 			name, rest, _ := strings.Cut(args[0], "/")
@@ -688,24 +702,32 @@ when the secret key changes; keep the configuration as secret as the key.`,
 			}
 			alias, ok := aliases[name]
 			if !ok {
-				return cli.NotFoundError("alias %q not found (see nexoctl alias list)", name)
+				return &cli.AliasNotFoundError{Name: name}
 			}
-			token, err := cli.SignPrometheusToken(alias.AccessKey, alias.SecretKey, e.deps.Clock.Now(), exp)
+			rec := adminPrometheusRecord{Alias: name, Type: kind}
+			header := fmt.Sprintf("# Nexo %s metrics of nexoctl alias %q, public endpoint (NEXO_PROMETHEUS_AUTH_TYPE=public)", kind, name)
+			if !public {
+				token, err := cli.SignPrometheusToken(alias.AccessKey, alias.SecretKey, e.deps.Clock.Now(), exp)
+				if err != nil {
+					return err
+				}
+				expiresAt := exp.UTC()
+				rec.Token, rec.ExpiresAt = token, &expiresAt
+				header = fmt.Sprintf("# Nexo %s metrics of nexoctl alias %q (access key %s), token valid until %s",
+					kind, name, alias.AccessKey, expiresAt.Format(time.RFC3339))
+			}
+			scrape, err := cli.NewPrometheusScrape(alias.URL, kind, job, rec.Token)
 			if err != nil {
 				return err
 			}
-			scrape, err := cli.NewPrometheusScrape(alias.URL, kind, job, token)
-			if err != nil {
-				return err
-			}
-			config := fmt.Sprintf("# Nexo %s metrics of nexoctl alias %q (access key %s), token valid until %s\n%s",
-				kind, name, alias.AccessKey, exp.UTC().Format(time.RFC3339), scrape.YAML())
-			return e.out.Result(adminPrometheusRecord{Alias: name, Type: kind, PrometheusScrape: scrape, Token: token, ExpiresAt: exp.UTC(), Config: config},
-				strings.TrimSuffix(config, "\n"))
+			rec.PrometheusScrape = scrape
+			rec.Config = header + "\n" + scrape.YAML()
+			return e.out.Result(rec, strings.TrimSuffix(rec.Config, "\n"))
 		},
 	}
 	f := cmd.Flags()
 	f.StringVar(&expiry, "expiry", "365d", "validity of the token: a duration (30d, 12h) or a date (2027-12-31, RFC 3339)")
 	f.StringVar(&job, "job", "", "name of the scrape job (default nexo-<type>)")
+	f.BoolVar(&public, "public", false, "no bearer token: the endpoints of the server are public (NEXO_PROMETHEUS_AUTH_TYPE=public)")
 	return cmd
 }

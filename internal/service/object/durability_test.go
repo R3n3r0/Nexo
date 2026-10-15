@@ -423,7 +423,10 @@ func TestLostReadLockStopsRead(t *testing.T) {
 	require.NoError(t, err)
 	svc, err := object.NewServerPools(object.PoolsDeps{Pools: []object.PoolSpec{{Sets: [][]storage.StorageAPI{drives}}},
 		DeploymentID: "dep", Codecs: testCodecs("dep"), Locks: locks, Logger: logger},
-		object.WithInlineLimit(testInlineLimit), object.WithBlockSize(testBlockSize), object.WithLockTimeout(5*time.Second))
+		object.WithInlineLimit(testInlineLimit), object.WithBlockSize(testBlockSize), object.WithLockTimeout(5*time.Second),
+		// A read that keeps its lock until the body is closed (the
+		// pinned reads release it before streaming: TestPinnedReads).
+		object.WithPinnedReadParts(0))
 	require.NoError(t, err)
 	require.NoError(t, svc.MakeBucket(ctx, "bkt", object.MakeBucketOptions{}))
 	put(t, svc, "bkt", "key", payload(64*testBlockSize))

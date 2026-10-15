@@ -65,6 +65,7 @@ test.describe('access rules', () => {
     await api.deleteBucket(bucket);
   });
 
+  // covers: D-ACC-01, D-ACC-02
   test('TD-A-01 a regex rule built with the tester: sample keys highlighted, invalid regex blocked', async ({
     page,
     api,
@@ -146,6 +147,7 @@ test.describe('access rules', () => {
     expect((await anonymousGet(browser, url('img/old/c.png'))).status).toBe(403);
   });
 
+  // covers: D-ACC-01
   test('TD-A-02 the order set by drag and drop persists and decides on the server', async ({
     page,
     api,
@@ -219,6 +221,7 @@ test.describe('access rules', () => {
       .toEqual(['docs-glob', 'images', 'docs-prefix', 'late']);
   });
 
+  // covers: D-ACC-03
   test('TD-A-03 the public-prefix preset opens the prefix only and marks the bucket public', async ({
     page,
     api,
@@ -278,6 +281,7 @@ test.describe('access rules', () => {
     await expect(row.getByText('Public', { exact: true })).toBeHidden();
   });
 
+  // covers: D-ACC-04
   test('D-ACC-04 the block public access of the bucket ignores the public rules', async ({
     page,
     api,

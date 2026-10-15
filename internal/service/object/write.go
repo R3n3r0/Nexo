@@ -476,9 +476,18 @@ func (l *layer) CopyObject(ctx context.Context, in CopyObjectInput) (domain.Obje
 		checksumAlgo = src.Info.Checksum.Algorithm
 	}
 	lockChange := !in.Retention.IsZero() || in.LegalHold != ""
-	// A copy that asks for an encryption re-keys the object: a legal
-	// self-copy (key rotation, SSE-C to SSE-S3...).
+	// A copy that asks for an encryption re-keys the object, and one that
+	// asks for none of an encrypted source decrypts it (unless the default
+	// encryption of the bucket encrypts it the same way again): legal
+	// self-copies (key rotation, SSE-C to SSE-S3, in-place decryption).
 	sseChange := !in.SSE.IsZero()
+	if !sseChange && same && src.Info.Encryption.Type != domain.SSENone {
+		cfg, err := l.bucketConfig(ctx, in.DstBucket)
+		if err != nil {
+			return domain.ObjectInfo{}, err
+		}
+		sseChange = effectiveSSE(cfg, in.SSE).Type != src.Info.Encryption.Type
+	}
 	if same && in.SrcVersionID == "" && !in.ReplaceMetadata && !in.ReplaceTags && storageClass == src.Info.StorageClass &&
 		checksumAlgo == src.Info.Checksum.Algorithm && !lockChange && !sseChange {
 		return domain.ObjectInfo{}, domain.NewS3Error(domain.ErrInvalidArgument, "InvalidRequest",

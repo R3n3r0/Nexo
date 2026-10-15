@@ -1,3 +1,4 @@
+# covers: C-OBJ-03, C-OBJ-05
 # TCL-E-03: cp of a file, recursive, remote to remote, stdin to remote
 # (pipe), with metadata and tags: the contents are identical.
 

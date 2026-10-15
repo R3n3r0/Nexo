@@ -98,7 +98,10 @@ Il binario include `nexo version`, `nexo server --help` con esempi per ogni moda
 
 - Multi-arch (amd64/arm64), firmate con cosign, SBOM allegato, tag `latest`, `vX.Y.Z`, `vX.Y`.
 - Utente non-root (UID 65532), `VOLUME /data`, `EXPOSE 9000 9001`, `HEALTHCHECK` con `nexo healthcheck`
-  (sottocomando interno, perché l'immagine distroless non ha `curl`).
+  (sottocomando interno, perché l'immagine distroless non ha `curl`): sonda la console su loopback e, con
+  `NEXO_CERTS_DIR` (o `--certs-dir`), passa a HTTPS fidandosi di `public.crt` e `CAs/` della directory e
+  verificando la catena ma non i nomi (il certificato copre i nomi dei nodi e quelli pubblici, di rado
+  `127.0.0.1`); con `--url` esplicito la verifica TLS è completa.
 - Segreti supportati tramite `NEXO_ROOT_USER_FILE` / `NEXO_ROOT_PASSWORD_FILE` (Docker/Swarm secrets).
 
 ### Singolo nodo
@@ -224,6 +227,16 @@ la sintassi di tutte le configurazioni di `deploy/proxy` e del compose (`nginx -
 | TM-10 | Binari di release: avvio smoke su ogni OS/arch in CI (QEMU per arm64), `nexo version` coerente con il tag | — |
 | TM-11 | Immagini: firma cosign verificabile, scansione trivy senza vulnerabilità High/Critical | — |
 | TM-12 | `nexo server --dry-run` su configurazioni valide/invalide | Exit code e messaggi attesi |
+| TM-13 | Upgrade dalla release precedente (`make test-upgrade`, `test/upgrade`): SNMD con dati di ogni tipo, rolling upgrade di un cluster 4×2 sotto carico, downgrade e rollback di un nodo ([06 §6.1](06-piano-test.md)) | Nessuna perdita di dati, nessun errore client |
+
+**Aggiornamenti e downgrade.** Una release legge i dischi scritti dalle release precedenti della stessa major
+(`format.json` v1, `xl.meta` 1.x, protocollo internodo v1): l'aggiornamento di un nodo singolo è un riavvio con
+il nuovo binario, quello di un cluster un nodo alla volta (SIGTERM, avvio, attesa di `/nexo/health/cluster`) senza
+interrompere i client dietro il load balancer; il bootstrap rifiuta solo nodi di un'altra major. Il downgrade
+(e il rollback di un nodo durante un rolling upgrade) è supportato fra release con gli stessi formati, come oggi
+fra M7 e la release corrente: verificato da TM-13. Una release che cambia un formato ne alza la versione e la
+release precedente rifiuta i dischi senza toccarli: in quel caso il downgrade non è supportato e va annunciato
+nelle note di rilascio.
 
 ## 8.7 Rilascio (T-9.5)
 
@@ -237,7 +250,7 @@ Un tag `v*` avvia [`.github/workflows/release.yml`](../.github/workflows/release
 |-----------|-----------|
 | Binari | `nexo` (con la console, `-tags embedui`) per linux/darwin/windows × amd64/arm64 (non windows/arm64); `nexoctl` anche per windows/arm64. Statici (`CGO_ENABLED=0`), `-trimpath`, data e mtime = commit (riproducibili); `nexo version` stampa il tag |
 | Archivi | `nexo_X.Y.Z_<os>_<arch>.tar.gz` (`.zip` su Windows) con README, unit e file env di systemd; `nexoctl_…` con i completamenti bash/zsh/fish; archivio dei sorgenti `nexo_X.Y.Z_source.tar.gz` |
-| Pacchetti | `.deb` e `.rpm` per amd64/arm64: `nexo` (binario in `/usr/bin`, unit in `/usr/lib/systemd/system`, `/etc/default/nexo` come conffile `0640 root:nexo` con la password vuota, utente `nexo` creato da `preinstall`, `/var/lib/nexo/data`; mai avviato né riavviato dagli script; la rimozione ferma il servizio e conserva i dati) e `nexoctl` (binario e completamenti); `nexo` raccomanda `nexoctl` |
+| Pacchetti | `.deb` e `.rpm` per amd64/arm64: `nexo` (binario in `/usr/bin`, unit in `/usr/lib/systemd/system`, `/etc/default/nexo` come conffile `0640 root:nexo` con la password vuota, utente `nexo` creato da `preinstall` con `useradd` (deb: `Pre-Depends: passwd`) e dichiarato in `/usr/lib/sysusers.d/nexo.conf`, `/var/lib/nexo/data`; mai avviato né riavviato dagli script; la rimozione ferma il servizio e conserva i dati) e `nexoctl` (binario e completamenti); `nexo` raccomanda `nexoctl` |
 | Checksum | `checksums.txt` (SHA-256 di archivi, pacchetti, SBOM, sorgenti) + `checksums.txt.sigstore.json` (bundle cosign: firma, certificato, voce del log di trasparenza Rekor) |
 | SBOM | Un documento SPDX JSON per archivio (`<archivio>.sbom.json`, syft v1.54.1): moduli Go e toolchain di ogni binario. I pacchetti contengono gli stessi binari linux degli archivi |
 | Immagini | `ghcr.io/r3n3r0/nexo` (nexo + nexoctl) e `ghcr.io/r3n3r0/nexoctl`, indice multi-arch linux/amd64+arm64 costruito da buildx con i binari già compilati (`deploy/docker/Dockerfile*.goreleaser`, equivalenti ai Dockerfile della radice), attestazioni SBOM e provenance (`mode=max`) di BuildKit, firma cosign; tag `vX.Y.Z` e, per le release finali, `vX.Y` e `latest` |
@@ -284,7 +297,7 @@ console servita, round trip S3 con `nexoctl`, arresto con SIGTERM (su Windows so
 | `make release-check` | `goreleaser check` |
 | `make release-snapshot` | Tutta la release in `dist/` (versione `X.Y.Z-next`), senza immagini né firme (`RELEASE_SKIP=docker,sign`; con un demone Docker `RELEASE_SKIP=sign` costruisce anche le immagini) |
 | `make release-smoke` | `packaging/smoke.sh` sui binari linux/amd64 dello snapshot e, con `qemu-aarch64-static`, linux/arm64 |
-| `make helm-lint` | `helm lint --strict`, `helm template` e `kubeconform -strict` (Kubernetes 1.27 e 1.34, CRD ServiceMonitor) con i valori di default e `deploy/helm/nexo/ci/*-values.yaml` |
+| `make helm-lint` | `helm lint --strict`, `helm template` e `kubeconform -strict` per ciascuna versione di Kubernetes (1.27 e 1.34, `--kube-version` esplicito: un helm compilato con `go install` assume la 1.20), CRD ServiceMonitor, con i valori di default e `deploy/helm/nexo/ci/*-values.yaml`; poi gli endpoint generati per ogni modalità (SNSD, SNMD, distribuito, due pool, TLS) e gli errori dei valori invalidi |
 | `make systemd-verify` | `systemd-analyze verify` e `security` (esposizione ≤ 2,0) della unit |
 | `make hadolint` / `make packaging` | Dockerfile; tutti i controlli che non richiedono Docker |
 
@@ -293,9 +306,33 @@ l'installazione dei `.deb` con il systemd del runner (servizio che rifiuta di pa
 parte, risponde, round trip S3, `reload`, `stop`, rimozione che conserva i dati), i `.rpm` in un container
 Fedora, il chart, la unit e i Dockerfile; il job `deploy-files` valida lo stack Swarm (`docker stack config`).
 
+### Validato in locale e solo configurato
+
+Ultima verifica (GoReleaser v2.18.3, Helm v3.22.0 ufficiale e `go install`, kubeconform v0.7.0,
+syft v1.54.1, hadolint v2.14.0, actionlint v1.7.7 con shellcheck 0.9.0, systemd 255, QEMU user,
+Docker CLI senza demone):
+
+| Elemento | Esito |
+|----------|-------|
+| `goreleaser check` | Valido, nessuna deprecazione |
+| `goreleaser release --snapshot --clean --skip=publish,sign,docker` | 11 binari (`nexo` con la console, `nexoctl`), 11 archivi + sorgenti, 8 pacchetti deb/rpm, 11 SBOM SPDX 2.3, `checksums.txt` (31 voci, tutte verificate con `sha256sum -c`), cask Homebrew `nexo` e `nexoctl` |
+| Binari | `nexo version` (linux/amd64) = versione dello snapshot e commit; `file`: ELF statici x86-64/aarch64, Mach-O x86_64/arm64, PE32+ x86-64/Aarch64 |
+| TM-10 (`make release-smoke`) | Verde su linux/amd64 e linux/arm64 (`qemu-aarch64-static`): versione, `--dry-run`, server, console servita, round trip S3, SIGTERM |
+| Pacchetti | `dpkg-deb -I/-c`, `rpm -qip/-qlvp/--scripts`: file, permessi e proprietari (`root:nexo 0640` per `/etc/default/nexo`, `nexo:nexo 0750` per `/var/lib/nexo/data`), conffile, script e `Recommends` |
+| Helm (`make helm-lint`) | `lint --strict`, `template` e `kubeconform -strict` verdi per default, standalone, SNMD, distribuito e distribuito TLS su Kubernetes 1.27 e 1.34; asserzioni sugli endpoint e sui valori invalidi |
+| Compose e Swarm | `docker compose config` di tutti i `compose.*.yml`, `docker stack config -c deploy/swarm/stack.yml` |
+| systemd | `systemd-analyze verify` pulito, `security`: esposizione 1,5 "OK" |
+| Dockerfile | hadolint senza segnalazioni sui quattro Dockerfile |
+| Workflow e script | actionlint su `release.yml` e `ci.yml` (con shellcheck: restano due SC2046 voluti nei job `lint-go` e `test-go`), shellcheck degli script di `packaging/` e `deploy/helm/check.sh` |
+| Healthcheck TLS | Server reale con `NEXO_CERTS_DIR`: la sonda HTTP precedente riceveva `400`, quella nuova è `ok` anche con un certificato che nomina solo `nexo1` (ricaricato a caldo) e fallisce con una CA estranea |
+
+Solo configurato (richiede un demone Docker, l'identità OIDC del workflow o la pubblicazione): immagini
+multi-arch `dockers_v2` con attestazioni SBOM/provenance, firme cosign keyless di checksum, immagini e
+chart, push su ghcr.io e nel tap Homebrew, job `verify` (TM-11) e `smoke` su darwin/windows della
+release, installazione dei pacchetti con systemd e in Fedora (job CI `packaging`).
+
 Decisioni aperte del rilascio: licenza del progetto (assente: archivi, pacchetti e chart non dichiarano
 una licenza), repository `r3n3r0/homebrew-tap` con il segreto `HOMEBREW_TAP_GITHUB_TOKEN`, visibilità
-pubblica dei pacchetti ghcr.io (privati alla prima pubblicazione), e la toolchain Go ≥ 1.26 richiesta dalla
-scansione delle vulnerabilità (docs/security/threat-model.md §10.1): finché la toolchain resta Go 1.24 è
-atteso che trivy segnali le vulnerabilità della libreria standard già note a govulncheck e che il job
-`verify` fallisca.
+pubblica dei pacchetti ghcr.io (privati alla prima pubblicazione). La toolchain è Go 1.26.9
+(docs/security/threat-model.md §10.1): govulncheck non trova vulnerabilità raggiunte, quindi trivy nel job `verify`
+non ha più vulnerabilità note della libreria standard da segnalare.

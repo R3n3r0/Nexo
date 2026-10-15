@@ -78,6 +78,7 @@ describe('sortBuckets', () => {
   });
 });
 
+// covers: D-BKT-01
 describe('BucketsPage (TD-U-03)', () => {
   it('shows the buckets with size, objects and the public badge, and sorts them', async () => {
     const services = adminServices();
@@ -183,6 +184,7 @@ describe('BucketsPage (TD-U-03)', () => {
   });
 });
 
+// covers: D-BKT-01
 describe('CreateBucketDialog (TD-U-04)', () => {
   it('validates the name live, sends the options and opens the new bucket', async () => {
     const services = adminServices();
@@ -244,6 +246,7 @@ describe('CreateBucketDialog (TD-U-04)', () => {
   });
 });
 
+// covers: D-UX-02
 describe('BucketsPage permissions (TD-U-09)', () => {
   it('hides creation and disables deletion for a read-only user', async () => {
     renderRoutes(routes, { initialEntries: ['/buckets'], services: readOnlyServices() });

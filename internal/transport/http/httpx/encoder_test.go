@@ -32,6 +32,13 @@ func TestWriteS3Error(t *testing.T) {
 	assert.Equal(t, "REQ1", body.RequestID)
 	assert.Equal(t, "HOST1", body.HostID)
 
+	// The quotes of a message are written as such (as S3 does).
+	rec = httptest.NewRecorder()
+	c.WriteS3Error(rec, req, domain.NewS3Error(domain.ErrAccessDenied, "AccessDenied", `Policy Condition failed: ["eq", "$key", "it's"] <&>`))
+	assert.Contains(t, rec.Body.String(), `<Message>Policy Condition failed: ["eq", "$key", "it's"] &lt;&amp;&gt;</Message>`)
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, `Policy Condition failed: ["eq", "$key", "it's"] <&>`, body.Message)
+
 	// HEAD and 304 have no body.
 	head := httptest.NewRequest(http.MethodHead, "/b/k", nil)
 	rec = httptest.NewRecorder()

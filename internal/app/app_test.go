@@ -192,6 +192,8 @@ func TestBuildSNMD(t *testing.T) {
 // deployment creates its buckets on the new pool before serving, so that
 // the new objects placed there find them; the old objects stay readable
 // and the buckets stay listed.
+//
+// covers: S-STO-08
 func TestBuildExpandsPools(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

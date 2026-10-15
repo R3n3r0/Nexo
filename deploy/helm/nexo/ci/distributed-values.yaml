@@ -17,6 +17,9 @@ serviceMonitor:
 config:
   trustedProxies: [10.0.0.0/8]
   logFormat: json
+  otel:
+    endpoint: http://otel-collector.observability.svc:4318
+    sampleRatio: 0.25
 ingress:
   distributions:
     enabled: true

@@ -20,9 +20,6 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
-
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/cluster"
@@ -300,7 +297,16 @@ func (n *Node) Start() {
 	}
 	must(n.c.T, err, "listen")
 	s3 := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(S3Placeholder)) })
-	n.srv = &http.Server{Handler: h2c.NewHandler(n.Server.Wrap(s3), &http2.Server{MaxUploadBufferPerStream: 16 << 20, MaxUploadBufferPerConnection: 64 << 20, MaxReadFrameSize: 1 << 20}), ReadHeaderTimeout: 10 * time.Second}
+	// HTTP/1 and cleartext HTTP/2 served by net/http, like the S3 server.
+	var protocols http.Protocols
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+	n.srv = &http.Server{
+		Handler:           n.Server.Wrap(s3),
+		Protocols:         &protocols,
+		HTTP2:             &http.HTTP2Config{MaxReceiveBufferPerStream: 16 << 20, MaxReceiveBufferPerConnection: 64 << 20, MaxReadFrameSize: 1 << 20},
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 	go func(srv *http.Server) { _ = srv.Serve(ln) }(n.srv)
 	n.started = true
 	for m := range n.c.Nodes {

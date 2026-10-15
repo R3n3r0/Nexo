@@ -1,0 +1,68 @@
+## nexoctl mirror
+
+Synchronize a directory or prefix to another one
+
+### Synopsis
+
+Copy to TARGET the files and objects of SOURCE that are missing or different
+there (same size and ETag, or a target not older than the source, means up to
+date): a second run transfers nothing. Different targets are replaced only with
+--overwrite; --remove deletes what is not in SOURCE. --watch keeps a local
+SOURCE synchronized until Ctrl-C.
+
+--preserve copies every version and delete marker between two buckets, the
+oldest first, with their content type, metadata and tags: with "admin cluster
+export/import" (bucket settings first, so that the target keeps the versions),
+it migrates a deployment to another mode. A second run replays only the newer
+versions of the source.
+
+```
+nexoctl mirror [flags] SOURCE TARGET
+```
+
+### Examples
+
+```
+  nexoctl mirror ./site/ local/website
+  nexoctl mirror --remove --overwrite local/photos ./backup/photos
+  nexoctl mirror --watch --remove --overwrite ./docs local/docs
+  nexoctl mirror --preserve old/photos new/photos
+```
+
+### Options
+
+```
+      --attr string              user metadata of the uploaded objects: "key1=value1;key2=value2"
+      --checksum string          additional checksum of the uploaded objects, verified by the server: crc32, crc32c, crc64nvme, sha1, sha256
+      --content-type string      content type of the uploaded objects (default: from the file extension)
+      --dry-run                  print what would be done without doing it
+      --enc-c stringArray        SSE-C key of the objects under a location: "ALIAS/BUCKET[/PREFIX]=BASE64KEY" (32 bytes; repeatable). Prefer --enc-c-file or NEXOCTL_ENC_C: a key in the arguments is visible to other local users and in the shell history
+      --enc-c-file stringArray   file of SSE-C keys, one "ALIAS/BUCKET[/PREFIX]=BASE64KEY" per line ("#" comments; repeatable)
+      --enc-kms stringArray      encrypt the objects written under a location with SSE-KMS: "ALIAS/BUCKET[/PREFIX][=KEY]" (repeatable)
+      --enc-s3 stringArray       encrypt the objects written under a location with SSE-S3: "ALIAS/BUCKET[/PREFIX]" (repeatable)
+  -h, --help                     help for mirror
+      --limit-download string    cap the download bandwidth (e.g. 10MiB, per second)
+      --limit-upload string      cap the upload bandwidth (e.g. 10MiB, per second)
+      --overwrite                replace the different files and objects of TARGET
+      --parallel int             parts of a multipart upload sent at once (default 4)
+      --part-size string         part size of the multipart uploads, 5MiB-5GiB (default: computed from the size)
+      --preserve                 copy every version and delete marker between two buckets, with metadata and tags
+      --remove                   remove from TARGET what is not in SOURCE
+      --tags string              tags of the uploaded objects: "key1=value1&key2=value2"
+  -w, --watch                    keep watching a local SOURCE and synchronize its changes
+```
+
+### Options inherited from parent commands
+
+```
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+```
+
+### SEE ALSO
+
+* [nexoctl](nexoctl.md)	 - Nexo command-line client
+

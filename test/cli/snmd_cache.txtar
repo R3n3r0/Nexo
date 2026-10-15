@@ -1,3 +1,4 @@
+# covers: C-CCH-01
 # The cache of the distributions on an erasure-coded single node (SNMD):
 # TCL-C-01 (a policy for a domain: Cache-Control and X-Cache), TCL-C-02 (a
 # purge completed, then a MISS), TCL-C-03 (the inspector), TCL-C-04 (a

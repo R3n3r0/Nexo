@@ -1,3 +1,4 @@
+# covers: C-OBJ-07b
 # TCL-P-04: anonymous set download on a prefix: anonymous requests may read
 # and list that prefix only.
 

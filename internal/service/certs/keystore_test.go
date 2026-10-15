@@ -109,6 +109,7 @@ func handshake(t testing.TB, ks certs.Keystore, serverName string) *x509.Certifi
 	return conn.ConnectionState().PeerCertificates[0]
 }
 
+// covers: S-OPS-02
 func TestKeystoreSelectsByServerName(t *testing.T) {
 	dir := t.TempDir()
 	ca := newCA(t, "deployment CA")
@@ -161,6 +162,7 @@ func TestKeystoreSelectsByServerName(t *testing.T) {
 	assert.Equal(t, leafOf(t, defChain).Raw, client.Leaf.Raw, "the node presents the default certificate to its peers")
 }
 
+// covers: S-OPS-02
 func TestKeystoreTrustedCAs(t *testing.T) {
 	dir := t.TempDir()
 	nodeCA, peerCA, otherCA := newCA(t, "node CA"), newCA(t, "peer CA"), newCA(t, "other CA")
@@ -256,6 +258,7 @@ func TestKeystoreFailedReloadKeepsTheCertificates(t *testing.T) {
 	assert.Equal(t, leafOf(t, newChain).Raw, handshake(t, ks, "s3.example.org").Raw)
 }
 
+// covers: S-OPS-02
 func TestKeystoreWatchReloads(t *testing.T) {
 	tests := []struct {
 		name string

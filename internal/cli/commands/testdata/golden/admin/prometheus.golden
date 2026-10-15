@@ -1,0 +1,34 @@
+$ nexoctl admin prometheus generate mem
+# Nexo cluster metrics of nexoctl alias "mem" (access key MEMKEY), token valid until 2027-01-02T03:04:05Z
+scrape_configs:
+  - job_name: "nexo-cluster"
+    metrics_path: "/nexo/metrics/v1/cluster"
+    scheme: http
+    authorization:
+      type: Bearer
+      credentials: "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJwcm9tZXRoZXVzIiwic3ViIjoiTUVNS0VZIiwiZXhwIjoxNzk4ODU5MDQ1LCJpYXQiOjE3NjczMjMwNDV9.RL2gsIrDZiy-EGtN3rAhmwaOGS_tXu6G0pmioTOkSUSAC7211KgdhYi8AATtWIbzFWvsijodkMDVrLrRmoW-RQ"
+    static_configs:
+      - targets: ["s3.mem.test"]
+
+$ nexoctl admin prometheus generate --job nexo prod --expiry 30d mem BUCKET
+# Nexo bucket metrics of nexoctl alias "mem" (access key MEMKEY), token valid until 2026-02-01T03:04:05Z
+scrape_configs:
+  - job_name: "nexo prod"
+    metrics_path: "/nexo/metrics/v1/bucket"
+    scheme: http
+    scrape_interval: 1m
+    authorization:
+      type: Bearer
+      credentials: "eyJhbGciOiJIUzUxMiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJwcm9tZXRoZXVzIiwic3ViIjoiTUVNS0VZIiwiZXhwIjoxNzY5OTE1MDQ1LCJpYXQiOjE3NjczMjMwNDV9.k79ZCQplq53UBhygZnI7WycSs9h9BH8ydlbV5zHM8lJjPeQuCkI88ivVJt2B4trjrXDTcpFs69NqT9UCg4Rs0Q"
+    static_configs:
+      - targets: ["s3.mem.test"]
+
+$ nexoctl admin prometheus generate --public mem node
+# Nexo node metrics of nexoctl alias "mem", public endpoint (NEXO_PROMETHEUS_AUTH_TYPE=public)
+scrape_configs:
+  - job_name: "nexo-node"
+    metrics_path: "/nexo/metrics/v1/node"
+    scheme: http
+    static_configs:
+      - targets: ["s3.mem.test"]
+

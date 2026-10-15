@@ -1,3 +1,4 @@
+# covers: C-ADM-02, C-ADM-03, C-ADM-04
 # Regression: names that need escaping in the Admin API path (a space, "/",
 # "@", "+", ",") are sent escaped once and managed like any other name
 # (C-ADM-03 admin group, C-ADM-02 admin user, C-ADM-04 admin policy).

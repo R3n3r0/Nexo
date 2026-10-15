@@ -90,6 +90,7 @@ describe('BucketDetailPage', () => {
   });
 });
 
+// covers: D-BKT-02
 describe('BucketSettingsTab (D-BKT-02)', () => {
   it('changes versioning, quota and tags', async () => {
     const services = admin();
@@ -227,6 +228,7 @@ describe('BucketSettingsTab (D-BKT-02)', () => {
   });
 });
 
+// covers: D-POL-01
 describe('BucketAccessTab (D-POL-01)', () => {
   it('applies and removes an anonymous preset on a prefix', async () => {
     const services = admin();

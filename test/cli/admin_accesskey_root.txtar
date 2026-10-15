@@ -1,3 +1,4 @@
+# covers: C-ADM-05, S-IAM-06
 # Regression (escalation to root): a delegated administrator, a user whose
 # policy allows the admin:*ServiceAccount actions, manages the access keys
 # of other users but never those of root, which would act as root and

@@ -2,6 +2,9 @@
 
 Priorità: **P0** = MVP indispensabile · **P1** = v1.0 · **P2** = successiva alla v1.0.
 Ogni funzionalità ha un codice (es. `S-OBJ-01`) richiamato nella [roadmap](05-roadmap-task.md) e nel [piano di test](06-piano-test.md).
+I test che coprono ogni codice sono nella matrice di tracciabilità [`test/TRACEABILITY.md`](../test/TRACEABILITY.md)
+(tag `covers: <codice>` nei test, [06 §6.8](06-piano-test.md#68-matrice-di-tracciabilità)): con la v1.0 ogni funzionalità
+P0/P1 ha almeno un test. Le funzionalità P2 consegnate in anticipo nella v1.0 sono indicate come "P1 (anticipata, era P2)".
 
 ## 2.1 Server
 
@@ -100,13 +103,13 @@ Ogni funzionalità ha un codice (es. `S-OBJ-01`) richiamato nella [roadmap](05-r
 | S-OPS-02 | TLS (certificati da directory, SNI multipli, hot reload) | P0 |
 | S-OPS-03 | Health check `/nexo/health/live`, `/ready`, `/cluster` | P0 |
 | S-OPS-04 | Metriche Prometheus (cluster, nodo, bucket, API, dischi) | P1 |
-| S-OPS-05 | Log strutturati JSON + target HTTP/Kafka | P1 |
-| S-OPS-06 | Audit log (chi, cosa, quando, esito) | P1 |
+| S-OPS-05 | Log strutturati JSON (o testo) su stderr, livello e formato cambiati a caldo; i target HTTP/Kafka sono quelli del log di audit (S-OPS-06), i log del server si raccolgono dallo stream del processo | P1 |
+| S-OPS-06 | Audit log (chi, cosa, quando, esito) con ricerca e target webhook/Kafka | P1 |
 | S-OPS-07 | Trace live delle richieste (stream) e log live per la console | P1 |
 | S-OPS-08 | Server info (versione, uptime, dischi, uso, stato rete) | P0 |
 | S-OPS-09 | Restart/stop coordinato del cluster, aggiornamento binario rolling | P2 |
 | S-OPS-10 | Rate limiting / throttling per API | P2 |
-| S-OPS-11 | Diagnostica: speedtest drive/net/obj, profiling pprof (protetto) | P2 |
+| S-OPS-11 | Diagnostica: speedtest drive/net/obj, profiling pprof (protetto) | P1 (anticipata, era P2) |
 | S-OPS-12 | Rilascio come binario statico multi-OS/arch (tar/zip, deb, rpm, Homebrew) | P0 |
 | S-OPS-13 | Immagini Docker multi-arch `nexo` e `nexoctl`, healthcheck integrato, `*_FILE` secrets, Compose single/SNMD/cluster | P0 |
 | S-OPS-14 | `nexo server --dry-run` (validazione configurazione), URL pubblico per link dietro proxy | P1 |
@@ -144,7 +147,7 @@ Ogni funzionalità ha un codice (es. `S-OBJ-01`) richiamato nella [roadmap](05-r
 | D-IAM-04 | Access key | Crea service account con policy inline e scadenza, mostra segreto una sola volta, download credenziali | P1 |
 | D-MON-01 | Metriche | Grafici per richieste, errori, latenze, banda, uso disco; intervallo temporale | P1 |
 | D-MON-02 | Log e trace live | Stream con filtri (nodo, API, status), pausa | P1 |
-| D-MON-03 | Audit | Ricerca eventi audit | P2 |
+| D-MON-03 | Audit | Ricerca eventi audit | P1 (anticipata, era P2) |
 | D-CLU-01 | Cluster | Pool, nodi, dischi (stato, uso, healing), stato erasure set | P1 |
 | D-CLU-02 | Healing | Avvio heal, progresso, oggetti riparati | P1 |
 | D-CLU-03 | Pool | Espansione (istruzioni), decommission, rebalance | P2 |
@@ -182,27 +185,29 @@ Sintassi: `nexoctl <gruppo> <comando> [ALIAS/BUCKET/PREFIX] [flag]`. Output `--j
 | C-ADM-06 | `admin config get/set/reset/export/import` | Configurazione | P1 |
 | C-ADM-07 | `admin heal [-r] [--dry-run]` | Healing | P1 |
 | C-ADM-08 | `admin trace`, `admin logs` | Stream live | P1 |
-| C-ADM-09 | `admin service restart/stop` | Controllo servizio | P2 |
+| C-ADM-09 | `admin service restart/stop` | Controllo servizio (riavvio e arresto del nodo che riceve la richiesta già nella v1.0; coordinati sul cluster con S-OPS-09) | P2 |
 | C-ADM-10 | `admin decommission start/status/cancel`, `admin rebalance` | Gestione pool | P2 |
 | C-ADM-11 | `admin replicate add/info/remove` | Site replication | P2 |
-| C-ADM-12 | `admin speedtest`, `admin prometheus generate` | Diagnostica/integrazione | P2 |
+| C-ADM-12 | `admin speedtest`, `admin prometheus generate` | Diagnostica/integrazione | P1 (anticipata, era P2) |
 | C-UX-00 | Distribuzione | Binario statico per Linux/macOS/Windows e immagine Docker `nexoctl` | P0 |
 | C-UX-01 | Autocompletamento bash/zsh/fish/powershell, `--quiet`, `--no-color`, `--debug` (dump HTTP) | | P0 |
 
 ## 2.4 Differenze note rispetto ad Amazon S3
 
-Scelte di progetto verificate con la suite Ceph `s3-tests` (`test/compat`, [06 §6.1](06-piano-test.md)); ogni
-test escluso per questi motivi è elencato con la sua motivazione in `test/compat/excluded.txt`.
+Scelte di progetto verificate con le suite Ceph `s3-tests` e MinIO `mint` (`test/compat`, [06 §6.1](06-piano-test.md));
+ogni test escluso per questi motivi è elencato con la sua motivazione in `test/compat/excluded.txt` e
+`test/compat/mint-excluded.txt`.
 
 | Area | Comportamento di Nexo | Motivo |
 |------|-----------------------|--------|
 | Chiavi e prefissi | Una chiave non può essere anche il prefisso di altre chiavi (`a/b` e `a/b/c`): la seconda scrittura è rifiutata con `XNexoParentIsObject` (400) | Gli oggetti sono directory dei dischi con `xl.meta` accanto ai dati ([01 §1.5](01-architettura.md)), come in MinIO |
 | ACL | Ogni bucket si comporta come un bucket S3 con Object Ownership `BucketOwnerEnforced` (il default di AWS dal 2023): ACL diverse da `private`, grant espliciti e proprietà dell'oggetto per chi lo scrive sono rifiutati (`NotImplemented`); l'accesso si concede con bucket policy e regole di accesso anonimo | S-BKT-13 (P2) |
 | Account | Un solo account: gli utenti IAM hanno i diritti delle loro policy, non quelli di "proprietario" dei bucket che creano; un bucket esistente risponde sempre `BucketAlreadyOwnedByYou`, anche in `us-east-1` | Modello IAM di Nexo (S-IAM-*) |
-| Firme | Solo SigV4 (header, query, chunked, POST policy); niente SigV2 | [01 §1.1](01-architettura.md), non obiettivi |
-| Risposte | Come S3: `x-amz-meta-*` in minuscolo, nessun `x-amz-version-id` per la versione `null` nelle risposte di scrittura, `If-Match` su chiave assente → 404 `NoSuchKey`, `partNumber` oltre le parti → 416 `InvalidPartNumber`, chiave SSE-C diversa → 403, header SSE-S3/KMS su GET/HEAD → 400, ripetizione di una `CompleteMultipartUpload` già riuscita → stesso esito, lista delle parti strettamente crescente (`InvalidPartOrder`), `x-amz-delete-marker` assente quando sarebbe `false`, `GetBucketPolicyStatus` senza policy → 404 `NoSuchBucketPolicy`, la versione scritta prima dell'attivazione del versioning è la versione `null` del bucket (riportata e indirizzabile come `null` da letture, listing, lifecycle e console), `CompleteMultipartUpload` di un upload COMPOSITE senza il checksum di ogni parte → 400 `InvalidRequest`, `x-amz-mp-object-size` diverso dalla somma delle parti → 400 `InvalidRequest` | Compatibilità con gli SDK |
+| Firme | Solo SigV4 (header, query, chunked, POST policy); niente SigV2 (anche `aws s3 presign` della AWS CLI v1 va configurato con `s3.signature_version = s3v4`). Una firma con scope su un'altra regione è rifiutata (`AuthorizationHeaderMalformed`), come da un endpoint regionale di S3: un deployment ha una sola regione. In un URL presigned ogni header `x-amz-*` deve essere firmato (`AccessDenied`, "headers present in the request which were not signed"), tranne `x-amz-content-sha256`, che se malformato rende la firma non valida (`SignatureDoesNotMatch`) | [01 §1.1](01-architettura.md), non obiettivi; un header non firmato cambierebbe l'operazione concessa dall'URL |
+| Algoritmi di checksum | CRC32, CRC32C, CRC64NVME, SHA1, SHA256; gli algoritmi aggiunti da S3 nel 2025 (MD5, SHA512, XXHASH64/3/128) sono rifiutati (`InvalidRequest`) | S-OBJ-09 |
+| Risposte | Come S3: `x-amz-meta-*` in minuscolo, nessun `x-amz-version-id` per la versione `null` nelle risposte di scrittura, `If-Match` su chiave assente → 404 `NoSuchKey`, `partNumber` oltre le parti → 416 `InvalidPartNumber`, chiave SSE-C diversa → 403, header SSE-S3/KMS su GET/HEAD → 400, ripetizione di una `CompleteMultipartUpload` già riuscita → stesso esito, lista delle parti strettamente crescente (`InvalidPartOrder`), `x-amz-delete-marker` assente quando sarebbe `false`, `GetBucketPolicyStatus` senza policy → 404 `NoSuchBucketPolicy`, la versione scritta prima dell'attivazione del versioning è la versione `null` del bucket (riportata e indirizzabile come `null` da letture, listing, lifecycle e console), `CompleteMultipartUpload` di un upload COMPOSITE senza il checksum di ogni parte → 400 `InvalidRequest` (con `BadDigest` prima, se un checksum dato non corrisponde), `x-amz-mp-object-size` diverso dalla somma delle parti → 400 `InvalidRequest`, una versione di una chiave assente → 404 `NoSuchVersion` (non `NoSuchKey`), `NextPartNumberMarker` di `ListParts`/`GetObjectAttributes` sempre l'ultima parte della pagina, `PutBucketTagging` → 200, `Content-MD5` vuoto → `InvalidDigest`, ACL canned sconosciuta → 400 `InvalidArgument`, POST su un oggetto senza sotto-risorsa → 405 `MethodNotAllowed`, `ListObjectVersions` con versioni e delete marker nell'ordine del listing, copia di un oggetto su sé stesso che ne cambia solo la cifratura (es. decifra) ammessa, messaggi di errore con le virgolette in chiaro (es. `Policy Condition failed: ["eq", ...]`), header `Date` con fuso `-0000` (botocore) accettato. `DeleteObject` con `If-Match` (ETag o `*`) cancella solo se la versione bersaglio ha quell'ETag, altrimenti 412 `PreconditionFailed` (anche per una versione assente o un delete marker); le condizioni dei directory bucket (`x-amz-if-match-last-modified-time`, `x-amz-if-match-size`) → 501, mai ignorate. `AbortMultipartUpload` di un upload sconosciuto → 404 `NoSuchUpload` (MinIO risponde 204). Il `Grantee` delle ACL ripete il tipo come elemento `<Type>` (richiesto dagli SDK MinIO, ignorato da quelli AWS). `Expect` diverso da `100-continue` → 417 (server HTTP di Go, RFC 9110) | Compatibilità con gli SDK |
 | Autorizzazione | Una richiesta su un oggetto è autorizzata (es. `s3:GetObject`) prima di cercare la chiave: chi ha solo `s3:ListBucket` riceve 403 anche per chiavi assenti; chi ha `s3:GetObject` riceve 404 per una chiave assente anche senza `s3:ListBucket` | Valutazione delle policy indipendente dallo stato dei dati |
 | Metadati non ASCII | I valori `x-amz-meta-*` sono restituiti con i byte ricevuti (UTF-8), senza codifica RFC 2047 né transcodifica in ISO-8859-1 | Gli SDK Go e JavaScript leggono gli header in UTF-8 |
-| Download lenti | Un client che smette di leggere il corpo di una GET per più di 20 s (`NEXO_SEND_TIMEOUT`, default `httpx.DefaultSendTimeout`) vede la risposta interrotta: il lock di lettura dell'oggetto non blocca le scritture oltre il timeout dei lock (30 s) | Robustezza (lock per oggetto) |
-| CORS | Un bucket **senza** configurazione CORS segue la politica dell'intero deployment `api.cors_allow_origin` (default `*`, [07 §7.6](07-sicurezza-operativita.md)): la preflight risponde 200 con le origini ammesse invece del 403 `CORSResponse: CORS is not enabled for this bucket` di S3. Un bucket con configurazione CORS si comporta come in S3 (solo le sue regole decidono, 403 se nessuna corrisponde) | Console e applicazioni web servite da altri domini funzionano senza configurare ogni bucket (come MinIO); restringibile per deployment |
+| Letture e scritture concorrenti | Una GET legge un'istantanea: risolta la versione, apre i file dei dati (o gli shard: tutti i locali e quanti remoti bastano) e rilascia subito il lock di lettura, così una PUT o una DELETE della stessa chiave non attende il trasferimento e chi legge riceve per intero la versione risolta anche se nel frattempo è stata sostituita e i suoi dati eliminati (un file aperto sopravvive alla rimozione, POSIX). Restano sotto lock le letture di più di 8 parti (`object.WithPinnedReadParts`) e tutte le letture su Windows. Un client che smette di leggere per più di 20 s (`NEXO_SEND_TIMEOUT`) vede comunque la risposta interrotta | MVCC sui data dir delle versioni; MinIO tiene il lock per tutto il trasferimento |
+| CORS | Come S3, `Access-Control-Allow-Headers` riporta in minuscolo gli header richiesti e una richiesta non preflight che dichiara `Access-Control-Request-Method` è valutata con quel metodo. Un bucket **senza** configurazione CORS segue la politica dell'intero deployment `api.cors_allow_origin` (default `*`, [07 §7.6](07-sicurezza-operativita.md)): la preflight risponde 200 con le origini ammesse invece del 403 `CORSResponse: CORS is not enabled for this bucket` di S3. Un bucket con configurazione CORS si comporta come in S3 (solo le sue regole decidono, 403 se nessuna corrisponde) | Console e applicazioni web servite da altri domini funzionano senza configurare ogni bucket (come MinIO); restringibile per deployment |
 | Notifiche eventi | I record (`Records[]`) hanno la forma di S3 (`eventVersion` `2.1`, `eventName` senza prefisso `s3:`, es. `ObjectCreated:Put`, chiave URL-encoded, `sequencer`), con `eventSource` `nexo:s3`; il payload dei webhook aggiunge in testa `EventName` (con prefisso, `s3:ObjectCreated:Put`) e `Key` (`bucket/chiave`) come MinIO. Configurazioni sovrapposte (stesso tipo di evento e filtri prefix/suffix che si intersecano) sono rifiutate con `400 InvalidArgument` come in S3. Il `sequencer` è il tempo di commit della versione (o della rimozione), monotono per chiave anche tra nodi con orologi sfasati. Le modifiche Object Lock (retention, legal hold) non generano eventi, come in S3: MinIO pubblica `s3:ObjectCreated:PutRetention`/`PutLegalHold`, che un consumer di `s3:ObjectCreated:*` leggerebbe come nuovi oggetti | Compatibilità con i consumer scritti per S3 e per MinIO |

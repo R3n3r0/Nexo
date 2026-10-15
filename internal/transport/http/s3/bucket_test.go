@@ -236,6 +236,9 @@ func TestListObjectVersions(t *testing.T) {
 	}, CommonPrefixes: []string{"d/"}, IsTruncated: true, NextMarker: "k", NextVersionIDMarker: "null"}, nil).Once()
 	rec := f.do(http.MethodGet, "/photos?versions&key-marker=k&version-id-marker=v0", "")
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	body := rec.Body.String()
+	require.Less(t, strings.Index(body, "<DeleteMarker>"), strings.Index(body, "<Version>"),
+		"versions and delete markers in listing order: the latest (a delete marker) first")
 	var versions s3.ListVersionsResult
 	decodeXML(t, rec, &versions)
 	require.Len(t, versions.Versions, 1)
@@ -256,6 +259,7 @@ func TestListObjectVersions(t *testing.T) {
 	requireError(t, f.do(http.MethodGet, "/photos?versions", ""), http.StatusNotFound, "NoSuchBucket")
 }
 
+// covers: S-BKT-02
 func TestGetBucketLocation(t *testing.T) {
 	tests := []struct {
 		name, configured, bucketRegion, want string
@@ -346,7 +350,7 @@ func TestBucketTagging(t *testing.T) {
 	f := newFixture(t)
 	doc := `<Tagging><TagSet><Tag><Key>a</Key><Value>1</Value></Tag><Tag><Key>b</Key><Value>2</Value></Tag></TagSet></Tagging>`
 	f.buckets.EXPECT().SetTags(mock.Anything, "photos", map[string]string{"a": "1", "b": "2"}).Return(nil).Once()
-	assert.Equal(t, http.StatusNoContent, f.do(http.MethodPut, "/photos?tagging", doc, "Content-MD5", contentMD5(doc)).Code)
+	assert.Equal(t, http.StatusOK, f.do(http.MethodPut, "/photos?tagging", doc, "Content-MD5", contentMD5(doc)).Code)
 	requireError(t, f.do(http.MethodPut, "/photos?tagging", `<Tagging><TagSet><Tag><Key>a</Key><Value>1</Value></Tag><Tag><Key>a</Key><Value>2</Value></Tag></TagSet></Tagging>`),
 		http.StatusBadRequest, "InvalidTag")
 	requireError(t, f.do(http.MethodPut, "/photos?tagging", "<Tagging>"), http.StatusBadRequest, "MalformedXML")
@@ -410,6 +414,8 @@ func TestBucketACL(t *testing.T) {
 	require.Len(t, acl.AccessControlList.Grants, 1)
 	assert.Equal(t, "FULL_CONTROL", acl.AccessControlList.Grants[0].Permission)
 	assert.Equal(t, "root", acl.AccessControlList.Grants[0].Grantee.ID)
+	assert.Contains(t, rec.Body.String(), `xsi:type="CanonicalUser"`)
+	assert.Contains(t, rec.Body.String(), `<Type>CanonicalUser</Type>`, "the element the MinIO SDKs read")
 	assert.Equal(t, http.StatusOK, f.do(http.MethodPut, "/photos?acl", "").Code)
 	assert.Equal(t, http.StatusOK, f.do(http.MethodPut, "/photos?acl", "", "x-amz-acl", "private").Code)
 	requireError(t, f.do(http.MethodPut, "/photos?acl", "", "x-amz-acl", "public-read"), http.StatusNotImplemented, "NotImplemented")

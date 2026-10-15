@@ -181,6 +181,7 @@ func TestS3SDKEndToEnd(t *testing.T) {
 	assert.Equal(t, "InvalidAccessKeyId", apiCode(err))
 }
 
+// covers: S-IAM-07, S-IAM-04, S-BKT-03
 func TestS3SDKReadOnlyUserPublicBucketAndSTS(t *testing.T) {
 	srv := testutil.StartServer(t)
 	ctx := context.Background()

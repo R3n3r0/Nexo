@@ -68,7 +68,24 @@ func checksumHeader(algo domain.ChecksumAlgorithm) string {
 // authentication verifies while the aws-chunked body streams and the
 // object layer computes and stores. x-amz-sdk-checksum-algorithm, when
 // set, must name the same algorithm; alone, it is ignored (no checksum).
+// A checksum of an algorithm Nexo does not compute (x-amz-checksum-md5,
+// the algorithms S3 added in 2025) is refused rather than ignored: the
+// client expects the upload verified.
 func checksumFromHeaders(h http.Header) (domain.Checksum, error) {
+	for name := range h {
+		rest, ok := strings.CutPrefix(strings.ToLower(name), httpx.HeaderAmzChecksumPrefix)
+		if !ok || rest == "type" || rest == "algorithm" || rest == "mode" {
+			continue
+		}
+		if _, err := domain.ParseChecksumAlgorithm(rest); err != nil {
+			return domain.Checksum{}, unsupportedChecksum()
+		}
+	}
+	if v := h.Get(httpx.HeaderAmzSDKChecksumAlgorithm); v != "" {
+		if _, err := domain.ParseChecksumAlgorithm(v); err != nil {
+			return domain.Checksum{}, unsupportedChecksum()
+		}
+	}
 	var found domain.Checksum
 	for _, algo := range domain.ChecksumAlgorithms() {
 		if v := h.Get(checksumHeader(algo)); v != "" {
@@ -118,12 +135,18 @@ func trailerChecksumAlgorithm(h http.Header) (domain.ChecksumAlgorithm, error) {
 	return found, nil
 }
 
+// unsupportedChecksum is the error of a checksum algorithm Nexo does not
+// compute.
+func unsupportedChecksum() error {
+	return invalidRequest("Checksum algorithm provided is unsupported. Please try again with any of the valid types: [CRC32, CRC32C, CRC64NVME, SHA1, SHA256]")
+}
+
 // checksumAlgorithmHeader reads x-amz-checksum-algorithm (CreateMultipartUpload,
 // CopyObject).
 func checksumAlgorithmHeader(h http.Header) (domain.ChecksumAlgorithm, error) {
 	algo, err := domain.ParseChecksumAlgorithm(h.Get(httpx.HeaderAmzChecksumAlgorithm))
 	if err != nil {
-		return domain.ChecksumNone, invalidRequest("Checksum algorithm provided is unsupported. Please try again with any of the valid types: [CRC32, CRC32C, CRC64NVME, SHA1, SHA256]")
+		return domain.ChecksumNone, unsupportedChecksum()
 	}
 	return algo, nil
 }

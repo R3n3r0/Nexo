@@ -113,6 +113,8 @@ func TestNoQuotaPassesThrough(t *testing.T) {
 // TestSequentialWrites (TS-I-16): the writes committed since the base
 // count, so that the quota holds between two scanner cycles; a refusal is
 // confirmed by a walk not older than the request.
+//
+// covers: S-BKT-09
 func TestSequentialWrites(t *testing.T) {
 	usage := &scanner.Usage{LastUpdate: time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC), Buckets: map[string]scanner.BucketUsage{bucket: {Counts: scanner.Counts{Size: 10}}}}
 	e := newEnv(t, 100, usage)
@@ -155,6 +157,8 @@ func TestSequentialWrites(t *testing.T) {
 // TestOtherNodesWrites: near the quota a stale base is refreshed, so that
 // the writes of the other nodes (in the walk, not in this node's
 // counters) are counted.
+//
+// covers: S-BKT-09, S-STO-06
 func TestOtherNodesWrites(t *testing.T) {
 	usage := &scanner.Usage{LastUpdate: time.Date(2026, 10, 9, 11, 0, 0, 0, time.UTC), Buckets: map[string]scanner.BucketUsage{}}
 	e := newEnv(t, 100, usage)
@@ -274,6 +278,7 @@ func TestCopyObject(t *testing.T) {
 	}
 }
 
+// covers: S-BKT-09
 func TestMultipart(t *testing.T) {
 	e := newEnv(t, 100, nil)
 	e.walkSize = 20

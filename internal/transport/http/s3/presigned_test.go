@@ -84,6 +84,7 @@ func TestPresignedAuthorizationUsesTheSigner(t *testing.T) {
 	requireError(t, f.do(http.MethodGet, "/b/k?"+presignedQuery, ""), http.StatusForbidden, "AccessDenied")
 }
 
+// covers: S-OPS-03
 func TestHealthRoutes(t *testing.T) {
 	ready := true
 	svc := health.New(health.Deps{Readiness: map[string]health.Check{"storage": func(context.Context) error {

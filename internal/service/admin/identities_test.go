@@ -149,6 +149,7 @@ func TestUpdateUser(t *testing.T) {
 	})
 }
 
+// covers: S-IAM-05
 func TestGroups(t *testing.T) {
 	ctx := context.Background()
 	var asked []policy.Action

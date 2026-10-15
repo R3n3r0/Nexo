@@ -322,6 +322,53 @@ func TestDeleteObjectIfModTime(t *testing.T) {
 	})
 }
 
+// TestDeleteObjectIfMatch: a conditional delete (If-Match) removes, or
+// hides under a marker, the version it targets only when its ETag
+// matches ("*" any); a mismatch, a missing version or a delete marker
+// fail it with ErrPreconditionFailed and nothing changes.
+func TestDeleteObjectIfMatch(t *testing.T) {
+	for _, versioning := range []domain.Versioning{domain.VersioningOff, domain.VersioningEnabled} {
+		t.Run(versioning.String(), func(t *testing.T) {
+			forEachImpl(t, func(t *testing.T, fx *fixture) {
+				ctx := context.Background()
+				require.NoError(t, fx.svc.MakeBucket(ctx, "cond", object.MakeBucketOptions{}))
+				fx.setBucketConfig("cond", object.BucketConfig{Versioning: versioning})
+				info := put(t, fx.svc, "cond", "k", []byte("content"))
+				before, err := fx.svc.ListObjectVersions(ctx, domain.ListObjectsInput{Bucket: "cond"})
+				require.NoError(t, err)
+				for _, bad := range []object.DeleteObjectOptions{
+					{IfMatch: `"wrong"`},
+					{IfMatch: "*", VersionID: "0192f0f0-0000-7000-8000-00000000dead"},
+				} {
+					_, err = fx.svc.DeleteObject(ctx, "cond", "k", bad)
+					require.ErrorIs(t, err, domain.ErrPreconditionFailed, "%+v", bad)
+				}
+				_, err = fx.svc.DeleteObject(ctx, "cond", "missing", object.DeleteObjectOptions{IfMatch: "*"})
+				require.ErrorIs(t, err, domain.ErrPreconditionFailed, "a missing object matches nothing")
+				after, err := fx.svc.ListObjectVersions(ctx, domain.ListObjectsInput{Bucket: "cond"})
+				require.NoError(t, err)
+				assert.Equal(t, before.Objects, after.Objects, "nothing changed")
+
+				opts := object.DeleteObjectOptions{IfMatch: `"` + info.ETag + `"`}
+				if versioning == domain.VersioningEnabled {
+					opts.IfMatch = "*"
+				}
+				del, err := fx.svc.DeleteObject(ctx, "cond", "k", opts)
+				require.NoError(t, err)
+				_, err = fx.svc.GetObjectInfo(ctx, "cond", "k", object.GetObjectOptions{})
+				assert.ErrorIs(t, err, domain.ErrObjectNotFound)
+				if versioning == domain.VersioningEnabled {
+					require.True(t, del.DeleteMarker)
+					_, err = fx.svc.DeleteObject(ctx, "cond", "k", object.DeleteObjectOptions{IfMatch: "*"})
+					require.ErrorIs(t, err, domain.ErrPreconditionFailed, "a delete marker matches nothing")
+					_, err = fx.svc.DeleteObject(ctx, "cond", "k", object.DeleteObjectOptions{VersionID: info.VersionID, IfMatch: info.ETag})
+					require.NoError(t, err, "the version by id, its ETag unquoted")
+				}
+			})
+		})
+	}
+}
+
 // TestEventSequencerFollowsCommits: the sequencer of the events of a key
 // follows the order of its writes and deletions even when the clock of
 // the node that publishes goes back (clock skew between the nodes of a

@@ -50,6 +50,8 @@ nexoctl admin info swarm
   redeploy all of them together (a new pool: `http://nexo{1...4}:9000/data{1...2} http://nexo{5...8}:9000/data{1...2}`).
 - **TLS between the nodes**: mount certificates (Docker secrets or configs) in `/certs`, set
   `NEXO_CERTS_DIR=/certs` and use `https://` endpoints; the overlay encryption can then be disabled.
+  The image `HEALTHCHECK` follows `NEXO_CERTS_DIR`: it probes the console over HTTPS and trusts
+  `/certs/public.crt` and `/certs/CAs/`, so the tasks stay healthy whatever names the certificate covers.
 - **KMS**: `docker secret create nexo_kms_key` with `<name>:<base64 of 32 bytes>` and
   `NEXO_KMS_SECRET_KEY_FILE=/run/secrets/nexo_kms_key`.
 

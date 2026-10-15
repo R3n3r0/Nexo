@@ -1,0 +1,56 @@
+## nexoctl dist create
+
+Create a distribution
+
+### Synopsis
+
+Create a distribution of a bucket (or of a prefix of it, website mode) on one or
+more domains, exact or wildcard (\*.preview.example.com). The flags of the
+default behavior (--access, --index, --spa, --cache-control...) apply to every
+path the behaviors do not override (see "nexoctl dist behavior add").
+
+```
+nexoctl dist create ALIAS ID --bucket BUCKET --domain DOMAIN... [--mode website|s3] [flags]
+```
+
+### Examples
+
+```
+  nexoctl dist create local sito-web --bucket web --prefix /prod --mode website \
+      --domain www.example.com --domain example.com --index index.html --spa /index.html
+```
+
+### Options
+
+```
+      --access string          access: public, signed (URLs/cookies of --key-group), authenticated (SigV4) or deny
+      --bucket string          origin bucket
+      --cache-control string   Cache-Control sent to the browsers
+      --certificate string     TLS certificate: auto (ACME), none, upload:ID
+      --comment string         free text
+      --disabled               create the distribution disabled
+      --domain stringArray     domain (alias) of the distribution, exact or *.wildcard (repeatable)
+      --header stringArray     response header 'Name: value' (repeatable)
+  -h, --help                   help for create
+      --index string           index document appended to the paths ending with /
+      --key-group string       key group of the signed URLs and cookies
+      --methods stringArray    allowed methods (default GET,HEAD,OPTIONS)
+      --mode string            website (default) or s3
+      --prefix string          origin prefix (website mode): the distribution serves only the keys under it
+      --spa string             path served (200) instead of a missing object (single page application)
+```
+
+### Options inherited from parent commands
+
+```
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+```
+
+### SEE ALSO
+
+* [nexoctl dist](nexoctl_dist.md)	 - Manage the distributions: custom domains of the buckets
+

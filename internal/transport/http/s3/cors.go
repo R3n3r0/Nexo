@@ -127,7 +127,9 @@ func (c *corsHandler) wrap(next http.Handler) http.Handler {
 			}
 			setCORSHeaders(h, rule, origin)
 			if len(requested) > 0 {
-				h.Set(headerACAllowHeaders, strings.Join(requested, ", "))
+				// Lowercase, as S3 answers (header names are
+				// case-insensitive).
+				h.Set(headerACAllowHeaders, strings.ToLower(strings.Join(requested, ", ")))
 			}
 			if rule.MaxAgeSeconds != nil {
 				h.Set(headerACMaxAge, strconv.Itoa(*rule.MaxAgeSeconds))
@@ -135,7 +137,13 @@ func (c *corsHandler) wrap(next http.Handler) http.Handler {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
-		if rule, ok := rules.Match(origin, r.Method, nil); ok {
+		// As S3, an actual request that declares the method (and headers)
+		// of a preflight is matched with them.
+		method, requested := r.Method, []string(nil)
+		if m := r.Header.Get(headerACRequestMethod); m != "" {
+			method, requested = m, splitHeaderList(r.Header.Values(headerACRequestHeaders))
+		}
+		if rule, ok := rules.Match(origin, method, requested); ok {
 			setCORSHeaders(h, rule, origin)
 		}
 		next.ServeHTTP(w, r)

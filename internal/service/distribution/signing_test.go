@@ -32,6 +32,8 @@ func signedRequest(t *testing.T, group, signed, clientIP string) distribution.Si
 // TestSignedURLs covers TDS-06: valid, expired, tampered, other IP,
 // wildcard resource, cookies, every key algorithm and the rotation of the
 // keys of a group.
+//
+// covers: S-DST-04
 func TestSignedURLs(t *testing.T) {
 	ctx := context.Background()
 	svc := newService(t)
@@ -214,6 +216,7 @@ func TestSignedURLs(t *testing.T) {
 	})
 }
 
+// covers: S-DST-04
 func TestSignerRefusals(t *testing.T) {
 	ctx := context.Background()
 	fake := clock.NewFake(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))

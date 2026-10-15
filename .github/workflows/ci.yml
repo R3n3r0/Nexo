@@ -29,7 +29,7 @@ concurrency:
 
 env:
   NODE_VERSION: "22"
-  GOLANGCI_LINT_VERSION: v2.5.0
+  GOLANGCI_LINT_VERSION: v2.14.0
   # The security scanners (make security, docs/security).
   GOVULNCHECK_VERSION: v1.1.4
   GOSEC_VERSION: v2.29.0
@@ -65,6 +65,9 @@ jobs:
           go vet -tags cluster ./test/cluster/...
           go vet -tags compose ./test/compose/...
           go vet -tags proxy ./test/proxy/...
+
+      - name: traceability matrix (docs/06 §6.8)
+        run: make traceability-check
 
       - name: go generate is a no-op (mocks are up to date)
         run: |
@@ -407,6 +410,10 @@ jobs:
           ls dist/homebrew/Casks/nexo.rb dist/homebrew/Casks/nexoctl.rb
           dpkg-deb -c dist/nexo_*_amd64.deb
           dpkg-deb -c dist/nexoctl_*_amd64.deb
+          # The preinst creates the nexo user with useradd (passwd); the user
+          # is declared for systemd-sysusers too.
+          dpkg-deb -f dist/nexo_*_amd64.deb Pre-Depends | grep -qx passwd
+          dpkg-deb -c dist/nexo_*_amd64.deb | grep -q ' ./usr/lib/sysusers.d/nexo.conf$'
 
       - name: TM-10 smoke (linux/amd64, linux/arm64 with QEMU)
         run: make release-smoke
@@ -424,6 +431,26 @@ jobs:
             done
             docker run --rm --platform linux/amd64 "$(docker images --format '{{.Repository}}:{{.Tag}}' "ghcr.io/r3n3r0/$name" | grep -- '-amd64$' | head -1)" version
           done
+
+      - name: Image HEALTHCHECK with TLS (NEXO_CERTS_DIR)
+        run: |
+          set -eux
+          img="$(docker images --format '{{.Repository}}:{{.Tag}}' ghcr.io/r3n3r0/nexo | grep -- '-amd64$' | head -1)"
+          certs="$RUNNER_TEMP/certs"
+          CERTS_DIR="$certs" sh deploy/docker/gen-dev-certs.sh
+          # Readable by the nonroot user of the image only.
+          sudo chown -R 65532:65532 "$certs"
+          docker run -d --name nexo-tls -e NEXO_ROOT_USER=admin -e NEXO_ROOT_PASSWORD=ci-password-123 \
+            -e NEXO_CERTS_DIR=/certs -v "$certs:/certs:ro" "$img"
+          # The image HEALTHCHECK (nexo healthcheck) follows NEXO_CERTS_DIR:
+          # https on the console, trusting /certs/public.crt and /certs/CAs.
+          for _ in $(seq 1 30); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' nexo-tls)" = healthy ] && break
+            sleep 2
+          done
+          docker inspect -f '{{.State.Health.Status}}' nexo-tls | grep -qx healthy || { docker logs nexo-tls; exit 1; }
+          docker exec nexo-tls /nexo healthcheck --ready
+          docker rm -f nexo-tls
 
       - name: systemd unit (verify, security)
         run: packaging/systemd-verify.sh dist/nexo_linux_amd64_v1/nexo
@@ -693,11 +720,12 @@ jobs:
 
   s3tests-nightly:
     # Nightly (docs/06 §6.1, T-9.1, DoD of T-7.1): the Ceph s3-tests
-    # compatibility suite (test_s3.py at the commit pinned by
-    # test/compat/run-s3tests.sh) against bin/nexo over TLS, in every mode
-    # (4 drives, 1 drive, 4 processes x 2 drives). A job fails when a
-    # target group (versioning, object lock, multipart, tagging, SSE-C,
-    # CORS, checksum) passes less than 90% of its applicable tests; the
+    # compatibility suite (every file: test_s3, headers, IAM, STS, Select,
+    # SNS, S3 Control, at the commit pinned by test/compat/run-s3tests.sh)
+    # against bin/nexo over TLS, in every mode (4 drives, 1 drive, 4
+    # processes x 2 drives). A job fails when a group with applicable tests
+    # passes less than 95% of them, or when a test excluded by name
+    # (test/compat/excluded.txt) passes and its exclusion must go; the
     # per-test report is kept as an artifact and the per-group summary is
     # in the job summary.
     name: Compatibility (Ceph s3-tests, ${{ matrix.mode }})
@@ -727,6 +755,7 @@ jobs:
           NEXO_S3TESTS_REQUIRE_NETWORK: "1"
           NEXO_S3TESTS_MODE: ${{ matrix.mode }}
           NEXO_S3TESTS_REPORT_DIR: ${{ github.workspace }}/s3tests-report
+          NEXO_S3TESTS_CHECK_EXCLUDED: names
         run: make test-s3compat
 
       - name: Summary
@@ -749,6 +778,121 @@ jobs:
           path: s3tests-report
           if-no-files-found: ignore
           retention-days: 30
+
+  mint-nightly:
+    # Nightly (docs/06 §6.1, T-9.1): the SDK suites of MinIO Mint
+    # (github.com/minio/mint at the commit pinned by
+    # test/compat/run-mint.sh: minio-go/py/js/java, aws-sdk-go-v2,
+    # aws-sdk-java-v2, aws-sdk-ruby, aws-sdk-php, awscli, s3cmd, mc, ...)
+    # built on the runner, without Docker, and run against bin/nexo over
+    # TLS. A job fails when a suite fails a test not listed with its
+    # reason in test/compat/mint-excluded.txt, or cannot be built.
+    name: Compatibility (MinIO Mint, ${{ matrix.mode }})
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [snmd, cluster]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          tools: composer
+
+      - name: make test-mint
+        shell: bash
+        env:
+          NEXO_MINT_REQUIRE_NETWORK: "1"
+          NEXO_MINT_REQUIRE_ALL: "1"
+          NEXO_MINT_MODE: ${{ matrix.mode }}
+          NEXO_MINT_REPORT_DIR: ${{ github.workspace }}/mint-report
+        run: make test-mint
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -s mint-report/report.txt ]]; then
+            {
+              echo '### MinIO Mint (${{ matrix.mode }})'
+              echo '```'
+              sed -n '1,/^$/p;/^suite/,/^$/p' mint-report/report.txt
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mint-report-${{ matrix.mode }}
+          path: mint-report
+          if-no-files-found: ignore
+          retention-days: 30
+
+  upgrade-nightly:
+    # Nightly (docs/05 T-9.8, docs/06 §6.1): the release before (the M7
+    # commit, built from git by the test) writes a 4-drive node and a
+    # cluster of 4 nodes; the working tree takes the node over and
+    # upgrades the cluster one node at a time under load (no client error,
+    # every read checked), then the release before is started again on the
+    # drives (downgrade, test/upgrade/doc.go).
+    name: Upgrade (release before -> working tree)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The release before is built from its commit.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: make test-upgrade
+        # shell: bash runs with pipefail: the status of make survives tee.
+        shell: bash
+        run: make test-upgrade 2>&1 | tee upgrade-tests.log
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: upgrade-tests-log
+          path: upgrade-tests.log
+          if-no-files-found: ignore
+          retention-days: 14
 
   integration-nightly:
     # Nightly: the integration suite in every mode with its slow tests
@@ -1005,3 +1149,31 @@ jobs:
         run: |
           cd deploy/swarm
           docker stack config -c stack.yml >/dev/null
+
+  docs:
+    name: User documentation (CLI reference, MkDocs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # docs/user/cli is generated from the cobra commands (nexoctl gendocs):
+      # a command or flag changed without make docs fails here.
+      - name: CLI reference is up to date (make docs-check)
+        run: make docs-check
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # The site of mkdocs.yml (docs/user): broken links, missing pages and
+      # an invalid navigation fail the build.
+      - name: MkDocs build --strict
+        run: |
+          python3 -m pip install --disable-pip-version-check mkdocs==1.6.1 mkdocs-material==9.7.7
+          mkdocs build --strict -f mkdocs.yml -d "$RUNNER_TEMP/site"

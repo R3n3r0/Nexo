@@ -7,6 +7,7 @@ import { renderWithProviders } from '@/test/render';
 
 import { HealingPage } from './HealingPage';
 
+// covers: D-CLU-02
 describe('HealingPage (D-CLU-02)', () => {
   it('explains that a single drive has nothing to heal', async () => {
     renderWithProviders(<HealingPage />, {

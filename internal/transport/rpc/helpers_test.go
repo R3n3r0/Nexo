@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 
 	"github.com/r3n3r0/nexo/internal/transport/rpc"
 )
@@ -61,7 +59,7 @@ func listenOn(addr string) (net.Listener, error) {
 // serve serves handler with cleartext HTTP/2 on ln, like the S3 server.
 func serve(t testing.TB, ln net.Listener, handler http.Handler) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewUnstartedServer(h2c.NewHandler(handler, &http2.Server{MaxUploadBufferPerStream: 16 << 20, MaxUploadBufferPerConnection: 64 << 20, MaxReadFrameSize: 1 << 20}))
+	srv := h2cServer(handler, &http.HTTP2Config{MaxReceiveBufferPerStream: 16 << 20, MaxReceiveBufferPerConnection: 64 << 20, MaxReadFrameSize: 1 << 20})
 	_ = srv.Listener.Close()
 	srv.Listener = ln
 	srv.Start()

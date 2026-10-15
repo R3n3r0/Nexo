@@ -12,6 +12,7 @@ interface Subscription {
   suffix?: string;
 }
 
+// covers: D-BKT-04
 test.describe('bucket events (D-BKT-04)', () => {
   let bucket: string;
   let target: string;
@@ -30,6 +31,7 @@ test.describe('bucket events (D-BKT-04)', () => {
     await webhook.close();
   });
 
+  // covers: D-BKT-03, D-BKT-04
   test('TD-E-14 a webhook target receives the test event and the subscribed events, visible from the CLI', async ({
     page,
     api,

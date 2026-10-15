@@ -1,0 +1,30 @@
+Show the logs of every node of the deployment as they are written, secrets redacted:
+the --last recent entries of each node first, then the new ones, at --level or above.
+
+The stream lasts until Ctrl-C, --timeout or --count, and reconnects by itself when the
+server restarts. With --json each entry is a JSON line {"alias":...,"log":{...}}.
+
+Needs admin:ConsoleLog (root, consoleAdmin, the diagnostics policy).
+
+Usage:
+  nexoctl admin logs [flags] ALIAS
+
+Examples:
+  nexoctl admin logs local
+  nexoctl admin logs --level warn --last 100 local
+  nexoctl admin logs --node n2:9000 --json local
+
+Flags:
+      --count int          stop after this many items (default: no limit)
+  -h, --help               help for logs
+      --last int           recent entries of each node shown first (0 to 10000) (default 10)
+      --level string       minimum level: debug, info, warn or error (default: the level of the server)
+      --node strings       nodes of a cluster (host:port, repeated or comma-separated; default all)
+      --timeout duration   stop after this time (default: until Ctrl-C)
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

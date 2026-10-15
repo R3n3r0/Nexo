@@ -74,7 +74,7 @@
 
 ## 1.3 Stack tecnologico
 
-### Backend (Go ≥ 1.24)
+### Backend (Go ≥ 1.26)
 | Ambito | Scelta | Motivazione |
 |--------|--------|-------------|
 | HTTP | `net/http` + router leggero (`go-chi/chi` v5) | Prestazioni, controllo fine su streaming. |
@@ -133,12 +133,14 @@ var Dist embed.FS
 nexo/
 ├── cmd/
 │   ├── nexo/              # main server
-│   └── nexoctl/           # main CLI
+│   ├── nexoctl/           # main CLI
+│   └── tools/traceability # strumento di sviluppo: matrice funzionalità → test (fuori dai rilasci)
 ├── internal/
 │   ├── admin/  auth/  cli/  cluster/  config/  console/  crypto/  dsync/
 │   ├── erasure/  event/  heal/  iam/  ilm/  kms/  metrics/  object/
 │   ├── policy/  replication/  rpc/  s3api/  scanner/  storage/
-│   └── testutil/          # helper per test, server in-process, cluster fake
+│   ├── testutil/          # helper per test, server in-process, cluster fake
+│   └── tools/             # logica degli strumenti di sviluppo (es. traceability)
 ├── pkg/
 │   └── nexoadmin/         # client Go pubblico dell'Admin API (usato da nexoctl)
 ├── web/                   # dashboard React (Vite)
@@ -148,7 +150,8 @@ nexo/
 │   ├── integration/       # test con aws-sdk-go-v2 contro server reale
 │   ├── cluster/           # docker-compose + test di chaos
 │   ├── compat/            # runner s3-tests (Ceph) e mint
-│   └── cli/               # script testscript (.txtar)
+│   ├── cli/               # script testscript (.txtar)
+│   └── TRACEABILITY.md    # matrice di tracciabilità generata (06 §6.8)
 ├── deploy/
 │   ├── docker/  helm/  systemd/
 ├── docs/

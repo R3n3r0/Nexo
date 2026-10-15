@@ -1,3 +1,4 @@
+# covers: C-OBJ-07
 # TCL-P-01: a managed share link downloads the object (curl-like client).
 # TCL-P-03: share list / share revoke / share revoke --all --user: a
 # revoked link answers 403 at once. S-OBJ-08c, C-OBJ-07.

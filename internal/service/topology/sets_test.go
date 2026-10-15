@@ -10,6 +10,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/domain"
 )
 
+// covers: S-STO-02, S-STO-03
 func TestDefaultParity(t *testing.T) {
 	t.Parallel()
 	tests := map[int]int{
@@ -41,6 +42,7 @@ func TestIsSymmetric(t *testing.T) {
 	}
 }
 
+// covers: S-STO-02
 func TestChooseSetDriveCount(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -92,6 +94,7 @@ func TestChooseSetDriveCount_IsLargestValid(t *testing.T) {
 	}
 }
 
+// covers: S-STO-02
 func TestValidateSetDriveCount(t *testing.T) {
 	t.Parallel()
 	assert.NoError(t, validateSetDriveCount(4, 16, 1))
@@ -103,6 +106,7 @@ func TestValidateSetDriveCount(t *testing.T) {
 	assert.ErrorIs(t, validateSetDriveCount(6, 12, 4), ErrInvalidSetSize)
 }
 
+// covers: S-STO-03
 func TestValidateParity(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

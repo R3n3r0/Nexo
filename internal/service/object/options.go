@@ -25,6 +25,9 @@ type options struct {
 	// poolSpaceTTL bounds the age of the cached free space of the pools
 	// (default 5s).
 	poolSpaceTTL time.Duration
+	// pinnedReadParts is the number of parts a read opens up front to
+	// release its read lock before streaming (default 8, 0 disables).
+	pinnedReadParts int
 }
 
 func defaultOptions() options {
@@ -35,6 +38,9 @@ func defaultOptions() options {
 		lockTimeout:  30 * time.Second,
 		region:       "us-east-1",
 		poolSpaceTTL: 5 * time.Second,
+		// A read of up to 8 parts opens at most 8 part files (fs) or 8
+		// times the data shards (erasure) at once.
+		pinnedReadParts: 8,
 	}
 }
 
@@ -103,6 +109,20 @@ func WithPoolSpaceTTL(d time.Duration) Option {
 	return func(o *options) {
 		if d >= 0 {
 			o.poolSpaceTTL = d
+		}
+	}
+}
+
+// WithPinnedReadParts sets the number of parts a GetObject opens before
+// streaming them, to release the read lock of the object right away: an
+// open file keeps reading the version after a writer replaced or purged
+// it (MVCC on the data directory), so a slow or stalled download never
+// blocks the writers of its key. Reads spanning more parts hold the lock
+// until their body is closed; 0 disables the early release.
+func WithPinnedReadParts(n int) Option {
+	return func(o *options) {
+		if n >= 0 {
+			o.pinnedReadParts = n
 		}
 	}
 }

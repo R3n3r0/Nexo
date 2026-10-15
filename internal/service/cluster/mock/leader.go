@@ -6,7 +6,6 @@ import (
 	context "context"
 
 	cluster "github.com/r3n3r0/nexo/internal/service/cluster"
-
 	mock "github.com/stretchr/testify/mock"
 )
 

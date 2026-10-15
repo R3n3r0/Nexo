@@ -33,7 +33,8 @@ docker buildx build --platform linux/amd64,linux/arm64 \
 ```
 
 Image facts: `EXPOSE 9000 9001`, `VOLUME /data`, `USER nonroot`, `HEALTHCHECK` with `nexo healthcheck`
-(distroless has no `curl`), `ENTRYPOINT ["/nexo"]`, `CMD ["server", "/data"]`.
+(distroless has no `curl`; with `NEXO_CERTS_DIR` it probes the console over HTTPS, trusting the
+`public.crt` and `CAs/` of that directory), `ENTRYPOINT ["/nexo"]`, `CMD ["server", "/data"]`.
 
 ## Single node
 
@@ -143,8 +144,9 @@ curl --cacert certs/CAs/ca.crt https://localhost:9001/nexo/health/live
 ```
 
 `./certs` is mounted at `/certs` on every node (`NEXO_CERTS_DIR=/certs`) and must contain `public.crt`,
-`private.key` and `CAs/ca.crt`. The certificate needs SANs for `nexo1`..`nexo4` (internode calls),
-`localhost` (healthcheck) and the public hostname. nginx (`nginx-tls.conf`) balances TCP connections
+`private.key` and `CAs/ca.crt`. The certificate needs SANs for `nexo1`..`nexo4` (internode calls)
+and the public hostname (`gen-dev-certs.sh` adds `localhost` for the `curl` above; the image
+healthcheck verifies the chain against `/certs`, not the names). nginx (`nginx-tls.conf`) balances TCP connections
 without terminating TLS, so the certificate the client sees is Nexo's and presigned URLs stay valid.
 To terminate TLS at the edge instead, see [deploy/proxy](../proxy/).
 

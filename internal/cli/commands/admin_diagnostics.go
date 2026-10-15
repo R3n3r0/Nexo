@@ -32,6 +32,7 @@ func newAdminProfileCmd(e *env) *cobra.Command {
 	var (
 		kind     string
 		duration time.Duration
+		seconds  int
 		output   string
 	)
 	cmd := &cobra.Command{
@@ -39,12 +40,12 @@ func newAdminProfileCmd(e *env) *cobra.Command {
 		Short: "Collect a runtime profile (pprof) of the server",
 		Long: `Collect a runtime profile of the node that serves the Admin API of the alias, in the
 pprof format: analyze it with "go tool pprof FILE". cpu, mutex and block sample for
---duration (1s to 2m); heap and goroutine are snapshots. In a cluster each node is
-profiled through its own console address (or the alias of that node).
+--seconds (or --duration, 1s to 2m); heap and goroutine are snapshots. In a cluster
+each node is profiled through its own console address (or the alias of that node).
 
 Needs admin:Profiling (root, the diagnostics policy).`,
 		Example: "  nexoctl admin profile local\n  nexoctl admin profile --type heap --output heap.pb.gz local\n" +
-			"  nexoctl admin profile --type mutex --duration 30s local",
+			"  nexoctl admin profile --type mutex --seconds 30 --output mutex.pb.gz local",
 		Args:              exactArgs(1),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -53,6 +54,15 @@ Needs admin:Profiling (root, the diagnostics policy).`,
 			case nexoadmin.ProfileCPU, nexoadmin.ProfileHeap, nexoadmin.ProfileGoroutine, nexoadmin.ProfileMutex, nexoadmin.ProfileBlock:
 			default:
 				return cli.UsageError("--type %q must be cpu, heap, goroutine, mutex or block", kind)
+			}
+			if cmd.Flags().Changed("seconds") {
+				if cmd.Flags().Changed("duration") {
+					return cli.UsageError("--seconds and --duration are mutually exclusive")
+				}
+				if seconds < 0 {
+					return cli.UsageError("--seconds must not be negative")
+				}
+				duration = time.Duration(seconds) * time.Second
 			}
 			if duration < 0 || duration%time.Second != 0 {
 				return cli.UsageError("--duration must be a whole number of seconds")
@@ -93,6 +103,7 @@ Needs admin:Profiling (root, the diagnostics policy).`,
 	}
 	cmd.Flags().StringVarP(&kind, "type", "t", nexoadmin.ProfileCPU, "profile: cpu, heap, goroutine, mutex or block")
 	cmd.Flags().DurationVarP(&duration, "duration", "d", 0, "sampling of the cpu, mutex and block profiles (default 10s, at most 2m)")
+	cmd.Flags().IntVarP(&seconds, "seconds", "s", 0, "sampling of the cpu, mutex and block profiles in seconds (same as --duration)")
 	cmd.Flags().StringVarP(&output, "output", "o", "", "file of the profile (default: the name suggested by the server, nexo-<node>-<type>.pb.gz)")
 	return cmd
 }

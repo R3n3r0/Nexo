@@ -69,6 +69,7 @@ func stsErrorOf(t *testing.T, body string) s3.STSErrorResponse {
 
 var stsUser = &domain.Identity{AccessKey: "alice", PolicyNames: []string{"readwrite"}, AuthType: domain.AuthTypeHeader}
 
+// covers: S-IAM-07
 func TestSTSAssumeRole(t *testing.T) {
 	f := newSTSFixture(t, stsUser)
 	exp := time.Date(2026, 10, 8, 13, 0, 0, 0, time.UTC)
@@ -105,6 +106,7 @@ func TestSTSAssumeRoleQueryParameters(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "assumed-role/alice/K")
 }
 
+// covers: S-IAM-07
 func TestSTSErrors(t *testing.T) {
 	valid := func(extra ...string) string {
 		return stsForm(append([]string{"Action", "AssumeRole", "Version", s3.STSVersion}, extra...)...)

@@ -1,0 +1,63 @@
+# Expected failures of the MinIO Mint suites (run-mint.sh): the tests of
+# the suites that exercise what Nexo does not provide or answers otherwise.
+# One line per test (a glob of the function name the suite reports):
+#
+#   <suite> | <function> | <category> | <reason>
+#
+# The categories are those of excluded.txt (rgw, deprecated, p2,
+# out-of-catalog, aws, design, suite) plus "minio": an API or behavior of
+# MinIO that is not part of S3 (Admin API, MinIO extensions). A failure
+# listed here is reported as expected; any other failure fails the run.
+#
+# The glob matches the test name (minio-go, minio-py: the part after
+# "<suite>:") or "<function> <args>" (the suites that report the API call,
+# such as minio-js).
+
+# --- Signature V2 (deprecated by AWS since 2014, not implemented) ---
+minio-go | test*V2 | deprecated | minio-go client with Signature Version 2: AWS deprecated SigV2, Nexo authenticates SigV4 only (as excluded.txt auth_aws2)
+minio-go | testComposeMultipleSources | deprecated | creates its bucket with the Signature Version 2 client (MakeBucket fails before the test)
+minio-go | testComposeObjectErrorCasesWrapper | deprecated | creates its bucket with the Signature Version 2 client
+minio-go | testCopyObjectWithChecksums | deprecated | creates its bucket with the Signature Version 2 client
+minio-go | testReplaceObjectWithChecksums | deprecated | creates its bucket with the Signature Version 2 client
+minio-go | testUserMetadataCopyingWrapper | deprecated | creates its bucket with the Signature Version 2 client
+
+# --- MinIO extensions and MinIO-only answers ---
+healthcheck | test*Endpoint | minio | MinIO health endpoints /minio/health/{live,ready,cluster}; Nexo serves /nexo/health/{live,ready,cluster} (docs/02)
+minio-go | testListMultipartUpload | minio | expects MinIO's ListMultipartUploads: no Initiator, Owner nor StorageClass, and the uploads of key-marker itself listed again; Nexo answers as S3 (owner, STANDARD, uploads after key-marker only)
+minio-go | testListUnsorted | minio | ListObjects with user metadata (metadata=true listing, MinIO extension)
+minio-go | testBucketVersioningExcludedPrefixes | minio | ExcludedPrefixes/ExcludeFolders of the versioning configuration (MinIO extension)
+minio-js | listenBucketNotification* | minio | ListenBucketNotification (MinIO streaming extension; Nexo delivers events to the configured targets)
+minio-js | extensions.listObjectsV2WithMetadata* | minio | listing with user metadata and tags (MinIO extension)
+minio-js | listObjects* bucketName:minio-js-fd-* | minio | force delete of a prefix (x-minio-force-delete on RemoveObject, MinIO extension): the objects stay
+minio-js | "after all" hook in "Force Deletion* | minio | cleanup of the force delete tests: the bucket still holds the objects the extension did not delete
+minio-java | listenBucketNotification | minio | ListenBucketNotification (MinIO extension); its request repeats the events parameter, signed in the order given where SigV4 sorts the values
+mc | test_admin_* | minio | MinIO Admin API (mc admin user/policy/...); Nexo has its own Admin API (/api/v1, nexoctl admin)
+minio-java | uploadSnowballObjects | minio | snowball upload (a tar archive with x-amz-meta-snowball-auto-extract, MinIO extension): the archive is stored as one object, not extracted
+minio-java | putObjectFanOut | minio | fan-out upload (POST policy with x-minio-fanout-list, MinIO extension): refused as an unknown form field of the policy
+minio-java | removeBucket | minio | cleanup of the snowball test: the bucket still holds the archive the extension did not extract
+
+# --- P2 features (docs/02) ---
+s3select | * | p2 | S3 Select (SelectObjectContent) is a P2 feature: NotImplemented
+aws-sdk-go-v2 | testSelectObject | p2 | S3 Select (SelectObjectContent) is a P2 feature: NotImplemented (the suite stops at its first failure)
+minio-js | selectObjectContent* | p2 | S3 Select (SelectObjectContent) is a P2 feature: NotImplemented
+minio-js | "after all" hook for "Remove Object post select of content* | p2 | cleanup of the S3 Select test: its object stays when the select fails
+aws-sdk-ruby | presignedPut | p2 | presigned PUT with x-amz-acl: public-read; canned ACLs other than private and bucket-owner-full-control are P2 (501 NotImplemented)
+
+# --- outside the catalog ---
+minio-go | testPutObjectWithChecksums | out-of-catalog | MD5 additional checksum (x-amz-checksum-md5, an algorithm S3 added in 2025 with SHA512 and XXHASH*): the catalog has CRC32, CRC32C, CRC64NVME, SHA1, SHA256, which pass in the same test
+minio-go | testPutObjectWithTrailingChecksums | out-of-catalog | MD5 trailing checksum (x-amz-checksum-md5), see testPutObjectWithChecksums
+minio-go | testPutMultipartObjectWithChecksums | out-of-catalog | MD5 checksum of a multipart upload (CreateMultipartUpload with ChecksumAlgorithm MD5): InvalidRequest, the algorithm is not supported
+minio-go | testListObjectsChecksums | out-of-catalog | uploads with the MD5 trailing checksum, see testPutObjectWithTrailingChecksums
+
+# --- answered as AWS S3 ---
+aws-sdk-php | abortMultipartupload* | aws | AbortMultipartUpload of an unknown upload id: 404 NoSuchUpload as AWS (and s3-tests test_abort_multipart_upload_not_found); the suite expects MinIO's 204
+minio-java | getPresignedObjectUrl() [[]PUT* | aws | presigned PUT (SignedHeaders=host) sent with an x-amz-acl header: refused as AWS does (AccessDenied, "There were headers present in the request which were not signed"); an unsigned x-amz-* header would change the operation the URL grants
+versioning | *testLockingLegalhold* | aws | PutObject with Object Lock headers and neither Content-MD5 nor x-amz-checksum: InvalidRequest, as AWS (MinIO accepts it; s3-tests expect the AWS answer)
+
+# --- design ---
+minio-go | testMakeBucketError | design | MakeBucket signed for eu-central-1: a deployment has one region and rejects a signature scoped to another (AuthorizationHeaderMalformed, as a regional S3 endpoint)
+minio-go | testMakeBucketRegions | design | MakeBucket signed for eu-central-1, see testMakeBucketError
+minio-py | test_negative_put_object_with_path_segment | design | the key "/a/b/c/..." is rejected as expected, with Nexo's code XNexoInvalidObjectName where the test accepts only MinIO's XMinioInvalidObjectName
+
+# --- defects of the suites ---
+awscli | *put-object * --content-length -1* | suite | expects the upload to fail, but botocore 1.36+ drops the negative Content-Length and sends a valid aws-chunked upload (with a CRC32 trailer), which S3 accepts as well

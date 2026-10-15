@@ -44,6 +44,7 @@ test.describe('sharing', () => {
     await api.deleteBucket(bucket);
   });
 
+  // covers: D-SHR-01, D-OBJ-04, D-SHR-03
   test('TD-E-09 TD-P-01 TD-P-02 a share link opens anonymously until it is revoked', async ({
     page,
     browser,
@@ -76,6 +77,7 @@ test.describe('sharing', () => {
 
   // Regression (D-SHR-01): sharing a folder showed the ListObjectsV2 URL
   // of the prefix, an XML listing that downloads nothing.
+  // covers: D-SHR-01
   test('TD-P-01 a shared folder hands out one working link per object', async ({
     page,
     browser,
@@ -103,6 +105,7 @@ test.describe('sharing', () => {
     }
   });
 
+  // covers: D-SHR-02
   test('TD-P-03 the POST policy generator snippet uploads into the prefix', async ({
     page,
     browser,
@@ -141,6 +144,7 @@ test.describe('sharing', () => {
     expect(await object.text()).toBe('uploaded through the form');
   });
 
+  // covers: D-POL-01
   test('TD-P-04 the Access tab makes a prefix public, then private again', async ({
     page,
     browser,
@@ -172,6 +176,7 @@ test.describe('sharing', () => {
     expect((await anonymousGet(browser, publicURL)).status).toBe(403);
   });
 
+  // covers: D-SHR-03
   test('TD-P-07 a user without admin:* sees only its own share links', async ({
     page,
     browser,

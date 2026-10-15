@@ -4,13 +4,10 @@ package mock
 
 import (
 	context "context"
-
-	auth "github.com/r3n3r0/nexo/internal/service/auth"
-
-	domain "github.com/r3n3r0/nexo/internal/domain"
-
 	http "net/http"
 
+	domain "github.com/r3n3r0/nexo/internal/domain"
+	auth "github.com/r3n3r0/nexo/internal/service/auth"
 	mock "github.com/stretchr/testify/mock"
 )
 

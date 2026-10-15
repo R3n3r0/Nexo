@@ -1,0 +1,88 @@
+## nexoctl dist cache set
+
+Change the cache settings of a distribution, a domain or a path
+
+### Synopsis
+
+Change the cache settings of the distribution, or with --domain the override of
+one of its domains (an alias, exact or wildcard, or a host a wildcard alias
+matches), or with --behavior the override of the paths a pattern selects (a glob
+by default, see --behavior-type; the first matching behavior wins). Only the
+flags given change; --reset clears the settings of the level first (alone, it
+removes the override). The change reaches every node at once and drops the
+entries whose settings changed.
+
+```
+nexoctl dist cache set ALIAS ID [--domain HOST | --behavior PATTERN] [flags]
+```
+
+### Examples
+
+```
+  nexoctl dist cache set local sito-web --policy standard
+  nexoctl dist cache set local sito-web --domain www.example.com --policy aggressive --quota 20GiB
+  nexoctl dist cache set local sito-web --domain '*.preview.example.com' --disable
+  nexoctl dist cache set local sito-web --behavior '/assets/**' --ttl-default 365d
+  nexoctl dist cache set local sito-web --behavior '/api/' --behavior-type prefix --disable
+```
+
+### Options
+
+```
+      --allow-type stringArray          media type cached (image/*; repeatable; none: every type)
+      --auto-invalidate                 drop the entries of the objects written (default true) (default true)
+      --behavior string                 change the override of the paths this pattern selects
+      --behavior-type string            type of the --behavior pattern: glob, prefix or regex (default "glob")
+      --block-size string               size of the blocks of the range caching
+      --browser-cache-control string    Cache-Control sent to the clients ("" keeps the one of the object)
+      --bypass-authorization            skip the cache for the requests with credentials (false: cached per credential)
+      --bypass-cookie stringArray       skip the cache for the requests with this cookie ("*": any; repeatable)
+      --bypass-header stringArray       skip the cache for the requests with this header (repeatable)
+      --bypass-query stringArray        skip the cache for the requests with this query parameter (repeatable)
+      --compress stringArray            compression algorithm, in order of preference: gzip, br, zstd (repeatable)
+      --compress-min-size string        smallest object compressed
+      --compress-type stringArray       compressible media type (text/*; repeatable)
+      --compression                     store compressed variants of the textual objects
+      --deny-type stringArray           media type never cached (repeatable)
+      --disable                         turn the cache off (always BYPASS)
+      --domain string                   change the override of this domain
+      --enable                          turn the cache on
+  -h, --help                            help for set
+      --ignore-case                     match the --behavior pattern case-insensitively
+      --include-host                    one cache key per domain (false: shared by the aliases)
+      --key-cookie stringArray          cookie entering the cache key (repeatable)
+      --key-header stringArray          request header entering the cache key (repeatable)
+      --max-object-size string          largest object cached
+      --min-size string                 smallest object cached
+      --negative-ttl string             lifetime of the 404 and 403 answers (0s: not cached)
+      --no-warm-on-write                remove the warm-on-write patterns
+      --normalize                       normalize the key: sorted query, lowercase, no tracking parameters
+      --policy string                   cache policy the settings start from (built-in or defined; "" inherits)
+      --purge-webhook stringArray       purge webhook of the distribution called on the invalidations of the domain (repeatable)
+      --query string                    query parameters of the cache key: none, all, allowlist:v,w or denylist:utm_source
+      --quota string                    bytes cached at most for the distribution or the domain (20GiB; "" for none)
+      --range-caching                   cache the large objects by blocks (range requests, video)
+      --reset                           clear the settings of the level first (alone: remove the override)
+      --respect-origin                  use the Cache-Control and Expires of the objects (bounded by --ttl-min/--ttl-max)
+      --stale-if-error string           serve an expired entry when the origin fails, up to this long
+      --stale-while-revalidate string   serve an expired entry while refreshing it, up to this long
+      --ttl-default string              lifetime in cache of the objects stating none (90s, 1h, 365d)
+      --ttl-max string                  longest lifetime in cache, the objects' own included
+      --ttl-min string                  shortest lifetime in cache, the objects' own included
+      --warm-on-write stringArray       cache at once the objects written whose path matches this glob (repeatable)
+```
+
+### Options inherited from parent commands
+
+```
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+```
+
+### SEE ALSO
+
+* [nexoctl dist cache](nexoctl_dist_cache.md)	 - Manage the cache settings of a distribution, its domains and paths
+

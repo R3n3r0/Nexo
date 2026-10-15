@@ -26,6 +26,9 @@ StartLimitIntervalSec=300
 StartLimitBurst=10
 
 [Service]
+# exec, not notify: a cluster node is ready only once enough nodes have
+# started (bootstrap); a readiness notification would block "systemctl
+# start" on the first nodes. Wait with "nexo healthcheck --ready" instead.
 Type=exec
 User=nexo
 Group=nexo

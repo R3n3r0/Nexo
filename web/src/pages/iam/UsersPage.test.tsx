@@ -56,6 +56,7 @@ function viewerServices() {
   });
 }
 
+// covers: D-IAM-01
 describe('Users page (D-IAM-01)', () => {
   it('lists, searches, creates, disables and deletes users', async () => {
     const user = userEvent.setup();
@@ -141,6 +142,7 @@ describe('Users page (D-IAM-01)', () => {
   });
 });
 
+// covers: D-UX-02
 describe('permission-aware UI (TD-U-09)', () => {
   it('hides create and delete and disables the controls the user may not use', async () => {
     const user = userEvent.setup();
@@ -176,6 +178,7 @@ describe('permission-aware UI (TD-U-09)', () => {
   });
 });
 
+// covers: D-IAM-02
 describe('Groups page (D-IAM-02)', () => {
   it('creates a group with members and edits members, policies and status', async () => {
     const user = userEvent.setup();

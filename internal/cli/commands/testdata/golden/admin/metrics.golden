@@ -1,0 +1,31 @@
+$ nexoctl admin metrics list mem
+NAME                         UNIT         AGG   DESCRIPTION
+s3_requests                  req/s        sum   S3 requests per second
+s3_latency_p99               seconds      max   99th percentile of the S3 latency
+drives_used                  bytes        sum   Used capacity of the drives
+
+$ nexoctl admin metrics query mem s3_requests
+s3_requests: S3 requests per second (req/s, sum of the nodes)
+From 2026-01-02 03:03:45 UTC to 2026-01-02 03:04:05 UTC, every 10s
+n2:9000: context deadline exceeded
+TIME                           CLUSTER        n1:9000        n2:9000
+2026-01-02 03:03:45 UTC            1.5            1.5              -
+2026-01-02 03:03:55 UTC              2              2              -
+2026-01-02 03:04:05 UTC              -              -              -
+
+$ nexoctl admin metrics query --range 6h --step 5m --end 30m mem s3_latency_p99
+s3_latency_p99: 99th percentile of the S3 latency (seconds, max of the nodes)
+From 2026-01-02 03:03:45 UTC to 2026-01-02 03:04:05 UTC, every 10s
+TIME                           CLUSTER        n1:9000
+2026-01-02 03:03:45 UTC        250.0ms        250.0ms
+
+$ nexoctl admin metrics query mem drives_used
+drives_used: Used capacity of the drives (bytes, sum of the nodes)
+From 2026-01-02 03:03:45 UTC to 2026-01-02 03:04:05 UTC, every 10s
+TIME                           CLUSTER
+2026-01-02 03:03:45 UTC         3.0GiB
+
+$ nexoctl admin metrics query mem nope
+! nexoctl: error: metrics mem: metric "nope" not found (not_found)
+[exit 3]
+

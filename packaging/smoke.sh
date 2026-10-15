@@ -17,6 +17,8 @@
 # server started on loopback ports answers /nexo/health/ready, serves the
 # embedded console and passes an S3 round trip with nexoctl (alias, mb,
 # cp, cat, rb); it stops on SIGTERM.
+#
+# covers: S-OPS-12, S-OPS-14, C-UX-00
 set -eu
 
 dir=${1:?usage: smoke.sh DIR [EXPECTED_VERSION]}

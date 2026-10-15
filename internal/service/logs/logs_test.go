@@ -67,6 +67,7 @@ func nothing(t *testing.T, sub logs.Subscription) {
 	}
 }
 
+// covers: S-OPS-05
 func TestTeeHandler(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -93,6 +94,7 @@ func TestTeeHandler(t *testing.T) {
 	assert.Equal(t, map[string]any{"id": "h1", "drive": map[string]any{"path": "/d1", "pool": float64(0)}}, line["job"])
 }
 
+// covers: S-OPS-05
 func TestLevelsAndFormat(t *testing.T) {
 	ctx := context.Background()
 	out := &syncBuffer{}
@@ -182,6 +184,7 @@ func TestRedaction(t *testing.T) {
 	assert.Contains(t, e.Attrs["url"], "x=1")
 }
 
+// covers: S-OPS-07
 func TestReplayAndRing(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -265,6 +268,7 @@ func TestBackpressureAndClose(t *testing.T) {
 	logger.Info("after the end") // no panic on a closed subscription
 }
 
+// covers: S-OPS-07
 func TestCluster(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

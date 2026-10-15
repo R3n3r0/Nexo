@@ -80,6 +80,16 @@ exec nexoctl admin group remove --json local jgroup
 jsonlines stdout
 exec nexoctl admin user remove --json local juser
 jsonlines stdout
+exec nexoctl admin audit --json --limit 5 local
+jsonlines stdout
+exec nexoctl admin metrics list --json local
+jsonlines stdout
+exec nexoctl admin metrics query --json --range 5m local s3_requests
+jsonlines stdout
+exec nexoctl admin prometheus generate --json local
+jsonlines stdout
+exec nexoctl admin logs --json --last 3 --count 1 --timeout 5s local
+jsonlines stdout
 
 # Errors are JSON on stderr.
 ! exec nexoctl admin user info --json local nobody
@@ -88,6 +98,9 @@ stderr '"code":"NotFound"'
 ! exec nexoctl admin policy create --json local broken broken.json
 jsonlines stderr
 stderr '"details":\['
+! exec nexoctl admin trace --json --status 9 local
+jsonlines stderr
+stderr '"code":"UsageError"'
 
 -- a.txt --
 json

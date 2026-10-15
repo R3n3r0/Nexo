@@ -22,6 +22,7 @@ test.describe('object versions', () => {
     await api.deleteBucket(bucket);
   });
 
+  // covers: D-OBJ-06, D-BKT-02
   test('TD-E-11 enables versioning, uploads 3 versions, restores the first and deletes one', async ({
     page,
     api,

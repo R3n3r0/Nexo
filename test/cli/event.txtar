@@ -1,3 +1,4 @@
+# covers: C-OBJ-09, S-BKT-10
 # T-7.10, TS-I-15: a webhook target configured with admin config set, its
 # ARN from admin notify targets ls, event add/ls/rm on a bucket and the
 # notifications received by the webhook.

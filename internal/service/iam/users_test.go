@@ -46,6 +46,7 @@ func TestBootstrap(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrInvalidAccessKey, "the old root key is gone")
 }
 
+// covers: S-IAM-01
 func TestNewRootOnly(t *testing.T) {
 	ctx := context.Background()
 	svc := iam.NewRootOnly(iam.Deps{Store: iam.NewMemoryStore(), Logger: discard()})

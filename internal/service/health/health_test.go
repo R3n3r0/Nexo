@@ -10,6 +10,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/health"
 )
 
+// covers: S-OPS-03
 func TestLiveAlwaysOK(t *testing.T) {
 	s := health.New(health.Deps{})
 	st := s.Live(context.Background())
@@ -17,6 +18,7 @@ func TestLiveAlwaysOK(t *testing.T) {
 	assert.Equal(t, "ok", st.Status)
 }
 
+// covers: S-OPS-03
 func TestReadyAggregatesChecks(t *testing.T) {
 	ready := true
 	s := health.New(health.Deps{Readiness: map[string]health.Check{
@@ -40,6 +42,7 @@ func TestReadyAggregatesChecks(t *testing.T) {
 	assert.Equal(t, "ok", st.Checks["always"])
 }
 
+// covers: S-OPS-03
 func TestClusterDefaultsAndCustom(t *testing.T) {
 	s := health.New(health.Deps{})
 	cs := s.Cluster(context.Background())

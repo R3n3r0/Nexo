@@ -21,6 +21,7 @@ function renderPage() {
   return { ...view, services };
 }
 
+// covers: D-CFG-01
 describe('Configuration page (D-CFG-01)', () => {
   // The form re-renders the whole configuration on every keystroke: the
   // values are pasted (one input event) and the test has a generous

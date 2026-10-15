@@ -36,6 +36,7 @@ async function queueOf(
 }
 
 test.describe('cluster pages (suite cluster)', () => {
+  // covers: D-CLU-01, D-CLU-02
   test('TD-E-15 a stopped node and its drives are highlighted, the healing shows when it is back', async ({
     page,
     api,

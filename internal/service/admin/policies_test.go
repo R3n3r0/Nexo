@@ -114,6 +114,7 @@ func TestPolicyManagerValidate(t *testing.T) {
 	})
 }
 
+// covers: S-IAM-04b
 func TestPolicyManagerSimulate(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)

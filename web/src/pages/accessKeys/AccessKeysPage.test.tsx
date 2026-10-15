@@ -20,6 +20,7 @@ function renderPage(options: Parameters<typeof createMockServices>[0] = {}, path
   return { ...view, services };
 }
 
+// covers: D-IAM-04
 describe('Access keys (D-IAM-04)', () => {
   it('shows the secret of a new key once, with copy and credentials download', async () => {
     const user = userEvent.setup();

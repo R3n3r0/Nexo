@@ -47,6 +47,7 @@ function deferred<T>(): Deferred<T> {
   return { promise, resolve, reject };
 }
 
+// covers: D-OBJ-02
 describe('planParts (TD-U-06: part sizes)', () => {
   const limits = {
     partSize: 16 * MiB,
@@ -89,6 +90,7 @@ describe('planParts (TD-U-06: part sizes)', () => {
   });
 });
 
+// covers: D-OBJ-02
 describe('createUploadManager (TD-U-06)', () => {
   it('uploads a small file in one request', async () => {
     const services = smallPartServices();
@@ -425,6 +427,7 @@ describe('createUploadManager (TD-U-06)', () => {
   });
 });
 
+// covers: D-OBJ-02
 describe('upload encryption (D-OBJ-02, SSE per upload)', () => {
   it('asks for the encryption of every file, single or multipart', async () => {
     const services = smallPartServices();

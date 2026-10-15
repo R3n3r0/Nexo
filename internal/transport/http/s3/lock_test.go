@@ -228,6 +228,8 @@ func TestGetObjectAttributes(t *testing.T) {
 	require.NotNil(t, got.ObjectParts)
 	assert.Equal(t, 2, got.ObjectParts.PartsCount)
 	assert.Equal(t, 2, got.ObjectParts.MaxParts)
+	assert.False(t, got.ObjectParts.IsTruncated)
+	assert.Equal(t, 2, got.ObjectParts.NextPartNumberMarker, "the last page reports its last part")
 	require.Len(t, got.ObjectParts.Parts, 2)
 	assert.Equal(t, s3.AttributesPart{ChecksumFields: s3.ChecksumFields{ChecksumCRC32: "BQYHCA=="}, PartNumber: 2, Size: 10}, got.ObjectParts.Parts[1])
 	assert.Equal(t, "STANDARD", got.StorageClass)
@@ -312,7 +314,7 @@ func TestCORSBucketRules(t *testing.T) {
 			assert.Equal(t, tc.origin, rec.Header().Get("Access-Control-Allow-Origin"))
 			assert.Equal(t, "true", rec.Header().Get("Access-Control-Allow-Credentials"))
 			assert.Equal(t, "GET, PUT", rec.Header().Get("Access-Control-Allow-Methods"))
-			assert.Equal(t, "Content-Type", rec.Header().Get("Access-Control-Allow-Headers"))
+			assert.Equal(t, "content-type", rec.Header().Get("Access-Control-Allow-Headers"), "lowercase, as S3")
 			assert.Equal(t, "60", rec.Header().Get("Access-Control-Max-Age"))
 			assert.Equal(t, []string{"Origin", "Access-Control-Request-Headers", "Access-Control-Request-Method"}, rec.Header().Values("Vary"))
 		})
@@ -329,6 +331,15 @@ func TestCORSBucketRules(t *testing.T) {
 	rec = f.do(http.MethodHead, "/web/missing", "", "Origin", "https://app.example.com")
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	assert.Empty(t, rec.Header().Get("Access-Control-Allow-Origin"), "no rule allows HEAD")
+	// An actual request declaring the method of a preflight is matched
+	// with it (as S3): HEAD declaring PUT matches, GET declaring DELETE
+	// does not.
+	f.objects.EXPECT().GetObjectInfo(mock.Anything, "web", "missing", mock.Anything).Return(domain.ObjectInfo{}, domain.ErrObjectNotFound).Once()
+	rec = f.do(http.MethodHead, "/web/missing", "", "Origin", "https://app.example.com", "Access-Control-Request-Method", "PUT")
+	assert.Equal(t, "https://app.example.com", rec.Header().Get("Access-Control-Allow-Origin"))
+	f.objects.EXPECT().GetObject(mock.Anything, "web", "missing", mock.Anything).Return(nil, domain.ErrObjectNotFound).Once()
+	rec = f.do(http.MethodGet, "/web/missing", "", "Origin", "https://app.example.com", "Access-Control-Request-Method", "DELETE")
+	assert.Empty(t, rec.Header().Get("Access-Control-Allow-Origin"))
 }
 
 func TestCORSGlobalPolicy(t *testing.T) {

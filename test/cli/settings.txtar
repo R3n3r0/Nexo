@@ -1,3 +1,4 @@
+# covers: C-OBJ-09, S-BKT-04, S-BKT-05
 # C-OBJ-09: version enable|suspend|info and tag set|list|remove.
 
 exec nexoctl mb local/bkt

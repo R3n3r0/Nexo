@@ -34,18 +34,18 @@ func (l *layer) DeleteObject(ctx context.Context, bucket, key string, opts Delet
 		return DeletedObject{}, err
 	}
 	if opts.VersionID != "" {
-		return l.deleteVersion(ctx, st, bucket, key, opts.VersionID, opts.BypassGovernance, opts.IfModTime)
+		return l.deleteVersion(ctx, st, bucket, key, opts.VersionID, opts.BypassGovernance, conditionsOf(opts))
 	}
 	cfg, err := l.bucketConfig(ctx, bucket)
 	if err != nil {
 		return DeletedObject{}, err
 	}
-	if !opts.IfModTime.IsZero() {
+	if conds := conditionsOf(opts); !conds.none() {
 		cur, err := st.ReadVersion(ctx, bucket, key, "", false)
 		if err != nil && !isNotFound(err) {
 			return DeletedObject{}, fmt.Errorf("%s: delete %s/%s: %w", l.name, bucket, key, err)
 		}
-		if err := checkModTime(err == nil, cur, opts.IfModTime, bucket, key); err != nil {
+		if err := conds.check(err == nil, cur, bucket, key); err != nil {
 			return DeletedObject{}, err
 		}
 	}
@@ -96,7 +96,7 @@ func (l *layer) DeleteObject(ctx context.Context, bucket, key string, opts Delet
 // ("null" is the null version); a missing version is not an error (S3
 // deletes are idempotent). A version protected by Object Lock stays
 // (checkDeletable).
-func (l *layer) deleteVersion(ctx context.Context, st store, bucket, key, versionID string, bypassGovernance bool, ifModTime time.Time) (DeletedObject, error) {
+func (l *layer) deleteVersion(ctx context.Context, st store, bucket, key, versionID string, bypassGovernance bool, conds deleteConditions) (DeletedObject, error) {
 	stored := versionID
 	if versionID == nullVersion {
 		stored = ""
@@ -107,14 +107,12 @@ func (l *layer) deleteVersion(ctx context.Context, st store, bucket, key, versio
 		if !isNotFound(err) && !errors.Is(err, domain.ErrNoSuchVersion) {
 			return DeletedObject{}, fmt.Errorf("%s: delete %s/%s: %w", l.name, bucket, key, err)
 		}
-		if ifModTime.IsZero() {
+		if conds.none() {
 			return gone, nil
 		}
 	}
-	if !ifModTime.IsZero() {
-		if err := checkModTime(err == nil, cur, ifModTime, bucket, key); err != nil {
-			return DeletedObject{}, err
-		}
+	if err := conds.check(err == nil, cur, bucket, key); err != nil {
+		return DeletedObject{}, err
 	}
 	if err := checkDeletable(objectInfo(bucket, key, cur), l.now(), bypassGovernance); err != nil {
 		return DeletedObject{}, err
@@ -139,14 +137,33 @@ func (l *layer) deleteVersion(ctx context.Context, st store, bucket, key, versio
 	return del, nil
 }
 
-// checkModTime fails a conditional delete (DeleteObjectOptions.IfModTime)
-// whose target version is missing or no longer has the modification time
-// want.
-func checkModTime(exists bool, cur storage.FileInfo, want time.Time, bucket, key string) error {
-	if exists && cur.ModTime.Equal(want) {
-		return nil
+// deleteConditions are the preconditions of a delete
+// (DeleteObjectOptions.IfModTime and IfMatch).
+type deleteConditions struct {
+	ifModTime time.Time
+	ifMatch   string
+}
+
+// conditionsOf returns the preconditions of opts.
+func conditionsOf(opts DeleteObjectOptions) deleteConditions {
+	return deleteConditions{ifModTime: opts.IfModTime, ifMatch: opts.IfMatch}
+}
+
+// none reports whether the delete is unconditional.
+func (c deleteConditions) none() bool { return c.ifModTime.IsZero() && c.ifMatch == "" }
+
+// check fails a conditional delete whose target version (cur, when
+// exists) no longer has the modification time it was evaluated with, or
+// does not match If-Match (a missing version or a delete marker matches
+// nothing, not even "*").
+func (c deleteConditions) check(exists bool, cur storage.FileInfo, bucket, key string) error {
+	if !c.ifModTime.IsZero() && (!exists || !cur.ModTime.Equal(c.ifModTime)) {
+		return fmt.Errorf("%w: %s/%s: the version to delete changed", domain.ErrPreconditionFailed, bucket, key)
 	}
-	return fmt.Errorf("%w: %s/%s: the version to delete changed", domain.ErrPreconditionFailed, bucket, key)
+	if c.ifMatch != "" && (!exists || cur.Deleted || !etagMatches(c.ifMatch, objectInfo(bucket, key, cur).ETag)) {
+		return fmt.Errorf("%w: %s/%s: If-Match", domain.ErrPreconditionFailed, bucket, key)
+	}
+	return nil
 }
 
 // DeleteObjects implements Service.

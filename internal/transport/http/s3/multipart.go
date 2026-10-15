@@ -384,6 +384,11 @@ func (h *multipartRoutes) listParts(w http.ResponseWriter, r *http.Request) {
 		out.Parts = append(out.Parts, PartEntry{PartNumber: p.Number, LastModified: s3Time(p.ModTime), ETag: quoteETag(p.ETag), Size: p.Size,
 			ChecksumFields: checksumFields(p.Checksum)})
 	}
+	if n := len(res.Parts); n > 0 && !res.IsTruncated {
+		// S3 reports the last part of every page (clients follow it only
+		// when the page is truncated).
+		out.NextPartNumberMarker = res.Parts[n-1].Number
+	}
 	h.deps.Enc.WriteXML(w, http.StatusOK, out)
 }
 

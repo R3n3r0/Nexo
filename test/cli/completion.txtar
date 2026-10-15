@@ -1,3 +1,4 @@
+# covers: C-UX-01
 # TCL-E-19 / C-UX-01: completion scripts and dynamic completion of the
 # aliases, buckets and objects.
 

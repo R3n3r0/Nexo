@@ -1,3 +1,4 @@
+# covers: C-OBJ-01, C-OBJ-02
 # TCL-E-02: mb, ls and rb on an empty and on a non-empty bucket.
 
 exec nexoctl mb local/empty local/full

@@ -125,7 +125,7 @@ var _ clock.Clock = offsetClock{}
 
 func (c offsetClock) Now() time.Time { return time.Now().Add(c.offset) }
 
-// covers: TCL-E-01..15, TCL-E-18, TCL-E-19, TCL-P-01..06, TCL-A-01, TCL-A-02, TCL-D-01..04, TCL-C-01..05
+// covers: TCL-E-01..18, TCL-E-19, TCL-P-01..06, TCL-A-01, TCL-A-02, TCL-D-01..04, TCL-C-01..05
 func TestScripts(t *testing.T) {
 	testscript.Run(t, testscript.Params{
 		Dir:                 ".",
@@ -227,6 +227,13 @@ func setup(env *testscript.Env) error {
 		// The first node answers, so that its view of the others is the
 		// one the scripts check.
 		s3URL, consoleURL = srv.Nodes[0].S3URL, srv.Nodes[0].ConsoleURL
+		// Every node is reachable by itself: $NEXO_URLn, $NEXO_ADMIN_URLn
+		// and its node id (host:port) $NEXO_NODEn.
+		for i, n := range srv.Nodes {
+			env.Setenv(fmt.Sprintf("NEXO_URL%d", i+1), n.S3URL)
+			env.Setenv(fmt.Sprintf("NEXO_ADMIN_URL%d", i+1), n.ConsoleURL)
+			env.Setenv(fmt.Sprintf("NEXO_NODE%d", i+1), strings.TrimPrefix(strings.TrimPrefix(n.S3URL, "http://"), "https://"))
+		}
 	}
 	home := filepath.Join(env.WorkDir, "home")
 	if err := os.MkdirAll(home, 0o700); err != nil {

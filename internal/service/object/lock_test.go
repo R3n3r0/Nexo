@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 	"sync"
@@ -90,11 +91,11 @@ func (r *lockRecorder) outstanding() map[string]int {
 	return out
 }
 
-func newLockedFS(t *testing.T, locker lock.Locker) object.Service {
+func newLockedFS(t *testing.T, locker lock.Locker, opts ...object.Option) object.Service {
 	t.Helper()
 	drives, _ := newDrives(t, 1)
 	svc, err := object.NewFS(object.Deps{Store: drives[0], Locks: locker, Logger: slog.New(slog.DiscardHandler)},
-		object.WithInlineLimit(testInlineLimit), object.WithMinPartSize(1))
+		append([]object.Option{object.WithInlineLimit(testInlineLimit), object.WithMinPartSize(1)}, opts...)...)
 	require.NoError(t, err)
 	return svc
 }
@@ -114,10 +115,9 @@ func TestOperationsTakeNamespaceLocks(t *testing.T) {
 
 	r, err := svc.GetObject(ctx, "bkt", "k", object.GetObjectOptions{})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"R " + obj}, rec.take(), "the read lock is held while the body is open")
+	assert.Equal(t, []string{"R " + obj, "unlock " + obj}, rec.take(), "a pinned read releases its lock before streaming")
 	require.NoError(t, r.Close())
-	require.NoError(t, r.Close(), "closing twice releases once")
-	assert.Equal(t, []string{"unlock " + obj}, rec.take())
+	assert.Empty(t, rec.take())
 
 	_, err = svc.GetObjectInfo(ctx, "bkt", "k", object.GetObjectOptions{})
 	require.NoError(t, err)
@@ -207,4 +207,43 @@ func TestLockTimeoutFailsCleanly(t *testing.T) {
 	_, err := svc.GetObjectInfo(ctx, "bkt", "other", object.GetObjectOptions{})
 	assert.ErrorIs(t, err, domain.ErrObjectNotFound)
 	assert.Empty(t, rec.outstanding(), "a failed copy releases the lock it acquired")
+}
+
+// A read that cannot pin its data (more parts than WithPinnedReadParts)
+// holds its read lock until the body is closed.
+func TestUnpinnedReadHoldsLock(t *testing.T) {
+	rec, locker := newLockRecorder(t)
+	svc := newLockedFS(t, locker, object.WithPinnedReadParts(1))
+	ctx := context.Background()
+	obj := lock.Resource("bkt", "k")
+	require.NoError(t, svc.MakeBucket(ctx, "bkt", object.MakeBucketOptions{}))
+	up, err := svc.NewMultipartUpload(ctx, object.NewMultipartInput{Bucket: "bkt", Key: "k"})
+	require.NoError(t, err)
+	var parts []domain.CompletePart
+	for n := 1; n <= 2; n++ {
+		data := bytes.Repeat([]byte{byte('a' + n)}, 2*testInlineLimit)
+		p, err := svc.PutObjectPart(ctx, object.PutObjectPartInput{Bucket: "bkt", Key: "k", UploadID: up.UploadID, PartNumber: n, Reader: bytes.NewReader(data), Size: int64(len(data))})
+		require.NoError(t, err)
+		parts = append(parts, domain.CompletePart{Number: n, ETag: p.ETag})
+	}
+	_, err = svc.CompleteMultipartUpload(ctx, object.CompleteMultipartInput{Bucket: "bkt", Key: "k", UploadID: up.UploadID, Parts: parts})
+	require.NoError(t, err)
+	rec.take()
+
+	r, err := svc.GetObject(ctx, "bkt", "k", object.GetObjectOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"R " + obj}, rec.take(), "2 parts, 1 pinnable: the read lock is held while the body is open")
+	require.NoError(t, r.Close())
+	require.NoError(t, r.Close(), "closing twice releases once")
+	assert.Equal(t, []string{"unlock " + obj}, rec.take())
+
+	// One part of the object is pinnable.
+	r, err = svc.GetObject(ctx, "bkt", "k", object.GetObjectOptions{PartNumber: 2})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"R " + obj, "unlock " + obj}, rec.take())
+	got, err := io.ReadAll(r)
+	require.NoError(t, err)
+	assert.Equal(t, bytes.Repeat([]byte{'c'}, 2*testInlineLimit), got)
+	require.NoError(t, r.Close())
+	assert.Empty(t, rec.outstanding())
 }

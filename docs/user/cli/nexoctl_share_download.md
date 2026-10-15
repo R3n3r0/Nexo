@@ -1,0 +1,51 @@
+## nexoctl share download
+
+Generate download links (managed by default, --raw for presigned GET)
+
+### Synopsis
+
+Generate download links: managed, revocable links signed by the server (the
+default), or with --raw presigned GET URLs signed locally with the credentials of
+the alias, which cannot be revoked. A raw URL is signed after checking the
+object (HEAD): a missing object exits with code 3 and one the alias may not read
+with code 4. --recursive generates one link per object under a prefix.
+
+```
+nexoctl share download [flags] ALIAS/BUCKET/OBJECT
+```
+
+### Examples
+
+```
+  nexoctl share download --expire 2h local/docs/report.pdf
+  nexoctl share download --recursive local/docs/2026/
+  nexoctl share download --raw --expire 10m local/docs/report.pdf
+```
+
+### Options
+
+```
+      --content-disposition string   Content-Disposition of the download (e.g. "attachment")
+      --content-type string          Content-Type of the download
+  -E, --expire string                validity of the links (1s to 7d) (default "7d")
+  -h, --help                         help for download
+      --managed                      managed, revocable link signed by the server (Admin API) (default true)
+      --raw                          raw URL signed locally with the alias credentials (not revocable)
+  -r, --recursive                    one link per object under the prefix
+      --version-id string            share this version of the object
+```
+
+### Options inherited from parent commands
+
+```
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+```
+
+### SEE ALSO
+
+* [nexoctl share](nexoctl_share.md)	 - Share objects with links that need no credentials
+

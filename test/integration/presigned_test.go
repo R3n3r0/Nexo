@@ -492,7 +492,7 @@ func TestPresignedUnsignedHeaders(t *testing.T) {
 // link and whichever node serves it. A link presented with another host
 // is refused: the signature covers it.
 //
-// covers: TPS-19
+// covers: TPS-19, S-OPS-14, S-OBJ-08
 func TestPresignedBehindProxy(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)

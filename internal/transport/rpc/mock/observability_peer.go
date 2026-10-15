@@ -6,11 +6,8 @@ import (
 	context "context"
 
 	audit "github.com/r3n3r0/nexo/internal/service/audit"
-
 	logs "github.com/r3n3r0/nexo/internal/service/logs"
-
 	metrics "github.com/r3n3r0/nexo/internal/service/metrics"
-
 	mock "github.com/stretchr/testify/mock"
 
 	trace "github.com/r3n3r0/nexo/internal/service/trace"

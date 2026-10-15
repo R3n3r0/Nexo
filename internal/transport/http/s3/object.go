@@ -465,9 +465,18 @@ func (h *objectRoutes) deleteObject(w http.ResponseWriter, r *http.Request) {
 	if !h.authz.authorize(w, r, bucketName, key) {
 		return
 	}
+	// The conditions of the directory buckets of S3 are refused rather
+	// than ignored (the delete would run unconditionally).
+	for _, name := range []string{"X-Amz-If-Match-Last-Modified-Time", "X-Amz-If-Match-Size"} {
+		if r.Header.Get(name) != "" {
+			h.fail(w, r, notImplemented("Conditional deletes on "+name+" are not implemented."))
+			return
+		}
+	}
 	versionID := r.URL.Query().Get("versionId")
 	del, err := h.deps.Objects.DeleteObject(r.Context(), bucketName, key, object.DeleteObjectOptions{
 		VersionID: versionID, BypassGovernance: h.authz.bypassGovernance(r, bucketName, key, versionID),
+		IfMatch: r.Header.Get("If-Match"),
 	})
 	if err != nil {
 		h.fail(w, r, err)

@@ -6,7 +6,6 @@ import (
 	context "context"
 
 	accessrule "github.com/r3n3r0/nexo/internal/service/accessrule"
-
 	mock "github.com/stretchr/testify/mock"
 )
 

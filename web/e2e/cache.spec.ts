@@ -127,6 +127,7 @@ test.describe('cache of the distributions', () => {
     site = undefined;
   });
 
+  // covers: D-CCH-02
   test('TD-C-01 a policy override of a domain in the cache tab changes the answers of that domain only', async ({
     page,
     api,
@@ -188,6 +189,7 @@ test.describe('cache of the distributions', () => {
     }
   });
 
+  // covers: D-CCH-03
   test('TD-C-02 the policy editor previews the Cache-Control live and validates min ≤ default ≤ max', async ({
     page,
     api,
@@ -242,6 +244,7 @@ test.describe('cache of the distributions', () => {
     }
   });
 
+  // covers: D-CCH-04, D-DST-08
   test('TD-C-03 an invalidation by glob from the dashboard completes on every node', async ({
     page,
     api,
@@ -285,6 +288,7 @@ test.describe('cache of the distributions', () => {
     }
   });
 
+  // covers: D-CCH-05
   test('TD-C-04 the URL inspector shows the effective policy and the level it comes from', async ({
     page,
     api,
@@ -349,6 +353,7 @@ test.describe('cache of the distributions', () => {
     await expect(row('Cache').locator('[data-level]')).toHaveAttribute('data-level', 'domain');
   });
 
+  // covers: D-CCH-08
   test('TD-C-05 the hit ratio charts per domain show the requests of the test', async ({
     page,
     api,
@@ -412,6 +417,7 @@ test.describe('cache of the distributions', () => {
     );
   });
 
+  // covers: D-CCH-04, D-UX-02
   test('TD-C-06 a user with admin:InvalidateCache alone invalidates but cannot change the policies', async ({
     api,
     browser,
@@ -487,6 +493,7 @@ test.describe('cache of the distributions', () => {
     }
   });
 
+  // covers: D-UX-01
   test('TD-E-19 the cache pages have no serious or critical axe violation', async ({
     page,
     api,

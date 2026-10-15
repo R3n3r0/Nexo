@@ -175,6 +175,7 @@ func TestListObjectVersionsPagination(t *testing.T) {
 	})
 }
 
+// covers: S-OBJ-04, S-OBJ-07
 func TestCopyObject(t *testing.T) {
 	forEachImpl(t, func(t *testing.T, fx *fixture) {
 		ctx := context.Background()

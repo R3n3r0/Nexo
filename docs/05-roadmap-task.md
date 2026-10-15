@@ -176,7 +176,9 @@ M3/M4 (UI e CLI) e M5 (storage) possono procedere in parallelo grazie all'interf
 - 422 applicabili: **422/422 in SNMD e cluster, 421/422 in SNSD**; `test_atomic_read_4mb` è fallito in 2 esecuzioni
   SNSD su 4 (mai in SNMD e cluster): il client della suite scrive la chiave mentre non legge ancora la GET della stessa chiave,
   e il lock di lettura tenuto durante il trasferimento (come in MinIO) blocca la PUT finché i buffer dei socket
-  non assorbono l'oggetto o scade `NEXO_SEND_TIMEOUT` (20 s);
+  non assorbono l'oggetto o scade `NEXO_SEND_TIMEOUT` (20 s). Risolto in T-9.1 (letture su istantanea che
+  rilasciano il lock prima del trasferimento, [02 §2.4](02-funzionalita.md)); lo stato attuale, su tutti i file
+  della suite e con `mint`, è nello stato di T-9.1 (M9, più sotto);
 - gruppi obiettivo di M7 (soglia 90% per gruppo): versioning 28/28, object lock 39/39, multipart 31/31,
   tagging 17/17, SSE-C 18/18, checksum 11/11, CORS 1/1 (13 dei 14 test CORS usano ACL pubbliche o firme V2; il
   CORS è coperto da `TestBucketCORS` nella matrice di integrazione);
@@ -258,18 +260,48 @@ circa 3 ms da nodo1 a nodo4; TCD-03: decine di ms attraverso i proxy).
 | T-8.5 | OpenTelemetry tracing | M1 | Span per richiesta e per RPC |
 | T-8.6 | Dashboard Metriche, Log/Trace live, Configurazione (D-MON-01, 02, D-CFG-01); CLI `admin trace/logs` | T-8.2, T-8.3 | E2E |
 
+**Stato di T-8.1–T-8.5 (backend dell'osservabilità), completati.** Dettagli in [07 §7.4](07-sicurezza-operativita.md).
+- T-8.1: metriche Prometheus di API (contatori ed istogrammi di latenza per API e bucket), drive, lock, KMS, eventi,
+  lifecycle, healing, scanner, RPC internodo, cache e distribuzioni, esposte su `/nexo/metrics/v1/{cluster,node,bucket}`
+  (JWT `admin:Prometheus` o pubbliche con `NEXO_PROMETHEUS_AUTH_TYPE=public`), aggregate dal nodo che riceve lo scrape
+  per il cluster; dashboard Grafana `nexo-overview`, alert e configurazioni Prometheus in `deploy/docker/observability/`
+  (validati da `config_test.go` contro le famiglie esposte).
+- T-8.2: ring buffer per nodo (un punto ogni 10 s per 24 h, crescita lazy) e `GET /api/v1/metrics` +
+  `/api/v1/metrics/query` con l'aggregato del cluster.
+- T-8.3: trace e log live via SSE (`/api/v1/trace`, `/api/v1/logs`) aggregati dai nodi con stream RPC, filtri,
+  redazione dei segreti, contatore degli eventi persi senza rallentare le richieste.
+- T-8.4: un record di audit per ogni richiesta autenticata (S3 e console) nel log JSON, in memoria (ricerca
+  `/api/v1/audit`) e verso i target `audit_webhook`/`audit_kafka` con coda persistente.
+- T-8.5: OpenTelemetry OTLP (`http/protobuf` o `grpc`), uno span server per richiesta S3/console/sito/RPC e uno span
+  client per chiamata internodo con propagazione `traceparent`; disattivato, costo nullo.
+- Integrazione: `TestLiveTrace`, `TestAuditLog`, `TestClusterMetrics` nella matrice SNSD/SNMD/cluster. I ring di
+  audit e log crescono su richiesta e il dispatcher dei target di audit parte solo con un target configurato: heap di
+  8 cluster di 4 nodi da 328 a 122 MB (la suite di integrazione con `-race` non esaurisce più la memoria).
+
+**Stato di T-8.6.**
+- Dashboard: pagina Monitoraggio (`/monitoring/{metrics,trace,logs,audit}`, lazy, sezioni visibili secondo
+  `admin:Prometheus`/`admin:ServerInfo`, `admin:ServerTrace`, `admin:ConsoleLog`): grafici di `/metrics/query`
+  (richieste, errori, latenze p50/p95/p99, banda, dischi, healing/scanner, internodo, CPU, memoria; cluster o nodo,
+  intervallo, auto-refresh, confronto dei nodi), trace e log live via SSE (filtri, pausa/riprendi, buffer limitato,
+  riconnessione), ricerca audit; Configurazione (logger, target audit, OTel, TLS) e Info con stato TLS/OTel.
+  Vitest (TD-U-11, TD-U-12) e Playwright `e2e/monitoring.spec.ts` (TD-E-16, metriche, audit, permessi, axe).
+- CLI (C-ADM-08, C-ADM-12): `nexoctl admin trace|logs` (stream fino a Ctrl-C, `--timeout`, `--count`,
+  riconnessione), `admin audit`, `admin metrics list|query`, `admin prometheus generate` (JWT HS512 con
+  `iss=prometheus`), `admin speedtest`, `admin profile --seconds`; testscript `test/cli/admin_{trace,observability,
+  prometheus,speedtest}.txtar` e `cluster_admin_trace.txtar` (trace di tutti i nodi, DoD di T-8.3).
+
 ## M9 — Hardening e rilascio v1.0
 
 | ID | Task | Dipende | DoD |
 |----|------|---------|-----|
-| T-9.1 | Suite di compatibilità Ceph `s3-tests` e MinIO `mint` in CI notturna. `s3-tests` anticipata in M7 (vedi lo stato di M7); restano `mint` e la soglia del 95% su tutti i gruppi | M7 | ≥ 95% dei test applicabili verdi, lista esclusioni motivata |
+| T-9.1 | Suite di compatibilità Ceph `s3-tests` e MinIO `mint` in CI notturna. `s3-tests` anticipata in M7 (vedi lo stato di M7), completata con tutti i file della suite, la soglia del 95% su ogni gruppo e `mint` (stato più sotto) | M7 | ≥ 95% dei test applicabili verdi, lista esclusioni motivata |
 | T-9.2 | Benchmark con `warp` e profiling (pprof), ottimizzazioni (pool di buffer, O_DIRECT, zero-copy) | M6 | Report prestazioni in `docs/bench/` |
 | T-9.3 | Security review: threat model, `gosec`, `govulncheck`, `npm audit`, fuzzing esteso, pen test console | M8 | Nessuna vulnerabilità High aperta |
 | T-9.4 | TLS hot reload, SNI multipli (S-OPS-02) | M1 | — |
 | T-9.5 | Packaging finale: binari multi-arch, deb/rpm/Homebrew, immagini Docker firmate (cosign), SBOM, Helm chart (`standalone`/`distributed`), unit systemd, stack Swarm | M8 | Release candidata pubblicata, TM-10, TM-11 |
 | T-9.6 | Documentazione utente: quickstart, guida cluster, guida operativa, reference CLI generata da cobra | — | Sito docs |
 | T-9.7 | Accessibilità e i18n completi dashboard (D-UX-01) | M8 | axe senza violazioni serious/critical |
-| T-9.8 | Test di upgrade (v1.0-rc → v1.0) con dati esistenti, rolling restart | T-9.5 | Nessuna perdita dati |
+| T-9.8 | Test di upgrade (v1.0-rc → v1.0) con dati esistenti, rolling restart. Prima della prima release: dalla release di M7 (`224bb31`) al working tree (stato più sotto) | T-9.5 | Nessuna perdita dati |
 
 **Stato di T-9.2, T-9.3, T-9.4 (hardening).**
 - T-9.2: benchmark `warp` v1.8.2 in SNSD, SNMD e cluster di 4 processi (`make bench`, `test/bench/warp.sh`),
@@ -279,8 +311,11 @@ circa 3 ms da nodo1 a nodo4; TCD-03: decine di ms attraverso i proxy).
   [docs/bench/README.md](bench/README.md). O_DIRECT e zero-copy restano aperti.
 - T-9.3: threat model STRIDE per superficie, `make security` (govulncheck, gosec, npm audit) e job CI `security`,
   24 target di fuzzing (`make fuzz`, job notturno `fuzz-nightly`): [docs/security/threat-model.md](security/threat-model.md).
-  Aperte le vulnerabilità della libreria standard di Go 1.24 e di `x/net`/`x/text`/pgx che richiedono la toolchain
-  Go 1.26 (remediation in §10.1 del threat model); manca il pen test della console.
+  Con la v1.0 la toolchain è Go 1.26.9 (`go.mod`, Dockerfile, CI con golangci-lint v2.14.0) e i moduli vulnerabili
+  sono aggiornati (`x/net` v0.60.0, `x/text` v0.42.0, pgx v5.9.2, OpenTelemetry v1.45.0, grpc v1.83.2,
+  `klauspost/compress` v1.18.7, chi v5.3.0): **`govulncheck` senza vulnerabilità raggiunte** (resta GO-2026-5932 di
+  `x/crypto`, senza fix e non raggiunta), §10.1 del threat model. Il client RPC internodo usa l'HTTP/2 di `net/http`
+  (`http.Transport` con `Protocols`), non più `x/net/http2` deprecato. Manca il pen test della console.
 - T-9.4: keystore di `--certs-dir` con SNI, ricarica a caldo (fsnotify e SIGHUP) senza interrompere le connessioni,
   TLS ≥ 1.2 (`--tls-min-version`), catena con i certificati delle distribuzioni ([docs/07 §7.3](07-sicurezza-operativita.md#73-tls)).
 
@@ -289,14 +324,78 @@ circa 3 ms da nodo1 a nodo4; TCD-03: decine di ms attraverso i proxy).
 - GoReleaser v2.18.3 (`goreleaser check` senza deprecazioni; `make release-snapshot` costruisce gli 11 binari
   con la console, 11 archivi + sorgenti, 8 pacchetti deb/rpm `nexo`/`nexoctl`, checksum, 11 SBOM SPDX, cask
   Homebrew); con un demone Docker `make release-snapshot RELEASE_SKIP=sign` costruisce anche le immagini
-  linux/amd64 e linux/arm64 (`dockers_v2`; il container amd64 è `healthy` in 6 s, UID 65532). Push, attestazioni
-  SBOM/provenance, firme cosign keyless (bundle Sigstore) e chart OCI solo nel workflow `release.yml`.
+  linux/amd64 e linux/arm64 (`dockers_v2`), controllate dal job CI `packaging` (architettura, UID 65532,
+  `version`, HEALTHCHECK con TLS). Push, attestazioni SBOM/provenance, firme cosign keyless (bundle
+  Sigstore) e chart OCI solo nel workflow `release.yml`.
 - TM-10: `packaging/smoke.sh` (versione = tag, `--dry-run`, server, console, round trip S3, SIGTERM) verde su
   linux/amd64 e linux/arm64 con QEMU; job `smoke` della release su darwin e windows. TM-11: job `verify`
   (firme di checksum e immagini, attestazioni SBOM, trivy).
 - Helm chart `deploy/helm/nexo` (`standalone`/`distributed`, `helm test`), stack Swarm `deploy/swarm`, unit
   systemd con sandbox (esposizione 1,5), job CI `packaging` (snapshot, pacchetti installati, chart, unit,
-  Dockerfile).
+  Dockerfile, `HEALTHCHECK` dell'immagine con TLS).
+- `nexo healthcheck` (HEALTHCHECK delle immagini) segue `NEXO_CERTS_DIR`/`--certs-dir`: HTTPS sulla
+  console, fiducia in `public.crt` e `CAs/`; prima un container con TLS restava `unhealthy` (sonda HTTP
+  verso un listener TLS) e Swarm ne sostituiva i task. Esiti delle verifiche locali (validato contro
+  solo configurato) in [docs/08 §8.7](08-modalita-deploy.md#validato-in-locale-e-solo-configurato).
+
+**Stato di T-9.1 (compatibilità), misurato il 2026-10-15** ([06 §6.1](06-piano-test.md)).
+- `ceph/s3-tests@5522d1c`, tutti i file della suite (`test_s3.py`, `test_headers.py`, `test_iam.py`, `test_sts.py`,
+  `test_s3select.py`, `test_sns.py`, `test_s3control.py`): 1052 test raccolti, 598 esclusi con motivo
+  (`test/compat/excluded.txt`: 265 `rgw`, 146 `p2`, 91 `out-of-catalog`, 47 `deprecated`, 32 `aws`, 11 `design`,
+  6 `suite`), 3 saltati dalla suite stessa, **451 applicabili: 451/451 in SNMD, SNSD e cluster**; tutti i 17
+  gruppi con test applicabili al 100% (soglia 95%), tra cui object 110, listing 79, object-lock 39, sse-s3-kms 34,
+  multipart 31, versioning 28, headers 18, sse-c 18, tagging 17, post-object 12, checksum 10. Revisione delle
+  esclusioni: i 168 test esclusi per nome, eseguiti (`NEXO_S3TESTS_CHECK_EXCLUDED=names`, anche nel job
+  notturno), falliscono tutti.
+- `minio/mint@12559d5` senza Docker (`make test-mint`, job notturno `mint-nightly`), tutte le 14 suite costruite
+  ed eseguite, identico in SNMD e cluster: **638 test passati, 0 fallimenti inattesi**, 106 fallimenti attesi
+  (`test/compat/mint-excluded.txt`: 67 `minio`, estensioni e Admin API di MinIO; 22 `deprecated`, SigV2 di
+  minio-go; 5 `p2`, S3 Select; 4 `out-of-catalog`, checksum MD5; 4 `aws`; 3 `design`; 1 `suite`), 18 NA dichiarati
+  dalle suite. Per suite: minio-go 143, minio-js 239, minio-java 109, mc 39, awscli 21, minio-py 18,
+  aws-sdk-go-v2 19, versioning 13, aws-sdk-php 11, aws-sdk-ruby 11, s3cmd 8, aws-sdk-java-v2 7; healthcheck
+  (endpoint di MinIO) e s3select (P2) senza test applicabili. Le suite che si fermano al primo errore
+  (aws-sdk-go-v2, aws-sdk-php, aws-sdk-ruby, mc, minio-py, versioning) non eseguono i test che seguono un
+  fallimento atteso.
+- Correzioni alla radice emerse dalle due suite (unit test e `test/integration/compat_test.go` nella matrice):
+  letture su istantanea (`test_atomic_read_4mb`), `DeleteObject` condizionale con `If-Match` (412; 501 per le
+  condizioni dei soli directory bucket), `NoSuchVersion` per un `versionId` di una chiave inesistente,
+  `PutBucketTagging` 200, `NextPartNumberMarker` sull'ultima pagina di `ListParts`/`GetObjectAttributes`,
+  elemento `Type` del grantee nelle ACL, `x-amz-content-sha256` malformato nelle presigned, campo file senza nome
+  nei POST (`MalformedPOSTRequest`) e checksum nella risposta, CORS (header in minuscolo, richieste non preflight
+  con `Access-Control-Request-Method`), `POST` su un oggetto senza sottorisorsa 405, algoritmi di checksum non
+  supportati rifiutati, apici non codificati nei messaggi di errore XML ([02 §2.4](02-funzionalita.md)).
+
+**Stato di T-9.8 (upgrade), misurato il 2026-10-15.** Nessuna release è ancora stata pubblicata: la release
+precedente è il commit di M7 `224bb31` (costruito come `v0.7.0`), la release in prova il working tree (`v0.9.0`);
+`make test-upgrade` (job notturno `upgrade-nightly`) verde in 46 s.
+- `TestUpgradeSNMD`: 14 versioni di 10 chiavi scritte da `v0.7.0` (versioni e delete marker, multipart CRC32C e
+  un upload aperto, SSE-S3/KMS/C, cifratura predefinita, Object Lock, tag, IAM, bucket policy, lifecycle, CORS,
+  notifiche con un evento accodato) rilette da `v0.9.0` (sha256 di ogni versione), evento accodato recapitato,
+  dati modificati (18 versioni); formati invariati (`format.json` v1, `xl.meta` 1.x), quindi downgrade verificato:
+  `v0.7.0` serve i dischi modificati dalla nuova e vi scrive, `v0.9.0` rilegge tutto (21 versioni di 15 chiavi).
+- `TestRollingUpgradeCluster`: 4 nodi × 2 dischi aggiornati uno alla volta (1,6–2,7 s per nodo) sotto carico
+  (1326 operazioni di 8 worker): 0 errori client oltre ai retry dell'SDK, 0 letture incoerenti; rollback di un
+  nodo a `v0.7.0` nel cluster aggiornato e ritorno a `v0.9.0` senza perdita dati.
+- Politica di downgrade: [08, aggiornamenti e downgrade](08-modalita-deploy.md).
+
+**Stato di T-9.7 (accessibilità e i18n).** `@axe-core/playwright` su ogni pagina e sezione della console
+(TD-E-19: `a11y.spec.ts`, `access-distributions-a11y.spec.ts`, sezioni di cache e monitoraggio) senza violazioni
+serious/critical, anche in tema scuro; it/en senza chiavi mancanti (`i18n/parity.test.ts`, TD-U-13); tema scuro,
+inglese e viewport 375 px (TD-E-18). I contrasti dei badge di stato sono stati scuriti in `web/src/theme.ts`.
+
+**Tracciabilità (docs/06 §6.8).** `test/TRACEABILITY.md`, generata da `make traceability` (`cmd/tools/traceability`,
+logica e test in `internal/tools/traceability`, fuori dai binari di rilascio) dai tag `covers: <codice>` dei test Go,
+degli script `testscript`, dei test Vitest/Playwright e degli script di rilascio: **75/75 funzionalità P0 e 72/72 P1
+con almeno un test**; le 18 P2 (M10) sono elencate come "non in v1.0". `make traceability-check` (job `lint-go` e
+workflow di release) e il test `TestRepositoryTraceability` falliscono per una P0/P1 senza test, per un codice fuori
+catalogo o per la matrice non aggiornata. Tre P2 consegnate in anticipo sono diventate P1 nel catalogo (S-OPS-11,
+D-MON-03, C-ADM-12, [02](02-funzionalita.md)).
+
+**Verifica finale della v1.0 (integrazione, 2026-10-15).** Esiti e durate nel [CHANGELOG](../CHANGELOG.md#verifica);
+tutto verde in SNSD, SNMD e cluster. Restano aperti, fuori dal perimetro P0/P1: pen test della console (T-9.3),
+O_DIRECT e zero-copy (T-9.2), pubblicazione della prima release candidata `v1.0.0-rc.1` con firme e immagini (T-9.5,
+richiede il tag), rate limit per API e per distribuzione e applicazione di `api.requests_max`/`api.requests_deadline`
+(S-OPS-10, S-DST-08, M10), ACME DNS-01, riavvio coordinato del cluster e aggiornamento rolling orchestrato (S-OPS-09).
 
 ## M10 — Post v1.0 (P2)
 

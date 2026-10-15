@@ -198,6 +198,8 @@ func TestSingleDrive(t *testing.T) {
 }
 
 // TestHealSample: the sampled objects are healed, deep on the deep cycles.
+//
+// covers: S-STO-05
 func TestHealSample(t *testing.T) {
 	ctx := context.Background()
 	d := newDeployment(t, 4)

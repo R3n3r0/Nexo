@@ -264,7 +264,7 @@ func TestVirtualHostSystemPathsAreKeys(t *testing.T) {
 // Regression: a signature is bound to the service of its credential scope:
 // S3 requests need "s3", the STS API (POST /) needs "sts".
 //
-// covers: S-IAM-02, S-IAM-08
+// covers: S-IAM-02, S-IAM-07
 func TestCredentialScopeService(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)

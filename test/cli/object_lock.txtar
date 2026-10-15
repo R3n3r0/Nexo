@@ -1,3 +1,4 @@
+# covers: C-OBJ-09, S-BKT-08, S-OBJ-12
 # T-7.10, TS-U-12: retention, legalhold, mb --with-lock and rb --force
 # against a real server: protected versions cannot be removed, GOVERNANCE
 # yields to --bypass, COMPLIANCE never does (root included).

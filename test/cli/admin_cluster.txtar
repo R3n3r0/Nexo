@@ -1,3 +1,4 @@
+# covers: C-ADM-13, S-OPS-15
 # TM-04 / C-ADM-13: admin cluster export writes the state of the deployment
 # besides its objects (IAM, policies, configuration, bucket settings) to a
 # zip archive; import validates it first (--dry-run stops there), merges it

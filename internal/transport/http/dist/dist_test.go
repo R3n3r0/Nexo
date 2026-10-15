@@ -116,6 +116,8 @@ func TestWebsiteRoutesDecodeAndEncode(t *testing.T) {
 }
 
 // TestHostRouter covers the routing by Host on the S3 and web listeners.
+//
+// covers: S-DST-01, S-DST-08
 func TestHostRouter(t *testing.T) {
 	website := dtmock.NewWebsiteRoutes(t)
 	website.EXPECT().ServeHTTP(tmock.Anything, tmock.Anything).Run(func(w http.ResponseWriter, r *http.Request) {
@@ -263,6 +265,7 @@ func TestChallengeRoutes(t *testing.T) {
 	require.ErrorIs(t, err, domain.ErrInvalidArgument)
 }
 
+// covers: S-DST-08
 func TestAccessLogJSON(t *testing.T) {
 	var buf bytes.Buffer
 	log := dist.NewAccessLog(dist.AccessLogDeps{Logger: slog.New(slog.NewJSONHandler(&buf, nil))})

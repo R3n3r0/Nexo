@@ -76,6 +76,9 @@ type MemAdmin struct {
 	dist memDistState
 	// cache holds the cache of the distributions (admin_cache.go).
 	cache memCacheState
+	// obs holds the live streams, the audit records and the metrics
+	// (admin_observability.go).
+	obs   memObsState
 	seq   int
 	fail  map[string]error
 	calls map[string]int
@@ -240,6 +243,7 @@ func (m *MemAdmin) Client(t TestingT, caller string) *climock.AdminClient {
 	c.EXPECT().RestartService(x).RunAndReturn(func(ctx context.Context) error { return s.service(ctx, "RestartService") }).Maybe()
 	c.EXPECT().Profile(x, x).RunAndReturn(s.profile).Maybe()
 	c.EXPECT().Speedtest(x, x, x).RunAndReturn(s.speedtest).Maybe()
+	s.registerObservability(t, c)
 	c.EXPECT().StopService(x).RunAndReturn(func(ctx context.Context) error { return s.service(ctx, "StopService") }).Maybe()
 	c.EXPECT().ListUsers(x, x).RunAndReturn(s.listUsers).Maybe()
 	c.EXPECT().CreateUser(x, x).RunAndReturn(s.createUser).Maybe()
