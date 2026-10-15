@@ -16,7 +16,7 @@ Con `--debug` ogni comando di `nexoctl` stampa su stderr le richieste e le rispo
 
 | Messaggio | Causa e rimedio |
 |-----------|-----------------|
-| `root user is required (NEXO_ROOT_USER, at least 3 characters)` / `root password is required (… at least 8 characters)` | Credenziali root mancanti o corte. Con systemd: `NEXO_ROOT_PASSWORD` in `/etc/default/nexo` (vuota dopo l'installazione del pacchetto) |
+| `root user is required (NEXO_ROOT_USER, at least 3 characters)` / `root password is required (… at least 8 characters)` / `root password must be at least 8 characters (NEXO_ROOT_PASSWORD has 5)` | Credenziali root mancanti o troppo corte. Con systemd: `NEXO_ROOT_PASSWORD` in `/etc/default/nexo` (vuota dopo l'installazione del pacchetto) |
 | `drive path must be absolute: "./data"` | Usa percorsi assoluti (`$PWD/data`, `/srv/nexo`) |
 | `either all or none of the arguments must contain ellipsis patterns` | Non mescolare argomenti con `{1...4}` e senza |
 | `… is not writable by this user (uid …)` | Proprietario o permessi del disco: `chown nexo:nexo` (systemd) o `chown 65532:65532` (Docker); con systemd anche `ReadWritePaths=` nel drop-in |
@@ -47,10 +47,20 @@ cluster: waiting for the drives   missing=[…]
 
 Finché il bootstrap non termina il nodo risponde `503` a tutto: è normale durante l'avvio contemporaneo.
 
-## Errori di quorum (`503 SlowDown`)
+## Errori di quorum (`503 SlowDownWrite`, `SlowDownRead`, `XNexoLockTimeout`)
 
-Una richiesta S3 che non raggiunge il quorum risponde `503` con codice `SlowDown`; nell'Admin API il
-`code` è `read_quorum`, `write_quorum`, `lock_timeout`, `node_offline` o `disk_not_found`.
+Una richiesta S3 che non raggiunge il quorum risponde `503` con codice `SlowDownWrite` (quorum di
+scrittura), `SlowDownRead` (quorum di lettura), `XNexoLockTimeout` (lock non ottenuto entro 30 s:
+risorsa bloccata da un'altra operazione o troppi nodi offline) o `ServiceUnavailable`
+(un disco o un nodo necessario è offline); `SlowDown` resta solo per le richieste rallentate. Gli SDK
+ritentano i `503`; `nexoctl` non ritenta i primi tre (il server ha già atteso) e stampa
+`the deployment has no quorum (too many drives or nodes offline): check "nexoctl admin info"` per
+`SlowDownWrite`/`SlowDownRead`, e `the object is locked by another operation (a slow or stalled read or write)
+or too many nodes are offline` per `XNexoLockTimeout`: con tutti i nodi online è una contesa (per esempio un
+download di più di 8 parti il cui client ha smesso di leggere, interrotto dopo `NEXO_SEND_TIMEOUT`). Quando i nodi
+raggiungibili sono meno del quorum dei lock la richiesta fallisce subito, senza attendere i 30 s. Nell'Admin
+API il `code` è `read_quorum`, `write_quorum`, `lock_timeout`, `node_offline` o `disk_not_found`, che la
+console traduce.
 
 1. `nexoctl admin info local`: quali set sono `degraded` o senza quorum, quali dischi o nodi sono offline.
 2. Riporta online nodi e dischi (rete, servizio, mount). Le letture tornano appena ci sono D dischi

@@ -151,6 +151,11 @@ func (h *hostRouter) serveDistribution(w http.ResponseWriter, r *http.Request, r
 		defer func() { ex.Finish(r.Context(), rec.status, rec.bytes) }()
 	}
 	d := route.Distribution
+	if d.Mode != distribution.ModeS3 {
+		// The observers see the origin bucket even when the request is
+		// refused before the website names the object.
+		httpx.SetOperationTarget(r.Context(), route.Bucket, "")
+	}
 	if d.Mode == distribution.ModeS3 {
 		req := webRequest(r, route)
 		resp := h.deps.Admission.Admit(r.Context(), req)
@@ -196,7 +201,7 @@ func (h *hostRouter) record(r *http.Request, route distribution.Route, rec *reco
 	// presigned S3 URLs and session tokens would be replayable from the
 	// log.
 	uri := r.URL.EscapedPath()
-	if q := httpx.RedactRawQueryFunc(r.URL.RawQuery, httpx.IsSensitiveSignedURLParam); q != "" {
+	if q := httpx.RedactRawQuery(r.URL.RawQuery); q != "" {
 		uri += "?" + q
 	}
 	h.deps.AccessLog.Log(ctx, AccessEntry{

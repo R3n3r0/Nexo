@@ -197,11 +197,14 @@ func (s *service) Log(ctx context.Context, e Entry) error {
 	return nil
 }
 
-// logRecord writes the structured record of an entry.
+// logRecord writes the structured record of an entry. The time of the
+// request is "event_time": "time" is the key of the record itself, and a
+// JSON document with a duplicate key is refused or truncated by strict
+// consumers (Elasticsearch).
 func (s *service) logRecord(ctx context.Context, e Entry) {
 	attrs := []slog.Attr{
 		slog.String("version", e.Version),
-		slog.Time("time", e.Time),
+		slog.Time("event_time", e.Time),
 		slog.String("node", e.Node),
 		slog.String("type", e.Type),
 		slog.String("request_id", e.RequestID),

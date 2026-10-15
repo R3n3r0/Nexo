@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -53,7 +54,9 @@ port; --admin-url sets it explicitly.`,
 			verify = verify && !noVerify
 			// listDenied: the server authenticated the credentials and
 			// refused the listing by policy; they are not fully verified.
-			listDenied := false
+			// adminNote: what the check of an explicit --admin-url found
+			// short of a failure.
+			listDenied, adminNote := false, ""
 			if verify {
 				client, err := e.deps.S3.Client(ctx, a, cli.ClientOptions{Debug: debugWriter(e)})
 				if err != nil {
@@ -64,6 +67,13 @@ port; --admin-url sets it explicitly.`,
 						return fmt.Errorf("verify alias %q at %s: %w", a.Name, a.URL, err)
 					}
 					listDenied = true
+				}
+				if adminURL != "" {
+					// An explicit Admin API URL is checked too
+					// (regression: an unreachable one was saved).
+					if adminNote, err = verifyAdmin(ctx, e, a); err != nil {
+						return fmt.Errorf("verify alias %q: Admin API at %s: %w", a.Name, adminURL, err)
+					}
 				}
 			}
 			if err := svc.Set(ctx, a); err != nil {
@@ -82,6 +92,9 @@ port; --admin-url sets it explicitly.`,
 				msg = fmt.Sprintf("Added alias %q for %s (credentials accepted; listing the buckets is denied).", a.Name, a.URL)
 			case verify:
 				msg = fmt.Sprintf("Added alias %q for %s (credentials verified).", a.Name, a.URL)
+			}
+			if adminNote != "" {
+				msg += " " + adminNote
 			}
 			return e.out.Info(rec, msg)
 		},
@@ -145,4 +158,22 @@ func newAliasRemoveCmd(e *env) *cobra.Command {
 			return e.out.Info(aliasRecord{Type: typeAlias, Name: args[0]}, fmt.Sprintf("Removed alias %q.", args[0]))
 		},
 	}
+}
+
+// verifyAdmin checks the Admin API of a (GET /api/v1/info): an error when
+// it cannot be reached or does not answer as the Admin API, a note when
+// it answers but refuses the credentials the information (a user without
+// admin:ServerInfo, whose admin commands may still work).
+func verifyAdmin(ctx context.Context, e *env, a cli.Alias) (string, error) {
+	admin, err := e.deps.Admin.Client(ctx, a, cli.ClientOptions{Debug: debugWriter(e)})
+	if err != nil {
+		return "", err
+	}
+	if _, err := admin.ServerInfo(ctx); err != nil {
+		if cli.IsAuthorizationDenial(err) {
+			return "The Admin API answered; the server information is denied to these credentials.", nil
+		}
+		return "", err
+	}
+	return "Admin API verified.", nil
 }

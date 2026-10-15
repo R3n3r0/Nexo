@@ -199,6 +199,10 @@ type NodeConfig struct {
 	KMSFingerprint string
 	// Time is the clock of the node when it answered.
 	Time time.Time
+	// Endpoints are the drive endpoints of its command line, in order
+	// (empty from a node of an older release): a node at odds with the
+	// others names the endpoints that differ.
+	Endpoints []string
 }
 
 // BootstrapPeer is the client of the bootstrap service of another node.
@@ -216,6 +220,11 @@ type BootstrapResult struct {
 	// deployment: they received their format.json and a healing tracker,
 	// the healing service repopulates them.
 	Healing []domain.Endpoint
+	// Joined lists the local drives formatted after their peers formatted
+	// a fresh deployment (the regular first start of a node that started
+	// after the others): their set holds only the configuration written
+	// at the bootstrap, which the healing copies. Not replacements.
+	Joined []domain.Endpoint
 	// Offline lists the drives that were unreachable or unformatted when
 	// the quorum was reached.
 	Offline []domain.Endpoint

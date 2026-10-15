@@ -33,7 +33,11 @@ func WithLogLevel(l slog.Level) LoggingOption {
 }
 
 // NewLogging returns an access-log middleware writing one slog record per
-// request: method, path, status, bytes, duration, remote address, request id.
+// request: method, path, status, bytes, duration, remote address, request
+// id and, when the handler answered with an error
+// (httpx.SetOperationError), its whole chain: the responses only carry a
+// curated message. A server failure (5xx) is logged at Warn (Error for
+// 500) whatever the level of the access log.
 func NewLogging(deps LoggingDeps, opts ...LoggingOption) Middleware {
 	if deps.Logger == nil {
 		deps.Logger = slog.Default()
@@ -52,9 +56,11 @@ func NewLogging(deps LoggingDeps, opts ...LoggingOption) Middleware {
 func (m *logging) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := m.deps.Clock.Now()
+		ctx, holder := holdOperation(r.Context())
+		r = r.WithContext(ctx)
 		rw := wrapWriter(w)
 		next.ServeHTTP(rw, r)
-		m.deps.Logger.LogAttrs(r.Context(), m.level, "http request",
+		attrs := []slog.Attr{
 			slog.String("method", r.Method),
 			slog.String("path", r.URL.Path),
 			slog.String("query", httpx.RedactRawQuery(r.URL.RawQuery)),
@@ -64,6 +70,17 @@ func (m *logging) Wrap(next http.Handler) http.Handler {
 			slog.String("remote", r.RemoteAddr),
 			slog.String("user_agent", r.UserAgent()),
 			slog.String("request_id", httpx.RequestIDFrom(r.Context())),
-		)
+		}
+		level := m.level
+		if err := holder.Err(); err != nil {
+			attrs = append(attrs, slog.String("error", err.Error()))
+			switch {
+			case rw.Status() == http.StatusInternalServerError:
+				level = max(level, slog.LevelError)
+			case rw.Status() > http.StatusInternalServerError:
+				level = max(level, slog.LevelWarn)
+			}
+		}
+		m.deps.Logger.LogAttrs(r.Context(), level, "http request", attrs...)
 	})
 }

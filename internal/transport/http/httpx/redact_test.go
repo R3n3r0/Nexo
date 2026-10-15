@@ -20,6 +20,12 @@ func TestIsSensitiveQueryParam(t *testing.T) {
 		{name: "X-Amz-Security-Token", want: true},
 		{name: "Signature", want: true},
 		{name: "AWSAccessKeyId", want: true},
+		{name: "token", want: true},
+		{name: "access_token", want: true},
+		{name: "password", want: true},
+		{name: "client_secret", want: true},
+		{name: "Policy", want: true},
+		{name: "Key-Pair-Id", want: true},
 		{name: "X-Amz-Date"},
 		{name: "X-Amz-Expires"},
 		{name: "X-Amz-SignedHeaders"},
@@ -44,8 +50,10 @@ func TestRedactRawQuery(t *testing.T) {
 			want: "X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=REDACTED&X-Amz-Date=20261008T120000Z&X-Amz-Expires=300&X-Amz-SignedHeaders=host&X-Amz-Security-Token=REDACTED&X-Amz-Signature=REDACTED"},
 		{name: "signature v2", raw: "AWSAccessKeyId=AKIA&Expires=1&Signature=abc%3D", want: "AWSAccessKeyId=REDACTED&Expires=1&Signature=REDACTED"},
 		{name: "encoded name", raw: "X%2DAmz%2DSignature=abc&uploads", want: "X%2DAmz%2DSignature=REDACTED&uploads"},
-		{name: "flag without value", raw: "Signature&x=1", want: "Signature=REDACTED&x=1"},
-		{name: "undecodable name kept", raw: "%zz=1&X-Amz-Signature=a", want: "%zz=1&X-Amz-Signature=REDACTED"},
+		{name: "flag without value", raw: "Signature&x=1", want: "Signature&x=1"},
+		{name: "undecodable name", raw: "%zz=1&X-Amz-Signature=a", want: "REDACTED&X-Amz-Signature=REDACTED"},
+		{name: "names with a secret", raw: "token=MYTOKEN&password=hunter2&client_secret=s&prefix=p",
+			want: "token=REDACTED&password=REDACTED&client_secret=REDACTED&prefix=p"},
 		{name: "repeated", raw: "X-Amz-Signature=a&X-Amz-Signature=b", want: "X-Amz-Signature=REDACTED&X-Amz-Signature=REDACTED"},
 	}
 	for _, tt := range tests {
@@ -56,7 +64,7 @@ func TestRedactRawQuery(t *testing.T) {
 func TestRedactSignedURL(t *testing.T) {
 	raw := "v=1&Expires=1700000000&Policy=eyJTdGF0ZW1lbnQiOltdfQ__&Signature=abc~&Key-Pair-Id=k1&X-Amz-Credential=AK%2Fx"
 	assert.Equal(t, "v=1&Expires=1700000000&Policy=REDACTED&Signature=REDACTED&Key-Pair-Id=REDACTED&X-Amz-Credential=REDACTED",
-		httpx.RedactRawQueryFunc(raw, httpx.IsSensitiveSignedURLParam))
+		httpx.RedactRawQuery(raw))
 	assert.Equal(t, "policy", httpx.RedactRawQuery("policy"), "the S3 subresource of the generic logs")
 }
 

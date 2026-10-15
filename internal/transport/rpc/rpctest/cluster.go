@@ -26,6 +26,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/lock"
 	"github.com/r3n3r0/nexo/internal/service/storage"
 	"github.com/r3n3r0/nexo/internal/service/topology"
+	"github.com/r3n3r0/nexo/internal/transport/http/server"
 	"github.com/r3n3r0/nexo/internal/transport/rpc"
 )
 
@@ -302,9 +303,12 @@ func (n *Node) Start() {
 	protocols.SetHTTP1(true)
 	protocols.SetUnencryptedHTTP2(true)
 	n.srv = &http.Server{
-		Handler:           n.Server.Wrap(s3),
-		Protocols:         &protocols,
-		HTTP2:             &http.HTTP2Config{MaxReceiveBufferPerStream: 16 << 20, MaxReceiveBufferPerConnection: 64 << 20, MaxReadFrameSize: 1 << 20},
+		Handler:   n.Server.Wrap(s3),
+		Protocols: &protocols,
+		HTTP2: &http.HTTP2Config{
+			MaxReceiveBufferPerStream: server.RPCStreamWindow, MaxReceiveBufferPerConnection: server.RPCConnWindow,
+			MaxReadFrameSize: server.RPCMaxFrameSize, MaxConcurrentStreams: server.DefaultMaxConcurrentStreams,
+		},
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func(srv *http.Server) { _ = srv.Serve(ln) }(n.srv)

@@ -45,6 +45,7 @@ func Run(t *testing.T, newDrive Factory) {
 		{"ObjectPlacementConflicts", testObjectPlacementConflicts},
 		{"ObjectPlacementUUIDPrefix", testObjectPlacementUUIDPrefix},
 		{"FilesAndRenameData", testFilesAndRenameData},
+		{"OpenFile", testOpenFile},
 		{"ReadWriteAllAndDelete", testReadWriteAllAndDelete},
 		{"WalkDir", testWalkDir},
 		{"WalkDirOrder", testWalkDirOrder},

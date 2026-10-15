@@ -19,6 +19,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/metrics"
 	"github.com/r3n3r0/nexo/internal/service/trace"
 	tracemock "github.com/r3n3r0/nexo/internal/service/trace/mock"
+	"github.com/r3n3r0/nexo/internal/testutil/redaction"
 )
 
 // receive waits for the next event of sub.
@@ -174,6 +175,14 @@ func TestRedaction(t *testing.T) {
 
 	svc.Publish(ctx, trace.Event{Type: trace.TypeS3, Query: "%zz=secret&a=1"})
 	assert.Equal(t, "REDACTED&a=1", receive(t, sub).Query, "an undecodable name is redacted whole")
+
+	// The table every redaction shares.
+	svc.Publish(ctx, trace.Event{Type: trace.TypeS3, Query: redaction.Query})
+	got = receive(t, sub).Query
+	assert.Empty(t, redaction.Leaks(got))
+	for _, kept := range redaction.Kept() {
+		assert.Contains(t, got, kept)
+	}
 }
 
 // TestBackpressure checks that a slow subscriber loses events, counted,

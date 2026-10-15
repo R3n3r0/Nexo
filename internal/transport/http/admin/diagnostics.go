@@ -16,7 +16,7 @@ import (
 )
 
 // DiagnosticsRoutes exposes the diagnostics of the node that serves the
-// request (S-OPS-11): GET /profile (a pprof profile, admin:Profiling) and
+// request (S-OPS-11): POST /profile (a pprof profile, admin:Profiling) and
 // POST /speedtest/{kind} (drive, object and net speed tests,
 // admin:Speedtest).
 type DiagnosticsRoutes interface{ Routes }
@@ -60,12 +60,15 @@ func (h *diagnosticsRoutes) Register(r chi.Router) { h.guard.register(r, h.route
 
 func (h *diagnosticsRoutes) routes() []route {
 	return []route{
-		{http.MethodGet, "/profile", global(policy.ActionAdminProfiling), h.profile},
+		// A POST: the profile samples the node for up to two minutes and
+		// changes its sampling rates, a side effect a GET (sent by a page of
+		// the same site without CSRF token) must not have.
+		{http.MethodPost, "/profile", global(policy.ActionAdminProfiling), h.profile},
 		{http.MethodPost, "/speedtest/{kind}", global(policy.ActionAdminSpeedtest), h.speedtest},
 	}
 }
 
-// profile answers GET /profile?type=cpu|heap|goroutine|mutex|block&seconds=N
+// profile answers POST /profile?type=cpu|heap|goroutine|mutex|block&seconds=N
 // with the profile in the pprof format.
 func (h *diagnosticsRoutes) profile(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()

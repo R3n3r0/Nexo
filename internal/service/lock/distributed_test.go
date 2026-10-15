@@ -225,6 +225,36 @@ func TestDistributedOfflineServers(t *testing.T) {
 	}
 }
 
+// TestDistributedFailsFastWithoutQuorum: when too many lock servers are
+// offline for the quorum, an acquisition fails at once instead of waiting
+// for its timeout (regression: every write of a cluster that lost its
+// quorum waited the whole lock timeout, 30s, before failing); a contention
+// with every server online still waits for the timeout.
+func TestDistributedFailsFastWithoutQuorum(t *testing.T) {
+	ctx := context.Background()
+	c := newCluster(t, 4, nil)
+	l, links := c.locker(t, "a")
+	links[2].down.Store(true)
+	links[3].down.Store(true)
+	start := time.Now()
+	err := l.Lock(ctx, "w", 30*time.Second)
+	require.ErrorIs(t, err, domain.ErrLockTimeout)
+	assert.Contains(t, err.Error(), "2 of 4 lock servers reachable, 3 needed")
+	assert.Less(t, time.Since(start), 5*time.Second, "no wait for the lock timeout")
+	require.NoError(t, l.RLock(ctx, "r", time.Second), "the read quorum (2 of 4) is reachable")
+	require.NoError(t, l.RUnlock(ctx, "r"))
+
+	// Contention: every server online, the lock held by another node.
+	links[2].down.Store(false)
+	links[3].down.Store(false)
+	other, _ := c.locker(t, "b")
+	require.NoError(t, other.Lock(ctx, "w", time.Second))
+	start = time.Now()
+	require.ErrorIs(t, l.Lock(ctx, "w", 300*time.Millisecond), domain.ErrLockTimeout)
+	assert.GreaterOrEqual(t, time.Since(start), 300*time.Millisecond, "a contention waits for the timeout")
+	require.NoError(t, other.Unlock(ctx, "w"))
+}
+
 // TestDistributedRefreshLosesQuorum: when the renewal no longer reaches the
 // quorum, the lock context is canceled so that the operation aborts.
 //

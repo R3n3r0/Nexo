@@ -308,6 +308,14 @@ func (e *env) statObject(ctx context.Context, client cli.S3Client, t cli.Target,
 				return e.out.Result(rec, statText(rec, e.deps.Clock.Now()))
 			}
 		}
+		if errors.Is(err, domain.ErrObjectNotFound) {
+			// A HEAD answers a bare 404: the bucket may be the one
+			// missing (regression: "object not found" for a missing
+			// bucket).
+			if exists, berr := client.BucketExists(ctx, t.Bucket); berr == nil && !exists {
+				return fmt.Errorf("%s: %w: %s", t, domain.ErrBucketNotFound, t.Bucket)
+			}
+		}
 		return fmt.Errorf("%s: %w", t, sseHint(err, sse))
 	}
 	tags, err := client.GetTags(ctx, cli.ObjectRef{Bucket: t.Bucket, Key: t.Key, VersionID: versionID})

@@ -27,7 +27,11 @@ const (
 // StorageClientDeps are the dependencies of the remote drive client.
 type StorageClientDeps struct {
 	// Conn reaches the node serving the drive (required).
-	Conn   Conn
+	Conn Conn
+	// Boot identifies this process among the runs of the node (a random
+	// id drawn at startup): the node of the drive closes the file
+	// handles an earlier run opened as soon as this one opens a file.
+	Boot   string
 	Logger *slog.Logger
 }
 
@@ -81,6 +85,11 @@ type storageClient struct {
 	healing   *storage.HealingTracker
 	healingAt time.Time
 	healingOK bool
+
+	// open are the file handles opened on the node and not closed yet:
+	// Close closes them before the client.
+	openMu sync.Mutex
+	open   map[*remoteHandle]struct{}
 }
 
 var _ storage.StorageAPI = (*storageClient)(nil)
@@ -101,7 +110,7 @@ func NewStorageClient(deps StorageClientDeps, ep domain.Endpoint, opts ...Storag
 	for _, opt := range opts {
 		opt(&o)
 	}
-	return &storageClient{deps: deps, opts: o, ep: ep, stop: make(chan struct{})}, nil
+	return &storageClient{deps: deps, opts: o, ep: ep, stop: make(chan struct{}), open: map[*remoteHandle]struct{}{}}, nil
 }
 
 // Endpoint implements storage.StorageAPI.
@@ -113,9 +122,29 @@ func (c *storageClient) IsOnline() bool {
 	return !c.closed.Load() && c.deps.Conn.IsOnline() && !c.missing.Load()
 }
 
-// Close implements storage.StorageAPI. The connection, shared by the
-// drives of the node, stays open.
-func (c *storageClient) Close(context.Context) error {
+// Close implements storage.StorageAPI: the file handles still open on the
+// node are closed first (a node that stops leaves none behind on its
+// peers). The connection, shared by the drives of the node, stays open.
+func (c *storageClient) Close(ctx context.Context) error {
+	c.openMu.Lock()
+	handles := make([]*remoteHandle, 0, len(c.open))
+	for h := range c.open {
+		handles = append(handles, h)
+	}
+	c.openMu.Unlock()
+	if len(handles) > 0 {
+		hctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeHandlesTimeout)
+		var wg sync.WaitGroup
+		for _, h := range handles {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_ = h.Close(hctx)
+			}()
+		}
+		wg.Wait()
+		cancel()
+	}
 	c.once.Do(func() {
 		c.closed.Store(true)
 		close(c.stop)
@@ -123,6 +152,10 @@ func (c *storageClient) Close(context.Context) error {
 	c.wg.Wait()
 	return nil
 }
+
+// closeHandlesTimeout bounds the close of the handles of a client that
+// closes (an unreachable node keeps them until their idle timeout).
+const closeHandlesTimeout = 5 * time.Second
 
 // check fails the calls that cannot be attempted.
 func (c *storageClient) check(ctx context.Context) error {
@@ -288,6 +321,70 @@ func (c *storageClient) ReadFileStream(ctx context.Context, volume, path string,
 		return nil, err
 	}
 	return rc, nil
+}
+
+// OpenFile implements storage.StorageAPI: the node of the drive keeps the
+// file open (no data is transferred) until Close or its idle timeout.
+func (c *storageClient) OpenFile(ctx context.Context, volume, path string) (storage.FileHandle, error) {
+	if err := c.check(ctx); err != nil {
+		return nil, err
+	}
+	var reply openFileReply
+	if err := c.call(ctx, "open-file", openFileArgs{Volume: volume, Path: path, Boot: c.deps.Boot}, &reply); err != nil {
+		return nil, err
+	}
+	h := &remoteHandle{c: c, id: reply.Handle, size: reply.Size, name: volume + "/" + path}
+	c.openMu.Lock()
+	c.open[h] = struct{}{}
+	c.openMu.Unlock()
+	return h, nil
+}
+
+// remoteHandle is a file opened on the node of a remote drive.
+type remoteHandle struct {
+	c    *storageClient
+	id   string
+	size int64
+	name string
+	once sync.Once
+}
+
+var _ storage.FileHandle = (*remoteHandle)(nil)
+
+// Size implements storage.FileHandle.
+func (h *remoteHandle) Size() int64 { return h.size }
+
+// ReadStream implements storage.FileHandle.
+func (h *remoteHandle) ReadStream(ctx context.Context, offset, length int64) (io.ReadCloser, error) {
+	if err := h.c.check(ctx); err != nil {
+		return nil, err
+	}
+	switch {
+	case offset < 0 || offset > h.size:
+		return nil, fmt.Errorf("%w: offset %d outside %s (%d bytes)", domain.ErrInvalidRange, offset, h.name, h.size)
+	case length > h.size-offset:
+		return nil, fmt.Errorf("%w: %s has %d bytes, want [%d, %d)", storage.ErrFileCorrupt, h.name, h.size, offset, offset+length)
+	}
+	rc, err := h.c.deps.Conn.Download(ctx, "storage/read-handle", readHandleArgs{Handle: h.id, Offset: offset, Length: length}, h.c.param())
+	if err := h.c.result(ctx, err); err != nil {
+		return nil, err
+	}
+	return rc, nil
+}
+
+// Close implements storage.FileHandle.
+func (h *remoteHandle) Close(ctx context.Context) error {
+	var err error
+	h.once.Do(func() {
+		h.c.openMu.Lock()
+		delete(h.c.open, h)
+		h.c.openMu.Unlock()
+		if h.c.closed.Load() {
+			return
+		}
+		err = h.c.call(ctx, "close-handle", handleArgs{Handle: h.id}, nil)
+	})
+	return err
 }
 
 // RenameData implements storage.StorageAPI.

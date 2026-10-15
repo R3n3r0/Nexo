@@ -32,8 +32,10 @@ nexoctl admin trace --type s3,admin,rpc local                       # anche le c
 nexoctl admin trace --timeout 1m --json local > trace.jsonl         # JSON Lines, per 1 minuto
 ```
 
-- Header e corpo delle richieste non sono mai pubblicati; firme, credenziali e token nella query sono
-  redatti.
+- Header e corpo delle richieste non sono mai pubblicati; firme, credenziali, token e password nella query sono
+  redatti, insieme ai nomi usuali delle credenziali dei siti serviti dalle distribuzioni (`apikey`, `api_key`,
+  `api-key`, `x-api-key`, `auth`, `sig`, `jwt`, `session`, `sid`). Gli altri parametri applicativi restano in chiaro:
+  non passare segreti in parametri con altri nomi.
 - Senza client collegati il costo è nullo; un client lento perde eventi (segnalati come `dropped`) ma non
   rallenta mai le richieste.
 - Lo stream si riconnette da solo se il server si riavvia; termina con Ctrl-C, `--timeout` o `--count`.
@@ -62,9 +64,14 @@ Password, token, firme, cookie e chiavi SSE-C sono redatti dai log. Richiede `ad
 ## Audit log
 
 Ogni richiesta S3 e della console produce un record di audit con identità (access key e utente), API,
-bucket e oggetto, IP del client, esito, latenza, byte, request id e nodo. I record:
+bucket e oggetto, IP del client, esito, latenza, byte, request id e nodo. Fanno eccezione le sonde di
+salute (`/nexo/health/*`) e le letture anonime delle metriche (`/nexo/metrics/*` con
+`NEXO_PROMETHEUS_AUTH_TYPE=public`): un load balancer o i probe di Kubernetes le ripetono ogni pochi secondi
+e riempirebbero l'anello in memoria espellendo i record utili. Uno scrape autenticato (JWT) resta
+registrato. I record:
 
-1. finiscono nel log del server (`"msg":"audit"`, componente `audit`);
+1. finiscono nel log del server (`"msg":"audit"`, componente `audit`; `time` è l'ora del record, `event_time`
+   quella della richiesta);
 2. restano in memoria su ogni nodo (gli ultimi 10000) per la ricerca dalla console (**Monitoraggio →
    Audit**) e dalla CLI;
 3. sono consegnati ai **target di audit** configurati, con coda persistente su disco se il target non

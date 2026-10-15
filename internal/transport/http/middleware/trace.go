@@ -101,7 +101,7 @@ func (m *traceMiddleware) Wrap(next http.Handler) http.Handler {
 			API:         holder.Name(),
 			Method:      r.Method,
 			Path:        r.URL.Path,
-			Query:       httpx.RedactRawQueryFunc(r.URL.RawQuery, httpx.IsSensitiveSignedURLParam),
+			Query:       httpx.RedactRawQuery(r.URL.RawQuery),
 			Status:      rw.Status(),
 			Duration:    m.deps.Clock.Now().Sub(start),
 			InputBytes:  received(),

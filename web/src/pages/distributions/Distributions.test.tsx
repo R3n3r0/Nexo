@@ -171,6 +171,47 @@ describe('distributions', () => {
     expect(within(secret).getByText('2 active secrets in X-Origin-Secret')).toBeInTheDocument();
   });
 
+  // covers: D-DST-06
+  it('D-DST-06 edits the client addresses and the rate limit, refusing an invalid address', async () => {
+    const { user, services } = open('/distributions/sito-web/security');
+    const ip = await screen.findByRole('region', { name: 'Client addresses' });
+    const allow = within(ip).getByRole('textbox', { name: 'Allowed (IP or CIDR)' });
+    // Read-only until the permissions are loaded.
+    await waitFor(() => {
+      expect(allow).toBeEnabled();
+    });
+    await user.type(allow, '10.0.0.0/8{Enter}');
+    const deny = within(ip).getByRole('textbox', { name: 'Denied (IP or CIDR)' });
+    await user.type(deny, 'not-an-ip{Enter}');
+    expect(
+      within(ip).getByText('not-an-ip is neither an IP address nor a CIDR.'),
+    ).toBeInTheDocument();
+    // The server refuses the address: the save is disabled until it is removed.
+    const save = screen.getByRole('button', { name: 'Save changes' });
+    expect(save).toBeDisabled();
+    await user.click(deny);
+    await user.keyboard('{Backspace}');
+    await waitFor(() => {
+      expect(within(ip).queryByText(/neither an IP address nor a CIDR/)).not.toBeInTheDocument();
+    });
+    expect(save).toBeEnabled();
+
+    const rate = screen.getByRole('region', { name: 'Rate limit' });
+    await user.click(within(rate).getByRole('switch', { name: 'Limit the rate' }));
+    const rps = within(rate).getByRole('textbox', { name: 'Requests per second' });
+    await user.clear(rps);
+    await user.type(rps, '50');
+    const burst = within(rate).getByRole('textbox', { name: 'Burst' });
+    await user.clear(burst);
+    await user.type(burst, '80');
+    await user.click(save);
+    await waitFor(async () => {
+      const d = await services.distributions.get('sito-web');
+      expect(d.restrictions?.sourceIp).toEqual({ allow: ['10.0.0.0/8'], deny: ['203.0.113.0/24'] });
+      expect(d.restrictions?.rateLimit).toMatchObject({ requestsPerSecond: 50, burst: 80 });
+    });
+  });
+
   // covers: D-DST-05
   it('TD-D-03 shows the private key of a new key group once and signs a URL with it', async () => {
     const { user, services } = open('/distributions/-/key-groups');

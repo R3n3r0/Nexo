@@ -2659,17 +2659,19 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        get?: never;
+        put?: never;
         /**
          * Runtime profile of the node (pprof)
          * @description Collects a profile of the node that serves the request, in the pprof format
          *     (gzipped protocol buffer, `go tool pprof`): `cpu`, `mutex` and `block` sample
          *     for `seconds` (1-120, default 10), `heap` and `goroutine` are snapshots. One
          *     profile at a time per node (409 `conflict`). Allowed to root and to the
-         *     identities with `admin:Profiling` (the `diagnostics` policy).
+         *     identities with `admin:Profiling` (the `diagnostics` policy). A POST: with the
+         *     console session it needs the CSRF token, like every request with side effects
+         *     (sampling, sampling rates, the profile slot of the node).
          */
-        get: operations["getProfile"];
-        put?: never;
-        post?: never;
+        post: operations["collectProfile"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9824,7 +9826,7 @@ export interface operations {
             default: components["responses"]["Problem"];
         };
     };
-    getProfile: {
+    collectProfile: {
         parameters: {
             query?: {
                 type?: "cpu" | "heap" | "goroutine" | "mutex" | "block";

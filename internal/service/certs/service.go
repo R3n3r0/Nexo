@@ -245,7 +245,8 @@ type Keystore interface {
 	// the node to its peers (mutual TLS between the nodes).
 	GetClientCertificate(info *tls.CertificateRequestInfo) (*tls.Certificate, error)
 	// ClientCAs returns the CAs verifying the client certificates of the
-	// peers: the certificates of CAs/ and of public.crt. Pure accessor.
+	// peers: the certificates of CAs/ and the default certificate itself
+	// (not the issuers of its chain). Pure accessor.
 	ClientCAs() *x509.CertPool
 	// RootCAs returns the CAs verifying the server certificates of the
 	// peers: the system roots, the certificates of CAs/ and of

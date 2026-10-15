@@ -1,8 +1,10 @@
 package httpx
 
 import (
+	"context"
 	"io"
 	"net/http"
+	"sync/atomic"
 	"time"
 )
 
@@ -78,4 +80,32 @@ func CopyBody(w http.ResponseWriter, src io.Reader, timeout time.Duration) (int6
 		err = cerr
 	}
 	return n, err
+}
+
+// sendBoundKey is the context key of the SendBound of a request.
+type sendBoundKey struct{}
+
+// SendBound is the stall bound the HTTP server puts on every response
+// (server.WithSendTimeout): each write must make progress within the send
+// timeout. The handlers of the authenticated streams whose pace is not
+// the client's own lift it (LiftSendBound): the internode RPC, whose
+// shard streams follow the pace of the S3 client downstream.
+type SendBound struct{ lifted atomic.Bool }
+
+// WithSendBound returns ctx carrying a new bound, and the bound.
+func WithSendBound(ctx context.Context) (context.Context, *SendBound) {
+	b := &SendBound{}
+	return context.WithValue(ctx, sendBoundKey{}, b), b
+}
+
+// Lifted reports a bound lifted by the handler (pure accessor).
+func (b *SendBound) Lifted() bool { return b != nil && b.lifted.Load() }
+
+// LiftSendBound lifts the stall bound of the response of the request of
+// ctx; a request without one is left alone. Only an authenticated handler
+// calls it: an anonymous client that stops reading must keep being cut.
+func LiftSendBound(ctx context.Context) {
+	if b, ok := ctx.Value(sendBoundKey{}).(*SendBound); ok {
+		b.lifted.Store(true)
+	}
 }

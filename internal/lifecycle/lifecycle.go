@@ -115,12 +115,12 @@ func (g *Group) Start(ctx context.Context) error {
 	for _, r := range g.runners {
 		if err := ctx.Err(); err != nil {
 			stopErr := g.stopLocked(context.WithoutCancel(ctx))
-			return errors.Join(fmt.Errorf("lifecycle: start %s: %w", r.Name, err), stopErr)
+			return errors.Join(fmt.Errorf("start %s: %w", r.Name, err), stopErr)
 		}
 		g.logger.Debug("starting", "runner", r.Name)
 		if err := r.Start(ctx); err != nil {
 			stopErr := g.stopLocked(context.WithoutCancel(ctx))
-			return errors.Join(fmt.Errorf("lifecycle: start %s: %w", r.Name, err), stopErr)
+			return errors.Join(fmt.Errorf("start %s: %w", r.Name, err), stopErr)
 		}
 		g.started = append(g.started, r)
 	}

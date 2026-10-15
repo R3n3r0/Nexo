@@ -114,3 +114,43 @@ func TestAccessValidation(t *testing.T) {
 		})
 	}
 }
+
+// TestS3Distributions: the S3 listener serves the distributions when the
+// deployment names its S3 endpoint (auto), always with "on", never with
+// "off"; --no-distributions turns the routing off everywhere.
+func TestS3Distributions(t *testing.T) {
+	ctx := context.Background()
+	load := func(t *testing.T, extra map[string]string, flags ...string) config.Static {
+		t.Helper()
+		env := baseEnv(extra)
+		in := config.Input{Args: []string{"/data"}}
+		if len(flags) > 0 {
+			in.Flags = flagsFrom(t, flags...)
+		}
+		cfg, err := config.NewLoader(config.WithEnv(envOf(env)), config.WithEnviron(environOf(env))).Load(ctx, in)
+		require.NoError(t, err)
+		return cfg
+	}
+	cfg := load(t, nil)
+	assert.Equal(t, config.S3DistributionsAuto, cfg.S3Distributions)
+	assert.False(t, cfg.ServesDistributionsOnS3(), "nothing tells an alias from a name the S3 clients use")
+	assert.False(t, cfg.NoDistributions)
+	assert.True(t, load(t, map[string]string{config.EnvServerURL: "https://s3.example.com"}).ServesDistributionsOnS3())
+	assert.True(t, load(t, map[string]string{config.EnvDomain: "s3.example.com"}).ServesDistributionsOnS3())
+	assert.True(t, load(t, map[string]string{config.EnvS3Distributions: "ON"}).ServesDistributionsOnS3())
+	assert.False(t, load(t, map[string]string{config.EnvS3Distributions: "off", config.EnvDomain: "s3.example.com"}).ServesDistributionsOnS3())
+	assert.True(t, load(t, nil, "--s3-distributions", "on").ServesDistributionsOnS3())
+	assert.True(t, load(t, map[string]string{config.EnvNoDistributions: "true"}).NoDistributions)
+	assert.True(t, load(t, nil, "--no-distributions").NoDistributions)
+
+	for name, env := range map[string]map[string]string{
+		"unknown value": {config.EnvS3Distributions: "always"},
+		"not a bool":    {config.EnvNoDistributions: "maybe"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			env := baseEnv(env)
+			_, err := config.NewLoader(config.WithEnv(envOf(env)), config.WithEnviron(environOf(env))).Load(ctx, config.Input{Args: []string{"/data"}})
+			require.Error(t, err)
+		})
+	}
+}

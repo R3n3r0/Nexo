@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -60,6 +61,22 @@ func WithClientCertRequired() ServerOption {
 	return func(o *serverOptions) { o.clientCert = true }
 }
 
+// WithClientCertHosts binds the client certificates of the internode
+// calls to the deployment (with WithClientCertRequired): the verified
+// certificate must name one of hosts (the hosts of the node endpoints) in
+// its subject alternative names, as the certificate a node presents as a
+// server to its peers does. A certificate of a trusted CA issued for any
+// other service is refused.
+func WithClientCertHosts(hosts ...string) ServerOption {
+	return func(o *serverOptions) {
+		for _, h := range hosts {
+			if h = strings.TrimSpace(h); h != "" {
+				o.clientHosts = append(o.clientHosts, h)
+			}
+		}
+	}
+}
+
 // WithAuthFailureLimit sets how many authentication failures a remote
 // address may cause in a burst before its calls are refused unverified
 // (default 20), and how fast that allowance refills (default one every
@@ -72,14 +89,32 @@ func WithAuthFailureLimit(burst int, refill time.Duration) ServerOption {
 	}
 }
 
+// WithFileHandles bounds the files the peers keep open on the drives of the
+// node (storage.StorageAPI.OpenFile): at most max at once (default 65536),
+// each closed after idle without a new stream (default 1h).
+func WithFileHandles(maxHandles int, idle time.Duration) StorageRoutesOption {
+	return func(o *storageRoutesOptions) {
+		if maxHandles > 0 {
+			o.maxHandles = maxHandles
+		}
+		if idle > 0 {
+			o.handleIdle = idle
+		}
+	}
+}
+
 type (
 	serverOptions struct {
-		skip       func(r *http.Request) bool
-		clientCert bool
-		failBurst  int
-		failRefill time.Duration
+		skip        func(r *http.Request) bool
+		clientCert  bool
+		clientHosts []string
+		failBurst   int
+		failRefill  time.Duration
 	}
-	storageRoutesOptions   struct{}
+	storageRoutesOptions struct {
+		maxHandles int
+		handleIdle time.Duration
+	}
 	lockRoutesOptions      struct{}
 	peerRoutesOptions      struct{}
 	bootstrapRoutesOptions struct{}

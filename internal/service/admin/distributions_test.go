@@ -93,6 +93,7 @@ func TestDistributionManagerAuthorizesOrigins(t *testing.T) {
 	t.Run("create on an allowed bucket", func(t *testing.T) {
 		e := newDistEnv(t, allowing(t, denyBucket("secret")))
 		d := site()
+		e.dists.EXPECT().List(mock.Anything).Return(nil, nil)
 		e.dists.EXPECT().Create(mock.Anything, d).Return(d, nil)
 		_, err := e.mgr.Create(ctx, admin.SaveDistributionInput{Requester: requesterOf("op"), Distribution: d})
 		require.NoError(t, err)
@@ -123,6 +124,7 @@ func TestDistributionManagerAuthorizesOrigins(t *testing.T) {
 		e := newDistEnv(t, allowAll(t))
 		d := site()
 		e.dists.EXPECT().Get(mock.Anything, "site").Return(d, nil)
+		e.dists.EXPECT().List(mock.Anything).Return([]distribution.Distribution{d}, nil)
 		e.dists.EXPECT().Update(mock.Anything, d, `"e1"`).Return(d, nil)
 		_, err := e.mgr.Update(ctx, admin.SaveDistributionInput{Requester: requesterOf("op"), Distribution: d, IfMatch: `"e1"`})
 		require.NoError(t, err)
@@ -155,6 +157,45 @@ func TestDistributionManagerAuthorizesOrigins(t *testing.T) {
 		e.dists.EXPECT().Get(mock.Anything, "site").Return(site(), nil)
 		e.dists.EXPECT().Delete(mock.Anything, "site").Return(nil)
 		require.NoError(t, e.mgr.Delete(ctx, requesterOf("op"), "site"))
+	})
+	// A more specific alias wins the routing: an exact host or a narrower
+	// wildcard under the wildcard of another distribution takes those
+	// hosts away from it, so it needs the authorization on that
+	// distribution's bucket too (regression: a user allowed on his own
+	// bucket only served his site on app.corp.test of the root's
+	// *.corp.test).
+	t.Run("aliases under the wildcard of another distribution", func(t *testing.T) {
+		corp := distribution.Distribution{ID: "corp", Aliases: []string{"*.corp.test"}, Origin: distribution.Origin{Bucket: "secret"}}
+		for _, aliases := range [][]string{{"app.corp.test"}, {"www.ok.test", "*.x.corp.test"}, {"A.B.CORP.TEST."}} {
+			e := newDistEnv(t, allowing(t, denyBucket("secret")))
+			e.dists.EXPECT().List(mock.Anything).Return([]distribution.Distribution{corp, site()}, nil)
+			shadow := site()
+			shadow.ID, shadow.Aliases = "shadow", aliases
+			_, err := e.mgr.Create(ctx, admin.SaveDistributionInput{Requester: requesterOf("op"), Distribution: shadow})
+			require.ErrorIs(t, err, domain.ErrAccessDenied, "%v", aliases)
+			assert.ErrorContains(t, err, "*.corp.test of distribution corp")
+
+			// The same through an update.
+			e.dists.EXPECT().Get(mock.Anything, "shadow").Return(site(), nil).Once()
+			_, err = e.mgr.Update(ctx, admin.SaveDistributionInput{Requester: requesterOf("op"), Distribution: shadow})
+			require.ErrorIs(t, err, domain.ErrAccessDenied, "%v", aliases)
+		}
+		// Allowed on the wildcard's bucket too (its owner, root): saved.
+		e := newDistEnv(t, allowAll(t))
+		e.dists.EXPECT().List(mock.Anything).Return([]distribution.Distribution{corp}, nil)
+		shadow := site()
+		shadow.ID, shadow.Aliases = "shadow", []string{"app.corp.test"}
+		e.dists.EXPECT().Create(mock.Anything, shadow).Return(shadow, nil)
+		_, err := e.mgr.Create(ctx, admin.SaveDistributionInput{Requester: requesterOf("op"), Distribution: shadow})
+		require.NoError(t, err)
+		// The wildcard's own distribution and unrelated hosts need nothing more.
+		e = newDistEnv(t, allowing(t, denyBucket("secret")))
+		e.dists.EXPECT().List(mock.Anything).Return([]distribution.Distribution{corp}, nil)
+		other := site()
+		other.Aliases = []string{"corp.test", "app.corp.test.example"}
+		e.dists.EXPECT().Create(mock.Anything, other).Return(other, nil)
+		_, err = e.mgr.Create(ctx, admin.SaveDistributionInput{Requester: requesterOf("op"), Distribution: other})
+		require.NoError(t, err)
 	})
 	t.Run("update of an unknown distribution", func(t *testing.T) {
 		e := newDistEnv(t, allowAll(t))

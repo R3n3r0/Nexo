@@ -409,3 +409,41 @@ func TestCrashMidWrite(t *testing.T) {
 		assertNoTmp(t, c.roots)
 	}
 }
+
+// TestMaintenanceIsPerNode: the maintenance margin of the health checks
+// that one more node, with all its drives, can go down without losing the
+// write quorum of a set (regression: one more drive was counted, so a
+// node of two drives was reported safe to stop when it was not).
+func TestMaintenanceIsPerNode(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name        string
+		drives      int
+		nodes       int
+		offline     []int
+		healthy     bool
+		maintenance bool
+		wantDetail  string
+	}{
+		{name: "4 drives on 4 nodes", drives: 4, nodes: 4, healthy: true, maintenance: true},
+		{name: "4 drives on 2 nodes", drives: 4, nodes: 2, healthy: true, wantDetail: "2 of them on one node"},
+		{name: "8 drives on 4 nodes", drives: 8, nodes: 4, healthy: true, maintenance: true},
+		{name: "8 drives on 4 nodes, one node down", drives: 8, nodes: 4, offline: []int{0, 4}, healthy: true},
+		{name: "8 drives on 4 nodes, two nodes down", drives: 8, nodes: 4, offline: []int{0, 4, 1, 5}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newCluster(t, clusterSpec{pools: 1, sets: 1, drives: tc.drives})
+			for i := range c.faults {
+				c.setFaults(func(f *driveFaults) { f.host = fmt.Sprintf("node%d:9000", i%tc.nodes+1) }, i)
+			}
+			c.setFaults(func(f *driveFaults) { f.offline = true }, tc.offline...)
+			assert.Equal(t, tc.healthy, c.svc.Health(ctx, object.HealthOptions{}).Healthy)
+			h := c.svc.Health(ctx, object.HealthOptions{Maintenance: true})
+			assert.Equal(t, tc.maintenance, h.Healthy, h.Message)
+			if tc.wantDetail != "" {
+				assert.Contains(t, h.Message, tc.wantDetail)
+			}
+		})
+	}
+}

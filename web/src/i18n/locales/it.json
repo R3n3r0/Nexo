@@ -715,14 +715,20 @@
     "bucket_not_empty": "Il bucket non è vuoto.",
     "bucket_not_found": "Il bucket non esiste.",
     "conflict": "L'operazione è in conflitto con lo stato attuale.",
+    "disk_not_found": "Un disco necessario alla richiesta è offline: riprova più tardi.",
     "entity_too_large": "Il file è troppo grande.",
+    "faulty_disk": "Un disco necessario alla richiesta è guasto: riprova più tardi.",
     "invalid_bucket_name": "Il nome del bucket non è valido.",
     "invalid_object_name": "Il nome dell'oggetto non è valido.",
+    "lock_timeout": "La risorsa è bloccata da un'altra operazione, oppure troppi nodi sono offline per bloccarla: riprova più tardi o controlla lo stato del cluster.",
     "malformed_policy": "La policy non è valida.",
     "network_error": "Impossibile raggiungere il server.",
+    "node_offline": "Un nodo necessario alla richiesta è offline: riprova più tardi.",
     "object_locked": "L'oggetto è protetto da object lock.",
     "object_not_found": "L'oggetto non esiste.",
-    "quota_exceeded": "La quota del bucket è superata."
+    "quota_exceeded": "La quota del bucket è superata.",
+    "read_quorum": "Il deployment ha perso il quorum di lettura (troppi dischi o nodi offline): controlla lo stato del cluster.",
+    "write_quorum": "Il deployment ha perso il quorum di scrittura (troppi dischi o nodi offline): controlla lo stato del cluster."
   },
   "iam": {
     "status": {

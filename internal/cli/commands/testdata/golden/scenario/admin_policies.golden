@@ -7,11 +7,11 @@ readwrite                built-in 2026-01-02 03:04:05 UTC
 writeonly                built-in 2026-01-02 03:04:05 UTC
 
 $ nexoctl admin policy create mem pub-read bad.json
-! nexoctl: error: bad.json: policy "pub-read": line 4, column 50: invalid JSON: invalid character '"' after object key:value pair (malformed_policy)
+! nexoctl: error: bad.json: policy "pub-read": malformed policy: line 4, column 50: invalid JSON: invalid character '"' after object key:value pair (malformed_policy)
 [exit 1]
 
 $ nexoctl admin policy create mem pub-read bad.json --json
-! {"status":"error","error":{"code":"Error","message":"bad.json: policy \"pub-read\": line 4, column 50: invalid JSON: invalid character '\"' after object key:value pair (malformed_policy)","exitCode":1,"details":[{"statement":0,"line":4,"column":50,"message":"invalid JSON: invalid character '\"' after object key:value pair"}]}}
+! {"status":"error","error":{"code":"Error","message":"bad.json: policy \"pub-read\": malformed policy: line 4, column 50: invalid JSON: invalid character '\"' after object key:value pair (malformed_policy)","exitCode":1,"details":[{"statement":0,"line":4,"column":50,"message":"invalid JSON: invalid character '\"' after object key:value pair"}]}}
 [exit 1]
 
 $ nexoctl admin policy validate mem bad.json
@@ -31,7 +31,7 @@ $ nexoctl admin policy create mem pub-read good.json
 Created policy "pub-read".
 
 $ nexoctl admin policy create mem pub-read good.json
-! nexoctl: error: good.json: policy "pub-read": policy "pub-read" already exists (conflict)
+! nexoctl: error: good.json: policy "pub-read": conflict: policy "pub-read" already exists (conflict)
 [exit 1]
 
 $ nexoctl admin policy create --update mem pub-read -
@@ -121,14 +121,14 @@ $ nexoctl admin policy detach mem pub-read --user alice
 Policies pub-read detached from "alice".
 
 $ nexoctl admin policy detach mem pub-read --user alice
-! nexoctl: error: detach pub-read from user alice: policy "pub-read" is not attached (invalid_argument)
+! nexoctl: error: detach pub-read from user alice: invalid argument: policy "pub-read" is not attached (invalid_argument)
 [exit 1]
 
 $ nexoctl admin policy remove mem pub-read
 Removed policy "pub-read".
 
 $ nexoctl admin policy remove mem readonly
-! nexoctl: error: remove policy "readonly": built-in policy "readonly" cannot be removed (invalid_argument)
+! nexoctl: error: remove policy "readonly": invalid argument: built-in policy "readonly" cannot be removed (invalid_argument)
 [exit 1]
 
 $ nexoctl admin policy info mem pub-read

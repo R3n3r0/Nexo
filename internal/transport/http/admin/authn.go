@@ -155,6 +155,12 @@ func (a *authenticator) cookie(w http.ResponseWriter, r *http.Request, next http
 			problem(a.deps.Enc, w, r, http.StatusForbidden, codeInvalidCSRFToken, "missing or invalid CSRF token")
 			return
 		}
+	} else if liveStream(r.URL.Path) && a.crossOrigin(r) {
+		// The live streams hold resources of the node for as long as they
+		// stay open: only the console opens them (an EventSource sends no
+		// CSRF header, but its Sec-Fetch-Site or Origin tells its page).
+		problem(a.deps.Enc, w, r, http.StatusForbidden, codeInvalidCSRFToken, "the live streams are opened by the console itself")
+		return
 	}
 	identity := sess.Identity
 	ctx := middleware.WithIdentity(middleware.WithSession(r.Context(), sess), &identity)
@@ -262,4 +268,14 @@ func mutating(method string) bool {
 		return false
 	}
 	return true
+}
+
+// liveStream reports the paths of the live streams of the Admin API
+// (Server-Sent Events).
+func liveStream(path string) bool {
+	switch path {
+	case Prefix + "/trace", Prefix + "/logs":
+		return true
+	}
+	return false
 }

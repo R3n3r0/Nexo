@@ -8,7 +8,7 @@ $ nexoctl dist create mem api --bucket data --mode s3 --domain s3.example.com --
 Created the distribution `api` (s3) of `data` on s3.example.com.
 
 $ nexoctl dist create mem clash --bucket web --domain example.com
-! nexoctl: error: distribution "clash": example.com: alias already used by another distribution (alias_conflict)
+! nexoctl: error: distribution "clash": conflict: example.com: alias already used by another distribution (alias_conflict)
 [exit 1]
 
 $ nexoctl dist create mem nobucket --domain x.example.com
@@ -139,7 +139,7 @@ $ nexoctl dist sign-url mem site /index.html --expire 1h
 [exit 1]
 
 $ nexoctl dist keygroup rm mem downloads
-! nexoctl: error: key group "downloads": key group downloads is used by the distribution site (conflict)
+! nexoctl: error: key group "downloads": conflict: key group downloads is used by the distribution site (conflict)
 [exit 1]
 
 $ nexoctl dist origin-secret rotate mem site
@@ -158,7 +158,7 @@ dist-site                upload  valid          2026-04-02 03:04:05 UTC www.exam
 ACME acme-api pending for s3.example.com (distributions api)
 
 $ nexoctl dist cert rm mem dist-site
-! nexoctl: error: certificate "dist-site": certificate dist-site is used by the distributions site (conflict)
+! nexoctl: error: certificate "dist-site": conflict: certificate dist-site is used by the distributions site (conflict)
 [exit 1]
 
 $ nexoctl dist disable mem api

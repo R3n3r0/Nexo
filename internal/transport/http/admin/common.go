@@ -312,6 +312,9 @@ func refinedProblem(err error) (int, string, bool) {
 // in its pattern (accessRuleErrors); the errors of the distributions and
 // certificates get their own codes (refinedProblem).
 func writeError(enc httpx.Encoder, w http.ResponseWriter, r *http.Request, err error) {
+	// The chain of the error goes to the logs of the request, with its
+	// request id; the problem carries the curated detail.
+	httpx.SetOperationError(r.Context(), err)
 	if p, ok := adminsvc.ProblemOf(err); ok {
 		doc := problemDocument{Problem: enc.ProblemFromError(err), Errors: []PolicyErrorResponse{newPolicyErrorResponse(p)}}
 		doc.Status, doc.Code = http.StatusBadRequest, codeMalformedPolicy

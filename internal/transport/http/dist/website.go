@@ -47,7 +47,11 @@ type WebsiteDeps struct {
 // WebsiteOption configures the website routes.
 type WebsiteOption func(*websiteRoutes)
 
-// WithSendTimeout bounds how long a download may stall (default: none).
+// WithSendTimeout bounds how long a download may stall (default
+// httpx.DefaultSendTimeout, like the S3 downloads; <= 0 disables the
+// bound): an anonymous client that stops reading has its response aborted,
+// which releases what the download holds (the read lock of an object of
+// more than 8 parts, the files of a replaced version; docs/02 §2.4).
 func WithSendTimeout(d time.Duration) WebsiteOption {
 	return func(h *websiteRoutes) { h.sendTimeout = d }
 }
@@ -68,7 +72,7 @@ func NewWebsiteRoutes(deps WebsiteDeps, opts ...WebsiteOption) (WebsiteRoutes, e
 	if deps.Logger == nil {
 		deps.Logger = slog.Default()
 	}
-	h := &websiteRoutes{deps: deps}
+	h := &websiteRoutes{deps: deps, sendTimeout: httpx.DefaultSendTimeout}
 	for _, o := range opts {
 		o(h)
 	}
@@ -136,6 +140,9 @@ func (h *websiteRoutes) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.deps.Logger.ErrorContext(ctx, "dist: website request failed", "distribution", route.Distribution.ID, "err", err)
 		writePlain(w, r, http.StatusInternalServerError, "internal error")
 		return
+	}
+	if resp.Bucket != "" {
+		httpx.SetOperationTarget(ctx, resp.Bucket, resp.Key)
 	}
 	h.write(ctx, w, r, resp)
 }

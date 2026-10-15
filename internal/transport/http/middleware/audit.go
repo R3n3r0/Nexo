@@ -103,6 +103,12 @@ func (m *auditMiddleware) Wrap(next http.Handler) http.Handler {
 		if m.opts.typ == AuditTypeAdmin {
 			bucket, object = adminBucket(r.URL.Path), r.URL.Query().Get("key")
 		}
+		if id, ok := callerOf(ctx); bucket == "" && probe(r.URL.Path, id, ok) {
+			// The health probes of the load balancers and of Kubernetes,
+			// and the anonymous scrapes: every few seconds per node, they
+			// would push the requests of the users out of the ring.
+			return
+		}
 		entry := audit.Entry{
 			Version:    audit.EntryVersion,
 			Type:       m.opts.typ,
@@ -156,4 +162,24 @@ func flatten(values map[string][]string) map[string]string {
 		out[k] = strings.Join(v, ",")
 	}
 	return out
+}
+
+// probePrefixes are the paths of the probes the audit leaves out: the
+// health checks, and the metrics scrapes when anonymous (a bearer token is
+// no identity of the request).
+const (
+	healthPrefix  = "/nexo/health/"
+	metricsPrefix = "/nexo/metrics/"
+)
+
+// probe reports a request the audit does not record: a health probe, or an
+// anonymous metrics scrape, outside any bucket.
+func probe(path string, id *domain.Identity, ok bool) bool {
+	switch {
+	case strings.HasPrefix(path, healthPrefix):
+		return true
+	case strings.HasPrefix(path, metricsPrefix):
+		return !authenticated(id, ok)
+	}
+	return false
 }

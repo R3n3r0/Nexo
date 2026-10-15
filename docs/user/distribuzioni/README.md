@@ -41,7 +41,10 @@ distribuzione. Per ogni richiesta Nexo guarda l'header `Host` e sceglie, in ordi
 5. altrimenti l'API S3 path-style, oppure `421 Misdirected Request` con `--unknown-host misdirected`
    (`NEXO_UNKNOWN_HOST`); i listener web dedicati rispondono sempre `421`.
 
-Non si possono usare come alias i domini principali, `NEXO_DOMAIN` e i virtual host di altri bucket.
+Non si possono usare come alias i nomi su cui risponde il deployment: i domini principali, `NEXO_DOMAIN` e i
+virtual host di altri bucket, gli host degli endpoint dei nodi, `localhost` e il nome della macchina (`409`). Un
+dominio sotto la wildcard di un'altra distribuzione (`app.example.com` sotto `*.example.com`) richiede i permessi
+anche sul bucket di quella distribuzione (`403` altrimenti).
 
 ```console
 $ nexoctl dist domain add local sito-web '*.preview.example.com'
@@ -49,10 +52,19 @@ $ nexoctl dist resolve local www.example.it
 www.example.it: distribution `sito` (alias www.example.it, website), bucket sito
 ```
 
-Le distribuzioni rispondono sulla porta S3 (9000) e, se configurati, su due **listener dedicati**:
-`--web-address` (`NEXO_WEB_ADDRESS`, HTTP e challenge ACME HTTP-01) e `--web-tls-address`
-(`NEXO_WEB_TLS_ADDRESS`, HTTPS con i certificati delle distribuzioni scelti per SNI), utili per esporre i siti
-sulle porte 80/443 senza esporre l'API S3.
+Le distribuzioni rispondono su due **listener dedicati**, se configurati: `--web-address` (`NEXO_WEB_ADDRESS`,
+HTTP e challenge ACME HTTP-01) e `--web-tls-address` (`NEXO_WEB_TLS_ADDRESS`, HTTPS con i certificati delle
+distribuzioni scelti per SNI), utili per esporre i siti sulle porte 80/443 senza esporre l'API S3. Sulla porta S3
+(9000) rispondono secondo `--s3-distributions` (`NEXO_S3_DISTRIBUTIONS`): con `auto` (default) solo se il
+deployment dichiara i nomi dell'endpoint S3 con `NEXO_SERVER_URL` o `NEXO_DOMAIN` (come nelle configurazioni di
+[`deploy/proxy`](https://github.com/R3n3r0/Nexo/tree/main/deploy/proxy)), con `on` sempre, con `off` mai. Senza
+nomi dichiarati la porta S3 risponde a qualunque nome la raggiunga (load balancer, alias DNS, nomi di servizio):
+un alias potrebbe coincidere con il nome che i client S3 usano. Sulla porta S3 i percorsi `/nexo/` (sonde di
+salute, metriche, RPC tra i nodi) restano sempre del server, qualunque sia il dominio.
+
+Se una distribuzione impedisce di usare il deployment, avvia i nodi con `--no-distributions`
+(`NEXO_NO_DISTRIBUTIONS=true`): nessun dominio viene instradato, l'Admin API funziona e la distribuzione si
+corregge o si rimuove (`nexoctl dist remove`); poi riavvia senza l'opzione.
 
 ## Behavior e accesso
 

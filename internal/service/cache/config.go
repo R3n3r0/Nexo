@@ -488,7 +488,7 @@ func (s *service) savePolicy(ctx context.Context, p Policy, create bool, ifMatch
 	case !create && !exists:
 		return Policy{}, fmt.Errorf("%w: %s", ErrPolicyNotFound, p.Name)
 	case !create && ifMatch != "" && strings.Trim(ifMatch, `"`) != cur.ETag:
-		return Policy{}, fmt.Errorf("policy %s changed (ETag %s): %w", p.Name, cur.ETag, domain.ErrPreconditionFailed)
+		return Policy{}, fmt.Errorf("%w: policy %s changed (ETag %s)", domain.ErrPreconditionFailed, p.Name, cur.ETag)
 	}
 	p.UpdatedAt = s.deps.Clock.Now().UTC()
 	p.ETag = ""
@@ -599,7 +599,7 @@ func (s *service) UpdateGlobal(ctx context.Context, g GlobalConfig, ifMatch stri
 		return GlobalConfig{}, err
 	}
 	if ifMatch != "" && strings.Trim(ifMatch, `"`) != cur.ETag {
-		return GlobalConfig{}, fmt.Errorf("cache global settings changed (ETag %s): %w", cur.ETag, domain.ErrPreconditionFailed)
+		return GlobalConfig{}, fmt.Errorf("%w: cache global settings changed (ETag %s)", domain.ErrPreconditionFailed, cur.ETag)
 	}
 	if g.Debug != nil && g.Debug.Secret == secretMask && cur.Debug != nil {
 		g.Debug.Secret = cur.Debug.Secret
@@ -666,7 +666,7 @@ func (s *service) UpdateDistribution(ctx context.Context, cfg DistributionConfig
 		return DistributionConfig{}, err
 	}
 	if ifMatch != "" && strings.Trim(ifMatch, `"`) != cur.ETag {
-		return DistributionConfig{}, fmt.Errorf("cache settings of %s changed (ETag %s): %w", cfg.Distribution, cur.ETag, domain.ErrPreconditionFailed)
+		return DistributionConfig{}, fmt.Errorf("%w: cache settings of %s changed (ETag %s)", domain.ErrPreconditionFailed, cfg.Distribution, cur.ETag)
 	}
 	if err := keepSecrets(&cfg, cur); err != nil {
 		return DistributionConfig{}, err

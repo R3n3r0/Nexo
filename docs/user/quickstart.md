@@ -72,11 +72,14 @@ $ nexoctl alias set local http://localhost:9000 admin supersegreta
 Added alias "local" for http://localhost:9000 (credentials verified).
 
 $ nexoctl admin info local
-local  Nexo 1.0.0 (commit …)
+local  Nexo v1.0.0 (commit 2558bd3, built 2026-10-08T12:00:00Z)
 Mode: snsd  Region: us-east-1  Deployment: db114646-23ae-4596-966e-a3ed2ef8248f
 Uptime: 8s  Buckets: 0  Objects: 0  Usage: 0B
 Pool 1: 1 set(s) of 1 drive(s), parity 0, quorum read 1 write 1
-…
+  set 1  ok  1 of 1 drive(s) online
+Nodes: 1 online, 0 offline
+  local  online  version v1.0.0  uptime 8s  1 drive(s)  (this node)
+    /data  online  used 1.2GiB of 50.0GiB (free 48.8GiB)
 ```
 
 Con Docker usa la CLI del container: `docker exec nexo /nexoctl alias set local http://localhost:9000 admin supersegreta`

@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/storage"
 	"github.com/r3n3r0/nexo/internal/service/topology"
@@ -54,6 +57,17 @@ type (
 		Volume, Path   string
 		Offset, Length int64
 	}
+	openFileReply struct {
+		Handle string
+		Size   int64
+	}
+	readHandleArgs struct {
+		Handle         string
+		Offset, Length int64
+	}
+	handleArgs struct {
+		Handle string
+	}
 	renameDataArgs struct {
 		SrcVolume, SrcPath string
 		FI                 storage.FileInfo
@@ -68,6 +82,13 @@ type (
 	}
 	pathArgs struct {
 		Volume, Path string
+	}
+	// openFileArgs names the file and the process of the caller (its
+	// boot id, empty from a peer that sends none): the handles of an
+	// earlier process of the caller are closed (handleTable.forgetLocked).
+	openFileArgs struct {
+		Volume, Path string
+		Boot         string
 	}
 	writeAllArgs struct {
 		Volume, Path string
@@ -106,20 +127,31 @@ type StorageRoutesDeps struct {
 	// the deployment of its callers, before its own bootstrap reads the
 	// formats.
 	Auth Authenticator
+	// Clock times out the idle file handles (default the real clock).
+	Clock clock.Clock
 }
 
 // storageRoutes implements StorageRoutes.
 type storageRoutes struct {
-	drives map[string]storage.StorageAPI
-	auth   Authenticator
+	drives  map[string]storage.StorageAPI
+	auth    Authenticator
+	handles *handleTable
+
+	lifeMu sync.Mutex
+	cancel context.CancelFunc
+	done   chan struct{}
 }
 
 var _ StorageRoutes = (*storageRoutes)(nil)
 
 // NewStorageRoutes exposes the local drives to the other nodes.
 func NewStorageRoutes(deps StorageRoutesDeps, opts ...StorageRoutesOption) (StorageRoutes, error) {
-	_ = apply(opts)
-	h := &storageRoutes{drives: make(map[string]storage.StorageAPI, len(deps.Drives)), auth: deps.Auth}
+	o := apply(append([]StorageRoutesOption{WithFileHandles(defaultMaxHandles, defaultHandleIdle)}, opts...))
+	if deps.Clock == nil {
+		deps.Clock = clock.NewReal()
+	}
+	h := &storageRoutes{drives: make(map[string]storage.StorageAPI, len(deps.Drives)), auth: deps.Auth,
+		handles: newHandleTable(deps.Clock, o.maxHandles, o.handleIdle)}
 	for _, d := range deps.Drives {
 		if d == nil {
 			continue
@@ -228,6 +260,40 @@ func (h *storageRoutes) Register(r chi.Router) {
 			}
 			return d.ReadFileStream(ctx, in.Volume, in.Path, in.Offset, in.Length)
 		}))
+		// The file handles of the reads that released their lock: the
+		// peer opens the shards, streams them at any offset, closes them.
+		r.Post("/open-file", on(h, func(ctx context.Context, d storage.StorageAPI, in openFileArgs) (openFileReply, error) {
+			fh, err := d.OpenFile(ctx, in.Volume, in.Path)
+			if err != nil {
+				return openFileReply{}, err
+			}
+			caller, _ := CallerFromContext(ctx)
+			id, err := h.handles.add(ctx, d.Endpoint().Path, caller.NodeID, in.Boot, fh)
+			if err != nil {
+				return openFileReply{}, err
+			}
+			return openFileReply{Handle: id, Size: fh.Size()}, nil
+		}))
+		r.Post("/read-handle", download(func(ctx context.Context, in readHandleArgs) (io.ReadCloser, error) {
+			d, err := h.drive(ctx)
+			if err != nil {
+				return nil, err
+			}
+			fh, release, err := h.handles.acquire(d.Endpoint().Path, in.Handle)
+			if err != nil {
+				return nil, err
+			}
+			// The handle is in use (never idle) while its stream is read.
+			rc, err := fh.ReadStream(ctx, in.Offset, in.Length)
+			if err != nil {
+				release()
+				return nil, err
+			}
+			return &releasingReader{ReadCloser: rc, release: release}, nil
+		}))
+		r.Post("/close-handle", on(h, func(ctx context.Context, d storage.StorageAPI, in handleArgs) (empty, error) {
+			return empty{}, h.handles.remove(ctx, d.Endpoint().Path, in.Handle)
+		}))
 		r.Post("/rename-data", on(h, func(ctx context.Context, d storage.StorageAPI, in renameDataArgs) (storage.RenameDataResult, error) {
 			return d.RenameData(ctx, in.SrcVolume, in.SrcPath, in.FI, in.DstVolume, in.DstPath, in.Opts)
 		}))
@@ -295,4 +361,49 @@ var errRestricted = fmt.Errorf("%w: rpc: the deployment of the call is not estab
 func restricted(ctx context.Context) bool {
 	c, ok := CallerFromContext(ctx)
 	return !ok || c.Unbound || c.Unverified
+}
+
+// Start implements lifecycle.Runner: the handles the peers forgot are
+// closed once idle for the timeout, even when no peer opens a new one.
+func (h *storageRoutes) Start(ctx context.Context) error {
+	h.lifeMu.Lock()
+	defer h.lifeMu.Unlock()
+	if h.cancel != nil {
+		return nil
+	}
+	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	h.cancel, h.done = cancel, make(chan struct{})
+	go func(done chan<- struct{}) {
+		defer close(done)
+		ticker := time.NewTicker(sweepInterval(h.handles.idle))
+		defer ticker.Stop()
+		for {
+			select {
+			case <-runCtx.Done():
+				return
+			case <-ticker.C:
+				h.handles.sweep(runCtx)
+			}
+		}
+	}(h.done)
+	return nil
+}
+
+// Stop implements lifecycle.Runner: the sweep ends and every handle is
+// closed (the node stops serving its peers).
+func (h *storageRoutes) Stop(ctx context.Context) error {
+	h.lifeMu.Lock()
+	cancel, done := h.cancel, h.done
+	h.cancel, h.done = nil, nil
+	h.lifeMu.Unlock()
+	if cancel != nil {
+		cancel()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	h.handles.closeEvery(ctx)
+	return nil
 }

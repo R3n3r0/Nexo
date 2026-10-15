@@ -336,25 +336,34 @@ func (k *keystore) load() (*material, error) {
 	}
 	sort.Slice(m.named, func(i, j int) bool { return m.named[i].info.Name < m.named[j].info.Name })
 
-	trusted, err := k.loadCAs(sig, watch)
+	cas, err := k.loadCAs(sig, watch)
 	if err != nil {
 		return nil, err
 	}
-	trusted = append(trusted, m.def.cert.Leaf)
-	for _, der := range m.def.cert.Certificate[1:] {
-		if c, err := x509.ParseCertificate(der); err == nil {
-			trusted = append(trusted, c)
-		}
-	}
+	// The peers as clients (mutual TLS): the CAs of CAs/ and the default
+	// certificate itself (a cluster sharing one certificate), never the
+	// issuers of the chain of public.crt: an intermediate there would
+	// accept every certificate it issued, to anybody.
 	m.clientCAs = x509.NewCertPool()
+	for _, c := range cas {
+		m.clientCAs.AddCert(c)
+	}
+	m.clientCAs.AddCert(m.def.cert.Leaf)
+	// The peers as servers: the system roots, CAs/ and the chain of
+	// public.crt.
 	m.rootCAs = x509.NewCertPool()
 	if k.opts.systemRoots {
 		if sys, err := x509.SystemCertPool(); err == nil && sys != nil {
 			m.rootCAs = sys
 		}
 	}
+	trusted := append(slices.Clone(cas), m.def.cert.Leaf)
+	for _, der := range m.def.cert.Certificate[1:] {
+		if c, err := x509.ParseCertificate(der); err == nil {
+			trusted = append(trusted, c)
+		}
+	}
 	for _, c := range trusted {
-		m.clientCAs.AddCert(c)
 		m.rootCAs.AddCert(c)
 	}
 	m.signature = sig.sum()
@@ -600,10 +609,26 @@ func (k *keystore) Start(ctx context.Context) error {
 			watcher = nil
 		}
 	}
+	// The watches are registered before Start returns: a rotation right
+	// after Start (a renewal at boot, a test) is noticed by the events
+	// and not only by the next poll.
+	watched := map[string]bool{}
+	if watcher != nil {
+		k.syncWatches(ctx, watcher, watched)
+	}
+	// A change between the load of Build and the registration of the
+	// watches produced no event: the material is compared with the files
+	// once the watches are in place.
+	if k.scan() != k.cur.Load().signature {
+		_ = k.Reload(ctx)
+		if watcher != nil {
+			k.syncWatches(ctx, watcher, watched)
+		}
+	}
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	k.cancel = cancel
 	k.done = make(chan struct{})
-	go k.run(runCtx, watcher, k.done)
+	go k.run(runCtx, watcher, watched, k.done)
 	return nil
 }
 
@@ -626,16 +651,15 @@ func (k *keystore) Stop(ctx context.Context) error {
 }
 
 // run reloads the material after the file events (debounced) and when the
-// poller sees the files change.
-func (k *keystore) run(ctx context.Context, watcher *fsnotify.Watcher, done chan<- struct{}) {
+// poller sees the files change; watched are the directories Start already
+// watches.
+func (k *keystore) run(ctx context.Context, watcher *fsnotify.Watcher, watched map[string]bool, done chan<- struct{}) {
 	defer close(done)
 	var events <-chan fsnotify.Event
 	var errs <-chan error
-	watched := map[string]bool{}
 	if watcher != nil {
 		defer func() { _ = watcher.Close() }()
 		events, errs = watcher.Events, watcher.Errors
-		k.syncWatches(ctx, watcher, watched)
 	}
 	var poll <-chan time.Time
 	if k.opts.poll > 0 {

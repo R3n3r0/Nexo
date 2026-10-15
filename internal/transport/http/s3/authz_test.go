@@ -283,7 +283,7 @@ func TestAuthorizationIdentities(t *testing.T) {
 	t.Run("bucket policy lookup failure", func(t *testing.T) {
 		f := newFixture(t, asIdentity(&domain.Identity{AccessKey: "alice"}), withStrictPolicy())
 		f.policy.EXPECT().Evaluate(mock.Anything, mock.Anything).Return(policy.Decision{}, domain.ErrReadQuorum).Once()
-		requireError(t, f.do(http.MethodGet, "/b", ""), http.StatusServiceUnavailable, "SlowDown")
+		requireError(t, f.do(http.MethodGet, "/b", ""), http.StatusServiceUnavailable, "SlowDownRead")
 	})
 	t.Run("unreadable bucket policy fails closed", func(t *testing.T) {
 		f := newFixture(t, asIdentity(&domain.Identity{AccessKey: "alice"}), withStrictPolicy())
@@ -334,7 +334,7 @@ func TestDeleteObjectsAuthorizesEveryKey(t *testing.T) {
 	f.policy.EXPECT().Evaluate(mock.Anything, mock.Anything).Return(policy.Decision{}, domain.ErrReadQuorum).Once()
 	rec = f.do(http.MethodPost, "/b?delete", `<Delete><Object><Key>x</Key></Object></Delete>`)
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "<Code>SlowDown</Code>")
+	assert.Contains(t, rec.Body.String(), "<Code>SlowDownRead</Code>")
 }
 
 func TestPostObjectAuthorizesTheSigner(t *testing.T) {

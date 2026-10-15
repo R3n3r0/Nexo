@@ -10,7 +10,7 @@ $ nexoctl admin kms key create mem app-key
 Created the KMS key "app-key".
 
 $ nexoctl admin kms key create mem app-key
-! nexoctl: error: create KMS key "app-key": kms key app-key already exists (conflict)
+! nexoctl: error: create KMS key "app-key": conflict: kms key app-key already exists (conflict)
 [exit 1]
 
 $ nexoctl admin kms key ls --json mem app
@@ -53,7 +53,7 @@ $ nexoctl quota info --json mem/docs
 {"status":"success","target":"mem/docs","bucket":"docs","type":"hard","size":1048576,"used":786432,"objects":3}
 
 $ nexoctl admin kms status mem
-! nexoctl: error: server side encryption specified but KMS is not configured (not_implemented)
+! nexoctl: error: not implemented: server side encryption specified but KMS is not configured (not_implemented)
 [exit 1]
 
 $ nexoctl admin kms status mem

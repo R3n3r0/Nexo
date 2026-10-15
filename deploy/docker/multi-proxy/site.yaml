@@ -1,7 +1,7 @@
 # Distributions of compose.multi-proxy.yml, one per mode, each served by
 # both proxies on a domain of each (docs/10 §10.2):
 #
-#   nexoctl alias set local https://s3.alpha.example:8443 admin change-me-please
+#   nexoctl alias set local https://s3.alpha.example:8443 admin "$NEXO_ROOT_PASSWORD"
 #   nexoctl mb local/web && nexoctl cp index.html local/web/
 #   nexoctl mb local/files
 #   nexoctl dist import local multi-proxy/site.yaml

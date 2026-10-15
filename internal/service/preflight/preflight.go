@@ -1,9 +1,11 @@
 package preflight
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -11,6 +13,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/r3n3r0/nexo/internal/clock"
@@ -75,7 +78,9 @@ func New(deps Deps, opts ...Option) (Service, error) {
 func (s *service) Check(ctx context.Context, in Input) (*Report, error) {
 	layout, err := s.deps.Topology.Parse(ctx, in.Endpoints)
 	if err != nil {
-		return nil, fmt.Errorf("topology: %w", err)
+		// The errors of the topology name it already ("invalid
+		// argument: topology: drive path must be absolute").
+		return nil, err
 	}
 	rep := &Report{Mode: layout.Mode, NodeID: "local", Nodes: len(layout.Nodes), Pools: layout.PoolInfos()}
 	if n, ok := layout.LocalNode(); ok && layout.Mode == domain.ModeDistributed {
@@ -90,13 +95,46 @@ func (s *service) Check(ctx context.Context, in Input) (*Report, error) {
 		}
 	}
 	if in.CertsDir != "" {
-		warn, err := s.checkCertificates(in.CertsDir)
+		warn, err := s.checkCertificates(in.CertsDir, in.InternodeVerify)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("certificates: %w", err))
 		}
 		rep.Warnings = append(rep.Warnings, warn...)
 	}
+	if in.ACMECACert != "" {
+		if err := checkCACertificates(in.ACMECACert); err != nil {
+			errs = append(errs, fmt.Errorf("acme CA certificate: %w", err))
+		}
+	}
 	return rep, errors.Join(errs...)
+}
+
+// checkCACertificates verifies that file holds at least one PEM
+// certificate, and that every PEM certificate in it parses.
+func checkCACertificates(file string) error {
+	data, err := os.ReadFile(file) // #nosec G304 -- a certificate file named by the operator's configuration
+	if err != nil {
+		return err
+	}
+	n := 0
+	for {
+		var block *pem.Block
+		block, data = pem.Decode(data)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		if _, err := x509.ParseCertificate(block.Bytes); err != nil {
+			return fmt.Errorf("%w: %s: %v", domain.ErrInvalidArgument, file, err)
+		}
+		n++
+	}
+	if n == 0 {
+		return fmt.Errorf("%w: %s holds no PEM certificate", domain.ErrInvalidArgument, file)
+	}
+	return nil
 }
 
 // checkStorageClasses verifies that the parities of the storage classes
@@ -222,8 +260,9 @@ func checkListen(ctx context.Context, addr string) error {
 }
 
 // checkCertificates verifies the TLS key pair of dir and returns the
-// warnings (a certificate expiring soon).
-func (s *service) checkCertificates(dir string) ([]string, error) {
+// warnings (a certificate expiring soon; with internodeVerify, a leaf
+// issued by a CA that CAs/ does not hold).
+func (s *service) checkCertificates(dir string, internodeVerify bool) ([]string, error) {
 	pair, err := tls.LoadX509KeyPair(filepath.Join(dir, "public.crt"), filepath.Join(dir, "private.key"))
 	if err != nil {
 		return nil, err
@@ -238,8 +277,38 @@ func (s *service) checkCertificates(dir string) ([]string, error) {
 		return nil, fmt.Errorf("%w: the certificate %q expired on %s", domain.ErrInvalidArgument, leaf.Subject.CommonName, leaf.NotAfter.Format(time.RFC3339))
 	case now.Before(leaf.NotBefore):
 		return nil, fmt.Errorf("%w: the certificate %q is valid from %s", domain.ErrInvalidArgument, leaf.Subject.CommonName, leaf.NotBefore.Format(time.RFC3339))
-	case leaf.NotAfter.Sub(now) < s.certWarning:
-		return []string{fmt.Sprintf("the certificate %q expires on %s", leaf.Subject.CommonName, leaf.NotAfter.Format(time.RFC3339))}, nil
 	}
-	return nil, nil
+	var warnings []string
+	if leaf.NotAfter.Sub(now) < s.certWarning {
+		warnings = append(warnings, fmt.Sprintf("the certificate %q expires on %s", leaf.Subject.CommonName, leaf.NotAfter.Format(time.RFC3339)))
+	}
+	if internodeVerify && !selfSigned(leaf) && !hasCAs(filepath.Join(dir, caDir)) {
+		warnings = append(warnings, fmt.Sprintf("--tls-internode-verify: %s/ holds no CA, so the nodes whose certificate is issued by %q "+
+			"are refused (the client certificates of the nodes are verified with the CAs of %s/ only): copy that CA into %s/ on every node",
+			caDir, leaf.Issuer.CommonName, caDir, filepath.Join(dir, caDir)))
+	}
+	return warnings, nil
+}
+
+// caDir is the directory of the CAs trusted for the peers, in the
+// certificates directory (certs.CAsDir).
+const caDir = "CAs"
+
+// selfSigned reports a certificate signed by its own key.
+func selfSigned(c *x509.Certificate) bool {
+	return bytes.Equal(c.RawIssuer, c.RawSubject) && c.CheckSignature(c.SignatureAlgorithm, c.RawTBSCertificate, c.Signature) == nil
+}
+
+// hasCAs reports a directory holding at least one file (not hidden).
+func hasCAs(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+			return true
+		}
+	}
+	return false
 }

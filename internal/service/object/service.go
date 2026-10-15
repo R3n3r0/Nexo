@@ -698,7 +698,8 @@ type ObjectAttributes struct {
 
 // HealthOptions tunes Health.
 type HealthOptions struct {
-	// Maintenance checks whether one more drive/node can go down safely.
+	// Maintenance checks whether one more node (all its drives) can go
+	// down without losing the write quorum of any set.
 	Maintenance bool
 }
 

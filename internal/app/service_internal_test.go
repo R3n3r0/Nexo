@@ -73,16 +73,42 @@ func freeAddr(t *testing.T) string {
 	return net.JoinHostPort("127.0.0.1", strconv.Itoa(l.Addr().(*net.TCPAddr).Port))
 }
 
-// TestRunRestartsOnServiceRestart drives POST /service/restart through the
-// admin service of a running App: Run stops every component and serves
-// again from the same configuration, then stops on cancellation.
-func TestRunRestartsOnServiceRestart(t *testing.T) {
+// startCounter is a slog.Handler counting the starts of the application
+// ("nexo started"): the instance that answers is the restarted one only
+// once there were two.
+type startCounter struct{ starts *atomic.Int32 }
+
+func (startCounter) Enabled(context.Context, slog.Level) bool { return true }
+
+func (c startCounter) Handle(_ context.Context, r slog.Record) error {
+	if r.Message == "nexo started" {
+		c.starts.Add(1)
+	}
+	return nil
+}
+
+func (c startCounter) WithAttrs([]slog.Attr) slog.Handler { return c }
+func (c startCounter) WithGroup(string) slog.Handler      { return c }
+
+// buildRestartable builds a single-drive App on free loopback ports whose
+// starts are counted.
+func buildRestartable(t *testing.T) (*App, config.Static, *atomic.Int32) {
+	t.Helper()
 	cfg := config.Default()
 	cfg.RootUser, cfg.RootPassword = "admin", "password123"
 	cfg.Endpoints = []string{filepath.Join(t.TempDir(), "data")}
 	cfg.Address, cfg.ConsoleAddress = freeAddr(t), freeAddr(t)
-	a, err := Build(context.Background(), cfg, WithLogger(slog.New(slog.DiscardHandler)), WithStopTimeout(5*time.Second))
+	starts := &atomic.Int32{}
+	a, err := Build(context.Background(), cfg, WithLogger(slog.New(startCounter{starts: starts})), WithStopTimeout(5*time.Second))
 	require.NoError(t, err)
+	return a, cfg, starts
+}
+
+// TestRunRestartsOnServiceRestart drives POST /service/restart through the
+// admin service of a running App: Run stops every component and serves
+// again from the same configuration, then stops on cancellation.
+func TestRunRestartsOnServiceRestart(t *testing.T) {
+	a, cfg, starts := buildRestartable(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -102,8 +128,32 @@ func TestRunRestartsOnServiceRestart(t *testing.T) {
 	adm := adminsvc.New(adminsvc.Deps{Actions: processActions{running: a.running, signal: signalSelf, restart: a.requestRestart}})
 	require.NoError(t, adm.ServiceAction(context.Background(), adminsvc.ActionRestart))
 	require.Eventually(t, func() bool { return !a.running.Load() }, 10*time.Second, 5*time.Millisecond, "the first instance stops")
+	// Not the first instance still closing its listeners (regression: the
+	// test canceled Run during the restart).
+	require.Eventually(t, func() bool { return starts.Load() == 2 }, 10*time.Second, 5*time.Millisecond, "the application starts again")
 	require.Eventually(t, ready, 10*time.Second, 20*time.Millisecond, "the restarted instance serves again")
 
+	cancel()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(15 * time.Second):
+		t.Fatal("Run did not return")
+	}
+}
+
+// TestRunShutdownDuringRestart: a shutdown requested while the application
+// restarts (SIGTERM, a canceled context) stops it without an error
+// (regression: Run returned "app: restart: ... context canceled").
+func TestRunShutdownDuringRestart(t *testing.T) {
+	a, _, _ := buildRestartable(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- a.Run(ctx) }()
+	require.Eventually(t, a.running.Load, 10*time.Second, 10*time.Millisecond)
+
+	require.NoError(t, a.requestRestart())
+	require.Eventually(t, func() bool { return !a.running.Load() }, 10*time.Second, time.Millisecond, "the restart begins")
 	cancel()
 	select {
 	case err := <-done:

@@ -10,11 +10,11 @@ $ nexoctl cache policy create mem short --ttl-default 10m --ttl-max 1d --browser
 Created the cache policy `short` (Cache-Control public, max-age=600).
 
 $ nexoctl cache policy create mem short
-! nexoctl: error: cache policy "short": already exists: policy short (already_exists)
+! nexoctl: error: cache policy "short": conflict: already exists: policy short (already_exists)
 [exit 1]
 
 $ nexoctl cache policy create mem bad --ttl-default 1d --ttl-max 1h
-! nexoctl: error: cache policy "bad": invalid cache configuration: ttl.default 1d is above ttl.max 1h (invalid_cache_request)
+! nexoctl: error: cache policy "bad": invalid argument: invalid cache configuration: ttl.default 1d is above ttl.max 1h (invalid_cache_request)
 [exit 1]
 
 $ nexoctl cache policy create mem badquery --query maybe
@@ -43,7 +43,7 @@ $ nexoctl cache policy edit mem short
 [exit 2]
 
 $ nexoctl cache policy edit mem standard --ttl-max 1d
-! nexoctl: error: cache policy "standard": built-in cache policy: standard (builtin_cache_policy)
+! nexoctl: error: cache policy "standard": conflict: built-in cache policy: standard (builtin_cache_policy)
 [exit 1]
 
 $ nexoctl cache policy info mem nope
@@ -78,7 +78,7 @@ $ nexoctl dist cache set mem site --auto-invalidate=false --warm-on-write /asset
 Cache of `site`, distribution: auto-invalidate no.
 
 $ nexoctl dist cache set mem site --domain other.test --disable
-! nexoctl: error: cache of distribution "site": invalid cache configuration: domains[2]: "other.test" is not a domain of site (invalid_cache_request)
+! nexoctl: error: cache of distribution "site": invalid argument: invalid cache configuration: domains[2]: "other.test" is not a domain of site (invalid_cache_request)
 [exit 1]
 
 $ nexoctl dist cache set mem site --domain www.site.test
@@ -139,7 +139,7 @@ Cache-Control: (the one of the object)
 Node mem: not cached
 
 $ nexoctl cache inspect mem /index.html
-! nexoctl: error: /index.html: "/index.html" is not an http(s) URL (a path needs its distribution) (invalid_argument)
+! nexoctl: error: /index.html: invalid argument: "/index.html" is not an http(s) URL (a path needs its distribution) (invalid_argument)
 [exit 1]
 
 $ nexoctl cache purge mem site --domain www.site.test /assets/** --soft
@@ -270,7 +270,7 @@ $ nexoctl cache webhook add mem site --type generic --id down --url http://unrea
 Added the purge webhook `down` (generic) of `site` for every domain.
 
 $ nexoctl cache webhook add mem site --type cloudflare
-! nexoctl: error: distribution "site": invalid cache configuration: a cloudflare webhook needs zone and token (invalid_cache_request)
+! nexoctl: error: distribution "site": invalid argument: invalid cache configuration: a cloudflare webhook needs zone and token (invalid_cache_request)
 [exit 1]
 
 $ nexoctl cache webhook add mem site --zone z1
@@ -366,7 +366,7 @@ $ nexoctl dist cache import mem cache.yaml
 Cache settings of `site` imported.
 
 $ nexoctl cache policy rm mem short
-! nexoctl: error: cache policy "short": cache policy in use: short is used by distribution site (cache_policy_in_use)
+! nexoctl: error: cache policy "short": conflict: cache policy in use: short is used by distribution site (cache_policy_in_use)
 [exit 1]
 
 $ nexoctl dist cache set mem site --domain www.site.test --reset --policy aggressive
@@ -376,6 +376,6 @@ $ nexoctl cache policy rm mem short
 Removed the cache policy `short`.
 
 $ nexoctl cache policy rm mem standard
-! nexoctl: error: cache policy "standard": built-in cache policy: standard (builtin_cache_policy)
+! nexoctl: error: cache policy "standard": conflict: built-in cache policy: standard (builtin_cache_policy)
 [exit 1]
 

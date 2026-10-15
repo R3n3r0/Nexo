@@ -80,8 +80,13 @@ NEXO_ROOT_USER=admin NEXO_ROOT_PASSWORD='<uguale su tutti i nodi>' \
 All'avvio i nodi si cercano (**bootstrap**): verificano che topologia, versione e configurazione KMS
 coincidano, attendono il quorum dei dischi di ogni set e formattano i dischi nuovi. Finché il bootstrap non
 è completo un nodo risponde `503` (anche `/nexo/health/ready`), quindi i nodi possono partire in qualsiasi
-ordine. Un nodo avviato con argomenti diversi dalla maggioranza non entra nel cluster ed esce con un
-errore che elenca le differenze.
+ordine. Il primo nodo dell'elenco formatta il deployment appena raggiunge il quorum; un nodo che parte dopo
+che gli altri lo hanno già formattato formatta i propri dischi, registra a livello INFO
+`drive joined a fresh deployment, healing its system configuration` e copia la configurazione già scritta
+dagli altri: non è un guasto (i dischi sostituiti di un deployment con dati sono invece segnalati con un WARN).
+Un nodo avviato con argomenti diversi dalla maggioranza non entra nel cluster ed esce con un errore che
+elenca i nodi in disaccordo e, per ciascuno, gli endpoint presenti solo sulla riga di comando di questo nodo
+(`only on this node`) o solo su quella del nodo in disaccordo (`only on that node`).
 
 Tutti i nodi sono simmetrici: qualsiasi nodo serve qualsiasi richiesta S3 o della console, quindi davanti
 si mette un load balancer (vedi `deploy/docker/nginx.conf` e

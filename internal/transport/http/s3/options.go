@@ -18,7 +18,7 @@ type options struct {
 	// domains enable virtual-host style requests.
 	domains []string
 	// hostBuckets resolves the custom hosts aliasing a bucket.
-	hostBuckets HostBuckets
+	hostBuckets httpx.HostBucketResolver
 	// publicMetrics serves the metrics endpoints without authentication.
 	publicMetrics bool
 	// insecureSSEC accepts SSE-C keys over plain HTTP.
@@ -86,15 +86,9 @@ func WithSendTimeout(d time.Duration) Option {
 	return func(o *options) { o.sendTimeout = d }
 }
 
-// HostBuckets returns the bucket a host addresses as a custom S3 endpoint
-// (the alias of a distribution in the s3 mode, docs/10 §10.2): the path
-// of such a request is the object key, as for a virtual host. The host is
-// the one the client addressed (middleware.HostOf), with its port.
-type HostBuckets func(host string) (bucket string, ok bool)
-
 // WithHostBuckets resolves the custom hosts of the buckets before the
 // virtual-host domains (the lifecycle and notification middlewares must
-// resolve the requests like the API: pass them the same function).
-func WithHostBuckets(fn HostBuckets) Option {
-	return func(o *options) { o.hostBuckets = fn }
+// resolve the requests like the API: pass them the same resolver).
+func WithHostBuckets(r httpx.HostBucketResolver) Option {
+	return func(o *options) { o.hostBuckets = r }
 }

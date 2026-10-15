@@ -310,6 +310,39 @@ func TestCSRFRefusesOtherOrigins(t *testing.T) {
 		req.Header.Set("Sec-Fetch-Site", "same-site")
 		assert.Equal(t, http.StatusOK, c.serve(req).Code)
 	})
+	// The side effects of a GET a page of the same site can send with the
+	// cookie (an <img>, an EventSource): the profile is a POST, the live
+	// streams need the console's origin (regression: a same-site page
+	// started profiles of up to two minutes in the session of an admin).
+	t.Run("profile is no GET", func(t *testing.T) {
+		f := newFixture(t)
+		c := f.root(t)
+		req := c.newRequest(http.MethodGet, "/profile?type=block&seconds=3", nil)
+		req.Header.Set("Sec-Fetch-Site", "same-site")
+		assert.Equal(t, http.StatusMethodNotAllowed, c.serve(req).Code)
+		req = c.newRequest(http.MethodPost, "/profile?type=block&seconds=3", nil)
+		req.Header.Del(session.CSRFHeader)
+		req.Header.Set("Sec-Fetch-Site", "same-origin")
+		rec := c.serve(req)
+		assert.Equal(t, http.StatusForbidden, rec.Code, "the CSRF token is required")
+		assert.Equal(t, "invalid_csrf_token", problemOf(t, rec).Code)
+	})
+	t.Run("live streams need the console origin", func(t *testing.T) {
+		f := newFixture(t)
+		c := f.root(t)
+		for _, path := range []string{"/trace", "/logs"} {
+			for _, site := range []string{"same-site", "cross-site", "none"} {
+				req := c.newRequest(http.MethodGet, path, nil)
+				req.Header.Set("Sec-Fetch-Site", site)
+				rec := c.serve(req)
+				assert.Equal(t, http.StatusForbidden, rec.Code, "%s from a %s page", path, site)
+			}
+			req := c.newRequest(http.MethodGet, path, nil)
+			req.Host = "console.local:9001"
+			req.Header.Set("Origin", "http://console.local:9000")
+			assert.Equal(t, http.StatusForbidden, c.serve(req).Code, "%s from another port", path)
+		}
+	})
 	t.Run("signed requests are not affected", func(t *testing.T) {
 		f := newFixture(t)
 		f.buckets.EXPECT().Create(mock.Anything, mock.Anything).Return(&adminsvc.BucketSummary{Info: domain.BucketInfo{Bucket: domain.Bucket{Name: "b1"}}}, nil).Once()

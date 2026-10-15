@@ -14,6 +14,7 @@ import type {
   Route,
 } from '@/services';
 
+import { isIpOrCidr } from './accessRules';
 import { compileKeyPattern } from './keyPattern';
 
 /** Methods a behavior may allow (POST and PUT only on signed website behaviors). */
@@ -225,6 +226,16 @@ export function newDistribution(): Distribution {
     defaultBehavior: { access: 'public', indexDocument: 'index.html' },
     tls: { certificate: 'none' },
   };
+}
+
+/**
+ * The entries of the client address lists of a distribution that are
+ * neither an IP address nor a CIDR (the server refuses them): the draft is
+ * not saved while there are some.
+ */
+export function invalidSourceIps(d: Distribution): string[] {
+  const ip = d.restrictions?.sourceIp;
+  return [...(ip?.allow ?? []), ...(ip?.deny ?? [])].filter((v) => !isIpOrCidr(v));
 }
 
 /** Removes the server-managed fields before a PUT. */

@@ -212,7 +212,7 @@ func (s *service) DeleteKeyGroup(ctx context.Context, id string) error {
 	for _, d := range ds {
 		for _, b := range append([]Behavior{d.DefaultBehavior}, d.Behaviors...) {
 			if b.Signing != nil && b.Signing.KeyGroup == id {
-				return fmt.Errorf("key group %s is used by distribution %s: %w", id, d.ID, domain.ErrConflict)
+				return fmt.Errorf("%w: key group %s is used by distribution %s", domain.ErrConflict, id, d.ID)
 			}
 		}
 	}

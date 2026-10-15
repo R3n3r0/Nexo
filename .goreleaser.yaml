@@ -6,8 +6,9 @@
 #     linux/darwin/windows on amd64/arm64 (no windows/arm64) and nexoctl for
 #     the same platforms plus windows/arm64; static (CGO_ENABLED=0),
 #     reproducible (-trimpath, mod_timestamp);
-#   - archives: tar.gz (zip on Windows) with README, systemd unit and env
-#     file (nexo) or shell completions (nexoctl);
+#   - archives: tar.gz (zip on Windows) with LICENSE, README and the systemd
+#     unit and env file (nexo, not on Windows: build and archive
+#     nexo-windows) or shell completions (nexoctl);
 #   - packages: nexo and nexoctl as deb and rpm (nfpm) for linux amd64/arm64;
 #   - checksums.txt (sha256) signed with cosign keyless (Sigstore bundle
 #     checksums.txt.sigstore.json); SPDX SBOMs (syft) of every archive,
@@ -52,11 +53,26 @@ builds:
       - -X github.com/r3n3r0/nexo/internal/version.Version=v{{ .Version }}
       - -X github.com/r3n3r0/nexo/internal/version.Commit={{ .ShortCommit }}
       - -X github.com/r3n3r0/nexo/internal/version.Date={{ .CommitDate }}
-    goos: [linux, darwin, windows]
+    goos: [linux, darwin]
     goarch: [amd64, arm64]
-    ignore:
-      - goos: windows
-        goarch: arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+  # The server for Windows: a build of its own, so that its archive has no
+  # systemd files (archive nexo-windows).
+  - id: nexo-windows
+    main: ./cmd/nexo
+    binary: nexo
+    flags:
+      - -trimpath
+    tags:
+      - embedui
+    ldflags:
+      - -s -w
+      - -X github.com/r3n3r0/nexo/internal/version.Version=v{{ .Version }}
+      - -X github.com/r3n3r0/nexo/internal/version.Commit={{ .ShortCommit }}
+      - -X github.com/r3n3r0/nexo/internal/version.Date={{ .CommitDate }}
+    goos: [windows]
+    goarch: [amd64]
     mod_timestamp: "{{ .CommitTimestamp }}"
 
   - id: nexoctl
@@ -78,20 +94,19 @@ archives:
     ids: [nexo]
     name_template: "nexo_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
-    format_overrides:
-      - goos: windows
-        formats: [zip]
     builds_info:
       owner: root
       group: root
       mtime: "{{ .CommitDate }}"
     files:
-      - src: README.md
+      - src: LICENSE
         info: &fileinfo
           owner: root
           group: root
           mode: 0644
           mtime: "{{ .CommitDate }}"
+      - src: README.md
+        info: *fileinfo
       - src: deploy/systemd/nexo.service
         dst: systemd/nexo.service
         info: *fileinfo
@@ -100,6 +115,21 @@ archives:
         info: *fileinfo
       - src: deploy/systemd/README.md
         dst: systemd/README.md
+        info: *fileinfo
+
+  # Windows: the binary, LICENSE and README, without the systemd files.
+  - id: nexo-windows
+    ids: [nexo-windows]
+    name_template: "nexo_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [zip]
+    builds_info:
+      owner: root
+      group: root
+      mtime: "{{ .CommitDate }}"
+    files:
+      - src: LICENSE
+        info: *fileinfo
+      - src: README.md
         info: *fileinfo
 
   - id: nexoctl
@@ -114,6 +144,8 @@ archives:
       group: root
       mtime: "{{ .CommitDate }}"
     files:
+      - src: LICENSE
+        info: *fileinfo
       - src: README.md
         info: *fileinfo
       - src: bin/completions/*
@@ -132,6 +164,7 @@ nfpms:
     vendor: r3n3r0
     homepage: https://github.com/r3n3r0/nexo
     maintainer: r3n3r0 <r3n3r0@users.noreply.github.com>
+    license: Apache-2.0
     description: |-
       S3-compatible object storage server with an embedded web console.
       Single node (one or more drives, erasure coding) or distributed cluster.
@@ -189,6 +222,18 @@ nfpms:
         dst: /usr/share/doc/nexo/README.md
         file_info:
           mode: 0644
+      # The license: debian/copyright for the deb, %license for the rpm.
+      - src: packaging/nfpm/copyright
+        dst: /usr/share/doc/nexo/copyright
+        packager: deb
+        file_info:
+          mode: 0644
+      - src: LICENSE
+        dst: /usr/share/licenses/nexo/LICENSE
+        packager: rpm
+        type: license
+        file_info:
+          mode: 0644
       - src: deploy/systemd/README.md
         dst: /usr/share/doc/nexo/systemd.md
         file_info:
@@ -216,6 +261,7 @@ nfpms:
     vendor: r3n3r0
     homepage: https://github.com/r3n3r0/nexo
     maintainer: r3n3r0 <r3n3r0@users.noreply.github.com>
+    license: Apache-2.0
     description: |-
       Command-line client of Nexo, the S3-compatible object storage server:
       buckets and objects, mirroring, sharing and administration.
@@ -241,6 +287,17 @@ nfpms:
           mode: 0644
       - src: bin/completions/nexoctl.fish
         dst: /usr/share/fish/vendor_completions.d/nexoctl.fish
+        file_info:
+          mode: 0644
+      - src: packaging/nfpm/copyright
+        dst: /usr/share/doc/nexoctl/copyright
+        packager: deb
+        file_info:
+          mode: 0644
+      - src: LICENSE
+        dst: /usr/share/licenses/nexoctl/LICENSE
+        packager: rpm
+        type: license
         file_info:
           mode: 0644
     rpm:
@@ -291,6 +348,7 @@ dockers_v2:
   - id: nexo
     ids: [nexo, nexoctl]
     dockerfile: deploy/docker/Dockerfile.goreleaser
+    extra_files: [LICENSE]
     images:
       - ghcr.io/r3n3r0/nexo
     tags:
@@ -300,11 +358,13 @@ dockers_v2:
     platforms: [linux/amd64, linux/arm64]
     sbom: "true"
     labels: &imagelabels
+      org.opencontainers.image.licenses: Apache-2.0
       org.opencontainers.image.version: "v{{ .Version }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.created: "{{ .CommitDate }}"
       org.opencontainers.image.source: "{{ .GitURL }}"
     annotations: &imageannotations
+      org.opencontainers.image.licenses: Apache-2.0
       org.opencontainers.image.version: "v{{ .Version }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.created: "{{ .CommitDate }}"
@@ -315,6 +375,7 @@ dockers_v2:
   - id: nexoctl
     ids: [nexoctl]
     dockerfile: deploy/docker/Dockerfile.nexoctl.goreleaser
+    extra_files: [LICENSE]
     images:
       - ghcr.io/r3n3r0/nexoctl
     tags:

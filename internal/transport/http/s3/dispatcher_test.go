@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
+	tmock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/r3n3r0/nexo/internal/domain"
@@ -15,6 +16,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/health"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
+	httpxmock "github.com/r3n3r0/nexo/internal/transport/http/httpx/mock"
 	"github.com/r3n3r0/nexo/internal/transport/http/s3"
 )
 
@@ -211,7 +213,12 @@ func TestAPISystemRoutesArePathStyleOnly(t *testing.T) {
 	}}
 	mr, err := s3.NewMetricsRoutes(s3.MetricsDeps{Registry: metrics.New(metrics.Deps{}, metrics.WithoutRuntimeCollectors())}, s3.WithPublicMetrics(true))
 	require.NoError(t, err)
-	api := s3.NewAPI(s3.APIDeps{Enc: enc, Domains: []string{"example.com"}, System: []s3.Routes{
+	// cdn.custom.test is the custom host of an s3 distribution.
+	hostBuckets := httpxmock.NewHostBucketResolver(t)
+	hostBuckets.EXPECT().BucketOfHost(tmock.Anything).RunAndReturn(func(host string) (string, bool) {
+		return "site", strings.HasPrefix(host, "cdn.custom.test")
+	}).Maybe()
+	api := s3.NewAPI(s3.APIDeps{Enc: enc, Domains: []string{"example.com"}, HostBuckets: hostBuckets, System: []s3.Routes{
 		s3.NewHealthRoutes(s3.HealthDeps{Health: health.New(health.Deps{}), Enc: enc}),
 		mr,
 	}}, group)
@@ -234,6 +241,13 @@ func TestAPISystemRoutesArePathStyleOnly(t *testing.T) {
 			want: recorded{op: "PutObject", bucket: "bkt", key: strings.TrimPrefix(s3.PathMetricsNode, "/")}},
 		{name: "virtual-host post on a system path", method: http.MethodPost, host: "bkt.example.com", target: domain.HealthLivePath + "?uploads",
 			want: recorded{op: "CreateMultipartUpload", bucket: "bkt", key: strings.TrimPrefix(domain.HealthLivePath, "/")}},
+		// The custom host of an s3 distribution never takes the reserved
+		// paths: whatever host a load balancer probes, the health and the
+		// metrics answer (regression: an alias captured the probes).
+		{name: "custom host health", method: http.MethodGet, host: "cdn.custom.test:9000", target: domain.HealthReadyPath},
+		{name: "custom host metrics", method: http.MethodGet, host: "cdn.custom.test", target: s3.PathMetricsNode},
+		{name: "custom host object", method: http.MethodGet, host: "cdn.custom.test", target: "/index.html",
+			want: recorded{op: "GetObject", bucket: "site", key: "index.html"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

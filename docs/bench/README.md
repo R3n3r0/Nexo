@@ -42,7 +42,7 @@ Riferimenti grezzi della stessa macchina, misurati con lo speed test di Nexo (`P
   le ottimizzazioni di §3; le tabelle riportano la media dei due round. La variabilità tra round della stessa versione
   è di circa ±10% su `put`/`get` (finestre brevi, tmpfs in RAM, client sulla stessa CPU) e di ±3% su `mixed`/`list`:
   differenze inferiori non sono significative.
-- Profili CPU presi durante i benchmark con l'Admin API (`PROFILE=1`: `GET /api/v1/profile?type=cpu&seconds=6` sul
+- Profili CPU presi durante i benchmark con l'Admin API (`PROFILE=1`: `POST /api/v1/profile?type=cpu&seconds=6` sul
   primo nodo) e micro-benchmark Go confrontati con `benchstat` (TP-05).
 
 ## 3. Profili e ottimizzazioni

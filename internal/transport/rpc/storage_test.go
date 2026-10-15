@@ -46,6 +46,55 @@ func remoteDrive(t testing.TB, dir string, opts ...rpc.StorageClientOption) (sto
 	return client, conn
 }
 
+// TestRemoteHandlesLifecycle: the file handles a node opens on a peer are
+// closed when its drive client closes (a node that stops leaves none
+// behind), and those of an earlier run of a node are closed as soon as its
+// new run opens a file (regression: a stopped, crashed or restarted reader
+// left its handles, and the replaced data they hold, open on its peers).
+func TestRemoteHandlesLifecycle(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir() + "/d"
+	local := openLocal(t, dir)
+	require.NoError(t, local.MakeVol(ctx, "bkt"))
+	require.NoError(t, local.WriteAll(ctx, "bkt", "obj/part.1", []byte("shard")))
+	routes, err := rpc.NewStorageRoutes(rpc.StorageRoutesDeps{Drives: []storage.StorageAPI{local}})
+	require.NoError(t, err)
+	addr, _ := startRPC(t, routes)
+	ep := domain.Endpoint{Scheme: "http", Host: addr, Path: dir}
+	client := func(boot string) storage.StorageAPI {
+		c, err := rpc.NewStorageClient(rpc.StorageClientDeps{Conn: dial(t, newAuth(t, "client:9000"), addr), Boot: boot, Logger: discard()}, ep)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = c.Close(ctx) })
+		return c
+	}
+
+	first := client("boot-1")
+	_, err = first.OpenFile(ctx, "bkt", "obj/part.1")
+	require.NoError(t, err)
+	_, err = first.OpenFile(ctx, "bkt", "obj/part.1")
+	require.NoError(t, err)
+	assert.Equal(t, 2, rpc.OpenHandles(routes))
+	require.NoError(t, first.Close(ctx))
+	assert.Zero(t, rpc.OpenHandles(routes), "the client closes its handles before closing")
+
+	// A run that crashed: its handles stay until the next run opens one.
+	crashed := client("boot-2")
+	_, err = crashed.OpenFile(ctx, "bkt", "obj/part.1")
+	require.NoError(t, err)
+	restarted := client("boot-3")
+	h, err := restarted.OpenFile(ctx, "bkt", "obj/part.1")
+	require.NoError(t, err)
+	assert.Equal(t, 1, rpc.OpenHandles(routes), "the handle of the earlier run is closed")
+	rc, err := h.ReadStream(ctx, 0, -1)
+	require.NoError(t, err)
+	data, err := io.ReadAll(rc)
+	require.NoError(t, err)
+	require.NoError(t, rc.Close())
+	assert.Equal(t, "shard", string(data))
+	require.NoError(t, h.Close(ctx))
+	assert.Zero(t, rpc.OpenHandles(routes))
+}
+
 // TestRemoteBehavior runs the StorageAPI behavior suite of the local drive,
 // unchanged, against the RPC client of a drive served by another node.
 func TestRemoteBehavior(t *testing.T) {

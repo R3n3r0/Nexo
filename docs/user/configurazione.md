@@ -41,6 +41,8 @@ sulla riga di comando.
 | `NEXO_WEB_ADDRESS` | `--web-address` | — | Listener HTTP che serve solo le distribuzioni e le challenge ACME HTTP-01 (es. `:80`) |
 | `NEXO_WEB_TLS_ADDRESS` | `--web-tls-address` | — | Listener TLS delle sole distribuzioni, con i loro certificati per SNI (es. `:443`) |
 | `NEXO_UNKNOWN_HOST` | `--unknown-host` | `path-style` | Risposta del listener S3 a un host sconosciuto: `path-style` (API S3) o `misdirected` (421) |
+| `NEXO_S3_DISTRIBUTIONS` | `--s3-distributions` | `auto` | Distribuzioni servite anche dal listener S3: `auto` (solo se `NEXO_SERVER_URL` o `NEXO_DOMAIN` dichiarano i nomi dell'endpoint S3), `on` (opt-in esplicito), `off` (solo i listener web) |
+| `NEXO_NO_DISTRIBUTIONS` | `--no-distributions` | `false` | Ripristino: nessun host instradato a una distribuzione su nessun listener (restano modificabili dall'Admin API) |
 
 ### TLS
 
@@ -123,7 +125,7 @@ Valgono anche le variabili standard `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER
 | `NEXO_RPC_CALL_TIMEOUT` | `30s` | Durata massima di una chiamata tra nodi |
 | `NEXO_HEAL_RETRY_MAX_DELAY` | `5m` | Attesa massima tra due tentativi di healing in background di un oggetto |
 | `NEXO_CACHE_RESYNC_INTERVAL` | `2m` | Ricarica periodica dello stato condiviso (IAM, policy, configurazione) su ogni nodo |
-| `NEXO_SEND_TIMEOUT` | `20s` | Dopo quanto un download il cui client ha smesso di leggere viene interrotto |
+| `NEXO_SEND_TIMEOUT` | `20s` | Dopo quanto una risposta il cui client ha smesso di leggere viene interrotta: download S3 e dei siti delle distribuzioni, console e Admin API, su tutti i listener |
 
 ### File di configurazione
 

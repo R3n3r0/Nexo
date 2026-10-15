@@ -114,6 +114,6 @@ alice                    enabled   readwrite                      devs
 bob                      disabled  diagnostics,readonly           devs
 
 $ nexoctl admin user list bob
-! nexoctl: error: admin:ListUsers: no policy allows admin:ListUsers (access_denied)
+! nexoctl: error: access denied: admin:ListUsers: no policy allows admin:ListUsers (access_denied)
 [exit 4]
 

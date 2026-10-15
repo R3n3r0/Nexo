@@ -97,7 +97,7 @@ func (c *client) Profile(ctx context.Context, in ProfileRequest) (*Profile, erro
 	if in.Seconds > 0 {
 		q.Set("seconds", strconv.Itoa(in.Seconds))
 	}
-	data, hdr, err := c.send(ctx, request{method: http.MethodGet, path: "/profile", query: q,
+	data, hdr, err := c.send(ctx, request{method: http.MethodPost, path: "/profile", query: q,
 		timeout: time.Duration(in.Seconds)*time.Second + diagnosticsMargin})
 	if err != nil {
 		return nil, err

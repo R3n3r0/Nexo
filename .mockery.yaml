@@ -231,6 +231,7 @@ packages:
   github.com/r3n3r0/nexo/internal/service/storage:
     interfaces:
       StorageAPI:
+      FileHandle:
       Formatter:
       Janitor:
   github.com/r3n3r0/nexo/internal/service/sysstore:
@@ -258,6 +259,7 @@ packages:
       Codec:
       IDGenerator:
       Routes:
+      HostBucketResolver:
   github.com/r3n3r0/nexo/internal/transport/http/middleware:
     interfaces:
       Middleware:

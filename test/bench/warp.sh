@@ -10,7 +10,7 @@
 # BENCHES (put, get, mixed, list) and writes, under OUT, the warp output of
 # each benchmark (<bench>.txt), its data (warp-*.json.zst, see "warp
 # analyze") and summary.txt. With PROFILE=1 a CPU profile of the first node
-# is taken through the Admin API (GET /api/v1/profile) in the middle of
+# is taken through the Admin API (POST /api/v1/profile) in the middle of
 # every benchmark: OUT/<bench>.cpu.pb.gz, read with "go tool pprof".
 #
 # Environment (defaults in brackets):
@@ -159,7 +159,7 @@ fi
 # preparation of its objects).
 profile() {
 	sleep "$2"
-	curl -sf --aws-sigv4 "aws:amz:$REGION:s3" -u "$ACCESS_KEY:$SECRET_KEY" \
+	curl -sf -X POST --aws-sigv4 "aws:amz:$REGION:s3" -u "$ACCESS_KEY:$SECRET_KEY" \
 		-o "$OUT/$1.cpu.pb.gz" "$console/api/v1/profile?type=cpu&seconds=$3" ||
 		echo "warp.sh: profile of $1 failed" >&2
 }

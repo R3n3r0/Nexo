@@ -194,25 +194,39 @@ fmt:
 clean:
 	rm -rf $(BIN_DIR) $(WEB_DIR)/dist coverage*.txt
 
-## run-single: start a single-node single-drive server on ./data
+## run-single: start a single-node single-drive server on $(CURDIR)/data
 run-single: build-go
+	@mkdir -p $(CURDIR)/data
 	NEXO_ROOT_USER=$${NEXO_ROOT_USER:-admin} NEXO_ROOT_PASSWORD=$${NEXO_ROOT_PASSWORD:-password123} \
-	  $(BIN_DIR)/nexo server --log-format text ./data
+	  $(BIN_DIR)/nexo server --log-format text $(CURDIR)/data
 
-## run-snmd: start a single-node multi-drive server on ./data{1..4}
+## run-snmd: start a single-node multi-drive server on $(CURDIR)/data{1...4}
 run-snmd: build-go
+	@mkdir -p $(CURDIR)/data1 $(CURDIR)/data2 $(CURDIR)/data3 $(CURDIR)/data4
 	NEXO_ROOT_USER=$${NEXO_ROOT_USER:-admin} NEXO_ROOT_PASSWORD=$${NEXO_ROOT_PASSWORD:-password123} \
-	  $(BIN_DIR)/nexo server --log-format text ./data1 ./data2 ./data3 ./data4
+	  $(BIN_DIR)/nexo server --log-format text '$(CURDIR)/data{1...4}'
 
-## run-cluster: start a 4-node cluster (2 drives per node) on 127.0.0.1:{9101..9104} in ./cluster (Linux), Ctrl-C stops it
+# The S3 and console ports of the nodes of run-cluster: the console of
+# each node listens on its S3 port + 1, where nexoctl looks for the Admin
+# API ("nexoctl alias set local http://127.0.0.1:9101 ..." needs no
+# --admin-url). The endpoints are listed without ellipsis (the ports are
+# not consecutive): together they form a single pool.
+CLUSTER_PORTS := 9101 9103 9105 9107
+
+## run-cluster: start a 4-node cluster (2 drives per node) on 127.0.0.1:{9101,9103,9105,9107} (consoles on S3 port + 1) in ./cluster (Linux), Ctrl-C stops it
 run-cluster: build-go
 	@mkdir -p cluster; trap 'kill $$(jobs -p) 2>/dev/null' INT TERM EXIT; \
-	for i in 1 2 3 4; do \
-	  mkdir -p cluster/n$$i; \
-	  ( cd cluster/n$$i && NEXO_ROOT_USER=$${NEXO_ROOT_USER:-admin} NEXO_ROOT_PASSWORD=$${NEXO_ROOT_PASSWORD:-password123} \
-	    exec ../../$(BIN_DIR)/nexo server --log-format text --address 127.0.0.1:910$$i --console-address 127.0.0.1:920$$i \
-	      'http://127.0.0.1:{9101...9104}/proc/self/cwd/d{1...2}' ) & \
-	done; wait
+	endpoints=''; for p in $(CLUSTER_PORTS); do \
+	  endpoints="$$endpoints http://127.0.0.1:$$p/proc/self/cwd/d1 http://127.0.0.1:$$p/proc/self/cwd/d2"; \
+	done; \
+	for p in $(CLUSTER_PORTS); do \
+	  mkdir -p cluster/n$$p; \
+	  ( cd cluster/n$$p && NEXO_ROOT_USER=$${NEXO_ROOT_USER:-admin} NEXO_ROOT_PASSWORD=$${NEXO_ROOT_PASSWORD:-password123} \
+	    exec ../../$(BIN_DIR)/nexo server --log-format text --address 127.0.0.1:$$p --console-address 127.0.0.1:$$((p+1)) \
+	      $$endpoints ) & \
+	done; \
+	echo "nexoctl alias set local http://127.0.0.1:9101 $${NEXO_ROOT_USER:-admin} $${NEXO_ROOT_PASSWORD:-password123}  # Admin API on 127.0.0.1:9102"; \
+	wait
 
 ## docker: build the server image from the sources (Dockerfile: console, nexo and nexoctl)
 docker:

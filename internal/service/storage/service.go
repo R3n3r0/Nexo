@@ -158,6 +158,13 @@ type StorageAPI interface {
 	// ErrInvalidRange when offset is past the end, ErrFileCorrupt (a
 	// domain.ErrFaultyDisk) when only the end is.
 	ReadFileStream(ctx context.Context, volume, path string, offset, length int64) (io.ReadCloser, error)
+	// OpenFile opens a data file for reads at any offset until the handle
+	// is closed: the data stays readable when the file is removed or
+	// replaced meanwhile (an open file survives its removal, POSIX), which
+	// pins the shards of a read that released its lock (docs/02 §2.4).
+	// Opening transfers no data; a remote drive keeps the file open on its
+	// node until Close or an idle timeout.
+	OpenFile(ctx context.Context, volume, path string) (FileHandle, error)
 	// RenameData atomically moves the temporary data directory and metadata
 	// of fi into their final location, committing the version. Parent
 	// prefixes that are objects, or a destination that is a prefix, are
@@ -191,6 +198,20 @@ type StorageAPI interface {
 	// Healing returns the healing state of the drive, nil when not healing.
 	Healing() *HealingTracker
 	// Close releases the drive resources.
+	Close(ctx context.Context) error
+}
+
+// FileHandle is a data file opened by StorageAPI.OpenFile.
+type FileHandle interface {
+	// Size returns the size of the file when it was opened. Pure accessor.
+	Size() int64
+	// ReadStream returns a reader over length bytes of the file starting
+	// at offset (length -1 reads to the end), with the bounds checks of
+	// StorageAPI.ReadFileStream. Closing the stream leaves the handle
+	// open; several streams may be open at once.
+	ReadStream(ctx context.Context, offset, length int64) (io.ReadCloser, error)
+	// Close releases the handle: the file is closed once its last stream
+	// is closed. Closing twice is a no-op.
 	Close(ctx context.Context) error
 }
 

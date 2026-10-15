@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -42,6 +43,28 @@ func selfSigned(t *testing.T, dir string, notBefore, notAfter time.Time) {
 	require.NoError(t, err)
 	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "nexo.test"}, NotBefore: notBefore, NotAfter: notAfter}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	require.NoError(t, err)
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "public.crt"), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "private.key"), pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}), 0o600))
+}
+
+// caSigned writes a key pair of dir issued by the CA "Corp Nodes CA".
+func caSigned(t *testing.T, dir string, notBefore, notAfter time.Time) {
+	t.Helper()
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	caTmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "Corp Nodes CA"}, NotBefore: notBefore,
+		NotAfter: notAfter, IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, &caKey.PublicKey, caKey)
+	require.NoError(t, err)
+	ca, err := x509.ParseCertificate(caDER)
+	require.NoError(t, err)
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "node1.test"}, NotBefore: notBefore, NotAfter: notAfter}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca, &key.PublicKey, caKey)
 	require.NoError(t, err)
 	keyDER, err := x509.MarshalECPrivateKey(key)
 	require.NoError(t, err)
@@ -98,6 +121,27 @@ func TestCheck(t *testing.T) {
 			require.Len(t, rep.Warnings, 1)
 			assert.Contains(t, rep.Warnings[0], `the certificate "nexo.test" expires on`)
 		}},
+		{name: "internode verify without the CA of the nodes", input: func(t *testing.T, dir string) preflight.Input {
+			caSigned(t, dir, now.Add(-time.Hour), now.Add(365*24*time.Hour))
+			return preflight.Input{Endpoints: []string{filepath.Join(dir, "data")}, CertsDir: dir, InternodeVerify: true}
+		}, check: func(t *testing.T, rep *preflight.Report) {
+			require.Len(t, rep.Warnings, 1)
+			assert.Contains(t, rep.Warnings[0], `--tls-internode-verify: CAs/ holds no CA, so the nodes whose certificate is issued by "Corp Nodes CA" are refused`)
+		}},
+		{name: "internode verify with the CA in CAs", input: func(t *testing.T, dir string) preflight.Input {
+			caSigned(t, dir, now.Add(-time.Hour), now.Add(365*24*time.Hour))
+			require.NoError(t, os.MkdirAll(filepath.Join(dir, "CAs"), 0o700))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "CAs", "ca.crt"), []byte("ca"), 0o600))
+			return preflight.Input{Endpoints: []string{filepath.Join(dir, "data")}, CertsDir: dir, InternodeVerify: true}
+		}, check: func(t *testing.T, rep *preflight.Report) {
+			assert.Empty(t, rep.Warnings)
+		}},
+		{name: "internode verify with a self-signed certificate", input: func(t *testing.T, dir string) preflight.Input {
+			selfSigned(t, dir, now.Add(-time.Hour), now.Add(365*24*time.Hour))
+			return preflight.Input{Endpoints: []string{filepath.Join(dir, "data")}, CertsDir: dir, InternodeVerify: true}
+		}, check: func(t *testing.T, rep *preflight.Report) {
+			assert.Empty(t, rep.Warnings, "the default certificate verifies itself")
+		}},
 		{name: "certificate expired", input: func(t *testing.T, dir string) preflight.Input {
 			selfSigned(t, dir, now.Add(-48*time.Hour), now.Add(-time.Hour))
 			return preflight.Input{Endpoints: []string{filepath.Join(dir, "data")}, CertsDir: dir}
@@ -126,4 +170,10 @@ func TestCheckTopologyError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "topology")
 	assert.Nil(t, rep)
+	// The error of the topology is not prefixed a second time
+	// (regression: "topology: invalid argument: topology: ...").
+	_, err = newChecks(t).Check(context.Background(), preflight.Input{Endpoints: []string{"./data"}})
+	require.Error(t, err)
+	assert.Equal(t, 1, strings.Count(err.Error(), "topology:"), err.Error())
+	assert.Contains(t, err.Error(), "drive path must be absolute")
 }

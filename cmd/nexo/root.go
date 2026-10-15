@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/r3n3r0/nexo/internal/config"
+	"github.com/r3n3r0/nexo/internal/version"
 )
 
 // cmdDeps are the process-level dependencies of the commands, injected so
@@ -25,7 +26,11 @@ func newRootCmd(deps cmdDeps) *cobra.Command {
 		Long:          "Nexo is an S3-compatible object storage server with an embedded web console.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		// nexo --version prints what nexo version prints, as nexoctl
+		// --version does.
+		Version: version.Get().String(),
 	}
+	root.SetVersionTemplate("nexo {{.Version}}\n")
 	root.SetOut(deps.stdout)
 	root.SetErr(deps.stderr)
 	root.AddCommand(newServerCmd(deps), newVersionCmd(deps), newHealthcheckCmd(deps))

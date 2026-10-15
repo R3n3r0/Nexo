@@ -96,6 +96,9 @@ func (s *service) Start(ctx context.Context) error {
 			s.deps.Notifier.Subscribe(EventKeyGroup, h))
 	}
 	s.lifeMu.Unlock()
+	if s.opts.noRouting {
+		s.deps.Logger.WarnContext(ctx, "distribution: routing disabled (--no-distributions): no host is served by a distribution")
+	}
 	if err := s.Reload(ctx); err != nil {
 		s.deps.Logger.WarnContext(ctx, "distribution: initial load failed, retried on the next resynchronization", "err", err)
 	}
@@ -131,6 +134,10 @@ func (s *service) Reload(ctx context.Context) error {
 				s.deps.Logger.WarnContext(ctx, "distribution: alias not routed", "distribution", d.ID, "alias", a, "why", why)
 			}
 		}
+	}
+	if s.opts.noRouting {
+		// Recovery mode: the distributions are kept but none is routed.
+		ds = nil
 	}
 	s.table.Store(newTable(ds, s.reservedAlias))
 	s.keys.Store(newKeySet(groups))
@@ -297,7 +304,7 @@ func (s *service) save(ctx context.Context, d Distribution, create bool, ifMatch
 	case !create && current == nil:
 		return Distribution{}, fmt.Errorf("%w: %s", ErrDistributionNotFound, n.ID)
 	case !create && ifMatch != "" && strings.Trim(ifMatch, `"`) != current.ETag:
-		return Distribution{}, fmt.Errorf("distribution %s changed (ETag %s): %w", n.ID, current.ETag, domain.ErrPreconditionFailed)
+		return Distribution{}, fmt.Errorf("%w: distribution %s changed (ETag %s)", domain.ErrPreconditionFailed, n.ID, current.ETag)
 	}
 	if err := s.checkReferences(n, ds, groups); err != nil {
 		return Distribution{}, err

@@ -45,11 +45,17 @@ func TestServerInfo(t *testing.T) {
 	broken.EXPECT().DiskInfo(mock.Anything, storage.DiskInfoOptions{}).Return(domain.DiskInfo{}, errors.New("io error"))
 	broken.EXPECT().Healing().Return(nil)
 
+	// As the object layer: the listing of the buckets does not count
+	// their objects, the scanner does (regression: the server info summed
+	// the zero counters of the listing).
 	objects := objectmock.NewService(t)
 	objects.EXPECT().ListBuckets(mock.Anything).Return([]domain.BucketInfo{
-		{Bucket: domain.Bucket{Name: "a"}, Objects: 2, Size: 100},
-		{Bucket: domain.Bucket{Name: "b"}, Objects: 3, Size: 50},
+		{Bucket: domain.Bucket{Name: "a"}}, {Bucket: domain.Bucket{Name: "b"}},
 	}, nil)
+	scan := scannermock.NewService(t)
+	scan.EXPECT().Usage(mock.Anything).Return(scanner.Usage{LastUpdate: start, Buckets: map[string]scanner.BucketUsage{
+		"a": {Counts: scanner.Counts{Objects: 2, Size: 100}}, "b": {Counts: scanner.Counts{Objects: 3, Size: 50}},
+	}}, nil)
 
 	svc := admin.New(admin.Deps{
 		Clock:        clk,
@@ -60,6 +66,7 @@ func TestServerInfo(t *testing.T) {
 		Drives:       []storage.StorageAPI{online, broken},
 		Pools:        []domain.PoolInfo{{Index: 0, Sets: 1, DrivesPerSet: 2}},
 		Objects:      objects,
+		Scanner:      scan,
 	})
 	clk.Advance(90 * time.Second)
 	info, err := svc.ServerInfo(context.Background())

@@ -30,6 +30,8 @@ x-nexo: &nexo
     start_period: 10s
   restart: unless-stopped
   stop_grace_period: 30s
+  networks:
+    - nexo
 
 services:
   nexo1:
@@ -73,6 +75,11 @@ services:
       - "${NEXO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      nexo:
+        # A fixed address: the only proxy NEXO_TRUSTED_PROXIES may trust
+        # (nexo.env.example), never a whole range of the Docker networks.
+        ipv4_address: 172.29.0.10
     depends_on:
       - nexo1
       - nexo2
@@ -85,6 +92,15 @@ services:
       retries: 3
       start_period: 10s
     restart: unless-stopped
+
+networks:
+  nexo:
+    ipam:
+      config:
+        # The load balancer has a fixed address; the nodes get theirs from
+        # ip_range, which never includes it.
+        - subnet: 172.29.0.0/24
+          ip_range: 172.29.0.128/25
 
 volumes:
   d1-1: {}

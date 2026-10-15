@@ -79,6 +79,9 @@ func (m *distributionManager) Create(ctx context.Context, in SaveDistributionInp
 	if err := m.authorizeOrigin(ctx, in.Requester, in.Distribution.Origin.Bucket); err != nil {
 		return distribution.Distribution{}, err
 	}
+	if err := m.authorizeCovered(ctx, in.Requester, in.Distribution); err != nil {
+		return distribution.Distribution{}, err
+	}
 	return m.deps.Distributions.Create(ctx, in.Distribution)
 }
 
@@ -97,7 +100,53 @@ func (m *distributionManager) Update(ctx context.Context, in SaveDistributionInp
 			return distribution.Distribution{}, err
 		}
 	}
+	if err := m.authorizeCovered(ctx, in.Requester, in.Distribution); err != nil {
+		return distribution.Distribution{}, err
+	}
 	return m.deps.Distributions.Update(ctx, in.Distribution, in.IfMatch)
+}
+
+// authorizeCovered authorizes admin:ManageDistributions on the origin
+// bucket of every other distribution with a wildcard alias covering an
+// alias of d (an exact host or a more specific wildcard): the more
+// specific alias wins the routing, so saving it takes those hosts away
+// from the wildcard's distribution (subdomain hijack). The owner of the
+// wildcard, or an administrator of its bucket, may still carve hosts out
+// of it.
+func (m *distributionManager) authorizeCovered(ctx context.Context, req Requester, d distribution.Distribution) error {
+	others, err := m.deps.Distributions.List(ctx)
+	if err != nil {
+		return err
+	}
+	id := strings.TrimSpace(d.ID)
+	authorized := map[string]bool{}
+	for _, other := range others {
+		if other.ID == id || authorized[other.Origin.Bucket] {
+			continue
+		}
+		for _, wildcard := range other.Aliases {
+			alias, covered := coveredAlias(wildcard, d.Aliases)
+			if !covered {
+				continue
+			}
+			if err := m.authorizeOrigin(ctx, req, other.Origin.Bucket); err != nil {
+				return fmt.Errorf("alias %s falls under the wildcard %s of distribution %s: %w", alias, wildcard, other.ID, err)
+			}
+			authorized[other.Origin.Bucket] = true
+			break
+		}
+	}
+	return nil
+}
+
+// coveredAlias returns the first of aliases the wildcard alias covers.
+func coveredAlias(wildcard string, aliases []string) (string, bool) {
+	for _, a := range aliases {
+		if distribution.Covers(wildcard, a) {
+			return a, true
+		}
+	}
+	return "", false
 }
 
 // authorizeOrigin authorizes admin:ManageDistributions on the origin

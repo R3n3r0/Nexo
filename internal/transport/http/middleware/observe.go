@@ -88,10 +88,13 @@ func countBody(r *http.Request) func() int64 {
 	}
 }
 
-// targetOf returns the bucket and object of an S3 request: from the host
-// of a virtual-host request ("<bucket>.<domain>"), from the path
-// otherwise.
+// targetOf returns the bucket and object of an S3 request: the target the
+// handler (or the target middleware) recorded, else from the host of a
+// virtual-host request ("<bucket>.<domain>"), from the path otherwise.
 func targetOf(r *http.Request, domains []string) (bucket, object string) {
+	if b, o, ok := httpx.OperationTargetFrom(r.Context()); ok {
+		return b, o
+	}
 	if len(domains) > 0 {
 		host := strings.ToLower(r.Host)
 		if h, _, err := net.SplitHostPort(host); err == nil {

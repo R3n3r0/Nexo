@@ -341,7 +341,7 @@ type DeleteObjectsResponse struct {
 
 func (h *objectRoutes) objectError(key, versionID string, err error) ObjectErrorResponse {
 	p := h.deps.Enc.ProblemFromError(err)
-	return ObjectErrorResponse{Key: key, VersionID: versionID, Code: p.Code, Message: err.Error()}
+	return ObjectErrorResponse{Key: key, VersionID: versionID, Code: p.Code, Message: p.Detail}
 }
 
 func (h *objectRoutes) remove(w http.ResponseWriter, r *http.Request) {
@@ -422,7 +422,7 @@ func (h *objectRoutes) rename(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, e := range res.Errors {
 		p := h.deps.Enc.ProblemFromError(e.Err)
-		out.Errors = append(out.Errors, RenameErrorResponse{Source: e.Source, Destination: e.Destination, Code: p.Code, Message: e.Err.Error()})
+		out.Errors = append(out.Errors, RenameErrorResponse{Source: e.Source, Destination: e.Destination, Code: p.Code, Message: p.Detail})
 	}
 	h.deps.Enc.WriteJSON(w, http.StatusOK, out)
 }

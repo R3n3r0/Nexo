@@ -110,10 +110,58 @@ state pubblicate: la base dei test di aggiornamento è il commit di M7 (`224bb31
 - Nuove azioni di policy `admin:Profiling` e `admin:Speedtest`, incluse nella policy predefinita `diagnostics`.
 - Priorità del catalogo: S-OPS-11, D-MON-03 e C-ADM-12, consegnate in anticipo, passano da P2 a P1.
 
+### Corretto (revisione finale)
+- **Alias takeover delle distribuzioni**: gli host del deployment (endpoint dei nodi, `localhost`, `--server-url`,
+  `--browser-redirect-url`, `--domain`) sono riservati; il prefisso `/nexo/` (salute, metriche, RPC) non passa mai
+  dal routing per Host; l'RPC internodo salta solo i virtual host di `--domain`; un alias sotto il wildcard di
+  un'altra distribuzione richiede i permessi su di essa; il listener S3 serve le distribuzioni solo con
+  `--s3-distributions` (`auto`/`on`/`off`) e `--no-distributions` le disattiva per il ripristino (S-DST-01).
+- **Letture su istantanea con ridondanza**: una GET che ha rilasciato il lock tiene aperti gli shard di tutti i
+  dischi online (handle remoti via RPC), così bitrot, dischi o nodi persi durante il trasferimento non la
+  troncano anche se una PUT o DELETE concorrente ha già eliminato i dati; il conteggio delle parti è corretto.
+- `/nexo/health/cluster` riporta nodi, dischi, quorum di scrittura e manutenzione reali (S-OPS-03);
+  `admin info` riporta oggetti e spazio usato dallo scanner.
+- Licenza Apache-2.0 (`LICENSE`) negli archivi, nei pacchetti deb/rpm, nelle immagini OCI e nel chart Helm.
+- Audit, metriche e trace riportano bucket e oggetto risolti dai domini personalizzati; l'audit non registra
+  le sonde di salute né gli scrape anonimi delle metriche.
+- mTLS internodo: i client accettati sono firmati dalle CA di `CAs/` e hanno un SAN tra gli host degli endpoint.
+- Un solo predicato di redazione (firme, credenziali, token, password, policy e chiavi) per log, log stream,
+  audit, access log e trace.
+- `POST /api/v1/profile` invece di GET; i flussi live (trace, log) controllano l'origine della console.
+- Errori: codici S3 distinti per quorum di lettura e scrittura (`SlowDownRead`, `SlowDownWrite`), lock non
+  ottenuto (`XNexoLockTimeout`) e disco o nodo offline (`ServiceUnavailable`); l'Admin API risponde con un
+  messaggio curato e registra la catena dell'errore nel log con il request id; la console traduce
+  `lock_timeout`, `write_quorum` e `read_quorum`; `nexoctl` formatta gli errori dell'Admin API come quelli S3,
+  non ritenta gli errori di quorum, indica `nexoctl admin info` e riporta un server irraggiungibile come
+  `cannot reach <url>: <causa>`.
+- `nexo server --dry-run` verifica anche `--web-address`, `--web-tls-address` e `--acme-ca-cert`;
+  `nexo --version` stampa la versione come `nexo version`.
+- `make run-single`/`run-snmd` usano percorsi assoluti; `make run-cluster` mette la console sulla porta S3 + 1.
+- Docker: `nexo.env.example` senza password predefinita, Prometheus e Grafana dello stack di osservabilità
+  legati a `127.0.0.1` e senza credenziali predefinite.
+- CI: workflow puliti per actionlint con shellcheck, lint e vet anche dei test con tag `compose`, `upgrade` e
+  `nexotest`.
+- Documentazione: rimosse `NEXO_BROWSER` e `NEXO_CONSOLE_SESSION_DURATION`, mai lette (la sessione della console
+  dura 12 ore); quickstart allineato all'output reale.
+
 ### Aggiornamento
 - I formati su disco sono invariati rispetto a `v0.7.0` (`format.json` v1, `xl.meta` 1.x): aggiornamento e
   downgrade verificati in SNMD e con rolling upgrade di un cluster di 4 nodi sotto carico (`make test-upgrade`,
   [08](docs/08-modalita-deploy.md)).
+- **Prima di riavviare il primo nodo** (cambi di comportamento che rompono un cluster misto o una configurazione
+  esistente):
+  - con `--tls-internode-verify` i certificati client dei nodi sono verificati solo con le CA di `CAs/` della
+    directory dei certificati (e con la foglia di default): una CA presente solo nella catena di `public.crt`,
+    accettata da `v0.7.0`, non basta più. Copiare la CA che firma i certificati dei nodi in `CAs/` su **tutti** i
+    nodi prima del rolling upgrade, altrimenti ogni nodo aggiornato rifiuta le chiamate internodo dei peer (che
+    vedono i suoi dischi offline) fino alla perdita del quorum. `nexo server --dry-run` avvisa quando `CAs/` è
+    vuota con `--tls-internode-verify` e una foglia non autofirmata;
+  - il listener S3 serve le distribuzioni solo con `--server-url`/`--domain` (`--s3-distributions=auto`, il
+    default) o con `--s3-distributions=on`: chi serve distribuzioni sulla porta 9000 senza quelle opzioni deve
+    impostare `NEXO_S3_DISTRIBUTIONS=on` (oppure `NEXO_SERVER_URL`/`NEXO_DOMAIN`) prima dell'aggiornamento, o
+    spostarle sui listener web (`--web-address`);
+  - durante il rolling upgrade le letture coordinate da un nodo aggiornato verso nodi `v0.7.0` (che non hanno
+    `storage/open-file`) restano sotto lock fino alla fine, come in `v0.7.0`.
 
 ### Limiti noti
 - Nessun rate limit per API o per distribuzione (S-OPS-10, S-DST-08 P2): mettere un reverse proxy con limiti

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/storage"
 	"github.com/r3n3r0/nexo/internal/service/topology"
 )
 
@@ -123,8 +124,9 @@ func NewErasure(deps Deps, opts ...Option) (Service, error) {
 	}, opts...)
 }
 
-// Health implements Service: every set must keep its write quorum (one
-// more drive with Maintenance).
+// Health implements Service: every set must keep its write quorum and,
+// with Maintenance, keep it once one more node is down (the node holding
+// the most online drives of the set: a single-node deployment never can).
 func (p *erasureServerPools) Health(_ context.Context, opts HealthOptions) HealthResult {
 	res := HealthResult{Healthy: true}
 	var problems []string
@@ -142,14 +144,35 @@ func (p *erasureServerPools) Health(_ context.Context, opts HealthOptions) Healt
 			}
 			need := write
 			if opts.Maintenance {
-				need++
+				need += onlinePerNode(set.drives)
 			}
 			if online < need {
 				res.Healthy = false
-				problems = append(problems, fmt.Sprintf("pool %d set %d has %d/%d drives online, write quorum is %d", pl.idx+1, set.setIdx+1, online, total, write))
+				msg := fmt.Sprintf("pool %d set %d has %d/%d drives online, write quorum is %d", pl.idx+1, set.setIdx+1, online, total, write)
+				if opts.Maintenance && online >= write {
+					msg += fmt.Sprintf(", %d of them on one node", need-write)
+				}
+				problems = append(problems, msg)
 			}
 		}
 	}
 	res.Message = strings.Join(problems, "; ")
 	return res
+}
+
+// onlinePerNode returns the largest number of online drives of one node
+// among drives (the drives of a node share the host of their endpoint;
+// the paths of a single node have none).
+func onlinePerNode(drives []storage.StorageAPI) int {
+	perNode := map[string]int{}
+	most := 0
+	for _, d := range drives {
+		if !isOnline(d) {
+			continue
+		}
+		host := d.Endpoint().Host
+		perNode[host]++
+		most = max(most, perNode[host])
+	}
+	return most
 }

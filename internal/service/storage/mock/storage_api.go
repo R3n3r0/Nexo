@@ -627,6 +627,66 @@ func (_c *StorageAPI_MakeVol_Call) RunAndReturn(run func(context.Context, string
 	return _c
 }
 
+// OpenFile provides a mock function with given fields: ctx, volume, path
+func (_m *StorageAPI) OpenFile(ctx context.Context, volume string, path string) (storage.FileHandle, error) {
+	ret := _m.Called(ctx, volume, path)
+
+	if len(ret) == 0 {
+		panic("no return value specified for OpenFile")
+	}
+
+	var r0 storage.FileHandle
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) (storage.FileHandle, error)); ok {
+		return rf(ctx, volume, path)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) storage.FileHandle); ok {
+		r0 = rf(ctx, volume, path)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(storage.FileHandle)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, volume, path)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// StorageAPI_OpenFile_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'OpenFile'
+type StorageAPI_OpenFile_Call struct {
+	*mock.Call
+}
+
+// OpenFile is a helper method to define mock.On call
+//   - ctx context.Context
+//   - volume string
+//   - path string
+func (_e *StorageAPI_Expecter) OpenFile(ctx interface{}, volume interface{}, path interface{}) *StorageAPI_OpenFile_Call {
+	return &StorageAPI_OpenFile_Call{Call: _e.mock.On("OpenFile", ctx, volume, path)}
+}
+
+func (_c *StorageAPI_OpenFile_Call) Run(run func(ctx context.Context, volume string, path string)) *StorageAPI_OpenFile_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *StorageAPI_OpenFile_Call) Return(_a0 storage.FileHandle, _a1 error) *StorageAPI_OpenFile_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *StorageAPI_OpenFile_Call) RunAndReturn(run func(context.Context, string, string) (storage.FileHandle, error)) *StorageAPI_OpenFile_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ReadAll provides a mock function with given fields: ctx, volume, path
 func (_m *StorageAPI) ReadAll(ctx context.Context, volume string, path string) ([]byte, error) {
 	ret := _m.Called(ctx, volume, path)

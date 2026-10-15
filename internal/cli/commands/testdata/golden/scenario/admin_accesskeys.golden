@@ -115,10 +115,10 @@ Policy: inline (restricts the parent user)
 
 $ nexoctl admin accesskey remove mem AKMEM0001 AKMEM0001
 Removed access key "AKMEM0001".
-! nexoctl: error: remove access key "AKMEM0001": access key not found: "AKMEM0001" (user_not_found)
+! nexoctl: error: remove access key "AKMEM0001": user not found: access key not found: "AKMEM0001" (user_not_found)
 [exit 3]
 
 $ nexoctl admin accesskey info mem AKMEM0001
-! nexoctl: error: access key "AKMEM0001": access key not found: "AKMEM0001" (user_not_found)
+! nexoctl: error: access key "AKMEM0001": user not found: access key not found: "AKMEM0001" (user_not_found)
 [exit 3]
 

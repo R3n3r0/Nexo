@@ -52,7 +52,6 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/topology"
 	"github.com/r3n3r0/nexo/internal/service/trace"
 	adminhttp "github.com/r3n3r0/nexo/internal/transport/http/admin"
-	"github.com/r3n3r0/nexo/internal/transport/http/dist"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
 	"github.com/r3n3r0/nexo/internal/transport/http/s3"
@@ -250,11 +249,18 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (app *App, er
 	group.Add("janitor", janitor)
 	group.Add("notifier", f.notifier)
 	if f.distributed() {
+		// Started before the listeners, stopped after them: every file
+		// handle of the peers is closed once no call can open one.
+		group.Add("rpc-handles", f.storageRoutes)
 		const waiting = "the cluster bootstrap is not complete: this node waits for its peers"
 		a.s3Gate = middleware.NewGate(middleware.GateDeps{}, middleware.WithS3Errors(), middleware.WithClosedReason(waiting))
 		a.consGate = middleware.NewGate(middleware.GateDeps{}, middleware.WithClosedReason(waiting))
 		a.s3Certs = &certificateHolder{}
-		s3Opts := serverOptions(cfg, f.keystore, cfg.Address, "s3")
+		// The S3 port carries the internode RPC: the larger HTTP/2
+		// windows of the shard streams (the other listeners keep the
+		// defaults of net/http, docs/security/threat-model.md).
+		s3Opts := append(serverOptions(cfg, f.keystore, cfg.Address, "s3"),
+			server.WithHTTP2Windows(server.RPCStreamWindow, server.RPCConnWindow, server.RPCMaxFrameSize))
 		if cfg.TLSEnabled() {
 			s3Opts = append(s3Opts, server.WithCertificates(a.s3Certs))
 		}
@@ -323,11 +329,14 @@ func (a *App) composeDeps(deploymentID string) composeDeps {
 func (a *App) joinCluster(ctx context.Context) error {
 	res, err := a.f.bootstrapper.Bootstrap(ctx)
 	if err != nil {
-		return fmt.Errorf("cluster bootstrap: %w", err)
+		return fmt.Errorf("bootstrap: %w", err)
 	}
 	a.f.auth.SetDeploymentID(ctx, res.DeploymentID)
 	if len(res.Healing) > 0 {
 		a.logger.Warn("cluster: local drives formatted as replacements, to be healed", "drives", len(res.Healing))
+	}
+	if len(res.Joined) > 0 {
+		a.logger.Info("cluster: local drives joined the fresh deployment, copying its system configuration", "drives", len(res.Joined))
 	}
 	svc, err := compose(ctx, a.composeDeps(res.DeploymentID))
 	if err != nil {
@@ -344,7 +353,6 @@ func (a *App) joinCluster(ctx context.Context) error {
 	a.svc, a.late = svc, late
 	a.mu.Unlock()
 	a.s3Certs.set(svc.dist.certs)
-	a.f.distRequests.set(dist.DistributionRequest(svc.dist.raw))
 	a.s3Gate.Open(svc.s3Srv.Handler())
 	a.consGate.Open(svc.consSrv.Handler())
 	a.logger.Info("cluster: node ready", "node", a.f.nodeID, "deployment_id", res.DeploymentID,
@@ -506,8 +514,10 @@ func s3Middlewares(d middlewareDeps) ([]middleware.Middleware, error) {
 	// The metrics routes authenticate their bearer tokens themselves; a
 	// virtual-host request with the same path is an object request.
 	skip, service := s3.MetricsRequest(d.domains...), s3.SigningService(d.domains...)
+	targetDeps := middleware.TargetDeps{}
 	if d.dist != nil {
 		skip, service = d.dist.authSkip(skip), d.dist.authService(service)
+		targetDeps.HostBuckets = d.dist.hostBuckets()
 	}
 	authn, err := middleware.NewAuth(middleware.AuthDeps{Verifier: d.verifier, OnError: middleware.S3ErrorWriter(d.codec),
 		Skip: skip, Service: service})
@@ -530,6 +540,10 @@ func s3Middlewares(d middlewareDeps) ([]middleware.Middleware, error) {
 	return []middleware.Middleware{
 		middleware.NewRequestID(middleware.RequestIDDeps{IDs: d.ids}),
 		forwarded,
+		// The bucket and object of the request as the S3 API resolves
+		// them (custom domains of the s3 distributions included), for the
+		// observers of a request refused before its handler.
+		middleware.NewTarget(targetDeps, middleware.WithTargetDomains(d.domains...)),
 		middleware.NewRecover(middleware.RecoverDeps{Logger: d.logger, OnError: middleware.S3ErrorWriter(d.codec)}),
 		// The span of the request, child of the trace context of the
 		// caller: the internode calls it makes are its children.
@@ -937,7 +951,8 @@ func (a *App) reloadTLS(ctx context.Context) {
 // served.
 func (a *App) Start(ctx context.Context) error {
 	if err := a.group.Start(ctx); err != nil {
-		return fmt.Errorf("app: start: %w", err)
+		// The error names the component ("start cluster: ...").
+		return err
 	}
 	a.logger.Info("nexo started",
 		"version", version.Get().Version,
@@ -975,8 +990,13 @@ func (a *App) Run(ctx context.Context) error {
 	signal.Notify(hup, syscall.SIGHUP)
 	defer signal.Stop(hup)
 	cur := a
-	for {
+	for restarted := false; ; restarted = true {
 		if err := cur.Start(ctx); err != nil {
+			if restarted && ctx.Err() != nil {
+				// A shutdown requested during the restart: nothing runs.
+				cur.logger.Info("shutdown requested during the restart", "reason", ctx.Err())
+				return nil
+			}
 			return err
 		}
 		cur.running.Store(true)
@@ -999,8 +1019,19 @@ func (a *App) Run(ctx context.Context) error {
 		if err := cur.Stop(context.WithoutCancel(ctx)); err != nil {
 			return err
 		}
+		if ctx.Err() != nil {
+			cur.logger.Info("shutdown requested during the restart", "reason", ctx.Err())
+			return nil
+		}
 		next, err := Build(ctx, cur.cfg, cur.opts...)
 		if err != nil {
+			if ctx.Err() != nil {
+				// Interrupted by the shutdown, not a failure of the
+				// restart (regression: SIGTERM during a restart exited
+				// with "app: restart: ... context canceled").
+				cur.logger.Info("shutdown requested during the restart", "reason", ctx.Err())
+				return nil
+			}
 			return fmt.Errorf("app: restart: %w", err)
 		}
 		cur = next
@@ -1175,6 +1206,11 @@ func (a *App) Signer() auth.Signer {
 // runtime.
 func serverOptions(cfg config.Static, ks certs.Keystore, addr, name string) []server.Option {
 	opts := []server.Option{server.WithAddr(addr), server.WithName(name), server.WithMinTLSVersion(tlsMinVersion(cfg))}
+	if cfg.SendTimeout > 0 {
+		// The stall bound of every response (NEXO_SEND_TIMEOUT; the
+		// default of the server when zero).
+		opts = append(opts, server.WithSendTimeout(cfg.SendTimeout))
+	}
 	if cfg.ProxyProtocolOn(name) {
 		// The PROXY protocol of the trusted proxies (docs/10 §10.2).
 		opts = append(opts, server.WithProxyProtocol(cfg.TrustedProxies...))

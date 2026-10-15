@@ -2,8 +2,10 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -77,10 +79,9 @@ type foundation struct {
 	auth  rpc.Authenticator
 	rpc   rpc.Server
 	conns []rpc.Conn
-	// distRequests selects the requests of the distributions, whatever
-	// their path, once the services are composed: the RPC server leaves
-	// them to the API (a website path may look like an internode call).
-	distRequests requestPredicate
+	// storageRoutes serve the local drives to the peers; their runner
+	// sweeps the file handles the peers forgot.
+	storageRoutes rpc.StorageRoutes
 	// cacheNode serves the cache of this node to its peers once it is
 	// composed; cachePeers are the caches of the other nodes (docs/11
 	// §11.4).
@@ -247,7 +248,12 @@ func (f *foundation) openDistributed(d foundationDeps) error {
 	f.nodeID = local.ID
 	build := version.Get()
 	logger := d.logger.With("node", f.nodeID)
-	var err error
+	// The id of this run of the node: its peers close the file handles an
+	// earlier run opened on their drives as soon as this one opens one.
+	boot, err := randomID()
+	if err != nil {
+		return err
+	}
 	f.auth, err = rpc.NewAuthenticator(rpc.AuthDeps{Logger: logger},
 		rpc.WithCredentials(cfg.RootUser, cfg.RootPassword), rpc.WithNodeID(f.nodeID), rpc.WithBuildVersion(build.Version))
 	if err != nil {
@@ -329,7 +335,7 @@ func (f *foundation) openDistributed(d foundationDeps) error {
 			if !ok {
 				return fmt.Errorf("%w: no node for drive %s", domain.ErrInvalidLayout, ep)
 			}
-			drive, err = rpc.NewStorageClient(rpc.StorageClientDeps{Conn: conn, Logger: logger}, ep)
+			drive, err = rpc.NewStorageClient(rpc.StorageClientDeps{Conn: conn, Boot: boot, Logger: logger}, ep)
 			if err != nil {
 				return err
 			}
@@ -376,6 +382,7 @@ func (f *foundation) openDistributed(d foundationDeps) error {
 	if err != nil {
 		return err
 	}
+	f.storageRoutes = storageRoutes
 	lockRoutes, err := rpc.NewLockRoutes(rpc.LockRoutesDeps{Server: lockServer})
 	if err != nil {
 		return err
@@ -398,10 +405,13 @@ func (f *foundation) openDistributed(d foundationDeps) error {
 	if err != nil {
 		return err
 	}
-	vhost := s3.VirtualHostRequest(domainsOf(cfg)...)
-	serverOpts := []rpc.ServerOption{rpc.WithSkip(func(r *http.Request) bool { return vhost(r) || f.distRequests.match(r) })}
+	// Only a virtual host of NEXO_DOMAIN keeps "/nexo/rpc/..." as an object
+	// key of its bucket: an alias of a distribution never takes the
+	// internode protocol, whatever host a peer uses (docs/10 §10.2).
+	serverOpts := []rpc.ServerOption{rpc.WithSkip(s3.VirtualHostRequest(domainsOf(cfg)...))}
 	if cfg.TLSInternodeVerify {
-		serverOpts = append(serverOpts, rpc.WithClientCertRequired())
+		// A trusted certificate is not enough: it must name a node.
+		serverOpts = append(serverOpts, rpc.WithClientCertRequired(), rpc.WithClientCertHosts(endpointHosts(d.layout)...))
 	}
 	f.rpc, err = rpc.NewServer(rpc.ServerDeps{Auth: f.auth, Metrics: f.registry, Clock: d.clock, Logger: logger,
 		Routes: []rpc.Routes{storageRoutes, lockRoutes, peerRoutes, bootRoutes, cacheRoutes, obsRoutes}}, serverOpts...)
@@ -413,7 +423,7 @@ func (f *foundation) openDistributed(d foundationDeps) error {
 func (f *foundation) isRPC(cfg config.Static) func(r *http.Request) bool {
 	vhost := s3.VirtualHostRequest(domainsOf(cfg)...)
 	return func(r *http.Request) bool {
-		return strings.HasPrefix(r.URL.Path, rpc.Prefix+"/") && !vhost(r) && !f.distRequests.match(r)
+		return strings.HasPrefix(r.URL.Path, rpc.Prefix+"/") && !vhost(r)
 	}
 }
 
@@ -455,4 +465,30 @@ func internodeTLS(cfg config.Static, layout *topology.Layout, ks certs.Keystore)
 		out.GetClientCertificate = ks.GetClientCertificate
 	}
 	return out, nil
+}
+
+// endpointHosts returns the hosts (without port) of the node endpoints.
+func endpointHosts(layout *topology.Layout) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, ep := range layout.Endpoints() {
+		host := ep.Host
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		if host != "" && !seen[host] {
+			seen[host] = true
+			out = append(out, host)
+		}
+	}
+	return out
+}
+
+// randomID returns a random id of 16 bytes in hex.
+func randomID() (string, error) {
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("random id: %w", err)
+	}
+	return hex.EncodeToString(raw), nil
 }

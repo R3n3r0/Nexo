@@ -1,6 +1,6 @@
 import { configure, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createRoutes } from '@/router';
 import { isApiError, type Services } from '@/services';
@@ -290,6 +290,31 @@ describe('cache pages', { timeout: 30_000 }, () => {
       { timeout: 8_000 },
     );
     expect(progress).toHaveTextContent('1 objects not found');
+  });
+
+  // covers: D-CCH-06
+  it('D-CCH-06 warms every object under a prefix', async () => {
+    const services = admin({ cacheSteps: 1 });
+    const warm = vi.spyOn(services.cache, 'warm');
+    const { user } = open('/cache/warm', services);
+    const form = await screen.findByRole('form', { name: 'Warm-up' });
+    await user.click(within(form).getByRole('textbox', { name: 'Distribution' }));
+    await user.click(await screen.findByRole('option', { name: 'download' }));
+    await user.click(within(form).getByRole('radio', { name: 'Prefix' }));
+    const start = within(form).getByRole('button', { name: 'Start the warm-up' });
+    expect(start).toBeDisabled();
+    await user.type(within(form).getByRole('textbox', { name: 'Path prefix' }), '/db/');
+    await user.click(start);
+    expect(warm).toHaveBeenCalledWith('download', { prefix: '/db/' });
+    const progress = await screen.findByRole('region', { name: /^Warm-up warm-/ });
+    await waitFor(
+      () => {
+        expect(progress.querySelector('[data-state="completed"]')).not.toBeNull();
+      },
+      { timeout: 8_000 },
+    );
+    // The two dumps under db/ of the origin bucket.
+    expect(progress).toHaveTextContent('2/2 objects');
   });
 
   it('saves the settings of the cluster with If-Match', async () => {

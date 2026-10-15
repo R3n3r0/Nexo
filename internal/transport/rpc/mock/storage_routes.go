@@ -3,6 +3,8 @@
 package mock
 
 import (
+	context "context"
+
 	chi "github.com/go-chi/chi/v5"
 	mock "github.com/stretchr/testify/mock"
 )
@@ -50,6 +52,98 @@ func (_c *StorageRoutes_Register_Call) Return() *StorageRoutes_Register_Call {
 
 func (_c *StorageRoutes_Register_Call) RunAndReturn(run func(chi.Router)) *StorageRoutes_Register_Call {
 	_c.Run(run)
+	return _c
+}
+
+// Start provides a mock function with given fields: ctx
+func (_m *StorageRoutes) Start(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Start")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// StorageRoutes_Start_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Start'
+type StorageRoutes_Start_Call struct {
+	*mock.Call
+}
+
+// Start is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *StorageRoutes_Expecter) Start(ctx interface{}) *StorageRoutes_Start_Call {
+	return &StorageRoutes_Start_Call{Call: _e.mock.On("Start", ctx)}
+}
+
+func (_c *StorageRoutes_Start_Call) Run(run func(ctx context.Context)) *StorageRoutes_Start_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *StorageRoutes_Start_Call) Return(_a0 error) *StorageRoutes_Start_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *StorageRoutes_Start_Call) RunAndReturn(run func(context.Context) error) *StorageRoutes_Start_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Stop provides a mock function with given fields: ctx
+func (_m *StorageRoutes) Stop(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Stop")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// StorageRoutes_Stop_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Stop'
+type StorageRoutes_Stop_Call struct {
+	*mock.Call
+}
+
+// Stop is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *StorageRoutes_Expecter) Stop(ctx interface{}) *StorageRoutes_Stop_Call {
+	return &StorageRoutes_Stop_Call{Call: _e.mock.On("Stop", ctx)}
+}
+
+func (_c *StorageRoutes_Stop_Call) Run(run func(ctx context.Context)) *StorageRoutes_Stop_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *StorageRoutes_Stop_Call) Return(_a0 error) *StorageRoutes_Stop_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *StorageRoutes_Stop_Call) RunAndReturn(run func(context.Context) error) *StorageRoutes_Stop_Call {
+	_c.Call.Return(run)
 	return _c
 }
 

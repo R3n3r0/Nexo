@@ -392,6 +392,67 @@ func TestAliasSetVerifiesCredentials(t *testing.T) {
 	h := newHarness(t)
 	r := h.run("alias", "set", "x", "http://s3.other.test", "AK", "SK", "--verify", "--no-verify")
 	assert.Equal(t, cli.ExitUsage, r.code, r.stderr)
+
+	// An explicit --admin-url is verified too (regression: an Admin API
+	// that did not answer was saved as verified).
+	for _, tt := range []struct {
+		name    string
+		failure error
+		code    int
+		saved   bool
+		message string
+	}{
+		{name: "admin reachable", code: 0, saved: true, message: "Admin API verified."},
+		{name: "admin denied", failure: fmt.Errorf("%w: access_denied", domain.ErrAccessDenied), code: 0, saved: true,
+			message: "the server information is denied"},
+		{name: "admin unreachable", failure: &cli.UnreachableError{Endpoint: "http://localhost:9557", Reason: "connection refused"},
+			code: cli.ExitError, message: "cannot reach http://localhost:9557: connection refused"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.admin.FailOn("ServerInfo", tt.failure)
+			r := h.run("alias", "set", "noadm", "http://localhost:9000", clitest.MemAdminRoot, "SK", "--admin-url", "http://localhost:9557")
+			assert.Equal(t, tt.code, r.code, "stdout: %s\nstderr: %s", r.stdout, r.stderr)
+			assert.Contains(t, r.stdout+r.stderr, tt.message)
+			list := h.mustRun("alias", "list")
+			if tt.saved {
+				assert.Contains(t, list.stdout, "noadm")
+			} else {
+				assert.NotContains(t, list.stdout, "noadm", "nothing is saved")
+			}
+		})
+	}
+}
+
+// TestMissingLocalPathNamesTheAlias: a source that is neither an alias
+// nor a local path says that no such alias exists (regression: "stat
+// nosuchalias/foto: no such file or directory" only).
+func TestMissingLocalPathNamesTheAlias(t *testing.T) {
+	h := newHarness(t)
+	r := h.run("ls", "nosuchalias/foto")
+	assert.Equal(t, cli.ExitNotFound, r.code, "stdout: %s\nstderr: %s", r.stdout, r.stderr)
+	assert.Contains(t, r.stderr, `no alias named "nosuchalias"`)
+	assert.Contains(t, r.stderr, "nexoctl alias list")
+
+	// A local directory that exists is not mistaken for an alias.
+	dir := t.TempDir()
+	r = h.run("ls", filepath.Join(dir, "missing"))
+	assert.NotContains(t, r.stderr, "no alias named")
+}
+
+// TestStatNamesTheMissingBucket: stat of an object of a missing bucket
+// says that the bucket is missing (regression: "object not found").
+func TestStatNamesTheMissingBucket(t *testing.T) {
+	h := newHarness(t)
+	h.mem.MakeBucket("bkt")
+	r := h.run("stat", "mem/nonexistent/x")
+	assert.Equal(t, cli.ExitNotFound, r.code, r.stderr)
+	assert.Contains(t, r.stderr, "bucket not found")
+	assert.NotContains(t, r.stderr, "object not found")
+	r = h.run("stat", "mem/bkt/x")
+	assert.Equal(t, cli.ExitNotFound, r.code, r.stderr)
+	assert.Contains(t, r.stderr, "not found")
+	assert.NotContains(t, r.stderr, "bucket not found")
 }
 
 // covers: C-OBJ-07 (a raw download URL is signed only for an object that

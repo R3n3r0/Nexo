@@ -15,7 +15,7 @@ Updated notify_webhook: auth_token, endpoint.
 ! warning: notify_webhook.endpoint is stored but not applied yet by the server
 
 $ nexoctl admin config set mem logger level=verbose
-! nexoctl: error: config "logger": logger.level: "verbose" is not one of debug, info, warn, error (invalid_argument)
+! nexoctl: error: config "logger": invalid argument: logger.level: "verbose" is not one of debug, info, warn, error (invalid_argument)
 [exit 1]
 
 $ nexoctl admin config set mem region name
@@ -61,7 +61,7 @@ $ nexoctl admin config get mem region
 region comment="Milan DC" name=eu-south-1
 
 $ nexoctl admin config get mem nope
-! nexoctl: error: config "nope": unknown configuration subsystem "nope" (invalid_argument)
+! nexoctl: error: config "nope": invalid argument: unknown configuration subsystem "nope" (invalid_argument)
 [exit 1]
 
 $ nexoctl admin config import mem broken.json

@@ -157,7 +157,7 @@ in lettura e scrittura; capacità utile 75%.
 |----------|----------------------|
 | 1 disco offline | Letture/scritture OK, heal al rientro |
 | P dischi offline in un set | Letture/scritture OK (scritture se quorum D rispettato) |
-| > P dischi offline | Errore `503 SlowDown`/`XNexoQuorum` per quel set, altri set funzionanti |
+| > P dischi offline | Errore `503 SlowDownWrite`/`SlowDownRead` (`XNexoLockTimeout` senza quorum dei lock) per quel set, altri set funzionanti |
 | 1 nodo offline (4 nodi) | Cluster pienamente operativo |
 | Partizione di rete 2+2 | Nessuna scrittura possibile senza quorum lock (no split-brain); letture se quorum dati raggiungibile |
 | Disco corrotto (bitrot) | Rilevato in lettura, risposta corretta, shard riparato |
