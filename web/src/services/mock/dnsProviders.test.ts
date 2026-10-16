@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { ApiError } from '../errors';
+import type { ApiError } from '../errors';
 import { createMockServices } from './index';
 
 const code = async (p: Promise<unknown>) => ((await p.catch((e: unknown) => e)) as ApiError).code;
