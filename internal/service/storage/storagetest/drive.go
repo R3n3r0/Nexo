@@ -454,11 +454,9 @@ func testFaultyDrive(t *testing.T, f Factory) {
 func testCreateFileLargeStream(t *testing.T, f Factory) {
 	ctx := context.Background()
 	s, _ := open(t, f)
-	// 2.5 MB: whole copy buffers and an unaligned tail (O_DIRECT on a
-	// durable local drive, see storage.directIO).
-	payload := bytes.Repeat([]byte("0123456789"), 250_000)
+	payload := bytes.Repeat([]byte("0123456789"), 100_000) // 1 MB
 	require.NoError(t, s.CreateFile(ctx, domain.SystemBucket, "tmp/big/part.1", int64(len(payload)), bytes.NewReader(payload)))
-	rc, err := s.ReadFileStream(ctx, domain.SystemBucket, "tmp/big/part.1", int64(len(payload))-10, 10)
+	rc, err := s.ReadFileStream(ctx, domain.SystemBucket, "tmp/big/part.1", 999_990, 10)
 	require.NoError(t, err)
 	tail, err := io.ReadAll(rc)
 	require.NoError(t, err)

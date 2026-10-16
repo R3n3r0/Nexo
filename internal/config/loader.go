@@ -47,7 +47,6 @@ const (
 	EnvKMSClientKey       = "NEXO_KMS_CLIENT_KEY"
 	EnvKMSCAPath          = "NEXO_KMS_CAPATH"
 	EnvSSECAllowInsecure  = "NEXO_SSEC_ALLOW_INSECURE"
-	EnvDriveDirectIO      = "NEXO_DRIVE_DIRECT_IO"
 	// FileSuffix is appended to a variable name to read its value from a file.
 	FileSuffix = "_FILE"
 )
@@ -242,13 +241,6 @@ func (l *loader) applyEnv(cfg *Static) error {
 			*dst = b
 		}
 	}
-	if v, ok := l.env(EnvDriveDirectIO); ok && strings.TrimSpace(v) != "" {
-		on, err := parseSwitch(v)
-		if err != nil {
-			return fmt.Errorf("%s: %w", EnvDriveDirectIO, err)
-		}
-		cfg.DisableDirectIO = !on
-	}
 	if v, ok := l.env(EnvKMSEndpoint); ok {
 		cfg.KMSEndpoints = splitList(v)
 	}
@@ -374,15 +366,4 @@ func splitList(s string) []string {
 		}
 	}
 	return out
-}
-
-// parseSwitch reads an on/off value: on, off or a strconv.ParseBool value.
-func parseSwitch(v string) (bool, error) {
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "on":
-		return true, nil
-	case "off":
-		return false, nil
-	}
-	return strconv.ParseBool(strings.TrimSpace(v))
 }

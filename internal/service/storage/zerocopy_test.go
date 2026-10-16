@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"io"
 	"os"
 	"testing"
@@ -12,6 +13,14 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/domain"
 )
+
+func randomPayload(t testing.TB, n int) []byte {
+	t.Helper()
+	b := make([]byte, n)
+	_, err := rand.Read(b)
+	require.NoError(t, err)
+	return b
+}
 
 // fileSections is a writer that copies from readers itself and records
 // whether it was handed file sections (zero-copy, see WriteTo).
