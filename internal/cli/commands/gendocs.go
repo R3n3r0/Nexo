@@ -123,8 +123,11 @@ func withAliases(page string, c *cobra.Command) string {
 // at the end of some lines (hard line breaks) are removed, and the "*" and
 // "_" of the prose (globs such as "*.example.com", names such as
 // NEXO_KMS_SECRET_KEY) are escaped so that they are not read as emphasis.
-// Code blocks (fenced or indented), headings and the links of the "SEE
-// ALSO" list are kept as they are.
+// Code blocks (fenced or indented) and the links of the "SEE ALSO" list are
+// kept as they are. The headings are promoted by one level: cobra/doc opens
+// the page with "## nexoctl cp", and a page without a level-1 heading has
+// no title in MkDocs (it falls back to the file name, "Nexoctl cp") nor a
+// document outline that starts at its top.
 func polishPage(page string) string {
 	lines := strings.Split(page, "\n")
 	fenced := false
@@ -133,7 +136,10 @@ func polishPage(page string) string {
 		switch {
 		case strings.HasPrefix(l, "```"):
 			fenced = !fenced
-		case fenced, strings.HasPrefix(l, "\t"), strings.HasPrefix(l, "    "), strings.HasPrefix(l, "#"):
+		case fenced, strings.HasPrefix(l, "\t"), strings.HasPrefix(l, "    "):
+		case strings.HasPrefix(l, "##"):
+			l = l[1:]
+		case strings.HasPrefix(l, "#"):
 		case strings.HasPrefix(l, "* ["):
 			// "* [nexoctl cp](nexoctl_cp.md)\t - Short": only the
 			// description after the link is prose.

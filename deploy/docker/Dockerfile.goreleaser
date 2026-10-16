@@ -20,7 +20,7 @@ LABEL org.opencontainers.image.title="Nexo" \
       org.opencontainers.image.description="S3-compatible object storage server with embedded web console" \
       org.opencontainers.image.url="https://github.com/r3n3r0/nexo" \
       org.opencontainers.image.documentation="https://github.com/r3n3r0/nexo/tree/main/docs" \
-      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
       org.opencontainers.image.vendor="r3n3r0"
 
 COPY LICENSE /LICENSE
