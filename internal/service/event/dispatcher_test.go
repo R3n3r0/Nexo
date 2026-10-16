@@ -279,19 +279,29 @@ func TestDispatcherQueueLimit(t *testing.T) {
 func TestDispatcherInMemoryQueueFull(t *testing.T) {
 	ctx := context.Background()
 	release := make(chan struct{})
+	routing := make(chan struct{}, 1)
 	rules := eventmock.NewBucketRules(t)
 	rules.EXPECT().NotificationConfig(mock.Anything, "b").RunAndReturn(func(context.Context, string) ([]byte, error) {
+		select {
+		case routing <- struct{}{}:
+		default:
+		}
 		<-release
 		return nil, nil
 	})
 	d := event.NewDispatcher(event.Deps{Rules: rules}, event.WithQueueSize(1))
 	require.NoError(t, d.Start(ctx))
-	// The router blocks on the first event, the second fills the queue,
-	// the third is refused.
+	// The router took the first event out of the queue and blocks on it,
+	// the second fills the queue, the third is refused. The test waits for
+	// the router: a queue still holding the first event would refuse the
+	// second and then make room for the third.
 	require.NoError(t, d.Publish(ctx, objectEvent(event.ObjectCreatedPut, "b", "1")))
-	require.Eventually(t, func() bool {
-		return d.Publish(ctx, objectEvent(event.ObjectCreatedPut, "b", "2")) != nil
-	}, 5*time.Second, time.Millisecond)
+	select {
+	case <-routing:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the router did not take the first event")
+	}
+	require.NoError(t, d.Publish(ctx, objectEvent(event.ObjectCreatedPut, "b", "2")))
 	assert.ErrorIs(t, d.Publish(ctx, objectEvent(event.ObjectCreatedPut, "b", "3")), domain.ErrStorageFull)
 	close(release)
 	stop(t, d)
