@@ -32,8 +32,27 @@ type Option func(*options)
 
 type options struct {
 	buffer   int
+	maxSubs  int
 	retryMin time.Duration
 	retryMax time.Duration
+}
+
+// DefaultMaxSubscribers bounds the live subscriptions of a node: each one
+// holds a buffer of events and is visited by every request, so that an
+// unbounded number of streams would exhaust the memory and slow every
+// request down.
+const DefaultMaxSubscribers = 256
+
+// WithMaxSubscribers sets the live subscriptions a node accepts at once
+// (default DefaultMaxSubscribers; n <= 0 keeps it): beyond them Subscribe
+// fails with domain.ErrTooManyRequests. The streams the peers open for the
+// subscriptions of their own nodes count too.
+func WithMaxSubscribers(n int) Option {
+	return func(o *options) {
+		if n > 0 {
+			o.maxSubs = n
+		}
+	}
 }
 
 // WithBuffer sets the events a subscriber may lag behind before it loses
@@ -81,7 +100,7 @@ func New(deps Deps, opts ...Option) (Service, error) {
 	if deps.Logger == nil {
 		deps.Logger = slog.Default()
 	}
-	o := options{buffer: 1024, retryMin: time.Second, retryMax: 30 * time.Second}
+	o := options{buffer: 1024, maxSubs: DefaultMaxSubscribers, retryMin: time.Second, retryMax: 30 * time.Second}
 	for _, opt := range opts {
 		opt(&o)
 	}
@@ -135,8 +154,13 @@ func (s *service) Subscribe(ctx context.Context, f Filter) (Subscription, error)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	sub := &subscriber{filter: cf, ch: make(chan Event, s.opts.buffer)}
 	s.mu.Lock()
+	if len(s.subs) >= s.opts.maxSubs {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("%w: trace: %d live trace subscriptions are already open on node %s",
+			domain.ErrTooManyRequests, s.opts.maxSubs, s.deps.NodeID)
+	}
+	sub := &subscriber{filter: cf, ch: make(chan Event, s.opts.buffer)}
 	s.subs[sub] = struct{}{}
 	s.mu.Unlock()
 	s.count.Add(1)

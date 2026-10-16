@@ -39,6 +39,9 @@ nexoctl admin trace --timeout 1m --json local > trace.jsonl         # JSON Lines
 - Senza client collegati il costo è nullo; un client lento perde eventi (segnalati come `dropped`) ma non
   rallenta mai le richieste.
 - Lo stream si riconnette da solo se il server si riavvia; termina con Ctrl-C, `--timeout` o `--count`.
+- Un nodo serve al massimo 256 stream live di trace e 256 di log alla volta (le schede della console, la CLI
+  e gli stream che gli altri nodi aprono per loro): oltre, un nuovo stream è rifiutato con 429
+  `too_many_requests` finché uno non si chiude.
 - Richiede `admin:ServerTrace` (root, `consoleAdmin`, `diagnostics`).
 
 ## Log live

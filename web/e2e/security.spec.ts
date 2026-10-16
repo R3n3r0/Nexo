@@ -77,7 +77,7 @@ test.describe('console security', () => {
     test.use({ storageState: anonymous });
 
     // covers: D-AUTH-01
-    test('TD-S-02 session cookies are HttpOnly, SameSite=Strict, and Secure over TLS', async ({
+    test('TD-S-02 session cookies are HttpOnly, SameSite=Strict, and Secure over TLS, with HSTS', async ({
       page,
       context,
       nexo,
@@ -137,6 +137,11 @@ test.describe('console security', () => {
         expect(sessionCookie).toMatch(/;\s*Secure/i);
         expect(sessionCookie).toMatch(/;\s*SameSite=Strict/i);
         expect(setCookies.some((c) => c.startsWith('nexo_csrf='))).toBe(false);
+        // Pentest 2026-10 (PT-02): over TLS the console and the Admin API
+        // tell the browser to never use plain HTTP again (HSTS).
+        expect(res.headers()['strict-transport-security']).toBe('max-age=31536000');
+        const index = await ctx.get('/');
+        expect(index.headers()['strict-transport-security']).toBe('max-age=31536000');
         await ctx.dispose();
       } finally {
         await stopNexo(tls.pid);
@@ -370,6 +375,55 @@ test.describe('console security', () => {
       expect((await api.admin('GET', '/users/sneaky-user')).status).toBe(404);
     } finally {
       await context.close();
+    }
+  });
+
+  // covers: D-AUTH-01
+  test('TD-S-09 Admin API answers are never stored, sniffed or framed by another site', async ({
+    page,
+    nexo,
+  }) => {
+    // Pentest 2026-10 (PT-01): the answers of the Admin API (the session
+    // with its CSRF token, users, keys) carried no Cache-Control nor
+    // nosniff; over plain HTTP there is no HSTS.
+    await page.goto('/');
+    const anonymous = await playwrightRequest.newContext({ baseURL: nexo.consoleURL });
+    try {
+      for (const res of [
+        await page.request.get('/api/v1/auth/session'),
+        await page.request.get('/api/v1/buckets'),
+        await anonymous.get('/api/v1/users'),
+      ]) {
+        const headers = res.headers();
+        expect(headers['cache-control'], res.url()).toBe('no-store');
+        expect(headers['x-content-type-options'], res.url()).toBe('nosniff');
+        expect(headers['x-frame-options'], res.url()).toBe('SAMEORIGIN');
+        expect(headers['strict-transport-security'], res.url()).toBeUndefined();
+      }
+    } finally {
+      await anonymous.dispose();
+    }
+  });
+
+  // covers: D-AUTH-01
+  test('TD-S-10 the audit entry of a console login names the user', async ({ nexo, api }) => {
+    // Pentest 2026-10 (PT-04): the login was audited without its user.
+    const ctx = await playwrightRequest.newContext({ baseURL: nexo.consoleURL });
+    try {
+      const res = await ctx.post('/api/v1/auth/login', { data: nexo.users.member });
+      expect(res.status()).toBe(200);
+      const requestId = res.headers()['x-amz-request-id'];
+      expect(requestId).toBeTruthy();
+      await expect
+        .poll(async () => {
+          const page = await api.call<{ items: { accessKey?: string }[] }>('GET', '/audit', {
+            query: { requestId },
+          });
+          return page.items.map((e) => e.accessKey);
+        })
+        .toEqual([nexo.users.member.accessKey]);
+    } finally {
+      await ctx.dispose();
     }
   });
 

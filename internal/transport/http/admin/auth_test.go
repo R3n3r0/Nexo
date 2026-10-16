@@ -75,6 +75,34 @@ func TestSessionLoginSessionLogout(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, rec.Code, "the session is revoked")
 }
 
+// covers: D-AUTH-01
+func TestSessionLoginNamesTheUserInTheAudit(t *testing.T) {
+	// Pentest 2026-10 (PT-04): the audit entry of a console login named
+	// no user. The login records the identity it opened the session for
+	// in the holder the audit and trace middlewares read; a failed login
+	// records none.
+	f := newFixture(t)
+	login := func(secret string) (*domain.Identity, bool, int) {
+		body := strings.NewReader(`{"accessKey":"` + bobKey + `","secretKey":"` + secret + `"}`)
+		req := httptest.NewRequest(http.MethodPost, admin.Prefix+"/auth/login", body)
+		req.Header.Set("Content-Type", "application/json")
+		req = req.WithContext(middleware.WithIdentityHolder(req.Context()))
+		rec := httptest.NewRecorder()
+		f.handler.ServeHTTP(rec, req)
+		id, ok := middleware.HeldIdentity(req.Context())
+		return id, ok, rec.Code
+	}
+	id, ok, code := login(bobSecret)
+	require.Equal(t, http.StatusOK, code)
+	require.True(t, ok, "the login records its user")
+	assert.Equal(t, bobKey, id.AccessKey)
+	assert.False(t, id.IsRoot)
+
+	_, ok, code = login("wrong-secret-123")
+	require.Equal(t, http.StatusUnauthorized, code)
+	assert.False(t, ok, "a failed login authenticates nobody")
+}
+
 func TestSessionLoginFailures(t *testing.T) {
 	f := newFixture(t)
 	tests := []struct {

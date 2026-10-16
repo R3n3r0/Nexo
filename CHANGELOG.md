@@ -182,6 +182,21 @@ published: the baseline of the upgrade tests is the M7 commit (`224bb31`, built 
 - Documentation: removed `NEXO_BROWSER` and `NEXO_CONSOLE_SESSION_DURATION`, never read (the console session
   lasts 12 hours); quickstart aligned with the real output.
 
+### Security (console penetration test, T-9.3)
+- Penetration test of the console and of the Admin API against a local build (SNMD, with and without TLS),
+  reported in [docs/security/pentest-2026-10.md](docs/security/pentest-2026-10.md) with the accepted risks.
+- **PT-01**: the answers of the Admin API (the session with its CSRF token, users, keys, configuration) carry
+  `Cache-Control: no-store` (unless a route sets its own policy, such as the downloads), and every answer of the
+  console listener `X-Content-Type-Options: nosniff` and `X-Frame-Options: SAMEORIGIN`
+  (`middleware.NewSecurityHeaders`).
+- **PT-02**: the console listener sends `Strict-Transport-Security: max-age=31536000` to the clients that come over
+  TLS, directly or through a trusted proxy.
+- **PT-03**: a node serves at most 256 live trace streams and 256 live log streams at once
+  (`trace.WithMaxSubscribers`, `logs.WithMaxSubscribers`); beyond them `GET /api/v1/trace` and `GET /api/v1/logs`
+  answer 429 `too_many_requests`. Each stream held a buffer of up to 10000 entries and was visited by every
+  request: open streams could exhaust the memory of a node.
+- **PT-04**: the audit record (and the live trace event) of a console login names the user who signed in.
+
 ### Upgrading
 - The on-disk formats are unchanged from `v0.7.0` (`format.json` v1, `xl.meta` 1.x): upgrade and downgrade
   verified in SNMD and with a rolling upgrade of a 4-node cluster under load (`make test-upgrade`,

@@ -192,6 +192,10 @@ func (h *sessionRoutes) login(w http.ResponseWriter, r *http.Request) {
 		writeError(h.deps.Codec, w, r, err)
 		return
 	}
+	// The audit entry and the live trace of the login name the user who
+	// signed in (the middlewares above read the identity holder).
+	identity := sess.Identity
+	middleware.WithIdentity(r.Context(), &identity)
 	// The CSRF token travels only in the JSON answer, which the console
 	// keeps in memory: a cookie readable by scripts would be readable by
 	// the pages of every port of the host (the S3 listener among them).

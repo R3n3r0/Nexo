@@ -37,6 +37,7 @@ type options struct {
 	format   string
 	ring     int
 	buffer   int
+	maxSubs  int
 	retryMin time.Duration
 	retryMax time.Duration
 }
@@ -78,6 +79,24 @@ func WithBuffer(n int) Option {
 	return func(o *options) {
 		if n > 0 {
 			o.buffer = n
+		}
+	}
+}
+
+// DefaultMaxSubscribers bounds the live subscriptions of a node: each one
+// holds a buffer of up to maxLast entries and is visited by every log
+// record, so that an unbounded number of streams would exhaust the memory
+// and slow the logging of every request down.
+const DefaultMaxSubscribers = 256
+
+// WithMaxSubscribers sets the live subscriptions a node accepts at once
+// (default DefaultMaxSubscribers; n <= 0 keeps it): beyond them Subscribe
+// fails with domain.ErrTooManyRequests. The streams the peers open for the
+// subscriptions of their own nodes count too.
+func WithMaxSubscribers(n int) Option {
+	return func(o *options) {
+		if n > 0 {
+			o.maxSubs = n
 		}
 	}
 }
@@ -134,7 +153,7 @@ func New(deps Deps, opts ...Option) (Service, error) {
 	if deps.NodeID == "" {
 		deps.NodeID = "local"
 	}
-	o := options{level: slog.LevelInfo, format: formatJSON, ring: 2000, buffer: 1024, retryMin: time.Second, retryMax: 30 * time.Second}
+	o := options{level: slog.LevelInfo, format: formatJSON, ring: 2000, buffer: 1024, maxSubs: DefaultMaxSubscribers, retryMin: time.Second, retryMax: 30 * time.Second}
 	for _, opt := range opts {
 		opt(&o)
 	}
@@ -258,8 +277,13 @@ func (s *service) Subscribe(ctx context.Context, f Filter) (Subscription, error)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	sub := &subscriber{filter: cf, ch: make(chan Entry, max(s.opts.buffer, f.Last))}
 	s.mu.Lock()
+	if len(s.subs) >= s.opts.maxSubs {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("%w: logs: %d live log subscriptions are already open on node %s",
+			domain.ErrTooManyRequests, s.opts.maxSubs, s.deps.NodeID)
+	}
+	sub := &subscriber{filter: cf, ch: make(chan Entry, max(s.opts.buffer, f.Last))}
 	if f.Last > 0 && cf.wants(s.deps.NodeID) {
 		for _, e := range s.recent(cf, f.Last) {
 			sub.send(e)

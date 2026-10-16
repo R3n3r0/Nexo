@@ -3,17 +3,19 @@
 L'analisi completa (STRIDE per superficie: API S3, Admin API e console, RPC tra i nodi, distribuzioni,
 cache, eventi, KMS, CLI), con le mitigazioni nel codice, le scansioni automatiche e il fuzzing, è in
 [docs/security/threat-model.md](https://github.com/R3n3r0/Nexo/blob/main/docs/security/threat-model.md).
+Il penetration test della console e dell'Admin API (ottobre 2026) è descritto in
+[docs/security/pentest-2026-10.md](https://github.com/R3n3r0/Nexo/blob/main/docs/security/pentest-2026-10.md).
 Questa pagina riassume ciò che conta per chi gestisce un deployment.
 
 ## Sintesi
 
 | Minaccia | Superficie | Mitigazione in Nexo |
 |----------|-----------|---------------------|
-| Furto d'identità | API S3, Admin API, RPC tra i nodi | SigV4 con confronto a tempo costante; sessioni console con cookie `HttpOnly`/`SameSite=Strict` e token CSRF; token tra nodi a breve scadenza legati alla singola chiamata; mTLS opzionale tra i nodi |
+| Furto d'identità | API S3, Admin API, RPC tra i nodi | SigV4 con confronto a tempo costante; sessioni console con cookie `HttpOnly`/`SameSite=Strict`, token CSRF e HSTS su TLS; token tra nodi a breve scadenza legati alla singola chiamata; mTLS opzionale tra i nodi |
 | Manomissione | dati su disco, traffico | checksum per blocco (bitrot), TLS 1.2+, cifratura SSE |
 | Ripudio | operazioni amministrative e sui dati | audit log per ogni richiesta, consegnabile a un target esterno |
 | Divulgazione | console, errori, log | nessun segreto nei log (credenziali, firme, token, chiavi redatti), errori generici verso gli anonimi, segreti IAM cifrati a riposo |
-| Negazione del servizio | upload, listing, login | limiti di dimensione e timeout, limite ai tentativi di login, risposte peer limitate, regex RE2 a tempo lineare |
+| Negazione del servizio | upload, listing, login, stream live | limiti di dimensione e timeout, limite ai tentativi di login, al massimo 256 stream live di trace e di log per nodo, risposte peer limitate, regex RE2 a tempo lineare |
 | Elevazione di privilegi | motore di policy, console | deny di default, autorizzazione sempre lato server, la console mostra solo ciò che l'utente può fare ma il server ricontrolla ogni richiesta |
 
 ## Raccomandazioni per la produzione

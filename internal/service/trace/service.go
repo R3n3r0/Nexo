@@ -136,7 +136,10 @@ type Service interface {
 	Publish(ctx context.Context, e Event)
 	// Subscribe returns the events selected by f: of this node and,
 	// unless f.Local, of the peers (reconnected when their stream breaks)
-	// until ctx ends. An invalid filter is domain.ErrInvalidArgument.
+	// until ctx ends. An invalid filter is domain.ErrInvalidArgument; a
+	// node that already serves its maximum of subscriptions
+	// (WithMaxSubscribers) refuses a new one with
+	// domain.ErrTooManyRequests.
 	Subscribe(ctx context.Context, f Filter) (Subscription, error)
 }
 

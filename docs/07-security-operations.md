@@ -149,14 +149,19 @@ the fuzzing targets (`make fuzz`), is in [docs/security/threat-model.md](securit
   nodes, with the filters `node`, `type`, `api`, `bucket`, `status` (codes or classes such as `5xx`), `errors`,
   `threshold`. Headers and bodies are never published. Without subscribers the cost is zero; a slow client loses
   events (a `dropped` event with the counter, `nexo_trace_dropped_total`) without ever slowing down requests;
-  heartbeat every 15 s.
+  heartbeat every 15 s. A node serves at most 256 live trace streams at once (`trace.DefaultMaxSubscribers`; the
+  streams the peers open for their own subscribers count too): beyond them a new stream answers 429
+  `too_many_requests`, so that an authorized client cannot exhaust the memory with open streams (pentest 2026-10,
+  PT-03).
 - **Live logs** (D-MON-02): `GET /api/v1/logs` (SSE, `admin:ConsoleLog`, filters `node`, `level`, `last` up to 10000
   entries per node resent on open). Logs stay JSON (or text) on stderr; level and format can be changed at runtime
   with the `logger` subsystem (`nexoctl admin config set logger level=debug format=text`; when unset,
   `--log-level`/`--log-format` apply). Secrets (Authorization, signatures, credentials, tokens, passwords, cookies,
-  SSE-C keys) are redacted from the streams.
+  SSE-C keys) are redacted from the streams. As for the trace, a node serves at most 256 live log streams at once
+  (`logs.DefaultMaxSubscribers`, 429 beyond them): each one buffers up to 10000 entries.
 - **Audit** (S-OPS-06, D-MON-03): one record for every S3 and console request (identity, action/API, resource, IP,
-  outcome, latency, request id, node, bytes), except anonymous health probes (`/nexo/health/*` without credentials)
+  outcome, latency, request id, node, bytes; a successful console login records the user who signed in), except
+  anonymous health probes (`/nexo/health/*` without credentials)
   and successful anonymous metrics scrapes (`/nexo/metrics/*` without identity or token, status < 400; a request with
   credentials, signature or token, and a rejected scrape, are always recorded). The record is written to the JSON
   log (`msg=audit`), kept in memory (the last 10000 per node, searchable with `GET /api/v1/audit` with
@@ -220,7 +225,16 @@ the fuzzing targets (`make fuzz`), is in [docs/security/threat-model.md](securit
 
 The console is always served on the console listener (`--console-address`, which also serves the Admin API):
 there is no variable to disable it; restrict the exposure of the port instead (firewall, proxy). The duration of a
-console session is fixed at 12 hours (not configurable); logout and secret rotation revoke it earlier.
+console session is fixed at 12 hours (not configurable); logout and secret rotation revoke it earlier, disabling or
+removing the user suspends or ends it (a session resumes if the user is enabled again with the same secret: rotate
+the secret when a session may have been stolen).
+
+Every response of the console listener carries `X-Content-Type-Options: nosniff` and `X-Frame-Options: SAMEORIGIN`
+(`DENY` and a `Content-Security-Policy` with `frame-ancestors 'none'` on the pages of the console), the answers of the
+Admin API `Cache-Control: no-store` (unless the route sets its own policy, such as the downloads) and, when the
+client came over TLS (directly or through a trusted proxy reporting it), `Strict-Transport-Security:
+max-age=31536000` (`middleware.NewSecurityHeaders`, pentest 2026-10, PT-01 and PT-02). The penetration test of the
+console and the Admin API is reported in [security/pentest-2026-10.md](security/pentest-2026-10.md).
 
 ## 7.7 Diagnostics (S-OPS-11)
 - **pprof profiling** only through the Admin API (`POST /api/v1/profile`, `nexoctl admin profile`): no

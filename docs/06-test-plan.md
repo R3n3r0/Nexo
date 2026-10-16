@@ -258,13 +258,15 @@ Setup: the global setup starts `nexo server` on a temporary directory (and, for 
 | ID | Case | Expected |
 |----|------|----------|
 | TD-S-01 | Mutating request without CSRF token | 403 |
-| TD-S-02 | Session cookie: `HttpOnly`, `Secure` (with TLS), `SameSite=Strict`; the CSRF token is in no cookie | Verified |
+| TD-S-02 | Session cookie: `HttpOnly`, `Secure` (with TLS), `SameSite=Strict`; the CSRF token is in no cookie; `Strict-Transport-Security` over TLS | Verified |
 | TD-S-03 | Object key with `<script>` shown in the browser | No execution (escaping + CSP) |
 | TD-S-04 | Preview of an uploaded HTML/SVG file | Served with `Content-Disposition: attachment` or sandboxed, never executed in the console origin |
 | TD-S-05 | `Content-Security-Policy`, `X-Frame-Options: DENY`, `Referrer-Policy` headers | Present on index.html |
 | TD-S-06 | Non-admin user calls `/api/v1/users` directly | 403 (authorization always server-side) |
 | TD-S-07 | Path traversal on static assets (`/../../etc/passwd`, encoded) | 404 |
 | TD-S-08 | HTML page served by the S3 port of the same host (presigned link) that sends `no-cors` form POSTs to the Admin API with the session cookie and a leaked CSRF token (`/service/stop`, `/auth/logout`, `download-zip`) | All rejected (403 `invalid_csrf_token`: `Sec-Fetch-Site` not `same-origin`); no cookie readable with the token; server and session intact |
+| TD-S-09 | Admin API answers (session with the CSRF token, listings, errors) | `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`; no HSTS over plain HTTP |
+| TD-S-10 | Console login, then the audit log searched by its request id | The record names the user who signed in |
 
 ### Dashboard performance
 - Initial bundle ≤ 300 KiB gzip (Monaco and charts lazy-loaded) — `size-limit` check in CI.
