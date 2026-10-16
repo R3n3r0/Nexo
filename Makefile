@@ -17,7 +17,7 @@ DOCKER      ?= docker
 IMAGE       ?= ghcr.io/r3n3r0/nexo
 PKGS        := ./...
 # Pinned versions of the security scanners (make security).
-GOVULNCHECK_VERSION ?= v1.1.4
+GOVULNCHECK_VERSION ?= v1.8.0
 GOSEC_VERSION       ?= v2.29.0
 # make fuzz: seconds per target, parallel workers, and an optional regexp
 # selecting the targets (FUZZ=Normalize runs FuzzNormalize only).

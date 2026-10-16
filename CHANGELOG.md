@@ -109,6 +109,10 @@ state pubblicate: la base dei test di aggiornamento è il commit di M7 (`224bb31
   `go.mod`); golangci-lint v2.14.0 (built with Go 1.27) unchanged, no module dependency changes required. mockery
   v2.53.4 is now pinned in a separate tools module (`tools/go.mod`, run with `go tool -modfile`) built with
   `x/tools` v0.51.0, which reads the Go 1.27 export data; the regenerated mocks only differ in import grouping.
+  govulncheck v1.8.0 (was v1.1.4, whose SSA builder panics on Go 1.27 code) in `make security` and CI.
+  With Go 1.27 `encoding/json` is backed by the v2 implementation: the line and column of a policy JSON syntax
+  error are now taken from the offending byte (`SyntaxError.Offset` counts it), and the race detector caught a
+  `sync.WaitGroup` Add/Wait race in the RPC connection close (fixed by ordering both under the connection mutex).
 - Il client RPC internodo usa l'HTTP/2 di `net/http` invece di `x/net/http2` (deprecato).
 - SIGHUP ricarica solo i certificati TLS; `POST /api/v1/service/restart` riavvia il processo in place.
 - Nuove azioni di policy `admin:Profiling` e `admin:Speedtest`, incluse nella policy predefinita `diagnostics`.
