@@ -88,6 +88,14 @@ export function MonacoCodeEditor({
       readOnly,
       fixedOverflowWidgets: true,
       quickSuggestions: { strings: true, other: true, comments: false },
+      // Paste the text of the paste event, synchronously. With "paste as"
+      // on, Monaco takes over every paste and first calls
+      // navigator.clipboard.read() to look for copied resources: in Chrome
+      // that asks the user for the clipboard-read permission and holds the
+      // paste until it is answered (forever where no one can answer, e.g.
+      // a headless browser), so the pasted text never reaches the editor.
+      // The console has no paste providers that would use it.
+      pasteAs: { enabled: false },
     });
     editorRef.current = editor;
     const subscription = model.onDidChangeContent(() => {
