@@ -29,7 +29,7 @@
     "@mantine/dates": "7.17.8",
     "@mantine/hooks": "7.17.8",
     "@mantine/modals": "7.17.8",
-    "@mantine/notifications": "7.17.8",
+    "@mantine/notifications": "9.7.2",
     "@tabler/icons-react": "3.49.0",
     "@tanstack/react-query": "5.104.1",
     "@tanstack/react-virtual": "3.14.13",
