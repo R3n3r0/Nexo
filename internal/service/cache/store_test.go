@@ -4,8 +4,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -94,6 +96,20 @@ func TestMemoryTierEviction(t *testing.T) {
 	require.NoError(t, err)
 	assert.LessOrEqual(t, int64(st.MemorySize), int64(1<<20))
 	assert.Positive(t, st.Evictions+int64(64-st.Entries))
+}
+
+// TestStoreIsCollected checks that a store nothing references any more is
+// garbage collected with its memory tier: the deletion handler of the
+// memory tier must not keep the store reachable from the cleanup otter
+// attaches to the cache, or every cache built in a process (one per node
+// started by the tests) leaks with everything it references.
+func TestStoreIsCollected(t *testing.T) {
+	ref, err := cache.NewMemoryStore(1<<20, 16)
+	require.NoError(t, err)
+	assert.Eventually(t, func() bool {
+		runtime.GC()
+		return ref.Value() == nil
+	}, 5*time.Second, 10*time.Millisecond, "the store is still reachable")
 }
 
 // TestDiskTier checks the disk tier: entries written atomically, read

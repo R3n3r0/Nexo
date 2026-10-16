@@ -8,6 +8,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"weak"
 
 	"github.com/maypok86/otter/v2"
 
@@ -218,6 +219,13 @@ func newStore(deps storeDeps) (*store, error) {
 		byTag: map[string]map[string]*record{}, scopes: map[string]*scopeUsage{}, diskRecs: map[string]*record{},
 		objInv: map[objRef]uint64{}, bucketInv: map[string]uint64{}, inflight: map[uint64]int{},
 	}
+	// The deletion handler reaches the store through a weak pointer. otter
+	// attaches a cleanup to the cache (runtime.AddCleanup) whose argument
+	// holds these options: a handler holding the store, which holds the
+	// cache, would keep the cache reachable from its own cleanup, so the
+	// cache, the store and everything the store references would never be
+	// collected (every node built in a process leaked).
+	self := weak.Make(s)
 	// #nosec G115 -- memorySize is a validated non-negative size; the weigher clamps to the uint32 range
 	l1, err := otter.New(&otter.Options[string, *l1value]{
 		MaximumWeight: uint64(deps.memorySize),
@@ -228,7 +236,11 @@ func newStore(deps storeDeps) (*store, error) {
 		// The evictions are reported on their own goroutines (the default
 		// executor): the handler takes the lock of the store, which is held
 		// when the store invalidates entries of the memory tier.
-		OnDeletion: s.onL1Deletion,
+		OnDeletion: func(e otter.DeletionEvent[string, *l1value]) {
+			if s := self.Value(); s != nil {
+				s.onL1Deletion(e)
+			}
+		},
 	})
 	if err != nil {
 		return nil, err

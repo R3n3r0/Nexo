@@ -3,7 +3,9 @@ package cache
 import (
 	"context"
 	"net/netip"
+	"strconv"
 	"time"
+	"weak"
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/distribution"
@@ -121,4 +123,21 @@ func EgressCheck(s Service, addr string) error {
 		return err
 	}
 	return s.(*service).egress.checkAddr(ap)
+}
+
+// NewMemoryStore builds a store of the memory tier only, fills it past its
+// size (evictions run the deletion handler) and returns a weak pointer to
+// it: the caller holds no strong reference.
+func NewMemoryStore(memorySize int64, entries int) (weak.Pointer[store], error) {
+	st, err := newStore(storeDeps{memorySize: memorySize, memoryEntryMax: memorySize, now: time.Now})
+	if err != nil {
+		return weak.Pointer[store]{}, err
+	}
+	for i := range entries {
+		meta := &entryMeta{Key: "k" + strconv.Itoa(i), Kind: kindObject, Bucket: "b", Object: "o" + strconv.Itoa(i)}
+		since := st.begin()
+		st.put(meta, make([]byte, memorySize/4), since, nil)
+		st.end(since)
+	}
+	return weak.Make(st), nil
 }
