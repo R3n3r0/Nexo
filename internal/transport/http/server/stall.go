@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"io"
 	"math"
 	"net/http"
 	"sync/atomic"
@@ -165,6 +166,23 @@ func (g *stallWriter) Write(p []byte) (int, error) {
 		}
 	}
 	return n, nil
+}
+
+// ReadFrom implements io.ReaderFrom: over HTTP/1 a file section
+// (httpx.FileSection) goes on to the ReadFrom of the wrapped writer
+// (sendfile, see httpx) piece by piece, each piece within the timeout like
+// a Write; anything else is copied through Write as io.Copy does.
+func (g *stallWriter) ReadFrom(src io.Reader) (int64, error) {
+	lr, ok := httpx.FileSection(src)
+	if !ok || g.http2 {
+		return httpx.CopyPooled(struct{ io.Writer }{g}, src)
+	}
+	g.wrote = true
+	if !g.arm() {
+		return httpx.CopyPooled(g.ResponseWriter, lr)
+	}
+	defer g.clear()
+	return httpx.CopyFileSection(g.ResponseWriter, lr, func() { g.arm() })
 }
 
 // Flush implements http.Flusher within the timeout.

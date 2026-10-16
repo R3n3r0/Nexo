@@ -388,3 +388,33 @@ type sectionReadCloser struct {
 }
 
 func (r *sectionReadCloser) Close() error { return r.f.Close() }
+
+// WriteTo implements io.WriterTo. A writer that copies from readers itself
+// (io.ReaderFrom) gets the rest of the section as an *io.LimitedReader
+// over the file positioned at it: the response writer of a download
+// hands that to sendfile, the kernel copying the page cache to the socket
+// without a read into user space (zero-copy, see httpx.FileSection). The
+// file is this stream's own (ReadFileStream opens one per stream), so
+// moving its offset is safe. Any other writer gets the bytes copied.
+func (r *sectionReadCloser) WriteTo(w io.Writer) (int64, error) {
+	rf, ok := w.(io.ReaderFrom)
+	if !ok {
+		return io.Copy(w, struct{ io.Reader }{r.SectionReader})
+	}
+	pos, err := r.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return 0, err
+	}
+	_, base, size := r.Outer()
+	if pos >= size {
+		return 0, nil
+	}
+	if _, err := r.f.Seek(base+pos, io.SeekStart); err != nil {
+		return 0, err
+	}
+	n, err := rf.ReadFrom(&io.LimitedReader{R: r.f, N: size - pos})
+	if _, serr := r.Seek(n, io.SeekCurrent); err == nil {
+		err = serr
+	}
+	return n, err
+}

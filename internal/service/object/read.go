@@ -313,6 +313,39 @@ func (r *partsReader) Read(p []byte) (int, error) {
 	}
 }
 
+// WriteTo implements io.WriterTo. The part streams that write themselves
+// (the files of a single drive: storage hands them as file sections to a
+// writer that takes them, the sendfile of a download, see
+// httpx.FileSection) do; from the first stream that does not (erasure,
+// remote drive), the rest is copied through Read, errors included.
+func (r *partsReader) WriteTo(w io.Writer) (int64, error) {
+	var total int64
+	for r.remaining > 0 {
+		if r.cur == nil {
+			if err := r.openNext(); err != nil {
+				return total, err
+			}
+		}
+		wt, ok := r.cur.(io.WriterTo)
+		if !ok {
+			n, err := io.Copy(w, struct{ io.Reader }{r})
+			return total + n, err
+		}
+		n, err := wt.WriteTo(w)
+		r.offset += n
+		r.remaining -= n
+		total += n
+		if err != nil {
+			return total, fmt.Errorf("object: read %s/%s: %w", r.bucket, r.key, lockErr(r.ctx, err))
+		}
+		// The stream is done (or ended early: the next one opens at the
+		// offset reached, as Read does).
+		_ = r.cur.Close()
+		r.cur = nil
+	}
+	return total, nil
+}
+
 // locatePart returns the part holding offset, the offset in it and the
 // length to read from it (bounded by remaining); ok is false when offset
 // is beyond the parts.
@@ -407,6 +440,20 @@ type unlockOnClose struct {
 	io.ReadCloser
 	unlock func()
 	done   bool
+}
+
+// WriteTo implements io.WriterTo for the body it wraps (see
+// partsReader.WriteTo).
+func (u *unlockOnClose) WriteTo(w io.Writer) (int64, error) {
+	return writeTo(w, u.ReadCloser)
+}
+
+// writeTo copies r to w through the io.WriterTo of r, else through Read.
+func writeTo(w io.Writer, r io.Reader) (int64, error) {
+	if wt, ok := r.(io.WriterTo); ok {
+		return wt.WriteTo(w)
+	}
+	return io.Copy(w, struct{ io.Reader }{r})
 }
 
 func (u *unlockOnClose) Close() error {

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -278,6 +279,19 @@ func (w *headerWriter) Write(b []byte) (int, error) {
 		w.WriteHeader(http.StatusOK)
 	}
 	return w.ResponseWriter.Write(b)
+}
+
+// ReadFrom implements io.ReaderFrom: a file section (httpx.FileSection)
+// goes on to the ReadFrom of the wrapped writer (sendfile, see httpx); any
+// other reader is copied through Write as io.Copy does.
+func (w *headerWriter) ReadFrom(src io.Reader) (int64, error) {
+	if _, ok := httpx.FileSection(src); !ok {
+		return httpx.CopyPooled(struct{ io.Writer }{w}, src)
+	}
+	if !w.wrote {
+		w.WriteHeader(http.StatusOK)
+	}
+	return httpx.CopyPooled(w.ResponseWriter, src)
 }
 
 // Flush implements http.Flusher.
