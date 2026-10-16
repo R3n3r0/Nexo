@@ -59,7 +59,7 @@
 | Policy | `internal/policy` | Evaluation of IAM policies and bucket policies (AWS format), conditions, `${aws:username}` variables. |
 | ObjectLayer | `internal/object` | Logical API (PutObject, GetObject, ListObjects, Multipart, Versions). |
 | Erasure | `internal/erasure` | Reed-Solomon coding (`klauspost/reedsolomon`), bitrot (HighwayHash256), quorum. |
-| Storage | `internal/storage` | Disk access: `xl.meta` (msgpack), atomic writes (tmp + rename + fsync), optional O_DIRECT. |
+| Storage | `internal/storage` | Disk access: `xl.meta` (msgpack), atomic writes through the page cache (tmp + rename + fsync; O_DIRECT measured and rejected, [bench §7.2](bench/README.md#72-o_direct-for-large-data-files-rejected)), part streams handed to `sendfile` for zero-copy single-drive downloads ([bench §7.1](bench/README.md#71-zero-copy-downloads-kept)). |
 | Lock | `internal/dsync` | Local and distributed quorum locks with refresh and lease. |
 | Cluster | `internal/cluster` | Topology, endpoints, bootstrap, peer health, peer notifications. |
 | RPC | `internal/rpc` | Internode transport (HTTP/2 + msgpack, streaming), internode JWT authentication. |

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"io"
 	"os"
-	"sync"
 )
 
 // Zero-copy downloads (docs/bench, T-9.2). A body that is the bytes of a
@@ -42,17 +41,17 @@ func FileSection(src io.Reader) (*io.LimitedReader, bool) {
 
 // CopyFileSection copies the file section lr to w piece by piece (at most
 // filePiece bytes each, through the ReadFrom of w when it has one: the
-// sendfile of the server), calling arm before each piece. A piece that
-// fails on its write deadline after sending at least minFileProgress
-// bytes is resumed under a new deadline: the client is slow, not stalled.
-// A file shorter than the section ends the copy early with no error, like
-// a reader reaching EOF.
+// sendfile of the server; the writers of the response chain all have one),
+// calling arm before each piece. A piece that fails on its write deadline
+// after sending at least minFileProgress bytes is resumed under a new
+// deadline: the client is slow, not stalled. A file shorter than the
+// section ends the copy early with no error, like a reader reaching EOF.
 func CopyFileSection(w io.Writer, lr *io.LimitedReader, arm func()) (int64, error) {
 	var total int64
 	for lr.N > 0 {
 		arm()
 		piece := &io.LimitedReader{R: lr.R, N: min(lr.N, filePiece)}
-		n, err := CopyPooled(w, piece)
+		n, err := io.Copy(w, piece)
 		lr.N -= n
 		total += n
 		if err != nil {
@@ -69,22 +68,6 @@ func CopyFileSection(w io.Writer, lr *io.LimitedReader, arm func()) (int64, erro
 	return total, nil
 }
 
-var copyBufs = sync.Pool{New: func() any { b := make([]byte, 32<<10); return &b }}
-
-// CopyPooled is io.Copy with a recycled buffer when neither side has a
-// copy method of its own (io.WriterTo, io.ReaderFrom).
-func CopyPooled(w io.Writer, src io.Reader) (int64, error) {
-	if wt, ok := src.(io.WriterTo); ok {
-		return wt.WriteTo(w)
-	}
-	if rf, ok := w.(io.ReaderFrom); ok {
-		return rf.ReadFrom(src)
-	}
-	b := copyBufs.Get().(*[]byte)
-	defer copyBufs.Put(b)
-	return io.CopyBuffer(w, src, *b)
-}
-
 // writerOnly hides the io.ReaderFrom of a writer from io.Copy.
 type writerOnly struct{ io.Writer }
 
@@ -94,7 +77,7 @@ type writerOnly struct{ io.Writer }
 func (g *SendGuard) ReadFrom(src io.Reader) (int64, error) {
 	lr, ok := FileSection(src)
 	if !ok {
-		return CopyPooled(writerOnly{g}, src)
+		return io.Copy(writerOnly{g}, src)
 	}
 	return CopyFileSection(g.w, lr, g.arm)
 }

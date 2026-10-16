@@ -197,6 +197,21 @@ published: the baseline of the upgrade tests is the M7 commit (`224bb31`, built 
   request: open streams could exhaust the memory of a node.
 - **PT-04**: the audit record (and the live trace event) of a console login names the user who signed in.
 
+### Performance (O_DIRECT and zero-copy, T-9.2)
+- Zero-copy downloads: the GET of a single-drive (SNSD) version without SSE hands its part files to `sendfile(2)`
+  over HTTP/1.1 without TLS, so the bytes go from the page cache to the socket without a copy in user space
+  (ranges, multipart objects, pinned and lock-held reads alike). The stall bound of downloads still applies per
+  256 KiB piece, a piece being resumed only after 32 KiB of progress, so slow and stalled clients are treated as
+  before; HTTP/2, TLS, erasure-coded and encrypted bodies are copied as before. Server CPU per GiB downloaded
+  −66% on 64 MiB objects and −47% on 4 MiB ones ([docs/bench §7.1](docs/bench/README.md#71-zero-copy-downloads-kept)).
+- O_DIRECT for large data files was implemented and measured slower than page cache + fsync on the reference VM
+  (−30% on 4 MiB synced writes, −52% on SNMD 4 MiB PUTs, cold reads right after a PUT): not included
+  ([docs/bench §7.2](docs/bench/README.md#72-o_direct-for-large-data-files-rejected)). The internode RPC cannot use
+  `splice` (HTTP/2 data frames, TLS).
+- New benchmarks: `BenchmarkCreateFile`, `BenchmarkCreateFileParallel` and `BenchmarkReadFileStream` of the local
+  drive (`internal/service/storage`, file system chosen with `NEXO_BENCH_DIR`) and `BenchmarkCopyBodyFile`
+  (`httpx`, sendfile against a buffered copy).
+
 ### Upgrading
 - The on-disk formats are unchanged from `v0.7.0` (`format.json` v1, `xl.meta` 1.x): upgrade and downgrade
   verified in SNMD and with a rolling upgrade of a 4-node cluster under load (`make test-upgrade`,
@@ -222,7 +237,8 @@ published: the baseline of the upgrade tests is the M7 commit (`224bb31`, built 
 - Not included (M10): bucket and site replication, pool decommission and rebalance, OIDC and LDAP, tiering, S3
   Select, compression, ACLs other than `private`, ACME DNS-01, coordinated cluster restart and orchestrated
   upgrade.
-- Console pen test, O_DIRECT and zero-copy not yet performed.
+- O_DIRECT is not used (measured slower on the reference VM, docs/bench §7.2); zero-copy covers single-drive
+  downloads over HTTP/1.1 without TLS only.
 
 ### Verification
 

@@ -448,6 +448,11 @@ func (u *unlockOnClose) WriteTo(w io.Writer) (int64, error) {
 	return writeTo(w, u.ReadCloser)
 }
 
+// WriteTo implements io.WriterTo through the body when it has one: the
+// body of a single drive version writes its files to a writer that takes
+// them (zero-copy downloads, see partsReader.WriteTo).
+func (r *Reader) WriteTo(w io.Writer) (int64, error) { return writeTo(w, r.ReadCloser) }
+
 // writeTo copies r to w through the io.WriterTo of r, else through Read.
 func writeTo(w io.Writer, r io.Reader) (int64, error) {
 	if wt, ok := r.(io.WriterTo); ok {
