@@ -80,14 +80,16 @@ nexoctl completion fish > ~/.config/fish/completions/nexoctl.fish
 
 ## Generare la documentazione
 
-Le pagine di [`docs/user/cli`](../cli/nexoctl.md) sono generate da `nexoctl` stesso e non vanno modificate
+Le pagine di [`docs/user/cli`](../cli/nexoctl.md) sono generate da `nexoctl` stesso, solo in inglese (il sito
+italiano mostra le pagine inglesi), e non vanno modificate
 a mano. Dopo aver cambiato un comando:
 
 ```bash
 make docs         # rigenera docs/user/cli (comando nascosto: nexoctl gendocs DIR)
 make docs-check   # fallisce se le pagine nel repository non sono aggiornate (gira in CI)
-make docs-site    # sito completo in bin/site: MkDocs (--strict) + riferimento Admin API
+make docs-site    # sito completo in bin/site: MkDocs (--strict, inglese e italiano) + riferimento Admin API
 ```
 
-`make docs-site` richiede `mkdocs` e `mkdocs-material` (`pip install mkdocs==1.6.1 mkdocs-material==9.7.7`) e,
+`make docs-site` installa con `make docs-tools`, in un virtualenv, gli strumenti fissati in `docs/requirements.txt`
+(MkDocs, Material for MkDocs e mkdocs-static-i18n) e,
 per il riferimento dell'Admin API, Node.js (`npx`).

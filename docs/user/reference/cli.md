@@ -1,76 +1,77 @@
-# Riferimento CLI (nexoctl)
+# CLI reference (nexoctl)
 
-`nexoctl` è il client a riga di comando di Nexo: gestisce gli alias dei server, bucket e oggetti (con
-qualsiasi endpoint compatibile S3) e l'amministrazione di Nexo tramite l'Admin API.
+`nexoctl` is the Nexo command-line client: it manages server aliases, buckets and objects (with
+any S3-compatible endpoint) and the administration of Nexo through the Admin API.
 
-Il riferimento completo di ogni comando, con sintassi, esempi e opzioni, è generato dal codice di `nexoctl`
-e parte da [nexoctl](../cli/nexoctl.md). Questa pagina riassume le convenzioni comuni a tutti i comandi.
+The complete reference of every command, with syntax, examples and options, is generated from the code of
+`nexoctl` and starts at [nexoctl](../cli/nexoctl.md). This page summarizes the conventions shared by all the
+commands.
 
-## Gruppi di comandi
+## Command groups
 
-| Gruppo | Comandi |
-|--------|---------|
-| Bucket e oggetti | [`ls`](../cli/nexoctl_ls.md), [`mb`](../cli/nexoctl_mb.md), [`rb`](../cli/nexoctl_rb.md), [`cp`](../cli/nexoctl_cp.md), [`mv`](../cli/nexoctl_mv.md), [`rm`](../cli/nexoctl_rm.md), [`put`](../cli/nexoctl_put.md), [`pipe`](../cli/nexoctl_pipe.md), [`cat`](../cli/nexoctl_cat.md), [`head`](../cli/nexoctl_head.md), [`stat`](../cli/nexoctl_stat.md), [`find`](../cli/nexoctl_find.md), [`du`](../cli/nexoctl_du.md), [`tree`](../cli/nexoctl_tree.md), [`diff`](../cli/nexoctl_diff.md), [`mirror`](../cli/nexoctl_mirror.md) |
-| Condivisione e accesso | [`share`](../cli/nexoctl_share.md), [`presign`](../cli/nexoctl_presign.md), [`anonymous`](../cli/nexoctl_anonymous.md), [`access`](../cli/nexoctl_access.md), [`cors`](../cli/nexoctl_cors.md), [`dist`](../cli/nexoctl_dist.md), [`cache`](../cli/nexoctl_cache.md) |
-| Impostazioni di bucket e oggetti | [`version`](../cli/nexoctl_version.md), [`ilm`](../cli/nexoctl_ilm.md), [`event`](../cli/nexoctl_event.md), [`encrypt`](../cli/nexoctl_encrypt.md), [`quota`](../cli/nexoctl_quota.md), [`retention`](../cli/nexoctl_retention.md), [`legalhold`](../cli/nexoctl_legalhold.md), [`tag`](../cli/nexoctl_tag.md) |
-| Amministrazione | [`admin`](../cli/nexoctl_admin.md): `info`, `user`, `group`, `policy`, `accesskey`, `config`, `service`, `heal`, `usage`, `kms`, `notify`, `trace`, `logs`, `audit`, `metrics`, `prometheus`, `profile`, `speedtest`, `lock`, `cluster` |
-| Configurazione | [`alias`](../cli/nexoctl_alias.md), [`completion`](../cli/nexoctl_completion.md) |
+| Group | Commands |
+|-------|----------|
+| Buckets and objects | [`ls`](../cli/nexoctl_ls.md), [`mb`](../cli/nexoctl_mb.md), [`rb`](../cli/nexoctl_rb.md), [`cp`](../cli/nexoctl_cp.md), [`mv`](../cli/nexoctl_mv.md), [`rm`](../cli/nexoctl_rm.md), [`put`](../cli/nexoctl_put.md), [`pipe`](../cli/nexoctl_pipe.md), [`cat`](../cli/nexoctl_cat.md), [`head`](../cli/nexoctl_head.md), [`stat`](../cli/nexoctl_stat.md), [`find`](../cli/nexoctl_find.md), [`du`](../cli/nexoctl_du.md), [`tree`](../cli/nexoctl_tree.md), [`diff`](../cli/nexoctl_diff.md), [`mirror`](../cli/nexoctl_mirror.md) |
+| Sharing and access | [`share`](../cli/nexoctl_share.md), [`presign`](../cli/nexoctl_presign.md), [`anonymous`](../cli/nexoctl_anonymous.md), [`access`](../cli/nexoctl_access.md), [`cors`](../cli/nexoctl_cors.md), [`dist`](../cli/nexoctl_dist.md), [`cache`](../cli/nexoctl_cache.md) |
+| Bucket and object settings | [`version`](../cli/nexoctl_version.md), [`ilm`](../cli/nexoctl_ilm.md), [`event`](../cli/nexoctl_event.md), [`encrypt`](../cli/nexoctl_encrypt.md), [`quota`](../cli/nexoctl_quota.md), [`retention`](../cli/nexoctl_retention.md), [`legalhold`](../cli/nexoctl_legalhold.md), [`tag`](../cli/nexoctl_tag.md) |
+| Administration | [`admin`](../cli/nexoctl_admin.md): `info`, `user`, `group`, `policy`, `accesskey`, `config`, `service`, `heal`, `usage`, `kms`, `notify`, `trace`, `logs`, `audit`, `metrics`, `prometheus`, `profile`, `speedtest`, `lock`, `cluster` |
+| Configuration | [`alias`](../cli/nexoctl_alias.md), [`completion`](../cli/nexoctl_completion.md) |
 
-## Destinazioni
+## Targets
 
-Un percorso remoto si scrive `ALIAS[/BUCKET[/PREFISSO]]`, dove `ALIAS` è un nome registrato con
-`nexoctl alias set`; tutto il resto è un percorso locale.
+A remote path is written `ALIAS[/BUCKET[/PREFIX]]`, where `ALIAS` is a name registered with
+`nexoctl alias set`; anything else is a local path.
 
 ```bash
-nexoctl alias set local http://localhost:9000 admin supersegreta
-nexoctl ls local                 # i bucket
-nexoctl ls local/foto/2026/      # gli oggetti sotto un prefisso
+nexoctl alias set local http://localhost:9000 admin supersecret
+nexoctl ls local                 # the buckets
+nexoctl ls local/photos/2026/    # the objects under a prefix
 nexoctl cp report.pdf local/docs/
 ```
 
-Gli alias, con le credenziali, sono salvati in `~/.nexoctl/config.json` (permessi 0600). Le chiavi private
-generate per i key group delle distribuzioni sono in `~/.nexoctl/keys/<alias>/`.
+The aliases, with their credentials, are saved in `~/.nexoctl/config.json` (permissions 0600). The private
+keys generated for the key groups of the distributions are in `~/.nexoctl/keys/<alias>/`.
 
-## Opzioni globali
+## Global options
 
-| Opzione | Effetto |
-|---------|---------|
-| `--config-dir DIR` | directory di configurazione (default `$NEXOCTL_CONFIG_DIR` o `~/.nexoctl`) |
-| `--json` | output JSON Lines: un oggetto per riga con un campo `status` (`success` o `error`), per gli script |
-| `-q`, `--quiet` | nasconde conferme e progresso (risultati ed errori restano) |
-| `--no-color` | disattiva i colori (anche con la variabile `NO_COLOR`) |
-| `--debug` | stampa su stderr le richieste e le risposte HTTP, con i segreti redatti |
-| `-v`, `--version` | versione di `nexoctl` |
+| Option | Effect |
+|--------|--------|
+| `--config-dir DIR` | configuration directory (default `$NEXOCTL_CONFIG_DIR` or `~/.nexoctl`) |
+| `--json` | JSON Lines output: one object per line with a `status` field (`success` or `error`), for scripts |
+| `-q`, `--quiet` | hides confirmations and progress (results and errors are still printed) |
+| `--no-color` | disables colors (also with the `NO_COLOR` variable) |
+| `--debug` | prints the HTTP requests and responses on stderr, with the secrets redacted |
+| `-v`, `--version` | version of `nexoctl` |
 
-## Variabili d'ambiente
+## Environment variables
 
-| Variabile | Effetto |
-|-----------|---------|
-| `NEXOCTL_CONFIG_DIR` | directory di configurazione |
-| `NEXOCTL_ENC_C` | chiavi SSE-C, `ALIAS/BUCKET[/PREFISSO]=CHIAVEBASE64` separate da virgola (vedi [KMS e SSE](../security/kms-sse.md)) |
-| `NO_COLOR` | disattiva i colori |
-| `SSL_CERT_FILE`, `SSL_CERT_DIR` | CA fidate per i server HTTPS con una CA privata |
-| `HTTPS_PROXY`, `NO_PROXY` | proxy HTTP verso i server |
+| Variable | Effect |
+|----------|--------|
+| `NEXOCTL_CONFIG_DIR` | configuration directory |
+| `NEXOCTL_ENC_C` | SSE-C keys, `ALIAS/BUCKET[/PREFIX]=BASE64KEY`, comma-separated (see [KMS and SSE](../security/kms-sse.md)) |
+| `NO_COLOR` | disables colors |
+| `SSL_CERT_FILE`, `SSL_CERT_DIR` | trusted CAs for HTTPS servers with a private CA |
+| `HTTPS_PROXY`, `NO_PROXY` | HTTP proxy towards the servers |
 
-## Codici di uscita
+## Exit codes
 
-| Codice | Significato |
-|--------|-------------|
-| `0` | successo |
-| `1` | errore generico (rete, server, operazione fallita) |
-| `2` | uso errato: argomenti o opzioni non validi |
-| `3` | risorsa non trovata (alias, bucket, oggetto, utente, …) |
-| `4` | accesso negato (credenziali o permessi) |
-| `130` | interrotto (Ctrl-C) |
+| Code | Meaning |
+|------|---------|
+| `0` | success |
+| `1` | generic error (network, server, failed operation) |
+| `2` | wrong usage: invalid arguments or options |
+| `3` | resource not found (alias, bucket, object, user, …) |
+| `4` | access denied (credentials or permissions) |
+| `130` | interrupted (Ctrl-C) |
 
-I codici fanno parte del contratto della CLI e non cambiano tra le versioni.
+The codes are part of the CLI contract and do not change between versions.
 
-## Alias dei comandi
+## Command aliases
 
-Molti sottocomandi hanno un nome breve, riportato nella sezione *Aliases* della loro pagina: per esempio
-`ls` per `list` e `rm` per `remove` (`nexoctl admin user ls`, `nexoctl event rm`).
+Many subcommands have a short name, shown in the *Aliases* section of their page: for example
+`ls` for `list` and `rm` for `remove` (`nexoctl admin user ls`, `nexoctl event rm`).
 
-## Completamento della shell
+## Shell completion
 
 ```bash
 nexoctl completion bash > /etc/bash_completion.d/nexoctl     # bash
@@ -78,16 +79,17 @@ nexoctl completion zsh  > "${fpath[1]}/_nexoctl"             # zsh
 nexoctl completion fish > ~/.config/fish/completions/nexoctl.fish
 ```
 
-## Generare la documentazione
+## Generating the documentation
 
-Le pagine di [`docs/user/cli`](../cli/nexoctl.md) sono generate da `nexoctl` stesso e non vanno modificate
-a mano. Dopo aver cambiato un comando:
+The pages in [`docs/user/cli`](../cli/nexoctl.md) are generated by `nexoctl` itself and must not be edited
+by hand. They exist in English only (the Italian site shows the English pages). After changing a command:
 
 ```bash
-make docs         # rigenera docs/user/cli (comando nascosto: nexoctl gendocs DIR)
-make docs-check   # fallisce se le pagine nel repository non sono aggiornate (gira in CI)
-make docs-site    # sito completo in bin/site: MkDocs (--strict) + riferimento Admin API
+make docs         # regenerates docs/user/cli (hidden command: nexoctl gendocs DIR)
+make docs-check   # fails if the pages in the repository are not up to date (runs in CI)
+make docs-site    # complete site in bin/site: MkDocs (--strict, English and Italian) + Admin API reference
 ```
 
-`make docs-site` richiede `mkdocs` e `mkdocs-material` (`pip install mkdocs==1.6.1 mkdocs-material==9.7.7`) e,
-per il riferimento dell'Admin API, Node.js (`npx`).
+`make docs-site` installs the pinned tools of `docs/requirements.txt` (MkDocs, Material for MkDocs and
+mkdocs-static-i18n) in a virtualenv with `make docs-tools` and, for the Admin API reference, needs
+Node.js (`npx`).
