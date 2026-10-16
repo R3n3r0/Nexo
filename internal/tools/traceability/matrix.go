@@ -132,12 +132,12 @@ func (m Matrix) Markdown() []byte {
 	var b bytes.Buffer
 	b.WriteString("# Matrice di tracciabilità\n\n")
 	b.WriteString("<!-- Generato da `make traceability` (go run ./cmd/tools/traceability): non modificare a mano. -->\n\n")
-	b.WriteString("Ogni funzionalità del [catalogo](../docs/02-funzionalita.md) con i test che la coprono " +
-		"([06 §6.8](../docs/06-piano-test.md#68-matrice-di-tracciabilità)): un test dichiara le funzionalità " +
+	b.WriteString("Ogni funzionalità del [catalogo](../docs/02-features.md) con i test che la coprono " +
+		"([06 §6.8](../docs/06-test-plan.md#68-matrice-di-tracciabilità)): un test dichiara le funzionalità " +
 		"che verifica con un tag `covers: <codice>` in un commento (test Go, script `testscript` in `test/cli`, " +
 		"test Vitest e Playwright in `web/`, script di test). I codici raggruppati del catalogo " +
 		"(`D-ACC-01..04`, `D-CCH-01..08`, `D-DST-01..08`) sono espansi con le descrizioni di " +
-		"[10](../docs/10-domini-accessi-distribuzioni.md) e [11](../docs/11-cache-domini.md). " +
+		"[10](../docs/10-domains-access-distributions.md) e [11](../docs/11-domain-cache.md). " +
 		"Il test `internal/tools/traceability` fallisce se una funzionalità P0/P1 non ha test, se un tag " +
 		"nomina un codice fuori catalogo o se questo file non è aggiornato.\n\n")
 
@@ -201,7 +201,7 @@ func (m Matrix) Markdown() []byte {
 	}
 
 	b.WriteString("## P2 — non in v1.0 (M10)\n\n")
-	b.WriteString("Funzionalità successive alla v1.0 ([05, M10](../docs/05-roadmap-task.md#m10--post-v10-p2)): " +
+	b.WriteString("Funzionalità successive alla v1.0 ([05, M10](../docs/05-roadmap.md#m10--post-v10-p2)): " +
 		"non fanno parte del perimetro della v1.0; i test elencati coprono le parti già presenti.\n\n")
 	b.WriteString("| Codice | Area | Funzionalità | Test |\n|--------|------|--------------|------|\n")
 	for _, f := range m.Features {

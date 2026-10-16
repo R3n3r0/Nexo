@@ -1,6 +1,6 @@
 # Threat model di Nexo (STRIDE)
 
-Questo documento estende la sintesi di [docs/07 §7.1](../07-sicurezza-operativita.md#71-threat-model-sintesi-stride)
+Questo documento estende la sintesi di [docs/07 §7.1](../07-security-operations.md#71-threat-model-sintesi-stride)
 con un'analisi STRIDE per superficie (M9 T-9.3). Per ogni minaccia indica la mitigazione **nel codice** (file e
 meccanismo) e il **rischio residuo**: ciò che resta a carico del deployment o è accettato. I riferimenti sono relativi
 alla radice del repository; le scansioni automatiche (govulncheck, gosec, npm audit) e il fuzzing sono descritti in

@@ -227,7 +227,7 @@ la sintassi di tutte le configurazioni di `deploy/proxy` e del compose (`nginx -
 | TM-10 | Binari di release: avvio smoke su ogni OS/arch in CI (QEMU per arm64), `nexo version` coerente con il tag | — |
 | TM-11 | Immagini: firma cosign verificabile, scansione trivy senza vulnerabilità High/Critical | — |
 | TM-12 | `nexo server --dry-run` su configurazioni valide/invalide | Exit code e messaggi attesi |
-| TM-13 | Upgrade dalla release precedente (`make test-upgrade`, `test/upgrade`): SNMD con dati di ogni tipo, rolling upgrade di un cluster 4×2 sotto carico, downgrade e rollback di un nodo ([06 §6.1](06-piano-test.md)) | Nessuna perdita di dati, nessun errore client |
+| TM-13 | Upgrade dalla release precedente (`make test-upgrade`, `test/upgrade`): SNMD con dati di ogni tipo, rolling upgrade di un cluster 4×2 sotto carico, downgrade e rollback di un nodo ([06 §6.1](06-test-plan.md)) | Nessuna perdita di dati, nessun errore client |
 
 **Aggiornamenti e downgrade.** Una release legge i dischi scritti dalle release precedenti della stessa major
 (`format.json` v1, `xl.meta` 1.x, protocollo internodo v1): l'aggiornamento di un nodo singolo è un riavvio con

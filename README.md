@@ -69,18 +69,18 @@ La **documentazione utente** è in [`docs/user`](docs/user/README.md) (anche su
 
 | # | Documento | Contenuto |
 |---|-----------|-----------|
-| 1 | [Architettura](docs/01-architettura.md) | Componenti, layout del repository, stack, scelte tecniche |
-| 2 | [Funzionalità](docs/02-funzionalita.md) | Catalogo delle funzionalità di server, dashboard e CLI, differenze rispetto ad S3 |
+| 1 | [Architettura](docs/01-architecture.md) | Componenti, layout del repository, stack, scelte tecniche |
+| 2 | [Funzionalità](docs/02-features.md) | Catalogo delle funzionalità di server, dashboard e CLI, differenze rispetto ad S3 |
 | 3 | [Cluster](docs/03-cluster.md) | Topologia, erasure coding, quorum, lock distribuiti, healing, espansione |
 | 4 | [API](docs/04-api.md) | API S3 supportate, Admin API, Internode RPC |
-| 5 | [Roadmap e task](docs/05-roadmap-task.md) | Milestone, task con ID, dipendenze e criteri di accettazione, stato |
-| 6 | [Piano di test](docs/06-piano-test.md) | Strategia e casi di test per server, CLI, dashboard e cluster |
-| 7 | [Sicurezza e operatività](docs/07-sicurezza-operativita.md) | Threat model, TLS, KMS, osservabilità |
-| 8 | [Modalità e rilascio](docs/08-modalita-deploy.md) | Modalità di deployment, packaging e processo di rilascio |
-| 9 | [Presigned, policy e condivisione](docs/09-presigned-policy-condivisione.md) | URL presigned, POST policy, policy, share link revocabili |
-| 10 | [Accessi, domini e distribuzioni](docs/10-domini-accessi-distribuzioni.md) | Regole di accesso, domini, distribuzioni dietro proxy |
-| 11 | [Cache per dominio](docs/11-cache-domini.md) | Cache memoria/disco, policy per livello, invalidazione, cache in cluster |
-| 12 | [Architettura a servizi](docs/12-architettura-servizi.md) | Convenzione vincolante per servizi, rotte e composizione in `internal/app` |
+| 5 | [Roadmap e task](docs/05-roadmap.md) | Milestone, task con ID, dipendenze e criteri di accettazione, stato |
+| 6 | [Piano di test](docs/06-test-plan.md) | Strategia e casi di test per server, CLI, dashboard e cluster |
+| 7 | [Sicurezza e operatività](docs/07-security-operations.md) | Threat model, TLS, KMS, osservabilità |
+| 8 | [Modalità e rilascio](docs/08-deployment-modes.md) | Modalità di deployment, packaging e processo di rilascio |
+| 9 | [Presigned, policy e condivisione](docs/09-presigned-policy-sharing.md) | URL presigned, POST policy, policy, share link revocabili |
+| 10 | [Accessi, domini e distribuzioni](docs/10-domains-access-distributions.md) | Regole di accesso, domini, distribuzioni dietro proxy |
+| 11 | [Cache per dominio](docs/11-domain-cache.md) | Cache memoria/disco, policy per livello, invalidazione, cache in cluster |
+| 12 | [Architettura a servizi](docs/12-service-architecture.md) | Convenzione vincolante per servizi, rotte e composizione in `internal/app` |
 
 Le modifiche di ogni release sono nel [CHANGELOG](CHANGELOG.md); la copertura dei test di ogni funzionalità del
 catalogo è nella [matrice di tracciabilità](test/TRACEABILITY.md).
@@ -103,7 +103,7 @@ Servono Go (versione in `go.mod`) e, per la console, Node.js.
 | `make security` | govulncheck, gosec e `npm audit` |
 | `make help` | tutti i target |
 
-Il codice segue la convenzione di [docs/12](docs/12-architettura-servizi.md): ogni servizio ha
+Il codice segue la convenzione di [docs/12](docs/12-service-architecture.md): ogni servizio ha
 un'interfaccia e un'implementazione non esportata, la composizione avviene solo in `internal/app`.
 
 ## License

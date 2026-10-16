@@ -34,13 +34,13 @@ della suite (`test_s3.py`, `test_headers.py`, `test_iam.py`, `test_sts.py`, `tes
 i test di `test/compat/excluded.txt` (`<selettore> | <categoria> | <motivo>`, categorie: `rgw` estensioni o
 attese di RGW che AWS stesso non soddisfa, `deprecated` API deprecate come SigV2, `p2` funzionalità P2 del
 catalogo, `out-of-catalog`, `aws` risposta di Nexo uguale a quella di AWS e diversa da quella attesa, `design`
-scelte di [02 §2.4](02-funzionalita.md), `suite` difetti della suite), classifica i test per gruppo funzionale e
+scelte di [02 §2.4](02-features.md), `suite` difetti della suite), classifica i test per gruppo funzionale e
 scrive `report.txt`/`report.json` (esito per test, per gruppo, esclusioni per categoria). Il job fallisce se un
 gruppo con test applicabili ne supera meno del 95% (`NEXO_S3TESTS_THRESHOLD`). Con
 `NEXO_S3TESTS_CHECK_EXCLUDED=names` (nel job notturno) esegue anche i test esclusi per nome e fallisce se uno
 passa: l'esclusione va tolta. Senza rete (git/pip) l'esecuzione locale è saltata e documentata in
 `report/SKIPPED`; in CI (`NEXO_S3TESTS_REQUIRE_NETWORK=1`) è un errore. Lo stato misurato è in
-[05, stato di T-9.1](05-roadmap-task.md).
+[05, stato di T-9.1](05-roadmap.md).
 
 ### Suite di compatibilità MinIO `mint`
 
@@ -80,7 +80,7 @@ deployment usano TLS e il KMS integrato.
   di un nodo), serve i dati scritti dalla nuova, ne scrive di nuovi letti dai nodi aggiornati, e riparte con la
   nuova.
 
-Politica di downgrade ([08](08-modalita-deploy.md)): una release legge i dischi delle release precedenti della
+Politica di downgrade ([08](08-deployment-modes.md)): una release legge i dischi delle release precedenti della
 stessa major. Tornare indietro è supportato solo fra release con gli stessi formati (versione di `format.json`,
 major di `xl.meta`, protocollo internodo): i test verificano che la release in prova scriva ancora i formati che
 la precedente legge e in tal caso che il downgrade funzioni; se un formato cambia, la release precedente deve
@@ -285,8 +285,8 @@ Setup: global setup avvia `nexo server` su directory temporanea (e, per la suite
 ## 6.7 Test di modalità, rilascio e presigned
 
 I test specifici sono definiti nei documenti dedicati e fanno parte della pipeline:
-- **Modalità e rilascio** (singolo nodo vs cluster, binario, Docker, Compose, migrazione): [08 §8.6](08-modalita-deploy.md#86-test-specifici-di-modalità-e-rilascio) — TM-01…TM-12.
-- **URL presigned, POST policy, policy di accesso, share link** su server, CLI e dashboard: [09 §9.6](09-presigned-policy-condivisione.md#96-test) — TPS-*, TCL-P-*, TD-P-*.
+- **Modalità e rilascio** (singolo nodo vs cluster, binario, Docker, Compose, migrazione): [08 §8.6](08-deployment-modes.md#86-test-specifici-di-modalità-e-rilascio) — TM-01…TM-12.
+- **URL presigned, POST policy, policy di accesso, share link** su server, CLI e dashboard: [09 §9.6](09-presigned-policy-sharing.md#96-test) — TPS-*, TCL-P-*, TD-P-*.
 
 Matrice CI:
 
@@ -300,13 +300,13 @@ Matrice CI:
 | Più proxy davanti al deployment (`test/proxy`, TCD-01..03, TCC-C-05; job `proxy`) | ogni PR | ogni PR | ogni PR (proxy Go in-process e nginx/HAProxy reali di `compose.multi-proxy.yml`) |
 
 Test di **regole di accesso, domini e distribuzioni** (server, CLI, dashboard, cluster con più proxy):
-[10 §10.6](10-domini-accessi-distribuzioni.md#106-test) — TAR-*, TDS-*, TCL-A-*, TCL-D-*, TD-A-*, TD-D-*, TCD-*.
+[10 §10.6](10-domains-access-distributions.md#106-test) — TAR-*, TDS-*, TCL-A-*, TCL-D-*, TD-A-*, TD-D-*, TCD-*.
 
-Test di **cache per dominio** (server, cluster, CLI, dashboard): [11 §11.12](11-cache-domini.md#1112-test) — TCC-*, TCC-C-*, TCL-C-*, TD-C-*.
+Test di **cache per dominio** (server, cluster, CLI, dashboard): [11 §11.12](11-domain-cache.md#1112-test) — TCC-*, TCC-C-*, TCL-C-*, TD-C-*.
 
 ## 6.8 Matrice di tracciabilità
 
-Ogni funzionalità del [catalogo](02-funzionalita.md) deve avere almeno un test associato. La matrice viene
+Ogni funzionalità del [catalogo](02-features.md) deve avere almeno un test associato. La matrice viene
 mantenuta in [`test/TRACEABILITY.md`](../test/TRACEABILITY.md) (generata da tag nei test, es. `// covers: S-OBJ-06`) e controllata in CI:
 una funzionalità P0/P1 senza test fa fallire la pipeline di release.
 
@@ -321,8 +321,8 @@ una funzionalità P0/P1 senza test fa fallire la pipeline di release.
 - **Strumento**: `make traceability` (`go run ./cmd/tools/traceability`, logica in `internal/tools/traceability`,
   fuori dai binari di rilascio) riscrive la matrice: riepilogo per priorità, funzionalità P0/P1 per area con i test
   (i primi 8 e il conteggio), P2 elencate come "non in v1.0". I codici raggruppati del catalogo (`D-ACC-01..04`,
-  `D-CCH-01..08`, `D-DST-01..08`) sono espansi con le descrizioni di [10](10-domini-accessi-distribuzioni.md) e
-  [11](11-cache-domini.md).
+  `D-CCH-01..08`, `D-DST-01..08`) sono espansi con le descrizioni di [10](10-domains-access-distributions.md) e
+  [11](11-domain-cache.md).
 - **Controllo**: `make traceability-check` (job `lint-go` della CI e workflow di release) e il test Go
   `TestRepositoryTraceability` falliscono se una funzionalità P0/P1 non ha test, se un tag nomina un codice fuori
   catalogo o se `test/TRACEABILITY.md` non è aggiornata.

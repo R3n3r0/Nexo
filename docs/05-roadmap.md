@@ -7,7 +7,7 @@ Regola generale di "Done" per ogni task: codice + test (unit e, dove indicato, i
 Stime indicative in giorni-persona (gp) per 1 sviluppatore full-stack.
 
 **Vincoli trasversali validi per ogni milestone**
-- Ogni funzionalità deve funzionare **sia in singolo nodo sia in cluster** (vedi [08](08-modalita-deploy.md)); la CI esegue le suite in matrice di modalità appena disponibile la modalità corrispondente.
+- Ogni funzionalità deve funzionare **sia in singolo nodo sia in cluster** (vedi [08](08-deployment-modes.md)); la CI esegue le suite in matrice di modalità appena disponibile la modalità corrispondente.
 - Ogni milestone produce un **binario** e un'**immagine Docker** funzionanti (artefatti CI) e aggiorna i file `deploy/docker/compose.*.yml`.
 - Ogni funzionalità utente è raggiungibile da **API, CLI e dashboard** (salvo funzioni puramente S3).
 
@@ -23,8 +23,8 @@ Stime indicative in giorni-persona (gp) per 1 sviluppatore full-stack.
 | **M5** | Erasure coding multi-drive su singolo nodo, bitrot, healing locale | 20 gp |
 | **M6** | Cluster distribuito (RPC, dsync, bootstrap, pool) | 30 gp |
 | **M7** | Funzionalità avanzate (versioning, lifecycle, object lock, SSE, eventi, quota) | 30 gp |
-| **M7b** | Regole di accesso regex, domini multipli e distribuzioni (vedi [10](10-domini-accessi-distribuzioni.md)) | 25 gp |
-| **M7c** | Cache per dominio (vedi [11](11-cache-domini.md)) | 18 gp |
+| **M7b** | Regole di accesso regex, domini multipli e distribuzioni (vedi [10](10-domains-access-distributions.md)) | 25 gp |
+| **M7c** | Cache per dominio (vedi [11](11-domain-cache.md)) | 18 gp |
 | **M8** | Osservabilità (metriche, log, audit, trace) + pagine dashboard | 12 gp |
 | **M9** | Hardening, prestazioni, compatibilità, packaging → **v1.0** | 15 gp |
 | **M10** | P2: replica, site replication, decommission/rebalance, OIDC/LDAP, tiering | 40+ gp |
@@ -167,17 +167,17 @@ M3/M4 (UI e CLI) e M5 (storage) possono procedere in parallelo grazie all'interf
 | T-7.10 | CLI: `version`, `tag`, `retention`, `legalhold`, `ilm`, `event`, `quota`, `encrypt`, `anonymous`, `admin group`, `admin accesskey`, `admin config`. Già in M3/M4: `version`, `tag`, `quota`, `encrypt`, `anonymous`, `admin group/accesskey/config`. Restano per M7: `retention`, `legalhold`, `ilm`, `event` (con T-7.3, T-7.4, T-7.6) | T-7.1..T-7.7 | testscript per ogni comando |
 
 **Stato della compatibilità S3 (DoD di T-7.1, T-9.1 anticipata per `s3-tests`)** — `make test-s3compat`
-(`test/compat`, job notturno `s3tests-nightly` in tutte e tre le modalità, [06 §6.1](06-piano-test.md)) su
+(`test/compat`, job notturno `s3tests-nightly` in tutte e tre le modalità, [06 §6.1](06-test-plan.md)) su
 `ceph/s3-tests@5522d1c` (`test_s3.py`, 838 test), misurato il 2026-10-09:
 
 - 415 test esclusi, ognuno con il motivo in `test/compat/excluded.txt`: 235 marcati `fails_on_aws` dalla suite
   stessa (estensioni RGW, tra cui il logging), 83 ACL (S-BKT-13, P2), 37 firme V2, 9 PublicAccessBlock (S-ACC-03),
-  il resto comportamenti di RGW diversi da S3 o differenze note ([02 §2.4](02-funzionalita.md));
+  il resto comportamenti di RGW diversi da S3 o differenze note ([02 §2.4](02-features.md));
 - 422 applicabili: **422/422 in SNMD e cluster, 421/422 in SNSD**; `test_atomic_read_4mb` è fallito in 2 esecuzioni
   SNSD su 4 (mai in SNMD e cluster): il client della suite scrive la chiave mentre non legge ancora la GET della stessa chiave,
   e il lock di lettura tenuto durante il trasferimento (come in MinIO) blocca la PUT finché i buffer dei socket
   non assorbono l'oggetto o scade `NEXO_SEND_TIMEOUT` (20 s). Risolto in T-9.1 (letture su istantanea che
-  rilasciano il lock prima del trasferimento, [02 §2.4](02-funzionalita.md)); lo stato attuale, su tutti i file
+  rilasciano il lock prima del trasferimento, [02 §2.4](02-features.md)); lo stato attuale, su tutti i file
   della suite e con `mint`, è nello stato di T-9.1 (M9, più sotto);
 - gruppi obiettivo di M7 (soglia 90% per gruppo): versioning 28/28, object lock 39/39, multipart 31/31,
   tagging 17/17, SSE-C 18/18, checksum 11/11, CORS 1/1 (13 dei 14 test CORS usano ACL pubbliche o firme V2; il
@@ -260,7 +260,7 @@ circa 3 ms da nodo1 a nodo4; TCD-03: decine di ms attraverso i proxy).
 | T-8.5 | OpenTelemetry tracing | M1 | Span per richiesta e per RPC |
 | T-8.6 | Dashboard Metriche, Log/Trace live, Configurazione (D-MON-01, 02, D-CFG-01); CLI `admin trace/logs` | T-8.2, T-8.3 | E2E |
 
-**Stato di T-8.1–T-8.5 (backend dell'osservabilità), completati.** Dettagli in [07 §7.4](07-sicurezza-operativita.md).
+**Stato di T-8.1–T-8.5 (backend dell'osservabilità), completati.** Dettagli in [07 §7.4](07-security-operations.md).
 - T-8.1: metriche Prometheus di API (contatori ed istogrammi di latenza per API e bucket), drive, lock, KMS, eventi,
   lifecycle, healing, scanner, RPC internodo, cache e distribuzioni, esposte su `/nexo/metrics/v1/{cluster,node,bucket}`
   (JWT `admin:Prometheus` o pubbliche con `NEXO_PROMETHEUS_AUTH_TYPE=public`), aggregate dal nodo che riceve lo scrape
@@ -317,10 +317,10 @@ circa 3 ms da nodo1 a nodo4; TCD-03: decine di ms attraverso i proxy).
   `x/crypto`, senza fix e non raggiunta), §10.1 del threat model. Il client RPC internodo usa l'HTTP/2 di `net/http`
   (`http.Transport` con `Protocols`), non più `x/net/http2` deprecato. Manca il pen test della console.
 - T-9.4: keystore di `--certs-dir` con SNI, ricarica a caldo (fsnotify e SIGHUP) senza interrompere le connessioni,
-  TLS ≥ 1.2 (`--tls-min-version`), catena con i certificati delle distribuzioni ([docs/07 §7.3](07-sicurezza-operativita.md#73-tls)).
+  TLS ≥ 1.2 (`--tls-min-version`), catena con i certificati delle distribuzioni ([docs/07 §7.3](07-security-operations.md#73-tls)).
 
 **Stato di T-9.5 (packaging).** Configurazione completa e validata in locale, nessuna release pubblicata (la
-"release candidata pubblicata" del DoD richiede il primo tag `v1.0.0-rc.1`): [docs/08 §8.7](08-modalita-deploy.md#87-rilascio-t-95).
+"release candidata pubblicata" del DoD richiede il primo tag `v1.0.0-rc.1`): [docs/08 §8.7](08-deployment-modes.md#87-rilascio-t-95).
 - GoReleaser v2.18.3 (`goreleaser check` senza deprecazioni; `make release-snapshot` costruisce gli 11 binari
   con la console, 11 archivi + sorgenti, 8 pacchetti deb/rpm `nexo`/`nexoctl`, checksum, 11 SBOM SPDX, cask
   Homebrew); con un demone Docker `make release-snapshot RELEASE_SKIP=sign` costruisce anche le immagini
@@ -336,9 +336,9 @@ circa 3 ms da nodo1 a nodo4; TCD-03: decine di ms attraverso i proxy).
 - `nexo healthcheck` (HEALTHCHECK delle immagini) segue `NEXO_CERTS_DIR`/`--certs-dir`: HTTPS sulla
   console, fiducia in `public.crt` e `CAs/`; prima un container con TLS restava `unhealthy` (sonda HTTP
   verso un listener TLS) e Swarm ne sostituiva i task. Esiti delle verifiche locali (validato contro
-  solo configurato) in [docs/08 §8.7](08-modalita-deploy.md#validato-in-locale-e-solo-configurato).
+  solo configurato) in [docs/08 §8.7](08-deployment-modes.md#validato-in-locale-e-solo-configurato).
 
-**Stato di T-9.1 (compatibilità), misurato il 2026-10-15** ([06 §6.1](06-piano-test.md)).
+**Stato di T-9.1 (compatibilità), misurato il 2026-10-15** ([06 §6.1](06-test-plan.md)).
 - `ceph/s3-tests@5522d1c`, tutti i file della suite (`test_s3.py`, `test_headers.py`, `test_iam.py`, `test_sts.py`,
   `test_s3select.py`, `test_sns.py`, `test_s3control.py`): 1052 test raccolti, 598 esclusi con motivo
   (`test/compat/excluded.txt`: 265 `rgw`, 146 `p2`, 91 `out-of-catalog`, 47 `deprecated`, 32 `aws`, 11 `design`,
@@ -363,7 +363,7 @@ circa 3 ms da nodo1 a nodo4; TCD-03: decine di ms attraverso i proxy).
   elemento `Type` del grantee nelle ACL, `x-amz-content-sha256` malformato nelle presigned, campo file senza nome
   nei POST (`MalformedPOSTRequest`) e checksum nella risposta, CORS (header in minuscolo, richieste non preflight
   con `Access-Control-Request-Method`), `POST` su un oggetto senza sottorisorsa 405, algoritmi di checksum non
-  supportati rifiutati, apici non codificati nei messaggi di errore XML ([02 §2.4](02-funzionalita.md)).
+  supportati rifiutati, apici non codificati nei messaggi di errore XML ([02 §2.4](02-features.md)).
 
 **Stato di T-9.8 (upgrade), misurato il 2026-10-15.** Nessuna release è ancora stata pubblicata: la release
 precedente è il commit di M7 `224bb31` (costruito come `v0.7.0`), la release in prova il working tree (`v0.9.0`);
@@ -376,7 +376,7 @@ precedente è il commit di M7 `224bb31` (costruito come `v0.7.0`), la release in
 - `TestRollingUpgradeCluster`: 4 nodi × 2 dischi aggiornati uno alla volta (1,6–2,7 s per nodo) sotto carico
   (1326 operazioni di 8 worker): 0 errori client oltre ai retry dell'SDK, 0 letture incoerenti; rollback di un
   nodo a `v0.7.0` nel cluster aggiornato e ritorno a `v0.9.0` senza perdita dati.
-- Politica di downgrade: [08, aggiornamenti e downgrade](08-modalita-deploy.md).
+- Politica di downgrade: [08, aggiornamenti e downgrade](08-deployment-modes.md).
 
 **Stato di T-9.7 (accessibilità e i18n).** `@axe-core/playwright` su ogni pagina e sezione della console
 (TD-E-19: `a11y.spec.ts`, `access-distributions-a11y.spec.ts`, sezioni di cache e monitoraggio) senza violazioni
@@ -389,7 +389,7 @@ degli script `testscript`, dei test Vitest/Playwright e degli script di rilascio
 con almeno un test**; le 18 P2 (M10) sono elencate come "non in v1.0". `make traceability-check` (job `lint-go` e
 workflow di release) e il test `TestRepositoryTraceability` falliscono per una P0/P1 senza test, per un codice fuori
 catalogo o per la matrice non aggiornata. Tre P2 consegnate in anticipo sono diventate P1 nel catalogo (S-OPS-11,
-D-MON-03, C-ADM-12, [02](02-funzionalita.md)).
+D-MON-03, C-ADM-12, [02](02-features.md)).
 
 **Verifica finale della v1.0 (integrazione, 2026-10-15).** Esiti e durate nel [CHANGELOG](../CHANGELOG.md#verifica);
 tutto verde in SNSD, SNMD e cluster. Restano aperti, fuori dal perimetro P0/P1: pen test della console (T-9.3),

@@ -90,7 +90,7 @@ chiave stessa. Con `NEXO_PROMETHEUS_AUTH_TYPE=public` gli endpoint sono pubblici
 | Processo | `nexo_node_uptime_seconds`, `nexo_node_info{version,commit}`, `go_*`, `process_*` |
 
 La cardinalità è limitata: nessuna chiave d'oggetto nelle label, al massimo 1000 bucket per nodo (oltre:
-`_other`). L'elenco completo è in [docs/07 §7.4](https://github.com/R3n3r0/Nexo/blob/main/docs/07-sicurezza-operativita.md#74-osservabilità).
+`_other`). L'elenco completo è in [docs/07 §7.4](https://github.com/R3n3r0/Nexo/blob/main/docs/07-security-operations.md#74-osservabilità).
 
 ## Grafana e Prometheus pronti
 

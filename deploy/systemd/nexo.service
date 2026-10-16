@@ -17,7 +17,7 @@
 
 [Unit]
 Description=Nexo S3-compatible object storage server
-Documentation=https://github.com/r3n3r0/nexo/blob/main/docs/08-modalita-deploy.md
+Documentation=https://github.com/r3n3r0/nexo/blob/main/docs/08-deployment-modes.md
 Wants=network-online.target
 After=network-online.target
 # Restart=always below, but a configuration that keeps failing stops after

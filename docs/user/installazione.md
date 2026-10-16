@@ -13,7 +13,7 @@ dal pacchetto ma dagli argomenti di `nexo server`: vedi [Modalità di deployment
 
 Ogni release contiene archivi, pacchetti `.deb`/`.rpm`, `checksums.txt` firmato con cosign (keyless) e
 uno SBOM SPDX per archivio. La verifica delle firme è descritta in
-[docs/08 §8.7](https://github.com/R3n3r0/Nexo/blob/main/docs/08-modalita-deploy.md#verificare-una-release).
+[docs/08 §8.7](https://github.com/R3n3r0/Nexo/blob/main/docs/08-deployment-modes.md#verificare-una-release).
 
 ## Binari (archivi)
 

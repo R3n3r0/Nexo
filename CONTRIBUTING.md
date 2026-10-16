@@ -6,7 +6,7 @@ repository <https://github.com/R3n3r0/Nexo>.
 ## Before opening a pull request
 
 - Follow the conventions of the code base (see the README, section "Sviluppo", and
-  [docs/12](docs/12-architettura-servizi.md)); keep each change focused.
+  [docs/12](docs/12-service-architecture.md)); keep each change focused.
 - Run the checks that cover your change: `make lint`, `make test`, and for the console
   `make web-lint` and `make web-test`. Update the documentation, `CHANGELOG.md` and the
   traceability matrix (`make traceability`) when the behaviour changes.

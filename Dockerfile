@@ -8,7 +8,7 @@
 #     --build-arg VERSION=$(git describe --tags --always) -t ghcr.io/r3n3r0/nexo .
 #
 # The deployment mode (SNSD / SNMD / cluster) is chosen by the arguments
-# passed to "nexo server" (see docs/08-modalita-deploy.md); the image is the same.
+# passed to "nexo server" (see docs/08-deployment-modes.md); the image is the same.
 
 ARG NODE_VERSION=22
 ARG GO_VERSION=1.27.2
