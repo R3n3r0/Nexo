@@ -82,6 +82,7 @@ func suite() []suiteTest {
 		{name: "TestConsolePrefixShareLinks", fn: TestConsolePrefixShareLinks},
 		{name: "TestConsoleRootAccessSetting", fn: TestConsoleRootAccessSetting},
 		{name: "TestConsoleRevocations", fn: TestConsoleRevocations},
+		{name: "TestConsoleDisableRevokes", fn: TestConsoleDisableRevokes},
 		{name: "TestConsoleRestoreVersion", fn: TestConsoleRestoreVersion},
 		{name: "TestConsoleNullVersionDeletes", fn: TestConsoleNullVersionDeletes},
 		{name: "TestSpecialCharacterKeys", fn: TestSpecialCharacterKeys},
