@@ -242,11 +242,11 @@ func newAdminDNSInfoCmd(e *env) *cobra.Command {
 				fmt.Fprintf(&b, "Nameserver:   %s\nZone:         %s\nTSIG key:     %s %s\n", p.RFC2136.Nameserver, orDash(p.RFC2136.Zone),
 					orDash(p.RFC2136.TSIGKeyName), p.RFC2136.TSIGAlgorithm)
 			}
-			creds := "not stored"
+			state := "not stored"
 			if p.HasCredentials {
-				creds = "stored (sealed, never shown)"
+				state = "stored (sealed, never shown)"
 			}
-			fmt.Fprintf(&b, "Credentials:  %s\nUsed by:      %s\nUpdated:      %s", creds, joinOrDash(p.UsedBy), cli.FormatTime(p.UpdatedAt))
+			fmt.Fprintf(&b, "Credentials:  %s\nUsed by:      %s\nUpdated:      %s", state, joinOrDash(p.UsedBy), cli.FormatTime(p.UpdatedAt))
 			return e.out.Result(dnsProviderRecord{Alias: alias, DNSProvider: *p}, b.String())
 		},
 	}

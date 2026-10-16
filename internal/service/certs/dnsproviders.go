@@ -132,7 +132,7 @@ func (r *dnsProviders) save(ctx context.Context, cfg DNSProviderConfig, creds DN
 	doc := storedDNSProvider{Config: cfg}
 	doc.Config.HasCredentials = false
 	if !creds.empty() {
-		plain, err := json.Marshal(creds)
+		plain, err := json.Marshal(creds) // #nosec G117 -- the plaintext is sealed below, never stored nor returned
 		if err != nil {
 			return err
 		}

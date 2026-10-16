@@ -67,7 +67,12 @@ test.describe('DNS providers', () => {
       });
       await page.goto(`/distributions/${id}/tls`);
       const panel = page.getByRole('region', { name: 'TLS' });
-      await panel.getByRole('radio', { name: /ACME/ }).click();
+      // The segmented control: its radio inputs are hidden behind their labels.
+      await panel
+        .getByRole('radiogroup', { name: 'Certificate' })
+        .getByText('ACME', { exact: true })
+        .click();
+      await expect(panel.getByRole('radio', { name: 'ACME' })).toBeChecked();
       await expect(
         panel.getByText(`The wildcard domain ${domain} needs the DNS-01 challenge`, {
           exact: false,
