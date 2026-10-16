@@ -1,75 +1,76 @@
-# Utenti, policy e credenziali
+# Users, policies and credentials
 
-Nexo ha un solo account con un utente **root** (credenziali da ambiente) e utenti IAM gestiti da console,
-`nexoctl admin` o Admin API. Ogni richiesta, S3 o della console, è valutata dallo stesso motore di policy
-in formato AWS: **deny esplicito vince**, poi serve un **allow** (da policy dell'utente, dei suoi gruppi,
-della bucket policy o delle [regole di accesso](access-rules.md)), altrimenti la richiesta è negata.
+Nexo has a single account with a **root** user (credentials from the environment) and IAM users managed from
+the console, `nexoctl admin` or the Admin API. Every request, S3 or console, is evaluated by the same
+AWS-format policy engine: **an explicit deny wins**, then an **allow** is needed (from the policies of the
+user, of their groups, from the bucket policy or from the [access rules](access-rules.md)), otherwise the
+request is denied.
 
 ## Root
 
-- `NEXO_ROOT_USER` / `NEXO_ROOT_PASSWORD` (o `_FILE`), uguali su tutti i nodi di un cluster.
-- Usalo solo per amministrare: per le applicazioni crea utenti o access key con i permessi minimi.
-- `nexoctl admin config set local api root_access=off` impedisce l'uso delle credenziali root sull'API
-  S3 (la console e l'Admin API restano accessibili, così si può sempre riattivare).
-- Cambiare la password root richiede di riavviare tutti i nodi con il nuovo valore; le credenziali root
-  firmano anche i token tra i nodi e cifrano l'export IAM.
+- `NEXO_ROOT_USER` / `NEXO_ROOT_PASSWORD` (or `_FILE`), the same on every node of a cluster.
+- Use it only for administration: for applications create users or access keys with the minimum permissions.
+- `nexoctl admin config set local api root_access=off` prevents the use of the root credentials on the S3
+  API (the console and the Admin API stay reachable, so it can always be turned back on).
+- Changing the root password requires restarting every node with the new value; the root credentials also
+  sign the tokens between nodes and encrypt the IAM export.
 
-## Utenti e gruppi
+## Users and groups
 
 ```bash
-nexoctl admin user add local alice 'una-secret-key-lunga' --policy readwrite
-nexoctl admin user add local bob 'altra-secret-key-lunga' --group dipendenti --disabled
+nexoctl admin user add local alice 'a-long-secret-key' --policy readwrite
+nexoctl admin user add local bob 'another-long-secret-key' --group employees --disabled
 nexoctl admin user list local
 nexoctl admin user info local alice
-nexoctl admin user disable local alice          # blocco immediato su tutti i nodi (link e sessioni compresi)
+nexoctl admin user disable local alice          # immediate block on every node (links and sessions included)
 nexoctl admin user enable local alice
-nexoctl admin user remove local alice           # rimuove anche le sue access key e i suoi share link
+nexoctl admin user remove local alice           # also removes their access keys and share links
 
-nexoctl admin group add local dipendenti alice bob --policy home-dir   # crea il gruppo se non esiste
-nexoctl admin group members local dipendenti
-nexoctl admin group remove local dipendenti bob                       # toglie un membro
-nexoctl admin group disable local dipendenti
+nexoctl admin group add local employees alice bob --policy home-dir    # creates the group if it does not exist
+nexoctl admin group members local employees
+nexoctl admin group remove local employees bob                        # removes a member
+nexoctl admin group disable local employees
 ```
 
-Un utente senza policy non può fare nulla. Le policy di un utente si sommano a quelle dei suoi gruppi. La
-secret key si cambia dalla console o con l'Admin API (`PUT /api/v1/users/{u}`): il cambio revoca le sue
-sessioni console e i suoi share link gestiti.
+A user without policies cannot do anything. The policies of a user add up to those of their groups. The
+secret key is changed from the console or with the Admin API (`PUT /api/v1/users/{u}`): the change revokes
+their console sessions and their managed share links.
 
-## Policy
+## Policies
 
-### Policy predefinite
+### Built-in policies
 
-| Policy | Concede |
-|--------|---------|
-| `readonly` | `s3:Get*` e `s3:List*` su tutti i bucket |
-| `readwrite` | tutte le azioni `s3:*` su tutti i bucket |
-| `writeonly` | scrittura (`s3:PutObject`, multipart) su tutti i bucket, senza lettura |
-| `diagnostics` | informazioni sul server, trace, log, metriche Prometheus, profiling, speedtest (nessun dato) |
-| `consoleAdmin` | `admin:*` e `s3:*`: amministrazione completa |
+| Policy | Grants |
+|--------|--------|
+| `readonly` | `s3:Get*` and `s3:List*` on every bucket |
+| `readwrite` | every `s3:*` action on every bucket |
+| `writeonly` | writing (`s3:PutObject`, multipart) on every bucket, without reading |
+| `diagnostics` | server information, trace, logs, Prometheus metrics, profiling, speedtest (no data) |
+| `consoleAdmin` | `admin:*` and `s3:*`: full administration |
 
-### Gestione
+### Management
 
 ```bash
-nexoctl admin policy create local foto-ro foto-ro.json            # --update per sostituirla
-nexoctl admin policy validate local foto-ro.json                  # errori con riga e colonna
-nexoctl admin policy attach local foto-ro --user alice
-nexoctl admin policy attach local home-dir --group dipendenti
-nexoctl admin policy detach local foto-ro --user alice
-nexoctl admin policy entities local foto-ro                       # a chi è assegnata
-nexoctl admin policy info local foto-ro
+nexoctl admin policy create local photos-ro photos-ro.json        # --update to replace it
+nexoctl admin policy validate local photos-ro.json                # errors with line and column
+nexoctl admin policy attach local photos-ro --user alice
+nexoctl admin policy attach local home-dir --group employees
+nexoctl admin policy detach local photos-ro --user alice
+nexoctl admin policy entities local photos-ro                     # who it is attached to
+nexoctl admin policy info local photos-ro
 ```
 
-Il linguaggio è quello di AWS: `Action`/`NotAction`, `Resource`/`NotResource`, wildcard `*` e `?`,
-condizioni (`String*`, `Numeric*`, `Date*`, `Bool`, `IpAddress`/`NotIpAddress`, `Null`, `ArnLike`,
-suffisso `IfExists`, `ForAnyValue:`/`ForAllValues:`) con chiavi come `aws:SourceIp`,
+The language is that of AWS: `Action`/`NotAction`, `Resource`/`NotResource`, `*` and `?` wildcards,
+conditions (`String*`, `Numeric*`, `Date*`, `Bool`, `IpAddress`/`NotIpAddress`, `Null`, `ArnLike`,
+`IfExists` suffix, `ForAnyValue:`/`ForAllValues:`) with keys such as `aws:SourceIp`,
 `aws:SecureTransport`, `aws:CurrentTime`, `aws:username`, `aws:Referer`, `s3:prefix`, `s3:delimiter`,
 `s3:x-amz-server-side-encryption`, `s3:ExistingObjectTag/<k>`, `s3:RequestObjectTag/<k>`,
-`s3:signatureAge`, `s3:authType`, e la variabile `${aws:username}`. Le azioni di amministrazione sono
-`admin:*` (per esempio `admin:CreateUser`, `admin:ServerInfo`, `admin:Heal`, `admin:ConfigUpdate`).
+`s3:signatureAge`, `s3:authType`, and the `${aws:username}` variable. The administration actions are
+`admin:*` (for example `admin:CreateUser`, `admin:ServerInfo`, `admin:Heal`, `admin:ConfigUpdate`).
 
-### Esempio: sola lettura di un bucket
+### Example: read-only access to a bucket
 
-`foto-ro.json`: l'utente elenca e scarica gli oggetti del bucket `foto` e nient'altro.
+`photos-ro.json`: the user lists and downloads the objects of the `photos` bucket and nothing else.
 
 ```json
 {
@@ -78,35 +79,35 @@ suffisso `IfExists`, `ForAnyValue:`/`ForAllValues:`) con chiavi come `aws:Source
     {
       "Effect": "Allow",
       "Action": ["s3:ListBucket", "s3:GetBucketLocation"],
-      "Resource": ["arn:aws:s3:::foto"]
+      "Resource": ["arn:aws:s3:::photos"]
     },
     {
       "Effect": "Allow",
       "Action": ["s3:GetObject"],
-      "Resource": ["arn:aws:s3:::foto/*"]
+      "Resource": ["arn:aws:s3:::photos/*"]
     }
   ]
 }
 ```
 
 ```console
-$ nexoctl admin policy create local foto-ro foto-ro.json
-$ nexoctl admin user add local alice 'alice-secret-123' --policy foto-ro
+$ nexoctl admin policy create local photos-ro photos-ro.json
+$ nexoctl admin user add local alice 'alice-secret-123' --policy photos-ro
 $ nexoctl alias set alice http://localhost:9000 alice 'alice-secret-123'
 Added alias "alice" for http://localhost:9000 (credentials accepted; listing the buckets is denied).
-$ nexoctl cat alice/foto/hello.txt
-ciao Nexo
-$ nexoctl cp x.txt alice/foto/x.txt
-nexoctl: error: alice/foto/x.txt: access denied: Access Denied. (AccessDenied)
+$ nexoctl cat alice/photos/hello.txt
+hi Nexo!
+$ nexoctl cp x.txt alice/photos/x.txt
+nexoctl: error: alice/photos/x.txt: access denied: Access Denied. (AccessDenied)
 ```
 
-Per far vedere il bucket anche nell'elenco dei bucket aggiungi uno statement con `s3:ListAllMyBuckets` su
-`arn:aws:s3:::*` (mostra i nomi di tutti i bucket, non il loro contenuto).
+To make the bucket show up in the list of buckets too, add a statement with `s3:ListAllMyBuckets` on
+`arn:aws:s3:::*` (it shows the names of every bucket, not their contents).
 
-### Esempio: home directory per utente
+### Example: per-user home directory
 
-Un solo bucket `home`, ogni utente legge e scrive solo sotto `home/<proprio nome>/`. Una sola policy per
-tutti, assegnata a un gruppo, grazie a `${aws:username}`:
+A single `home` bucket, every user reads and writes only under `home/<their own name>/`. A single policy for
+everyone, attached to a group, thanks to `${aws:username}`:
 
 ```json
 {
@@ -130,19 +131,19 @@ tutti, assegnata a un gruppo, grazie a `${aws:username}`:
 ```bash
 nexoctl mb local/home
 nexoctl admin policy create local home-dir home.json
-nexoctl admin group add local dipendenti alice bob --policy home-dir
+nexoctl admin group add local employees alice bob --policy home-dir
 nexoctl cp report.pdf bob/home/bob/            # ok
 nexoctl cp report.pdf bob/home/alice/          # AccessDenied
 nexoctl ls bob/home/alice/                     # AccessDenied
 ```
 
-La console mostra a questi utenti il bucket `home` con il solo contenuto accessibile. Con le
-[regole di accesso](access-rules.md#home-directory-con-una-regex) lo stesso schema si esprime anche con
-una regex e un gruppo nominato.
+The console shows these users the `home` bucket with only the accessible content. With the
+[access rules](access-rules.md#home-directories-with-a-regex) the same scheme can also be expressed with
+a regex and a named group.
 
-### Esempio: sola scrittura (cartella di deposito)
+### Example: write-only (drop folder)
 
-Uno scanner o un sistema esterno deposita file in `inbox` senza poterli rileggere né elencare:
+A scanner or an external system drops files into `inbox` without being able to read them back or list them:
 
 ```json
 {
@@ -157,13 +158,13 @@ Uno scanner o un sistema esterno deposita file in `inbox` senza poterli rilegger
 }
 ```
 
-`s3:PutObject` copre anche gli upload multipart (file grandi). Per limitare a un prefisso usa
-`arn:aws:s3:::inbox/scanner1/*`; per imporre la cifratura aggiungi una condizione su
+`s3:PutObject` also covers multipart uploads (large files). To restrict it to a prefix use
+`arn:aws:s3:::inbox/scanner1/*`; to enforce encryption add a condition on
 `s3:x-amz-server-side-encryption`.
 
-### Simulatore
+### Simulator
 
-Prima di applicare una policy, o per capire un `AccessDenied`:
+Before applying a policy, or to understand an `AccessDenied`:
 
 ```console
 $ nexoctl admin policy simulate --user bob --action s3:GetObject local/home/alice/x.txt
@@ -176,17 +177,17 @@ Reason: no policy or access rule allows s3:GetObject
 $ nexoctl admin policy simulate --user bob --action s3:ListBucket --condition s3:prefix=bob/ local/home
 Decision: allow
 …
-Reason: allowed by group policy "home-dir" (group dipendenti), statement 1
+Reason: allowed by group policy "home-dir" (group employees), statement 1
 ```
 
-Opzioni: `--source-ip`, `--secure`/`--insecure`, `--time`, `--condition chiave=valore`, `-v` per vedere
-ogni statement valutato. La console ha lo stesso strumento (**Simulatore policy**) e mostra i permessi
-effettivi di ogni utente.
+Options: `--source-ip`, `--secure`/`--insecure`, `--time`, `--condition key=value`, `-v` to see
+every evaluated statement. The console has the same tool (**Policy simulator**) and shows the effective
+permissions of every user.
 
-## Access key (service account)
+## Access keys (service accounts)
 
-Un utente può avere più access key, ognuna con scadenza e una **policy inline** che restringe (mai
-allarga) i permessi dell'utente: ideali per applicazioni e pipeline CI.
+A user can have several access keys, each with an expiry and an **inline policy** that restricts (never
+widens) the user's permissions: ideal for applications and CI pipelines.
 
 ```console
 $ nexoctl admin accesskey create local --user alice --name ci --description "CI build" \
@@ -206,29 +207,29 @@ nexoctl admin accesskey edit local FZR6F4G0E0NF208I5QQ5 --expiry 2027-01-31 --cl
 nexoctl admin accesskey remove local FZR6F4G0E0NF208I5QQ5
 ```
 
-- La secret key è mostrata **una sola volta**.
-- Senza `--user` la chiave appartiene all'utente dell'alias: ogni utente gestisce le proprie chiavi, root
-  quelle di tutti.
-- I permessi effettivi sono l'intersezione tra la policy inline e quelle dell'utente: se all'utente viene
-  tolta una policy, le sue chiavi la perdono subito.
+- The secret key is shown **only once**.
+- Without `--user` the key belongs to the alias's user: every user manages their own keys, root
+  those of everyone.
+- The effective permissions are the intersection of the inline policy and those of the user: if a policy is
+  removed from the user, their keys lose it immediately.
 
-## Credenziali temporanee (STS AssumeRole)
+## Temporary credentials (STS AssumeRole)
 
-Nexo implementa `AssumeRole` dell'API STS sulla porta S3: un utente (o root) ottiene credenziali
-temporanee (access key, secret key e session token) valide da 15 minuti a 12 ore (default 1 ora),
-eventualmente ristrette da una **session policy**. Il "ruolo" è l'identità che firma la richiesta:
-`RoleArn` è richiesto dagli SDK ma non viene usato.
+Nexo implements `AssumeRole` of the STS API on the S3 port: a user (or root) obtains temporary credentials
+(access key, secret key and session token) valid from 15 minutes to 12 hours (default 1 hour),
+optionally restricted by a **session policy**. The "role" is the identity that signs the request:
+`RoleArn` is required by the SDKs but is not used.
 
-Con la AWS CLI:
+With the AWS CLI:
 
 ```bash
 aws sts assume-role --endpoint-url http://localhost:9000 --region us-east-1 \
-  --role-arn arn:aws:iam::000000000000:role/qualsiasi --role-session-name ci \
+  --role-arn arn:aws:iam::000000000000:role/any --role-session-name ci \
   --duration-seconds 3600 \
-  --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"arn:aws:s3:::foto/*"}]}'
+  --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"arn:aws:s3:::photos/*"}]}'
 ```
 
-Oppure con `curl` (firma SigV4 per il servizio `sts`):
+Or with `curl` (SigV4 signature for the `sts` service):
 
 ```bash
 curl -s --aws-sigv4 "aws:amz:us-east-1:sts" --user 'alice:alice-secret-123' \
@@ -237,15 +238,15 @@ curl -s --aws-sigv4 "aws:amz:us-east-1:sts" --user 'alice:alice-secret-123' \
   http://localhost:9000/
 ```
 
-La risposta XML contiene `AccessKeyId`, `SecretAccessKey`, `SessionToken` ed `Expiration`. Le credenziali
-temporanee non possono a loro volta chiamare `AssumeRole`. Un URL presigned firmato con credenziali STS
-scade al più tardi con la sessione. Le federazioni di identità (OIDC, LDAP) non sono ancora disponibili.
+The XML response contains `AccessKeyId`, `SecretAccessKey`, `SessionToken` and `Expiration`. Temporary
+credentials cannot call `AssumeRole` themselves. A presigned URL signed with STS credentials expires at the
+latest with the session. Identity federation (OIDC, LDAP) is not available yet.
 
-## Buone pratiche
+## Best practices
 
-- Un utente o un'access key per applicazione, con i permessi minimi e una scadenza.
-- Gruppi per i ruoli (lettori, editor, amministratori di un progetto) invece di policy per singolo utente.
-- `diagnostics` per il monitoraggio (Prometheus, trace), mai root.
-- Disabilitare (non solo eliminare) un utente sospetto: l'effetto è immediato su tutto il cluster,
-  sessioni e link compresi.
-- Rivedere periodicamente `nexoctl admin accesskey list` e gli share attivi (`nexoctl share list --user …`).
+- One user or access key per application, with the minimum permissions and an expiry.
+- Groups for roles (readers, editors, administrators of a project) instead of per-user policies.
+- `diagnostics` for monitoring (Prometheus, trace), never root.
+- Disable (not just delete) a suspicious user: the effect is immediate on the whole cluster,
+  sessions and links included.
+- Periodically review `nexoctl admin accesskey list` and the active shares (`nexoctl share list --user …`).

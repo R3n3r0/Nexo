@@ -1,46 +1,46 @@
-# Regole di accesso
+# Access rules
 
-Le policy in formato AWS conoscono solo i wildcard `*` e `?`. Le **regole di accesso** sono un livello in
-più, per bucket, più semplice da scrivere e con pattern **prefix**, **glob** e **regex (RE2)**. Sono
-valutate dallo stesso motore delle policy IAM e della bucket policy:
+AWS-format policies know only the `*` and `?` wildcards. **Access rules** are an additional, per-bucket
+layer, simpler to write and with **prefix**, **glob** and **regex (RE2)** patterns. They are evaluated by
+the same engine as the IAM policies and the bucket policy:
 
-1. un `deny` applicabile in qualsiasi sorgente (policy IAM, bucket policy, regole) → **negato**;
-2. altrimenti un `allow` da almeno una sorgente → consentito;
-3. altrimenti negato.
+1. an applicable `deny` in any source (IAM policies, bucket policy, rules) → **denied**;
+2. otherwise an `allow` from at least one source → allowed;
+3. otherwise denied.
 
-Le regole non scavalcano mai Object Lock né le restrizioni delle policy inline delle access key. Si
-gestiscono dalla scheda **Regole di accesso** del bucket in console, con `nexoctl access` o dall'Admin API
-(`/api/v1/buckets/{bucket}/access-rules`), e valgono subito su tutti i nodi.
+Rules never override Object Lock or the restrictions of the inline policies of access keys. They are
+managed from the **Access rules** tab of the bucket in the console, with `nexoctl access` or from the Admin
+API (`/api/v1/buckets/{bucket}/access-rules`), and take effect immediately on every node.
 
-## Anatomia di una regola
+## Anatomy of a rule
 
-| Campo | Valori |
+| Field | Values |
 |-------|--------|
-| `id` | nome univoco nel bucket |
-| `priority` | ordine di valutazione, il più basso prima (default 100) |
-| `effect` | `allow` o `deny` |
-| `principals` | `*` (tutti, anonimi compresi), `user:NOME`, `group:NOME`, `accesskey:CHIAVE`, `distribution:ID` |
-| `actions` | `read` (GET/HEAD), `list`, `write` (PUT/POST/multipart), `delete`, `tag`, `all`, oppure azioni S3 (`s3:GetObject`) |
-| `match` | `prefix`, `glob` o `regex` sulla chiave (opzionale: senza, tutto il bucket) |
-| condizioni | IP o CIDR del client (`--source-ip`, `--not-source-ip`), `--referer`, `--host`, `--secure-transport`, finestra temporale (`--from`, `--to`), `--method`, `--header`, gruppi nominati della regex (`--capture`) |
+| `id` | unique name within the bucket |
+| `priority` | evaluation order, lowest first (default 100) |
+| `effect` | `allow` or `deny` |
+| `principals` | `*` (everyone, anonymous users included), `user:NAME`, `group:NAME`, `accesskey:KEY`, `distribution:ID` |
+| `actions` | `read` (GET/HEAD), `list`, `write` (PUT/POST/multipart), `delete`, `tag`, `all`, or S3 actions (`s3:GetObject`) |
+| `match` | `prefix`, `glob` or `regex` on the key (optional: without it, the whole bucket) |
+| conditions | client IP or CIDR (`--source-ip`, `--not-source-ip`), `--referer`, `--host`, `--secure-transport`, time window (`--from`, `--to`), `--method`, `--header`, named groups of the regex (`--capture`) |
 
-### Pattern
+### Patterns
 
-| Tipo | Sintassi | Esempio |
-|------|----------|---------|
-| `prefix` | prefisso letterale | `public/` |
-| `glob` | `*` (un segmento), `**` (più segmenti), `?`, `[abc]`, `{a,b}` | `docs/**/*.pdf`, `{img,video}/*` |
-| `regex` | RE2 (nessun backreference: tempo lineare, nessun ReDoS) | `^users/[a-z0-9_-]+/avatar\.png$` |
+| Type | Syntax | Example |
+|------|--------|---------|
+| `prefix` | literal prefix | `public/` |
+| `glob` | `*` (one segment), `**` (several segments), `?`, `[abc]`, `{a,b}` | `docs/**/*.pdf`, `{img,video}/*` |
+| `regex` | RE2 (no backreferences: linear time, no ReDoS) | `^users/[a-z0-9_-]+/avatar\.png$` |
 
-- Le chiavi sono confrontate **decodificate** e normalizzate (Unicode NFC, `--key-normalization`): `%2e%2e/`,
-  doppie codifiche o varianti Unicode non aggirano le regole.
-- Una regex è validata al salvataggio (errore con posizione), al massimo 1024 caratteri; al massimo 200
-  regole per bucket (`--access-rules-max`).
-- `--ignore-case` rende il confronto insensibile alle maiuscole.
+- Keys are matched **decoded** and normalized (Unicode NFC, `--key-normalization`): `%2e%2e/`,
+  double encodings or Unicode variants do not bypass the rules.
+- A regex is validated when saved (error with position), 1024 characters at most; at most 200
+  rules per bucket (`--access-rules-max`).
+- `--ignore-case` makes the match case-insensitive.
 
-## Esempi
+## Examples
 
-### Immagini pubbliche, cartelle private sempre negate
+### Public images, private folders always denied
 
 ```console
 $ nexoctl access rule add local/media --id img-pub --allow --principal '*' --action read \
@@ -53,54 +53,55 @@ no-private                  5  deny   *                    all              glob
 img-pub                   100  allow  *                    read             regex(i) ^img/[0-9]{4}/.*\.(jpe?g|png)$
 ```
 
-| Richiesta anonima | Esito |
-|-------------------|-------|
+| Anonymous request | Outcome |
+|-------------------|---------|
 | `GET /media/img/2026/a.jpg` | 200 |
 | `GET /media/img/2026/b.PNG` | 200 (`--ignore-case`) |
-| `GET /media/img/old/c.jpg` | 403 (l'anno non è di 4 cifre) |
+| `GET /media/img/old/c.jpg` | 403 (the year does not have 4 digits) |
 | `GET /media/docs/private/x.pdf` | 403 (deny) |
 
-### Home directory con una regex
+### Home directories with a regex
 
-Ogni membro del gruppo `dipendenti` accede solo a `home/<proprio nome>/`: il gruppo nominato `user` della
-regex deve coincidere con `${aws:username}`.
+Every member of the `employees` group accesses only `home/<their own name>/`: the named group `user` of the
+regex must equal `${aws:username}`.
 
 ```bash
-nexoctl access rule add local/home --id home --allow --principal 'group:dipendenti' --action all \
+nexoctl access rule add local/home --id home --allow --principal 'group:employees' --action all \
   --regex '^(?P<user>[^/]+)/' --capture 'user=${aws:username}'
 ```
 
-### Accesso da una rete aziendale, solo in HTTPS
+### Access from a corporate network, HTTPS only
 
 ```bash
-nexoctl access rule add local/report --id lan --allow --principal 'group:analisti' --action read \
+nexoctl access rule add local/report --id lan --allow --principal 'group:analysts' --action read \
   --source-ip 10.0.0.0/8 --source-ip 2001:db8::/32 --secure-transport true
 ```
 
-L'IP del client è quello reale ricavato dai proxy fidati (`--trusted-proxies`); un header `X-Forwarded-For`
-da un proxy non fidato è ignorato.
+The client IP is the real one derived from the trusted proxies (`--trusted-proxies`); an `X-Forwarded-For`
+header from an untrusted proxy is ignored.
 
-### Solo traffico dal proxy (origin secret)
+### Traffic from the proxy only (origin secret)
 
 ```bash
-# sul server: NEXO_SECRET_PROXY_TOKEN=<valore casuale>
+# on the server: NEXO_SECRET_PROXY_TOKEN=<random value>
 nexoctl access rule add local/cdn --id via-proxy --allow --principal '*' --action read \
   --header 'X-Origin-Secret: ${secret:proxy-token}'
 ```
 
-Il riferimento `${secret:proxy-token}` è risolto su ogni nodo da `NEXO_SECRET_PROXY_TOKEN` (o `_FILE`): il
-segreto non finisce mai nella configurazione. Un riferimento non risolvibile non concede nulla.
+The `${secret:proxy-token}` reference is resolved on every node from `NEXO_SECRET_PROXY_TOKEN` (or `_FILE`):
+the secret never ends up in the configuration. A reference that cannot be resolved grants nothing.
 
-### Finestra temporale
+### Time window
 
 ```bash
 nexoctl access rule add local/press --id embargo --allow --principal '*' --action read \
-  --prefix comunicati/2026-11/ --from 2026-11-01T09:00:00Z
+  --prefix releases/2026-11/ --from 2026-11-01T09:00:00Z
 ```
 
-## Verificare prima di applicare
+## Checking before applying
 
-`nexoctl access test` valuta richieste senza eseguirle, con tutte le sorgenti (IAM, bucket policy, regole):
+`nexoctl access test` evaluates requests without executing them, with every source (IAM, bucket policy,
+rules):
 
 ```console
 $ nexoctl access test local/media/img/2026/a.jpg local/media/img/old/c.jpg --principal anonymous --ip 1.2.3.4
@@ -110,24 +111,24 @@ img/old/c.jpg: denied (no statement allows it) (anonymous, s3:GetObject)
   rules: none
 ```
 
-`-v` mostra ogni regola con il motivo per cui non si applica; `--host`, `--header`, `--referer`, `--secure`,
-`--distribution` simulano il resto della richiesta. La console ha lo stesso tester, con le chiavi
-d'esempio del bucket evidenziate.
+`-v` shows every rule with the reason why it does not apply; `--host`, `--header`, `--referer`, `--secure`,
+`--distribution` simulate the rest of the request. The console has the same tester, with the sample keys of
+the bucket highlighted.
 
-## Ordinare, modificare, esportare
+## Order, edit, export
 
 ```bash
 nexoctl access rule move local/media --id img-pub --priority 10
 nexoctl access rule info local/media --id img-pub
-nexoctl access rule add local/media --id img-pub --replace …        # sostituisce la regola
+nexoctl access rule add local/media --id img-pub --replace …        # replaces the rule
 nexoctl access rule remove local/media --id img-pub
-nexoctl access export local/media rules.yaml                        # YAML per GitOps
-nexoctl access import local/media-copia rules.yaml
+nexoctl access export local/media rules.yaml                        # YAML for GitOps
+nexoctl access import local/media-copy rules.yaml
 ```
 
-Ogni modifica sostituisce le regole del bucket in modo atomico e fallisce se nel frattempo sono cambiate.
+Every change replaces the rules of the bucket atomically and fails if they changed in the meantime.
 
-Formato YAML (lo stesso dell'export):
+YAML format (the same as the export):
 
 ```yaml
 bucket: media
@@ -155,15 +156,15 @@ rules:
       pattern: '**/private/**'
 ```
 
-## Preset pubblici e block public access
+## Public presets and block public access
 
-| Preset (`nexoctl access public set …`) | Effetto |
-|----------------------------------------|---------|
-| `private` | nessuna regola anonima |
-| `public-read` | lettura anonima di tutto il bucket |
-| `public-read-list` | lettura ed elenco |
-| `public-prefix` | lettura di un prefisso, glob o regex (`--prefix`, `--glob`, `--regex`) |
-| `public-write` | scrittura anonima (richiede `--confirm`) |
+| Preset (`nexoctl access public set …`) | Effect |
+|----------------------------------------|--------|
+| `private` | no anonymous rule |
+| `public-read` | anonymous read of the whole bucket |
+| `public-read-list` | read and list |
+| `public-prefix` | read of a prefix, glob or regex (`--prefix`, `--glob`, `--regex`) |
+| `public-write` | anonymous write (requires `--confirm`) |
 
-Il block public access (per bucket o cluster) rifiuta o ignora le regole con principale `*`: vedi
-[Condivisione e accesso anonimo](sharing.md#regole-di-accesso-pubbliche-e-block-public-access).
+Block public access (per bucket or cluster) rejects or ignores the rules with principal `*`: see
+[Sharing and anonymous access](sharing.md#public-access-rules-and-block-public-access).

@@ -16,7 +16,7 @@ func TestValidateObjectKey(t *testing.T) {
 	}{
 		{"simple", "file.txt", true},
 		{"nested", "dir/sub/file.txt", true},
-		{"unicode", "cartella/città.txt", true},
+		{"unicode", "folder/città.txt", true},
 		{"spaces and symbols", "my file (1) +=&.txt", true},
 		{"leading slash", "/abs.txt", true},
 		{"trailing slash (directory marker)", "dir/", true},
