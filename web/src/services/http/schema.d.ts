@@ -222,7 +222,10 @@ export interface paths {
          *     waits for a slow stream: it drops events and counts them), a `: heartbeat`
          *     comment while idle. The query strings are redacted (signatures,
          *     credentials, tokens); headers and bodies are never part of an event.
-         *     Without `type`, every type but `rpc`.
+         *     Without `type`, every type but `rpc`. A node serves at most 256 live
+         *     trace streams at once (the streams the peers open for their own
+         *     subscribers included): beyond them a new one answers 429
+         *     `too_many_requests`.
          */
         get: operations["serverTrace"];
         put?: never;
@@ -247,6 +250,9 @@ export interface paths {
          *     a StreamDropped, a `: heartbeat` comment while idle. `last` first replays
          *     up to that many recent entries of each node (at most 10000). Secrets
          *     (credentials, signatures, tokens, passwords) are redacted from the entries.
+         *     A node serves at most 256 live log streams at once (the streams the peers
+         *     open for their own subscribers included): beyond them a new one answers
+         *     429 `too_many_requests`.
          */
         get: operations["serverLogs"];
         put?: never;
@@ -5447,6 +5453,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
             default: components["responses"]["Problem"];
         };
     };
@@ -5476,6 +5483,7 @@ export interface operations {
                 };
             };
             400: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
             default: components["responses"]["Problem"];
         };
     };

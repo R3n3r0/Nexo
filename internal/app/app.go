@@ -617,6 +617,9 @@ func consoleMiddlewares(d middlewareDeps) ([]middleware.Middleware, error) {
 	return []middleware.Middleware{
 		middleware.NewRequestID(middleware.RequestIDDeps{IDs: d.ids}),
 		forwarded,
+		// nosniff, framing, HSTS over TLS; the Admin API answers are
+		// never stored (they carry the CSRF token, users, keys...).
+		middleware.NewSecurityHeaders(middleware.SecurityHeadersDeps{}, middleware.WithNoStore(consoleAPIRequest)),
 		middleware.NewRecover(middleware.RecoverDeps{Logger: d.logger, OnError: middleware.ProblemErrorWriter(d.codec)}),
 		obs.tracing,
 		middleware.NewLogging(middleware.LoggingDeps{Logger: d.logger.With("server", "console"), Clock: d.clock}, middleware.WithLogLevel(slog.LevelDebug)),

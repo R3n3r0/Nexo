@@ -90,7 +90,10 @@ type Service interface {
 	// Subscribe returns the entries selected by f: the last ones kept in
 	// memory (Filter.Last), then the live ones of this node and, unless
 	// f.Local, of the peers (reconnected when their stream breaks) until
-	// ctx ends. An invalid filter is domain.ErrInvalidArgument.
+	// ctx ends. An invalid filter is domain.ErrInvalidArgument; a node
+	// that already serves its maximum of subscriptions
+	// (WithMaxSubscribers) refuses a new one with
+	// domain.ErrTooManyRequests.
 	Subscribe(ctx context.Context, f Filter) (Subscription, error)
 	// Configure applies the level and format of the output (hot reload);
 	// an invalid value is domain.ErrInvalidArgument. The format changes

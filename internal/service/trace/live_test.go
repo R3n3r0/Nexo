@@ -45,6 +45,31 @@ func none(t *testing.T, sub trace.Subscription) {
 	}
 }
 
+// covers: S-OPS-07
+func TestMaxSubscribers(t *testing.T) {
+	// Pentest 2026-10 (PT-03): every live stream holds a buffer and is
+	// visited by every request; a node refuses the streams beyond its
+	// maximum instead of running out of memory.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc, err := trace.New(trace.Deps{NodeID: "n1"}, trace.WithMaxSubscribers(2))
+	require.NoError(t, err)
+	first, cancelFirst := context.WithCancel(ctx)
+	_, err = svc.Subscribe(first, trace.Filter{})
+	require.NoError(t, err)
+	_, err = svc.Subscribe(ctx, trace.Filter{})
+	require.NoError(t, err)
+	_, err = svc.Subscribe(ctx, trace.Filter{})
+	require.ErrorIs(t, err, domain.ErrTooManyRequests, "a third stream is refused")
+
+	// A closed stream frees its place.
+	cancelFirst()
+	require.Eventually(t, func() bool {
+		sub, err := svc.Subscribe(ctx, trace.Filter{})
+		return err == nil && sub != nil
+	}, 5*time.Second, 5*time.Millisecond)
+}
+
 func TestDisabledWithoutSubscribers(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

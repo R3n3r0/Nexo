@@ -463,6 +463,8 @@ func (h *objectRoutes) serve(w http.ResponseWriter, r *http.Request, preview boo
 	d, err := h.deps.Browser.Open(r.Context(), in)
 	if err != nil {
 		if errorsIsNotModified(err) {
+			// The policy of the cached copy the browser revalidates.
+			w.Header().Set("Cache-Control", "private, no-cache")
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}

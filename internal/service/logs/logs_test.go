@@ -244,6 +244,30 @@ func TestInvalidFilter(t *testing.T) {
 	}
 }
 
+// covers: S-OPS-07
+func TestMaxSubscribers(t *testing.T) {
+	// Pentest 2026-10 (PT-03): every live stream holds a buffer of up to
+	// 10000 entries; a node refuses the streams beyond its maximum instead
+	// of running out of memory.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc, err := logs.New(logs.Deps{}, logs.WithMaxSubscribers(2))
+	require.NoError(t, err)
+	first, cancelFirst := context.WithCancel(ctx)
+	_, err = svc.Subscribe(first, logs.Filter{Last: 10000})
+	require.NoError(t, err)
+	_, err = svc.Subscribe(ctx, logs.Filter{})
+	require.NoError(t, err)
+	_, err = svc.Subscribe(ctx, logs.Filter{Last: 10000})
+	require.ErrorIs(t, err, domain.ErrTooManyRequests, "a third stream is refused")
+
+	cancelFirst()
+	require.Eventually(t, func() bool {
+		_, err := svc.Subscribe(ctx, logs.Filter{})
+		return err == nil
+	}, 5*time.Second, 5*time.Millisecond, "a closed stream frees its place")
+}
+
 func TestBackpressureAndClose(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	svc, err := logs.New(logs.Deps{}, logs.WithBuffer(2))
