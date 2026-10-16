@@ -6,7 +6,8 @@
 #     linux/darwin/windows on amd64/arm64 (no windows/arm64) and nexoctl for
 #     the same platforms plus windows/arm64; static (CGO_ENABLED=0),
 #     reproducible (-trimpath, mod_timestamp);
-#   - archives: tar.gz (zip on Windows) with LICENSE, README and the systemd
+#   - archives: tar.gz (zip on Windows) with LICENSE, NOTICE,
+#     COMMERCIAL-LICENSE.md, README and the systemd
 #     unit and env file (nexo, not on Windows: build and archive
 #     nexo-windows) or shell completions (nexoctl);
 #   - packages: nexo and nexoctl as deb and rpm (nfpm) for linux amd64/arm64;
@@ -105,6 +106,10 @@ archives:
           group: root
           mode: 0644
           mtime: "{{ .CommitDate }}"
+      - src: NOTICE
+        info: *fileinfo
+      - src: COMMERCIAL-LICENSE.md
+        info: *fileinfo
       - src: README.md
         info: *fileinfo
       - src: deploy/systemd/nexo.service
@@ -129,6 +134,10 @@ archives:
     files:
       - src: LICENSE
         info: *fileinfo
+      - src: NOTICE
+        info: *fileinfo
+      - src: COMMERCIAL-LICENSE.md
+        info: *fileinfo
       - src: README.md
         info: *fileinfo
 
@@ -145,6 +154,10 @@ archives:
       mtime: "{{ .CommitDate }}"
     files:
       - src: LICENSE
+        info: *fileinfo
+      - src: NOTICE
+        info: *fileinfo
+      - src: COMMERCIAL-LICENSE.md
         info: *fileinfo
       - src: README.md
         info: *fileinfo
@@ -164,7 +177,7 @@ nfpms:
     vendor: r3n3r0
     homepage: https://github.com/r3n3r0/nexo
     maintainer: r3n3r0 <r3n3r0@users.noreply.github.com>
-    license: Apache-2.0
+    license: AGPL-3.0-only
     description: |-
       S3-compatible object storage server with an embedded web console.
       Single node (one or more drives, erasure coding) or distributed cluster.
@@ -234,6 +247,10 @@ nfpms:
         type: license
         file_info:
           mode: 0644
+      - src: NOTICE
+        dst: /usr/share/doc/nexo/NOTICE
+        file_info:
+          mode: 0644
       - src: deploy/systemd/README.md
         dst: /usr/share/doc/nexo/systemd.md
         file_info:
@@ -261,7 +278,7 @@ nfpms:
     vendor: r3n3r0
     homepage: https://github.com/r3n3r0/nexo
     maintainer: r3n3r0 <r3n3r0@users.noreply.github.com>
-    license: Apache-2.0
+    license: AGPL-3.0-only
     description: |-
       Command-line client of Nexo, the S3-compatible object storage server:
       buckets and objects, mirroring, sharing and administration.
@@ -298,6 +315,10 @@ nfpms:
         dst: /usr/share/licenses/nexoctl/LICENSE
         packager: rpm
         type: license
+        file_info:
+          mode: 0644
+      - src: NOTICE
+        dst: /usr/share/doc/nexoctl/NOTICE
         file_info:
           mode: 0644
     rpm:
@@ -358,13 +379,13 @@ dockers_v2:
     platforms: [linux/amd64, linux/arm64]
     sbom: "true"
     labels: &imagelabels
-      org.opencontainers.image.licenses: Apache-2.0
+      org.opencontainers.image.licenses: AGPL-3.0-only
       org.opencontainers.image.version: "v{{ .Version }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.created: "{{ .CommitDate }}"
       org.opencontainers.image.source: "{{ .GitURL }}"
     annotations: &imageannotations
-      org.opencontainers.image.licenses: Apache-2.0
+      org.opencontainers.image.licenses: AGPL-3.0-only
       org.opencontainers.image.version: "v{{ .Version }}"
       org.opencontainers.image.revision: "{{ .FullCommit }}"
       org.opencontainers.image.created: "{{ .CommitDate }}"
