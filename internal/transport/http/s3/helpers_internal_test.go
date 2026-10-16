@@ -53,22 +53,6 @@ func TestS3URLEncode(t *testing.T) {
 	}
 }
 
-func TestNormalizeHost(t *testing.T) {
-	tests := map[string]string{
-		"Example.COM":         "example.com",
-		"example.com:9000":    "example.com",
-		".s3.example.com.":    "s3.example.com",
-		"[::1]:9000":          "::1",
-		"  spaced.example  ":  "spaced.example",
-		"":                    "",
-		"::1":                 "::1",
-		"bucket.example:abcd": "bucket.example",
-	}
-	for in, want := range tests {
-		assert.Equal(t, want, normalizeHost(in), in)
-	}
-}
-
 func TestStripAWSChunked(t *testing.T) {
 	tests := map[string]string{
 		"":                       "",

@@ -1,7 +1,6 @@
 package s3
 
 import (
-	"net"
 	"strings"
 	"time"
 
@@ -51,21 +50,11 @@ func WithRegion(region string) Option {
 func WithDomains(domains ...string) Option {
 	return func(o *options) {
 		for _, d := range domains {
-			if d = normalizeHost(d); d != "" {
+			if d = httpx.NormalizeHost(d); d != "" {
 				o.domains = append(o.domains, d)
 			}
 		}
 	}
-}
-
-// normalizeHost lowercases a host and strips its port and the surrounding
-// dots.
-func normalizeHost(host string) string {
-	host = strings.TrimSpace(host)
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	return strings.Trim(strings.ToLower(host), ".")
 }
 
 // WithInsecureSSEC accepts the requests carrying SSE-C keys

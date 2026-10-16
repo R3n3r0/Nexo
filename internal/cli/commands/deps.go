@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -120,6 +121,9 @@ type env struct {
 	aliases  map[string]cli.Alias
 	clients  map[string]cli.S3Client
 	admins   map[string]cli.AdminClient
+	// localTargets are the arguments the command took as local paths
+	// where a remote location could have been meant (explainMissingPath).
+	localTargets []string
 }
 
 func newEnv(deps Deps) *env {
@@ -302,6 +306,11 @@ func (e *env) targets(ctx context.Context, args []string, glob bool) ([]cli.Targ
 		t, err := p.Parse(a)
 		if err != nil {
 			return nil, err
+		}
+		if !t.IsRemote() {
+			e.mu.Lock()
+			e.localTargets = append(e.localTargets, filepath.Clean(t.Path))
+			e.mu.Unlock()
 		}
 		if glob && !t.IsRemote() && cli.HasGlob(t.Path) {
 			matches, err := cli.ExpandGlob(t.Path)

@@ -1,10 +1,10 @@
 #!/bin/sh
 # Static checks of the Nexo chart (make helm-lint, CI job "packaging"):
-# helm lint --strict, helm template and kubeconform -strict against the
-# Kubernetes schemas (and the ServiceMonitor CRD) for the default values and
-# every ci/*-values.yaml, on the oldest and the newest supported Kubernetes;
-# then the endpoints generated for each mode and the rendering errors of
-# invalid values.
+# the LICENSE in the package, helm lint --strict, helm template and
+# kubeconform -strict against the Kubernetes schemas (and the
+# ServiceMonitor CRD) for the default values and every ci/*-values.yaml,
+# on the oldest and the newest supported Kubernetes; then the endpoints
+# generated for each mode and the rendering errors of invalid values.
 #
 #   HELM=helm KUBECONFORM=kubeconform KUBE_VERSIONS="1.27.0 1.34.0" deploy/helm/check.sh
 #
@@ -24,7 +24,20 @@ CRDS='https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{
 KUBE_LATEST=$(printf '%s\n' $KUBE_VERSIONS | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
 
 out=$(mktemp)
-trap 'rm -f "$out"' EXIT
+pkg=$(mktemp -d)
+trap 'rm -rf "$out" "$pkg"' EXIT
+
+# The chart ships the license of the project (Apache-2.0 §4(a)): its copy
+# is the LICENSE of the repository, and the package carries it.
+if ! cmp -s "$CHART/LICENSE" "$CHART/../../../LICENSE"; then
+    echo "chart: deploy/helm/nexo/LICENSE differs from the LICENSE of the repository" >&2
+    exit 1
+fi
+"$HELM" package "$CHART" -d "$pkg" >/dev/null
+if ! tar -tzf "$pkg"/nexo-*.tgz | grep -qx 'nexo/LICENSE'; then
+    echo "chart: the package has no LICENSE" >&2
+    exit 1
+fi
 
 render() {
     "$HELM" template nexo "$CHART" --namespace storage --kube-version "$KUBE_LATEST" "$@"

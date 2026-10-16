@@ -142,22 +142,7 @@ func (d *dispatcher) hostBucket(r *http.Request) (string, bool) {
 			return bucket, true
 		}
 	}
-	return virtualHostBucket(d.domains, r.Host)
-}
-
-// virtualHostBucket extracts the bucket of a "{bucket}.{domain}" host for
-// one of domains.
-func virtualHostBucket(domains []string, host string) (string, bool) {
-	if len(domains) == 0 {
-		return "", false
-	}
-	host = normalizeHost(host)
-	for _, domainName := range domains {
-		if bucket, ok := strings.CutSuffix(host, "."+domainName); ok && bucket != "" {
-			return bucket, true
-		}
-	}
-	return "", false
+	return httpx.VirtualHostBucket(d.domains, r.Host)
 }
 
 // Ranks of an operation match, highest first (see Dispatcher).

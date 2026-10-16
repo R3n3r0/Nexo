@@ -187,9 +187,48 @@ func (e *env) takeOffline(t *testing.T, i int) func() {
 	return func() { require.NoError(t, os.Rename(moved, e.roots[i])) }
 }
 
-// wipe empties drive i, as a replaced drive: its root exists, empty.
+// wipe empties drive i, as a replaced drive: its root exists, empty. The
+// old content leaves the root at once (a rename) and is removed out of
+// reach of the drive: a running monitor formats a drive as soon as it
+// finds it empty, and its writes would race a removal in place
+// (os.RemoveAll of the root then fails with "directory not empty").
 func (e *env) wipe(t *testing.T, i int) {
 	t.Helper()
-	require.NoError(t, os.RemoveAll(e.roots[i]))
+	trash, err := os.MkdirTemp(e.base, "wiped-")
+	require.NoError(t, err)
+	require.NoError(t, os.Rename(e.roots[i], filepath.Join(trash, "root")))
 	require.NoError(t, os.MkdirAll(e.roots[i], 0o750))
+	require.NoError(t, os.RemoveAll(trash))
+}
+
+// TestWipeUnderWriter: wipe empties a drive that is written meanwhile, as
+// the drive monitor does when it formats a drive it finds empty
+// (regression: os.RemoveAll of the root failed with "directory not empty"
+// when the monitor of TestMonitor formatted the drive halfway through).
+func TestWipeUnderWriter(t *testing.T) {
+	e := newEnv(t, "", 4)
+	e.seed(t, "bkt", 6)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		sys := filepath.Join(e.roots[0], domain.SystemBucket)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			// The errors are expected: the directory may be gone halfway.
+			_ = os.MkdirAll(sys, 0o750)
+			_ = os.WriteFile(filepath.Join(sys, storage.FormatFile), []byte("{}"), 0o600)
+		}
+	}()
+	defer func() {
+		close(stop)
+		<-done
+	}()
+	for range 50 {
+		e.wipe(t, 0)
+	}
 }

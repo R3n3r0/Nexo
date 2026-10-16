@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"iter"
@@ -551,6 +552,11 @@ func (m *MemS3) stat(_ context.Context, bucket, key string, opts cli.StatOptions
 		return nil, err
 	}
 	v, err := m.versionLocked(bucket, key, opts.VersionID)
+	if errors.Is(err, domain.ErrBucketNotFound) {
+		// Like the SDK client: a HEAD answers a bare 404, without the
+		// code that tells a missing bucket from a missing key.
+		err = fmt.Errorf("%w: %s", domain.ErrObjectNotFound, key)
+	}
 	if err != nil {
 		return nil, err
 	}

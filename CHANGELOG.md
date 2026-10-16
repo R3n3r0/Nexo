@@ -129,9 +129,16 @@ state pubblicate: la base dei test di aggiornamento è il commit di M7 (`224bb31
   interrotto.
 - `/nexo/health/cluster` riporta nodi, dischi, quorum di scrittura e manutenzione reali (S-OPS-03);
   `admin info` riporta oggetti e spazio usato dallo scanner.
-- Licenza Apache-2.0 (`LICENSE`) negli archivi, nei pacchetti deb/rpm, nelle immagini OCI e nel chart Helm.
-- Audit, metriche e trace riportano bucket e oggetto risolti dai domini personalizzati; l'audit non registra
-  le sonde di salute né gli scrape anonimi delle metriche.
+- Licenza Apache-2.0 (`LICENSE`) negli archivi, nei pacchetti deb/rpm, nelle immagini OCI e nel chart Helm (il
+  pacchetto del chart è verificato da `make helm-lint`).
+- Audit, metriche e trace riportano bucket e oggetto risolti come l'API S3, dai domini personalizzati e dai
+  virtual host scritti con il punto finale (`bucket.s3.example.com.`); l'audit non registra le sonde di salute
+  anonime né gli scrape anonimi riusciti delle metriche, ma registra sempre le richieste con credenziali (firma,
+  token: anche un tentativo fallito su `/nexo/health/*`) e gli scrape rifiutati.
+- Log di accesso JSON delle distribuzioni: l'inizio della richiesta è `event_time`, non una seconda chiave `time`
+  (rifiutata da Elasticsearch).
+- Bootstrap: il nodo che parte dopo i peer di un deployment nuovo registra a INFO l'attesa dei suoi dischi vuoti;
+  il WARN `empty local drives in an existing deployment` resta per i dischi sostituiti di un set con dati.
 - mTLS internodo: i client accettati sono firmati dalle CA di `CAs/` e hanno un SAN tra gli host degli endpoint.
 - Un solo predicato di redazione (firme, credenziali, token, password, policy e chiavi) per log, log stream,
   audit, access log e trace.
@@ -141,10 +148,13 @@ state pubblicate: la base dei test di aggiornamento è il commit di M7 (`224bb31
   messaggio curato e registra la catena dell'errore nel log con il request id; la console traduce
   `lock_timeout`, `write_quorum` e `read_quorum`; `nexoctl` formatta gli errori dell'Admin API come quelli S3,
   non ritenta gli errori di quorum, indica `nexoctl admin info` e riporta un server irraggiungibile come
-  `cannot reach <url>: <causa>`.
+  `cannot reach <url>: <causa>`; `stat`, `cp`, `mv`, `rm` e `share --raw` su un bucket inesistente rispondono
+  `bucket not found` (non `object not found`), e il suggerimento sull'alias inesistente compare solo per gli
+  argomenti che indicano una posizione, non per i file di input (policy, YAML).
 - `nexo server --dry-run` verifica anche `--web-address`, `--web-tls-address` e `--acme-ca-cert`;
   `nexo --version` stampa la versione come `nexo version`.
-- `make run-single`/`run-snmd` usano percorsi assoluti; `make run-cluster` mette la console sulla porta S3 + 1.
+- `make run-single`/`run-snmd` usano percorsi assoluti; `make run-cluster` mette la console sulla porta S3 + 1;
+  `make security` esegue govulncheck e gosec con la toolchain del modulo anche se il `go` installato è più vecchio.
 - Docker: `nexo.env.example` senza password predefinita, Prometheus e Grafana dello stack di osservabilità
   legati a `127.0.0.1` e senza credenziali predefinite; in `compose.cluster.yml` nodi e load balancer stanno
   sulla rete predefinita del progetto (con l'indirizzo fisso del load balancer), così l'overlay

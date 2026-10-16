@@ -313,6 +313,13 @@ func TestAuditTargetOfCustomDomains(t *testing.T) {
 			bucket: "webteam", object: "victim/payroll.txt"},
 		{name: "reserved path of a custom domain", host: "s3take.test", path: "/nexo/rpc/v1/peer/x"},
 		{name: "virtual host", host: "photos.s3.example.com", path: "/a.jpg", bucket: "photos", object: "a.jpg"},
+		// A fully qualified host is the virtual host the S3 API serves
+		// (regression: a request refused before its handler was audited
+		// under the first segment of its path, a bucket the client chose).
+		{name: "virtual host with a trailing dot, refused before the handler", host: "victim.s3.example.com.", path: "/innocent/x",
+			bucket: "victim", object: "innocent/x"},
+		{name: "virtual host with a trailing dot and a port", host: "Victim.S3.Example.com.:9000", path: "/innocent/x",
+			bucket: "victim", object: "innocent/x"},
 		{name: "path style", host: "127.0.0.1:9000", path: "/victim/payroll.txt", bucket: "victim", object: "payroll.txt"},
 		{name: "the handler decides", host: "127.0.0.1", path: "/x/y", handlerTarget: []string{"site", "index.html"}, bucket: "site", object: "index.html"},
 	}

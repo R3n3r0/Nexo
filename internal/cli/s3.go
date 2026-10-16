@@ -2,12 +2,31 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"iter"
 	"time"
 
 	"github.com/r3n3r0/nexo/internal/domain"
 )
+
+// StatObject is client.Stat for a command that names one object (stat,
+// cp and mv of an object, rm, share --raw): a HEAD answers a bare 404, the
+// same for a missing bucket as for a missing key, so a missing object has
+// its bucket checked, and a missing bucket is reported as such
+// (domain.ErrBucketNotFound) rather than as a missing object. The listings
+// and the mirror, which probe many keys of a bucket known to exist, call
+// Stat.
+func StatObject(ctx context.Context, client S3Client, bucket, key string, opts StatOptions) (*ObjectInfo, error) {
+	info, err := client.Stat(ctx, bucket, key, opts)
+	if errors.Is(err, domain.ErrObjectNotFound) {
+		if exists, berr := client.BucketExists(ctx, bucket); berr == nil && !exists {
+			return nil, fmt.Errorf("%w: %s", domain.ErrBucketNotFound, bucket)
+		}
+	}
+	return info, err
+}
 
 // S3Client is the S3 surface used by the nexoctl commands (docs/12 §12.5).
 // The default implementation (NewS3Factory) is built on aws-sdk-go-v2;

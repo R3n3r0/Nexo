@@ -23,8 +23,9 @@ type accessLog struct {
 var _ AccessLogger = (*accessLog)(nil)
 
 // NewAccessLog returns the access log of the distributions: a JSON record
-// (the attributes of the entry) or a line in the combined log format,
-// as the distribution asks.
+// (the attributes of the entry; event_time is the start of the request,
+// the time key being the one of the record) or a line in the combined log
+// format, as the distribution asks.
 func NewAccessLog(deps AccessLogDeps) AccessLogger {
 	if deps.Logger == nil {
 		deps.Logger = slog.Default()
@@ -43,7 +44,7 @@ func (l *accessLog) Log(ctx context.Context, e AccessEntry) {
 		slog.String("method", e.Method), slog.String("uri", e.URI), slog.String("proto", e.Protocol),
 		slog.Int("status", e.Status), slog.Int64("bytes", e.Bytes), slog.Float64("duration_ms", float64(e.Duration.Microseconds())/1000),
 		slog.String("client_ip", e.ClientIP), slog.String("user_agent", e.UserAgent), slog.String("referer", e.Referer),
-		slog.String("request_id", e.RequestID), slog.Time("time", e.Time))
+		slog.String("request_id", e.RequestID), slog.Time("event_time", e.Time))
 }
 
 // combinedLine formats an entry in the Apache/nginx combined log format.

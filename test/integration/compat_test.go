@@ -134,7 +134,7 @@ func TestStalledWebsiteDownloadReleasesLock(t *testing.T) {
 // delivers the whole version it started with (ceph/s3-tests
 // test_atomic_read_*), single-part and multipart.
 //
-// covers: S-OBJ-02
+// covers: S-OBJ-01
 func TestStalledDownloadIsASnapshot(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)

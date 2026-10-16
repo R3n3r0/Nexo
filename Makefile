@@ -119,9 +119,13 @@ bench-rpc:
 	$(GO) test -run '^$$' -bench 'CreateFile|ReadFileStream' -benchtime 2s -count 3 ./internal/transport/rpc/
 
 ## security: scan for known vulnerabilities and insecure code: govulncheck (modules and standard library), gosec (false positives carry a "#nosec Gxxx -- reason") and npm audit of the production dependencies of the dashboard (docs/security)
+# The scanners run with the toolchain of the module (go env GOVERSION in the
+# module, go.mod's go line): "go run pkg@version" ignores the go.mod of the
+# main module, so an older installed go would build them, and govulncheck
+# could not load the packages of the module.
 security:
-	$(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
-	$(GO) run github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION) -quiet -exclude-dir=$(WEB_DIR) ./...
+	GOTOOLCHAIN=$$($(GO) env GOVERSION) $(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+	GOTOOLCHAIN=$$($(GO) env GOVERSION) $(GO) run github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION) -quiet -exclude-dir=$(WEB_DIR) ./...
 	cd $(WEB_DIR) && $(NPM) audit --omit=dev --audit-level=moderate
 
 ## fuzz: run every Go fuzz target (func FuzzXxx in *_test.go) for FUZZTIME each (default 60s, FUZZ=regexp selects targets); a crasher is written to the testdata/fuzz directory of its package

@@ -65,10 +65,12 @@ Password, token, firme, cookie e chiavi SSE-C sono redatti dai log. Richiede `ad
 
 Ogni richiesta S3 e della console produce un record di audit con identità (access key e utente), API,
 bucket e oggetto, IP del client, esito, latenza, byte, request id e nodo. Fanno eccezione le sonde di
-salute (`/nexo/health/*`) e le letture anonime delle metriche (`/nexo/metrics/*` con
-`NEXO_PROMETHEUS_AUTH_TYPE=public`): un load balancer o i probe di Kubernetes le ripetono ogni pochi secondi
-e riempirebbero l'anello in memoria espellendo i record utili. Uno scrape autenticato (JWT) resta
-registrato. I record:
+salute anonime (`/nexo/health/*` senza credenziali) e le letture anonime riuscite delle metriche
+(`/nexo/metrics/*` con `NEXO_PROMETHEUS_AUTH_TYPE=public`): un load balancer o i probe di Kubernetes le ripetono
+ogni pochi secondi e riempirebbero l'anello in memoria espellendo i record utili. Restano registrati uno scrape
+autenticato (JWT), uno scrape rifiutato (token assente, scaduto o falso) e ogni richiesta che presenta
+credenziali (firma SigV4 o presigned, token), anche verso `/nexo/health/*` e anche se rifiutata: un tentativo
+di provare credenziali lascia sempre traccia. I record:
 
 1. finiscono nel log del server (`"msg":"audit"`, componente `audit`; `time` è l'ora del record, `event_time`
    quella della richiesta);

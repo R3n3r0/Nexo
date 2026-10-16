@@ -58,7 +58,7 @@ func RemoveObjects(ctx context.Context, client S3Client, bucket, key string, opt
 	if !opts.Recursive && !opts.Versions && opts.OlderThan == 0 && opts.NewerThan == 0 {
 		// A single object: removing a missing object is not an error in
 		// S3, but it is for rm.
-		if _, err := client.Stat(ctx, bucket, key, StatOptions{}); err != nil {
+		if _, err := StatObject(ctx, client, bucket, key, StatOptions{}); err != nil {
 			return sum, err
 		}
 		return sum, removeBatch(ctx, client, bucket, []ObjectVersion{{Key: key}}, opts, &sum, report)

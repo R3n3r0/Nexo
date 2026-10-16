@@ -24,7 +24,7 @@ import (
 // whole version it resolved (regression: the spare shards were reopened by
 // path and the body was cut short with unexpected EOF).
 //
-// covers: S-OBJ-02, S-STO-06
+// covers: S-STO-06
 func TestPinnedReadSurvivesNodeLoss(t *testing.T) {
 	t.Parallel()
 	c := newCluster(t, 4)

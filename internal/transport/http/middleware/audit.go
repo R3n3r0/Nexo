@@ -191,8 +191,10 @@ func probe(r *http.Request, status int, id *domain.Identity, ok bool) bool {
 }
 
 // credentialParams are the query parameters of the presigned and
-// signature V2 credentials.
-var credentialParams = []string{"X-Amz-Credential", "X-Amz-Signature", "AWSAccessKeyId", "Signature"}
+// signature V2 credentials (a function: docs/12 forbids mutable globals).
+func credentialParams() []string {
+	return []string{"X-Amz-Credential", "X-Amz-Signature", "AWSAccessKeyId", "Signature"}
+}
 
 // presentsCredentials reports a request carrying credentials: an
 // Authorization header (SigV4, bearer token) or a presigned signature.
@@ -201,7 +203,7 @@ func presentsCredentials(r *http.Request) bool {
 		return true
 	}
 	q := r.URL.Query()
-	for _, k := range credentialParams {
+	for _, k := range credentialParams() {
 		if q.Has(k) {
 			return true
 		}
