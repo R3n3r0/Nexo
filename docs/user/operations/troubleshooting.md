@@ -1,150 +1,151 @@
-# Risoluzione dei problemi
+# Troubleshooting
 
-Prima di tutto raccogli lo stato:
+First of all, collect the status:
 
 ```bash
-nexoctl admin info local                      # nodi, dischi, set, quorum, sfasamento orologi, healing
+nexoctl admin info local                      # nodes, drives, sets, quorum, clock skew, healing
 curl -s http://nexo1.lan:9000/nexo/health/cluster
 nexoctl admin logs --level warn --last 200 local
-nexoctl admin trace --errors local            # le richieste che falliscono, in tempo reale
-nexo server --dry-run …                       # la configurazione di un nodo che non parte
+nexoctl admin trace --errors local            # the failing requests, in real time
+nexo server --dry-run …                       # the configuration of a node that does not start
 ```
 
-Con `--debug` ogni comando di `nexoctl` stampa su stderr le richieste e le risposte HTTP (segreti redatti).
+With `--debug` every `nexoctl` command prints the HTTP requests and responses on stderr (secrets redacted).
 
-## Il server non parte
+## The server does not start
 
-| Messaggio | Causa e rimedio |
-|-----------|-----------------|
-| `root user is required (NEXO_ROOT_USER, at least 3 characters)` / `root password is required (… at least 8 characters)` / `root password must be at least 8 characters (NEXO_ROOT_PASSWORD has 5)` | Credenziali root mancanti o troppo corte. Con systemd: `NEXO_ROOT_PASSWORD` in `/etc/default/nexo` (vuota dopo l'installazione del pacchetto) |
-| `drive path must be absolute: "./data"` | Usa percorsi assoluti (`$PWD/data`, `/srv/nexo`) |
-| `either all or none of the arguments must contain ellipsis patterns` | Non mescolare argomenti con `{1...4}` e senza |
-| `… is not writable by this user (uid …)` | Proprietario o permessi del disco: `chown nexo:nexo` (systemd) o `chown 65532:65532` (Docker); con systemd anche `ReadWritePaths=` nel drop-in |
-| `address and console address must differ` / `address already in use` | Porte: `--address` e `--console-address` diverse e libere |
-| `invalid configuration: kms: …` | Formato della master key (`<nome>:<base64 di 32 byte>`) o configurazione KES incompleta |
-| `tls internode verify needs TLS` | `--tls-internode-verify` richiede `--certs-dir` ed endpoint `https://` |
-| `format mismatch` / `belongs to deployment …` | I dischi appartengono a un altro deployment o a un'altra topologia: non riusare dischi senza cancellarli, usa la stessa riga di comando dell'installazione |
+| Message | Cause and remedy |
+|---------|------------------|
+| `root user is required (NEXO_ROOT_USER, at least 3 characters)` / `root password is required (… at least 8 characters)` / `root password must be at least 8 characters (NEXO_ROOT_PASSWORD has 5)` | Root credentials missing or too short. With systemd: `NEXO_ROOT_PASSWORD` in `/etc/default/nexo` (empty after the package installation) |
+| `drive path must be absolute: "./data"` | Use absolute paths (`$PWD/data`, `/srv/nexo`) |
+| `either all or none of the arguments must contain ellipsis patterns` | Do not mix arguments with `{1...4}` and without |
+| `… is not writable by this user (uid …)` | Owner or permissions of the drive: `chown nexo:nexo` (systemd) or `chown 65532:65532` (Docker); with systemd also `ReadWritePaths=` in the drop-in |
+| `address and console address must differ` / `address already in use` | Ports: `--address` and `--console-address` must be different and free |
+| `invalid configuration: kms: …` | Format of the master key (`<name>:<base64 of 32 bytes>`) or incomplete KES configuration |
+| `tls internode verify needs TLS` | `--tls-internode-verify` requires `--certs-dir` and `https://` endpoints |
+| `format mismatch` / `belongs to deployment …` | The drives belong to another deployment or to another topology: do not reuse drives without wiping them, use the same command line as the installation |
 
-`nexo server --dry-run` riporta tutti questi problemi insieme, senza scrivere sui dischi.
+`nexo server --dry-run` reports all these problems at once, without writing to the drives.
 
-## Un nodo del cluster resta in attesa (bootstrap)
+## A cluster node keeps waiting (bootstrap)
 
-Nei log compare periodicamente:
+The logs periodically show:
 
 ```text
 cluster: waiting for the peers: 2 of 4 nodes verified, 3 needed   offline=[…] different_topology=[…]
 cluster: waiting for the drives   missing=[…]
 ```
 
-- `offline`: il nodo non raggiunge quei peer sulla porta 9000. Verifica la risoluzione dei nomi **da questo
-  nodo** (`getent hosts nexo3.lan`), firewall, che il peer sia avviato.
-- `different_topology`: quei nodi sono stati avviati con argomenti diversi (ordine dei pool, nomi, porte).
-  La riga di comando deve essere identica su tutti i nodi.
-- `incompatible_version`: versione major diversa; aggiorna i nodi alla stessa release.
-- Se **più della metà** dei nodi non concorda, il nodo esce con `topology mismatch` (o `ErrKMSMismatch` se
-  differisce la configurazione KMS) e l'elenco delle differenze.
-- `waiting for the drives`: mancano dischi per il quorum di qualche set (dischi non montati, nodi spenti).
+- `offline`: the node cannot reach those peers on port 9000. Check name resolution **from this
+  node** (`getent hosts nexo3.lan`), the firewall, and that the peer is running.
+- `different_topology`: those nodes were started with different arguments (pool order, names, ports).
+  The command line must be identical on every node.
+- `incompatible_version`: different major version; upgrade the nodes to the same release.
+- If **more than half** of the nodes disagree, the node exits with `topology mismatch` (or `ErrKMSMismatch` if
+  the KMS configuration differs) and the list of differences.
+- `waiting for the drives`: drives are missing for the quorum of some set (drives not mounted, nodes down).
 
-Finché il bootstrap non termina il nodo risponde `503` a tutto: è normale durante l'avvio contemporaneo.
+Until the bootstrap completes the node answers `503` to everything: this is normal when the nodes start
+together.
 
-## Errori di quorum (`503 SlowDownWrite`, `SlowDownRead`, `XNexoLockTimeout`)
+## Quorum errors (`503 SlowDownWrite`, `SlowDownRead`, `XNexoLockTimeout`)
 
-Una richiesta S3 che non raggiunge il quorum risponde `503` con codice `SlowDownWrite` (quorum di
-scrittura), `SlowDownRead` (quorum di lettura), `XNexoLockTimeout` (lock non ottenuto entro 30 s:
-risorsa bloccata da un'altra operazione o troppi nodi offline) o `ServiceUnavailable`
-(un disco o un nodo necessario è offline); `SlowDown` resta solo per le richieste rallentate. Gli SDK
-ritentano i `503`; `nexoctl` non ritenta i primi tre (il server ha già atteso) e stampa
-`the deployment has no quorum (too many drives or nodes offline): check "nexoctl admin info"` per
-`SlowDownWrite`/`SlowDownRead`, e `the object is locked by another operation (a slow or stalled read or write)
-or too many nodes are offline` per `XNexoLockTimeout`: con tutti i nodi online è una contesa (per esempio un
-download di più di 8 parti il cui client ha smesso di leggere, interrotto dopo `NEXO_SEND_TIMEOUT`). Quando i nodi
-raggiungibili sono meno del quorum dei lock la richiesta fallisce subito, senza attendere i 30 s. Nell'Admin
-API il `code` è `read_quorum`, `write_quorum`, `lock_timeout`, `node_offline` o `disk_not_found`, che la
-console traduce.
+An S3 request that does not reach the quorum answers `503` with code `SlowDownWrite` (write
+quorum), `SlowDownRead` (read quorum), `XNexoLockTimeout` (lock not obtained within 30 s:
+resource locked by another operation or too many nodes offline) or `ServiceUnavailable`
+(a required drive or node is offline); `SlowDown` remains only for throttled requests. The SDKs
+retry `503` responses; `nexoctl` does not retry the first three (the server has already waited) and prints
+`the deployment has no quorum (too many drives or nodes offline): check "nexoctl admin info"` for
+`SlowDownWrite`/`SlowDownRead`, and `the object is locked by another operation (a slow or stalled read or write)
+or too many nodes are offline` for `XNexoLockTimeout`: with every node online it is contention (for example a
+download of more than 8 parts whose client stopped reading, aborted after `NEXO_SEND_TIMEOUT`). When fewer
+nodes than the lock quorum are reachable the request fails immediately, without waiting the 30 s. In the
+Admin API the `code` is `read_quorum`, `write_quorum`, `lock_timeout`, `node_offline` or `disk_not_found`,
+which the console translates.
 
-1. `nexoctl admin info local`: quali set sono `degraded` o senza quorum, quali dischi o nodi sono offline.
-2. Riporta online nodi e dischi (rete, servizio, mount). Le letture tornano appena ci sono D dischi
-   coerenti, le scritture con D (o D+1) dischi e con N/2+1 nodi per i lock.
-3. Al ritorno la coda MRF ripara gli oggetti scritti nel frattempo; verifica con
+1. `nexoctl admin info local`: which sets are `degraded` or without quorum, which drives or nodes are offline.
+2. Bring nodes and drives back online (network, service, mounts). Reads come back as soon as there are D
+   consistent drives, writes with D (or D+1) drives and with N/2+1 nodes for the locks.
+3. When they are back, the MRF queue repairs the objects written in the meantime; verify with
    `nexoctl admin heal -r --dry-run local`.
 
-Un set senza quorum non blocca gli altri: gli oggetti degli altri set restano disponibili. I lock rimasti
-a un nodo caduto scadono dopo `NEXO_LOCK_STALE_AFTER` (60 s); in casi estremi
-`nexoctl admin lock list local` e `nexoctl admin lock clear local RESOURCE` (richiede `admin:ForceUnlock`).
+A set without quorum does not block the others: the objects of the other sets stay available. Locks left
+held by a crashed node expire after `NEXO_LOCK_STALE_AFTER` (60 s); in extreme cases use
+`nexoctl admin lock list local` and `nexoctl admin lock clear local RESOURCE` (requires `admin:ForceUnlock`).
 
-## Orologi sfasati (clock skew)
+## Clock skew
 
-Sintomi:
+Symptoms:
 
-- `cluster: clock skew between nodes` nei log, sfasamento indicato in `nexoctl admin info`;
-- richieste rifiutate con `RequestTimeTooSkewed` (il client ha più di 15 minuti di differenza dal server);
-- URL presigned o share link che risultano scaduti o "non ancora validi".
+- `cluster: clock skew between nodes` in the logs, skew reported in `nexoctl admin info`;
+- requests rejected with `RequestTimeTooSkewed` (the client is more than 15 minutes off from the server);
+- presigned URLs or share links that appear expired or "not yet valid".
 
-Rimedio: sincronizza tutti i nodi e i client con NTP (chrony, systemd-timesyncd) e verifica con
-`chronyc tracking` o `timedatectl`. La soglia di avviso tra i nodi è 2 secondi. I lock distribuiti non
-dipendono dagli orologi; l'ordine delle versioni di un oggetto resta monotono anche con orologi sfasati.
+Remedy: synchronize every node and client with NTP (chrony, systemd-timesyncd) and check with
+`chronyc tracking` or `timedatectl`. The warning threshold between nodes is 2 seconds. Distributed locks do
+not depend on clocks; the order of the versions of an object stays monotonic even with skewed clocks.
 
-## Dischi lenti o difettosi
+## Slow or faulty drives
 
-- `nexoctl admin trace --min-duration 1s local`: quali operazioni sono lente e su quale nodo.
-- Metriche `nexo_drive_operation_seconds_total{drive,op}` / `nexo_drive_operations_total` (latenza media
-  per disco) e `nexo_drive_errors_total{drive,type}` (`timeout`, `faulty`, `corrupt`, `full`, …).
-- `nexoctl admin speedtest local drive` misura scrittura e lettura dei dischi locali del nodo (fuori
-  orario).
-- Un disco che continua a dare errori o timeout va sostituito ([Healing e dischi](healing-disks.md)): con
-  la parità sufficiente il set continua a funzionare senza di lui.
-- Controlla il file system: XFS, `noatime`, nessun RAID o LVM sotto Nexo, nessun altro processo che usi
-  intensamente lo stesso disco; `dmesg` per errori di I/O.
+- `nexoctl admin trace --min-duration 1s local`: which operations are slow and on which node.
+- Metrics `nexo_drive_operation_seconds_total{drive,op}` / `nexo_drive_operations_total` (average latency
+  per drive) and `nexo_drive_errors_total{drive,type}` (`timeout`, `faulty`, `corrupt`, `full`, …).
+- `nexoctl admin speedtest local drive` measures write and read speed of the node's local drives (off
+  hours).
+- A drive that keeps returning errors or timeouts must be replaced ([Healing and disks](healing-disks.md)):
+  with enough parity the set keeps working without it.
+- Check the file system: XFS, `noatime`, no RAID or LVM under Nexo, no other process making heavy use of
+  the same drive; `dmesg` for I/O errors.
 
-## Permessi e accessi negati
+## Permissions and denied access
 
-| Sintomo | Verifica |
-|---------|----------|
-| `AccessDenied` (403) per un utente | `nexoctl admin policy simulate --user alice --action s3:GetObject local/foto/a.jpg -v` mostra la decisione e lo statement determinante |
-| La console non mostra un menu o un'azione | la console mostra solo ciò che l'utente può fare: controlla le policy dell'utente e dei suoi gruppi (`nexoctl admin user info local alice`) |
-| `alias set` esce con codice 4 | access key sconosciuta, disabilitata o scaduta, o secret sbagliato |
-| "listing the buckets is denied" su `alias set` | credenziali valide ma senza `s3:ListAllMyBuckets`: normale per utenti limitati a un bucket |
-| Login della console: "Troppi tentativi falliti" | attendi un minuto: i tentativi falliti sono limitati |
-| Root rifiutato sull'API S3 | `api.root_access` è `off`: `nexoctl admin config set local api root_access=on` (la console continua a funzionare) |
-| `SignatureDoesNotMatch` dietro un proxy | il proxy modifica l'header `Host` (o la porta): deve inoltrarlo invariato (`proxy_set_header Host $http_host`) |
-| Anonimo rifiutato nonostante una regola pubblica | block public access attivo sul bucket o sul cluster (`nexoctl access block-public status local/bucket`) |
+| Symptom | Check |
+|---------|-------|
+| `AccessDenied` (403) for a user | `nexoctl admin policy simulate --user alice --action s3:GetObject local/photos/a.jpg -v` shows the decision and the deciding statement |
+| The console does not show a menu or an action | the console shows only what the user can do: check the policies of the user and of their groups (`nexoctl admin user info local alice`) |
+| `alias set` exits with code 4 | unknown, disabled or expired access key, or wrong secret |
+| "listing the buckets is denied" on `alias set` | valid credentials but without `s3:ListAllMyBuckets`: normal for users restricted to one bucket |
+| Console login: "Too many failed attempts" | wait a minute: failed attempts are rate-limited |
+| Root rejected on the S3 API | `api.root_access` is `off`: `nexoctl admin config set local api root_access=on` (the console keeps working) |
+| `SignatureDoesNotMatch` behind a proxy | the proxy changes the `Host` header (or the port): it must forward it unchanged (`proxy_set_header Host $http_host`) |
+| Anonymous request rejected despite a public rule | block public access enabled on the bucket or the cluster (`nexoctl access block-public status local/bucket`) |
 
-## Spazio, quote e oggetti
+## Space, quotas and objects
 
-| Codice | Significato |
-|--------|-------------|
-| `XNexoQuotaExceeded` (507) | quota del bucket superata (`nexoctl quota info local/bucket`) |
-| `XNexoStorageFull` (507) | dischi pieni: libera spazio o aggiungi un pool |
-| `XNexoParentIsObject` (400) | una chiave non può essere anche il prefisso di altre: esiste `a/b` e si scrive `a/b/c` |
-| `XNexoObjectExistsAsDirectory` (400) | il caso opposto: esiste `a/b/c` e si scrive `a/b` |
-| `XNexoObjectLocked` | versione protetta da retention o legal hold |
+| Code | Meaning |
+|------|---------|
+| `XNexoQuotaExceeded` (507) | bucket quota exceeded (`nexoctl quota info local/bucket`) |
+| `XNexoStorageFull` (507) | drives full: free some space or add a pool |
+| `XNexoParentIsObject` (400) | a key cannot also be the prefix of other keys: `a/b` exists and `a/b/c` is written |
+| `XNexoObjectExistsAsDirectory` (400) | the opposite case: `a/b/c` exists and `a/b` is written |
+| `XNexoObjectLocked` | version protected by retention or legal hold |
 
 ## TLS
 
-- Un client rifiuta il certificato: verifica la catena e i nomi
-  (`openssl s_client -connect nexo.lan:9000 -servername nexo.lan`), che il certificato copra il nome usato
-  dal client e, in cluster, i nomi degli endpoint.
-- Certificato rinnovato ma non servito: la directory è osservata e ricaricata entro pochi secondi (o
-  `systemctl reload nexo`); una coppia chiave/certificato non coerente viene scartata e restano i
-  certificati precedenti (log e metrica `nexo_tls_server_certificate_reloads_total{result}`).
-- Container `unhealthy` con TLS: l'healthcheck usa `NEXO_CERTS_DIR` per passare a HTTPS; verifica che la
-  variabile sia impostata nel container.
+- A client rejects the certificate: check the chain and the names
+  (`openssl s_client -connect nexo.lan:9000 -servername nexo.lan`), that the certificate covers the name used
+  by the client and, in a cluster, the endpoint names.
+- Certificate renewed but not served: the directory is watched and reloaded within a few seconds (or
+  `systemctl reload nexo`); an inconsistent key/certificate pair is discarded and the previous
+  certificates stay in place (logs and metric `nexo_tls_server_certificate_reloads_total{result}`).
+- Container `unhealthy` with TLS: the healthcheck uses `NEXO_CERTS_DIR` to switch to HTTPS; check that the
+  variable is set in the container.
 
-## Notifiche ed eventi
+## Notifications and events
 
-- `nexoctl admin notify targets list local`: stato online/offline e coda di ogni target.
-- `nexoctl admin notify targets test local arn:nexo:sqs:us-east-1:_:webhook`: invia un evento di prova.
-- I webhook non seguono i redirect (un `3xx` è una consegna fallita); gli eventi restano in coda
-  (`queue_limit`) finché il target non torna.
+- `nexoctl admin notify targets list local`: online/offline status and queue of every target.
+- `nexoctl admin notify targets test local arn:nexo:sqs:us-east-1:_:webhook`: sends a test event.
+- Webhooks do not follow redirects (a `3xx` is a failed delivery); the events stay queued
+  (`queue_limit`) until the target comes back.
 
-## Raccogliere informazioni per una segnalazione
+## Collecting information for a bug report
 
 ```bash
 nexo version
 nexoctl --json admin info local > info.jsonl
 nexoctl admin logs --last 1000 --timeout 5s --json local > logs.jsonl
-nexoctl admin profile --type goroutine local          # se un nodo sembra bloccato
+nexoctl admin profile --type goroutine local          # if a node seems stuck
 ```
 
-I log e i trace non contengono segreti, ma contengono nomi di bucket, chiavi e indirizzi IP: rivedili prima
-di condividerli.
+Logs and traces contain no secrets, but they do contain bucket names, keys and IP addresses: review them
+before sharing them.

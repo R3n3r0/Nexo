@@ -1,108 +1,108 @@
-# Compatibilità S3
+# S3 compatibility
 
-Nexo implementa l'API di Amazon S3 usata dagli SDK AWS, dalla AWS CLI e dagli strumenti più diffusi
-(rclone, restic, s3cmd, Terraform, Velero, …). Questa pagina elenca le API supportate, le differenze note e i
-risultati della suite di compatibilità.
+Nexo implements the Amazon S3 API used by the AWS SDKs, the AWS CLI and the most common tools
+(rclone, restic, s3cmd, Terraform, Velero, …). This page lists the supported APIs, the known differences and
+the results of the compatibility suite.
 
-## Endpoint e autenticazione
+## Endpoints and authentication
 
-| Aspetto | Supporto |
-|---------|----------|
-| Indirizzamento | path-style (`https://s3.example.com/bucket/chiave`) sempre; virtual-host (`https://bucket.s3.example.com/chiave`) con `NEXO_DOMAIN=s3.example.com` |
-| Regione | una sola, `us-east-1` per default (`--region`, `NEXO_REGION`) |
-| Firme | AWS Signature V4: header, query (URL presigned, fino a 7 giorni), payload chunked (`aws-chunked`, anche con trailer), POST policy dei form HTML |
-| Firme non supportate | Signature V2 (deprecata da AWS) |
-| Credenziali temporanee | STS `AssumeRole` (15 minuti – 12 ore) |
-| Errori | XML S3 standard, con `x-amz-request-id` e `x-amz-id-2` in ogni risposta; le API non supportate rispondono `501 NotImplemented` |
+| Aspect | Support |
+|--------|---------|
+| Addressing | path-style (`https://s3.example.com/bucket/key`) always; virtual-host (`https://bucket.s3.example.com/key`) with `NEXO_DOMAIN=s3.example.com` |
+| Region | a single one, `us-east-1` by default (`--region`, `NEXO_REGION`) |
+| Signatures | AWS Signature V4: header, query (presigned URLs, up to 7 days), chunked payload (`aws-chunked`, with trailers too), POST policies of HTML forms |
+| Unsupported signatures | Signature V2 (deprecated by AWS) |
+| Temporary credentials | STS `AssumeRole` (15 minutes – 12 hours) |
+| Errors | standard S3 XML, with `x-amz-request-id` and `x-amz-id-2` in every response; unsupported APIs answer `501 NotImplemented` |
 
-## API supportate
+## Supported APIs
 
-**Bucket**: `ListBuckets`, `CreateBucket`, `HeadBucket`, `DeleteBucket`, `GetBucketLocation`,
+**Buckets**: `ListBuckets`, `CreateBucket`, `HeadBucket`, `DeleteBucket`, `GetBucketLocation`,
 `Get/Put/DeleteBucketPolicy`, `GetBucketPolicyStatus`, `Get/PutBucketVersioning`, `Get/Put/DeleteBucketTagging`,
 `Get/Put/DeleteBucketCors`, `Get/Put/DeleteBucketLifecycleConfiguration`, `Get/PutObjectLockConfiguration`,
 `Get/Put/DeleteBucketEncryption`, `Get/PutBucketNotificationConfiguration`, `ListObjects`, `ListObjectsV2`,
-`ListObjectVersions`, `ListMultipartUploads`, `Get/PutBucketAcl` (solo `private`).
+`ListObjectVersions`, `ListMultipartUploads`, `Get/PutBucketAcl` (`private` only).
 
-**Oggetti**: `PutObject`, `GetObject` (anche range e richieste condizionali), `HeadObject`, `DeleteObject`,
+**Objects**: `PutObject`, `GetObject` (ranges and conditional requests too), `HeadObject`, `DeleteObject`,
 `DeleteObjects`, `CopyObject`, `GetObjectAttributes`, `Get/Put/DeleteObjectTagging`, `Get/PutObjectRetention`,
-`Get/PutObjectLegalHold`, `PostObject`, `Get/PutObjectAcl` (solo `private`).
+`Get/PutObjectLegalHold`, `PostObject`, `Get/PutObjectAcl` (`private` only).
 
 **Multipart**: `CreateMultipartUpload`, `UploadPart`, `UploadPartCopy`, `CompleteMultipartUpload`,
 `AbortMultipartUpload`, `ListParts`.
 
 **STS**: `AssumeRole`.
 
-**Funzionalità**: versioning con delete marker, Object Lock (governance e compliance, retention di default,
-legal hold), cifratura SSE-S3, SSE-KMS e SSE-C, checksum aggiuntivi (`CRC32`, `CRC32C`, `CRC64NVME`, `SHA1`,
-`SHA256`, anche compositi per il multipart), tag, lifecycle (scadenze, versioni non correnti, delete marker,
-upload incompleti), notifiche degli eventi, CORS, quote (estensione di Nexo).
+**Features**: versioning with delete markers, Object Lock (governance and compliance, default retention,
+legal hold), SSE-S3, SSE-KMS and SSE-C encryption, additional checksums (`CRC32`, `CRC32C`, `CRC64NVME`, `SHA1`,
+`SHA256`, composite ones for multipart too), tags, lifecycle (expirations, noncurrent versions, delete markers,
+incomplete uploads), event notifications, CORS, quotas (a Nexo extension).
 
-### Non supportate
+### Not supported
 
-Rispondono `501 NotImplemented`: website del bucket (`?website`, al suo posto ci sono le
-[distribuzioni](../distributions/README.md)), `PublicAccessBlock` (al suo posto il
-[block public access](../security/sharing.md#regole-di-accesso-pubbliche-e-block-public-access) di
-Nexo), replica (`?replication`), server access logging, accelerate, analytics, inventory, metrics,
+They answer `501 NotImplemented`: bucket website (`?website`; the
+[distributions](../distributions/README.md) take its place), `PublicAccessBlock` (the Nexo
+[block public access](../security/sharing.md#public-access-rules-and-block-public-access) takes its
+place), replication (`?replication`), server access logging, accelerate, analytics, inventory, metrics,
 intelligent tiering, ownership controls, request payment, `RestoreObject`, `SelectObjectContent`,
-`GetObjectTorrent`. Le transizioni di lifecycle verso altre classi di storage sono rifiutate. Sono previste
-dopo la v1.0: ACL complete, replica tra cluster, tiering verso S3 remoto, `AssumeRoleWithWebIdentity`.
+`GetObjectTorrent`. Lifecycle transitions to other storage classes are rejected. Planned after v1.0: full
+ACLs, replication between clusters, tiering to remote S3, `AssumeRoleWithWebIdentity`.
 
-## Differenze note
+## Known differences
 
-| Area | Comportamento di Nexo |
-|------|-----------------------|
-| Chiavi e prefissi | Una chiave non può essere anche il prefisso di altre chiavi (come in MinIO): con `a/b` presente, la scrittura di `a/b/c` è rifiutata con `XNexoParentIsObject` (400); con `a/b/c` presente, quella di `a/b` con `XNexoObjectExistsAsDirectory` (400) |
-| ACL | Ogni bucket si comporta come un bucket S3 con Object Ownership `BucketOwnerEnforced` (il default di AWS dal 2023): ACL diverse da `private` e grant espliciti sono rifiutati; l'accesso si concede con policy, accesso anonimo e regole di accesso |
-| Account | Un solo account: gli utenti hanno i diritti delle loro policy, non quelli di "proprietario" dei bucket che creano; un bucket esistente risponde sempre `BucketAlreadyOwnedByYou` |
-| Autorizzazione | Una richiesta su un oggetto è autorizzata prima di cercare la chiave: con solo `s3:ListBucket` una chiave assente dà 403; con `s3:GetObject` dà 404 anche senza `s3:ListBucket` |
-| Metadati non ASCII | I valori `x-amz-meta-*` sono restituiti con i byte ricevuti (UTF-8), senza codifica RFC 2047 |
-| CORS | Un bucket **senza** configurazione CORS segue la politica globale `api.cors_allow_origin` (default `*`): la preflight risponde 200 invece del 403 di S3. Un bucket con configurazione CORS si comporta come in S3 |
-| Notifiche | Record nel formato S3 con `eventSource` `nexo:s3`; il payload aggiunge `EventName` e `Key` al primo livello (come MinIO); le modifiche di retention e legal hold non generano eventi, come in S3 |
-| Download lenti | Un client che smette di leggere il corpo di una GET per più di 20 s (`NEXO_SEND_TIMEOUT`) vede la risposta interrotta (su HTTP/2 viene chiusa la connessione che non accetta più byte); un client che legge con regolarità non viene interrotto, anche con molti stream HTTP/2 sulla stessa connessione purché questa riceva almeno circa 40 KB/s |
-| Errori specifici | `XNexoQuotaExceeded` e `XNexoStorageFull` (507), `XNexoParentIsObject` e `XNexoObjectExistsAsDirectory` (400); un set senza quorum risponde `503 SlowDownWrite`/`SlowDownRead` (`XNexoLockTimeout` se non ottiene il lock, `ServiceUnavailable` per un disco o nodo offline); gli SDK ritentano i `503`, `SlowDown` resta per le richieste rallentate |
-| Block public access | Agisce sulle regole di accesso e sulle distribuzioni, non sulle bucket policy anonime (vedi [Condivisione](../security/sharing.md)) |
+| Area | Nexo behavior |
+|------|---------------|
+| Keys and prefixes | A key cannot also be the prefix of other keys (as in MinIO): with `a/b` present, writing `a/b/c` is rejected with `XNexoParentIsObject` (400); with `a/b/c` present, writing `a/b` is rejected with `XNexoObjectExistsAsDirectory` (400) |
+| ACLs | Every bucket behaves like an S3 bucket with Object Ownership `BucketOwnerEnforced` (the AWS default since 2023): ACLs other than `private` and explicit grants are rejected; access is granted with policies, anonymous access and access rules |
+| Accounts | A single account: users have the rights of their policies, not those of "owner" of the buckets they create; an existing bucket always answers `BucketAlreadyOwnedByYou` |
+| Authorization | A request on an object is authorized before the key is looked up: with only `s3:ListBucket` a missing key gives 403; with `s3:GetObject` it gives 404 even without `s3:ListBucket` |
+| Non-ASCII metadata | `x-amz-meta-*` values are returned with the bytes received (UTF-8), without RFC 2047 encoding |
+| CORS | A bucket **without** a CORS configuration follows the global policy `api.cors_allow_origin` (default `*`): the preflight answers 200 instead of S3's 403. A bucket with a CORS configuration behaves as in S3 |
+| Notifications | Records in the S3 format with `eventSource` `nexo:s3`; the payload adds `EventName` and `Key` at the top level (like MinIO); retention and legal hold changes generate no events, as in S3 |
+| Slow downloads | A client that stops reading the body of a GET for more than 20 s (`NEXO_SEND_TIMEOUT`) sees the response aborted (on HTTP/2 the connection that no longer accepts bytes is closed); a client that reads steadily is never aborted, even with many HTTP/2 streams on the same connection, as long as the connection receives at least about 40 KB/s |
+| Specific errors | `XNexoQuotaExceeded` and `XNexoStorageFull` (507), `XNexoParentIsObject` and `XNexoObjectExistsAsDirectory` (400); a set without quorum answers `503 SlowDownWrite`/`SlowDownRead` (`XNexoLockTimeout` if it cannot get the lock, `ServiceUnavailable` for an offline drive or node); the SDKs retry `503` responses, `SlowDown` remains for throttled requests |
+| Block public access | Acts on the access rules and on the distributions, not on anonymous bucket policies (see [Sharing](../security/sharing.md)) |
 
-Per il resto le risposte seguono S3 anche nei dettagli che gli SDK controllano: per esempio nessun
-`x-amz-version-id` per la versione `null`, `If-Match` su chiave assente → 404 `NoSuchKey`, `partNumber` oltre
-le parti → 416, chiave SSE-C diversa → 403, ripetizione di una `CompleteMultipartUpload` riuscita → stesso
-esito, parti in ordine strettamente crescente (`InvalidPartOrder`).
+Otherwise the responses follow S3 even in the details the SDKs check: for example no
+`x-amz-version-id` for the `null` version, `If-Match` on a missing key → 404 `NoSuchKey`, `partNumber` beyond
+the parts → 416, different SSE-C key → 403, repeating a successful `CompleteMultipartUpload` → same
+outcome, parts in strictly increasing order (`InvalidPartOrder`).
 
-## Risultati di Ceph s3-tests
+## Ceph s3-tests results
 
-La suite [`ceph/s3-tests`](https://github.com/ceph/s3-tests) gira ogni notte in tutte e tre le modalità
-(`make test-s3compat`, [`test/compat`](https://github.com/R3n3r0/Nexo/tree/main/test/compat)). Ultima
-misura pubblicata (commit `5522d1c` della suite, `test_s3.py`, 838 test, 2026-10-09):
+The [`ceph/s3-tests`](https://github.com/ceph/s3-tests) suite runs every night in all three modes
+(`make test-s3compat`, [`test/compat`](https://github.com/R3n3r0/Nexo/tree/main/test/compat)). Latest
+published measurement (suite commit `5522d1c`, `test_s3.py`, 838 tests, 2026-10-09):
 
-| Modalità | Test applicabili superati |
-|----------|---------------------------|
+| Mode | Applicable tests passed |
+|------|-------------------------|
 | Single node, multi drive | 422/422 |
 | Cluster | 422/422 |
 | Single node, single drive | 421/422 |
 
-- In SNSD `test_atomic_read_4mb` è fallito in 2 esecuzioni su 4: il client della suite scrive la chiave
-  mentre non legge ancora la GET della stessa chiave, e il lock di lettura tenuto durante il trasferimento
-  blocca la scrittura finché scade `NEXO_SEND_TIMEOUT`.
-- Gruppi principali: versioning 28/28, Object Lock 39/39, multipart 31/31, tagging 17/17, SSE-C 18/18,
-  checksum 11/11.
-- 415 test sono esclusi, ognuno con il motivo in
+- In SNSD `test_atomic_read_4mb` failed in 2 runs out of 4: the suite's client writes the key
+  while it is not yet reading the GET of the same key, and the read lock held during the transfer
+  blocks the write until `NEXO_SEND_TIMEOUT` expires.
+- Main groups: versioning 28/28, Object Lock 39/39, multipart 31/31, tagging 17/17, SSE-C 18/18,
+  checksums 11/11.
+- 415 tests are excluded, each with its reason in
   [`test/compat/excluded.txt`](https://github.com/R3n3r0/Nexo/blob/main/test/compat/excluded.txt):
-  estensioni di Ceph RGW che AWS stesso non supera (marcate `fails_on_aws` dalla suite), ACL complete,
-  Signature V2, `PublicAccessBlock`, server access logging e le differenze note sopra.
+  Ceph RGW extensions that AWS itself does not pass (marked `fails_on_aws` by the suite), full ACLs,
+  Signature V2, `PublicAccessBlock`, server access logging and the known differences above.
 
-Lo stato aggiornato, con le eventuali nuove misure, è in
-[docs/05](https://github.com/R3n3r0/Nexo/blob/main/docs/05-roadmap.md) (stato della compatibilità S3).
+The current status, with any new measurements, is in
+[docs/05](https://github.com/R3n3r0/Nexo/blob/main/docs/05-roadmap.md) (S3 compatibility status).
 
-## Provare un client
+## Trying a client
 
 ```bash
 aws configure set aws_access_key_id admin
-aws configure set aws_secret_access_key supersegreta
-aws --endpoint-url http://localhost:9000 s3 mb s3://prova
-aws --endpoint-url http://localhost:9000 s3 cp file.txt s3://prova/
-aws --endpoint-url http://localhost:9000 s3api list-object-versions --bucket prova
+aws configure set aws_secret_access_key supersecret
+aws --endpoint-url http://localhost:9000 s3 mb s3://test
+aws --endpoint-url http://localhost:9000 s3 cp file.txt s3://test/
+aws --endpoint-url http://localhost:9000 s3api list-object-versions --bucket test
 ```
 
-Con rclone:
+With rclone:
 
 ```ini
 [nexo]
@@ -110,7 +110,7 @@ type = s3
 provider = Minio
 endpoint = http://localhost:9000
 access_key_id = admin
-secret_access_key = supersegreta
+secret_access_key = supersecret
 ```
 
-Il provider `Minio` di rclone usa l'indirizzamento path-style, che funziona senza configurare `NEXO_DOMAIN`.
+The rclone `Minio` provider uses path-style addressing, which works without configuring `NEXO_DOMAIN`.

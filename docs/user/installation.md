@@ -13,7 +13,7 @@ on the package but on the arguments of `nexo server`: see [Deployment modes](dep
 
 Every release contains archives, `.deb`/`.rpm` packages, a `checksums.txt` signed with cosign (keyless) and
 an SPDX SBOM per archive. Verifying the signatures is described in
-[docs/08 §8.7](https://github.com/R3n3r0/Nexo/blob/main/docs/08-deployment-modes.md#verificare-una-release).
+[docs/08 §8.7](https://github.com/R3n3r0/Nexo/blob/main/docs/08-deployment-modes.md#verifying-a-release).
 
 ## Binaries (archives)
 
