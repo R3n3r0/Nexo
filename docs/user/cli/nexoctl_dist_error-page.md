@@ -1,4 +1,4 @@
-## nexoctl dist error-page
+# nexoctl dist error-page
 
 Replace the error answers of a distribution with pages
 
@@ -6,13 +6,13 @@ Replace the error answers of a distribution with pages
 nexoctl dist error-page [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for error-page
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl dist error-page [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist](nexoctl_dist.md)	 - Manage the distributions: custom domains of the buckets
 * [nexoctl dist error-page remove](nexoctl_dist_error-page_remove.md)	 - Remove the error page of a status

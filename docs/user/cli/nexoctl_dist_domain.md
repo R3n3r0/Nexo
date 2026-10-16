@@ -1,4 +1,4 @@
-## nexoctl dist domain
+# nexoctl dist domain
 
 Add and remove the domains (aliases) of a distribution
 
@@ -6,13 +6,13 @@ Add and remove the domains (aliases) of a distribution
 nexoctl dist domain [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for domain
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl dist domain [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist](nexoctl_dist.md)	 - Manage the distributions: custom domains of the buckets
 * [nexoctl dist domain add](nexoctl_dist_domain_add.md)	 - Add domains (exact or \*.wildcard) to a distribution

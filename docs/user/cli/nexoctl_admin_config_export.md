@@ -1,8 +1,8 @@
-## nexoctl admin config export
+# nexoctl admin config export
 
 Export the whole configuration as JSON (stdout or --output)
 
-### Synopsis
+## Synopsis
 
 Export the whole dynamic configuration as a JSON document, secrets included:
 protect the file. Restore it with "nexoctl admin config import".
@@ -11,20 +11,20 @@ protect the file. Restore it with "nexoctl admin config import".
 nexoctl admin config export [flags] ALIAS
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin config export local --output nexo-config.json
 ```
 
-### Options
+## Options
 
 ```
   -h, --help            help for export
   -o, --output string   write the document to this file (mode 0600)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -34,7 +34,7 @@ nexoctl admin config export [flags] ALIAS
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin config](nexoctl_admin_config.md)	 - Read and change the dynamic configuration of the server
 

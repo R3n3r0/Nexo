@@ -1,4 +1,4 @@
-## nexoctl dist behavior remove
+# nexoctl dist behavior remove
 
 Remove the behavior N (1-based, see behavior ls)
 
@@ -6,19 +6,19 @@ Remove the behavior N (1-based, see behavior ls)
 nexoctl dist behavior remove ALIAS ID N [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl dist behavior rm
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for remove
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl dist behavior rm
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist behavior](nexoctl_dist_behavior.md)	 - Manage the behaviors per path of a distribution
 

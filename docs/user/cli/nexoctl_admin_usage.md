@@ -1,4 +1,4 @@
-## nexoctl admin usage
+# nexoctl admin usage
 
 Show the data usage of the server and of each bucket
 
@@ -6,19 +6,19 @@ Show the data usage of the server and of each bucket
 nexoctl admin usage ALIAS [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl admin du
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for usage
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl admin du
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin](nexoctl_admin.md)	 - Administer a Nexo server (Admin API)
 

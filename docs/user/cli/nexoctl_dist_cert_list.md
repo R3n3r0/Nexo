@@ -1,4 +1,4 @@
-## nexoctl dist cert list
+# nexoctl dist cert list
 
 List the certificates with their status and expiration
 
@@ -6,19 +6,19 @@ List the certificates with their status and expiration
 nexoctl dist cert list ALIAS [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl dist cert ls
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for list
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl dist cert ls
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist cert](nexoctl_dist_cert.md)	 - Manage the TLS certificates of the domains of the distributions
 

@@ -1,4 +1,4 @@
-## nexoctl cors remove
+# nexoctl cors remove
 
 Remove the CORS configuration of a bucket
 
@@ -6,19 +6,19 @@ Remove the CORS configuration of a bucket
 nexoctl cors remove ALIAS/BUCKET [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl cors rm
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for remove
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl cors rm
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl cors](nexoctl_cors.md)	 - Manage the CORS configuration of buckets
 

@@ -1,8 +1,8 @@
-## nexoctl dist create
+# nexoctl dist create
 
 Create a distribution
 
-### Synopsis
+## Synopsis
 
 Create a distribution of a bucket (or of a prefix of it, website mode) on one or
 more domains, exact or wildcard (\*.preview.example.com). The flags of the
@@ -13,14 +13,14 @@ path the behaviors do not override (see "nexoctl dist behavior add").
 nexoctl dist create ALIAS ID --bucket BUCKET --domain DOMAIN... [--mode website|s3] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl dist create local sito-web --bucket web --prefix /prod --mode website \
       --domain www.example.com --domain example.com --index index.html --spa /index.html
 ```
 
-### Options
+## Options
 
 ```
       --access string          access: public, signed (URLs/cookies of --key-group), authenticated (SigV4) or deny
@@ -40,7 +40,7 @@ nexoctl dist create ALIAS ID --bucket BUCKET --domain DOMAIN... [--mode website|
       --spa string             path served (200) instead of a missing object (single page application)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -50,7 +50,7 @@ nexoctl dist create ALIAS ID --bucket BUCKET --domain DOMAIN... [--mode website|
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist](nexoctl_dist.md)	 - Manage the distributions: custom domains of the buckets
 

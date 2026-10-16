@@ -1,4 +1,4 @@
-## nexoctl anonymous set
+# nexoctl anonymous set
 
 Set the anonymous access of a bucket or prefix
 
@@ -6,20 +6,20 @@ Set the anonymous access of a bucket or prefix
 nexoctl anonymous set private|download|upload|public ALIAS/BUCKET[/PREFIX] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl anonymous set download local/website
   nexoctl anonymous set download local/data/public/
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for set
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -29,7 +29,7 @@ nexoctl anonymous set private|download|upload|public ALIAS/BUCKET[/PREFIX] [flag
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl anonymous](nexoctl_anonymous.md)	 - Manage the anonymous access of buckets and prefixes
 

@@ -1,4 +1,4 @@
-## nexoctl admin group
+# nexoctl admin group
 
 Manage the IAM groups and their members
 
@@ -6,13 +6,13 @@ Manage the IAM groups and their members
 nexoctl admin group [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for group
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl admin group [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin](nexoctl_admin.md)	 - Administer a Nexo server (Admin API)
 * [nexoctl admin group add](nexoctl_admin_group_add.md)	 - Create a group or add members to it

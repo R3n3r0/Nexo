@@ -1,4 +1,4 @@
-## nexoctl cache webhook remove
+# nexoctl cache webhook remove
 
 Remove a purge webhook
 
@@ -6,25 +6,25 @@ Remove a purge webhook
 nexoctl cache webhook remove ALIAS DIST ID [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl cache webhook rm
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl cache webhook rm local sito-web cloudflare
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for remove
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -34,7 +34,7 @@ nexoctl cache webhook rm
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl cache webhook](nexoctl_cache_webhook.md)	 - Manage the purge webhooks of a distribution
 

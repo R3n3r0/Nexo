@@ -1,8 +1,8 @@
-## nexoctl admin profile
+# nexoctl admin profile
 
 Collect a runtime profile (pprof) of the server
 
-### Synopsis
+## Synopsis
 
 Collect a runtime profile of the node that serves the Admin API of the alias, in the
 pprof format: analyze it with "go tool pprof FILE". cpu, mutex and block sample for
@@ -15,7 +15,7 @@ Needs admin:Profiling (root, the diagnostics policy).
 nexoctl admin profile [flags] ALIAS
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin profile local
@@ -23,7 +23,7 @@ nexoctl admin profile [flags] ALIAS
   nexoctl admin profile --type mutex --seconds 30 --output mutex.pb.gz local
 ```
 
-### Options
+## Options
 
 ```
   -d, --duration duration   sampling of the cpu, mutex and block profiles (default 10s, at most 2m)
@@ -33,7 +33,7 @@ nexoctl admin profile [flags] ALIAS
   -t, --type string         profile: cpu, heap, goroutine, mutex or block (default "cpu")
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -43,7 +43,7 @@ nexoctl admin profile [flags] ALIAS
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin](nexoctl_admin.md)	 - Administer a Nexo server (Admin API)
 

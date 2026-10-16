@@ -1,8 +1,8 @@
-## nexoctl dist cache export
+# nexoctl dist cache export
 
 Export the cache settings of a distribution as YAML
 
-### Synopsis
+## Synopsis
 
 Export the cache settings of a distribution (the document of "nexoctl dist cache
 import"); the secrets of the webhooks are masked, and kept by an import.
@@ -11,20 +11,20 @@ import"); the secrets of the webhooks are masked, and kept by an import.
 nexoctl dist cache export ALIAS ID [-o FILE] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl dist cache export local sito-web -o sito-web-cache.yaml
 ```
 
-### Options
+## Options
 
 ```
   -h, --help            help for export
   -o, --output string   write the document to this file
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -34,7 +34,7 @@ nexoctl dist cache export ALIAS ID [-o FILE] [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist cache](nexoctl_dist_cache.md)	 - Manage the cache settings of a distribution, its domains and paths
 

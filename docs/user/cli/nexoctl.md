@@ -1,8 +1,8 @@
-## nexoctl
+# nexoctl
 
 Nexo command-line client
 
-### Synopsis
+## Synopsis
 
 nexoctl manages Nexo servers and any S3-compatible endpoint: aliases,
 buckets, objects, sharing, anonymous access and administration.
@@ -10,7 +10,7 @@ buckets, objects, sharing, anonymous access and administration.
 Remote locations are written ALIAS[/BUCKET[/PREFIX]] (see "nexoctl alias");
 anything else is a local path.
 
-### Options
+## Options
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -21,7 +21,7 @@ anything else is a local path.
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl access](nexoctl_access.md)	 - Manage the access rules of the buckets (prefix, glob, regex)
 * [nexoctl admin](nexoctl_admin.md)	 - Administer a Nexo server (Admin API)

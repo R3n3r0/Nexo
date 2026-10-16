@@ -1,4 +1,4 @@
-## nexoctl dist headers
+# nexoctl dist headers
 
 Set the response headers and the CORS policy of a distribution
 
@@ -6,14 +6,14 @@ Set the response headers and the CORS policy of a distribution
 nexoctl dist headers ALIAS ID [--set 'Name: value']... [--unset NAME]... [--security] [--cors-origin O]... [--no-cors] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl dist headers local sito-web --security
   nexoctl dist headers local sito-web --set 'Cache-Control: no-cache' --cors-origin https://app.example.com --cors-method GET
 ```
 
-### Options
+## Options
 
 ```
       --cors-max-age int          CORS: preflight cache duration in seconds
@@ -26,7 +26,7 @@ nexoctl dist headers ALIAS ID [--set 'Name: value']... [--unset NAME]... [--secu
       --unset stringArray         remove a response header (repeatable)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -36,7 +36,7 @@ nexoctl dist headers ALIAS ID [--set 'Name: value']... [--unset NAME]... [--secu
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist](nexoctl_dist.md)	 - Manage the distributions: custom domains of the buckets
 

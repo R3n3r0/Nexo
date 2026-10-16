@@ -1,8 +1,8 @@
-## nexoctl mb
+# nexoctl mb
 
 Make buckets
 
-### Synopsis
+## Synopsis
 
 Make buckets. --with-lock creates them with Object Lock (WORM retention and
 legal holds, see "nexoctl retention" and "nexoctl legalhold"), which implies
@@ -13,14 +13,14 @@ enabled.
 nexoctl mb [flags] ALIAS/BUCKET...
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl mb --with-versioning local/photos
   nexoctl mb --with-lock local/vault
 ```
 
-### Options
+## Options
 
 ```
   -h, --help              help for mb
@@ -30,7 +30,7 @@ nexoctl mb [flags] ALIAS/BUCKET...
       --with-versioning   enable versioning on the new bucket
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -40,7 +40,7 @@ nexoctl mb [flags] ALIAS/BUCKET...
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 

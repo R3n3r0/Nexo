@@ -1,8 +1,8 @@
-## nexoctl access rule list
+# nexoctl access rule list
 
 List the access rules of a bucket, in evaluation order
 
-### Synopsis
+## Synopsis
 
 List the access rules of a bucket in the order the policy engine evaluates them: the deny rules first, then the allow rules, each by priority.
 
@@ -10,25 +10,25 @@ List the access rules of a bucket in the order the policy engine evaluates them:
 nexoctl access rule list ALIAS/BUCKET [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl access rule ls
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl access rule ls local/media
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for list
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -38,7 +38,7 @@ nexoctl access rule ls
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl access rule](nexoctl_access_rule.md)	 - Add, list, show, remove and reorder the access rules of a bucket
 

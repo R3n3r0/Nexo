@@ -260,7 +260,7 @@ Un tag `v*` avvia [`.github/workflows/release.yml`](../.github/workflows/release
 | Artefatto | Dettaglio |
 |-----------|-----------|
 | Binari | `nexo` (con la console, `-tags embedui`) per linux/darwin/windows × amd64/arm64 (non windows/arm64); `nexoctl` anche per windows/arm64. Statici (`CGO_ENABLED=0`), `-trimpath`, data e mtime = commit (riproducibili); `nexo version` stampa il tag |
-| Archivi | `nexo_X.Y.Z_<os>_<arch>.tar.gz` con LICENSE, README, unit e file env di systemd (`.zip` su Windows, con LICENSE e README soli: build e archivio `nexo-windows`); `nexoctl_…` con i completamenti bash/zsh/fish; archivio dei sorgenti `nexo_X.Y.Z_source.tar.gz` |
+| Archivi | `nexo_X.Y.Z_<os>_<arch>.tar.gz` con LICENSE, NOTICE, COMMERCIAL-LICENSE.md, README, unit e file env di systemd (`.zip` su Windows, con LICENSE, NOTICE, COMMERCIAL-LICENSE.md e README soli: build e archivio `nexo-windows`); `nexoctl_…` con i completamenti bash/zsh/fish; archivio dei sorgenti `nexo_X.Y.Z_source.tar.gz` |
 | Pacchetti | `.deb` e `.rpm` per amd64/arm64: `nexo` (binario in `/usr/bin`, unit in `/usr/lib/systemd/system`, `/etc/default/nexo` come conffile `0640 root:nexo` con la password vuota, utente `nexo` creato da `preinstall` con `useradd` (deb: `Pre-Depends: passwd`) e dichiarato in `/usr/lib/sysusers.d/nexo.conf`, `/var/lib/nexo/data`; mai avviato né riavviato dagli script; la rimozione ferma il servizio e conserva i dati) e `nexoctl` (binario e completamenti); `nexo` raccomanda `nexoctl` |
 | Checksum | `checksums.txt` (SHA-256 di archivi, pacchetti, SBOM, sorgenti) + `checksums.txt.sigstore.json` (bundle cosign: firma, certificato, voce del log di trasparenza Rekor) |
 | SBOM | Un documento SPDX JSON per archivio (`<archivio>.sbom.json`, syft v1.54.1): moduli Go e toolchain di ogni binario. I pacchetti contengono gli stessi binari linux degli archivi |
@@ -342,8 +342,9 @@ multi-arch `dockers_v2` con attestazioni SBOM/provenance, firme cosign keyless d
 chart, push su ghcr.io e nel tap Homebrew, job `verify` (TM-11) e `smoke` su darwin/windows della
 release, installazione dei pacchetti con systemd e in Fedora (job CI `packaging`).
 
-Decisioni aperte del rilascio: licenza del progetto (assente: archivi, pacchetti e chart non dichiarano
-una licenza), repository `r3n3r0/homebrew-tap` con il segreto `HOMEBREW_TAP_GITHUB_TOKEN`, visibilità
-pubblica dei pacchetti ghcr.io (privati alla prima pubblicazione). La toolchain è Go 1.26.9
-(docs/security/threat-model.md §10.1): govulncheck non trova vulnerabilità raggiunte, quindi trivy nel job `verify`
-non ha più vulnerabilità note della libreria standard da segnalare.
+Licenza: AGPL-3.0-only con i termini di attribuzione di `NOTICE` (AGPL §7(b)) e licenze commerciali
+(`COMMERCIAL-LICENSE.md` nella radice del repository); `LICENSE` è in archivi, pacchetti, immagini e chart, `NOTICE` in
+archivi e pacchetti. Decisioni aperte del rilascio: repository `r3n3r0/homebrew-tap` con il segreto `HOMEBREW_TAP_GITHUB_TOKEN`, visibilità
+pubblica dei pacchetti ghcr.io (privati alla prima pubblicazione). The toolchain is Go 1.27.2
+(docs/security/threat-model.md §10.1): govulncheck finds no reachable vulnerabilities, so trivy in the `verify` job
+has no known standard library vulnerabilities left to report.

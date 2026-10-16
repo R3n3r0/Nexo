@@ -1,8 +1,8 @@
-## nexoctl mv
+# nexoctl mv
 
 Move files and objects
 
-### Synopsis
+## Synopsis
 
 Move local files and objects: copy (like cp) then remove each source once its
 copy succeeded.
@@ -11,14 +11,14 @@ copy succeeded.
 nexoctl mv [flags] SOURCE... TARGET
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl mv local/inbox/report.pdf local/archive/
   nexoctl mv --recursive local/inbox/ ./downloads/
 ```
 
-### Options
+## Options
 
 ```
       --attr string              user metadata of the uploaded objects: "key1=value1;key2=value2"
@@ -37,7 +37,7 @@ nexoctl mv [flags] SOURCE... TARGET
       --tags string              tags of the uploaded objects: "key1=value1&key2=value2"
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -47,7 +47,7 @@ nexoctl mv [flags] SOURCE... TARGET
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 

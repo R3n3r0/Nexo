@@ -1,8 +1,8 @@
-## nexoctl share upload
+# nexoctl share upload
 
 Generate upload links (managed PUT by default, --raw, or a --post policy)
 
-### Synopsis
+## Synopsis
 
 Generate an upload link for an object (a PUT URL, managed by default) with the
 curl command that uses it, or with --post a POST policy for HTML forms, signed
@@ -14,14 +14,14 @@ prefix.
 nexoctl share upload [flags] ALIAS/BUCKET/OBJECT
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl share upload --expire 1h local/inbox/report.pdf
   nexoctl share upload --post --max-size 10MiB --prefix uploads/ local/inbox
 ```
 
-### Options
+## Options
 
 ```
       --content-type string   Content-Type the upload must send
@@ -35,7 +35,7 @@ nexoctl share upload [flags] ALIAS/BUCKET/OBJECT
       --raw                   raw URL signed locally with the alias credentials (not revocable)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -45,7 +45,7 @@ nexoctl share upload [flags] ALIAS/BUCKET/OBJECT
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl share](nexoctl_share.md)	 - Share objects with links that need no credentials
 

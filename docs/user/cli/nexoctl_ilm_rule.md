@@ -1,4 +1,4 @@
-## nexoctl ilm rule
+# nexoctl ilm rule
 
 Add, edit, list, remove, export and import lifecycle rules
 
@@ -6,13 +6,13 @@ Add, edit, list, remove, export and import lifecycle rules
 nexoctl ilm rule [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for rule
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl ilm rule [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl ilm](nexoctl_ilm.md)	 - Manage the lifecycle rules of buckets (expiration, noncurrent versions, uploads)
 * [nexoctl ilm rule add](nexoctl_ilm_rule_add.md)	 - Add a lifecycle rule to a bucket

@@ -1,4 +1,4 @@
-## nexoctl tag list
+# nexoctl tag list
 
 List the tags of a bucket or object
 
@@ -6,20 +6,20 @@ List the tags of a bucket or object
 nexoctl tag list ALIAS/BUCKET[/OBJECT] [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl tag ls
 ```
 
-### Options
+## Options
 
 ```
   -h, --help                help for list
       --version-id string   tags of this version of the object
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -29,7 +29,7 @@ nexoctl tag ls
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl tag](nexoctl_tag.md)	 - Manage the tags of buckets and objects
 

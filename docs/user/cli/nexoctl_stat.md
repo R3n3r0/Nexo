@@ -1,8 +1,8 @@
-## nexoctl stat
+# nexoctl stat
 
 Show the metadata of objects, buckets and files
 
-### Synopsis
+## Synopsis
 
 Show the metadata of objects (size, ETag, content type, user metadata, tags,
 version, Object Lock retention and legal hold, server-side encryption, and with
@@ -14,7 +14,7 @@ an object.
 nexoctl stat [flags] TARGET...
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl stat local/docs/report.pdf
@@ -23,7 +23,7 @@ nexoctl stat [flags] TARGET...
   nexoctl stat --json local/docs
 ```
 
-### Options
+## Options
 
 ```
       --checksum                 show the additional checksum of the object
@@ -34,7 +34,7 @@ nexoctl stat [flags] TARGET...
       --versions                 show every version of the object
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -44,7 +44,7 @@ nexoctl stat [flags] TARGET...
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 

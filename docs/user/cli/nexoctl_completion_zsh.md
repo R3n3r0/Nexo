@@ -1,8 +1,8 @@
-## nexoctl completion zsh
+# nexoctl completion zsh
 
 Generate the autocompletion script for zsh
 
-### Synopsis
+## Synopsis
 
 Generate the autocompletion script for the zsh shell.
 
@@ -17,11 +17,11 @@ To load completions in your current shell session:
 
 To load completions for every new session, execute once:
 
-#### Linux:
+### Linux:
 
 	nexoctl completion zsh > "${fpath[1]}/_nexoctl"
 
-#### macOS:
+### macOS:
 
 	nexoctl completion zsh > $(brew --prefix)/share/zsh/site-functions/_nexoctl
 
@@ -32,14 +32,14 @@ You will need to start a new shell for this setup to take effect.
 nexoctl completion zsh [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help              help for zsh
       --no-descriptions   disable completion descriptions
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -49,7 +49,7 @@ nexoctl completion zsh [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl completion](nexoctl_completion.md)	 - Generate the autocompletion script for the specified shell
 

@@ -1,8 +1,8 @@
-## nexoctl mirror
+# nexoctl mirror
 
 Synchronize a directory or prefix to another one
 
-### Synopsis
+## Synopsis
 
 Copy to TARGET the files and objects of SOURCE that are missing or different
 there (same size and ETag, or a target not older than the source, means up to
@@ -20,7 +20,7 @@ versions of the source.
 nexoctl mirror [flags] SOURCE TARGET
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl mirror ./site/ local/website
@@ -29,7 +29,7 @@ nexoctl mirror [flags] SOURCE TARGET
   nexoctl mirror --preserve old/photos new/photos
 ```
 
-### Options
+## Options
 
 ```
       --attr string              user metadata of the uploaded objects: "key1=value1;key2=value2"
@@ -52,7 +52,7 @@ nexoctl mirror [flags] SOURCE TARGET
   -w, --watch                    keep watching a local SOURCE and synchronize its changes
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -62,7 +62,7 @@ nexoctl mirror [flags] SOURCE TARGET
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 

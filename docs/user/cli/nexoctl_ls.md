@@ -1,8 +1,8 @@
-## nexoctl ls
+# nexoctl ls
 
 List buckets, objects and object versions
 
-### Synopsis
+## Synopsis
 
 List the buckets of an alias, the objects of a bucket or prefix (one level,
 or every level with --recursive), the versions of the objects (--versions), the
@@ -12,7 +12,7 @@ incomplete multipart uploads (--incomplete) or a local directory.
 nexoctl ls [flags] TARGET...
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl ls local
@@ -21,7 +21,7 @@ nexoctl ls [flags] TARGET...
   nexoctl ls --json local/photos
 ```
 
-### Options
+## Options
 
 ```
   -h, --help         help for ls
@@ -30,7 +30,7 @@ nexoctl ls [flags] TARGET...
       --versions     list every version and delete marker
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -40,7 +40,7 @@ nexoctl ls [flags] TARGET...
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 

@@ -1,4 +1,4 @@
-## nexoctl alias remove
+# nexoctl alias remove
 
 Remove an alias
 
@@ -6,19 +6,19 @@ Remove an alias
 nexoctl alias remove NAME [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl alias rm
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for remove
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl alias rm
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl alias](nexoctl_alias.md)	 - Manage server aliases (saved in ~/.nexoctl/config.json)
 

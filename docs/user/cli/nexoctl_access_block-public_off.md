@@ -1,4 +1,4 @@
-## nexoctl access block-public off
+# nexoctl access block-public off
 
 Stop blocking the public access
 
@@ -6,7 +6,7 @@ Stop blocking the public access
 nexoctl access block-public off ALIAS[/BUCKET] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl access block-public on local --mode reject
@@ -14,13 +14,13 @@ nexoctl access block-public off ALIAS[/BUCKET] [flags]
   nexoctl access block-public off local
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for off
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -30,7 +30,7 @@ nexoctl access block-public off ALIAS[/BUCKET] [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl access block-public](nexoctl_access_block-public.md)	 - Block the public access of the cluster or of a bucket
 

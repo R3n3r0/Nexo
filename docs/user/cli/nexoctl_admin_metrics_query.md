@@ -1,8 +1,8 @@
-## nexoctl admin metrics query
+# nexoctl admin metrics query
 
 Show the points of a series of metrics
 
-### Synopsis
+## Synopsis
 
 Show the points of a series (see "nexoctl admin metrics list") over --range, ending
 now or at --end: one row per point, the cluster value then the value of each node (a
@@ -12,7 +12,7 @@ dash where a node has no sample).
 nexoctl admin metrics query [flags] ALIAS METRIC
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin metrics query local s3_requests
@@ -20,7 +20,7 @@ nexoctl admin metrics query [flags] ALIAS METRIC
   nexoctl admin metrics query --node n1:9000 --json local drives_online
 ```
 
-### Options
+## Options
 
 ```
       --end string       end of the range: a duration before now (30m) or a date (RFC 3339; default now)
@@ -30,7 +30,7 @@ nexoctl admin metrics query [flags] ALIAS METRIC
       --step duration    distance between two points (default: chosen by the server, at least 10s)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -40,7 +40,7 @@ nexoctl admin metrics query [flags] ALIAS METRIC
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin metrics](nexoctl_admin_metrics.md)	 - Query the recent metrics kept by the server
 

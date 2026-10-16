@@ -1,8 +1,8 @@
-## nexoctl admin policy validate
+# nexoctl admin policy validate
 
 Validate a policy document without saving it
 
-### Synopsis
+## Synopsis
 
 Validate an IAM policy document (or with --bucket a bucket policy) with the
 server: the errors are printed with their line and column, and the command
@@ -12,14 +12,14 @@ fails when the document is invalid.
 nexoctl admin policy validate [flags] ALIAS FILE
 ```
 
-### Options
+## Options
 
 ```
       --bucket string   validate a bucket policy of this bucket
   -h, --help            help for validate
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -29,7 +29,7 @@ nexoctl admin policy validate [flags] ALIAS FILE
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin policy](nexoctl_admin_policy.md)	 - Manage the IAM policies (AWS policy language)
 

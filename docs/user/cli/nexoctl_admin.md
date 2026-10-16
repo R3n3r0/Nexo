@@ -1,8 +1,8 @@
-## nexoctl admin
+# nexoctl admin
 
 Administer a Nexo server (Admin API)
 
-### Synopsis
+## Synopsis
 
 Administer a Nexo server through its Admin API: server information and usage,
 users, groups, policies, access keys, configuration, service control, the export and
@@ -18,13 +18,13 @@ of "nexoctl alias set". Every subcommand takes the alias as its first argument.
 nexoctl admin [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for admin
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -34,7 +34,7 @@ nexoctl admin [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 * [nexoctl admin accesskey](nexoctl_admin_accesskey.md)	 - Manage the access keys (service accounts) of the users

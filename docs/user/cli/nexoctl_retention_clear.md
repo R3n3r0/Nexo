@@ -1,8 +1,8 @@
-## nexoctl retention clear
+# nexoctl retention clear
 
 Remove the retention of objects, or the default retention of a bucket
 
-### Synopsis
+## Synopsis
 
 Remove the retention of object versions: a GOVERNANCE retention still in force
 needs --bypass, a COMPLIANCE one cannot be removed. With --default, remove the
@@ -12,14 +12,14 @@ default retention of a bucket (the existing versions keep theirs).
 nexoctl retention clear [flags] ALIAS/BUCKET[/OBJECT|PREFIX]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl retention clear --bypass local/vault/report.pdf
   nexoctl retention clear --default local/vault
 ```
 
-### Options
+## Options
 
 ```
       --bypass              remove a GOVERNANCE retention still in force (s3:BypassGovernanceRetention)
@@ -30,7 +30,7 @@ nexoctl retention clear [flags] ALIAS/BUCKET[/OBJECT|PREFIX]
       --versions            apply to every version instead of the latest one
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -40,7 +40,7 @@ nexoctl retention clear [flags] ALIAS/BUCKET[/OBJECT|PREFIX]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl retention](nexoctl_retention.md)	 - Manage the Object Lock retention of objects and buckets
 

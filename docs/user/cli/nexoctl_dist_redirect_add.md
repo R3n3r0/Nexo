@@ -1,4 +1,4 @@
-## nexoctl dist redirect add
+# nexoctl dist redirect add
 
 Add a redirection (the first that applies wins)
 
@@ -6,7 +6,7 @@ Add a redirection (the first that applies wins)
 nexoctl dist redirect add ALIAS ID (--from RE --to TARGET | --host-from HOST --to-host HOST | --https-only) [--status N] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl dist redirect add local sito-web --from '^/vecchio/(.*)$' --to '/nuovo/$1'
@@ -14,7 +14,7 @@ nexoctl dist redirect add ALIAS ID (--from RE --to TARGET | --host-from HOST --t
   nexoctl dist redirect add local sito-web --https-only
 ```
 
-### Options
+## Options
 
 ```
       --from string        RE2 expression of the paths
@@ -26,7 +26,7 @@ nexoctl dist redirect add ALIAS ID (--from RE --to TARGET | --host-from HOST --t
       --to-host string     target host (path and query kept)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -36,7 +36,7 @@ nexoctl dist redirect add ALIAS ID (--from RE --to TARGET | --host-from HOST --t
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist redirect](nexoctl_dist_redirect.md)	 - Manage the redirections of a distribution
 

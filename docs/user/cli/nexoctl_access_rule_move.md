@@ -1,4 +1,4 @@
-## nexoctl access rule move
+# nexoctl access rule move
 
 Change the priority of an access rule
 
@@ -6,13 +6,13 @@ Change the priority of an access rule
 nexoctl access rule move ALIAS/BUCKET --id ID --priority N [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl access rule move local/media --id img-pub --priority 1
 ```
 
-### Options
+## Options
 
 ```
   -h, --help           help for move
@@ -20,7 +20,7 @@ nexoctl access rule move ALIAS/BUCKET --id ID --priority N [flags]
       --priority int   new priority (lower first)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -30,7 +30,7 @@ nexoctl access rule move ALIAS/BUCKET --id ID --priority N [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl access rule](nexoctl_access_rule.md)	 - Add, list, show, remove and reorder the access rules of a bucket
 

@@ -1,8 +1,8 @@
-## nexoctl admin user add
+# nexoctl admin user add
 
 Create a user
 
-### Synopsis
+## Synopsis
 
 Create a user with its credentials. A user without policies can do nothing until
 a policy is attached to it or to one of its groups.
@@ -11,13 +11,13 @@ a policy is attached to it or to one of its groups.
 nexoctl admin user add [flags] ALIAS ACCESS_KEY SECRET_KEY
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin user add local alice 'S3cr3t-Passw0rd' --policy readwrite
 ```
 
-### Options
+## Options
 
 ```
       --disabled         create the user disabled
@@ -26,7 +26,7 @@ nexoctl admin user add [flags] ALIAS ACCESS_KEY SECRET_KEY
       --policy strings   policies to attach (repeatable or comma-separated)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -36,7 +36,7 @@ nexoctl admin user add [flags] ALIAS ACCESS_KEY SECRET_KEY
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin user](nexoctl_admin_user.md)	 - Manage the IAM users
 

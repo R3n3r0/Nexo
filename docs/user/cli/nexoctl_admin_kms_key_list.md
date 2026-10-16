@@ -1,4 +1,4 @@
-## nexoctl admin kms key list
+# nexoctl admin kms key list
 
 List the keys of the KMS
 
@@ -6,25 +6,25 @@ List the keys of the KMS
 nexoctl admin kms key list ALIAS [PREFIX] [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl admin kms key ls
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin kms key ls local
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for list
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -34,7 +34,7 @@ nexoctl admin kms key ls
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin kms key](nexoctl_admin_kms_key.md)	 - Create and list the keys of the KMS
 

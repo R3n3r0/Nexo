@@ -1,8 +1,8 @@
-## nexoctl cache policy create
+# nexoctl cache policy create
 
 Define a cache policy
 
-### Synopsis
+## Synopsis
 
 Define a reusable cache policy (docs/11 §11.2), referenced by name by the settings
 of the cluster, of a distribution, of a domain or of a path. Its unset fields
@@ -12,14 +12,14 @@ take the values of the built-in policy "standard".
 nexoctl cache policy create ALIAS NAME [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl cache policy create local long --ttl-default 1d --ttl-max 30d --query allowlist:v --stale-while-revalidate 5m
   nexoctl cache policy create local assets --file assets-policy.yaml
 ```
 
-### Options
+## Options
 
 ```
       --allow-type stringArray          media type cached (image/*; repeatable; none: every type)
@@ -54,7 +54,7 @@ nexoctl cache policy create ALIAS NAME [flags]
       --ttl-min string                  shortest lifetime in cache, the objects' own included
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -64,7 +64,7 @@ nexoctl cache policy create ALIAS NAME [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl cache policy](nexoctl_cache_policy.md)	 - Manage the reusable cache policies
 

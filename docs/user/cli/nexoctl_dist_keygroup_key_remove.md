@@ -1,4 +1,4 @@
-## nexoctl dist keygroup key remove
+# nexoctl dist keygroup key remove
 
 Remove a key from a key group (its signatures stop verifying)
 
@@ -6,19 +6,19 @@ Remove a key from a key group (its signatures stop verifying)
 nexoctl dist keygroup key remove ALIAS GROUP KEYID [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl dist keygroup key rm
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for remove
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl dist keygroup key rm
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist keygroup key](nexoctl_dist_keygroup_key.md)	 - Add and remove the keys of a key group
 

@@ -1,4 +1,4 @@
-## nexoctl cors get
+# nexoctl cors get
 
 Print the CORS configuration of a bucket (JSON or S3 XML)
 
@@ -6,27 +6,27 @@ Print the CORS configuration of a bucket (JSON or S3 XML)
 nexoctl cors get [--xml] ALIAS/BUCKET [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl cors info
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl cors get local/site > cors.json
   nexoctl cors get --xml local/site
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for get
       --xml    print the S3 CORSConfiguration XML
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -36,7 +36,7 @@ nexoctl cors info
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl cors](nexoctl_cors.md)	 - Manage the CORS configuration of buckets
 

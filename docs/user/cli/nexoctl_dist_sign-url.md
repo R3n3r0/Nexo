@@ -1,8 +1,8 @@
-## nexoctl dist sign-url
+# nexoctl dist sign-url
 
 Sign a URL (or cookies) of a signed behavior
 
-### Synopsis
+## Synopsis
 
 Sign a URL of a signed behavior of the distribution (CloudFront-style
 ?Expires=&Signature=&Key-Pair-Id=, or ?Policy= for a custom policy with --ip,
@@ -15,7 +15,7 @@ and the first exact domain (--host). Needs admin:SignDistributionURL.
 nexoctl dist sign-url ALIAS ID PATH|URL --expire DURATION [--ip CIDR] [--cookie] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl dist sign-url local sito-web /downloads/v1.zip --expire 1h
@@ -23,7 +23,7 @@ nexoctl dist sign-url ALIAS ID PATH|URL --expire DURATION [--ip CIDR] [--cookie]
   nexoctl dist sign-url local sito-web /premium/ --expire 12h --cookie --resource 'https://www.example.com/premium/*'
 ```
 
-### Options
+## Options
 
 ```
       --cookie               sign cookies instead of the URL
@@ -38,7 +38,7 @@ nexoctl dist sign-url ALIAS ID PATH|URL --expire DURATION [--ip CIDR] [--cookie]
       --scheme string        scheme of the URL: https (default) or http
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -48,7 +48,7 @@ nexoctl dist sign-url ALIAS ID PATH|URL --expire DURATION [--ip CIDR] [--cookie]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist](nexoctl_dist.md)	 - Manage the distributions: custom domains of the buckets
 

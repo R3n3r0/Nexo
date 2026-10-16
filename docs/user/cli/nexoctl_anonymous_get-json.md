@@ -1,8 +1,8 @@
-## nexoctl anonymous get-json
+# nexoctl anonymous get-json
 
 Print the bucket policy
 
-### Synopsis
+## Synopsis
 
 Print the bucket policy document (an empty policy when the bucket has none).
 
@@ -10,13 +10,13 @@ Print the bucket policy document (an empty policy when the bucket has none).
 nexoctl anonymous get-json ALIAS/BUCKET [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for get-json
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -26,7 +26,7 @@ nexoctl anonymous get-json ALIAS/BUCKET [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl anonymous](nexoctl_anonymous.md)	 - Manage the anonymous access of buckets and prefixes
 

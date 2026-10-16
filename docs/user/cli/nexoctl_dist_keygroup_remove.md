@@ -1,4 +1,4 @@
-## nexoctl dist keygroup remove
+# nexoctl dist keygroup remove
 
 Remove a key group no distribution uses
 
@@ -6,19 +6,19 @@ Remove a key group no distribution uses
 nexoctl dist keygroup remove ALIAS ID [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl dist keygroup rm
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for remove
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl dist keygroup rm
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist keygroup](nexoctl_dist_keygroup.md)	 - Manage the key groups of the signed URLs and cookies
 

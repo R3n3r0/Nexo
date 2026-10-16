@@ -1,8 +1,8 @@
-## nexoctl dist test
+# nexoctl dist test
 
 Show how a distribution serves a URL: behavior, access, headers
 
-### Synopsis
+## Synopsis
 
 Show how the distribution serves a URL without reading the object: the behavior
 that matches (the first in order, or the default one) with its access, methods
@@ -13,13 +13,13 @@ of the answer. A path is tested on https and the first exact domain.
 nexoctl dist test ALIAS ID URL|PATH [--method M] [--ip IP] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl dist test local sito-web https://www.example.com/assets/app.js
 ```
 
-### Options
+## Options
 
 ```
   -h, --help            help for test
@@ -27,7 +27,7 @@ nexoctl dist test ALIAS ID URL|PATH [--method M] [--ip IP] [flags]
       --method string   HTTP method (default GET)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -37,7 +37,7 @@ nexoctl dist test ALIAS ID URL|PATH [--method M] [--ip IP] [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist](nexoctl_dist.md)	 - Manage the distributions: custom domains of the buckets
 

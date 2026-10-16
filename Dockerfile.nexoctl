@@ -7,7 +7,7 @@
 #   docker run --rm -it --network host -v nexoctl-config:/home/nonroot/.nexoctl \
 #     ghcr.io/r3n3r0/nexoctl alias set local http://localhost:9000 admin supersecret
 
-ARG GO_VERSION=1.26.9
+ARG GO_VERSION=1.27.2
 
 FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS go
 

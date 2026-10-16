@@ -1,4 +1,4 @@
-## nexoctl admin accesskey list
+# nexoctl admin accesskey list
 
 List access keys (of the user of the alias, or of --user)
 
@@ -6,20 +6,20 @@ List access keys (of the user of the alias, or of --user)
 nexoctl admin accesskey list [flags] ALIAS
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl admin accesskey ls
 ```
 
-### Options
+## Options
 
 ```
   -h, --help          help for list
       --user string   list the keys of this user
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -29,7 +29,7 @@ nexoctl admin accesskey ls
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin accesskey](nexoctl_admin_accesskey.md)	 - Manage the access keys (service accounts) of the users
 

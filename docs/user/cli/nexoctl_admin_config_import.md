@@ -1,4 +1,4 @@
-## nexoctl admin config import
+# nexoctl admin config import
 
 Import a configuration exported by "admin config export" (FILE, or - for stdin)
 
@@ -6,13 +6,13 @@ Import a configuration exported by "admin config export" (FILE, or - for stdin)
 nexoctl admin config import ALIAS FILE [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for import
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl admin config import ALIAS FILE [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin config](nexoctl_admin_config.md)	 - Read and change the dynamic configuration of the server
 

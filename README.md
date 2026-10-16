@@ -106,8 +106,12 @@ Servono Go (versione in `go.mod`) e, per la console, Node.js.
 Il codice segue la convenzione di [docs/12](docs/12-architettura-servizi.md): ogni servizio ha
 un'interfaccia e un'implementazione non esportata, la composizione avviene solo in `internal/app`.
 
-## Licenza
+## License
 
-Nexo è distribuito con la [Apache License 2.0](LICENSE). Archivi, pacchetti deb/rpm e immagini dei container
-riportano la licenza (file `LICENSE`, `/usr/share/doc/<pacchetto>/copyright`, `%license`, label
-`org.opencontainers.image.licenses`).
+Nexo is free software licensed under the [GNU Affero General Public License v3.0 only](LICENSE)
+(`AGPL-3.0-only`): if you modify it and let users interact with it over a network, you must offer them the
+source code of your version. The [NOTICE](NOTICE) file adds attribution terms (AGPL section 7(b)): keep it, and
+keep "Powered by Nexo (https://github.com/R3n3r0/Nexo)" in the legal notices of the user interface. Organizations
+that cannot comply with the AGPL can buy a [commercial license](COMMERCIAL-LICENSE.md) from the copyright holder;
+contributions are accepted under the terms of [CONTRIBUTING.md](CONTRIBUTING.md). Archives, deb/rpm packages,
+container images and the Helm chart carry `LICENSE` (and `NOTICE` in archives and packages).

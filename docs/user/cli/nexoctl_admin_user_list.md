@@ -1,4 +1,4 @@
-## nexoctl admin user list
+# nexoctl admin user list
 
 List the users
 
@@ -6,19 +6,19 @@ List the users
 nexoctl admin user list ALIAS [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl admin user ls
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for list
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl admin user ls
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin user](nexoctl_admin_user.md)	 - Manage the IAM users
 

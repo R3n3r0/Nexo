@@ -1,8 +1,8 @@
-## nexoctl admin group remove
+# nexoctl admin group remove
 
 Remove members from a group, or the group itself
 
-### Synopsis
+## Synopsis
 
 Remove the named members from a group; without members, remove the group
 itself (its members lose the policies of the group).
@@ -11,19 +11,19 @@ itself (its members lose the policies of the group).
 nexoctl admin group remove ALIAS GROUP [MEMBER...] [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl admin group rm
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for remove
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -33,7 +33,7 @@ nexoctl admin group rm
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin group](nexoctl_admin_group.md)	 - Manage the IAM groups and their members
 

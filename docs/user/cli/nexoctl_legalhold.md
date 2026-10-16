@@ -1,8 +1,8 @@
-## nexoctl legalhold
+# nexoctl legalhold
 
 Manage the Object Lock legal hold of objects
 
-### Synopsis
+## Synopsis
 
 Manage the legal hold of object versions: a version under legal hold cannot be
 deleted, whatever its retention, until the hold is cleared. The bucket must have
@@ -12,13 +12,13 @@ been created with Object Lock ("nexoctl mb --with-lock").
 nexoctl legalhold [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for legalhold
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl legalhold [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 * [nexoctl legalhold clear](nexoctl_legalhold_clear.md)	 - Release the legal hold of objects

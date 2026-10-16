@@ -1,8 +1,8 @@
-## nexoctl dist behavior add
+# nexoctl dist behavior add
 
 Add a behavior for the paths of a pattern
 
-### Synopsis
+## Synopsis
 
 Add a behavior: how the paths of a pattern are served. The behaviors are evaluated
 in order and the first match wins; the fields a behavior does not set inherit
@@ -12,7 +12,7 @@ from the default behavior. The paths include their leading "/".
 nexoctl dist behavior add ALIAS ID (--prefix|--glob|--regex PATTERN) [--access A] [--cache-control CC] ... [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl dist behavior add local sito-web --glob '/assets/**' --cache-control 'public, max-age=31536000, immutable'
@@ -20,7 +20,7 @@ nexoctl dist behavior add ALIAS ID (--prefix|--glob|--regex PATTERN) [--access A
   nexoctl dist behavior add local sito-web --prefix /internal/ --access deny --position 1
 ```
 
-### Options
+## Options
 
 ```
       --access string          access: public, signed (URLs/cookies of --key-group), authenticated (SigV4) or deny
@@ -38,7 +38,7 @@ nexoctl dist behavior add ALIAS ID (--prefix|--glob|--regex PATTERN) [--access A
       --spa string             path served (200) instead of a missing object (single page application)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -48,7 +48,7 @@ nexoctl dist behavior add ALIAS ID (--prefix|--glob|--regex PATTERN) [--access A
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist behavior](nexoctl_dist_behavior.md)	 - Manage the behaviors per path of a distribution
 

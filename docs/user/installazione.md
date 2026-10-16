@@ -208,7 +208,7 @@ NEXO_TAG=v1.0.0 docker stack deploy -c stack.yml nexo
 
 ## Dai sorgenti
 
-Servono Go ≥ 1.26.9 (con `GOTOOLCHAIN=auto`, il default, una toolchain più vecchia scarica da sola quella di `go.mod`), Node.js 22 con npm e `make`:
+You need Go ≥ 1.27.2 (with `GOTOOLCHAIN=auto`, the default, an older toolchain downloads the one in `go.mod` by itself), Node.js 22 with npm, and `make`:
 
 ```bash
 git clone https://github.com/R3n3r0/Nexo.git && cd Nexo

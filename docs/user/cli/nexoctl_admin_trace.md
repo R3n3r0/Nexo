@@ -1,8 +1,8 @@
-## nexoctl admin trace
+# nexoctl admin trace
 
 Show the requests served by the server, live
 
-### Synopsis
+## Synopsis
 
 Show the requests served by every node of the deployment as they complete, one line
 per request: time, node, type, operation, status, duration, method and path (queries
@@ -18,7 +18,7 @@ Needs admin:ServerTrace (root, consoleAdmin, the diagnostics policy).
 nexoctl admin trace [flags] ALIAS
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin trace local
@@ -27,7 +27,7 @@ nexoctl admin trace [flags] ALIAS
   nexoctl admin trace --status 5xx,404 --node n1:9000 --json local
 ```
 
-### Options
+## Options
 
 ```
       --api strings             operations (PutObject, "GET /buckets")
@@ -42,7 +42,7 @@ nexoctl admin trace [flags] ALIAS
       --type strings            request types: s3, admin, web, rpc (default all but rpc)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -52,7 +52,7 @@ nexoctl admin trace [flags] ALIAS
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin](nexoctl_admin.md)	 - Administer a Nexo server (Admin API)
 

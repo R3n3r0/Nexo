@@ -1,4 +1,4 @@
-## nexoctl version enable
+# nexoctl version enable
 
 Enable the versioning of a bucket
 
@@ -6,13 +6,13 @@ Enable the versioning of a bucket
 nexoctl version enable ALIAS/BUCKET [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for enable
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl version enable ALIAS/BUCKET [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl version](nexoctl_version.md)	 - Print the nexoctl version, or manage bucket versioning
 

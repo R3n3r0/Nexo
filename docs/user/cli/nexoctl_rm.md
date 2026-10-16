@@ -1,8 +1,8 @@
-## nexoctl rm
+# nexoctl rm
 
 Remove objects, object versions and incomplete uploads
 
-### Synopsis
+## Synopsis
 
 Remove objects. In a versioned bucket removing an object adds a delete
 marker; --versions removes every version and delete marker, --version-id one
@@ -17,7 +17,7 @@ COMPLIANCE retentions and legal holds are never bypassed.
 nexoctl rm [flags] ALIAS/BUCKET/OBJECT...
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl rm local/logs/app.log
@@ -27,7 +27,7 @@ nexoctl rm [flags] ALIAS/BUCKET/OBJECT...
   nexoctl rm --incomplete --recursive --force local/uploads/
 ```
 
-### Options
+## Options
 
 ```
       --bypass              remove versions under a GOVERNANCE retention (s3:BypassGovernanceRetention)
@@ -42,7 +42,7 @@ nexoctl rm [flags] ALIAS/BUCKET/OBJECT...
       --versions            remove every version and delete marker
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -52,7 +52,7 @@ nexoctl rm [flags] ALIAS/BUCKET/OBJECT...
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 

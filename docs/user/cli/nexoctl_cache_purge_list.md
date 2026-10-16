@@ -1,4 +1,4 @@
-## nexoctl cache purge list
+# nexoctl cache purge list
 
 List the invalidations of a distribution (the global purges without DIST)
 
@@ -6,25 +6,25 @@ List the invalidations of a distribution (the global purges without DIST)
 nexoctl cache purge list ALIAS [DIST] [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl cache purge ls
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl cache purge ls local sito-web
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for list
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -34,7 +34,7 @@ nexoctl cache purge ls
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl cache purge](nexoctl_cache_purge.md)	 - Invalidate cached content
 

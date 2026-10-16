@@ -1,4 +1,4 @@
-## nexoctl dist cert set
+# nexoctl dist cert set
 
 Set the TLS certificate of the domains of a distribution
 
@@ -6,14 +6,14 @@ Set the TLS certificate of the domains of a distribution
 nexoctl dist cert set ALIAS ID (--auto | --none | --cert FILE --key FILE [--cert-id ID]) [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl dist cert set local sito-web --auto
   nexoctl dist cert set local sito-web --cert crt.pem --key key.pem
 ```
 
-### Options
+## Options
 
 ```
       --auto             obtain and renew the certificate with ACME
@@ -24,7 +24,7 @@ nexoctl dist cert set ALIAS ID (--auto | --none | --cert FILE --key FILE [--cert
       --none             no certificate (TLS terminated by a proxy)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -34,7 +34,7 @@ nexoctl dist cert set ALIAS ID (--auto | --none | --cert FILE --key FILE [--cert
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist cert](nexoctl_dist_cert.md)	 - Manage the TLS certificates of the domains of the distributions
 

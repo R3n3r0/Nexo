@@ -1,4 +1,4 @@
-## nexoctl admin config set
+# nexoctl admin config set
 
 Change settings of a subsystem (the other keys are kept)
 
@@ -6,19 +6,19 @@ Change settings of a subsystem (the other keys are kept)
 nexoctl admin config set ALIAS SUBSYSTEM KEY=VALUE... [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin config set local region name=eu-south-1 comment="Milan DC"
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for set
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl admin config set ALIAS SUBSYSTEM KEY=VALUE... [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin config](nexoctl_admin_config.md)	 - Read and change the dynamic configuration of the server
 

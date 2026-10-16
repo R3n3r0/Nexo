@@ -1,8 +1,8 @@
-## nexoctl cache stats
+# nexoctl cache stats
 
 Show the statistics of the cache
 
-### Synopsis
+## Synopsis
 
 Show the answers of the cache by X-Cache value, the hit ratio, the bytes served
 from the cache and from the origin, the entries and their size, per domain and
@@ -13,14 +13,14 @@ them every --interval until interrupted.
 nexoctl cache stats ALIAS [DIST] [--domain HOST] [--watch] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl cache stats local
   nexoctl cache stats local sito-web --domain www.example.com --watch
 ```
 
-### Options
+## Options
 
 ```
       --count int           with --watch, stop after this many reports (0: never)
@@ -31,7 +31,7 @@ nexoctl cache stats ALIAS [DIST] [--domain HOST] [--watch] [flags]
       --watch               refresh the statistics until interrupted
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -41,7 +41,7 @@ nexoctl cache stats ALIAS [DIST] [--domain HOST] [--watch] [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl cache](nexoctl_cache.md)	 - Manage the cache of the distributions
 

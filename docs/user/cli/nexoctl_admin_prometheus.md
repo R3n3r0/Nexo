@@ -1,14 +1,14 @@
-## nexoctl admin prometheus
+# nexoctl admin prometheus
 
 Integrate the metrics of the server with Prometheus
 
-### Options
+## Options
 
 ```
   -h, --help   help for prometheus
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -18,7 +18,7 @@ Integrate the metrics of the server with Prometheus
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin](nexoctl_admin.md)	 - Administer a Nexo server (Admin API)
 * [nexoctl admin prometheus generate](nexoctl_admin_prometheus_generate.md)	 - Generate the Prometheus scrape configuration of the server

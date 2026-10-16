@@ -1,8 +1,8 @@
-## nexoctl ilm
+# nexoctl ilm
 
 Manage the lifecycle rules of buckets (expiration, noncurrent versions, uploads)
 
-### Synopsis
+## Synopsis
 
 Manage the lifecycle (ILM) rules of buckets: the expiration of the objects, of
 their noncurrent versions and of the expired delete markers, and the abort of the
@@ -16,13 +16,13 @@ export/import), or as the S3 LifecycleConfiguration XML.
 nexoctl ilm [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for ilm
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -32,7 +32,7 @@ nexoctl ilm [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 * [nexoctl ilm apply](nexoctl_ilm_apply.md)	 - Apply the lifecycle rules of a bucket now (Admin API)

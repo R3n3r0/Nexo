@@ -1,8 +1,8 @@
-## nexoctl completion bash
+# nexoctl completion bash
 
 Generate the autocompletion script for bash
 
-### Synopsis
+## Synopsis
 
 Generate the autocompletion script for the bash shell.
 
@@ -15,11 +15,11 @@ To load completions in your current shell session:
 
 To load completions for every new session, execute once:
 
-#### Linux:
+### Linux:
 
 	nexoctl completion bash > /etc/bash_completion.d/nexoctl
 
-#### macOS:
+### macOS:
 
 	nexoctl completion bash > $(brew --prefix)/etc/bash_completion.d/nexoctl
 
@@ -30,14 +30,14 @@ You will need to start a new shell for this setup to take effect.
 nexoctl completion bash
 ```
 
-### Options
+## Options
 
 ```
   -h, --help              help for bash
       --no-descriptions   disable completion descriptions
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -47,7 +47,7 @@ nexoctl completion bash
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl completion](nexoctl_completion.md)	 - Generate the autocompletion script for the specified shell
 

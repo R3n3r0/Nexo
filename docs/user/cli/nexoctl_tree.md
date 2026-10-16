@@ -1,4 +1,4 @@
-## nexoctl tree
+# nexoctl tree
 
 Show the objects and prefixes as a tree
 
@@ -6,20 +6,20 @@ Show the objects and prefixes as a tree
 nexoctl tree [flags] TARGET...
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl tree -d local/photos
 ```
 
-### Options
+## Options
 
 ```
   -d, --dirs-only   show only the directories
   -h, --help        help for tree
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -29,7 +29,7 @@ nexoctl tree [flags] TARGET...
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 

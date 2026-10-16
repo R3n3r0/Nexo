@@ -1,8 +1,8 @@
-## nexoctl admin accesskey create
+# nexoctl admin accesskey create
 
 Create an access key (the secret key is printed only once)
 
-### Synopsis
+## Synopsis
 
 Create an access key for a user (by default the user of the alias). The secret
 key is generated unless --secret-key is given, and is printed only once: store
@@ -13,14 +13,14 @@ it immediately. --expiry accepts a duration (30d, 12h) or a date (RFC 3339 or
 nexoctl admin accesskey create [flags] ALIAS
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin accesskey create local --expiry 30d --policy photos-ro.json
   nexoctl admin accesskey create local --user alice --name ci --description "CI uploads"
 ```
 
-### Options
+## Options
 
 ```
       --access-key string    access key ID (default: generated)
@@ -33,7 +33,7 @@ nexoctl admin accesskey create [flags] ALIAS
       --user string          parent user of the key (default: the user of the alias)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -43,7 +43,7 @@ nexoctl admin accesskey create [flags] ALIAS
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin accesskey](nexoctl_admin_accesskey.md)	 - Manage the access keys (service accounts) of the users
 

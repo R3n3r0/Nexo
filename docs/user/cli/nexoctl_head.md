@@ -1,4 +1,4 @@
-## nexoctl head
+# nexoctl head
 
 Print the first lines of objects and files
 
@@ -6,13 +6,13 @@ Print the first lines of objects and files
 nexoctl head [flags] TARGET...
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl head -n 5 local/logs/app.log
 ```
 
-### Options
+## Options
 
 ```
       --enc-c stringArray        SSE-C key of the objects under a location: "ALIAS/BUCKET[/PREFIX]=BASE64KEY" (32 bytes; repeatable). Prefer --enc-c-file or NEXOCTL_ENC_C: a key in the arguments is visible to other local users and in the shell history
@@ -22,7 +22,7 @@ nexoctl head [flags] TARGET...
       --version-id string        print this version of the object
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -32,7 +32,7 @@ nexoctl head [flags] TARGET...
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 

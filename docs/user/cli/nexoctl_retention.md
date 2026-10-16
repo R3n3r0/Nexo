@@ -1,8 +1,8 @@
-## nexoctl retention
+# nexoctl retention
 
 Manage the Object Lock retention of objects and buckets
 
-### Synopsis
+## Synopsis
 
 Manage the Object Lock retention (S3 WORM) of object versions and the default
 retention of buckets. The bucket must have been created with Object Lock
@@ -17,13 +17,13 @@ deleted until it expires.
 nexoctl retention [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for retention
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -33,7 +33,7 @@ nexoctl retention [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 * [nexoctl retention clear](nexoctl_retention_clear.md)	 - Remove the retention of objects, or the default retention of a bucket

@@ -1,8 +1,8 @@
-## nexoctl dist keygroup
+# nexoctl dist keygroup
 
 Manage the key groups of the signed URLs and cookies
 
-### Synopsis
+## Synopsis
 
 Manage the key groups whose keys sign the URLs and cookies of the signed
 behaviors (--access signed --key-group ID). A group holds several keys, so that a
@@ -15,13 +15,13 @@ or in --key-out.
 nexoctl dist keygroup [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for keygroup
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -31,7 +31,7 @@ nexoctl dist keygroup [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist](nexoctl_dist.md)	 - Manage the distributions: custom domains of the buckets
 * [nexoctl dist keygroup create](nexoctl_dist_keygroup_create.md)	 - Create a key group with a first key pair

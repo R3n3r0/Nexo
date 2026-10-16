@@ -1,8 +1,8 @@
-## nexoctl diff
+# nexoctl diff
 
 List the differences between two directories or prefixes
 
-### Synopsis
+## Synopsis
 
 Compare two directories or prefixes by name, size and ETag:
   <  only in FIRST
@@ -13,19 +13,19 @@ Compare two directories or prefixes by name, size and ETag:
 nexoctl diff FIRST SECOND [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl diff ./site local/website
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for diff
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -35,7 +35,7 @@ nexoctl diff FIRST SECOND [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 

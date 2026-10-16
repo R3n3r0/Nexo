@@ -1,8 +1,8 @@
-## nexoctl share
+# nexoctl share
 
 Share objects with links that need no credentials
 
-### Synopsis
+## Synopsis
 
 Share objects with download and upload links that need no credentials.
 
@@ -18,13 +18,13 @@ locally. Every link expires after --expire (at most 7 days).
 nexoctl share [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for share
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -34,7 +34,7 @@ nexoctl share [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 * [nexoctl share download](nexoctl_share_download.md)	 - Generate download links (managed by default, --raw for presigned GET)

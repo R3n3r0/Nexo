@@ -1,8 +1,8 @@
-## nexoctl access export
+# nexoctl access export
 
 Export the access rules of a bucket as YAML
 
-### Synopsis
+## Synopsis
 
 Export the access rules of a bucket as a YAML document (bucket, rules) to FILE,
 or to the standard output without FILE (JSON with --json): the document of
@@ -12,19 +12,19 @@ or to the standard output without FILE (JSON with --json): the document of
 nexoctl access export ALIAS/BUCKET [FILE] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl access export local/media rules.yaml
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for export
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -34,7 +34,7 @@ nexoctl access export ALIAS/BUCKET [FILE] [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl access](nexoctl_access.md)	 - Manage the access rules of the buckets (prefix, glob, regex)
 

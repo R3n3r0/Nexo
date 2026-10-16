@@ -1,8 +1,8 @@
-## nexoctl retention info
+# nexoctl retention info
 
 Show the retention of objects, or the default retention of a bucket
 
-### Synopsis
+## Synopsis
 
 Show the retention of object versions, or with a bucket (or --default) the
 Object Lock configuration of the bucket and its default retention.
@@ -11,7 +11,7 @@ Object Lock configuration of the bucket and its default retention.
 nexoctl retention info [flags] ALIAS/BUCKET[/OBJECT|PREFIX]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl retention info local/vault/report.pdf
@@ -19,7 +19,7 @@ nexoctl retention info [flags] ALIAS/BUCKET[/OBJECT|PREFIX]
   nexoctl retention info local/vault
 ```
 
-### Options
+## Options
 
 ```
       --default             show the default retention of the bucket
@@ -29,7 +29,7 @@ nexoctl retention info [flags] ALIAS/BUCKET[/OBJECT|PREFIX]
       --versions            apply to every version instead of the latest one
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -39,7 +39,7 @@ nexoctl retention info [flags] ALIAS/BUCKET[/OBJECT|PREFIX]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl retention](nexoctl_retention.md)	 - Manage the Object Lock retention of objects and buckets
 

@@ -1,8 +1,8 @@
-## nexoctl admin kms reseal
+# nexoctl admin kms reseal
 
 Re-seal the data keys of the objects under the current master key
 
-### Synopsis
+## Synopsis
 
 Re-seal the data key of every SSE-S3 and SSE-KMS object under the current master
 key of the KMS, after a rotation of the master key (NEXO\_KMS\_SECRET\_KEY, the
@@ -13,21 +13,21 @@ every bucket is re-sealed, the previous master keys can be removed.
 nexoctl admin kms reseal ALIAS [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin kms reseal local
   nexoctl admin kms reseal local --bucket photos
 ```
 
-### Options
+## Options
 
 ```
       --bucket string   re-seal the objects of this bucket only
   -h, --help            help for reseal
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -37,7 +37,7 @@ nexoctl admin kms reseal ALIAS [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin kms](nexoctl_admin_kms.md)	 - Show the KMS of the server-side encryption and manage its keys
 

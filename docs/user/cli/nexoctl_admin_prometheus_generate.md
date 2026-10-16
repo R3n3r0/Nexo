@@ -1,8 +1,8 @@
-## nexoctl admin prometheus generate
+# nexoctl admin prometheus generate
 
 Generate the Prometheus scrape configuration of the server
 
-### Synopsis
+## Synopsis
 
 Print the scrape\_configs section of prometheus.yml that scrapes the metrics of the
 server of the alias (default: cluster) on its S3 endpoint, under /nexo/metrics/v1/:
@@ -23,7 +23,7 @@ NEXO\_PROMETHEUS\_AUTH\_TYPE=public the endpoints need no token: see --public.
 nexoctl admin prometheus generate [flags] ALIAS [cluster|node|bucket]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin prometheus generate local
@@ -32,7 +32,7 @@ nexoctl admin prometheus generate [flags] ALIAS [cluster|node|bucket]
   nexoctl admin prometheus generate --public local
 ```
 
-### Options
+## Options
 
 ```
       --expiry string   validity of the token: a duration (30d, 12h) or a date (2027-12-31, RFC 3339) (default "365d")
@@ -41,7 +41,7 @@ nexoctl admin prometheus generate [flags] ALIAS [cluster|node|bucket]
       --public          no bearer token: the endpoints of the server are public (NEXO_PROMETHEUS_AUTH_TYPE=public)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -51,7 +51,7 @@ nexoctl admin prometheus generate [flags] ALIAS [cluster|node|bucket]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin prometheus](nexoctl_admin_prometheus.md)	 - Integrate the metrics of the server with Prometheus
 

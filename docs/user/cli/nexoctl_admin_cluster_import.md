@@ -1,8 +1,8 @@
-## nexoctl admin cluster import
+# nexoctl admin cluster import
 
 Import an archive of "admin cluster export" (FILE, or - for stdin)
 
-### Synopsis
+## Synopsis
 
 Import an archive of "admin cluster export". The whole archive is validated first;
 --dry-run stops there and shows what the import would do. --mode merge (default) keeps
@@ -14,14 +14,14 @@ removed).
 nexoctl admin cluster import [flags] ALIAS FILE
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin cluster import cluster backup.zip --dry-run
   nexoctl admin cluster import cluster backup.zip
 ```
 
-### Options
+## Options
 
 ```
       --dry-run       validate the archive and show what would change, without importing
@@ -29,7 +29,7 @@ nexoctl admin cluster import [flags] ALIAS FILE
       --mode string   merge (keep what the archive does not hold) or replace (default "merge")
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -39,7 +39,7 @@ nexoctl admin cluster import [flags] ALIAS FILE
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin cluster](nexoctl_admin_cluster.md)	 - Export and import the state of a deployment (IAM, policies, configuration, bucket settings)
 

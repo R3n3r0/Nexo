@@ -1,4 +1,4 @@
-## nexoctl access rule
+# nexoctl access rule
 
 Add, list, show, remove and reorder the access rules of a bucket
 
@@ -6,13 +6,13 @@ Add, list, show, remove and reorder the access rules of a bucket
 nexoctl access rule [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for rule
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl access rule [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl access](nexoctl_access.md)	 - Manage the access rules of the buckets (prefix, glob, regex)
 * [nexoctl access rule add](nexoctl_access_rule_add.md)	 - Add an access rule to a bucket

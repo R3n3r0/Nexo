@@ -1,8 +1,8 @@
-## nexoctl completion powershell
+# nexoctl completion powershell
 
 Generate the autocompletion script for powershell
 
-### Synopsis
+## Synopsis
 
 Generate the autocompletion script for powershell.
 
@@ -18,14 +18,14 @@ to your powershell profile.
 nexoctl completion powershell [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help              help for powershell
       --no-descriptions   disable completion descriptions
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -35,7 +35,7 @@ nexoctl completion powershell [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl completion](nexoctl_completion.md)	 - Generate the autocompletion script for the specified shell
 

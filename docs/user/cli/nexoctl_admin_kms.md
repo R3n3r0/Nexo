@@ -1,8 +1,8 @@
-## nexoctl admin kms
+# nexoctl admin kms
 
 Show the KMS of the server-side encryption and manage its keys
 
-### Synopsis
+## Synopsis
 
 Show the KMS that seals the keys of the SSE-S3 and SSE-KMS objects (the builtin
 KMS of NEXO\_KMS\_SECRET\_KEY or an external KES server) and manage its keys: a
@@ -13,13 +13,13 @@ key created here is usable as SSE-KMS key ("nexoctl encrypt set sse-kms KEY",
 nexoctl admin kms [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for kms
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -29,7 +29,7 @@ nexoctl admin kms [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin](nexoctl_admin.md)	 - Administer a Nexo server (Admin API)
 * [nexoctl admin kms key](nexoctl_admin_kms_key.md)	 - Create and list the keys of the KMS

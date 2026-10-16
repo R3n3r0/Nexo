@@ -1,4 +1,4 @@
-## nexoctl cache policy
+# nexoctl cache policy
 
 Manage the reusable cache policies
 
@@ -6,13 +6,13 @@ Manage the reusable cache policies
 nexoctl cache policy [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for policy
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl cache policy [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl cache](nexoctl_cache.md)	 - Manage the cache of the distributions
 * [nexoctl cache policy create](nexoctl_cache_policy_create.md)	 - Define a cache policy

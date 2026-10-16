@@ -1,4 +1,4 @@
-## nexoctl admin policy entities
+# nexoctl admin policy entities
 
 List the users and groups a policy is attached to
 
@@ -6,13 +6,13 @@ List the users and groups a policy is attached to
 nexoctl admin policy entities ALIAS POLICY [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for entities
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl admin policy entities ALIAS POLICY [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin policy](nexoctl_admin_policy.md)	 - Manage the IAM policies (AWS policy language)
 

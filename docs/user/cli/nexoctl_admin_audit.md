@@ -1,8 +1,8 @@
-## nexoctl admin audit
+# nexoctl admin audit
 
 Search the audit log of the server
 
-### Synopsis
+## Synopsis
 
 Search the recent audit records kept in memory by every node of the deployment
 (the external audit targets keep the complete log: see "nexoctl admin config set
@@ -17,7 +17,7 @@ Needs admin:ConsoleLog (root, consoleAdmin, the diagnostics policy).
 nexoctl admin audit [flags] ALIAS
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin audit local
@@ -26,7 +26,7 @@ nexoctl admin audit [flags] ALIAS
   nexoctl admin audit --errors --status 403 --limit 1000 --json local
 ```
 
-### Options
+## Options
 
 ```
       --action string       operation (PutObject, DeleteObject, ...)
@@ -43,7 +43,7 @@ nexoctl admin audit [flags] ALIAS
       --user string         access key or parent user
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -53,7 +53,7 @@ nexoctl admin audit [flags] ALIAS
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin](nexoctl_admin.md)	 - Administer a Nexo server (Admin API)
 

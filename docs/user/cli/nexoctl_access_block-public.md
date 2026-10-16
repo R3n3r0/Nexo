@@ -1,8 +1,8 @@
-## nexoctl access block-public
+# nexoctl access block-public
 
 Block the public access of the cluster or of a bucket
 
-### Synopsis
+## Synopsis
 
 Block the access rules granting everyone ("\*"), on every bucket (ALIAS) or on
 one (ALIAS/BUCKET). In the reject mode (a setting of the cluster) such a rule
@@ -13,13 +13,13 @@ are accepted and ignored. Deny rules are never affected.
 nexoctl access block-public [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for block-public
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -29,7 +29,7 @@ nexoctl access block-public [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl access](nexoctl_access.md)	 - Manage the access rules of the buckets (prefix, glob, regex)
 * [nexoctl access block-public off](nexoctl_access_block-public_off.md)	 - Stop blocking the public access

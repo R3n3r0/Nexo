@@ -1,8 +1,8 @@
-## nexoctl cache inspect
+# nexoctl cache inspect
 
 Show how the cache serves a URL
 
-### Synopsis
+## Synopsis
 
 Show the cache key of a URL, the effective cache policy with the level each
 setting comes from, why the cache would be bypassed, and the entry on every
@@ -13,14 +13,14 @@ distribution (completed with its first domain).
 nexoctl cache inspect ALIAS URL [--dist DIST] [--header 'Name: value']... [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl cache inspect local https://www.example.com/assets/app.js
   nexoctl cache inspect local /assets/app.js --dist sito-web --header 'Accept-Encoding: br'
 ```
 
-### Options
+## Options
 
 ```
       --dist string          distribution of the URL (a path is completed with its first domain)
@@ -28,7 +28,7 @@ nexoctl cache inspect ALIAS URL [--dist DIST] [--header 'Name: value']... [flags
   -h, --help                 help for inspect
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -38,7 +38,7 @@ nexoctl cache inspect ALIAS URL [--dist DIST] [--header 'Name: value']... [flags
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl cache](nexoctl_cache.md)	 - Manage the cache of the distributions
 

@@ -1,4 +1,4 @@
-## nexoctl alias list
+# nexoctl alias list
 
 List aliases (secret keys are never shown)
 
@@ -6,19 +6,19 @@ List aliases (secret keys are never shown)
 nexoctl alias list [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl alias ls
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for list
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl alias ls
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl alias](nexoctl_alias.md)	 - Manage server aliases (saved in ~/.nexoctl/config.json)
 

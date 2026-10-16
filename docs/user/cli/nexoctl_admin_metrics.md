@@ -1,8 +1,8 @@
-## nexoctl admin metrics
+# nexoctl admin metrics
 
 Query the recent metrics kept by the server
 
-### Synopsis
+## Synopsis
 
 Query the series of metrics the nodes sample every 10 seconds and keep for 24 hours (the
 charts of the console): requests, errors, latencies, traffic, drives, healing, scanner,
@@ -11,13 +11,13 @@ complete metrics: see "nexoctl admin prometheus generate".
 
 Needs admin:Prometheus (root, consoleAdmin, the diagnostics policy).
 
-### Options
+## Options
 
 ```
   -h, --help   help for metrics
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -27,7 +27,7 @@ Needs admin:Prometheus (root, consoleAdmin, the diagnostics policy).
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin](nexoctl_admin.md)	 - Administer a Nexo server (Admin API)
 * [nexoctl admin metrics list](nexoctl_admin_metrics_list.md)	 - List the series of metrics

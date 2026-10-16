@@ -1,8 +1,8 @@
-## nexoctl access public set
+# nexoctl access public set
 
 Apply a public access preset to a bucket
 
-### Synopsis
+## Synopsis
 
 Apply a public access preset, implemented as access rules for everyone (their ids
 start with "preset-"; the other rules are kept):
@@ -17,14 +17,14 @@ start with "preset-"; the other rules are kept):
 nexoctl access public set private|public-read|public-read-list|public-prefix|public-write ALIAS/BUCKET [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl access public set public-read local/media
   nexoctl access public set public-prefix local/media --glob 'pub/**'
 ```
 
-### Options
+## Options
 
 ```
       --confirm         confirm public-write
@@ -35,7 +35,7 @@ nexoctl access public set private|public-read|public-read-list|public-prefix|pub
       --regex string    keys of public-prefix (and public-write): an RE2 regular expression
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -45,7 +45,7 @@ nexoctl access public set private|public-read|public-read-list|public-prefix|pub
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl access public](nexoctl_access_public.md)	 - Apply and show the public access presets of a bucket
 

@@ -1,4 +1,4 @@
-## nexoctl ilm rule remove
+# nexoctl ilm rule remove
 
 Remove lifecycle rules of a bucket
 
@@ -6,20 +6,20 @@ Remove lifecycle rules of a bucket
 nexoctl ilm rule remove --id ID... | --all ALIAS/BUCKET [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl ilm rule rm
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl ilm rule rm --id rule-1 local/app
   nexoctl ilm rule rm --all local/app
 ```
 
-### Options
+## Options
 
 ```
       --all          remove every rule (the lifecycle configuration)
@@ -27,7 +27,7 @@ nexoctl ilm rule rm
       --id strings   IDs of the rules to remove (repeatable or comma-separated)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -37,7 +37,7 @@ nexoctl ilm rule rm
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl ilm rule](nexoctl_ilm_rule.md)	 - Add, edit, list, remove, export and import lifecycle rules
 

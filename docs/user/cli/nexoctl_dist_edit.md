@@ -1,4 +1,4 @@
-## nexoctl dist edit
+# nexoctl dist edit
 
 Change the origin, the mode or the default behavior of a distribution
 
@@ -6,14 +6,14 @@ Change the origin, the mode or the default behavior of a distribution
 nexoctl dist edit ALIAS ID [--bucket B] [--prefix P] [--mode M] [--access A] [--index I] [--spa S] ... [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl dist edit local sito-web --prefix /v2 --cache-control 'public, max-age=300'
   nexoctl dist edit local sito-web --access signed --key-group rilasci
 ```
 
-### Options
+## Options
 
 ```
       --access string          access: public, signed (URLs/cookies of --key-group), authenticated (SigV4) or deny
@@ -31,7 +31,7 @@ nexoctl dist edit ALIAS ID [--bucket B] [--prefix P] [--mode M] [--access A] [--
       --spa string             path served (200) instead of a missing object (single page application)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -41,7 +41,7 @@ nexoctl dist edit ALIAS ID [--bucket B] [--prefix P] [--mode M] [--access A] [--
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist](nexoctl_dist.md)	 - Manage the distributions: custom domains of the buckets
 

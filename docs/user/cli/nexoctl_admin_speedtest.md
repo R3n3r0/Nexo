@@ -1,8 +1,8 @@
-## nexoctl admin speedtest
+# nexoctl admin speedtest
 
 Measure the drives, the object layer or the network between the nodes
 
-### Synopsis
+## Synopsis
 
 Run a speed test on the node that serves the Admin API of the alias and print the
 throughput of each phase (write, then read), the operations per second and the latencies:
@@ -21,14 +21,14 @@ outside of the peak hours.
 nexoctl admin speedtest [flags] ALIAS drive|object|net
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin speedtest local drive
   nexoctl admin speedtest --size 16MiB --duration 10s --concurrency 32 local object
 ```
 
-### Options
+## Options
 
 ```
       --concurrency int     concurrency of the object test and of the reads of the net test (default 8, at most 64)
@@ -37,7 +37,7 @@ nexoctl admin speedtest [flags] ALIAS drive|object|net
       --size string         size of each file or object (default 4MiB, at most 64MiB)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -47,7 +47,7 @@ nexoctl admin speedtest [flags] ALIAS drive|object|net
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin](nexoctl_admin.md)	 - Administer a Nexo server (Admin API)
 

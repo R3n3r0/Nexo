@@ -1,8 +1,8 @@
-## nexoctl cache policy export
+# nexoctl cache policy export
 
 Export the defined cache policies as YAML
 
-### Synopsis
+## Synopsis
 
 Export a defined cache policy (every defined policy without NAME, one YAML
 document each): the documents of "nexoctl cache policy import".
@@ -11,20 +11,20 @@ document each): the documents of "nexoctl cache policy import".
 nexoctl cache policy export ALIAS [NAME] [-o FILE] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl cache policy export local -o policies.yaml
 ```
 
-### Options
+## Options
 
 ```
   -h, --help            help for export
   -o, --output string   write the documents to this file
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -34,7 +34,7 @@ nexoctl cache policy export ALIAS [NAME] [-o FILE] [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl cache policy](nexoctl_cache_policy.md)	 - Manage the reusable cache policies
 

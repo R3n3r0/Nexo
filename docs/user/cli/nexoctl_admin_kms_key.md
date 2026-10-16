@@ -1,4 +1,4 @@
-## nexoctl admin kms key
+# nexoctl admin kms key
 
 Create and list the keys of the KMS
 
@@ -6,13 +6,13 @@ Create and list the keys of the KMS
 nexoctl admin kms key [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for key
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl admin kms key [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin kms](nexoctl_admin_kms.md)	 - Show the KMS of the server-side encryption and manage its keys
 * [nexoctl admin kms key create](nexoctl_admin_kms_key_create.md)	 - Create a key of the KMS

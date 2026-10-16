@@ -1,4 +1,4 @@
-## nexoctl admin lock list
+# nexoctl admin lock list
 
 List the locks held across the lock servers
 
@@ -6,19 +6,19 @@ List the locks held across the lock servers
 nexoctl admin lock list ALIAS [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl admin lock ls
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for list
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl admin lock ls
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin lock](nexoctl_admin_lock.md)	 - List and release the namespace locks of a cluster
 

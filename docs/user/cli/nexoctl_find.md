@@ -1,8 +1,8 @@
-## nexoctl find
+# nexoctl find
 
 Find objects and files by name, size and age
 
-### Synopsis
+## Synopsis
 
 Search the objects under a prefix (or the files under a local directory)
 recursively and print the matches, or run a command for each one with --exec
@@ -12,7 +12,7 @@ recursively and print the matches, or run a command for each one with --exec
 nexoctl find [flags] TARGET...
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl find local/logs --name "*.log" --older-than 1d
@@ -20,7 +20,7 @@ nexoctl find [flags] TARGET...
   nexoctl find local/logs --name "*.gz" --exec "nexoctl rm {}"
 ```
 
-### Options
+## Options
 
 ```
       --exec string         run a command for each match ("{}" is the path)
@@ -34,7 +34,7 @@ nexoctl find [flags] TARGET...
       --smaller string      only objects smaller than the size
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -44,7 +44,7 @@ nexoctl find [flags] TARGET...
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 

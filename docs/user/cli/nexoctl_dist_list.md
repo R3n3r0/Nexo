@@ -1,4 +1,4 @@
-## nexoctl dist list
+# nexoctl dist list
 
 List the distributions
 
@@ -6,25 +6,25 @@ List the distributions
 nexoctl dist list ALIAS [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl dist ls
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl dist ls local
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for list
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -34,7 +34,7 @@ nexoctl dist ls
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist](nexoctl_dist.md)	 - Manage the distributions: custom domains of the buckets
 

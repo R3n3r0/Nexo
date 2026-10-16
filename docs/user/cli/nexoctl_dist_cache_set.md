@@ -1,8 +1,8 @@
-## nexoctl dist cache set
+# nexoctl dist cache set
 
 Change the cache settings of a distribution, a domain or a path
 
-### Synopsis
+## Synopsis
 
 Change the cache settings of the distribution, or with --domain the override of
 one of its domains (an alias, exact or wildcard, or a host a wildcard alias
@@ -16,7 +16,7 @@ entries whose settings changed.
 nexoctl dist cache set ALIAS ID [--domain HOST | --behavior PATTERN] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl dist cache set local sito-web --policy standard
@@ -26,7 +26,7 @@ nexoctl dist cache set ALIAS ID [--domain HOST | --behavior PATTERN] [flags]
   nexoctl dist cache set local sito-web --behavior '/api/' --behavior-type prefix --disable
 ```
 
-### Options
+## Options
 
 ```
       --allow-type stringArray          media type cached (image/*; repeatable; none: every type)
@@ -72,7 +72,7 @@ nexoctl dist cache set ALIAS ID [--domain HOST | --behavior PATTERN] [flags]
       --warm-on-write stringArray       cache at once the objects written whose path matches this glob (repeatable)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -82,7 +82,7 @@ nexoctl dist cache set ALIAS ID [--domain HOST | --behavior PATTERN] [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist cache](nexoctl_dist_cache.md)	 - Manage the cache settings of a distribution, its domains and paths
 

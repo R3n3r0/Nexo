@@ -1,8 +1,8 @@
-## nexoctl admin heal
+# nexoctl admin heal
 
 Heal the drives of the server (erasure-coded deployments)
 
-### Synopsis
+## Synopsis
 
 Start a healing job on the whole server (the format of the drives and every
 bucket), a bucket or an object, or with --recursive on every object below the
@@ -20,7 +20,7 @@ some item could not be healed.
 nexoctl admin heal [flags] ALIAS[/BUCKET[/PREFIX]]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin heal --recursive --dry-run local/photos
@@ -29,7 +29,7 @@ nexoctl admin heal [flags] ALIAS[/BUCKET[/PREFIX]]
   nexoctl admin heal status local
 ```
 
-### Options
+## Options
 
 ```
       --background          start the job and print its id without waiting
@@ -41,7 +41,7 @@ nexoctl admin heal [flags] ALIAS[/BUCKET[/PREFIX]]
       --remove              delete the dangling objects found
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -51,7 +51,7 @@ nexoctl admin heal [flags] ALIAS[/BUCKET[/PREFIX]]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin](nexoctl_admin.md)	 - Administer a Nexo server (Admin API)
 * [nexoctl admin heal status](nexoctl_admin_heal_status.md)	 - Show a healing job, or list the running and recent ones

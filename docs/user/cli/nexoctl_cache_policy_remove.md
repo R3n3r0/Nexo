@@ -1,4 +1,4 @@
-## nexoctl cache policy remove
+# nexoctl cache policy remove
 
 Remove a defined cache policy no setting names
 
@@ -6,25 +6,25 @@ Remove a defined cache policy no setting names
 nexoctl cache policy remove ALIAS NAME [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl cache policy rm
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl cache policy rm local long
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for remove
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -34,7 +34,7 @@ nexoctl cache policy rm
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl cache policy](nexoctl_cache_policy.md)	 - Manage the reusable cache policies
 

@@ -1,8 +1,8 @@
-## nexoctl version
+# nexoctl version
 
 Print the nexoctl version, or manage bucket versioning
 
-### Synopsis
+## Synopsis
 
 Without arguments, print the version of nexoctl. The subcommands manage the
 versioning of buckets: enable, suspend, info.
@@ -11,13 +11,13 @@ versioning of buckets: enable, suspend, info.
 nexoctl version [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for version
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -27,7 +27,7 @@ nexoctl version [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 * [nexoctl version enable](nexoctl_version_enable.md)	 - Enable the versioning of a bucket

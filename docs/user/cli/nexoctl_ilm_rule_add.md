@@ -1,4 +1,4 @@
-## nexoctl ilm rule add
+# nexoctl ilm rule add
 
 Add a lifecycle rule to a bucket
 
@@ -6,7 +6,7 @@ Add a lifecycle rule to a bucket
 nexoctl ilm rule add [flags] ALIAS/BUCKET
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl ilm rule add --prefix logs/ --expire-days 30 local/app
@@ -14,7 +14,7 @@ nexoctl ilm rule add [flags] ALIAS/BUCKET
   nexoctl ilm rule add --abort-mpu-days 2 --expired-delete-marker local/docs
 ```
 
-### Options
+## Options
 
 ```
       --abort-mpu-days int           abort the incomplete multipart uploads this many days after their start
@@ -32,7 +32,7 @@ nexoctl ilm rule add [flags] ALIAS/BUCKET
       --tags string                  apply to the objects with these tags: "key1=value1&key2=value2"
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -42,7 +42,7 @@ nexoctl ilm rule add [flags] ALIAS/BUCKET
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl ilm rule](nexoctl_ilm_rule.md)	 - Add, edit, list, remove, export and import lifecycle rules
 

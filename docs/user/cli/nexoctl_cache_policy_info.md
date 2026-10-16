@@ -1,4 +1,4 @@
-## nexoctl cache policy info
+# nexoctl cache policy info
 
 Show a cache policy and the Cache-Control it sends
 
@@ -6,19 +6,19 @@ Show a cache policy and the Cache-Control it sends
 nexoctl cache policy info ALIAS NAME [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl cache policy info local aggressive
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for info
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl cache policy info ALIAS NAME [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl cache policy](nexoctl_cache_policy.md)	 - Manage the reusable cache policies
 

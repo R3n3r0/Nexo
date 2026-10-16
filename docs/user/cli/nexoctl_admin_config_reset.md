@@ -1,4 +1,4 @@
-## nexoctl admin config reset
+# nexoctl admin config reset
 
 Reset a subsystem, or some of its keys, to the defaults
 
@@ -6,13 +6,13 @@ Reset a subsystem, or some of its keys, to the defaults
 nexoctl admin config reset ALIAS SUBSYSTEM [KEY...] [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for reset
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl admin config reset ALIAS SUBSYSTEM [KEY...] [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin config](nexoctl_admin_config.md)	 - Read and change the dynamic configuration of the server
 

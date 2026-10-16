@@ -105,6 +105,8 @@ state pubblicate: la base dei test di aggiornamento è il commit di M7 (`224bb31
 - Toolchain Go 1.26.9 (`go.mod`, Dockerfile, CI) e golangci-lint v2.14.0; aggiornati `x/net` v0.60.0, `x/text`
   v0.42.0, pgx v5.9.2, OpenTelemetry v1.45.0, grpc v1.83.2, `klauspost/compress` v1.18.7, chi v5.3.0: `govulncheck`
   senza vulnerabilità raggiunte.
+- Go toolchain upgraded to 1.27.2 (`go.mod`, `golang:1.27.2-alpine` builder images in the Dockerfiles; CI reads
+  `go.mod`); golangci-lint v2.14.0 (built with Go 1.27) unchanged, no dependency changes required.
 - Il client RPC internodo usa l'HTTP/2 di `net/http` invece di `x/net/http2` (deprecato).
 - SIGHUP ricarica solo i certificati TLS; `POST /api/v1/service/restart` riavvia il processo in place.
 - Nuove azioni di policy `admin:Profiling` e `admin:Speedtest`, incluse nella policy predefinita `diagnostics`.
@@ -129,8 +131,13 @@ state pubblicate: la base dei test di aggiornamento è il commit di M7 (`224bb31
   interrotto.
 - `/nexo/health/cluster` riporta nodi, dischi, quorum di scrittura e manutenzione reali (S-OPS-03);
   `admin info` riporta oggetti e spazio usato dallo scanner.
-- Licenza Apache-2.0 (`LICENSE`) negli archivi, nei pacchetti deb/rpm, nelle immagini OCI e nel chart Helm (il
-  pacchetto del chart è verificato da `make helm-lint`).
+- License: Nexo is released under the GNU AGPL v3.0 only (`AGPL-3.0-only`, `LICENSE`) with additional attribution
+  terms under AGPL section 7(b) (`NOTICE`), and is also available under commercial licenses
+  (`COMMERCIAL-LICENSE.md`); contributions require the sign-off described in `CONTRIBUTING.md`. `LICENSE` ships in
+  archives, deb/rpm packages, OCI images and the Helm chart (the chart package is checked by `make helm-lint`);
+  `NOTICE` and `COMMERCIAL-LICENSE.md` ship in archives and `NOTICE` in the packages. The console shows the license,
+  the "Powered by Nexo" attribution and a link to the source code (AGPL section 13), and `nexo --version` and
+  `nexoctl --version` print the license.
 - Audit, metriche e trace riportano bucket e oggetto risolti come l'API S3, dai domini personalizzati e dai
   virtual host scritti con il punto finale (`bucket.s3.example.com.`); l'audit non registra le sonde di salute
   anonime né gli scrape anonimi riusciti delle metriche, ma registra sempre le richieste con credenziali (firma,

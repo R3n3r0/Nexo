@@ -1,8 +1,8 @@
-## nexoctl dist
+# nexoctl dist
 
 Manage the distributions: custom domains of the buckets
 
-### Synopsis
+## Synopsis
 
 Manage the distributions of a Nexo server (Admin API, admin:ManageDistributions):
 a bucket, or a prefix of it, exposed on custom domains as a website (index
@@ -17,13 +17,13 @@ A/AAAA) to the cluster or to the proxies in front of it.
 nexoctl dist [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for dist
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -33,7 +33,7 @@ nexoctl dist [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 * [nexoctl dist behavior](nexoctl_dist_behavior.md)	 - Manage the behaviors per path of a distribution

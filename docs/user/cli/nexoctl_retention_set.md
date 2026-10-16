@@ -1,4 +1,4 @@
-## nexoctl retention set
+# nexoctl retention set
 
 Set the retention of objects, or the default retention of a bucket
 
@@ -6,7 +6,7 @@ Set the retention of objects, or the default retention of a bucket
 nexoctl retention set --mode governance|compliance --validity 30d|1y [flags] ALIAS/BUCKET[/OBJECT|PREFIX]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl retention set --mode governance --validity 30d local/vault/report.pdf
@@ -14,7 +14,7 @@ nexoctl retention set --mode governance|compliance --validity 30d|1y [flags] ALI
   nexoctl retention set --default --mode governance --validity 7d local/vault
 ```
 
-### Options
+## Options
 
 ```
       --bypass              shorten a GOVERNANCE retention (s3:BypassGovernanceRetention)
@@ -27,7 +27,7 @@ nexoctl retention set --mode governance|compliance --validity 30d|1y [flags] ALI
       --versions            apply to every version instead of the latest one
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -37,7 +37,7 @@ nexoctl retention set --mode governance|compliance --validity 30d|1y [flags] ALI
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl retention](nexoctl_retention.md)	 - Manage the Object Lock retention of objects and buckets
 

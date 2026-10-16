@@ -1,4 +1,4 @@
-## nexoctl legalhold info
+# nexoctl legalhold info
 
 Show the legal hold of objects
 
@@ -6,7 +6,7 @@ Show the legal hold of objects
 nexoctl legalhold info [flags] ALIAS/BUCKET/OBJECT|PREFIX
 ```
 
-### Options
+## Options
 
 ```
   -h, --help                help for info
@@ -15,7 +15,7 @@ nexoctl legalhold info [flags] ALIAS/BUCKET/OBJECT|PREFIX
       --versions            apply to every version instead of the latest one
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -25,7 +25,7 @@ nexoctl legalhold info [flags] ALIAS/BUCKET/OBJECT|PREFIX
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl legalhold](nexoctl_legalhold.md)	 - Manage the Object Lock legal hold of objects
 

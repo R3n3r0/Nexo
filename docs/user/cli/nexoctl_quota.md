@@ -1,8 +1,8 @@
-## nexoctl quota
+# nexoctl quota
 
 Manage the hard quota of buckets (Admin API)
 
-### Synopsis
+## Synopsis
 
 Manage the hard quota of buckets: writes that would exceed it are refused.
 The quota is a setting of the Nexo Admin API (admin:SetBucketQuota).
@@ -11,13 +11,13 @@ The quota is a setting of the Nexo Admin API (admin:SetBucketQuota).
 nexoctl quota [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for quota
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -27,7 +27,7 @@ nexoctl quota [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 * [nexoctl quota clear](nexoctl_quota_clear.md)	 - Remove the quota of a bucket

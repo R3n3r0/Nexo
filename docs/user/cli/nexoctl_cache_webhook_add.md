@@ -1,8 +1,8 @@
-## nexoctl cache webhook add
+# nexoctl cache webhook add
 
 Add a purge webhook to a distribution
 
-### Synopsis
+## Synopsis
 
 Add a webhook purging a CDN or a proxy in front of the cluster on the
 invalidations of the distribution, manual and automatic (docs/11 §11.5), with
@@ -18,14 +18,14 @@ address or a network of --cache-webhook-allow.
 nexoctl cache webhook add ALIAS DIST --type TYPE [--id ID] [--domain HOST]... [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl cache webhook add local sito-web --domain static.example.it --type cloudflare --zone 0123abcd --token-file cf.token
   nexoctl cache webhook add local sito-web --type varnish --url http://varnish:6081 --id varnish
 ```
 
-### Options
+## Options
 
 ```
       --body-file string            body template of a generic webhook (Go text/template)
@@ -47,7 +47,7 @@ nexoctl cache webhook add ALIAS DIST --type TYPE [--id ID] [--domain HOST]... [f
       --zone string                 Cloudflare zone id, Fastly service id
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -57,7 +57,7 @@ nexoctl cache webhook add ALIAS DIST --type TYPE [--id ID] [--domain HOST]... [f
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl cache webhook](nexoctl_cache_webhook.md)	 - Manage the purge webhooks of a distribution
 
