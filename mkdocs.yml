@@ -1,6 +1,7 @@
 # Site of the user documentation (docs/user), built with MkDocs Material:
 #   make docs-site     # bin/site, mkdocs build --strict + the Admin API page
-# Requires: pip install mkdocs==1.6.1 mkdocs-material==9.7.7 (CI job "docs").
+# Requires: the pinned tools of docs/requirements.txt (make docs-tools
+# installs them in bin/docs-venv; the CI job "docs" uses the same file).
 # The pages are plain Markdown that renders on GitHub too: no Material-only
 # syntax (tabs, admonitions) in docs/user.
 site_name: Nexo

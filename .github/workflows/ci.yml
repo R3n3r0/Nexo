@@ -1186,10 +1186,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+          cache: pip
+          cache-dependency-path: docs/requirements.txt
 
       # The site of mkdocs.yml (docs/user): broken links, missing pages and
       # an invalid navigation fail the build.
+      # The versions are pinned in docs/requirements.txt (make docs-tools).
       - name: MkDocs build --strict
+        env:
+          NO_MKDOCS_2_WARNING: "1"
         run: |
-          python3 -m pip install --disable-pip-version-check mkdocs==1.6.1 mkdocs-material==9.7.7
+          python3 -m pip install --disable-pip-version-check -r docs/requirements.txt
           mkdocs build --strict -f mkdocs.yml -d "$RUNNER_TEMP/site"
