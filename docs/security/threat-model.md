@@ -130,8 +130,8 @@ in `--trusted-proxies`.
 
 `make security` esegue, con versioni fissate nel Makefile e nel workflow:
 
-- `govulncheck@v1.1.4 ./...`: vulnerabilità note **raggiunte dal codice** (moduli e libreria standard della
-  toolchain di `go.mod`);
+- `govulncheck@v1.8.0 ./...`: known vulnerabilities **reached by the code** (modules and standard library of the
+  `go.mod` toolchain; v1.8.0 is the first release whose `x/tools` analyzes Go 1.27 code);
 - `gosec@v2.29.0 -exclude-dir=web ./...`: pattern di codice insicuro; ogni falso positivo porta accanto un
   `// #nosec Gxxx -- motivo` (gosec ignora `//nolint`);
 - `npm audit --omit=dev --audit-level=moderate` in `web/`: dipendenze di produzione della dashboard.

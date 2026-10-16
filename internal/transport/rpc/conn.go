@@ -137,12 +137,14 @@ type conn struct {
 	// verifying is set while a broken exchange is being verified by a
 	// ping (suspect).
 	verifying atomic.Bool
-	mu        sync.Mutex
-	probing   bool
-	lastErr   string
-	stop      chan struct{}
-	wg        sync.WaitGroup
-	once      sync.Once
+	// mu guards probing and lastErr, and orders the background
+	// goroutines (wg.Add) before Close (closed, wg.Wait).
+	mu      sync.Mutex
+	probing bool
+	lastErr string
+	stop    chan struct{}
+	wg      sync.WaitGroup
+	once    sync.Once
 }
 
 var _ Conn = (*conn)(nil)
@@ -227,7 +229,11 @@ func (c *conn) IsOnline() bool { return c.online.Load() && !c.closed.Load() }
 // Close implements Conn.
 func (c *conn) Close(context.Context) error {
 	c.once.Do(func() {
+		// closed is set under mu, where suspect and trip check it before
+		// wg.Add: no goroutine is added once Wait may have started.
+		c.mu.Lock()
 		c.closed.Store(true)
+		c.mu.Unlock()
 		close(c.stop)
 		c.wg.Wait()
 		c.transport.CloseIdleConnections()
@@ -318,6 +324,8 @@ func unreachable(err error) bool {
 // ping after a broken exchange, and opens the circuit when it does not.
 // One verification runs at a time.
 func (c *conn) suspect(cause error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.closed.Load() || !c.online.Load() || !c.verifying.CompareAndSwap(false, true) {
 		return
 	}
