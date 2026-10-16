@@ -5,8 +5,8 @@
 | Dare un file (o una cartella) a qualcuno senza credenziali | share link gestito (`nexoctl share download`, console **Condividi**) | ✅ singolarmente |
 | Far caricare un file a qualcuno | share link di upload (`nexoctl share upload`), POST policy per form HTML | ✅ (PUT gestito) |
 | URL presigned S3 per qualsiasi metodo | `nexoctl presign`, `share … --raw`, SDK S3 | ❌ (scade e basta) |
-| Rendere pubblico un bucket o un prefisso | accesso anonimo (`nexoctl anonymous`) o [regole di accesso](regole-accesso.md) | ✅ |
-| Servire un sito o dei download su un dominio | [distribuzioni](../distribuzioni/README.md) | ✅ |
+| Rendere pubblico un bucket o un prefisso | accesso anonimo (`nexoctl anonymous`) o [regole di accesso](access-rules.md) | ✅ |
+| Servire un sito o dei download su un dominio | [distribuzioni](../distributions/README.md) | ✅ |
 
 ## Share link gestiti
 
@@ -130,7 +130,7 @@ stesse impostazioni sono nella scheda **Accesso** del bucket in console.
 
 ## Regole di accesso pubbliche e block public access
 
-Le [regole di accesso](regole-accesso.md) offrono preset pubblici più espressivi (glob e regex):
+Le [regole di accesso](access-rules.md) offrono preset pubblici più espressivi (glob e regex):
 
 ```bash
 nexoctl access public set public-read local/media

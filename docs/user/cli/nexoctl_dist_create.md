@@ -16,7 +16,7 @@ nexoctl dist create ALIAS ID --bucket BUCKET --domain DOMAIN... [--mode website|
 ## Examples
 
 ```
-  nexoctl dist create local sito-web --bucket web --prefix /prod --mode website \
+  nexoctl dist create local website --bucket web --prefix /prod --mode website \
       --domain www.example.com --domain example.com --index index.html --spa /index.html
 ```
 

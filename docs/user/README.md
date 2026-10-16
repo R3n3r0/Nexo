@@ -1,66 +1,68 @@
-# Documentazione utente di Nexo
+# Nexo user documentation
 
-**Nexo** è un object storage compatibile con l'API **Amazon S3**: un solo binario (`nexo`) contiene il
-server S3, l'Admin API e la console web; `nexoctl` è la CLI per i dati e l'amministrazione. Lo stesso
-binario gira su un singolo disco, su più dischi con erasure coding e in cluster multi-nodo.
+**Nexo** is an object store compatible with the **Amazon S3** API: a single binary (`nexo`) contains the
+S3 server, the Admin API and the web console; `nexoctl` is the CLI for data and administration. The same
+binary runs on a single drive, on multiple drives with erasure coding, and as a multi-node cluster.
 
-Questa guida è per chi installa, usa e gestisce Nexo. I documenti di progetto (architettura, roadmap,
-piano di test) sono in [`docs/`](https://github.com/R3n3r0/Nexo/tree/main/docs) del repository.
+This guide is for those who install, use and operate Nexo. The project documents (architecture, roadmap,
+test plan) are in [`docs/`](https://github.com/R3n3r0/Nexo/tree/main/docs) in the repository.
 
-## Da dove partire
+## Where to start
 
-| Se vuoi… | Leggi |
-|----------|-------|
-| provare Nexo in 5 minuti | [Quickstart](quickstart.md) |
-| installarlo su un server, in Docker o su Kubernetes | [Installazione](installazione.md) |
-| scegliere tra singolo disco, più dischi e cluster | [Modalità di deployment](modalita.md) |
-| conoscere ogni flag e variabile d'ambiente | [Configurazione](configurazione.md) |
+| If you want to… | Read |
+|-----------------|------|
+| try Nexo in 5 minutes | [Quickstart](quickstart.md) |
+| install it on a server, in Docker or on Kubernetes | [Installation](installation.md) |
+| choose between single drive, multiple drives and cluster | [Deployment modes](deployment-modes.md) |
+| look up every flag and environment variable | [Configuration](configuration.md) |
 
-## Guida operativa
+## Operations guide
 
-| Argomento | Pagina |
-|-----------|--------|
-| Health check, metriche Prometheus, Grafana, alert | [Monitoraggio](operazioni/monitoraggio.md) |
-| Trace e log live, audit log, OpenTelemetry | [Trace, log e audit](operazioni/trace-log-audit.md) |
-| Healing, sostituzione di un disco | [Healing e dischi](operazioni/healing-dischi.md) |
-| Aggiornamento rolling, espansione con un nuovo pool | [Aggiornamento ed espansione](operazioni/aggiornamento-espansione.md) |
-| Backup della configurazione, migrazione tra modalità | [Backup e migrazione](operazioni/backup-migrazione.md) |
-| Quorum, orologi sfasati, dischi lenti, permessi | [Risoluzione dei problemi](operazioni/troubleshooting.md) |
+| Topic | Page |
+|-------|------|
+| Health checks, Prometheus metrics, Grafana, alerts | [Monitoring](operations/monitoring.md) |
+| Live trace and logs, audit log, OpenTelemetry | [Trace, logs and audit](operations/trace-log-audit.md) |
+| Healing, replacing a drive | [Healing and disks](operations/healing-disks.md) |
+| Rolling upgrade, expansion with a new pool | [Upgrade and expansion](operations/upgrade-expansion.md) |
+| Configuration backup, migration between modes | [Backup and migration](operations/backup-migration.md) |
+| Quorum, clock skew, slow drives, permissions | [Troubleshooting](operations/troubleshooting.md) |
 
-## Sicurezza
+## Security
 
-| Argomento | Pagina |
-|-----------|--------|
-| Utenti, gruppi, policy (esempi pronti), access key, STS | [Utenti, policy e credenziali](sicurezza/utenti-policy.md) |
-| Share link, URL presigned, POST policy, accesso anonimo | [Condivisione e accesso anonimo](sicurezza/condivisione.md) |
-| Regole di accesso con prefix, glob e regex | [Regole di accesso](sicurezza/regole-accesso.md) |
-| TLS, certificati, mTLS tra i nodi | [TLS e certificati](sicurezza/tls.md) |
-| KMS, cifratura lato server, rotazione delle chiavi | [KMS e SSE](sicurezza/kms-sse.md) |
-| Minacce e mitigazioni | [Threat model](sicurezza/threat-model.md) |
+| Topic | Page |
+|-------|------|
+| Users, groups, policies (ready-made examples), access keys, STS | [Users, policies and credentials](security/users-policies.md) |
+| Share links, presigned URLs, POST policies, anonymous access | [Sharing and anonymous access](security/sharing.md) |
+| Access rules with prefix, glob and regex | [Access rules](security/access-rules.md) |
+| TLS, certificates, mTLS between nodes | [TLS and certificates](security/tls.md) |
+| KMS, server-side encryption, key rotation | [KMS and SSE](security/kms-sse.md) |
+| Threats and mitigations | [Threat model](security/threat-model.md) |
 
-## Funzionalità
+## Features
 
-| Argomento | Pagina |
-|-----------|--------|
-| Domini personalizzati, behavior, URL firmati, cache | [Distribuzioni e cache](distribuzioni/README.md) |
-| Sito statico su due domini dietro nginx con TLS ACME | [Tutorial: sito statico](distribuzioni/tutorial-sito-statico.md) |
-| Notifiche verso webhook e Kafka, regole di lifecycle | [Eventi e lifecycle](eventi-lifecycle.md) |
+| Topic | Page |
+|-------|------|
+| Custom domains, behaviors, signed URLs, cache | [Distributions and cache](distributions/README.md) |
+| Static site on two domains behind nginx with ACME TLS | [Tutorial: static site](distributions/tutorial-static-site.md) |
+| Notifications to webhooks and Kafka, lifecycle rules | [Events and lifecycle](events-lifecycle.md) |
 
-## Riferimenti
+## Reference
 
-| Riferimento | Pagina |
-|-------------|--------|
-| Tutti i comandi di `nexoctl` (generati dal codice) | [Reference CLI](riferimenti/cli.md) |
-| Admin API (`/api/v1`, OpenAPI 3.1) | [Reference Admin API](riferimenti/admin-api.md) |
-| API S3 supportate, differenze, risultati di `s3-tests` | [Compatibilità S3](riferimenti/compatibilita-s3.md) |
+| Reference | Page |
+|-----------|------|
+| All the `nexoctl` commands (generated from the code) | [CLI reference](reference/cli.md) |
+| Admin API (`/api/v1`, OpenAPI 3.1) | [Admin API reference](reference/admin-api.md) |
+| Supported S3 APIs, differences, `s3-tests` results | [S3 compatibility](reference/s3-compatibility.md) |
 
-## Convenzioni
+## Conventions
 
-- Gli esempi usano l'alias `local` (vedi [Quickstart](quickstart.md#4-configura-nexoctl)), l'utente root
-  `admin` e la password `supersegreta`: in produzione usa una password lunga e casuale.
-- Le porte di default sono **9000** (API S3, health, metriche, RPC tra i nodi) e **9001** (console e
+- The examples use the alias `local` (see [Quickstart](quickstart.md#4-configure-nexoctl)), the root user
+  `admin` and the password `supersecret`: in production use a long, random password.
+- The default ports are **9000** (S3 API, health, metrics, RPC between nodes) and **9001** (console and
   Admin API).
-- Le pagine indicano quando un comportamento dipende dalla modalità; in assenza di note vale per
-  **SNSD**, **SNMD** e **cluster**.
-- Il sito di questa documentazione si costruisce con `make docs-site` (MkDocs Material, vedi
-  [Reference CLI](riferimenti/cli.md#generare-la-documentazione)).
+- The pages say when a behavior depends on the mode; unless noted otherwise, it applies to
+  **SNSD**, **SNMD** and **cluster**.
+- The site of this documentation is built with `make docs-site` (MkDocs Material, see
+  [CLI reference](reference/cli.md#generating-the-documentation)).
+- Every page has an Italian translation next to it (`<page>.it.md`); on the site, use the language
+  selector.

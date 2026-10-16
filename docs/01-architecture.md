@@ -1,22 +1,22 @@
-# 1. Architettura
+# 1. Architecture
 
-## 1.1 Obiettivi
+## 1.1 Goals
 
-| Obiettivo | Descrizione |
-|-----------|-------------|
-| Compatibilità S3 | I client esistenti (aws-cli, aws-sdk-*, rclone, s3cmd, boto3, Terraform) funzionano senza modifiche. |
-| Semplicità operativa | Un binario statico, nessuna dipendenza esterna obbligatoria (niente DB, niente ZooKeeper/etcd). |
-| Durabilità | Erasure coding Reed-Solomon + protezione bitrot + healing automatico. |
-| Scalabilità orizzontale | Da 1 nodo / 1 disco a N pool di M nodi; espansione senza downtime. |
-| Gestione completa | Dashboard React e CLI coprono il 100% delle operazioni amministrative. |
-| Osservabilità | Metriche Prometheus, log strutturati, audit log, tracing OpenTelemetry. |
+| Goal | Description |
+|------|-------------|
+| S3 compatibility | Existing clients (aws-cli, aws-sdk-*, rclone, s3cmd, boto3, Terraform) work without changes. |
+| Operational simplicity | One static binary, no mandatory external dependency (no DB, no ZooKeeper/etcd). |
+| Durability | Reed-Solomon erasure coding + bitrot protection + automatic healing. |
+| Horizontal scalability | From 1 node / 1 disk to N pools of M nodes; expansion without downtime. |
+| Complete management | The React dashboard and the CLI cover 100% of the administrative operations. |
+| Observability | Prometheus metrics, structured logs, audit log, OpenTelemetry tracing. |
 
-### Non-obiettivi (v1)
-- Filesystem POSIX/NFS gateway.
-- Gateway verso altri cloud (Azure/GCS).
-- Compatibilità con API S3 deprecate rare (SigV2, BitTorrent, `SelectObjectContent` in v1 è opzionale).
+### Non-goals (v1)
+- POSIX/NFS filesystem gateway.
+- Gateway to other clouds (Azure/GCS).
+- Compatibility with rare deprecated S3 APIs (SigV2, BitTorrent; `SelectObjectContent` is optional in v1).
 
-## 1.2 Componenti
+## 1.2 Components
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -26,7 +26,7 @@
 │  │ S3 HTTP API  │  │  Admin API   │  │ Console (React SPA, go:embed)     │   │
 │  │  :9000       │  │  :9001/api   │  │ :9001/                            │   │
 │  └──────┬───────┘  └──────┬───────┘  └───────────────┬───────────────────┘   │
-│         │  SigV4          │ SigV4 / Session JWT      │ chiama Admin API       │
+│         │  SigV4          │ SigV4 / Session JWT      │ calls Admin API        │
 │  ┌──────▼─────────────────▼──────────────────────────▼───────────────────┐   │
 │  │ Middleware: request-id, tracing, rate limit, auth, audit, metrics      │   │
 │  └──────┬────────────────────────────────────────────────────────────────┘   │
@@ -35,76 +35,76 @@
 │  │ users/groups│  │  engine  │ │  store    │ │  notifier │ │            │    │
 │  └──────┬──────┘  └──────────┘ └───────────┘ └───────────┘ └────────────┘    │
 │  ┌──────▼────────────────────────────────────────────────────────────────┐   │
-│  │ ObjectLayer (interfaccia)                                             │   │
-│  │   ├─ ServerPools  ── seleziona pool (spazio libero / esistenza)        │   │
+│  │ ObjectLayer (interface)                                               │   │
+│  │   ├─ ServerPools  ── selects pool (free space / existence)            │   │
 │  │   │    └─ ErasureSets ── hash(key) → set                               │   │
 │  │   │         └─ ErasureObjects ── encode/decode RS, quorum, xl.meta     │   │
-│  │   └─ Servizi di background: Scanner, Healer, ILM, Replication, MRF     │   │
+│  │   └─ Background services: Scanner, Healer, ILM, Replication, MRF      │   │
 │  └──────┬────────────────────────────────────────────────────────────────┘   │
 │  ┌──────▼──────────────────────┐   ┌──────────────────────────────────────┐   │
-│  │ StorageAPI (interfaccia)    │   │ Lock: local + dsync (distribuito)    │   │
-│  │  ├─ xlStorage (disco locale)│   └──────────────────────────────────────┘   │
-│  │  └─ storageRESTClient (rete)│◀──── Internode RPC :9000/nexo/rpc (mTLS) ─▶   │
+│  │ StorageAPI (interface)      │   │ Lock: local + dsync (distributed)    │   │
+│  │  ├─ xlStorage (local disk)  │   └──────────────────────────────────────┘   │
+│  │  └─ storageRESTClient (net) │◀──── Internode RPC :9000/nexo/rpc (mTLS) ─▶   │
 │  └─────────────────────────────┘                                             │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Responsabilità
+### Responsibilities
 
-| Componente | Package | Responsabilità |
-|------------|---------|----------------|
-| S3 API | `internal/s3api` | Routing S3 (path-style e virtual-host), parsing/encoding XML, mapping errori S3. |
-| Auth | `internal/auth` | Verifica SigV4 (header, query presigned, streaming chunked `aws-chunked`, trailer checksum), POST policy. |
-| IAM | `internal/iam` | Utenti, gruppi, service account, policy, STS (AssumeRole, OIDC, LDAP in fasi successive). |
-| Policy | `internal/policy` | Valutazione policy IAM e bucket policy (formato AWS), condizioni, variabili `${aws:username}`. |
-| ObjectLayer | `internal/object` | API logica (PutObject, GetObject, ListObjects, Multipart, Versioni). |
-| Erasure | `internal/erasure` | Codifica Reed-Solomon (`klauspost/reedsolomon`), bitrot (HighwayHash256), quorum. |
-| Storage | `internal/storage` | Accesso a disco: `xl.meta` (msgpack), scrittura atomica (tmp + rename + fsync), O_DIRECT opzionale. |
-| Lock | `internal/dsync` | Lock locali e distribuiti a quorum con refresh e lease. |
-| Cluster | `internal/cluster` | Topologia, endpoint, bootstrap, health dei peer, notifiche peer. |
-| RPC | `internal/rpc` | Trasporto internode (HTTP/2 + msgpack, streaming), autenticazione JWT internode. |
-| Background | `internal/scanner`, `internal/heal`, `internal/ilm`, `internal/replication` | Scansione dati, usage, healing, lifecycle, replica. |
-| Events | `internal/event` | Notifiche bucket verso Webhook, Kafka, NATS, AMQP, Redis, PostgreSQL. |
-| Crypto | `internal/crypto`, `internal/kms` | SSE-S3, SSE-C, SSE-KMS; KMS interno o esterno (Vault/KES). |
-| Admin API | `internal/admin` | REST JSON per gestione (usata da CLI e dashboard). |
-| Console | `internal/console` + `web/` | Server SPA, sessioni, proxy verso Admin API, SSE/WebSocket per log e metriche live. |
+| Component | Package | Responsibility |
+|-----------|---------|----------------|
+| S3 API | `internal/s3api` | S3 routing (path-style and virtual-host), XML parsing/encoding, S3 error mapping. |
+| Auth | `internal/auth` | SigV4 verification (header, presigned query, `aws-chunked` streaming, checksum trailer), POST policy. |
+| IAM | `internal/iam` | Users, groups, service accounts, policies, STS (AssumeRole; OIDC and LDAP in later phases). |
+| Policy | `internal/policy` | Evaluation of IAM policies and bucket policies (AWS format), conditions, `${aws:username}` variables. |
+| ObjectLayer | `internal/object` | Logical API (PutObject, GetObject, ListObjects, Multipart, Versions). |
+| Erasure | `internal/erasure` | Reed-Solomon coding (`klauspost/reedsolomon`), bitrot (HighwayHash256), quorum. |
+| Storage | `internal/storage` | Disk access: `xl.meta` (msgpack), atomic writes (tmp + rename + fsync), optional O_DIRECT. |
+| Lock | `internal/dsync` | Local and distributed quorum locks with refresh and lease. |
+| Cluster | `internal/cluster` | Topology, endpoints, bootstrap, peer health, peer notifications. |
+| RPC | `internal/rpc` | Internode transport (HTTP/2 + msgpack, streaming), internode JWT authentication. |
+| Background | `internal/scanner`, `internal/heal`, `internal/ilm`, `internal/replication` | Data scanning, usage, healing, lifecycle, replication. |
+| Events | `internal/event` | Bucket notifications to Webhook, Kafka, NATS, AMQP, Redis, PostgreSQL. |
+| Crypto | `internal/crypto`, `internal/kms` | SSE-S3, SSE-C, SSE-KMS; internal or external KMS (Vault/KES). |
+| Admin API | `internal/admin` | REST JSON for management (used by the CLI and the dashboard). |
+| Console | `internal/console` + `web/` | SPA server, sessions, proxy to the Admin API, SSE/WebSocket for live logs and metrics. |
 | Metrics | `internal/metrics` | Prometheus `/nexo/metrics/v1/{cluster,node,bucket}`. |
-| Config | `internal/config` | Config dinamica (KV) memorizzata nel bucket di sistema `.nexo.sys`, più env/flag. |
-| CLI | `cmd/nexoctl`, `internal/cli` | Client S3 + admin, alias, output tabellare/JSON. |
+| Config | `internal/config` | Dynamic config (KV) stored in the `.nexo.sys` system bucket, plus env/flags. |
+| CLI | `cmd/nexoctl`, `internal/cli` | S3 + admin client, aliases, table/JSON output. |
 
-## 1.3 Stack tecnologico
+## 1.3 Technology stack
 
 ### Backend (Go ≥ 1.27)
-| Ambito | Scelta | Motivazione |
-|--------|--------|-------------|
-| HTTP | `net/http` + router leggero (`go-chi/chi` v5) | Prestazioni, controllo fine su streaming. |
-| Erasure coding | `github.com/klauspost/reedsolomon` | SIMD (AVX2/AVX512/NEON), standard de-facto. |
-| Hash bitrot | `github.com/minio/highwayhash` | Molto veloce, 256 bit. |
-| Serializzazione metadati | `github.com/tinylib/msgp` | Codegen, zero-alloc. |
-| Compressione | `github.com/klauspost/compress` (S2/zstd) | Compressione trasparente opzionale. |
-| Config/CLI | `spf13/cobra` + `spf13/pflag` | Standard per CLI Go. |
+| Area | Choice | Rationale |
+|------|--------|-----------|
+| HTTP | `net/http` + lightweight router (`go-chi/chi` v5) | Performance, fine-grained control over streaming. |
+| Erasure coding | `github.com/klauspost/reedsolomon` | SIMD (AVX2/AVX512/NEON), de facto standard. |
+| Bitrot hash | `github.com/minio/highwayhash` | Very fast, 256 bits. |
+| Metadata serialization | `github.com/tinylib/msgp` | Codegen, zero-alloc. |
+| Compression | `github.com/klauspost/compress` (S2/zstd) | Optional transparent compression. |
+| Config/CLI | `spf13/cobra` + `spf13/pflag` | Standard for Go CLIs. |
 | Log | `log/slog` (JSON) | Standard library. |
-| Metriche | `prometheus/client_golang` | Standard. |
-| Tracing | OpenTelemetry Go SDK | Interoperabilità. |
-| JWT | `golang-jwt/jwt/v5` | Sessioni console, token internode, STS. |
-| Crypto | `crypto/*` + `golang.org/x/crypto` (Argon2id, ChaCha20-Poly1305) | DARE format per SSE. |
+| Metrics | `prometheus/client_golang` | Standard. |
+| Tracing | OpenTelemetry Go SDK | Interoperability. |
+| JWT | `golang-jwt/jwt/v5` | Console sessions, internode tokens, STS. |
+| Crypto | `crypto/*` + `golang.org/x/crypto` (Argon2id, ChaCha20-Poly1305) | DARE format for SSE. |
 
 ### Frontend
-| Ambito | Scelta |
-|--------|--------|
+| Area | Choice |
+|------|--------|
 | Framework | React 19 + TypeScript (strict) |
 | Build | Vite |
 | Routing | React Router v7 (data router) |
 | Data fetching | TanStack Query |
-| UI | Mantine (componenti, tabelle, form, notifiche, tema chiaro/scuro) |
-| Tabelle grandi | TanStack Table + virtualizzazione (`@tanstack/react-virtual`) |
-| Grafici | Recharts |
-| Editor JSON policy | Monaco Editor (lazy-loaded) |
-| Upload | multipart client-side con presigned URL / upload via console API, chunk paralleli, resume |
+| UI | Mantine (components, tables, forms, notifications, light/dark theme) |
+| Large tables | TanStack Table + virtualization (`@tanstack/react-virtual`) |
+| Charts | Recharts |
+| Policy JSON editor | Monaco Editor (lazy-loaded) |
+| Upload | client-side multipart with presigned URLs / upload through the console API, parallel chunks, resume |
 | i18n | `i18next` (it, en) |
 | Test | Vitest, React Testing Library, MSW, Playwright, axe-core |
 
-### Embedding della dashboard in Go
+### Embedding the dashboard in Go
 
 ```go
 // web/embed.go
@@ -116,42 +116,42 @@ import "embed"
 var Dist embed.FS
 ```
 
-- `make build` esegue `npm ci && npm run build` in `web/`, poi `go build` con tag `-tags embedui`.
-- Senza il tag (sviluppo backend) viene usato uno stub che restituisce una pagina "console non inclusa".
-- Il server console:
-  - serve i file statici con `Cache-Control: public, max-age=31536000, immutable` per gli asset hashati;
-  - `index.html` con `no-cache` e header CSP con nonce;
-  - **fallback SPA**: ogni path non `/api/*` e non asset → `index.html`;
-  - compressione gzip/br pre-calcolata in fase di build (`vite-plugin-compression`).
-- In sviluppo: `vite dev` su `:5173` con proxy `/api` → `:9001`.
+- `make build` runs `npm ci && npm run build` in `web/`, then `go build` with the `-tags embedui` tag.
+- Without the tag (backend development) a stub serving a "console not included" page is used.
+- The console server:
+  - serves the static files with `Cache-Control: public, max-age=31536000, immutable` for the hashed assets;
+  - `index.html` with `no-cache` and a CSP header with a nonce;
+  - **SPA fallback**: every path that is neither `/api/*` nor an asset → `index.html`;
+  - gzip/br compression precomputed at build time (`vite-plugin-compression`).
+- In development: `vite dev` on `:5173` with a `/api` → `:9001` proxy.
 
-## 1.4 Layout del repository
+## 1.4 Repository layout
 
-> Il layout definitivo e la convenzione **interfaccia + implementazione per ogni servizio e per ogni gruppo di rotte** sono in [12 — Architettura a servizi](12-service-architecture.md), che prevale su questo schema.
+> The final layout and the **interface + implementation for every service and every route group** convention are in [12 — Service architecture](12-service-architecture.md), which takes precedence over this outline.
 
 ```
 nexo/
 ├── cmd/
-│   ├── nexo/              # main server
-│   ├── nexoctl/           # main CLI
-│   └── tools/traceability # strumento di sviluppo: matrice funzionalità → test (fuori dai rilasci)
+│   ├── nexo/              # server main
+│   ├── nexoctl/           # CLI main
+│   └── tools/traceability # development tool: feature → test matrix (not in releases)
 ├── internal/
 │   ├── admin/  auth/  cli/  cluster/  config/  console/  crypto/  dsync/
 │   ├── erasure/  event/  heal/  iam/  ilm/  kms/  metrics/  object/
 │   ├── policy/  replication/  rpc/  s3api/  scanner/  storage/
-│   ├── testutil/          # helper per test, server in-process, cluster fake
-│   └── tools/             # logica degli strumenti di sviluppo (es. traceability)
+│   ├── testutil/          # test helpers, in-process server, fake cluster
+│   └── tools/             # logic of the development tools (e.g. traceability)
 ├── pkg/
-│   └── nexoadmin/         # client Go pubblico dell'Admin API (usato da nexoctl)
-├── web/                   # dashboard React (Vite)
+│   └── nexoadmin/         # public Go client of the Admin API (used by nexoctl)
+├── web/                   # React dashboard (Vite)
 │   ├── src/  e2e/  public/
 │   └── embed.go
 ├── test/
-│   ├── integration/       # test con aws-sdk-go-v2 contro server reale
-│   ├── cluster/           # docker-compose + test di chaos
-│   ├── compat/            # runner s3-tests (Ceph) e mint
-│   ├── cli/               # script testscript (.txtar)
-│   └── TRACEABILITY.md    # matrice di tracciabilità generata (06 §6.8)
+│   ├── integration/       # tests with aws-sdk-go-v2 against a real server
+│   ├── cluster/           # docker-compose + chaos tests
+│   ├── compat/            # s3-tests (Ceph) and mint runners
+│   ├── cli/               # testscript scripts (.txtar)
+│   └── TRACEABILITY.md    # generated traceability matrix (06 §6.8)
 ├── deploy/
 │   ├── docker/  helm/  systemd/
 ├── docs/
@@ -159,50 +159,50 @@ nexo/
 └── go.mod                 # module github.com/r3n3r0/nexo
 ```
 
-## 1.5 Modello dei dati su disco
+## 1.5 On-disk data model
 
 ```
 /data1/
 ├── .nexo.sys/
-│   ├── format.json            # id deployment, id disco, posizione nel set, algoritmo
-│   ├── tmp/                   # scritture in corso (pulite all'avvio)
-│   ├── multipart/             # parti multipart in corso
-│   ├── buckets/<bucket>/      # metadati bucket (.metadata.bin: policy, versioning, lifecycle...)
-│   ├── config/                # config cluster, IAM (cifrati)
-│   └── healing.bin            # stato healing del disco
+│   ├── format.json            # deployment id, disk id, position in the set, algorithm
+│   ├── tmp/                   # writes in progress (cleaned at startup)
+│   ├── multipart/             # multipart parts in progress
+│   ├── buckets/<bucket>/      # bucket metadata (.metadata.bin: policy, versioning, lifecycle...)
+│   ├── config/                # cluster config, IAM (encrypted)
+│   └── healing.bin            # healing state of the disk
 └── <bucket>/
     └── <object-key>/
-        ├── xl.meta            # metadati di tutte le versioni (msgpack)
+        ├── xl.meta            # metadata of all the versions (msgpack)
         └── <data-dir-uuid>/
-            └── part.1         # shard erasure + checksum bitrot per blocco
+            └── part.1         # erasure shard + per-block bitrot checksum
 ```
 
-- **Oggetti piccoli (< 128 KiB)**: i dati sono inline in `xl.meta` per ridurre IOPS.
-- **xl.meta** contiene per ogni versione: version-id, mod-time, size, ETag, content-type, metadati utente,
-  layout erasure (data/parity, block size, indice shard, distribuzione), checksum, flag delete-marker,
-  stato replica, stato transizione ILM, chiavi SSE sigillate.
-- **Scritture atomiche**: dati in `.nexo.sys/tmp/<uuid>` → fsync → `RenameData` atomico in posizione finale
-  → aggiornamento `xl.meta`.
+- **Small objects (< 128 KiB)**: the data is inlined in `xl.meta` to reduce IOPS.
+- **xl.meta** holds for each version: version-id, mod-time, size, ETag, content-type, user metadata,
+  erasure layout (data/parity, block size, shard index, distribution), checksums, delete-marker flag,
+  replication state, ILM transition state, sealed SSE keys.
+- **Atomic writes**: data in `.nexo.sys/tmp/<uuid>` → fsync → atomic `RenameData` to the final location
+  → `xl.meta` update.
 
-## 1.6 Flusso di una PutObject (cluster)
+## 1.6 Flow of a PutObject (cluster)
 
-1. Middleware: request-id, verifica SigV4, valutazione policy (`s3:PutObject`).
-2. `ServerPools`: se l'oggetto esiste già in un pool → stesso pool; altrimenti pool con più spazio libero (pesato).
+1. Middleware: request-id, SigV4 verification, policy evaluation (`s3:PutObject`).
+2. `ServerPools`: if the object already exists in a pool → same pool; otherwise the pool with the most free space (weighted).
 3. `ErasureSets`: `set = sipHash(key, deploymentID) % numSets`.
-4. Lock distribuito di scrittura sul nome oggetto (quorum `n/2+1` dei nodi del set).
-5. Stream del body: blocchi da 1 MiB → encode RS (D data + P parity) → scrittura parallela sugli N dischi
-   (locali o via `storageRESTClient`), con hash bitrot per blocco.
-6. Commit: `RenameData` su tutti i dischi; successo se `≥ writeQuorum`. Dischi falliti → coda **MRF** per healing.
-7. Notifica evento `s3:ObjectCreated:Put`, audit log, metriche, eventuale replica asincrona.
+4. Distributed write lock on the object name (quorum `n/2+1` of the set's nodes).
+5. Body streaming: 1 MiB blocks → RS encode (D data + P parity) → parallel write to the N disks
+   (local or via `storageRESTClient`), with a per-block bitrot hash.
+6. Commit: `RenameData` on all the disks; success if `≥ writeQuorum`. Failed disks → **MRF** queue for healing.
+7. `s3:ObjectCreated:Put` event notification, audit log, metrics, asynchronous replication if configured.
 
-## 1.7 Decisioni architetturali (ADR sintetiche)
+## 1.7 Architecture decisions (short ADRs)
 
-| ADR | Decisione | Alternativa scartata | Motivo |
-|-----|-----------|----------------------|--------|
-| 001 | Nessun DB di metadati: i metadati vivono accanto ai dati (`xl.meta`) | etcd/Raft per metadati oggetti | Elimina un single point of failure e un collo di bottiglia; scala linearmente. |
-| 002 | Topologia statica a pool, espandibile aggiungendo pool | Consistent hashing dinamico con ribilanciamento | Prevedibilità, nessun ribilanciamento massivo; vedi [Cluster](03-cluster.md). |
-| 003 | IAM e config salvati come oggetti cifrati in `.nexo.sys` | DB esterno | Stessa durabilità dei dati, zero dipendenze. |
-| 004 | Admin API JSON separata dall'API S3 | Estensioni proprietarie dentro S3 | Separazione netta, versionabile (`/api/v1`). |
-| 005 | Dashboard embedded nel binario | Container separato | Deploy in un solo artefatto, versione UI sempre allineata al server. |
-| 006 | Console autentica con sessione (cookie HttpOnly + CSRF) emessa dopo login con access/secret key o OIDC | Secret key nel browser | Il segreto non resta mai nel browser. |
-| 007 | CLI usa SigV4 anche per l'Admin API | Token custom | Riutilizzo delle credenziali e della firma già implementata. |
+| ADR | Decision | Rejected alternative | Reason |
+|-----|----------|----------------------|--------|
+| 001 | No metadata DB: metadata lives next to the data (`xl.meta`) | etcd/Raft for object metadata | Removes a single point of failure and a bottleneck; scales linearly. |
+| 002 | Static pool topology, expandable by adding pools | Dynamic consistent hashing with rebalancing | Predictability, no massive rebalancing; see [Cluster](03-cluster.md). |
+| 003 | IAM and config stored as encrypted objects in `.nexo.sys` | External DB | Same durability as the data, zero dependencies. |
+| 004 | JSON Admin API separate from the S3 API | Proprietary extensions inside S3 | Clean separation, versionable (`/api/v1`). |
+| 005 | Dashboard embedded in the binary | Separate container | Deployment as a single artifact, UI version always aligned with the server. |
+| 006 | The console authenticates with a session (HttpOnly cookie + CSRF) issued after login with access/secret key or OIDC | Secret key in the browser | The secret never stays in the browser. |
+| 007 | The CLI uses SigV4 for the Admin API too | Custom token | Reuse of the credentials and of the signature already implemented. |

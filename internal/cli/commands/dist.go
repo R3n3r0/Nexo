@@ -198,7 +198,7 @@ func newDistCreateCmd(e *env) *cobra.Command {
 more domains, exact or wildcard (*.preview.example.com). The flags of the
 default behavior (--access, --index, --spa, --cache-control...) apply to every
 path the behaviors do not override (see "nexoctl dist behavior add").`,
-		Example: `  nexoctl dist create local sito-web --bucket web --prefix /prod --mode website \
+		Example: `  nexoctl dist create local website --bucket web --prefix /prod --mode website \
       --domain www.example.com --domain example.com --index index.html --spa /index.html`,
 		Args:              exactArgs(2),
 		ValidArgsFunction: completeAliasNames(e),
@@ -293,7 +293,7 @@ func newDistInfoCmd(e *env) *cobra.Command {
 	return &cobra.Command{
 		Use:               "info ALIAS ID",
 		Short:             "Show a distribution",
-		Example:           "  nexoctl dist info local sito-web",
+		Example:           "  nexoctl dist info local website",
 		Args:              exactArgs(2),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -409,8 +409,8 @@ func newDistEditCmd(e *env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "edit ALIAS ID [--bucket B] [--prefix P] [--mode M] [--access A] [--index I] [--spa S] ...",
 		Short: "Change the origin, the mode or the default behavior of a distribution",
-		Example: `  nexoctl dist edit local sito-web --prefix /v2 --cache-control 'public, max-age=300'
-  nexoctl dist edit local sito-web --access signed --key-group rilasci`,
+		Example: `  nexoctl dist edit local website --prefix /v2 --cache-control 'public, max-age=300'
+  nexoctl dist edit local website --access signed --key-group rilasci`,
 		Args:              exactArgs(2),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -472,7 +472,7 @@ func newDistRemoveCmd(e *env) *cobra.Command {
 		Use:               "remove ALIAS ID",
 		Aliases:           []string{"rm"},
 		Short:             "Remove a distribution",
-		Example:           "  nexoctl dist rm local sito-web",
+		Example:           "  nexoctl dist rm local website",
 		Args:              exactArgs(2),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -504,7 +504,7 @@ func newDistExportCmd(e *env) *cobra.Command {
 		Long: `Export a distribution (every distribution without ID, one YAML document each) to
 the standard output, or to FILE with --output: the documents of "nexoctl dist
 import", for the GitOps management of the distributions.`,
-		Example:           "  nexoctl dist export local sito-web -o sito-web.yaml\n  nexoctl dist export local > distributions.yaml",
+		Example:           "  nexoctl dist export local website -o website.yaml\n  nexoctl dist export local > distributions.yaml",
 		Args:              func(cmd *cobra.Command, args []string) error { return argsBetween(cmd, args, 1, 2) },
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -638,7 +638,7 @@ func newDistDomainCmd(e *env, add bool) *cobra.Command {
 		Use:               use,
 		Aliases:           aliases,
 		Short:             short,
-		Example:           "  nexoctl dist domain add local sito-web '*.preview.example.com'\n  nexoctl dist domain rm local sito-web example.com",
+		Example:           "  nexoctl dist domain add local website '*.preview.example.com'\n  nexoctl dist domain rm local website example.com",
 		Args:              minArgs(3),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -676,9 +676,9 @@ func newDistBehaviorAddCmd(e *env) *cobra.Command {
 		Long: `Add a behavior: how the paths of a pattern are served. The behaviors are evaluated
 in order and the first match wins; the fields a behavior does not set inherit
 from the default behavior. The paths include their leading "/".`,
-		Example: `  nexoctl dist behavior add local sito-web --glob '/assets/**' --cache-control 'public, max-age=31536000, immutable'
-  nexoctl dist behavior add local sito-web --regex '^/downloads/.*\.zip$' --access signed --key-group rilasci
-  nexoctl dist behavior add local sito-web --prefix /internal/ --access deny --position 1`,
+		Example: `  nexoctl dist behavior add local website --glob '/assets/**' --cache-control 'public, max-age=31536000, immutable'
+  nexoctl dist behavior add local website --regex '^/downloads/.*\.zip$' --access signed --key-group rilasci
+  nexoctl dist behavior add local website --prefix /internal/ --access deny --position 1`,
 		Args:              exactArgs(2),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -782,7 +782,7 @@ func newDistBehaviorMoveCmd(e *env) *cobra.Command {
 	return &cobra.Command{
 		Use:               "move ALIAS ID FROM TO",
 		Short:             "Move a behavior (1-based positions): the first match wins",
-		Example:           "  nexoctl dist behavior move local sito-web 3 1",
+		Example:           "  nexoctl dist behavior move local website 3 1",
 		Args:              exactArgs(4),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -810,7 +810,7 @@ func newDistErrorPageSetCmd(e *env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "set ALIAS ID STATUS PATH [--response-status N]",
 		Short:   "Answer an error status with a page of the distribution",
-		Example: "  nexoctl dist error-page set local sito-web 404 /404.html\n  nexoctl dist error-page set local sito-web 403 /404.html --response-status 404",
+		Example: "  nexoctl dist error-page set local website 404 /404.html\n  nexoctl dist error-page set local website 403 /404.html --response-status 404",
 		Args:    exactArgs(4),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			status, err := strconv.Atoi(args[2])
@@ -865,9 +865,9 @@ func newDistRedirectAddCmd(e *env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add ALIAS ID (--from RE --to TARGET | --host-from HOST --to-host HOST | --https-only) [--status N]",
 		Short: "Add a redirection (the first that applies wins)",
-		Example: `  nexoctl dist redirect add local sito-web --from '^/vecchio/(.*)$' --to '/nuovo/$1'
-  nexoctl dist redirect add local sito-web --host-from example.com --to-host www.example.com
-  nexoctl dist redirect add local sito-web --https-only`,
+		Example: `  nexoctl dist redirect add local website --from '^/old/(.*)$' --to '/new/$1'
+  nexoctl dist redirect add local website --host-from example.com --to-host www.example.com
+  nexoctl dist redirect add local website --https-only`,
 		Args: exactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			kinds := 0
@@ -942,8 +942,8 @@ func newDistHeadersCmd(e *env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "headers ALIAS ID [--set 'Name: value']... [--unset NAME]... [--security] [--cors-origin O]... [--no-cors]",
 		Short: "Set the response headers and the CORS policy of a distribution",
-		Example: `  nexoctl dist headers local sito-web --security
-  nexoctl dist headers local sito-web --set 'Cache-Control: no-cache' --cors-origin https://app.example.com --cors-method GET`,
+		Example: `  nexoctl dist headers local website --security
+  nexoctl dist headers local website --set 'Cache-Control: no-cache' --cors-origin https://app.example.com --cors-method GET`,
 		Args:              exactArgs(2),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1023,8 +1023,8 @@ func newDistRestrictCmd(e *env) *cobra.Command {
 behind the trusted proxies; --origin-secret-header requires the origin secret of
 the proxies in that header (generate the secret with "nexoctl dist origin-secret
 rotate"); --rate-limit is stored, not enforced yet.`,
-		Example: `  nexoctl dist restrict local sito-web --deny-ip 203.0.113.0/24
-  nexoctl dist restrict local sito-web --origin-secret-header X-Origin-Secret`,
+		Example: `  nexoctl dist restrict local website --deny-ip 203.0.113.0/24
+  nexoctl dist restrict local website --origin-secret-header X-Origin-Secret`,
 		Args:              exactArgs(2),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1088,7 +1088,7 @@ requests without one of the active secrets in the header are refused. The new
 secret is printed once (the server stores it hashed); the previous one stays
 active (--keep N, default 1) until the proxies are updated, then --drop-previous
 on the next rotation.`,
-		Example:           "  nexoctl dist origin-secret rotate local sito-web",
+		Example:           "  nexoctl dist origin-secret rotate local website",
 		Args:              exactArgs(2),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1131,7 +1131,7 @@ func newDistTestCmd(e *env) *cobra.Command {
 that matches (the first in order, or the default one) with its access, methods
 and cache, the object of the path, a redirection or a refusal, and the headers
 of the answer. A path is tested on https and the first exact domain.`,
-		Example:           "  nexoctl dist test local sito-web https://www.example.com/assets/app.js",
+		Example:           "  nexoctl dist test local website https://www.example.com/assets/app.js",
 		Args:              exactArgs(3),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {

@@ -21,7 +21,7 @@ nexoctl dist cache info
 ## Examples
 
 ```
-  nexoctl dist cache show local sito-web --path /assets/app.js
+  nexoctl dist cache show local website --path /assets/app.js
 ```
 
 ## Options

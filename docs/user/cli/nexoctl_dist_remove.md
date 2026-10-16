@@ -15,7 +15,7 @@ nexoctl dist rm
 ## Examples
 
 ```
-  nexoctl dist rm local sito-web
+  nexoctl dist rm local website
 ```
 
 ## Options

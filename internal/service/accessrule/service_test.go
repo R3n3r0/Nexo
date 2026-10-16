@@ -509,8 +509,8 @@ func TestParse(t *testing.T) {
 	yamlDoc := `
 bucket: media
 rules:
-  - id: immagini-pubbliche
-    priority: 10                 # ordine di valutazione
+  - id: public-images
+    priority: 10                 # evaluation order
     effect: allow
     principals: ["*"]
     actions: [read]
@@ -527,7 +527,7 @@ rules:
       timeWindow: { from: "2026-01-01T00:00:00Z", to: "2026-12-31T23:59:59Z" }
       methods: [GET, HEAD]
       headers: { "X-Origin-Secret": "${secret:proxy-token}" }
-  - id: blocca-privati
+  - id: block-private
     priority: 5
     effect: deny
     principals: ["*"]

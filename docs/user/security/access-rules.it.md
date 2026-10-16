@@ -166,4 +166,4 @@ rules:
 | `public-write` | scrittura anonima (richiede `--confirm`) |
 
 Il block public access (per bucket o cluster) rifiuta o ignora le regole con principale `*`: vedi
-[Condivisione e accesso anonimo](condivisione.md#regole-di-accesso-pubbliche-e-block-public-access).
+[Condivisione e accesso anonimo](sharing.md#regole-di-accesso-pubbliche-e-block-public-access).

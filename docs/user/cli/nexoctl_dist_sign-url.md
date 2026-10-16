@@ -18,9 +18,9 @@ nexoctl dist sign-url ALIAS ID PATH|URL --expire DURATION [--ip CIDR] [--cookie]
 ## Examples
 
 ```
-  nexoctl dist sign-url local sito-web /downloads/v1.zip --expire 1h
-  nexoctl dist sign-url local sito-web /downloads/v1.zip --expire 1h --ip 1.2.3.4
-  nexoctl dist sign-url local sito-web /premium/ --expire 12h --cookie --resource 'https://www.example.com/premium/*'
+  nexoctl dist sign-url local website /downloads/v1.zip --expire 1h
+  nexoctl dist sign-url local website /downloads/v1.zip --expire 1h --ip 1.2.3.4
+  nexoctl dist sign-url local website /premium/ --expire 12h --cookie --resource 'https://www.example.com/premium/*'
 ```
 
 ## Options

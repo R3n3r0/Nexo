@@ -9,7 +9,7 @@ nexoctl cache webhook test ALIAS DIST ID [flags]
 ## Examples
 
 ```
-  nexoctl cache webhook test local sito-web cloudflare
+  nexoctl cache webhook test local website cloudflare
 ```
 
 ## Options

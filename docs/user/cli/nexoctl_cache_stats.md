@@ -17,7 +17,7 @@ nexoctl cache stats ALIAS [DIST] [--domain HOST] [--watch] [flags]
 
 ```
   nexoctl cache stats local
-  nexoctl cache stats local sito-web --domain www.example.com --watch
+  nexoctl cache stats local website --domain www.example.com --watch
 ```
 
 ## Options

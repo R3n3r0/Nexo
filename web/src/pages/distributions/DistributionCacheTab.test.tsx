@@ -36,7 +36,7 @@ configure({ asyncUtilTimeout: 5_000 });
 describe('distribution cache tab', { timeout: 30_000 }, () => {
   // covers: D-CCH-02
   it('D-CCH-02 shows every domain with its effective policy, the level setting it, usage and hit ratio', async () => {
-    open('/distributions/sito-web/cache');
+    open('/distributions/website/cache');
     const www = await domainRow('www.example.com');
     expect(within(www).getByText('aggressive')).toBeInTheDocument();
     expect(within(www).getAllByText('domain')).toHaveLength(1);
@@ -64,7 +64,7 @@ describe('distribution cache tab', { timeout: 30_000 }, () => {
   // covers: D-CCH-02
   it('TD-C-01 overrides the policy of a domain and saves it with If-Match', async () => {
     const services = createMockServices({ initialAccessKey: 'nexoadmin' });
-    const { user } = open('/distributions/sito-web/cache', services);
+    const { user } = open('/distributions/website/cache', services);
     const apex = await domainRow('example.com');
     await user.click(
       within(apex).getByRole('button', { name: 'Override the cache of example.com' }),
@@ -88,13 +88,13 @@ describe('distribution cache tab', { timeout: 30_000 }, () => {
         screen.queryByRole('region', { name: 'Unsaved cache settings' }),
       ).not.toBeInTheDocument();
     });
-    const stored = await services.cache.getDistribution('sito-web');
+    const stored = await services.cache.getDistribution('website');
     expect(stored.domains).toContainEqual({
       host: 'example.com',
       cache: { policy: 'immutable-assets', quota: '5GiB' },
     });
     // The server applies it: the effective policy of the domain.
-    const effective = await services.cache.effective('sito-web', {
+    const effective = await services.cache.effective('website', {
       host: 'example.com',
       path: '/index.html',
     });
@@ -103,10 +103,10 @@ describe('distribution cache tab', { timeout: 30_000 }, () => {
 
   it('reports a concurrent change of the cache settings (412) and reloads them', async () => {
     const services = createMockServices({ initialAccessKey: 'nexoadmin' });
-    const { user } = open('/distributions/sito-web/cache', services);
+    const { user } = open('/distributions/website/cache', services);
     const apex = await domainRow('example.com');
     // Another console changes the settings meanwhile.
-    const current = await services.cache.getDistribution('sito-web');
+    const current = await services.cache.getDistribution('website');
     await services.cache.updateDistribution({ ...current, cache: { policy: 'aggressive' } });
     await user.click(
       within(apex).getByRole('button', { name: 'Override the cache of example.com' }),
@@ -125,7 +125,7 @@ describe('distribution cache tab', { timeout: 30_000 }, () => {
   });
 
   it('adds a path override and refuses an inverted TTL', async () => {
-    const { user } = open('/distributions/sito-web/cache');
+    const { user } = open('/distributions/website/cache');
     await screen.findByRole('table', { name: 'Paths' });
     await user.click(screen.getByRole('button', { name: 'Add a path override' }));
     const dialog = await screen.findByRole('dialog', { name: 'Add a path override' });
@@ -149,7 +149,7 @@ describe('distribution cache tab', { timeout: 30_000 }, () => {
 
   // covers: D-CCH-08
   it('D-CCH-08 charts the answers per domain of the distribution', async () => {
-    open('/distributions/sito-web/cache?section=statistics');
+    open('/distributions/website/cache?section=statistics');
     const domains = await screen.findByRole('table', { name: 'Domains' });
     expect(within(domains).getAllByRole('row')).toHaveLength(4);
     expect(await screen.findByText('Hit ratio per domain')).toBeInTheDocument();
@@ -161,7 +161,7 @@ describe('distribution cache tab', { timeout: 30_000 }, () => {
   // covers: D-CCH-07
   it('D-CCH-07 adds a purge webhook, tests it and removes it', async () => {
     const services = createMockServices({ initialAccessKey: 'nexoadmin' });
-    const { user } = open('/distributions/sito-web/cache?section=webhooks', services);
+    const { user } = open('/distributions/website/cache?section=webhooks', services);
     const section = await screen.findByRole('region', { name: 'Purge webhooks' });
     const table = await within(section).findByRole('table', { name: 'Purge webhooks' });
     expect(table).toHaveTextContent('cloudflare-www');
@@ -189,7 +189,7 @@ describe('distribution cache tab', { timeout: 30_000 }, () => {
     const confirm = await screen.findByRole('dialog', { name: 'Delete the webhook' });
     await user.click(within(confirm).getByRole('button', { name: 'Delete' }));
     await waitFor(async () => {
-      expect((await services.cache.webhooks('sito-web')).map((w) => w.id)).toEqual([
+      expect((await services.cache.webhooks('website')).map((w) => w.id)).toEqual([
         'cloudflare-www',
       ]);
     });
@@ -198,12 +198,12 @@ describe('distribution cache tab', { timeout: 30_000 }, () => {
   // covers: D-DST-08
   it('D-DST-08 invalidates a path of a domain from the distribution', async () => {
     const services = createMockServices({ initialAccessKey: 'nexoadmin', cacheSteps: 0 });
-    const { user } = open('/distributions/sito-web/cache?section=invalidations', services);
+    const { user } = open('/distributions/website/cache?section=invalidations', services);
     const form = await screen.findByRole('form', { name: 'Invalidate' });
     await user.type(within(form).getByRole('textbox', { name: 'Paths' }), '/index.html');
     await user.click(within(form).getByRole('switch', { name: /^Soft purge/ }));
     await user.click(within(form).getByRole('button', { name: 'Mark expired' }));
-    const history = await screen.findByRole('table', { name: 'History of sito-web' });
+    const history = await screen.findByRole('table', { name: 'History of website' });
     expect(history).toHaveTextContent('paths /index.html · soft');
     expect(within(history).getByLabelText('Completed: 4 of 4 nodes')).toBeInTheDocument();
   });

@@ -738,10 +738,10 @@ distribution. --soft marks the entries expired instead of dropping them. The
 purge webhooks of the domains are called too.
 
 "purge status" follows an invalidation, "purge list" lists the history.`,
-		Example: `  nexoctl cache purge local sito-web --domain www.example.com '/assets/**' --soft
-  nexoctl cache purge local sito-web --tag prodotto-42
-  nexoctl cache purge local sito-web --domain static.example.it --all
-  nexoctl cache purge local sito-web https://www.example.com/index.html --wait
+		Example: `  nexoctl cache purge local website --domain www.example.com '/assets/**' --soft
+  nexoctl cache purge local website --tag product-42
+  nexoctl cache purge local website --domain static.example.it --all
+  nexoctl cache purge local website https://www.example.com/index.html --wait
   nexoctl cache purge local --all`,
 		Args:              minArgs(1),
 		ValidArgsFunction: completeAliasNames(e),
@@ -817,7 +817,7 @@ func newCachePurgeListCmd(e *env) *cobra.Command {
 		Use:               "list ALIAS [DIST]",
 		Aliases:           []string{"ls"},
 		Short:             "List the invalidations of a distribution (the global purges without DIST)",
-		Example:           "  nexoctl cache purge ls local sito-web",
+		Example:           "  nexoctl cache purge ls local website",
 		Args:              func(cmd *cobra.Command, args []string) error { return argsBetween(cmd, args, 1, 2) },
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -938,7 +938,7 @@ setting comes from, why the cache would be bypassed, and the entry on every
 node (tier, age, freshness, size). With --dist, URL may be a path of the
 distribution (completed with its first domain).`,
 		Example: `  nexoctl cache inspect local https://www.example.com/assets/app.js
-  nexoctl cache inspect local /assets/app.js --dist sito-web --header 'Accept-Encoding: br'`,
+  nexoctl cache inspect local /assets/app.js --dist website --header 'Accept-Encoding: br'`,
 		Args:              exactArgs(2),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1092,8 +1092,8 @@ func newCacheWarmCmd(e *env) *cobra.Command {
 arguments or listed in a file (--from, one per line), every object below a path
 prefix (--prefix) or matching a pattern (--glob, --regex), with bounded
 concurrency and bandwidth. In the local mode every node warms its own cache.`,
-		Example: `  nexoctl cache warm local sito-web --domain www.example.com --from urls.txt --wait
-  nexoctl cache warm local sito-web --prefix /assets/ --bandwidth 20MiB`,
+		Example: `  nexoctl cache warm local website --domain www.example.com --from urls.txt --wait
+  nexoctl cache warm local website --prefix /assets/ --bandwidth 20MiB`,
 		Args:              minArgs(2),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1157,7 +1157,7 @@ func newCacheWarmStatusCmd(e *env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:               "status ALIAS DIST JOB [--wait]",
 		Short:             "Show the progress of a warm-up on every node",
-		Example:           "  nexoctl cache warm status local sito-web warm-18a2b3c4d5e6f-0a1b2c3d",
+		Example:           "  nexoctl cache warm status local website warm-18a2b3c4d5e6f-0a1b2c3d",
 		Args:              exactArgs(3),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1277,7 +1277,7 @@ from the cache and from the origin, the entries and their size, per domain and
 per node, with the most requested objects (docs/11 §11.8). --watch refreshes
 them every --interval until interrupted.`,
 		Example: `  nexoctl cache stats local
-  nexoctl cache stats local sito-web --domain www.example.com --watch`,
+  nexoctl cache stats local website --domain www.example.com --watch`,
 		Args:              func(cmd *cobra.Command, args []string) error { return argsBetween(cmd, args, 1, 2) },
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1376,8 +1376,8 @@ generic (--url and --body templates). Without --domain, the webhook purges the
 domains not bound to another webhook. Secrets may be ${secret:webhook-NAME}
 (NEXO_SECRET_WEBHOOK_NAME on the server); the endpoint must be a public
 address or a network of --cache-webhook-allow.`,
-		Example: `  nexoctl cache webhook add local sito-web --domain static.example.it --type cloudflare --zone 0123abcd --token-file cf.token
-  nexoctl cache webhook add local sito-web --type varnish --url http://varnish:6081 --id varnish`,
+		Example: `  nexoctl cache webhook add local website --domain static.example.it --type cloudflare --zone 0123abcd --token-file cf.token
+  nexoctl cache webhook add local website --type varnish --url http://varnish:6081 --id varnish`,
 		Args:              exactArgs(2),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1447,7 +1447,7 @@ func newCacheWebhookListCmd(e *env) *cobra.Command {
 		Use:               "list ALIAS DIST",
 		Aliases:           []string{"ls"},
 		Short:             "List the purge webhooks of a distribution",
-		Example:           "  nexoctl cache webhook ls local sito-web",
+		Example:           "  nexoctl cache webhook ls local website",
 		Args:              exactArgs(2),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1483,7 +1483,7 @@ func newCacheWebhookRemoveCmd(e *env) *cobra.Command {
 		Use:               "remove ALIAS DIST ID",
 		Aliases:           []string{"rm"},
 		Short:             "Remove a purge webhook",
-		Example:           "  nexoctl cache webhook rm local sito-web cloudflare",
+		Example:           "  nexoctl cache webhook rm local website cloudflare",
 		Args:              exactArgs(3),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1505,7 +1505,7 @@ func newCacheWebhookTestCmd(e *env) *cobra.Command {
 	return &cobra.Command{
 		Use:               "test ALIAS DIST ID",
 		Short:             "Call a purge webhook once (connection test)",
-		Example:           "  nexoctl cache webhook test local sito-web cloudflare",
+		Example:           "  nexoctl cache webhook test local website cloudflare",
 		Args:              exactArgs(3),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {

@@ -16,8 +16,8 @@ nexoctl dist restrict ALIAS ID [--allow-ip CIDR]... [--deny-ip CIDR]... [--origi
 ## Examples
 
 ```
-  nexoctl dist restrict local sito-web --deny-ip 203.0.113.0/24
-  nexoctl dist restrict local sito-web --origin-secret-header X-Origin-Secret
+  nexoctl dist restrict local website --deny-ip 203.0.113.0/24
+  nexoctl dist restrict local website --origin-secret-header X-Origin-Secret
 ```
 
 ## Options

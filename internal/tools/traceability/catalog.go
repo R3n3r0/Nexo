@@ -32,7 +32,7 @@ func DetailPaths() []string {
 type Feature struct {
 	// Code is the feature code (S-OBJ-06, D-ACC-02, C-ADM-08).
 	Code string
-	// Area is the section of the catalog ("Server — Oggetti", "Dashboard").
+	// Area is the section of the catalog ("Server — Objects", "Dashboard").
 	Area string
 	// Name is the description of the feature.
 	Name string
@@ -186,14 +186,16 @@ func ParseCatalog(r io.Reader, details map[string]string) ([]Feature, error) {
 }
 
 // headingTitle drops the number of a section and its cross references
-// ("2.1 Server" → "Server", "Cache (vedi [11](...))" → "Cache").
+// ("2.1 Server" → "Server", "Cache (see [11](...))" → "Cache").
 func headingTitle(s string) string {
 	s = strings.TrimSpace(s)
 	if i := strings.IndexByte(s, ' '); i > 0 && strings.Trim(s[:i], "0123456789.") == "" {
 		s = s[i+1:]
 	}
-	if i := strings.Index(s, " (vedi "); i > 0 {
-		s = s[:i]
+	for _, ref := range []string{" (see ", " (vedi "} {
+		if i := strings.Index(s, ref); i > 0 {
+			s = s[:i]
+		}
 	}
 	return strings.TrimSpace(s)
 }

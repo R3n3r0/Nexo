@@ -70,10 +70,10 @@ func TestAccessRulesS3(t *testing.T) {
 		e.put("media", key, []byte("content of "+key))
 	}
 	e.putRules("media",
-		arRule("immagini-pubbliche", 10, accessrule.EffectAllow, arList("*"), arList("read"),
+		arRule("public-images", 10, accessrule.EffectAllow, arList("*"), arList("read"),
 			&match.Pattern{Type: match.TypeRegex, Pattern: `^img/[0-9]{4}/.*\.(jpe?g|png|webp)$`, CaseInsensitive: true}, nil),
-		arRule("blocca-privati", 5, accessrule.EffectDeny, arList("*"), arList("all"), &match.Pattern{Type: match.TypeGlob, Pattern: "**/private/**"}, nil),
-		arRule("blocca-citta", 6, accessrule.EffectDeny, arList("*"), arList("all"), &match.Pattern{Type: match.TypePrefix, Pattern: "città/"}, nil),
+		arRule("block-private", 5, accessrule.EffectDeny, arList("*"), arList("all"), &match.Pattern{Type: match.TypeGlob, Pattern: "**/private/**"}, nil),
+		arRule("block-citta", 6, accessrule.EffectDeny, arList("*"), arList("all"), &match.Pattern{Type: match.TypePrefix, Pattern: "città/"}, nil),
 		arRule("home", 20, accessrule.EffectAllow, arList("*"), arList("all"), &match.Pattern{Type: match.TypeRegex, Pattern: `^home/(?P<user>[^/]+)/`},
 			&accessrule.Conditions{CaptureEquals: map[string]string{"user": "${aws:username}"}}),
 	)
@@ -149,7 +149,7 @@ func TestAccessRulesS3(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, res.Results[0].Allowed)
 	assert.False(t, res.Results[1].Allowed)
-	assert.Equal(t, "blocca-privati", res.Results[1].Determinant)
+	assert.Equal(t, "block-private", res.Results[1].Determinant)
 }
 
 // TestAccessRulesBehindProxies covers TAR-07 and TDS-08 end to end: the

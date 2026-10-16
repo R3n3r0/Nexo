@@ -1,5 +1,5 @@
-// Package share manages revocable share links (docs/09 §9.1 "Revoca dei
-// link condivisi"). A presigned SigV4 URL cannot be revoked on its own, so
+// Package share manages revocable share links (docs/09 §9.1 "Revoking shared
+// links"). A presigned SigV4 URL cannot be revoked on its own, so
 // every managed link is signed by a dedicated service account "share-<id>",
 // child of the user who shares, whose inline policy allows only the shared
 // action (s3:GetObject or s3:PutObject) on the shared object or prefix and

@@ -123,8 +123,8 @@ Configurazioni pronte per nginx, Caddy, Traefik, HAProxy e Cloudflare sono in
 
 ## Certificati dei domini delle distribuzioni
 
-I domini personalizzati delle [distribuzioni](../distribuzioni/README.md) hanno certificati propri,
+I domini personalizzati delle [distribuzioni](../distributions/README.md) hanno certificati propri,
 caricati (`nexoctl dist cert set … --cert … --key …`) o ottenuti automaticamente via ACME
 (`nexoctl dist cert set … --auto`), salvati cifrati e distribuiti a tutti i nodi; in cluster il rinnovo è
 eseguito da un solo nodo. Sono presentati per SNI solo per gli alias delle distribuzioni abilitate che li
-usano. Vedi il [tutorial](../distribuzioni/tutorial-sito-statico.md).
+usano. Vedi il [tutorial](../distributions/tutorial-static-site.md).

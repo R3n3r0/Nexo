@@ -16,7 +16,7 @@ nexoctl dist test ALIAS ID URL|PATH [--method M] [--ip IP] [flags]
 ## Examples
 
 ```
-  nexoctl dist test local sito-web https://www.example.com/assets/app.js
+  nexoctl dist test local website https://www.example.com/assets/app.js
 ```
 
 ## Options

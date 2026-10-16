@@ -40,8 +40,8 @@ upload incompleti), notifiche degli eventi, CORS, quote (estensione di Nexo).
 ### Non supportate
 
 Rispondono `501 NotImplemented`: website del bucket (`?website`, al suo posto ci sono le
-[distribuzioni](../distribuzioni/README.md)), `PublicAccessBlock` (al suo posto il
-[block public access](../sicurezza/condivisione.md#regole-di-accesso-pubbliche-e-block-public-access) di
+[distribuzioni](../distributions/README.md)), `PublicAccessBlock` (al suo posto il
+[block public access](../security/sharing.md#regole-di-accesso-pubbliche-e-block-public-access) di
 Nexo), replica (`?replication`), server access logging, accelerate, analytics, inventory, metrics,
 intelligent tiering, ownership controls, request payment, `RestoreObject`, `SelectObjectContent`,
 `GetObjectTorrent`. Le transizioni di lifecycle verso altre classi di storage sono rifiutate. Sono previste
@@ -60,7 +60,7 @@ dopo la v1.0: ACL complete, replica tra cluster, tiering verso S3 remoto, `Assum
 | Notifiche | Record nel formato S3 con `eventSource` `nexo:s3`; il payload aggiunge `EventName` e `Key` al primo livello (come MinIO); le modifiche di retention e legal hold non generano eventi, come in S3 |
 | Download lenti | Un client che smette di leggere il corpo di una GET per più di 20 s (`NEXO_SEND_TIMEOUT`) vede la risposta interrotta (su HTTP/2 viene chiusa la connessione che non accetta più byte); un client che legge con regolarità non viene interrotto, anche con molti stream HTTP/2 sulla stessa connessione purché questa riceva almeno circa 40 KB/s |
 | Errori specifici | `XNexoQuotaExceeded` e `XNexoStorageFull` (507), `XNexoParentIsObject` e `XNexoObjectExistsAsDirectory` (400); un set senza quorum risponde `503 SlowDownWrite`/`SlowDownRead` (`XNexoLockTimeout` se non ottiene il lock, `ServiceUnavailable` per un disco o nodo offline); gli SDK ritentano i `503`, `SlowDown` resta per le richieste rallentate |
-| Block public access | Agisce sulle regole di accesso e sulle distribuzioni, non sulle bucket policy anonime (vedi [Condivisione](../sicurezza/condivisione.md)) |
+| Block public access | Agisce sulle regole di accesso e sulle distribuzioni, non sulle bucket policy anonime (vedi [Condivisione](../security/sharing.md)) |
 
 Per il resto le risposte seguono S3 anche nei dettagli che gli SDK controllano: per esempio nessun
 `x-amz-version-id` per la versione `null`, `If-Match` su chiave assente → 404 `NoSuchKey`, `partNumber` oltre

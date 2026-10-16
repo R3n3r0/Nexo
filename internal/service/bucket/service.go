@@ -59,7 +59,7 @@ type Metadata struct {
 	// parsed and evaluated by the accessrule package; nil when never set.
 	AccessRules *AccessRules `json:"accessRules,omitempty"`
 	// BlockPublicAccess blocks the access rules granting everyone ("*")
-	// on this bucket (docs/10 §10.1, Protezioni globali).
+	// on this bucket (docs/10 §10.1, Global protections).
 	BlockPublicAccess bool      `json:"blockPublicAccess,omitempty"`
 	UpdatedAt         time.Time `json:"updatedAt"`
 }

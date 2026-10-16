@@ -2068,7 +2068,7 @@ export interface paths {
         /**
          * Create a key group
          * @description With `generateKey`, its first key pair is generated: the private key is in the
-         *     answer once and never stored (docs/10: "scaricabile una sola volta").
+         *     answer once and never stored (docs/10: "downloadable only once").
          */
         post: operations["createKeyGroup"];
         delete?: never;

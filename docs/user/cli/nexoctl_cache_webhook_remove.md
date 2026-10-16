@@ -15,7 +15,7 @@ nexoctl cache webhook rm
 ## Examples
 
 ```
-  nexoctl cache webhook rm local sito-web cloudflare
+  nexoctl cache webhook rm local website cloudflare
 ```
 
 ## Options

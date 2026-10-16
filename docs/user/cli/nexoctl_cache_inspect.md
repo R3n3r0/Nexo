@@ -17,7 +17,7 @@ nexoctl cache inspect ALIAS URL [--dist DIST] [--header 'Name: value']... [flags
 
 ```
   nexoctl cache inspect local https://www.example.com/assets/app.js
-  nexoctl cache inspect local /assets/app.js --dist sito-web --header 'Accept-Encoding: br'
+  nexoctl cache inspect local /assets/app.js --dist website --header 'Accept-Encoding: br'
 ```
 
 ## Options

@@ -301,12 +301,12 @@ func TestServiceTest(t *testing.T) {
 	// The s3 mode: the S3 API decides the methods and the keys; only the
 	// access of the default behavior applies (TCL-D-03 coherent with the
 	// requests).
-	s3d := distribution.Distribution{ID: "s3ep", Enabled: true, Aliases: []string{"s3.cliente.test"}, Mode: distribution.ModeS3,
-		Origin: distribution.Origin{Bucket: "cliente"}, DefaultBehavior: distribution.Behavior{Access: distribution.AccessAuthenticated}}
+	s3d := distribution.Distribution{ID: "s3ep", Enabled: true, Aliases: []string{"s3.customer.test"}, Mode: distribution.ModeS3,
+		Origin: distribution.Origin{Bucket: "customer"}, DefaultBehavior: distribution.Behavior{Access: distribution.AccessAuthenticated}}
 	_, err = svc.Create(ctx, s3d)
 	require.NoError(t, err)
 	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
-		res, err = svc.Test(ctx, distribution.TestInput{URL: "https://s3.cliente.test/internal/secret.txt", Method: method})
+		res, err = svc.Test(ctx, distribution.TestInput{URL: "https://s3.customer.test/internal/secret.txt", Method: method})
 		require.NoError(t, err)
 		assert.Zero(t, res.RefusalStatus, "%s: %s", method, res.Refusal)
 		assert.Equal(t, "internal/secret.txt", res.Key)
@@ -318,7 +318,7 @@ func TestServiceTest(t *testing.T) {
 	s3d.DefaultBehavior.Access = distribution.AccessDeny
 	_, err = svc.Update(ctx, s3d, "")
 	require.NoError(t, err)
-	res, err = svc.Test(ctx, distribution.TestInput{URL: "https://s3.cliente.test/a"})
+	res, err = svc.Test(ctx, distribution.TestInput{URL: "https://s3.customer.test/a"})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, res.RefusalStatus)
 

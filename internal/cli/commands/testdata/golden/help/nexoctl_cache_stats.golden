@@ -8,7 +8,7 @@ Usage:
 
 Examples:
   nexoctl cache stats local
-  nexoctl cache stats local sito-web --domain www.example.com --watch
+  nexoctl cache stats local website --domain www.example.com --watch
 
 Flags:
       --count int           with --watch, stop after this many reports (0: never)

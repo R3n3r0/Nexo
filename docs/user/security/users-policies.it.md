@@ -3,7 +3,7 @@
 Nexo ha un solo account con un utente **root** (credenziali da ambiente) e utenti IAM gestiti da console,
 `nexoctl admin` o Admin API. Ogni richiesta, S3 o della console, è valutata dallo stesso motore di policy
 in formato AWS: **deny esplicito vince**, poi serve un **allow** (da policy dell'utente, dei suoi gruppi,
-della bucket policy o delle [regole di accesso](regole-accesso.md)), altrimenti la richiesta è negata.
+della bucket policy o delle [regole di accesso](access-rules.md)), altrimenti la richiesta è negata.
 
 ## Root
 
@@ -137,7 +137,7 @@ nexoctl ls bob/home/alice/                     # AccessDenied
 ```
 
 La console mostra a questi utenti il bucket `home` con il solo contenuto accessibile. Con le
-[regole di accesso](regole-accesso.md#home-directory-con-una-regex) lo stesso schema si esprime anche con
+[regole di accesso](access-rules.md#home-directory-con-una-regex) lo stesso schema si esprime anche con
 una regex e un gruppo nominato.
 
 ### Esempio: sola scrittura (cartella di deposito)

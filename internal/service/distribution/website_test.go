@@ -216,7 +216,7 @@ func site(t *testing.T) *distribution.Distribution {
 	svc := newService(t)
 	_, err := svc.CreateKeyGroup(context.Background(), "rilasci", "")
 	require.NoError(t, err)
-	d := sample("sito-web", "www.example.com", "example.com", "*.preview.example.com")
+	d := sample("website", "www.example.com", "example.com", "*.preview.example.com")
 	d.Origin.PathPrefix = "/prod"
 	d.DefaultBehavior.SPAFallback = "/index.html"
 	d.DefaultBehavior.Cache = &distribution.Cache{CacheControl: "public, max-age=300"}
@@ -238,7 +238,7 @@ func site(t *testing.T) *distribution.Distribution {
 		{Status: 403, Path: "/404.html", ResponseStatus: 404},
 	}
 	d.Redirects = []distribution.Redirect{
-		{From: `^/vecchio/(.*)$`, To: "/nuovo/$1", Status: 301},
+		{From: `^/old/(.*)$`, To: "/new/$1", Status: 301},
 		{HostFrom: "example.com", ToHost: "www.example.com", Status: 301},
 		{From: `^/esterno$`, To: "//evil.example.net/"},
 		{From: `^/docs-v1/(?P<page>.*)$`, To: "https://docs.example.com/${page}", Status: 302},
@@ -292,7 +292,7 @@ func TestWebsite(t *testing.T) {
 		{name: "method not allowed", req: webRequest{method: http.MethodDelete, url: "https://www.example.com/index.html"}, status: 405,
 			headers: map[string]string{"Allow": "GET, HEAD, OPTIONS"}},
 		{name: "PUT not allowed outside signed", req: webRequest{method: http.MethodPut, url: "https://www.example.com/x", body: "x"}, status: 405},
-		{name: "redirect regex groups", req: webRequest{url: "https://www.example.com/vecchio/a/b.html?q=1"}, status: 301, location: "/nuovo/a/b.html?q=1"},
+		{name: "redirect regex groups", req: webRequest{url: "https://www.example.com/old/a/b.html?q=1"}, status: 301, location: "/new/a/b.html?q=1"},
 		{name: "redirect named group absolute", req: webRequest{url: "https://www.example.com/docs-v1/intro"}, status: 302,
 			location: "https://docs.example.com/intro"},
 		{name: "redirect host", req: webRequest{url: "https://example.com/a?b=1"}, status: 301, location: "https://www.example.com/a?b=1"},
@@ -363,7 +363,7 @@ func TestWebsite(t *testing.T) {
 	assert.Equal(t, "data", fx.state.objects["prod/uploads/a.txt"])
 	// Every evaluation names the distribution.
 	for _, id := range fx.seen {
-		assert.Equal(t, "sito-web", id)
+		assert.Equal(t, "website", id)
 	}
 }
 

@@ -1,31 +1,31 @@
 # 4. API
 
-## 4.1 Porte ed endpoint
+## 4.1 Ports and endpoints
 
-| Porta | Path | Uso |
-|-------|------|-----|
-| 9000 | `/` | API S3 (path-style; virtual-host se `NEXO_DOMAIN` impostato) |
-| 9000 | `/nexo/rpc/v1/*` | Internode RPC (solo peer autenticati) |
+| Port | Path | Use |
+|------|------|-----|
+| 9000 | `/` | S3 API (path-style; virtual-host if `NEXO_DOMAIN` is set) |
+| 9000 | `/nexo/rpc/v1/*` | Internode RPC (authenticated peers only) |
 | 9000 | `/nexo/health/{live,ready,cluster}` | Health check |
-| 9000 | `/nexo/metrics/v1/{cluster,node,bucket}` | Prometheus (bearer JWT con `admin:Prometheus` di default, pubblico con `NEXO_PROMETHEUS_AUTH_TYPE=public`, vedi 07 §7.6) |
-| 9001 | `/` | Console React (SPA) |
-| 9001 | `/api/v1/*` | Admin API (SigV4 per CLI/SDK, cookie di sessione per la console) |
+| 9000 | `/nexo/metrics/v1/{cluster,node,bucket}` | Prometheus (bearer JWT with `admin:Prometheus` by default, public with `NEXO_PROMETHEUS_AUTH_TYPE=public`, see 07 §7.6) |
+| 9001 | `/` | React console (SPA) |
+| 9001 | `/api/v1/*` | Admin API (SigV4 for CLI/SDK, session cookie for the console) |
 
-Il nome di bucket `nexo` è riservato (come `minio` in MinIO): i path `/nexo/*` della porta 9000 servono RPC,
-health e metriche, quindi `CreateBucket` con quel nome risponde `400 InvalidBucketName`. Le rotte di sistema
-rispondono solo alle richieste path-style: in virtual-host (`{bucket}.{NEXO_DOMAIN}`) il path è sempre una chiave
-del bucket (`bkt.example.com/nexo/metrics/x` è la chiave `nexo/metrics/x`), autenticata con SigV4 come ogni
-altra richiesta.
+The bucket name `nexo` is reserved (like `minio` in MinIO): the `/nexo/*` paths of port 9000 serve RPC,
+health and metrics, so `CreateBucket` with that name answers `400 InvalidBucketName`. The system routes
+answer only path-style requests: in virtual-host style (`{bucket}.{NEXO_DOMAIN}`) the path is always a key
+of the bucket (`bkt.example.com/nexo/metrics/x` is the key `nexo/metrics/x`), authenticated with SigV4 like any
+other request.
 
-## 4.2 API S3 supportate (v1.0)
+## 4.2 Supported S3 APIs (v1.0)
 
-**Bucket**: `ListBuckets`, `CreateBucket`, `HeadBucket`, `DeleteBucket`, `GetBucketLocation`,
+**Buckets**: `ListBuckets`, `CreateBucket`, `HeadBucket`, `DeleteBucket`, `GetBucketLocation`,
 `Get/Put/DeleteBucketPolicy`, `GetBucketPolicyStatus`, `Get/PutBucketVersioning`, `Get/Put/DeleteBucketTagging`,
 `Get/Put/DeleteBucketCors`, `Get/Put/DeleteBucketLifecycleConfiguration`, `Get/PutObjectLockConfiguration`,
 `Get/Put/DeleteBucketEncryption`, `Get/PutBucketNotificationConfiguration`, `ListObjects`, `ListObjectsV2`,
 `ListObjectVersions`, `ListMultipartUploads`.
 
-**Oggetti**: `PutObject`, `GetObject`, `HeadObject`, `DeleteObject`, `DeleteObjects`, `CopyObject`,
+**Objects**: `PutObject`, `GetObject`, `HeadObject`, `DeleteObject`, `DeleteObjects`, `CopyObject`,
 `GetObjectAttributes`, `Get/Put/DeleteObjectTagging`, `Get/PutObjectRetention`, `Get/PutObjectLegalHold`,
 `PostObject`.
 
@@ -34,82 +34,82 @@ altra richiesta.
 
 **STS**: `AssumeRole` (P1), `AssumeRoleWithWebIdentity` (P2), `AssumeRoleWithLDAPIdentity` (P2).
 
-Le API non supportate restituiscono `501 NotImplemented` con codice S3 corretto.
+Unsupported APIs return `501 NotImplemented` with the correct S3 code.
 
-### Errori
-Formato XML S3 standard (`<Error><Code/><Message/><Resource/><RequestId/></Error>`), mapping centralizzato
-(`internal/transport/http/httpx`, `errors.go`) con tabella `ErrorCode → HTTP status`. Header `x-amz-request-id` e `x-amz-id-2` sempre presenti.
+### Errors
+Standard S3 XML format (`<Error><Code/><Message/><Resource/><RequestId/></Error>`), centralized mapping
+(`internal/transport/http/httpx`, `errors.go`) with an `ErrorCode → HTTP status` table. The `x-amz-request-id` and `x-amz-id-2` headers are always present.
 
 ## 4.3 Admin API (`/api/v1`)
 
-JSON, versionata, documentata con **OpenAPI 3.1** (`api/openapi.yaml`) da cui si generano:
-- i tipi TypeScript della dashboard (`openapi-typescript` → `web/src/services/http/schema.d.ts`, `npm run gen:api`),
-  da cui derivano i DTO di `web/src/services/types.ts`; il client HTTP è `web/src/services/http/client.ts`;
-- validazione delle risposte nei test di contratto.
+JSON, versioned, documented with **OpenAPI 3.1** (`api/openapi.yaml`), from which are generated:
+- the TypeScript types of the dashboard (`openapi-typescript` → `web/src/services/http/schema.d.ts`, `npm run gen:api`),
+  from which the DTOs of `web/src/services/types.ts` derive; the HTTP client is `web/src/services/http/client.ts`;
+- response validation in the contract tests.
 
-I parametri di path (`{u}`, `{g}`, `{p}`, `{k}`, `{id}`, `{subsys}`, `{uploadId}`, `{partNumber}`) sono segmenti
-codificati una sola volta (percent-encoding RFC 3986, come `encodeURIComponent` e `url.PathEscape`): un `/` dentro
-un nome viaggia come `%2F` e resta nel suo segmento, `@`, `+`, `,` possono essere codificati o no; il server li
-decodifica una volta sola.
+Path parameters (`{u}`, `{g}`, `{p}`, `{k}`, `{id}`, `{subsys}`, `{uploadId}`, `{partNumber}`) are segments
+encoded exactly once (RFC 3986 percent-encoding, like `encodeURIComponent` and `url.PathEscape`): a `/` inside
+a name travels as `%2F` and stays in its segment, `@`, `+`, `,` may or may not be encoded; the server
+decodes them exactly once.
 
-| Metodo | Path | Descrizione |
+| Method | Path | Description |
 |--------|------|-------------|
-| POST | `/auth/login` · `/auth/logout` · GET `/auth/session` | Sessione console |
-| GET | `/info` | Info server/cluster (pool con quorum e stato degli erasure set, nodi con versione, uptime, sfasamento dell'orologio e riparazione in background, dischi) |
-| GET | `/usage` | Uso dati per cluster/bucket |
-| GET/POST/DELETE | `/buckets`, `/buckets/{b}` | Gestione bucket (estende S3 con stat, quota, ecc.); chi può elencare solo una parte del bucket (home directory) ne vede nome, data di creazione e regione (`partial: true`) |
-| GET/PUT | `/buckets/{b}/{versioning,policy,lifecycle,encryption,objectlock,quota,tags,events,cors,replication}` | Impostazioni bucket |
-| GET/PUT/DELETE | `/buckets/{b}/lifecycle` · POST `/buckets/{b}/lifecycle/apply` | Regole lifecycle in JSON strutturato ↔ `LifecycleConfiguration` S3 (lo stesso documento dell'API S3), validate regola per regola: `400 invalid_configuration` con `ruleErrors` (indice, id, codice S3, messaggio). `apply` esegue subito le regole (`s3:PutLifecycleConfiguration` + `admin:ApplyLifecycle`) |
-| GET/PUT/DELETE | `/buckets/{b}/events` · `/buckets/{b}/cors` | Sottoscrizioni eventi (ARN del target, eventi, prefix/suffix) e regole CORS, validate come il lifecycle |
-| GET | `/notify/targets` · POST `/notify/targets/{id}/test` | Target di notifica (sottosistemi `notify_*`) con stato online/offline ed eventi in coda visti dal nodo che risponde; evento di prova `s3:TestEvent` (`admin:ConfigUpdate`) |
-| GET/PUT | `/buckets/{b}/objects/{retention,legal-hold}?key=&versionId=` · GET `/attributes` | Retention (mode, retainUntil, `bypassGovernance` con `s3:BypassGovernanceRetention`), legal hold e attributi (checksum, parti) di una versione |
-| GET/POST | `/kms/status`, `/kms/keys` · POST `/kms/reseal?bucket=` | KMS: stato, chiavi (creazione con `admin:KMSCreateKey`), ri-sigillatura delle chiavi dati degli oggetti SSE-S3/SSE-KMS con la master key corrente dopo una rotazione (`admin:KMSCreateKey`, esito per bucket/versioni: `resealed`, `failed`, `firstError`; vedi [07 §7.2](07-security-operations.md)); `501` senza KMS |
-| GET | `/buckets/{b}/objects?prefix=&delimiter=&cursor=` | Listing per object browser |
-| POST | `/buckets/{b}/objects/upload` · GET `/download` · POST `/download-zip` · DELETE `/objects` | Operazioni oggetti dalla console |
-| POST | `/buckets/{b}/objects/restore?key=&versionId=` | Ripristina una versione (copia della versione sulla sua chiave, autorizzata come la `CopyObject` S3) |
-| POST | `/buckets/{b}/objects/share` · GET/DELETE `/shares`, `/shares/{id}` | Share link gestiti e revocabili |
-| GET | `/shares/{id}/links?cursor=&limit=` | Un link per oggetto di uno share di prefix in download, firmati dallo share e revocati con esso |
-| GET/POST/PUT/DELETE | `/users`, `/users/{u}` | Utenti (`DELETE` rimuove anche gli share gestiti dell'utente) |
-| GET/POST/PUT/DELETE | `/groups`, `/groups/{g}` | Gruppi |
-| GET/POST/PUT/DELETE | `/policies`, `/policies/{p}`, POST `/policies/attach` `/detach` | Policy |
-| GET/POST/PUT/DELETE | `/access-keys`, `/access-keys/{k}` | Service account |
-| GET/PUT | `/config`, `/config/{subsys}` · POST `/config/import` · GET `/config/export` | Configurazione (lo schema `GET /config/schema` dice per ogni chiave se il server la applica, `applied`: tra le altre `api.root_access`, `logger.*`, `audit_*`, `notify_*`, a caldo; le altre sono salvate e validate ma non ancora applicate) |
+| POST | `/auth/login` · `/auth/logout` · GET `/auth/session` | Console session |
+| GET | `/info` | Server/cluster info (pools with quorum and erasure set state, nodes with version, uptime, clock skew and background healing, disks) |
+| GET | `/usage` | Data usage per cluster/bucket |
+| GET/POST/DELETE | `/buckets`, `/buckets/{b}` | Bucket management (extends S3 with stats, quota, etc.); a caller who can list only part of the bucket (home directory) sees its name, creation date and region (`partial: true`) |
+| GET/PUT | `/buckets/{b}/{versioning,policy,lifecycle,encryption,objectlock,quota,tags,events,cors,replication}` | Bucket settings |
+| GET/PUT/DELETE | `/buckets/{b}/lifecycle` · POST `/buckets/{b}/lifecycle/apply` | Lifecycle rules in structured JSON ↔ S3 `LifecycleConfiguration` (the same document as the S3 API), validated rule by rule: `400 invalid_configuration` with `ruleErrors` (index, id, S3 code, message). `apply` runs the rules immediately (`s3:PutLifecycleConfiguration` + `admin:ApplyLifecycle`) |
+| GET/PUT/DELETE | `/buckets/{b}/events` · `/buckets/{b}/cors` | Event subscriptions (target ARN, events, prefix/suffix) and CORS rules, validated like the lifecycle |
+| GET | `/notify/targets` · POST `/notify/targets/{id}/test` | Notification targets (`notify_*` subsystems) with online/offline state and queued events as seen by the answering node; `s3:TestEvent` test event (`admin:ConfigUpdate`) |
+| GET/PUT | `/buckets/{b}/objects/{retention,legal-hold}?key=&versionId=` · GET `/attributes` | Retention (mode, retainUntil, `bypassGovernance` with `s3:BypassGovernanceRetention`), legal hold and attributes (checksums, parts) of a version |
+| GET/POST | `/kms/status`, `/kms/keys` · POST `/kms/reseal?bucket=` | KMS: status, keys (creation with `admin:KMSCreateKey`), resealing of the data keys of SSE-S3/SSE-KMS objects with the current master key after a rotation (`admin:KMSCreateKey`, outcome per bucket/versions: `resealed`, `failed`, `firstError`; see [07 §7.2](07-security-operations.md)); `501` without KMS |
+| GET | `/buckets/{b}/objects?prefix=&delimiter=&cursor=` | Listing for the object browser |
+| POST | `/buckets/{b}/objects/upload` · GET `/download` · POST `/download-zip` · DELETE `/objects` | Object operations from the console |
+| POST | `/buckets/{b}/objects/restore?key=&versionId=` | Restores a version (copy of the version onto its key, authorized like the S3 `CopyObject`) |
+| POST | `/buckets/{b}/objects/share` · GET/DELETE `/shares`, `/shares/{id}` | Managed, revocable share links |
+| GET | `/shares/{id}/links?cursor=&limit=` | One link per object of a download prefix share, signed by the share and revoked with it |
+| GET/POST/PUT/DELETE | `/users`, `/users/{u}` | Users (`DELETE` also removes the user's managed shares) |
+| GET/POST/PUT/DELETE | `/groups`, `/groups/{g}` | Groups |
+| GET/POST/PUT/DELETE | `/policies`, `/policies/{p}`, POST `/policies/attach` `/detach` | Policies |
+| GET/POST/PUT/DELETE | `/access-keys`, `/access-keys/{k}` | Service accounts |
+| GET/PUT | `/config`, `/config/{subsys}` · POST `/config/import` · GET `/config/export` | Configuration (the `GET /config/schema` schema says for each key whether the server applies it, `applied`: among others `api.root_access`, `logger.*`, `audit_*`, `notify_*`, hot; the others are stored and validated but not yet applied) |
 | POST | `/heal` · GET `/heal/{id}` | Healing |
-| GET (SSE) | `/trace?node=&type=&api=&bucket=&status=&errors=&threshold=` · `/logs?node=&level=&last=` | Stream live (`text/event-stream`) di tutti i nodi: eventi `trace`/`log`, `dropped` quando il client perde eventi, heartbeat; query redatte, nessun header né body (`admin:ServerTrace`, `admin:ConsoleLog`; vedi [07 §7.4](07-security-operations.md)) |
-| GET | `/audit?node=&api=&bucket=&user=&type=&status=&errors=&since=&until=&requestId=&limit=` | Ricerca nei record di audit recenti di tutti i nodi, dal più recente (`admin:ConsoleLog`) |
-| GET | `/metrics` · `/metrics/query?metric=&range=&step=&end=&node=` | Serie dei grafici (ring buffer in memoria: un punto ogni 10 s per 24 h) per nodo e aggregate sul cluster; `admin:Prometheus` **o** `admin:ServerInfo` |
-| GET | `/me/permissions` | Permessi effettivi (per UI condizionale) |
-| POST | `/service/{restart,stop}` | Controllo servizio (il riavvio avviene nel processo; `SIGHUP` ricarica solo i certificati TLS) |
-| GET | `/profile?type=cpu\|heap\|goroutine\|mutex\|block&seconds=` | Profilo pprof del nodo che risponde (`admin:Profiling`: root, policy `diagnostics`), `application/octet-stream`, uno alla volta per nodo (409) |
-| POST | `/speedtest/{drive,object,net}` | Speed test del nodo che risponde (`admin:Speedtest`): dischi locali, object layer (bucket temporaneo `nexo-speedtest-*` rimosso), rete verso gli altri nodi (`501` fuori cluster); fasi di al massimo 60 s, file/oggetti ≤ 64 MiB, ≤ 1 GiB scritti per target |
-| POST/GET | `/pools/{id}/decommission`, `/rebalance` | Gestione pool (P2) |
+| GET (SSE) | `/trace?node=&type=&api=&bucket=&status=&errors=&threshold=` · `/logs?node=&level=&last=` | Live stream (`text/event-stream`) from all the nodes: `trace`/`log` events, `dropped` when the client loses events, heartbeat; redacted queries, no headers or bodies (`admin:ServerTrace`, `admin:ConsoleLog`; see [07 §7.4](07-security-operations.md)) |
+| GET | `/audit?node=&api=&bucket=&user=&type=&status=&errors=&since=&until=&requestId=&limit=` | Search of the recent audit records of all the nodes, newest first (`admin:ConsoleLog`) |
+| GET | `/metrics` · `/metrics/query?metric=&range=&step=&end=&node=` | Chart series (in-memory ring buffer: one point every 10 s for 24 h) per node and aggregated over the cluster; `admin:Prometheus` **or** `admin:ServerInfo` |
+| GET | `/me/permissions` | Effective permissions (for the conditional UI) |
+| POST | `/service/{restart,stop}` | Service control (the restart happens in-process; `SIGHUP` reloads only the TLS certificates) |
+| GET | `/profile?type=cpu\|heap\|goroutine\|mutex\|block&seconds=` | pprof profile of the answering node (`admin:Profiling`: root, `diagnostics` policy), `application/octet-stream`, one at a time per node (409) |
+| POST | `/speedtest/{drive,object,net}` | Speed test of the answering node (`admin:Speedtest`): local disks, object layer (temporary `nexo-speedtest-*` bucket, removed afterwards), network to the other nodes (`501` outside a cluster); phases of at most 60 s, files/objects ≤ 64 MiB, ≤ 1 GiB written per target |
+| POST/GET | `/pools/{id}/decommission`, `/rebalance` | Pool management (P2) |
 
-Errori in formato `application/problem+json` (RFC 9457) con `code` stabile.
+Errors in `application/problem+json` format (RFC 9457) with a stable `code`.
 
-Le liste (`/users`, `/groups`, `/policies`, `/access-keys`, `/shares`, `/buckets`, `/shares/{id}/links`)
-rispondono `{items, nextCursor}`: il servizio seleziona la pagina (`limit` 1–1000, default 1000) e il cursore è
-opaco, da ripassare tal quale in `cursor`.
+Lists (`/users`, `/groups`, `/policies`, `/access-keys`, `/shares`, `/buckets`, `/shares/{id}/links`)
+answer `{items, nextCursor}`: the service selects the page (`limit` 1–1000, default 1000) and the cursor is
+opaque, to be passed back as is in `cursor`.
 
-Le operazioni sugli oggetti proxate dalla console (download, anteprima, stat, tag, upload, eliminazione,
-rinomina, zip, ripristino, share) sono valutate con le stesse chiavi di condizione della richiesta S3
-equivalente (`s3:versionid`, `s3:x-amz-*`, `s3:RequestObjectTag/*`, `s3:authType`…), costruite da un'unica
-definizione (`policy.RequestConditions`): una policy decide allo stesso modo via S3 e via console. Il client di
-`aws:SourceIp` e `aws:SecureTransport` è, su entrambi i listener, quello inoltrato dai proxy fidati
-(`--trusted-proxies`, `X-Forwarded-For`/`X-Forwarded-Proto`), altrimenti il peer della connessione.
+The object operations proxied by the console (download, preview, stat, tags, upload, delete,
+rename, zip, restore, share) are evaluated with the same condition keys as the equivalent S3 request
+(`s3:versionid`, `s3:x-amz-*`, `s3:RequestObjectTag/*`, `s3:authType`…), built from a single
+definition (`policy.RequestConditions`): a policy decides the same way via S3 and via the console. The client for
+`aws:SourceIp` and `aws:SecureTransport` is, on both listeners, the one forwarded by the trusted proxies
+(`--trusted-proxies`, `X-Forwarded-For`/`X-Forwarded-Proto`), otherwise the connection peer.
 
-Le operazioni della console su oggetti protetti da Object Lock si comportano come le richieste S3 equivalenti:
-l'eliminazione di una versione sotto retention o legal hold fallisce (`object_locked`, anche per root in COMPLIANCE),
-`bypassGovernance` vale solo dove il chiamante ha `s3:BypassGovernanceRetention`; rinomina e ripristino creano nuove
-versioni e lasciano intatte quelle protette.
+Console operations on objects protected by Object Lock behave like the equivalent S3 requests:
+deleting a version under retention or legal hold fails (`object_locked`, even for root in COMPLIANCE mode),
+`bypassGovernance` applies only where the caller has `s3:BypassGovernanceRetention`; rename and restore create new
+versions and leave the protected ones intact.
 
-Le operazioni sugli oggetti per prefisso (eliminazione, rinomina e zip) trattano ogni prefisso come una cartella,
-come la CLI: un prefisso non vuoto senza `/` finale indica la cartella omonima (`photos` è `photos/`, mai
-`photos2/` né `photosx.txt`); `""` è l'intero bucket.
+Object operations by prefix (delete, rename and zip) treat every prefix as a folder,
+like the CLI: a non-empty prefix without a trailing `/` denotes the folder with that name (`photos` is `photos/`, never
+`photos2/` or `photosx.txt`); `""` is the whole bucket.
 
-Endpoint per regole di accesso, distribuzioni, key group e certificati: vedi [10 §10.5](10-domains-access-distributions.md#105-admin-api).
+Endpoints for access rules, distributions, key groups and certificates: see [10 §10.5](10-domains-access-distributions.md#105-admin-api).
 
-## 4.4 Autorizzazione Admin API
+## 4.4 Admin API authorization
 
-Ogni endpoint mappa su un'azione di policy `admin:*` (es. `admin:CreateUser`, `admin:ServerInfo`,
-`admin:ConfigUpdate`, `admin:Heal`, `admin:ServerTrace`), valutata dallo stesso policy engine dell'S3.
-La policy predefinita `consoleAdmin` concede `admin:*` + `s3:*`.
+Each endpoint maps to an `admin:*` policy action (e.g. `admin:CreateUser`, `admin:ServerInfo`,
+`admin:ConfigUpdate`, `admin:Heal`, `admin:ServerTrace`), evaluated by the same policy engine as S3.
+The built-in `consoleAdmin` policy grants `admin:*` + `s3:*`.

@@ -2,7 +2,7 @@
 
 Nexo si distribuisce come due binari statici, `nexo` (server con la console web incorporata) e `nexoctl`
 (CLI), e come immagini Docker multi-arch. La modalità (singolo disco, più dischi, cluster) non dipende
-dal pacchetto ma dagli argomenti di `nexo server`: vedi [Modalità di deployment](modalita.md).
+dal pacchetto ma dagli argomenti di `nexo server`: vedi [Modalità di deployment](deployment-modes.md).
 
 | Piattaforma | `nexo` | `nexoctl` |
 |-------------|--------|-----------|
@@ -98,7 +98,7 @@ docker run -d --name nexo -p 9000:9000 -p 9001:9001 \
 - **Più dischi**: un volume per disco e le ellissi negli argomenti:
   `-v /mnt/d1:/data1 … -v /mnt/d4:/data4 ghcr.io/r3n3r0/nexo server /data{1...4}`.
 - **TLS**: monta la directory dei certificati e imposta `NEXO_CERTS_DIR`; anche l'healthcheck passa a
-  HTTPS (vedi [TLS e certificati](sicurezza/tls.md)).
+  HTTPS (vedi [TLS e certificati](security/tls.md)).
 - **CLI da container**:
   `docker run --rm -it --network host -v nexoctl-config:/home/nonroot/.nexoctl ghcr.io/r3n3r0/nexoctl ls local`.
 

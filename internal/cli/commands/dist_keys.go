@@ -376,9 +376,9 @@ func newDistSignURLCmd(e *env) *cobra.Command {
 The private key is the one of --private-key, or the stored key of the key group
 of the behavior (see "dist keygroup"). A path is completed with https (--scheme)
 and the first exact domain (--host). Needs admin:SignDistributionURL.`,
-		Example: `  nexoctl dist sign-url local sito-web /downloads/v1.zip --expire 1h
-  nexoctl dist sign-url local sito-web /downloads/v1.zip --expire 1h --ip 1.2.3.4
-  nexoctl dist sign-url local sito-web /premium/ --expire 12h --cookie --resource 'https://www.example.com/premium/*'`,
+		Example: `  nexoctl dist sign-url local website /downloads/v1.zip --expire 1h
+  nexoctl dist sign-url local website /downloads/v1.zip --expire 1h --ip 1.2.3.4
+  nexoctl dist sign-url local website /premium/ --expire 12h --cookie --resource 'https://www.example.com/premium/*'`,
 		Args:              exactArgs(3),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -458,8 +458,8 @@ func newDistCertSetCmd(e *env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "set ALIAS ID (--auto | --none | --cert FILE --key FILE [--cert-id ID])",
 		Short: "Set the TLS certificate of the domains of a distribution",
-		Example: `  nexoctl dist cert set local sito-web --auto
-  nexoctl dist cert set local sito-web --cert crt.pem --key key.pem`,
+		Example: `  nexoctl dist cert set local website --auto
+  nexoctl dist cert set local website --cert crt.pem --key key.pem`,
 		Args:              exactArgs(2),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {

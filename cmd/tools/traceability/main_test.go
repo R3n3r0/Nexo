@@ -17,7 +17,7 @@ func repo(t *testing.T, tests string) string {
 	t.Helper()
 	root := t.TempDir()
 	files := map[string]string{
-		"docs/02-features.md":                 "## 2.1 Server\n| S-OBJ-01 | Put | P0 |\n| S-OBJ-14 | S2 | P2 |\n",
+		"docs/02-features.md":                     "## 2.1 Server\n| S-OBJ-01 | Put | P0 |\n| S-OBJ-14 | S2 | P2 |\n",
 		"docs/10-domains-access-distributions.md": "",
 		"docs/11-domain-cache.md":                 "",
 		"test/x_test.go":                          "package x\n\n// " + "cov" + "ers: " + tests + "\nfunc TestX(t *testing.T) {}\n",

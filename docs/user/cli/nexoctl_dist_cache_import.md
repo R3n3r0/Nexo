@@ -15,7 +15,7 @@ nexoctl dist cache import ALIAS FILE [flags]
 ## Examples
 
 ```
-  nexoctl dist cache import local sito-web-cache.yaml
+  nexoctl dist cache import local website-cache.yaml
 ```
 
 ## Options

@@ -7,7 +7,7 @@ Aliases:
   remove, rm
 
 Examples:
-  nexoctl dist rm local sito-web
+  nexoctl dist rm local website
 
 Flags:
   -h, --help   help for remove

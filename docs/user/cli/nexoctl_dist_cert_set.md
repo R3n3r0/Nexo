@@ -9,8 +9,8 @@ nexoctl dist cert set ALIAS ID (--auto | --none | --cert FILE --key FILE [--cert
 ## Examples
 
 ```
-  nexoctl dist cert set local sito-web --auto
-  nexoctl dist cert set local sito-web --cert crt.pem --key key.pem
+  nexoctl dist cert set local website --auto
+  nexoctl dist cert set local website --cert crt.pem --key key.pem
 ```
 
 ## Options

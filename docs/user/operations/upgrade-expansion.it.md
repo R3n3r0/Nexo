@@ -2,9 +2,9 @@
 
 ## Aggiornamento di un singolo nodo (SNSD, SNMD)
 
-1. Leggi le note di rilascio e verifica la release ([Installazione](../installazione.md#binari-archivi)).
+1. Leggi le note di rilascio e verifica la release ([Installazione](../installation.md#binari-archivi)).
 2. Esporta per sicurezza IAM e configurazione: `nexoctl admin cluster export local --output backup.zip`
-   (vedi [Backup e migrazione](backup-migrazione.md)).
+   (vedi [Backup e migrazione](backup-migration.md)).
 3. Sostituisci il binario (o il pacchetto, o il tag dell'immagine) e riavvia il servizio:
 
    ```bash
@@ -20,7 +20,7 @@ terminano entro il timeout di arresto) e interrompe il servizio per qualche seco
 
 Nodi con la stessa **versione major** convivono nello stesso cluster: si aggiorna un nodo alla volta
 senza interrompere il servizio, purché il quorum regga con un nodo spento (vedi
-[Modalità → Scelta della parità](../modalita.md)). Un nodo con una versione major
+[Modalità → Scelta della parità](../deployment-modes.md)). Un nodo con una versione major
 diversa dalla maggioranza non entra nel cluster.
 
 Per ogni nodo, uno alla volta:
@@ -70,7 +70,7 @@ stessa configurazione statica): utile dopo un problema, non per installare una n
 `admin:ServiceRestart` e `admin:ServiceStop`.
 
 Per ricaricare i certificati TLS non serve riavviare: `systemctl reload nexo` (`SIGHUP`) o la sola
-sostituzione dei file (vedi [TLS](../sicurezza/tls.md)).
+sostituzione dei file (vedi [TLS](../security/tls.md)).
 
 ## Espansione con un nuovo pool
 

@@ -4,8 +4,8 @@ Usage:
   nexoctl dist headers ALIAS ID [--set 'Name: value']... [--unset NAME]... [--security] [--cors-origin O]... [--no-cors] [flags]
 
 Examples:
-  nexoctl dist headers local sito-web --security
-  nexoctl dist headers local sito-web --set 'Cache-Control: no-cache' --cors-origin https://app.example.com --cors-method GET
+  nexoctl dist headers local website --security
+  nexoctl dist headers local website --set 'Cache-Control: no-cache' --cors-origin https://app.example.com --cors-method GET
 
 Flags:
       --cors-max-age int          CORS: preflight cache duration in seconds

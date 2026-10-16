@@ -1,6 +1,6 @@
 # Nexo cluster (4 nodes x 2 drives) behind TWO edge proxies with different
-# domains and different origin secrets (docs/10 §10.2 "Dietro uno o più
-# proxy", TCD-01..03; docs/11 TCC-C-05):
+# domains and different origin secrets (docs/10 §10.2 "Behind one or more
+# proxies", TCD-01..03; docs/11 TCC-C-05):
 #
 #   proxy-a  nginx    *.alpha.example   S3 API on s3.alpha.example, console on
 #                                       console.alpha.example, distributions;

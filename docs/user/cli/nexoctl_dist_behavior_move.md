@@ -9,7 +9,7 @@ nexoctl dist behavior move ALIAS ID FROM TO [flags]
 ## Examples
 
 ```
-  nexoctl dist behavior move local sito-web 3 1
+  nexoctl dist behavior move local website 3 1
 ```
 
 ## Options

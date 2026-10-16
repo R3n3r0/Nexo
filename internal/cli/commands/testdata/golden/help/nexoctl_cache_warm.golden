@@ -9,8 +9,8 @@ Usage:
   nexoctl cache warm [command]
 
 Examples:
-  nexoctl cache warm local sito-web --domain www.example.com --from urls.txt --wait
-  nexoctl cache warm local sito-web --prefix /assets/ --bandwidth 20MiB
+  nexoctl cache warm local website --domain www.example.com --from urls.txt --wait
+  nexoctl cache warm local website --prefix /assets/ --bandwidth 20MiB
 
 Available Commands:
   status      Show the progress of a warm-up on every node

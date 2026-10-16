@@ -21,7 +21,7 @@ sulla riga di comando.
 |-----------|------|---------|-------------|
 | `NEXO_ROOT_USER` / `NEXO_ROOT_USER_FILE` | — | obbligatoria | Utente root (≥ 3 caratteri). Solo da ambiente o file, mai da flag |
 | `NEXO_ROOT_PASSWORD` / `NEXO_ROOT_PASSWORD_FILE` | — | obbligatoria | Password root (≥ 8 caratteri). La variante `_FILE` vince sulla variabile semplice |
-| `NEXO_ENDPOINTS` | argomenti di `nexo server` | — | Dischi e nodi, separati da spazi (gli argomenti sulla riga di comando vincono). Vedi [Modalità](modalita.md) |
+| `NEXO_ENDPOINTS` | argomenti di `nexo server` | — | Dischi e nodi, separati da spazi (gli argomenti sulla riga di comando vincono). Vedi [Modalità](deployment-modes.md) |
 | `NEXO_CONFIG_FILE` | `--config` | — | File JSON di configurazione (precedenza più bassa) |
 
 ### Rete e URL pubblici
@@ -52,7 +52,7 @@ sulla riga di comando.
 | `NEXO_TLS_MIN_VERSION` | `--tls-min-version` | `1.2` | Versione TLS minima: `1.2` o `1.3` |
 | `NEXO_TLS_INTERNODE_VERIFY` | `--tls-internode-verify` | `false` | mTLS tra i nodi (endpoint `https://`) |
 
-Dettagli in [TLS e certificati](sicurezza/tls.md).
+Dettagli in [TLS e certificati](security/tls.md).
 
 ### Storage ed erasure coding
 
@@ -99,7 +99,7 @@ Le dimensioni accettano `KiB`, `MiB`, `GiB`, `TiB` (e `KB`, `MB`, `GB`, `TB`).
 | `NEXO_KMS_CAPATH` | radici di sistema | CA dei server KES (file o directory) |
 | `NEXO_SSEC_ALLOW_INSECURE` | `off` | Accetta chiavi SSE-C su HTTP in chiaro: **solo test** |
 
-Solo da ambiente (nessun flag). Dettagli in [KMS e SSE](sicurezza/kms-sse.md).
+Solo da ambiente (nessun flag). Dettagli in [KMS e SSE](security/kms-sse.md).
 
 ### Log, metriche e tracing
 
@@ -113,8 +113,8 @@ Solo da ambiente (nessun flag). Dettagli in [KMS e SSE](sicurezza/kms-sse.md).
 | `NEXO_OTEL_TRACES_SAMPLER_ARG` | — | `1` | Quota (0–1) delle tracce campionate |
 
 Valgono anche le variabili standard `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_TIMEOUT` e
-`OTEL_EXPORTER_OTLP_CERTIFICATE`. Vedi [Monitoraggio](operazioni/monitoraggio.md) e
-[Trace, log e audit](operazioni/trace-log-audit.md).
+`OTEL_EXPORTER_OTLP_CERTIFICATE`. Vedi [Monitoraggio](operations/monitoring.md) e
+[Trace, log e audit](operations/trace-log-audit.md).
 
 ### Parametri avanzati del cluster (solo ambiente)
 
@@ -180,8 +180,8 @@ applica, è su `GET /api/v1/config/schema` e nella pagina **Configurazione** del
 | `api` | `requests_max`, `requests_deadline` | ❌ salvati e validati, non ancora applicati |
 | `scanner` | `speed` (`fastest`…`slowest`), `cycle` (default `1m`) | ✅ all'inizio di ogni ciclo |
 | `access` | `block_public`, `block_public_mode` (`reject`, `ignore`) | ✅ |
-| `notify_webhook`, `notify_kafka`, `notify_nats`, `notify_amqp`, `notify_redis`, `notify_postgres` (anche `:<id>`) | `enable`, chiavi del target, `queue_dir`, `queue_limit`, `comment` | ✅ (vedi [Eventi](eventi-lifecycle.md)) |
-| `audit_webhook`, `audit_kafka` (anche `:<id>`) | come i `notify_*` dello stesso tipo | ✅ (vedi [Audit](operazioni/trace-log-audit.md#audit-log)) |
+| `notify_webhook`, `notify_kafka`, `notify_nats`, `notify_amqp`, `notify_redis`, `notify_postgres` (anche `:<id>`) | `enable`, chiavi del target, `queue_dir`, `queue_limit`, `comment` | ✅ (vedi [Eventi](events-lifecycle.md)) |
+| `audit_webhook`, `audit_kafka` (anche `:<id>`) | come i `notify_*` dello stesso tipo | ✅ (vedi [Audit](operations/trace-log-audit.md#audit-log)) |
 | `browser` | `session_duration` (12h), `upload_max_size` | ❌ non ancora applicati |
 | `region` | `name`, `comment` | ❌ la regione effettiva è quella di `--region` |
 

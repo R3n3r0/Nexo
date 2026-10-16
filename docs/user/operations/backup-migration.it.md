@@ -75,7 +75,7 @@ nexoctl mirror --preserve vecchio/docs nuovo/docs      # tutte le versioni e i d
 Esempio: da un server SNSD (alias `vecchio`) a un cluster nuovo (alias `nuovo`), con le **stesse
 credenziali root**.
 
-1. Installa e avvia il nuovo deployment ([Modalità](../modalita.md)) e crea gli alias:
+1. Installa e avvia il nuovo deployment ([Modalità](../deployment-modes.md)) e crea gli alias:
 
    ```bash
    nexoctl alias set vecchio http://old.lan:9000 admin "$ROOT_PASSWORD"
@@ -113,5 +113,5 @@ migrazione da SNSD a cluster).
   senza di essa gli oggetti cifrati con SSE-S3 o SSE-KMS non sono leggibili; con `mirror` i dati vengono
   letti in chiaro e riscritti secondo la cifratura di default del bucket di destinazione;
 - distribuzioni, key group, certificati e cache: si esportano con `nexoctl dist export`/`import` e
-  `nexoctl cache policy export`/`import` (vedi [Distribuzioni](../distribuzioni/README.md));
+  `nexoctl cache policy export`/`import` (vedi [Distribuzioni](../distributions/README.md));
 - le regole di accesso dei bucket: `nexoctl access export`/`import` per bucket.

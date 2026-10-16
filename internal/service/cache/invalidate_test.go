@@ -51,7 +51,7 @@ func TestManualInvalidation(t *testing.T) {
 			e.origin.put("web", p[1:], []byte("content of "+p))
 		}
 		e.origin.put("web", "tagged.html", []byte("tagged"), func(i *domain.ObjectInfo) {
-			i.UserMetadata = map[string]string{"cache-tag": "prodotto-42, home"}
+			i.UserMetadata = map[string]string{"cache-tag": "product-42, home"}
 		})
 		e.fill(hosts, paths...)
 		return e
@@ -69,7 +69,7 @@ func TestManualInvalidation(t *testing.T) {
 			gone: map[string][]string{"www.example.com": {"/assets/app.js", "/assets/img/logo.png"}, "example.com": {"/assets/app.js", "/assets/img/logo.png"}}},
 		{name: "regex", req: cache.InvalidationRequest{Domain: "example.com", Patterns: []distribution.PathPattern{{Type: distribution.PatternRegex, Pattern: `\.(png|pdf)$`}}},
 			gone: map[string][]string{"example.com": {"/assets/img/logo.png", "/docs/a.pdf"}}},
-		{name: "tag", req: cache.InvalidationRequest{Tags: []string{"prodotto-42"}},
+		{name: "tag", req: cache.InvalidationRequest{Tags: []string{"product-42"}},
 			gone: map[string][]string{"www.example.com": {"/tagged.html"}, "example.com": {"/tagged.html"}}},
 		{name: "domain", req: cache.InvalidationRequest{Domain: "example.com"},
 			gone: map[string][]string{"example.com": paths}},
@@ -224,8 +224,8 @@ func TestEventsHook(t *testing.T) {
 		event.NewEvent(event.ObjectRemovedDeleteMarkerCreated, "us-east-1", t0),
 		event.NewEvent(event.ObjectTaggingPut, "us-east-1", t0),
 		event.NewEvent(event.BucketRemoved, "us-east-1", t0),
-		// A retention or legal hold change (docs/11 §11.5 "cambio
-		// metadati").
+		// A retention or legal hold change (docs/11 §11.5 "metadata
+		// change").
 		event.NewEvent(event.ObjectMetadataChanged, "us-east-1", t0),
 	}
 	for i := range evs {

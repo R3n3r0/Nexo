@@ -15,7 +15,7 @@ nexoctl cache purge ls
 ## Examples
 
 ```
-  nexoctl cache purge ls local sito-web
+  nexoctl cache purge ls local website
 ```
 
 ## Options

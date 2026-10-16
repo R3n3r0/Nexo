@@ -4,8 +4,14 @@
 # installs them in bin/docs-venv; the CI job "docs" uses the same file).
 # The pages are plain Markdown that renders on GitHub too: no Material-only
 # syntax (tabs, admonitions) in docs/user.
+#
+# Languages (mkdocs-static-i18n, suffix structure): English is the default
+# and lives in <page>.md, served at /; the Italian translation lives next to
+# it in <page>.it.md, served at /it/. A page without an Italian version (the
+# generated CLI reference in docs/user/cli, English only) falls back to the
+# English one in the Italian site.
 site_name: Nexo
-site_description: Documentazione utente di Nexo, object storage compatibile con S3
+site_description: User documentation of Nexo, an S3-compatible object store
 repo_url: https://github.com/R3n3r0/Nexo
 repo_name: R3n3r0/Nexo
 edit_uri: edit/main/docs/user/
@@ -14,7 +20,7 @@ copyright: Nexo
 
 theme:
   name: material
-  language: it
+  language: en
   features:
     - navigation.sections
     - navigation.top
@@ -25,12 +31,66 @@ theme:
       scheme: default
       toggle:
         icon: material/brightness-7
-        name: Tema scuro
+        name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
       toggle:
         icon: material/brightness-4
-        name: Tema chiaro
+        name: Switch to light mode
+
+plugins:
+  - search
+  - i18n:
+      docs_structure: suffix
+      fallback_to_default: true
+      reconfigure_material: true
+      reconfigure_search: true
+      languages:
+        - locale: en
+          name: English
+          default: true
+          build: true
+        - locale: it
+          name: Italiano
+          build: true
+          site_description: Documentazione utente di Nexo, object storage compatibile con S3
+          theme:
+            palette:
+              - media: "(prefers-color-scheme: light)"
+                scheme: default
+                toggle:
+                  icon: material/brightness-7
+                  name: Tema scuro
+              - media: "(prefers-color-scheme: dark)"
+                scheme: slate
+                toggle:
+                  icon: material/brightness-4
+                  name: Tema chiaro
+          nav_translations:
+            Introduction: Introduzione
+            Getting started: Per iniziare
+            Installation: Installazione
+            Deployment modes: Modalità di deployment
+            Configuration: Configurazione
+            Operations: Operazioni
+            Monitoring: Monitoraggio
+            Trace, logs and audit: Trace, log e audit
+            Healing and disks: Healing e dischi
+            Upgrade and expansion: Aggiornamento ed espansione
+            Backup and migration: Backup e migrazione
+            Troubleshooting: Risoluzione dei problemi
+            Security: Sicurezza
+            Users, policies and credentials: Utenti, policy e credenziali
+            Sharing and anonymous access: Condivisione e accesso anonimo
+            Access rules: Regole di accesso
+            TLS and certificates: TLS e certificati
+            Features: Funzionalità
+            Distributions and cache: Distribuzioni e cache
+            "Tutorial: static site": "Tutorial: sito statico"
+            Events and lifecycle: Eventi e lifecycle
+            Reference: Riferimenti
+            nexoctl commands: Comandi di nexoctl
+            S3 compatibility: Compatibilità S3
 
 markdown_extensions:
   - tables
@@ -48,37 +108,38 @@ validation:
   unrecognized_links: warn
   anchors: warn
 
-# The generated CLI reference (238 pages) is reached from its root page.
+# The generated CLI reference (238 pages, English only) is reached from its
+# root page.
 not_in_nav: |
   /cli/*.md
 
 nav:
-  - Introduzione: README.md
-  - Per iniziare:
+  - Introduction: README.md
+  - Getting started:
       - Quickstart: quickstart.md
-      - Installazione: installazione.md
-      - Modalità di deployment: modalita.md
-      - Configurazione: configurazione.md
-  - Operazioni:
-      - Monitoraggio: operazioni/monitoraggio.md
-      - Trace, log e audit: operazioni/trace-log-audit.md
-      - Healing e dischi: operazioni/healing-dischi.md
-      - Aggiornamento ed espansione: operazioni/aggiornamento-espansione.md
-      - Backup e migrazione: operazioni/backup-migrazione.md
-      - Risoluzione dei problemi: operazioni/troubleshooting.md
-  - Sicurezza:
-      - Utenti, policy e credenziali: sicurezza/utenti-policy.md
-      - Condivisione e accesso anonimo: sicurezza/condivisione.md
-      - Regole di accesso: sicurezza/regole-accesso.md
-      - TLS e certificati: sicurezza/tls.md
-      - KMS e SSE: sicurezza/kms-sse.md
-      - Threat model: sicurezza/threat-model.md
-  - Funzionalità:
-      - Distribuzioni e cache: distribuzioni/README.md
-      - "Tutorial: sito statico": distribuzioni/tutorial-sito-statico.md
-      - Eventi e lifecycle: eventi-lifecycle.md
-  - Riferimenti:
-      - CLI: riferimenti/cli.md
-      - Comandi di nexoctl: cli/nexoctl.md
-      - Admin API: riferimenti/admin-api.md
-      - Compatibilità S3: riferimenti/compatibilita-s3.md
+      - Installation: installation.md
+      - Deployment modes: deployment-modes.md
+      - Configuration: configuration.md
+  - Operations:
+      - Monitoring: operations/monitoring.md
+      - Trace, logs and audit: operations/trace-log-audit.md
+      - Healing and disks: operations/healing-disks.md
+      - Upgrade and expansion: operations/upgrade-expansion.md
+      - Backup and migration: operations/backup-migration.md
+      - Troubleshooting: operations/troubleshooting.md
+  - Security:
+      - Users, policies and credentials: security/users-policies.md
+      - Sharing and anonymous access: security/sharing.md
+      - Access rules: security/access-rules.md
+      - TLS and certificates: security/tls.md
+      - KMS and SSE: security/kms-sse.md
+      - Threat model: security/threat-model.md
+  - Features:
+      - Distributions and cache: distributions/README.md
+      - "Tutorial: static site": distributions/tutorial-static-site.md
+      - Events and lifecycle: events-lifecycle.md
+  - Reference:
+      - CLI: reference/cli.md
+      - nexoctl commands: cli/nexoctl.md
+      - Admin API: reference/admin-api.md
+      - S3 compatibility: reference/s3-compatibility.md

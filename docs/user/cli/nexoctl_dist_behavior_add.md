@@ -15,9 +15,9 @@ nexoctl dist behavior add ALIAS ID (--prefix|--glob|--regex PATTERN) [--access A
 ## Examples
 
 ```
-  nexoctl dist behavior add local sito-web --glob '/assets/**' --cache-control 'public, max-age=31536000, immutable'
-  nexoctl dist behavior add local sito-web --regex '^/downloads/.*\.zip$' --access signed --key-group rilasci
-  nexoctl dist behavior add local sito-web --prefix /internal/ --access deny --position 1
+  nexoctl dist behavior add local website --glob '/assets/**' --cache-control 'public, max-age=31536000, immutable'
+  nexoctl dist behavior add local website --regex '^/downloads/.*\.zip$' --access signed --key-group rilasci
+  nexoctl dist behavior add local website --prefix /internal/ --access deny --position 1
 ```
 
 ## Options

@@ -17,8 +17,8 @@ nexoctl cache warm ALIAS DIST [PATH|URL...] [--from FILE] [--prefix P] [flags]
 ## Examples
 
 ```
-  nexoctl cache warm local sito-web --domain www.example.com --from urls.txt --wait
-  nexoctl cache warm local sito-web --prefix /assets/ --bandwidth 20MiB
+  nexoctl cache warm local website --domain www.example.com --from urls.txt --wait
+  nexoctl cache warm local website --prefix /assets/ --bandwidth 20MiB
 ```
 
 ## Options

@@ -9,8 +9,8 @@ nexoctl dist headers ALIAS ID [--set 'Name: value']... [--unset NAME]... [--secu
 ## Examples
 
 ```
-  nexoctl dist headers local sito-web --security
-  nexoctl dist headers local sito-web --set 'Cache-Control: no-cache' --cors-origin https://app.example.com --cors-method GET
+  nexoctl dist headers local website --security
+  nexoctl dist headers local website --set 'Cache-Control: no-cache' --cors-origin https://app.example.com --cors-method GET
 ```
 
 ## Options

@@ -100,7 +100,7 @@ describe('mock distributions', () => {
     const { distributions } = admin();
     expect(await distributions.resolve('WWW.example.com:443')).toMatchObject({
       kind: 'distribution',
-      distribution: 'sito-web',
+      distribution: 'website',
       alias: 'www.example.com',
     });
     expect(await distributions.resolve('pr-1.preview.example.com')).toMatchObject({
@@ -122,25 +122,25 @@ describe('mock distributions', () => {
 
   it('tests a URL: behavior, key under the prefix, refusals and redirects', async () => {
     const { distributions } = admin();
-    const d = await distributions.get('sito-web');
+    const d = await distributions.get('website');
     await distributions.update({ ...d, restrictions: {} }, d.etag);
-    const assets = await distributions.test('sito-web', {
+    const assets = await distributions.test('website', {
       url: 'https://www.example.com/assets/app.js',
     });
     expect(assets.behaviorIndex).toBe(0);
     expect(assets.key).toBe('prod/assets/app.js');
     expect(assets.behavior.cache?.cacheControl).toBe('public, max-age=31536000, immutable');
-    const internal = await distributions.test('sito-web', { url: '/internal/x' });
+    const internal = await distributions.test('website', { url: '/internal/x' });
     expect(internal.refusalStatus).toBe(403);
-    const post = await distributions.test('sito-web', { url: '/a', method: 'POST' });
+    const post = await distributions.test('website', { url: '/a', method: 'POST' });
     expect(post.refusalStatus).toBe(405);
-    const moved = await distributions.test('sito-web', { url: '/vecchio/pagina' });
-    expect(moved.redirectLocation).toBe('/nuovo/pagina');
+    const moved = await distributions.test('website', { url: '/old/page' });
+    expect(moved.redirectLocation).toBe('/new/page');
   });
 
   it('rotates the origin secret, shown once and stored hashed', async () => {
     const { distributions } = admin();
-    const rotated = await distributions.rotateOriginSecret('sito-web');
+    const rotated = await distributions.rotateOriginSecret('website');
     expect(rotated.secret).toHaveLength(40);
     const values = rotated.distribution.restrictions?.originSecretHeader?.values ?? [];
     expect(values).toHaveLength(2);
@@ -166,6 +166,6 @@ describe('mock distributions', () => {
     expect(bad.code).toBe('invalid_certificate');
     const list = await certificates.list();
     expect(list.items[0]?.status).toBe('expiring');
-    expect(list.items[0]?.usedBy).toEqual(['sito-web']);
+    expect(list.items[0]?.usedBy).toEqual(['website']);
   });
 });

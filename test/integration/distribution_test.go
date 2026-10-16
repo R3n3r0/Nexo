@@ -89,7 +89,7 @@ func TestDistributionWebsite(t *testing.T) {
 	e.putTyped("web", "secret.txt", "outside the prefix", "text/plain")
 
 	d := distribution.Distribution{
-		ID: "sito-web", Enabled: true, Aliases: []string{"www.site.test", "site.test", "*.preview.site.test"},
+		ID: "website", Enabled: true, Aliases: []string{"www.site.test", "site.test", "*.preview.site.test"},
 		Origin: distribution.Origin{Bucket: "web", PathPrefix: "/prod"}, Mode: distribution.ModeWebsite,
 		DefaultBehavior: distribution.Behavior{Access: distribution.AccessPublic, IndexDocument: "index.html", SPAFallback: "/index.html",
 			Cache: &distribution.Cache{CacheControl: "public, max-age=300"}},
@@ -100,7 +100,7 @@ func TestDistributionWebsite(t *testing.T) {
 		},
 		ErrorPages: []distribution.ErrorPage{{Status: 404, Path: "/404.html"}, {Status: 403, Path: "/404.html", ResponseStatus: 404}},
 		Redirects: []distribution.Redirect{
-			{From: `^/vecchio/(.*)$`, To: "/nuovo/$1", Status: 301},
+			{From: `^/old/(.*)$`, To: "/new/$1", Status: 301},
 			{HostFrom: "site.test", ToHost: "www.site.test", Status: 301},
 		},
 		Headers: distribution.Headers{Response: map[string]string{"X-Content-Type-Options": "nosniff"}},
@@ -127,7 +127,7 @@ func TestDistributionWebsite(t *testing.T) {
 		{name: "deny behind 404", host: "www.site.test", path: "/internal/x", status: 404, body: "<h1>not found</h1>"},
 		{name: "prefix escape", host: "www.site.test", path: "/../secret.txt", status: 404, body: "<h1>not found</h1>"},
 		{name: "prefix escape encoded", host: "www.site.test", path: "/%2e%2e/secret.txt", status: 404},
-		{name: "redirect regex", host: "www.site.test", path: "/vecchio/a.html", status: 301, headers: map[string]string{"Location": "/nuovo/a.html"}},
+		{name: "redirect regex", host: "www.site.test", path: "/old/a.html", status: 301, headers: map[string]string{"Location": "/new/a.html"}},
 		{name: "redirect host", host: "site.test", path: "/a?b=1", status: 301, headers: map[string]string{"Location": "http://www.site.test/a?b=1"}},
 		{name: "range", host: "www.site.test", path: "/range.txt", hdr: http.Header{"Range": {"bytes=2-5"}}, status: 206, body: "2345",
 			headers: map[string]string{"Content-Range": "bytes 2-5/10", "Content-Type": "text/plain", "Accept-Ranges": "bytes"}},
@@ -181,7 +181,7 @@ func TestDistributionWebsite(t *testing.T) {
 
 	// A change on the last node applies on every node at once (TCD-03).
 	last := e.srv.Nodes[len(e.srv.Nodes)-1].App.Distributions()
-	cur, err := last.Get(e.ctx, "sito-web")
+	cur, err := last.Get(e.ctx, "website")
 	require.NoError(t, err)
 	cur.Aliases = append(cur.Aliases, "static.site.test")
 	_, err = last.Update(e.ctx, cur, cur.ETag)
@@ -190,13 +190,13 @@ func TestDistributionWebsite(t *testing.T) {
 		resp := hostRequest(t, http.MethodGet, base, "static.site.test", "/", nil)
 		assert.Equal(t, http.StatusOK, resp.StatusCode, "new alias on %s", base)
 	}
-	_, err = last.SetEnabled(e.ctx, "sito-web", false)
+	_, err = last.SetEnabled(e.ctx, "website", false)
 	require.NoError(t, err)
 	for _, base := range e.nodeURLs() {
 		resp := hostRequest(t, http.MethodGet, base, "www.site.test", "/", nil)
 		assert.Equal(t, http.StatusForbidden, resp.StatusCode, "disabled on %s", base)
 	}
-	require.NoError(t, e.srv.Nodes[0].App.Distributions().Delete(e.ctx, "sito-web"))
+	require.NoError(t, e.srv.Nodes[0].App.Distributions().Delete(e.ctx, "website"))
 	for _, base := range e.nodeURLs() {
 		resp := hostRequest(t, http.MethodGet, base, "www.site.test", "/", nil)
 		assert.NotEqual(t, "<h1>home</h1>", string(resp.Body), "deleted on %s", base)
@@ -219,45 +219,45 @@ func (f fixedEndpoint) ResolveEndpoint(context.Context, s3.EndpointParameters) (
 func TestDistributionS3Mode(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
-	e.mkBucket("cliente")
+	e.mkBucket("customer")
 	e.mkBucket("other")
 	e.put("other", "x.txt", []byte("other bucket"))
 	_, err := e.srv.App.Distributions().Create(e.ctx, distribution.Distribution{
-		ID: "s3-cliente", Enabled: true, Aliases: []string{"s3.cliente.test"}, Mode: distribution.ModeS3,
-		Origin: distribution.Origin{Bucket: "cliente"},
+		ID: "s3-customer", Enabled: true, Aliases: []string{"s3.customer.test"}, Mode: distribution.ModeS3,
+		Origin: distribution.Origin{Bucket: "customer"},
 	})
 	require.NoError(t, err)
 
 	_, port, err := net.SplitHostPort(e.hostPort())
 	require.NoError(t, err)
-	endpoint := url.URL{Scheme: "http", Host: "s3.cliente.test:" + port}
+	endpoint := url.URL{Scheme: "http", Host: "s3.customer.test:" + port}
 	cfg := e.sdkConfig(e.rootCreds())
 	cfg.HTTPClient = e.loopbackClient()
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) { o.EndpointResolverV2 = fixedEndpoint{u: endpoint} })
 
-	_, err = client.PutObject(e.ctx, &s3.PutObjectInput{Bucket: aws.String("cliente"), Key: aws.String("docs/a.txt"), Body: strings.NewReader("hello")})
+	_, err = client.PutObject(e.ctx, &s3.PutObjectInput{Bucket: aws.String("customer"), Key: aws.String("docs/a.txt"), Body: strings.NewReader("hello")})
 	require.NoError(t, err)
-	got, err := client.GetObject(e.ctx, &s3.GetObjectInput{Bucket: aws.String("cliente"), Key: aws.String("docs/a.txt")})
+	got, err := client.GetObject(e.ctx, &s3.GetObjectInput{Bucket: aws.String("customer"), Key: aws.String("docs/a.txt")})
 	require.NoError(t, err)
 	body, _ := io.ReadAll(got.Body)
 	_ = got.Body.Close()
 	assert.Equal(t, "hello", string(body))
 	// The object is in the bucket of the distribution.
-	assert.Equal(t, []byte("hello"), e.get("cliente", "docs/a.txt"))
-	list, err := client.ListObjectsV2(e.ctx, &s3.ListObjectsV2Input{Bucket: aws.String("cliente")})
+	assert.Equal(t, []byte("hello"), e.get("customer", "docs/a.txt"))
+	list, err := client.ListObjectsV2(e.ctx, &s3.ListObjectsV2Input{Bucket: aws.String("customer")})
 	require.NoError(t, err)
 	require.Len(t, list.Contents, 1)
 	assert.Equal(t, "docs/a.txt", aws.ToString(list.Contents[0].Key))
 	// POST /?delete is an S3 request of the bucket (not STS).
-	del, err := client.DeleteObjects(e.ctx, &s3.DeleteObjectsInput{Bucket: aws.String("cliente"),
+	del, err := client.DeleteObjects(e.ctx, &s3.DeleteObjectsInput{Bucket: aws.String("customer"),
 		Delete: &types.Delete{Objects: []types.ObjectIdentifier{{Key: aws.String("missing.txt")}}}})
 	require.NoError(t, err)
 	assert.Len(t, del.Deleted, 1)
 
 	// Presigned URLs of the domain.
-	presigned, err := s3.NewPresignClient(client).PresignGetObject(e.ctx, &s3.GetObjectInput{Bucket: aws.String("cliente"), Key: aws.String("docs/a.txt")})
+	presigned, err := s3.NewPresignClient(client).PresignGetObject(e.ctx, &s3.GetObjectInput{Bucket: aws.String("customer"), Key: aws.String("docs/a.txt")})
 	require.NoError(t, err)
-	assert.Contains(t, presigned.URL, "://s3.cliente.test:"+port+"/docs/a.txt?")
+	assert.Contains(t, presigned.URL, "://s3.customer.test:"+port+"/docs/a.txt?")
 	resp := doWith(t, e.loopbackClient(), newRequest(t, http.MethodGet, presigned.URL, nil))
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "%s", resp.Body)
 	assert.Equal(t, "hello", string(resp.Body))
@@ -266,7 +266,7 @@ func TestDistributionS3Mode(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
 
 	// The domain addresses its bucket only: another bucket is a key.
-	_, err = client.GetObject(e.ctx, &s3.GetObjectInput{Bucket: aws.String("cliente"), Key: aws.String("other/x.txt")})
+	_, err = client.GetObject(e.ctx, &s3.GetObjectInput{Bucket: aws.String("customer"), Key: aws.String("other/x.txt")})
 	assert.Equal(t, "NoSuchKey", apiCode(err))
 	// Anonymous requests follow the policies of the bucket.
 	resp = doWith(t, e.loopbackClient(), newRequest(t, http.MethodGet, endpoint.String()+"/docs/a.txt", nil))
@@ -274,15 +274,15 @@ func TestDistributionS3Mode(t *testing.T) {
 
 	// Restrictions apply in the s3 mode too: the origin secret.
 	dists := e.srv.App.Distributions()
-	secret, _, err := dists.RotateOriginSecret(e.ctx, distribution.RotateSecretInput{ID: "s3-cliente"})
+	secret, _, err := dists.RotateOriginSecret(e.ctx, distribution.RotateSecretInput{ID: "s3-customer"})
 	require.NoError(t, err)
-	_, err = client.GetObject(e.ctx, &s3.GetObjectInput{Bucket: aws.String("cliente"), Key: aws.String("docs/a.txt")})
+	_, err = client.GetObject(e.ctx, &s3.GetObjectInput{Bucket: aws.String("customer"), Key: aws.String("docs/a.txt")})
 	assert.Equal(t, http.StatusForbidden, httpStatus(err), "no origin secret")
 	withSecret := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.EndpointResolverV2 = fixedEndpoint{u: endpoint}
 		o.HTTPClient = headerClient{c: e.loopbackClient(), name: distribution.DefaultOriginSecretHeader, value: secret}
 	})
-	_, err = withSecret.GetObject(e.ctx, &s3.GetObjectInput{Bucket: aws.String("cliente"), Key: aws.String("docs/a.txt")})
+	_, err = withSecret.GetObject(e.ctx, &s3.GetObjectInput{Bucket: aws.String("customer"), Key: aws.String("docs/a.txt")})
 	require.NoError(t, err)
 }
 
