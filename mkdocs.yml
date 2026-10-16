@@ -18,7 +18,6 @@ theme:
   features:
     - navigation.sections
     - navigation.top
-    - navigation.indexes
     - search.highlight
     - content.code.copy
   palette:
