@@ -5,7 +5,10 @@ package middleware
 
 import (
 	"context"
+	"io"
 	"net/http"
+
+	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
 
 // Middleware wraps an http.Handler.
@@ -83,6 +86,21 @@ func (w *responseWriter) Write(b []byte) (int, error) {
 	}
 	n, err := w.ResponseWriter.Write(b)
 	w.bytes += int64(n)
+	return n, err
+}
+
+// ReadFrom implements io.ReaderFrom: a file section (httpx.FileSection)
+// goes on to the ReadFrom of the wrapped writer (sendfile, see httpx),
+// counted; any other reader is copied through Write as io.Copy does.
+func (w *responseWriter) ReadFrom(src io.Reader) (int64, error) {
+	if _, ok := httpx.FileSection(src); !ok {
+		return httpx.CopyPooled(struct{ io.Writer }{w}, src)
+	}
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	n, err := httpx.CopyPooled(w.ResponseWriter, src)
+	w.bytes += n
 	return n, err
 }
 

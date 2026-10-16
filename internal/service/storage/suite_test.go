@@ -26,6 +26,24 @@ func TestLocalBehavior(t *testing.T) {
 	})
 }
 
+// TestLocalBehaviorDurable runs the suite against a drive that syncs its
+// writes, the default of a server: its large data files are written with
+// O_DIRECT where the file system of TMPDIR supports it (the suite above,
+// without fsync, writes everything through the page cache).
+func TestLocalBehaviorDurable(t *testing.T) {
+	if testing.Short() {
+		t.Skip("fsync on every write")
+	}
+	storagetest.Run(t, func(t *testing.T, dir string) storage.StorageAPI {
+		ep, err := domain.ParseEndpoint(dir)
+		require.NoError(t, err)
+		d, err := storage.NewLocal(storage.Deps{Logger: slog.New(slog.DiscardHandler)}, ep)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = d.Close(context.Background()) })
+		return d
+	})
+}
+
 // TestNewLocalURLEndpoint opens a drive of this node in a distributed
 // deployment: a URL endpoint marked local keeps its URL as Endpoint.
 func TestNewLocalURLEndpoint(t *testing.T) {

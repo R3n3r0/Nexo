@@ -56,8 +56,10 @@ type xlStorage struct {
 
 	// rename is os.Rename; internal tests replace it to inject failures.
 	rename func(oldpath, newpath string) error
-	// copyBufs recycles the buffers of CreateFile.
+	// copyBufs recycles the buffers of CreateFile (aligned for O_DIRECT).
 	copyBufs sync.Pool
+	// dio is the O_DIRECT state of the data files (see directIO).
+	dio directIO
 }
 
 var _ StorageAPI = (*xlStorage)(nil)
@@ -88,6 +90,7 @@ func NewLocal(deps Deps, ep domain.Endpoint, opts ...Option) (StorageAPI, error)
 		return nil, fmt.Errorf("storage: resolve %s: %w", ep.Path, err)
 	}
 	s := &xlStorage{deps: deps, opts: o, ep: ep, root: root, seed: maphash.MakeSeed(), rename: os.Rename}
+	s.dio.set = setDirectIO
 	if err := s.initDirs(); err != nil {
 		return nil, err
 	}
@@ -135,11 +138,21 @@ func (s *xlStorage) cleanTmp() error {
 	return nil
 }
 
-// probe verifies that the drive accepts writes.
+// probe verifies that the drive accepts writes and reads the alignment of
+// its direct I/O from the probe file.
 func (s *xlStorage) probe() error {
 	name := filepath.Join(s.root, domain.SystemBucket, TmpDir, ".probe-"+randomSuffix())
 	if err := os.WriteFile(name, []byte("nexo"), fs.FileMode(s.opts.filePerm)); err != nil {
 		return fmt.Errorf("storage: drive %s is not writable: %w", s.root, mapErr(err))
+	}
+	// Direct I/O is for the durable drives: without fsync the page cache
+	// is the point (tests, benchmarks).
+	if s.opts.directIO && s.opts.fsync && directIOSupported {
+		// The copy buffers are whole multiples of the alignment.
+		if align, ok := directIOAlign(name); ok && align > 0 && align <= copyBufferSize && align&(align-1) == 0 {
+			s.dio.align = align
+		}
+		s.deps.Logger.Debug("storage: direct I/O", "path", s.root, "align", s.dio.align)
 	}
 	if err := os.Remove(name); err != nil {
 		return fmt.Errorf("storage: drive %s: remove probe: %w", s.root, mapErr(err))
@@ -750,8 +763,14 @@ func (s *xlStorage) CreateFile(ctx context.Context, volume, filePath string, siz
 	if size >= 0 {
 		src = io.LimitReader(src, size)
 	}
+	var w io.Writer = tmp
+	if s.dio.align > 0 {
+		w = newDirectWriter(tmp, &s.dio, func(err error) {
+			s.deps.Logger.Info("storage: the file system refuses direct I/O, data files go through the page cache", "path", s.root, "err", err)
+		})
+	}
 	var n int64
-	n, err = s.copyFull(tmp, src, size)
+	n, err = s.copyFull(w, src, size)
 	if err == nil && size >= 0 && n != size {
 		err = fmt.Errorf("%w: expected %d bytes, got %d", io.ErrUnexpectedEOF, size, n)
 	}
@@ -777,7 +796,7 @@ const copyBufferSize = 1 << 20
 func (s *xlStorage) copyFull(dst io.Writer, src io.Reader, size int64) (int64, error) {
 	b, _ := s.copyBufs.Get().(*[]byte)
 	if b == nil {
-		nb := make([]byte, copyBufferSize)
+		nb := alignedBuffer(copyBufferSize, max(s.dio.align, defaultDirectIOAlign))
 		b = &nb
 	}
 	defer s.copyBufs.Put(b)

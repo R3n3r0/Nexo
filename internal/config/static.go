@@ -132,6 +132,11 @@ type Static struct {
 	// (NEXO_SSEC_ALLOW_INSECURE, environment only): S3 requires TLS for
 	// them; only for tests and development.
 	SSECAllowInsecure bool `json:"-"`
+	// DisableDirectIO writes every data file of the local drives through
+	// the page cache (NEXO_DRIVE_DIRECT_IO=off, environment only): no
+	// O_DIRECT for the large parts and shards (Linux, see
+	// storage.WithoutDirectIO).
+	DisableDirectIO bool `json:"-"`
 
 	// Proxies and access rules (docs/10 §10.1, §10.2; access.go).
 	//

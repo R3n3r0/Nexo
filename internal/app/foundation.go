@@ -154,10 +154,14 @@ type foundationDeps struct {
 
 // driveOptions are the options of the local drives.
 func (d foundationDeps) driveOptions() []storage.Option {
+	var opts []storage.Option
 	if d.noFsync {
-		return []storage.Option{storage.WithoutFsync()}
+		opts = append(opts, storage.WithoutFsync())
 	}
-	return nil
+	if d.cfg.DisableDirectIO {
+		opts = append(opts, storage.WithoutDirectIO())
+	}
+	return opts
 }
 
 // newFoundation opens the drives and builds the locks and the cluster
