@@ -1,4 +1,4 @@
-## nexoctl version suspend
+# nexoctl version suspend
 
 Suspend the versioning of a bucket
 
@@ -6,13 +6,13 @@ Suspend the versioning of a bucket
 nexoctl version suspend ALIAS/BUCKET [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for suspend
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl version suspend ALIAS/BUCKET [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl version](nexoctl_version.md)	 - Print the nexoctl version, or manage bucket versioning
 

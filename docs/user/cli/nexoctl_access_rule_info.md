@@ -1,4 +1,4 @@
-## nexoctl access rule info
+# nexoctl access rule info
 
 Show an access rule
 
@@ -6,20 +6,20 @@ Show an access rule
 nexoctl access rule info ALIAS/BUCKET --id ID [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl access rule info local/media --id img-pub
 ```
 
-### Options
+## Options
 
 ```
   -h, --help        help for info
       --id string   id of the rule
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -29,7 +29,7 @@ nexoctl access rule info ALIAS/BUCKET --id ID [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl access rule](nexoctl_access_rule.md)	 - Add, list, show, remove and reorder the access rules of a bucket
 

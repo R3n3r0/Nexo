@@ -1,8 +1,8 @@
-## nexoctl admin logs
+# nexoctl admin logs
 
 Show the logs of the server, live
 
-### Synopsis
+## Synopsis
 
 Show the logs of every node of the deployment as they are written, secrets redacted:
 the --last recent entries of each node first, then the new ones, at --level or above.
@@ -16,7 +16,7 @@ Needs admin:ConsoleLog (root, consoleAdmin, the diagnostics policy).
 nexoctl admin logs [flags] ALIAS
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin logs local
@@ -24,7 +24,7 @@ nexoctl admin logs [flags] ALIAS
   nexoctl admin logs --node n2:9000 --json local
 ```
 
-### Options
+## Options
 
 ```
       --count int          stop after this many items (default: no limit)
@@ -35,7 +35,7 @@ nexoctl admin logs [flags] ALIAS
       --timeout duration   stop after this time (default: until Ctrl-C)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -45,7 +45,7 @@ nexoctl admin logs [flags] ALIAS
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin](nexoctl_admin.md)	 - Administer a Nexo server (Admin API)
 

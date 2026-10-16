@@ -1,4 +1,4 @@
-## nexoctl access rule remove
+# nexoctl access rule remove
 
 Remove an access rule
 
@@ -6,26 +6,26 @@ Remove an access rule
 nexoctl access rule remove ALIAS/BUCKET --id ID [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl access rule rm
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl access rule rm local/media --id img-pub
 ```
 
-### Options
+## Options
 
 ```
   -h, --help        help for remove
       --id string   id of the rule
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -35,7 +35,7 @@ nexoctl access rule rm
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl access rule](nexoctl_access_rule.md)	 - Add, list, show, remove and reorder the access rules of a bucket
 

@@ -1,8 +1,8 @@
-## nexoctl alias set
+# nexoctl alias set
 
 Add or update an alias
 
-### Synopsis
+## Synopsis
 
 Add or update an alias. The credentials are checked against the server
 (ListBuckets) before the alias is saved: an unknown, disabled or expired access
@@ -20,14 +20,14 @@ port; --admin-url sets it explicitly.
 nexoctl alias set NAME URL ACCESS_KEY SECRET_KEY [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl alias set local http://localhost:9000 admin supersecret
   nexoctl alias set later https://s3.example.com AKIA... secret --no-verify
 ```
 
-### Options
+## Options
 
 ```
       --admin-url string   URL of the Admin API of a Nexo server (default: the alias URL with the next port)
@@ -39,7 +39,7 @@ nexoctl alias set NAME URL ACCESS_KEY SECRET_KEY [flags]
       --verify             check the connection and the credentials before saving (default true)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -49,7 +49,7 @@ nexoctl alias set NAME URL ACCESS_KEY SECRET_KEY [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl alias](nexoctl_alias.md)	 - Manage server aliases (saved in ~/.nexoctl/config.json)
 

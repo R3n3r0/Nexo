@@ -1,8 +1,8 @@
-## nexoctl anonymous
+# nexoctl anonymous
 
 Manage the anonymous access of buckets and prefixes
 
-### Synopsis
+## Synopsis
 
 Grant anonymous (unauthenticated) access to a bucket or to a prefix with a
 preset, implemented as statements of the bucket policy:
@@ -18,13 +18,13 @@ The statements of other prefixes and the custom statements are kept.
 nexoctl anonymous [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for anonymous
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -34,7 +34,7 @@ nexoctl anonymous [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 * [nexoctl anonymous get](nexoctl_anonymous_get.md)	 - Show the anonymous access of a bucket or prefix

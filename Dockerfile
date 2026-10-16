@@ -11,7 +11,7 @@
 # passed to "nexo server" (see docs/08-modalita-deploy.md); the image is the same.
 
 ARG NODE_VERSION=22
-ARG GO_VERSION=1.26.9
+ARG GO_VERSION=1.27.2
 
 # ---------------------------------------------------------------------------
 # Stage web: build the React console (web/dist).

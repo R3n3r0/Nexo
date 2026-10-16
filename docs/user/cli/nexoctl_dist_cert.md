@@ -1,8 +1,8 @@
-## nexoctl dist cert
+# nexoctl dist cert
 
 Manage the TLS certificates of the domains of the distributions
 
-### Synopsis
+## Synopsis
 
 Manage the TLS certificates of the domains of the distributions (served by SNI on
 every node): ACME (--auto: obtained and renewed by the leader), uploaded PEM
@@ -13,13 +13,13 @@ Needs admin:ManageCertificates (and admin:ManageDistributions for "set").
 nexoctl dist cert [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for cert
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -29,7 +29,7 @@ nexoctl dist cert [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist](nexoctl_dist.md)	 - Manage the distributions: custom domains of the buckets
 * [nexoctl dist cert list](nexoctl_dist_cert_list.md)	 - List the certificates with their status and expiration

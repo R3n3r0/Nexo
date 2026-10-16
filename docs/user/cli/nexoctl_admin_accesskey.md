@@ -1,8 +1,8 @@
-## nexoctl admin accesskey
+# nexoctl admin accesskey
 
 Manage the access keys (service accounts) of the users
 
-### Synopsis
+## Synopsis
 
 Manage access keys: additional credentials of a user (service accounts), with an
 optional expiration and an optional inline policy that restricts what the
@@ -12,20 +12,20 @@ key can do (the permissions are the intersection with those of the user).
 nexoctl admin accesskey [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl admin access-key
 nexoctl admin svcacct
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for accesskey
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -35,7 +35,7 @@ nexoctl admin svcacct
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin](nexoctl_admin.md)	 - Administer a Nexo server (Admin API)
 * [nexoctl admin accesskey create](nexoctl_admin_accesskey_create.md)	 - Create an access key (the secret key is printed only once)

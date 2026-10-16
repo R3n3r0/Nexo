@@ -1,8 +1,8 @@
-## nexoctl dist export
+# nexoctl dist export
 
 Export distributions as YAML
 
-### Synopsis
+## Synopsis
 
 Export a distribution (every distribution without ID, one YAML document each) to
 the standard output, or to FILE with --output: the documents of "nexoctl dist
@@ -12,21 +12,21 @@ import", for the GitOps management of the distributions.
 nexoctl dist export ALIAS [ID] [-o FILE] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl dist export local sito-web -o sito-web.yaml
   nexoctl dist export local > distributions.yaml
 ```
 
-### Options
+## Options
 
 ```
   -h, --help            help for export
   -o, --output string   write the documents to this file
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -36,7 +36,7 @@ nexoctl dist export ALIAS [ID] [-o FILE] [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist](nexoctl_dist.md)	 - Manage the distributions: custom domains of the buckets
 

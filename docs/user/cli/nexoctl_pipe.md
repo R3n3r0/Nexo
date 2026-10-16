@@ -1,8 +1,8 @@
-## nexoctl pipe
+# nexoctl pipe
 
 Stream the standard input to an object
 
-### Synopsis
+## Synopsis
 
 Upload the standard input as an object. The stream is sent as a multipart
 upload with parts of growing size, so its length need not be known; Ctrl-C
@@ -12,13 +12,13 @@ aborts the upload on the server.
 nexoctl pipe [flags] ALIAS/BUCKET/OBJECT
 ```
 
-### Examples
+## Examples
 
 ```
   tar czf - photos/ | nexoctl pipe local/backups/photos.tgz
 ```
 
-### Options
+## Options
 
 ```
       --attr string              user metadata of the uploaded objects: "key1=value1;key2=value2"
@@ -36,7 +36,7 @@ nexoctl pipe [flags] ALIAS/BUCKET/OBJECT
       --tags string              tags of the uploaded objects: "key1=value1&key2=value2"
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -46,7 +46,7 @@ nexoctl pipe [flags] ALIAS/BUCKET/OBJECT
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 

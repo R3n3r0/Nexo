@@ -1,4 +1,4 @@
-## nexoctl encrypt info
+# nexoctl encrypt info
 
 Show the default encryption of a bucket
 
@@ -6,13 +6,13 @@ Show the default encryption of a bucket
 nexoctl encrypt info ALIAS/BUCKET [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for info
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl encrypt info ALIAS/BUCKET [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl encrypt](nexoctl_encrypt.md)	 - Manage the default encryption of buckets
 

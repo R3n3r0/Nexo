@@ -1,4 +1,4 @@
-## nexoctl cache purge status
+# nexoctl cache purge status
 
 Show the state of an invalidation on every node
 
@@ -6,13 +6,13 @@ Show the state of an invalidation on every node
 nexoctl cache purge status ALIAS ID [--dist DIST] [--wait] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl cache purge status local inv-18a2b3c4d5e6f-0a1b2c3d
 ```
 
-### Options
+## Options
 
 ```
       --dist string        distribution of the invalidation (default: found by its id)
@@ -21,7 +21,7 @@ nexoctl cache purge status ALIAS ID [--dist DIST] [--wait] [flags]
       --wait               wait until every node applied the invalidation
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -31,7 +31,7 @@ nexoctl cache purge status ALIAS ID [--dist DIST] [--wait] [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl cache purge](nexoctl_cache_purge.md)	 - Invalidate cached content
 

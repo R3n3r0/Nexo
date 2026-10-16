@@ -1,8 +1,8 @@
-## nexoctl cache policy edit
+# nexoctl cache policy edit
 
 Change a defined cache policy
 
-### Synopsis
+## Synopsis
 
 Change the fields of a defined cache policy given as flags (or replace it with the
 document of --file). The entries cached under the policy are dropped. The change
@@ -12,13 +12,13 @@ is guarded by the ETag of the policy: a concurrent change is retried.
 nexoctl cache policy edit ALIAS NAME [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl cache policy edit local long --ttl-max 7d --browser-cache-control 'public, max-age=3600'
 ```
 
-### Options
+## Options
 
 ```
       --allow-type stringArray          media type cached (image/*; repeatable; none: every type)
@@ -53,7 +53,7 @@ nexoctl cache policy edit ALIAS NAME [flags]
       --ttl-min string                  shortest lifetime in cache, the objects' own included
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -63,7 +63,7 @@ nexoctl cache policy edit ALIAS NAME [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl cache policy](nexoctl_cache_policy.md)	 - Manage the reusable cache policies
 

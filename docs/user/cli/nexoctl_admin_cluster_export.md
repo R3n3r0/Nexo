@@ -1,4 +1,4 @@
-## nexoctl admin cluster export
+# nexoctl admin cluster export
 
 Export the state of the deployment as a zip archive (stdout or --output)
 
@@ -6,21 +6,21 @@ Export the state of the deployment as a zip archive (stdout or --output)
 nexoctl admin cluster export [flags] ALIAS
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin cluster export local --output backup.zip
   nexoctl admin cluster export local > backup.zip
 ```
 
-### Options
+## Options
 
 ```
   -h, --help            help for export
   -o, --output string   write the archive to this file (mode 0600)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -30,7 +30,7 @@ nexoctl admin cluster export [flags] ALIAS
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin cluster](nexoctl_admin_cluster.md)	 - Export and import the state of a deployment (IAM, policies, configuration, bucket settings)
 

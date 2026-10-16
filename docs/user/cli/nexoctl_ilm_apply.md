@@ -1,8 +1,8 @@
-## nexoctl ilm apply
+# nexoctl ilm apply
 
 Apply the lifecycle rules of a bucket now (Admin API)
 
-### Synopsis
+## Synopsis
 
 Apply the lifecycle rules of a bucket at once instead of waiting for the
 background scanner: expired versions and delete markers are removed and stale
@@ -13,19 +13,19 @@ s3:PutLifecycleConfiguration and admin:ApplyLifecycle.
 nexoctl ilm apply ALIAS/BUCKET [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl ilm apply local/app
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for apply
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -35,7 +35,7 @@ nexoctl ilm apply ALIAS/BUCKET [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl ilm](nexoctl_ilm.md)	 - Manage the lifecycle rules of buckets (expiration, noncurrent versions, uploads)
 

@@ -1,4 +1,4 @@
-## nexoctl admin group members
+# nexoctl admin group members
 
 List the members of a group
 
@@ -6,13 +6,13 @@ List the members of a group
 nexoctl admin group members ALIAS GROUP [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for members
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl admin group members ALIAS GROUP [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin group](nexoctl_admin_group.md)	 - Manage the IAM groups and their members
 

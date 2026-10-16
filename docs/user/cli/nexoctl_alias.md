@@ -1,8 +1,8 @@
-## nexoctl alias
+# nexoctl alias
 
 Manage server aliases (saved in ~/.nexoctl/config.json)
 
-### Synopsis
+## Synopsis
 
 An alias names a server endpoint and its credentials. The configuration file
 is ~/.nexoctl/config.json (or $NEXOCTL\_CONFIG\_DIR/config.json, or --config-dir),
@@ -12,13 +12,13 @@ written with owner-only permissions (0600).
 nexoctl alias [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for alias
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl alias [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 * [nexoctl alias list](nexoctl_alias_list.md)	 - List aliases (secret keys are never shown)

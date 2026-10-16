@@ -1,4 +1,4 @@
-## nexoctl admin group enable
+# nexoctl admin group enable
 
 Enable groups (the policies of a disabled group do not apply)
 
@@ -6,13 +6,13 @@ Enable groups (the policies of a disabled group do not apply)
 nexoctl admin group enable ALIAS GROUP... [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for enable
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl admin group enable ALIAS GROUP... [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin group](nexoctl_admin_group.md)	 - Manage the IAM groups and their members
 

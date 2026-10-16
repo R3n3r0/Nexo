@@ -1,8 +1,8 @@
-## nexoctl cache settings
+# nexoctl cache settings
 
 Show or change the cache settings of the cluster
 
-### Synopsis
+## Synopsis
 
 Show the cache settings of the cluster (the global level the distributions,
 their domains and their paths inherit from), or change the fields given as
@@ -12,7 +12,7 @@ flags.
 nexoctl cache settings ALIAS [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl cache settings local
@@ -20,7 +20,7 @@ nexoctl cache settings ALIAS [flags]
   nexoctl cache settings local --debug-secret-file debug.secret
 ```
 
-### Options
+## Options
 
 ```
       --allow-type stringArray          media type cached (image/*; repeatable; none: every type)
@@ -62,7 +62,7 @@ nexoctl cache settings ALIAS [flags]
       --ttl-min string                  shortest lifetime in cache, the objects' own included
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -72,7 +72,7 @@ nexoctl cache settings ALIAS [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl cache](nexoctl_cache.md)	 - Manage the cache of the distributions
 

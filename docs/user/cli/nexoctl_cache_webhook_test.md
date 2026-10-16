@@ -1,4 +1,4 @@
-## nexoctl cache webhook test
+# nexoctl cache webhook test
 
 Call a purge webhook once (connection test)
 
@@ -6,19 +6,19 @@ Call a purge webhook once (connection test)
 nexoctl cache webhook test ALIAS DIST ID [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl cache webhook test local sito-web cloudflare
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for test
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl cache webhook test ALIAS DIST ID [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl cache webhook](nexoctl_cache_webhook.md)	 - Manage the purge webhooks of a distribution
 

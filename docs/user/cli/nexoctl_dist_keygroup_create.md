@@ -1,4 +1,4 @@
-## nexoctl dist keygroup create
+# nexoctl dist keygroup create
 
 Create a key group with a first key pair
 
@@ -6,14 +6,14 @@ Create a key group with a first key pair
 nexoctl dist keygroup create ALIAS ID [--no-key] [--algorithm ed25519|rsa] [--key-out FILE] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl dist keygroup create local rilasci
   nexoctl dist keygroup create local rilasci --algorithm rsa --bits 4096 --key-out rilasci.pem
 ```
 
-### Options
+## Options
 
 ```
       --algorithm string   ed25519 (default) or rsa
@@ -24,7 +24,7 @@ nexoctl dist keygroup create ALIAS ID [--no-key] [--algorithm ed25519|rsa] [--ke
       --no-key             create an empty group (add keys with "dist keygroup key add")
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -34,7 +34,7 @@ nexoctl dist keygroup create ALIAS ID [--no-key] [--algorithm ed25519|rsa] [--ke
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist keygroup](nexoctl_dist_keygroup.md)	 - Manage the key groups of the signed URLs and cookies
 

@@ -1,8 +1,8 @@
-## nexoctl admin config
+# nexoctl admin config
 
 Read and change the dynamic configuration of the server
 
-### Synopsis
+## Synopsis
 
 Read and change the dynamic configuration of the server, made of subsystems
 (api, browser, logger, notify\_webhook, region, scanner...) holding key=value
@@ -14,13 +14,13 @@ configuration as JSON.
 nexoctl admin config [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for config
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -30,7 +30,7 @@ nexoctl admin config [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin](nexoctl_admin.md)	 - Administer a Nexo server (Admin API)
 * [nexoctl admin config export](nexoctl_admin_config_export.md)	 - Export the whole configuration as JSON (stdout or --output)

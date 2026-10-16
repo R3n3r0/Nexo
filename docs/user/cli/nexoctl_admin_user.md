@@ -1,4 +1,4 @@
-## nexoctl admin user
+# nexoctl admin user
 
 Manage the IAM users
 
@@ -6,13 +6,13 @@ Manage the IAM users
 nexoctl admin user [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for user
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl admin user [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin](nexoctl_admin.md)	 - Administer a Nexo server (Admin API)
 * [nexoctl admin user add](nexoctl_admin_user_add.md)	 - Create a user

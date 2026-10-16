@@ -1,4 +1,4 @@
-## nexoctl dist behavior list
+# nexoctl dist behavior list
 
 List the behaviors of a distribution, in evaluation order
 
@@ -6,19 +6,19 @@ List the behaviors of a distribution, in evaluation order
 nexoctl dist behavior list ALIAS ID [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl dist behavior ls
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for list
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl dist behavior ls
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist behavior](nexoctl_dist_behavior.md)	 - Manage the behaviors per path of a distribution
 

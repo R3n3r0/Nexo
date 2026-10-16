@@ -1,4 +1,4 @@
-## nexoctl dist behavior move
+# nexoctl dist behavior move
 
 Move a behavior (1-based positions): the first match wins
 
@@ -6,19 +6,19 @@ Move a behavior (1-based positions): the first match wins
 nexoctl dist behavior move ALIAS ID FROM TO [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl dist behavior move local sito-web 3 1
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for move
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl dist behavior move ALIAS ID FROM TO [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist behavior](nexoctl_dist_behavior.md)	 - Manage the behaviors per path of a distribution
 

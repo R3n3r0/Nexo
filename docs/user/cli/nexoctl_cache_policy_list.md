@@ -1,4 +1,4 @@
-## nexoctl cache policy list
+# nexoctl cache policy list
 
 List the cache policies, built-in and defined
 
@@ -6,25 +6,25 @@ List the cache policies, built-in and defined
 nexoctl cache policy list ALIAS [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl cache policy ls
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl cache policy ls local
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for list
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -34,7 +34,7 @@ nexoctl cache policy ls
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl cache policy](nexoctl_cache_policy.md)	 - Manage the reusable cache policies
 

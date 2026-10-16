@@ -1,8 +1,8 @@
-## nexoctl cp
+# nexoctl cp
 
 Copy files and objects
 
-### Synopsis
+## Synopsis
 
 Copy local files to a bucket, objects to local files, or objects between
 buckets (server-side within one alias). Large files are sent as multipart
@@ -16,7 +16,7 @@ otherwise the directory itself; directories and prefixes need --recursive.
 nexoctl cp [flags] SOURCE... TARGET
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl cp report.pdf local/docs/
@@ -25,7 +25,7 @@ nexoctl cp [flags] SOURCE... TARGET
   nexoctl cp --attr "owner=ops;env=prod" --tags "team=ops" app.log local/logs/
 ```
 
-### Options
+## Options
 
 ```
       --attr string              user metadata of the uploaded objects: "key1=value1;key2=value2"
@@ -45,7 +45,7 @@ nexoctl cp [flags] SOURCE... TARGET
       --version-id string        copy this version of the source object
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -55,7 +55,7 @@ nexoctl cp [flags] SOURCE... TARGET
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 

@@ -1,4 +1,4 @@
-## nexoctl dist redirect
+# nexoctl dist redirect
 
 Manage the redirections of a distribution
 
@@ -6,13 +6,13 @@ Manage the redirections of a distribution
 nexoctl dist redirect [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for redirect
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl dist redirect [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist](nexoctl_dist.md)	 - Manage the distributions: custom domains of the buckets
 * [nexoctl dist redirect add](nexoctl_dist_redirect_add.md)	 - Add a redirection (the first that applies wins)

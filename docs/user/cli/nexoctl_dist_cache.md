@@ -1,8 +1,8 @@
-## nexoctl dist cache
+# nexoctl dist cache
 
 Manage the cache settings of a distribution, its domains and paths
 
-### Synopsis
+## Synopsis
 
 Manage the cache settings of a distribution (admin:ManageCache, docs/11 §11.1):
 its defaults, the overrides of a domain (--domain) and of the paths a pattern
@@ -14,13 +14,13 @@ name a policy ("nexoctl cache policy") and override its fields.
 nexoctl dist cache [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for cache
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -30,7 +30,7 @@ nexoctl dist cache [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist](nexoctl_dist.md)	 - Manage the distributions: custom domains of the buckets
 * [nexoctl dist cache export](nexoctl_dist_cache_export.md)	 - Export the cache settings of a distribution as YAML

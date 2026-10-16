@@ -1,4 +1,4 @@
-## nexoctl dist keygroup list
+# nexoctl dist keygroup list
 
 List the key groups and their keys
 
@@ -6,19 +6,19 @@ List the key groups and their keys
 nexoctl dist keygroup list ALIAS [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl dist keygroup ls
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for list
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl dist keygroup ls
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist keygroup](nexoctl_dist_keygroup.md)	 - Manage the key groups of the signed URLs and cookies
 

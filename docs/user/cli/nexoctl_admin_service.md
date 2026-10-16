@@ -1,4 +1,4 @@
-## nexoctl admin service
+# nexoctl admin service
 
 Restart or stop the server
 
@@ -6,13 +6,13 @@ Restart or stop the server
 nexoctl admin service [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for service
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl admin service [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin](nexoctl_admin.md)	 - Administer a Nexo server (Admin API)
 * [nexoctl admin service restart](nexoctl_admin_service_restart.md)	 - Restart the server process (connections are dropped)

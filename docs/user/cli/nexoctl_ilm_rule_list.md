@@ -1,4 +1,4 @@
-## nexoctl ilm rule list
+# nexoctl ilm rule list
 
 List the lifecycle rules of a bucket
 
@@ -6,19 +6,19 @@ List the lifecycle rules of a bucket
 nexoctl ilm rule list ALIAS/BUCKET [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl ilm rule ls
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for list
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl ilm rule ls
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl ilm rule](nexoctl_ilm_rule.md)	 - Add, edit, list, remove, export and import lifecycle rules
 

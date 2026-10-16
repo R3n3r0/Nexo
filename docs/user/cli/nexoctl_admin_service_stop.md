@@ -1,8 +1,8 @@
-## nexoctl admin service stop
+# nexoctl admin service stop
 
 Stop the server process (it must be started again by hand)
 
-### Synopsis
+## Synopsis
 
 Stop the server process (it must be started again by hand).
 
@@ -12,20 +12,20 @@ The command asks for a confirmation on the terminal; --yes skips it (scripts).
 nexoctl admin service stop [flags] ALIAS
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin service stop --yes local
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for stop
   -y, --yes    do not ask for a confirmation
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -35,7 +35,7 @@ nexoctl admin service stop [flags] ALIAS
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin service](nexoctl_admin_service.md)	 - Restart or stop the server
 

@@ -74,7 +74,7 @@
 
 ## 1.3 Stack tecnologico
 
-### Backend (Go ≥ 1.26)
+### Backend (Go ≥ 1.27)
 | Ambito | Scelta | Motivazione |
 |--------|--------|-------------|
 | HTTP | `net/http` + router leggero (`go-chi/chi` v5) | Prestazioni, controllo fine su streaming. |

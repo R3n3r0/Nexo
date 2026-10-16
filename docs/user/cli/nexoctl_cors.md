@@ -1,8 +1,8 @@
-## nexoctl cors
+# nexoctl cors
 
 Manage the CORS configuration of buckets
 
-### Synopsis
+## Synopsis
 
 Manage the CORS (cross-origin resource sharing) rules of buckets: the origins,
 methods and headers that browsers of other sites may use. The configuration is a
@@ -14,13 +14,13 @@ AWS CLI is accepted too) or the S3 CORSConfiguration XML.
 nexoctl cors [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for cors
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -30,7 +30,7 @@ nexoctl cors [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 * [nexoctl cors get](nexoctl_cors_get.md)	 - Print the CORS configuration of a bucket (JSON or S3 XML)

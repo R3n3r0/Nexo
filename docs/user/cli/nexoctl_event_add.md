@@ -1,4 +1,4 @@
-## nexoctl event add
+# nexoctl event add
 
 Subscribe a notification target to the events of a bucket
 
@@ -6,14 +6,14 @@ Subscribe a notification target to the events of a bucket
 nexoctl event add [flags] ALIAS/BUCKET ARN
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl event add local/photos arn:nexo:sqs:us-east-1:_:webhook --event put --suffix .jpg
   nexoctl event add local/logs arn:nexo:sqs:us-east-1:audit:kafka --event put,delete --prefix app/
 ```
 
-### Options
+## Options
 
 ```
       --event string      events: put, delete, get, replica, ilm or S3 event types (comma-separated) (default "put,delete,get")
@@ -24,7 +24,7 @@ nexoctl event add [flags] ALIAS/BUCKET ARN
       --suffix string     only the objects whose key ends with the suffix
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -34,7 +34,7 @@ nexoctl event add [flags] ALIAS/BUCKET ARN
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl event](nexoctl_event.md)	 - Manage the event notifications of buckets
 

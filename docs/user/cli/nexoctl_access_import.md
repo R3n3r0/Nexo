@@ -1,8 +1,8 @@
-## nexoctl access import
+# nexoctl access import
 
 Replace the access rules of a bucket with those of a YAML file
 
-### Synopsis
+## Synopsis
 
 Replace every access rule of the bucket with those of a YAML (or JSON) document:
 a mapping with "rules" (the "bucket" member of an export is ignored: the rules
@@ -13,19 +13,19 @@ validates every rule; an invalid one is reported with its position.
 nexoctl access import ALIAS/BUCKET FILE [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl access import local/media-copy rules.yaml
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for import
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -35,7 +35,7 @@ nexoctl access import ALIAS/BUCKET FILE [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl access](nexoctl_access.md)	 - Manage the access rules of the buckets (prefix, glob, regex)
 

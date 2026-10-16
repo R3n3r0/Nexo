@@ -1,8 +1,8 @@
-## nexoctl cache warm
+# nexoctl cache warm
 
 Cache objects of a domain before they are requested
 
-### Synopsis
+## Synopsis
 
 Cache objects of a domain of a distribution before they are requested (docs/11
 §11.6), e.g. after the deploy of a static site: paths and URLs given as
@@ -14,14 +14,14 @@ concurrency and bandwidth. In the local mode every node warms its own cache.
 nexoctl cache warm ALIAS DIST [PATH|URL...] [--from FILE] [--prefix P] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl cache warm local sito-web --domain www.example.com --from urls.txt --wait
   nexoctl cache warm local sito-web --prefix /assets/ --bandwidth 20MiB
 ```
 
-### Options
+## Options
 
 ```
       --bandwidth string   bytes read per second at most (default 64MiB)
@@ -36,7 +36,7 @@ nexoctl cache warm ALIAS DIST [PATH|URL...] [--from FILE] [--prefix P] [flags]
       --wait               wait until the warm-up finishes
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -46,7 +46,7 @@ nexoctl cache warm ALIAS DIST [PATH|URL...] [--from FILE] [--prefix P] [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl cache](nexoctl_cache.md)	 - Manage the cache of the distributions
 * [nexoctl cache warm status](nexoctl_cache_warm_status.md)	 - Show the progress of a warm-up on every node

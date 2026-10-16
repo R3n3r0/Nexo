@@ -1,8 +1,8 @@
-## nexoctl dist restrict
+# nexoctl dist restrict
 
 Restrict the clients of a distribution (source IP, origin secret, rate limit)
 
-### Synopsis
+## Synopsis
 
 Restrict the clients of a distribution: --allow-ip/--deny-ip filter the client
 behind the trusted proxies; --origin-secret-header requires the origin secret of
@@ -13,14 +13,14 @@ rotate"); --rate-limit is stored, not enforced yet.
 nexoctl dist restrict ALIAS ID [--allow-ip CIDR]... [--deny-ip CIDR]... [--origin-secret-header NAME] [--rate-limit N] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl dist restrict local sito-web --deny-ip 203.0.113.0/24
   nexoctl dist restrict local sito-web --origin-secret-header X-Origin-Secret
 ```
 
-### Options
+## Options
 
 ```
       --allow-ip stringArray          allow only the clients of this CIDR (repeatable)
@@ -33,7 +33,7 @@ nexoctl dist restrict ALIAS ID [--allow-ip CIDR]... [--deny-ip CIDR]... [--origi
       --rate-limit int                requests per second per client (stored, not enforced yet)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -43,7 +43,7 @@ nexoctl dist restrict ALIAS ID [--allow-ip CIDR]... [--deny-ip CIDR]... [--origi
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist](nexoctl_dist.md)	 - Manage the distributions: custom domains of the buckets
 

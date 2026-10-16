@@ -1,8 +1,8 @@
-## nexoctl event remove
+# nexoctl event remove
 
 Remove event subscriptions of a bucket
 
-### Synopsis
+## Synopsis
 
 Remove the subscriptions of a target (ARN), narrowed by --event, --prefix,
 --suffix or --id when given; --force without ARN removes every subscription.
@@ -11,20 +11,20 @@ Remove the subscriptions of a target (ARN), narrowed by --event, --prefix,
 nexoctl event remove [flags] ALIAS/BUCKET [ARN]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl event rm
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl event rm local/photos arn:nexo:sqs:us-east-1:_:webhook
   nexoctl event rm --force local/photos
 ```
 
-### Options
+## Options
 
 ```
       --event string    only the subscriptions to these events (default "put,delete,get")
@@ -35,7 +35,7 @@ nexoctl event rm
       --suffix string   only the subscriptions with this suffix filter
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -45,7 +45,7 @@ nexoctl event rm
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl event](nexoctl_event.md)	 - Manage the event notifications of buckets
 

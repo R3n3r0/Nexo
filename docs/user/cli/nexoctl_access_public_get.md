@@ -1,4 +1,4 @@
-## nexoctl access public get
+# nexoctl access public get
 
 Show whether a bucket is public through its access rules
 
@@ -6,19 +6,19 @@ Show whether a bucket is public through its access rules
 nexoctl access public get ALIAS/BUCKET [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl access public get local/media
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for get
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl access public get ALIAS/BUCKET [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl access public](nexoctl_access_public.md)	 - Apply and show the public access presets of a bucket
 

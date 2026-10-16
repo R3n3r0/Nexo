@@ -1,4 +1,4 @@
-## nexoctl admin user remove
+# nexoctl admin user remove
 
 Remove users (with their access keys)
 
@@ -6,19 +6,19 @@ Remove users (with their access keys)
 nexoctl admin user remove ALIAS ACCESS_KEY... [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl admin user rm
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for remove
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl admin user rm
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin user](nexoctl_admin_user.md)	 - Manage the IAM users
 

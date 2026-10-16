@@ -1,8 +1,8 @@
-## nexoctl cache purge
+# nexoctl cache purge
 
 Invalidate cached content
 
-### Synopsis
+## Synopsis
 
 Invalidate the entries of a distribution on every node (docs/11 §11.5): exact
 paths (or absolute URLs of a domain), glob patterns of paths ("/assets/\*\*"),
@@ -17,7 +17,7 @@ purge webhooks of the domains are called too.
 nexoctl cache purge ALIAS [DIST] [PATH|GLOB|URL...] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl cache purge local sito-web --domain www.example.com '/assets/**' --soft
@@ -27,7 +27,7 @@ nexoctl cache purge ALIAS [DIST] [PATH|GLOB|URL...] [flags]
   nexoctl cache purge local --all
 ```
 
-### Options
+## Options
 
 ```
       --all                  invalidate everything (of the domain, of the distribution, or of every distribution)
@@ -41,7 +41,7 @@ nexoctl cache purge ALIAS [DIST] [PATH|GLOB|URL...] [flags]
       --wait                 wait until every node applied the invalidation
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -51,7 +51,7 @@ nexoctl cache purge ALIAS [DIST] [PATH|GLOB|URL...] [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl cache](nexoctl_cache.md)	 - Manage the cache of the distributions
 * [nexoctl cache purge list](nexoctl_cache_purge_list.md)	 - List the invalidations of a distribution (the global purges without DIST)

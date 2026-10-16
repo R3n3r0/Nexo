@@ -27,7 +27,7 @@ out=$(mktemp)
 pkg=$(mktemp -d)
 trap 'rm -rf "$out" "$pkg"' EXIT
 
-# The chart ships the license of the project (Apache-2.0 §4(a)): its copy
+# The chart ships the license of the project (AGPL-3.0 §4, §6): its copy
 # is the LICENSE of the repository, and the package carries it.
 if ! cmp -s "$CHART/LICENSE" "$CHART/../../../LICENSE"; then
     echo "chart: deploy/helm/nexo/LICENSE differs from the LICENSE of the repository" >&2

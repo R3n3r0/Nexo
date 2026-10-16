@@ -1,4 +1,4 @@
-## nexoctl du
+# nexoctl du
 
 Summarize the disk usage of prefixes and directories
 
@@ -6,21 +6,21 @@ Summarize the disk usage of prefixes and directories
 nexoctl du [flags] TARGET...
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl du local/photos
   nexoctl du --depth 1 local/photos
 ```
 
-### Options
+## Options
 
 ```
   -d, --depth int   also print the directories down to this depth
   -h, --help        help for du
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -30,7 +30,7 @@ nexoctl du [flags] TARGET...
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 

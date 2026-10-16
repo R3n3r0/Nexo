@@ -1,8 +1,8 @@
-## nexoctl encrypt set
+# nexoctl encrypt set
 
 Set the default encryption of a bucket
 
-### Synopsis
+## Synopsis
 
 Set the default encryption of a bucket: sse-s3, or sse-kms with an optional KMS
 key (the default key of the KMS without; "nexoctl admin kms key ls" lists them).
@@ -11,7 +11,7 @@ key (the default key of the KMS without; "nexoctl admin kms key ls" lists them).
 nexoctl encrypt set sse-s3|sse-kms [KEY] ALIAS/BUCKET [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl encrypt set sse-s3 local/docs
@@ -19,14 +19,14 @@ nexoctl encrypt set sse-s3|sse-kms [KEY] ALIAS/BUCKET [flags]
   nexoctl encrypt set sse-kms local/docs --kms-key-id app-key
 ```
 
-### Options
+## Options
 
 ```
   -h, --help                help for set
       --kms-key-id string   key of SSE-KMS (default: the key of the server)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -36,7 +36,7 @@ nexoctl encrypt set sse-s3|sse-kms [KEY] ALIAS/BUCKET [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl encrypt](nexoctl_encrypt.md)	 - Manage the default encryption of buckets
 

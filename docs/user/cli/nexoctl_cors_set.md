@@ -1,8 +1,8 @@
-## nexoctl cors set
+# nexoctl cors set
 
 Replace the CORS configuration of a bucket (JSON or S3 XML)
 
-### Synopsis
+## Synopsis
 
 Replace the CORS configuration of a bucket with a document read from FILE or
 from the standard input ("-" or no FILE).
@@ -11,20 +11,20 @@ from the standard input ("-" or no FILE).
 nexoctl cors set ALIAS/BUCKET [FILE] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl cors set local/site cors.json
   nexoctl cors set local/site cors.xml
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for set
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -34,7 +34,7 @@ nexoctl cors set ALIAS/BUCKET [FILE] [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl cors](nexoctl_cors.md)	 - Manage the CORS configuration of buckets
 

@@ -1,4 +1,4 @@
-## nexoctl admin accesskey info
+# nexoctl admin accesskey info
 
 Show an access key (never its secret)
 
@@ -6,13 +6,13 @@ Show an access key (never its secret)
 nexoctl admin accesskey info ALIAS ACCESS_KEY [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for info
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl admin accesskey info ALIAS ACCESS_KEY [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin accesskey](nexoctl_admin_accesskey.md)	 - Manage the access keys (service accounts) of the users
 

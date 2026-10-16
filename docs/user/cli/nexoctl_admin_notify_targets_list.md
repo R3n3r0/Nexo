@@ -1,4 +1,4 @@
-## nexoctl admin notify targets list
+# nexoctl admin notify targets list
 
 List the notification targets with their state
 
@@ -6,25 +6,25 @@ List the notification targets with their state
 nexoctl admin notify targets list ALIAS [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl admin notify targets ls
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin notify targets ls local
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for list
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -34,7 +34,7 @@ nexoctl admin notify targets ls
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin notify targets](nexoctl_admin_notify_targets.md)	 - List and test the notification targets
 

@@ -1,8 +1,8 @@
-## nexoctl cache
+# nexoctl cache
 
 Manage the cache of the distributions
 
-### Synopsis
+## Synopsis
 
 Manage the HTTP cache of the distributions of a Nexo server (docs/11): the
 reusable cache policies, the settings of the cluster, the invalidations (purge),
@@ -17,13 +17,13 @@ need admin:InvalidateCache alone (a deploy pipeline).
 nexoctl cache [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for cache
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -33,7 +33,7 @@ nexoctl cache [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 * [nexoctl cache inspect](nexoctl_cache_inspect.md)	 - Show how the cache serves a URL

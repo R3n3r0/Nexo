@@ -1,4 +1,4 @@
-## nexoctl event list
+# nexoctl event list
 
 List the event subscriptions of a bucket
 
@@ -6,25 +6,25 @@ List the event subscriptions of a bucket
 nexoctl event list ALIAS/BUCKET [ARN] [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl event ls
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl event ls local/photos
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for list
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -34,7 +34,7 @@ nexoctl event ls
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl event](nexoctl_event.md)	 - Manage the event notifications of buckets
 

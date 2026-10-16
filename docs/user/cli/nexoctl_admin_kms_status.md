@@ -1,4 +1,4 @@
-## nexoctl admin kms status
+# nexoctl admin kms status
 
 Show the state of the KMS
 
@@ -6,19 +6,19 @@ Show the state of the KMS
 nexoctl admin kms status ALIAS [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin kms status local
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for status
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl admin kms status ALIAS [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin kms](nexoctl_admin_kms.md)	 - Show the KMS of the server-side encryption and manage its keys
 

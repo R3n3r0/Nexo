@@ -1,4 +1,4 @@
-## nexoctl admin notify targets
+# nexoctl admin notify targets
 
 List and test the notification targets
 
@@ -6,13 +6,13 @@ List and test the notification targets
 nexoctl admin notify targets [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for targets
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl admin notify targets [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin notify](nexoctl_admin_notify.md)	 - Inspect and test the notification targets
 * [nexoctl admin notify targets list](nexoctl_admin_notify_targets_list.md)	 - List the notification targets with their state

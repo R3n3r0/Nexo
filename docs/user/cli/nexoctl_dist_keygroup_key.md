@@ -1,4 +1,4 @@
-## nexoctl dist keygroup key
+# nexoctl dist keygroup key
 
 Add and remove the keys of a key group
 
@@ -6,13 +6,13 @@ Add and remove the keys of a key group
 nexoctl dist keygroup key [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for key
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl dist keygroup key [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist keygroup](nexoctl_dist_keygroup.md)	 - Manage the key groups of the signed URLs and cookies
 * [nexoctl dist keygroup key add](nexoctl_dist_keygroup_key_add.md)	 - Add a key to a key group (generated, or your public key)

@@ -1,8 +1,8 @@
-## nexoctl access
+# nexoctl access
 
 Manage the access rules of the buckets (prefix, glob, regex)
 
-### Synopsis
+## Synopsis
 
 Manage the access rules of the buckets of a Nexo server (Admin API,
 admin:ManageAccessRules): rules with a priority, an effect (allow or deny),
@@ -19,13 +19,13 @@ atomically and fails if they changed meanwhile.
 nexoctl access [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for access
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -35,7 +35,7 @@ nexoctl access [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 * [nexoctl access block-public](nexoctl_access_block-public.md)	 - Block the public access of the cluster or of a bucket

@@ -1,8 +1,8 @@
-## nexoctl admin user policy
+# nexoctl admin user policy
 
 Show the policies of a user, direct and inherited from its groups
 
-### Synopsis
+## Synopsis
 
 Show the policies that apply to a user: those attached to it and those of its
 enabled groups. Attach and detach them with "nexoctl admin policy attach|detach".
@@ -11,13 +11,13 @@ enabled groups. Attach and detach them with "nexoctl admin policy attach|detach"
 nexoctl admin user policy ALIAS ACCESS_KEY [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for policy
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -27,7 +27,7 @@ nexoctl admin user policy ALIAS ACCESS_KEY [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin user](nexoctl_admin_user.md)	 - Manage the IAM users
 

@@ -1,4 +1,4 @@
-## nexoctl admin accesskey edit
+# nexoctl admin accesskey edit
 
 Change an access key: secret, status, expiration, inline policy
 
@@ -6,14 +6,14 @@ Change an access key: secret, status, expiration, inline policy
 nexoctl admin accesskey edit [flags] ALIAS ACCESS_KEY
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin accesskey edit local AKIA0001 --disable
   nexoctl admin accesskey edit local AKIA0001 --expiry 7d --policy narrower.json
 ```
 
-### Options
+## Options
 
 ```
       --clear-expiry         remove the expiration
@@ -28,7 +28,7 @@ nexoctl admin accesskey edit [flags] ALIAS ACCESS_KEY
       --secret-key string    new secret key
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -38,7 +38,7 @@ nexoctl admin accesskey edit [flags] ALIAS ACCESS_KEY
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin accesskey](nexoctl_admin_accesskey.md)	 - Manage the access keys (service accounts) of the users
 

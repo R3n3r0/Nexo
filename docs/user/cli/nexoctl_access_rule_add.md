@@ -1,8 +1,8 @@
-## nexoctl access rule add
+# nexoctl access rule add
 
 Add an access rule to a bucket
 
-### Synopsis
+## Synopsis
 
 Add an access rule to a bucket. Without --prefix, --glob or --regex the rule covers
 the whole bucket. The conditions all must hold: --source-ip/--not-source-ip
@@ -16,7 +16,7 @@ the regex, e.g. user='${aws:username}').
 nexoctl access rule add ALIAS/BUCKET --id ID (--allow|--deny) --principal P --action A [--prefix|--glob|--regex PATTERN] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl access rule add local/media --id img-pub --allow --principal '*' --action read \
@@ -26,7 +26,7 @@ nexoctl access rule add ALIAS/BUCKET --id ID (--allow|--deny) --principal P --ac
       --regex '^home/(?P<user>[^/]+)/' --capture 'user=${aws:username}'
 ```
 
-### Options
+## Options
 
 ```
       --action stringArray          action: read, list, write, delete, tag, all or an S3 action (repeatable)
@@ -54,7 +54,7 @@ nexoctl access rule add ALIAS/BUCKET --id ID (--allow|--deny) --principal P --ac
       --to string                   condition: not after this time (RFC 3339)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -64,7 +64,7 @@ nexoctl access rule add ALIAS/BUCKET --id ID (--allow|--deny) --principal P --ac
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl access rule](nexoctl_access_rule.md)	 - Add, list, show, remove and reorder the access rules of a bucket
 

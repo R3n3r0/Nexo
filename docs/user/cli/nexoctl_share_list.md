@@ -1,8 +1,8 @@
-## nexoctl share list
+# nexoctl share list
 
 List the active managed share links
 
-### Synopsis
+## Synopsis
 
 List the active managed share links, the most recent first: your own links, or
 with the admin:ManageShares permission every link (--user selects the links of
@@ -12,27 +12,27 @@ one user). A BUCKET restricts the list to the links of that bucket.
 nexoctl share list [flags] ALIAS[/BUCKET]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl share ls
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl share list local
   nexoctl share list --user alice local/photos
 ```
 
-### Options
+## Options
 
 ```
   -h, --help          help for list
       --user string   list the links of this user (requires admin:ManageShares)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -42,7 +42,7 @@ nexoctl share ls
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl share](nexoctl_share.md)	 - Share objects with links that need no credentials
 

@@ -1,4 +1,4 @@
-## nexoctl cache webhook list
+# nexoctl cache webhook list
 
 List the purge webhooks of a distribution
 
@@ -6,25 +6,25 @@ List the purge webhooks of a distribution
 nexoctl cache webhook list ALIAS DIST [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl cache webhook ls
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl cache webhook ls local sito-web
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for list
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -34,7 +34,7 @@ nexoctl cache webhook ls
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl cache webhook](nexoctl_cache_webhook.md)	 - Manage the purge webhooks of a distribution
 

@@ -1,4 +1,4 @@
-## nexoctl admin kms key create
+# nexoctl admin kms key create
 
 Create a key of the KMS
 
@@ -6,19 +6,19 @@ Create a key of the KMS
 nexoctl admin kms key create ALIAS KEY [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin kms key create local app-key
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for create
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl admin kms key create ALIAS KEY [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin kms key](nexoctl_admin_kms_key.md)	 - Create and list the keys of the KMS
 

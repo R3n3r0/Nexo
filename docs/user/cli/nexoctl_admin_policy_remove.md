@@ -1,4 +1,4 @@
-## nexoctl admin policy remove
+# nexoctl admin policy remove
 
 Remove policies (built-in policies cannot be removed)
 
@@ -6,19 +6,19 @@ Remove policies (built-in policies cannot be removed)
 nexoctl admin policy remove ALIAS NAME... [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl admin policy rm
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for remove
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl admin policy rm
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin policy](nexoctl_admin_policy.md)	 - Manage the IAM policies (AWS policy language)
 

@@ -1,8 +1,8 @@
-## nexoctl presign
+# nexoctl presign
 
 Generate a raw presigned URL for any method
 
-### Synopsis
+## Synopsis
 
 Generate a raw presigned URL (GET, HEAD, PUT or DELETE), signed locally with the
 credentials of the alias: it is neither managed nor revocable.
@@ -18,14 +18,14 @@ permissions are evaluated when the URL is used.
 nexoctl presign [flags] ALIAS/BUCKET/OBJECT
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl presign --method DELETE --expire 10m local/tmp/old.bin
   nexoctl presign --method PUT --header "Content-Type: image/png" local/img/logo.png
 ```
 
-### Options
+## Options
 
 ```
       --content-disposition string   GET: Content-Disposition of the response; PUT: of the object
@@ -37,7 +37,7 @@ nexoctl presign [flags] ALIAS/BUCKET/OBJECT
       --version-id string            version of the object (GET, HEAD, DELETE)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -47,7 +47,7 @@ nexoctl presign [flags] ALIAS/BUCKET/OBJECT
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 

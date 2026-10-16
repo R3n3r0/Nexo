@@ -1,4 +1,4 @@
-## nexoctl admin policy detach
+# nexoctl admin policy detach
 
 Detach policies from a user or a group
 
@@ -6,13 +6,13 @@ Detach policies from a user or a group
 nexoctl admin policy detach [flags] ALIAS POLICY... (--user USER | --group GROUP)
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin policy detach local readonly --user alice
 ```
 
-### Options
+## Options
 
 ```
       --group string   the group
@@ -20,7 +20,7 @@ nexoctl admin policy detach [flags] ALIAS POLICY... (--user USER | --group GROUP
       --user string    the user
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -30,7 +30,7 @@ nexoctl admin policy detach [flags] ALIAS POLICY... (--user USER | --group GROUP
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin policy](nexoctl_admin_policy.md)	 - Manage the IAM policies (AWS policy language)
 

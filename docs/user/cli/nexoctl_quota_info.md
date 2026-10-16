@@ -1,4 +1,4 @@
-## nexoctl quota info
+# nexoctl quota info
 
 Show the quota of a bucket
 
@@ -6,13 +6,13 @@ Show the quota of a bucket
 nexoctl quota info ALIAS/BUCKET [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for info
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl quota info ALIAS/BUCKET [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl quota](nexoctl_quota.md)	 - Manage the hard quota of buckets (Admin API)
 

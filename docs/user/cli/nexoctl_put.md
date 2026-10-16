@@ -1,8 +1,8 @@
-## nexoctl put
+# nexoctl put
 
 Upload local files
 
-### Synopsis
+## Synopsis
 
 Upload local files (directories with --recursive) to a bucket: the uploads of
 cp, with its flags (multipart in parallel, metadata, tags, checksums, server-side
@@ -12,7 +12,7 @@ encryption).
 nexoctl put [flags] FILE... ALIAS/BUCKET[/OBJECT]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl put report.pdf local/docs/
@@ -20,7 +20,7 @@ nexoctl put [flags] FILE... ALIAS/BUCKET[/OBJECT]
   NEXOCTL_ENC_C="local/private=$(cat key.b64)" nexoctl put secret.txt local/private/
 ```
 
-### Options
+## Options
 
 ```
       --attr string              user metadata of the uploaded objects: "key1=value1;key2=value2"
@@ -39,7 +39,7 @@ nexoctl put [flags] FILE... ALIAS/BUCKET[/OBJECT]
       --tags string              tags of the uploaded objects: "key1=value1&key2=value2"
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -49,7 +49,7 @@ nexoctl put [flags] FILE... ALIAS/BUCKET[/OBJECT]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 

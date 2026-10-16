@@ -1,8 +1,8 @@
-## nexoctl admin group add
+# nexoctl admin group add
 
 Create a group or add members to it
 
-### Synopsis
+## Synopsis
 
 Add users to a group, creating the group when it does not exist. --policy attaches
 policies to the group.
@@ -11,20 +11,20 @@ policies to the group.
 nexoctl admin group add [flags] ALIAS GROUP [MEMBER...]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin group add local devs alice bob --policy readwrite
 ```
 
-### Options
+## Options
 
 ```
   -h, --help             help for add
       --policy strings   policies to attach to the group (repeatable or comma-separated)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -34,7 +34,7 @@ nexoctl admin group add [flags] ALIAS GROUP [MEMBER...]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin group](nexoctl_admin_group.md)	 - Manage the IAM groups and their members
 

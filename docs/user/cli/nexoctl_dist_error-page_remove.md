@@ -1,4 +1,4 @@
-## nexoctl dist error-page remove
+# nexoctl dist error-page remove
 
 Remove the error page of a status
 
@@ -6,19 +6,19 @@ Remove the error page of a status
 nexoctl dist error-page remove ALIAS ID STATUS [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl dist error-page rm
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for remove
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl dist error-page rm
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist error-page](nexoctl_dist_error-page.md)	 - Replace the error answers of a distribution with pages
 

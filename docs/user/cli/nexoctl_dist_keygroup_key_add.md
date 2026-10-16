@@ -1,4 +1,4 @@
-## nexoctl dist keygroup key add
+# nexoctl dist keygroup key add
 
 Add a key to a key group (generated, or your public key)
 
@@ -6,14 +6,14 @@ Add a key to a key group (generated, or your public key)
 nexoctl dist keygroup key add ALIAS GROUP [--public-key FILE] [--algorithm ed25519|rsa] [--key-out FILE] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl dist keygroup key add local rilasci
   nexoctl dist keygroup key add local rilasci --public-key mykey.pub.pem
 ```
 
-### Options
+## Options
 
 ```
       --algorithm string    ed25519 (default) or rsa
@@ -24,7 +24,7 @@ nexoctl dist keygroup key add ALIAS GROUP [--public-key FILE] [--algorithm ed255
       --public-key string   PEM public key (PKIX) to add instead of generating a key pair
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -34,7 +34,7 @@ nexoctl dist keygroup key add ALIAS GROUP [--public-key FILE] [--algorithm ed255
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist keygroup key](nexoctl_dist_keygroup_key.md)	 - Add and remove the keys of a key group
 

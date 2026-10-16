@@ -1,8 +1,8 @@
-## nexoctl dist origin-secret rotate
+# nexoctl dist origin-secret rotate
 
 Generate a new origin secret (shown once), keeping the previous ones active
 
-### Synopsis
+## Synopsis
 
 Generate a new origin secret for the proxies in front of the cluster: the
 requests without one of the active secrets in the header are refused. The new
@@ -14,13 +14,13 @@ on the next rotation.
 nexoctl dist origin-secret rotate ALIAS ID [--header NAME] [--keep N] [--drop-previous] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl dist origin-secret rotate local sito-web
 ```
 
-### Options
+## Options
 
 ```
       --drop-previous   keep no previous secret
@@ -29,7 +29,7 @@ nexoctl dist origin-secret rotate ALIAS ID [--header NAME] [--keep N] [--drop-pr
       --keep int        previous secrets kept active (default 1)
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -39,7 +39,7 @@ nexoctl dist origin-secret rotate ALIAS ID [--header NAME] [--keep N] [--drop-pr
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist origin-secret](nexoctl_dist_origin-secret.md)	 - Manage the origin secret of the proxies in front of the cluster
 

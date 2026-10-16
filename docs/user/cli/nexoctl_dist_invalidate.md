@@ -1,8 +1,8 @@
-## nexoctl dist invalidate
+# nexoctl dist invalidate
 
 Invalidate cached content of a distribution
 
-### Synopsis
+## Synopsis
 
 Invalidate the cached entries of a distribution on every node: the same as
 "nexoctl cache purge ALIAS ID" (paths, glob patterns, --prefix, --regex, --tag,
@@ -12,13 +12,13 @@ Invalidate the cached entries of a distribution on every node: the same as
 nexoctl dist invalidate ALIAS ID [PATH|GLOB|URL...] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl dist invalidate local sito-web '/assets/**' --wait
 ```
 
-### Options
+## Options
 
 ```
       --all                  invalidate everything (of the domain, of the distribution, or of every distribution)
@@ -32,7 +32,7 @@ nexoctl dist invalidate ALIAS ID [PATH|GLOB|URL...] [flags]
       --wait                 wait until every node applied the invalidation
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -42,7 +42,7 @@ nexoctl dist invalidate ALIAS ID [PATH|GLOB|URL...] [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist](nexoctl_dist.md)	 - Manage the distributions: custom domains of the buckets
 

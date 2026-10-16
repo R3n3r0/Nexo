@@ -1,4 +1,4 @@
-## nexoctl admin lock
+# nexoctl admin lock
 
 List and release the namespace locks of a cluster
 
@@ -6,13 +6,13 @@ List and release the namespace locks of a cluster
 nexoctl admin lock [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for lock
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl admin lock [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin](nexoctl_admin.md)	 - Administer a Nexo server (Admin API)
 * [nexoctl admin lock clear](nexoctl_admin_lock_clear.md)	 - Release locks on every lock server, whoever holds them

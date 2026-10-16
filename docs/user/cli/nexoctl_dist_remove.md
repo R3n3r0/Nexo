@@ -1,4 +1,4 @@
-## nexoctl dist remove
+# nexoctl dist remove
 
 Remove a distribution
 
@@ -6,25 +6,25 @@ Remove a distribution
 nexoctl dist remove ALIAS ID [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl dist rm
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl dist rm local sito-web
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for remove
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -34,7 +34,7 @@ nexoctl dist rm
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist](nexoctl_dist.md)	 - Manage the distributions: custom domains of the buckets
 

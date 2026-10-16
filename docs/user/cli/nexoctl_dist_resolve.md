@@ -1,4 +1,4 @@
-## nexoctl dist resolve
+# nexoctl dist resolve
 
 Show what serves a host (distribution, virtual host, S3 API)
 
@@ -6,19 +6,19 @@ Show what serves a host (distribution, virtual host, S3 API)
 nexoctl dist resolve ALIAS HOST [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl dist resolve local www.example.com
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for resolve
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl dist resolve ALIAS HOST [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist](nexoctl_dist.md)	 - Manage the distributions: custom domains of the buckets
 

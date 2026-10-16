@@ -1,8 +1,8 @@
-## nexoctl admin policy simulate
+# nexoctl admin policy simulate
 
 Simulate a request: allowed or denied, and by which statement
 
-### Synopsis
+## Synopsis
 
 Evaluate a request with the policy engine of the server, as the S3 API would
 (identity policies, group policies, inline policies of access keys and the
@@ -13,14 +13,14 @@ The request is made by --user (default: the user of the alias).
 nexoctl admin policy simulate [flags] ALIAS[/BUCKET[/OBJECT]] --action ACTION
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin policy simulate --user alice --action s3:GetObject local/photos/2026/a.jpg
   nexoctl admin policy simulate --action s3:ListBucket --condition s3:prefix=2026/ local/photos
 ```
 
-### Options
+## Options
 
 ```
       --action string           the action (s3:GetObject, s3:PutObject, admin:CreateUser, ...)
@@ -34,7 +34,7 @@ nexoctl admin policy simulate [flags] ALIAS[/BUCKET[/OBJECT]] --action ACTION
   -v, --verbose                 list every evaluated statement
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -44,7 +44,7 @@ nexoctl admin policy simulate [flags] ALIAS[/BUCKET[/OBJECT]] --action ACTION
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin policy](nexoctl_admin_policy.md)	 - Manage the IAM policies (AWS policy language)
 

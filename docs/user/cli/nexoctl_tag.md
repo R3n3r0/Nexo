@@ -1,4 +1,4 @@
-## nexoctl tag
+# nexoctl tag
 
 Manage the tags of buckets and objects
 
@@ -6,13 +6,13 @@ Manage the tags of buckets and objects
 nexoctl tag [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for tag
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -22,7 +22,7 @@ nexoctl tag [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 * [nexoctl tag list](nexoctl_tag_list.md)	 - List the tags of a bucket or object

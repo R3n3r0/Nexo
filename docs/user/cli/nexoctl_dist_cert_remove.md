@@ -1,4 +1,4 @@
-## nexoctl dist cert remove
+# nexoctl dist cert remove
 
 Remove a certificate no distribution names
 
@@ -6,19 +6,19 @@ Remove a certificate no distribution names
 nexoctl dist cert remove ALIAS CERTID [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl dist cert rm
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for remove
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl dist cert rm
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist cert](nexoctl_dist_cert.md)	 - Manage the TLS certificates of the domains of the distributions
 

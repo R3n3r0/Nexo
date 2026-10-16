@@ -1,8 +1,8 @@
-## nexoctl ilm rule import
+# nexoctl ilm rule import
 
 Replace the lifecycle configuration of a bucket (JSON or S3 XML)
 
-### Synopsis
+## Synopsis
 
 Replace the lifecycle configuration of a bucket with a document read from FILE
 or from the standard input ("-" or no FILE): the JSON of "ilm rule export" and of
@@ -13,20 +13,20 @@ removes the configuration.
 nexoctl ilm rule import ALIAS/BUCKET [FILE] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl ilm rule import local/app lifecycle.json
   nexoctl ilm rule export local/app | nexoctl ilm rule import local/copy
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for import
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -36,7 +36,7 @@ nexoctl ilm rule import ALIAS/BUCKET [FILE] [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl ilm rule](nexoctl_ilm_rule.md)	 - Add, edit, list, remove, export and import lifecycle rules
 

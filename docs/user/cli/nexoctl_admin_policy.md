@@ -1,8 +1,8 @@
-## nexoctl admin policy
+# nexoctl admin policy
 
 Manage the IAM policies (AWS policy language)
 
-### Synopsis
+## Synopsis
 
 Manage the named IAM policies, attach them to users and groups and simulate their
 effect. The built-in policies are readonly, readwrite, writeonly, diagnostics and
@@ -12,13 +12,13 @@ consoleAdmin.
 nexoctl admin policy [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for policy
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl admin policy [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin](nexoctl_admin.md)	 - Administer a Nexo server (Admin API)
 * [nexoctl admin policy attach](nexoctl_admin_policy_attach.md)	 - Attach policies to a user or a group

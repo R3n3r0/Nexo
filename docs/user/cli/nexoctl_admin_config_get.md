@@ -1,4 +1,4 @@
-## nexoctl admin config get
+# nexoctl admin config get
 
 Print the settings of every subsystem, or of the named ones
 
@@ -6,19 +6,19 @@ Print the settings of every subsystem, or of the named ones
 nexoctl admin config get ALIAS [SUBSYSTEM...] [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl admin config get local region logger
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for get
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl admin config get ALIAS [SUBSYSTEM...] [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin config](nexoctl_admin_config.md)	 - Read and change the dynamic configuration of the server
 

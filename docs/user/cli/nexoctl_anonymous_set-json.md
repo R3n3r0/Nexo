@@ -1,8 +1,8 @@
-## nexoctl anonymous set-json
+# nexoctl anonymous set-json
 
 Replace the bucket policy with a JSON document
 
-### Synopsis
+## Synopsis
 
 Replace the bucket policy with the document in FILE ("-" reads the standard
 input). A document without statements removes the bucket policy.
@@ -11,19 +11,19 @@ input). A document without statements removes the bucket policy.
 nexoctl anonymous set-json FILE ALIAS/BUCKET [flags]
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl anonymous set-json policy.json local/website
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for set-json
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -33,7 +33,7 @@ nexoctl anonymous set-json FILE ALIAS/BUCKET [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl anonymous](nexoctl_anonymous.md)	 - Manage the anonymous access of buckets and prefixes
 

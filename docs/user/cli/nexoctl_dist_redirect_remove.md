@@ -1,4 +1,4 @@
-## nexoctl dist redirect remove
+# nexoctl dist redirect remove
 
 Remove the redirection N (1-based, see dist info)
 
@@ -6,19 +6,19 @@ Remove the redirection N (1-based, see dist info)
 nexoctl dist redirect remove ALIAS ID N [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl dist redirect rm
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for remove
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl dist redirect rm
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl dist redirect](nexoctl_dist_redirect.md)	 - Manage the redirections of a distribution
 

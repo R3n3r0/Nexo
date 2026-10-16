@@ -1,8 +1,8 @@
-## nexoctl share download
+# nexoctl share download
 
 Generate download links (managed by default, --raw for presigned GET)
 
-### Synopsis
+## Synopsis
 
 Generate download links: managed, revocable links signed by the server (the
 default), or with --raw presigned GET URLs signed locally with the credentials of
@@ -14,7 +14,7 @@ with code 4. --recursive generates one link per object under a prefix.
 nexoctl share download [flags] ALIAS/BUCKET/OBJECT
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl share download --expire 2h local/docs/report.pdf
@@ -22,7 +22,7 @@ nexoctl share download [flags] ALIAS/BUCKET/OBJECT
   nexoctl share download --raw --expire 10m local/docs/report.pdf
 ```
 
-### Options
+## Options
 
 ```
       --content-disposition string   Content-Disposition of the download (e.g. "attachment")
@@ -35,7 +35,7 @@ nexoctl share download [flags] ALIAS/BUCKET/OBJECT
       --version-id string            share this version of the object
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -45,7 +45,7 @@ nexoctl share download [flags] ALIAS/BUCKET/OBJECT
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl share](nexoctl_share.md)	 - Share objects with links that need no credentials
 

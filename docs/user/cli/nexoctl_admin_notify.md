@@ -1,8 +1,8 @@
-## nexoctl admin notify
+# nexoctl admin notify
 
 Inspect and test the notification targets
 
-### Synopsis
+## Synopsis
 
 Inspect the notification targets of the server (the notify\_\* subsystems of the
 configuration, see "nexoctl admin config set"): their ARN for "nexoctl event
@@ -12,13 +12,13 @@ add", their state and the events waiting in their queue on the answering node.
 nexoctl admin notify [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for notify
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl admin notify [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin](nexoctl_admin.md)	 - Administer a Nexo server (Admin API)
 * [nexoctl admin notify targets](nexoctl_admin_notify_targets.md)	 - List and test the notification targets

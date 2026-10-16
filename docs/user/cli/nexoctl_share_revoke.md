@@ -1,8 +1,8 @@
-## nexoctl share revoke
+# nexoctl share revoke
 
 Revoke managed share links (immediately)
 
-### Synopsis
+## Synopsis
 
 Revoke managed share links by ID (see "share list"): the service account that
 signs a link is removed, so the link stops working at once. --all revokes every
@@ -12,14 +12,14 @@ link of the caller, or of --user (requires admin:ManageShares).
 nexoctl share revoke [flags] ALIAS ID... | --all [--user USER] ALIAS
 ```
 
-### Examples
+## Examples
 
 ```
   nexoctl share revoke local 3fz8k2m1q9xw
   nexoctl share revoke --all --user alice local
 ```
 
-### Options
+## Options
 
 ```
       --all           revoke every link of the caller (or of --user)
@@ -27,7 +27,7 @@ nexoctl share revoke [flags] ALIAS ID... | --all [--user USER] ALIAS
       --user string   with --all: revoke the links of this user
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -37,7 +37,7 @@ nexoctl share revoke [flags] ALIAS ID... | --all [--user USER] ALIAS
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl share](nexoctl_share.md)	 - Share objects with links that need no credentials
 

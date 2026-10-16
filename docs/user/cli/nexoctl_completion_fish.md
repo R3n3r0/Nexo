@@ -1,8 +1,8 @@
-## nexoctl completion fish
+# nexoctl completion fish
 
 Generate the autocompletion script for fish
 
-### Synopsis
+## Synopsis
 
 Generate the autocompletion script for the fish shell.
 
@@ -21,14 +21,14 @@ You will need to start a new shell for this setup to take effect.
 nexoctl completion fish [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help              help for fish
       --no-descriptions   disable completion descriptions
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -38,7 +38,7 @@ nexoctl completion fish [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl completion](nexoctl_completion.md)	 - Generate the autocompletion script for the specified shell
 

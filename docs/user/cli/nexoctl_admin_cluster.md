@@ -1,8 +1,8 @@
-## nexoctl admin cluster
+# nexoctl admin cluster
 
 Export and import the state of a deployment (IAM, policies, configuration, bucket settings)
 
-### Synopsis
+## Synopsis
 
 Export and import the state of a deployment besides its objects: users, groups,
 access keys and their policies, the named policies, the dynamic configuration and the settings
@@ -19,13 +19,13 @@ archive holds the secrets of the configuration: protect it.
 nexoctl admin cluster [flags]
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for cluster
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -35,7 +35,7 @@ nexoctl admin cluster [flags]
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin](nexoctl_admin.md)	 - Administer a Nexo server (Admin API)
 * [nexoctl admin cluster export](nexoctl_admin_cluster_export.md)	 - Export the state of the deployment as a zip archive (stdout or --output)

@@ -1,4 +1,4 @@
-## nexoctl admin policy list
+# nexoctl admin policy list
 
 List the policies
 
@@ -6,19 +6,19 @@ List the policies
 nexoctl admin policy list ALIAS [flags]
 ```
 
-### Aliases
+## Aliases
 
 ```
 nexoctl admin policy ls
 ```
 
-### Options
+## Options
 
 ```
   -h, --help   help for list
 ```
 
-### Options inherited from parent commands
+## Options inherited from parent commands
 
 ```
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
@@ -28,7 +28,7 @@ nexoctl admin policy ls
   -q, --quiet               hide confirmations and progress (results and errors are still printed)
 ```
 
-### SEE ALSO
+## SEE ALSO
 
 * [nexoctl admin policy](nexoctl_admin_policy.md)	 - Manage the IAM policies (AWS policy language)
 
