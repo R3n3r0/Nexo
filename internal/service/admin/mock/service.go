@@ -5,9 +5,12 @@ package mock
 import (
 	context "context"
 
-	domain "github.com/r3n3r0/nexo/internal/domain"
 	admin "github.com/r3n3r0/nexo/internal/service/admin"
+
+	domain "github.com/r3n3r0/nexo/internal/domain"
+
 	heal "github.com/r3n3r0/nexo/internal/service/heal"
+
 	mock "github.com/stretchr/testify/mock"
 )
 

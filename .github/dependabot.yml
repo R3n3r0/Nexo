@@ -19,6 +19,22 @@ updates:
       aws-sdk:
         patterns: ["github.com/aws/*"]
 
+  # Build tools (mockery, run by go generate) in their own module: tools/go.mod.
+  - package-ecosystem: gomod
+    directory: /tools
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Rome
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(tools)"
+    labels: ["dependencies", "go"]
+    groups:
+      tools:
+        patterns: ["*"]
+
   - package-ecosystem: npm
     directory: /web
     schedule:

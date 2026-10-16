@@ -185,7 +185,7 @@ $ nexoctl ilm rule rm mem/app
 [exit 2]
 
 $ nexoctl ilm rule import mem/app bad.json
-! nexoctl: error: invalid lifecycle JSON: json: cannot unmarshal string into Go struct field LifecycleExpiration.rules.expiration.days of type int
+! nexoctl: error: invalid lifecycle JSON: json: cannot unmarshal string into Go struct field LifecycleConfiguration.rules.0.expiration.days of type int
 ! Run 'nexoctl ilm rule import --help' for usage.
 [exit 2]
 

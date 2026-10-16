@@ -53,6 +53,12 @@ func TestVersion(t *testing.T) {
 	require.Len(t, recs, 1)
 	assert.Equal(t, "dev", recs[0]["version"])
 	assert.Contains(t, recs[0], "goVersion")
+	assert.Equal(t, "AGPL-3.0-only", recs[0]["license"])
+	assert.Equal(t, "https://github.com/R3n3r0/Nexo", recs[0]["source"])
+	// The license and the source (AGPL-3.0 §5(d), §13).
+	license := "License AGPL-3.0-only (additional terms in NOTICE). Powered by Nexo; source code: https://github.com/R3n3r0/Nexo\n"
+	r = h.mustRun("version")
+	assert.True(t, strings.HasSuffix(r.stdout, license), r.stdout)
 	r = h.mustRun("--version")
-	assert.Equal(t, "nexoctl dev\n", r.stdout)
+	assert.Equal(t, "nexoctl dev\n"+license, r.stdout)
 }

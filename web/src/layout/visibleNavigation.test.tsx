@@ -54,6 +54,13 @@ describe('visibleNavigation (D-UX-02)', () => {
     expect(within(nav).queryByRole('link', { name: 'Configuration' })).not.toBeInTheDocument();
     expect(within(nav).getByRole('link', { name: 'Access keys' })).toBeInTheDocument();
     expect(within(nav).getByRole('link', { name: 'Shares' })).toBeInTheDocument();
+    // Every user sees the license and the source code (AGPL-3.0 §13).
+    const legal = within(nav).getByTestId('legal-notice');
+    expect(within(legal).getByRole('link', { name: 'Source code' })).toHaveAttribute(
+      'href',
+      'https://github.com/R3n3r0/Nexo',
+    );
+    expect(within(legal).getByRole('link', { name: 'Powered by Nexo' })).toBeInTheDocument();
   });
 
   it('shows the admin menu to the root user', async () => {

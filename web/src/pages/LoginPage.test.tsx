@@ -38,6 +38,19 @@ async function fillAndSubmit(accessKey: string, secretKey: string) {
 }
 
 describe('LoginPage', () => {
+  it('shows the license and the source code before sign-in (AGPL-3.0 §13)', () => {
+    renderRoutes(routes(), {
+      initialEntries: ['/login'],
+      services: createMockServices({ accounts }),
+    });
+    expect(screen.getByRole('link', { name: 'AGPL-3.0' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Powered by Nexo' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Source code' })).toHaveAttribute(
+      'href',
+      'https://github.com/R3n3r0/Nexo',
+    );
+  });
+
   it('keeps the submit button disabled until the form is valid', async () => {
     const user = userEvent.setup();
     renderRoutes(routes(), {

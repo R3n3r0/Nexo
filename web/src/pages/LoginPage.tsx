@@ -17,6 +17,7 @@ import { Navigate, useLocation, useNavigate } from 'react-router';
 
 import { redirectTargetFromState, sessionExpiredFromState } from '@/auth/redirect';
 import { useSession } from '@/auth/SessionProvider';
+import { LegalNotice } from '@/components/LegalNotice';
 import { isApiError } from '@/services';
 
 import {
@@ -159,6 +160,7 @@ export function LoginPage({ demoCredentials }: LoginPageProps) {
               </Stack>
             </form>
           </Paper>
+          <LegalNotice />
         </Stack>
       </Container>
     </Center>

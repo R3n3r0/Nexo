@@ -106,7 +106,9 @@ state pubblicate: la base dei test di aggiornamento è il commit di M7 (`224bb31
   v0.42.0, pgx v5.9.2, OpenTelemetry v1.45.0, grpc v1.83.2, `klauspost/compress` v1.18.7, chi v5.3.0: `govulncheck`
   senza vulnerabilità raggiunte.
 - Go toolchain upgraded to 1.27.2 (`go.mod`, `golang:1.27.2-alpine` builder images in the Dockerfiles; CI reads
-  `go.mod`); golangci-lint v2.14.0 (built with Go 1.27) unchanged, no dependency changes required.
+  `go.mod`); golangci-lint v2.14.0 (built with Go 1.27) unchanged, no module dependency changes required. mockery
+  v2.53.4 is now pinned in a separate tools module (`tools/go.mod`, run with `go tool -modfile`) built with
+  `x/tools` v0.51.0, which reads the Go 1.27 export data; the regenerated mocks only differ in import grouping.
 - Il client RPC internodo usa l'HTTP/2 di `net/http` invece di `x/net/http2` (deprecato).
 - SIGHUP ricarica solo i certificati TLS; `POST /api/v1/service/restart` riavvia il processo in place.
 - Nuove azioni di policy `admin:Profiling` e `admin:Speedtest`, incluse nella policy predefinita `diagnostics`.

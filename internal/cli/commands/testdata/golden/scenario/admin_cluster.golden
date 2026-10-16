@@ -1,5 +1,5 @@
 $ nexoctl admin cluster export mem --output backup.zip
-Exported the state of "mem" to backup.zip (250B).
+Exported the state of "mem" to backup.zip (279B).
 
 $ nexoctl admin cluster import mem backup.zip --dry-run
 Would import into "mem" (merge): 1 user(s), 0 group(s), 0 polic(ies), 1 configuration subsystem(s), 0 bucket(s).

@@ -527,6 +527,9 @@
     "uptime": "Uptime",
     "topology": "Topology",
     "topologySummary": "{{pools}} pools, {{nodes}} nodes, {{drives}} drives",
+    "license": "License",
+    "licenseNote": "Powered by Nexo; additional terms in NOTICE",
+    "source": "Source code",
     "pools": "Pools",
     "pool": "Pool",
     "sets": "Erasure sets",
@@ -1496,5 +1499,11 @@
     "blockedCompliance": "This version is protected by a COMPLIANCE retention until {{date}}: it cannot be deleted before then, not even by root.",
     "blockedGovernance": "This version is protected by a GOVERNANCE retention until {{date}}.",
     "deleteRefused": "The version is protected by object lock: it was not deleted."
+  },
+  "legal": {
+    "label": "License and source code",
+    "license": "AGPL-3.0",
+    "poweredBy": "Powered by Nexo",
+    "source": "Source code"
   }
 }
