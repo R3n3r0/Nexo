@@ -1,7 +1,7 @@
 # TODO
 
 Work left after v1.0, in the recommended order of priority. Each item refers to the feature code in the catalog
-([docs/02](docs/02-funzionalita.md)) and to the roadmap task ([docs/05](docs/05-roadmap-task.md)); test coverage is
+([docs/02](docs/02-features.md)) and to the roadmap task ([docs/05](docs/05-roadmap.md)); test coverage is
 in [test/TRACEABILITY.md](test/TRACEABILITY.md).
 
 Estimates come from the cost of the milestones already done (M0–M9 plus three review rounds: about 32M agent

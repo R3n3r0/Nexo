@@ -2,12 +2,12 @@
 
 Tutte le modifiche rilevanti di Nexo. Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e
 le versioni seguono [Semantic Versioning](https://semver.org/lang/it/). I codici tra parentesi (`S-OBJ-06`,
-`D-MON-01`, `C-ADM-08`) sono quelli del [catalogo delle funzionalità](docs/02-funzionalita.md); i test che li coprono
+`D-MON-01`, `C-ADM-08`) sono quelli del [catalogo delle funzionalità](docs/02-features.md); i test che li coprono
 sono nella [matrice di tracciabilità](test/TRACEABILITY.md).
 
 ## [1.0.0] - da pubblicare
 
-Prima release stabile: milestone M0–M9 della [roadmap](docs/05-roadmap-task.md). Le release precedenti non sono mai
+Prima release stabile: milestone M0–M9 della [roadmap](docs/05-roadmap.md). Le release precedenti non sono mai
 state pubblicate: la base dei test di aggiornamento è il commit di M7 (`224bb31`, costruito come `v0.7.0`).
 
 ### Modalità di deployment e storage
@@ -37,7 +37,7 @@ state pubblicate: la base dei test di aggiornamento è il commit di M7 (`224bb31
   predefinita del bucket, checksum CRC32/CRC32C/CRC64NVME/SHA1/SHA256, GetObjectAttributes (S-BKT-04..11,
   S-OBJ-09..13, S-OBJ-15).
 - Compatibilità misurata: Ceph `s3-tests` 451/451 test applicabili e MinIO `mint` 638 test senza fallimenti
-  inattesi, in SNSD, SNMD e cluster; differenze volute rispetto ad Amazon S3 in [02 §2.4](docs/02-funzionalita.md).
+  inattesi, in SNSD, SNMD e cluster; differenze volute rispetto ad Amazon S3 in [02 §2.4](docs/02-features.md).
 
 ### IAM, accessi e sicurezza
 - Utente root da ambiente o file (`*_FILE`), utenti, gruppi, policy IAM in formato AWS con condizioni e variabili,
@@ -180,7 +180,7 @@ state pubblicate: la base dei test di aggiornamento è il commit di M7 (`224bb31
 ### Aggiornamento
 - I formati su disco sono invariati rispetto a `v0.7.0` (`format.json` v1, `xl.meta` 1.x): aggiornamento e
   downgrade verificati in SNMD e con rolling upgrade di un cluster di 4 nodi sotto carico (`make test-upgrade`,
-  [08](docs/08-modalita-deploy.md)).
+  [08](docs/08-deployment-modes.md)).
 - **Prima di riavviare il primo nodo** (cambi di comportamento che rompono un cluster misto o una configurazione
   esistente):
   - con `--tls-internode-verify` i certificati client dei nodi sono verificati solo con le CA di `CAs/` della

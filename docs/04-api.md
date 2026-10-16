@@ -63,7 +63,7 @@ decodifica una volta sola.
 | GET/PUT/DELETE | `/buckets/{b}/events` · `/buckets/{b}/cors` | Sottoscrizioni eventi (ARN del target, eventi, prefix/suffix) e regole CORS, validate come il lifecycle |
 | GET | `/notify/targets` · POST `/notify/targets/{id}/test` | Target di notifica (sottosistemi `notify_*`) con stato online/offline ed eventi in coda visti dal nodo che risponde; evento di prova `s3:TestEvent` (`admin:ConfigUpdate`) |
 | GET/PUT | `/buckets/{b}/objects/{retention,legal-hold}?key=&versionId=` · GET `/attributes` | Retention (mode, retainUntil, `bypassGovernance` con `s3:BypassGovernanceRetention`), legal hold e attributi (checksum, parti) di una versione |
-| GET/POST | `/kms/status`, `/kms/keys` · POST `/kms/reseal?bucket=` | KMS: stato, chiavi (creazione con `admin:KMSCreateKey`), ri-sigillatura delle chiavi dati degli oggetti SSE-S3/SSE-KMS con la master key corrente dopo una rotazione (`admin:KMSCreateKey`, esito per bucket/versioni: `resealed`, `failed`, `firstError`; vedi [07 §7.2](07-sicurezza-operativita.md)); `501` senza KMS |
+| GET/POST | `/kms/status`, `/kms/keys` · POST `/kms/reseal?bucket=` | KMS: stato, chiavi (creazione con `admin:KMSCreateKey`), ri-sigillatura delle chiavi dati degli oggetti SSE-S3/SSE-KMS con la master key corrente dopo una rotazione (`admin:KMSCreateKey`, esito per bucket/versioni: `resealed`, `failed`, `firstError`; vedi [07 §7.2](07-security-operations.md)); `501` senza KMS |
 | GET | `/buckets/{b}/objects?prefix=&delimiter=&cursor=` | Listing per object browser |
 | POST | `/buckets/{b}/objects/upload` · GET `/download` · POST `/download-zip` · DELETE `/objects` | Operazioni oggetti dalla console |
 | POST | `/buckets/{b}/objects/restore?key=&versionId=` | Ripristina una versione (copia della versione sulla sua chiave, autorizzata come la `CopyObject` S3) |
@@ -75,7 +75,7 @@ decodifica una volta sola.
 | GET/POST/PUT/DELETE | `/access-keys`, `/access-keys/{k}` | Service account |
 | GET/PUT | `/config`, `/config/{subsys}` · POST `/config/import` · GET `/config/export` | Configurazione (lo schema `GET /config/schema` dice per ogni chiave se il server la applica, `applied`: tra le altre `api.root_access`, `logger.*`, `audit_*`, `notify_*`, a caldo; le altre sono salvate e validate ma non ancora applicate) |
 | POST | `/heal` · GET `/heal/{id}` | Healing |
-| GET (SSE) | `/trace?node=&type=&api=&bucket=&status=&errors=&threshold=` · `/logs?node=&level=&last=` | Stream live (`text/event-stream`) di tutti i nodi: eventi `trace`/`log`, `dropped` quando il client perde eventi, heartbeat; query redatte, nessun header né body (`admin:ServerTrace`, `admin:ConsoleLog`; vedi [07 §7.4](07-sicurezza-operativita.md)) |
+| GET (SSE) | `/trace?node=&type=&api=&bucket=&status=&errors=&threshold=` · `/logs?node=&level=&last=` | Stream live (`text/event-stream`) di tutti i nodi: eventi `trace`/`log`, `dropped` quando il client perde eventi, heartbeat; query redatte, nessun header né body (`admin:ServerTrace`, `admin:ConsoleLog`; vedi [07 §7.4](07-security-operations.md)) |
 | GET | `/audit?node=&api=&bucket=&user=&type=&status=&errors=&since=&until=&requestId=&limit=` | Ricerca nei record di audit recenti di tutti i nodi, dal più recente (`admin:ConsoleLog`) |
 | GET | `/metrics` · `/metrics/query?metric=&range=&step=&end=&node=` | Serie dei grafici (ring buffer in memoria: un punto ogni 10 s per 24 h) per nodo e aggregate sul cluster; `admin:Prometheus` **o** `admin:ServerInfo` |
 | GET | `/me/permissions` | Permessi effettivi (per UI condizionale) |
@@ -106,7 +106,7 @@ Le operazioni sugli oggetti per prefisso (eliminazione, rinomina e zip) trattano
 come la CLI: un prefisso non vuoto senza `/` finale indica la cartella omonima (`photos` è `photos/`, mai
 `photos2/` né `photosx.txt`); `""` è l'intero bucket.
 
-Endpoint per regole di accesso, distribuzioni, key group e certificati: vedi [10 §10.5](10-domini-accessi-distribuzioni.md#105-admin-api).
+Endpoint per regole di accesso, distribuzioni, key group e certificati: vedi [10 §10.5](10-domains-access-distributions.md#105-admin-api).
 
 ## 4.4 Autorizzazione Admin API
 

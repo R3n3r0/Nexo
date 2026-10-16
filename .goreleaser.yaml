@@ -524,4 +524,4 @@ release:
     ```
 
     deb/rpm packages `nexo` (server, systemd unit) and `nexoctl` (CLI) for
-    amd64 and arm64 are attached below; see docs/08-modalita-deploy.md §8.7.
+    amd64 and arm64 are attached below; see docs/08-deployment-modes.md §8.7.

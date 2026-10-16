@@ -6,7 +6,7 @@ CloudFront. Tutto deve essere configurabile da **dashboard, CLI e Admin API**, a
 
 ## 10.1 Regole di accesso (Access Rules)
 
-Le policy in formato AWS (vedi [09](09-presigned-policy-condivisione.md)) supportano solo wildcard `*` e `?`.
+Le policy in formato AWS (vedi [09](09-presigned-policy-sharing.md)) supportano solo wildcard `*` e `?`.
 Nexo aggiunge un livello di **regole di accesso per bucket**, più semplice da usare e con supporto regex.
 Le regole vengono valutate dallo **stesso policy engine** come una sorgente resource-based aggiuntiva.
 
@@ -267,7 +267,7 @@ Scelte di implementazione (verificate da `test/proxy`, vedi §10.6 "Cluster e Do
   che li copre) è rifiutato: chi ha `admin:ManageCertificates` non può sostituire il certificato dell'endpoint S3.
 
 ### Cache e invalidazione
-Gestione completa della cache **per distribuzione, per dominio e per percorso**: vedi [11 — Cache per dominio](11-cache-domini.md).
+Gestione completa della cache **per distribuzione, per dominio e per percorso**: vedi [11 — Cache per dominio](11-domain-cache.md).
 
 ### Osservabilità per distribuzione
 Metriche `nexo_distribution_requests_total{distribution,host,status}`, byte serviti, cache hit ratio, latenza;
@@ -363,7 +363,7 @@ contenuti premium.
 | TDS-08 | PROXY protocol v1/v2 e `Forwarded`/`X-Forwarded-*` solo da `NEXO_TRUSTED_PROXIES` | IP reale corretto, spoofing ignorato |
 | TDS-09 | `pathPrefix` di origine: impossibile uscire dal prefix (`/../`, encoded) | 403/404 |
 | TDS-10 | TLS: SNI con più certificati, ACME contro Pebble (ACME di test) inclusa la renewal, cluster con leader che rinnova | Certificato servito da tutti i nodi |
-| TDS-11 | Cache e invalidazione: vedi test TCC-* in [11](11-cache-domini.md#1112-test) | — |
+| TDS-11 | Cache e invalidazione: vedi test TCC-* in [11](11-domain-cache.md#1112-test) | — |
 | TDS-12 | Range, conditional GET, HEAD, `Content-Type` corretti via distribuzione | Conforme |
 | TDS-13 | Rate limit per IP (P2) | 429 oltre soglia |
 | TDS-14 | Fuzzing di Host header, path e parametri di firma | Nessun panic/bypass |
@@ -407,7 +407,7 @@ coprire entrambi i modi di descrivere il client (`deploy/docker/compose.multi-pr
   (`X-Forwarded-For`, `Forwarded`, PROXY header di un peer non fidato) attraverso entrambi (TDS-08); nodo
   fermato sotto carico → nessun errore client né 502, scritture e modifiche della distribuzione durante il
   fermo, il nodo riavviato le serve (TCD-02); URL firmati di distribuzione con `IpAddress` del client reale;
-  TPS-19 sui domini custom (TCC-C-05 in [11](11-cache-domini.md#1112-test)).
+  TPS-19 sui domini custom (TCC-C-05 in [11](11-domain-cache.md#1112-test)).
 - `TestRealProxies` (cluster 4×2): gli **stessi file** nginx e HAProxy del compose, adattati agli indirizzi di
   loopback, con i binari reali (saltato se mancano, obbligatorio con `NEXO_PROXY_REAL=1`), più le distribuzioni
   d'esempio `multi-proxy/site.yaml`.

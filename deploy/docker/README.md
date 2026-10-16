@@ -2,7 +2,7 @@
 
 Everything here uses the same image, `ghcr.io/r3n3r0/nexo` (server + `nexoctl`, distroless, non-root
 UID 65532). The deployment mode is chosen by the arguments of `nexo server`, not by the image
-(see [docs/08-modalita-deploy.md](../../docs/08-modalita-deploy.md)).
+(see [docs/08-deployment-modes.md](../../docs/08-deployment-modes.md)).
 
 | File | Purpose |
 |------|---------|

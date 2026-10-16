@@ -1,5 +1,5 @@
 // Package traceability builds the traceability matrix of docs/06 §6.8: every
-// feature of the catalog (docs/02-funzionalita.md) mapped to the tests that
+// feature of the catalog (docs/02-features.md) mapped to the tests that
 // declare to cover it with a "covers:" tag (Go tests, testscript scripts,
 // Vitest and Playwright specs, test scripts).
 //
@@ -20,12 +20,12 @@ import (
 )
 
 // CatalogPath is the feature catalog, relative to the repository root.
-const CatalogPath = "docs/02-funzionalita.md"
+const CatalogPath = "docs/02-features.md"
 
 // DetailPaths are the documents that detail the codes the catalog groups in
 // a range (D-ACC-01..04 in docs/10, D-CCH-01..08 in docs/11).
 func DetailPaths() []string {
-	return []string{"docs/10-domini-accessi-distribuzioni.md", "docs/11-cache-domini.md"}
+	return []string{"docs/10-domains-access-distributions.md", "docs/11-domain-cache.md"}
 }
 
 // Feature is one code of the catalog.

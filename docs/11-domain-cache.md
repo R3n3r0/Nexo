@@ -1,6 +1,6 @@
 # 11. Gestione della cache per dominio
 
-Estende le distribuzioni ([10](10-domini-accessi-distribuzioni.md)) con una **cache HTTP integrata** e una gestione
+Estende le distribuzioni ([10](10-domains-access-distributions.md)) con una **cache HTTP integrata** e una gestione
 completa della cache **per distribuzione, per dominio e per percorso**, configurabile da dashboard, CLI e Admin API.
 Funziona in singolo nodo e in cluster.
 

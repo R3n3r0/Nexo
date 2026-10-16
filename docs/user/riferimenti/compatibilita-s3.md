@@ -90,7 +90,7 @@ misura pubblicata (commit `5522d1c` della suite, `test_s3.py`, 838 test, 2026-10
   Signature V2, `PublicAccessBlock`, server access logging e le differenze note sopra.
 
 Lo stato aggiornato, con le eventuali nuove misure, è in
-[docs/05](https://github.com/R3n3r0/Nexo/blob/main/docs/05-roadmap-task.md) (stato della compatibilità S3).
+[docs/05](https://github.com/R3n3r0/Nexo/blob/main/docs/05-roadmap.md) (stato della compatibilità S3).
 
 ## Provare un client
 
