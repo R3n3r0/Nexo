@@ -30,7 +30,8 @@ func newRootCmd(deps cmdDeps) *cobra.Command {
 		// --version does.
 		Version: version.Get().String(),
 	}
-	root.SetVersionTemplate("nexo {{.Version}}\n")
+	// The license line has no template actions: it is printed as is.
+	root.SetVersionTemplate("nexo {{.Version}}\n" + version.Get().LicenseLine() + "\n")
 	root.SetOut(deps.stdout)
 	root.SetErr(deps.stderr)
 	root.AddCommand(newServerCmd(deps), newVersionCmd(deps), newHealthcheckCmd(deps))

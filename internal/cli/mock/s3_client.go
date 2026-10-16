@@ -4,11 +4,15 @@ package mock
 
 import (
 	context "context"
-	io "io"
-	iter "iter"
 
 	cli "github.com/r3n3r0/nexo/internal/cli"
+
 	domain "github.com/r3n3r0/nexo/internal/domain"
+
+	io "io"
+
+	iter "iter"
+
 	mock "github.com/stretchr/testify/mock"
 )
 

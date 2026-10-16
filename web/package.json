@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Nexo web console: the React dashboard embedded in the nexo binary.",
+  "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=20.19.0"
   },

@@ -6,6 +6,7 @@ import (
 	context "context"
 
 	certs "github.com/r3n3r0/nexo/internal/service/certs"
+
 	mock "github.com/stretchr/testify/mock"
 )
 

@@ -19,6 +19,7 @@ import { useSession } from '@/auth/SessionProvider';
 import { usePermissions } from '@/auth/usePermissions';
 import { ColorSchemeToggle } from '@/components/ColorSchemeToggle';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
+import { LegalNotice } from '@/components/LegalNotice';
 import { UploadPanel } from '@/upload/UploadPanel';
 
 import { isNavItemActive, navigation, visibleNavigation } from './navigation';
@@ -108,6 +109,9 @@ export function AppShellLayout() {
             />
           ))}
         </ScrollArea>
+        <AppShell.Section pt="xs">
+          <LegalNotice />
+        </AppShell.Section>
       </AppShell.Navbar>
 
       <AppShell.Main>

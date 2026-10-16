@@ -47,12 +47,16 @@ func TestVersionCommand(t *testing.T) {
 	cmd.SetArgs([]string{"version"})
 	require.NoError(t, cmd.Execute())
 	assert.True(t, strings.HasPrefix(out.String(), "nexo dev"), out.String())
+	// The license and the source (AGPL-3.0 §5(d), §13).
+	assert.True(t, strings.HasSuffix(out.String(), "\nLicense AGPL-3.0-only (additional terms in NOTICE). "+
+		"Powered by Nexo; source code: https://github.com/R3n3r0/Nexo\n"), out.String())
 
 	out.Reset()
 	cmd = newRootCmd(deps)
 	cmd.SetArgs([]string{"version", "--json"})
 	require.NoError(t, cmd.Execute())
 	assert.Contains(t, out.String(), `"version": "dev"`)
+	assert.Contains(t, out.String(), `"license": "AGPL-3.0-only"`)
 
 	// nexo --version prints the same line as nexo version (regression:
 	// "unknown flag: --version", while nexoctl --version works).

@@ -6,6 +6,7 @@ import (
 	context "context"
 
 	admin "github.com/r3n3r0/nexo/internal/service/admin"
+
 	mock "github.com/stretchr/testify/mock"
 )
 

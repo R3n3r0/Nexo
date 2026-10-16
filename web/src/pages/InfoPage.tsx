@@ -1,6 +1,7 @@
 import {
   ActionIcon,
   Alert,
+  Anchor,
   Badge,
   CopyButton,
   Group,
@@ -19,6 +20,7 @@ import { useTranslation } from 'react-i18next';
 
 import { TelemetryStatus, TlsStatus } from '@/components/observability/ServerTelemetry';
 import { formatDuration } from '@/lib/format';
+import { license, licenseUrl, sourceUrl } from '@/lib/legal';
 import { problemMessage } from '@/lib/problem';
 import { serverInfoQueryKey } from '@/lib/serverInfo';
 import { useServices } from '@/services';
@@ -34,7 +36,10 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-/** D-CFG-02: version, build, deployment ID, mode, KMS, TLS and tracing of the server. */
+/**
+ * D-CFG-02: version, build, deployment ID, mode, license and source code
+ * (AGPL-3.0 §13), KMS, TLS and tracing of the server.
+ */
 export function InfoPage() {
   const { t, i18n } = useTranslation();
   const { info } = useServices();
@@ -115,6 +120,24 @@ export function InfoPage() {
                   nodes: data.nodes.length,
                   drives: data.nodes.reduce((sum, n) => sum + n.disks.length, 0),
                 })}
+              </Row>
+              <Row label={t('infoPage.license')}>
+                <Anchor href={licenseUrl} target="_blank" rel="noopener noreferrer" size="sm">
+                  {license}
+                </Anchor>{' '}
+                <Text span size="sm" c="dimmed">
+                  {t('infoPage.licenseNote')}
+                </Text>
+              </Row>
+              <Row label={t('infoPage.source')}>
+                <Anchor
+                  href={sourceUrl(data.version, data.commit)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  size="sm"
+                >
+                  {sourceUrl(data.version, data.commit)}
+                </Anchor>
               </Row>
             </Table.Tbody>
           </Table>

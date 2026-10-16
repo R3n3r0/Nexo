@@ -26,7 +26,7 @@ versioning of buckets: enable, suspend, info.`,
 		},
 		RunE: func(*cobra.Command, []string) error {
 			info := version.Get()
-			return e.out.Result(info, "nexoctl "+info.String())
+			return e.out.Result(info, "nexoctl "+info.String()+"\n"+info.LicenseLine())
 		},
 	}
 	cmd.AddCommand(

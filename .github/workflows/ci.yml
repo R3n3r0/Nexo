@@ -48,7 +48,9 @@ jobs:
           cache: true
 
       - name: go mod tidy is a no-op
-        run: go mod tidy -diff
+        run: |
+          go mod tidy -diff
+          (cd tools && go mod tidy -diff)
 
       - name: gofmt
         run: |

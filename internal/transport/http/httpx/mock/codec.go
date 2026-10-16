@@ -7,6 +7,7 @@ import (
 	http "net/http"
 
 	httpx "github.com/r3n3r0/nexo/internal/transport/http/httpx"
+
 	mock "github.com/stretchr/testify/mock"
 )
 

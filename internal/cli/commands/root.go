@@ -93,7 +93,8 @@ anything else is a local path.`,
 			return e.init(cmd)
 		},
 	}
-	root.SetVersionTemplate("nexoctl {{.Version}}\n")
+	// The license line has no template actions: it is printed as is.
+	root.SetVersionTemplate("nexoctl {{.Version}}\n" + version.Get().LicenseLine() + "\n")
 	root.SetOut(e.deps.Stdout)
 	root.SetErr(e.deps.Stderr)
 	root.SetIn(e.deps.Stdin)

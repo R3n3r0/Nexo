@@ -335,7 +335,9 @@ func scanJSON(raw []byte) ([]int, error) {
 		if err != nil {
 			var syn *json.SyntaxError
 			if errors.As(err, &syn) {
-				return nil, fail(syn.Offset, "invalid JSON: %s", syn.Error())
+				// Offset counts the bytes read, the offending one included
+				// (it is never before the token that failed).
+				return nil, fail(max(start, syn.Offset-1), "invalid JSON: %s", syn.Error())
 			}
 			return nil, fail(dec.InputOffset(), "invalid JSON: %s", err.Error())
 		}

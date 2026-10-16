@@ -3,10 +3,11 @@
 package mock
 
 import (
-	context "context"
-
 	admin "github.com/r3n3r0/nexo/internal/service/admin"
 	config "github.com/r3n3r0/nexo/internal/service/config"
+
+	context "context"
+
 	mock "github.com/stretchr/testify/mock"
 )
 

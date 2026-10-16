@@ -22,7 +22,7 @@ func newVersionCmd(deps cmdDeps) *cobra.Command {
 				enc.SetIndent("", "  ")
 				return enc.Encode(info)
 			}
-			_, err := fmt.Fprintf(cmd.OutOrStdout(), "nexo %s\n", info)
+			_, err := fmt.Fprintf(cmd.OutOrStdout(), "nexo %s\n%s\n", info, info.LicenseLine())
 			return err
 		},
 	}

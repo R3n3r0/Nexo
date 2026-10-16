@@ -7,6 +7,7 @@ import (
 	io "io"
 
 	erasure "github.com/r3n3r0/nexo/internal/service/erasure"
+
 	mock "github.com/stretchr/testify/mock"
 )
 

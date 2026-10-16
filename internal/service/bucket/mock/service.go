@@ -4,10 +4,13 @@ package mock
 
 import (
 	context "context"
-	json "encoding/json"
+
+	bucket "github.com/r3n3r0/nexo/internal/service/bucket"
 
 	domain "github.com/r3n3r0/nexo/internal/domain"
-	bucket "github.com/r3n3r0/nexo/internal/service/bucket"
+
+	json "encoding/json"
+
 	mock "github.com/stretchr/testify/mock"
 )
 
