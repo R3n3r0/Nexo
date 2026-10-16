@@ -23,8 +23,8 @@ import (
 //
 // The drive lives under NEXO_BENCH_DIR (default: the test temporary
 // directory, so the file system of $TMPDIR): point it at the file system to
-// measure, a disk rather than tmpfs for O_DIRECT. Writes are synced (the
-// default of a server drive) unless the name says nosync.
+// measure (a disk rather than tmpfs for the cost of the writes). Writes are
+// synced (the default of a server drive) unless the name says nosync.
 func benchDrive(b *testing.B, opts ...storage.Option) storage.StorageAPI {
 	b.Helper()
 	parent := os.Getenv("NEXO_BENCH_DIR")

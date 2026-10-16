@@ -32,10 +32,7 @@ func testConcurrentDifferentKeys(t *testing.T, f Factory) {
 	run(t, workers, func(i int) error {
 		keys[i] = fmt.Sprintf("p%d/q%d/obj-%03d", i%5, i%3, i)
 		size := 10 + i
-		switch {
-		case i%8 == 0:
-			size = 1<<20 + 4096*i + i // larger than a copy buffer (O_DIRECT)
-		case i%4 == 0:
+		if i%4 == 0 {
 			size = storage.SmallFileThreshold + i // data directory
 		}
 		payload := payloadFor(i, size)

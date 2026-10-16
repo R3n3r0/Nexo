@@ -133,19 +133,23 @@ func TestServerFileSectionStalledClient(t *testing.T) {
 	}
 }
 
-// TestServerFileSectionSlowClient: a client that keeps reading, slower
-// than a piece of the file section per send timeout but faster than one
-// buffered write (32 KiB) per timeout, gets the whole answer: its pieces
-// are resumed under new deadlines.
-func TestServerFileSectionSlowClient(t *testing.T) {
+// TestServerFileSectionSteadyClient: a client that keeps reading, with a
+// small receive buffer and a body larger than the send buffer of the
+// server socket (up to 4 MiB with the default tcp_wmem), so that its
+// reads pace the pieces, gets the whole answer. (The resumption of a
+// piece whose deadline expires after some progress is covered by
+// httpx.TestCopyFileSectionDeadlines: over loopback the kernel wakes a
+// blocked writer only once half of its send buffer is free, in bursts the
+// pace of a test client cannot control.)
+func TestServerFileSectionSteadyClient(t *testing.T) {
 	if testing.Short() {
 		t.Skip("slow client")
 	}
-	const timeout = 200 * time.Millisecond
-	size := 1<<20 + 512<<10
+	const timeout = time.Second
+	size := 6 << 20
 	srv, _, done := fileServer(t, size, timeout)
-	// 16 KiB every 20 ms: ~160 KiB per timeout.
-	n, err := slowClient(t, srv.Addr(), 16<<10, 20*time.Millisecond)
+	// 64 KiB every 20 ms: ~3 MiB/s.
+	n, err := slowClient(t, srv.Addr(), 64<<10, 20*time.Millisecond)
 	require.NoError(t, err)
 	assert.Equal(t, int64(size-6), n)
 	require.NoError(t, <-done)
