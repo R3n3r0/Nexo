@@ -3,7 +3,6 @@ package middleware
 import (
 	"context"
 	"io"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -90,21 +89,14 @@ func countBody(r *http.Request) func() int64 {
 
 // targetOf returns the bucket and object of an S3 request: the target the
 // handler (or the target middleware) recorded, else from the host of a
-// virtual-host request ("<bucket>.<domain>"), from the path otherwise.
+// virtual-host request ("<bucket>.<domain>", resolved like the S3 API:
+// httpx.VirtualHostBucket), from the path otherwise.
 func targetOf(r *http.Request, domains []string) (bucket, object string) {
 	if b, o, ok := httpx.OperationTargetFrom(r.Context()); ok {
 		return b, o
 	}
-	if len(domains) > 0 {
-		host := strings.ToLower(r.Host)
-		if h, _, err := net.SplitHostPort(host); err == nil {
-			host = h
-		}
-		for _, d := range domains {
-			if b, ok := strings.CutSuffix(host, "."+strings.ToLower(d)); ok && b != "" {
-				return b, strings.TrimPrefix(r.URL.Path, "/")
-			}
-		}
+	if b, ok := httpx.VirtualHostBucket(domains, r.Host); ok {
+		return b, strings.TrimPrefix(r.URL.Path, "/")
 	}
 	return splitPath(r.URL.Path)
 }

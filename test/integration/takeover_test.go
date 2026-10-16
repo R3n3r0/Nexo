@@ -125,7 +125,7 @@ func TestDistributionAliasTakeover(t *testing.T) {
 // --no-distributions (recovery) no listener routes a host, and the
 // distributions stay manageable to remove the one at fault.
 //
-// covers: S-DST-01, S-DST-06
+// covers: S-DST-01
 func TestDistributionListenerModes(t *testing.T) {
 	t.Parallel()
 	t.Run("s3 listener off", func(t *testing.T) {

@@ -219,12 +219,15 @@ func batchError(what string, failed, total int, first error) error {
 }
 
 // explainMissingPath adds a hint to a local path that does not exist and
-// was probably meant as a remote location: "ALIAS/..." whose first segment
-// is neither an alias nor a local entry (regression: "stat
-// nosuchalias/foto: no such file or directory" said nothing of the alias).
+// was probably meant as a remote location: a target argument (a source or
+// a destination, not an input file such as a policy document) "ALIAS/..."
+// whose first segment is neither an alias nor a local entry (regression:
+// "stat nosuchalias/foto: no such file or directory" said nothing of the
+// alias, then the hint was added to the missing input files too).
 func (e *env) explainMissingPath(ctx context.Context, err error) error {
 	var pathErr *fs.PathError
-	if !errors.As(err, &pathErr) || !errors.Is(err, fs.ErrNotExist) || filepath.IsAbs(pathErr.Path) {
+	if !errors.As(err, &pathErr) || !errors.Is(err, fs.ErrNotExist) || filepath.IsAbs(pathErr.Path) ||
+		!e.underLocalTarget(pathErr.Path) {
 		return err
 	}
 	first, rest, found := strings.Cut(filepath.ToSlash(pathErr.Path), "/")
@@ -240,4 +243,18 @@ func (e *env) explainMissingPath(ctx context.Context, err error) error {
 		}
 	}
 	return fmt.Errorf(`%w (no alias named %q and no local %q: see "nexoctl alias list")`, err, first, first)
+}
+
+// underLocalTarget reports whether path is, or lies under, an argument the
+// command took as a local target.
+func (e *env) underLocalTarget(path string) bool {
+	path = filepath.Clean(path)
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for _, t := range e.localTargets {
+		if path == t || strings.HasPrefix(path, t+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }

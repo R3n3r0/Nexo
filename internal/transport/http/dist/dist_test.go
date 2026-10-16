@@ -3,6 +3,7 @@ package dist_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -323,11 +324,38 @@ func TestAccessLogJSON(t *testing.T) {
 	log.Log(context.Background(), dist.AccessEntry{Time: time.Unix(0, 0), Distribution: "site", Format: distribution.LogFormatJSON,
 		Host: "www.example.com", Method: "GET", URI: "/a?b", Status: 200, Bytes: 10, UserAgent: `x"y`})
 	out := buf.String()
-	for _, want := range []string{`"distribution":"site"`, `"status":200`, `"bytes":10`, `"uri":"/a?b"`} {
+	for _, want := range []string{`"distribution":"site"`, `"status":200`, `"bytes":10`, `"uri":"/a?b"`, `"event_time":"1970-01-01T`} {
 		assert.Contains(t, out, want)
 	}
+	// One key per attribute: the start of the request is not a second
+	// "time" next to the one of the record (regression: strict log
+	// pipelines such as Elasticsearch refused every line).
+	assert.Empty(t, duplicateKeys(t, buf.Bytes()))
 	buf.Reset()
 	log.Log(context.Background(), dist.AccessEntry{Time: time.Unix(0, 0).UTC(), Distribution: "site", Format: distribution.LogFormatCombined,
 		ClientIP: "192.0.2.1", Method: "GET", URI: "/a", Protocol: "HTTP/1.1", Status: 404, UserAgent: "agent \"quoted\""})
 	assert.Contains(t, buf.String(), `192.0.2.1 - - [01/Jan/1970:00:00:00 +0000] \"GET /a HTTP/1.1\" 404 - \"-\" \"agent \\\"quoted\\\"\"`)
+}
+
+// duplicateKeys returns the keys the JSON object data holds more than once.
+func duplicateKeys(t *testing.T, data []byte) []string {
+	t.Helper()
+	dec := json.NewDecoder(bytes.NewReader(data))
+	tok, err := dec.Token()
+	require.NoError(t, err)
+	require.Equal(t, json.Delim('{'), tok)
+	seen := map[string]bool{}
+	var dups []string
+	for dec.More() {
+		key, err := dec.Token()
+		require.NoError(t, err)
+		k, _ := key.(string)
+		if seen[k] {
+			dups = append(dups, k)
+		}
+		seen[k] = true
+		var v json.RawMessage
+		require.NoError(t, dec.Decode(&v))
+	}
+	return dups
 }

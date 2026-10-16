@@ -415,6 +415,6 @@ func (e *env) printPostPolicy(t cli.Target, form *cli.PostPolicyForm, expiry tim
 // the object (version) exists and that the credentials may read it (HEAD
 // needs s3:GetObject), as mc does: the URL would otherwise fail when used.
 func statBeforeSigning(ctx context.Context, client cli.S3Client, bucket, key, versionID string) error {
-	_, err := client.Stat(ctx, bucket, key, cli.StatOptions{VersionID: versionID})
+	_, err := cli.StatObject(ctx, client, bucket, key, cli.StatOptions{VersionID: versionID})
 	return err
 }

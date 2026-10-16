@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -438,21 +439,53 @@ func TestMissingLocalPathNamesTheAlias(t *testing.T) {
 	dir := t.TempDir()
 	r = h.run("ls", filepath.Join(dir, "missing"))
 	assert.NotContains(t, r.stderr, "no alias named")
+
+	// A missing input file of a command is no target: no alias was meant
+	// (regression: "open pol/p.json: no such file or directory (no alias
+	// named "pol" ...)").
+	for _, args := range [][]string{
+		{"admin", "policy", "create", "mem", "p1", "pol/p.json"},
+		{"dist", "import", "mem", "defs/x.yaml"},
+	} {
+		r = h.run(args...)
+		assert.NotEqual(t, 0, r.code, "%v", args)
+		assert.Contains(t, r.stderr, "no such file or directory", "%v", args)
+		assert.NotContains(t, r.stderr, "no alias named", "%v", args)
+	}
 }
 
-// TestStatNamesTheMissingBucket: stat of an object of a missing bucket
-// says that the bucket is missing (regression: "object not found").
-func TestStatNamesTheMissingBucket(t *testing.T) {
-	h := newHarness(t)
-	h.mem.MakeBucket("bkt")
-	r := h.run("stat", "mem/nonexistent/x")
-	assert.Equal(t, cli.ExitNotFound, r.code, r.stderr)
-	assert.Contains(t, r.stderr, "bucket not found")
-	assert.NotContains(t, r.stderr, "object not found")
-	r = h.run("stat", "mem/bkt/x")
-	assert.Equal(t, cli.ExitNotFound, r.code, r.stderr)
-	assert.Contains(t, r.stderr, "not found")
-	assert.NotContains(t, r.stderr, "bucket not found")
+// TestCommandsNameTheMissingBucket: a command naming an object of a
+// missing bucket says that the bucket is missing, although the HEAD of the
+// object answers a bare 404 (regression: "object not found" for stat, then
+// still for cp, mv, rm and share --raw).
+func TestCommandsNameTheMissingBucket(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out.bin")
+	for _, args := range [][]string{
+		{"stat", "mem/nonexistent/x"},
+		{"cp", "mem/nonexistent/x", out},
+		{"mv", "mem/nonexistent/x", "mem/bkt/y"},
+		{"rm", "mem/nonexistent/x"},
+		{"share", "download", "--raw", "mem/nonexistent/x"},
+	} {
+		t.Run(args[0], func(t *testing.T) {
+			h := newHarness(t)
+			h.mem.MakeBucket("bkt")
+			r := h.run(args...)
+			assert.Equal(t, cli.ExitNotFound, r.code, r.stderr)
+			assert.Contains(t, r.stderr, "bucket not found: nonexistent")
+			assert.NotContains(t, r.stderr, "object not found")
+
+			// A missing key of a bucket that exists is a missing object.
+			args := slices.Clone(args)
+			for i, a := range args {
+				args[i] = strings.Replace(a, "mem/nonexistent/", "mem/bkt/", 1)
+			}
+			r = h.run(args...)
+			assert.Equal(t, cli.ExitNotFound, r.code, r.stderr)
+			assert.Contains(t, r.stderr, "not found")
+			assert.NotContains(t, r.stderr, "bucket not found")
+		})
+	}
 }
 
 // covers: C-OBJ-07 (a raw download URL is signed only for an object that

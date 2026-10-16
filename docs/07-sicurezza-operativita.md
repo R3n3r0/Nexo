@@ -153,11 +153,13 @@ target di fuzzing (`make fuzz`), è in [docs/security/threat-model.md](security/
   `--log-level`/`--log-format`). Segreti (Authorization, firme, credenziali, token, password, cookie, chiavi SSE-C)
   redatti dai flussi.
 - **Audit** (S-OPS-06, D-MON-03): un record per ogni richiesta S3 e console (identità, azione/API, risorsa, IP,
-  esito, latenza, request id, nodo, byte), tranne le sonde di salute (`/nexo/health/*`) e gli scrape anonimi
-  delle metriche (`/nexo/metrics/*` senza identità), scritto nel log JSON (`msg=audit`), tenuto in memoria (ultimi 10000 per
-  nodo, ricerca `GET /api/v1/audit` con `admin:ConsoleLog`, aggregata sui nodi) e consegnato ai target
-  `audit_webhook[:<id>]` e `audit_kafka[:<id>]` (stesse chiavi dei target `notify_*` di pari tipo, coda persistente
-  in `<primo drive>/.nexo.sys/audit`, applicati a caldo). Il webhook riceve un documento JSON per record; Kafka un
+  esito, latenza, request id, nodo, byte), tranne le sonde di salute anonime (`/nexo/health/*` senza credenziali)
+  e gli scrape anonimi riusciti delle metriche (`/nexo/metrics/*` senza identità né token, stato < 400; una
+  richiesta con credenziali, firma o token, e uno scrape rifiutato sono sempre registrati). Il record è scritto
+  nel log JSON (`msg=audit`), tenuto in memoria (ultimi 10000 per nodo, ricerca `GET /api/v1/audit` con
+  `admin:ConsoleLog`, aggregata sui nodi) e consegnato ai target `audit_webhook[:<id>]` e `audit_kafka[:<id>]`
+  (stesse chiavi dei target `notify_*` di pari tipo, coda persistente in `<primo drive>/.nexo.sys/audit`, applicati
+  a caldo). Il webhook riceve un documento JSON per record; Kafka un
   messaggio con chiave `<nodo>/<request id>`.
 - **Tracing distribuito** (T-8.5): OpenTelemetry OTLP opzionale (`NEXO_OTEL_EXPORTER_OTLP_ENDPOINT`, protocollo
   `http/protobuf` o `grpc`, campionamento `NEXO_OTEL_TRACES_SAMPLER_ARG` con decisione parent-based): uno span server

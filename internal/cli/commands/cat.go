@@ -299,21 +299,13 @@ func (e *env) stat(ctx context.Context, t cli.Target, opts statOptions) error {
 // when folders is set.
 func (e *env) statObject(ctx context.Context, client cli.S3Client, t cli.Target, versionID string, opts statOptions, folders bool) error {
 	sse := opts.keys.CustomerKeyFor(t)
-	info, err := client.Stat(ctx, t.Bucket, t.Key, cli.StatOptions{VersionID: versionID, Checksum: opts.checksum, SSE: sse})
+	info, err := cli.StatObject(ctx, client, t.Bucket, t.Key, cli.StatOptions{VersionID: versionID, Checksum: opts.checksum, SSE: sse})
 	if err != nil {
 		if folders && errors.Is(err, domain.ErrObjectNotFound) && versionID == "" {
 			// A prefix ("folder") has no metadata of its own.
 			if found, _ := hasObjectsUnder(ctx, client, t.Bucket, cli.DirPrefix(t.Key)); found {
 				rec := entryRecord{Type: typeFolder, Target: t.String(), Key: cli.DirPrefix(t.Key), Name: path.Base(t.Key) + "/"}
 				return e.out.Result(rec, statText(rec, e.deps.Clock.Now()))
-			}
-		}
-		if errors.Is(err, domain.ErrObjectNotFound) {
-			// A HEAD answers a bare 404: the bucket may be the one
-			// missing (regression: "object not found" for a missing
-			// bucket).
-			if exists, berr := client.BucketExists(ctx, t.Bucket); berr == nil && !exists {
-				return fmt.Errorf("%s: %w: %s", t, domain.ErrBucketNotFound, t.Bucket)
 			}
 		}
 		return fmt.Errorf("%s: %w", t, sseHint(err, sse))

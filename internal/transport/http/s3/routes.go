@@ -256,7 +256,7 @@ func SigningService(domains ...string) func(r *http.Request) string {
 		if r.Method != http.MethodPost || strings.TrimPrefix(r.URL.Path, "/") != "" {
 			return auth.ServiceS3
 		}
-		if _, virtualHost := virtualHostBucket(normalized, r.Host); virtualHost {
+		if _, virtualHost := httpx.VirtualHostBucket(normalized, r.Host); virtualHost {
 			return auth.ServiceS3
 		}
 		return auth.ServiceSTS
@@ -275,7 +275,7 @@ func MetricsRequest(domains ...string) func(r *http.Request) bool {
 		if !strings.HasPrefix(r.URL.Path, MetricsPathPrefix) {
 			return false
 		}
-		_, virtualHost := virtualHostBucket(normalized, r.Host)
+		_, virtualHost := httpx.VirtualHostBucket(normalized, r.Host)
 		return !virtualHost
 	}
 }
@@ -287,7 +287,7 @@ func MetricsRequest(domains ...string) func(r *http.Request) bool {
 func VirtualHostRequest(domains ...string) func(r *http.Request) bool {
 	normalized := newOptions([]Option{WithDomains(domains...)}).domains
 	return func(r *http.Request) bool {
-		_, virtualHost := virtualHostBucket(normalized, r.Host)
+		_, virtualHost := httpx.VirtualHostBucket(normalized, r.Host)
 		return virtualHost
 	}
 }

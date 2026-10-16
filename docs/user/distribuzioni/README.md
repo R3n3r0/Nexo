@@ -102,7 +102,7 @@ conto dei visitatori.
 | Redirect | `dist redirect add` con `--https-only`, `--host-from example.com --to-host www.example.com` o `--from '^/vecchio/(.*)$' --to '/nuovo/$1'` (`--status 301/302/303/307/308`) |
 | Header di risposta | `dist headers --set 'Name: value'`, `--unset`, `--security` (HSTS, nosniff, frame options, referrer policy) |
 | CORS | `dist headers --cors-origin https://app.example.com --cors-method GET` |
-| Log di accesso | `logging: {accessLog: true, format: combined}` nel YAML della distribuzione (`json` per default) |
+| Log di accesso | `logging: {accessLog: true, format: combined}` nel YAML della distribuzione (`json` per default: un record `distribution access` nel log del server, con `event_time` l'inizio della richiesta e `time` l'ora del record) |
 
 ## URL e cookie firmati
 

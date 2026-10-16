@@ -526,6 +526,10 @@ func TestAudit(t *testing.T) {
 			check: func(t *testing.T, e audit.Entry) { assert.Equal(t, http.StatusForbidden, e.API.StatusCode) },
 		},
 		{
+			name: "presigned V2 health request", target: "/nexo/health/live?AWSAccessKeyId=AKIA1&Signature=00&Expires=1", status: http.StatusForbidden,
+			check: func(t *testing.T, e audit.Entry) { assert.Equal(t, "/nexo/health/live", e.API.Path) },
+		},
+		{
 			name: "metrics scrape with a forged token", target: "/nexo/metrics/v1/node", header: "Bearer garbage", status: http.StatusForbidden,
 			check: func(t *testing.T, e audit.Entry) { assert.Equal(t, http.StatusForbidden, e.API.StatusCode) },
 		},

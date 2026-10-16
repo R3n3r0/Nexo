@@ -182,7 +182,7 @@ func planRemote(ctx context.Context, resolve ClientResolver, src Target, opts Pl
 		if isPrefix {
 			return nil, UsageError("%s is a bucket or a prefix: use --recursive", src)
 		}
-		info, err := client.Stat(ctx, src.Bucket, src.Key, StatOptions{VersionID: opts.VersionID, SSE: opts.Encryption.CustomerKeyFor(src)})
+		info, err := StatObject(ctx, client, src.Bucket, src.Key, StatOptions{VersionID: opts.VersionID, SSE: opts.Encryption.CustomerKeyFor(src)})
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", src, err)
 		}
