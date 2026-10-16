@@ -1930,6 +1930,34 @@ type CertificateManager interface {
 	// Delete removes a certificate no distribution uses
 	// ("upload:<id>": domain.ErrConflict).
 	Delete(ctx context.Context, id string) error
+
+	// ListDNSProviders returns the DNS providers of the DNS-01 challenge
+	// (sorted by name, never their credentials) with the distributions
+	// using them.
+	ListDNSProviders(ctx context.Context) ([]DNSProviderInfo, error)
+	// GetDNSProvider returns a DNS provider (certs.ErrDNSProviderNotFound).
+	GetDNSProvider(ctx context.Context, name string) (*DNSProviderInfo, error)
+	// CreateDNSProvider validates and stores a DNS provider, its
+	// credentials sealed (certs.ErrInvalidDNSProvider,
+	// certs.ErrDNSProviderExists).
+	CreateDNSProvider(ctx context.Context, cfg certs.DNSProviderConfig, creds certs.DNSCredentials) (*DNSProviderInfo, error)
+	// UpdateDNSProvider replaces the settings of a DNS provider; the empty
+	// credentials keep the stored ones (certs.ErrDNSProviderNotFound).
+	UpdateDNSProvider(ctx context.Context, cfg certs.DNSProviderConfig, creds certs.DNSCredentials) (*DNSProviderInfo, error)
+	// DeleteDNSProvider removes a DNS provider no distribution uses
+	// (certs.ErrDNSProviderInUse).
+	DeleteDNSProvider(ctx context.Context, name string) error
+	// TestDNSProvider publishes, checks and removes a test record of
+	// domain through a DNS provider.
+	TestDNSProvider(ctx context.Context, name, domain string) (*certs.DNSTestResult, error)
+}
+
+// DNSProviderInfo is a DNS provider with the distributions using it.
+type DNSProviderInfo struct {
+	certs.DNSProviderConfig
+	// UsedBy are the ids of the distributions whose tls.dnsProvider names
+	// it, sorted.
+	UsedBy []string
 }
 
 // CertificateInfo is a certificate with the distributions using it.
@@ -1974,6 +2002,10 @@ type ManagedCertificate struct {
 	Domains []string
 	// Distributions are the distributions it serves.
 	Distributions []string
+	// Challenge is the ACME challenge of the certificate ("" for the one
+	// of the deployment), DNSProvider the DNS provider of dns-01.
+	Challenge   string
+	DNSProvider string
 	// State is ACMEIssued or ACMEPending.
 	State string
 	// Certificate is the stored certificate (State ACMEIssued): its

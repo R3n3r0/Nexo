@@ -62,11 +62,11 @@ Details in [10](10-domains-access-distributions.md).
 | S-DST-03 | Per-path behaviors (prefix/glob/regex): methods, access, cache-control, headers, CORS | P0 |
 | S-DST-04 | Distribution signed URLs and cookies with key groups and rotation | P1 |
 | S-DST-05 | Trusted proxies, PROXY protocol, origin secret for proxies, IP restrictions | P0 |
-| S-DST-06 | Per-domain TLS: upload and automatic ACME (HTTP-01/TLS-ALPN-01; DNS-01 P2) | P1 |
+| S-DST-06 | Per-domain TLS: upload and automatic ACME (HTTP-01/TLS-ALPN-01; DNS-01 for the wildcard domains with Cloudflare, Route 53 and RFC 2136 providers, done in October 2026) | P1 (DNS-01 brought forward, was P2) |
 | S-DST-07 | Built-in cache (memory + disk) with per-distribution / **per-domain** / per-path policies, per-domain quotas (see [11](11-domain-cache.md)) | P1 |
 | S-DST-07b | Automatic invalidation on write, purge by path/glob/regex/tag/domain, soft purge, webhooks to external CDNs/proxies | P1 |
 | S-DST-07c | Cache shared across the cluster (consistent hashing), stale-while-revalidate/if-error, request collapsing, range caching, warm-up | P1 / P2 |
-| S-DST-08 | Per-distribution rate limit; per-distribution metrics and access log | P2 / P1 |
+| S-DST-08 | Per-distribution rate limit; per-distribution metrics and access log | P1 (rate limit brought forward, was P2 / P1) |
 
 ### Authentication and IAM
 | Code | Feature | Priority |
@@ -111,7 +111,7 @@ Details in [10](10-domains-access-distributions.md).
 | S-OPS-07 | Live request trace (stream) and live logs for the console | P1 |
 | S-OPS-08 | Server info (version, uptime, disks, usage, network state) | P0 |
 | S-OPS-09 | Coordinated cluster restart/stop, rolling binary upgrade | P2 |
-| S-OPS-10 | Per-API rate limiting / throttling | P2 |
+| S-OPS-10 | Per-API rate limiting / throttling (per client address, access key/user, bucket; S3 concurrency `api.requests_max`; per node) | P1 (brought forward, was P2) |
 | S-OPS-11 | Diagnostics: drive/net/obj speedtest, pprof profiling (protected) | P1 (brought forward, was P2) |
 | S-OPS-12 | Release as a static multi-OS/arch binary (tar/zip, deb, rpm, Homebrew) | P0 |
 | S-OPS-13 | Multi-arch `nexo` and `nexoctl` Docker images, built-in healthcheck, `*_FILE` secrets, single/SNMD/cluster Compose files | P0 |

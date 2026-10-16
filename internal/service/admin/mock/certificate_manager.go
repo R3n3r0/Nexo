@@ -24,6 +24,66 @@ func (_m *CertificateManager) EXPECT() *CertificateManager_Expecter {
 	return &CertificateManager_Expecter{mock: &_m.Mock}
 }
 
+// CreateDNSProvider provides a mock function with given fields: ctx, cfg, creds
+func (_m *CertificateManager) CreateDNSProvider(ctx context.Context, cfg certs.DNSProviderConfig, creds certs.DNSCredentials) (*admin.DNSProviderInfo, error) {
+	ret := _m.Called(ctx, cfg, creds)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateDNSProvider")
+	}
+
+	var r0 *admin.DNSProviderInfo
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, certs.DNSProviderConfig, certs.DNSCredentials) (*admin.DNSProviderInfo, error)); ok {
+		return rf(ctx, cfg, creds)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, certs.DNSProviderConfig, certs.DNSCredentials) *admin.DNSProviderInfo); ok {
+		r0 = rf(ctx, cfg, creds)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*admin.DNSProviderInfo)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, certs.DNSProviderConfig, certs.DNSCredentials) error); ok {
+		r1 = rf(ctx, cfg, creds)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// CertificateManager_CreateDNSProvider_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateDNSProvider'
+type CertificateManager_CreateDNSProvider_Call struct {
+	*mock.Call
+}
+
+// CreateDNSProvider is a helper method to define mock.On call
+//   - ctx context.Context
+//   - cfg certs.DNSProviderConfig
+//   - creds certs.DNSCredentials
+func (_e *CertificateManager_Expecter) CreateDNSProvider(ctx interface{}, cfg interface{}, creds interface{}) *CertificateManager_CreateDNSProvider_Call {
+	return &CertificateManager_CreateDNSProvider_Call{Call: _e.mock.On("CreateDNSProvider", ctx, cfg, creds)}
+}
+
+func (_c *CertificateManager_CreateDNSProvider_Call) Run(run func(ctx context.Context, cfg certs.DNSProviderConfig, creds certs.DNSCredentials)) *CertificateManager_CreateDNSProvider_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(certs.DNSProviderConfig), args[2].(certs.DNSCredentials))
+	})
+	return _c
+}
+
+func (_c *CertificateManager_CreateDNSProvider_Call) Return(_a0 *admin.DNSProviderInfo, _a1 error) *CertificateManager_CreateDNSProvider_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *CertificateManager_CreateDNSProvider_Call) RunAndReturn(run func(context.Context, certs.DNSProviderConfig, certs.DNSCredentials) (*admin.DNSProviderInfo, error)) *CertificateManager_CreateDNSProvider_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Delete provides a mock function with given fields: ctx, id
 func (_m *CertificateManager) Delete(ctx context.Context, id string) error {
 	ret := _m.Called(ctx, id)
@@ -67,6 +127,53 @@ func (_c *CertificateManager_Delete_Call) Return(_a0 error) *CertificateManager_
 }
 
 func (_c *CertificateManager_Delete_Call) RunAndReturn(run func(context.Context, string) error) *CertificateManager_Delete_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeleteDNSProvider provides a mock function with given fields: ctx, name
+func (_m *CertificateManager) DeleteDNSProvider(ctx context.Context, name string) error {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteDNSProvider")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, name)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// CertificateManager_DeleteDNSProvider_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteDNSProvider'
+type CertificateManager_DeleteDNSProvider_Call struct {
+	*mock.Call
+}
+
+// DeleteDNSProvider is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+func (_e *CertificateManager_Expecter) DeleteDNSProvider(ctx interface{}, name interface{}) *CertificateManager_DeleteDNSProvider_Call {
+	return &CertificateManager_DeleteDNSProvider_Call{Call: _e.mock.On("DeleteDNSProvider", ctx, name)}
+}
+
+func (_c *CertificateManager_DeleteDNSProvider_Call) Run(run func(ctx context.Context, name string)) *CertificateManager_DeleteDNSProvider_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *CertificateManager_DeleteDNSProvider_Call) Return(_a0 error) *CertificateManager_DeleteDNSProvider_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *CertificateManager_DeleteDNSProvider_Call) RunAndReturn(run func(context.Context, string) error) *CertificateManager_DeleteDNSProvider_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -130,6 +237,65 @@ func (_c *CertificateManager_Get_Call) RunAndReturn(run func(context.Context, st
 	return _c
 }
 
+// GetDNSProvider provides a mock function with given fields: ctx, name
+func (_m *CertificateManager) GetDNSProvider(ctx context.Context, name string) (*admin.DNSProviderInfo, error) {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetDNSProvider")
+	}
+
+	var r0 *admin.DNSProviderInfo
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*admin.DNSProviderInfo, error)); ok {
+		return rf(ctx, name)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *admin.DNSProviderInfo); ok {
+		r0 = rf(ctx, name)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*admin.DNSProviderInfo)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, name)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// CertificateManager_GetDNSProvider_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetDNSProvider'
+type CertificateManager_GetDNSProvider_Call struct {
+	*mock.Call
+}
+
+// GetDNSProvider is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+func (_e *CertificateManager_Expecter) GetDNSProvider(ctx interface{}, name interface{}) *CertificateManager_GetDNSProvider_Call {
+	return &CertificateManager_GetDNSProvider_Call{Call: _e.mock.On("GetDNSProvider", ctx, name)}
+}
+
+func (_c *CertificateManager_GetDNSProvider_Call) Run(run func(ctx context.Context, name string)) *CertificateManager_GetDNSProvider_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *CertificateManager_GetDNSProvider_Call) Return(_a0 *admin.DNSProviderInfo, _a1 error) *CertificateManager_GetDNSProvider_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *CertificateManager_GetDNSProvider_Call) RunAndReturn(run func(context.Context, string) (*admin.DNSProviderInfo, error)) *CertificateManager_GetDNSProvider_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // List provides a mock function with given fields: ctx
 func (_m *CertificateManager) List(ctx context.Context) (*admin.CertificateList, error) {
 	ret := _m.Called(ctx)
@@ -184,6 +350,184 @@ func (_c *CertificateManager_List_Call) Return(_a0 *admin.CertificateList, _a1 e
 }
 
 func (_c *CertificateManager_List_Call) RunAndReturn(run func(context.Context) (*admin.CertificateList, error)) *CertificateManager_List_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListDNSProviders provides a mock function with given fields: ctx
+func (_m *CertificateManager) ListDNSProviders(ctx context.Context) ([]admin.DNSProviderInfo, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListDNSProviders")
+	}
+
+	var r0 []admin.DNSProviderInfo
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]admin.DNSProviderInfo, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []admin.DNSProviderInfo); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]admin.DNSProviderInfo)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// CertificateManager_ListDNSProviders_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListDNSProviders'
+type CertificateManager_ListDNSProviders_Call struct {
+	*mock.Call
+}
+
+// ListDNSProviders is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *CertificateManager_Expecter) ListDNSProviders(ctx interface{}) *CertificateManager_ListDNSProviders_Call {
+	return &CertificateManager_ListDNSProviders_Call{Call: _e.mock.On("ListDNSProviders", ctx)}
+}
+
+func (_c *CertificateManager_ListDNSProviders_Call) Run(run func(ctx context.Context)) *CertificateManager_ListDNSProviders_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *CertificateManager_ListDNSProviders_Call) Return(_a0 []admin.DNSProviderInfo, _a1 error) *CertificateManager_ListDNSProviders_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *CertificateManager_ListDNSProviders_Call) RunAndReturn(run func(context.Context) ([]admin.DNSProviderInfo, error)) *CertificateManager_ListDNSProviders_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// TestDNSProvider provides a mock function with given fields: ctx, name, domain
+func (_m *CertificateManager) TestDNSProvider(ctx context.Context, name string, domain string) (*certs.DNSTestResult, error) {
+	ret := _m.Called(ctx, name, domain)
+
+	if len(ret) == 0 {
+		panic("no return value specified for TestDNSProvider")
+	}
+
+	var r0 *certs.DNSTestResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) (*certs.DNSTestResult, error)); ok {
+		return rf(ctx, name, domain)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) *certs.DNSTestResult); ok {
+		r0 = rf(ctx, name, domain)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*certs.DNSTestResult)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, name, domain)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// CertificateManager_TestDNSProvider_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TestDNSProvider'
+type CertificateManager_TestDNSProvider_Call struct {
+	*mock.Call
+}
+
+// TestDNSProvider is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+//   - domain string
+func (_e *CertificateManager_Expecter) TestDNSProvider(ctx interface{}, name interface{}, domain interface{}) *CertificateManager_TestDNSProvider_Call {
+	return &CertificateManager_TestDNSProvider_Call{Call: _e.mock.On("TestDNSProvider", ctx, name, domain)}
+}
+
+func (_c *CertificateManager_TestDNSProvider_Call) Run(run func(ctx context.Context, name string, domain string)) *CertificateManager_TestDNSProvider_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *CertificateManager_TestDNSProvider_Call) Return(_a0 *certs.DNSTestResult, _a1 error) *CertificateManager_TestDNSProvider_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *CertificateManager_TestDNSProvider_Call) RunAndReturn(run func(context.Context, string, string) (*certs.DNSTestResult, error)) *CertificateManager_TestDNSProvider_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateDNSProvider provides a mock function with given fields: ctx, cfg, creds
+func (_m *CertificateManager) UpdateDNSProvider(ctx context.Context, cfg certs.DNSProviderConfig, creds certs.DNSCredentials) (*admin.DNSProviderInfo, error) {
+	ret := _m.Called(ctx, cfg, creds)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateDNSProvider")
+	}
+
+	var r0 *admin.DNSProviderInfo
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, certs.DNSProviderConfig, certs.DNSCredentials) (*admin.DNSProviderInfo, error)); ok {
+		return rf(ctx, cfg, creds)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, certs.DNSProviderConfig, certs.DNSCredentials) *admin.DNSProviderInfo); ok {
+		r0 = rf(ctx, cfg, creds)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*admin.DNSProviderInfo)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, certs.DNSProviderConfig, certs.DNSCredentials) error); ok {
+		r1 = rf(ctx, cfg, creds)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// CertificateManager_UpdateDNSProvider_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateDNSProvider'
+type CertificateManager_UpdateDNSProvider_Call struct {
+	*mock.Call
+}
+
+// UpdateDNSProvider is a helper method to define mock.On call
+//   - ctx context.Context
+//   - cfg certs.DNSProviderConfig
+//   - creds certs.DNSCredentials
+func (_e *CertificateManager_Expecter) UpdateDNSProvider(ctx interface{}, cfg interface{}, creds interface{}) *CertificateManager_UpdateDNSProvider_Call {
+	return &CertificateManager_UpdateDNSProvider_Call{Call: _e.mock.On("UpdateDNSProvider", ctx, cfg, creds)}
+}
+
+func (_c *CertificateManager_UpdateDNSProvider_Call) Run(run func(ctx context.Context, cfg certs.DNSProviderConfig, creds certs.DNSCredentials)) *CertificateManager_UpdateDNSProvider_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(certs.DNSProviderConfig), args[2].(certs.DNSCredentials))
+	})
+	return _c
+}
+
+func (_c *CertificateManager_UpdateDNSProvider_Call) Return(_a0 *admin.DNSProviderInfo, _a1 error) *CertificateManager_UpdateDNSProvider_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *CertificateManager_UpdateDNSProvider_Call) RunAndReturn(run func(context.Context, certs.DNSProviderConfig, certs.DNSCredentials) (*admin.DNSProviderInfo, error)) *CertificateManager_UpdateDNSProvider_Call {
 	_c.Call.Return(run)
 	return _c
 }

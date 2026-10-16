@@ -8,6 +8,8 @@ import type {
   Distribution,
   DistributionTestResult,
   DistributionTraffic,
+  DnsProvider,
+  DnsProviderTestResult,
   HostTraffic,
   KeyGroup,
   PublicKey,
@@ -170,6 +172,7 @@ export function createHttpKeyGroupService(client: HttpClient): KeyGroupService {
 /** CertificateService over /certificates. */
 export function createHttpCertificateService(client: HttpClient): CertificateService {
   const path = (id: string) => `/certificates/${encodeURIComponent(id)}`;
+  const dnsPath = (name: string) => `/dns-providers/${encodeURIComponent(name)}`;
   return {
     list() {
       return client.request<CertificateList>('/certificates');
@@ -182,6 +185,25 @@ export function createHttpCertificateService(client: HttpClient): CertificateSer
     },
     remove(id) {
       return client.request<void>(path(id), { method: 'DELETE' });
+    },
+    async listDnsProviders() {
+      const out = await client.request<{ items: DnsProvider[] }>('/dns-providers');
+      return out.items;
+    },
+    createDnsProvider(input) {
+      return client.request<DnsProvider>('/dns-providers', { method: 'POST', body: input });
+    },
+    updateDnsProvider(name, input) {
+      return client.request<DnsProvider>(dnsPath(name), { method: 'PUT', body: input });
+    },
+    removeDnsProvider(name) {
+      return client.request<void>(dnsPath(name), { method: 'DELETE' });
+    },
+    testDnsProvider(name, domain) {
+      return client.request<DnsProviderTestResult>(`${dnsPath(name)}/test`, {
+        method: 'POST',
+        body: { domain },
+      });
     },
   };
 }

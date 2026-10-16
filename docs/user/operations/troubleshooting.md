@@ -107,6 +107,7 @@ not depend on clocks; the order of the versions of an object stays monotonic eve
 | "listing the buckets is denied" on `alias set` | valid credentials but without `s3:ListAllMyBuckets`: normal for users restricted to one bucket |
 | Console login: "Too many failed attempts" | wait a minute: failed attempts are rate-limited |
 | Root rejected on the S3 API | `api.root_access` is `off`: `nexoctl admin config set local api root_access=on` (the console keeps working) |
+| `503 SlowDown` with `Retry-After`, or `429 too_many_requests` on the console | a rate limit of the node refused the request: `nexoctl admin config get local ratelimit api` (the limits are per node), `nexo_ratelimit_throttled_total{api,kind}` names the limit; a distribution has its own (`nexoctl dist info`). `SlowDownRead`/`SlowDownWrite` are a lost quorum instead |
 | `SignatureDoesNotMatch` behind a proxy | the proxy changes the `Host` header (or the port): it must forward it unchanged (`proxy_set_header Host $http_host`) |
 | Anonymous request rejected despite a public rule | block public access enabled on the bucket or the cluster (`nexoctl access block-public status local/bucket`) |
 

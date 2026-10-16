@@ -227,7 +227,7 @@ export function SecurityPanel({
             {t('distributions.security.rateHint')}
           </Text>
           {rate !== undefined ? (
-            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+            <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="sm">
               <NumberInput
                 label={t('distributions.security.rps')}
                 min={1}
@@ -250,6 +250,22 @@ export function SecurityPanel({
                   setRestrictions({
                     ...restrictions,
                     rateLimit: { ...rate, burst: Number(value) },
+                  });
+                }}
+              />
+              <Select
+                label={t('distributions.security.per')}
+                data={[
+                  { value: 'ip', label: t('distributions.security.perIp') },
+                  { value: 'distribution', label: t('distributions.security.perDistribution') },
+                ]}
+                value={rate.per ?? 'ip'}
+                allowDeselect={false}
+                disabled={readOnly}
+                onChange={(value) => {
+                  setRestrictions({
+                    ...restrictions,
+                    rateLimit: { ...rate, per: value === 'distribution' ? 'distribution' : 'ip' },
                   });
                 }}
               />

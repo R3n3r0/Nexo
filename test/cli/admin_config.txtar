@@ -1,4 +1,4 @@
-# covers: C-ADM-06
+# covers: C-ADM-06, S-OPS-10
 # TCL-E-14: admin config set/get/export/import round-trip identically.
 # C-ADM-06.
 
@@ -35,6 +35,20 @@ stdout '^region comment="Milan DC" name=eu-south-1$'
 exec nexoctl admin config set local notify_webhook 'auth_token=********'
 exec nexoctl admin config export --output third.json local
 cmp first.json third.json
+
+# S-OPS-10: the request limits are keys of the configuration, applied at
+# once (generous here: nothing of the script is refused).
+exec nexoctl admin config set local ratelimit s3_ip=10000 s3_ip_burst=20000 admin_user=1000
+stdout '^Updated ratelimit: admin_user, s3_ip, s3_ip_burst\.$'
+exec nexoctl admin config get local ratelimit
+stdout '^ratelimit admin_user=1000 s3_ip=10000 s3_ip_burst=20000$'
+! exec nexoctl admin config set local ratelimit s3_bucket=-1
+stderr 'not a non-negative integer'
+exec nexoctl admin config set local api requests_max=4096 requests_deadline=30s
+exec nexoctl admin config reset local ratelimit
+exec nexoctl admin config reset local api
+exec nexoctl admin config get local ratelimit
+stdout '^ratelimit \(defaults\)$'
 
 ! exec nexoctl admin config set local region bogus=1
 stderr 'unknown key "bogus"'

@@ -73,6 +73,7 @@ Details in [TLS and certificates](security/tls.md).
 | `NEXO_ACME_EMAIL` | `--acme-email` | — | Contact of the ACME account |
 | `NEXO_ACME_CHALLENGE` | `--acme-challenge` | `http-01` | `http-01` (on the web listener) or `tls-alpn-01` (on the web TLS listener) |
 | `NEXO_ACME_CA_CERT` | `--acme-ca-cert` | — | CA (PEM) of a private ACME server |
+| `NEXO_ACME_DNS_NAMESERVERS` | `--acme-dns-nameservers` | — | nameservers (`host[:port]`, comma-separated) the DNS-01 propagation check queries instead of the authoritative ones of the zone (split-horizon DNS) |
 
 ### Distributions cache
 
@@ -176,7 +177,8 @@ stored one. The complete schema, with the default of every key and whether the s
 |-----------|------|--------------------|
 | `logger` | `level` (`debug`…`error`), `format` (`text`, `json`) | ✅ |
 | `api` | `cors_allow_origin` (default `*`), `root_access` (default `on`; `off` denies the root credentials on the S3 API) | ✅ |
-| `api` | `requests_max`, `requests_deadline` | ❌ stored and validated, not applied yet |
+| `api` | `requests_max` (default `0`: no limit), `requests_deadline` (default `10s`): see [Rate limits](#rate-limits) | ✅ at the next request |
+| `ratelimit` | `s3_ip`, `s3_access_key`, `s3_bucket`, `admin_ip`, `admin_user` and their `_burst`: see [Rate limits](#rate-limits) | ✅ at the next request |
 | `scanner` | `speed` (`fastest`…`slowest`), `cycle` (default `1m`) | ✅ at the start of every cycle |
 | `access` | `block_public`, `block_public_mode` (`reject`, `ignore`) | ✅ |
 | `notify_webhook`, `notify_kafka`, `notify_nats`, `notify_amqp`, `notify_redis`, `notify_postgres` (also `:<id>`) | `enable`, target keys, `queue_dir`, `queue_limit`, `comment` | ✅ (see [Events](events-lifecycle.md)) |
@@ -186,3 +188,35 @@ stored one. The complete schema, with the default of every key and whether the s
 
 `nexoctl admin config set` warns when it sets a key that is not applied (`region.name is stored but not
 applied yet by the server`); the console flags it the same way.
+
+### Rate limits
+
+Every node limits the requests it serves with token buckets: a key admits its rate in requests per second on
+average and its `_burst` (default: the rate) at once. All of them are `0` by default: no limit.
+
+| Key | Limits | Answer beyond it |
+|-----|--------|------------------|
+| `ratelimit.s3_ip` | S3 requests of a client address (the client behind the [trusted proxies](#network-and-public-urls); IPv6 by /64 network) | `503 SlowDown` (S3 XML) |
+| `ratelimit.s3_access_key` | S3 requests of an access key (authenticated requests; presigned URLs count against the address and the bucket) | `503 SlowDown` |
+| `ratelimit.s3_bucket` | S3 requests to a bucket, whoever sends them | `503 SlowDown` |
+| `ratelimit.admin_ip` | Admin API requests of a client address (console and `nexoctl admin`) | `429 too_many_requests` (problem+json) |
+| `ratelimit.admin_user` | Admin API requests of an authenticated user | `429 too_many_requests` |
+| `api.requests_max` | S3 requests a node serves at once; a request beyond it waits `api.requests_deadline` for a slot | `503 SlowDown` |
+
+Every refusal carries `Retry-After` (seconds): the S3 SDKs retry `SlowDown` with backoff. The health probes
+(`/nexo/health/*`), the metrics scrapes (`/nexo/metrics/*`) and the internode RPC are never limited; the
+[distributions](distributions/README.md#rate-limit) have their own limit. The refused requests are counted in
+`nexo_ratelimit_throttled_total{api,kind}`, and marked in the audit log (tag `throttled` with the kind of the
+limit) and in the live trace (`error: Service Unavailable (rate limit: ip)`).
+
+```bash
+nexoctl admin config set local ratelimit s3_ip=200 s3_ip_burst=400 admin_ip=20
+nexoctl admin config set local api requests_max=1024 requests_deadline=5s
+nexoctl admin config reset local ratelimit
+```
+
+**In a cluster the limits are per node.** The configuration is the same on every node (a change reaches all of
+them at once), but each node counts its own requests: behind a load balancer spreading the clients over N nodes
+the deployment admits up to N times each limit (a client sending to a single node meets the limit of that
+node). Divide the limit you want for the deployment by the number of nodes. This keeps the check local (no
+internode call per request) and keeps working when nodes fail.

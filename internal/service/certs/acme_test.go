@@ -113,6 +113,23 @@ func challengeListeners(t testing.TB, answer func() certs.Service) (httpPort, tl
 // client trusting its HTTPS front end and the pool of its roots.
 func startPebble(t testing.TB, httpPort, tlsPort int) (string, *http.Client, *x509.CertPool) {
 	t.Helper()
+	p := startPebbleDNS(t, httpPort, tlsPort)
+	return p.directory, p.client, p.roots
+}
+
+// pebble is a running test CA with the mock DNS server its validation
+// authority queries (the TXT records of the DNS-01 challenge).
+type pebble struct {
+	directory string
+	client    *http.Client
+	roots     *x509.CertPool
+	dns       *challtestsrv.ChallSrv
+	dnsAddr   string
+}
+
+// startPebbleDNS starts the test CA and returns it with its DNS server.
+func startPebbleDNS(t testing.TB, httpPort, tlsPort int) pebble {
+	t.Helper()
 	logger := log.New(io.Discard, "", 0)
 	dnsAddr := freeUDPAddr(t)
 	dns, err := challtestsrv.New(challtestsrv.Config{DNSOneAddrs: []string{dnsAddr}, Log: logger})
@@ -132,7 +149,7 @@ func startPebble(t testing.TB, httpPort, tlsPort int) (string, *http.Client, *x5
 	t.Cleanup(srv.Close)
 	roots := x509.NewCertPool()
 	roots.AddCert(ca.GetRootCert(0).Cert)
-	return srv.URL + pebblewfe.DirectoryPath, srv.Client(), roots
+	return pebble{directory: srv.URL + pebblewfe.DirectoryPath, client: srv.Client(), roots: roots, dns: dns, dnsAddr: dnsAddr}
 }
 
 // verifyServed checks that node serves for name a certificate of the

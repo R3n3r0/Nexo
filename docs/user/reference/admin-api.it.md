@@ -108,7 +108,7 @@ Codici frequenti: `unauthenticated`, `access_denied`, `invalid_csrf_token`, `inv
 | notify, kms | `/notify/targets`, `/kms/status`, `/kms/keys`, `/kms/reseal` | target degli eventi, chiavi KMS |
 | access-rules | `/buckets/{bucket}/access-rules`, `.../test`, `.../public`, `/access/block-public` | regole di accesso, block public access |
 | distributions | `/distributions`, `/distributions/{id}/{test,sign,origin-secret/rotate}`, `/keygroups`, `/routing/resolve` | distribuzioni, key group, instradamento |
-| certificates | `/certificates` | certificati delle distribuzioni |
+| certificates | `/certificates`, `/dns-providers` | certificati delle distribuzioni, provider DNS della challenge ACME DNS-01 |
 | cache | `/cache/{policies,settings,inspect,stats,invalidations}`, `/distributions/{id}/cache/...`, `/distributions/{id}/invalidations` | cache, invalidazioni, warm-up, webhook |
 
 La specifica completa conta 180 operazioni; il riferimento HTML le mostra con parametri, corpi e

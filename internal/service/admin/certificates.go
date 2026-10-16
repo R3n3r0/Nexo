@@ -22,7 +22,11 @@ type CertificateManagerDeps struct {
 	// Domains lists the ACME certificates of the distributions (optional:
 	// without it no ACME certificate is reported).
 	Domains certs.DomainSource
-	Logger  *slog.Logger
+	// DNSProviders stores the DNS providers of the DNS-01 challenge
+	// (optional: without it the /dns-providers answer that none is
+	// available).
+	DNSProviders certs.DNSProviders
+	Logger       *slog.Logger
 }
 
 // CertificateManagerOption configures the certificate manager.
@@ -97,7 +101,8 @@ func (m *certificateManager) usage(ctx context.Context) (usage, error) {
 		return usage{}, err
 	}
 	for _, md := range managed {
-		mc := ManagedCertificate{ID: md.ID, Domains: slices.Clone(md.Domains), Distributions: []string{}, State: ACMEPending}
+		mc := ManagedCertificate{ID: md.ID, Domains: slices.Clone(md.Domains), Distributions: []string{}, State: ACMEPending,
+			Challenge: md.Challenge, DNSProvider: md.DNSProvider}
 		for _, d := range dists {
 			if d.TLS.Certificate == distribution.CertificateAuto && sameNames(d.Aliases, md.Domains) {
 				mc.Distributions = append(mc.Distributions, d.ID)
@@ -208,4 +213,137 @@ func (m *certificateManager) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("%w: certificate %s is used by the distributions %s: change their TLS first", domain.ErrConflict, c.ID, strings.Join(users, ", "))
 	}
 	return m.deps.Certs.Delete(ctx, id)
+}
+
+// --- DNS providers -------------------------------------------------------------
+
+// errNoDNSProviders reports a deployment without the DNS provider registry.
+var errNoDNSProviders = fmt.Errorf("%w: the DNS providers are not available on this deployment", domain.ErrInvalidArgument)
+
+// dnsUsers maps the DNS providers to the distributions using them.
+func (m *certificateManager) dnsUsers(ctx context.Context) (map[string][]string, error) {
+	out := map[string][]string{}
+	if m.deps.Distributions == nil {
+		return out, nil
+	}
+	dists, err := m.deps.Distributions.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, d := range dists {
+		if d.TLS.DNSProvider != "" {
+			out[d.TLS.DNSProvider] = append(out[d.TLS.DNSProvider], d.ID)
+		}
+	}
+	for k := range out {
+		slices.Sort(out[k])
+	}
+	return out, nil
+}
+
+func dnsInfo(cfg certs.DNSProviderConfig, users map[string][]string) *DNSProviderInfo {
+	used := slices.Clone(users[cfg.Name])
+	if used == nil {
+		used = []string{}
+	}
+	return &DNSProviderInfo{DNSProviderConfig: cfg, UsedBy: used}
+}
+
+// ListDNSProviders implements CertificateManager.
+func (m *certificateManager) ListDNSProviders(ctx context.Context) ([]DNSProviderInfo, error) {
+	if m.deps.DNSProviders == nil {
+		return []DNSProviderInfo{}, nil
+	}
+	list, err := m.deps.DNSProviders.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	users, err := m.dnsUsers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]DNSProviderInfo, 0, len(list))
+	for _, p := range list {
+		out = append(out, *dnsInfo(p, users))
+	}
+	return out, nil
+}
+
+// GetDNSProvider implements CertificateManager.
+func (m *certificateManager) GetDNSProvider(ctx context.Context, name string) (*DNSProviderInfo, error) {
+	if m.deps.DNSProviders == nil {
+		return nil, fmt.Errorf("%w: %s", certs.ErrDNSProviderNotFound, name)
+	}
+	p, err := m.deps.DNSProviders.Get(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	users, err := m.dnsUsers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return dnsInfo(p, users), nil
+}
+
+// CreateDNSProvider implements CertificateManager.
+func (m *certificateManager) CreateDNSProvider(ctx context.Context, cfg certs.DNSProviderConfig, creds certs.DNSCredentials) (*DNSProviderInfo, error) {
+	if m.deps.DNSProviders == nil {
+		return nil, errNoDNSProviders
+	}
+	p, err := m.deps.DNSProviders.Create(ctx, cfg, creds)
+	if err != nil {
+		return nil, err
+	}
+	return dnsInfo(p, nil), nil
+}
+
+// UpdateDNSProvider implements CertificateManager.
+func (m *certificateManager) UpdateDNSProvider(ctx context.Context, cfg certs.DNSProviderConfig, creds certs.DNSCredentials) (*DNSProviderInfo, error) {
+	if m.deps.DNSProviders == nil {
+		return nil, errNoDNSProviders
+	}
+	p, err := m.deps.DNSProviders.Update(ctx, cfg, creds)
+	if err != nil {
+		return nil, err
+	}
+	users, err := m.dnsUsers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(users[p.Name]) > 0 {
+		// New credentials may let a failed order succeed now.
+		m.deps.Certs.Trigger(ctx)
+	}
+	return dnsInfo(p, users), nil
+}
+
+// DeleteDNSProvider implements CertificateManager: a provider a
+// distribution names is kept.
+func (m *certificateManager) DeleteDNSProvider(ctx context.Context, name string) error {
+	if m.deps.DNSProviders == nil {
+		return fmt.Errorf("%w: %s", certs.ErrDNSProviderNotFound, name)
+	}
+	if _, err := m.deps.DNSProviders.Get(ctx, name); err != nil {
+		return err
+	}
+	users, err := m.dnsUsers(ctx)
+	if err != nil {
+		return err
+	}
+	if u := users[name]; len(u) > 0 {
+		return fmt.Errorf("%w: the DNS provider %s is used by the distributions %s: change their TLS first", certs.ErrDNSProviderInUse, name, strings.Join(u, ", "))
+	}
+	return m.deps.DNSProviders.Delete(ctx, name)
+}
+
+// TestDNSProvider implements CertificateManager.
+func (m *certificateManager) TestDNSProvider(ctx context.Context, name, domainName string) (*certs.DNSTestResult, error) {
+	if m.deps.DNSProviders == nil {
+		return nil, fmt.Errorf("%w: %s", certs.ErrDNSProviderNotFound, name)
+	}
+	res, err := m.deps.DNSProviders.Test(ctx, name, domainName)
+	if err != nil {
+		return nil, err
+	}
+	return &res, nil
 }

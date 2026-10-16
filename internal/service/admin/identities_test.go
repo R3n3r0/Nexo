@@ -83,7 +83,7 @@ func TestCreateUser(t *testing.T) {
 
 func TestUpdateUser(t *testing.T) {
 	ctx := context.Background()
-	disabled := domain.StatusDisabled
+	disabled, enabled := domain.StatusDisabled, domain.StatusEnabled
 	secret := "newsecret1"
 	groups := []string{"b", "c"}
 	tests := []struct {
@@ -97,12 +97,39 @@ func TestUpdateUser(t *testing.T) {
 		{name: "status and secret", in: admin.UpdateUserInput{AccessKey: "alice", Status: &disabled, SecretKey: &secret},
 			setup: func(users *iammock.Service, shares *sharemock.Service) {
 				users.EXPECT().SetUserSecret(mock.Anything, "alice", secret).Return(nil)
-				// Rotating the secret revokes the share links of the user.
-				shares.EXPECT().RevokeAll(mock.Anything, domain.Identity{IsRoot: true}, "alice").Return(2, nil)
+				// Rotating the secret and disabling the user each revoke
+				// the share links of the user.
+				shares.EXPECT().RevokeAll(mock.Anything, domain.Identity{IsRoot: true}, "alice").Return(2, nil).Twice()
 				users.EXPECT().SetUserStatus(mock.Anything, "alice", domain.StatusDisabled).Return(nil)
 				users.EXPECT().GetUser(mock.Anything, "alice").Return(&iam.User{AccessKey: "alice"}, nil)
 			},
 			asked: []policy.Action{policy.ActionAdminCreateUser, policy.ActionAdminDisableUser}},
+		// PT-05: disabling revokes the share links for good, after IAM
+		// moved the revocation epoch that ends the console sessions.
+		{name: "disable revokes the share links", in: admin.UpdateUserInput{AccessKey: "alice", Status: &disabled},
+			setup: func(users *iammock.Service, shares *sharemock.Service) {
+				status := users.EXPECT().SetUserStatus(mock.Anything, "alice", domain.StatusDisabled).Return(nil).Call
+				shares.EXPECT().RevokeAll(mock.Anything, domain.Identity{IsRoot: true}, "alice").Return(1, nil).NotBefore(status)
+				users.EXPECT().GetUser(mock.Anything, "alice").Return(&iam.User{AccessKey: "alice"}, nil)
+			},
+			asked: []policy.Action{policy.ActionAdminDisableUser}},
+		{name: "enable revokes nothing", in: admin.UpdateUserInput{AccessKey: "alice", Status: &enabled},
+			setup: func(users *iammock.Service, _ *sharemock.Service) {
+				users.EXPECT().SetUserStatus(mock.Anything, "alice", domain.StatusEnabled).Return(nil)
+				users.EXPECT().GetUser(mock.Anything, "alice").Return(&iam.User{AccessKey: "alice"}, nil)
+			},
+			asked: []policy.Action{policy.ActionAdminEnableUser}},
+		{name: "a failed revocation on disable is reported", in: admin.UpdateUserInput{AccessKey: "alice", Status: &disabled},
+			setup: func(users *iammock.Service, shares *sharemock.Service) {
+				users.EXPECT().SetUserStatus(mock.Anything, "alice", domain.StatusDisabled).Return(nil)
+				shares.EXPECT().RevokeAll(mock.Anything, domain.Identity{IsRoot: true}, "alice").Return(0, errDown)
+			},
+			wantErr: errDown},
+		{name: "a failed disable revokes nothing", in: admin.UpdateUserInput{AccessKey: "alice", Status: &disabled},
+			setup: func(users *iammock.Service, _ *sharemock.Service) {
+				users.EXPECT().SetUserStatus(mock.Anything, "alice", domain.StatusDisabled).Return(fmt.Errorf("x: %w", domain.ErrUserNotFound))
+			},
+			wantErr: domain.ErrUserNotFound},
 		{name: "groups are diffed", in: admin.UpdateUserInput{AccessKey: "alice", Groups: &groups},
 			setup: func(users *iammock.Service, _ *sharemock.Service) {
 				users.EXPECT().GetUser(mock.Anything, "alice").Return(&iam.User{AccessKey: "alice", Groups: []string{"a", "b"}}, nil)
@@ -181,7 +208,7 @@ func TestAccessKeyManager(t *testing.T) {
 		return admin.Decision{Allowed: true, SelfService: true}
 	})
 	users := iammock.NewService(t)
-	m, err := admin.NewAccessKeyManager(admin.AccessKeyManagerDeps{IAM: users, Authz: self})
+	m, err := admin.NewAccessKeyManager(admin.AccessKeyManagerDeps{IAM: users, Authz: self, Shares: sharemock.NewService(t)})
 	require.NoError(t, err)
 
 	// A user creates its own key as itself.

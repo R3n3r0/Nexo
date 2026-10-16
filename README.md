@@ -105,6 +105,8 @@ You need Go (the version in `go.mod`) and, for the console, Node.js.
 | `make docs` / `make docs-check` | CLI reference in `docs/user/cli` |
 | `make traceability` / `make traceability-check` | feature → test matrix in `test/TRACEABILITY.md` |
 | `make security` | govulncheck, gosec and `npm audit` |
+| `make zap-scan` | authenticated OWASP ZAP active scan of the Admin API from `api/openapi.yaml` against `bin/nexo` (needs Java; [test/security/zap-api-scan.sh](test/security/zap-api-scan.sh)) |
+| `make dco` | the sign-off check of the pull requests on the commits of the branch ([CONTRIBUTING.md](CONTRIBUTING.md)) |
 | `make help` | all the targets |
 
 The code follows the convention of [docs/12](docs/12-service-architecture.md): every service has

@@ -130,7 +130,10 @@ func (m *auditMiddleware) Wrap(next http.Handler) http.Handler {
 			},
 			// Presigned signatures and tokens are capabilities: never logged.
 			ReqQuery: flatten(httpx.RedactQuery(r.URL.Query())),
-			Error:    statusError(rw.Status()),
+			Error:    outcomeError(rw.Status(), holder.Throttled()),
+		}
+		if kind := holder.Throttled(); kind != "" {
+			entry.Tags = map[string]any{AuditTagThrottled: kind}
 		}
 		if entry.API.Name == "" {
 			entry.API.Name = r.Method + " " + r.URL.Path

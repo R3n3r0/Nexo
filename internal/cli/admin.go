@@ -149,6 +149,12 @@ type AdminClient interface {
 	ListCertificates(ctx context.Context) (*nexoadmin.CertificateList, error)
 	UploadCertificate(ctx context.Context, in nexoadmin.UploadCertificateRequest) (*nexoadmin.Certificate, error)
 	DeleteCertificate(ctx context.Context, id string) error
+	ListDNSProviders(ctx context.Context) ([]nexoadmin.DNSProvider, error)
+	GetDNSProvider(ctx context.Context, name string) (*nexoadmin.DNSProvider, error)
+	CreateDNSProvider(ctx context.Context, in nexoadmin.DNSProviderRequest) (*nexoadmin.DNSProvider, error)
+	UpdateDNSProvider(ctx context.Context, name string, in nexoadmin.DNSProviderRequest) (*nexoadmin.DNSProvider, error)
+	DeleteDNSProvider(ctx context.Context, name string) error
+	TestDNSProvider(ctx context.Context, name, domain string) (*nexoadmin.DNSProviderTestResult, error)
 
 	// Cache of the distributions (docs/11: nexoctl cache, dist cache, dist
 	// invalidate). The settings are replaced whole, guarded by their ETag

@@ -489,10 +489,13 @@
       "removeSecret": "Rimuovi il requisito",
       "revealHint": "Configura i proxy perché inviino questo valore nell'header {{header}}.",
       "rateTitle": "Limite di richieste",
-      "rateHint": "Richieste al secondo per indirizzo client; oltre la soglia la risposta è 429.",
+      "rateHint": "Richieste ammesse da ogni nodo, per indirizzo client o per l'intera distribuzione; oltre la soglia un sito risponde 429 e una distribuzione s3 503 SlowDown, con Retry-After.",
       "rateEnable": "Limita le richieste",
       "rps": "Richieste al secondo",
-      "burst": "Burst"
+      "burst": "Burst",
+      "per": "Conteggio",
+      "perIp": "Per indirizzo client",
+      "perDistribution": "Per l'intera distribuzione"
     },
     "tls": {
       "title": "TLS",
@@ -515,7 +518,19 @@
         "none": "Proxy",
         "auto": "ACME",
         "upload": "Caricato"
-      }
+      },
+      "challenge": "Challenge ACME",
+      "challengeDefault": "Predefinita del server ({{challenge}})",
+      "challenges": {
+        "http-01": "HTTP-01 (porta 80)",
+        "tls-alpn-01": "TLS-ALPN-01 (porta 443)",
+        "dns-01": "DNS-01 (record TXT tramite un provider DNS)"
+      },
+      "challengeHint": "DNS-01 è l'unica challenge dei domini wildcard (*.example.com).",
+      "dnsProvider": "Provider DNS",
+      "dnsProviderPlaceholder": "Scegli un provider DNS",
+      "noDnsProvider": "Nessun provider DNS: aggiungine uno nella sezione Certificati.",
+      "wildcardNeedsDns": "Il dominio wildcard {{alias}} richiede la challenge DNS-01 con un provider DNS."
     },
     "traffic": {
       "title": "Traffico",
@@ -684,7 +699,68 @@
     "managedStates": {
       "issued": "Emesso",
       "pending": "In attesa"
-    }
+    },
+    "dns": {
+      "title": "Provider DNS",
+      "hint": "Pubblicano i record TXT della challenge ACME DNS-01, necessaria ai domini wildcard. Le credenziali sono conservate cifrate e non vengono più mostrate.",
+      "add": "Aggiungi provider DNS",
+      "addTitle": "Aggiungi un provider DNS",
+      "editTitle": "Modifica il provider DNS {{name}}",
+      "empty": "Nessun provider DNS.",
+      "tableLabel": "Provider DNS",
+      "loadError": "Impossibile caricare i provider DNS.",
+      "name": "Nome",
+      "nameHint": "Lettere minuscole, cifre, '.', '_' e '-'.",
+      "type": "Tipo",
+      "types": {
+        "cloudflare": "Cloudflare",
+        "route53": "AWS Route 53",
+        "rfc2136": "RFC 2136 (TSIG)"
+      },
+      "comment": "Commento",
+      "zone": "Zona / server",
+      "credentials": "Credenziali",
+      "credentialsStored": "Salvate",
+      "credentialsNone": "Nessuna",
+      "ambient": "Credenziali AWS dell'ambiente",
+      "usedBy": "Usato da",
+      "keepSecret": "Salvato: lascia vuoto per mantenerlo.",
+      "zoneId": "ID della zona",
+      "zoneIdHint": "Facoltativo: trovato per nome.",
+      "apiToken": "Token API",
+      "apiTokenHint": "Un token con il permesso Zone:DNS:Edit sulla zona.",
+      "accessKeyId": "Access key ID",
+      "accessKeyIdHint": "Vuoto: le credenziali dell'ambiente dei nodi (ruolo dell'istanza, variabili d'ambiente).",
+      "secretAccessKey": "Secret access key",
+      "sessionToken": "Session token",
+      "region": "Regione",
+      "hostedZoneId": "ID della hosted zone",
+      "hostedZoneIdHint": "Facoltativo: la zona pubblica trovata per nome.",
+      "nameserver": "Nameserver",
+      "nameserverHint": "Il primario che accetta gli aggiornamenti dinamici, host o host:porta.",
+      "rfcZone": "Zona",
+      "rfcZoneHint": "Facoltativa: dal SOA riportato dal nameserver.",
+      "tsigKeyName": "Nome della chiave TSIG",
+      "tsigAlgorithm": "Algoritmo TSIG",
+      "tsigSecret": "Segreto TSIG (base64)",
+      "propagationTimeout": "Timeout di propagazione (secondi)",
+      "propagationTimeoutHint": "Predefinito 120.",
+      "save": "Salva",
+      "saved": "Provider DNS {{name}} salvato.",
+      "invalid": "Il provider DNS è stato rifiutato",
+      "test": "Prova il provider DNS {{name}}",
+      "testTitle": "Prova il provider DNS {{name}}",
+      "testHint": "Pubblica _acme-challenge.<dominio> con un valore casuale, attende che i nameserver autoritativi lo servano e lo rimuove.",
+      "testDomain": "Dominio",
+      "testRun": "Esegui la prova",
+      "testOk": "{{record}} pubblicato, servito dai nameserver e rimosso in {{seconds}} s.",
+      "testFailed": "Fallita al passo {{step}}: {{error}}",
+      "edit": "Modifica il provider DNS {{name}}",
+      "delete": "Elimina il provider DNS {{name}}",
+      "deleteTitle": "Elimina il provider DNS",
+      "deleteConfirm": "Eliminare il provider DNS {{name}}? Un provider usato da una distribuzione non può essere eliminato."
+    },
+    "challengeColumn": "Challenge"
   },
   "cache": {
     "subtitle": "La cache HTTP delle distribuzioni: per dominio e per percorso, in memoria e su disco, invalidata esattamente quando gli oggetti cambiano.",

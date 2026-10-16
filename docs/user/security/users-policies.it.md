@@ -21,7 +21,7 @@ nexoctl admin user add local alice 'una-secret-key-lunga' --policy readwrite
 nexoctl admin user add local bob 'altra-secret-key-lunga' --group dipendenti --disabled
 nexoctl admin user list local
 nexoctl admin user info local alice
-nexoctl admin user disable local alice          # blocco immediato su tutti i nodi (link e sessioni compresi)
+nexoctl admin user disable local alice          # blocco immediato su tutti i nodi; revoca sessioni e link
 nexoctl admin user enable local alice
 nexoctl admin user remove local alice           # rimuove anche le sue access key e i suoi share link
 
@@ -33,7 +33,9 @@ nexoctl admin group disable local dipendenti
 
 Un utente senza policy non può fare nulla. Le policy di un utente si sommano a quelle dei suoi gruppi. La
 secret key si cambia dalla console o con l'Admin API (`PUT /api/v1/users/{u}`): il cambio revoca le sue
-sessioni console e i suoi share link gestiti.
+sessioni console e i suoi share link gestiti. Anche disabilitare un utente li revoca, insieme alle sessioni console
+delle sue access key, e in modo definitivo: riabilitare l'utente ripristina le credenziali, non le sessioni né i
+link (occorre un nuovo login e una nuova condivisione).
 
 ## Policy
 
@@ -207,6 +209,8 @@ nexoctl admin accesskey remove local FZR6F4G0E0NF208I5QQ5
 ```
 
 - La secret key è mostrata **una sola volta**.
+- Disabilitare una chiave (`--disable`) revoca le sue sessioni console e gli share link gestiti creati con essa;
+  `--enable` non li ripristina.
 - Senza `--user` la chiave appartiene all'utente dell'alias: ogni utente gestisce le proprie chiavi, root
   quelle di tutti.
 - I permessi effettivi sono l'intersezione tra la policy inline e quelle dell'utente: se all'utente viene
@@ -246,6 +250,7 @@ scade al più tardi con la sessione. Le federazioni di identità (OIDC, LDAP) no
 - Un utente o un'access key per applicazione, con i permessi minimi e una scadenza.
 - Gruppi per i ruoli (lettori, editor, amministratori di un progetto) invece di policy per singolo utente.
 - `diagnostics` per il monitoraggio (Prometheus, trace), mai root.
-- Disabilitare (non solo eliminare) un utente sospetto: l'effetto è immediato su tutto il cluster,
-  sessioni e link compresi.
+- Disabilitare (non solo eliminare) un utente sospetto: l'effetto è immediato su tutto il cluster, e le sue
+  sessioni console e i suoi link gestiti sono revocati in modo definitivo. Cambiarne anche la secret prima di
+  riabilitarlo: gli URL presigned raw firmati con la vecchia secret tornerebbero validi.
 - Rivedere periodicamente `nexoctl admin accesskey list` e gli share attivi (`nexoctl share list --user …`).

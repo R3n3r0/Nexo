@@ -52,6 +52,10 @@ type record struct {
 	CreatedAt          time.Time  `json:"createdAt"`
 	URL                string     `json:"url,omitempty"`
 	AccessKey          string     `json:"accessKey"`
+	// CreatedBy is the access key that created the share when it is not
+	// the owner's own (a service account or temporary credentials of the
+	// owner): disabling that key revokes the share (RevokeIssuedBy).
+	CreatedBy string `json:"createdBy,omitempty"`
 }
 
 func (r *record) toShare() *Share {
@@ -158,6 +162,9 @@ func (s *service) Create(ctx context.Context, in CreateInput) (*Share, error) {
 		Permission: in.Permission, VersionID: in.VersionID, ContentType: in.ContentType,
 		ContentDisposition: in.ContentDisposition, Expires: now.Add(validity), CreatedAt: now,
 		AccessKey: accessKeyPrefix + id,
+	}
+	if owner.AccessKey != rec.Owner {
+		rec.CreatedBy = owner.AccessKey
 	}
 	key, err := s.deps.IAM.CreateAccessKey(ctx, iam.CreateAccessKeyInput{
 		Caller:      systemActor(),
@@ -635,6 +642,17 @@ func (s *service) RevokeAll(ctx context.Context, caller domain.Identity, owner s
 		return 0, invalidArg("owner is required")
 	}
 	return s.removeWhere(ctx, func(r *record) bool { return r.Owner == scope })
+}
+
+// RevokeIssuedBy implements Service.
+func (s *service) RevokeIssuedBy(ctx context.Context, accessKey string) (int, error) {
+	if err := s.checkDeps(); err != nil {
+		return 0, err
+	}
+	if accessKey == "" {
+		return 0, invalidArg("access key is required")
+	}
+	return s.removeWhere(ctx, func(r *record) bool { return r.CreatedBy == accessKey || r.AccessKey == accessKey })
 }
 
 // PurgeExpired implements Service.

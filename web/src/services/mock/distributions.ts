@@ -17,6 +17,8 @@ import type {
   CertificateDetails,
   Distribution,
   DistributionBehavior,
+  DnsProvider,
+  DnsProviderInput,
   HostTraffic,
   KeyGroup,
   ManagedCertificate,
@@ -30,6 +32,8 @@ export interface MockDistributionOptions {
   distributions?: Distribution[];
   keyGroups?: KeyGroup[];
   certificates?: Certificate[];
+  /** The DNS providers of the DNS-01 challenge. */
+  dnsProviders?: DnsProvider[];
   /** Per-alias traffic; null: the server keeps no statistics. */
   traffic?: HostTraffic[] | null;
   /** The S3 and console domains of the deployment (routing kind "main"). */
@@ -44,6 +48,8 @@ export interface MockDistributionState {
   versions: Map<string, number>;
   keyGroups: Map<string, KeyGroup>;
   certificates: Map<string, Certificate>;
+  /** The DNS providers; their credentials are never returned. */
+  dnsProviders: Map<string, DnsProvider>;
   traffic: HostTraffic[] | null;
   mainHosts: string[];
   domain: string;
@@ -78,7 +84,10 @@ function fakePem(label: string, seed: string, lines = 4): string {
 export function sampleDistributions(
   now: Date,
 ): Required<
-  Pick<MockDistributionOptions, 'distributions' | 'keyGroups' | 'certificates' | 'traffic'>
+  Pick<
+    MockDistributionOptions,
+    'distributions' | 'keyGroups' | 'certificates' | 'dnsProviders' | 'traffic'
+  >
 > {
   const iso = (offsetDays: number) => new Date(now.getTime() + offsetDays * day).toISOString();
   const key: PublicKey = {
@@ -180,6 +189,18 @@ export function sampleDistributions(
       },
     ],
     certificates: [cert('www-example-com', ['www.example.com', 'example.com'], 12, ['website'])],
+    dnsProviders: [
+      {
+        name: 'cloudflare-main',
+        type: 'cloudflare',
+        comment: 'example.com zone',
+        cloudflare: {},
+        hasCredentials: true,
+        usedBy: [],
+        createdAt: iso(-20),
+        updatedAt: iso(-20),
+      },
+    ],
     traffic: [
       {
         distribution: 'website',
@@ -226,6 +247,9 @@ export function createMockDistributionState(
     keyGroups: new Map((options.keyGroups ?? sample?.keyGroups ?? []).map((k) => [k.id, clone(k)])),
     certificates: new Map(
       (options.certificates ?? sample?.certificates ?? []).map((c) => [c.id, clone(c)]),
+    ),
+    dnsProviders: new Map(
+      (options.dnsProviders ?? sample?.dnsProviders ?? []).map((p) => [p.name, clone(p)]),
     ),
     traffic: options.traffic !== undefined ? clone(options.traffic) : clone(sample?.traffic ?? []),
     mainHosts: options.mainHosts ?? ['localhost', '127.0.0.1'],
@@ -376,6 +400,26 @@ function validate(state: MockDistributionState, d: Distribution): Distribution {
   const tls = d.tls?.certificate ?? 'none';
   if (tls.startsWith('upload:') && !state.certificates.has(tls.slice(7))) {
     throw problem(404, 'certificate_not_found', `certificate ${tls.slice(7)} does not exist`);
+  }
+  const challenge = d.tls?.challenge ?? '';
+  const dnsProvider = d.tls?.dnsProvider ?? '';
+  if (tls !== 'auto' && (challenge !== '' || dnsProvider !== '')) {
+    throw invalid('tls.challenge and tls.dnsProvider apply to the certificate auto only');
+  }
+  if (tls === 'auto' && challenge === 'dns-01') {
+    if (!state.dnsProviders.has(dnsProvider)) {
+      throw invalid(
+        `tls.dnsProvider "${dnsProvider}" does not exist: create it first (/dns-providers)`,
+      );
+    }
+  } else if (tls === 'auto') {
+    if (dnsProvider !== '') throw invalid('tls.dnsProvider needs tls.challenge dns-01');
+    const wildcard = aliases.find((a) => a.startsWith('*.'));
+    if (wildcard !== undefined) {
+      throw invalid(
+        `the wildcard alias ${wildcard} needs tls.challenge dns-01 with a tls.dnsProvider for its automatic certificate`,
+      );
+    }
   }
   const out = clone({
     ...d,
@@ -806,6 +850,15 @@ export function createMockCertificateService(
   function withUse(c: Certificate): Certificate {
     return { ...clone(c), usedBy: usedBy(c.id) };
   }
+  function dnsUsers(name: string): string[] {
+    return [...state.distributions.values()]
+      .filter((d) => d.tls?.dnsProvider === name)
+      .map((d) => d.id)
+      .sort();
+  }
+  function withDnsUse(p: DnsProvider): DnsProvider {
+    return { ...clone(p), usedBy: dnsUsers(p.name) };
+  }
   return {
     async list() {
       await ctx.delay();
@@ -813,9 +866,14 @@ export function createMockCertificateService(
       const managed: ManagedCertificate[] = [...state.distributions.values()]
         .filter((d) => d.tls?.certificate === 'auto')
         .map((d) => ({
-          id: d.aliases[0] ?? d.id,
-          domains: d.aliases.filter((a) => !a.startsWith('*.')),
+          id: `acme-${d.id}`,
+          domains:
+            d.tls?.challenge === 'dns-01'
+              ? d.aliases
+              : d.aliases.filter((a) => !a.startsWith('*.')),
           distributions: [d.id],
+          ...(d.tls?.challenge !== undefined ? { challenge: d.tls.challenge } : {}),
+          ...(d.tls?.dnsProvider !== undefined ? { dnsProvider: d.tls.dnsProvider } : {}),
           state: 'pending',
         }));
       return {
@@ -886,5 +944,138 @@ export function createMockCertificateService(
       }
       state.certificates.delete(id);
     },
+    async listDnsProviders() {
+      await ctx.delay();
+      state.guard('admin:ManageCertificates');
+      return [...state.dnsProviders.values()]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(withDnsUse);
+    },
+    async createDnsProvider(input) {
+      await ctx.delay();
+      state.guard('admin:ManageCertificates');
+      const name = input.name ?? '';
+      if (!isValidDistributionId(name)) {
+        throw problem(400, 'invalid_dns_provider', `name "${name}" is invalid`);
+      }
+      if (state.dnsProviders.has(name)) {
+        throw problem(409, 'dns_provider_exists', `DNS provider ${name} already exists.`);
+      }
+      const p = dnsProviderOf(name, input, undefined, ctx.now());
+      state.dnsProviders.set(name, p);
+      return withDnsUse(p);
+    },
+    async updateDnsProvider(name, input) {
+      await ctx.delay();
+      state.guard('admin:ManageCertificates');
+      const cur = state.dnsProviders.get(name);
+      if (cur === undefined) {
+        throw problem(404, 'dns_provider_not_found', `DNS provider ${name} does not exist.`);
+      }
+      const p = dnsProviderOf(name, input, cur, ctx.now());
+      state.dnsProviders.set(name, p);
+      return withDnsUse(p);
+    },
+    async removeDnsProvider(name) {
+      await ctx.delay();
+      state.guard('admin:ManageCertificates');
+      if (!state.dnsProviders.has(name)) {
+        throw problem(404, 'dns_provider_not_found', `DNS provider ${name} does not exist.`);
+      }
+      const users = dnsUsers(name);
+      if (users.length > 0) {
+        throw problem(
+          409,
+          'dns_provider_in_use',
+          `The DNS provider ${name} is used by the distributions ${users.join(', ')}: change their TLS first.`,
+        );
+      }
+      state.dnsProviders.delete(name);
+    },
+    async testDnsProvider(name, domain) {
+      await ctx.delay();
+      state.guard('admin:ManageCertificates');
+      if (!state.dnsProviders.has(name)) {
+        throw problem(404, 'dns_provider_not_found', `DNS provider ${name} does not exist.`);
+      }
+      const record = `_acme-challenge.${domain.replace(/^\*\./, '')}`;
+      // The mock fails the domains of the reserved .invalid TLD.
+      if (domain.endsWith('.invalid')) {
+        return {
+          ok: false,
+          record,
+          step: 'propagation',
+          error: `the TXT record ${record}. is not served by the nameservers of its zone after 2m0s`,
+          durationMs: 120_000,
+        };
+      }
+      return { ok: true, record, durationMs: 1_800 };
+    },
   };
+}
+
+/**
+ * A DNS provider from its input, like the server: the settings of its type
+ * only, the credential of its type required, the stored credentials kept
+ * by an update that leaves them empty.
+ */
+function dnsProviderOf(
+  name: string,
+  input: DnsProviderInput,
+  cur: DnsProvider | undefined,
+  now: Date,
+): DnsProvider {
+  const creds = input.credentials ?? {};
+  const keep = cur !== undefined && cur.type === input.type && cur.hasCredentials;
+  const has = (v: string | undefined) => v !== undefined && v !== '';
+  const base = {
+    name,
+    type: input.type,
+    ...(input.comment !== undefined && input.comment !== '' ? { comment: input.comment } : {}),
+    ...(input.ttl !== undefined && input.ttl > 0 ? { ttl: input.ttl } : {}),
+    ...(input.propagationTimeout !== undefined && input.propagationTimeout > 0
+      ? { propagationTimeout: input.propagationTimeout }
+      : {}),
+    ...(input.pollingInterval !== undefined && input.pollingInterval > 0
+      ? { pollingInterval: input.pollingInterval }
+      : {}),
+    usedBy: [],
+    createdAt: cur?.createdAt ?? now.toISOString(),
+    updatedAt: now.toISOString(),
+  };
+  const bad = (detail: string) => problem(400, 'invalid_dns_provider', detail);
+  switch (input.type) {
+    case 'cloudflare': {
+      const ok = has(creds.apiToken) || keep;
+      if (!ok) throw bad('cloudflare: the API token is required (credentials.apiToken)');
+      return { ...base, cloudflare: { ...input.cloudflare }, hasCredentials: true };
+    }
+    case 'route53': {
+      const r = { ...input.route53 };
+      const secret = has(creds.secretAccessKey) || (keep && has(cur.route53?.accessKeyId));
+      if (has(r.accessKeyId) !== secret) {
+        throw bad('route53: the access key id and the secret access key go together');
+      }
+      return { ...base, route53: r, hasCredentials: secret };
+    }
+    case 'rfc2136': {
+      const r = input.rfc2136;
+      if (r === undefined || r.nameserver === '') {
+        throw bad('rfc2136: the nameserver is required (rfc2136.nameserver)');
+      }
+      const keyed = has(r.tsigKeyName);
+      const secret = has(creds.tsigSecret) || (keep && keyed);
+      if (keyed && !secret)
+        throw bad(`rfc2136: the TSIG key ${r.tsigKeyName ?? ''} needs its secret`);
+      return {
+        ...base,
+        rfc2136: {
+          ...r,
+          ...(keyed && !has(r.tsigAlgorithm) ? { tsigAlgorithm: 'hmac-sha256' } : {}),
+        },
+        hasCredentials: secret,
+      };
+    }
+  }
+  throw bad(`type "${String(input.type)}" must be one of cloudflare, route53, rfc2136`);
 }

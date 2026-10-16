@@ -242,6 +242,16 @@ type AdminClient interface {
 	UploadCertificate(ctx context.Context, in UploadCertificateRequest) (*Certificate, error)
 	GetCertificate(ctx context.Context, id string) (*Certificate, error)
 	DeleteCertificate(ctx context.Context, id string) error
+	// DNS providers of the ACME DNS-01 challenge (admin:ManageCertificates);
+	// their credentials are write-only.
+	ListDNSProviders(ctx context.Context) ([]DNSProvider, error)
+	GetDNSProvider(ctx context.Context, name string) (*DNSProvider, error)
+	CreateDNSProvider(ctx context.Context, in DNSProviderRequest) (*DNSProvider, error)
+	UpdateDNSProvider(ctx context.Context, name string, in DNSProviderRequest) (*DNSProvider, error)
+	DeleteDNSProvider(ctx context.Context, name string) error
+	// TestDNSProvider publishes, checks and removes a test record of
+	// domain; a failure of the provider is in the result.
+	TestDNSProvider(ctx context.Context, name, domain string) (*DNSProviderTestResult, error)
 
 	// Cache of the distributions (docs/11). The configuration
 	// (admin:ManageCache): reusable policies, settings of the cluster and

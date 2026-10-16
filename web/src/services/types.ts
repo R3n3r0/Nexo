@@ -440,6 +440,15 @@ export type ManagedCertificate = Schemas['ManagedCertificate'];
 /** GET /certificates: the certificates and the ACME state. */
 export type CertificateList = Schemas['CertificateList'];
 export type UploadCertificateInput = Schemas['UploadCertificateRequest'];
+/** A DNS provider of the ACME DNS-01 challenge (never its credentials). */
+export type DnsProvider = Schemas['DnsProvider'];
+export type DnsProviderType = Schemas['DnsProviderType'];
+/** Creates or replaces a DNS provider; the empty credentials keep the stored ones. */
+export type DnsProviderInput = Schemas['DnsProviderRequest'];
+/** The outcome of the test of a DNS provider (a failure is a result). */
+export type DnsProviderTestResult = Schemas['DnsProviderTestResult'];
+/** The ACME challenges of a distribution (tls.challenge). */
+export type AcmeChallenge = NonNullable<NonNullable<Distribution['tls']>['challenge']>;
 
 /**
  * Traffic of the aliases of the distributions (D-DST-08): the per-domain

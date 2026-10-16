@@ -1322,6 +1322,8 @@ export interface paths {
          * @description Each change needs its action: secretKey admin:CreateUser, status
          *     admin:EnableUser/admin:DisableUser, policyNames admin:AttachUserOrGroupPolicy,
          *     groups admin:GetUser plus admin:AddUserToGroup/admin:RemoveUserFromGroup.
+         *     A new secretKey, or status disabled, revokes for good the console sessions
+         *     of the user (and of its access keys) and its managed share links.
          */
         put: operations["updateUser"];
         post?: never;
@@ -1397,6 +1399,10 @@ export interface paths {
             cookie?: never;
         };
         get: operations["getAccessKey"];
+        /**
+         * @description Status disabled revokes for good the console sessions of the key and the
+         *     managed share links created with it; enabling it again restores neither.
+         */
         put: operations["updateAccessKey"];
         post?: never;
         delete: operations["deleteAccessKey"];
@@ -2222,6 +2228,84 @@ export interface paths {
         post?: never;
         /** Remove a certificate no distribution names (409 otherwise) */
         delete: operations["deleteCertificate"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dns-providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * DNS providers of the ACME DNS-01 challenge
+         * @description The DNS providers (Cloudflare, AWS Route 53, RFC 2136) that publish the TXT records
+         *     of the DNS-01 challenge, required by the wildcard aliases. Their credentials are
+         *     sealed in the system store and never returned (`hasCredentials` reports them).
+         */
+        get: operations["listDnsProviders"];
+        put?: never;
+        /**
+         * Create a DNS provider
+         * @description Validated (400 `invalid_dns_provider`; 409 `dns_provider_exists` for a name taken).
+         *     Only the settings and credentials of its `type` are kept.
+         */
+        post: operations["createDnsProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dns-providers/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        /** A DNS provider (404 `dns_provider_not_found`) */
+        get: operations["getDnsProvider"];
+        /**
+         * Replace the settings of a DNS provider
+         * @description The empty credentials keep the stored ones when the type does not change (a Route 53
+         *     provider without `accessKeyId` drops them: ambient credentials). The leader retries
+         *     at once the pending certificates of the distributions using the provider.
+         */
+        put: operations["updateDnsProvider"];
+        post?: never;
+        /** Remove a DNS provider no distribution names (409 `dns_provider_in_use` otherwise) */
+        delete: operations["deleteDnsProvider"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dns-providers/{name}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test a DNS provider
+         * @description Publishes a TXT record `_acme-challenge.<domain>` with a random value, waits for it on
+         *     the authoritative nameservers of the zone (up to the propagation timeout of the
+         *     provider) and removes it. A failure of the provider is a result (`ok: false`, the
+         *     failed `step`), not an error.
+         */
+        post: operations["testDnsProvider"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -4449,15 +4533,30 @@ export interface components {
                     /** @description The active secrets, hashed (sha256:<hex>) or ${secret:<name>}. */
                     values?: string[];
                 };
+                /** @description Requests admitted by each node (S-DST-08): requestsPerSecond on average, burst at once, per client address or shared by the distribution. Beyond it a website answers 429, an s3 distribution 503 SlowDown, with Retry-After. */
                 rateLimit?: {
+                    /** @description 0: no limit. */
                     requestsPerSecond?: number;
+                    /** @description 0: requestsPerSecond. */
                     burst?: number;
-                    per?: string;
+                    /**
+                     * @description Default ip.
+                     * @enum {string}
+                     */
+                    per?: "ip" | "distribution";
                 };
             };
             tls?: {
                 /** @description auto (ACME), upload:<id>, none (TLS terminated by a proxy). */
                 certificate?: string;
+                /**
+                 * @description ACME challenge of the certificate `auto` (default: the challenge of the
+                 *     deployment). A wildcard alias requires `dns-01`.
+                 * @enum {string}
+                 */
+                challenge?: "http-01" | "tls-alpn-01" | "dns-01";
+                /** @description Name of the DNS provider of `dns-01` (/dns-providers). */
+                dnsProvider?: string;
             };
             logging?: {
                 accessLog?: boolean;
@@ -4651,6 +4750,13 @@ export interface components {
             id: string;
             domains: string[];
             distributions: string[];
+            /**
+             * @description Challenge of the certificate (absent for the challenge of the deployment).
+             * @enum {string}
+             */
+            challenge?: "http-01" | "tls-alpn-01" | "dns-01";
+            /** @description DNS provider of dns-01. */
+            dnsProvider?: string;
             /** @enum {string} */
             state: "issued" | "pending";
             certificate?: components["schemas"]["CertificateDetails"];
@@ -4670,6 +4776,85 @@ export interface components {
             /** @description Leaf certificate followed by its intermediates. */
             certificatePem: string;
             privateKeyPem: string;
+        };
+        /** @enum {string} */
+        DnsProviderType: "cloudflare" | "route53" | "rfc2136";
+        DnsProviderSettings: {
+            type: components["schemas"]["DnsProviderType"];
+            comment?: string;
+            cloudflare?: {
+                /** @description Default: the zone found by name. */
+                zoneId?: string;
+            };
+            route53?: {
+                /** @description Absent: the ambient AWS credentials of the node. */
+                accessKeyId?: string;
+                /** @description Default us-east-1. */
+                region?: string;
+                /** @description Default: the public zone found by name. */
+                hostedZoneId?: string;
+            };
+            rfc2136?: {
+                /** @description Primary nameserver accepting the updates, host[:port]. */
+                nameserver: string;
+                /** @description Default: from the SOA the nameserver reports. */
+                zone?: string;
+                /** @description Absent: unsigned updates. */
+                tsigKeyName?: string;
+                /** @enum {string} */
+                tsigAlgorithm?: "hmac-sha256" | "hmac-sha512" | "hmac-sha384" | "hmac-sha224" | "hmac-sha1";
+            };
+            /** @description TTL of the records in seconds (default 60). */
+            ttl?: number;
+            /** @description Wait of the propagation in seconds (default 120, at most 1800). */
+            propagationTimeout?: number;
+            /** @description Delay between two checks in seconds (default 4). */
+            pollingInterval?: number;
+        };
+        DnsProvider: components["schemas"]["DnsProviderSettings"] & {
+            name: string;
+            /** @description Credentials are stored (they are never returned). */
+            hasCredentials: boolean;
+            /** @description Distributions whose `tls.dnsProvider` names it. */
+            usedBy: string[];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        DnsProviderList: {
+            items: components["schemas"]["DnsProvider"][];
+        };
+        DnsProviderRequest: components["schemas"]["DnsProviderSettings"] & {
+            /** @description Required to create; the one of the path to update. */
+            name?: string;
+            /**
+             * @description Write-only, sealed in the system store, never returned nor logged. On an update an
+             *     empty field keeps the stored value.
+             */
+            credentials?: {
+                /** @description Cloudflare API token (Zone:DNS:Edit). */
+                apiToken?: string;
+                /** @description Route 53 secret access key. */
+                secretAccessKey?: string;
+                /** @description Route 53 session token (temporary credentials). */
+                sessionToken?: string;
+                /** @description RFC 2136 TSIG secret, base64. */
+                tsigSecret?: string;
+            };
+        };
+        DnsProviderTestResult: {
+            ok: boolean;
+            /** @description The TXT record of the test. */
+            record: string;
+            /**
+             * @description The failed step.
+             * @enum {string}
+             */
+            step?: "present" | "propagation" | "cleanup";
+            error?: string;
+            /** Format: int64 */
+            durationMs: number;
         };
         /**
          * @description A duration: Go syntax ("90s", "1h30m") or days ("365d"); a number is seconds. The
@@ -9165,6 +9350,153 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listDnsProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The DNS providers, by name. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DnsProviderList"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    createDnsProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DnsProviderRequest"];
+            };
+        };
+        responses: {
+            /** @description The DNS provider (without its credentials). */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DnsProvider"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getDnsProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The DNS provider. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DnsProvider"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateDnsProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DnsProviderRequest"];
+            };
+        };
+        responses: {
+            /** @description The DNS provider. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DnsProvider"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    deleteDnsProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    testDnsProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Domain of the test record (a wildcard counts as its domain). */
+                    domain: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The outcome of the test. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DnsProviderTestResult"];
+                };
             };
             default: components["responses"]["Problem"];
         };

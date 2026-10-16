@@ -151,6 +151,33 @@ func TestValidate(t *testing.T) {
 		{name: "tls", d: mutate(func(d *distribution.Distribution) { d.TLS.Certificate = "letsencrypt" })},
 		{name: "tls upload", valid: true, d: mutate(func(d *distribution.Distribution) { d.TLS.Certificate = "upload:my-cert" })},
 		{name: "log format", d: mutate(func(d *distribution.Distribution) { d.Logging.Format = "xml" })},
+		{name: "tls challenge", valid: true, d: mutate(func(d *distribution.Distribution) {
+			d.TLS = distribution.TLS{Certificate: "auto", Challenge: " TLS-ALPN-01 "}
+		}), check: func(t *testing.T, d distribution.Distribution) {
+			assert.Equal(t, distribution.ChallengeTLSALPN01, d.TLS.Challenge)
+		}},
+		{name: "tls unknown challenge", d: mutate(func(d *distribution.Distribution) { d.TLS = distribution.TLS{Certificate: "auto", Challenge: "dns-02"} })},
+		{name: "tls challenge without auto", d: mutate(func(d *distribution.Distribution) {
+			d.TLS = distribution.TLS{Certificate: "upload:x", Challenge: distribution.ChallengeHTTP01}
+		})},
+		{name: "tls dns-01 without provider", d: mutate(func(d *distribution.Distribution) {
+			d.TLS = distribution.TLS{Certificate: "auto", Challenge: distribution.ChallengeDNS01}
+		})},
+		{name: "tls provider without dns-01", d: mutate(func(d *distribution.Distribution) {
+			d.TLS = distribution.TLS{Certificate: "auto", DNSProvider: "cf"}
+		})},
+		{name: "tls wildcard needs dns-01", d: mutate(func(d *distribution.Distribution) {
+			d.Aliases = []string{"*.preview.example.com"}
+			d.TLS = distribution.TLS{Certificate: "auto"}
+		})},
+		{name: "tls wildcard with dns-01", valid: true, d: mutate(func(d *distribution.Distribution) {
+			d.Aliases = []string{"preview.example.com", "*.preview.example.com"}
+			d.TLS = distribution.TLS{Certificate: "auto", Challenge: distribution.ChallengeDNS01, DNSProvider: "cloudflare-main"}
+		})},
+		{name: "tls wildcard uploaded", valid: true, d: mutate(func(d *distribution.Distribution) {
+			d.Aliases = []string{"*.preview.example.com"}
+			d.TLS = distribution.TLS{Certificate: "upload:wild"}
+		})},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

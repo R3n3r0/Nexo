@@ -71,6 +71,12 @@ type Service interface {
 	// effective user) and returns how many were revoked. Only root may
 	// name another owner.
 	RevokeAll(ctx context.Context, caller domain.Identity, owner string) (int, error)
+	// RevokeIssuedBy revokes the shares created with accessKey (a service
+	// account or temporary credentials of their owner) and the share whose
+	// own service account is accessKey, and returns how many were revoked.
+	// It is the cleanup of a disabled access key, run on behalf of the
+	// system: there is no caller to authorize.
+	RevokeIssuedBy(ctx context.Context, accessKey string) (int, error)
 	// PurgeExpired deletes the expired shares and their service accounts
 	// and returns how many were deleted.
 	PurgeExpired(ctx context.Context) (int, error)

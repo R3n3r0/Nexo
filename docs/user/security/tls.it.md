@@ -127,4 +127,7 @@ I domini personalizzati delle [distribuzioni](../distributions/README.md) hanno 
 caricati (`nexoctl dist cert set … --cert … --key …`) o ottenuti automaticamente via ACME
 (`nexoctl dist cert set … --auto`), salvati cifrati e distribuiti a tutti i nodi; in cluster il rinnovo è
 eseguito da un solo nodo. Sono presentati per SNI solo per gli alias delle distribuzioni abilitate che li
-usano. Vedi il [tutorial](../distributions/tutorial-static-site.md).
+usano. Vedi il [tutorial](../distributions/tutorial-static-site.md). I domini wildcard ottengono il
+certificato ACME con la challenge DNS-01 e un provider DNS (`--auto --dns-provider NOME`): vedi
+[domini wildcard](../distributions/README.it.md#domini-wildcard-la-challenge-dns-01); le credenziali dei
+provider sono salvate cifrate e mai più mostrate.

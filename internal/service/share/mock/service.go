@@ -428,6 +428,63 @@ func (_c *Service_RevokeAll_Call) RunAndReturn(run func(context.Context, domain.
 	return _c
 }
 
+// RevokeIssuedBy provides a mock function with given fields: ctx, accessKey
+func (_m *Service) RevokeIssuedBy(ctx context.Context, accessKey string) (int, error) {
+	ret := _m.Called(ctx, accessKey)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RevokeIssuedBy")
+	}
+
+	var r0 int
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (int, error)); ok {
+		return rf(ctx, accessKey)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) int); ok {
+		r0 = rf(ctx, accessKey)
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, accessKey)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_RevokeIssuedBy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RevokeIssuedBy'
+type Service_RevokeIssuedBy_Call struct {
+	*mock.Call
+}
+
+// RevokeIssuedBy is a helper method to define mock.On call
+//   - ctx context.Context
+//   - accessKey string
+func (_e *Service_Expecter) RevokeIssuedBy(ctx interface{}, accessKey interface{}) *Service_RevokeIssuedBy_Call {
+	return &Service_RevokeIssuedBy_Call{Call: _e.mock.On("RevokeIssuedBy", ctx, accessKey)}
+}
+
+func (_c *Service_RevokeIssuedBy_Call) Run(run func(ctx context.Context, accessKey string)) *Service_RevokeIssuedBy_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *Service_RevokeIssuedBy_Call) Return(_a0 int, _a1 error) *Service_RevokeIssuedBy_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_RevokeIssuedBy_Call) RunAndReturn(run func(context.Context, string) (int, error)) *Service_RevokeIssuedBy_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewService creates a new instance of Service. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewService(t interface {

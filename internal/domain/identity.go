@@ -34,6 +34,11 @@ type Credentials struct {
 	// Expiration is the zero value for permanent credentials.
 	Expiration time.Time
 	Status     CredentialStatus
+	// RevocationEpoch changes every time the credentials, or the user they
+	// derive from, are disabled. A console session records it at login
+	// and ends when it changes, so that enabling the credentials again does
+	// not bring back the sessions opened before (pentest PT-05).
+	RevocationEpoch uint64
 }
 
 // IsTemporary reports whether the credentials come from STS.

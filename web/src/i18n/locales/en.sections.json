@@ -489,10 +489,13 @@
       "removeSecret": "Remove the requirement",
       "revealHint": "Configure the proxies to send this value in the {{header}} header.",
       "rateTitle": "Rate limit",
-      "rateHint": "Requests per second per client address; beyond it the answer is 429.",
+      "rateHint": "Requests admitted by each node, per client address or for the whole distribution; beyond it a website answers 429 and an s3 distribution 503 SlowDown, with Retry-After.",
       "rateEnable": "Limit the rate",
       "rps": "Requests per second",
-      "burst": "Burst"
+      "burst": "Burst",
+      "per": "Counted",
+      "perIp": "Per client address",
+      "perDistribution": "For the whole distribution"
     },
     "tls": {
       "title": "TLS",
@@ -515,7 +518,19 @@
         "none": "Proxy",
         "auto": "ACME",
         "upload": "Uploaded"
-      }
+      },
+      "challenge": "ACME challenge",
+      "challengeDefault": "Default of the server ({{challenge}})",
+      "challenges": {
+        "http-01": "HTTP-01 (port 80)",
+        "tls-alpn-01": "TLS-ALPN-01 (port 443)",
+        "dns-01": "DNS-01 (TXT record through a DNS provider)"
+      },
+      "challengeHint": "DNS-01 is the only challenge of the wildcard domains (*.example.com).",
+      "dnsProvider": "DNS provider",
+      "dnsProviderPlaceholder": "Choose a DNS provider",
+      "noDnsProvider": "No DNS provider: add one in the Certificates section.",
+      "wildcardNeedsDns": "The wildcard domain {{alias}} needs the DNS-01 challenge with a DNS provider."
     },
     "traffic": {
       "title": "Traffic",
@@ -684,7 +699,68 @@
     "managedStates": {
       "issued": "Issued",
       "pending": "Pending"
-    }
+    },
+    "dns": {
+      "title": "DNS providers",
+      "hint": "They publish the TXT records of the ACME DNS-01 challenge, required by the wildcard domains. The credentials are stored sealed and never shown again.",
+      "add": "Add DNS provider",
+      "addTitle": "Add a DNS provider",
+      "editTitle": "Edit the DNS provider {{name}}",
+      "empty": "No DNS provider.",
+      "tableLabel": "DNS providers",
+      "loadError": "Could not load the DNS providers.",
+      "name": "Name",
+      "nameHint": "Lowercase letters, digits, '.', '_' and '-'.",
+      "type": "Type",
+      "types": {
+        "cloudflare": "Cloudflare",
+        "route53": "AWS Route 53",
+        "rfc2136": "RFC 2136 (TSIG)"
+      },
+      "comment": "Comment",
+      "zone": "Zone / server",
+      "credentials": "Credentials",
+      "credentialsStored": "Stored",
+      "credentialsNone": "None",
+      "ambient": "Ambient AWS credentials",
+      "usedBy": "Used by",
+      "keepSecret": "Stored: leave empty to keep it.",
+      "zoneId": "Zone ID",
+      "zoneIdHint": "Optional: found by name.",
+      "apiToken": "API token",
+      "apiTokenHint": "A token with the Zone:DNS:Edit permission on the zone.",
+      "accessKeyId": "Access key ID",
+      "accessKeyIdHint": "Empty: the ambient credentials of the nodes (instance role, environment).",
+      "secretAccessKey": "Secret access key",
+      "sessionToken": "Session token",
+      "region": "Region",
+      "hostedZoneId": "Hosted zone ID",
+      "hostedZoneIdHint": "Optional: the public zone found by name.",
+      "nameserver": "Nameserver",
+      "nameserverHint": "The primary accepting the dynamic updates, host or host:port.",
+      "rfcZone": "Zone",
+      "rfcZoneHint": "Optional: from the SOA the nameserver reports.",
+      "tsigKeyName": "TSIG key name",
+      "tsigAlgorithm": "TSIG algorithm",
+      "tsigSecret": "TSIG secret (base64)",
+      "propagationTimeout": "Propagation timeout (seconds)",
+      "propagationTimeoutHint": "Default 120.",
+      "save": "Save",
+      "saved": "DNS provider {{name}} saved.",
+      "invalid": "The DNS provider was refused",
+      "test": "Test the DNS provider {{name}}",
+      "testTitle": "Test the DNS provider {{name}}",
+      "testHint": "Publishes _acme-challenge.<domain> with a random value, waits for it on the authoritative nameservers and removes it.",
+      "testDomain": "Domain",
+      "testRun": "Run the test",
+      "testOk": "{{record}} published, served by the nameservers and removed in {{seconds}} s.",
+      "testFailed": "Failed at the {{step}} step: {{error}}",
+      "edit": "Edit the DNS provider {{name}}",
+      "delete": "Delete the DNS provider {{name}}",
+      "deleteTitle": "Delete the DNS provider",
+      "deleteConfirm": "Delete the DNS provider {{name}}? A provider used by a distribution cannot be deleted."
+    },
+    "challengeColumn": "Challenge"
   },
   "cache": {
     "subtitle": "The HTTP cache of the distributions: per domain and per path, in memory and on disk, invalidated exactly when objects change.",

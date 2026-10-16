@@ -229,6 +229,7 @@ func TestValidate(t *testing.T) {
 		{"negative parity", func(s *config.Static) { s.StorageClassRRS = "EC:-1" }, "reduced redundancy storage class"},
 		{"negative rpc timeout", func(s *config.Static) { s.RPCCallTimeout = -time.Second }, "rpc call timeout"},
 		{"internode mTLS without TLS", func(s *config.Static) { s.TLSInternodeVerify = true }, "tls internode verify"},
+		{"bad acme dns nameserver", func(s *config.Static) { s.ACMEDNSNameservers = "ns1.example.com, http://x/y" }, "acme dns nameserver"},
 		{"refresh not shorter than stale", func(s *config.Static) {
 			s.LockStaleAfter, s.LockRefreshInterval = 5*time.Second, 5*time.Second
 		}, "lock refresh interval"},
@@ -273,4 +274,19 @@ func TestLoadTLSInternodeVerify(t *testing.T) {
 	env[config.EnvTLSInternodeVerify] = "maybe"
 	_, err = config.NewLoader(config.WithEnv(envOf(env))).Load(context.Background(), config.Input{Args: []string{"/data"}})
 	require.ErrorContains(t, err, config.EnvTLSInternodeVerify)
+}
+
+// TestLoadACMEDNSNameservers: the nameservers of the DNS-01 propagation
+// check, from the environment or the flag.
+func TestLoadACMEDNSNameservers(t *testing.T) {
+	l := config.NewLoader(config.WithEnv(envOf(map[string]string{
+		config.EnvRootUser: "admin", config.EnvRootPassword: "password123",
+		config.EnvACMEDNSNameservers: " 10.0.0.53 , [2001:db8::53]:5353,",
+	})))
+	cfg, err := l.Load(context.Background(), config.Input{Args: []string{"/data"}})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"10.0.0.53", "[2001:db8::53]:5353"}, cfg.ACMEDNSNameserverList())
+	cfg, err = l.Load(context.Background(), config.Input{Args: []string{"/data"}, Flags: flagsFrom(t, "--acme-dns-nameservers", "ns1.example.com:53")})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"ns1.example.com:53"}, cfg.ACMEDNSNameserverList())
 }

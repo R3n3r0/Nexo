@@ -1,0 +1,102 @@
+$ nexoctl admin dns-provider ls mem
+No DNS provider.
+
+$ nexoctl admin dns-provider add mem cf --type cloudflare --api-token-file cf-token.txt --zone-id zone-1
+Created the cloudflare DNS provider cf.
+
+$ nexoctl admin dns-provider add mem cf --type cloudflare --api-token x
+! nexoctl: error: dns provider "cf": conflict: dns provider already exists: cf (dns_provider_exists)
+[exit 1]
+
+$ nexoctl admin dns-provider add mem nokey --type cloudflare
+! nexoctl: error: dns provider "nokey": invalid dns provider: invalid argument: cloudflare: the API token is required (credentials.apiToken) (invalid_dns_provider)
+[exit 1]
+
+$ nexoctl admin dns-provider add mem bind --type rfc2136 --nameserver ns1.example.com --tsig-key nexo-acme --tsig-secret-file tsig.key --propagation-timeout 3m
+Created the rfc2136 DNS provider bind.
+
+$ nexoctl admin dns-provider add mem aws --type route53 --hosted-zone-id Z123EXAMPLE
+Created the route53 DNS provider aws.
+
+$ nexoctl admin dns-provider add mem notype
+! nexoctl: error: --type is required: cloudflare, route53 or rfc2136
+! Run 'nexoctl admin dns-provider add --help' for usage.
+[exit 2]
+
+$ nexoctl admin dns-provider ls mem
+NAME                 TYPE       CREDENTIALS ZONE / SERVER                        USED BY
+aws                  route53    no          zone Z123EXAMPLE, ambient credentials -
+bind                 rfc2136    yes         ns1.example.com, key nexo-acme       -
+cf                   cloudflare yes         zone zone-1                          -
+
+$ nexoctl admin dns-provider info mem bind
+Name:         bind
+Type:         rfc2136
+Nameserver:   ns1.example.com
+Zone:         -
+TSIG key:     nexo-acme hmac-sha256
+Credentials:  stored (sealed, never shown)
+Used by:      -
+Updated:      2026-01-02 03:04:05 UTC
+
+$ nexoctl admin dns-provider edit mem cf --comment main zone
+Updated the DNS provider cf.
+
+$ nexoctl admin dns-provider info mem cf
+Name:         cf
+Type:         cloudflare
+Comment:      main zone
+Zone id:      zone-1
+Credentials:  stored (sealed, never shown)
+Used by:      -
+Updated:      2026-01-02 03:04:05 UTC
+
+$ nexoctl admin dns-provider test mem cf example.test
+OK _acme-challenge.example.test published, served by the nameservers and removed in 1s.
+
+$ nexoctl admin dns-provider test mem cf example.com
+FAIL _acme-challenge.example.com failed at the propagation step after 2m0s: the TXT record _acme-challenge.example.com. is not served by the nameservers of its zone after 2m0s
+! nexoctl: error: dns provider "cf": test failed at the propagation step
+[exit 1]
+
+$ nexoctl dist create mem previews --bucket web --domain *.preview.example.com
+Created the distribution `previews` (website) of `web` on *.preview.example.com.
+
+$ nexoctl dist cert set mem previews --auto
+! nexoctl: error: distribution "previews": invalid argument: the wildcard alias *.preview.example.com needs tls.challenge dns-01 with a tls.dnsProvider for its automatic certificate (invalid_distribution)
+[exit 1]
+
+$ nexoctl dist cert set mem previews --auto --dns-provider nope
+! nexoctl: error: distribution "previews": invalid argument: tls.dnsProvider "nope" does not exist: create it first (/dns-providers) (invalid_distribution)
+[exit 1]
+
+$ nexoctl dist cert set mem previews --none --dns-provider cf
+! nexoctl: error: --challenge and --dns-provider go with --auto
+! Run 'nexoctl dist cert set --help' for usage.
+[exit 2]
+
+$ nexoctl dist cert set mem previews --auto --challenge dns-01
+! nexoctl: error: --challenge dns-01 needs --dns-provider
+! Run 'nexoctl dist cert set --help' for usage.
+[exit 2]
+
+$ nexoctl dist cert set mem previews --auto --dns-provider cf
+TLS of `previews`: auto, challenge dns-01 with the DNS provider cf.
+
+$ nexoctl dist enable mem previews
+Distribution `previews` enabled.
+
+$ nexoctl dist cert ls mem
+ACME acme-previews pending for *.preview.example.com (distributions previews, dns-01 via cf)
+
+$ nexoctl admin dns-provider rm mem cf
+! nexoctl: error: dns provider "cf": conflict: dns provider in use: the DNS provider cf is used by the distributions previews: change their TLS first (dns_provider_in_use)
+[exit 1]
+
+$ nexoctl admin dns-provider rm mem aws
+Removed the DNS provider aws.
+
+$ nexoctl admin dns-provider ls mem --json
+{"status":"success","alias":"mem","name":"bind","type":"rfc2136","rfc2136":{"nameserver":"ns1.example.com","tsigKeyName":"nexo-acme","tsigAlgorithm":"hmac-sha256"},"propagationTimeout":180,"hasCredentials":true,"usedBy":[],"createdAt":"2026-01-02T03:04:05Z","updatedAt":"2026-01-02T03:04:05Z"}
+{"status":"success","alias":"mem","name":"cf","type":"cloudflare","comment":"main zone","cloudflare":{"zoneId":"zone-1"},"hasCredentials":true,"usedBy":["previews"],"createdAt":"2026-01-02T03:04:05Z","updatedAt":"2026-01-02T03:04:05Z"}
+

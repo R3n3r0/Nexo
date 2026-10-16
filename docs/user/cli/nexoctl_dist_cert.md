@@ -7,6 +7,8 @@ Manage the TLS certificates of the domains of the distributions
 Manage the TLS certificates of the domains of the distributions (served by SNI on
 every node): ACME (--auto: obtained and renewed by the leader), uploaded PEM
 certificates (--cert --key), or none when a proxy terminates TLS (--none).
+A wildcard alias needs the DNS-01 challenge: --auto --dns-provider NAME, a provider
+of "nexoctl admin dns-provider".
 Needs admin:ManageCertificates (and admin:ManageDistributions for "set").
 
 ```

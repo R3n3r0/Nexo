@@ -6,6 +6,7 @@ import (
 	"crypto"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -14,6 +15,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/cache"
+	"github.com/r3n3r0/nexo/internal/service/certs"
 	"github.com/r3n3r0/nexo/internal/service/distribution"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 )
@@ -31,6 +33,9 @@ type DistributionManagerDeps struct {
 	// removed distribution (docs/11), so that a distribution created again
 	// with the same id starts from a clean cache.
 	Cache cache.Manager
+	// DNSProviders, when set, checks that the DNS provider of a
+	// distribution with the dns-01 challenge exists.
+	DNSProviders certs.DNSProviderSource
 	// Clock dates the relative expirations of the signatures.
 	Clock  clock.Clock
 	Logger *slog.Logger
@@ -82,7 +87,28 @@ func (m *distributionManager) Create(ctx context.Context, in SaveDistributionInp
 	if err := m.authorizeCovered(ctx, in.Requester, in.Distribution); err != nil {
 		return distribution.Distribution{}, err
 	}
+	if err := m.checkDNSProvider(ctx, in.Distribution); err != nil {
+		return distribution.Distribution{}, err
+	}
 	return m.deps.Distributions.Create(ctx, in.Distribution)
+}
+
+// checkDNSProvider refuses a distribution whose dns-01 challenge names a
+// DNS provider that does not exist.
+func (m *distributionManager) checkDNSProvider(ctx context.Context, d distribution.Distribution) error {
+	name := strings.TrimSpace(d.TLS.DNSProvider)
+	if m.deps.DNSProviders == nil || name == "" || !strings.EqualFold(strings.TrimSpace(d.TLS.Challenge), distribution.ChallengeDNS01) {
+		return nil
+	}
+	_, err := m.deps.DNSProviders.Provider(ctx, name)
+	if errors.Is(err, certs.ErrDNSProviderNotFound) {
+		return fmt.Errorf("%w: tls.dnsProvider %q does not exist: create it first (/dns-providers)", distribution.ErrInvalid, name)
+	}
+	if errors.Is(err, certs.ErrInvalidDNSProvider) {
+		// A stored provider that no longer builds: the order reports it.
+		return nil
+	}
+	return err
 }
 
 // Update implements DistributionManager: the requester must be allowed to
@@ -101,6 +127,9 @@ func (m *distributionManager) Update(ctx context.Context, in SaveDistributionInp
 		}
 	}
 	if err := m.authorizeCovered(ctx, in.Requester, in.Distribution); err != nil {
+		return distribution.Distribution{}, err
+	}
+	if err := m.checkDNSProvider(ctx, in.Distribution); err != nil {
 		return distribution.Distribution{}, err
 	}
 	return m.deps.Distributions.Update(ctx, in.Distribution, in.IfMatch)

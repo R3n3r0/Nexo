@@ -19,8 +19,8 @@ type IdentityManagerDeps struct {
 	IAM iam.Service
 	// Authz authorizes every change (required).
 	Authz Authorizer
-	// Shares revokes the share links of a user whose secret is rotated or
-	// who is deleted (required).
+	// Shares revokes the share links of a user whose secret is rotated,
+	// who is disabled or who is deleted (required).
 	Shares share.Service
 	Logger *slog.Logger
 }
@@ -87,6 +87,26 @@ func (m *identityManager) rotateSecret(ctx context.Context, user, secret string)
 		return fmt.Errorf("admin: the secret of %s changed but its share links were not revoked: %w", user, err)
 	}
 	m.deps.Logger.InfoContext(ctx, "admin: user secret rotated", "user", user, "revoked_shares", n)
+	return nil
+}
+
+// setUserStatus enables or disables a user. Disabling revokes for good
+// what the user handed out, as a secret rotation does (pentest PT-05): IAM
+// moves its revocation epoch, which ends its console sessions and those of
+// its service accounts on every node, and its managed share links are
+// deleted. Enabling the user again brings neither back.
+func (m *identityManager) setUserStatus(ctx context.Context, user string, status domain.CredentialStatus) error {
+	if err := m.deps.IAM.SetUserStatus(ctx, user, status); err != nil {
+		return err
+	}
+	if status != domain.StatusDisabled {
+		return nil
+	}
+	n, err := m.deps.Shares.RevokeAll(context.WithoutCancel(ctx), systemActor(), user)
+	if err != nil {
+		return fmt.Errorf("admin: user %s disabled but its share links were not all revoked: %w", user, err)
+	}
+	m.deps.Logger.InfoContext(ctx, "admin: user disabled", "user", user, "revoked_shares", n)
 	return nil
 }
 
@@ -187,7 +207,7 @@ func (m *identityManager) UpdateUser(ctx context.Context, in UpdateUserInput) (*
 		}
 	}
 	if in.Status != nil {
-		if err := m.deps.IAM.SetUserStatus(ctx, in.AccessKey, *in.Status); err != nil {
+		if err := m.setUserStatus(ctx, in.AccessKey, *in.Status); err != nil {
 			return nil, err
 		}
 	}

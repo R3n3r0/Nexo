@@ -11,7 +11,7 @@
 | Compatibility | Ceph `s3-tests`, MinIO `mint` | — | — |
 | Cluster/Chaos | docker-compose 4×4 + toxiproxy + container kill/pause | CLI against a cluster | Cluster/Healing pages against a cluster |
 | Performance | `go test -bench`, `warp`, k6 | `cp`/`mirror` throughput | Lighthouse, bundle size budget |
-| Security | `gosec`, `govulncheck`, ZAP on the console, negative authz tests | Config file permissions | CSP, XSS, CSRF |
+| Security | `gosec`, `govulncheck`, ZAP on the console and on the Admin API (`make zap-scan`), negative authz tests | Config file permissions | CSP, XSS, CSRF |
 
 ### CI pipeline
 

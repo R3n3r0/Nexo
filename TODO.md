@@ -22,16 +22,21 @@ when the console is touched).
   s3-tests, mint, compose).
 - [ ] **License**: v1.0 ships under AGPL-3.0 plus a commercial license. Replace "R3n3r0" in `NOTICE` with the
   legal name of the copyright holder if commercial contracts need it; prepare the commercial license agreement.
-- [ ] **Contributor License Agreement** (required by dual licensing): enable a CLA bot, or DCO with a grant of
-  relicensing rights, on GitHub.
+- [x] **Contributor License Agreement** (required by dual licensing) — DCO with the relicensing grant of
+  `CONTRIBUTING.md`: the `DCO` workflow (`.github/workflows/dco.yml`, `.github/scripts/check-dco.sh`, `make dco`)
+  fails a pull request with a commit not signed off by its author, and `.github/pull_request_template.md` recalls
+  it. Left on GitHub: make the job "Sign-off (DCO)" a required check of `main`; the commits of the development
+  branch are not signed off yet (`git rebase --signoff` before the merge PR, or merge it as the owner).
 
 ## 2. Quality and security (before or right after v1.0)
 
 - [x] **Console penetration test** (T-9.3) — done in October 2026, report in
   [docs/security/pentest-2026-10.md](docs/security/pentest-2026-10.md): PT-01..PT-04 fixed with regression tests
-  (Go and Playwright TD-S-02/09/10), PT-05..PT-11 accepted with their rationale. Left for a later pass: an
-  authenticated ZAP active scan of the Admin API driven by `api/openapi.yaml` (the command-line quick scan covered
-  only the SPA), and a per-user revocation of the console sessions on disable (PT-05).
+  (Go and Playwright TD-S-02/09/10), PT-06..PT-11 accepted with their rationale. Second pass (October 2026):
+  PT-05 fixed (disabling a user or an access key revokes its console sessions and managed share links for good:
+  revocation epoch in IAM, unit and integration tests), and an authenticated ZAP 2.17.0 active scan of the Admin
+  API driven by `api/openapi.yaml` (`make zap-scan`, `test/security/zap-api-scan.sh`; report §6.2): 143k requests,
+  no 500, only false positives.
 - [x] **O_DIRECT and zero-copy** (T-9.2) — done in October 2026, report in
   [docs/bench/README.md §7](docs/bench/README.md#7-o_direct-and-zero-copy-t-92-october-2026): single-drive
   downloads without SSE go from the page cache to the socket with `sendfile` (HTTP/1.1 without TLS; stall bounds
@@ -39,15 +44,28 @@ when the console is touched).
   slower than page cache + fsync on the VM disk (−30% on 4 MiB synced writes, −52% on SNMD 4 MiB PUT, and cold
   reads right after a PUT) and left out; RPC streaming cannot use `splice` (HTTP/2 data frames, TLS). Left for
   later: re-measure O_DIRECT on NVMe with deep queues (`BenchmarkCreateFile`, `NEXO_BENCH_DIR`).
-- [ ] **Rate limiting per API and per distribution** (S-OPS-10, S-DST-08, TDS-13) — 1–2M tokens, 4–6 pd. Enforce
-  `api.requests_max` / `api.requests_deadline` (validated today but not applied), limits per user, bucket and IP,
-  the per-distribution limit already stored in the configuration; consistent across the cluster.
-- [ ] **ACME DNS-01** for wildcard certificates of distributions — 1M tokens, 3–4 pd (providers: Cloudflare,
-  Route 53, RFC 2136).
-- [ ] **`helm lint` + kubeconform** locally: they only run in CI today (the dev container lacks helm and
-  kubeconform).
-- [ ] **govulncheck notice GO-2026-5932** (`golang.org/x/crypto/openpgp` unmaintained, not called by the code):
-  drop the transitive dependency when possible.
+- [x] **Rate limiting per API and per distribution** (S-OPS-10, S-DST-08, TDS-13) — done in October 2026:
+  `internal/service/ratelimit` (token buckets per client address, access key/user, bucket and distribution;
+  concurrency of `api.requests_max` / `api.requests_deadline`), subsystem `ratelimit` of the dynamic
+  configuration, 503 SlowDown (S3) / 429 (Admin API, websites) with Retry-After, `nexo_ratelimit_throttled_total`.
+  Limits are per node, the configuration replicated by the notifier (documented: N nodes admit N times each
+  limit). Left for later: an optional cluster-wide split (divide by the online nodes) if operators ask for it.
+- [x] **ACME DNS-01** for wildcard certificates of distributions (providers: Cloudflare, Route 53, RFC 2136) —
+  done in October 2026: `internal/service/certs/dns01` (providers, propagation check on the authoritative
+  nameservers, `NEXO_ACME_DNS_NAMESERVERS`) on the existing `x/crypto/acme` client, the registry of the providers
+  with sealed write-only credentials (`/dns-providers`, `nexoctl admin dns-provider`, console Certificates page),
+  `tls.challenge`/`tls.dnsProvider` per distribution (a wildcard alias with `auto` needs `dns-01`). Left for later:
+  following a CNAME delegation of `_acme-challenge` (acme-dns style) and more providers.
+- [x] **`helm lint` + kubeconform** locally — October 2026: helm v3.22.0 and kubeconform v0.7.0 (release binaries,
+  SHA-256 verified) ran `make helm-lint HELM=... KUBECONFORM=...` (`deploy/helm/check.sh`): lint, template and
+  kubeconform `-strict` of the default values and every `ci/*-values.yaml` (standalone, SNMD, distributed,
+  distributed TLS) on Kubernetes 1.27.0 and 1.34.0, and the endpoint assertions of every mode: chart OK, nothing
+  to fix. The Makefile already takes `HELM`/`KUBECONFORM` (or `make release-tools`).
+- [x] **govulncheck notice GO-2026-5932** (`golang.org/x/crypto/openpgp` unmaintained, not called by the code) —
+  cannot be dropped: the notice is module-level and covers every version of `golang.org/x/crypto`, which Nexo
+  requires directly (`acme`, `argon2`, `chacha20poly1305`) and through NATS (`nkeys`), grpc and `x/net`;
+  `openpgp` is never built. Accepted, documented in
+  [docs/security/threat-model.md §10.1](docs/security/threat-model.md#101-govulncheck).
 
 ## 3. M10 — P2 features
 

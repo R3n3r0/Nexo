@@ -22,11 +22,13 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/auth"
 	"github.com/r3n3r0/nexo/internal/service/cache"
 	"github.com/r3n3r0/nexo/internal/service/certs"
+	"github.com/r3n3r0/nexo/internal/service/certs/dns01"
 	"github.com/r3n3r0/nexo/internal/service/distribution"
 	"github.com/r3n3r0/nexo/internal/service/match"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
+	"github.com/r3n3r0/nexo/internal/service/ratelimit"
 	"github.com/r3n3r0/nexo/internal/service/sysstore"
 	"github.com/r3n3r0/nexo/internal/service/topology"
 	"github.com/r3n3r0/nexo/internal/service/trace"
@@ -46,8 +48,10 @@ type distStack struct {
 	service distribution.Service
 	raw     distribution.Service
 	certs   certs.Service
-	signer  distribution.Signer
-	website distribution.Website
+	// dnsProviders are the DNS providers of the DNS-01 challenge.
+	dnsProviders certs.DNSProviders
+	signer       distribution.Signer
+	website      distribution.Website
 	// matcher is the matcher of the access rules, of the behaviors (in
 	// the service and in the website engine) and of the cache: one
 	// pattern syntax and one path normalization.
@@ -120,10 +124,22 @@ func newDistCore(d distCoreDeps) (*distStack, error) {
 		}
 		certOpts = append(certOpts, certs.WithHTTPClient(client))
 	}
+	var checkerOpts []dns01.CheckerOption
+	if ns := d.cfg.ACMEDNSNameserverList(); len(ns) > 0 {
+		checkerOpts = append(checkerOpts, dns01.WithNameservers(ns...))
+	}
+	propagation := dns01.NewChecker(checkerOpts...)
+	certLogger := d.logger.With("component", "certs")
+	dnsProviders, err := certs.NewDNSProviders(certs.DNSProvidersDeps{
+		Store: docs, Locks: d.f.locks, Sealer: sealer, Propagation: propagation, Clock: d.clock, Logger: certLogger,
+	})
+	if err != nil {
+		return nil, err
+	}
 	certSvc, err := certs.New(certs.Deps{
 		Store: docs, Locks: d.f.locks, Notifier: d.f.notifier, Leader: d.f.leader, Sealer: sealer,
-		Domains: acmeDomains{dists: raw}, Hosts: certificateHosts{routes: raw}, Metrics: d.registry, Clock: d.clock,
-		Logger: d.logger.With("component", "certs"),
+		Domains: acmeDomains{dists: raw}, Hosts: certificateHosts{routes: raw}, DNSProviders: dnsProviders, Propagation: propagation,
+		Metrics: d.registry, Clock: d.clock, Logger: certLogger,
 	}, certOpts...)
 	if err != nil {
 		return nil, err
@@ -133,13 +149,14 @@ func newDistCore(d distCoreDeps) (*distStack, error) {
 			"opt in with --s3-distributions on, or serve them on --web-address/--web-tls-address")
 	}
 	return &distStack{
-		service:  reconcilingDistributions{Service: raw, certs: certSvc},
-		raw:      raw,
-		s3Routes: raw.ListenerResolver(d.cfg.ServesDistributionsOnS3()),
-		certs:    certSvc,
-		signer:   distribution.NewSigner(distribution.SignerDeps{Clock: d.clock}),
-		matcher:  d.matcher,
-		logger:   logger,
+		service:      reconcilingDistributions{Service: raw, certs: certSvc},
+		raw:          raw,
+		s3Routes:     raw.ListenerResolver(d.cfg.ServesDistributionsOnS3()),
+		certs:        certSvc,
+		dnsProviders: dnsProviders,
+		signer:       distribution.NewSigner(distribution.SignerDeps{Clock: d.clock}),
+		matcher:      d.matcher,
+		logger:       logger,
 	}, nil
 }
 
@@ -220,6 +237,10 @@ type distHTTPDeps struct {
 	// (live trace of type web, spans "web <method>"); nil: not observed.
 	tracer    trace.Service
 	telemetry trace.Telemetry
+	// limiter enforces the rate limits of the distributions (S-DST-08;
+	// nil: not enforced); codec writes the S3 errors of their refusals.
+	limiter ratelimit.Service
+	codec   httpx.Encoder
 }
 
 // composeHTTP builds the website engine, the host routers and the web
@@ -250,7 +271,10 @@ func (s *distStack) composeHTTP(d distHTTPDeps) error {
 	}
 	accessLog := dist.NewAccessLog(dist.AccessLogDeps{Logger: d.logger.With("component", "distribution-access")})
 	hostDeps := dist.HostRouterDeps{Resolver: s.raw, Website: routes, Admission: website, Registry: d.registry, AccessLog: accessLog,
-		Cache: d.cache, Clock: d.clock, Logger: s.logger}
+		Cache: d.cache, Limiter: d.limiter, Clock: d.clock, Logger: s.logger}
+	if d.codec != nil {
+		hostDeps.S3Errors = middleware.S3ErrorWriter(d.codec)
+	}
 	// The S3 listener: its aliases only when it serves the distributions,
 	// and never the reserved "/nexo/" paths (health probes, metrics and
 	// internode RPC stay the server's whatever the host).
@@ -467,7 +491,7 @@ func (a acmeDomains) ACMEDomains(ctx context.Context) ([]certs.ManagedDomains, e
 		if !d.Enabled || d.TLS.Certificate != distribution.CertificateAuto {
 			continue
 		}
-		out = append(out, certs.ManagedDomains{ID: acmeCertificateID(d.ID), Domains: d.Aliases})
+		out = append(out, certs.ManagedDomains{ID: acmeCertificateID(d.ID), Domains: d.Aliases, Challenge: d.TLS.Challenge, DNSProvider: d.TLS.DNSProvider})
 	}
 	return out, nil
 }

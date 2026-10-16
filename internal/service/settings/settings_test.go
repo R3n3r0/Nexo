@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -61,7 +62,8 @@ func TestAPI(t *testing.T) {
 
 func TestApplied(t *testing.T) {
 	assert.True(t, settings.Applied("api", "root_access"))
-	assert.False(t, settings.Applied("api", "requests_max"))
+	assert.True(t, settings.Applied("api", "requests_max"), "read by the rate limiter")
+	assert.True(t, settings.Applied("ratelimit", "s3_ip_burst"))
 	assert.True(t, settings.Applied("scanner", "speed"), "read by the scanner at every cycle")
 	assert.True(t, settings.Applied("scanner", "cycle"))
 	assert.False(t, settings.Applied("region", "comment"))
@@ -70,7 +72,8 @@ func TestApplied(t *testing.T) {
 	assert.True(t, settings.Applied("audit_webhook:siem", "endpoint"), "applied by the audit log")
 	assert.True(t, settings.Applied("audit_kafka", "brokers"))
 	assert.False(t, settings.Applied("audit_webhook", "comment"))
-	assert.False(t, settings.Applied("api", "requests_deadline"))
+	assert.True(t, settings.Applied("api", "requests_deadline"))
+	assert.False(t, settings.Applied("browser", "session_duration"))
 }
 
 // covers: S-OPS-01 (api.root_access=off denies the root credentials on
@@ -140,4 +143,39 @@ func TestAPICORSAllowOrigin(t *testing.T) {
 	assert.Equal(t, []string{"https://a.example.com", "https://*.b.example.com"}, api.CORSAllowOrigin)
 	assert.True(t, api.RootAccess)
 	assert.True(t, settings.Applied("api", "cors_allow_origin"))
+}
+
+// covers: S-OPS-10 (the request limits of the dynamic configuration:
+// defaults, burst defaulting to the rate, invalid values logged as no
+// limit)
+func TestLimits(t *testing.T) {
+	cfg := configmock.NewService(t)
+	cfg.EXPECT().Get(mock.Anything, "api").Return(config.KV{"requests_max": "64", "requests_deadline": "2s"}, nil).Once()
+	cfg.EXPECT().Get(mock.Anything, "ratelimit").Return(config.KV{
+		"s3_ip": "100", "s3_ip_burst": "250", "s3_access_key": "50", "s3_bucket": "nope", "admin_ip": "10", "admin_user": "-3",
+	}, nil).Once()
+	s, err := settings.New(settings.Deps{Config: cfg})
+	require.NoError(t, err)
+	got, err := s.Limits(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, settings.Limits{
+		RequestsMax: 64, RequestsDeadline: 2 * time.Second,
+		S3IP:        settings.Rate{PerSecond: 100, Burst: 250},
+		S3AccessKey: settings.Rate{PerSecond: 50, Burst: 50},
+		AdminIP:     settings.Rate{PerSecond: 10, Burst: 10},
+	}, got)
+
+	cfg.EXPECT().Get(mock.Anything, "api").Return(config.KV{"requests_deadline": "soon"}, nil).Once()
+	cfg.EXPECT().Get(mock.Anything, "ratelimit").Return(config.KV{}, nil).Once()
+	got, err = s.Limits(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, settings.Limits{RequestsDeadline: settings.DefaultRequestsDeadline}, got, "nothing set: no limit")
+
+	cfg.EXPECT().Get(mock.Anything, "api").Return(nil, errDown).Once()
+	_, err = s.Limits(context.Background())
+	assert.ErrorIs(t, err, errDown)
+	cfg.EXPECT().Get(mock.Anything, "api").Return(config.KV{}, nil).Once()
+	cfg.EXPECT().Get(mock.Anything, "ratelimit").Return(nil, errDown).Once()
+	_, err = s.Limits(context.Background())
+	assert.ErrorIs(t, err, errDown)
 }

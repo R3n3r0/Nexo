@@ -29,6 +29,13 @@ const (
 	CertificateUploadPrefix = "upload:"
 )
 
+// ACME challenges of a distribution (DistributionTLS.Challenge).
+const (
+	ChallengeHTTP01    = "http-01"
+	ChallengeTLSALPN01 = "tls-alpn-01"
+	ChallengeDNS01     = "dns-01"
+)
+
 // Origin is the bucket (and prefix) a distribution serves.
 type Origin struct {
 	Bucket         string `json:"bucket" yaml:"bucket"`
@@ -148,7 +155,9 @@ type OriginSecret struct {
 	Values []string `json:"values,omitempty" yaml:"values,omitempty"`
 }
 
-// RateLimit is stored, not enforced yet (P2).
+// RateLimit limits the requests of the distribution on each node:
+// RequestsPerSecond (0: no limit), Burst at once (0: the rate), Per "ip"
+// (default) or "distribution".
 type RateLimit struct {
 	RequestsPerSecond int    `json:"requestsPerSecond,omitempty" yaml:"requestsPerSecond,omitempty"`
 	Burst             int    `json:"burst,omitempty" yaml:"burst,omitempty"`
@@ -167,6 +176,12 @@ type DistributionTLS struct {
 	// Certificate is CertificateAuto, CertificateNone or
 	// CertificateUploadPrefix + id.
 	Certificate string `json:"certificate,omitempty" yaml:"certificate,omitempty"`
+	// Challenge is the ACME challenge of CertificateAuto: "" (the one of
+	// the deployment), ChallengeHTTP01, ChallengeTLSALPN01 or
+	// ChallengeDNS01 (required by a wildcard alias).
+	Challenge string `json:"challenge,omitempty" yaml:"challenge,omitempty"`
+	// DNSProvider names the DNS provider of ChallengeDNS01.
+	DNSProvider string `json:"dnsProvider,omitempty" yaml:"dnsProvider,omitempty"`
 }
 
 // Logging configures the access log.

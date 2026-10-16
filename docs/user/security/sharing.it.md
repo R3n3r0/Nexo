@@ -38,7 +38,9 @@ nexoctl share revoke --all --user alice local
 ```
 
 Anche senza revoca esplicita, un link smette di funzionare se l'utente che l'ha creato viene disabilitato,
-eliminato, perde il permesso o cambia la secret key: i permessi sono valutati **al momento dell'uso**. La
+eliminato, perde il permesso o cambia la secret key: i permessi sono valutati **al momento dell'uso**.
+Disabilitare l'utente (o l'access key con cui il link è stato creato), eliminarlo o cambiarne la secret key
+revoca i suoi link gestiti in modo definitivo: riabilitarlo non li ripristina. La
 console offre lo stesso flusso (**Condividi** su un oggetto o una cartella, con QR code) e la pagina
 **Condivisioni** per vedere e revocare i link.
 
@@ -91,8 +93,8 @@ nexoctl share download --raw --expire 10m local/foto/hello.txt
 ```
 
 Sono URL SigV4 standard, firmati con le credenziali dell'alias: funzionano con qualsiasi client HTTP,
-scadono al più dopo 7 giorni e **non si possono revocare** se non disabilitando o cambiando le credenziali
-che li hanno firmati. Gli header firmati (`--header`) vanno inviati identici. Dietro un reverse proxy
+scadono al più dopo 7 giorni e **non si possono revocare** se non cambiando o eliminando le credenziali
+che li hanno firmati (disabilitarle sospende gli URL finché non vengono riabilitate). Gli header firmati (`--header`) vanno inviati identici. Dietro un reverse proxy
 imposta `NEXO_SERVER_URL` con l'URL pubblico, così console e CLI generano link con l'host giusto, e fai
 inoltrare l'header `Host` invariato (la firma lo include).
 

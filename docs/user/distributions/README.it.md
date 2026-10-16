@@ -126,6 +126,7 @@ permettono di ruotarle senza interruzioni. La firma lato server è disponibile a
 | Comando | Certificato |
 |---------|-------------|
 | `nexoctl dist cert set local ID --auto` | ottenuto e rinnovato via ACME (Let's Encrypt per default) per tutti i domini esatti |
+| `nexoctl dist cert set local ID --auto --dns-provider NOME` | ottenuto via ACME con la challenge DNS-01: domini esatti **e wildcard** |
 | `nexoctl dist cert set local ID --cert crt.pem --key key.pem` | caricato da te (catena PEM, foglia per prima) |
 | `nexoctl dist cert set local ID --none` | nessuno: TLS terminato da un proxy |
 
@@ -133,8 +134,39 @@ Configurazione ACME del server: `NEXO_ACME_EMAIL`, `NEXO_ACME_DIRECTORY` (defaul
 `NEXO_ACME_CHALLENGE` (`http-01` sul listener web, `tls-alpn-01` sul listener web TLS), `NEXO_ACME_CA_CERT`
 per una CA ACME privata. I certificati sono salvati cifrati nel deployment, distribuiti a tutti i nodi e
 presentati per SNI; in cluster il rinnovo è eseguito da un solo nodo. `nexoctl dist cert list` mostra stato e
-scadenza; la metrica `nexo_tls_certificate_expiry_seconds{certificate}` alimenta gli alert. I domini wildcard
-richiedono un certificato caricato.
+scadenza; la metrica `nexo_tls_certificate_expiry_seconds{certificate}` alimenta gli alert. `--challenge`
+sceglie la challenge di una distribuzione (`http-01`, `tls-alpn-01`, `dns-01`) al posto di quella del server.
+
+### Domini wildcard: la challenge DNS-01
+
+Un dominio wildcard (`*.preview.example.com`) può ottenere un certificato ACME solo con la challenge
+**DNS-01**: Nexo pubblica un record TXT `_acme-challenge.<dominio>` nella tua zona DNS, attende che i
+nameserver autoritativi della zona lo servano, chiede alla CA di validarlo e lo rimuove. Una distribuzione con
+un dominio wildcard e certificato automatico deve usare DNS-01 (altrimenti è rifiutata); resta possibile un
+certificato caricato. Dichiara prima un **provider DNS** (permesso `admin:ManageCertificates`):
+
+```bash
+# Cloudflare: un token API con il permesso Zone:DNS:Edit sulla zona
+nexoctl admin dns-provider add local cf --type cloudflare --api-token-file cf-token.txt
+# AWS Route 53: una access key, o niente per le credenziali dell'ambiente dei nodi (ruolo dell'istanza...)
+nexoctl admin dns-provider add local aws --type route53 --access-key-id AKIA... --secret-access-key-file aws.key
+# RFC 2136 (BIND, Knot, PowerDNS): aggiornamenti dinamici firmati con una chiave TSIG
+nexoctl admin dns-provider add local bind --type rfc2136 --nameserver ns1.example.com \
+  --tsig-key nexo-acme --tsig-algorithm hmac-sha256 --tsig-secret-file tsig.key
+
+nexoctl admin dns-provider test local cf example.com   # pubblica, verifica e rimuove un record di prova
+nexoctl dist cert set local previews --auto --dns-provider cf
+```
+
+L'identità Route 53 richiede `route53:ListHostedZonesByName`, `route53:ListResourceRecordSets`,
+`route53:ChangeResourceRecordSets` e `route53:GetChange`; la zona è trovata per nome a meno che
+`--hosted-zone-id` (`--zone-id` per Cloudflare, `--zone` per RFC 2136) la indichi. Le credenziali sono salvate
+cifrate nel deployment, mai più mostrate né scritte nei log: l'API e la console dicono solo se sono
+impostate, e una modifica che le lascia vuote le mantiene. Un provider usato da una distribuzione non può
+essere rimosso. `--propagation-timeout` (default 2 minuti) limita l'attesa del record; con DNS split-horizon o
+una zona privata, `NEXO_ACME_DNS_NAMESERVERS` (`--acme-dns-nameservers`, `host[:porta]` separati da virgola)
+fa verificare a Nexo questi nameserver al posto di quelli autoritativi. La console gestisce i provider in
+**Distribuzioni → Certificati** e la challenge nella scheda **TLS** di una distribuzione.
 
 ## Dietro uno o più proxy
 
@@ -154,10 +186,31 @@ richiedono un certificato caricato.
   Con più proxy, un segreto per proxy come riferimento `${secret:proxy-a}` nel YAML, risolto su ogni nodo da
   `NEXO_SECRET_PROXY_A`.
 - **Restrizioni per indirizzo**: `nexoctl dist restrict local sito-web --deny-ip 203.0.113.0/24` (o
-  `--allow-ip`). `--rate-limit` viene salvato ma non è ancora applicato: limita le richieste sul proxy.
+  `--allow-ip`); il limite di richieste: vedi [Limite di richieste](#limite-di-richieste).
 
 Configurazioni pronte per nginx, Caddy, Traefik, HAProxy e Cloudflare:
 [`deploy/proxy`](https://github.com/R3n3r0/Nexo/tree/main/deploy/proxy).
+
+## Limite di richieste
+
+Una distribuzione può limitare le proprie richieste (`restrictions.rateLimit`, scheda **Sicurezza** della
+console): `requestsPerSecond` in media, `burst` tutte insieme (default: il valore del limite), contate per
+indirizzo client (`per: ip`, il default: il client dietro i proxy fidati) o per l'intera distribuzione
+(`per: distribution`). Oltre la soglia un **sito** risponde `429 Too Many Requests` e una distribuzione **s3**
+`503 SlowDown` (che gli SDK S3 ripetono), entrambe con `Retry-After`.
+
+```bash
+nexoctl dist restrict local sito-web --rate-limit 50 --burst 100              # per indirizzo client
+nexoctl dist restrict local api --rate-limit 500 --rate-limit-per distribution
+nexoctl dist restrict local sito-web --no-rate-limit
+```
+
+Le restrizioni per indirizzo e l'origin secret sono verificati prima: un client che rifiutano non consuma
+token. Il limite è per nodo, come i [limiti di richieste delle API](../configuration.md#limiti-di-richieste):
+dietro un load balancer su N nodi una distribuzione ammette fino a N volte il suo limite. Sul listener S3 le
+richieste di una distribuzione s3 incontrano anche i limiti `ratelimit.s3_*` dell'API S3. I rifiuti sono contati
+in `nexo_ratelimit_throttled_total{api="web"|"s3",kind="distribution"}` e nell'access log della distribuzione
+con il loro stato.
 
 ## Cache
 
@@ -260,7 +313,8 @@ Con `nexoctl cache settings local --debug-secret-file debug.secret`, le richiest
 `nexo_distribution_requests_total{distribution,host,status}`, `nexo_distribution_bytes_served_total`,
 `nexo_distribution_request_duration_seconds`, `nexo_cache_requests_total{distribution,host,result}`,
 `nexo_cache_hit_ratio`, `nexo_cache_bytes_served_total{source}`, `nexo_cache_size_bytes`,
-`nexo_cache_invalidations_total`, `nexo_cache_webhook_calls_total`. Vedi [Monitoraggio](../operations/monitoring.md).
+`nexo_cache_invalidations_total`, `nexo_cache_webhook_calls_total`, `nexo_ratelimit_throttled_total{api,kind}`.
+Vedi [Monitoraggio](../operations/monitoring.md).
 
 ## GitOps
 

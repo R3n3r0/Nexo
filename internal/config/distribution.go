@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"strconv"
 	"strings"
@@ -50,6 +51,8 @@ const (
 	EnvACMEEmail       = "NEXO_ACME_EMAIL"
 	EnvACMEChallenge   = "NEXO_ACME_CHALLENGE"
 	EnvACMECACert      = "NEXO_ACME_CA_CERT"
+	// EnvACMEDNSNameservers: see Static.ACMEDNSNameservers.
+	EnvACMEDNSNameservers = "NEXO_ACME_DNS_NAMESERVERS"
 )
 
 // Flags of the distributions and of their certificates.
@@ -65,6 +68,8 @@ const (
 	FlagACMEEmail       = "acme-email"
 	FlagACMEChallenge   = "acme-challenge"
 	FlagACMECACert      = "acme-ca-cert"
+	// FlagACMEDNSNameservers: see Static.ACMEDNSNameservers.
+	FlagACMEDNSNameservers = "acme-dns-nameservers"
 )
 
 // bindDistributionFlags defines the flags of the distributions.
@@ -79,6 +84,8 @@ func bindDistributionFlags(fs *pflag.FlagSet) {
 	fs.String(FlagACMEEmail, "", "contact of the ACME account")
 	fs.String(FlagACMEChallenge, ACMEChallengeHTTP01, "ACME challenge: http-01 (web listener) or tls-alpn-01 (TLS web listener)")
 	fs.String(FlagACMECACert, "", "PEM file of the CA of the ACME server (a private ACME CA)")
+	fs.String(FlagACMEDNSNameservers, "",
+		"comma-separated nameservers (host[:port]) the DNS-01 propagation check queries instead of the authoritative ones of the zone")
 }
 
 // applyDistributionEnv reads the environment of the distributions.
@@ -86,7 +93,7 @@ func (l *loader) applyDistributionEnv(cfg *Static) error {
 	for key, dst := range map[string]*string{
 		EnvWebAddress: &cfg.WebAddress, EnvWebTLSAddress: &cfg.WebTLSAddress, EnvUnknownHost: &cfg.UnknownHost,
 		EnvACMEDirectory: &cfg.ACMEDirectory, EnvACMEEmail: &cfg.ACMEEmail, EnvACMEChallenge: &cfg.ACMEChallenge,
-		EnvACMECACert: &cfg.ACMECACert, EnvS3Distributions: &cfg.S3Distributions,
+		EnvACMECACert: &cfg.ACMECACert, EnvS3Distributions: &cfg.S3Distributions, EnvACMEDNSNameservers: &cfg.ACMEDNSNameservers,
 	} {
 		if v, ok := l.env(key); ok {
 			*dst = strings.TrimSpace(v)
@@ -108,7 +115,7 @@ func applyDistributionFlags(cfg *Static, fs *pflag.FlagSet) error {
 	for flag, dst := range map[string]*string{
 		FlagWebAddress: &cfg.WebAddress, FlagWebTLSAddress: &cfg.WebTLSAddress, FlagUnknownHost: &cfg.UnknownHost,
 		FlagACMEDirectory: &cfg.ACMEDirectory, FlagACMEEmail: &cfg.ACMEEmail, FlagACMEChallenge: &cfg.ACMEChallenge,
-		FlagACMECACert: &cfg.ACMECACert, FlagS3Distributions: &cfg.S3Distributions,
+		FlagACMECACert: &cfg.ACMECACert, FlagS3Distributions: &cfg.S3Distributions, FlagACMEDNSNameservers: &cfg.ACMEDNSNameservers,
 	} {
 		if fs.Lookup(flag) == nil || !fs.Changed(flag) {
 			continue
@@ -147,6 +154,17 @@ func (s Static) ServesDistributionsOnS3() bool {
 	}
 }
 
+// ACMEDNSNameserverList returns the nameservers of ACMEDNSNameservers.
+func (s Static) ACMEDNSNameserverList() []string {
+	var out []string
+	for _, ns := range strings.Split(s.ACMEDNSNameservers, ",") {
+		if ns = strings.TrimSpace(ns); ns != "" {
+			out = append(out, ns)
+		}
+	}
+	return out
+}
+
 // validateDistribution checks the settings of the distributions.
 func (s Static) validateDistribution() []error {
 	var errs []error
@@ -180,10 +198,32 @@ func (s Static) validateDistribution() []error {
 	default:
 		errs = append(errs, fmt.Errorf("acme challenge %q must be %s or %s", s.ACMEChallenge, ACMEChallengeHTTP01, ACMEChallengeTLSALPN01))
 	}
+	for _, ns := range s.ACMEDNSNameserverList() {
+		if !validNameserver(ns) {
+			errs = append(errs, fmt.Errorf("acme dns nameserver %q must be host or host:port", ns))
+		}
+	}
 	if s.ACMEDirectory != "" {
 		if u, err := url.Parse(s.ACMEDirectory); err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
 			errs = append(errs, errors.New("acme directory must be an http(s) URL"))
 		}
 	}
 	return errs
+}
+
+// validNameserver reports a host, an IP or either with a port.
+func validNameserver(ns string) bool {
+	host, port := ns, ""
+	if h, p, err := net.SplitHostPort(ns); err == nil {
+		host, port = h, p
+	}
+	if port != "" {
+		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+			return false
+		}
+	}
+	if net.ParseIP(host) != nil {
+		return true
+	}
+	return host != "" && !strings.ContainsAny(host, " /:@[]")
 }

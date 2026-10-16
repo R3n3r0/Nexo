@@ -137,3 +137,55 @@ func TestCertificateManagerWithoutDistributions(t *testing.T) {
 	assert.Equal(t, certs.LetsEncryptDirectory, got.ACME.Directory)
 	assert.Empty(t, got.ACME.Managed)
 }
+
+func TestCertificateManagerDNSProviders(t *testing.T) {
+	ctx := context.Background()
+	certSvc, dists, providers := certsmock.NewService(t), distmock.NewService(t), certsmock.NewDNSProviders(t)
+	m, err := admin.NewCertificateManager(admin.CertificateManagerDeps{Certs: certSvc, Distributions: dists, DNSProviders: providers})
+	require.NoError(t, err)
+	dists.EXPECT().List(mock.Anything).Return([]distribution.Distribution{
+		{ID: "z", TLS: distribution.TLS{Certificate: "auto", Challenge: "dns-01", DNSProvider: "cf"}},
+		{ID: "y", TLS: distribution.TLS{Certificate: "auto", Challenge: "dns-01", DNSProvider: "cf"}},
+		{ID: "x", TLS: distribution.TLS{Certificate: "auto"}},
+	}, nil).Maybe()
+	cf := certs.DNSProviderConfig{Name: "cf", Type: certs.DNSProviderCloudflare, HasCredentials: true}
+	r53 := certs.DNSProviderConfig{Name: "r53", Type: certs.DNSProviderRoute53}
+	providers.EXPECT().List(mock.Anything).Return([]certs.DNSProviderConfig{cf, r53}, nil)
+	list, err := m.ListDNSProviders(ctx)
+	require.NoError(t, err)
+	require.Len(t, list, 2)
+	assert.Equal(t, []string{"y", "z"}, list[0].UsedBy)
+	assert.Equal(t, []string{}, list[1].UsedBy)
+
+	// In use: kept; unused: deleted.
+	providers.EXPECT().Get(mock.Anything, "cf").Return(cf, nil)
+	require.ErrorIs(t, m.DeleteDNSProvider(ctx, "cf"), certs.ErrDNSProviderInUse)
+	providers.EXPECT().Get(mock.Anything, "r53").Return(r53, nil)
+	providers.EXPECT().Delete(mock.Anything, "r53").Return(nil)
+	require.NoError(t, m.DeleteDNSProvider(ctx, "r53"))
+
+	// An update of a provider in use asks the leader to retry its orders.
+	providers.EXPECT().Update(mock.Anything, mock.Anything, mock.Anything).Return(cf, nil)
+	certSvc.EXPECT().Trigger(mock.Anything).Once()
+	got, err := m.UpdateDNSProvider(ctx, cf, certs.DNSCredentials{})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"y", "z"}, got.UsedBy)
+
+	providers.EXPECT().Test(mock.Anything, "cf", "example.com").Return(certs.DNSTestResult{OK: true, Record: "_acme-challenge.example.com"}, nil)
+	res, err := m.TestDNSProvider(ctx, "cf", "example.com")
+	require.NoError(t, err)
+	assert.True(t, res.OK)
+}
+
+func TestCertificateManagerWithoutDNSProviders(t *testing.T) {
+	ctx := context.Background()
+	m, err := admin.NewCertificateManager(admin.CertificateManagerDeps{Certs: certsmock.NewService(t)})
+	require.NoError(t, err)
+	list, err := m.ListDNSProviders(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, list)
+	_, err = m.CreateDNSProvider(ctx, certs.DNSProviderConfig{Name: "x"}, certs.DNSCredentials{})
+	require.ErrorIs(t, err, domain.ErrInvalidArgument)
+	_, err = m.GetDNSProvider(ctx, "x")
+	require.ErrorIs(t, err, certs.ErrDNSProviderNotFound)
+}

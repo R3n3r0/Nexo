@@ -131,3 +131,17 @@ func statusError(status int) string {
 	}
 	return "status " + strconv.Itoa(status)
 }
+
+// AuditTagThrottled is the tag of the audit entries of the requests a rate
+// limit refused: its value is the kind of the limit.
+const AuditTagThrottled = "throttled"
+
+// outcomeError describes a failed request: its status, and the rate limit
+// that refused it, if one did (httpx.SetOperationThrottled).
+func outcomeError(status int, throttled string) string {
+	e := statusError(status)
+	if throttled != "" {
+		e += " (rate limit: " + throttled + ")"
+	}
+	return e
+}

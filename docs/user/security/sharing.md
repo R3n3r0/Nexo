@@ -39,6 +39,8 @@ nexoctl share revoke --all --user alice local
 
 Even without an explicit revocation, a link stops working if the user who created it is disabled,
 deleted, loses the permission or changes their secret key: permissions are evaluated **at the time of use**.
+Disabling the user (or the access key the link was created with), deleting it or changing its secret key
+revokes its managed links for good: enabling it again does not bring them back.
 The console offers the same flow (**Share** on an object or a folder, with a QR code) and the **Shares**
 page to see and revoke the links.
 
@@ -91,8 +93,8 @@ nexoctl share download --raw --expire 10m local/photos/hello.txt
 ```
 
 They are standard SigV4 URLs, signed with the alias's credentials: they work with any HTTP client,
-expire after 7 days at most and **cannot be revoked** except by disabling or changing the credentials that
-signed them. Signed headers (`--header`) must be sent identical. Behind a reverse proxy set
+expire after 7 days at most and **cannot be revoked** except by changing or deleting the credentials that
+signed them (disabling them suspends the URLs until they are enabled again). Signed headers (`--header`) must be sent identical. Behind a reverse proxy set
 `NEXO_SERVER_URL` to the public URL, so that the console and the CLI generate links with the right host, and
 have the proxy forward the `Host` header unchanged (the signature includes it).
 

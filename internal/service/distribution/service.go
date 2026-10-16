@@ -257,7 +257,20 @@ type OriginSecret struct {
 	Values []string `json:"values,omitempty" yaml:"values,omitempty"`
 }
 
-// RateLimit is stored and validated, not enforced yet (docs/10 P2).
+// Scopes of a rate limit (RateLimit.Per).
+const (
+	// RateLimitPerIP gives every client address its own bucket (the
+	// default).
+	RateLimitPerIP = "ip"
+	// RateLimitPerDistribution makes the clients share one bucket.
+	RateLimitPerDistribution = "distribution"
+)
+
+// RateLimit limits the requests of a distribution on every node
+// (S-DST-08, docs/10 TDS-13): RequestsPerSecond on average (0: no limit),
+// up to Burst at once (0: RequestsPerSecond), per client address or for
+// the whole distribution (Per). Beyond it a website answers 429 Too Many
+// Requests, an s3 distribution 503 SlowDown, with Retry-After.
 type RateLimit struct {
 	RequestsPerSecond int    `json:"requestsPerSecond,omitempty" yaml:"requestsPerSecond,omitempty"`
 	Burst             int    `json:"burst,omitempty" yaml:"burst,omitempty"`
@@ -284,9 +297,26 @@ const (
 	CertificateNone = "none"
 )
 
+// ACME challenges of a distribution (TLS.Challenge, certificate "auto").
+const (
+	ChallengeHTTP01    = "http-01"
+	ChallengeTLSALPN01 = "tls-alpn-01"
+	// ChallengeDNS01 publishes the TXT records through TLS.DNSProvider:
+	// required by the wildcard aliases.
+	ChallengeDNS01 = "dns-01"
+)
+
 // TLS is the certificate of the aliases of a distribution.
 type TLS struct {
 	Certificate string `json:"certificate,omitempty" yaml:"certificate,omitempty"`
+	// Challenge is the ACME challenge of the certificate "auto": "" (the
+	// challenge of the deployment, NEXO_ACME_CHALLENGE), ChallengeHTTP01,
+	// ChallengeTLSALPN01 or ChallengeDNS01 (required with a wildcard
+	// alias).
+	Challenge string `json:"challenge,omitempty" yaml:"challenge,omitempty"`
+	// DNSProvider names the DNS provider of ChallengeDNS01 (the
+	// /dns-providers of the Admin API).
+	DNSProvider string `json:"dnsProvider,omitempty" yaml:"dnsProvider,omitempty"`
 }
 
 // Access log formats.

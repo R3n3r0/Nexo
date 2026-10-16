@@ -46,12 +46,14 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/metrics"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
+	"github.com/r3n3r0/nexo/internal/service/ratelimit"
 	"github.com/r3n3r0/nexo/internal/service/session"
 	"github.com/r3n3r0/nexo/internal/service/share"
 	"github.com/r3n3r0/nexo/internal/service/storage"
 	"github.com/r3n3r0/nexo/internal/service/topology"
 	"github.com/r3n3r0/nexo/internal/service/trace"
 	adminhttp "github.com/r3n3r0/nexo/internal/transport/http/admin"
+	"github.com/r3n3r0/nexo/internal/transport/http/dist"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
 	"github.com/r3n3r0/nexo/internal/transport/http/s3"
@@ -491,11 +493,19 @@ type middlewareDeps struct {
 	// their spans (observability.go).
 	tracer    trace.Service
 	telemetry trace.Telemetry
+	// limiter enforces the rate and concurrency limits of the requests
+	// (S-OPS-10; nil: none).
+	limiter ratelimit.Service
 }
 
 // s3Middlewares returns the middleware chain of the S3 listener, outermost
 // first: request ids, forwarded client, panic recovery, access log,
-// metrics, audit and SigV4 authentication (the S3 API applies CORS). Audit wraps the
+// metrics, audit, the rate limit of the client address and the
+// concurrency limit (api.requests_max), SigV4 authentication and the rate
+// limits of the access key and of the bucket (the S3 API applies CORS).
+// The limits run inside the observers, which see and mark the refusals,
+// and leave alone the health probes, the metrics scrapes and the website
+// distributions (which have their own limit). Audit wraps the
 // authentication so that rejected requests are recorded too; it learns the
 // identity through its holder. The client behind the trusted proxies is
 // the one of the console listener too, so that aws:SourceIp and
@@ -537,6 +547,10 @@ func s3Middlewares(d middlewareDeps) ([]middleware.Middleware, error) {
 	if err != nil {
 		return nil, err
 	}
+	limits, err := s3Limits(d)
+	if err != nil {
+		return nil, err
+	}
 	return []middleware.Middleware{
 		middleware.NewRequestID(middleware.RequestIDDeps{IDs: d.ids}),
 		forwarded,
@@ -557,8 +571,50 @@ func s3Middlewares(d middlewareDeps) ([]middleware.Middleware, error) {
 		// router names and the identity the authentication establishes.
 		apiMetrics,
 		obs.trace,
+		limits.ip,
+		limits.concurrency,
 		authn,
+		limits.user,
 	}, nil
+}
+
+// requestLimits are the limit middlewares of the S3 listener (nil without
+// a limiter: Chain skips them).
+type requestLimits struct {
+	ip, concurrency, user middleware.Middleware
+}
+
+// s3Limits returns the limit middlewares of the S3 listener. The health
+// probes, the metrics scrapes and the internode RPC (the reserved "/nexo/"
+// paths, outside the virtual hosts) are exempt, and so are the website
+// distributions, limited by their own rate limit in the host router.
+func s3Limits(d middlewareDeps) (requestLimits, error) {
+	var out requestLimits
+	if d.limiter == nil {
+		return out, nil
+	}
+	virtualHost := s3.VirtualHostRequest(d.domains...)
+	var website func(*http.Request) bool
+	if d.dist != nil {
+		website = dist.WebsiteRequest(d.dist.s3Routes)
+	}
+	exempt := func(r *http.Request) bool {
+		if strings.HasPrefix(r.URL.Path, domain.SystemPathPrefix) && !virtualHost(r) {
+			return true
+		}
+		return website != nil && website(r)
+	}
+	deps := middleware.RateLimitDeps{Limiter: d.limiter, OnError: middleware.S3ErrorWriter(d.codec)}
+	var err error
+	if out.ip, err = middleware.NewRateLimit(deps, middleware.WithRateLimitSkip(exempt)); err != nil {
+		return out, err
+	}
+	if out.concurrency, err = middleware.NewConcurrencyLimit(deps, middleware.WithConcurrencySkip(exempt)); err != nil {
+		return out, err
+	}
+	out.user, err = middleware.NewRateLimit(deps, middleware.WithRateLimitSkip(exempt), middleware.WithRateLimitDomains(d.domains...),
+		middleware.WithRateLimitScopes(ratelimit.KindUser, ratelimit.KindBucket))
+	return out, err
 }
 
 // requestObservers are the middlewares of the distributed tracing and of
@@ -614,6 +670,16 @@ func consoleMiddlewares(d middlewareDeps) ([]middleware.Middleware, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The rate limit of the client address on the Admin API (not the
+	// assets of the web UI, not the health probes), inside the observers.
+	var ipLimit middleware.Middleware
+	if d.limiter != nil {
+		if ipLimit, err = middleware.NewRateLimit(middleware.RateLimitDeps{Limiter: d.limiter, OnError: middleware.ProblemErrorWriter(d.codec)},
+			middleware.WithRateLimitAPI(ratelimit.APIAdmin),
+			middleware.WithRateLimitSkip(func(r *http.Request) bool { return !consoleAPIRequest(r) })); err != nil {
+			return nil, err
+		}
+	}
 	return []middleware.Middleware{
 		middleware.NewRequestID(middleware.RequestIDDeps{IDs: d.ids}),
 		forwarded,
@@ -632,6 +698,7 @@ func consoleMiddlewares(d middlewareDeps) ([]middleware.Middleware, error) {
 		// the live trace learn the identity through their holder.
 		auditing,
 		obs.trace,
+		ipLimit,
 	}, nil
 }
 
@@ -686,6 +753,9 @@ type adminDeps struct {
 	obsLogs    logs.Service
 	obsAudit   audit.Service
 	obsHistory metrics.History
+	// limiter enforces the rate limit of the users of the Admin API
+	// (S-OPS-10; nil: none).
+	limiter ratelimit.Service
 }
 
 // adminServices are the console services of internal/service/admin the
@@ -745,7 +815,7 @@ func buildAdminServices(d adminDeps) (adminServices, error) {
 	if out.identities, err = adminsvc.NewIdentityManager(adminsvc.IdentityManagerDeps{IAM: d.iam, Authz: out.authz, Shares: d.shares, Logger: d.logger}); err != nil {
 		return out, err
 	}
-	if out.accessKeys, err = adminsvc.NewAccessKeyManager(adminsvc.AccessKeyManagerDeps{IAM: d.iam, Authz: out.authz, Logger: d.logger}); err != nil {
+	if out.accessKeys, err = adminsvc.NewAccessKeyManager(adminsvc.AccessKeyManagerDeps{IAM: d.iam, Authz: out.authz, Shares: d.shares, Logger: d.logger}); err != nil {
 		return out, err
 	}
 	if out.policies, err = adminsvc.NewPolicyManager(adminsvc.PolicyManagerDeps{Policy: d.policy, Creds: d.iam, Logger: d.logger}); err != nil {
@@ -877,7 +947,16 @@ func buildAdminAPI(d adminDeps) (httpx.Routes, error) {
 		return nil, err
 	}
 	groups = append(groups, obsRoutes)
-	return adminhttp.NewAPI(adminhttp.APIDeps{Enc: d.codec, Auth: authn}, groups...)
+	apiDeps := adminhttp.APIDeps{Enc: d.codec, Auth: authn}
+	if d.limiter != nil {
+		// The rate limit of the authenticated user (the one of the client
+		// address is a middleware of the listener).
+		if apiDeps.Limit, err = middleware.NewRateLimit(middleware.RateLimitDeps{Limiter: d.limiter, OnError: middleware.ProblemErrorWriter(d.codec)},
+			middleware.WithRateLimitAPI(ratelimit.APIAdmin), middleware.WithRateLimitScopes(ratelimit.KindUser)); err != nil {
+			return nil, err
+		}
+	}
+	return adminhttp.NewAPI(apiDeps, groups...)
 }
 
 // processActions implements the service control of the Admin API (POST
@@ -1163,6 +1242,15 @@ func (a *App) Distributions() distribution.Service {
 func (a *App) Certificates() certs.Service {
 	if s := a.services(); s != nil {
 		return s.dist.certs
+	}
+	return nil
+}
+
+// DNSProviders returns the DNS providers of the ACME DNS-01 challenge
+// (integration tests).
+func (a *App) DNSProviders() certs.DNSProviders {
+	if s := a.services(); s != nil {
+		return s.dist.dnsProviders
 	}
 	return nil
 }

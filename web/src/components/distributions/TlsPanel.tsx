@@ -5,9 +5,9 @@ import { Link } from 'react-router';
 
 import { ChoiceField } from '@/components/common/ChoiceField';
 import { distributionKeys } from '@/lib/accessQueries';
-import { tlsMode } from '@/lib/distributions';
+import { tlsMode, wildcardNeedingDns } from '@/lib/distributions';
 import { problemMessage } from '@/lib/problem';
-import { useServices, type Distribution } from '@/services';
+import { useServices, type AcmeChallenge, type Distribution } from '@/services';
 
 import { CertificateStatusBadge } from './CertificateStatusBadge';
 
@@ -36,9 +36,26 @@ export function TlsPanel({ draft, onChange, readOnly, canReadCertificates }: Tls
   const uploaded = list.data?.items ?? [];
   const current = mode.mode === 'upload' ? uploaded.find((c) => c.id === mode.id) : undefined;
   const managed = list.data?.acme.managed.filter((m) => m.distributions.includes(draft.id)) ?? [];
+  const providers = useQuery({
+    queryKey: distributionKeys.dnsProviders,
+    queryFn: () => certificates.listDnsProviders(),
+    enabled: canReadCertificates && mode.mode === 'auto',
+  });
+  const challenge = draft.tls?.challenge;
+  const wildcard = wildcardNeedingDns(draft);
 
   const set = (certificate: string) => {
     onChange({ ...draft, tls: { certificate } });
+  };
+  const setChallenge = (value: AcmeChallenge | undefined, dnsProvider?: string) => {
+    onChange({
+      ...draft,
+      tls: {
+        certificate: 'auto',
+        ...(value !== undefined ? { challenge: value } : {}),
+        ...(dnsProvider !== undefined ? { dnsProvider } : {}),
+      },
+    });
   };
 
   return (
@@ -94,6 +111,63 @@ export function TlsPanel({ draft, onChange, readOnly, canReadCertificates }: Tls
             />
             {current !== undefined ? <CertificateStatusBadge certificate={current} /> : null}
           </Group>
+        ) : null}
+        {mode.mode === 'auto' ? (
+          <Group align="flex-start" gap="sm" wrap="wrap">
+            <Select
+              label={t('distributions.tls.challenge')}
+              description={t('distributions.tls.challengeHint')}
+              data={[
+                {
+                  value: '',
+                  label: t('distributions.tls.challengeDefault', {
+                    challenge: list.data?.acme.challenge ?? 'http-01',
+                  }),
+                },
+                ...(['http-01', 'tls-alpn-01', 'dns-01'] as const).map((c) => ({
+                  value: c,
+                  label: t(`distributions.tls.challenges.${c}`),
+                })),
+              ]}
+              value={challenge ?? ''}
+              disabled={readOnly}
+              allowDeselect={false}
+              miw={280}
+              onChange={(value) => {
+                if (value === null) return;
+                if (value === 'dns-01') {
+                  setChallenge('dns-01', draft.tls?.dnsProvider ?? providers.data?.[0]?.name ?? '');
+                } else setChallenge(value === '' ? undefined : (value as AcmeChallenge));
+              }}
+            />
+            {challenge === 'dns-01' ? (
+              <Select
+                label={t('distributions.tls.dnsProvider')}
+                placeholder={t('distributions.tls.dnsProviderPlaceholder')}
+                description={
+                  providers.data !== undefined && providers.data.length === 0
+                    ? t('distributions.tls.noDnsProvider')
+                    : undefined
+                }
+                data={(providers.data ?? []).map((p) => ({
+                  value: p.name,
+                  label: `${p.name} (${t(`certificates.dns.types.${p.type}`)})`,
+                }))}
+                value={draft.tls?.dnsProvider === '' ? null : (draft.tls?.dnsProvider ?? null)}
+                disabled={readOnly}
+                allowDeselect={false}
+                miw={240}
+                onChange={(value) => {
+                  if (value !== null) setChallenge('dns-01', value);
+                }}
+              />
+            ) : null}
+          </Group>
+        ) : null}
+        {wildcard !== undefined ? (
+          <Alert color="orange" variant="light" role="alert">
+            {t('distributions.tls.wildcardNeedsDns', { alias: wildcard })}
+          </Alert>
         ) : null}
         {mode.mode === 'auto' && list.data !== undefined ? (
           <Stack gap={4}>

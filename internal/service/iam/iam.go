@@ -24,6 +24,9 @@ type userRecord struct {
 	PolicyNames []string                `json:"policyNames,omitempty"`
 	CreatedAt   time.Time               `json:"createdAt"`
 	UpdatedAt   time.Time               `json:"updatedAt"`
+	// RevocationEpoch counts the times the user was disabled
+	// (domain.Credentials.RevocationEpoch).
+	RevocationEpoch uint64 `json:"revocationEpoch,omitempty"`
 }
 
 type groupRecord struct {
@@ -46,6 +49,9 @@ type serviceAccountRecord struct {
 	Policy      *domain.Policy          `json:"policy,omitempty"`
 	CreatedAt   time.Time               `json:"createdAt"`
 	UpdatedAt   time.Time               `json:"updatedAt"`
+	// RevocationEpoch counts the times the key was disabled
+	// (domain.Credentials.RevocationEpoch).
+	RevocationEpoch uint64 `json:"revocationEpoch,omitempty"`
 }
 
 type stsRecord struct {

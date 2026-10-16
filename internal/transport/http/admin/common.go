@@ -254,6 +254,10 @@ const (
 	codeInvalidDistribution  = "invalid_distribution"
 	codeCertificateNotFound  = "certificate_not_found"
 	codeInvalidCertificate   = "invalid_certificate"
+	codeDNSProviderNotFound  = "dns_provider_not_found"
+	codeInvalidDNSProvider   = "invalid_dns_provider"
+	codeDNSProviderExists    = "dns_provider_exists"
+	codeDNSProviderInUse     = "dns_provider_in_use"
 )
 
 // Problem codes of the cache (docs/11).
@@ -288,6 +292,10 @@ func refinedProblem(err error) (int, string, bool) {
 		{distribution.ErrInvalid, http.StatusBadRequest, codeInvalidDistribution},
 		{certs.ErrCertificateNotFound, http.StatusNotFound, codeCertificateNotFound},
 		{certs.ErrInvalidCertificate, http.StatusBadRequest, codeInvalidCertificate},
+		{certs.ErrDNSProviderNotFound, http.StatusNotFound, codeDNSProviderNotFound},
+		{certs.ErrInvalidDNSProvider, http.StatusBadRequest, codeInvalidDNSProvider},
+		{certs.ErrDNSProviderExists, http.StatusConflict, codeDNSProviderExists},
+		{certs.ErrDNSProviderInUse, http.StatusConflict, codeDNSProviderInUse},
 		{cache.ErrPolicyNotFound, http.StatusNotFound, codeCachePolicyNotFound},
 		{cache.ErrInvalidationNotFound, http.StatusNotFound, codeInvalidationNotFound},
 		{cache.ErrWarmJobNotFound, http.StatusNotFound, codeWarmJobNotFound},

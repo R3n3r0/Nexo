@@ -17,6 +17,9 @@ type OperationHolder struct {
 	target         bool
 	// err is the error a handler answered with (SetOperationError).
 	err error
+	// throttled is the kind of the rate limit that refused the request
+	// (SetOperationThrottled).
+	throttled string
 }
 
 type operationKey struct{}
@@ -100,4 +103,26 @@ func (h *OperationHolder) Err() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.err
+}
+
+// SetOperationThrottled records that a rate limit refused the request
+// (its kind: ip, user, bucket, distribution, concurrency), when a holder is
+// present: the audit log and the live trace mark the request.
+func SetOperationThrottled(ctx context.Context, kind string) {
+	if h, ok := ctx.Value(operationKey{}).(*OperationHolder); ok {
+		h.mu.Lock()
+		h.throttled = kind
+		h.mu.Unlock()
+	}
+}
+
+// Throttled returns the kind of the rate limit that refused the request
+// ("" when none did).
+func (h *OperationHolder) Throttled() string {
+	if h == nil {
+		return ""
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.throttled
 }

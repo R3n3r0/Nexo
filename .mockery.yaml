@@ -92,6 +92,12 @@ packages:
       HostSource:
       Sealer:
       Keystore:
+      DNSProviders:
+      DNSProviderSource:
+  github.com/r3n3r0/nexo/internal/service/certs/dns01:
+    interfaces:
+      Provider:
+      Checker:
   github.com/r3n3r0/nexo/internal/service/cluster:
     interfaces:
       Notifier:
@@ -214,6 +220,9 @@ packages:
     interfaces:
       Service:
       UsageSource:
+  github.com/r3n3r0/nexo/internal/service/ratelimit:
+    interfaces:
+      Service:
   github.com/r3n3r0/nexo/internal/service/scanner:
     interfaces:
       Service:

@@ -547,6 +547,65 @@ func (_c *AdminClient_CreateCachePolicy_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
+// CreateDNSProvider provides a mock function with given fields: ctx, in
+func (_m *AdminClient) CreateDNSProvider(ctx context.Context, in nexoadmin.DNSProviderRequest) (*nexoadmin.DNSProvider, error) {
+	ret := _m.Called(ctx, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateDNSProvider")
+	}
+
+	var r0 *nexoadmin.DNSProvider
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, nexoadmin.DNSProviderRequest) (*nexoadmin.DNSProvider, error)); ok {
+		return rf(ctx, in)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, nexoadmin.DNSProviderRequest) *nexoadmin.DNSProvider); ok {
+		r0 = rf(ctx, in)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.DNSProvider)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, nexoadmin.DNSProviderRequest) error); ok {
+		r1 = rf(ctx, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_CreateDNSProvider_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateDNSProvider'
+type AdminClient_CreateDNSProvider_Call struct {
+	*mock.Call
+}
+
+// CreateDNSProvider is a helper method to define mock.On call
+//   - ctx context.Context
+//   - in nexoadmin.DNSProviderRequest
+func (_e *AdminClient_Expecter) CreateDNSProvider(ctx interface{}, in interface{}) *AdminClient_CreateDNSProvider_Call {
+	return &AdminClient_CreateDNSProvider_Call{Call: _e.mock.On("CreateDNSProvider", ctx, in)}
+}
+
+func (_c *AdminClient_CreateDNSProvider_Call) Run(run func(ctx context.Context, in nexoadmin.DNSProviderRequest)) *AdminClient_CreateDNSProvider_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(nexoadmin.DNSProviderRequest))
+	})
+	return _c
+}
+
+func (_c *AdminClient_CreateDNSProvider_Call) Return(_a0 *nexoadmin.DNSProvider, _a1 error) *AdminClient_CreateDNSProvider_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_CreateDNSProvider_Call) RunAndReturn(run func(context.Context, nexoadmin.DNSProviderRequest) (*nexoadmin.DNSProvider, error)) *AdminClient_CreateDNSProvider_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CreateDistribution provides a mock function with given fields: ctx, d
 func (_m *AdminClient) CreateDistribution(ctx context.Context, d nexoadmin.Distribution) (*nexoadmin.Distribution, error) {
 	ret := _m.Called(ctx, d)
@@ -1312,6 +1371,53 @@ func (_c *AdminClient_DeleteConfig_Call) Return(_a0 error) *AdminClient_DeleteCo
 }
 
 func (_c *AdminClient_DeleteConfig_Call) RunAndReturn(run func(context.Context, string, ...string) error) *AdminClient_DeleteConfig_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeleteDNSProvider provides a mock function with given fields: ctx, name
+func (_m *AdminClient) DeleteDNSProvider(ctx context.Context, name string) error {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteDNSProvider")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, name)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_DeleteDNSProvider_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteDNSProvider'
+type AdminClient_DeleteDNSProvider_Call struct {
+	*mock.Call
+}
+
+// DeleteDNSProvider is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+func (_e *AdminClient_Expecter) DeleteDNSProvider(ctx interface{}, name interface{}) *AdminClient_DeleteDNSProvider_Call {
+	return &AdminClient_DeleteDNSProvider_Call{Call: _e.mock.On("DeleteDNSProvider", ctx, name)}
+}
+
+func (_c *AdminClient_DeleteDNSProvider_Call) Run(run func(ctx context.Context, name string)) *AdminClient_DeleteDNSProvider_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_DeleteDNSProvider_Call) Return(_a0 error) *AdminClient_DeleteDNSProvider_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_DeleteDNSProvider_Call) RunAndReturn(run func(context.Context, string) error) *AdminClient_DeleteDNSProvider_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -2592,6 +2698,65 @@ func (_c *AdminClient_GetConfig_Call) RunAndReturn(run func(context.Context, str
 	return _c
 }
 
+// GetDNSProvider provides a mock function with given fields: ctx, name
+func (_m *AdminClient) GetDNSProvider(ctx context.Context, name string) (*nexoadmin.DNSProvider, error) {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetDNSProvider")
+	}
+
+	var r0 *nexoadmin.DNSProvider
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*nexoadmin.DNSProvider, error)); ok {
+		return rf(ctx, name)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *nexoadmin.DNSProvider); ok {
+		r0 = rf(ctx, name)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.DNSProvider)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, name)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_GetDNSProvider_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetDNSProvider'
+type AdminClient_GetDNSProvider_Call struct {
+	*mock.Call
+}
+
+// GetDNSProvider is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+func (_e *AdminClient_Expecter) GetDNSProvider(ctx interface{}, name interface{}) *AdminClient_GetDNSProvider_Call {
+	return &AdminClient_GetDNSProvider_Call{Call: _e.mock.On("GetDNSProvider", ctx, name)}
+}
+
+func (_c *AdminClient_GetDNSProvider_Call) Run(run func(ctx context.Context, name string)) *AdminClient_GetDNSProvider_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_GetDNSProvider_Call) Return(_a0 *nexoadmin.DNSProvider, _a1 error) *AdminClient_GetDNSProvider_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_GetDNSProvider_Call) RunAndReturn(run func(context.Context, string) (*nexoadmin.DNSProvider, error)) *AdminClient_GetDNSProvider_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetDistribution provides a mock function with given fields: ctx, id
 func (_m *AdminClient) GetDistribution(ctx context.Context, id string) (*nexoadmin.Distribution, error) {
 	ret := _m.Called(ctx, id)
@@ -3754,6 +3919,64 @@ func (_c *AdminClient_ListConfig_Call) Return(_a0 []nexoadmin.ConfigSubsystem, _
 }
 
 func (_c *AdminClient_ListConfig_Call) RunAndReturn(run func(context.Context) ([]nexoadmin.ConfigSubsystem, error)) *AdminClient_ListConfig_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListDNSProviders provides a mock function with given fields: ctx
+func (_m *AdminClient) ListDNSProviders(ctx context.Context) ([]nexoadmin.DNSProvider, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListDNSProviders")
+	}
+
+	var r0 []nexoadmin.DNSProvider
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]nexoadmin.DNSProvider, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []nexoadmin.DNSProvider); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]nexoadmin.DNSProvider)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_ListDNSProviders_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListDNSProviders'
+type AdminClient_ListDNSProviders_Call struct {
+	*mock.Call
+}
+
+// ListDNSProviders is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) ListDNSProviders(ctx interface{}) *AdminClient_ListDNSProviders_Call {
+	return &AdminClient_ListDNSProviders_Call{Call: _e.mock.On("ListDNSProviders", ctx)}
+}
+
+func (_c *AdminClient_ListDNSProviders_Call) Run(run func(ctx context.Context)) *AdminClient_ListDNSProviders_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_ListDNSProviders_Call) Return(_a0 []nexoadmin.DNSProvider, _a1 error) *AdminClient_ListDNSProviders_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_ListDNSProviders_Call) RunAndReturn(run func(context.Context) ([]nexoadmin.DNSProvider, error)) *AdminClient_ListDNSProviders_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -5967,6 +6190,66 @@ func (_c *AdminClient_TestCacheWebhook_Call) RunAndReturn(run func(context.Conte
 	return _c
 }
 
+// TestDNSProvider provides a mock function with given fields: ctx, name, domain
+func (_m *AdminClient) TestDNSProvider(ctx context.Context, name string, domain string) (*nexoadmin.DNSProviderTestResult, error) {
+	ret := _m.Called(ctx, name, domain)
+
+	if len(ret) == 0 {
+		panic("no return value specified for TestDNSProvider")
+	}
+
+	var r0 *nexoadmin.DNSProviderTestResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) (*nexoadmin.DNSProviderTestResult, error)); ok {
+		return rf(ctx, name, domain)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) *nexoadmin.DNSProviderTestResult); ok {
+		r0 = rf(ctx, name, domain)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.DNSProviderTestResult)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, name, domain)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_TestDNSProvider_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TestDNSProvider'
+type AdminClient_TestDNSProvider_Call struct {
+	*mock.Call
+}
+
+// TestDNSProvider is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+//   - domain string
+func (_e *AdminClient_Expecter) TestDNSProvider(ctx interface{}, name interface{}, domain interface{}) *AdminClient_TestDNSProvider_Call {
+	return &AdminClient_TestDNSProvider_Call{Call: _e.mock.On("TestDNSProvider", ctx, name, domain)}
+}
+
+func (_c *AdminClient_TestDNSProvider_Call) Run(run func(ctx context.Context, name string, domain string)) *AdminClient_TestDNSProvider_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_TestDNSProvider_Call) Return(_a0 *nexoadmin.DNSProviderTestResult, _a1 error) *AdminClient_TestDNSProvider_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_TestDNSProvider_Call) RunAndReturn(run func(context.Context, string, string) (*nexoadmin.DNSProviderTestResult, error)) *AdminClient_TestDNSProvider_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // TestDistribution provides a mock function with given fields: ctx, id, in
 func (_m *AdminClient) TestDistribution(ctx context.Context, id string, in nexoadmin.DistributionTestRequest) (*nexoadmin.DistributionTestResult, error) {
 	ret := _m.Called(ctx, id, in)
@@ -6261,6 +6544,66 @@ func (_c *AdminClient_UpdateCachePolicy_Call) Return(_a0 *nexoadmin.CachePolicy,
 }
 
 func (_c *AdminClient_UpdateCachePolicy_Call) RunAndReturn(run func(context.Context, nexoadmin.CachePolicy, string) (*nexoadmin.CachePolicy, error)) *AdminClient_UpdateCachePolicy_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateDNSProvider provides a mock function with given fields: ctx, name, in
+func (_m *AdminClient) UpdateDNSProvider(ctx context.Context, name string, in nexoadmin.DNSProviderRequest) (*nexoadmin.DNSProvider, error) {
+	ret := _m.Called(ctx, name, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateDNSProvider")
+	}
+
+	var r0 *nexoadmin.DNSProvider
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, nexoadmin.DNSProviderRequest) (*nexoadmin.DNSProvider, error)); ok {
+		return rf(ctx, name, in)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, nexoadmin.DNSProviderRequest) *nexoadmin.DNSProvider); ok {
+		r0 = rf(ctx, name, in)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.DNSProvider)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, nexoadmin.DNSProviderRequest) error); ok {
+		r1 = rf(ctx, name, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_UpdateDNSProvider_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateDNSProvider'
+type AdminClient_UpdateDNSProvider_Call struct {
+	*mock.Call
+}
+
+// UpdateDNSProvider is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+//   - in nexoadmin.DNSProviderRequest
+func (_e *AdminClient_Expecter) UpdateDNSProvider(ctx interface{}, name interface{}, in interface{}) *AdminClient_UpdateDNSProvider_Call {
+	return &AdminClient_UpdateDNSProvider_Call{Call: _e.mock.On("UpdateDNSProvider", ctx, name, in)}
+}
+
+func (_c *AdminClient_UpdateDNSProvider_Call) Run(run func(ctx context.Context, name string, in nexoadmin.DNSProviderRequest)) *AdminClient_UpdateDNSProvider_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(nexoadmin.DNSProviderRequest))
+	})
+	return _c
+}
+
+func (_c *AdminClient_UpdateDNSProvider_Call) Return(_a0 *nexoadmin.DNSProvider, _a1 error) *AdminClient_UpdateDNSProvider_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_UpdateDNSProvider_Call) RunAndReturn(run func(context.Context, string, nexoadmin.DNSProviderRequest) (*nexoadmin.DNSProvider, error)) *AdminClient_UpdateDNSProvider_Call {
 	_c.Call.Return(run)
 	return _c
 }

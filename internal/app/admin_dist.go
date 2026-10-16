@@ -22,12 +22,13 @@ func buildDistributionManagers(d adminDeps, out *adminServices) error {
 		return nil
 	}
 	if out.distributions, err = adminsvc.NewDistributionManager(adminsvc.DistributionManagerDeps{
-		Distributions: d.dist.service, Signer: d.dist.signer, Authz: out.authz, Cache: cacheManager(d), Clock: d.clock, Logger: d.logger,
+		Distributions: d.dist.service, Signer: d.dist.signer, Authz: out.authz, Cache: cacheManager(d), DNSProviders: d.dist.dnsProviders,
+		Clock: d.clock, Logger: d.logger,
 	}); err != nil {
 		return err
 	}
 	out.certificates, err = adminsvc.NewCertificateManager(adminsvc.CertificateManagerDeps{
-		Certs: d.dist.certs, Distributions: d.dist.raw, Domains: acmeDomains{dists: d.dist.raw}, Logger: d.logger,
+		Certs: d.dist.certs, Distributions: d.dist.raw, Domains: acmeDomains{dists: d.dist.raw}, DNSProviders: d.dist.dnsProviders, Logger: d.logger,
 	}, adminsvc.WithACME(d.acmeDirectory, d.acmeChallenge))
 	return err
 }

@@ -62,7 +62,7 @@ export CGO_ENABLED ?= 0
 .PHONY: all build build-go build-web build-embedded e2e test test-race test-integration test-cluster test-compose test-proxy test-s3compat test-mint test-upgrade bench-rpc lint web-lint \
         web-test generate fmt clean run-single run-snmd run-cluster docker docker-nexoctl help security fuzz bench \
         release-tools release-check release-snapshot release-smoke helm-lint systemd-verify hadolint packaging \
-        docs docs-check docs-api docs-tools docs-site traceability traceability-check
+        docs docs-check docs-api docs-tools docs-site traceability traceability-check dco zap-scan
 
 all: build
 
@@ -133,6 +133,15 @@ security:
 	GOTOOLCHAIN=$$($(GO) env GOVERSION) $(GO) run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 	GOTOOLCHAIN=$$($(GO) env GOVERSION) $(GO) run github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION) -quiet -exclude-dir=$(WEB_DIR) ./...
 	cd $(WEB_DIR) && $(NPM) audit --omit=dev --audit-level=moderate
+
+## zap-scan: authenticated OWASP ZAP active scan of the Admin API driven by api/openapi.yaml against bin/nexo (run make build first; needs Java 17+, downloads ZAP; test/security/zap-api-scan.sh)
+zap-scan:
+	test/security/zap-api-scan.sh
+
+## dco: check that every commit of DCO_BASE..HEAD (default origin/main) is signed off by its author, as the DCO workflow does on pull requests
+DCO_BASE ?= origin/main
+dco:
+	.github/scripts/check-dco.sh $(DCO_BASE) HEAD
 
 ## fuzz: run every Go fuzz target (func FuzzXxx in *_test.go) for FUZZTIME each (default 60s, FUZZ=regexp selects targets); a crasher is written to the testdata/fuzz directory of its package
 fuzz:

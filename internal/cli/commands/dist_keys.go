@@ -445,6 +445,8 @@ func newDistCertCmd(e *env) *cobra.Command {
 	cmd.Long = `Manage the TLS certificates of the domains of the distributions (served by SNI on
 every node): ACME (--auto: obtained and renewed by the leader), uploaded PEM
 certificates (--cert --key), or none when a proxy terminates TLS (--none).
+A wildcard alias needs the DNS-01 challenge: --auto --dns-provider NAME, a provider
+of "nexoctl admin dns-provider".
 Needs admin:ManageCertificates (and admin:ManageDistributions for "set").`
 	cmd.AddCommand(newDistCertSetCmd(e), newDistCertListCmd(e), newDistCertRemoveCmd(e))
 	return cmd
@@ -454,11 +456,13 @@ func newDistCertSetCmd(e *env) *cobra.Command {
 	var (
 		auto, none                bool
 		certFile, keyFile, certID string
+		challenge, dnsProvider    string
 	)
 	cmd := &cobra.Command{
-		Use:   "set ALIAS ID (--auto | --none | --cert FILE --key FILE [--cert-id ID])",
+		Use:   "set ALIAS ID (--auto [--challenge C] [--dns-provider NAME] | --none | --cert FILE --key FILE [--cert-id ID])",
 		Short: "Set the TLS certificate of the domains of a distribution",
 		Example: `  nexoctl dist cert set local website --auto
+  nexoctl dist cert set local previews --auto --challenge dns-01 --dns-provider cf
   nexoctl dist cert set local website --cert crt.pem --key key.pem`,
 		Args:              exactArgs(2),
 		ValidArgsFunction: completeAliasNames(e),
@@ -475,6 +479,24 @@ func newDistCertSetCmd(e *env) *cobra.Command {
 			}
 			if upload && (certFile == "" || keyFile == "") {
 				return cli.UsageError("--cert and --key go together")
+			}
+			if dnsProvider != "" && challenge == "" {
+				challenge = nexoadmin.ChallengeDNS01
+			}
+			if (challenge != "" || dnsProvider != "") && !auto {
+				return cli.UsageError("--challenge and --dns-provider go with --auto")
+			}
+			switch challenge {
+			case "", nexoadmin.ChallengeHTTP01, nexoadmin.ChallengeTLSALPN01:
+				if dnsProvider != "" {
+					return cli.UsageError("--dns-provider needs --challenge dns-01")
+				}
+			case nexoadmin.ChallengeDNS01:
+				if dnsProvider == "" {
+					return cli.UsageError("--challenge dns-01 needs --dns-provider")
+				}
+			default:
+				return cli.UsageError("--challenge must be http-01, tls-alpn-01 or dns-01")
 			}
 			ctx := cmd.Context()
 			alias, client, id, err := e.distAlias(ctx, args)
@@ -504,13 +526,18 @@ func newDistCertSetCmd(e *env) *cobra.Command {
 				value = nexoadmin.CertificateUploadPrefix + uploaded.ID
 			}
 			d, err := editDistribution(ctx, client, id, func(d *nexoadmin.Distribution) error {
-				d.TLS.Certificate = value
+				d.TLS = nexoadmin.DistributionTLS{Certificate: value, Challenge: challenge, DNSProvider: dnsProvider}
 				return nil
 			})
 			if err != nil {
 				return fmt.Errorf("distribution %q: %w", id, err)
 			}
 			text := fmt.Sprintf("TLS of `%s`: %s.", id, value)
+			if dnsProvider != "" {
+				text = fmt.Sprintf("TLS of `%s`: %s, challenge %s with the DNS provider %s.", id, value, challenge, dnsProvider)
+			} else if challenge != "" {
+				text = fmt.Sprintf("TLS of `%s`: %s, challenge %s.", id, value, challenge)
+			}
 			if uploaded != nil {
 				text = fmt.Sprintf("Uploaded the certificate %s (%s, valid until %s); TLS of `%s`: %s.", uploaded.ID,
 					strings.Join(uploaded.Domains, ", "), cli.FormatTime(uploaded.NotAfter), id, value)
@@ -524,6 +551,11 @@ func newDistCertSetCmd(e *env) *cobra.Command {
 	f.StringVar(&certFile, "cert", "", "PEM certificate chain (leaf first)")
 	f.StringVar(&keyFile, "key", "", "PEM private key of the certificate")
 	f.StringVar(&certID, "cert-id", "", "id of the uploaded certificate (default dist-ID)")
+	f.StringVar(&challenge, "challenge", "", "ACME challenge with --auto: http-01, tls-alpn-01 or dns-01 (default: the one of the server)")
+	f.StringVar(&dnsProvider, "dns-provider", "", "DNS provider of the dns-01 challenge (implies --challenge dns-01; required by a wildcard alias)")
+	_ = cmd.RegisterFlagCompletionFunc("challenge", cobra.FixedCompletions(
+		[]string{nexoadmin.ChallengeHTTP01, nexoadmin.ChallengeTLSALPN01, nexoadmin.ChallengeDNS01}, cobra.ShellCompDirectiveNoFileComp))
+	_ = cmd.RegisterFlagCompletionFunc("dns-provider", completeAdminFlag(e, dnsProviderNames))
 	return cmd
 }
 
@@ -573,7 +605,14 @@ func newDistCertListCmd(e *env) *cobra.Command {
 				if m.State == "issued" {
 					continue
 				}
-				if err := e.out.Text(fmt.Sprintf("ACME %s pending for %s (distributions %s)", m.ID, strings.Join(m.Domains, ","), orDash(strings.Join(m.Distributions, ",")))); err != nil {
+				how := ""
+				if m.DNSProvider != "" {
+					how = fmt.Sprintf(", %s via %s", m.Challenge, m.DNSProvider)
+				} else if m.Challenge != "" {
+					how = ", " + m.Challenge
+				}
+				if err := e.out.Text(fmt.Sprintf("ACME %s pending for %s (distributions %s%s)", m.ID, strings.Join(m.Domains, ","),
+					orDash(strings.Join(m.Distributions, ",")), how)); err != nil {
 					return err
 				}
 			}

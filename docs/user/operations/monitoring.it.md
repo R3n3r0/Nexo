@@ -80,6 +80,7 @@ chiave stessa. Con `NEXO_PROMETHEUS_AUTH_TYPE=public` gli endpoint sono pubblici
 | Area | Metriche |
 |------|----------|
 | API S3 | `nexo_s3_requests_total{api,status}`, `nexo_s3_requests_4xx_errors_total{api}`, `nexo_s3_requests_5xx_errors_total{api}`, `nexo_s3_request_duration_seconds{api}`, `nexo_s3_requests_inflight`, `nexo_s3_traffic_received_bytes_total`, `nexo_s3_traffic_sent_bytes_total` |
+| Limiti di richieste | `nexo_ratelimit_throttled_total{api,kind}` (api `s3`, `admin`, `web`; kind `ip`, `user`, `bucket`, `distribution`, `concurrency`) |
 | Bucket | `nexo_bucket_requests_total{bucket,api,status_class}`, `nexo_bucket_traffic_received_bytes_total{bucket}`, `nexo_bucket_traffic_sent_bytes_total{bucket}`, `nexo_bucket_usage_total_bytes`, `nexo_bucket_objects`, `nexo_bucket_versions`, `nexo_bucket_delete_markers` |
 | Dischi | `nexo_drive_online`, `nexo_drive_healing`, `nexo_drive_total_bytes`, `nexo_drive_used_bytes`, `nexo_drive_free_bytes`, `nexo_drive_free_inodes`, `nexo_drive_operations_total{drive,op}`, `nexo_drive_operation_seconds_total{drive,op}`, `nexo_drive_errors_total{drive,type}` |
 | Cluster | `nexo_cluster_nodes_online`, `nexo_cluster_nodes_offline`, `nexo_cluster_drives_{online,offline,healing,total}`, `nexo_cluster_sets_{healthy,degraded,read_only,unavailable}{pool}`, `nexo_cluster_read_quorum{pool}`, `nexo_cluster_write_quorum{pool}`, `nexo_cluster_buckets`, `nexo_cluster_objects`, `nexo_cluster_usage_bytes` |

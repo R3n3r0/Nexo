@@ -30,6 +30,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/service/quota"
+	"github.com/r3n3r0/nexo/internal/service/ratelimit"
 	"github.com/r3n3r0/nexo/internal/service/session"
 	"github.com/r3n3r0/nexo/internal/service/settings"
 	"github.com/r3n3r0/nexo/internal/service/share"
@@ -429,6 +430,15 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		return nil, err
 	}
 	s3Policy := settings.GuardRootAccess(policies, applied)
+	// The request limits of the node (S-OPS-10, S-DST-08), read from the
+	// dynamic configuration at every request; the refusals are measured.
+	limiter, err := ratelimit.New(ratelimit.Deps{Settings: applied, Clock: d.clock, Logger: logger.With("component", "ratelimit")})
+	if err != nil {
+		return nil, err
+	}
+	if limiter, err = metrics.WrapRateLimit(ctx, limiter, registry); err != nil {
+		return nil, err
+	}
 
 	// S3 server (:9000): every route goes through the SigV4 middleware,
 	// which admits anonymous requests; the handlers authorize with the
@@ -437,7 +447,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		logger: logger, clock: d.clock, codec: codec, ids: ids,
 		registry: registry, verifier: verifier, auditor: auditor, domains: domainsOf(cfg),
 		trustedProxies: cfg.TrustedProxies, forwardedHeaders: cfg.ForwardedHeaders, trustForwardedHost: cfg.TrustForwardedHost, dist: distStack,
-		tracer: f.obs.trace, telemetry: f.obs.telemetry,
+		tracer: f.obs.trace, telemetry: f.obs.telemetry, limiter: limiter,
 	})
 	if err != nil {
 		return nil, err
@@ -474,7 +484,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	if err := distStack.composeHTTP(distHTTPDeps{
 		cfg: cfg, objects: cachedObjects, cache: cacheSvc, policy: s3Policy, verifier: verifier, publicAccess: accessRules,
 		secrets: accessrule.NewStaticSecrets(cfg.Secrets), registry: registry, ids: ids, clock: d.clock, logger: logger,
-		keystore: f.keystore, tracer: f.obs.trace, telemetry: f.obs.telemetry,
+		keystore: f.keystore, tracer: f.obs.trace, telemetry: f.obs.telemetry, limiter: limiter, codec: codec,
 	}); err != nil {
 		return nil, fmt.Errorf("distributions: %w", err)
 	}
@@ -489,13 +499,13 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	consoleMiddlewares, err := consoleMiddlewares(middlewareDeps{
 		logger: logger, clock: d.clock, codec: codec, ids: ids, registry: registry, trustedProxies: cfg.TrustedProxies,
 		forwardedHeaders: cfg.ForwardedHeaders, trustForwardedHost: cfg.TrustForwardedHost,
-		auditor: auditor, tracer: f.obs.trace, telemetry: f.obs.telemetry,
+		auditor: auditor, tracer: f.obs.trace, telemetry: f.obs.telemetry, limiter: limiter,
 	})
 	if err != nil {
 		return nil, err
 	}
 	adminAPI, err := buildAdminAPI(adminDeps{
-		codec: codec, clock: d.clock, logger: logger, region: cfg.Region, s3URL: publicS3URL(cfg),
+		codec: codec, limiter: limiter, clock: d.clock, logger: logger, region: cfg.Region, s3URL: publicS3URL(cfg),
 		sessions: sessions, verifier: verifier, signer: signer, admin: adminSvc, iam: identities, policy: policies,
 		buckets: buckets, objects: objects, shares: shares, config: dynConfig, locks: f.lockManager, secureCookies: secureConsole(cfg),
 		consoleURL: cfg.BrowserRedirectURL, lifecycle: lifecycle, events: events, kms: keys,

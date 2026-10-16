@@ -16,7 +16,8 @@ import (
 // CertificateRoutes exposes the TLS certificates of the domains of the
 // distributions (/certificates, docs/10 §10.2): the uploaded and ACME
 // certificates with their status and expiration, the distributions using
-// them and the ACME certificates pending.
+// them and the ACME certificates pending; and the DNS providers of the
+// DNS-01 challenge (/dns-providers), their credentials write-only.
 type CertificateRoutes interface{ Routes }
 
 // CertificateDeps are the dependencies of the certificate routes.
@@ -63,6 +64,12 @@ func (h *certificateRoutes) routes() []route {
 		{http.MethodPost, "/certificates", manage, h.upload},
 		{http.MethodGet, "/certificates/{id}", manage, h.get},
 		{http.MethodDelete, "/certificates/{id}", manage, h.remove},
+		{http.MethodGet, "/dns-providers", manage, h.listDNS},
+		{http.MethodPost, "/dns-providers", manage, h.createDNS},
+		{http.MethodGet, "/dns-providers/{name}", manage, h.getDNS},
+		{http.MethodPut, "/dns-providers/{name}", manage, h.updateDNS},
+		{http.MethodDelete, "/dns-providers/{name}", manage, h.removeDNS},
+		{http.MethodPost, "/dns-providers/{name}/test", manage, h.testDNS},
 	}
 }
 
@@ -87,6 +94,10 @@ type ManagedCertificateResponse struct {
 	ID            string   `json:"id"`
 	Domains       []string `json:"domains"`
 	Distributions []string `json:"distributions"`
+	// Challenge is the ACME challenge of the certificate ("" for the one
+	// of the deployment), DNSProvider the DNS provider of dns-01.
+	Challenge   string `json:"challenge,omitempty"`
+	DNSProvider string `json:"dnsProvider,omitempty"`
 	// State is issued or pending.
 	State string `json:"state"`
 	// Certificate is the certificate obtained (state issued).
@@ -136,7 +147,8 @@ func (h *certificateRoutes) list(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, mc := range list.ACME.Managed {
 		out.ACME.Managed = append(out.ACME.Managed, ManagedCertificateResponse{
-			ID: mc.ID, Domains: nonNil(mc.Domains), Distributions: nonNil(mc.Distributions), State: mc.State, Certificate: mc.Certificate,
+			ID: mc.ID, Domains: nonNil(mc.Domains), Distributions: nonNil(mc.Distributions), Challenge: mc.Challenge, DNSProvider: mc.DNSProvider,
+			State: mc.State, Certificate: mc.Certificate,
 		})
 	}
 	h.deps.Enc.WriteJSON(w, http.StatusOK, out)
@@ -171,4 +183,131 @@ func (h *certificateRoutes) remove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- DNS providers of the DNS-01 challenge --------------------------------------
+
+// maxDNSProviderBody bounds the body of a DNS provider.
+const maxDNSProviderBody = 64 << 10
+
+// DNSProviderResponse is a DNS provider (never its credentials) with the
+// distributions using it.
+type DNSProviderResponse struct {
+	certs.DNSProviderConfig
+	UsedBy []string `json:"usedBy"`
+}
+
+// DNSProviderListResponse is the body of GET /dns-providers.
+type DNSProviderListResponse struct {
+	Items []DNSProviderResponse `json:"items"`
+}
+
+// DNSProviderRequest is the body of POST /dns-providers and PUT
+// /dns-providers/{name}: the settings and the credentials (write-only).
+type DNSProviderRequest struct {
+	Name               string                    `json:"name,omitempty"`
+	Type               string                    `json:"type"`
+	Comment            string                    `json:"comment,omitempty"`
+	Cloudflare         *certs.CloudflareSettings `json:"cloudflare,omitempty"`
+	Route53            *certs.Route53Settings    `json:"route53,omitempty"`
+	RFC2136            *certs.RFC2136Settings    `json:"rfc2136,omitempty"`
+	TTL                int                       `json:"ttl,omitempty"`
+	PropagationTimeout int                       `json:"propagationTimeout,omitempty"`
+	PollingInterval    int                       `json:"pollingInterval,omitempty"`
+	// Credentials are sealed in the store and never returned; on an
+	// update the empty ones keep the stored values.
+	Credentials certs.DNSCredentials `json:"credentials"`
+}
+
+// DNSProviderTestRequest is the body of POST /dns-providers/{name}/test.
+type DNSProviderTestRequest struct {
+	// Domain is the domain of the test record
+	// (_acme-challenge.<domain>).
+	Domain string `json:"domain"`
+}
+
+func (in DNSProviderRequest) config(name string) certs.DNSProviderConfig {
+	return certs.DNSProviderConfig{Name: name, Type: in.Type, Comment: in.Comment, Cloudflare: in.Cloudflare, Route53: in.Route53, RFC2136: in.RFC2136,
+		TTL: in.TTL, PropagationTimeout: in.PropagationTimeout, PollingInterval: in.PollingInterval}
+}
+
+func newDNSProviderResponse(p adminsvc.DNSProviderInfo) DNSProviderResponse {
+	return DNSProviderResponse{DNSProviderConfig: p.DNSProviderConfig, UsedBy: nonNil(p.UsedBy)}
+}
+
+func (h *certificateRoutes) listDNS(w http.ResponseWriter, r *http.Request) {
+	list, err := h.deps.Certificates.ListDNSProviders(r.Context())
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	out := DNSProviderListResponse{Items: make([]DNSProviderResponse, 0, len(list))}
+	for _, p := range list {
+		out.Items = append(out.Items, newDNSProviderResponse(p))
+	}
+	h.deps.Enc.WriteJSON(w, http.StatusOK, out)
+}
+
+func (h *certificateRoutes) createDNS(w http.ResponseWriter, r *http.Request) {
+	var in DNSProviderRequest
+	if err := h.deps.Enc.DecodeJSON(r.Body, maxDNSProviderBody, &in); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	p, err := h.deps.Certificates.CreateDNSProvider(r.Context(), in.config(in.Name), in.Credentials)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	h.deps.Enc.WriteJSON(w, http.StatusCreated, newDNSProviderResponse(*p))
+}
+
+func (h *certificateRoutes) getDNS(w http.ResponseWriter, r *http.Request) {
+	p, err := h.deps.Certificates.GetDNSProvider(r.Context(), chi.URLParam(r, "name"))
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	h.deps.Enc.WriteJSON(w, http.StatusOK, newDNSProviderResponse(*p))
+}
+
+func (h *certificateRoutes) updateDNS(w http.ResponseWriter, r *http.Request) {
+	var in DNSProviderRequest
+	if err := h.deps.Enc.DecodeJSON(r.Body, maxDNSProviderBody, &in); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	name := chi.URLParam(r, "name")
+	if in.Name != "" && in.Name != name {
+		h.fail(w, r, fmt.Errorf("%w: the name of the body (%s) is not the one of the path (%s)", certs.ErrInvalidDNSProvider, in.Name, name))
+		return
+	}
+	p, err := h.deps.Certificates.UpdateDNSProvider(r.Context(), in.config(name), in.Credentials)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	h.deps.Enc.WriteJSON(w, http.StatusOK, newDNSProviderResponse(*p))
+}
+
+func (h *certificateRoutes) removeDNS(w http.ResponseWriter, r *http.Request) {
+	if err := h.deps.Certificates.DeleteDNSProvider(r.Context(), chi.URLParam(r, "name")); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *certificateRoutes) testDNS(w http.ResponseWriter, r *http.Request) {
+	var in DNSProviderTestRequest
+	if err := h.deps.Enc.DecodeJSON(r.Body, maxDNSProviderBody, &in); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	res, err := h.deps.Certificates.TestDNSProvider(r.Context(), chi.URLParam(r, "name"), in.Domain)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	h.deps.Enc.WriteJSON(w, http.StatusOK, res)
 }

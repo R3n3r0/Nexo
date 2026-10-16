@@ -9,6 +9,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/iam"
 	"github.com/r3n3r0/nexo/internal/service/policy"
+	"github.com/r3n3r0/nexo/internal/service/share"
 )
 
 // AccessKeyManagerDeps are the dependencies of the access key manager.
@@ -16,7 +17,10 @@ type AccessKeyManagerDeps struct {
 	// IAM stores the service accounts and enforces ownership (required).
 	IAM iam.Service
 	// Authz decides between self-service and administration (required).
-	Authz  Authorizer
+	Authz Authorizer
+	// Shares revokes the share links issued with a disabled key
+	// (required).
+	Shares share.Service
 	Logger *slog.Logger
 }
 
@@ -32,8 +36,8 @@ var _ AccessKeyManager = (*accessKeyManager)(nil)
 // NewAccessKeyManager returns the access key manager. Missing
 // dependencies are a wiring error (domain.ErrInvalidArgument).
 func NewAccessKeyManager(deps AccessKeyManagerDeps, opts ...AccessKeyManagerOption) (AccessKeyManager, error) {
-	if deps.IAM == nil || deps.Authz == nil {
-		return nil, fmt.Errorf("%w: access key manager requires the IAM service and the authorizer", domain.ErrInvalidArgument)
+	if deps.IAM == nil || deps.Authz == nil || deps.Shares == nil {
+		return nil, fmt.Errorf("%w: access key manager requires the IAM, authorizer and share services", domain.ErrInvalidArgument)
 	}
 	if deps.Logger == nil {
 		deps.Logger = slog.Default()
@@ -205,7 +209,22 @@ func (m *accessKeyManager) Update(ctx context.Context, req Requester, accessKey 
 			return nil, err
 		}
 	}
-	return m.deps.IAM.UpdateAccessKey(ctx, c.id, accessKey, in)
+	k, err := m.deps.IAM.UpdateAccessKey(ctx, c.id, accessKey, in)
+	if err != nil {
+		return nil, err
+	}
+	if in.Status != nil && *in.Status == domain.StatusDisabled {
+		// As for a user (identityManager.setUserStatus): IAM moved the
+		// revocation epoch of the key, which ends its console sessions,
+		// and the share links created with it are deleted, so that
+		// enabling the key again brings neither back (pentest PT-05).
+		n, err := m.deps.Shares.RevokeIssuedBy(context.WithoutCancel(ctx), accessKey)
+		if err != nil {
+			return nil, fmt.Errorf("admin: access key %s disabled but its share links were not all revoked: %w", accessKey, err)
+		}
+		m.deps.Logger.InfoContext(ctx, "admin: access key disabled", "accessKey", accessKey, "by", req.Identity.AccessKey, "revoked_shares", n)
+	}
+	return k, nil
 }
 
 // Delete implements AccessKeyManager.

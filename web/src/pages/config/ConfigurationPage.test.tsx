@@ -73,6 +73,29 @@ describe('Configuration page (D-CFG-01)', () => {
     expect(screen.getByRole('button', { name: /^api/ })).not.toHaveTextContent('Not applied yet');
   });
 
+  // covers: S-OPS-10
+  it('edits the request limits of the nodes (S-OPS-10)', { timeout: 30_000 }, async () => {
+    const user = userEvent.setup();
+    const { services } = renderPage();
+    const limits = await screen.findByRole('button', { name: /^ratelimit/ });
+    expect(limits).not.toHaveTextContent('Not applied yet');
+    await user.click(limits);
+    const perIP = await screen.findByRole('textbox', { name: 's3_ip' });
+    expect(perIP).not.toHaveAccessibleDescription(/Not applied yet/);
+    await user.click(perIP);
+    await user.paste('100');
+    const panel = perIP.closest('[role="region"]');
+    if (!(panel instanceof HTMLElement)) throw new Error('accordion panel not found');
+    await user.click(within(panel).getByRole('button', { name: 'Save' }));
+    await waitFor(async () => {
+      expect((await services.config.exportAll()).ratelimit?.s3_ip).toBe('100');
+    });
+    await user.click(screen.getByRole('button', { name: /^api/ }));
+    expect(
+      await screen.findByRole('textbox', { name: 'requests_max' }),
+    ).not.toHaveAccessibleDescription(/Not applied yet/);
+  });
+
   it('exports and imports the whole configuration', async () => {
     const user = userEvent.setup();
     const { services } = renderPage();

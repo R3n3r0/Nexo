@@ -3,7 +3,14 @@
 // certificates uploaded by the operators (PEM chain and key, validated:
 // chain linkage, key matching the leaf, DNS names, validity) and the ones
 // obtained and renewed with ACME (RFC 8555: Let's Encrypt, ZeroSSL, any
-// ACME CA) through the HTTP-01 or the TLS-ALPN-01 challenge.
+// ACME CA) through the HTTP-01, the TLS-ALPN-01 or the DNS-01 challenge.
+//
+// DNS-01 (the only challenge a wildcard alias can use) publishes the TXT
+// records through a DNS provider of the deployment (DNSProviders:
+// Cloudflare, AWS Route 53, RFC 2136), its credentials sealed in the
+// system store like the keys, never logged nor returned; the leader waits
+// for the records on the authoritative nameservers of the zone before it
+// asks the CA to validate them (package dns01).
 //
 // Every certificate is a document of the system store, its key sealed
 // (AES-256-GCM, Sealer), shared by the nodes: a node that stores or renews
@@ -37,6 +44,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/lifecycle"
+	"github.com/r3n3r0/nexo/internal/service/certs/dns01"
 	"github.com/r3n3r0/nexo/internal/service/cluster"
 	"github.com/r3n3r0/nexo/internal/service/lock"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
@@ -70,6 +78,9 @@ const (
 const (
 	ChallengeHTTP01    = "http-01"
 	ChallengeTLSALPN01 = "tls-alpn-01"
+	// ChallengeDNS01 publishes a TXT record through a DNS provider: the
+	// only challenge of the wildcard names.
+	ChallengeDNS01 = "dns-01"
 )
 
 // Event kinds of the cluster invalidations of the certificates.
@@ -113,6 +124,13 @@ type ManagedDomains struct {
 	// ID is the id of the certificate ("acme-<distribution>").
 	ID      string
 	Domains []string
+	// Challenge is the challenge of the order: "" for the challenge of
+	// the deployment (WithChallenge), ChallengeHTTP01,
+	// ChallengeTLSALPN01 or ChallengeDNS01 (the wildcard names are
+	// ordered only with ChallengeDNS01).
+	Challenge string
+	// DNSProvider names the DNS provider of ChallengeDNS01.
+	DNSProvider string
 }
 
 // DomainSource lists the certificates to obtain with ACME (the
@@ -188,6 +206,12 @@ type Deps struct {
 	Sealer Sealer
 	// Domains lists the ACME certificates; nil disables ACME.
 	Domains DomainSource
+	// DNSProviders builds the DNS providers of the DNS-01 challenge (nil:
+	// the DNS-01 orders fail).
+	DNSProviders DNSProviderSource
+	// Propagation waits for the DNS-01 records on the nameservers of
+	// their zone (nil: dns01.NewChecker with the resolvers of the node).
+	Propagation dns01.Checker
 	// Hosts binds the names of the handshakes to the certificates of the
 	// distributions; nil serves every certificate for the names it
 	// carries (tests only).
@@ -196,6 +220,145 @@ type Deps struct {
 	Metrics metrics.Registry
 	Clock   clock.Clock
 	Logger  *slog.Logger
+}
+
+// --- DNS providers of the DNS-01 challenge --------------------------------------
+
+// DNS provider types (DNSProviderConfig.Type).
+const (
+	DNSProviderCloudflare = "cloudflare"
+	DNSProviderRoute53    = "route53"
+	DNSProviderRFC2136    = "rfc2136"
+)
+
+// CloudflareSettings are the settings of a Cloudflare provider (its
+// credential is DNSCredentials.APIToken).
+type CloudflareSettings struct {
+	// ZoneID is the id of the zone (default: found by name).
+	ZoneID string `json:"zoneId,omitempty"`
+}
+
+// Route53Settings are the settings of a Route 53 provider (its secrets
+// are DNSCredentials.SecretAccessKey and SessionToken).
+type Route53Settings struct {
+	// AccessKeyID is the access key of the IAM identity; "" uses the
+	// ambient credentials of the node.
+	AccessKeyID string `json:"accessKeyId,omitempty"`
+	// Region of the API (default us-east-1), HostedZoneID the zone
+	// (default: found by name).
+	Region       string `json:"region,omitempty"`
+	HostedZoneID string `json:"hostedZoneId,omitempty"`
+}
+
+// RFC2136Settings are the settings of an RFC 2136 provider (its secret is
+// DNSCredentials.TSIGSecret).
+type RFC2136Settings struct {
+	// Nameserver is the primary accepting the updates (host[:port]).
+	Nameserver string `json:"nameserver"`
+	// Zone of the records (default: from the SOA the nameserver reports).
+	Zone string `json:"zone,omitempty"`
+	// TSIGKeyName and TSIGAlgorithm (default hmac-sha256) name the key
+	// signing the updates ("" for unsigned updates).
+	TSIGKeyName   string `json:"tsigKeyName,omitempty"`
+	TSIGAlgorithm string `json:"tsigAlgorithm,omitempty"`
+}
+
+// DNSProviderConfig is a DNS provider of the DNS-01 challenge without its
+// credentials: what the API returns.
+type DNSProviderConfig struct {
+	// Name is lowercase letters, digits, '.', '_' and '-' (at most 64).
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Comment string `json:"comment,omitempty"`
+	// The settings of the type (only the one of Type is kept).
+	Cloudflare *CloudflareSettings `json:"cloudflare,omitempty"`
+	Route53    *Route53Settings    `json:"route53,omitempty"`
+	RFC2136    *RFC2136Settings    `json:"rfc2136,omitempty"`
+	// TTL of the records in seconds (default 60), PropagationTimeout and
+	// PollingInterval of the propagation check in seconds (default 120
+	// and 4).
+	TTL                int `json:"ttl,omitempty"`
+	PropagationTimeout int `json:"propagationTimeout,omitempty"`
+	PollingInterval    int `json:"pollingInterval,omitempty"`
+	// HasCredentials reports stored credentials (computed: the
+	// credentials themselves are never returned).
+	HasCredentials bool      `json:"hasCredentials"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+}
+
+// DNSCredentials are the secrets of a DNS provider: written, sealed in the
+// store, never returned nor logged. On an update an empty field keeps the
+// stored value (unless the type changes).
+type DNSCredentials struct {
+	// APIToken of Cloudflare.
+	APIToken string `json:"apiToken,omitempty"`
+	// SecretAccessKey and SessionToken of Route 53.
+	SecretAccessKey string `json:"secretAccessKey,omitempty"`
+	SessionToken    string `json:"sessionToken,omitempty"`
+	// TSIGSecret (base64) of RFC 2136.
+	TSIGSecret string `json:"tsigSecret,omitempty"`
+}
+
+// DNSTestResult is the outcome of DNSProviders.Test.
+type DNSTestResult struct {
+	// OK reports that the test record was published, served by the
+	// nameservers of its zone and removed.
+	OK bool `json:"ok"`
+	// Record is the name of the TXT record of the test.
+	Record string `json:"record"`
+	// Step is the step that failed: present, propagation or cleanup.
+	Step string `json:"step,omitempty"`
+	// Error is the failure (never a credential).
+	Error string `json:"error,omitempty"`
+	// Duration of the test in milliseconds.
+	DurationMS int64 `json:"durationMs"`
+}
+
+// DNSProviderSource builds the DNS provider of an order.
+type DNSProviderSource interface {
+	// Provider returns the provider named name, with its credentials
+	// (ErrDNSProviderNotFound).
+	Provider(ctx context.Context, name string) (dns01.Provider, error)
+}
+
+// DNSProviders stores the DNS providers of the DNS-01 challenge in the
+// system store, their credentials sealed (Sealer), and builds them for
+// the orders (DNSProviderSource). The credentials never leave it: the
+// configurations it returns carry HasCredentials only.
+type DNSProviders interface {
+	DNSProviderSource
+	// List returns the providers, sorted by name.
+	List(ctx context.Context) ([]DNSProviderConfig, error)
+	// Get returns a provider (ErrDNSProviderNotFound).
+	Get(ctx context.Context, name string) (DNSProviderConfig, error)
+	// Create validates and stores a new provider (ErrInvalidDNSProvider,
+	// ErrDNSProviderExists).
+	Create(ctx context.Context, cfg DNSProviderConfig, creds DNSCredentials) (DNSProviderConfig, error)
+	// Update replaces the settings of a provider; the empty credentials
+	// keep the stored ones when the type does not change
+	// (ErrDNSProviderNotFound, ErrInvalidDNSProvider).
+	Update(ctx context.Context, cfg DNSProviderConfig, creds DNSCredentials) (DNSProviderConfig, error)
+	// Delete removes a provider (ErrDNSProviderNotFound).
+	Delete(ctx context.Context, name string) error
+	// Test publishes a TXT record "_acme-challenge.<domain>" with a random
+	// value, waits for it on the nameservers and removes it; a failure of
+	// the provider is reported in the result, not as an error.
+	Test(ctx context.Context, name, domain string) (DNSTestResult, error)
+}
+
+// DNSProvidersDeps are the dependencies of the DNS provider registry.
+type DNSProvidersDeps struct {
+	// Store holds the providers (required).
+	Store sysstore.Store
+	// Locks serializes the writes (required).
+	Locks lock.Locker
+	// Sealer seals the credentials (required).
+	Sealer Sealer
+	// Propagation is the check of Test (nil: dns01.NewChecker).
+	Propagation dns01.Checker
+	Clock       clock.Clock
+	Logger      *slog.Logger
 }
 
 // --- certificates of the server (certificates directory) -----------------------

@@ -82,6 +82,9 @@ type APIDeps struct {
 	// Auth authenticates every route except the public ones
 	// (NewAuthenticator; required).
 	Auth middleware.Middleware
+	// Limit admits the authenticated requests (the rate limit per user,
+	// middleware.NewRateLimit; optional): it runs after Auth.
+	Limit middleware.Middleware
 }
 
 type api struct {
@@ -127,6 +130,9 @@ func (a *api) Register(r chi.Router) {
 		}
 		r.Group(func(r chi.Router) {
 			r.Use(a.deps.Auth.Wrap)
+			if a.deps.Limit != nil {
+				r.Use(a.deps.Limit.Wrap)
+			}
 			for _, g := range a.groups {
 				g.Register(r)
 			}
