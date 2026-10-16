@@ -21,12 +21,12 @@ domains, the certificate, the restrictions and the default access (`public`, `au
 matter. The website options (per-path behaviors, error pages, redirects, headers) are rejected when saved.
 
 ```bash
-nexoctl dist create local site --bucket web --prefix /prod --mode website \
+nexoctl dist create local website --bucket web --prefix /prod --mode website \
   --domain www.example.com --domain example.com --index index.html --spa /index.html
 nexoctl dist create local customer --bucket customer --mode s3 --domain s3.customer.it --access authenticated
 nexoctl dist list local
-nexoctl dist info local site
-nexoctl dist disable local site            # the domains answer 403
+nexoctl dist info local website
+nexoctl dist disable local website            # the domains answer 403
 ```
 
 ## Domains and routing
@@ -47,9 +47,9 @@ domain under the wildcard of another distribution (`app.example.com` under `*.ex
 permissions on that distribution's bucket (`403` otherwise).
 
 ```console
-$ nexoctl dist domain add local site '*.preview.example.com'
+$ nexoctl dist domain add local website '*.preview.example.com'
 $ nexoctl dist resolve local www.example.it
-www.example.it: distribution `site` (alias www.example.it, website), bucket site
+www.example.it: distribution `website` (alias www.example.it, website), bucket web
 ```
 
 Distributions answer on two **dedicated listeners**, when configured: `--web-address` (`NEXO_WEB_ADDRESS`,
@@ -81,11 +81,11 @@ inherit the rest from the default.
 | `deny` | nobody (403) |
 
 ```bash
-nexoctl dist behavior add local site --glob '/assets/**' --cache-control 'public, max-age=31536000, immutable'
-nexoctl dist behavior add local site --regex '^/downloads/.*\.zip$' --access signed --key-group releases
-nexoctl dist behavior add local site --prefix /internal/ --access deny --position 1
-nexoctl dist behavior list local site
-nexoctl dist test local site /downloads/v1.zip         # which behavior, access and headers
+nexoctl dist behavior add local website --glob '/assets/**' --cache-control 'public, max-age=31536000, immutable'
+nexoctl dist behavior add local website --regex '^/downloads/.*\.zip$' --access signed --key-group releases
+nexoctl dist behavior add local website --prefix /internal/ --access deny --position 1
+nexoctl dist behavior list local website
+nexoctl dist test local website /downloads/v1.zip         # which behavior, access and headers
 ```
 
 A `public` behavior of a `website` distribution answers `403` as long as the
@@ -99,7 +99,7 @@ behalf of the visitors.
 |---------|---------|
 | Index document | `--index index.html` on `create`, `edit` or a behavior |
 | Single page application | `--spa /index.html`: serves that file (200) in place of missing objects |
-| Error pages | `nexoctl dist error-page set local site 404 /404.html` (`--response-status` to change the status) |
+| Error pages | `nexoctl dist error-page set local website 404 /404.html` (`--response-status` to change the status) |
 | Redirects | `dist redirect add` with `--https-only`, `--host-from example.com --to-host www.example.com` or `--from '^/old/(.*)$' --to '/new/$1'` (`--status 301/302/303/307/308`) |
 | Response headers | `dist headers --set 'Name: value'`, `--unset`, `--security` (HSTS, nosniff, frame options, referrer policy) |
 | CORS | `dist headers --cors-origin https://app.example.com --cors-method GET` |
@@ -114,8 +114,8 @@ Ed25519 or RSA keys collected in **key groups**:
 ```bash
 nexoctl dist keygroup create local releases                   # generates the key, saves the private one
 nexoctl dist keygroup key add local releases --public-key my.pub.pem   # or upload your own public key
-nexoctl dist sign-url local site /downloads/v1.zip --expire 1h --ip 203.0.113.0/24
-nexoctl dist sign-url local site /premium/ --expire 12h --cookie --resource 'https://www.example.com/premium/*'
+nexoctl dist sign-url local website /downloads/v1.zip --expire 1h --ip 203.0.113.0/24
+nexoctl dist sign-url local website /premium/ --expire 12h --cookie --resource 'https://www.example.com/premium/*'
 ```
 
 The signature is verified before the cache and is not part of the cache key. Several keys in the same key
@@ -148,13 +148,13 @@ require an uploaded certificate.
   (bypassing the proxy) get `403`.
 
   ```bash
-  nexoctl dist origin-secret rotate local site              # prints the new secret only once
-  nexoctl dist restrict local site --origin-secret-header X-Origin-Secret
+  nexoctl dist origin-secret rotate local website              # prints the new secret only once
+  nexoctl dist restrict local website --origin-secret-header X-Origin-Secret
   ```
 
   With several proxies, one secret per proxy as a `${secret:proxy-a}` reference in the YAML, resolved on every
   node from `NEXO_SECRET_PROXY_A`.
-- **Restrictions by address**: `nexoctl dist restrict local site --deny-ip 203.0.113.0/24` (or
+- **Restrictions by address**: `nexoctl dist restrict local website --deny-ip 203.0.113.0/24` (or
   `--allow-ip`). `--rate-limit` is saved but not applied yet: limit the requests on the proxy.
 
 Ready-made configurations for nginx, Caddy, Traefik, HAProxy and Cloudflare:
@@ -189,13 +189,13 @@ Settings are inherited: **cluster** (`nexoctl cache settings`) → **distributio
 | `disabled` | no cache | always-fresh content |
 
 ```bash
-nexoctl dist cache set local site --policy standard
-nexoctl dist cache set local site --domain www.example.com --policy aggressive --quota 20GiB
-nexoctl dist cache set local site --domain '*.preview.example.com' --disable
-nexoctl dist cache set local site --behavior '/assets/**' --ttl-default 365d
-nexoctl dist cache set local site --behavior '/api/' --behavior-type prefix --disable
+nexoctl dist cache set local website --policy standard
+nexoctl dist cache set local website --domain www.example.com --policy aggressive --quota 20GiB
+nexoctl dist cache set local website --domain '*.preview.example.com' --disable
+nexoctl dist cache set local website --behavior '/assets/**' --ttl-default 365d
+nexoctl dist cache set local website --behavior '/api/' --behavior-type prefix --disable
 nexoctl cache policy create local long --ttl-default 1d --ttl-max 30d --query allowlist:v --stale-while-revalidate 5m
-nexoctl dist cache show local site
+nexoctl dist cache show local website
 ```
 
 Other useful fields: `--query` (query parameters in the key), `--key-header`/`--key-cookie`,
@@ -211,10 +211,10 @@ different users.
   as expired instead of deleting them:
 
   ```bash
-  nexoctl dist invalidate local site '/assets/**' --wait
-  nexoctl cache purge local site --tag product-42           # objects with x-amz-meta-cache-tag: product-42
-  nexoctl cache purge local site --domain static.example.it --all
-  nexoctl cache purge list local site
+  nexoctl dist invalidate local website '/assets/**' --wait
+  nexoctl cache purge local website --tag product-42           # objects with x-amz-meta-cache-tag: product-42
+  nexoctl cache purge local website --domain static.example.it --all
+  nexoctl cache purge list local website
   ```
 
 - **CDN in front of Nexo**: the purge webhooks (`nexoctl cache webhook add`, types `cloudflare`, `fastly`,
@@ -227,7 +227,7 @@ other permissions.
 ### Warm-up, diagnostics, statistics
 
 ```bash
-nexoctl cache warm local site --prefix /assets/ --bandwidth 20MiB --wait
+nexoctl cache warm local website --prefix /assets/ --bandwidth 20MiB --wait
 nexoctl cache inspect local https://www.example.com/assets/app.js    # key, policy and level, status on every node
 nexoctl cache stats local                                            # hit ratio, bytes, top URLs per domain
 nexoctl cache settings local --node-header                           # adds X-Cache-Node to the responses
@@ -270,8 +270,8 @@ Distributions, cache settings and policies are exported and imported as YAML:
 ```bash
 nexoctl dist export local > distributions.yaml
 nexoctl dist import local distributions.yaml
-nexoctl dist cache export local site > site-cache.yaml
-nexoctl dist cache import local site-cache.yaml
+nexoctl dist cache export local website > website-cache.yaml
+nexoctl dist cache import local website-cache.yaml
 nexoctl cache policy export local > policies.yaml
 nexoctl cache policy import local policies.yaml
 ```
