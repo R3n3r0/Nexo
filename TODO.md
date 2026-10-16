@@ -32,10 +32,13 @@ when the console is touched).
   (Go and Playwright TD-S-02/09/10), PT-05..PT-11 accepted with their rationale. Left for a later pass: an
   authenticated ZAP active scan of the Admin API driven by `api/openapi.yaml` (the command-line quick scan covered
   only the SPA), and a per-user revocation of the console sessions on disable (PT-05).
-- [ ] **O_DIRECT and zero-copy** (T-9.2) — 2–3M tokens, 5–8 pd. O_DIRECT for large writes and reads on local
-  drives (buffer alignment, fallback on filesystems without support such as tmpfs/ZFS), `sendfile`/`splice` where
-  the body does not go through encryption, erasure or bitrot (SNSD without SSE). Measure with `docs/bench` before
-  and after; keep only what really helps.
+- [x] **O_DIRECT and zero-copy** (T-9.2) — done in October 2026, report in
+  [docs/bench/README.md §7](docs/bench/README.md#7-o_direct-and-zero-copy-t-92-october-2026): single-drive
+  downloads without SSE go from the page cache to the socket with `sendfile` (HTTP/1.1 without TLS; stall bounds
+  kept per 256 KiB piece), −47 to −66% server CPU per GiB. O_DIRECT for large data files was built, measured
+  slower than page cache + fsync on the VM disk (−30% on 4 MiB synced writes, −52% on SNMD 4 MiB PUT, and cold
+  reads right after a PUT) and left out; RPC streaming cannot use `splice` (HTTP/2 data frames, TLS). Left for
+  later: re-measure O_DIRECT on NVMe with deep queues (`BenchmarkCreateFile`, `NEXO_BENCH_DIR`).
 - [ ] **Rate limiting per API and per distribution** (S-OPS-10, S-DST-08, TDS-13) — 1–2M tokens, 4–6 pd. Enforce
   `api.requests_max` / `api.requests_deadline` (validated today but not applied), limits per user, bucket and IP,
   the per-distribution limit already stored in the configuration; consistent across the cluster.

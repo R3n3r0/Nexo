@@ -286,12 +286,12 @@ func (w *headerWriter) Write(b []byte) (int, error) {
 // other reader is copied through Write as io.Copy does.
 func (w *headerWriter) ReadFrom(src io.Reader) (int64, error) {
 	if _, ok := httpx.FileSection(src); !ok {
-		return httpx.CopyPooled(struct{ io.Writer }{w}, src)
+		return io.Copy(struct{ io.Writer }{w}, src)
 	}
 	if !w.wrote {
 		w.WriteHeader(http.StatusOK)
 	}
-	return httpx.CopyPooled(w.ResponseWriter, src)
+	return io.Copy(w.ResponseWriter, src)
 }
 
 // Flush implements http.Flusher.

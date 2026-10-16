@@ -158,10 +158,132 @@ nexoctl admin speedtest --size 16MiB --duration 5s --concurrency 8 ALIAS object
 benchmark leaves in `bin/bench/<mode>` the text output (`<bench>.txt`), the raw data (`warp-*.json.zst`, to be reread
 with `warp analyze`), `summary.txt` and, with `PROFILE=1`, `<bench>.cpu.pb.gz`.
 
-## 7. Open work
+## 7. O_DIRECT and zero-copy (T-9.2, October 2026)
 
-- O_DIRECT for large shards and zero-copy writes (`io.ReaderFrom`/`sendfile`) from the drives to the socket: not
-  measurable on tmpfs, to be evaluated on NVMe.
+Two optimizations of the data path evaluated on the same VM (§1, Go 1.27.2), measured before and after with the
+same tree and a build of the base commit side by side. The machine was shared with another workload (load average
+2–26 during the runs), so the throughput of single runs varies by ±30–60%: the decisions rest on repeated,
+alternating runs (base and candidate in turns, the order reversed every round), on `benchstat` for the Go
+benchmarks and on an exact Mann-Whitney test for the end-to-end samples, and on the CPU time per GiB of the server,
+which the load of the machine barely moves.
+
+**End-to-end harness.** Besides `test/bench/warp.sh`, whose 64 MiB `put` keeps every object and could not run long
+enough on the free space of the VM disk, a small S3 load generator (minio-go, 8 clients, 64 MiB and 4 MiB objects,
+12 s PUT and 10 s GET per point) overwrote one key per client, so the space used stays bounded, and read the CPU
+time of the server from `/proc/<pid>/stat`. Drives on the VM disk (ext4 on virtio, `fsync` on) and on tmpfs
+(`/dev/shm`); SNSD (1 drive) and SNMD (4 drives, EC 2+2).
+
+Baseline of the base commit (first rounds, load 9–26):
+
+| Mode, drives | PUT 64 MiB | GET 64 MiB | PUT 4 MiB | GET 4 MiB | GET CPU (s/GiB, 64 / 4 MiB) |
+|--------------|-----------:|-----------:|----------:|----------:|----------------------------:|
+| SNSD, disk | 291 MiB/s | 1153 MiB/s | 230 MiB/s | 873 MiB/s | 0.48 / 0.60 |
+| SNMD, disk | 229 MiB/s | 2655 MiB/s | 202 MiB/s | 1858 MiB/s | 0.69 / 1.13 |
+| SNSD, tmpfs | 457 MiB/s | 1141 MiB/s | 677 MiB/s | 3058 MiB/s | 0.59 / 0.57 |
+| SNMD, tmpfs | 281 MiB/s | 937 MiB/s | 254 MiB/s | 619 MiB/s | 0.83 / 1.32 |
+
+Medians of 2 (disk) and 5 (tmpfs) runs; warp on tmpfs gave the same picture (SNSD GET 1.8–2.2 GiB/s, mixed
+1.7–2.6k op/s; SNMD GET 0.8–1.5 GiB/s), well below §4 because of the load of the machine.
+
+### 7.1 Zero-copy downloads: kept
+
+A GET of a single-drive version without encryption is the bytes of its part files as they are on the drive (no
+erasure coding, no bitrot frames, no compression in the object layer). Its body now reaches the socket through
+`sendfile(2)`: the kernel copies the page cache to the socket, with no `pread` into a user-space buffer and no
+`write` from it.
+
+- `storage`: the stream of `ReadFileStream` (one file descriptor per stream) implements `io.WriterTo`: a writer
+  with `io.ReaderFrom` gets the rest of the section as an `*io.LimitedReader` over the `*os.File`, positioned at
+  the section (the shared descriptor of a pinned `FileHandle` is never moved).
+- `object`: `Reader`, the parts reader and the lock-holding wrapper forward `io.WriterTo`, part by part (ranges,
+  multipart objects, pinned and lock-held reads); from the first part stream that does not write itself (erasure,
+  remote drive, SSE) the rest is copied through `Read` exactly as before.
+- `httpx`: `SendGuard` (the per-write stall bound of downloads) implements `io.ReaderFrom`: a file section goes
+  in pieces of 256 KiB, the deadline armed before each piece; a piece whose deadline expires after at least
+  32 KiB went out (one buffered write of `io.Copy`) is resumed under a new deadline, so a slow but steady client is
+  held to the same rate as with plain writes and a stalled one is still cut within the send timeout. Any other
+  body is copied through `Write` as before.
+- The writers between the handler and `net/http` (`middleware` byte counting, the lifecycle `x-amz-expiration`
+  writer, the server stall guard) forward file sections through `io.ReaderFrom`, counting them and arming their
+  own deadlines per piece; anything else, and every HTTP/2 stream, goes through `Write` as before. Over TLS
+  `net/http` falls back to a buffered copy by itself.
+
+Results (load generator, server CPU per GiB sent; *n* runs per side, base vs zero-copy):
+
+| Point | Base | Zero-copy | Δ | p |
+|-------|-----:|----------:|--:|--:|
+| SNSD tmpfs, GET 64 MiB, CPU | 0.59 s/GiB | 0.20 s/GiB | **−66%** | 0.003 (n=5/7) |
+| SNSD tmpfs, GET 4 MiB, CPU | 0.57 s/GiB | 0.30 s/GiB | **−47%** | 0.003 (n=5/7) |
+| SNSD disk, GET 64 MiB, CPU | 0.48 s/GiB | 0.19 s/GiB | −60% | 0.13 (n=2/4, every sample apart) |
+| SNSD disk, GET 4 MiB, CPU | 0.60 s/GiB | 0.28 s/GiB | −53% | 0.13 (n=2/4, every sample apart) |
+| SNSD tmpfs, GET 64 MiB, throughput | 1141 MiB/s | 3108 MiB/s | +172% | 0.27 (not significant) |
+| SNSD tmpfs, GET 4 MiB, throughput | 3058 MiB/s | 2214 MiB/s | −28% | 0.88 (not significant) |
+| SNMD, PUT (every point), CPU and throughput | | | ±4% CPU | > 0.05 (unchanged path) |
+
+`strace -c` of a 64 MiB GET: 327 `sendfile` calls, 12 `pread64`. `BenchmarkCopyBodyFile` (`httpx`, 16 MiB
+file section served over loopback HTTP/1.1 to an in-process client, 10 alternating runs): same throughput
+(6.1 vs 5.8 GiB/s, p=0.22, bound by the client copying out of its socket) and 12% less CPU for the whole process,
+client included (8.9 vs 10.1 ms/op, p=0.009). The micro-benchmarks of `storage` and `rpc` show no significant
+change (`benchstat`, n=8, every p > 0.05 except a +112% on `CreateFile/nosync/64KiB`, a path the change does not
+touch: noise).
+
+Not applicable, left unchanged:
+
+- **SNMD and cluster GET, SSE**: the bytes are decoded, verified (bitrot) or decrypted in user space.
+- **Internode RPC** (`ReadFileStream` and file handles of remote drives): the shards travel in the data frames of
+  the RPC protocol inside HTTP/2 (and TLS between nodes), which must be assembled in user space; `splice` cannot
+  apply, nor `sendfile` on the upload side (an HTTP/2 request body is not a socket).
+- **Distribution cache, L2 disk hits**: an entry is read whole and its CRC verified before it is served.
+- **Console static assets**: embedded in the binary (`embed.FS`), not files.
+
+### 7.2 O_DIRECT for large data files: rejected
+
+The candidate wrote the temporary data file of `CreateFile` (SNSD parts, erasure shards, heal) with `O_DIRECT` from
+its first whole 1 MiB buffer on: buffers aligned to the alignment the file system reports (`statx` `STATX_DIOALIGN`,
+4 KiB by default), the unaligned tail written after clearing `O_DIRECT` with `fcntl(F_SETFL)`, the `fsync` before
+the rename unchanged, a drive-wide fallback to the page cache when the file system refuses it (`EINVAL` at `fcntl`
+or at the first write), only on drives that sync their writes, xl.meta and small files always buffered, and a
+`NEXO_DRIVE_DIRECT_IO=off` switch. It was correct (unit tests of the alignment, tail and fallback paths, the
+storage conformance suite with fsync on), but slower on this disk:
+
+| Measurement | Page cache + fsync (base) | O_DIRECT | Δ |
+|-------------|--------------------------:|---------:|--:|
+| `BenchmarkCreateFile/sync/4MiB` (ext4/virtio, n=6) | 416 MiB/s | 290 MiB/s | **−30%** (p=0.002) |
+| `BenchmarkCreateFile/sync/64MiB` (n=6) | 509 MiB/s | 362 MiB/s | −29% (p=0.065) |
+| `BenchmarkCreateFileParallel` (4 × 4 MiB, n=6) | 440 MiB/s | 361 MiB/s | −18% (p=0.59) |
+| Prototype: 64 MiB file, 1 MiB writes, then fsync | 411–425 MiB/s | 328–347 MiB/s | −20% |
+| Same, 4 MiB direct writes / writes overlapped with the producer (2 buffers, writer goroutine) | | 317–341 / 357–396 MiB/s | −10 to −25% |
+| Load generator, SNMD disk, PUT 4 MiB (n=2) | 202 MiB/s | 97 MiB/s | −52% |
+| Load generator, SNMD disk, PUT 64 MiB | 229 MiB/s | 193 MiB/s | −16% |
+| Load generator, SNSD disk, PUT 64 / 4 MiB (n=2) | 291 / 230 MiB/s | 337 / 208 MiB/s | +16% / −10% (the same binary without O_DIRECT: 394 / 365) |
+| GET right after the PUT, SNMD disk 64 MiB | 2655 MiB/s (page cache) | 1193 MiB/s (from the disk) | −55% |
+
+A direct write blocks until the device completes it, one request at a time per stream, where a buffered write
+returns once copied and the final `fsync` hands the device the whole file at once; the CPU saved (no copy into the
+page cache: 2.4 vs 3.3 s/GiB on a 64 MiB SNSD PUT) does not make up for it, and the data just written is no longer
+in the page cache for the reads that follow. Direct reads were measured with `dd` only and not built: 1.9 GB/s
+against 2.4 GB/s for a cold buffered read with read-ahead and 7.1 GB/s from the page cache (9–14 GB/s in
+`BenchmarkReadFileStream`), and a GET of a hot object would always pay the device. On NVMe with deep queues the
+balance may change; the evaluation patch is not in the tree, and `BenchmarkCreateFile` (`internal/service/storage`,
+`NEXO_BENCH_DIR` selects the file system) is there to measure it again.
+
+### 7.3 Reproduction
+
+```sh
+# micro-benchmarks, base and candidate trees alternated, then benchstat
+NEXO_BENCH_DIR=/mnt/disk go test -run '^$' -bench . -count 2 ./internal/service/storage/ >> new.txt
+go test -run '^$' -bench 'CreateFile|ReadFileStream' -benchtime 2s -count 2 ./internal/transport/rpc/ >> new-rpc.txt
+go test -c -o httpx.test ./internal/transport/http/httpx/
+for i in $(seq 10); do ./httpx.test -test.run '^$' -test.bench CopyBodyFile; done > copy.txt
+benchstat -col /src copy.txt
+# zero-copy at work: sendfile calls of a running SNSD server during a GET
+strace -f -c -e trace=sendfile,pread64 -p "$(pidof nexo)"
+```
+
+## 8. Open work
+
+- O_DIRECT (§7.2) on NVMe with deep queues, where it may pay off; zero-copy for HTTP/2 and TLS downloads (kTLS)
+  is out of reach of `net/http`.
 - Multi-buffer MD5 (AVX-512) for the ETag: 18% of the CPU of a large PUT.
 - A pool of Decode buffers for whole blocks (today reallocated per request: the in-flight reads of slow shards keep
   owning them, reference counting is needed).

@@ -449,11 +449,6 @@ type Reader struct {
 	Length int64
 }
 
-// WriteTo implements io.WriterTo through the body when it has one: the
-// body of a single drive version writes its files to a writer that takes
-// them (zero-copy downloads, see partsReader.WriteTo).
-func (r *Reader) WriteTo(w io.Writer) (int64, error) { return writeTo(w, r.ReadCloser) }
-
 // DeleteObjectOptions tunes DeleteObject.
 type DeleteObjectOptions struct {
 	VersionID string

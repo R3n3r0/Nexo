@@ -90,6 +90,8 @@ type stallWriter struct {
 	// connection (nil when unknown).
 	http2    bool
 	requests *connRequests
+	// buf is the copy buffer of ReadFrom through Write (allocated on use).
+	buf []byte
 }
 
 // piece returns the largest piece of a write handed at once to the
@@ -175,11 +177,16 @@ func (g *stallWriter) Write(p []byte) (int, error) {
 func (g *stallWriter) ReadFrom(src io.Reader) (int64, error) {
 	lr, ok := httpx.FileSection(src)
 	if !ok || g.http2 {
-		return httpx.CopyPooled(struct{ io.Writer }{g}, src)
+		// The pieces of a file section come one call each: one buffer
+		// for the whole response, as io.Copy through Write had.
+		if g.buf == nil {
+			g.buf = make([]byte, 32<<10)
+		}
+		return io.CopyBuffer(struct{ io.Writer }{g}, src, g.buf)
 	}
 	g.wrote = true
 	if !g.arm() {
-		return httpx.CopyPooled(g.ResponseWriter, lr)
+		return io.Copy(g.ResponseWriter, lr)
 	}
 	defer g.clear()
 	return httpx.CopyFileSection(g.ResponseWriter, lr, func() { g.arm() })

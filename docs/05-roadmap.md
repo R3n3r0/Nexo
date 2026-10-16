@@ -308,7 +308,10 @@ about 3 ms from node1 to node4; TCD-03: tens of ms through the proxies).
   profiling via the Admin API (`POST /api/v1/profile`, `nexoctl admin profile`) and speed test (`POST /api/v1/speedtest/*`,
   `nexoctl admin speedtest`, S-OPS-11, brought forward from T-10.7); measured optimizations (erasure coding buffers
   recycled and sized to the part, drive write buffers recycled): report in
-  [docs/bench/README.md](bench/README.md). O_DIRECT and zero-copy remain open.
+  [docs/bench/README.md](bench/README.md). O_DIRECT and zero-copy (October 2026, [§7](bench/README.md#7-o_direct-and-zero-copy-t-92-october-2026)):
+  single-drive downloads without SSE go from the page cache to the socket with `sendfile` (−47 to −66% server CPU
+  per GiB); O_DIRECT for large data files was measured slower than page cache + fsync (−30% on 4 MiB writes) and
+  left out.
 - T-9.3: STRIDE threat model per surface, `make security` (govulncheck, gosec, npm audit) and `security` CI job,
   24 fuzzing targets (`make fuzz`, nightly job `fuzz-nightly`): [docs/security/threat-model.md](security/threat-model.md).
   With v1.0 the toolchain is Go 1.26.9 (`go.mod`, Dockerfile, CI with golangci-lint v2.14.0) and the vulnerable modules
