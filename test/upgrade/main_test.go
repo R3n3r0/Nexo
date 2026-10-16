@@ -36,7 +36,7 @@ const (
 // defaultFrom is the release before the one under test: the M7 commit
 // (versioning, Object Lock, SSE/KMS, lifecycle, events), the oldest whose
 // drives the releases of Nexo read.
-const defaultFrom = "224bb31"
+const defaultFrom = "f70cc7a"
 
 // modulePath is the import path of the module (the version is injected
 // at link time, as by GoReleaser).

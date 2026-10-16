@@ -3,7 +3,7 @@
 // release before it, and the release before it may take them back.
 //
 // TestMain builds both server binaries: the release before from a git
-// commit (NEXO_UPGRADE_FROM, the M7 commit 224bb31 by default; its tree
+// commit (NEXO_UPGRADE_FROM, the M7 commit f70cc7a by default; its tree
 // is extracted with git archive into a temporary directory, so the
 // repository needs that commit) and the release under test from the
 // working tree. NEXO_UPGRADE_OLD_BIN and NEXO_UPGRADE_NEW_BIN use prebuilt

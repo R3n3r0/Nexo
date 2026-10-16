@@ -61,7 +61,7 @@ Many suites stop at the first error: an expected failure hides the tests that fo
 ### Upgrade tests (T-9.8)
 
 `test/upgrade` (build tag `upgrade`, `make test-upgrade`, nightly job `upgrade-nightly`): `TestMain` builds
-the previous release from its commit (`NEXO_UPGRADE_FROM`, default `224bb31`, M7, extracted with `git archive`) and the
+the previous release from its commit (`NEXO_UPGRADE_FROM`, default `f70cc7a`, M7, extracted with `git archive`) and the
 release under test from the working tree (`NEXO_UPGRADE_OLD_BIN`/`NEXO_UPGRADE_NEW_BIN` for prebuilt binaries); the
 deployments use TLS and the built-in KMS.
 

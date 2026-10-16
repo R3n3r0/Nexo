@@ -112,7 +112,7 @@ test-s3compat: build-go
 test-mint: build-go
 	test/compat/run-mint.sh
 
-## test-upgrade: upgrade tests (T-9.8, build tag "upgrade", Linux): the release before (NEXO_UPGRADE_FROM, default 224bb31, built from git) writes SNMD and cluster deployments, the working tree takes them over (SNMD, rolling upgrade of 4 nodes under load) and the release before is started again (downgrade)
+## test-upgrade: upgrade tests (T-9.8, build tag "upgrade", Linux): the release before (NEXO_UPGRADE_FROM, default f70cc7a, built from git) writes SNMD and cluster deployments, the working tree takes them over (SNMD, rolling upgrade of 4 nodes under load) and the release before is started again (downgrade)
 test-upgrade:
 	$(GO) test $(GOFLAGS) -tags upgrade -count=1 -timeout 30m -v ./test/upgrade/...
 

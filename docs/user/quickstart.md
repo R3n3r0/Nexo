@@ -73,7 +73,7 @@ $ nexoctl alias set local http://localhost:9000 admin supersecret
 Added alias "local" for http://localhost:9000 (credentials verified).
 
 $ nexoctl admin info local
-local  Nexo v1.0.0 (commit 2558bd3, built 2026-10-08T12:00:00Z)
+local  Nexo v1.0.0 (commit d52c0f1, built 2026-10-08T12:00:00Z)
 Mode: snsd  Region: us-east-1  Deployment: db114646-23ae-4596-966e-a3ed2ef8248f
 Uptime: 8s  Buckets: 0  Objects: 0  Usage: 0B
 Pool 1: 1 set(s) of 1 drive(s), parity 0, quorum read 1 write 1

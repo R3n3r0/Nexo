@@ -8,7 +8,7 @@ versions follow [Semantic Versioning](https://semver.org/). The codes in parenth
 ## [1.0.0] - unreleased
 
 First stable release: milestones M0–M9 of the [roadmap](docs/05-roadmap.md). Earlier releases were never
-published: the baseline of the upgrade tests is the M7 commit (`224bb31`, built as `v0.7.0`).
+published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built as `v0.7.0`).
 
 ### Deployment modes and storage
 - A single binary for three modes detected from the arguments of `nexo server` (S-STO-00): single node and single
