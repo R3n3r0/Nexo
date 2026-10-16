@@ -1,117 +1,118 @@
-# Backup e migrazione
+# Backup and migration
 
-Un deployment Nexo ha due tipi di contenuto da proteggere:
+A Nexo deployment has two kinds of content to protect:
 
-- lo **stato** del deployment: utenti, gruppi, access key, policy, configurazione dinamica e metadati dei
-  bucket (versioning, policy, lifecycle, notifiche, CORS, tag, quota, object lock, cifratura);
-- i **dati**: gli oggetti, con tutte le loro versioni.
+- the **state** of the deployment: users, groups, access keys, policies, dynamic configuration and bucket
+  metadata (versioning, policies, lifecycle, notifications, CORS, tags, quota, object lock, encryption);
+- the **data**: the objects, with all their versions.
 
-`nexoctl admin cluster export/import` gestisce lo stato, `nexoctl mirror` i dati. Insieme permettono di
-fare backup e di migrare tra modalità (SNSD → SNMD → cluster) o tra cluster.
+`nexoctl admin cluster export/import` handles the state, `nexoctl mirror` the data. Together they let you
+take backups and migrate between modes (SNSD → SNMD → cluster) or between clusters.
 
-## Esportare lo stato
+## Exporting the state
 
 ```console
 $ nexoctl admin cluster export local --output backup.zip
 Exported the state of "local" to backup.zip (2.3KiB).
 ```
 
-L'archivio (zip, scritto con permessi 0600) contiene:
+The archive (zip, written with permissions 0600) contains:
 
-| File | Contenuto |
-|------|-----------|
-| `manifest.json` | formato, versione del server, elenco di utenti, gruppi, policy, sottosistemi e bucket |
-| `iam.bin` | utenti, gruppi, access key e sessioni STS, **cifrati** (AES-256-GCM con chiave derivata con Argon2id dalle credenziali root) |
-| `policies.json` | policy con nome |
-| `config.json` | configurazione dinamica |
-| `buckets/<nome>.json` | metadati di ogni bucket |
+| File | Contents |
+|------|----------|
+| `manifest.json` | format, server version, list of users, groups, policies, subsystems and buckets |
+| `iam.bin` | users, groups, access keys and STS sessions, **encrypted** (AES-256-GCM with a key derived with Argon2id from the root credentials) |
+| `policies.json` | named policies |
+| `config.json` | dynamic configuration |
+| `buckets/<name>.json` | metadata of every bucket |
 
-Il deployment che importa `iam.bin` deve avere **le stesse credenziali root** di quello che l'ha esportato.
-L'utente root non è nell'archivio (viene dall'ambiente). Richiede `admin:ExportCluster`.
+The deployment that imports `iam.bin` must have **the same root credentials** as the one that exported it.
+The root user is not in the archive (it comes from the environment). Requires `admin:ExportCluster`.
 
-Per un backup periodico basta schedulare l'export (cron, timer systemd) e conservare gli archivi fuori dal
+For a periodic backup, just schedule the export (cron, systemd timer) and keep the archives outside the
 deployment.
 
-## Importare lo stato
+## Importing the state
 
 ```console
-$ nexoctl admin cluster import nuovo backup.zip --dry-run
-Would import into "nuovo" (merge): 1 user(s), 0 group(s), 0 polic(ies), 0 configuration subsystem(s), 2 bucket(s).
-Buckets created: docs, foto
+$ nexoctl admin cluster import new backup.zip --dry-run
+Would import into "new" (merge): 1 user(s), 0 group(s), 0 polic(ies), 0 configuration subsystem(s), 2 bucket(s).
+Buckets created: docs, photos
 
-$ nexoctl admin cluster import nuovo backup.zip
-Imported into "nuovo" (merge): 1 user(s), 0 group(s), 0 polic(ies), 0 configuration subsystem(s), 2 bucket(s).
-Buckets created: docs, foto
+$ nexoctl admin cluster import new backup.zip
+Imported into "new" (merge): 1 user(s), 0 group(s), 0 polic(ies), 0 configuration subsystem(s), 2 bucket(s).
+Buckets created: docs, photos
 ```
 
-- L'archivio viene validato per intero prima di applicare qualsiasi cosa; `--dry-run` si ferma lì e mostra
-  cosa cambierebbe.
-- `--mode merge` (default) aggiunge e aggiorna, mantenendo ciò che l'archivio non contiene.
-- `--mode replace` sostituisce anche l'intera configurazione e rimuove utenti, gruppi e policy con nome
-  assenti dall'archivio. I bucket non vengono mai rimossi.
-- I bucket mancanti vengono creati con le loro impostazioni (versioning compreso). Richiede
+- The whole archive is validated before anything is applied; `--dry-run` stops there and shows
+  what would change.
+- `--mode merge` (default) adds and updates, keeping whatever the archive does not contain.
+- `--mode replace` also replaces the whole configuration and removes the users, groups and named policies
+  missing from the archive. Buckets are never removed.
+- Missing buckets are created with their settings (versioning included). Requires
   `admin:ImportCluster`.
 
-## Copiare i dati
+## Copying the data
 
-`nexoctl mirror` sincronizza due posizioni qualsiasi (directory locali, bucket dello stesso o di un altro
-alias, anche di un altro server S3):
+`nexoctl mirror` synchronizes any two locations (local directories, buckets of the same alias or of another
+one, even of another S3 server):
 
 ```bash
-nexoctl mirror local/foto ./backup/foto                # backup su disco: copia ciò che manca o è cambiato
-nexoctl mirror --overwrite --remove local/foto ./backup/foto   # copia esatta (cancella ciò che non c'è più)
-nexoctl mirror --preserve vecchio/docs nuovo/docs      # tutte le versioni e i delete marker, con metadati e tag
+nexoctl mirror local/photos ./backup/photos            # backup to disk: copies what is missing or changed
+nexoctl mirror --overwrite --remove local/photos ./backup/photos   # exact copy (deletes what no longer exists)
+nexoctl mirror --preserve old/docs new/docs            # every version and delete marker, with metadata and tags
 ```
 
-- Una seconda esecuzione trasferisce solo le differenze.
-- `--preserve` copia, tra due bucket, **ogni versione** e ogni delete marker dal più vecchio al più recente,
-  con content type, metadati e tag. Il bucket di destinazione deve avere il versioning abilitato se ci sono
-  più versioni (l'import dello stato lo crea già così). Gli ID di versione nel target sono nuovi; ordine e
-  contenuto sono conservati.
-- `--dry-run` mostra cosa farebbe; `--limit-upload`/`--limit-download` limitano la banda.
+- A second run transfers only the differences.
+- `--preserve` copies, between two buckets, **every version** and every delete marker from the oldest to the
+  newest, with content type, metadata and tags. The destination bucket must have versioning enabled if there
+  are several versions (importing the state already creates it that way). The version IDs in the target are
+  new; order and content are preserved.
+- `--dry-run` shows what it would do; `--limit-upload`/`--limit-download` limit the bandwidth.
 
-## Migrare a un'altra modalità
+## Migrating to another mode
 
-Esempio: da un server SNSD (alias `vecchio`) a un cluster nuovo (alias `nuovo`), con le **stesse
-credenziali root**.
+Example: from an SNSD server (alias `old`) to a new cluster (alias `new`), with the **same root
+credentials**.
 
-1. Installa e avvia il nuovo deployment ([Modalità](../deployment-modes.md)) e crea gli alias:
+1. Install and start the new deployment ([Deployment modes](../deployment-modes.md)) and create the aliases:
 
    ```bash
-   nexoctl alias set vecchio http://old.lan:9000 admin "$ROOT_PASSWORD"
-   nexoctl alias set nuovo   http://nexo.lan:9000 admin "$ROOT_PASSWORD"
+   nexoctl alias set old http://old.lan:9000 admin "$ROOT_PASSWORD"
+   nexoctl alias set new http://nexo.lan:9000 admin "$ROOT_PASSWORD"
    ```
 
-2. Esporta e importa lo stato **prima** dei dati, così i bucket esistono già con il loro versioning:
+2. Export and import the state **before** the data, so the buckets already exist with their versioning:
 
    ```bash
-   nexoctl admin cluster export vecchio --output stato.zip
-   nexoctl admin cluster import nuovo stato.zip --dry-run
-   nexoctl admin cluster import nuovo stato.zip
+   nexoctl admin cluster export old --output state.zip
+   nexoctl admin cluster import new state.zip --dry-run
+   nexoctl admin cluster import new state.zip
    ```
 
-3. Copia i dati bucket per bucket con tutte le versioni:
+3. Copy the data bucket by bucket with every version:
 
    ```bash
-   for b in $(nexoctl ls --json vecchio | jq -r '.name | rtrimstr("/")'); do
-     nexoctl mirror --preserve "vecchio/$b" "nuovo/$b"
+   for b in $(nexoctl ls --json old | jq -r '.name | rtrimstr("/")'); do
+     nexoctl mirror --preserve "old/$b" "new/$b"
    done
    ```
 
-4. Ferma le scritture sul vecchio deployment (o mettilo in sola lettura togliendo i permessi di scrittura
-   alle applicazioni), ripeti il passo 3 per copiare le ultime modifiche, poi sposta i client sul nuovo
-   endpoint (DNS o load balancer).
-5. Verifica: `nexoctl diff vecchio/docs nuovo/docs` non stampa nulla se i due bucket coincidono (altrimenti elenca gli oggetti presenti solo da una parte o diversi); `nexoctl admin info nuovo`.
+4. Stop the writes on the old deployment (or make it read-only by removing the write permissions of the
+   applications), repeat step 3 to copy the latest changes, then move the clients to the new
+   endpoint (DNS or load balancer).
+5. Verify: `nexoctl diff old/docs new/docs` prints nothing if the two buckets match (otherwise it lists the
+   objects present on one side only or different); `nexoctl admin info new`.
 
-Questa procedura è verificata in CI (test TM-04: oggetti, versioni, IAM, policy e lifecycle identici dopo la
-migrazione da SNSD a cluster).
+This procedure is verified in CI (test TM-04: identical objects, versions, IAM, policies and lifecycle after
+the migration from SNSD to cluster).
 
-## Cosa non è nell'archivio
+## What is not in the archive
 
-- i dati degli oggetti (copiali con `mirror`);
-- le chiavi del KMS: la master key del KMS integrato (`NEXO_KMS_SECRET_KEY`) va conservata a parte, perché
-  senza di essa gli oggetti cifrati con SSE-S3 o SSE-KMS non sono leggibili; con `mirror` i dati vengono
-  letti in chiaro e riscritti secondo la cifratura di default del bucket di destinazione;
-- distribuzioni, key group, certificati e cache: si esportano con `nexoctl dist export`/`import` e
-  `nexoctl cache policy export`/`import` (vedi [Distribuzioni](../distributions/README.md));
-- le regole di accesso dei bucket: `nexoctl access export`/`import` per bucket.
+- the object data (copy it with `mirror`);
+- the KMS keys: the master key of the built-in KMS (`NEXO_KMS_SECRET_KEY`) must be kept separately, because
+  without it the objects encrypted with SSE-S3 or SSE-KMS cannot be read; with `mirror` the data is
+  read in clear text and rewritten according to the default encryption of the destination bucket;
+- distributions, key groups, certificates and cache: they are exported with `nexoctl dist export`/`import` and
+  `nexoctl cache policy export`/`import` (see [Distributions](../distributions/README.md));
+- the access rules of the buckets: `nexoctl access export`/`import` per bucket.

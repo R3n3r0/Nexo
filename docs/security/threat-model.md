@@ -1,160 +1,159 @@
-# Threat model di Nexo (STRIDE)
+# Nexo threat model (STRIDE)
 
-Questo documento estende la sintesi di [docs/07 §7.1](../07-security-operations.md#71-threat-model-sintesi-stride)
-con un'analisi STRIDE per superficie (M9 T-9.3). Per ogni minaccia indica la mitigazione **nel codice** (file e
-meccanismo) e il **rischio residuo**: ciò che resta a carico del deployment o è accettato. I riferimenti sono relativi
-alla radice del repository; le scansioni automatiche (govulncheck, gosec, npm audit) e il fuzzing sono descritti in
-§10 e §11, i rischi residui consolidati in §12.
+This document extends the summary in [docs/07 §7.1](../07-security-operations.md#71-threat-model-stride-summary)
+with a STRIDE analysis per surface (M9 T-9.3). For each threat it gives the mitigation **in the code** (file and
+mechanism) and the **residual risk**: what is left to the deployment or accepted. References are relative to the
+repository root; the automated scans (govulncheck, gosec, npm audit) and fuzzing are described in §10 and §11, and the
+consolidated residual risks in §12.
 
-## 1. Perimetro, asset e confini di fiducia
+## 1. Scope, assets and trust boundaries
 
-**Asset**: dati e metadati degli oggetti (anche cifrati), credenziali (root, utenti IAM, service account, sessioni
-STS, token della console), chiavi (master key del KMS, DEK, chiavi SSE-C dei client, chiavi di firma delle
-distribuzioni, segreti di origine dei proxy), configurazione (IAM, policy, regole di accesso, distribuzioni, cache,
-target degli eventi), disponibilità del servizio e integrità del cluster (formato dei drive, quorum, lock
-distribuiti).
+**Assets**: object data and metadata (encrypted too), credentials (root, IAM users, service accounts, STS sessions,
+console tokens), keys (KMS master key, DEKs, clients' SSE-C keys, distribution signing keys, proxies' origin
+secrets), configuration (IAM, policies, access rules, distributions, cache, event targets), service availability and
+cluster integrity (drive format, quorum, distributed locks).
 
-**Attori**: client anonimi su Internet (website, link firmati, oggetti pubblici); client S3 autenticati (utenti,
-service account, sessioni STS); amministratori (console, Admin API, `nexoctl`); altri nodi del cluster; servizi esterni
-chiamati da Nexo (KES, target degli eventi, webhook di purge, ACME); l'operatore della macchina (filesystem, variabili
-d'ambiente, segnali).
+**Actors**: anonymous clients on the Internet (websites, signed links, public objects); authenticated S3 clients
+(users, service accounts, STS sessions); administrators (console, Admin API, `nexoctl`); other cluster nodes;
+external services called by Nexo (KES, event targets, purge webhooks, ACME); the machine operator (file system,
+environment variables, signals).
 
-**Confini di fiducia**:
+**Trust boundaries**:
 
-| Confine | Dentro | Fuori |
+| Boundary | Inside | Outside |
 |---------|--------|-------|
-| Listener S3 (`--address`, anche domini delle distribuzioni su opt-in) e listener web delle distribuzioni (`--web-address`, `--web-tls-address`) | handler, servizi | qualunque client di rete |
-| Listener console/Admin API (`--console-address`) | API `/api/v1`, SPA | browser e `nexoctl` |
-| RPC internode (`/nexo/rpc/v1/...` sul listener S3) | nodi con le stesse credenziali root e lo stesso deployment id | ogni altro peer |
-| Egress (KES, eventi, webhook, ACME) | Nexo | servizi esterni, anche di terze parti |
-| Filesystem dei drive, `--certs-dir`, `.nexo.sys` | processo `nexo` (utente dedicato) | altri utenti locali |
+| S3 listener (`--address`, also distribution domains on opt-in) and the distributions' web listeners (`--web-address`, `--web-tls-address`) | handlers, services | any network client |
+| Console/Admin API listener (`--console-address`) | `/api/v1` API, SPA | browsers and `nexoctl` |
+| Internode RPC (`/nexo/rpc/v1/...` on the S3 listener) | nodes with the same root credentials and the same deployment id | any other peer |
+| Egress (KES, events, webhooks, ACME) | Nexo | external services, third-party ones included |
+| Drive file system, `--certs-dir`, `.nexo.sys` | `nexo` process (dedicated user) | other local users |
 
-**Assunzioni**: l'utente di sistema che esegue `nexo` e chi ne controlla l'ambiente (variabili, file di
-configurazione, `--certs-dir`) sono fidati; i drive non sono scrivibili da altri utenti; il root dell'istanza è un
-amministratore fidato (bypassa le policy per progetto). I reverse proxy davanti a Nexo sono fidati solo se elencati
-in `--trusted-proxies`.
+**Assumptions**: the system user running `nexo` and whoever controls its environment (variables, configuration
+files, `--certs-dir`) are trusted; the drives are not writable by other users; the instance's root is a trusted
+administrator (it bypasses policies by design). Reverse proxies in front of Nexo are trusted only if listed in
+`--trusted-proxies`.
 
-## 2. API S3 (`internal/transport/http/s3`, `internal/service/auth`, `internal/service/policy`)
+## 2. S3 API (`internal/transport/http/s3`, `internal/service/auth`, `internal/service/policy`)
 
-| STRIDE | Minaccia | Mitigazione (codice) | Rischio residuo |
+| STRIDE | Threat | Mitigation (code) | Residual risk |
 |--------|----------|----------------------|-----------------|
-| S | Firma falsificata o riutilizzata | SigV4 completo con confronto a tempo costante e cache delle chiavi derivate (`internal/service/auth/sigv4.go`, `keycache.go`); finestra di clock skew (`RequestTimeTooSkewed`, `errors.go`); presigned al massimo 7 giorni (`canonical.go` `maxPresignExpiry`); payload firmato o `UNSIGNED-PAYLOAD` esplicito, chunk firmati verificati uno per uno (`chunked.go`); POST policy con condizioni verificate (`postpolicy.go`); scope del servizio (`scope.go`) | Replay di una richiesta firmata dentro la finestra di skew (come in S3): usare TLS |
-| S | Credenziali STS rubate | Sessioni a scadenza, token legato alla chiave (`internal/service/iam/sts.go`); revoca alla rotazione dei segreti | Un token rubato vale fino alla scadenza |
-| T | Corpo alterato in transito o su disco | Content-MD5 e checksum `x-amz-checksum-*` (`internal/transport/http/s3/body.go`, `internal/service/auth/checksum.go`, `internal/service/object/hash.go`); hash bitrot per blocco HighwayHash (`internal/service/erasure/bitrot.go`); CRC di `xl.meta` (`internal/service/storage/xlmeta.go`); TLS | Senza TLS i metadati non firmati (header non inclusi in `SignedHeaders`) sono modificabili da un MITM |
-| T | Path traversal nelle chiavi (`../`, NUL, UTF-8 invalido) | Validazione delle chiavi (`internal/domain/object.go`), percorsi risolti dentro il drive con `O_NOFOLLOW` (`internal/service/storage/fsutil.go`), normalizzazione condivisa con le regole di accesso (`internal/service/match/normalize.go`) | — |
-| T | Sovrascrittura di versioni protette | Object Lock (retention, legal hold, bypass governance solo con permesso esplicito, `internal/service/object/buckets.go`), versioning | Il root può cancellare un bucket in governance con bypass, per progetto |
-| R | Operazioni non attribuibili | Request id su ogni risposta (`middleware/requestid.go`), audit log con identità (`middleware/audit.go`, `internal/service/audit`), anche delle richieste rifiutate dall'autenticazione: ne restano fuori solo le sonde di salute anonime e gli scrape anonimi riusciti delle metriche, mai una richiesta con credenziali (firma, token) né uno scrape rifiutato; bucket e oggetto risolti come l'API S3 prima dell'autenticazione (`middleware/target.go`, `httpx.VirtualHostBucket`) | La consegna dell'audit ai target esterni è asincrona: un crash può perdere gli eventi non ancora consegnati |
-| I | Lettura non autorizzata | Policy deny-by-default valutate server-side per ogni operazione (`internal/service/policy`, `internal/transport/http/s3/authz.go`), regole di accesso glob/regex e Block Public Access (`internal/service/accessrule`), messaggi d'errore generici agli anonimi | Una bucket policy permissiva scritta dall'amministratore è rispettata |
-| I | Dati a riposo leggibili da chi ha i drive | SSE-S3/SSE-KMS/SSE-C, stream DARE con anti-troncamento (`internal/service/crypto/stream.go`), chiavi d'oggetto sigillate (`internal/service/crypto/crypto.go`) | Oggetti non cifrati sono in chiaro sui drive; i metadati (nomi, dimensioni) non sono cifrati |
-| D | Corpi/documenti enormi, XML annidato, chunk malformati; client che smettono di leggere (socket non svuotato, finestra HTTP/2 a zero) per tenere occupati handler, lock e buffer | Limiti dei documenti XML/JSON (`maxXMLBody`, `maxCompleteBody` in `s3/body.go`, `s3/multipart.go`), limite del corpo (`middleware/maxbody.go`), `ReadHeaderTimeout` e timeout dei listener (`internal/transport/http/server/server.go`), cifre massime della dimensione dei chunk (`auth/chunked.go`), quote dei bucket (`internal/service/quota`); limite di stallo su ogni scrittura di ogni risposta di ogni listener (`server/stall.go`, `NEXO_SEND_TIMEOUT`, 20 s: la risposta HTTP/1 o lo stream HTTP/2 viene interrotto) e su ogni connessione HTTP/2, chiusa con tutti i suoi stream quando non accetta byte per lo stesso tempo (`HTTP2Config.WriteByteTimeout` in `server.go`: il reset di uno stream non può partire se il client non svuota il socket); handler, lock e corpo bufferizzato vengono così rilasciati; finestre HTTP/2 di net/http (1 MiB per connessione) e al più 128 stream per connessione, finestre maggiori (8 MiB per stream, 16 MiB per connessione) solo sul listener S3 di un cluster, che trasporta l'RPC (`server.WithHTTP2Windows`) | Nessun rate limit per client sull'API S3: un client (anche anonimo verso oggetti pubblici) può saturare banda e CPU; usare un reverse proxy con limiti (`deploy/proxy`). Vulnerabilità della toolchain (§10.1) |
-| E | Escalation da utente a root | Le policy non concedono azioni `admin:*` implicite; le credenziali derivate (service account, sessioni STS) valgono per l'intersezione tra la policy inline e quelle del padre, root compreso (`internal/service/policy/evaluate.go`); un utente gestisce solo le proprie chiavi e una credenziale derivata nessuna, così non può coniarne una più ampia (`internal/service/iam/ownership.go`) | — |
+| S | Forged or replayed signature | Full SigV4 with constant-time comparison and a cache of derived keys (`internal/service/auth/sigv4.go`, `keycache.go`); clock skew window (`RequestTimeTooSkewed`, `errors.go`); presigned URLs at most 7 days (`canonical.go` `maxPresignExpiry`); signed payload or explicit `UNSIGNED-PAYLOAD`, signed chunks verified one by one (`chunked.go`); POST policy with verified conditions (`postpolicy.go`); service scope (`scope.go`) | Replay of a signed request within the skew window (as in S3): use TLS |
+| S | Stolen STS credentials | Expiring sessions, token bound to the key (`internal/service/iam/sts.go`); revocation on secret rotation | A stolen token is valid until it expires |
+| T | Body altered in transit or on disk | Content-MD5 and `x-amz-checksum-*` checksums (`internal/transport/http/s3/body.go`, `internal/service/auth/checksum.go`, `internal/service/object/hash.go`); per-block HighwayHash bitrot hash (`internal/service/erasure/bitrot.go`); CRC of `xl.meta` (`internal/service/storage/xlmeta.go`); TLS | Without TLS, unsigned metadata (headers not included in `SignedHeaders`) can be modified by a MITM |
+| T | Path traversal in keys (`../`, NUL, invalid UTF-8) | Key validation (`internal/domain/object.go`), paths resolved inside the drive with `O_NOFOLLOW` (`internal/service/storage/fsutil.go`), normalization shared with the access rules (`internal/service/match/normalize.go`) | — |
+| T | Overwriting protected versions | Object Lock (retention, legal hold, governance bypass only with explicit permission, `internal/service/object/buckets.go`), versioning | Root can delete a bucket in governance mode with bypass, by design |
+| R | Unattributable operations | Request id on every response (`middleware/requestid.go`), audit log with identity (`middleware/audit.go`, `internal/service/audit`), including requests rejected by authentication: only anonymous health probes and successful anonymous metrics scrapes are left out, never a request with credentials (signature, token) nor a rejected scrape; bucket and object resolved as by the S3 API before authentication (`middleware/target.go`, `httpx.VirtualHostBucket`) | Audit delivery to external targets is asynchronous: a crash can lose events not yet delivered |
+| I | Unauthorized read | Deny-by-default policies evaluated server-side for every operation (`internal/service/policy`, `internal/transport/http/s3/authz.go`), glob/regex access rules and Block Public Access (`internal/service/accessrule`), generic error messages to anonymous users | A permissive bucket policy written by the administrator is honored |
+| I | Data at rest readable by whoever holds the drives | SSE-S3/SSE-KMS/SSE-C, DARE stream with anti-truncation (`internal/service/crypto/stream.go`), sealed object keys (`internal/service/crypto/crypto.go`) | Unencrypted objects are in plain text on the drives; metadata (names, sizes) is not encrypted |
+| D | Huge bodies/documents, nested XML, malformed chunks; clients that stop reading (socket not drained, HTTP/2 window at zero) to keep handlers, locks and buffers busy | Limits on XML/JSON documents (`maxXMLBody`, `maxCompleteBody` in `s3/body.go`, `s3/multipart.go`), body limit (`middleware/maxbody.go`), `ReadHeaderTimeout` and listener timeouts (`internal/transport/http/server/server.go`), maximum digits of the chunk size (`auth/chunked.go`), bucket quotas (`internal/service/quota`); stall limit on every write of every response of every listener (`server/stall.go`, `NEXO_SEND_TIMEOUT`, 20 s: the HTTP/1 response or the HTTP/2 stream is aborted) and on every HTTP/2 connection, closed with all its streams when it accepts no bytes for the same time (`HTTP2Config.WriteByteTimeout` in `server.go`: a stream reset cannot be sent if the client does not drain the socket); handlers, locks and the buffered body are thus released; net/http HTTP/2 windows (1 MiB per connection) and at most 128 streams per connection, larger windows (8 MiB per stream, 16 MiB per connection) only on the S3 listener of a cluster, which carries the RPC (`server.WithHTTP2Windows`) | No per-client rate limit on the S3 API: a client (even an anonymous one against public objects) can saturate bandwidth and CPU; use a reverse proxy with limits (`deploy/proxy`). Toolchain vulnerabilities (§10.1) |
+| E | Escalation from user to root | Policies grant no implicit `admin:*` actions; derived credentials (service accounts, STS sessions) are valid for the intersection between the inline policy and the parent's policies, root included (`internal/service/policy/evaluate.go`); a user manages only their own keys and a derived credential none, so it cannot mint a broader one (`internal/service/iam/ownership.go`) | — |
 
-## 3. Admin API e console (`internal/transport/http/admin`, `internal/service/admin`, `internal/service/session`, `web/`)
+## 3. Admin API and console (`internal/transport/http/admin`, `internal/service/admin`, `internal/service/session`, `web/`)
 
-| STRIDE | Minaccia | Mitigazione (codice) | Rischio residuo |
+| STRIDE | Threat | Mitigation (code) | Residual risk |
 |--------|----------|----------------------|-----------------|
-| S | Furto della sessione, login forzato | Cookie di sessione `HttpOnly`, `SameSite=Strict`, `Secure` se la connessione (o il proxy fidato) è TLS (`admin/session.go`); chiave di sessione HKDF(root, deployment id) (`internal/service/session/session.go`); throttling dei login per utente e per client (`session/throttle.go`); SigV4 per i client programmatici | Senza TLS il cookie viaggia in chiaro |
-| S | CSRF | Header CSRF obbligatorio per le richieste con cookie, controllo di origine anche cross-port (`middleware/sessionauth.go`) | — |
-| T | Richieste manipolate (JSON) | Decodifica stretta (campi sconosciuti rifiutati, limiti di dimensione), validazione nei servizi; fuzzing end-to-end (`test/fuzz/admin_test.go`) | — |
-| R | Azioni amministrative non tracciate | Audit di ogni richiesta con identità e azione | Vedi §2 |
-| I | Dettagli interni negli errori | Il `detail` dei problem document è un messaggio curato per classe di errore, o la causa che il servizio formula per il chiamante (campo non valido, permesso mancante); la catena interna (package, percorsi, dischi) va solo nel log della richiesta con il request id (`httpx/errors.go`, `middleware/logging.go`); un errore sconosciuto è un 500 senza dettaglio | — |
-| I | Fuga di segreti dalla console | Secret key mostrata una volta; valori sensibili mascherati in `GET /config`; CSP restrittiva della SPA (`internal/transport/http/console/spa.go`); download con cookie marcatore senza segreti (`admin/objects.go`) | Un profilo pprof (`POST /api/v1/profile`) contiene stack e dati di memoria: è riservato ad `admin:Profiling` (root, policy `diagnostics`) |
-| D | Profiling/speedtest come vettore di carico | Un profilo alla volta (409), durate 1s–2m, speedtest con limiti di dimensione/durata/concorrenza e 1 GiB per target (`internal/service/admin/diagnostics.go`); azioni dedicate `admin:Profiling`, `admin:Speedtest` | Uno speedtest autorizzato carica i drive e la rete per la sua durata |
-| E | Route senza autorizzazione | Ogni route dichiara le azioni (`x-nexo-actions` in `api/openapi.yaml`), guard centralizzato (`admin/authz.go`), test di coerenza route ↔ spec (`admin/routes_test.go` `TestRouteTableMatchesSpec`); operazioni sugli oggetti con le stesse condition key dell'API S3 (`internal/service/policy/request.go`) | — |
+| S | Session theft, forced login | Session cookie `HttpOnly`, `SameSite=Strict`, `Secure` if the connection (or the trusted proxy) is TLS (`admin/session.go`); session key HKDF(root, deployment id) (`internal/service/session/session.go`); login throttling per user and per client (`session/throttle.go`); SigV4 for programmatic clients | Without TLS the cookie travels in plain text |
+| S | CSRF | Mandatory CSRF header for requests with cookies, origin check also cross-port (`middleware/sessionauth.go`) | — |
+| T | Manipulated requests (JSON) | Strict decoding (unknown fields rejected, size limits), validation in the services; end-to-end fuzzing (`test/fuzz/admin_test.go`) | — |
+| R | Untracked administrative actions | Audit of every request with identity and action | See §2 |
+| I | Internal details in errors | The `detail` of problem documents is a curated message per error class, or the cause the service phrases for the caller (invalid field, missing permission); the internal chain (packages, paths, drives) only goes to the request log with the request id (`httpx/errors.go`, `middleware/logging.go`); an unknown error is a 500 without detail | — |
+| I | Secret leaks from the console | Secret key shown once; sensitive values masked in `GET /config`; restrictive CSP of the SPA (`internal/transport/http/console/spa.go`); downloads with a marker cookie without secrets (`admin/objects.go`) | A pprof profile (`POST /api/v1/profile`) contains stacks and memory data: it is reserved to `admin:Profiling` (root, `diagnostics` policy) |
+| D | Profiling/speedtest as a load vector | One profile at a time (409), durations 1s–2m, speedtests with size/duration/concurrency limits and 1 GiB per target (`internal/service/admin/diagnostics.go`); dedicated actions `admin:Profiling`, `admin:Speedtest` | An authorized speedtest loads the drives and the network for its duration |
+| E | Routes without authorization | Every route declares its actions (`x-nexo-actions` in `api/openapi.yaml`), centralized guard (`admin/authz.go`), route ↔ spec consistency test (`admin/routes_test.go` `TestRouteTableMatchesSpec`); object operations with the same condition keys as the S3 API (`internal/service/policy/request.go`) | — |
 
-## 4. RPC internode (`internal/transport/rpc`, `internal/service/cluster`, `internal/app/foundation.go`)
+## 4. Internode RPC (`internal/transport/rpc`, `internal/service/cluster`, `internal/app/foundation.go`)
 
-| STRIDE | Minaccia | Mitigazione (codice) | Rischio residuo |
+| STRIDE | Threat | Mitigation (code) | Residual risk |
 |--------|----------|----------------------|-----------------|
-| S | Nodo estraneo che si finge peer | JWT HS256 con chiave HKDF(credenziali root, deployment id), audience `nexo-internode`, TTL 20s, legati a metodo, target e hash degli argomenti (`rpc/auth.go`); mTLS opzionale (`--tls-internode-verify`: certificato client dal keystore, `internodeTLS` in `app/foundation.go`; verificato solo con le CA di `CAs/` o il certificato condiviso, mai con gli intermedi di `public.crt`, e legato a un host degli endpoint dei nodi: `certs/keystore.go`, `rpc.WithClientCertHosts`) | Chi conosce le credenziali root può impersonare un nodo: proteggerle come chiavi del cluster |
-| T | Frame alterati | TLS; CRC32 per frame (`rpc/frame.go`) | Senza TLS i dati tra nodi sono in chiaro e modificabili (il CRC non è un MAC) |
-| R | — | Log delle chiamate fallite | — |
-| I | Lettura dei dati tra nodi | TLS tra nodi (keystore di `--certs-dir`, CA in `CAs/`) | Il pool delle CA *client* (verifica dei peer) è ricaricato a caldo, quello *server* usato dai client RPC è letto all'avvio: una nuova CA dei peer richiede un riavvio (docs/07 §7.3) |
-| D | Flood di autenticazioni fallite | Limiter dei fallimenti per indirizzo con tabella limitata (`rpc/limiter.go`); limiti di dimensione dei messaggi | Il limiter è per processo, fail-open oltre la tabella |
-| E | Esecuzione di operazioni non previste | Solo route registrate (`rpc/routes.go`, `storage_routes.go`), argomenti msgpack tipizzati | — |
+| S | Foreign node pretending to be a peer | HS256 JWTs with key HKDF(root credentials, deployment id), audience `nexo-internode`, TTL 20s, bound to method, target and hash of the arguments (`rpc/auth.go`); optional mTLS (`--tls-internode-verify`: client certificate from the keystore, `internodeTLS` in `app/foundation.go`; verified only with the CAs in `CAs/` or the shared certificate, never with the intermediates of `public.crt`, and bound to a host of the nodes' endpoints: `certs/keystore.go`, `rpc.WithClientCertHosts`) | Whoever knows the root credentials can impersonate a node: protect them as cluster keys |
+| T | Altered frames | TLS; CRC32 per frame (`rpc/frame.go`) | Without TLS the data between nodes is in plain text and modifiable (the CRC is not a MAC) |
+| R | — | Logs of failed calls | — |
+| I | Reading data between nodes | TLS between nodes (keystore of `--certs-dir`, CA in `CAs/`) | The *client* CA pool (peer verification) is hot reloaded, the *server* pool used by the RPC clients is read at startup: a new peer CA requires a restart (docs/07 §7.3) |
+| D | Flood of failed authentications | Per-address failure limiter with a bounded table (`rpc/limiter.go`); message size limits | The limiter is per process, fail-open beyond the table |
+| E | Execution of unexpected operations | Only registered routes (`rpc/routes.go`, `storage_routes.go`), typed msgpack arguments | — |
 
-## 5. Distribuzioni e website (`internal/service/distribution`, `internal/transport/http/dist`, `internal/service/certs`)
+## 5. Distributions and websites (`internal/service/distribution`, `internal/transport/http/dist`, `internal/service/certs`)
 
-| STRIDE | Minaccia | Mitigazione (codice) | Rischio residuo |
+| STRIDE | Threat | Mitigation (code) | Residual risk |
 |--------|----------|----------------------|-----------------|
-| S | Dominio altrui agganciato (alias takeover), Host spoofing | Alias univoci e validati (`distribution/validate.go`, `routing.go`). Sono **riservati** (esatti e sotto una wildcard, rifiutati al salvataggio ed esclusi dalla tabella di routing se salvati prima) i domini di `--server-url`/`--browser-redirect-url`, `--domain` e i suoi virtual host, gli host degli endpoint dei nodi, gli host di `--address`/`--console-address`, `localhost` e il nome della macchina (`app/distribution.go` `deploymentHosts`). Il listener S3 non instrada mai per Host i percorsi riservati `/nexo/` (health, metriche, RPC internode: `dist.WithPassthrough`, `s3` `hostBucket`, RPC senza skip per le distribuzioni in `app/foundation.go`) e serve gli alias solo su opt-in (`--s3-distributions`: `auto` quando `--server-url` o `--domain` dichiarano i nomi dell'endpoint S3, `on`, `off`); i listener web (`--web-address`, `--web-tls-address`) servono solo distribuzioni. Un alias (esatto o wildcard più specifica) sotto la wildcard di un'altra distribuzione richiede `admin:ManageDistributions` anche sul bucket di quella (`admin/distributions.go` `authorizeCovered`). Header forwarded solo da proxy fidati (`middleware/forwarded.go`); segreto di origine per i proxy (`deploy/proxy`). Ripristino senza API funzionante: `nexo server --no-distributions` (nessun host instradato, distribuzioni modificabili) | DNS e proxy sono responsabilità dell'operatore; con `--s3-distributions on` (o con `auto` e altri nomi DNS che raggiungono la porta S3 oltre a quelli dichiarati) un alias può coincidere con un nome usato dai client S3: dichiarare tutti i nomi in `--server-url`/`--domain` o servire le distribuzioni sui listener web |
-| S | URL firmati contraffatti | Firme Ed25519/RSA per key group con scadenza e vincoli (`distribution/signing.go`, `keygroups.go`); fuzz di `VerifySignedRequest` | Una chiave privata di un key group rubata firma URL validi fino alla rotazione |
-| T | Path traversal, doppia codifica, Unicode | Normalizzazione unica delle chiavi (`match/normalize.go`: NFC, `.`/`..`), fuzz `FuzzWebsitePath`, `FuzzNormalize` | — |
-| I | Accesso a oggetti privati via website | Comportamenti per path (`access: public|signed|authenticated|deny`), Block Public Access, index/error page senza oracolo di esistenza | — |
-| D | Richieste costose sui domini pubblici | Cache per dominio (§6), collapsing delle richieste | Vedi rate limit (§2) |
-| E | Certificato TLS caricato da un utente non admin | Upload riservato ad `admin:ManageCertificates`; chiave privata mai restituita | — |
-| T/I | Certificati del listener principale | Keystore di `--certs-dir` con ricarica atomica (fsnotify + SIGHUP), file limitati a 1 MiB, avviso per chiavi leggibili da altri, TLS ≥ 1.2 con suite AEAD/ECDHE (`internal/service/certs/keystore.go`, `internal/transport/http/server/tls.go`) | Un file illeggibile mantiene i certificati precedenti (log `error`, metrica `tls_server_certificate_reloads_total{result="error"}`) |
+| S | Someone else's domain hooked (alias takeover), Host spoofing | Unique, validated aliases (`distribution/validate.go`, `routing.go`). **Reserved** (exact and under a wildcard, rejected on save and left out of the routing table if saved earlier) are the domains of `--server-url`/`--browser-redirect-url`, `--domain` and its virtual hosts, the hosts of the nodes' endpoints, the hosts of `--address`/`--console-address`, `localhost` and the machine name (`app/distribution.go` `deploymentHosts`). The S3 listener never routes the reserved `/nexo/` paths by Host (health, metrics, internode RPC: `dist.WithPassthrough`, `s3` `hostBucket`, RPC without the distribution skip in `app/foundation.go`) and serves aliases only on opt-in (`--s3-distributions`: `auto` when `--server-url` or `--domain` declare the names of the S3 endpoint, `on`, `off`); the web listeners (`--web-address`, `--web-tls-address`) serve only distributions. An alias (exact or a more specific wildcard) under another distribution's wildcard also requires `admin:ManageDistributions` on that distribution's bucket (`admin/distributions.go` `authorizeCovered`). Forwarded headers only from trusted proxies (`middleware/forwarded.go`); origin secret for the proxies (`deploy/proxy`). Recovery without a working API: `nexo server --no-distributions` (no host routed, distributions editable) | DNS and proxies are the operator's responsibility; with `--s3-distributions on` (or with `auto` and other DNS names reaching the S3 port besides the declared ones) an alias can coincide with a name used by S3 clients: declare all the names in `--server-url`/`--domain` or serve the distributions on the web listeners |
+| S | Forged signed URLs | Ed25519/RSA signatures per key group with expiry and constraints (`distribution/signing.go`, `keygroups.go`); fuzzing of `VerifySignedRequest` | A stolen private key of a key group signs valid URLs until rotation |
+| T | Path traversal, double encoding, Unicode | Single key normalization (`match/normalize.go`: NFC, `.`/`..`), fuzzing `FuzzWebsitePath`, `FuzzNormalize` | — |
+| I | Access to private objects via a website | Per-path behaviors (`access: public|signed|authenticated|deny`), Block Public Access, index/error pages without an existence oracle | — |
+| D | Expensive requests on public domains | Per-domain cache (§6), request collapsing | See rate limit (§2) |
+| E | TLS certificate uploaded by a non-admin user | Upload reserved to `admin:ManageCertificates`; private key never returned | — |
+| T/I | Main listener certificates | `--certs-dir` keystore with atomic reload (fsnotify + SIGHUP), files limited to 1 MiB, warning for keys readable by others, TLS ≥ 1.2 with AEAD/ECDHE suites (`internal/service/certs/keystore.go`, `internal/transport/http/server/tls.go`) | An unreadable file keeps the previous certificates (`error` log, metric `tls_server_certificate_reloads_total{result="error"}`) |
 
-## 6. Cache dei domini (`internal/service/cache`)
+## 6. Domain cache (`internal/service/cache`)
 
-| STRIDE | Minaccia | Mitigazione (codice) | Rischio residuo |
+| STRIDE | Threat | Mitigation (code) | Residual risk |
 |--------|----------|----------------------|-----------------|
-| S | Cache poisoning / risposta di un utente servita a un altro | Chiave non ambigua che include identità e varianti (`cache/key.go`), bypass per richieste autenticate/cookie configurabili | Una policy di cache che ignora header rilevanti è una scelta dell'amministratore |
-| T | Voci su disco alterate | CRC del corpo e dei metadati, verifica di dimensione e di chiave a ogni lettura (`cache/disk.go`); rimozioni confinate alla directory con `os.Root` | — |
-| I | Copie dei dati in cache leggibili da altri utenti locali | File delle voci e coda dei webhook con permessi `0600` (directory `0750`) | Il tier L2 contiene il **chiaro** degli oggetti serviti dalle distribuzioni, anche se cifrati SSE-S3/KMS sui drive: mettere la cache su un volume cifrato o non abilitare L2 per contenuti sensibili |
-| D | Invalidazione massiva, webhook lenti | Code persistenti con backoff, limiti di concorrenza, flight singolo per chiave (`flight.go`) | — |
-| E | SSRF tramite i webhook di purge | Politica di egress sull'indirizzo effettivamente connesso (dopo la risoluzione DNS: anche il rebinding è bloccato), niente redirect né proxy, mai i nodi del cluster, reti private solo se in `--cache-webhook-allow`; segreti solo dal namespace `NEXO_SECRET_WEBHOOK_*` (`cache/egress.go`) | — |
-| R | Purge non attribuibili | Invalidazioni con id e audit | — |
+| S | Cache poisoning / one user's response served to another | Unambiguous key that includes identity and variants (`cache/key.go`), configurable bypass for authenticated/cookie requests | A cache policy that ignores relevant headers is the administrator's choice |
+| T | Altered on-disk entries | CRC of body and metadata, size and key check on every read (`cache/disk.go`); removals confined to the directory with `os.Root` | — |
+| I | Cached copies of data readable by other local users | Entry files and webhook queue with `0600` permissions (`0750` directories) | The L2 tier holds the **plaintext** of the objects served by distributions, even if encrypted with SSE-S3/KMS on the drives: put the cache on an encrypted volume or do not enable L2 for sensitive content |
+| D | Massive invalidation, slow webhooks | Persistent queues with backoff, concurrency limits, single flight per key (`flight.go`) | — |
+| E | SSRF through purge webhooks | Egress policy on the address actually connected (after DNS resolution: rebinding is blocked too), no redirects or proxies, never the cluster nodes, private networks only if in `--cache-webhook-allow`; secrets only from the `NEXO_SECRET_WEBHOOK_*` namespace (`cache/egress.go`) | — |
+| R | Unattributable purges | Invalidations with an id and audit | — |
 
-## 7. Eventi e webhook (`internal/service/event`)
+## 7. Events and webhooks (`internal/service/event`)
 
-| STRIDE | Minaccia | Mitigazione (codice) | Rischio residuo |
+| STRIDE | Threat | Mitigation (code) | Residual risk |
 |--------|----------|----------------------|-----------------|
-| S | Destinatario impersonato | TLS verificato per i target; `tls_skip_verify` è un opt-in esplicito per target (`event/factory.go`) | Un target configurato con `tls_skip_verify` accetta un MITM |
-| T | Iniezione SQL nel target PostgreSQL | Statement statici con argomenti separati; il protocollo semplice (interpolazione lato client, GO-2026-5004 di pgx < 5.9.2) è sostituito dal protocollo esteso (`event/dialers.go`) | Vedi §10.1 per l'aggiornamento di pgx |
-| I | Credenziali nei log o negli errori | URL redatti (user info e query) negli errori e nello stato dei target (`event/webhook.go`); nessun redirect seguito | — |
-| D | Target lento o irraggiungibile | Coda persistente (`queue_dir`) con limite e retry (`event/queue.go`) | A coda piena i nuovi eventi del target sono rifiutati (errore registrato) finché la coda non si svuota |
-| E | Target come SSRF | I target sono definiti solo nella configurazione del server (`admin:ConfigUpdate`); le regole dei bucket possono solo riferirli per ARN | Un amministratore può puntare un target a servizi interni (scelta consapevole) |
+| S | Impersonated recipient | Verified TLS for targets; `tls_skip_verify` is an explicit per-target opt-in (`event/factory.go`) | A target configured with `tls_skip_verify` accepts a MITM |
+| T | SQL injection in the PostgreSQL target | Static statements with separate arguments; the simple protocol (client-side interpolation, GO-2026-5004 of pgx < 5.9.2) is replaced by the extended protocol (`event/dialers.go`) | See §10.1 for the pgx upgrade |
+| I | Credentials in logs or errors | URLs redacted (user info and query) in errors and in target status (`event/webhook.go`); no redirects followed | — |
+| D | Slow or unreachable target | Persistent queue (`queue_dir`) with a limit and retries (`event/queue.go`) | When the queue is full the target's new events are rejected (error logged) until the queue drains |
+| E | Target as SSRF | Targets are defined only in the server configuration (`admin:ConfigUpdate`); bucket rules can only reference them by ARN | An administrator can point a target at internal services (a deliberate choice) |
 
-## 8. KMS e cifratura (`internal/service/kms`, `internal/service/crypto`)
+## 8. KMS and encryption (`internal/service/kms`, `internal/service/crypto`)
 
-| STRIDE | Minaccia | Mitigazione (codice) | Rischio residuo |
+| STRIDE | Threat | Mitigation (code) | Residual risk |
 |--------|----------|----------------------|-----------------|
-| S | KES falso | Endpoint solo `https`, niente redirect, certificato client (`kms/kes.go`) | Senza certificato client il KES accetta chiunque abbia l'API key (avviso all'avvio) |
-| T | Chiavi sigillate alterate | AES-GCM per sigillare la chiave d'oggetto con KEK derivata via HKDF da un sale casuale per sigillatura (`crypto/crypto.go`); stream DARE autenticato con anti-troncamento (`crypto/stream.go`); chiavi di parte derivate in modo iniettivo (`crypto/key.go`, numero di parte ≤ 2³²−1) | — |
-| I | Master key esposta | Master key solo da env/file (`NEXO_KMS_SECRET_KEY`), mai nei log (tipi redatti); keystore su file `0600` in directory `0700` (`kms/keystore.go`); segreti IAM cifrati a riposo con Argon2id + AES-GCM (`internal/service/iam/crypto.go`) | Chi legge l'ambiente del processo legge la master key del KMS builtin: preferire KES in produzione |
-| D | KMS irraggiungibile | Errori espliciti, nessun fallback in chiaro | Gli oggetti SSE-KMS non sono leggibili finché il KMS non torna |
-| E | Chiave SSE-C di un altro client | La chiave SSE-C non è salvata; verifica con HMAC salato (`crypto.go` `ssecHMAC`) | — |
+| S | Fake KES | `https` endpoints only, no redirects, client certificate (`kms/kes.go`) | Without a client certificate KES accepts anyone holding the API key (warning at startup) |
+| T | Altered sealed keys | AES-GCM to seal the object key with a KEK derived via HKDF from a random salt per sealing (`crypto/crypto.go`); authenticated DARE stream with anti-truncation (`crypto/stream.go`); part keys derived injectively (`crypto/key.go`, part number ≤ 2³²−1) | — |
+| I | Exposed master key | Master key only from env/file (`NEXO_KMS_SECRET_KEY`), never in logs (redacted types); file keystore `0600` in a `0700` directory (`kms/keystore.go`); IAM secrets encrypted at rest with Argon2id + AES-GCM (`internal/service/iam/crypto.go`) | Whoever reads the process environment reads the builtin KMS master key: prefer KES in production |
+| D | KMS unreachable | Explicit errors, no plaintext fallback | SSE-KMS objects are unreadable until the KMS comes back |
+| E | Another client's SSE-C key | The SSE-C key is not stored; verification with a salted HMAC (`crypto.go` `ssecHMAC`) | — |
 
-## 9. CLI `nexoctl` (`internal/cli`)
+## 9. `nexoctl` CLI (`internal/cli`)
 
-| STRIDE | Minaccia | Mitigazione (codice) | Rischio residuo |
+| STRIDE | Threat | Mitigation (code) | Residual risk |
 |--------|----------|----------------------|-----------------|
-| S | Server falso | Verifica TLS sempre attiva (CA del sistema), nessuna opzione per disattivarla | Un alias `http://` invia le richieste in chiaro (firmate, ma leggibili) |
-| T | Zip-slip / scrittura fuori dalla destinazione | `JoinTarget` rifiuta percorsi che escono dalla directory (`internal/cli/location.go`), scritture atomiche (`transfer.go`) | — |
-| I | Credenziali dell'alias leggibili | File di configurazione `0600` in directory `0700`, avviso se più permissivi; export di configurazioni (regole, distribuzioni, cache) scritti `0600`; profili pprof scritti `0600` | Le credenziali sono in chiaro nel file di configurazione dell'utente (come `mc`, `aws`) |
-| E | Comandi eseguiti dalla CLI | Solo il programma che l'utente passa esplicitamente (`find --exec`, `internal/cli/commands/find.go`, `deps.go`) | — |
-| T | Numeri fuori range nei documenti JSON | I valori `int32` dei documenti (giorni del lifecycle, `MaxAgeSeconds`) sono saturati invece che troncati (`s3sdk_config.go` `intPtr32`): `2^32+1` giorni non diventano 1 giorno | — |
+| S | Fake server | TLS verification always on (system CAs), no option to disable it | An `http://` alias sends requests in plain text (signed, but readable) |
+| T | Zip-slip / writing outside the destination | `JoinTarget` rejects paths that leave the directory (`internal/cli/location.go`), atomic writes (`transfer.go`) | — |
+| I | Readable alias credentials | Configuration file `0600` in a `0700` directory, warning if more permissive; configuration exports (rules, distributions, cache) written `0600`; pprof profiles written `0600` | Credentials are in plain text in the user's configuration file (like `mc`, `aws`) |
+| E | Commands executed by the CLI | Only the program the user passes explicitly (`find --exec`, `internal/cli/commands/find.go`, `deps.go`) | — |
+| T | Out-of-range numbers in JSON documents | The `int32` values of the documents (lifecycle days, `MaxAgeSeconds`) are saturated instead of truncated (`s3sdk_config.go` `intPtr32`): `2^32+1` days do not become 1 day | — |
 
-## 10. Scansioni automatiche (`make security`, job CI `security`)
+## 10. Automated scans (`make security`, CI job `security`)
 
-`make security` esegue, con versioni fissate nel Makefile e nel workflow:
+`make security` runs, with versions pinned in the Makefile and in the workflow:
 
 - `govulncheck@v1.8.0 ./...`: known vulnerabilities **reached by the code** (modules and standard library of the
   `go.mod` toolchain; v1.8.0 is the first release whose `x/tools` analyzes Go 1.27 code);
-- `gosec@v2.29.0 -exclude-dir=web ./...`: pattern di codice insicuro; ogni falso positivo porta accanto un
-  `// #nosec Gxxx -- motivo` (gosec ignora `//nolint`);
-- `npm audit --omit=dev --audit-level=moderate` in `web/`: dipendenze di produzione della dashboard.
+- `gosec@v2.29.0 -exclude-dir=web ./...`: insecure code patterns; every false positive carries a
+  `// #nosec Gxxx -- reason` next to it (gosec ignores `//nolint`);
+- `npm audit --omit=dev --audit-level=moderate` in `web/`: production dependencies of the dashboard.
 
 ### 10.1 govulncheck
 
-Aggiornamenti applicati in M9 (compatibili con `go 1.24`): `github.com/go-chi/chi/v5` v5.2.2 (open redirect GO-2025-3770),
-`github.com/rabbitmq/amqp091-go` v1.13.0 (otto vulnerabilità del client AMQP: DoS, OOM, overflow, TLS senza versione
-minima, credenziali esposte), `github.com/aws/aws-sdk-go-v2/service/s3` v1.97.3 e
-`aws/protocol/eventstream` v1.7.8 (panic del decoder EventStream GO-2026-5764).
+Upgrades applied in M9 (compatible with `go 1.24`): `github.com/go-chi/chi/v5` v5.2.2 (open redirect GO-2025-3770),
+`github.com/rabbitmq/amqp091-go` v1.13.0 (eight vulnerabilities of the AMQP client: DoS, OOM, overflow, TLS without a
+minimum version, exposed credentials), `github.com/aws/aws-sdk-go-v2/service/s3` v1.97.3 and
+`aws/protocol/eventstream` v1.7.8 (EventStream decoder panic GO-2026-5764).
 
-Mitigazioni nel codice, introdotte in M9 per vulnerabilità i cui fix richiedevano una toolchain più recente:
+Mitigations in the code, introduced in M9 for vulnerabilities whose fixes required a newer toolchain:
 
-| Vulnerabilità | Raggiungibilità | Mitigazione |
+| Vulnerability | Reachability | Mitigation |
 |---------------|-----------------|-------------|
-| GO-2026-5970 (`x/text/unicode/norm`, loop infinito su UTF-8 invalido) | `match.toNFC` normalizza chiavi controllate dai client | Le sequenze invalide non arrivano più a `norm`: solo i tratti validi sono normalizzati (`internal/service/match/normalize.go`, test `TestNormalizeInvalidUTF8`, fuzz con watchdog `FuzzNormalize`) |
-| GO-2026-5004 (pgx, SQL injection con letterali dollar-quoted nel protocollo semplice) | `postgresConn.Exec` | Protocollo esteso forzato (`event/dialers.go`); gli statement sono statici |
-| GO-2026-6629 (`x/text/secure/precis`, panic) | solo via `pgx.Connect` (SCRAM sulla password configurata) | Input dell'amministratore, non dei client |
+| GO-2026-5970 (`x/text/unicode/norm`, infinite loop on invalid UTF-8) | `match.toNFC` normalizes client-controlled keys | Invalid sequences no longer reach `norm`: only the valid runs are normalized (`internal/service/match/normalize.go`, test `TestNormalizeInvalidUTF8`, fuzzing with a watchdog `FuzzNormalize`) |
+| GO-2026-5004 (pgx, SQL injection with dollar-quoted literals in the simple protocol) | `postgresConn.Exec` | Extended protocol forced (`event/dialers.go`); the statements are static |
+| GO-2026-6629 (`x/text/secure/precis`, panic) | only via `pgx.Connect` (SCRAM on the configured password) | Administrator input, not client input |
 
-**Toolchain aggiornata con la v1.0** (integrazione finale): le vulnerabilità della libreria standard di Go 1.24
-(`net/http`, `crypto/tls`, `crypto/x509`, `encoding/xml`, `encoding/asn1`, `net/url`, `net/textproto`, `os`) e quelle
-di `golang.org/x/net` (HTTP/2: GO-2026-6617, -6612, -6611, -6610, -6603, -4918, -4559; idna GO-2026-5026),
-`golang.org/x/text`, pgx, `go.opentelemetry.io/otel` e `google.golang.org/grpc` sono chiuse passando a:
+**Toolchain upgraded with v1.0** (final integration): the vulnerabilities of the Go 1.24 standard library
+(`net/http`, `crypto/tls`, `crypto/x509`, `encoding/xml`, `encoding/asn1`, `net/url`, `net/textproto`, `os`) and those
+of `golang.org/x/net` (HTTP/2: GO-2026-6617, -6612, -6611, -6610, -6603, -4918, -4559; idna GO-2026-5026),
+`golang.org/x/text`, pgx, `go.opentelemetry.io/otel` and `google.golang.org/grpc` are closed by moving to:
 
 ```sh
 go get go@1.26.9 golang.org/x/net@v0.60.0 golang.org/x/text@v0.42.0 github.com/jackc/pgx/v5@v5.9.2 \
@@ -165,93 +164,94 @@ go get go@1.26.9 golang.org/x/net@v0.60.0 golang.org/x/text@v0.42.0 github.com/j
 go mod tidy
 ```
 
-(`x/net` v0.60.0 richiede `x/text` v0.42.0; grpc v1.83.2, `klauspost/compress` v1.18.7 e chi v5.3.0 chiudono
-GO-2026-6443, GO-2026-5841 e GO-2026-5774/5775/5777/4316, presenti nei moduli ma non raggiunti.) La CI usa
-golangci-lint v2.14.0 (la 2.5.0 è compilata con Go 1.25.1 e rifiuta i moduli `go 1.26`) e i Dockerfile
-`GO_VERSION=1.26.9`. Con `x/net` v0.60.0 il trasporto HTTP/2 di `x/net/http2` e `h2c` sono deprecati: il client RPC
-internodo usa l'HTTP/2 di `net/http` (`http.Transport` con `Protocols` HTTP/2 o HTTP/2 in chiaro e `HTTP2Config`,
-`internal/transport/rpc/conn.go`), come già faceva il server (`http.Server.Protocols`).
+(`x/net` v0.60.0 requires `x/text` v0.42.0; grpc v1.83.2, `klauspost/compress` v1.18.7 and chi v5.3.0 close
+GO-2026-6443, GO-2026-5841 and GO-2026-5774/5775/5777/4316, present in the modules but not reached.) CI uses
+golangci-lint v2.14.0 (2.5.0 is built with Go 1.25.1 and rejects `go 1.26` modules) and the Dockerfiles use
+`GO_VERSION=1.26.9`. With `x/net` v0.60.0 the HTTP/2 transport of `x/net/http2` and `h2c` are deprecated: the
+internode RPC client uses the HTTP/2 of `net/http` (`http.Transport` with HTTP/2 or cleartext HTTP/2 `Protocols` and
+`HTTP2Config`, `internal/transport/rpc/conn.go`), as the server already did (`http.Server.Protocols`).
 
-`govulncheck@v1.1.4 ./...` (eseguito con la toolchain di `go.mod`, `GOTOOLCHAIN=go1.26.9` in locale): **nessuna
-vulnerabilità raggiunta**; resta solo GO-2026-5932 in `golang.org/x/crypto` (nessuna versione corretta, non raggiunta).
-Le mitigazioni della tabella sopra restano nel codice come difesa in profondità.
+`govulncheck@v1.1.4 ./...` (run with the `go.mod` toolchain, `GOTOOLCHAIN=go1.26.9` locally): **no vulnerabilities
+reached**; only GO-2026-5932 in `golang.org/x/crypto` remains (no fixed version, not reached). The mitigations in the
+table above stay in the code as defense in depth.
 
 ### 10.2 gosec
 
-150 segnalazioni iniziali (tutte High/Medium tranne una). Correzioni:
+150 initial findings (all High/Medium except one). Fixes:
 
-| Regola | Correzione |
+| Rule | Fix |
 |--------|-----------|
-| G115 | Peso delle voci della cache saturato a `MaxUint32` (`cache/store.go`); numero di parte limitato a 32 bit prima della derivazione della chiave (`crypto/key.go`); valori `int32` della CLI saturati (`cli/s3sdk_config.go`) |
-| G122 | Rimozioni durante la scansione della cache tramite `os.Root` (`cache/disk.go`) |
-| G302/G306 | Voci della cache e coda dei webhook di purge `0600`; export della CLI `0600` (`access.go`, `cache.go`, `dist.go`) |
+| G115 | Weight of cache entries saturated at `MaxUint32` (`cache/store.go`); part number limited to 32 bits before key derivation (`crypto/key.go`); CLI `int32` values saturated (`cli/s3sdk_config.go`) |
+| G122 | Removals during the cache scan through `os.Root` (`cache/disk.go`) |
+| G302/G306 | Cache entries and purge webhook queue `0600`; CLI exports `0600` (`access.go`, `cache.go`, `dist.go`) |
 
-I falsi positivi (138 righe `#nosec`, ciascuna con il motivo) sono: G101 su nomi di header, parametri, variabili
-d'ambiente e azioni IAM (21); G115 su conversioni con limiti verificati o reinterpretazioni volute dei bit (54); G304
-su file scelti dall'operatore o dall'utente della CLI, o su percorsi già risolti e verificati dallo storage (26);
-G401/G501/G505 su MD5/SHA1 imposti dal protocollo S3 (ETag, Content-MD5, MD5 della chiave SSE-C,
-`x-amz-checksum-sha1`), mai usati come primitive di sicurezza (18); G404 sul jitter dei retry (3); G407 sul nonce
-zero della sigillatura, sicuro perché la KEK è derivata da un sale casuale per ogni sigillatura e cifra un solo
-messaggio; G402 sul `tls_skip_verify` opt-in; G124 sui cookie (`Secure` segue la connessione); G117, G118, G204,
-G301, G602, G705 motivati puntualmente. Dopo le correzioni gosec riporta solo un G117 nel codice del servizio di
-audit di M8 (`internal/service/audit/audit.go`, campo `AccessKey`: l'identificativo pubblico della chiave, lo stesso
-falso positivo annotato in `share.go`), da annotare con il proprio `#nosec`.
+The false positives (138 `#nosec` lines, each with its reason) are: G101 on names of headers, parameters, environment
+variables and IAM actions (21); G115 on conversions with verified bounds or intentional bit reinterpretations (54);
+G304 on files chosen by the operator or by the CLI user, or on paths already resolved and verified by the storage
+(26); G401/G501/G505 on MD5/SHA1 mandated by the S3 protocol (ETag, Content-MD5, MD5 of the SSE-C key,
+`x-amz-checksum-sha1`), never used as security primitives (18); G404 on retry jitter (3); G407 on the zero nonce of
+the sealing, safe because the KEK is derived from a random salt for every sealing and encrypts a single message; G402
+on the opt-in `tls_skip_verify`; G124 on cookies (`Secure` follows the connection); G117, G118, G204, G301, G602, G705
+justified case by case. After the fixes gosec reports only one G117 in the code of the M8 audit service
+(`internal/service/audit/audit.go`, field `AccessKey`: the public identifier of the key, the same false positive
+annotated in `share.go`), to be annotated with its own `#nosec`.
 
 ### 10.3 npm audit
 
-`npm audit --omit=dev` in `web/`: 0 vulnerabilità.
+`npm audit --omit=dev` in `web/`: 0 vulnerabilities.
 
-## 11. Fuzzing (`make fuzz`, job CI notturno `fuzz-nightly`)
+## 11. Fuzzing (`make fuzz`, nightly CI job `fuzz-nightly`)
 
-`make fuzz` trova ogni `func FuzzXxx(f *testing.F)` ed esegue ciascun target per `FUZZTIME` (default 60s,
-`FUZZ=regexp` per selezionarli); un crash lascia l'input in `testdata/fuzz/<Target>/` del pacchetto, da committare
-con la correzione come test di regressione.
+`make fuzz` finds every `func FuzzXxx(f *testing.F)` and runs each target for `FUZZTIME` (default 60s,
+`FUZZ=regexp` to select them); a crash leaves the input in the package's `testdata/fuzz/<Target>/`, to be committed
+with the fix as a regression test.
 
-| Superficie | Target |
+| Surface | Target |
 |-----------|--------|
-| Parser XML S3 (tutti i corpi), policy JSON di bucket | `test/fuzz` `FuzzS3Bodies` (end-to-end su un server in-process, firmati SigV4 come root: versioning, tagging, CORS, lifecycle, notifiche, object lock, retention, legal hold, cifratura, delete multiplo, complete multipart, create bucket, policy) |
-| Admin API JSON | `test/fuzz` `FuzzAdminJSON` (45 operazioni principali: bucket, IAM, policy, regole di accesso, distribuzioni, key group, certificati, cache, share, presign) |
+| S3 XML parsers (all bodies), bucket JSON policies | `test/fuzz` `FuzzS3Bodies` (end-to-end on an in-process server, SigV4-signed as root: versioning, tagging, CORS, lifecycle, notifications, object lock, retention, legal hold, encryption, multi-delete, complete multipart, create bucket, policy) |
+| Admin API JSON | `test/fuzz` `FuzzAdminJSON` (45 main operations: buckets, IAM, policies, access rules, distributions, key groups, certificates, cache, shares, presign) |
 | SigV4 (header, query, chunked, POST policy) | `internal/service/auth` `FuzzParseAuthorization`, `FuzzParseQuery`, `FuzzVerifyAuthorization`, `FuzzVerifyPresignedQuery`, `FuzzChunkedBody`, `FuzzPostPolicyDocument` |
-| Policy JSON | `internal/service/policy` `FuzzParse`, `FuzzConditionValues` |
+| JSON policies | `internal/service/policy` `FuzzParse`, `FuzzConditionValues` |
 | xl.meta | `internal/service/storage` `FuzzDecodeXLMeta`; bitrot `internal/service/erasure` `FuzzBitrotReader` |
-| Endpoint ed ellissi | `internal/domain` `FuzzParseEndpoint`, `internal/service/topology` `FuzzExpandArg` |
-| Match (glob/regex/normalizzazione) | `internal/service/match` `FuzzNormalize`, `FuzzCompileAndMatch` |
-| Firme e percorsi delle distribuzioni | `internal/service/distribution` `FuzzVerifySignedRequest`, `FuzzWebsitePath`, `FuzzResolve` |
-| Lifecycle, CORS, notifiche XML | `internal/service/ilm` `FuzzParseLifecycle`, `internal/service/bucket` `FuzzParseCORS`, `internal/service/event` `FuzzParseBucketConfig` |
+| Endpoints and ellipses | `internal/domain` `FuzzParseEndpoint`, `internal/service/topology` `FuzzExpandArg` |
+| Match (glob/regex/normalization) | `internal/service/match` `FuzzNormalize`, `FuzzCompileAndMatch` |
+| Distribution signatures and paths | `internal/service/distribution` `FuzzVerifySignedRequest`, `FuzzWebsitePath`, `FuzzResolve` |
+| Lifecycle, CORS, notification XML | `internal/service/ilm` `FuzzParseLifecycle`, `internal/service/bucket` `FuzzParseCORS`, `internal/service/event` `FuzzParseBucketConfig` |
 | Range header | `internal/domain` `FuzzParseRange` |
-| Target della CLI | `internal/cli` `FuzzTargetParser` |
+| CLI targets | `internal/cli` `FuzzTargetParser` |
 
-Gli oracoli non si limitano all'assenza di panic: errori solo di tipo S3, idempotenza della normalizzazione,
-round-trip della configurazione delle notifiche e degli endpoint, coerenza di `Match` delle regole CORS, nessuna
-risposta 5xx (tranne 501) dal server.
+The oracles go beyond the absence of panics: S3-typed errors only, idempotent normalization, round trip of the
+notification configuration and of endpoints, consistency of the CORS rules' `Match`, no 5xx response (except 501)
+from the server.
 
-Esecuzione di M9 (60 s per target, 2 worker, 4 vCPU): 24 target, da 80 mila (end-to-end) a 1,4 milioni di
-esecuzioni ciascuno. Un solo difetto trovato: `ParseEndpoint("0 /")` accettava la directory `"0 "`, che riletta
-dopo il trim degli argomenti diventava `"0"` (un altro drive); ora un percorso che inizia o finisce con spazi è
-rifiutato (`internal/domain/endpoint.go`, corpus in `internal/domain/testdata/fuzz/FuzzParseEndpoint/`).
+M9 run (60 s per target, 2 workers, 4 vCPUs): 24 targets, from 80 thousand (end-to-end) to 1.4 million executions
+each. A single defect found: `ParseEndpoint("0 /")` accepted the directory `"0 "`, which, reread after the arguments
+were trimmed, became `"0"` (another drive); now a path that starts or ends with spaces is rejected
+(`internal/domain/endpoint.go`, corpus in `internal/domain/testdata/fuzz/FuzzParseEndpoint/`).
 
-## 12. Rischi residui consolidati e raccomandazioni
+## 12. Consolidated residual risks and recommendations
 
-1. **Toolchain**: con la v1.0 Go 1.26.9 e i moduli aggiornati (§10.1), `govulncheck` senza vulnerabilità raggiunte;
-   ogni release deve ripetere `make security` e aggiornare la toolchain alle patch di Go.
-2. **Nessun rate limit per client sull'API S3 e sui domini pubblici**: mettere Nexo dietro un reverse proxy con
-   limiti di richieste e connessioni (configurazioni in `deploy/proxy`).
-3. **TLS opzionale**: senza TLS cookie della console, firme replayabili nella finestra di skew e traffico internode
-   sono esposti. In produzione: `--certs-dir` su tutti i listener e `--tls-internode-verify`.
-4. **Credenziali root = chiave del cluster**: chi le conosce firma token internode e sessioni; ruotarle con la
-   procedura di docs/07 e non riusarle tra deployment (il deployment id separa comunque le chiavi derivate).
-5. **Chiaro nel tier L2 della cache** per oggetti cifrati serviti dalle distribuzioni (§6).
-6. **Master key del KMS builtin nell'ambiente del processo** (§8): in produzione KES con certificato client.
-7. **CA dei peer per i client RPC lette all'avvio** (§4): una nuova CA richiede un riavvio coordinato.
-8. **Profili pprof**: contengono indirizzi, stack e frammenti di memoria; concedere `admin:Profiling` solo a chi
-   amministra i nodi.
-9. **Client lenti o fermi**: ogni scrittura di una risposta deve avanzare entro `NEXO_SEND_TIMEOUT` (20 s), poi
-   la risposta viene interrotta, e una connessione HTTP/2 che non accetta byte per lo stesso tempo viene chiusa
-   con tutti i suoi stream. Su HTTP/2 le scritture avanzano a pezzi dimensionati sugli stream della connessione,
-   così un client che legge con regolarità almeno circa 40 KB/s per connessione non viene interrotto, qualunque
-   sia il numero di stream; più lento di così (o sotto circa 1,6 KB/s su HTTP/1) può esserlo. Fino ad allora un
-   client non autenticato che non legge tiene un handler, il corpo della richiesta già ricevuto (al più la finestra
-   HTTP/2 della connessione: 1 MiB, 16 MiB sul listener S3 di un cluster) e, per le letture di più di 8 parti, il
-   lock di lettura dell'oggetto. Gli stream delle chiamate RPC autenticate (`httpx.LiftSendBound`) seguono il
-   ritmo del client S3 a valle e non hanno il limite per stream, solo quello della connessione (un nodo legge
-   sempre il proprio socket). Il numero di connessioni per client va limitato dal reverse proxy (punto 2).
+1. **Toolchain**: with v1.0, Go 1.26.9 and the upgraded modules (§10.1), `govulncheck` reports no reached
+   vulnerabilities; every release must rerun `make security` and update the toolchain to Go's patch releases.
+2. **No per-client rate limit on the S3 API and on public domains**: put Nexo behind a reverse proxy with request
+   and connection limits (configurations in `deploy/proxy`).
+3. **Optional TLS**: without TLS, console cookies, signatures replayable within the skew window and internode traffic
+   are exposed. In production: `--certs-dir` on all listeners and `--tls-internode-verify`.
+4. **Root credentials = cluster key**: whoever knows them signs internode tokens and sessions; rotate them with the
+   procedure in docs/07 and do not reuse them across deployments (the deployment id separates the derived keys
+   anyway).
+5. **Plaintext in the cache's L2 tier** for encrypted objects served by distributions (§6).
+6. **Builtin KMS master key in the process environment** (§8): in production, KES with a client certificate.
+7. **Peer CAs for the RPC clients read at startup** (§4): a new CA requires a coordinated restart.
+8. **pprof profiles**: they contain addresses, stacks and memory fragments; grant `admin:Profiling` only to those
+   who administer the nodes.
+9. **Slow or stalled clients**: every write of a response must progress within `NEXO_SEND_TIMEOUT` (20 s), after
+   which the response is aborted, and an HTTP/2 connection that accepts no bytes for the same time is closed with all
+   its streams. On HTTP/2 writes progress in pieces sized on the connection's streams, so a client that steadily
+   reads at least about 40 KB/s per connection is not interrupted, whatever the number of streams; slower than that
+   (or below about 1.6 KB/s on HTTP/1) it may be. Until then an unauthenticated client that does not read holds a
+   handler, the request body already received (at most the connection's HTTP/2 window: 1 MiB, 16 MiB on the S3
+   listener of a cluster) and, for reads of more than 8 parts, the object's read lock. The streams of authenticated
+   RPC calls (`httpx.LiftSendBound`) follow the pace of the downstream S3 client and have no per-stream limit, only
+   the connection's (a node always reads its own socket). The number of connections per client must be limited by
+   the reverse proxy (item 2).
