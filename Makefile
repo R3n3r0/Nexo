@@ -62,7 +62,7 @@ export CGO_ENABLED ?= 0
 .PHONY: all build build-go build-web build-embedded e2e test test-race test-integration test-cluster test-compose test-proxy test-s3compat test-mint test-upgrade bench-rpc lint web-lint \
         web-test generate fmt clean run-single run-snmd run-cluster docker docker-nexoctl help security fuzz bench \
         release-tools release-check release-snapshot release-smoke helm-lint systemd-verify hadolint packaging \
-        docs docs-check docs-api docs-tools docs-site traceability traceability-check dco zap-scan
+        docs docs-check docs-api docs-tools docs-site traceability traceability-check dco zap-scan screenshots
 
 all: build
 
@@ -177,6 +177,13 @@ web-test:
 ## e2e: run the Playwright suite against bin/nexo (run make build first)
 e2e:
 	cd $(WEB_DIR) && $(NPM) run e2e
+
+## screenshots: regenerate the console screenshots of the README in docs/images/screenshots: a seeded demo deployment (one node, 4 drives, ports 38000+), some minutes of traffic, Playwright (web/screenshots, not part of make e2e) and pngquant/oxipng when installed (scripts/screenshots/run.sh; SCREENSHOTS_TRAFFIC_SECONDS=60 for a quick run)
+# The binaries are built without the -dirty suffix of the version: the
+# screenshots show it, and are regenerated before they are committed.
+screenshots:
+	$(MAKE) build VERSION=$$(git describe --tags --always 2>/dev/null || echo dev)
+	scripts/screenshots/run.sh
 
 ## generate: run go generate (mocks via mockery)
 generate:

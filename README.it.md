@@ -20,6 +20,69 @@ multi-nodo, senza database di metadati esterni.
 - **Operatività**: console web, metriche Prometheus con dashboard Grafana e alert pronti, trace e log in
   tempo reale, OpenTelemetry, pacchetti deb/rpm, Homebrew, immagini Docker, Helm chart, unit systemd.
 
+## Screenshot
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/screenshots/overview-dark.png">
+  <img src="docs/images/screenshots/overview.png" alt="Panoramica della console di Nexo: deployment, stato, capacità e spazio per bucket">
+</picture>
+
+<sub>La panoramica della console web (in modalità scura se il browser la preferisce). Le immagini sono
+prese da un deployment dimostrativo con `make screenshots`; la console è mostrata in inglese e la capacità dei dischi è indicativa (4 × 1 TiB).</sub>
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/object-browser.png"><img src="docs/images/screenshots/object-browser.png" alt="Browser degli oggetti" width="100%"></a><br>
+      <sub><b>Browser degli oggetti</b>: cartelle, upload, versioni, anteprime e link di condivisione</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/bucket-lifecycle.png"><img src="docs/images/screenshots/bucket-lifecycle.png" alt="Lifecycle del bucket" width="100%"></a><br>
+      <sub><b>Lifecycle del bucket</b>: scadenza, versioni non correnti e upload incompleti</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/policy-editor.png"><img src="docs/images/screenshots/policy-editor.png" alt="Editor delle policy IAM" width="100%"></a><br>
+      <sub><b>Editor delle policy IAM</b>: JSON delle policy AWS con completamento, validazione e builder visuale</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/access-rules.png"><img src="docs/images/screenshots/access-rules.png" alt="Regole di accesso" width="100%"></a><br>
+      <sub><b>Regole di accesso</b>: consenti e nega per prefisso, glob o regex, con condizioni</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/distributions.png"><img src="docs/images/screenshots/distributions.png" alt="Distribuzioni" width="100%"></a><br>
+      <sub><b>Distribuzioni</b>: bucket serviti su domini personalizzati, con TLS e traffico</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/cache.png"><img src="docs/images/screenshots/cache.png" alt="Cache delle distribuzioni" width="100%"></a><br>
+      <sub><b>Cache delle distribuzioni</b>: hit ratio, banda risparmiata e domini più richiesti</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/monitoring.png"><img src="docs/images/screenshots/monitoring.png" alt="Monitoraggio" width="100%"></a><br>
+      <sub><b>Monitoraggio</b>: richieste, errori, latenza e banda di ogni nodo</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/cluster.png"><img src="docs/images/screenshots/cluster.png" alt="Cluster" width="100%"></a><br>
+      <sub><b>Cluster</b>: pool, erasure set, nodi e dischi a colpo d'occhio</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/users.png"><img src="docs/images/screenshots/users.png" alt="Utenti" width="100%"></a><br>
+      <sub><b>Utenti</b>: utenti IAM con le loro policy e i gruppi</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/login.png"><img src="docs/images/screenshots/login.png" alt="Accesso" width="100%"></a><br>
+      <sub><b>Accesso</b>: la console usa le stesse access key dell'API S3</sub>
+    </td>
+  </tr>
+</table>
+
 ## Avvio rapido
 
 Con Docker:
@@ -105,6 +168,7 @@ Servono Go (versione in `go.mod`) e, per la console, Node.js.
 | `make traceability` / `make traceability-check` | matrice funzionalità → test in `test/TRACEABILITY.md` |
 | `make security` | govulncheck, gosec e `npm audit` |
 | `make zap-scan` | scansione attiva autenticata OWASP ZAP dell'Admin API da `api/openapi.yaml` contro `bin/nexo` (richiede Java; [test/security/zap-api-scan.sh](test/security/zap-api-scan.sh)) |
+| `make screenshots` | rigenera gli screenshot della console in `docs/images/screenshots` da un deployment dimostrativo popolato (Playwright; [scripts/screenshots](scripts/screenshots/run.sh)) |
 | `make dco` | il controllo del sign-off delle pull request sui commit del branch ([CONTRIBUTING.md](CONTRIBUTING.md)) |
 | `make help` | tutti i target |
 

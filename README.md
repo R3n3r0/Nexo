@@ -21,6 +21,69 @@ multi-node cluster, with no external metadata database.
 - **Operations**: web console, Prometheus metrics with ready-made Grafana dashboard and alerts, real-time
   trace and logs, OpenTelemetry, deb/rpm packages, Homebrew, Docker images, Helm chart, systemd unit.
 
+## Screenshots
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/screenshots/overview-dark.png">
+  <img src="docs/images/screenshots/overview.png" alt="Overview of the Nexo console: deployment, health, capacity and storage per bucket">
+</picture>
+
+<sub>The overview of the web console (shown in dark mode when your browser prefers it). The images are
+taken from a demo deployment with `make screenshots`; drive capacity is shown as 4 × 1 TiB for illustration.</sub>
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/object-browser.png"><img src="docs/images/screenshots/object-browser.png" alt="Object browser" width="100%"></a><br>
+      <sub><b>Object browser</b>: folders, uploads, versions, previews and share links</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/bucket-lifecycle.png"><img src="docs/images/screenshots/bucket-lifecycle.png" alt="Bucket lifecycle" width="100%"></a><br>
+      <sub><b>Bucket lifecycle</b>: expiration, noncurrent versions and incomplete uploads</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/policy-editor.png"><img src="docs/images/screenshots/policy-editor.png" alt="IAM policy editor" width="100%"></a><br>
+      <sub><b>IAM policy editor</b>: AWS policy JSON with completion, validation and a visual builder</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/access-rules.png"><img src="docs/images/screenshots/access-rules.png" alt="Access rules" width="100%"></a><br>
+      <sub><b>Access rules</b>: allow and deny by prefix, glob or regex, with conditions</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/distributions.png"><img src="docs/images/screenshots/distributions.png" alt="Distributions" width="100%"></a><br>
+      <sub><b>Distributions</b>: buckets served on custom domains, with TLS and traffic</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/cache.png"><img src="docs/images/screenshots/cache.png" alt="Distribution cache" width="100%"></a><br>
+      <sub><b>Distribution cache</b>: hit ratio, bandwidth saved and top domains</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/monitoring.png"><img src="docs/images/screenshots/monitoring.png" alt="Monitoring" width="100%"></a><br>
+      <sub><b>Monitoring</b>: requests, errors, latency and bandwidth of every node</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/cluster.png"><img src="docs/images/screenshots/cluster.png" alt="Cluster" width="100%"></a><br>
+      <sub><b>Cluster</b>: pools, erasure sets, nodes and drives at a glance</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/users.png"><img src="docs/images/screenshots/users.png" alt="Users" width="100%"></a><br>
+      <sub><b>Users</b>: IAM users with their policies and groups</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/login.png"><img src="docs/images/screenshots/login.png" alt="Sign in" width="100%"></a><br>
+      <sub><b>Sign in</b>: the console uses the same access keys as the S3 API</sub>
+    </td>
+  </tr>
+</table>
+
 ## Quick start
 
 With Docker:
@@ -106,6 +169,7 @@ You need Go (the version in `go.mod`) and, for the console, Node.js.
 | `make traceability` / `make traceability-check` | feature → test matrix in `test/TRACEABILITY.md` |
 | `make security` | govulncheck, gosec and `npm audit` |
 | `make zap-scan` | authenticated OWASP ZAP active scan of the Admin API from `api/openapi.yaml` against `bin/nexo` (needs Java; [test/security/zap-api-scan.sh](test/security/zap-api-scan.sh)) |
+| `make screenshots` | regenerates the console screenshots in `docs/images/screenshots` from a seeded demo deployment (Playwright; [scripts/screenshots](scripts/screenshots/run.sh)) |
 | `make dco` | the sign-off check of the pull requests on the commits of the branch ([CONTRIBUTING.md](CONTRIBUTING.md)) |
 | `make help` | all the targets |
 

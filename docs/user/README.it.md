@@ -7,6 +7,18 @@ binario gira su un singolo disco, su più dischi con erasure coding e in cluster
 Questa guida è per chi installa, usa e gestisce Nexo. I documenti di progetto (architettura, roadmap,
 piano di test) sono in [`docs/`](https://github.com/R3n3r0/Nexo/tree/main/docs) del repository.
 
+## La console web
+
+La console è servita dallo stesso binario sulla porta della console (9001 di default): bucket e oggetti,
+utenti e policy, condivisione, distribuzioni e la loro cache, metriche e stato dei dischi. Si accede con
+le stesse access key dell'API S3.
+
+![Panoramica della console: deployment, stato, capacità e spazio per bucket](images/console/overview.png)
+
+| Browser degli oggetti | Monitoraggio |
+|-----------------------|--------------|
+| ![Browser degli oggetti di un bucket](images/console/object-browser.png) | ![Grafici delle metriche della pagina di monitoraggio](images/console/monitoring.png) |
+
 ## Da dove partire
 
 | Se vuoi… | Leggi |

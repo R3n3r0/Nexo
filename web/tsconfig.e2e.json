@@ -23,5 +23,5 @@
     "noImplicitOverride": true,
     "noImplicitReturns": true
   },
-  "include": ["e2e", "playwright.config.ts"]
+  "include": ["e2e", "screenshots", "playwright.config.ts"]
 }

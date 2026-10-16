@@ -7,6 +7,18 @@ binary runs on a single drive, on multiple drives with erasure coding, and as a 
 This guide is for those who install, use and operate Nexo. The project documents (architecture, roadmap,
 test plan) are in [`docs/`](https://github.com/R3n3r0/Nexo/tree/main/docs) in the repository.
 
+## The web console
+
+The console is served by the same binary on the console port (9001 by default): buckets and objects,
+users and policies, sharing, distributions and their cache, metrics and the health of the drives. It
+signs in with the same access keys as the S3 API.
+
+![Overview of the console: deployment, health, capacity and storage per bucket](images/console/overview.png)
+
+| Object browser | Monitoring |
+|----------------|------------|
+| ![Object browser of a bucket](images/console/object-browser.png) | ![Metric charts of the monitoring page](images/console/monitoring.png) |
+
 ## Where to start
 
 | If you want to… | Read |

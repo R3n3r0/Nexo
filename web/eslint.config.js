@@ -111,10 +111,10 @@ export default tseslint.config(
     },
   },
 
-  // Playwright end-to-end suite: Node code, where `use` is the fixture
-  // callback of Playwright, not a React hook.
+  // Playwright end-to-end suite and README screenshots: Node code, where
+  // `use` is the fixture callback of Playwright, not a React hook.
   {
-    files: ['e2e/**/*.ts', 'playwright.config.ts'],
+    files: ['e2e/**/*.ts', 'screenshots/**/*.ts', 'playwright.config.ts'],
     languageOptions: { globals: { ...globals.node } },
     rules: {
       'react-hooks/rules-of-hooks': 'off',
