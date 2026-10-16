@@ -15,7 +15,7 @@ This page summarizes what matters to whoever operates a deployment.
 | Tampering | data on disk, traffic | per-block checksums (bitrot), TLS 1.2+, SSE encryption |
 | Repudiation | administrative and data operations | audit log for every request, deliverable to an external target |
 | Information disclosure | console, errors, logs | no secrets in the logs (credentials, signatures, tokens, keys redacted), generic errors towards anonymous users, IAM secrets encrypted at rest |
-| Denial of service | uploads, listings, login, live streams | size limits and timeouts, login attempt limits, at most 256 live trace and log streams per node, bounded peer responses, linear-time RE2 regexes |
+| Denial of service | uploads, listings, login, live streams | size limits and timeouts, login attempt limits, request rate limits per client address, access key, user, bucket and distribution and a concurrency limit of the S3 API (off by default, per node: [Rate limits](../configuration.md#rate-limits)), at most 256 live trace and log streams per node, bounded peer responses, linear-time RE2 regexes |
 | Elevation of privilege | policy engine, console | deny by default, authorization always server side, the console shows only what the user can do but the server checks every request again |
 
 ## Production recommendations

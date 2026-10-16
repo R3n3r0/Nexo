@@ -4,16 +4,35 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/r3n3r0/nexo/internal/domain"
 )
 
 // Subsystems and keys of the dynamic configuration applied by the server.
 const (
-	SubsystemAPI       = "api"
-	KeyRootAccess      = "root_access"
-	KeyCORSAllowOrigin = "cors_allow_origin"
+	SubsystemAPI        = "api"
+	KeyRootAccess       = "root_access"
+	KeyCORSAllowOrigin  = "cors_allow_origin"
+	KeyRequestsMax      = "requests_max"
+	KeyRequestsDeadline = "requests_deadline"
+
+	// SubsystemRateLimit holds the token buckets of the requests
+	// (S-OPS-10): every key is a rate in requests per second (0: no
+	// limit), with a "<key>_burst" companion.
+	SubsystemRateLimit = "ratelimit"
+	KeyS3IP            = "s3_ip"
+	KeyS3AccessKey     = "s3_access_key"
+	KeyS3Bucket        = "s3_bucket"
+	KeyAdminIP         = "admin_ip"
+	KeyAdminUser       = "admin_user"
+	// BurstSuffix names the burst of a rate key ("s3_ip_burst").
+	BurstSuffix = "_burst"
+
+	// DefaultRequestsDeadline is the default of api.requests_deadline.
+	DefaultRequestsDeadline = 10 * time.Second
 )
 
 // Applied reports whether the server applies a key of the dynamic
@@ -24,7 +43,10 @@ const (
 func Applied(subsystem, key string) bool {
 	switch subsystem {
 	case SubsystemAPI:
-		return key == KeyRootAccess || key == KeyCORSAllowOrigin
+		return key == KeyRootAccess || key == KeyCORSAllowOrigin || key == KeyRequestsMax || key == KeyRequestsDeadline
+	case SubsystemRateLimit:
+		// The request limits, read by the rate limiter at every request.
+		return true
 	case "scanner":
 		return key == "speed" || key == "cycle"
 	case "access":
@@ -78,6 +100,64 @@ func (s *service) API(ctx context.Context) (API, error) {
 		RootAccess:      s.flag(ctx, SubsystemAPI, KeyRootAccess, kv[KeyRootAccess], true),
 		CORSAllowOrigin: list(kv[KeyCORSAllowOrigin]),
 	}, nil
+}
+
+// Limits implements Service.
+func (s *service) Limits(ctx context.Context) (Limits, error) {
+	api, err := s.deps.Config.Get(ctx, SubsystemAPI)
+	if err != nil {
+		return Limits{}, fmt.Errorf("settings: %s: %w", SubsystemAPI, err)
+	}
+	rl, err := s.deps.Config.Get(ctx, SubsystemRateLimit)
+	if err != nil {
+		return Limits{}, fmt.Errorf("settings: %s: %w", SubsystemRateLimit, err)
+	}
+	rate := func(key string) Rate {
+		r := Rate{PerSecond: s.count(ctx, SubsystemRateLimit, key, rl[key])}
+		if r.Burst = s.count(ctx, SubsystemRateLimit, key+BurstSuffix, rl[key+BurstSuffix]); r.Burst == 0 {
+			r.Burst = r.PerSecond
+		}
+		return r
+	}
+	return Limits{
+		RequestsMax:      s.count(ctx, SubsystemAPI, KeyRequestsMax, api[KeyRequestsMax]),
+		RequestsDeadline: s.duration(ctx, SubsystemAPI, KeyRequestsDeadline, api[KeyRequestsDeadline], DefaultRequestsDeadline),
+		S3IP:             rate(KeyS3IP),
+		S3AccessKey:      rate(KeyS3AccessKey),
+		S3Bucket:         rate(KeyS3Bucket),
+		AdminIP:          rate(KeyAdminIP),
+		AdminUser:        rate(KeyAdminUser),
+	}, nil
+}
+
+// count parses a non-negative integer setting; empty is 0, anything else
+// is 0 and logged.
+func (s *service) count(ctx context.Context, subsystem, key, value string) int {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n < 0 {
+		s.deps.Logger.WarnContext(ctx, "settings: invalid count, using no limit", "subsystem", subsystem, "key", key, "value", value)
+		return 0
+	}
+	return n
+}
+
+// duration parses a non-negative duration setting; empty is the default,
+// anything else keeps the default and is logged.
+func (s *service) duration(ctx context.Context, subsystem, key, value string, def time.Duration) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return def
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil || d < 0 {
+		s.deps.Logger.WarnContext(ctx, "settings: invalid duration, using the default", "subsystem", subsystem, "key", key, "value", value, "default", def)
+		return def
+	}
+	return d
 }
 
 // list parses a comma-separated setting; nil when empty.

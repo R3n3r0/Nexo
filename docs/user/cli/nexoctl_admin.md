@@ -9,7 +9,8 @@ users, groups, policies, access keys, configuration, service control, the export
 import of the state of a deployment, the lock diagnostics, the KMS of the
 server-side encryption, the notification targets, the live trace of the requests
 and the live logs, the audit log, the metrics and their Prometheus configuration,
-the runtime profiles and the speed tests.
+the runtime profiles, the speed tests and the DNS providers of the ACME DNS-01
+challenge.
 
 The Admin API is served by the console listener of the server: see --admin-url
 of "nexoctl alias set". Every subcommand takes the alias as its first argument.
@@ -41,6 +42,7 @@ nexoctl admin [flags]
 * [nexoctl admin audit](nexoctl_admin_audit.md)	 - Search the audit log of the server
 * [nexoctl admin cluster](nexoctl_admin_cluster.md)	 - Export and import the state of a deployment (IAM, policies, configuration, bucket settings)
 * [nexoctl admin config](nexoctl_admin_config.md)	 - Read and change the dynamic configuration of the server
+* [nexoctl admin dns-provider](nexoctl_admin_dns-provider.md)	 - Manage the DNS providers of the ACME DNS-01 challenge
 * [nexoctl admin group](nexoctl_admin_group.md)	 - Manage the IAM groups and their members
 * [nexoctl admin heal](nexoctl_admin_heal.md)	 - Heal the drives of the server (erasure-coded deployments)
 * [nexoctl admin info](nexoctl_admin_info.md)	 - Show the server: version, mode, nodes and drives

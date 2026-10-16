@@ -58,7 +58,7 @@ published: the baseline of the upgrade tests is the M7 commit (`224bb31`, built 
 - CloudFront-style distributions: multiple domains (wildcards included) per bucket or prefix, `website` mode
   (index, error page, SPA fallback, redirects) and `s3` mode, per-path behaviors, signed URLs and cookies with key
   groups, trusted proxies, PROXY protocol, origin secret, IP restrictions, per-domain certificates uploaded or from
-  ACME HTTP-01/TLS-ALPN-01, per-distribution metrics and access logs (S-DST-01..06, S-DST-08).
+  ACME HTTP-01/TLS-ALPN-01/DNS-01, per-distribution metrics and access logs (S-DST-01..06, S-DST-08).
 - Built-in memory and disk cache with policies per distribution, domain and path, quotas, automatic invalidation
   on write, purge by path/glob/regex/tag/domain, webhooks to external CDNs, cluster-shared cache,
   stale-while-revalidate/if-error, request collapsing and range caching (S-DST-07, 07b, 07c).
@@ -196,6 +196,15 @@ published: the baseline of the upgrade tests is the M7 commit (`224bb31`, built 
   answer 429 `too_many_requests`. Each stream held a buffer of up to 10000 entries and was visited by every
   request: open streams could exhaust the memory of a node.
 - **PT-04**: the audit record (and the live trace event) of a console login names the user who signed in.
+- **PT-05**: disabling a user or an access key revokes its console sessions and its managed share links for good,
+  as a secret rotation does: enabling it again with the same secret no longer brings back the sessions opened
+  before (nor the links). IAM moves a revocation epoch per user and per key on disable, the sessions are bound to
+  it (on every node, across restarts), and the Admin API deletes the links of the user, or those created with the
+  key.
+- Authenticated OWASP ZAP active scan of the Admin API driven by `api/openapi.yaml` against a local build
+  (`make zap-scan`, `test/security/zap-api-scan.sh`), results in the pentest report §6.
+- Contributor agreement: the `DCO` workflow checks that every commit of a pull request is signed off by its author
+  (`.github/scripts/check-dco.sh`, `make dco`), and a pull request template reminds the sign-off.
 
 ### Performance (O_DIRECT and zero-copy, T-9.2)
 - Zero-copy downloads: the GET of a single-drive (SNSD) version without SSE hands its part files to `sendfile(2)`
@@ -211,6 +220,44 @@ published: the baseline of the upgrade tests is the M7 commit (`224bb31`, built 
 - New benchmarks: `BenchmarkCreateFile`, `BenchmarkCreateFileParallel` and `BenchmarkReadFileStream` of the local
   drive (`internal/service/storage`, file system chosen with `NEXO_BENCH_DIR`) and `BenchmarkCopyBodyFile`
   (`httpx`, sendfile against a buffered copy).
+
+### Rate limiting (S-OPS-10, S-DST-08)
+- Request rate limits of each node with token buckets (`internal/service/ratelimit`), configured through the
+  dynamic configuration (subsystem `ratelimit`, applied at the next request on every node, all off by default):
+  S3 requests per client address (behind the trusted proxies, IPv6 by /64), per access key and per bucket, Admin
+  API requests per client address and per user. Beyond a limit the S3 API answers `503 SlowDown` in S3 XML and the
+  Admin API `429 too_many_requests` (problem+json), both with `Retry-After`; health probes, metrics scrapes and
+  the internode RPC are exempt.
+- `api.requests_max` and `api.requests_deadline` are applied: the S3 requests a node serves at once, a request
+  beyond them waiting up to the deadline for a slot before `503 SlowDown` (`0`, the default, is no limit; the
+  description of `api.requests_max` said "automatic").
+- The per-distribution rate limit (`restrictions.rateLimit`, docs/10 TDS-13), validated and stored until now, is
+  enforced on the website routes (`429`, plain text) and on the s3 distributions (`503 SlowDown`), per client
+  address or per distribution, after the address and origin-secret admission; console **Security** tab with the
+  scope, `nexoctl dist restrict --rate-limit-per ip|distribution` and `--no-rate-limit`.
+- Limits are per node: a cluster behind a load balancer admits up to the number of nodes times each limit
+  ([configuration](docs/user/configuration.md#rate-limits)). Refusals are counted in
+  `nexo_ratelimit_throttled_total{api,kind}` and marked in the audit log (tag `throttled`) and the live trace.
+
+### ACME DNS-01 for the wildcard domains (S-DST-06)
+- The automatic certificates of the distributions can be obtained with the **DNS-01** challenge, the only one a
+  wildcard alias (`*.preview.example.com`) can use: `tls.challenge` (`http-01`, `tls-alpn-01`, `dns-01`; default
+  the deployment's `NEXO_ACME_CHALLENGE`) and `tls.dnsProvider` per distribution. The leader publishes
+  `_acme-challenge.<domain>` through a **DNS provider**, waits until every authoritative nameserver of the zone
+  serves it (`NEXO_ACME_DNS_NAMESERVERS` to check fixed nameservers instead), validates and removes it; the same
+  `golang.org/x/crypto/acme` client as HTTP-01 and TLS-ALPN-01 (`internal/service/certs/dns01`).
+- DNS providers: **Cloudflare** (API token), **AWS Route 53** (access key or the ambient credentials of the
+  nodes, `aws-sdk-go-v2/service/route53` and `config`) and **RFC 2136** (TSIG-signed dynamic updates,
+  `github.com/miekg/dns`, BSD-3-Clause). Admin API `/dns-providers` (create, list, get, replace, delete, test;
+  `admin:ManageCertificates`), `nexoctl admin dns-provider add|ls|info|edit|rm|test`, `nexoctl dist cert set
+  --auto --challenge --dns-provider`, console **Certificates** page (providers, test) and **TLS** tab (challenge
+  and provider). Problem codes `dns_provider_not_found`, `invalid_dns_provider`, `dns_provider_exists`,
+  `dns_provider_in_use`.
+- The provider credentials are sealed (AES-256-GCM) in the system store, write-only in the API (`hasCredentials`;
+  empty fields keep the stored values), redacted in the logs and never part of an error.
+- **Behavior change**: saving a distribution with a wildcard alias and `tls.certificate: auto` now requires
+  `tls.challenge: dns-01` with an existing `tls.dnsProvider` (before, the wildcard was silently left out of the
+  certificate); the distributions already stored keep working unchanged until their next edit.
 
 ### Upgrading
 - The on-disk formats are unchanged from `v0.7.0` (`format.json` v1, `xl.meta` 1.x): upgrade and downgrade
@@ -232,11 +279,11 @@ published: the baseline of the upgrade tests is the M7 commit (`224bb31`, built 
     `storage/open-file`) stay under lock until the end, as in `v0.7.0`.
 
 ### Known limitations
-- No rate limiting per API or per distribution (S-OPS-10, S-DST-08 P2): put a reverse proxy with limits in front
-  of Nexo (`deploy/proxy`); `api.requests_max` and `api.requests_deadline` are stored but not applied.
+- Rate limits are per node (no cluster-wide counter) and bound requests, not bandwidth or connections: keep a
+  reverse proxy with connection limits in front of public deployments (`deploy/proxy`).
 - Not included (M10): bucket and site replication, pool decommission and rebalance, OIDC and LDAP, tiering, S3
-  Select, compression, ACLs other than `private`, ACME DNS-01, coordinated cluster restart and orchestrated
-  upgrade.
+  Select, compression, ACLs other than `private`, coordinated cluster restart and orchestrated upgrade. The
+  DNS-01 propagation check does not follow a CNAME delegation of `_acme-challenge` (acme-dns style).
 - O_DIRECT is not used (measured slower on the reference VM, docs/bench §7.2); zero-copy covers single-drive
   downloads over HTTP/1.1 without TLS only.
 

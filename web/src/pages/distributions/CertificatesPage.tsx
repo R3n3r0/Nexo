@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next';
 
 import { DistributionActions, usePermissions } from '@/auth/usePermissions';
 import { CertificateStatusBadge } from '@/components/distributions/CertificateStatusBadge';
+import { DnsProvidersSection } from '@/components/distributions/DnsProvidersSection';
 import { ConfirmDialog, ErrorAlert } from '@/components/iam/common';
 import { PermissionGuard } from '@/components/iam/PermissionGuard';
 import { distributionKeys } from '@/lib/accessQueries';
@@ -344,6 +345,7 @@ export function CertificatesPage() {
                     <Table.Tr>
                       <Table.Th>{t('certificates.domains')}</Table.Th>
                       <Table.Th>{t('certificates.distributions')}</Table.Th>
+                      <Table.Th>{t('certificates.challengeColumn')}</Table.Th>
                       <Table.Th>{t('common.status')}</Table.Th>
                     </Table.Tr>
                   </Table.Thead>
@@ -352,6 +354,12 @@ export function CertificatesPage() {
                       <Table.Tr key={m.id}>
                         <Table.Td>{m.domains.join(', ')}</Table.Td>
                         <Table.Td>{m.distributions.join(', ')}</Table.Td>
+                        <Table.Td>
+                          <Text size="sm">
+                            {m.challenge ?? list.data.acme.challenge}
+                            {m.dnsProvider !== undefined ? ` (${m.dnsProvider})` : ''}
+                          </Text>
+                        </Table.Td>
                         <Table.Td>
                           <Group gap={4}>
                             <Badge color={m.state === 'issued' ? 'teal' : 'yellow'} variant="light">
@@ -369,6 +377,7 @@ export function CertificatesPage() {
               )}
             </Stack>
           </Paper>
+          <DnsProvidersSection canManage={canManage} />
         </>
       )}
       <UploadDialog

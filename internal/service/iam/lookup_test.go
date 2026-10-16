@@ -92,3 +92,53 @@ func TestLookupUnknown(t *testing.T) {
 		assert.ErrorIs(t, err, domain.ErrInvalidAccessKey, ak)
 	}
 }
+
+// covers: pentest PT-05 (disabling a user or an access key moves the
+// revocation epoch of its credentials and of the keys derived from it, for
+// good and persistently; enabling it again does not move it back)
+func TestRevocationEpoch(t *testing.T) {
+	ctx := context.Background()
+	store := iam.NewMemoryStore()
+	svc, _ := newIAM(t, store)
+	mustUser(t, svc, "alice")
+	key, err := svc.CreateAccessKey(ctx, iam.CreateAccessKeyInput{Caller: domain.Identity{AccessKey: "alice"}, Name: "ci"})
+	require.NoError(t, err)
+	rootKey, err := svc.CreateAccessKey(ctx, iam.CreateAccessKeyInput{Caller: rootID()})
+	require.NoError(t, err)
+
+	epoch := func(svc iam.Service, ak string) uint64 {
+		t.Helper()
+		creds, _, err := svc.LookupCredentials(ctx, ak)
+		require.NoError(t, err)
+		return creds.RevocationEpoch
+	}
+	assert.Zero(t, epoch(svc, "alice"))
+	assert.Zero(t, epoch(svc, key.AccessKey))
+	assert.Zero(t, epoch(svc, rootAK))
+
+	// Disabling the user moves its epoch and the one of its keys.
+	require.NoError(t, svc.SetUserStatus(ctx, "alice", domain.StatusDisabled))
+	require.NoError(t, svc.SetUserStatus(ctx, "alice", domain.StatusDisabled), "disabling twice is idempotent")
+	require.NoError(t, svc.SetUserStatus(ctx, "alice", domain.StatusEnabled))
+	assert.Equal(t, uint64(1), epoch(svc, "alice"))
+	assert.Equal(t, uint64(1), epoch(svc, key.AccessKey))
+
+	// Disabling the key moves its own epoch only.
+	disabled, enabled := domain.StatusDisabled, domain.StatusEnabled
+	_, err = svc.UpdateAccessKey(ctx, rootID(), key.AccessKey, iam.UpdateAccessKeyInput{Status: &disabled})
+	require.NoError(t, err)
+	_, err = svc.UpdateAccessKey(ctx, rootID(), key.AccessKey, iam.UpdateAccessKeyInput{Status: &enabled})
+	require.NoError(t, err)
+	assert.Equal(t, uint64(1), epoch(svc, "alice"))
+	assert.Equal(t, uint64(2), epoch(svc, key.AccessKey))
+	_, err = svc.UpdateAccessKey(ctx, rootID(), rootKey.AccessKey, iam.UpdateAccessKeyInput{Status: &disabled})
+	require.NoError(t, err)
+	_, err = svc.UpdateAccessKey(ctx, rootID(), rootKey.AccessKey, iam.UpdateAccessKeyInput{Status: &enabled})
+	require.NoError(t, err)
+	assert.Equal(t, uint64(1), epoch(svc, rootKey.AccessKey), "a key of root has its own epoch")
+
+	// The epochs are persisted: another instance (node, restart) sees them.
+	other, _ := newIAM(t, store)
+	assert.Equal(t, uint64(1), epoch(other, "alice"))
+	assert.Equal(t, uint64(2), epoch(other, key.AccessKey))
+}

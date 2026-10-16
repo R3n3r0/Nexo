@@ -626,3 +626,32 @@ func TestNewAPIRequiresAuthentication(t *testing.T) {
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, admin.Prefix+"/info", nil))
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)
 }
+
+// TestNewAPILimitAfterAuth: the rate limit of the users runs after the
+// authentication (it sees the caller), on the authenticated routes only.
+func TestNewAPILimitAfterAuth(t *testing.T) {
+	f := newFixture(t)
+	info, err := admin.NewInfoRoutes(admin.InfoDeps{Admin: f.adm, Authz: f.authz})
+	require.NoError(t, err)
+	var order []string
+	mark := func(name string) middleware.Middleware {
+		return middleware.Func(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				order = append(order, name)
+				if name == "limit" {
+					w.WriteHeader(http.StatusTooManyRequests)
+					return
+				}
+				next.ServeHTTP(w, r)
+			})
+		})
+	}
+	api, err := admin.NewAPI(admin.APIDeps{Auth: mark("auth"), Limit: mark("limit")}, info)
+	require.NoError(t, err)
+	r := chi.NewRouter()
+	api.Register(r)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, admin.Prefix+"/info", nil))
+	assert.Equal(t, http.StatusTooManyRequests, rec.Code)
+	assert.Equal(t, []string{"auth", "limit"}, order)
+}

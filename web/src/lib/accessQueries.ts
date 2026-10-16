@@ -20,4 +20,5 @@ export const distributionKeys = {
   resolve: (host: string) => ['distributions', 'resolve', host] as const,
   keyGroups: ['keygroups'] as const,
   certificates: ['certificates'] as const,
+  dnsProviders: ['certificates', 'dns-providers'] as const,
 };

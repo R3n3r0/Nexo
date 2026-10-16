@@ -41,6 +41,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/certs"
 	"github.com/r3n3r0/nexo/internal/service/distribution"
 	"github.com/r3n3r0/nexo/internal/testutil"
+	"github.com/r3n3r0/nexo/internal/testutil/dnstest"
 )
 
 // hostRequest sends a request for host to the server at base (a node or the
@@ -608,4 +609,93 @@ func freeUDPAddr(t *testing.T) string {
 	}
 	t.Fatal("no free port")
 	return ""
+}
+
+// TestDistributionACMEDNS01 obtains the certificate of a distribution
+// with an apex and its wildcard from Pebble through the DNS-01 challenge:
+// the leader publishes the TXT records with RFC 2136 updates signed with
+// TSIG on a nameserver in the test process (the one Pebble queries), waits
+// for them on it (NEXO_ACME_DNS_NAMESERVERS) and removes them; every node
+// serves the certificate for any name under the wildcard (TDS-10).
+//
+// covers: S-DST-06
+func TestDistributionACMEDNS01(t *testing.T) {
+	t.Parallel()
+	_ = os.Setenv("PEBBLE_VA_NOSLEEP", "1")
+	_ = os.Setenv("PEBBLE_WFE_NONCEREJECT", "0")
+	const tsigSecret = "aW50ZWdyYXRpb24tdHNpZy1zZWNyZXQtb2YtbmV4bw=="
+	ns := dnstest.Start(t, "wild.test", dnstest.WithTSIG("nexo-acme", tsigSecret))
+	front := &lateHandler{}
+	wfeSrv := httptest.NewTLSServer(front)
+	t.Cleanup(wfeSrv.Close)
+	caFile := filepath.Join(t.TempDir(), "acme-ca.pem")
+	require.NoError(t, os.WriteFile(caFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: wfeSrv.Certificate().Raw}), 0o600))
+
+	e := newEnv(t, testutil.WithConfig(func(c *config.Static) {
+		c.WebTLSAddress = "127.0.0.1:0"
+		c.ACMEDirectory = wfeSrv.URL + pebblewfe.DirectoryPath
+		c.ACMECACert = caFile
+		c.ACMEDNSNameservers = ns.Addr
+	}))
+	logger := log.New(io.Discard, "", 0)
+	db := pebbledb.NewMemoryStore()
+	ca := pebbleca.New(logger, db, "", "ecdsa", 0, 1, map[string]pebbleca.Profile{"default": {ValidityPeriod: 90 * 24 * 3600}})
+	// No HTTP-01 nor TLS-ALPN-01 listener: only the DNS validates.
+	va := pebbleva.New(logger, 1, 1, false, ns.Addr, db)
+	wfe := pebblewfe.New(logger, db, va, ca, false, false, 0, 0)
+	handler := wfe.Handler()
+	front.h.Store(&handler)
+	roots := x509.NewCertPool()
+	roots.AddCert(ca.GetRootCert(0).Cert)
+
+	first := e.srv.Nodes[0].App
+	_, err := first.DNSProviders().Create(e.ctx, certs.DNSProviderConfig{
+		Name: "bind", Type: certs.DNSProviderRFC2136, PollingInterval: 1,
+		RFC2136: &certs.RFC2136Settings{Nameserver: ns.Addr, TSIGKeyName: "nexo-acme"},
+	}, certs.DNSCredentials{TSIGSecret: tsigSecret})
+	require.NoError(t, err)
+	e.mkBucket("previews")
+	e.putTyped("previews", "index.html", "preview home", "text/html")
+	_, err = first.Distributions().Create(e.ctx, distribution.Distribution{
+		ID: "previews", Enabled: true, Aliases: []string{"wild.test", "*.wild.test"}, Origin: distribution.Origin{Bucket: "previews"},
+		DefaultBehavior: distribution.Behavior{Access: distribution.AccessPublic, IndexDocument: "index.html"},
+		TLS:             distribution.TLS{Certificate: distribution.CertificateAuto, Challenge: distribution.ChallengeDNS01, DNSProvider: "bind"},
+	})
+	require.NoError(t, err)
+
+	last := e.srv.Nodes[len(e.srv.Nodes)-1].App
+	require.Eventually(t, func() bool {
+		c, err := last.Certificates().Get(e.ctx, "acme-previews")
+		return err == nil && c.Source == certs.SourceACME
+	}, 2*time.Minute, 200*time.Millisecond, "the ACME certificate is obtained through DNS-01")
+	c, err := last.Certificates().Get(e.ctx, "acme-previews")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"*.wild.test", "wild.test"}, c.Domains)
+	assert.Empty(t, ns.TXT("_acme-challenge.wild.test."), "the challenge records are removed")
+	applied, refused := ns.Updates()
+	assert.GreaterOrEqual(t, applied, 4, "two values published and removed")
+	assert.Zero(t, refused)
+
+	for i, n := range e.srv.Nodes {
+		for _, host := range []string{"wild.test", "pr-42.wild.test"} {
+			client := &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{ServerName: host, RootCAs: roots, MinVersion: tls.VersionTLS12},
+			}}
+			var resp response
+			require.Eventually(t, func() bool {
+				req := newRequest(t, http.MethodGet, "https://"+n.App.WebTLSAddr()+"/", nil)
+				req.Host = host
+				r, err := client.Do(req)
+				if err != nil {
+					return false
+				}
+				defer r.Body.Close()
+				body, _ := io.ReadAll(r.Body)
+				resp = response{Response: r, Body: body}
+				return true
+			}, 10*time.Second, 100*time.Millisecond, "node %d serves the wildcard certificate for %s", i+1, host)
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+			assert.Equal(t, "preview home", string(resp.Body))
+		}
+	}
 }

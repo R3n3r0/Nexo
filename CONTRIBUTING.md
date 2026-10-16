@@ -32,4 +32,8 @@ Confirm your agreement by signing off every commit (`git commit -s`), which adds
 
 The sign-off certifies the [Developer Certificate of Origin 1.1](https://developercertificate.org/)
 and your acceptance of the terms above. Pull requests whose commits are not signed off cannot be
-merged.
+merged: the **DCO** workflow (`.github/workflows/dco.yml`) checks that every commit of the pull request, merges
+excepted, carries a `Signed-off-by:` line with the name and email of its author as git records them (case and
+surrounding spaces ignored). Run the same check locally with `make dco` (against `origin/main`, or
+`make dco DCO_BASE=<branch>`); fix a branch with `git rebase --signoff origin/main` and force-push it. The pull
+request template recalls these steps.

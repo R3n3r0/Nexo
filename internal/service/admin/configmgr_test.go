@@ -32,6 +32,9 @@ func TestConfigManagerValidation(t *testing.T) {
 		{"api", config.KV{"requests_max": "-1"}, false},
 		{"api", config.KV{"requests_deadline": "soon"}, false},
 		{"api", config.KV{"root_access": "maybe"}, false},
+		{"ratelimit", config.KV{"s3_ip": "100", "s3_ip_burst": "200", "admin_user": "5"}, true},
+		{"ratelimit", config.KV{"s3_bucket": "-5"}, false},
+		{"ratelimit", config.KV{"s3_user": "5"}, false},
 		{"browser", config.KV{"session_duration": "2h"}, true},
 		{"logger", config.KV{"level": "debug", "format": "json"}, true},
 		{"logger", config.KV{"level": "loud"}, false},
@@ -167,7 +170,7 @@ func TestConfigManagerListAndSchema(t *testing.T) {
 		names = append(names, s.Name)
 	}
 	assert.Equal(t, []string{"access", "api", "audit_kafka", "audit_webhook", "browser", "logger", "notify_amqp", "notify_kafka", "notify_nats",
-		"notify_postgres", "notify_redis", "notify_webhook", "region", "scanner"}, names)
+		"notify_postgres", "notify_redis", "notify_webhook", "ratelimit", "region", "scanner"}, names)
 	// Every key says whether the server applies it (regression: keys were
 	// shown as if they took effect while nothing read them).
 	applied := map[string]bool{}
@@ -177,10 +180,11 @@ func TestConfigManagerListAndSchema(t *testing.T) {
 		}
 	}
 	for _, k := range []string{"api.root_access", "scanner.speed", "scanner.cycle", "access.block_public", "access.block_public_mode",
-		"logger.level", "logger.format", "audit_webhook.endpoint", "audit_kafka.topic"} {
+		"logger.level", "logger.format", "audit_webhook.endpoint", "audit_kafka.topic",
+		"api.requests_max", "api.requests_deadline", "ratelimit.s3_ip", "ratelimit.s3_ip_burst", "ratelimit.admin_user"} {
 		assert.True(t, applied[k], k)
 	}
-	for _, k := range []string{"api.requests_max", "api.requests_deadline", "browser.session_duration", "region.name", "audit_webhook.comment"} {
+	for _, k := range []string{"browser.session_duration", "region.name", "audit_webhook.comment"} {
 		assert.False(t, applied[k], k)
 	}
 	store.EXPECT().Get(mock.Anything, mock.Anything).Return(config.KV{}, nil)

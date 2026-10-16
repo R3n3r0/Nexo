@@ -380,7 +380,15 @@ func formatDistribution(d *nexoadmin.Distribution) string {
 		lines = append(lines, fmt.Sprintf("Origin secret: header %s, %d active %s", s.Name, len(s.Values), plural(len(s.Values), "secret", "secrets")))
 	}
 	if rl := d.Restrictions.RateLimit; rl != nil {
-		lines = append(lines, fmt.Sprintf("Rate limit: %d/s, burst %d (not enforced yet)", rl.RequestsPerSecond, rl.Burst))
+		per := rl.Per
+		if per == "" {
+			per = "ip"
+		}
+		burst := rl.Burst
+		if burst == 0 {
+			burst = rl.RequestsPerSecond
+		}
+		lines = append(lines, fmt.Sprintf("Rate limit: %d/s, burst %d, per %s (each node)", rl.RequestsPerSecond, burst, per))
 	}
 	lines = append(lines, "TLS: "+orDash(d.TLS.Certificate))
 	return strings.Join(lines, "\n")
@@ -1015,16 +1023,22 @@ func newDistRestrictCmd(e *env) *cobra.Command {
 		clearIP, noSecret bool
 		secretHeader      string
 		rate, burst       int
+		per               string
+		noRate            bool
 	)
 	cmd := &cobra.Command{
-		Use:   "restrict ALIAS ID [--allow-ip CIDR]... [--deny-ip CIDR]... [--origin-secret-header NAME] [--rate-limit N]",
+		Use:   "restrict ALIAS ID [--allow-ip CIDR]... [--deny-ip CIDR]... [--origin-secret-header NAME] [--rate-limit N [--burst N] [--rate-limit-per ip|distribution]]",
 		Short: "Restrict the clients of a distribution (source IP, origin secret, rate limit)",
 		Long: `Restrict the clients of a distribution: --allow-ip/--deny-ip filter the client
 behind the trusted proxies; --origin-secret-header requires the origin secret of
 the proxies in that header (generate the secret with "nexoctl dist origin-secret
-rotate"); --rate-limit is stored, not enforced yet.`,
+rotate"); --rate-limit admits N requests per second on each node (--burst at
+once), per client address or shared by the whole distribution
+(--rate-limit-per): beyond it a website answers 429, an s3 distribution 503
+SlowDown, with Retry-After; --no-rate-limit removes it.`,
 		Example: `  nexoctl dist restrict local website --deny-ip 203.0.113.0/24
-  nexoctl dist restrict local website --origin-secret-header X-Origin-Secret`,
+  nexoctl dist restrict local website --origin-secret-header X-Origin-Secret
+  nexoctl dist restrict local website --rate-limit 50 --burst 100`,
 		Args:              exactArgs(2),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -1052,7 +1066,10 @@ rotate"); --rate-limit is stored, not enforced yet.`,
 					}
 					r.OriginSecretHeader.Name = secretHeader
 				}
-				if cmd.Flags().Changed("rate-limit") || cmd.Flags().Changed("burst") {
+				switch {
+				case noRate:
+					r.RateLimit = nil
+				case cmd.Flags().Changed("rate-limit") || cmd.Flags().Changed("burst") || cmd.Flags().Changed("rate-limit-per"):
 					if r.RateLimit == nil {
 						r.RateLimit = &nexoadmin.RateLimit{Per: "ip"}
 					}
@@ -1061,6 +1078,9 @@ rotate"); --rate-limit is stored, not enforced yet.`,
 					}
 					if cmd.Flags().Changed("burst") {
 						r.RateLimit.Burst = burst
+					}
+					if cmd.Flags().Changed("rate-limit-per") {
+						r.RateLimit.Per = per
 					}
 				}
 				return nil
@@ -1073,8 +1093,10 @@ rotate"); --rate-limit is stored, not enforced yet.`,
 	f.BoolVar(&clearIP, "clear-ip", false, "remove the source IP restrictions")
 	f.StringVar(&secretHeader, "origin-secret-header", "", "require the origin secret in this header")
 	f.BoolVar(&noSecret, "no-origin-secret", false, "remove the origin secret requirement")
-	f.IntVar(&rate, "rate-limit", 0, "requests per second per client (stored, not enforced yet)")
-	f.IntVar(&burst, "burst", 0, "burst of the rate limit")
+	f.IntVar(&rate, "rate-limit", 0, "requests per second admitted by each node (0: no limit)")
+	f.IntVar(&burst, "burst", 0, "requests admitted at once above the rate (0: the rate)")
+	f.StringVar(&per, "rate-limit-per", "", "rate limit per client address (ip) or for the whole distribution (distribution)")
+	f.BoolVar(&noRate, "no-rate-limit", false, "remove the rate limit")
 	return cmd
 }
 

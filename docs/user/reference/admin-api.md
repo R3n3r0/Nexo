@@ -109,7 +109,7 @@ Common codes: `unauthenticated`, `access_denied`, `invalid_csrf_token`, `invalid
 | notify, kms | `/notify/targets`, `/kms/status`, `/kms/keys`, `/kms/reseal` | event targets, KMS keys |
 | access-rules | `/buckets/{bucket}/access-rules`, `.../test`, `.../public`, `/access/block-public` | access rules, block public access |
 | distributions | `/distributions`, `/distributions/{id}/{test,sign,origin-secret/rotate}`, `/keygroups`, `/routing/resolve` | distributions, key groups, routing |
-| certificates | `/certificates` | certificates of the distributions |
+| certificates | `/certificates`, `/dns-providers` | certificates of the distributions, DNS providers of the ACME DNS-01 challenge |
 | cache | `/cache/{policies,settings,inspect,stats,invalidations}`, `/distributions/{id}/cache/...`, `/distributions/{id}/invalidations` | cache, invalidations, warm-up, webhooks |
 
 The complete specification has 180 operations; the HTML reference shows them with parameters, bodies and

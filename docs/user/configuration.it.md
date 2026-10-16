@@ -74,6 +74,7 @@ Dettagli in [TLS e certificati](security/tls.md).
 | `NEXO_ACME_EMAIL` | `--acme-email` | — | Contatto dell'account ACME |
 | `NEXO_ACME_CHALLENGE` | `--acme-challenge` | `http-01` | `http-01` (sul listener web) o `tls-alpn-01` (sul listener web TLS) |
 | `NEXO_ACME_CA_CERT` | `--acme-ca-cert` | — | CA (PEM) di un server ACME privato |
+| `NEXO_ACME_DNS_NAMESERVERS` | `--acme-dns-nameservers` | — | nameserver (`host[:porta]`, separati da virgola) interrogati dalla verifica di propagazione DNS-01 al posto di quelli autoritativi della zona (DNS split-horizon) |
 
 ### Cache delle distribuzioni
 
@@ -177,7 +178,8 @@ applica, è su `GET /api/v1/config/schema` e nella pagina **Configurazione** del
 |--------------|--------|-------------------|
 | `logger` | `level` (`debug`…`error`), `format` (`text`, `json`) | ✅ |
 | `api` | `cors_allow_origin` (default `*`), `root_access` (default `on`; `off` nega le credenziali root sull'API S3) | ✅ |
-| `api` | `requests_max`, `requests_deadline` | ❌ salvati e validati, non ancora applicati |
+| `api` | `requests_max` (default `0`: nessun limite), `requests_deadline` (default `10s`): vedi [Limiti di richieste](#limiti-di-richieste) | ✅ alla richiesta successiva |
+| `ratelimit` | `s3_ip`, `s3_access_key`, `s3_bucket`, `admin_ip`, `admin_user` e i loro `_burst`: vedi [Limiti di richieste](#limiti-di-richieste) | ✅ alla richiesta successiva |
 | `scanner` | `speed` (`fastest`…`slowest`), `cycle` (default `1m`) | ✅ all'inizio di ogni ciclo |
 | `access` | `block_public`, `block_public_mode` (`reject`, `ignore`) | ✅ |
 | `notify_webhook`, `notify_kafka`, `notify_nats`, `notify_amqp`, `notify_redis`, `notify_postgres` (anche `:<id>`) | `enable`, chiavi del target, `queue_dir`, `queue_limit`, `comment` | ✅ (vedi [Eventi](events-lifecycle.md)) |
@@ -187,3 +189,36 @@ applica, è su `GET /api/v1/config/schema` e nella pagina **Configurazione** del
 
 `nexoctl admin config set` avvisa quando imposta una chiave non applicata (`region.name is stored but not
 applied yet by the server`); la console la segnala allo stesso modo.
+
+### Limiti di richieste
+
+Ogni nodo limita le richieste che serve con dei token bucket: una chiave ammette in media il suo valore in
+richieste al secondo e il suo `_burst` (default: il valore stesso) tutte insieme. Sono tutte `0` per default:
+nessun limite.
+
+| Chiave | Limita | Risposta oltre la soglia |
+|--------|--------|--------------------------|
+| `ratelimit.s3_ip` | Richieste S3 di un indirizzo client (il client dietro i [proxy fidati](#rete-e-url-pubblici); IPv6 per rete /64) | `503 SlowDown` (XML S3) |
+| `ratelimit.s3_access_key` | Richieste S3 di una access key (richieste autenticate; le URL presigned contano sull'indirizzo e sul bucket) | `503 SlowDown` |
+| `ratelimit.s3_bucket` | Richieste S3 a un bucket, chiunque le invii | `503 SlowDown` |
+| `ratelimit.admin_ip` | Richieste all'Admin API di un indirizzo client (console e `nexoctl admin`) | `429 too_many_requests` (problem+json) |
+| `ratelimit.admin_user` | Richieste all'Admin API di un utente autenticato | `429 too_many_requests` |
+| `api.requests_max` | Richieste S3 servite insieme da un nodo; una richiesta oltre la soglia attende uno slot per `api.requests_deadline` | `503 SlowDown` |
+
+Ogni rifiuto porta `Retry-After` (secondi): gli SDK S3 ripetono le `SlowDown` con backoff. I probe di salute
+(`/nexo/health/*`), le raccolte delle metriche (`/nexo/metrics/*`) e l'RPC tra i nodi non sono mai limitati; le
+[distribuzioni](distributions/README.md#limite-di-richieste) hanno un limite proprio. Le richieste rifiutate sono
+contate in `nexo_ratelimit_throttled_total{api,kind}` e marcate nell'audit log (tag `throttled` con il tipo di
+limite) e nella trace live (`error: Service Unavailable (rate limit: ip)`).
+
+```bash
+nexoctl admin config set local ratelimit s3_ip=200 s3_ip_burst=400 admin_ip=20
+nexoctl admin config set local api requests_max=1024 requests_deadline=5s
+nexoctl admin config reset local ratelimit
+```
+
+**In un cluster i limiti sono per nodo.** La configurazione è la stessa su ogni nodo (una modifica li raggiunge
+tutti subito), ma ogni nodo conta le proprie richieste: dietro un load balancer che distribuisce i client su N
+nodi il deployment ammette fino a N volte ciascun limite (un client che invia a un solo nodo incontra il limite di
+quel nodo). Dividi il limite voluto per il deployment per il numero dei nodi. Così il controllo resta locale
+(nessuna chiamata tra i nodi per richiesta) e continua a funzionare quando dei nodi cadono.

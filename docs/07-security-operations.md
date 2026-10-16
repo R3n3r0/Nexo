@@ -8,7 +8,7 @@
 | Tampering | Data on disk, traffic | Per-block bitrot hash, TLS 1.2+ (default 1.3), SSE |
 | Repudiation | Administrative operations | Immutable audit log to an external target |
 | Information disclosure | Console, errors, logs | No secrets in logs, generic error messages for anonymous users, IAM secrets encrypted at rest |
-| Denial of service | Upload, listing, login | Header/body size limits, timeouts, login rate limit, per-API concurrency limits |
+| Denial of service | Upload, listing, login | Header/body size limits, timeouts, login rate limit, per-node token buckets per client address, access key/user, bucket and distribution (`ratelimit.*`, `restrictions.rateLimit`), S3 concurrency limit (`api.requests_max`/`api.requests_deadline`): 503 SlowDown / 429 with Retry-After; health, metrics and internode RPC exempt |
 | Elevation of privilege | Policy engine, console | Deny-by-default, authorization always server-side, systematic negative tests |
 
 The full analysis per surface (S3, Admin API and console, internode RPC, distributions, cache, events, KMS, CLI),
@@ -19,6 +19,15 @@ the fuzzing targets (`make fuzz`), is in [docs/security/threat-model.md](securit
 - Root credentials only from env/file (`NEXO_ROOT_USER`, `NEXO_ROOT_PASSWORD` or `_FILE`), never stored in plain text.
 - IAM and config encrypted in `.nexo.sys` with a derived key (Argon2id/HKDF) or one provided by the KMS.
 - Users' secret keys are shown only once in the console/CLI.
+- Credentials of the ACME DNS-01 providers (Cloudflare API token, Route 53 secret access key and session token,
+  RFC 2136 TSIG secret) are sealed with AES-256-GCM in the system store (`.nexo.sys`, the key of the distribution
+  certificates derived from the root credentials and the deployment id, the provider name as additional data),
+  write-only in the Admin API (`/dns-providers` returns `hasCredentials` only; an update with empty credentials
+  keeps them), never logged nor formatted (`certs.DNSCredentials` and `nexoadmin.DNSCredentials` print
+  `[REDACTED]` with `%v`/`%+v`/`%#v` and `slog`) and never written in a provider error. Route 53 can use the
+  ambient credentials of the nodes (instance role, web identity) instead: nothing stored. Give the providers the
+  narrowest permission (Cloudflare `Zone:DNS:Edit` on one zone; Route 53 `ChangeResourceRecordSets` on one hosted
+  zone; a TSIG key allowed to update only `_acme-challenge.*` TXT records with `update-policy`).
 - CLI config file with 0600 permissions and a warning if more permissive.
 - No keys in logs: the SSE-C key (`domain.SSECustomerKey`), the SSE requests (`domain.SSERequest`), the KMS master
   keys (`kms.MasterKey`), the KMS data keys (`kms.DEK`) and the plaintext object keys (`crypto.ObjectKey`) are
@@ -179,8 +188,9 @@ the fuzzing targets (`make fuzz`), is in [docs/security/threat-model.md](securit
   or out of inodes, 5xx rate, p99 latency, internode errors, lock timeouts, stuck healing (MRF queue and drives),
   event queue and unreachable targets; Grafana dashboard `nexo-overview`.
 - **Applied dynamic configuration** (`settings.Applied`): `logger.level`, `logger.format`, `audit_*`, `notify_*`,
-  `api.root_access`, `api.cors_allow_origin`, `scanner.*`, `access.*`. `api.requests_max` and
-  `api.requests_deadline` are validated and stored but **not applied yet** (concurrency limit: M9 hardening).
+  `api.root_access`, `api.cors_allow_origin`, `api.requests_max`, `api.requests_deadline`, `ratelimit.*`,
+  `scanner.*`, `access.*`. The request limits (S-OPS-10) are per node, off by default; a cluster behind a load
+  balancer admits up to the number of nodes times each limit (docs/user/configuration.md "Rate limits").
 
 ## 7.5 Deploy
 | Target | Artifact |
@@ -225,9 +235,9 @@ the fuzzing targets (`make fuzz`), is in [docs/security/threat-model.md](securit
 
 The console is always served on the console listener (`--console-address`, which also serves the Admin API):
 there is no variable to disable it; restrict the exposure of the port instead (firewall, proxy). The duration of a
-console session is fixed at 12 hours (not configurable); logout and secret rotation revoke it earlier, disabling or
-removing the user suspends or ends it (a session resumes if the user is enabled again with the same secret: rotate
-the secret when a session may have been stolen).
+console session is fixed at 12 hours (not configurable); logout, secret rotation, removing the user and disabling the
+user or the access key it was opened with revoke it earlier. A revocation by disable is for good: enabling the user or
+the key again does not bring its sessions (nor its managed share links, revoked with them) back.
 
 Every response of the console listener carries `X-Content-Type-Options: nosniff` and `X-Frame-Options: SAMEORIGIN`
 (`DENY` and a `Content-Security-Policy` with `frame-ancestors 'none'` on the pages of the console), the answers of the

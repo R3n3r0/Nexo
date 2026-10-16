@@ -1,4 +1,4 @@
-# covers: C-DST-01
+# covers: C-DST-01, S-DST-08
 # TCL-D-01: dist create with two domains: the requests for both hosts serve
 # the content (the domains are simulated with the Host header).
 # TCL-D-02: dist sign-url with the stored key of the key group: the URL is
@@ -104,6 +104,16 @@ http -H 'Host: www.site.test' -H 'X-Origin-Secret: '$SECRET -o got.html $NEXO_UR
 http -H 'Host: www.site.test' -H 'X-Origin-Secret: '$SECRET2 -o got.html $NEXO_URL/
 exec nexoctl dist restrict local site --no-origin-secret
 http -H 'Host: www.site.test' -o got.html $NEXO_URL/
+
+# S-DST-08: the rate limit of the distribution, per node (its enforcement
+# is tested in test/integration, behind a load balancer each node counts).
+exec nexoctl dist restrict local site --rate-limit 100 --burst 200
+exec nexoctl dist info local site
+stdout '^Rate limit: 100/s, burst 200, per ip \(each node\)$'
+http -H 'Host: www.site.test' -o got.html $NEXO_URL/
+exec nexoctl dist restrict local site --no-rate-limit
+exec nexoctl dist info local site
+! stdout 'Rate limit'
 
 # TCL-D-04: an uploaded certificate for the domains.
 mkcert www.site.test site.test cert.pem key.pem

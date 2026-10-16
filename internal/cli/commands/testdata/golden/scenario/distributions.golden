@@ -85,6 +85,25 @@ Updated the headers of `site` (5 response headers).
 $ nexoctl dist restrict mem site --deny-ip 203.0.113.0/24
 Updated the restrictions of `site`.
 
+$ nexoctl dist restrict mem api --rate-limit 50 --rate-limit-per distribution
+Updated the restrictions of `api`.
+
+$ nexoctl dist info mem api
+ID: api
+State: enabled
+Mode: s3
+Origin: data
+Domains: s3.example.com
+Default behavior: access authenticated
+Rate limit: 50/s, burst 50, per distribution (each node)
+TLS: -
+
+$ nexoctl dist restrict mem api --no-rate-limit
+Updated the restrictions of `api`.
+
+$ nexoctl dist restrict mem site --rate-limit 20 --burst 40
+Updated the restrictions of `site`.
+
 $ nexoctl dist test mem site /downloads/v1.zip
 Route: www.example.com → distribution `site` (alias www.example.com)
 Behavior: 1 (glob /downloads/**)
@@ -144,7 +163,7 @@ $ nexoctl dist keygroup rm mem downloads
 
 $ nexoctl dist origin-secret rotate mem site
 New origin secret of `site` (header X-Origin-Secret, 1 active, shown once):
-mem-origin-secret-13
+mem-origin-secret-16
 
 $ nexoctl dist cert set mem site --cert cert.pem --key key.pem
 Uploaded the certificate dist-site (www.example.com, example.com, valid until 2026-04-02 03:04:05 UTC); TLS of `site`: upload:dist-site.
@@ -221,7 +240,11 @@ restrictions:
   originSecretHeader:
     name: X-Origin-Secret
     values:
-      - sha256:mem-13
+      - sha256:mem-16
+  rateLimit:
+    requestsPerSecond: 20
+    burst: 40
+    per: ip
 tls:
   certificate: upload:dist-site
 logging: {}

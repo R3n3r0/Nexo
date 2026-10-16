@@ -78,6 +78,62 @@ func (_c *Service_API_Call) RunAndReturn(run func(context.Context) (settings.API
 	return _c
 }
 
+// Limits provides a mock function with given fields: ctx
+func (_m *Service) Limits(ctx context.Context) (settings.Limits, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Limits")
+	}
+
+	var r0 settings.Limits
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (settings.Limits, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) settings.Limits); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Get(0).(settings.Limits)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_Limits_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Limits'
+type Service_Limits_Call struct {
+	*mock.Call
+}
+
+// Limits is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *Service_Expecter) Limits(ctx interface{}) *Service_Limits_Call {
+	return &Service_Limits_Call{Call: _e.mock.On("Limits", ctx)}
+}
+
+func (_c *Service_Limits_Call) Run(run func(ctx context.Context)) *Service_Limits_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *Service_Limits_Call) Return(_a0 settings.Limits, _a1 error) *Service_Limits_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_Limits_Call) RunAndReturn(run func(context.Context) (settings.Limits, error)) *Service_Limits_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewService creates a new instance of Service. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewService(t interface {

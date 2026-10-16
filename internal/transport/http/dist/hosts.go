@@ -14,6 +14,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/cache"
 	"github.com/r3n3r0/nexo/internal/service/distribution"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
+	"github.com/r3n3r0/nexo/internal/service/ratelimit"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
 )
@@ -35,9 +36,16 @@ type HostRouterDeps struct {
 	// docs/11 (optional): every request of a distribution begins an
 	// exchange with it, whose context the object reads of the request
 	// carry, and whose headers (X-Cache, Age, Vary...) the answer gets.
-	Cache  cache.Runtime
-	Clock  clock.Clock
-	Logger *slog.Logger
+	Cache cache.Runtime
+	// Limiter enforces the rate limits of the distributions
+	// (restrictions.rateLimit, S-DST-08; optional: not enforced).
+	Limiter ratelimit.Service
+	// S3Errors writes the refusals of the rate limit of the s3
+	// distributions (middleware.S3ErrorWriter: 503 SlowDown, what the S3
+	// SDKs retry); default the plain text answer of the websites.
+	S3Errors middleware.ErrorWriter
+	Clock    clock.Clock
+	Logger   *slog.Logger
 }
 
 // HostRouterOption configures the host router.
@@ -144,6 +152,10 @@ func (h *hostRouter) Wrap(next http.Handler) http.Handler {
 func (h *hostRouter) serveDistribution(w http.ResponseWriter, r *http.Request, route distribution.Route, next http.Handler) {
 	start := h.deps.Clock.Now()
 	rec := &recorder{ResponseWriter: w, status: http.StatusOK}
+	if h.throttle(rec, r, route) {
+		h.record(r, route, rec, start)
+		return
+	}
 	if h.deps.Cache != nil {
 		ctx, ex := h.deps.Cache.Begin(r.Context(), cacheRequest(r, route))
 		r = r.WithContext(ctx)
@@ -177,6 +189,50 @@ func (h *hostRouter) serveDistribution(w http.ResponseWriter, r *http.Request, r
 		h.deps.Website.ServeHTTP(rec, r)
 	}
 	h.record(r, route, rec, start)
+}
+
+// throttle enforces the rate limit of the distribution of a request
+// (restrictions.rateLimit, docs/10 TDS-13): it answers the refusal (429 Too
+// Many Requests in plain text for a website, 503 SlowDown for an s3
+// distribution, with Retry-After) and reports true. The admission comes
+// first (disabled, source address, origin secret): a refused client spends
+// no token of the distribution, so that the clients bypassing the proxy
+// cannot exhaust the bucket the proxied ones share.
+func (h *hostRouter) throttle(w http.ResponseWriter, r *http.Request, route distribution.Route) bool {
+	d := route.Distribution
+	rl := d.Restrictions.RateLimit
+	if h.deps.Limiter == nil || rl == nil || rl.RequestsPerSecond <= 0 {
+		return false
+	}
+	ctx := r.Context()
+	if resp := h.deps.Admission.Admit(ctx, webRequest(r, route)); resp != nil {
+		if resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		return false
+	}
+	api, onError := ratelimit.APIWeb, middleware.ErrorWriter(func(w http.ResponseWriter, r *http.Request, _ error) {
+		writePlain(w, r, http.StatusTooManyRequests, "the rate limit of the distribution is exceeded, retry later")
+	})
+	if d.Mode == distribution.ModeS3 {
+		api = ratelimit.APIS3
+		if h.deps.S3Errors != nil {
+			onError = h.deps.S3Errors
+		}
+	}
+	dec, err := h.deps.Limiter.AdmitDistribution(ctx, ratelimit.DistributionRequest{
+		API: api, Distribution: d.ID, ClientIP: middleware.ClientOf(r).IP,
+		Limit: ratelimit.DistributionLimit{RequestsPerSecond: rl.RequestsPerSecond, Burst: rl.Burst, PerIP: rl.Per != distribution.RateLimitPerDistribution},
+	})
+	if err != nil {
+		h.deps.Logger.WarnContext(ctx, "distribution: rate limit", "distribution", d.ID, "err", err)
+		return false
+	}
+	if dec.Allowed {
+		return false
+	}
+	middleware.Throttle(w, r, dec, onError)
+	return true
 }
 
 // record updates the metrics and the access log of a distribution.

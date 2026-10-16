@@ -1,0 +1,36 @@
+Manage the DNS providers that publish the TXT records of the ACME DNS-01 challenge:
+the only challenge a wildcard alias ("*.example.com") can use. Types: cloudflare (API
+token with Zone:DNS:Edit), route53 (access key, or the ambient AWS credentials of the
+nodes) and rfc2136 (dynamic updates signed with a TSIG key).
+
+The credentials are sealed in the system store and never shown again: give them with
+the --*-file flags to keep them out of the shell history. A distribution uses a
+provider with "nexoctl dist cert set ALIAS ID --auto --dns-provider NAME".
+Needs admin:ManageCertificates.
+
+Usage:
+  nexoctl admin dns-provider [flags]
+  nexoctl admin dns-provider [command]
+
+Aliases:
+  dns-provider, dns
+
+Available Commands:
+  add         Create a DNS provider
+  edit        Change the settings or the credentials of a DNS provider
+  info        Show a DNS provider (never its credentials)
+  list        List the DNS providers
+  remove      Remove a DNS provider no distribution uses
+  test        Publish, check and remove a test record through a DNS provider
+
+Flags:
+  -h, --help   help for dns-provider
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl admin dns-provider [command] --help" for more information about a command.

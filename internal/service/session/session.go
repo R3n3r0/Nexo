@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 
@@ -91,8 +92,9 @@ type claims struct {
 	CSRF   string `json:"csrf"`
 	IsRoot bool   `json:"root,omitempty"`
 	Parent string `json:"parent,omitempty"`
-	// Cred binds the session to the secret key it was opened with
-	// (credentialTag): a rotated secret invalidates the session.
+	// Cred binds the session to the secret key and the revocation epoch
+	// it was opened with (credentialTag): a rotated secret or disabled
+	// credentials invalidate the session.
 	Cred string `json:"cred"`
 }
 
@@ -163,7 +165,7 @@ func (s *service) Login(ctx context.Context, in LoginInput) (*Session, error) {
 		return nil, fmt.Errorf("session: %w", &ThrottledError{RetryAfter: wait})
 	}
 	accessKey := in.AccessKey
-	identity, err := s.verify(ctx, in, now)
+	creds, identity, err := s.verify(ctx, in, now)
 	if err != nil {
 		if errors.Is(err, domain.ErrAccessDenied) {
 			if lockout := s.throttle.fail(in.Client, in.AccessKey, now); lockout > 0 {
@@ -195,7 +197,7 @@ func (s *service) Login(ctx context.Context, in LoginInput) (*Session, error) {
 		CSRF:   csrf,
 		IsRoot: identity.IsRoot,
 		Parent: identity.Parent,
-		Cred:   s.credentialTag(accessKey, in.SecretKey),
+		Cred:   s.credentialTag(accessKey, creds),
 	}
 	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, cl).SignedString(s.key)
 	if err != nil {
@@ -215,32 +217,32 @@ func (s *service) Login(ctx context.Context, in LoginInput) (*Session, error) {
 
 // verify checks the credentials of a login: unknown, wrong, disabled,
 // expired and temporary credentials are domain.ErrAccessDenied.
-func (s *service) verify(ctx context.Context, in LoginInput, now time.Time) (domain.Identity, error) {
+func (s *service) verify(ctx context.Context, in LoginInput, now time.Time) (domain.Credentials, domain.Identity, error) {
 	if in.AccessKey == "" || in.SecretKey == "" {
-		return domain.Identity{}, fmt.Errorf("%w: missing credentials", domain.ErrAccessDenied)
+		return domain.Credentials{}, domain.Identity{}, fmt.Errorf("%w: missing credentials", domain.ErrAccessDenied)
 	}
 	creds, identity, err := s.deps.IAM.LookupCredentials(ctx, in.AccessKey)
 	if err != nil {
 		if errors.Is(err, domain.ErrInvalidAccessKey) || errors.Is(err, domain.ErrUserNotFound) {
-			return domain.Identity{}, fmt.Errorf("%w: invalid credentials", domain.ErrAccessDenied)
+			return domain.Credentials{}, domain.Identity{}, fmt.Errorf("%w: invalid credentials", domain.ErrAccessDenied)
 		}
-		return domain.Identity{}, fmt.Errorf("session: lookup credentials: %w", err)
+		return domain.Credentials{}, domain.Identity{}, fmt.Errorf("session: lookup credentials: %w", err)
 	}
 	if subtle.ConstantTimeCompare([]byte(creds.SecretKey), []byte(in.SecretKey)) != 1 {
-		return domain.Identity{}, fmt.Errorf("%w: invalid credentials", domain.ErrAccessDenied)
+		return domain.Credentials{}, domain.Identity{}, fmt.Errorf("%w: invalid credentials", domain.ErrAccessDenied)
 	}
 	if !creds.IsEnabled() {
-		return domain.Identity{}, fmt.Errorf("%w: account disabled", domain.ErrAccessDenied)
+		return domain.Credentials{}, domain.Identity{}, fmt.Errorf("%w: account disabled", domain.ErrAccessDenied)
 	}
 	if creds.IsExpired(now) {
-		return domain.Identity{}, fmt.Errorf("%w: credentials expired", domain.ErrAccessDenied)
+		return domain.Credentials{}, domain.Identity{}, fmt.Errorf("%w: credentials expired", domain.ErrAccessDenied)
 	}
 	if creds.SessionToken != "" {
 		// STS credentials are only valid with their session token, which
 		// the console login does not carry.
-		return domain.Identity{}, fmt.Errorf("%w: temporary credentials cannot open a console session", domain.ErrAccessDenied)
+		return domain.Credentials{}, domain.Identity{}, fmt.Errorf("%w: temporary credentials cannot open a console session", domain.ErrAccessDenied)
 	}
-	return identity, nil
+	return creds, identity, nil
 }
 
 // Validate implements Service. The token only proves who logged in: the
@@ -272,7 +274,7 @@ func (s *service) Validate(ctx context.Context, token string) (*Session, error) 
 	if creds.IsExpired(s.deps.Clock.Now()) {
 		return nil, fmt.Errorf("%w: credentials expired", domain.ErrAccessDenied)
 	}
-	if subtle.ConstantTimeCompare([]byte(cl.Cred), []byte(s.credentialTag(cl.Subject, creds.SecretKey))) != 1 {
+	if subtle.ConstantTimeCompare([]byte(cl.Cred), []byte(s.credentialTag(cl.Subject, creds))) != 1 {
 		return nil, fmt.Errorf("%w: the credentials changed since the login", domain.ErrAccessDenied)
 	}
 	identity.AccessKey = cl.Subject
@@ -356,12 +358,18 @@ func (s *service) purgeStored(ctx context.Context, now time.Time) {
 	}
 }
 
-// credentialTag binds a session to the secret key of its credentials: an
-// HMAC with the signing key, so that the token (readable by its holder)
-// discloses nothing about the secret.
-func (s *service) credentialTag(accessKey, secretKey string) string {
+// credentialTag binds a session to the secret key and the revocation epoch
+// of its credentials: an HMAC with the signing key, so that the token
+// (readable by its holder) discloses nothing about the secret. Rotating the
+// secret or disabling the credentials (or their parent user) changes the
+// tag and ends the session for good, on every node, since both live in
+// IAM. Epoch 0 keeps the tag of the sessions issued before epochs existed.
+func (s *service) credentialTag(accessKey string, creds domain.Credentials) string {
 	mac := hmac.New(sha256.New, s.key)
-	mac.Write([]byte("nexo-console-credential\x00" + accessKey + "\x00" + secretKey))
+	mac.Write([]byte("nexo-console-credential\x00" + accessKey + "\x00" + creds.SecretKey))
+	if creds.RevocationEpoch != 0 {
+		mac.Write([]byte("\x00" + strconv.FormatUint(creds.RevocationEpoch, 10)))
+	}
 	return hex.EncodeToString(mac.Sum(nil)[:16])
 }
 

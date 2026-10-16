@@ -75,8 +75,8 @@ func knownSubsystems() []SubsystemSchema {
 		}},
 		{Name: "api", Description: "S3 API behavior", Keys: []KeySchema{
 			{Name: "cors_allow_origin", Type: KeyList, Default: "*", Description: "Origins allowed by CORS, comma separated"},
-			{Name: "requests_max", Type: KeyInt, Default: "0", Description: "Maximum concurrent requests (0: automatic)"},
-			{Name: "requests_deadline", Type: KeyDuration, Default: "10s", Description: "How long a request waits for a slot"},
+			{Name: "requests_max", Type: KeyInt, Default: "0", Description: "Maximum S3 requests served at once by each node (0: no limit); beyond it a request waits for a slot, then gets 503 SlowDown"},
+			{Name: "requests_deadline", Type: KeyDuration, Default: "10s", Description: "How long a request beyond requests_max waits for a slot"},
 			{Name: "root_access", Type: KeyBool, Default: "on", Description: "Allow the root credentials on the S3 API (off: denied there; the console and the credentials derived from root keep working)"},
 		}},
 		{Name: "browser", Description: "Web console", Keys: []KeySchema{
@@ -154,6 +154,13 @@ func knownSubsystems() []SubsystemSchema {
 			KeySchema{Name: "table", Type: KeyString, Description: "Table of the events (created when missing)"},
 			KeySchema{Name: "format", Type: KeyEnum, Default: "namespace", Values: []string{"namespace", "access"}, Description: "namespace: one row per object; access: every event"},
 		)},
+		{Name: "ratelimit", Description: "Request rate limits of each node, in requests per second (0: no limit; a cluster admits up to the number of nodes times each limit)", Keys: rateKeys(
+			KeySchema{Name: "s3_ip", Description: "S3 requests per second of a client address (behind the trusted proxies)"},
+			KeySchema{Name: "s3_access_key", Description: "S3 requests per second of an access key (authenticated requests)"},
+			KeySchema{Name: "s3_bucket", Description: "S3 requests per second to a bucket"},
+			KeySchema{Name: "admin_ip", Description: "Admin API requests per second of a client address"},
+			KeySchema{Name: "admin_user", Description: "Admin API requests per second of an authenticated user"},
+		)},
 		{Name: "region", Description: "Server location", Keys: []KeySchema{
 			{Name: "name", Type: KeyString, Default: "us-east-1", Description: "Region name reported to clients"},
 			{Name: "comment", Type: KeyString, Description: "Free text"},
@@ -163,6 +170,20 @@ func knownSubsystems() []SubsystemSchema {
 			{Name: "cycle", Type: KeyDuration, Default: "1m", Description: "Pause between two scan cycles"},
 		}},
 	}
+}
+
+// rateKeys returns the keys of the ratelimit subsystem: every rate
+// (an integer, default 0: no limit) followed by its burst.
+func rateKeys(rates ...KeySchema) []KeySchema {
+	keys := make([]KeySchema, 0, 2*len(rates))
+	for _, r := range rates {
+		r.Type, r.Default = KeyInt, "0"
+		keys = append(keys, r, KeySchema{
+			Name: r.Name + "_burst", Type: KeyInt, Default: "0",
+			Description: "Requests admitted at once above " + r.Name + " (0: as many as " + r.Name + ")",
+		})
+	}
+	return keys
 }
 
 // notifyKeys returns the keys of a notification target subsystem: the

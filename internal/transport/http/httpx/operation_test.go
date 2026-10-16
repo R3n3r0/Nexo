@@ -32,6 +32,12 @@ func TestOperationHolder(t *testing.T) {
 	httpx.SetOperationName(ctx, "ListObjectsV2")
 	assert.Equal(t, "ListObjectsV2", holder.Name())
 	assert.Equal(t, "ListObjectsV2", httpx.OperationNameFrom(ctx))
+
+	assert.Empty(t, nilHolder.Throttled())
+	httpx.SetOperationThrottled(context.Background(), "ip")
+	assert.Empty(t, holder.Throttled())
+	httpx.SetOperationThrottled(ctx, "bucket")
+	assert.Equal(t, "bucket", holder.Throttled())
 }
 
 func TestRoutesFunc(t *testing.T) {

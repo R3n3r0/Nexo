@@ -461,6 +461,9 @@ func (s *service) normalize(ctx context.Context, d Distribution) (Distribution, 
 	default:
 		return d, fmt.Errorf("%w: tls.certificate %q must be auto, none or upload:<id>", ErrInvalid, c)
 	}
+	if err := validateTLSChallenge(&d); err != nil {
+		return d, err
+	}
 	switch d.Logging.Format {
 	case "", LogFormatJSON, LogFormatCombined:
 	default:
@@ -646,7 +649,7 @@ func normalizeRestrictions(r *Restrictions) error {
 			return fmt.Errorf("%w: restrictions.rateLimit must not be negative", ErrInvalid)
 		}
 		switch rl.Per {
-		case "", "ip", "distribution":
+		case "", RateLimitPerIP, RateLimitPerDistribution:
 		default:
 			return fmt.Errorf("%w: restrictions.rateLimit.per %q must be ip or distribution", ErrInvalid, rl.Per)
 		}
@@ -769,4 +772,39 @@ func cloneMap(m map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// validateTLSChallenge checks the ACME challenge of the certificate
+// "auto": a known challenge, a DNS provider with dns-01 only, and dns-01
+// for the wildcard aliases (the only challenge proving the control of a
+// whole domain).
+func validateTLSChallenge(d *Distribution) error {
+	d.TLS.Challenge = strings.ToLower(strings.TrimSpace(d.TLS.Challenge))
+	d.TLS.DNSProvider = strings.TrimSpace(d.TLS.DNSProvider)
+	if d.TLS.Certificate != CertificateAuto {
+		if d.TLS.Challenge != "" || d.TLS.DNSProvider != "" {
+			return fmt.Errorf("%w: tls.challenge and tls.dnsProvider apply to the certificate auto only", ErrInvalid)
+		}
+		return nil
+	}
+	switch d.TLS.Challenge {
+	case "", ChallengeHTTP01, ChallengeTLSALPN01:
+		if d.TLS.DNSProvider != "" {
+			return fmt.Errorf("%w: tls.dnsProvider needs tls.challenge %s", ErrInvalid, ChallengeDNS01)
+		}
+	case ChallengeDNS01:
+		if !validID(d.TLS.DNSProvider) {
+			return fmt.Errorf("%w: tls.challenge %s needs tls.dnsProvider, the name of a DNS provider", ErrInvalid, ChallengeDNS01)
+		}
+	default:
+		return fmt.Errorf("%w: tls.challenge %q must be %s, %s or %s", ErrInvalid, d.TLS.Challenge, ChallengeHTTP01, ChallengeTLSALPN01, ChallengeDNS01)
+	}
+	if d.TLS.Challenge != ChallengeDNS01 {
+		for _, a := range d.Aliases {
+			if strings.HasPrefix(a, "*.") {
+				return fmt.Errorf("%w: the wildcard alias %s needs tls.challenge %s with a tls.dnsProvider for its automatic certificate", ErrInvalid, a, ChallengeDNS01)
+			}
+		}
+	}
+	return nil
 }

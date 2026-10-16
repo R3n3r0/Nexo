@@ -21,6 +21,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/certs/dns01"
 	"github.com/r3n3r0/nexo/internal/service/cluster"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
 	"github.com/r3n3r0/nexo/internal/service/sysstore"
@@ -100,6 +101,9 @@ type service struct {
 	failures    map[string]time.Time
 	warned      map[string]time.Time
 
+	// propagation waits for the DNS-01 records (Deps.Propagation).
+	propagation dns01.Checker
+
 	acctMu     sync.Mutex
 	client     *acme.Client
 	finalizers *finalizeLocations
@@ -132,6 +136,10 @@ func New(deps Deps, opts ...Option) (Service, error) {
 		opt(&o)
 	}
 	s := &service{deps: deps, opts: o, failures: map[string]time.Time{}, warned: map[string]time.Time{}, trigger: make(chan struct{}, 1)}
+	s.propagation = deps.Propagation
+	if s.propagation == nil {
+		s.propagation = dns01.NewChecker()
+	}
 	s.certs.Store(newIndex(nil))
 	if deps.Metrics != nil {
 		g, err := deps.Metrics.Gauge(context.Background(), metrics.Definition{

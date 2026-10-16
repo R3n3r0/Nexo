@@ -96,6 +96,8 @@ func TestAccessImportRejectsBadDocuments(t *testing.T) {
 }
 
 // covers: TCL-D-01..04 (unit side; the e2e side is test/cli/testdata/dist.txtar)
+// covers: S-DST-08 (nexoctl dist restrict --rate-limit, --burst,
+// --rate-limit-per, --no-rate-limit)
 func TestScenarioDistributions(t *testing.T) {
 	h := newHarness(t)
 	certPEM, keyPEM := testCertificate(t, "www.example.com", "example.com")
@@ -126,6 +128,11 @@ func TestScenarioDistributions(t *testing.T) {
 	s.run("dist", "redirect", "add", "mem", "site", "--from", "^/old/(.*)$", "--to", "/new/$1", "--status", "308")
 	s.run("dist", "headers", "mem", "site", "--security", "--set", "X-Site: prod", "--cors-origin", "https://app.example.com")
 	s.run("dist", "restrict", "mem", "site", "--deny-ip", "203.0.113.0/24")
+	// S-DST-08: the rate limit of the distribution.
+	s.run("dist", "restrict", "mem", "api", "--rate-limit", "50", "--rate-limit-per", "distribution")
+	s.run("dist", "info", "mem", "api")
+	s.run("dist", "restrict", "mem", "api", "--no-rate-limit")
+	s.run("dist", "restrict", "mem", "site", "--rate-limit", "20", "--burst", "40")
 	s.run("dist", "test", "mem", "site", "/downloads/v1.zip")
 	s.run("dist", "test", "mem", "site", "https://example.com/assets/app.js")
 	s.run("dist", "test", "mem", "site", "/old/page.html")

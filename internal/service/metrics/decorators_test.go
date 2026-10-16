@@ -20,6 +20,8 @@ import (
 	kmsmock "github.com/r3n3r0/nexo/internal/service/kms/mock"
 	lockmock "github.com/r3n3r0/nexo/internal/service/lock/mock"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
+	"github.com/r3n3r0/nexo/internal/service/ratelimit"
+	ratelimitmock "github.com/r3n3r0/nexo/internal/service/ratelimit/mock"
 	"github.com/r3n3r0/nexo/internal/service/scanner"
 	scannermock "github.com/r3n3r0/nexo/internal/service/scanner/mock"
 	"github.com/r3n3r0/nexo/internal/service/storage"
@@ -262,4 +264,35 @@ func TestRoundTripper(t *testing.T) {
 	assert.InDelta(t, 1, valueOf(t, fams, "nexo_rpc_errors_total", peer("/storage/fail")), 0, "a 5xx is an error")
 	assert.InDelta(t, 1, valueOf(t, fams, "nexo_rpc_errors_total", peer("/lock/lock")), 0, "a transport error is an error")
 	assert.Equal(t, uint64(2), histogramCount(t, fams, "nexo_rpc_request_duration_seconds", peer("/storage/read-all")))
+}
+
+// covers: S-OPS-10 (the throttled requests are counted by API and kind)
+func TestWrapRateLimit(t *testing.T) {
+	ctx := context.Background()
+	reg := newTestRegistry()
+	l := ratelimitmock.NewService(t)
+	refused := ratelimit.Decision{Kind: ratelimit.KindIP, RetryAfter: time.Second}
+	l.EXPECT().Admit(mock.Anything, ratelimit.Request{API: ratelimit.APIAdmin}).Return(refused, nil).Twice()
+	l.EXPECT().Admit(mock.Anything, ratelimit.Request{API: ratelimit.APIS3}).Return(ratelimit.Decision{Allowed: true}, nil).Once()
+	l.EXPECT().AdmitDistribution(mock.Anything, mock.Anything).Return(ratelimit.Decision{Kind: ratelimit.KindDistribution}, nil).Once()
+	l.EXPECT().Acquire(mock.Anything).Return(func() {}, ratelimit.Decision{Kind: ratelimit.KindConcurrency}, nil).Once()
+
+	_, err := metrics.WrapRateLimit(ctx, nil, reg)
+	require.ErrorIs(t, err, domain.ErrInvalidArgument)
+	w, err := metrics.WrapRateLimit(ctx, l, reg)
+	require.NoError(t, err)
+	for range 2 {
+		d, err := w.Admit(ctx, ratelimit.Request{API: ratelimit.APIAdmin})
+		require.NoError(t, err)
+		assert.Equal(t, refused, d)
+	}
+	_, _ = w.Admit(ctx, ratelimit.Request{API: ratelimit.APIS3})
+	_, _ = w.AdmitDistribution(ctx, ratelimit.DistributionRequest{API: ratelimit.APIWeb, Distribution: "site"})
+	release, _, _ := w.Acquire(ctx)
+	release()
+
+	fams := snapshot(t, reg)
+	assert.InDelta(t, 2, valueOf(t, fams, "nexo_ratelimit_throttled_total", map[string]string{"api": "admin", "kind": "ip"}), 0)
+	assert.InDelta(t, 1, valueOf(t, fams, "nexo_ratelimit_throttled_total", map[string]string{"api": "web", "kind": "distribution"}), 0)
+	assert.InDelta(t, 1, valueOf(t, fams, "nexo_ratelimit_throttled_total", map[string]string{"api": "s3", "kind": "concurrency"}), 0)
 }

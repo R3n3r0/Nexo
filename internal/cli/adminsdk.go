@@ -959,6 +959,41 @@ func (c *adminClient) DeleteCertificate(ctx context.Context, id string) error {
 	return MapAdminError(c.api.DeleteCertificate(ctx, id), c.endpoint)
 }
 
+// ListDNSProviders implements AdminClient.
+func (c *adminClient) ListDNSProviders(ctx context.Context) ([]nexoadmin.DNSProvider, error) {
+	out, err := c.api.ListDNSProviders(ctx)
+	return mapped(c, out, err)
+}
+
+// GetDNSProvider implements AdminClient.
+func (c *adminClient) GetDNSProvider(ctx context.Context, name string) (*nexoadmin.DNSProvider, error) {
+	out, err := c.api.GetDNSProvider(ctx, name)
+	return mapped(c, out, err)
+}
+
+// CreateDNSProvider implements AdminClient.
+func (c *adminClient) CreateDNSProvider(ctx context.Context, in nexoadmin.DNSProviderRequest) (*nexoadmin.DNSProvider, error) {
+	out, err := c.api.CreateDNSProvider(ctx, in)
+	return mapped(c, out, err)
+}
+
+// UpdateDNSProvider implements AdminClient.
+func (c *adminClient) UpdateDNSProvider(ctx context.Context, name string, in nexoadmin.DNSProviderRequest) (*nexoadmin.DNSProvider, error) {
+	out, err := c.api.UpdateDNSProvider(ctx, name, in)
+	return mapped(c, out, err)
+}
+
+// DeleteDNSProvider implements AdminClient.
+func (c *adminClient) DeleteDNSProvider(ctx context.Context, name string) error {
+	return MapAdminError(c.api.DeleteDNSProvider(ctx, name), c.endpoint)
+}
+
+// TestDNSProvider implements AdminClient.
+func (c *adminClient) TestDNSProvider(ctx context.Context, name, domain string) (*nexoadmin.DNSProviderTestResult, error) {
+	out, err := c.api.TestDNSProvider(ctx, name, domain)
+	return mapped(c, out, err)
+}
+
 // --- cache of the distributions ----------------------------------------------
 
 // ListCachePolicies implements AdminClient.

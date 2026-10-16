@@ -504,6 +504,8 @@ func TestMisconfiguration(t *testing.T) {
 	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
 	_, err = svc.PurgeExpired(ctx)
 	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
+	_, err = svc.RevokeIssuedBy(ctx, "AK")
+	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
 
 	for _, raw := range []string{"ftp://host", "localhost:9000", "http://", "http://h/?q=1", "http://u:p@h", "http://h/#f", "http://[::1"} {
 		f := newFixture(t, fixtureOption{opts: []share.Option{share.WithServerURL(raw)}})
@@ -686,6 +688,48 @@ func TestRevokeAllAndPurge(t *testing.T) {
 	require.Len(t, list, 1)
 	assert.Equal(t, "d.jpg", list[0].Key)
 	assert.Len(t, f.deleted, 6)
+}
+
+// covers: pentest PT-05 (disabling an access key revokes the links created
+// with it, and the link whose own service account it is; the links of the
+// owner created otherwise stay)
+func TestRevokeIssuedBy(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t, fixtureOption{})
+	f.expectIAM()
+	f.expectSigner()
+	f.allow()
+	create := func(owner domain.Identity, key string) *share.Share {
+		t.Helper()
+		sh, err := f.svc.Create(ctx, share.CreateInput{Owner: owner, Bucket: "photos", Key: key, Permission: share.PermissionDownload})
+		require.NoError(t, err)
+		return sh
+	}
+	ci := domain.Identity{AccessKey: "CIKEY", Parent: "alice"}
+	create(ci, "a.jpg")
+	create(ci, "b.jpg")
+	own := create(alice(), "c.jpg")
+	other := create(domain.Identity{AccessKey: "OTHERKEY", Parent: "alice"}, "d.jpg")
+	assert.Equal(t, "alice", other.Owner, "a key shares on behalf of its parent user")
+
+	_, err := f.svc.RevokeIssuedBy(ctx, "")
+	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
+	n, err := f.svc.RevokeIssuedBy(ctx, "CIKEY")
+	require.NoError(t, err)
+	assert.Equal(t, 2, n)
+	n, err = f.svc.RevokeIssuedBy(ctx, "alice")
+	require.NoError(t, err)
+	assert.Zero(t, n, "the links the user created itself are revoked with the user (RevokeAll)")
+
+	// The service account of a link is a key too: disabling it revokes the link.
+	n, err = f.svc.RevokeIssuedBy(ctx, other.AccessKey)
+	require.NoError(t, err)
+	assert.Equal(t, 1, n)
+
+	list, err := f.svc.List(ctx, root(), share.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, own.ID, list[0].ID)
 }
 
 func TestRemoveWhereReportsErrors(t *testing.T) {

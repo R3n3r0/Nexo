@@ -188,6 +188,10 @@ type Static struct {
 	ACMEEmail     string `json:"acmeEmail,omitempty"`
 	ACMEChallenge string `json:"acmeChallenge,omitempty"`
 	ACMECACert    string `json:"acmeCACert,omitempty"`
+	// ACMEDNSNameservers are the nameservers (comma-separated host[:port])
+	// the propagation check of the DNS-01 challenge queries instead of the
+	// authoritative nameservers of the zone (split-horizon DNS).
+	ACMEDNSNameservers string `json:"acmeDnsNameservers,omitempty"`
 	// Cache of the distributions (docs/11; cache.go).
 	//
 	// CacheDir is the directory of the disk tier (empty: memory only),

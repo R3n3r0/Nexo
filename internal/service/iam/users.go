@@ -184,7 +184,14 @@ func (s *service) SetUserStatus(ctx context.Context, accessKey string, status do
 	if err != nil {
 		return err
 	}
-	return s.updateUser(ctx, accessKey, func(u *userRecord) { u.Status = st })
+	return s.updateUser(ctx, accessKey, func(u *userRecord) {
+		if st == domain.StatusDisabled && u.Status != domain.StatusDisabled {
+			// A new epoch ends the console sessions for good: enabling
+			// the user again does not bring them back.
+			u.RevocationEpoch++
+		}
+		u.Status = st
+	})
 }
 
 // SetUserPolicy implements Service.

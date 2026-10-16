@@ -206,6 +206,16 @@ export function tlsMode(d: Distribution): { mode: 'none' | 'auto' | 'upload'; id
   return { mode: 'none' };
 }
 
+/**
+ * The wildcard alias of a distribution whose automatic certificate needs
+ * the DNS-01 challenge it does not have (the server refuses it):
+ * undefined when none.
+ */
+export function wildcardNeedingDns(d: Distribution): string | undefined {
+  if (d.tls?.certificate !== 'auto' || d.tls.challenge === 'dns-01') return undefined;
+  return d.aliases.find((a) => a.startsWith('*.'));
+}
+
 /** The key groups the signed behaviors of a distribution use. */
 export function signingKeyGroups(d: Distribution): string[] {
   const groups = new Set<string>();

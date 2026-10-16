@@ -15,7 +15,7 @@ Questa pagina riassume ciò che conta per chi gestisce un deployment.
 | Manomissione | dati su disco, traffico | checksum per blocco (bitrot), TLS 1.2+, cifratura SSE |
 | Ripudio | operazioni amministrative e sui dati | audit log per ogni richiesta, consegnabile a un target esterno |
 | Divulgazione | console, errori, log | nessun segreto nei log (credenziali, firme, token, chiavi redatti), errori generici verso gli anonimi, segreti IAM cifrati a riposo |
-| Negazione del servizio | upload, listing, login, stream live | limiti di dimensione e timeout, limite ai tentativi di login, al massimo 256 stream live di trace e di log per nodo, risposte peer limitate, regex RE2 a tempo lineare |
+| Negazione del servizio | upload, listing, login, stream live | limiti di dimensione e timeout, limite ai tentativi di login, limiti di richieste per indirizzo client, access key, utente, bucket e distribuzione e limite di concorrenza dell'API S3 (spenti per default, per nodo: [Limiti di richieste](../configuration.md#limiti-di-richieste)), al massimo 256 stream live di trace e di log per nodo, risposte peer limitate, regex RE2 a tempo lineare |
 | Elevazione di privilegi | motore di policy, console | deny di default, autorizzazione sempre lato server, la console mostra solo ciò che l'utente può fare ma il server ricontrolla ogni richiesta |
 
 ## Raccomandazioni per la produzione

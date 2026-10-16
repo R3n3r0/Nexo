@@ -1,0 +1,37 @@
+name: DCO
+
+# Contributor agreement (CONTRIBUTING.md, "Licensing of contributions"):
+# every commit of a pull request but the merges must carry a
+# "Signed-off-by:" trailer naming its author, which certifies the Developer
+# Certificate of Origin 1.1 and grants the relicensing rights the dual
+# licensing needs. No third-party app: the check is
+# .github/scripts/check-dco.sh (also "make dco" locally). Make the job
+# "Sign-off (DCO)" a required status check of the main branch.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dco-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dco:
+    name: Sign-off (DCO)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The commits of the pull request, not the merge GitHub prepares.
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Every commit is signed off by its author
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: .github/scripts/check-dco.sh "$BASE_SHA" "$HEAD_SHA"

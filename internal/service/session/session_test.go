@@ -410,3 +410,93 @@ func TestRevocationStoreFailureFailsClosed(t *testing.T) {
 	store.EXPECT().Put(mock.Anything, iam.NamespaceSessions, sess.ID, mock.Anything).Return(errors.New("disk full"))
 	assert.Error(t, svc.Logout(ctx, sess.Token), "a revocation that cannot be stored is reported")
 }
+
+// covers: pentest PT-05 (a session suspended by disabling its credentials
+// stays closed when they are enabled again with the same secret; the
+// sessions opened before revocation epochs existed keep working)
+func TestDisableClosesSessionsForGood(t *testing.T) {
+	ctx := context.Background()
+	clk := clock.NewFake(time.Date(2026, 10, 16, 10, 0, 0, 0, time.UTC))
+	svc, dir := newTestService(t, clk)
+	dir.users["erin"] = domain.Credentials{AccessKey: "erin", SecretKey: "erin-secret", Status: domain.StatusEnabled}
+	sess, err := svc.Login(ctx, login("erin", "erin-secret"))
+	require.NoError(t, err)
+
+	dir.users["erin"] = domain.Credentials{AccessKey: "erin", SecretKey: "erin-secret", Status: domain.StatusDisabled, RevocationEpoch: 1}
+	_, err = svc.Validate(ctx, sess.Token)
+	require.ErrorIs(t, err, domain.ErrAccessDenied)
+
+	dir.users["erin"] = domain.Credentials{AccessKey: "erin", SecretKey: "erin-secret", Status: domain.StatusEnabled, RevocationEpoch: 1}
+	_, err = svc.Validate(ctx, sess.Token)
+	require.ErrorIs(t, err, domain.ErrAccessDenied, "enabling again does not bring the session back")
+	assert.Contains(t, err.Error(), "credentials changed")
+
+	// A new login is bound to the new epoch and lasts until the next one.
+	sess2, err := svc.Login(ctx, login("erin", "erin-secret"))
+	require.NoError(t, err)
+	_, err = svc.Validate(ctx, sess2.Token)
+	require.NoError(t, err)
+	dir.users["erin"] = domain.Credentials{AccessKey: "erin", SecretKey: "erin-secret", Status: domain.StatusEnabled, RevocationEpoch: 2}
+	_, err = svc.Validate(ctx, sess2.Token)
+	require.ErrorIs(t, err, domain.ErrAccessDenied)
+}
+
+// covers: pentest PT-05 with the IAM service: disabling a user ends its
+// console sessions and those of its access keys, disabling a key ends its
+// own, for good and on every instance sharing the IAM store.
+func TestDisableClosesSessionsWithIAM(t *testing.T) {
+	ctx := context.Background()
+	clk := clock.NewFake(time.Date(2026, 10, 16, 10, 0, 0, 0, time.UTC))
+	store := iam.NewMemoryStore()
+	newNode := func() (iam.Service, session.Service) {
+		users := iam.New(iam.Deps{Store: store, Clock: clk}, iam.WithExportKDFParams(iam.KDFParams{Time: 1, MemoryKiB: 64, Threads: 1}))
+		require.NoError(t, users.Bootstrap(ctx, domain.Credentials{AccessKey: "rootadmin", SecretKey: "rootsecret123"}))
+		svc, err := session.New(session.Deps{IAM: users, Store: store, Clock: clk}, session.WithSigningKey([]byte("0123456789abcdef0123456789abcdef")))
+		require.NoError(t, err)
+		return users, svc
+	}
+	users, svc := newNode()
+	root := domain.Identity{AccessKey: "rootadmin", IsRoot: true}
+	_, err := users.CreateUser(ctx, iam.CreateUserInput{AccessKey: "alice", SecretKey: "alice-secret"})
+	require.NoError(t, err)
+	key, err := users.CreateAccessKey(ctx, iam.CreateAccessKeyInput{Caller: domain.Identity{AccessKey: "alice"}, Name: "ci"})
+	require.NoError(t, err)
+
+	open := func(svc session.Service, ak, sk string) string {
+		t.Helper()
+		s, err := svc.Login(ctx, login(ak, sk))
+		require.NoError(t, err)
+		return s.Token
+	}
+	valid := func(svc session.Service, token string) bool {
+		t.Helper()
+		_, err := svc.Validate(ctx, token)
+		if err != nil {
+			require.ErrorIs(t, err, domain.ErrAccessDenied)
+		}
+		return err == nil
+	}
+	userSess, keySess := open(svc, "alice", "alice-secret"), open(svc, key.AccessKey, key.SecretKey)
+
+	require.NoError(t, users.SetUserStatus(ctx, "alice", domain.StatusDisabled))
+	assert.False(t, valid(svc, userSess))
+	assert.False(t, valid(svc, keySess), "the sessions of the keys of the user end too")
+	require.NoError(t, users.SetUserStatus(ctx, "alice", domain.StatusEnabled))
+	assert.False(t, valid(svc, userSess), "enabling the user does not bring its session back")
+	assert.False(t, valid(svc, keySess))
+
+	// Another node (or the server after a restart) agrees.
+	_, other := newNode()
+	assert.False(t, valid(other, userSess))
+	assert.False(t, valid(other, keySess))
+
+	userSess, keySess = open(svc, "alice", "alice-secret"), open(svc, key.AccessKey, key.SecretKey)
+	disabled, enabled := domain.StatusDisabled, domain.StatusEnabled
+	_, err = users.UpdateAccessKey(ctx, root, key.AccessKey, iam.UpdateAccessKeyInput{Status: &disabled})
+	require.NoError(t, err)
+	_, err = users.UpdateAccessKey(ctx, root, key.AccessKey, iam.UpdateAccessKeyInput{Status: &enabled})
+	require.NoError(t, err)
+	assert.False(t, valid(svc, keySess), "enabling the key does not bring its session back")
+	assert.True(t, valid(svc, userSess), "the session of the parent user is not affected")
+	assert.True(t, valid(svc, open(svc, key.AccessKey, key.SecretKey)), "a new login works")
+}

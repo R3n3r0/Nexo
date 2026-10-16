@@ -20,6 +20,7 @@ import (
 
 	"golang.org/x/crypto/acme"
 
+	"github.com/r3n3r0/nexo/internal/service/certs/dns01"
 	"github.com/r3n3r0/nexo/internal/service/sysstore"
 )
 
@@ -61,10 +62,14 @@ func (s *service) reconcile(ctx context.Context) error {
 	keep := map[string]bool{}
 	var errs []error
 	for _, m := range wanted {
-		domains := acmeDomains(m.Domains)
+		challenge := m.Challenge
+		if challenge == "" {
+			challenge = s.opts.challenge
+		}
+		domains := acmeDomains(m.Domains, challenge == ChallengeDNS01)
 		if len(domains) < len(m.Domains) {
-			s.deps.Logger.WarnContext(ctx, "certs: wildcard and IP names need DNS-01, not supported: left out of the ACME certificate",
-				"id", m.ID, "domains", m.Domains)
+			s.deps.Logger.WarnContext(ctx, "certs: names left out of the ACME certificate: IP addresses, and wildcards without the dns-01 challenge",
+				"id", m.ID, "domains", m.Domains, "challenge", challenge)
 		}
 		if len(domains) == 0 || !validID(m.ID) {
 			continue
@@ -82,7 +87,7 @@ func (s *service) reconcile(ctx context.Context) error {
 			reason = "renewal"
 		}
 		s.deps.Logger.InfoContext(ctx, "certs: ordering an ACME certificate", "id", m.ID, "domains", domains, "reason", reason)
-		if err := s.obtain(ctx, m.ID, domains); err != nil {
+		if err := s.obtain(ctx, m.ID, domains, orderChallenge{kind: challenge, dnsProvider: m.DNSProvider}); err != nil {
 			s.failures[m.ID] = now
 			s.recordFailure(ctx, cur, err)
 			errs = append(errs, fmt.Errorf("certificate %s: %w", m.ID, err))
@@ -138,13 +143,17 @@ func (s *service) recordFailure(ctx context.Context, cur *loaded, err error) {
 	}
 }
 
-// acmeDomains returns the names an ACME order can validate with HTTP-01
-// or TLS-ALPN-01, sorted: no wildcard, no IP.
-func acmeDomains(in []string) []string {
+// acmeDomains returns the names an ACME order can validate, sorted: never
+// an IP, a wildcard ("*.<domain>", nothing else) with DNS-01 only.
+func acmeDomains(in []string, wildcards bool) []string {
 	var out []string
 	for _, d := range in {
 		d = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(d)), ".")
-		if d == "" || strings.Contains(d, "*") || net.ParseIP(d) != nil || slices.Contains(out, d) {
+		wild := strings.Contains(d, "*")
+		if wild && (!wildcards || !strings.HasPrefix(d, "*.") || strings.Contains(d[2:], "*")) {
+			continue
+		}
+		if d == "" || net.ParseIP(d) != nil || slices.Contains(out, d) {
 			continue
 		}
 		out = append(out, d)
@@ -251,9 +260,37 @@ func (s *service) saveAccount(ctx context.Context, a *account) error {
 	return s.deps.Store.Put(ctx, acmeAccount, sealed)
 }
 
+// orderChallenge is the challenge of an order.
+type orderChallenge struct {
+	// kind is ChallengeHTTP01, ChallengeTLSALPN01 or ChallengeDNS01.
+	kind string
+	// dnsProvider names the provider of ChallengeDNS01; provider is the
+	// one built for the order.
+	dnsProvider string
+	provider    dns01.Provider
+}
+
 // obtain orders a certificate for domains and stores it as id.
-func (s *service) obtain(ctx context.Context, id string, domains []string) error {
-	ctx, cancel := context.WithTimeout(ctx, orderTimeout)
+func (s *service) obtain(ctx context.Context, id string, domains []string, ch orderChallenge) error {
+	timeout := orderTimeout
+	if ch.kind == ChallengeDNS01 {
+		if s.deps.DNSProviders == nil {
+			return fmt.Errorf("dns-01: no DNS provider is configured on this deployment")
+		}
+		if ch.dnsProvider == "" {
+			return fmt.Errorf("dns-01: the distribution names no DNS provider")
+		}
+		p, err := s.deps.DNSProviders.Provider(ctx, ch.dnsProvider)
+		if err != nil {
+			return fmt.Errorf("dns-01: DNS provider %s: %w", ch.dnsProvider, err)
+		}
+		ch.provider = p
+		// The authorizations are validated one after the other, each
+		// waiting for the propagation of its record.
+		propagation, _ := p.Propagation()
+		timeout += time.Duration(len(domains)) * propagation
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	client, err := s.acmeClient(ctx)
 	if err != nil {
@@ -264,7 +301,7 @@ func (s *service) obtain(ctx context.Context, id string, domains []string) error
 		return fmt.Errorf("new order: %w", err)
 	}
 	for _, zurl := range order.AuthzURLs {
-		if err := s.authorize(ctx, client, zurl); err != nil {
+		if err := s.authorize(ctx, client, zurl, ch); err != nil {
 			return err
 		}
 	}
@@ -318,7 +355,7 @@ func (s *service) obtain(ctx context.Context, id string, domains []string) error
 }
 
 // authorize answers the challenge of an authorization and waits for it.
-func (s *service) authorize(ctx context.Context, client *acme.Client, zurl string) error {
+func (s *service) authorize(ctx context.Context, client *acme.Client, zurl string, ch orderChallenge) error {
 	z, err := client.GetAuthorization(ctx, zurl)
 	if err != nil {
 		return fmt.Errorf("authorization: %w", err)
@@ -328,14 +365,14 @@ func (s *service) authorize(ctx context.Context, client *acme.Client, zurl strin
 	}
 	var chal *acme.Challenge
 	for _, c := range z.Challenges {
-		if c.Type == s.opts.challenge {
+		if c.Type == ch.kind {
 			chal = c
 		}
 	}
 	if chal == nil {
-		return fmt.Errorf("the CA offers no %s challenge for %s", s.opts.challenge, z.Identifier.Value)
+		return fmt.Errorf("the CA offers no %s challenge for %s", ch.kind, z.Identifier.Value)
 	}
-	cleanup, err := s.prepare(ctx, client, z.Identifier.Value, chal)
+	cleanup, err := s.prepare(ctx, client, z.Identifier.Value, chal, ch)
 	if err != nil {
 		return err
 	}
@@ -349,10 +386,13 @@ func (s *service) authorize(ctx context.Context, client *acme.Client, zurl strin
 	return nil
 }
 
-// prepare publishes the answer of a challenge to every node (system
-// store) and returns the function that removes it.
-func (s *service) prepare(ctx context.Context, client *acme.Client, domainName string, chal *acme.Challenge) (func(), error) {
+// prepare publishes the answer of a challenge, to every node (system
+// store) or in the DNS (dns-01), and returns the function that removes
+// it.
+func (s *service) prepare(ctx context.Context, client *acme.Client, domainName string, chal *acme.Challenge, ch orderChallenge) (func(), error) {
 	switch chal.Type {
+	case ChallengeDNS01:
+		return s.prepareDNS01(ctx, client, domainName, chal, ch.provider)
 	case ChallengeHTTP01:
 		keyAuth, err := client.HTTP01ChallengeResponse(chal.Token)
 		if err != nil {
@@ -438,4 +478,35 @@ func (f *finalizeLocations) RoundTrip(r *http.Request) (*http.Response, error) {
 		res.Header.Set("Location", orderURL.(string))
 	}
 	return res, nil
+}
+
+// prepareDNS01 publishes the TXT record of a DNS-01 challenge through the
+// DNS provider of the order and waits for it on the nameservers of its
+// zone. The identifier of the authorization of "*.example.com" is
+// "example.com": both names validate "_acme-challenge.example.com", one
+// authorization after the other.
+func (s *service) prepareDNS01(ctx context.Context, client *acme.Client, domainName string, chal *acme.Challenge, p dns01.Provider) (func(), error) {
+	if p == nil {
+		return nil, fmt.Errorf("dns-01: no DNS provider for %s", domainName)
+	}
+	value, err := client.DNS01ChallengeRecord(chal.Token)
+	if err != nil {
+		return nil, err
+	}
+	fqdn := acmeChallengeLabel + strings.TrimPrefix(domainName, "*.") + "."
+	if err := p.Present(ctx, fqdn, value); err != nil {
+		return nil, fmt.Errorf("dns-01: publish %s: %w", strings.TrimSuffix(fqdn, "."), err)
+	}
+	cleanup := func() {
+		if err := p.CleanUp(context.WithoutCancel(ctx), fqdn, value); err != nil {
+			s.deps.Logger.WarnContext(ctx, "certs: dns-01: the challenge record could not be removed", "record", strings.TrimSuffix(fqdn, "."), "err", err)
+		}
+	}
+	timeout, interval := p.Propagation()
+	s.deps.Logger.DebugContext(ctx, "certs: dns-01: waiting for the propagation", "record", strings.TrimSuffix(fqdn, "."), "timeout", timeout)
+	if err := s.propagation.Wait(ctx, fqdn, value, timeout, interval); err != nil {
+		cleanup()
+		return nil, fmt.Errorf("dns-01: %w", err)
+	}
+	return cleanup, nil
 }

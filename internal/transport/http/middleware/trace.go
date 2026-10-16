@@ -108,7 +108,7 @@ func (m *traceMiddleware) Wrap(next http.Handler) http.Handler {
 			OutputBytes: rw.bytes,
 			RequestID:   requestIDOf(ctx, rw),
 			ClientIP:    ClientOf(r).IP,
-			Error:       statusError(rw.Status()),
+			Error:       outcomeError(rw.Status(), holder.Throttled()),
 		}
 		if e.API == "" && m.opts.api != nil {
 			e.API = m.opts.api(r)

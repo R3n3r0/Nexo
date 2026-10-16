@@ -76,7 +76,10 @@ type Service interface {
 	DeleteUser(ctx context.Context, accessKey string) error
 	SetUserSecret(ctx context.Context, accessKey, secretKey string) error
 	// SetUserStatus enables or disables the user. A disabled user, and
-	// every credential derived from it, is rejected immediately.
+	// every credential derived from it, is rejected immediately; disabling
+	// also moves the revocation epoch of the user and of its derived
+	// credentials (domain.Credentials.RevocationEpoch), so that the console
+	// sessions opened before stay closed when the user is enabled again.
 	SetUserStatus(ctx context.Context, accessKey string, status domain.CredentialStatus) error
 	// SetUserPolicy replaces the policies attached directly to the user.
 	SetUserPolicy(ctx context.Context, accessKey string, policyNames []string) error
@@ -107,6 +110,8 @@ type Service interface {
 	// An empty parent means the caller itself, or every user when the
 	// caller is root.
 	ListAccessKeys(ctx context.Context, caller domain.Identity, parent string) ([]AccessKey, error)
+	// UpdateAccessKey changes a key; disabling it moves its revocation
+	// epoch as SetUserStatus does for a user.
 	UpdateAccessKey(ctx context.Context, caller domain.Identity, accessKey string, in UpdateAccessKeyInput) (*AccessKey, error)
 	DeleteAccessKey(ctx context.Context, caller domain.Identity, accessKey string) error
 

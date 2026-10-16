@@ -104,6 +104,8 @@ Servono Go (versione in `go.mod`) e, per la console, Node.js.
 | `make docs` / `make docs-check` | riferimento della CLI in `docs/user/cli` |
 | `make traceability` / `make traceability-check` | matrice funzionalità → test in `test/TRACEABILITY.md` |
 | `make security` | govulncheck, gosec e `npm audit` |
+| `make zap-scan` | scansione attiva autenticata OWASP ZAP dell'Admin API da `api/openapi.yaml` contro `bin/nexo` (richiede Java; [test/security/zap-api-scan.sh](test/security/zap-api-scan.sh)) |
+| `make dco` | il controllo del sign-off delle pull request sui commit del branch ([CONTRIBUTING.md](CONTRIBUTING.md)) |
 | `make help` | tutti i target |
 
 Il codice segue la convenzione di [docs/12](docs/12-service-architecture.md): ogni servizio ha

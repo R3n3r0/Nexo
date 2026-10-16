@@ -234,6 +234,10 @@ func (s *service) UpdateAccessKey(ctx context.Context, caller domain.Identity, a
 			rec.Description = description
 		}
 		if in.Status != nil {
+			if status == domain.StatusDisabled && rec.Status != domain.StatusDisabled {
+				// See SetUserStatus: the sessions of the key end for good.
+				rec.RevocationEpoch++
+			}
 			rec.Status = status
 		}
 		if in.Expiration != nil {

@@ -171,7 +171,7 @@ describe('distributions', () => {
     expect(within(secret).getByText('2 active secrets in X-Origin-Secret')).toBeInTheDocument();
   });
 
-  // covers: D-DST-06
+  // covers: D-DST-06, S-DST-08
   it('D-DST-06 edits the client addresses and the rate limit, refusing an invalid address', async () => {
     const { user, services } = open('/distributions/website/security');
     const ip = await screen.findByRole('region', { name: 'Client addresses' });
@@ -204,11 +204,18 @@ describe('distributions', () => {
     const burst = within(rate).getByRole('textbox', { name: 'Burst' });
     await user.clear(burst);
     await user.type(burst, '80');
+    // S-DST-08: the clients share the bucket of the distribution.
+    await user.click(within(rate).getByRole('textbox', { name: 'Counted' }));
+    await user.click(await screen.findByRole('option', { name: 'For the whole distribution' }));
     await user.click(save);
     await waitFor(async () => {
       const d = await services.distributions.get('website');
       expect(d.restrictions?.sourceIp).toEqual({ allow: ['10.0.0.0/8'], deny: ['203.0.113.0/24'] });
-      expect(d.restrictions?.rateLimit).toMatchObject({ requestsPerSecond: 50, burst: 80 });
+      expect(d.restrictions?.rateLimit).toEqual({
+        requestsPerSecond: 50,
+        burst: 80,
+        per: 'distribution',
+      });
     });
   });
 

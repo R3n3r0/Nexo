@@ -13,6 +13,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/admin"
 	"github.com/r3n3r0/nexo/internal/service/iam"
 	iammock "github.com/r3n3r0/nexo/internal/service/iam/mock"
+	sharemock "github.com/r3n3r0/nexo/internal/service/share/mock"
 )
 
 // rootKey is the access key of root in the access key manager tests.
@@ -50,7 +51,7 @@ func newDelegatedKeyManager(t *testing.T) (admin.AccessKeyManager, *iammock.Serv
 			}
 			return nil, fmt.Errorf("x: %w", domain.ErrAccessKeyNotFound)
 		}).Maybe()
-	m, err := admin.NewAccessKeyManager(admin.AccessKeyManagerDeps{IAM: users, Authz: authz})
+	m, err := admin.NewAccessKeyManager(admin.AccessKeyManagerDeps{IAM: users, Authz: authz, Shares: sharemock.NewService(t)})
 	require.NoError(t, err)
 	return m, users
 }
@@ -182,9 +183,65 @@ func TestAccessKeyManagerSelfService(t *testing.T) {
 		return admin.Decision{Allowed: true, SelfService: true}
 	})
 	users := iammock.NewService(t)
-	m, err := admin.NewAccessKeyManager(admin.AccessKeyManagerDeps{IAM: users, Authz: authz})
+	m, err := admin.NewAccessKeyManager(admin.AccessKeyManagerDeps{IAM: users, Authz: authz, Shares: sharemock.NewService(t)})
 	require.NoError(t, err)
 	bob := domain.Identity{AccessKey: "bob"}
 	users.EXPECT().DeleteAccessKey(mock.Anything, bob, "SAROOT").Return(fmt.Errorf("x: %w", domain.ErrAccessDenied))
 	assert.ErrorIs(t, m.Delete(ctx, req("bob"), "SAROOT"), domain.ErrAccessDenied, "IAM enforces the ownership of a self-service caller")
+}
+
+// TestAccessKeyManagerDisableRevokesShares: disabling a key deletes the
+// share links created with it, after IAM moved the revocation epoch that
+// ends its console sessions; enabling it, or any other change, revokes
+// nothing (pentest PT-05).
+func TestAccessKeyManagerDisableRevokesShares(t *testing.T) {
+	ctx := context.Background()
+	authz := adminAuthorizer(t, func(admin.AuthorizeInput) admin.Decision {
+		return admin.Decision{Allowed: true, SelfService: true}
+	})
+	bob := domain.Identity{AccessKey: "bob"}
+	disabled, enabled := domain.StatusDisabled, domain.StatusEnabled
+	newManager := func(t *testing.T) (admin.AccessKeyManager, *iammock.Service, *sharemock.Service) {
+		users, shares := iammock.NewService(t), sharemock.NewService(t)
+		m, err := admin.NewAccessKeyManager(admin.AccessKeyManagerDeps{IAM: users, Authz: authz, Shares: shares})
+		require.NoError(t, err)
+		return m, users, shares
+	}
+
+	t.Run("disable", func(t *testing.T) {
+		m, users, shares := newManager(t)
+		in := iam.UpdateAccessKeyInput{Status: &disabled}
+		update := users.EXPECT().UpdateAccessKey(mock.Anything, bob, "SABOB", in).
+			Return(&iam.AccessKey{AccessKey: "SABOB", ParentUser: "bob", Status: disabled}, nil).Call
+		shares.EXPECT().RevokeIssuedBy(mock.Anything, "SABOB").Return(2, nil).NotBefore(update)
+		k, err := m.Update(ctx, req("bob"), "SABOB", in)
+		require.NoError(t, err)
+		assert.Equal(t, disabled, k.Status)
+	})
+	t.Run("enable", func(t *testing.T) {
+		m, users, _ := newManager(t)
+		in := iam.UpdateAccessKeyInput{Status: &enabled}
+		users.EXPECT().UpdateAccessKey(mock.Anything, bob, "SABOB", in).Return(&iam.AccessKey{AccessKey: "SABOB"}, nil)
+		_, err := m.Update(ctx, req("bob"), "SABOB", in)
+		require.NoError(t, err)
+	})
+	t.Run("failed update", func(t *testing.T) {
+		m, users, _ := newManager(t)
+		in := iam.UpdateAccessKeyInput{Status: &disabled}
+		users.EXPECT().UpdateAccessKey(mock.Anything, bob, "SABOB", in).Return(nil, fmt.Errorf("x: %w", domain.ErrAccessKeyNotFound))
+		_, err := m.Update(ctx, req("bob"), "SABOB", in)
+		assert.ErrorIs(t, err, domain.ErrAccessKeyNotFound)
+	})
+	t.Run("failed revocation", func(t *testing.T) {
+		m, users, shares := newManager(t)
+		in := iam.UpdateAccessKeyInput{Status: &disabled}
+		users.EXPECT().UpdateAccessKey(mock.Anything, bob, "SABOB", in).Return(&iam.AccessKey{AccessKey: "SABOB"}, nil)
+		shares.EXPECT().RevokeIssuedBy(mock.Anything, "SABOB").Return(0, errDown)
+		_, err := m.Update(ctx, req("bob"), "SABOB", in)
+		assert.ErrorIs(t, err, errDown)
+	})
+	t.Run("missing share service", func(t *testing.T) {
+		_, err := admin.NewAccessKeyManager(admin.AccessKeyManagerDeps{IAM: iammock.NewService(t), Authz: authz})
+		assert.ErrorIs(t, err, domain.ErrInvalidArgument)
+	})
 }

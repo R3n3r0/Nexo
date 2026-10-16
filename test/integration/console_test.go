@@ -534,6 +534,74 @@ func TestConsoleRevocations(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
+// TestConsoleDisableRevokes: disabling a user or an access key closes its
+// console sessions and revokes its managed share links for good: enabling
+// it again with the same secret brings neither back, on this node and after
+// a restart (pentest PT-05; regression: the session suspended by the
+// disable came back with the enable).
+func TestConsoleDisableRevokes(t *testing.T) {
+	e := newEnv(t)
+	e.mkBucket("dis")
+	e.put("dis", "a.txt", []byte("A"))
+	root := e.consoleLogin(e.rootCreds())
+	frankCreds := e.createUser("frank", "frank-secret-1", "readwrite")
+	frank := e.consoleLogin(frankCreds)
+	share := func(c *console) string {
+		t.Helper()
+		resp := c.do(http.MethodPost, "/buckets/dis/objects/share", `{"key":"a.txt","expiresIn":3600}`)
+		require.Equal(t, http.StatusCreated, resp.StatusCode, "%s", resp.Body)
+		var sh struct {
+			URL string `json:"url"`
+		}
+		require.NoError(t, json.Unmarshal(resp.Body, &sh))
+		require.Equal(t, http.StatusOK, do(t, newRequest(t, http.MethodGet, sh.URL, nil)).StatusCode)
+		return sh.URL
+	}
+	setStatus := func(path, status string) {
+		t.Helper()
+		resp := root.do(http.MethodPut, path, `{"status":"`+status+`"}`)
+		require.Equal(t, http.StatusOK, resp.StatusCode, "%s", resp.Body)
+	}
+
+	// The user: its session, the session of its key and their links.
+	resp := frank.do(http.MethodPost, "/access-keys", `{"accessKey":"frankci","secretKey":"frankci-secret-1"}`)
+	require.Equal(t, http.StatusCreated, resp.StatusCode, "%s", resp.Body)
+	ci := e.consoleLogin(creds{AccessKey: "frankci", SecretKey: "frankci-secret-1"})
+	userLink, keyLink := share(frank), share(ci)
+	setStatus("/users/frank", "disabled")
+	setStatus("/users/frank", "enabled")
+	assert.Equal(t, http.StatusUnauthorized, frank.do(http.MethodGet, "/buckets", "").StatusCode, "the session of the user stays closed")
+	assert.Equal(t, http.StatusUnauthorized, ci.do(http.MethodGet, "/buckets", "").StatusCode, "the session of its key stays closed")
+	assert.Equal(t, http.StatusForbidden, do(t, newRequest(t, http.MethodGet, userLink, nil)).StatusCode, "the link of the user stays revoked")
+	assert.Equal(t, http.StatusForbidden, do(t, newRequest(t, http.MethodGet, keyLink, nil)).StatusCode, "the link of its key stays revoked")
+
+	// An access key: its session and its link; the user keeps its own.
+	frank = e.consoleLogin(frankCreds)
+	ci = e.consoleLogin(creds{AccessKey: "frankci", SecretKey: "frankci-secret-1"})
+	userLink, keyLink = share(frank), share(ci)
+	setStatus("/access-keys/frankci", "disabled")
+	setStatus("/access-keys/frankci", "enabled")
+	assert.Equal(t, http.StatusUnauthorized, ci.do(http.MethodGet, "/buckets", "").StatusCode, "the session of the key stays closed")
+	assert.Equal(t, http.StatusForbidden, do(t, newRequest(t, http.MethodGet, keyLink, nil)).StatusCode, "the link of the key stays revoked")
+	assert.Equal(t, http.StatusOK, frank.do(http.MethodGet, "/buckets", "").StatusCode, "the session of the user is not affected")
+	assert.Equal(t, http.StatusOK, do(t, newRequest(t, http.MethodGet, userLink, nil)).StatusCode, "the link of the user is not affected")
+
+	// The revocation is persisted: a restart does not bring the session back.
+	u, err := url.Parse(e.srv.ConsoleURL)
+	require.NoError(t, err)
+	cookies := frank.client.Jar.Cookies(u)
+	require.NotEmpty(t, cookies)
+	setStatus("/users/frank", "disabled")
+	setStatus("/users/frank", "enabled")
+	e.srv.Restart(t)
+	replay := newRequest(t, http.MethodGet, e.srv.ConsoleURL+"/api/v1/buckets", nil)
+	for _, c := range cookies {
+		replay.AddCookie(c)
+	}
+	assert.Equal(t, http.StatusUnauthorized, do(t, replay).StatusCode, "the revocation survives the restart")
+	assert.Equal(t, http.StatusOK, e.consoleLogin(frankCreds).do(http.MethodGet, "/buckets", "").StatusCode, "a new login works")
+}
+
 // TestConsoleRestoreVersion: restoring a version from the console makes it
 // the latest again and keeps the history (D-OBJ-06); a Deny on the version
 // (s3:versionid) denies the restore as it denies its download.

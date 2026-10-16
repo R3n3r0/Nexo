@@ -42,6 +42,9 @@ import type {
   DistributionTestInput,
   DistributionTestResult,
   DistributionTraffic,
+  DnsProvider,
+  DnsProviderInput,
+  DnsProviderTestResult,
   KeyGroup,
   PublicKey,
   RotateOriginSecretInput,
@@ -548,6 +551,16 @@ export interface CertificateService {
   upload(input: UploadCertificateInput): Promise<Certificate>;
   /** Removes a certificate no distribution names (409 otherwise). */
   remove(id: string): Promise<void>;
+  /** The DNS providers of the DNS-01 challenge, by name (never their credentials). */
+  listDnsProviders(): Promise<DnsProvider[]>;
+  /** 400 invalid_dns_provider, 409 dns_provider_exists. */
+  createDnsProvider(input: DnsProviderInput): Promise<DnsProvider>;
+  /** The empty credentials keep the stored ones. */
+  updateDnsProvider(name: string, input: DnsProviderInput): Promise<DnsProvider>;
+  /** 409 dns_provider_in_use while a distribution names it. */
+  removeDnsProvider(name: string): Promise<void>;
+  /** Publishes, checks and removes _acme-challenge.<domain>. */
+  testDnsProvider(name: string, domain: string): Promise<DnsProviderTestResult>;
 }
 
 /**

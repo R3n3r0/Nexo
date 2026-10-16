@@ -33,6 +33,11 @@ info:
     Lists answer `{items, nextCursor}` and accept `cursor` (opaque) and `limit`
     (1-1000, default 1000).
 
+    Rate limits: every operation may answer 429 `too_many_requests` with a
+    `Retry-After` header (seconds) when a rate limit of the node refuses the
+    request (`ratelimit.admin_ip` per client address, `ratelimit.admin_user` per
+    authenticated user; dynamic configuration, off by default).
+
     This document is the source of the TypeScript types of the web console
     (`web/src/services/http/schema.d.ts`, generated with `npm run gen:api`); the Go
     transport (`internal/transport/http/admin`) is the reference implementation and
@@ -1672,6 +1677,8 @@ paths:
         Each change needs its action: secretKey admin:CreateUser, status
         admin:EnableUser/admin:DisableUser, policyNames admin:AttachUserOrGroupPolicy,
         groups admin:GetUser plus admin:AddUserToGroup/admin:RemoveUserFromGroup.
+        A new secretKey, or status disabled, revokes for good the console sessions
+        of the user (and of its access keys) and its managed share links.
       x-nexo-actions:
         ["admin:CreateUser", "admin:EnableUser", "admin:DisableUser", "admin:AttachUserOrGroupPolicy", "admin:AddUserToGroup", "admin:RemoveUserFromGroup", "admin:GetUser"]
       x-nexo-authorized-by: service
@@ -1829,6 +1836,9 @@ paths:
     put:
       tags: [access-keys]
       operationId: updateAccessKey
+      description: |
+        Status disabled revokes for good the console sessions of the key and the
+        managed share links created with it; enabling it again restores neither.
       x-nexo-actions: ["admin:UpdateServiceAccount"]
       x-nexo-authorized-by: service
       requestBody:
@@ -2909,6 +2919,122 @@ paths:
       x-nexo-actions: ["admin:ManageCertificates"]
       responses:
         "204": { description: Removed. }
+        default: { $ref: "#/components/responses/Problem" }
+  /dns-providers:
+    get:
+      tags: [certificates]
+      operationId: listDnsProviders
+      summary: DNS providers of the ACME DNS-01 challenge
+      description: |
+        The DNS providers (Cloudflare, AWS Route 53, RFC 2136) that publish the TXT records
+        of the DNS-01 challenge, required by the wildcard aliases. Their credentials are
+        sealed in the system store and never returned (`hasCredentials` reports them).
+      x-nexo-actions: ["admin:ManageCertificates"]
+      responses:
+        "200":
+          description: The DNS providers, by name.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DnsProviderList" }
+        default: { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [certificates]
+      operationId: createDnsProvider
+      summary: Create a DNS provider
+      description: |
+        Validated (400 `invalid_dns_provider`; 409 `dns_provider_exists` for a name taken).
+        Only the settings and credentials of its `type` are kept.
+      x-nexo-actions: ["admin:ManageCertificates"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DnsProviderRequest" }
+      responses:
+        "201":
+          description: The DNS provider (without its credentials).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DnsProvider" }
+        default: { $ref: "#/components/responses/Problem" }
+  /dns-providers/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [certificates]
+      operationId: getDnsProvider
+      summary: A DNS provider (404 `dns_provider_not_found`)
+      x-nexo-actions: ["admin:ManageCertificates"]
+      responses:
+        "200":
+          description: The DNS provider.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DnsProvider" }
+        default: { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [certificates]
+      operationId: updateDnsProvider
+      summary: Replace the settings of a DNS provider
+      description: |
+        The empty credentials keep the stored ones when the type does not change (a Route 53
+        provider without `accessKeyId` drops them: ambient credentials). The leader retries
+        at once the pending certificates of the distributions using the provider.
+      x-nexo-actions: ["admin:ManageCertificates"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DnsProviderRequest" }
+      responses:
+        "200":
+          description: The DNS provider.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DnsProvider" }
+        default: { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [certificates]
+      operationId: deleteDnsProvider
+      summary: Remove a DNS provider no distribution names (409 `dns_provider_in_use` otherwise)
+      x-nexo-actions: ["admin:ManageCertificates"]
+      responses:
+        "204": { description: Removed. }
+        default: { $ref: "#/components/responses/Problem" }
+  /dns-providers/{name}/test:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [certificates]
+      operationId: testDnsProvider
+      summary: Test a DNS provider
+      description: |
+        Publishes a TXT record `_acme-challenge.<domain>` with a random value, waits for it on
+        the authoritative nameservers of the zone (up to the propagation timeout of the
+        provider) and removes it. A failure of the provider is a result (`ok: false`, the
+        failed `step`), not an error.
+      x-nexo-actions: ["admin:ManageCertificates"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [domain]
+              properties:
+                domain: { type: string, description: "Domain of the test record (a wildcard counts as its domain)." }
+      responses:
+        "200":
+          description: The outcome of the test.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DnsProviderTestResult" }
         default: { $ref: "#/components/responses/Problem" }
 
   /cache/policies:
@@ -5790,16 +5916,29 @@ components:
                   items: { type: string }
             rateLimit:
               type: object
+              description: >-
+                Requests admitted by each node (S-DST-08): requestsPerSecond on average, burst at once,
+                per client address or shared by the distribution. Beyond it a website answers 429, an s3
+                distribution 503 SlowDown, with Retry-After.
               properties:
-                requestsPerSecond: { type: integer }
-                burst: { type: integer }
-                per: { type: string }
+                requestsPerSecond: { type: integer, minimum: 0, description: "0: no limit." }
+                burst: { type: integer, minimum: 0, description: "0: requestsPerSecond." }
+                per: { type: string, enum: [ip, distribution], description: "Default ip." }
         tls:
           type: object
           properties:
             certificate:
               type: string
               description: auto (ACME), upload:<id>, none (TLS terminated by a proxy).
+            challenge:
+              type: string
+              enum: [http-01, tls-alpn-01, dns-01]
+              description: |
+                ACME challenge of the certificate `auto` (default: the challenge of the
+                deployment). A wildcard alias requires `dns-01`.
+            dnsProvider:
+              type: string
+              description: Name of the DNS provider of `dns-01` (/dns-providers).
         logging:
           type: object
           properties:
@@ -6015,6 +6154,11 @@ components:
         distributions:
           type: array
           items: { type: string }
+        challenge:
+          type: string
+          enum: [http-01, tls-alpn-01, dns-01]
+          description: Challenge of the certificate (absent for the challenge of the deployment).
+        dnsProvider: { type: string, description: "DNS provider of dns-01." }
         state: { type: string, enum: [issued, pending] }
         certificate: { $ref: "#/components/schemas/CertificateDetails" }
     CertificateList:
@@ -6040,6 +6184,86 @@ components:
         id: { type: string, description: "Default derived from the first DNS name." }
         certificatePem: { type: string, description: "Leaf certificate followed by its intermediates." }
         privateKeyPem: { type: string }
+    DnsProviderType:
+      type: string
+      enum: [cloudflare, route53, rfc2136]
+    DnsProviderSettings:
+      type: object
+      required: [type]
+      properties:
+        type: { $ref: "#/components/schemas/DnsProviderType" }
+        comment: { type: string }
+        cloudflare:
+          type: object
+          properties:
+            zoneId: { type: string, description: "Default: the zone found by name." }
+        route53:
+          type: object
+          properties:
+            accessKeyId: { type: string, description: "Absent: the ambient AWS credentials of the node." }
+            region: { type: string, description: "Default us-east-1." }
+            hostedZoneId: { type: string, description: "Default: the public zone found by name." }
+        rfc2136:
+          type: object
+          required: [nameserver]
+          properties:
+            nameserver: { type: string, description: "Primary nameserver accepting the updates, host[:port]." }
+            zone: { type: string, description: "Default: from the SOA the nameserver reports." }
+            tsigKeyName: { type: string, description: "Absent: unsigned updates." }
+            tsigAlgorithm:
+              type: string
+              enum: [hmac-sha256, hmac-sha512, hmac-sha384, hmac-sha224, hmac-sha1]
+        ttl: { type: integer, description: "TTL of the records in seconds (default 60)." }
+        propagationTimeout: { type: integer, description: "Wait of the propagation in seconds (default 120, at most 1800)." }
+        pollingInterval: { type: integer, description: "Delay between two checks in seconds (default 4)." }
+    DnsProvider:
+      allOf:
+        - { $ref: "#/components/schemas/DnsProviderSettings" }
+        - type: object
+          required: [name, hasCredentials, usedBy, createdAt, updatedAt]
+          properties:
+            name: { type: string }
+            hasCredentials:
+              type: boolean
+              description: Credentials are stored (they are never returned).
+            usedBy:
+              type: array
+              description: Distributions whose `tls.dnsProvider` names it.
+              items: { type: string }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+    DnsProviderList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/DnsProvider" }
+    DnsProviderRequest:
+      allOf:
+        - { $ref: "#/components/schemas/DnsProviderSettings" }
+        - type: object
+          properties:
+            name: { type: string, description: "Required to create; the one of the path to update." }
+            credentials:
+              type: object
+              description: |
+                Write-only, sealed in the system store, never returned nor logged. On an update an
+                empty field keeps the stored value.
+              properties:
+                apiToken: { type: string, description: "Cloudflare API token (Zone:DNS:Edit)." }
+                secretAccessKey: { type: string, description: "Route 53 secret access key." }
+                sessionToken: { type: string, description: "Route 53 session token (temporary credentials)." }
+                tsigSecret: { type: string, description: "RFC 2136 TSIG secret, base64." }
+    DnsProviderTestResult:
+      type: object
+      required: [ok, record, durationMs]
+      properties:
+        ok: { type: boolean }
+        record: { type: string, description: "The TXT record of the test." }
+        step: { type: string, enum: [present, propagation, cleanup], description: "The failed step." }
+        error: { type: string }
+        durationMs: { type: integer, format: int64 }
     CacheDuration:
       description: |
         A duration: Go syntax ("90s", "1h30m") or days ("365d"); a number is seconds. The

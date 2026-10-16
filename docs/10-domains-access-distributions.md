@@ -134,9 +134,11 @@ headers:
 restrictions:
   sourceIp: { allow: [], deny: ["203.0.113.0/24"] }
   originSecretHeader: { name: X-Origin-Secret, value: "${secret:proxy-a}" }  # only accepts traffic from the proxy
-  rateLimit: { requestsPerSecond: 200, burst: 400, per: ip }                 # P2
+  rateLimit: { requestsPerSecond: 200, burst: 400, per: ip }                 # per node; per: ip | distribution
 tls:
   certificate: auto            # auto (ACME/Let's Encrypt) | upload:<id> | none (TLS terminated by the proxy)
+  challenge: dns-01            # optional: http-01 | tls-alpn-01 | dns-01 (required by a wildcard alias with auto)
+  dnsProvider: cloudflare-main # the DNS provider of dns-01 (/dns-providers)
 logging: { accessLog: true, target: webhook:audit }
 ```
 
@@ -255,7 +257,27 @@ Implementation choices (verified by `test/proxy`, see §10.6 "Cluster and Docker
   retry reads on 502/503/504 (the `deploy/proxy` configurations do).
 
 ### TLS and per-domain certificates
-- Uploaded certificates (PEM) or **automatic ACME** (Let's Encrypt/ZeroSSL, HTTP-01 or TLS-ALPN-01 challenge; DNS-01 P2 for wildcards).
+- Uploaded certificates (PEM) or **automatic ACME** (Let's Encrypt/ZeroSSL, HTTP-01, TLS-ALPN-01 or **DNS-01**
+  challenge, the deployment default `NEXO_ACME_CHALLENGE` or `tls.challenge` per distribution).
+- **DNS-01** (the only challenge of the wildcard aliases: an alias `*.<domain>` with `certificate: auto` is refused
+  without `challenge: dns-01` and an existing `dnsProvider`): the leader publishes `_acme-challenge.<domain>` TXT
+  through a **DNS provider** of the deployment (`/dns-providers`, `nexoctl admin dns-provider`, console
+  Certificates page): **Cloudflare** (API token, zone found by name or `zoneId`), **AWS Route 53** (access key or
+  the ambient credentials of the nodes, aws-sdk-go-v2; public hosted zone found by name or `hostedZoneId`, the
+  change awaited `INSYNC`) or **RFC 2136** (dynamic update signed with TSIG hmac-sha256/384/512/224/sha1,
+  github.com/miekg/dns). The apex and the wildcard of one name validate the same record one authorization after
+  the other; each provider adds and removes only its value. Before accepting the challenge the leader waits until
+  every **authoritative nameserver** of the zone (found through the resolvers of the node, IPv4 first) serves the
+  value, polling every `pollingInterval` (default 4 s) up to `propagationTimeout` (default 120 s, at most 30 min);
+  `NEXO_ACME_DNS_NAMESERVERS` replaces them with fixed nameservers (split-horizon DNS). The record is removed
+  after the validation, also on failure.
+- The provider credentials (token, secret access key, session token, TSIG secret) are sealed (AES-256-GCM) in
+  `.nexo.sys` like the certificate keys, write-only in the API (`hasCredentials`), redacted in the logs; a
+  provider used by a distribution cannot be deleted (409 `dns_provider_in_use`); `POST
+  /dns-providers/{name}/test` publishes, checks and removes a random test value (a failure is reported with
+  its step: `present`, `propagation`, `cleanup`). The client is the `golang.org/x/crypto/acme` one of HTTP-01 and
+  TLS-ALPN-01 (no lego): the DNS-01 flow is `DNS01ChallengeRecord` + provider + propagation check
+  (`internal/service/certs/dns01`).
 - In a cluster: certificates and ACME state stored encrypted in `.nexo.sys`, renewal performed by the leader, distribution to all nodes.
 - Selection via **SNI**; expiry visible in the dashboard with an alert at 21 days.
 - A certificate is presented only for the aliases of the **enabled** distributions that reference it
@@ -285,7 +307,7 @@ access log in combined or JSON format; dedicated charts in the dashboard.
 | D-DST-04 | Error pages, redirects, SPA fallback, CORS, security headers (recommended preset) |
 | D-DST-05 | Key groups and signed URL/cookie generator |
 | D-DST-06 | Restrictions: IP allow/deny, origin secret per proxy (generation and rotation), rate limit |
-| D-DST-07 | Certificates: upload, ACME, status and expiry dates |
+| D-DST-07 | Certificates: upload, ACME, status and expiry dates; DNS providers of the DNS-01 challenge (add, edit with write-only credentials, test, delete) and the challenge of a distribution |
 | D-DST-08 | Cache invalidation and history; metrics and logs per distribution |
 
 ## 10.4 CLI
@@ -309,6 +331,9 @@ nexoctl dist behavior add local website --regex '^/downloads/.*\.zip$' --access 
 nexoctl dist error-page|redirect|headers|restrict ... 
 nexoctl dist keygroup create local releases && nexoctl dist sign-url local website /downloads/v1.zip --expire 1h [--ip 1.2.3.4]
 nexoctl dist cert set local website --auto | --cert crt.pem --key key.pem
+nexoctl admin dns-provider add local cf --type cloudflare --api-token-file token.txt   # route53 | rfc2136
+nexoctl admin dns-provider ls|info|edit|test|rm local [cf] [example.com]
+nexoctl dist cert set local previews --auto --dns-provider cf    # DNS-01: wildcard aliases
 nexoctl dist origin-secret rotate local website
 nexoctl dist test local website https://www.example.com/assets/app.js   # shows the resulting behavior, access and headers
 nexoctl dist invalidate local website '/assets/**'
@@ -359,10 +384,10 @@ with that group. A user denied on a bucket can neither free its aliases nor sign
 | TDS-07 | Origin secret: OK with the correct header, 403 without or with a wrong one, two secrets active during rotation | — |
 | TDS-08 | PROXY protocol v1/v2 and `Forwarded`/`X-Forwarded-*` only from `NEXO_TRUSTED_PROXIES` | Correct real IP, spoofing ignored |
 | TDS-09 | Origin `pathPrefix`: impossible to escape the prefix (`/../`, encoded) | 403/404 |
-| TDS-10 | TLS: SNI with several certificates, ACME against Pebble (test ACME) including renewal, cluster with the leader renewing | Certificate served by all nodes |
+| TDS-10 | TLS: SNI with several certificates, ACME against Pebble (test ACME) including renewal, cluster with the leader renewing; DNS-01 for an apex and its wildcard (fake provider on the DNS of Pebble; RFC 2136 with TSIG on an in-process nameserver; Cloudflare and Route 53 against HTTP fakes) | Certificate served by all nodes; records removed; credentials never stored in clear nor returned |
 | TDS-11 | Cache and invalidation: see the TCC-* tests in [11](11-domain-cache.md#1112-tests) | — |
 | TDS-12 | Range, conditional GET, HEAD, correct `Content-Type` via a distribution | Compliant |
-| TDS-13 | Per-IP rate limit (P2) | 429 over the threshold |
+| TDS-13 | Per-IP and per-distribution rate limit (S-DST-08), on every node | 429 over the threshold (website), 503 SlowDown (s3 mode), Retry-After |
 | TDS-14 | Fuzzing of the Host header, path and signature parameters | No panic/bypass |
 
 ### CLI
@@ -373,7 +398,7 @@ with that group. A user denied on a bucket can neither free its aliases nor sign
 | TCL-D-01 | `dist create` with 2 domains → `curl -H 'Host: ...'` on both returns the content |
 | TCL-D-02 | `dist sign-url` → curl OK, 403 after expiry |
 | TCL-D-03 | `dist test` shows the expected behavior and headers |
-| TCL-D-04 | `dist origin-secret rotate`, `dist invalidate`, `dist cert set --cert/--key` |
+| TCL-D-04 | `dist origin-secret rotate`, `dist invalidate`, `dist cert set --cert/--key`, `admin dns-provider add/edit/test/rm` and `dist cert set --auto --dns-provider` |
 
 ### Dashboard
 | ID | Case |
@@ -386,6 +411,7 @@ with that group. A user denied on a bucket can neither free its aliases nor sign
 | TD-D-03 | Key group: private key shown once; generated signed URL opens the file |
 | TD-D-04 | Expiring certificate highlighted; upload of a valid/invalid certificate |
 | TD-D-05 | A user without `admin:ManageDistributions` cannot see/modify distributions |
+| TD-D-06 | DNS provider added from the console (secret refused, then sealed and never shown), tested, bound to a wildcard domain with DNS-01; deletion refused while in use |
 
 ### Cluster and Docker
 | ID | Case |

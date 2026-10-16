@@ -41,6 +41,9 @@ type memDistState struct {
 	// privateKeys maps the private keys generated to their key id.
 	privateKeys map[string]string
 	certs       map[string]*nexoadmin.Certificate
+	// dnsProviders are the DNS providers, creds their credentials.
+	dnsProviders map[string]*nexoadmin.DNSProvider
+	dnsCreds     map[string]nexoadmin.DNSCredentials
 }
 
 // memRules are the access rules of a bucket.
@@ -58,6 +61,7 @@ func (s *memSession) distLocked() *memDistState {
 		d.rules, d.blockBuckets = map[string]*memRules{}, map[string]bool{}
 		d.dists, d.groups = map[string]*nexoadmin.Distribution{}, map[string]*nexoadmin.KeyGroup{}
 		d.privateKeys, d.certs = map[string]string{}, map[string]*nexoadmin.Certificate{}
+		d.dnsProviders, d.dnsCreds = map[string]*nexoadmin.DNSProvider{}, map[string]nexoadmin.DNSCredentials{}
 		d.blockMode = nexoadmin.BlockModeReject
 	}
 	return d
@@ -102,6 +106,16 @@ func (s *memSession) expectDistribution(c *climock.AdminClient) {
 	c.EXPECT().ListCertificates(x).RunAndReturn(s.listCertificates).Maybe()
 	c.EXPECT().UploadCertificate(x, x).RunAndReturn(s.uploadCertificate).Maybe()
 	c.EXPECT().DeleteCertificate(x, x).RunAndReturn(s.deleteCertificate).Maybe()
+	c.EXPECT().ListDNSProviders(x).RunAndReturn(s.listDNSProviders).Maybe()
+	c.EXPECT().GetDNSProvider(x, x).RunAndReturn(s.getDNSProvider).Maybe()
+	c.EXPECT().CreateDNSProvider(x, x).RunAndReturn(func(ctx context.Context, in nexoadmin.DNSProviderRequest) (*nexoadmin.DNSProvider, error) {
+		return s.saveDNSProvider(ctx, "CreateDNSProvider", in.Name, in, true)
+	}).Maybe()
+	c.EXPECT().UpdateDNSProvider(x, x, x).RunAndReturn(func(ctx context.Context, name string, in nexoadmin.DNSProviderRequest) (*nexoadmin.DNSProvider, error) {
+		return s.saveDNSProvider(ctx, "UpdateDNSProvider", name, in, false)
+	}).Maybe()
+	c.EXPECT().DeleteDNSProvider(x, x).RunAndReturn(s.deleteDNSProvider).Maybe()
+	c.EXPECT().TestDNSProvider(x, x, x).RunAndReturn(s.testDNSProvider).Maybe()
 }
 
 // accessRuleError is the error of an invalid access rule.
@@ -643,6 +657,9 @@ func (s *memSession) saveDistribution(_ context.Context, method string, d nexoad
 			}
 		}
 	}
+	if err := checkDistributionTLS(st, d.TLS, d.Aliases); err != nil {
+		return nil, err
+	}
 	if d.Mode == "" {
 		d.Mode = nexoadmin.ModeWebsite
 	}
@@ -1100,7 +1117,7 @@ func (s *memSession) listCertificates(context.Context) (*nexoadmin.CertificateLi
 		d := st.dists[did]
 		if d.Enabled && d.TLS.Certificate == nexoadmin.CertificateAuto {
 			out.ACME.Managed = append(out.ACME.Managed, nexoadmin.ManagedCertificate{ID: "acme-" + did, Domains: slices.Clone(d.Aliases),
-				Distributions: []string{did}, State: "pending"})
+				Distributions: []string{did}, Challenge: d.TLS.Challenge, DNSProvider: d.TLS.DNSProvider, State: "pending"})
 		}
 	}
 	return out, nil
@@ -1156,4 +1173,206 @@ func (s *memSession) deleteCertificate(_ context.Context, id string) error {
 	}
 	delete(st.certs, id)
 	return nil
+}
+
+// --- DNS providers ------------------------------------------------------------------
+
+// checkDistributionTLS is the validation of the ACME challenge of a
+// distribution (lock held).
+func checkDistributionTLS(st *memDistState, t nexoadmin.DistributionTLS, aliases []string) error {
+	bad := func(msg string) error { return apiError(http.StatusBadRequest, nexoadmin.CodeInvalidDistribution, msg) }
+	if t.Certificate != nexoadmin.CertificateAuto {
+		if t.Challenge != "" || t.DNSProvider != "" {
+			return bad("tls.challenge and tls.dnsProvider apply to the certificate auto only")
+		}
+		return nil
+	}
+	switch t.Challenge {
+	case "", nexoadmin.ChallengeHTTP01, nexoadmin.ChallengeTLSALPN01:
+		if t.DNSProvider != "" {
+			return bad("tls.dnsProvider needs tls.challenge dns-01")
+		}
+		for _, a := range aliases {
+			if strings.HasPrefix(a, "*.") {
+				return bad("the wildcard alias " + a + " needs tls.challenge dns-01 with a tls.dnsProvider for its automatic certificate")
+			}
+		}
+	case nexoadmin.ChallengeDNS01:
+		if _, ok := st.dnsProviders[t.DNSProvider]; !ok {
+			return bad(fmt.Sprintf("tls.dnsProvider %q does not exist: create it first (/dns-providers)", t.DNSProvider))
+		}
+	default:
+		return bad(fmt.Sprintf("tls.challenge %q must be http-01, tls-alpn-01 or dns-01", t.Challenge))
+	}
+	return nil
+}
+
+// dnsUsersLocked lists the distributions naming a DNS provider (lock
+// held).
+func (s *memSession) dnsUsersLocked(name string) []string {
+	st := s.distLocked()
+	out := []string{}
+	for _, did := range cli.SortedKeys(st.dists) {
+		if st.dists[did].TLS.DNSProvider == name {
+			out = append(out, did)
+		}
+	}
+	return out
+}
+
+func (s *memSession) dnsProviderLocked(name string) *nexoadmin.DNSProvider {
+	p := *s.distLocked().dnsProviders[name]
+	p.UsedBy = s.dnsUsersLocked(name)
+	return &p
+}
+
+func (s *memSession) listDNSProviders(context.Context) ([]nexoadmin.DNSProvider, error) {
+	if err := s.begin("ListDNSProviders"); err != nil {
+		return nil, err
+	}
+	if err := s.requireAdminLocked("admin:ManageCertificates"); err != nil {
+		return nil, err
+	}
+	defer s.m.mu.Unlock()
+	out := []nexoadmin.DNSProvider{}
+	for _, name := range cli.SortedKeys(s.distLocked().dnsProviders) {
+		out = append(out, *s.dnsProviderLocked(name))
+	}
+	return out, nil
+}
+
+func (s *memSession) getDNSProvider(_ context.Context, name string) (*nexoadmin.DNSProvider, error) {
+	if err := s.begin("GetDNSProvider"); err != nil {
+		return nil, err
+	}
+	if err := s.requireAdminLocked("admin:ManageCertificates"); err != nil {
+		return nil, err
+	}
+	defer s.m.mu.Unlock()
+	if _, ok := s.distLocked().dnsProviders[name]; !ok {
+		return nil, notFound(nexoadmin.CodeDNSProviderNotFound, "dns provider not found: %s", name)
+	}
+	return s.dnsProviderLocked(name), nil
+}
+
+// saveDNSProvider is a simplified model of the validation of the server:
+// the credential of each type, the empty credentials kept on an update.
+func (s *memSession) saveDNSProvider(_ context.Context, method, name string, in nexoadmin.DNSProviderRequest, create bool) (*nexoadmin.DNSProvider, error) {
+	if err := s.begin(method); err != nil {
+		return nil, err
+	}
+	if err := s.requireAdminLocked("admin:ManageCertificates"); err != nil {
+		return nil, err
+	}
+	defer s.m.mu.Unlock()
+	st := s.distLocked()
+	cur, exists := st.dnsProviders[name]
+	bad := func(msg string) error {
+		return apiError(http.StatusBadRequest, nexoadmin.CodeInvalidDNSProvider, "invalid dns provider: invalid argument: "+msg)
+	}
+	switch {
+	case name == "":
+		return nil, bad("the name is required")
+	case create && exists:
+		return nil, apiError(http.StatusConflict, nexoadmin.CodeDNSProviderExists, "dns provider already exists: "+name)
+	case !create && !exists:
+		return nil, notFound(nexoadmin.CodeDNSProviderNotFound, "dns provider not found: %s", name)
+	}
+	creds := in.Credentials
+	if exists && cur.Type == in.Type {
+		old := st.dnsCreds[name]
+		if creds.APIToken == "" {
+			creds.APIToken = old.APIToken
+		}
+		if creds.SecretAccessKey == "" {
+			creds.SecretAccessKey = old.SecretAccessKey
+		}
+		if creds.TSIGSecret == "" {
+			creds.TSIGSecret = old.TSIGSecret
+		}
+	}
+	p := nexoadmin.DNSProvider{Name: name, Type: in.Type, Comment: in.Comment, TTL: in.TTL, PropagationTimeout: in.PropagationTimeout,
+		PollingInterval: in.PollingInterval}
+	switch in.Type {
+	case nexoadmin.DNSProviderCloudflare:
+		if creds.APIToken == "" {
+			return nil, bad("cloudflare: the API token is required (credentials.apiToken)")
+		}
+		p.Cloudflare = &nexoadmin.CloudflareSettings{}
+		if in.Cloudflare != nil {
+			p.Cloudflare = in.Cloudflare
+		}
+		creds = nexoadmin.DNSCredentials{APIToken: creds.APIToken}
+	case nexoadmin.DNSProviderRoute53:
+		p.Route53 = &nexoadmin.Route53Settings{}
+		if in.Route53 != nil {
+			p.Route53 = in.Route53
+		}
+		if (p.Route53.AccessKeyID == "") != (creds.SecretAccessKey == "") {
+			return nil, bad("route53: the access key id and the secret access key go together")
+		}
+		creds = nexoadmin.DNSCredentials{SecretAccessKey: creds.SecretAccessKey, SessionToken: creds.SessionToken}
+	case nexoadmin.DNSProviderRFC2136:
+		if in.RFC2136 == nil || in.RFC2136.Nameserver == "" {
+			return nil, bad("rfc2136: the nameserver is required (rfc2136.nameserver)")
+		}
+		r := *in.RFC2136
+		if r.TSIGKeyName != "" && r.TSIGAlgorithm == "" {
+			r.TSIGAlgorithm = "hmac-sha256"
+		}
+		p.RFC2136 = &r
+		creds = nexoadmin.DNSCredentials{TSIGSecret: creds.TSIGSecret}
+	default:
+		return nil, bad(fmt.Sprintf("type %q must be one of cloudflare, route53, rfc2136", in.Type))
+	}
+	now := s.now()
+	p.CreatedAt, p.UpdatedAt = now, now
+	if exists {
+		p.CreatedAt = cur.CreatedAt
+	}
+	p.HasCredentials = creds != (nexoadmin.DNSCredentials{})
+	st.dnsProviders[name], st.dnsCreds[name] = &p, creds
+	return s.dnsProviderLocked(name), nil
+}
+
+func (s *memSession) deleteDNSProvider(_ context.Context, name string) error {
+	if err := s.begin("DeleteDNSProvider"); err != nil {
+		return err
+	}
+	if err := s.requireAdminLocked("admin:ManageCertificates"); err != nil {
+		return err
+	}
+	defer s.m.mu.Unlock()
+	st := s.distLocked()
+	if _, ok := st.dnsProviders[name]; !ok {
+		return notFound(nexoadmin.CodeDNSProviderNotFound, "dns provider not found: %s", name)
+	}
+	if users := s.dnsUsersLocked(name); len(users) > 0 {
+		return apiError(http.StatusConflict, nexoadmin.CodeDNSProviderInUse,
+			fmt.Sprintf("dns provider in use: the DNS provider %s is used by the distributions %s: change their TLS first", name, strings.Join(users, ", ")))
+	}
+	delete(st.dnsProviders, name)
+	delete(st.dnsCreds, name)
+	return nil
+}
+
+// testDNSProvider succeeds for the domains ending in ".test", fails at
+// the propagation otherwise.
+func (s *memSession) testDNSProvider(_ context.Context, name, domain string) (*nexoadmin.DNSProviderTestResult, error) {
+	if err := s.begin("TestDNSProvider"); err != nil {
+		return nil, err
+	}
+	if err := s.requireAdminLocked("admin:ManageCertificates"); err != nil {
+		return nil, err
+	}
+	defer s.m.mu.Unlock()
+	if _, ok := s.distLocked().dnsProviders[name]; !ok {
+		return nil, notFound(nexoadmin.CodeDNSProviderNotFound, "dns provider not found: %s", name)
+	}
+	record := "_acme-challenge." + strings.TrimPrefix(domain, "*.")
+	if strings.HasSuffix(domain, ".test") {
+		return &nexoadmin.DNSProviderTestResult{OK: true, Record: record, DurationMS: 1200}, nil
+	}
+	return &nexoadmin.DNSProviderTestResult{Record: record, Step: "propagation", DurationMS: 120000,
+		Error: "the TXT record " + record + ". is not served by the nameservers of its zone after 2m0s"}, nil
 }

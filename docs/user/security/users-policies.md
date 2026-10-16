@@ -22,7 +22,7 @@ nexoctl admin user add local alice 'a-long-secret-key' --policy readwrite
 nexoctl admin user add local bob 'another-long-secret-key' --group employees --disabled
 nexoctl admin user list local
 nexoctl admin user info local alice
-nexoctl admin user disable local alice          # immediate block on every node (links and sessions included)
+nexoctl admin user disable local alice          # immediate block on every node; revokes sessions and links
 nexoctl admin user enable local alice
 nexoctl admin user remove local alice           # also removes their access keys and share links
 
@@ -34,7 +34,9 @@ nexoctl admin group disable local employees
 
 A user without policies cannot do anything. The policies of a user add up to those of their groups. The
 secret key is changed from the console or with the Admin API (`PUT /api/v1/users/{u}`): the change revokes
-their console sessions and their managed share links.
+their console sessions and their managed share links. Disabling a user revokes them too, together with the console
+sessions of their access keys, and for good: enabling the user again restores the credentials, not the sessions
+nor the links (log in and share again).
 
 ## Policies
 
@@ -208,6 +210,8 @@ nexoctl admin accesskey remove local FZR6F4G0E0NF208I5QQ5
 ```
 
 - The secret key is shown **only once**.
+- Disabling a key (`--disable`) revokes its console sessions and the managed share links created with it;
+  `--enable` does not bring them back.
 - Without `--user` the key belongs to the alias's user: every user manages their own keys, root
   those of everyone.
 - The effective permissions are the intersection of the inline policy and those of the user: if a policy is
@@ -247,6 +251,7 @@ latest with the session. Identity federation (OIDC, LDAP) is not available yet.
 - One user or access key per application, with the minimum permissions and an expiry.
 - Groups for roles (readers, editors, administrators of a project) instead of per-user policies.
 - `diagnostics` for monitoring (Prometheus, trace), never root.
-- Disable (not just delete) a suspicious user: the effect is immediate on the whole cluster,
-  sessions and links included.
+- Disable (not just delete) a suspicious user: the effect is immediate on the whole cluster, and its
+  console sessions and managed links are revoked for good. Change its secret too before enabling it again:
+  raw presigned URLs signed with the old secret would work again.
 - Periodically review `nexoctl admin accesskey list` and the active shares (`nexoctl share list --user …`).

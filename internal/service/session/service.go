@@ -25,7 +25,9 @@ type Service interface {
 	// tampered or revoked tokens return domain.ErrAccessDenied, and so do
 	// the tokens issued before the secret key of their credentials changed:
 	// rotating a secret closes every console session opened with it, on
-	// every node and across restarts.
+	// every node and across restarts, and so does disabling the
+	// credentials or their parent user (domain.Credentials.RevocationEpoch):
+	// enabling them again does not bring the sessions back.
 	Validate(ctx context.Context, token string) (*Session, error)
 	// Logout revokes the token until it expires; the revocation is
 	// persisted (Deps.Store), so that it survives a restart and is seen by

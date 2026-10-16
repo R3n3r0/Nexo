@@ -128,4 +128,7 @@ The custom domains of the [distributions](../distributions/README.md) have their
 uploaded (`nexoctl dist cert set … --cert … --key …`) or obtained automatically through ACME
 (`nexoctl dist cert set … --auto`), stored encrypted and distributed to every node; in a cluster the renewal
 is performed by a single node. They are presented by SNI only for the aliases of the enabled distributions
-that use them. See the [tutorial](../distributions/tutorial-static-site.md).
+that use them. See the [tutorial](../distributions/tutorial-static-site.md). The wildcard domains get their
+ACME certificate through the DNS-01 challenge and a DNS provider (`--auto --dns-provider NAME`): see
+[wildcard domains](../distributions/README.md#wildcard-domains-the-dns-01-challenge); the credentials of the
+providers are stored encrypted and never shown again.

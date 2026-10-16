@@ -42,7 +42,7 @@ func (s *service) lookup(st *state, ak string) (domain.Credentials, domain.Ident
 		}
 		id := domain.Identity{AccessKey: ak}
 		st.fillUser(&id, u)
-		return domain.Credentials{AccessKey: ak, SecretKey: u.SecretKey, Status: u.Status}, id, nil
+		return domain.Credentials{AccessKey: ak, SecretKey: u.SecretKey, Status: u.Status, RevocationEpoch: u.RevocationEpoch}, id, nil
 	}
 	now := s.now()
 	if sa := st.sas[ak]; sa != nil {
@@ -56,7 +56,10 @@ func (s *service) lookup(st *state, ak string) (domain.Credentials, domain.Ident
 		if err := s.fillParent(st, &id, ak); err != nil {
 			return domain.Credentials{}, domain.Identity{}, err
 		}
-		return domain.Credentials{AccessKey: ak, SecretKey: sa.SecretKey, Expiration: sa.Expiration, Status: sa.Status}, id, nil
+		return domain.Credentials{
+			AccessKey: ak, SecretKey: sa.SecretKey, Expiration: sa.Expiration, Status: sa.Status,
+			RevocationEpoch: sa.RevocationEpoch + st.parentEpoch(sa.ParentUser),
+		}, id, nil
 	}
 	if t := st.sts[ak]; t != nil {
 		if !now.Before(t.Expiration) {
@@ -70,9 +73,22 @@ func (s *service) lookup(st *state, ak string) (domain.Credentials, domain.Ident
 		if err := s.fillParent(st, &id, ak); err != nil {
 			return domain.Credentials{}, domain.Identity{}, err
 		}
-		return domain.Credentials{AccessKey: ak, SecretKey: t.SecretKey, SessionToken: t.SessionToken, Expiration: t.Expiration, Status: domain.StatusEnabled}, id, nil
+		return domain.Credentials{
+			AccessKey: ak, SecretKey: t.SecretKey, SessionToken: t.SessionToken, Expiration: t.Expiration, Status: domain.StatusEnabled,
+			RevocationEpoch: st.parentEpoch(t.ParentUser),
+		}, id, nil
 	}
 	return domain.Credentials{}, domain.Identity{}, errInvalidAccessKey(ak)
+}
+
+// parentEpoch is the revocation epoch of the parent user of derived
+// credentials (0 for root). Both epochs only grow, so their sum changes
+// whenever the key or its parent is disabled. Callers hold mu.
+func (st *state) parentEpoch(parent string) uint64 {
+	if u := st.users[parent]; u != nil {
+		return u.RevocationEpoch
+	}
+	return 0
 }
 
 // fillUser sets the enabled groups and the effective policies of a user.
