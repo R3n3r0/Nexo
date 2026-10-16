@@ -27,7 +27,7 @@
     "@mantine/charts": "7.17.8",
     "@mantine/core": "7.17.8",
     "@mantine/dates": "7.17.8",
-    "@mantine/hooks": "7.17.8",
+    "@mantine/hooks": "9.7.2",
     "@mantine/modals": "7.17.8",
     "@mantine/notifications": "7.17.8",
     "@tabler/icons-react": "3.49.0",
