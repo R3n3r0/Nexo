@@ -1,34 +1,35 @@
-# TLS e certificati
+# TLS and certificates
 
-Senza configurazione Nexo serve HTTP in chiaro. Con una directory di certificati (`--certs-dir`,
-`NEXO_CERTS_DIR`) **tutti** i listener (S3 sulla 9000, console e Admin API sulla 9001, listener web delle
-distribuzioni) passano a TLS, e i nodi di un cluster usano TLS anche tra loro (endpoint `https://`).
+Without configuration Nexo serves plain HTTP. With a certificates directory (`--certs-dir`,
+`NEXO_CERTS_DIR`) **every** listener (S3 on 9000, console and Admin API on 9001, web listeners of the
+distributions) switches to TLS, and the nodes of a cluster use TLS between themselves too (`https://`
+endpoints).
 
-## La directory dei certificati
+## The certificates directory
 
 ```text
 /etc/nexo/certs/
-├── public.crt            # certificato di default: foglia + intermedi (PEM)
-├── private.key           # chiave privata (PKCS #8, PKCS #1 o SEC 1)
-├── s3.example.com/       # certificati aggiuntivi, scelti per SNI
+├── public.crt            # default certificate: leaf + intermediates (PEM)
+├── private.key           # private key (PKCS #8, PKCS #1 or SEC 1)
+├── s3.example.com/       # additional certificates, chosen by SNI
 │   ├── public.crt
 │   └── private.key
-└── CAs/                  # CA fidate: peer del cluster, client mTLS
+└── CAs/                  # trusted CAs: cluster peers, mTLS clients
     └── ca.crt
 ```
 
-- `public.crt` + `private.key` sono obbligatori; file di al massimo 1 MiB; una chiave leggibile da altri
-  utenti produce un avviso nei log (usa `chmod 600`).
-- Le **sottocartelle** contengono certificati scelti per **SNI** in base ai nomi DNS della foglia (prima il
-  nome esatto, poi la wildcard di un livello; a parità vince quello valido che scade per ultimo). Le cartelle
-  nascoste (per esempio `..data` dei Secret Kubernetes) e quelle senza coppia sono ignorate.
-- `CAs/` contiene le CA fidate per verificare i peer del cluster: come server (in aggiunta alle radici di
-  sistema e alla catena di `public.crt`) e come client mTLS (solo `CAs/` e il certificato di default stesso).
+- `public.crt` + `private.key` are mandatory; files of at most 1 MiB; a key readable by other
+  users produces a warning in the logs (use `chmod 600`).
+- The **subdirectories** contain certificates chosen by **SNI** according to the DNS names of the leaf
+  (first the exact name, then the one-level wildcard; on a tie the valid one that expires last wins).
+  Hidden directories (for example the `..data` of Kubernetes Secrets) and those without a pair are ignored.
+- `CAs/` contains the CAs trusted to verify the cluster peers: as a server (in addition to the system roots
+  and the chain of `public.crt`) and as an mTLS client (only `CAs/` and the default certificate itself).
 
-Il certificato deve coprire i nomi con cui i client raggiungono Nexo (nome pubblico, load balancer) e, in
-cluster, i nomi degli endpoint dei nodi (`nexo1.lan` … `nexo4.lan`).
+The certificate must cover the names with which clients reach Nexo (public name, load balancer) and, in a
+cluster, the names of the node endpoints (`nexo1.lan` … `nexo4.lan`).
 
-## Abilitare TLS
+## Enabling TLS
 
 ```bash
 sudo install -d -o root -g nexo -m 0750 /etc/nexo/certs
@@ -38,45 +39,45 @@ sudo install -o root -g nexo -m 0640 privkey.pem   /etc/nexo/certs/private.key
 NEXO_CERTS_DIR=/etc/nexo/certs
 ```
 
-Poi i client usano `https://`:
+Then the clients use `https://`:
 
 ```bash
 curl --cacert /etc/nexo/certs/CAs/ca.crt https://nexo.lan:9000/nexo/health/live
-nexoctl alias set local https://nexo.lan:9000 admin supersegreta
+nexoctl alias set local https://nexo.lan:9000 admin supersecret
 ```
 
-`nexoctl` (come ogni programma Go) si fida delle CA di sistema: per una CA privata installala nel trust
-store del sistema oppure indica il file con `SSL_CERT_FILE` su Linux:
+`nexoctl` (like every Go program) trusts the system CAs: for a private CA install it in the system trust
+store or point to the file with `SSL_CERT_FILE` on Linux:
 
 ```bash
-SSL_CERT_FILE=/etc/nexo/certs/CAs/ca.crt nexoctl alias set local https://nexo.lan:9000 admin supersegreta
+SSL_CERT_FILE=/etc/nexo/certs/CAs/ca.crt nexoctl alias set local https://nexo.lan:9000 admin supersecret
 ```
 
-Per un ambiente di sviluppo `deploy/docker/gen-dev-certs.sh` crea una CA e un certificato per i nodi del
-cluster Compose (`compose.cluster-tls.yml`).
+For a development environment `deploy/docker/gen-dev-certs.sh` creates a CA and a certificate for the nodes
+of the Compose cluster (`compose.cluster-tls.yml`).
 
-## Politica TLS
+## TLS policy
 
-- TLS 1.2 minimo (`--tls-min-version 1.3` / `NEXO_TLS_MIN_VERSION=1.3` per richiedere TLS 1.3); TLS 1.3 è
-  negoziato con ogni client che lo supporta.
-- In TLS 1.2 solo suite ECDHE con AEAD (AES-GCM, ChaCha20-Poly1305); ALPN `h2` e `http/1.1`.
-- Le chiavi SSE-C sono accettate solo su HTTPS (vedi [KMS e SSE](kms-sse.md)).
+- TLS 1.2 minimum (`--tls-min-version 1.3` / `NEXO_TLS_MIN_VERSION=1.3` to require TLS 1.3); TLS 1.3 is
+  negotiated with every client that supports it.
+- In TLS 1.2 only ECDHE suites with AEAD (AES-GCM, ChaCha20-Poly1305); ALPN `h2` and `http/1.1`.
+- SSE-C keys are accepted only over HTTPS (see [KMS and SSE](kms-sse.md)).
 
-## Rinnovo senza riavvio
+## Renewal without restart
 
-La directory è osservata: quando i file cambiano (anche attraverso link simbolici, come `live/` e
-`archive/` di certbot) i certificati vengono ricaricati in pochi secondi, senza interrompere le connessioni
-aperte, che continuano con il certificato con cui sono nate. Nei log compare `tls: certificates reloaded`.
+The directory is watched: when the files change (even through symbolic links, like certbot's `live/` and
+`archive/`) the certificates are reloaded within a few seconds, without interrupting the open connections,
+which keep the certificate they started with. The logs show `tls: certificates reloaded`.
 
-- `systemctl reload nexo` (o `kill -HUP <pid>`) forza la ricarica immediata, anche dei certificati delle
-  distribuzioni.
-- Una ricarica che fallisce (chiave che non corrisponde, file scritto a metà) mantiene i certificati
-  precedenti e viene registrata nei log e in `nexo_tls_server_certificate_reloads_total{result}`.
-- La scadenza è esposta in `nexo_tls_server_certificate_expiry_seconds{certificate}`; i log avvisano a 21
-  giorni dalla scadenza.
-- Scrivi i file nuovi accanto e rinominali (`mv`) al posto dei vecchi, per evitare letture a metà.
+- `systemctl reload nexo` (or `kill -HUP <pid>`) forces an immediate reload, including the certificates of
+  the distributions.
+- A reload that fails (key that does not match, half-written file) keeps the previous certificates
+  and is recorded in the logs and in `nexo_tls_server_certificate_reloads_total{result}`.
+- The expiry is exposed in `nexo_tls_server_certificate_expiry_seconds{certificate}`; the logs warn 21
+  days before expiry.
+- Write the new files next to the old ones and rename them (`mv`) over the old ones, to avoid half reads.
 
-Esempio con certbot (hook di rinnovo):
+Example with certbot (renewal hook):
 
 ```bash
 #!/bin/sh
@@ -87,44 +88,44 @@ mv /etc/nexo/certs/private.key.new /etc/nexo/certs/private.key
 mv /etc/nexo/certs/public.crt.new  /etc/nexo/certs/public.crt
 ```
 
-## TLS tra i nodi e mTLS
+## TLS between nodes and mTLS
 
-In un cluster con `NEXO_CERTS_DIR` gli endpoint diventano `https://…`; ogni nodo verifica il certificato
-dei peer con le CA di `CAs/`, le radici di sistema e `public.crt`.
+In a cluster with `NEXO_CERTS_DIR` the endpoints become `https://…`; every node verifies the certificate of
+its peers with the CAs in `CAs/`, the system roots and `public.crt`.
 
-Con `--tls-internode-verify` (`NEXO_TLS_INTERNODE_VERIFY=true`) il TLS tra i nodi è **mutuo**: ogni nodo
-presenta il proprio certificato come client (che deve ammettere l'uso `clientAuth`) e le chiamate tra nodi
-senza un certificato client verificato vengono rifiutate. Il certificato client è verificato solo con le CA di
-`CAs/` (o è il certificato condiviso da tutti i nodi), mai con gli intermedi della catena di `public.crt`, e deve
-nominare (SAN DNS o IP) uno degli host degli endpoint: se i certificati dei nodi sono emessi da una CA privata,
-mettila in `CAs/`. Le richieste S3 sulla stessa porta non devono presentare certificati.
+With `--tls-internode-verify` (`NEXO_TLS_INTERNODE_VERIFY=true`) TLS between nodes is **mutual**: every node
+presents its own certificate as a client (it must allow the `clientAuth` usage) and calls between nodes
+without a verified client certificate are rejected. The client certificate is verified only against the CAs
+in `CAs/` (or it is the certificate shared by every node), never against the intermediates of the chain of
+`public.crt`, and it must name (DNS or IP SAN) one of the endpoint hosts: if the node certificates are issued
+by a private CA, put it in `CAs/`. S3 requests on the same port do not need to present certificates.
 
 ```bash
 NEXO_CERTS_DIR=/etc/nexo/certs NEXO_TLS_INTERNODE_VERIFY=true \
   nexo server "https://nexo{1...4}.lan:9000/mnt/disk{1...4}"
 ```
 
-Il rinnovo di un certificato firmato dalla stessa CA avviene a caldo. Sostituire la **CA** (o un certificato
-autofirmato usato come radice) richiede invece un riavvio a rotazione dei nodi, perché la fiducia verso i
-peer viene fissata all'avvio.
+Renewing a certificate signed by the same CA happens at runtime. Replacing the **CA** (or a self-signed
+certificate used as root) instead requires a rolling restart of the nodes, because the trust in the
+peers is fixed at startup.
 
-## Dietro un proxy che termina TLS
+## Behind a proxy that terminates TLS
 
-Se TLS termina su nginx, HAProxy, Traefik o un load balancer:
+If TLS terminates on nginx, HAProxy, Traefik or a load balancer:
 
-- inoltra l'header `Host` invariato (la firma SigV4 lo include) e lo schema con `X-Forwarded-Proto`;
-- elenca il proxy in `--trusted-proxies` (`NEXO_TRUSTED_PROXIES`), così `aws:SecureTransport` e l'IP del
-  client sono corretti;
-- imposta `NEXO_SERVER_URL=https://s3.example.com` e `NEXO_BROWSER_REDIRECT_URL` per i link generati;
-- non pubblicare mai `/nexo/rpc/` sul dominio pubblico.
+- forward the `Host` header unchanged (the SigV4 signature includes it) and the scheme with `X-Forwarded-Proto`;
+- list the proxy in `--trusted-proxies` (`NEXO_TRUSTED_PROXIES`), so that `aws:SecureTransport` and the
+  client IP are correct;
+- set `NEXO_SERVER_URL=https://s3.example.com` and `NEXO_BROWSER_REDIRECT_URL` for the generated links;
+- never publish `/nexo/rpc/` on the public domain.
 
-Configurazioni pronte per nginx, Caddy, Traefik, HAProxy e Cloudflare sono in
+Ready-made configurations for nginx, Caddy, Traefik, HAProxy and Cloudflare are in
 [`deploy/proxy`](https://github.com/R3n3r0/Nexo/tree/main/deploy/proxy).
 
-## Certificati dei domini delle distribuzioni
+## Certificates of the distribution domains
 
-I domini personalizzati delle [distribuzioni](../distributions/README.md) hanno certificati propri,
-caricati (`nexoctl dist cert set … --cert … --key …`) o ottenuti automaticamente via ACME
-(`nexoctl dist cert set … --auto`), salvati cifrati e distribuiti a tutti i nodi; in cluster il rinnovo è
-eseguito da un solo nodo. Sono presentati per SNI solo per gli alias delle distribuzioni abilitate che li
-usano. Vedi il [tutorial](../distributions/tutorial-static-site.md).
+The custom domains of the [distributions](../distributions/README.md) have their own certificates,
+uploaded (`nexoctl dist cert set … --cert … --key …`) or obtained automatically through ACME
+(`nexoctl dist cert set … --auto`), stored encrypted and distributed to every node; in a cluster the renewal
+is performed by a single node. They are presented by SNI only for the aliases of the enabled distributions
+that use them. See the [tutorial](../distributions/tutorial-static-site.md).

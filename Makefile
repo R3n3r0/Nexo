@@ -45,10 +45,11 @@ HADOLINT            ?= hadolint
 RELEASE_SKIP        ?= docker,sign
 KUBE_VERSIONS       ?= 1.27.0 1.34.0
 # User documentation (docs/user, mkdocs.yml): the generated CLI reference,
-# the MkDocs site (MkDocs and Material for MkDocs pinned in
-# docs/requirements.txt, installed by make docs-tools in $(DOCS_VENV), the
-# same file of the CI job "docs"; MKDOCS=mkdocs uses one already on PATH)
-# and the static page of the Admin API rendered by Redocly.
+# the MkDocs site in English (/) and Italian (/it/) (MkDocs, Material for
+# MkDocs and mkdocs-static-i18n pinned in docs/requirements.txt, installed by
+# make docs-tools in $(DOCS_VENV), the same file of the CI job "docs";
+# MKDOCS=mkdocs uses one already on PATH) and the static page of the Admin
+# API rendered by Redocly.
 DOCS_CLI_DIR        ?= docs/user/cli
 PYTHON              ?= python3
 DOCS_REQUIREMENTS   ?= docs/requirements.txt
@@ -189,7 +190,7 @@ docs-api:
 	npx --yes @redocly/cli@$(REDOCLY_VERSION) build-docs api/openapi.yaml --disableGoogleFont \
 	  --title "Nexo Admin API" -o $(BIN_DIR)/docs/admin-api.html
 
-## docs-tools: install MkDocs and Material for MkDocs of docs/requirements.txt in a virtualenv (bin/docs-venv)
+## docs-tools: install MkDocs, Material for MkDocs and mkdocs-static-i18n of docs/requirements.txt in a virtualenv (bin/docs-venv)
 docs-tools: $(DOCS_VENV)/.requirements
 
 $(DOCS_VENV)/.requirements: $(DOCS_REQUIREMENTS)
@@ -197,11 +198,12 @@ $(DOCS_VENV)/.requirements: $(DOCS_REQUIREMENTS)
 	$(DOCS_VENV)/bin/pip install --disable-pip-version-check -q -r $(DOCS_REQUIREMENTS)
 	cp $(DOCS_REQUIREMENTS) $@
 
-## docs-site: build the user documentation site of mkdocs.yml in bin/site (mkdocs build --strict, then the Admin API page next to its reference page: bin/site/riferimenti/admin-api/redoc.html)
+## docs-site: build the user documentation site of mkdocs.yml in bin/site, English at / and Italian at /it/ (mkdocs build --strict, then the Admin API page next to its reference page in both languages: bin/site/reference/admin-api/redoc.html and bin/site/it/reference/admin-api/redoc.html)
 docs-site: docs $(if $(filter $(DOCS_VENV)/bin/mkdocs,$(MKDOCS)),docs-tools)
 	NO_MKDOCS_2_WARNING=1 $(MKDOCS) build --strict -f mkdocs.yml -d $(CURDIR)/$(BIN_DIR)/site
 	$(MAKE) docs-api
-	cp $(BIN_DIR)/docs/admin-api.html $(BIN_DIR)/site/riferimenti/admin-api/redoc.html
+	cp $(BIN_DIR)/docs/admin-api.html $(BIN_DIR)/site/reference/admin-api/redoc.html
+	cp $(BIN_DIR)/docs/admin-api.html $(BIN_DIR)/site/it/reference/admin-api/redoc.html
 
 ## fmt: format Go sources
 fmt:

@@ -1,27 +1,27 @@
-# KMS e cifratura lato server (SSE)
+# KMS and server-side encryption (SSE)
 
-Nexo cifra gli oggetti sui dischi con tre modalità compatibili con S3:
+Nexo encrypts the objects on the drives with three S3-compatible modes:
 
-| Modalità | Chiave | Richiede |
-|----------|--------|----------|
-| **SSE-S3** | chiave dati per oggetto, sigillata dalla chiave di default del KMS | un KMS |
-| **SSE-KMS** | chiave dati sigillata da una chiave **nominata** del KMS | un KMS |
-| **SSE-C** | chiave fornita dal client a ogni richiesta, mai salvata | HTTPS |
+| Mode | Key | Requires |
+|------|-----|----------|
+| **SSE-S3** | per-object data key, sealed by the default key of the KMS | a KMS |
+| **SSE-KMS** | data key sealed by a **named** key of the KMS | a KMS |
+| **SSE-C** | key provided by the client with every request, never stored | HTTPS |
 
-I dati sono cifrati a blocchi (formato DARE, AES-256-GCM), le range GET funzionano; i dischi non contengono
-mai il contenuto in chiaro. Con SSE-KMS e SSE-C anche l'ETag è opaco; con SSE-S3, come in S3, l'ETag resta
-l'MD5 del contenuto in chiaro (per dati che non devono rivelare alcun digest usa SSE-KMS o SSE-C).
+The data is encrypted in blocks (DARE format, AES-256-GCM), range GETs work; the drives never contain the
+plaintext content. With SSE-KMS and SSE-C the ETag is opaque too; with SSE-S3, as in S3, the ETag stays
+the MD5 of the plaintext content (for data that must not reveal any digest use SSE-KMS or SSE-C).
 
-## Configurare il KMS
+## Configuring the KMS
 
-### KMS integrato
+### Built-in KMS
 
-Una master key da 32 byte, con un nome che diventa la chiave di default di SSE-S3:
+A 32-byte master key, with a name that becomes the default SSE-S3 key:
 
 ```bash
 sudo sh -c 'umask 027 && echo "nexo-key:$(openssl rand -base64 32)" > /etc/nexo/kms-key'
 sudo chgrp nexo /etc/nexo/kms-key
-# /etc/default/nexo (uguale su tutti i nodi)
+# /etc/default/nexo (the same on every node)
 NEXO_KMS_SECRET_KEY_FILE=/etc/nexo/kms-key
 ```
 
@@ -37,10 +37,11 @@ app-key                          2026-10-15 12:01:09 UTC
 nexo-key                         -                       yes
 ```
 
-Le chiavi create con `kms key create` derivano dalla master key: basta conservare quella. **Senza la master
-key gli oggetti cifrati sono irrecuperabili**: tienine una copia sicura fuori dal deployment.
+The keys created with `kms key create` are derived from the master key: keeping that one is enough.
+**Without the master key the encrypted objects cannot be recovered**: keep a safe copy of it outside the
+deployment.
 
-### KMS esterno (KES)
+### External KMS (KES)
 
 ```bash
 NEXO_KMS_ENDPOINT=https://kes1.example.net:7373,https://kes2.example.net:7373
@@ -50,87 +51,87 @@ NEXO_KMS_CLIENT_KEY=/etc/nexo/kes/client.key
 NEXO_KMS_CAPATH=/etc/nexo/kes/ca.crt
 ```
 
-Solo endpoint `https://` (le chiavi dati viaggiano nelle risposte di KES), autenticazione mTLS, failover
-nell'ordine indicato, nessun redirect seguito. Si configura uno solo dei due KMS.
+Only `https://` endpoints (the data keys travel in the KES responses), mTLS authentication, failover
+in the given order, no redirects followed. Only one of the two KMS can be configured.
 
-### In cluster
+### In a cluster
 
-Tutti i nodi devono avere la stessa configurazione KMS: all'avvio i nodi confrontano un'impronta (mai i
-segreti) e un nodo diverso dalla maggioranza non parte (`ErrKMSMismatch`). Lo stato è in
-`nexoctl admin kms status`, nella pagina **Info** della console e nella metrica `nexo_kms_online`
+Every node must have the same KMS configuration: at startup the nodes compare a fingerprint (never the
+secrets) and a node that differs from the majority does not start (`ErrKMSMismatch`). The status is in
+`nexoctl admin kms status`, on the **Info** page of the console and in the metric `nexo_kms_online`
 (alert `NexoKMSOffline`).
 
-## Cifratura di default di un bucket
+## Default encryption of a bucket
 
 ```console
 $ nexoctl encrypt set sse-s3 local/docs
 Default encryption of `local/docs`: SSE-S3 (AES256).
-$ nexoctl encrypt set sse-kms app-key local/segreti
+$ nexoctl encrypt set sse-kms app-key local/secrets
 $ nexoctl encrypt info local/docs
 `local/docs`: SSE-S3 (AES256).
 $ nexoctl encrypt clear local/docs
 ```
 
-Ogni oggetto scritto dopo, senza header di cifratura propri, viene cifrato. Gli oggetti esistenti non
-cambiano.
+Every object written afterwards, without encryption headers of its own, is encrypted. Existing objects do
+not change.
 
-## Cifrare per richiesta
+## Encrypting per request
 
-Con `nexoctl` (o con gli header S3 `x-amz-server-side-encryption*` da qualsiasi SDK):
+With `nexoctl` (or with the S3 headers `x-amz-server-side-encryption*` from any SDK):
 
 ```bash
 nexoctl cp --enc-s3 local/docs report.pdf local/docs/
-nexoctl cp --enc-kms "local/segreti=app-key" report.pdf local/segreti/
-nexoctl stat local/segreti/report.pdf          # Encryption : SSE-KMS (app-key)
+nexoctl cp --enc-kms "local/secrets=app-key" report.pdf local/secrets/
+nexoctl stat local/secrets/report.pdf          # Encryption : SSE-KMS (app-key)
 ```
 
 ### SSE-C
 
-La chiave (32 byte in base64) è fornita dal client a ogni lettura e scrittura; il server non la conserva.
-S3 richiede HTTPS per SSE-C e Nexo rifiuta le chiavi su HTTP in chiaro (`400 InvalidRequest`), salvo
-`NEXO_SSEC_ALLOW_INSECURE=on`, **solo per test**.
+The key (32 bytes in base64) is provided by the client with every read and write; the server does not keep
+it. S3 requires HTTPS for SSE-C and Nexo rejects keys over plain HTTP (`400 InvalidRequest`), unless
+`NEXO_SSEC_ALLOW_INSECURE=on` is set, **for testing only**.
 
 ```bash
 KEY=$(openssl rand -base64 32)
-export NEXOCTL_ENC_C="local/privato=$KEY"        # meglio della riga di comando
-nexoctl cp report.pdf local/privato/
-nexoctl cat local/privato/report.pdf > copia.pdf
+export NEXOCTL_ENC_C="local/private=$KEY"        # better than the command line
+nexoctl cp report.pdf local/private/
+nexoctl cat local/private/report.pdf > copy.pdf
 ```
 
-Oltre a `NEXOCTL_ENC_C` (più voci separate da virgola) si può usare `--enc-c-file chiavi.txt`, un file con
-una voce `ALIAS/BUCKET[/PREFIX]=BASE64KEY` per riga e permessi 0600. Evita `--enc-c` sulla riga di comando:
-la chiave sarebbe visibile agli altri utenti locali e resterebbe nella history. **Perdere la chiave SSE-C
-significa perdere l'oggetto.**
+Besides `NEXOCTL_ENC_C` (several comma-separated entries) you can use `--enc-c-file keys.txt`, a file with
+one `ALIAS/BUCKET[/PREFIX]=BASE64KEY` entry per line and permissions 0600. Avoid `--enc-c` on the command
+line: the key would be visible to the other local users and would stay in the shell history. **Losing the
+SSE-C key means losing the object.**
 
-## Rotazione della master key (KMS integrato)
+## Master key rotation (built-in KMS)
 
-1. Riavvia **tutti** i nodi con la nuova chiave e la precedente:
+1. Restart **every** node with the new key and the previous one:
 
    ```bash
-   NEXO_KMS_SECRET_KEY="nexo-key-2027:$(openssl rand -base64 32)"   # meglio in un file (_FILE)
-   NEXO_KMS_SECRET_KEY_PREVIOUS="nexo-key:<base64 della chiave precedente>"
+   NEXO_KMS_SECRET_KEY="nexo-key-2027:$(openssl rand -base64 32)"   # better in a file (_FILE)
+   NEXO_KMS_SECRET_KEY_PREVIOUS="nexo-key:<base64 of the previous key>"
    ```
 
-   Le chiavi dati sigillate dalla vecchia master key restano leggibili; i nuovi oggetti usano la nuova.
-2. Ri-sigilla le chiavi dati di tutti gli oggetti SSE-S3 e SSE-KMS (e degli upload multipart in corso) con
-   la chiave corrente. I dati non vengono riscritti:
+   The data keys sealed by the old master key stay readable; new objects use the new one.
+2. Re-seal the data keys of every SSE-S3 and SSE-KMS object (and of the multipart uploads in progress) with
+   the current key. The data is not rewritten:
 
    ```console
    $ nexoctl admin kms reseal local
    Re-sealed 2 of 2 data keys (2 versions, 0 pending uploads) in 2 buckets.
    ```
 
-   `--bucket NOME` limita l'operazione a un bucket. Il comando esce con errore se qualche chiave non può
-   essere ri-sigillata: ripetilo finché non riporta errori.
-3. Rimuovi `NEXO_KMS_SECRET_KEY_PREVIOUS` e riavvia i nodi.
+   `--bucket NAME` limits the operation to one bucket. The command exits with an error if some key cannot
+   be re-sealed: repeat it until it reports no errors.
+3. Remove `NEXO_KMS_SECRET_KEY_PREVIOUS` and restart the nodes.
 
-Con KES la rotazione delle chiavi avviene su KES; `nexoctl admin kms reseal` porta le chiavi dati sulla
-versione corrente. Richiede `admin:KMSCreateKey`.
+With KES the key rotation happens on KES; `nexoctl admin kms reseal` moves the data keys to the
+current version. Requires `admin:KMSCreateKey`.
 
-## Cosa resta in chiaro
+## What stays in clear text
 
-- nomi di bucket e chiavi degli oggetti, dimensioni, date, metadati utente e tag;
-- l'MD5 (ETag) degli oggetti SSE-S3, come in S3.
+- bucket names and object keys, sizes, dates, user metadata and tags;
+- the MD5 (ETag) of SSE-S3 objects, as in S3.
 
-I checksum S3 (`x-amz-checksum-*`) degli oggetti cifrati sono sigillati con una chiave derivata da quella
-dell'oggetto. Le credenziali degli utenti IAM sono cifrate nei documenti di sistema del deployment.
+The S3 checksums (`x-amz-checksum-*`) of encrypted objects are sealed with a key derived from that of the
+object. The credentials of the IAM users are encrypted in the system documents of the deployment.
