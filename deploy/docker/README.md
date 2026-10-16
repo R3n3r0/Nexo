@@ -152,7 +152,7 @@ To terminate TLS at the edge instead, see [deploy/proxy](../proxy/).
 
 ### Cluster behind two proxies (distributions)
 
-`compose.multi-proxy.yml` is the deployment of docs/10 §10.2 "Dietro uno o più proxy": the same
+`compose.multi-proxy.yml` is the deployment of docs/10 §10.2 "Behind one or more proxies": the same
 4-node cluster (with its `/cache` volumes) behind two access points with their own domains, each
 proving with its own **origin secret** that a request came through it.
 

@@ -25,7 +25,7 @@ describe('distributions', () => {
   it('D-DST-01 lists the distributions with domains, certificates and traffic', async () => {
     open('/distributions');
     const table = await screen.findByRole('table', { name: 'Distributions' });
-    const row = within(table).getByRole('link', { name: 'sito-web' }).closest('tr') as HTMLElement;
+    const row = within(table).getByRole('link', { name: 'website' }).closest('tr') as HTMLElement;
     expect(within(row).getByText('www.example.com')).toBeInTheDocument();
     expect(within(row).getByText('*.preview.example.com')).toBeInTheDocument();
     expect(within(row).getByText('media/prod')).toBeInTheDocument();
@@ -50,7 +50,7 @@ describe('distributions', () => {
     await user.type(domains, 'www.example.com{Enter}');
     const states = await within(wizard).findByRole('list', { name: 'Availability of the domains' });
     expect(
-      await within(states).findByText('already served by the distribution sito-web'),
+      await within(states).findByText('already served by the distribution website'),
     ).toBeInTheDocument();
     await user.click(within(wizard).getByRole('button', { name: 'Next' }));
     expect(
@@ -98,10 +98,10 @@ describe('distributions', () => {
   it('TD-D-02 adds a behavior, saves with If-Match and tests a URL', async () => {
     const services = admin();
     // Without origin secret: the tester sends no header.
-    const sample = await services.distributions.get('sito-web');
+    const sample = await services.distributions.get('website');
     await services.distributions.update({ ...sample, restrictions: {} }, sample.etag);
     const update = vi.spyOn(services.distributions, 'update');
-    const { user } = open('/distributions/sito-web/behaviors', services);
+    const { user } = open('/distributions/website/behaviors', services);
     const behaviors = await screen.findByRole('table', { name: 'Behaviors of the distribution' });
     expect(within(behaviors).getByText('/assets/**')).toBeInTheDocument();
 
@@ -114,7 +114,7 @@ describe('distributions', () => {
     expect(await within(behaviors).findByText('/api/**')).toBeInTheDocument();
 
     const bar = screen.getByRole('region', { name: 'Unsaved changes' });
-    const before = await services.distributions.get('sito-web');
+    const before = await services.distributions.get('website');
     await user.click(within(bar).getByRole('button', { name: 'Save changes' }));
     await waitFor(() => {
       expect(update).toHaveBeenCalledTimes(1);
@@ -153,7 +153,7 @@ describe('distributions', () => {
 
   // covers: D-DST-06
   it('D-DST-06 rotates the origin secret and shows it once', async () => {
-    const { user } = open('/distributions/sito-web/security');
+    const { user } = open('/distributions/website/security');
     const secret = await screen.findByRole('region', { name: 'Origin secret' });
     await user.click(within(secret).getByRole('button', { name: 'Rotate secret' }));
     const reveal = await screen.findByRole('dialog', { name: 'Origin secret' });
@@ -173,7 +173,7 @@ describe('distributions', () => {
 
   // covers: D-DST-06
   it('D-DST-06 edits the client addresses and the rate limit, refusing an invalid address', async () => {
-    const { user, services } = open('/distributions/sito-web/security');
+    const { user, services } = open('/distributions/website/security');
     const ip = await screen.findByRole('region', { name: 'Client addresses' });
     const allow = within(ip).getByRole('textbox', { name: 'Allowed (IP or CIDR)' });
     // Read-only until the permissions are loaded.
@@ -206,7 +206,7 @@ describe('distributions', () => {
     await user.type(burst, '80');
     await user.click(save);
     await waitFor(async () => {
-      const d = await services.distributions.get('sito-web');
+      const d = await services.distributions.get('website');
       expect(d.restrictions?.sourceIp).toEqual({ allow: ['10.0.0.0/8'], deny: ['203.0.113.0/24'] });
       expect(d.restrictions?.rateLimit).toMatchObject({ requestsPerSecond: 50, burst: 80 });
     });

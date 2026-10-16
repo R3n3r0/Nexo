@@ -57,7 +57,7 @@ Nexo side.
    purge webhook of the distribution:
 
    ```bash
-   nexoctl cache webhook add local sito-web --domain www.example.com \
+   nexoctl cache webhook add local website --domain www.example.com \
      --type cloudflare --zone "$ZONE_ID" --token-file cf.token
    ```
 

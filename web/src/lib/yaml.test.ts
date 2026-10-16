@@ -15,25 +15,25 @@ function parsed(text: string): YamlValue {
 /** The access rules example of docs/10 §10.1, as written there. */
 const docsExample = `bucket: media
 rules:
-  - id: immagini-pubbliche
-    priority: 10                 # ordine di valutazione (più basso = prima)
+  - id: public-images
+    priority: 10                 # evaluation order (lower = first)
     effect: allow                # allow | deny
-    principals: ["*"]            # "*" = anonimo/tutti
+    principals: ["*"]            # "*" = anonymous/everyone
     actions: [read]
     match:
       type: regex                # prefix | glob | regex
       pattern: '^img/[0-9]{4}/.*\\.(jpe?g|png|webp)$'
       caseInsensitive: true
-    conditions:                  # opzionali
+    conditions:                  # optional
       sourceIp: ["10.0.0.0/8", "2001:db8::/32"]
       notSourceIp: []
       referer: ["https://*.example.com/*"]
-      host: ["cdn.example.com"]  # dominio con cui è arrivata la richiesta
+      host: ["cdn.example.com"]  # domain the request arrived on
       secureTransport: true
       timeWindow: { from: "2026-01-01T00:00:00Z", to: "2026-12-31T23:59:59Z" }
       methods: [GET, HEAD]
       headers: { "X-Origin-Secret": "\${secret:proxy-token}" }
-  - id: blocca-privati
+  - id: block-private
     priority: 5
     effect: deny
     principals: ["*"]
@@ -47,7 +47,7 @@ describe('parseYaml', () => {
       bucket: 'media',
       rules: [
         {
-          id: 'immagini-pubbliche',
+          id: 'public-images',
           priority: 10,
           effect: 'allow',
           principals: ['*'],
@@ -69,7 +69,7 @@ describe('parseYaml', () => {
           },
         },
         {
-          id: 'blocca-privati',
+          id: 'block-private',
           priority: 5,
           effect: 'deny',
           principals: ['*'],

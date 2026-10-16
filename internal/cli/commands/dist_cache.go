@@ -88,11 +88,11 @@ by default, see --behavior-type; the first matching behavior wins). Only the
 flags given change; --reset clears the settings of the level first (alone, it
 removes the override). The change reaches every node at once and drops the
 entries whose settings changed.`,
-		Example: `  nexoctl dist cache set local sito-web --policy standard
-  nexoctl dist cache set local sito-web --domain www.example.com --policy aggressive --quota 20GiB
-  nexoctl dist cache set local sito-web --domain '*.preview.example.com' --disable
-  nexoctl dist cache set local sito-web --behavior '/assets/**' --ttl-default 365d
-  nexoctl dist cache set local sito-web --behavior '/api/' --behavior-type prefix --disable`,
+		Example: `  nexoctl dist cache set local website --policy standard
+  nexoctl dist cache set local website --domain www.example.com --policy aggressive --quota 20GiB
+  nexoctl dist cache set local website --domain '*.preview.example.com' --disable
+  nexoctl dist cache set local website --behavior '/assets/**' --ttl-default 365d
+  nexoctl dist cache set local website --behavior '/api/' --behavior-type prefix --disable`,
 		Args:              exactArgs(2),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -266,7 +266,7 @@ func newDistCacheShowCmd(e *env) *cobra.Command {
 		Long: `Show the cache settings of a distribution, of its domains and paths, and the
 effective policy (with the level each part comes from) of a path (default /)
 of each exact domain, or of the domains given.`,
-		Example:           "  nexoctl dist cache show local sito-web --path /assets/app.js",
+		Example:           "  nexoctl dist cache show local website --path /assets/app.js",
 		Args:              exactArgs(2),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -324,7 +324,7 @@ func newDistCacheExportCmd(e *env) *cobra.Command {
 		Short: "Export the cache settings of a distribution as YAML",
 		Long: `Export the cache settings of a distribution (the document of "nexoctl dist cache
 import"); the secrets of the webhooks are masked, and kept by an import.`,
-		Example:           "  nexoctl dist cache export local sito-web -o sito-web-cache.yaml",
+		Example:           "  nexoctl dist cache export local website -o website-cache.yaml",
 		Args:              exactArgs(2),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -358,7 +358,7 @@ func newDistCacheImportCmd(e *env) *cobra.Command {
 		Long: `Replace the cache settings of the distributions of a YAML (or JSON) file of one
 or more documents (the format of "nexoctl dist cache export"), each naming its
 distribution.`,
-		Example:           "  nexoctl dist cache import local sito-web-cache.yaml",
+		Example:           "  nexoctl dist cache import local website-cache.yaml",
 		Args:              exactArgs(2),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -409,7 +409,7 @@ func newDistInvalidateCmd(e *env) *cobra.Command {
 		Long: `Invalidate the cached entries of a distribution on every node: the same as
 "nexoctl cache purge ALIAS ID" (paths, glob patterns, --prefix, --regex, --tag,
 --domain, --all, --soft, --wait).`,
-		Example:           "  nexoctl dist invalidate local sito-web '/assets/**' --wait",
+		Example:           "  nexoctl dist invalidate local website '/assets/**' --wait",
 		Args:              minArgs(2),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {

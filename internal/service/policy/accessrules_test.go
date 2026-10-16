@@ -35,7 +35,7 @@ func allowRule(id string) *policy.RuleMatch {
 }
 
 // TestAccessRulesSource checks how the engine combines the access rules
-// with the other sources (docs/10 §10.1 Valutazione).
+// with the other sources (docs/10 §10.1 Evaluation).
 func TestAccessRulesSource(t *testing.T) {
 	inline := mustPolicy(t, doc(`{"Effect":"Allow","Action":"s3:GetObject","Resource":"arn:aws:s3:::b/only/*"}`))
 	tests := []struct {
@@ -155,7 +155,7 @@ func TestAccessRulesFailClosed(t *testing.T) {
 // those carrying credentials.
 func TestRequestConditionsNexoKeys(t *testing.T) {
 	conds := policy.RequestConditions(policy.Request{
-		Host: "CDN.Example.com:9000", Method: "get", Distribution: "sito-web",
+		Host: "CDN.Example.com:9000", Method: "get", Distribution: "website",
 		HTTPHeaders: map[string][]string{
 			"X-Origin-Secret": {"s"}, "Authorization": {"AWS4..."}, "Cookie": {"c"}, "X-Amz-Security-Token": {"t"},
 			"X-Amz-Server-Side-Encryption-Customer-Key": {"k"}, "X-Amz-Server-Side-Encryption-Customer-Key-Md5": {"m"}, "Referer": {"r"},
@@ -163,7 +163,7 @@ func TestRequestConditionsNexoKeys(t *testing.T) {
 	})
 	assert.Equal(t, []string{"cdn.example.com"}, conds[policy.KeyHost])
 	assert.Equal(t, []string{"GET"}, conds[policy.KeyMethod])
-	assert.Equal(t, []string{"sito-web"}, conds[policy.KeyDistribution])
+	assert.Equal(t, []string{"website"}, conds[policy.KeyDistribution])
 	assert.Equal(t, []string{"s"}, conds[policy.KeyHeaderPrefix+"x-origin-secret"])
 	assert.Equal(t, []string{"m"}, conds[policy.KeyHeaderPrefix+"x-amz-server-side-encryption-customer-key-md5"])
 	assert.Equal(t, []string{"r"}, conds[policy.KeyHeaderPrefix+"referer"])

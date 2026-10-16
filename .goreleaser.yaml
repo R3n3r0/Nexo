@@ -369,7 +369,7 @@ dockers_v2:
   - id: nexo
     ids: [nexo, nexoctl]
     dockerfile: deploy/docker/Dockerfile.goreleaser
-    extra_files: [LICENSE]
+    extra_files: [LICENSE, NOTICE, COMMERCIAL-LICENSE.md]
     images:
       - ghcr.io/r3n3r0/nexo
     tags:
@@ -396,7 +396,7 @@ dockers_v2:
   - id: nexoctl
     ids: [nexoctl]
     dockerfile: deploy/docker/Dockerfile.nexoctl.goreleaser
-    extra_files: [LICENSE]
+    extra_files: [LICENSE, NOTICE, COMMERCIAL-LICENSE.md]
     images:
       - ghcr.io/r3n3r0/nexoctl
     tags:

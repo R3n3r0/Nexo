@@ -133,7 +133,7 @@ func TestHostRouterCache(t *testing.T) {
 
 	// The S3 mode on a domain begins an exchange; the API does not.
 	n := len(begun)
-	w = serve("http://s3.cliente.it/key", nil)
+	w = serve("http://s3.customer.it/key", nil)
 	assert.Equal(t, "s3 on domain", w.Body.String())
 	require.Len(t, begun, n+1)
 	assert.Equal(t, "s3d", begun[n].Distribution.ID)

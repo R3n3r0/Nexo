@@ -35,10 +35,10 @@ func publicBucketPolicy(t *testing.T, f *fixture) *domain.Policy {
 func TestPrecedence(t *testing.T) {
 	f := newFixture(t)
 	f.put(
-		rule("blocca-privati", 5, deny, list("*"), list("all"), globP("**/private/**"), nil),
+		rule("block-private", 5, deny, list("*"), list("all"), globP("**/private/**"), nil),
 		rule("mario-docs", 10, allow, list("user:mario"), list("read", "write"), prefixP("docs/"), nil),
 		rule("all-for-ops", 20, allow, list("group:ops"), list("all"), nil, nil),
-		rule("immagini-pubbliche", 30, allow, list("*"), list("read"), regexP(`^img/[0-9]{4}/.*\.(jpe?g|png|webp)$`), nil),
+		rule("public-images", 30, allow, list("*"), list("read"), regexP(`^img/[0-9]{4}/.*\.(jpe?g|png|webp)$`), nil),
 	)
 	inline := &domain.Policy{Version: "2012-10-17", Statement: []domain.Statement{{
 		Effect: domain.Allow, Action: domain.StringSet{"s3:GetObject"}, Resource: domain.StringSet{"arn:aws:s3:::media/docs/a.txt"},
@@ -60,11 +60,11 @@ func TestPrecedence(t *testing.T) {
 		inReason string
 	}{
 		{name: "deny rule beats IAM readwrite", r: req{id: user("luigi", list("readwrite")), key: "a/private/x"},
-			allowed: false, source: policy.SourceAccessRule, ruleID: "blocca-privati"},
+			allowed: false, source: policy.SourceAccessRule, ruleID: "block-private"},
 		{name: "IAM readwrite elsewhere", r: req{id: user("luigi", list("readwrite")), key: "a/public/x"},
 			allowed: true, source: policy.SourceIAM},
 		{name: "deny rule beats the bucket policy", r: req{id: domain.Anonymous(), key: "private/x", bucket: publicBucketPolicy(t, f)},
-			allowed: false, source: policy.SourceAccessRule, ruleID: "blocca-privati"},
+			allowed: false, source: policy.SourceAccessRule, ruleID: "block-private"},
 		{name: "bucket policy elsewhere", r: req{id: domain.Anonymous(), key: "other/x", bucket: publicBucketPolicy(t, f)},
 			allowed: true, source: policy.SourceBucket},
 		{name: "allow rule without IAM policy", r: req{id: user("mario", nil), key: "docs/report.pdf"},
@@ -74,11 +74,11 @@ func TestPrecedence(t *testing.T) {
 		{name: "allow rule does not cover delete", r: req{id: user("mario", nil), action: policy.ActionDeleteObject, key: "docs/new.pdf"},
 			allowed: false, inReason: "no policy or access rule"},
 		{name: "deny rule beats the allow rule", r: req{id: user("mario", nil), key: "docs/private/x"},
-			allowed: false, source: policy.SourceAccessRule, ruleID: "blocca-privati"},
+			allowed: false, source: policy.SourceAccessRule, ruleID: "block-private"},
 		{name: "another user", r: req{id: user("luigi", nil), key: "docs/report.pdf"}, allowed: false},
 		{name: "anonymous allowed by a public rule", r: req{id: domain.Anonymous(), key: "img/2026/a.JPG"}, allowed: false},
 		{name: "anonymous allowed by a public rule (case)", r: req{id: domain.Anonymous(), key: "img/2026/a.jpg"},
-			allowed: true, source: policy.SourceAccessRule, ruleID: "immagini-pubbliche"},
+			allowed: true, source: policy.SourceAccessRule, ruleID: "public-images"},
 		{name: "anonymous elsewhere", r: req{id: domain.Anonymous(), key: "docs/report.pdf"}, allowed: false,
 			inReason: "not granted by the bucket policy or an access rule"},
 		{name: "IAM deny beats an allow rule", r: req{id: iamDeny, key: "docs/a.txt"},
@@ -218,7 +218,7 @@ func TestConditions(t *testing.T) {
 			&accessrule.Conditions{Methods: list("get", "HEAD")}),
 		rule("proxy", 17, allow, list("*"), list("read"), prefixP("proxied/"),
 			&accessrule.Conditions{Headers: map[string]string{"X-Origin-Secret": "${secret:proxy-token}"}}),
-		rule("dist", 18, allow, list("distribution:sito-*"), list("read"), prefixP("site/"), nil),
+		rule("dist", 18, allow, list("distribution:web*"), list("read"), prefixP("site/"), nil),
 		rule("keys", 19, allow, list("accesskey:AKIA*", "user:team-?"), list("read"), prefixP("team/"), nil),
 		rule("deny-outside", 1, deny, list("*"), list("all"), prefixP("vault/"),
 			&accessrule.Conditions{NotSourceIP: list("192.168.1.0/24")}),
@@ -264,7 +264,7 @@ func TestConditions(t *testing.T) {
 		{"header with the secret", req{id: anon, key: "proxied/a", headers: map[string]string{"x-origin-secret": "s3cr3t"}}, true},
 		{"header wrong", req{id: anon, key: "proxied/a", headers: map[string]string{"X-Origin-Secret": "guess"}}, false},
 		{"header missing", req{id: anon, key: "proxied/a"}, false},
-		{"distribution", req{id: anon, key: "site/index.html", dist: "sito-web"}, true},
+		{"distribution", req{id: anon, key: "site/index.html", dist: "website"}, true},
 		{"other distribution", req{id: anon, key: "site/index.html", dist: "blog"}, false},
 		{"no distribution", req{id: anon, key: "site/index.html"}, false},
 		{"access key wildcard", req{id: &domain.Identity{AccessKey: "AKIA123", Parent: "x"}, key: "team/a"}, true},

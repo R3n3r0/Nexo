@@ -1,125 +1,126 @@
-# 8. Modalità di esecuzione e rilascio
+# 8. Deployment modes and release
 
-Nexo ha **due modalità**, entrambe di prima classe, con lo **stesso binario** e la **stessa immagine Docker**:
-la modalità si deduce dagli argomenti di avvio, senza flag dedicati né build diverse.
+Nexo has **two modes**, both first-class, with the **same binary** and the **same Docker image**:
+the mode is inferred from the startup arguments, with no dedicated flags or different builds.
 
-| Modalità | Varianti | Uso tipico |
+| Mode | Variants | Typical use |
 |----------|----------|------------|
-| **Singolo nodo** | **SNSD** (Single-Node Single-Drive): 1 directory, nessun erasure coding | Sviluppo, test, edge, piccoli volumi |
-| | **SNMD** (Single-Node Multi-Drive): N dischi su 1 nodo, erasure coding | Server unico con più dischi, tolleranza ai guasti dei dischi |
-| **Cluster** | **MNMD** (Multi-Node Multi-Drive): N nodi × M dischi, uno o più pool | Produzione, alta disponibilità, scalabilità |
+| **Single node** | **SNSD** (Single-Node Single-Drive): 1 directory, no erasure coding | Development, testing, edge, small volumes |
+| | **SNMD** (Single-Node Multi-Drive): N drives on 1 node, erasure coding | A single server with several drives, drive fault tolerance |
+| **Cluster** | **MNMD** (Multi-Node Multi-Drive): N nodes × M drives, one or more pools | Production, high availability, scalability |
 
-Tutte le funzionalità (S3, IAM, policy, URL presigned, versioning, lifecycle, eventi, SSE, dashboard, CLI)
-sono disponibili in **tutte** le modalità. Le uniche differenze:
+All features (S3, IAM, policies, presigned URLs, versioning, lifecycle, events, SSE, dashboard, CLI) are available in
+**all** modes. The only differences:
 
-| Funzionalità | SNSD | SNMD | Cluster |
+| Feature | SNSD | SNMD | Cluster |
 |--------------|------|------|---------|
-| API S3, IAM, policy, presigned, POST policy | ✅ | ✅ | ✅ |
-| Dashboard web e CLI | ✅ | ✅ | ✅ |
-| Versioning, object lock, lifecycle, SSE, eventi, quota | ✅ | ✅ | ✅ |
-| Tolleranza al guasto di dischi | ❌ (affidata al sottosistema di storage) | ✅ fino a P dischi | ✅ fino a P dischi per set |
-| Tolleranza al guasto di nodi | ❌ | ❌ | ✅ |
-| Bitrot detection | ✅ (hash) / riparazione ❌ | ✅ con riparazione | ✅ con riparazione |
+| S3 API, IAM, policies, presigned, POST policy | ✅ | ✅ | ✅ |
+| Web dashboard and CLI | ✅ | ✅ | ✅ |
+| Versioning, object lock, lifecycle, SSE, events, quotas | ✅ | ✅ | ✅ |
+| Drive fault tolerance | ❌ (left to the storage subsystem) | ✅ up to P drives | ✅ up to P drives per set |
+| Node fault tolerance | ❌ | ❌ | ✅ |
+| Bitrot detection | ✅ (hash) / repair ❌ | ✅ with repair | ✅ with repair |
 | Healing | — | ✅ | ✅ |
-| Lock distribuiti, RPC internode | — (lock locali) | — (lock locali) | ✅ |
-| Espansione | ❌ | ➜ migrazione | ✅ aggiunta di pool |
-| Pagina dashboard "Cluster" | Mostra 1 nodo/1 disco | Mostra 1 nodo e i dischi | Pool, nodi, dischi, set |
+| Distributed locks, internode RPC | — (local locks) | — (local locks) | ✅ |
+| Expansion | ❌ | ➜ migration | ✅ adding pools |
+| "Cluster" dashboard page | Shows 1 node/1 drive | Shows 1 node and its drives | Pools, nodes, drives, sets |
 
-## 8.1 Rilevamento della modalità
+## 8.1 Mode detection
 
 ```
 nexo server /data                                   → SNSD
-nexo server /data{1...4}                            → SNMD (EC su 4 dischi)
+nexo server /data{1...4}                            → SNMD (EC on 4 drives)
 nexo server http://node{1...4}:9000/data{1...4}     → Cluster (1 pool)
 ```
 
-- Regole: tutti path locali e 1 solo → SNSD; tutti path locali e > 1 → SNMD; almeno un URL → Cluster
-  (tutti gli endpoint devono essere URL e il nodo deve riconoscere i propri tramite IP/hostname locali).
-- La modalità è registrata in `format.json` (`"mode": "snsd" | "erasure"`): avviare un disco SNSD con una topologia
-  erasure (o viceversa) fallisce con un errore esplicativo.
-- La dashboard e `nexoctl admin info` mostrano sempre la modalità corrente.
+- Rules: all local paths and only 1 → SNSD; all local paths and > 1 → SNMD; at least one URL → Cluster
+  (all endpoints must be URLs and the node must recognize its own through local IPs/hostnames).
+- The mode is recorded in `format.json` (`"mode": "snsd" | "erasure"`): starting an SNSD drive with an erasure
+  topology (or vice versa) fails with an explanatory error.
+- The dashboard and `nexoctl admin info` always show the current mode.
 
-### Implementazione
-- `ObjectLayer` ha due implementazioni sotto la stessa interfaccia:
-  - `fsObjects` (SNSD): mappa diretta su file system, `xl.meta` per metadati/versioni, nessun encoding;
-  - `ServerPools → ErasureSets → ErasureObjects` (SNMD e Cluster).
-- In SNMD lo `StorageAPI` è sempre locale e il locker è locale: nessun RPC avviato, nessun overhead di rete.
-- In Cluster gli stessi componenti usano `storageRESTClient` e `dsync`.
-- **Tutta la suite di test S3/IAM/presigned/dashboard/CLI viene eseguita in tutte e tre le modalità** (vedi §8.6).
+### Implementation
+- `ObjectLayer` has two implementations behind the same interface:
+  - `fsObjects` (SNSD): direct mapping onto the file system, `xl.meta` for metadata/versions, no encoding;
+  - `ServerPools → ErasureSets → ErasureObjects` (SNMD and Cluster).
+- In SNMD the `StorageAPI` is always local and the locker is local: no RPC started, no network overhead.
+- In Cluster the same components use `storageRESTClient` and `dsync`.
+- **The whole S3/IAM/presigned/dashboard/CLI test suite runs in all three modes** (see §8.6).
 
-## 8.2 Migrazione tra modalità
-| Da → A | Procedura |
+## 8.2 Migration between modes
+| From → To | Procedure |
 |--------|-----------|
-| SNSD → SNMD/Cluster | `nexoctl mirror --preserve old/ new/` + `nexoctl admin export/import` di IAM, config e metadati bucket (policy, lifecycle, eventi…) |
-| SNMD → Cluster | Come sopra, oppure aggiunta di un pool cluster e decommission del pool SNMD (P2) |
-| Cluster → Cluster più grande | Aggiunta di pool (nessuna migrazione) |
+| SNSD → SNMD/Cluster | `nexoctl mirror --preserve old/ new/` + `nexoctl admin export/import` of IAM, config and bucket metadata (policies, lifecycle, events…) |
+| SNMD → Cluster | As above, or adding a cluster pool and decommissioning the SNMD pool (P2) |
+| Cluster → larger Cluster | Adding pools (no migration) |
 
-Comandi dedicati: `nexoctl admin cluster export ALIAS > backup.zip` (IAM + config + metadati di tutti i bucket)
-e `nexoctl admin cluster import ALIAS backup.zip` (`--dry-run`, `--mode merge|replace`). L'import va eseguito
-prima del `mirror --preserve`: crea i bucket con il loro versioning, così il target conserva tutte le versioni
-copiate (un bucket target senza versioning con più versioni da copiare è rifiutato). Verificato da TM-04
+Dedicated commands: `nexoctl admin cluster export ALIAS > backup.zip` (IAM + config + metadata of all buckets) and
+`nexoctl admin cluster import ALIAS backup.zip` (`--dry-run`, `--mode merge|replace`). The import must run before
+`mirror --preserve`: it creates the buckets with their versioning, so the target keeps all the copied versions (a
+target bucket without versioning with several versions to copy is rejected). Verified by TM-04
 (`test/integration/migration_test.go`).
 
-## 8.3 Distribuzione come binario
+## 8.3 Distribution as a binary
 
-| Artefatto | Contenuto |
+| Artifact | Contents |
 |-----------|-----------|
-| `nexo` | Server + dashboard React embedded (statico, `CGO_ENABLED=0`) |
-| `nexoctl` | CLI (statica) |
-| Piattaforme | linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64 (`nexoctl` anche windows/arm64) |
-| Pacchetti | `.tar.gz`/`.zip`, `.deb`/`.rpm` (`nexo` con unit systemd e `nexoctl` con i completamenti della shell), cask Homebrew, checksum SHA256 firmati con cosign, SBOM SPDX (dettaglio in §8.7) |
+| `nexo` | Server + embedded React dashboard (static, `CGO_ENABLED=0`) |
+| `nexoctl` | CLI (static) |
+| Platforms | linux/amd64, linux/arm64, darwin/amd64, darwin/arm64, windows/amd64 (`nexoctl` also windows/arm64) |
+| Packages | `.tar.gz`/`.zip`, `.deb`/`.rpm` (`nexo` with the systemd unit and `nexoctl` with shell completions), Homebrew cask, SHA256 checksums signed with cosign, SPDX SBOM (details in §8.7) |
 
-Esempi:
+Examples:
 
 ```bash
-# Singolo nodo
-NEXO_ROOT_USER=admin NEXO_ROOT_PASSWORD=supersegreta ./nexo server /srv/nexo
+# Single node
+NEXO_ROOT_USER=admin NEXO_ROOT_PASSWORD=supersecret ./nexo server /srv/nexo
 # Console: http://localhost:9001   S3: http://localhost:9000
 
-# Cluster (stesso comando su ogni nodo)
+# Cluster (same command on every node)
 ./nexo server http://nexo{1...4}.lan:9000/mnt/disk{1...4}
 
 # CLI
-./nexoctl alias set local http://localhost:9000 admin supersegreta
-./nexoctl mb local/foto && ./nexoctl cp img.jpg local/foto/
-./nexoctl share download --expire 2h local/foto/img.jpg
+./nexoctl alias set local http://localhost:9000 admin supersecret
+./nexoctl mb local/photos && ./nexoctl cp img.jpg local/photos/
+./nexoctl share download --expire 2h local/photos/img.jpg
 ```
 
-Il binario include `nexo version`, `nexo server --help` con esempi per ogni modalità e un check di avvio
-(`nexo server --dry-run …`) che valida topologia, permessi dei dischi, porte e certificati senza avviare il servizio.
+The binary includes `nexo version`, `nexo server --help` with examples for each mode, and a startup check
+(`nexo server --dry-run …`) that validates topology, drive permissions, ports and certificates without starting the
+service.
 
-## 8.4 Distribuzione con Docker
+## 8.4 Distribution with Docker
 
-### Immagini
-| Immagine | Base | Contenuto |
+### Images
+| Image | Base | Contents |
 |----------|------|-----------|
-| `ghcr.io/r3n3r0/nexo` | `gcr.io/distroless/static:nonroot` | `nexo` + `nexoctl` (utile per `docker exec`) |
-| `ghcr.io/r3n3r0/nexoctl` | `distroless/static` | Solo CLI, per pipeline CI e uso da container |
+| `ghcr.io/r3n3r0/nexo` | `gcr.io/distroless/static:nonroot` | `nexo` + `nexoctl` (useful for `docker exec`) |
+| `ghcr.io/r3n3r0/nexoctl` | `distroless/static` | CLI only, for CI pipelines and use from containers |
 
-- Multi-arch (amd64/arm64), firmate con cosign, SBOM allegato, tag `latest`, `vX.Y.Z`, `vX.Y`.
-- Utente non-root (UID 65532), `VOLUME /data`, `EXPOSE 9000 9001`, `HEALTHCHECK` con `nexo healthcheck`
-  (sottocomando interno, perché l'immagine distroless non ha `curl`): sonda la console su loopback e, con
-  `NEXO_CERTS_DIR` (o `--certs-dir`), passa a HTTPS fidandosi di `public.crt` e `CAs/` della directory e
-  verificando la catena ma non i nomi (il certificato copre i nomi dei nodi e quelli pubblici, di rado
-  `127.0.0.1`); con `--url` esplicito la verifica TLS è completa.
-- Segreti supportati tramite `NEXO_ROOT_USER_FILE` / `NEXO_ROOT_PASSWORD_FILE` (Docker/Swarm secrets).
+- Multi-arch (amd64/arm64), signed with cosign, SBOM attached, tags `latest`, `vX.Y.Z`, `vX.Y`.
+- Non-root user (UID 65532), `VOLUME /data`, `EXPOSE 9000 9001`, `HEALTHCHECK` with `nexo healthcheck` (an internal
+  subcommand, because the distroless image has no `curl`): it probes the console on loopback and, with
+  `NEXO_CERTS_DIR` (or `--certs-dir`), switches to HTTPS trusting the directory's `public.crt` and `CAs/` and
+  verifying the chain but not the names (the certificate covers the node names and the public ones, rarely
+  `127.0.0.1`); with an explicit `--url` the TLS verification is complete.
+- Secrets supported through `NEXO_ROOT_USER_FILE` / `NEXO_ROOT_PASSWORD_FILE` (Docker/Swarm secrets).
 
-### Singolo nodo
+### Single node
 ```bash
 docker run -d --name nexo -p 9000:9000 -p 9001:9001 \
-  -e NEXO_ROOT_USER=admin -e NEXO_ROOT_PASSWORD=supersegreta \
+  -e NEXO_ROOT_USER=admin -e NEXO_ROOT_PASSWORD=supersecret \
   -v nexo-data:/data ghcr.io/r3n3r0/nexo server /data
 
-# SNMD: più volumi
+# SNMD: several volumes
 docker run -d -p 9000:9000 -p 9001:9001 \
   -v /mnt/d1:/data1 -v /mnt/d2:/data2 -v /mnt/d3:/data3 -v /mnt/d4:/data4 \
   --env-file nexo.env ghcr.io/r3n3r0/nexo server /data{1...4}
 
-# CLI dal container
+# CLI from the container
 docker run --rm -it --network host ghcr.io/r3n3r0/nexoctl ls local
 ```
 
-### Cluster con Docker Compose (`deploy/docker/compose.cluster.yml`)
+### Cluster with Docker Compose (`deploy/docker/compose.cluster.yml`)
 ```yaml
 x-nexo: &nexo
   image: ghcr.io/r3n3r0/nexo:latest
@@ -133,218 +134,217 @@ services:
   nexo2: { <<: *nexo, hostname: nexo2, volumes: [d2-1:/data1, d2-2:/data2] }
   nexo3: { <<: *nexo, hostname: nexo3, volumes: [d3-1:/data1, d3-2:/data2] }
   nexo4: { <<: *nexo, hostname: nexo4, volumes: [d4-1:/data1, d4-2:/data2] }
-  lb:                       # nginx davanti ai 4 nodi per S3 (9000) e console (9001)
+  lb:                       # nginx in front of the 4 nodes for S3 (9000) and console (9001)
     image: nginx:1.27-alpine
     ports: ["9000:9000", "9001:9001"]
     volumes: [./nginx.conf:/etc/nginx/nginx.conf:ro]
 volumes: { d1-1: {}, d1-2: {}, d2-1: {}, d2-2: {}, d3-1: {}, d3-2: {}, d4-1: {}, d4-2: {} }
 ```
 
-File forniti in `deploy/docker/`:
-| File | Scopo |
+Files provided in `deploy/docker/`:
+| File | Purpose |
 |------|-------|
-| `compose.single.yml` | SNSD con volume nominato |
-| `compose.snmd.yml` | SNMD con 4 volumi |
-| `compose.cluster.yml` + `nginx.conf` | Cluster 4 nodi × 2 dischi con load balancer (sticky non necessario) |
-| `compose.cluster-tls.yml` | Cluster con TLS (certificati montati in `/certs`) |
-| `compose.multi-proxy.yml` + `multi-proxy/` | Cluster 4 nodi × 2 dischi dietro **due proxy** (nginx con `X-Forwarded-*`, HAProxy con PROXY protocol v2), domini e origin secret diversi, volume `/cache` per nodo (§8.5) |
-| `compose.observability.yml` | Prometheus + Grafana con dashboard Nexo preconfigurate |
+| `compose.single.yml` | SNSD with a named volume |
+| `compose.snmd.yml` | SNMD with 4 volumes |
+| `compose.cluster.yml` + `nginx.conf` | 4-node × 2-drive cluster with a load balancer (stickiness not required) |
+| `compose.cluster-tls.yml` | Cluster with TLS (certificates mounted in `/certs`) |
+| `compose.multi-proxy.yml` + `multi-proxy/` | 4-node × 2-drive cluster behind **two proxies** (nginx with `X-Forwarded-*`, HAProxy with PROXY protocol v2), different domains and origin secrets, a `/cache` volume per node (§8.5) |
+| `compose.observability.yml` | Prometheus + Grafana with preconfigured Nexo dashboards |
 
-### Altri orchestratori
-- **Docker Swarm** ([`deploy/swarm/stack.yml`](../deploy/swarm/README.md)): 4 nodi × 2 dischi, ogni servizio
-  legato al suo nodo Swarm con `deploy.placement` (`node.labels.nexo.node`), così i volumi nominati lo seguono;
-  `endpoint_mode: dnsrr` (indirizzo del task, niente VIP IPVS sulle connessioni internode), credenziali come
-  Docker secret (`NEXO_ROOT_*_FILE`), rete overlay cifrata, due nginx con la configurazione di
-  `compose.cluster.yml`, aggiornamenti un nodo alla volta.
-- **Kubernetes** ([`deploy/helm/nexo`](../deploy/helm/nexo/README.md)): `mode: standalone` (Deployment con un
-  PVC per disco: SNSD o SNMD) oppure `mode: distributed` (StatefulSet `Parallel` con `replicas × pools` pod e
-  `drivesPerNode` PVC ciascuno, headless service che pubblica i pod non ancora pronti, endpoint con ellissi
-  generati dal template, PodDisruptionBudget, anti-affinity, probe su `/nexo/health/live|ready`, utente non
-  root e file system in sola lettura, Secret per credenziali e KMS, TLS da Secret `kubernetes.io/tls`,
-  ServiceMonitor, Ingress per S3/console/distribuzioni, volume della cache, `helm test` con health del
-  cluster e round trip S3).
-- **systemd** ([`deploy/systemd`](../deploy/systemd/README.md)): unit con sandbox (`ProtectSystem=strict`,
-  nessuna capability, filtro delle syscall: esposizione 1,5 "OK" per `systemd-analyze security`),
-  `/etc/default/nexo`, istruzioni per il cluster su più macchine.
+### Other orchestrators
+- **Docker Swarm** ([`deploy/swarm/stack.yml`](../deploy/swarm/README.md)): 4 nodes × 2 drives, each service bound to
+  its Swarm node with `deploy.placement` (`node.labels.nexo.node`), so the named volumes follow it;
+  `endpoint_mode: dnsrr` (task address, no IPVS VIP on the internode connections), credentials as Docker secrets
+  (`NEXO_ROOT_*_FILE`), encrypted overlay network, two nginx with the configuration of `compose.cluster.yml`, updates
+  one node at a time.
+- **Kubernetes** ([`deploy/helm/nexo`](../deploy/helm/nexo/README.md)): `mode: standalone` (Deployment with one PVC per
+  drive: SNSD or SNMD) or `mode: distributed` (`Parallel` StatefulSet with `replicas × pools` pods and
+  `drivesPerNode` PVCs each, a headless service that publishes pods not yet ready, endpoints with ellipses generated
+  by the template, PodDisruptionBudget, anti-affinity, probes on `/nexo/health/live|ready`, non-root user and
+  read-only file system, Secrets for credentials and KMS, TLS from a `kubernetes.io/tls` Secret, ServiceMonitor,
+  Ingress for S3/console/distributions, cache volume, `helm test` with cluster health and an S3 round trip).
+- **systemd** ([`deploy/systemd`](../deploy/systemd/README.md)): sandboxed unit (`ProtectSystem=strict`, no
+  capabilities, syscall filter: exposure 1.5 "OK" for `systemd-analyze security`), `/etc/default/nexo`,
+  instructions for a cluster on several machines.
 
-## 8.5 Reverse proxy e URL pubblici
-Fondamentale perché gli **URL presigned** restino validi dietro proxy/load balancer:
-- la firma SigV4 include l'header `Host`: il proxy deve inoltrarlo invariato, porta inclusa
-  (`proxy_set_header Host $http_host`); lo stesso header sceglie la distribuzione (docs/10 §10.2);
-- `NEXO_SERVER_URL` (es. `https://s3.example.com`) è l'URL pubblico usato da console e CLI per generare link
-  condivisibili; `NEXO_BROWSER_REDIRECT_URL` è l'URL pubblico della console;
-- il client reale (indirizzo e HTTPS) arriva da proxy fidati (`NEXO_TRUSTED_PROXIES`) in **una** famiglia di
-  header, scelta con `NEXO_FORWARDED_HEADERS`: `x-forwarded` (default: `X-Forwarded-For/Proto/Host`) oppure
-  `forwarded` (RFC 7239); l'altra famiglia è ignorata, perché un proxy la inoltra così come l'ha mandata il
-  client. `X-Forwarded-For` è letto da destra: le voci aggiunte dal client a sinistra non contano;
-- in alternativa il **PROXY protocol** v1/v2 sui listener elencati in `NEXO_PROXY_PROTOCOL` (`s3`, `console`,
-  `web`): l'header è letto prima del TLS, usato solo se la connessione viene da un proxy fidato (letto e
-  ignorato altrimenti) e facoltativo (un proxy fidato che manda `X-Forwarded-*`, le RPC internode e gli
-  health check si connettono senza); il TLV SSL di `send-proxy-v2-ssl` rende la richiesta HTTPS;
-- body illimitato, niente buffering, timeout lunghi; `/nexo/rpc/` mai esposto sul dominio pubblico;
-- un nodo che si sta fermando risponde `503` (anche `/nexo/health/ready`) finché gli health check non lo tolgono
-  dal giro: il proxy ritenta le letture su un altro nodo (nginx `proxy_next_upstream ... http_503`, HAProxy
-  `retry-on ... 503` limitato a `GET/HEAD/OPTIONS`), gli SDK S3 ritentano le scritture.
+## 8.5 Reverse proxies and public URLs
+Essential so that **presigned URLs** stay valid behind a proxy/load balancer:
+- the SigV4 signature includes the `Host` header: the proxy must forward it unchanged, port included
+  (`proxy_set_header Host $http_host`); the same header selects the distribution (docs/10 §10.2);
+- `NEXO_SERVER_URL` (e.g. `https://s3.example.com`) is the public URL used by the console and the CLI to generate
+  shareable links; `NEXO_BROWSER_REDIRECT_URL` is the public URL of the console;
+- the real client (address and HTTPS) comes from trusted proxies (`NEXO_TRUSTED_PROXIES`) in **one** header family,
+  chosen with `NEXO_FORWARDED_HEADERS`: `x-forwarded` (default: `X-Forwarded-For/Proto/Host`) or `forwarded`
+  (RFC 7239); the other family is ignored, because a proxy forwards it as the client sent it. `X-Forwarded-For` is
+  read from the right: entries added by the client on the left do not count;
+- alternatively the **PROXY protocol** v1/v2 on the listeners listed in `NEXO_PROXY_PROTOCOL` (`s3`, `console`,
+  `web`): the header is read before TLS, used only if the connection comes from a trusted proxy (read and ignored
+  otherwise) and optional (a trusted proxy sending `X-Forwarded-*`, internode RPCs and health checks connect
+  without it); the SSL TLV of `send-proxy-v2-ssl` makes the request HTTPS;
+- unlimited body, no buffering, long timeouts; `/nexo/rpc/` never exposed on the public domain;
+- a node that is stopping answers `503` (including `/nexo/health/ready`) until the health checks take it out of
+  rotation: the proxy retries reads on another node (nginx `proxy_next_upstream ... http_503`, HAProxy
+  `retry-on ... 503` limited to `GET/HEAD/OPTIONS`), the S3 SDKs retry writes.
 
-Configurazioni complete e commentate in `deploy/proxy/` (nginx, Caddy, Traefik, HAProxy, Cloudflare) per S3,
-console e distribuzioni, con l'**origin secret** di ogni proxy (docs/10 §10.2).
+Complete, commented configurations in `deploy/proxy/` (nginx, Caddy, Traefik, HAProxy, Cloudflare) for S3, console
+and distributions, with the **origin secret** of each proxy (docs/10 §10.2).
 
-### Più proxy davanti allo stesso cluster (`compose.multi-proxy.yml`)
-| Servizio | Proxy | Domini | Client verso Nexo |
+### Several proxies in front of the same cluster (`compose.multi-proxy.yml`)
+| Service | Proxy | Domains | Client towards Nexo |
 |----------|-------|--------|-------------------|
-| `proxy-a` | nginx (`multi-proxy/nginx.conf.template`) | `s3.alpha.example` (S3), `console.alpha.example`, `*.alpha.example` (distribuzioni) | `X-Forwarded-*` |
-| `proxy-b` | HAProxy (`multi-proxy/haproxy.cfg`) | `*.beta.example` (distribuzioni) | PROXY protocol v2 con TLV SSL |
+| `proxy-a` | nginx (`multi-proxy/nginx.conf.template`) | `s3.alpha.example` (S3), `console.alpha.example`, `*.alpha.example` (distributions) | `X-Forwarded-*` |
+| `proxy-b` | HAProxy (`multi-proxy/haproxy.cfg`) | `*.beta.example` (distributions) | PROXY protocol v2 with SSL TLV |
 
-- I nodi si fidano solo dei due proxy (indirizzi fissi sulla rete compose, fuori dall'`ip_range` assegnato ai
-  nodi) e accettano il PROXY protocol sulla porta S3 (`NEXO_PROXY_PROTOCOL=s3`).
-- Ogni proxy aggiunge il proprio `X-Origin-Secret`; le distribuzioni lo referenziano per nome
-  (`${secret:proxy-a}`, `${secret:proxy-b}`), risolto su ogni nodo da `NEXO_SECRET_PROXY_A/B` (valori in `.env`):
-  una richiesta che arriva a un nodo senza uno dei due segreti è rifiutata (403).
-- Volume `/cache` per nodo (cache delle distribuzioni, docs/11).
-- `multi-proxy/gen-certs.sh` crea CA e certificati di sviluppo dei due proxy, `multi-proxy/site.yaml` due
-  distribuzioni d'esempio (website e s3) servite da entrambi.
+- The nodes trust only the two proxies (fixed addresses on the compose network, outside the `ip_range` assigned to
+  the nodes) and accept the PROXY protocol on the S3 port (`NEXO_PROXY_PROTOCOL=s3`).
+- Each proxy adds its own `X-Origin-Secret`; the distributions reference it by name (`${secret:proxy-a}`,
+  `${secret:proxy-b}`), resolved on each node from `NEXO_SECRET_PROXY_A/B` (values in `.env`): a request that reaches
+  a node without one of the two secrets is rejected (403).
+- A `/cache` volume per node (distribution cache, docs/11).
+- `multi-proxy/gen-certs.sh` creates the CA and development certificates of the two proxies, `multi-proxy/site.yaml`
+  two example distributions (website and s3) served by both.
 
-Verifica: `make test-proxy` (`test/proxy`, build tag `proxy`, job CI `proxy`) esegue TCD-01..03, TCC-C-05 e
-TPS-19 sui domini custom con due proxy Go in-process (uno `X-Forwarded-*`, uno PROXY protocol v2) in SNSD,
-SNMD e cluster, e gli **stessi file** nginx/HAProxy di `compose.multi-proxy.yml` con i binari reali davanti a un
-cluster di 4 nodi (`TestRealProxies`; job CI con `NEXO_PROXY_REAL=1`). Il job `deploy-files` valida inoltre
-la sintassi di tutte le configurazioni di `deploy/proxy` e del compose (`nginx -t`, `haproxy -c`,
-`caddy validate`, `docker compose config`).
+Verification: `make test-proxy` (`test/proxy`, build tag `proxy`, CI job `proxy`) runs TCD-01..03, TCC-C-05 and
+TPS-19 on custom domains with two in-process Go proxies (one `X-Forwarded-*`, one PROXY protocol v2) in SNSD, SNMD
+and cluster, and the **same** nginx/HAProxy **files** as `compose.multi-proxy.yml` with the real binaries in front of
+a 4-node cluster (`TestRealProxies`; CI job with `NEXO_PROXY_REAL=1`). The `deploy-files` job also validates the
+syntax of all the configurations in `deploy/proxy` and of the compose (`nginx -t`, `haproxy -c`, `caddy validate`,
+`docker compose config`).
 
-## 8.6 Test specifici di modalità e rilascio
+## 8.6 Mode-specific and release tests
 
-| ID | Test | Atteso |
+| ID | Test | Expected |
 |----|------|--------|
-| TM-01 | Suite integrazione S3 + IAM + presigned eseguita come matrice `{SNSD, SNMD 4 dischi, Cluster 4×2}` | Tutto verde nelle 3 modalità |
-| TM-02 | Suite Playwright dashboard e testscript CLI in matrice `{SNSD, Cluster}` | Verde |
-| TM-03 | Rilevamento modalità da argomenti; topologia incompatibile con `format.json` | Modalità corretta / errore chiaro |
-| TM-04 | Migrazione SNSD → Cluster con `mirror` + `admin cluster export/import` | Oggetti, versioni, IAM, policy, lifecycle identici |
-| TM-05 | `docker run` single-node: healthcheck `healthy` entro 10 s, console raggiungibile, login OK | — |
-| TM-06 | `docker compose -f compose.cluster.yml up`: cluster pronto, 1 container fermato → nessun errore client | — |
-| TM-07 | Container eseguito come non-root con volume host: permessi corretti o errore chiaro | — |
-| TM-08 | `*_FILE` secrets | Credenziali lette da file |
-| TM-09 | Presigned URL generato dietro nginx (compose) scaricabile da fuori | 200 |
-| TM-10 | Binari di release: avvio smoke su ogni OS/arch in CI (QEMU per arm64), `nexo version` coerente con il tag | — |
-| TM-11 | Immagini: firma cosign verificabile, scansione trivy senza vulnerabilità High/Critical | — |
-| TM-12 | `nexo server --dry-run` su configurazioni valide/invalide | Exit code e messaggi attesi |
-| TM-13 | Upgrade dalla release precedente (`make test-upgrade`, `test/upgrade`): SNMD con dati di ogni tipo, rolling upgrade di un cluster 4×2 sotto carico, downgrade e rollback di un nodo ([06 §6.1](06-test-plan.md)) | Nessuna perdita di dati, nessun errore client |
+| TM-01 | S3 + IAM + presigned integration suite run as a `{SNSD, SNMD 4 drives, Cluster 4×2}` matrix | All green in the 3 modes |
+| TM-02 | Playwright dashboard suite and CLI testscript in a `{SNSD, Cluster}` matrix | Green |
+| TM-03 | Mode detection from arguments; topology incompatible with `format.json` | Correct mode / clear error |
+| TM-04 | SNSD → Cluster migration with `mirror` + `admin cluster export/import` | Identical objects, versions, IAM, policies, lifecycle |
+| TM-05 | Single-node `docker run`: healthcheck `healthy` within 10 s, console reachable, login OK | — |
+| TM-06 | `docker compose -f compose.cluster.yml up`: cluster ready, 1 container stopped → no client errors | — |
+| TM-07 | Container run as non-root with a host volume: correct permissions or a clear error | — |
+| TM-08 | `*_FILE` secrets | Credentials read from files |
+| TM-09 | Presigned URL generated behind nginx (compose) downloadable from outside | 200 |
+| TM-10 | Release binaries: smoke startup on each OS/arch in CI (QEMU for arm64), `nexo version` consistent with the tag | — |
+| TM-11 | Images: verifiable cosign signature, trivy scan without High/Critical vulnerabilities | — |
+| TM-12 | `nexo server --dry-run` on valid/invalid configurations | Expected exit codes and messages |
+| TM-13 | Upgrade from the previous release (`make test-upgrade`, `test/upgrade`): SNMD with data of every kind, rolling upgrade of a 4×2 cluster under load, downgrade and rollback of a node ([06 §6.1](06-test-plan.md)) | No data loss, no client errors |
 
-**Aggiornamenti e downgrade.** Una release legge i dischi scritti dalle release precedenti della stessa major
-(`format.json` v1, `xl.meta` 1.x, protocollo internodo v1): l'aggiornamento di un nodo singolo è un riavvio con
-il nuovo binario, quello di un cluster un nodo alla volta (SIGTERM, avvio, attesa di `/nexo/health/cluster`) senza
-interrompere i client dietro il load balancer; il bootstrap rifiuta solo nodi di un'altra major. Il downgrade
-(e il rollback di un nodo durante un rolling upgrade) è supportato fra release con gli stessi formati, come oggi
-fra M7 e la release corrente: verificato da TM-13. Una release che cambia un formato ne alza la versione e la
-release precedente rifiuta i dischi senza toccarli: in quel caso il downgrade non è supportato e va annunciato
-nelle note di rilascio.
+**Upgrades and downgrades.** A release reads the drives written by the previous releases of the same major
+(`format.json` v1, `xl.meta` 1.x, internode protocol v1): upgrading a single node is a restart with the new binary,
+upgrading a cluster is one node at a time (SIGTERM, start, wait for `/nexo/health/cluster`) without interrupting the
+clients behind the load balancer; the bootstrap only rejects nodes of another major. Downgrade (and rolling back a
+node during a rolling upgrade) is supported between releases with the same formats, as today between M7 and the
+current release: verified by TM-13. A release that changes a format bumps its version and the previous release
+rejects the drives without touching them: in that case downgrade is not supported and must be announced in the
+release notes.
 
-Prima di aggiornare il primo nodo da `v0.7.0` (sezione «Aggiornamento» del [CHANGELOG](../CHANGELOG.md)):
+Before upgrading the first node from `v0.7.0` (the "Upgrading" section of the [CHANGELOG](../CHANGELOG.md)):
 
-1. con `--tls-internode-verify`, copiare la CA che firma i certificati dei nodi in `CAs/` della directory dei
-   certificati su **tutti** i nodi: i certificati client dei peer sono verificati solo con `CAs/` (e con la foglia
-   di default), non più con la catena di `public.crt`; senza, ogni nodo aggiornato rifiuta l'RPC dei peer fino alla
-   perdita del quorum. `nexo server --dry-run` lo segnala con un avviso;
-2. chi serve distribuzioni sulla porta S3 senza `--server-url`/`--domain` imposta `NEXO_S3_DISTRIBUTIONS=on` (o
-   `NEXO_SERVER_URL`/`NEXO_DOMAIN`), altrimenti i domini smettono di rispondere sulla porta 9000;
-3. durante il rolling upgrade le GET coordinate da un nodo aggiornato con dischi su nodi `v0.7.0` (senza
-   `storage/open-file`) tengono il lock di lettura fino alla fine, come in `v0.7.0` (TestMixedClusterPinnedRead).
+1. with `--tls-internode-verify`, copy the CA that signs the node certificates into `CAs/` of the certificates
+   directory on **all** nodes: the peers' client certificates are verified only with `CAs/` (and with the default
+   leaf), no longer with the `public.crt` chain; without it, every upgraded node rejects the peers' RPC until quorum
+   is lost. `nexo server --dry-run` flags this with a warning;
+2. whoever serves distributions on the S3 port without `--server-url`/`--domain` sets `NEXO_S3_DISTRIBUTIONS=on` (or
+   `NEXO_SERVER_URL`/`NEXO_DOMAIN`), otherwise the domains stop answering on port 9000;
+3. during the rolling upgrade, GETs coordinated by an upgraded node with drives on `v0.7.0` nodes (without
+   `storage/open-file`) hold the read lock until the end, as in `v0.7.0` (TestMixedClusterPinnedRead).
 
-## 8.7 Rilascio (T-9.5)
+## 8.7 Release (T-9.5)
 
-Un tag `v*` avvia [`.github/workflows/release.yml`](../.github/workflows/release.yml): GoReleaser v2.18.3 con
-[`.goreleaser.yaml`](../.goreleaser.yaml), poi i job di verifica. Nessun segreto a lunga scadenza: le firme sono
-**cosign keyless** (Sigstore, certificato emesso per l'identità OIDC del workflow).
+A `v*` tag starts [`.github/workflows/release.yml`](../.github/workflows/release.yml): GoReleaser v2.18.3 with
+[`.goreleaser.yaml`](../.goreleaser.yaml), then the verification jobs. No long-lived secrets: the signatures are
+**cosign keyless** (Sigstore, certificate issued for the workflow's OIDC identity).
 
-### Cosa produce una release
+### What a release produces
 
-| Artefatto | Dettaglio |
+| Artifact | Details |
 |-----------|-----------|
-| Binari | `nexo` (con la console, `-tags embedui`) per linux/darwin/windows × amd64/arm64 (non windows/arm64); `nexoctl` anche per windows/arm64. Statici (`CGO_ENABLED=0`), `-trimpath`, data e mtime = commit (riproducibili); `nexo version` stampa il tag |
-| Archivi | `nexo_X.Y.Z_<os>_<arch>.tar.gz` con LICENSE, NOTICE, COMMERCIAL-LICENSE.md, README, unit e file env di systemd (`.zip` su Windows, con LICENSE, NOTICE, COMMERCIAL-LICENSE.md e README soli: build e archivio `nexo-windows`); `nexoctl_…` con i completamenti bash/zsh/fish; archivio dei sorgenti `nexo_X.Y.Z_source.tar.gz` |
-| Pacchetti | `.deb` e `.rpm` per amd64/arm64: `nexo` (binario in `/usr/bin`, unit in `/usr/lib/systemd/system`, `/etc/default/nexo` come conffile `0640 root:nexo` con la password vuota, utente `nexo` creato da `preinstall` con `useradd` (deb: `Pre-Depends: passwd`) e dichiarato in `/usr/lib/sysusers.d/nexo.conf`, `/var/lib/nexo/data`; mai avviato né riavviato dagli script; la rimozione ferma il servizio e conserva i dati) e `nexoctl` (binario e completamenti); `nexo` raccomanda `nexoctl` |
-| Checksum | `checksums.txt` (SHA-256 di archivi, pacchetti, SBOM, sorgenti) + `checksums.txt.sigstore.json` (bundle cosign: firma, certificato, voce del log di trasparenza Rekor) |
-| SBOM | Un documento SPDX JSON per archivio (`<archivio>.sbom.json`, syft v1.54.1): moduli Go e toolchain di ogni binario. I pacchetti contengono gli stessi binari linux degli archivi |
-| Immagini | `ghcr.io/r3n3r0/nexo` (nexo + nexoctl) e `ghcr.io/r3n3r0/nexoctl`, indice multi-arch linux/amd64+arm64 costruito da buildx con i binari già compilati (`deploy/docker/Dockerfile*.goreleaser`, equivalenti ai Dockerfile della radice), attestazioni SBOM e provenance (`mode=max`) di BuildKit, firma cosign; tag `vX.Y.Z` e, per le release finali, `vX.Y` e `latest` |
-| Helm | `nexo-X.Y.Z.tgz` allegato alla release e pubblicato in `oci://ghcr.io/r3n3r0/charts/nexo` (firmato con cosign) |
-| Homebrew | Cask `nexo` e `nexoctl` in `r3n3r0/homebrew-tap` (`brew install r3n3r0/tap/nexoctl`), solo se il segreto `HOMEBREW_TAP_GITHUB_TOKEN` esiste; i binari macOS non sono notarizzati: il cask rimuove l'attributo di quarantena |
+| Binaries | `nexo` (with the console, `-tags embedui`) for linux/darwin/windows × amd64/arm64 (not windows/arm64); `nexoctl` also for windows/arm64. Static (`CGO_ENABLED=0`), `-trimpath`, date and mtime = commit (reproducible); `nexo version` prints the tag |
+| Archives | `nexo_X.Y.Z_<os>_<arch>.tar.gz` with LICENSE, NOTICE, COMMERCIAL-LICENSE.md, README, systemd unit and env file (`.zip` on Windows, with only LICENSE, NOTICE, COMMERCIAL-LICENSE.md and README: build and archive `nexo-windows`); `nexoctl_…` with the bash/zsh/fish completions; source archive `nexo_X.Y.Z_source.tar.gz` |
+| Packages | `.deb` and `.rpm` for amd64/arm64: `nexo` (binary in `/usr/bin`, unit in `/usr/lib/systemd/system`, `/etc/default/nexo` as a `0640 root:nexo` conffile with an empty password, `nexo` user created by `preinstall` with `useradd` (deb: `Pre-Depends: passwd`) and declared in `/usr/lib/sysusers.d/nexo.conf`, `/var/lib/nexo/data`; never started or restarted by the scripts; removal stops the service and keeps the data) and `nexoctl` (binary and completions); `nexo` recommends `nexoctl` |
+| Checksums | `checksums.txt` (SHA-256 of archives, packages, SBOMs, sources) + `checksums.txt.sigstore.json` (cosign bundle: signature, certificate, Rekor transparency log entry) |
+| SBOM | One SPDX JSON document per archive (`<archive>.sbom.json`, syft v1.54.1): Go modules and toolchain of each binary. The packages contain the same linux binaries as the archives |
+| Images | `ghcr.io/r3n3r0/nexo` (nexo + nexoctl) and `ghcr.io/r3n3r0/nexoctl`, linux/amd64+arm64 multi-arch index built by buildx from the already compiled binaries (`deploy/docker/Dockerfile*.goreleaser`, equivalent to the root Dockerfiles), BuildKit SBOM and provenance attestations (`mode=max`), cosign signature; tag `vX.Y.Z` and, for final releases, `vX.Y` and `latest` |
+| Helm | `nexo-X.Y.Z.tgz` attached to the release and published in `oci://ghcr.io/r3n3r0/charts/nexo` (signed with cosign) |
+| Homebrew | `nexo` and `nexoctl` casks in `r3n3r0/homebrew-tap` (`brew install r3n3r0/tap/nexoctl`), only if the `HOMEBREW_TAP_GITHUB_TOKEN` secret exists; the macOS binaries are not notarized: the cask removes the quarantine attribute |
 
-### Verificare una release
+### Verifying a release
 
 ```bash
 TAG=v1.0.0
-# Identità delle firme: il workflow di release del tag, con le maiuscole del repository
-# su GitHub (cosign la confronta esattamente).
+# Identity of the signatures: the release workflow of the tag, with the repository's
+# capitalization on GitHub (cosign compares it exactly).
 ID="https://github.com/R3n3r0/Nexo/.github/workflows/release.yml@refs/tags/$TAG"
 ISSUER=https://token.actions.githubusercontent.com
 
-# 1. firma di checksums.txt (cosign >= 2.4), poi i file scaricati
+# 1. signature of checksums.txt (cosign >= 2.4), then the downloaded files
 cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
   --certificate-identity "$ID" --certificate-oidc-issuer "$ISSUER"
 sha256sum --ignore-missing -c checksums.txt          # macOS: shasum -a 256 --ignore-missing -c
 
-# 2. SBOM di un archivio (coperto dai checksum)
+# 2. SBOM of an archive (covered by the checksums)
 jq -r '.packages[] | "\(.name) \(.versionInfo)"' nexo_${TAG#v}_linux_amd64.tar.gz.sbom.json | head
 
-# 3. immagini: firma, SBOM e provenance attestate nell'indice multi-arch
+# 3. images: signature, SBOM and provenance attested in the multi-arch index
 cosign verify ghcr.io/r3n3r0/nexo:$TAG --certificate-identity "$ID" --certificate-oidc-issuer "$ISSUER"
 docker buildx imagetools inspect ghcr.io/r3n3r0/nexo:$TAG --format '{{ json .SBOM }}'
 docker buildx imagetools inspect ghcr.io/r3n3r0/nexo:$TAG --format '{{ json .Provenance }}'
 
-# 4. chart Helm
+# 4. Helm chart
 cosign verify ghcr.io/r3n3r0/charts/nexo:${TAG#v} --certificate-identity "$ID" --certificate-oidc-issuer "$ISSUER"
 ```
 
-Il job `verify` della release esegue gli stessi controlli (TM-11) e la scansione trivy delle immagini
-(High/Critical con fix disponibile: il job fallisce); il job `smoke` (TM-10) estrae gli archivi su
-linux/amd64, linux/arm64 (QEMU), darwin/arm64, darwin/amd64 (Rosetta) e windows/amd64 ed esegue
-[`packaging/smoke.sh`](../packaging/smoke.sh): versione uguale al tag, `--dry-run`, server su un disco,
-console servita, round trip S3 con `nexoctl`, arresto con SIGTERM (su Windows solo versione e `--dry-run`).
+The release's `verify` job runs the same checks (TM-11) and the trivy scan of the images (High/Critical with a fix
+available: the job fails); the `smoke` job (TM-10) extracts the archives on linux/amd64, linux/arm64 (QEMU),
+darwin/arm64, darwin/amd64 (Rosetta) and windows/amd64 and runs [`packaging/smoke.sh`](../packaging/smoke.sh):
+version equal to the tag, `--dry-run`, server on one drive, console served, S3 round trip with `nexoctl`, shutdown
+with SIGTERM (on Windows only version and `--dry-run`).
 
-### Riprodurre e controllare in locale (senza pubblicare)
+### Reproducing and checking locally (without publishing)
 
-| Comando | Cosa fa |
+| Command | What it does |
 |---------|---------|
-| `make release-tools` | Installa in `bin/tools` GoReleaser, Helm, kubeconform e syft alle versioni fissate nel Makefile |
+| `make release-tools` | Installs GoReleaser, Helm, kubeconform and syft in `bin/tools` at the versions pinned in the Makefile |
 | `make release-check` | `goreleaser check` |
-| `make release-snapshot` | Tutta la release in `dist/` (versione `X.Y.Z-next`), senza immagini né firme (`RELEASE_SKIP=docker,sign`; con un demone Docker `RELEASE_SKIP=sign` costruisce anche le immagini) |
-| `make release-smoke` | `packaging/smoke.sh` sui binari linux/amd64 dello snapshot e, con `qemu-aarch64-static`, linux/arm64 |
-| `make helm-lint` | `helm lint --strict`, `helm template` e `kubeconform -strict` per ciascuna versione di Kubernetes (1.27 e 1.34, `--kube-version` esplicito: un helm compilato con `go install` assume la 1.20), CRD ServiceMonitor, con i valori di default e `deploy/helm/nexo/ci/*-values.yaml`; poi gli endpoint generati per ogni modalità (SNSD, SNMD, distribuito, due pool, TLS) e gli errori dei valori invalidi |
-| `make systemd-verify` | `systemd-analyze verify` e `security` (esposizione ≤ 2,0) della unit |
-| `make hadolint` / `make packaging` | Dockerfile; tutti i controlli che non richiedono Docker |
+| `make release-snapshot` | The whole release in `dist/` (version `X.Y.Z-next`), without images or signatures (`RELEASE_SKIP=docker,sign`; with a Docker daemon `RELEASE_SKIP=sign` also builds the images) |
+| `make release-smoke` | `packaging/smoke.sh` on the snapshot's linux/amd64 binaries and, with `qemu-aarch64-static`, linux/arm64 |
+| `make helm-lint` | `helm lint --strict`, `helm template` and `kubeconform -strict` for each Kubernetes version (1.27 and 1.34, explicit `--kube-version`: a helm built with `go install` assumes 1.20), ServiceMonitor CRD, with the default values and `deploy/helm/nexo/ci/*-values.yaml`; then the endpoints generated for each mode (SNSD, SNMD, distributed, two pools, TLS) and the errors of invalid values |
+| `make systemd-verify` | `systemd-analyze verify` and `security` (exposure ≤ 2.0) of the unit |
+| `make hadolint` / `make packaging` | Dockerfiles; all the checks that do not require Docker |
 
-Il job CI `packaging` esegue a ogni pull request lo snapshot con le immagini, TM-10 su amd64 e arm64,
-l'installazione dei `.deb` con il systemd del runner (servizio che rifiuta di partire senza password, poi
-parte, risponde, round trip S3, `reload`, `stop`, rimozione che conserva i dati), i `.rpm` in un container
-Fedora, il chart, la unit e i Dockerfile; il job `deploy-files` valida lo stack Swarm (`docker stack config`).
+The CI job `packaging` runs on every pull request the snapshot with the images, TM-10 on amd64 and arm64, the
+installation of the `.deb` packages with the runner's systemd (a service that refuses to start without a password,
+then starts, answers, S3 round trip, `reload`, `stop`, removal that keeps the data), the `.rpm` packages in a Fedora
+container, the chart, the unit and the Dockerfiles; the `deploy-files` job validates the Swarm stack
+(`docker stack config`).
 
-### Validato in locale e solo configurato
+### Validated locally and only configured
 
-Ultima verifica (GoReleaser v2.18.3, Helm v3.22.0 ufficiale e `go install`, kubeconform v0.7.0,
-syft v1.54.1, hadolint v2.14.0, actionlint v1.7.7 con shellcheck 0.9.0, systemd 255, QEMU user,
-Docker CLI senza demone):
+Last verification (GoReleaser v2.18.3, official Helm v3.22.0 and `go install`, kubeconform v0.7.0, syft v1.54.1,
+hadolint v2.14.0, actionlint v1.7.7 with shellcheck 0.9.0, systemd 255, QEMU user, Docker CLI without a daemon):
 
-| Elemento | Esito |
+| Item | Outcome |
 |----------|-------|
-| `goreleaser check` | Valido, nessuna deprecazione |
-| `goreleaser release --snapshot --clean --skip=publish,sign,docker` | 11 binari (`nexo` con la console, `nexoctl`), 11 archivi + sorgenti, 8 pacchetti deb/rpm, 11 SBOM SPDX 2.3, `checksums.txt` (31 voci, tutte verificate con `sha256sum -c`), cask Homebrew `nexo` e `nexoctl` |
-| Binari | `nexo version` (linux/amd64) = versione dello snapshot e commit; `file`: ELF statici x86-64/aarch64, Mach-O x86_64/arm64, PE32+ x86-64/Aarch64 |
-| TM-10 (`make release-smoke`) | Verde su linux/amd64 e linux/arm64 (`qemu-aarch64-static`): versione, `--dry-run`, server, console servita, round trip S3, SIGTERM |
-| Pacchetti | `dpkg-deb -I/-c`, `rpm -qip/-qlvp/--scripts`: file, permessi e proprietari (`root:nexo 0640` per `/etc/default/nexo`, `nexo:nexo 0750` per `/var/lib/nexo/data`), conffile, script e `Recommends` |
-| Helm (`make helm-lint`) | `lint --strict`, `template` e `kubeconform -strict` verdi per default, standalone, SNMD, distribuito e distribuito TLS su Kubernetes 1.27 e 1.34; asserzioni sugli endpoint e sui valori invalidi |
-| Compose e Swarm | `docker compose config` di tutti i `compose.*.yml`, `docker stack config -c deploy/swarm/stack.yml` |
-| systemd | `systemd-analyze verify` pulito, `security`: esposizione 1,5 "OK" |
-| Dockerfile | hadolint senza segnalazioni sui quattro Dockerfile |
-| Workflow e script | actionlint su `release.yml` e `ci.yml` (con shellcheck: restano due SC2046 voluti nei job `lint-go` e `test-go`), shellcheck degli script di `packaging/` e `deploy/helm/check.sh` |
-| Healthcheck TLS | Server reale con `NEXO_CERTS_DIR`: la sonda HTTP precedente riceveva `400`, quella nuova è `ok` anche con un certificato che nomina solo `nexo1` (ricaricato a caldo) e fallisce con una CA estranea |
+| `goreleaser check` | Valid, no deprecations |
+| `goreleaser release --snapshot --clean --skip=publish,sign,docker` | 11 binaries (`nexo` with the console, `nexoctl`), 11 archives + sources, 8 deb/rpm packages, 11 SPDX 2.3 SBOMs, `checksums.txt` (31 entries, all verified with `sha256sum -c`), Homebrew casks `nexo` and `nexoctl` |
+| Binaries | `nexo version` (linux/amd64) = snapshot version and commit; `file`: static ELF x86-64/aarch64, Mach-O x86_64/arm64, PE32+ x86-64/Aarch64 |
+| TM-10 (`make release-smoke`) | Green on linux/amd64 and linux/arm64 (`qemu-aarch64-static`): version, `--dry-run`, server, console served, S3 round trip, SIGTERM |
+| Packages | `dpkg-deb -I/-c`, `rpm -qip/-qlvp/--scripts`: files, permissions and owners (`root:nexo 0640` for `/etc/default/nexo`, `nexo:nexo 0750` for `/var/lib/nexo/data`), conffiles, scripts and `Recommends` |
+| Helm (`make helm-lint`) | `lint --strict`, `template` and `kubeconform -strict` green for default, standalone, SNMD, distributed and distributed TLS on Kubernetes 1.27 and 1.34; assertions on the endpoints and on invalid values |
+| Compose and Swarm | `docker compose config` of all `compose.*.yml`, `docker stack config -c deploy/swarm/stack.yml` |
+| systemd | `systemd-analyze verify` clean, `security`: exposure 1.5 "OK" |
+| Dockerfile | hadolint with no findings on the four Dockerfiles |
+| Workflows and scripts | actionlint on `release.yml` and `ci.yml` (with shellcheck: two intentional SC2046 remain in the `lint-go` and `test-go` jobs), shellcheck of the scripts in `packaging/` and `deploy/helm/check.sh` |
+| TLS healthcheck | Real server with `NEXO_CERTS_DIR`: the previous HTTP probe got `400`, the new one is `ok` even with a certificate that names only `nexo1` (hot reloaded) and fails with a foreign CA |
 
-Solo configurato (richiede un demone Docker, l'identità OIDC del workflow o la pubblicazione): immagini
-multi-arch `dockers_v2` con attestazioni SBOM/provenance, firme cosign keyless di checksum, immagini e
-chart, push su ghcr.io e nel tap Homebrew, job `verify` (TM-11) e `smoke` su darwin/windows della
-release, installazione dei pacchetti con systemd e in Fedora (job CI `packaging`).
+Only configured (requires a Docker daemon, the workflow's OIDC identity or publishing): `dockers_v2` multi-arch
+images with SBOM/provenance attestations, cosign keyless signatures of checksums, images and chart, push to ghcr.io
+and to the Homebrew tap, the release's `verify` (TM-11) and `smoke` jobs on darwin/windows, package installation with
+systemd and in Fedora (CI job `packaging`).
 
-Licenza: AGPL-3.0-only con i termini di attribuzione di `NOTICE` (AGPL §7(b)) e licenze commerciali
-(`COMMERCIAL-LICENSE.md` nella radice del repository); `LICENSE` è in archivi, pacchetti, immagini e chart, `NOTICE` in
-archivi e pacchetti. Decisioni aperte del rilascio: repository `r3n3r0/homebrew-tap` con il segreto `HOMEBREW_TAP_GITHUB_TOKEN`, visibilità
-pubblica dei pacchetti ghcr.io (privati alla prima pubblicazione). The toolchain is Go 1.27.2
-(docs/security/threat-model.md §10.1): govulncheck finds no reachable vulnerabilities, so trivy in the `verify` job
-has no known standard library vulnerabilities left to report.
+License: AGPL-3.0-only with the attribution terms of `NOTICE` (AGPL §7(b)) and commercial licenses
+(`COMMERCIAL-LICENSE.md` at the repository root); `LICENSE` is in archives, packages, images and charts, `NOTICE` in
+archives and packages. Open release decisions: the `r3n3r0/homebrew-tap` repository with the
+`HOMEBREW_TAP_GITHUB_TOKEN` secret, public visibility of the ghcr.io packages (private on first publication). The
+toolchain is Go 1.27.2 (docs/security/threat-model.md §10.1): govulncheck finds no reachable vulnerabilities, so trivy
+in the `verify` job has no known standard library vulnerabilities left to report.

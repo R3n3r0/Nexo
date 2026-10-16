@@ -223,7 +223,7 @@ func batchError(what string, failed, total int, first error) error {
 // was probably meant as a remote location: a target argument (a source or
 // a destination, not an input file such as a policy document) "ALIAS/..."
 // whose first segment is neither an alias nor a local entry (regression:
-// "stat nosuchalias/foto: no such file or directory" said nothing of the
+// "stat nosuchalias/photos: no such file or directory" said nothing of the
 // alias, then the hint was added to the missing input files too).
 func (e *env) explainMissingPath(ctx context.Context, err error) error {
 	var pathErr *fs.PathError

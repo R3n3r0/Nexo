@@ -47,7 +47,7 @@ generate per i key group delle distribuzioni sono in `~/.nexoctl/keys/<alias>/`.
 | Variabile | Effetto |
 |-----------|---------|
 | `NEXOCTL_CONFIG_DIR` | directory di configurazione |
-| `NEXOCTL_ENC_C` | chiavi SSE-C, `ALIAS/BUCKET[/PREFISSO]=CHIAVEBASE64` separate da virgola (vedi [KMS e SSE](../sicurezza/kms-sse.md)) |
+| `NEXOCTL_ENC_C` | chiavi SSE-C, `ALIAS/BUCKET[/PREFISSO]=CHIAVEBASE64` separate da virgola (vedi [KMS e SSE](../security/kms-sse.md)) |
 | `NO_COLOR` | disattiva i colori |
 | `SSL_CERT_FILE`, `SSL_CERT_DIR` | CA fidate per i server HTTPS con una CA privata |
 | `HTTPS_PROXY`, `NO_PROXY` | proxy HTTP verso i server |

@@ -57,7 +57,7 @@ NEXO_ROOT_USER=admin NEXO_ROOT_PASSWORD=supersegreta nexo server /srv/nexo
 Gli oggetti sono file sul file system (con `xl.meta` per metadati e versioni), senza erasure coding: la
 protezione dai guasti è quella del disco sottostante. Adatto a sviluppo, test, edge e volumi già
 ridondati. Per passare a SNMD o cluster serve una migrazione (vedi
-[Backup e migrazione](operazioni/backup-migrazione.md)).
+[Backup e migrazione](operations/backup-migration.md)).
 
 ## SNMD: più dischi su un nodo
 
@@ -152,7 +152,7 @@ Ogni versione ricorda la parità con cui è stata scritta: cambiare la classe va
   e da 4 nodi × 2 dischi in su); con 2 nodi lo spegnimento di uno blocca le scritture. 4 o più nodi
   lasciano margine per la manutenzione.
 - Prevedi spazio libero: i nuovi oggetti evitano i pool oltre il 95%; l'alert `NexoCapacityHigh` scatta
-  all'85% (vedi [Monitoraggio](operazioni/monitoraggio.md)).
+  all'85% (vedi [Monitoraggio](operations/monitoring.md)).
 - La cache delle distribuzioni (`--cache-dir`) va su un disco separato (SSD/NVMe), mai su un disco dati.
 - Per misurare dischi e rete prima di andare in produzione: `nexoctl admin speedtest local drive|object|net`.
 
@@ -185,7 +185,7 @@ Ogni versione ricorda la parità con cui è stata scritta: cambiare la classe va
    chiamate tra nodi senza un certificato client verificato con le CA di `CAs/` sono rifiutate (il
    certificato deve ammettere l'uso client).
 
-Dettagli e rotazione dei certificati in [TLS e certificati](sicurezza/tls.md).
+Dettagli e rotazione dei certificati in [TLS e certificati](security/tls.md).
 
 ## Espansione con un pool
 
@@ -200,7 +200,7 @@ nexo server "http://nexo{1...4}.lan:9000/mnt/disk{1...4}" "http://nexo{5...8}.la
 
 Gli oggetti esistenti restano nel loro pool (anche le sovrascritture); i nuovi oggetti vanno nei pool in
 proporzione allo spazio libero. La procedura completa è in
-[Aggiornamento ed espansione](operazioni/aggiornamento-espansione.md#espansione-con-un-nuovo-pool). La
+[Aggiornamento ed espansione](operations/upgrade-expansion.md#espansione-con-un-nuovo-pool). La
 dismissione di un pool e il ribilanciamento tra pool non sono ancora disponibili (pianificati dopo la
 v1.0).
 
@@ -212,4 +212,4 @@ v1.0).
 | SNMD → cluster | come sopra |
 | Cluster → cluster più grande | aggiunta di un pool, nessuna migrazione |
 
-Vedi [Backup e migrazione](operazioni/backup-migrazione.md).
+Vedi [Backup e migrazione](operations/backup-migration.md).

@@ -17,33 +17,33 @@ func tag(value string) string { return "cov" + "ers: " + value }
 
 func TestParseCatalog(t *testing.T) {
 	doc := strings.Join([]string{
-		"# 2. Catalogo",
+		"# 2. Catalog",
 		"## 2.1 Server",
 		"### Bucket",
-		"| Codice | Funzionalità | Priorità |",
+		"| Code | Feature | Priority |",
 		"|--------|--------------|----------|",
 		"| S-BKT-01 | CreateBucket | P0 |",
-		"| S-BKT-12 | Replica | P2 |",
-		"### Regole (vedi [10](10-domini.md))",
-		"| S-DST-07c | Cache condivisa | P1 / P2 |",
+		"| S-BKT-12 | Replication | P2 |",
+		"### Rules (see [10](10-domains.md))",
+		"| S-DST-07c | Shared cache | P1 / P2 |",
 		"## 2.2 Dashboard (Console React)",
-		"| Codice | Pagina | Dettaglio | Priorità |",
-		"| D-ACC-01..02 | Regole di accesso | Editor | P0 |",
-		"| D-UX-01 | Tema | | P1 |",
-		"## 2.4 Differenze",
-		"| Area | Comportamento | Motivo |",
-		"| ACL | S-BKT-13 non supportato | P2 |",
+		"| Code | Page | Detail | Priority |",
+		"| D-ACC-01..02 | Access rules | Editor | P0 |",
+		"| D-UX-01 | Theme | | P1 |",
+		"## 2.4 Differences",
+		"| Area | Behavior | Reason |",
+		"| ACL | S-BKT-13 not supported | P2 |",
 	}, "\n")
-	details := map[string]string{"D-ACC-01": "Tabella regole", "D-ACC-02": "Tester"}
+	details := map[string]string{"D-ACC-01": "Rules table", "D-ACC-02": "Tester"}
 	got, err := traceability.ParseCatalog(strings.NewReader(doc), details)
 	require.NoError(t, err)
 	want := []traceability.Feature{
 		{Code: "S-BKT-01", Area: "Server — Bucket", Name: "CreateBucket", Priority: "P0"},
-		{Code: "S-BKT-12", Area: "Server — Bucket", Name: "Replica", Priority: "P2"},
-		{Code: "S-DST-07c", Area: "Server — Regole", Name: "Cache condivisa", Priority: "P1 / P2"},
-		{Code: "D-ACC-01", Area: "Dashboard (Console React)", Name: "Regole di accesso — Tabella regole", Priority: "P0"},
-		{Code: "D-ACC-02", Area: "Dashboard (Console React)", Name: "Regole di accesso — Tester", Priority: "P0"},
-		{Code: "D-UX-01", Area: "Dashboard (Console React)", Name: "Tema", Priority: "P1"},
+		{Code: "S-BKT-12", Area: "Server — Bucket", Name: "Replication", Priority: "P2"},
+		{Code: "S-DST-07c", Area: "Server — Rules", Name: "Shared cache", Priority: "P1 / P2"},
+		{Code: "D-ACC-01", Area: "Dashboard (Console React)", Name: "Access rules — Rules table", Priority: "P0"},
+		{Code: "D-ACC-02", Area: "Dashboard (Console React)", Name: "Access rules — Tester", Priority: "P0"},
+		{Code: "D-UX-01", Area: "Dashboard (Console React)", Name: "Theme", Priority: "P1"},
 	}
 	assert.Equal(t, want, got)
 }
@@ -87,10 +87,10 @@ func TestFeatureScope(t *testing.T) {
 }
 
 func TestParseDetails(t *testing.T) {
-	doc := "| D-CCH-01 | Pagina globale |\n| D-CCH-02 | Tab cache |\n| D-CCH-01..08 | gruppo |\n| testo | altro |\n"
+	doc := "| D-CCH-01 | Global page |\n| D-CCH-02 | Cache tab |\n| D-CCH-01..08 | group |\n| text | other |\n"
 	got, err := traceability.ParseDetails(strings.NewReader(doc))
 	require.NoError(t, err)
-	assert.Equal(t, map[string]string{"D-CCH-01": "Pagina globale", "D-CCH-02": "Tab cache"}, got)
+	assert.Equal(t, map[string]string{"D-CCH-01": "Global page", "D-CCH-02": "Cache tab"}, got)
 }
 
 // writeFiles creates the files of a test repository.
@@ -137,9 +137,9 @@ func TestScan(t *testing.T) {
 
 func TestMatrix(t *testing.T) {
 	features := []traceability.Feature{
-		{Code: "S-OBJ-01", Area: "Server — Oggetti", Name: "Put | Get", Priority: "P0"},
-		{Code: "S-OBJ-02", Area: "Server — Oggetti", Name: "Range ([09](09-presigned.md))", Priority: "P1"},
-		{Code: "S-OBJ-14", Area: "Server — Oggetti", Name: "Compressione", Priority: "P2"},
+		{Code: "S-OBJ-01", Area: "Server — Objects", Name: "Put | Get", Priority: "P0"},
+		{Code: "S-OBJ-02", Area: "Server — Objects", Name: "Range ([09](09-presigned.md))", Priority: "P1"},
+		{Code: "S-OBJ-14", Area: "Server — Objects", Name: "Compression", Priority: "P2"},
 	}
 	refs := map[string][]traceability.Reference{
 		"S-OBJ-01": {{Path: "a_test.go", Line: 3, Test: "TestA"}},
@@ -152,12 +152,12 @@ func TestMatrix(t *testing.T) {
 	doc := string(m.Markdown())
 	assert.Contains(t, doc, "| P0 | 1 | 1 | 0 |")
 	assert.Contains(t, doc, "| P1 | 1 | 0 | 1 |")
-	assert.Contains(t, doc, "| P2 (non in v1.0) | 1 | 0 | — |")
+	assert.Contains(t, doc, "| P2 (not in v1.0) | 1 | 0 | — |")
 	assert.Contains(t, doc, "| S-OBJ-01 | Put \\| Get | P0 | **1**: `a_test.go` TestA |")
 	assert.Contains(t, doc, "[09](../docs/09-presigned.md)", "the links of the catalog are relative to test/")
-	assert.Contains(t, doc, "- `S-OBJ-02` (P1) senza test")
-	assert.Contains(t, doc, "- codice fuori catalogo `S-XYZ-01` in `b_test.go:7`")
-	assert.Contains(t, doc, "| S-OBJ-14 | Server — Oggetti | Compressione | — |")
+	assert.Contains(t, doc, "- `S-OBJ-02` (P1) without tests")
+	assert.Contains(t, doc, "- code outside the catalog `S-XYZ-01` in `b_test.go:7`")
+	assert.Contains(t, doc, "| S-OBJ-14 | Server — Objects | Compression | — |")
 	assert.Equal(t, doc, string(m.Markdown()), "the matrix is deterministic")
 }
 

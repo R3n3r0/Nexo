@@ -7,7 +7,7 @@ Aliases:
   list, ls
 
 Examples:
-  nexoctl cache webhook ls local sito-web
+  nexoctl cache webhook ls local website
 
 Flags:
   -h, --help   help for list

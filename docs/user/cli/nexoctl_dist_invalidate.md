@@ -15,7 +15,7 @@ nexoctl dist invalidate ALIAS ID [PATH|GLOB|URL...] [flags]
 ## Examples
 
 ```
-  nexoctl dist invalidate local sito-web '/assets/**' --wait
+  nexoctl dist invalidate local website '/assets/**' --wait
 ```
 
 ## Options

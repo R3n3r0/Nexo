@@ -17,7 +17,7 @@ nexoctl dist origin-secret rotate ALIAS ID [--header NAME] [--keep N] [--drop-pr
 ## Examples
 
 ```
-  nexoctl dist origin-secret rotate local sito-web
+  nexoctl dist origin-secret rotate local website
 ```
 
 ## Options

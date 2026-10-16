@@ -89,7 +89,7 @@ LABEL org.opencontainers.image.title="Nexo" \
       org.opencontainers.image.revision="${COMMIT}" \
       org.opencontainers.image.created="${DATE}"
 
-COPY LICENSE /LICENSE
+COPY LICENSE NOTICE COMMERCIAL-LICENSE.md /
 COPY --from=go /out/nexo /nexo
 COPY --from=go /out/nexoctl /nexoctl
 COPY --from=go --chown=65532:65532 /out/data /data

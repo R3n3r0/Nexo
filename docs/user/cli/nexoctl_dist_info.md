@@ -9,7 +9,7 @@ nexoctl dist info ALIAS ID [flags]
 ## Examples
 
 ```
-  nexoctl dist info local sito-web
+  nexoctl dist info local website
 ```
 
 ## Options

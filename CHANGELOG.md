@@ -1,110 +1,113 @@
 # Changelog
 
-Tutte le modifiche rilevanti di Nexo. Il formato segue [Keep a Changelog](https://keepachangelog.com/it/1.1.0/) e
-le versioni seguono [Semantic Versioning](https://semver.org/lang/it/). I codici tra parentesi (`S-OBJ-06`,
-`D-MON-01`, `C-ADM-08`) sono quelli del [catalogo delle funzionalità](docs/02-features.md); i test che li coprono
-sono nella [matrice di tracciabilità](test/TRACEABILITY.md).
+All notable changes to Nexo. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
+versions follow [Semantic Versioning](https://semver.org/). The codes in parentheses (`S-OBJ-06`, `D-MON-01`,
+`C-ADM-08`) are those of the [feature catalog](docs/02-features.md); the tests that cover them are in the
+[traceability matrix](test/TRACEABILITY.md).
 
-## [1.0.0] - da pubblicare
+## [1.0.0] - unreleased
 
-Prima release stabile: milestone M0–M9 della [roadmap](docs/05-roadmap.md). Le release precedenti non sono mai
-state pubblicate: la base dei test di aggiornamento è il commit di M7 (`224bb31`, costruito come `v0.7.0`).
+First stable release: milestones M0–M9 of the [roadmap](docs/05-roadmap.md). Earlier releases were never
+published: the baseline of the upgrade tests is the M7 commit (`224bb31`, built as `v0.7.0`).
 
-### Modalità di deployment e storage
-- Un solo binario per tre modalità rilevate dagli argomenti di `nexo server` (S-STO-00): singolo nodo e singolo
-  disco senza erasure coding (SNSD, S-STO-01), singolo nodo con più dischi (SNMD, S-STO-02) e cluster multi-nodo
-  (S-STO-06), con `format.json` e ellissi negli endpoint (`/mnt/disk{1...4}`, `http://nodo{1...4}/mnt/d{1...4}`).
-- Erasure coding Reed-Solomon con set da 2 a 16 dischi, parità per storage class `STANDARD` e
-  `REDUCED_REDUNDANCY` (S-STO-03), protezione dal bitrot con HighwayHash verificata in lettura (S-STO-04).
-- Healing: in lettura, coda MRF persistente, scanner in background con heal a campione, sostituzione dei dischi
-  con ripresa dopo il riavvio, `admin heal` (S-STO-05, C-ADM-07, D-CLU-02).
-- Cluster: RPC internodo su HTTP/2 con msgpack e JWT legati alla chiamata, lock distribuiti a quorum (dsync,
-  S-STO-07), bootstrap coordinato con attesa del quorum, leader per i job singleton (scanner, ILM, ACME),
-  invalidazioni IAM/bucket/config tra i nodi, espansione con nuovi pool e placement pesato (S-STO-08).
-- Letture su istantanea: una GET rilascia il lock dopo aver aperto i dati, così PUT e DELETE della stessa chiave
-  non aspettano il trasferimento.
-- Export/import dello stato del deployment (IAM, configurazione, metadati dei bucket) per backup e migrazione tra
-  modalità (S-OPS-15, C-ADM-13).
+### Deployment modes and storage
+- A single binary for three modes detected from the arguments of `nexo server` (S-STO-00): single node and single
+  drive without erasure coding (SNSD, S-STO-01), single node with multiple drives (SNMD, S-STO-02) and multi-node
+  cluster (S-STO-06), with `format.json` and ellipses in the endpoints (`/mnt/disk{1...4}`,
+  `http://node{1...4}/mnt/d{1...4}`).
+- Reed-Solomon erasure coding with sets of 2 to 16 drives, parity per storage class `STANDARD` and
+  `REDUCED_REDUNDANCY` (S-STO-03), bitrot protection with HighwayHash verified on read (S-STO-04).
+- Healing: on read, persistent MRF queue, background scanner with sampled heal, drive replacement resumed after a
+  restart, `admin heal` (S-STO-05, C-ADM-07, D-CLU-02).
+- Cluster: internode RPC over HTTP/2 with msgpack and call-bound JWTs, quorum-based distributed locks (dsync,
+  S-STO-07), coordinated bootstrap waiting for quorum, leader for singleton jobs (scanner, ILM, ACME),
+  IAM/bucket/config invalidations across nodes, expansion with new pools and weighted placement (S-STO-08).
+- Snapshot reads: a GET releases the lock after opening the data, so PUT and DELETE of the same key do not wait
+  for the transfer.
+- Export/import of the deployment state (IAM, configuration, bucket metadata) for backup and migration across
+  modes (S-OPS-15, C-ADM-13).
 
-### API S3
-- Bucket, oggetti, range e richieste condizionali, listing V1/V2, CopyObject con `REPLACE` e copy-source-range,
-  DeleteObjects, multipart completo con UploadPartCopy, metadati utente (S-BKT-01..03, S-OBJ-01..07).
-- Firma SigV4 su header, query, streaming `aws-chunked` con trailer e `UNSIGNED-PAYLOAD`; URL presigned con
-  scadenza massima di 7 giorni, POST policy, share link gestiti e revocabili (S-IAM-02, S-OBJ-08, 08b, 08c).
-- Versioning con delete marker e versione `null`, tagging, CORS, lifecycle (expiration, noncurrent, multipart
-  incompleti), Object Lock governance/compliance con legal hold, quota, notifiche (webhook, Kafka, NATS, AMQP,
-  Redis, PostgreSQL) con coda persistente, cifratura SSE-S3/SSE-KMS/SSE-C (DARE) con KMS integrato o KES e cifratura
-  predefinita del bucket, checksum CRC32/CRC32C/CRC64NVME/SHA1/SHA256, GetObjectAttributes (S-BKT-04..11,
-  S-OBJ-09..13, S-OBJ-15).
-- Compatibilità misurata: Ceph `s3-tests` 451/451 test applicabili e MinIO `mint` 638 test senza fallimenti
-  inattesi, in SNSD, SNMD e cluster; differenze volute rispetto ad Amazon S3 in [02 §2.4](docs/02-features.md).
+### S3 API
+- Buckets, objects, ranges and conditional requests, V1/V2 listing, CopyObject with `REPLACE` and
+  copy-source-range, DeleteObjects, complete multipart with UploadPartCopy, user metadata (S-BKT-01..03,
+  S-OBJ-01..07).
+- SigV4 signatures in headers, query, `aws-chunked` streaming with trailers and `UNSIGNED-PAYLOAD`; presigned URLs
+  with a maximum expiry of 7 days, POST policy, managed and revocable share links (S-IAM-02, S-OBJ-08, 08b, 08c).
+- Versioning with delete markers and the `null` version, tagging, CORS, lifecycle (expiration, noncurrent,
+  incomplete multipart uploads), Object Lock governance/compliance with legal hold, quotas, notifications (webhook,
+  Kafka, NATS, AMQP, Redis, PostgreSQL) with a persistent queue, SSE-S3/SSE-KMS/SSE-C encryption (DARE) with a
+  built-in KMS or KES and bucket default encryption, CRC32/CRC32C/CRC64NVME/SHA1/SHA256 checksums,
+  GetObjectAttributes (S-BKT-04..11, S-OBJ-09..13, S-OBJ-15).
+- Measured compatibility: Ceph `s3-tests` 451/451 applicable tests and MinIO `mint` 638 tests without unexpected
+  failures, in SNSD, SNMD and cluster; intentional differences from Amazon S3 in [02 §2.4](docs/02-features.md).
 
-### IAM, accessi e sicurezza
-- Utente root da ambiente o file (`*_FILE`), utenti, gruppi, policy IAM in formato AWS con condizioni e variabili,
-  policy predefinite (`readonly`, `readwrite`, `writeonly`, `consoleAdmin`, `diagnostics`), simulatore e permessi
-  effettivi, service account con policy inline e scadenza, STS AssumeRole (S-IAM-01..07).
-- Regole di accesso per bucket con pattern prefix, glob e regex RE2, condizioni (IP, referer, host, HTTPS,
-  finestra temporale, header, gruppi), preset pubblici, block public access e tester (S-ACC-01..04).
-- TLS da `--certs-dir` con SNI, ricarica a caldo (fsnotify e SIGHUP) senza interrompere le connessioni, TLS ≥ 1.2
-  (`--tls-min-version`), mTLS opzionale tra i nodi (S-OPS-02).
-- Sessioni della console in cookie `HttpOnly`/`SameSite=Strict`, CSRF, controllo dell'origine anche tra porte
-  dello stesso host, throttling dei login; segreti IAM cifrati a riposo.
-- Threat model STRIDE ([docs/security/threat-model.md](docs/security/threat-model.md)), `make security`
-  (govulncheck, gosec, `npm audit`), 24 target di fuzzing (`make fuzz`).
+### IAM, access and security
+- Root user from the environment or files (`*_FILE`), users, groups, AWS-format IAM policies with conditions and
+  variables, built-in policies (`readonly`, `readwrite`, `writeonly`, `consoleAdmin`, `diagnostics`), simulator and
+  effective permissions, service accounts with inline policy and expiry, STS AssumeRole (S-IAM-01..07).
+- Per-bucket access rules with prefix, glob and RE2 regex patterns, conditions (IP, referer, host, HTTPS, time
+  window, headers, groups), public presets, block public access and tester (S-ACC-01..04).
+- TLS from `--certs-dir` with SNI, hot reload (fsnotify and SIGHUP) without dropping connections, TLS ≥ 1.2
+  (`--tls-min-version`), optional mTLS between nodes (S-OPS-02).
+- Console sessions in `HttpOnly`/`SameSite=Strict` cookies, CSRF, origin checks even across ports of the same
+  host, login throttling; IAM secrets encrypted at rest.
+- STRIDE threat model ([docs/security/threat-model.md](docs/security/threat-model.md)), `make security`
+  (govulncheck, gosec, `npm audit`), 24 fuzzing targets (`make fuzz`).
 
-### Domini, distribuzioni e cache
-- Distribuzioni in stile CloudFront: più domini (anche wildcard) per bucket o prefix, modalità `website` (index,
-  error page, SPA fallback, redirect) e `s3`, behavior per path, URL e cookie firmati con key group, proxy fidati,
-  PROXY protocol, origin secret, restrizioni IP, certificati per dominio caricati o ACME HTTP-01/TLS-ALPN-01, metriche
-  e access log per distribuzione (S-DST-01..06, S-DST-08).
-- Cache integrata in memoria e su disco con policy per distribuzione, dominio e percorso, quote, invalidazione
-  automatica alla scrittura, purge per path/glob/regex/tag/dominio, webhook verso CDN esterne, cache condivisa in
-  cluster, stale-while-revalidate/if-error, request collapsing e range caching (S-DST-07, 07b, 07c).
+### Domains, distributions and cache
+- CloudFront-style distributions: multiple domains (wildcards included) per bucket or prefix, `website` mode
+  (index, error page, SPA fallback, redirects) and `s3` mode, per-path behaviors, signed URLs and cookies with key
+  groups, trusted proxies, PROXY protocol, origin secret, IP restrictions, per-domain certificates uploaded or from
+  ACME HTTP-01/TLS-ALPN-01, per-distribution metrics and access logs (S-DST-01..06, S-DST-08).
+- Built-in memory and disk cache with policies per distribution, domain and path, quotas, automatic invalidation
+  on write, purge by path/glob/regex/tag/domain, webhooks to external CDNs, cluster-shared cache,
+  stale-while-revalidate/if-error, request collapsing and range caching (S-DST-07, 07b, 07c).
 
-### Osservabilità (M8)
-- Metriche Prometheus su `/nexo/metrics/v1/{cluster,node,bucket}`: API con istogrammi di latenza, dischi, rete,
-  lock, KMS, eventi, healing, scanner, ILM, cache e distribuzioni; dashboard Grafana, alert e configurazioni
-  Prometheus in `deploy/docker/observability` (S-OPS-04).
-- Serie storiche per la console (ring buffer di 24 h per nodo, `/api/v1/metrics/query`).
-- Trace live e log live aggregati da tutti i nodi via SSE, con filtri e redazione dei segreti; log strutturati
-  JSON o testo con livello e formato cambiati a caldo (S-OPS-05, S-OPS-07).
-- Audit di ogni richiesta autenticata con ricerca e target webhook/Kafka (S-OPS-06, D-MON-03).
-- OpenTelemetry OTLP (`http/protobuf`, `grpc`) con uno span per richiesta e per chiamata internodo e
-  propagazione `traceparent`.
-- Diagnostica: speed test di drive, object layer e rete, profili pprof protetti da `admin:Profiling` (S-OPS-11,
-  anticipata da M10).
+### Observability (M8)
+- Prometheus metrics on `/nexo/metrics/v1/{cluster,node,bucket}`: API with latency histograms, drives, network,
+  locks, KMS, events, healing, scanner, ILM, cache and distributions; Grafana dashboards, alerts and Prometheus
+  configurations in `deploy/docker/observability` (S-OPS-04).
+- Time series for the console (24 h ring buffer per node, `/api/v1/metrics/query`).
+- Live trace and live logs aggregated from all nodes over SSE, with filters and secret redaction; structured JSON
+  or text logs with level and format changeable at runtime (S-OPS-05, S-OPS-07).
+- Audit of every authenticated request with search and webhook/Kafka targets (S-OPS-06, D-MON-03).
+- OpenTelemetry OTLP (`http/protobuf`, `grpc`) with one span per request and per internode call and `traceparent`
+  propagation.
+- Diagnostics: drive, object layer and network speed tests, pprof profiles protected by `admin:Profiling`
+  (S-OPS-11, brought forward from M10).
 
-### Admin API, console e CLI
-- Admin API REST (`/api/v1`, contratto in [api/openapi.yaml](api/openapi.yaml)) con autorizzazione per azione
-  `admin:*`, errori `problem+json` e client Go `pkg/nexoadmin`.
-- Console React incorporata nel binario: overview, bucket e impostazioni, object browser con upload multipart,
-  download zip, anteprime, versioni, retention, utenti, gruppi, policy (editor Monaco e builder), access key,
-  condivisioni, regole di accesso, distribuzioni, cache, cluster e healing, metriche, trace e log live, audit,
-  configurazione; tema chiaro/scuro, italiano/inglese, nessuna violazione serious/critical di axe (D-*).
-- `nexoctl`: alias, comandi sui dati (`ls`, `cp`, `mv`, `rm`, `mirror --watch`, `find`, `du`, `diff`, `tree`,
-  `share`, `presign`, `anonymous`), impostazioni dei bucket, `access`, `dist`, `cache`, `admin` (utenti, gruppi,
-  policy, access key, config, heal, info, trace, logs, audit, metrics, prometheus generate, speedtest, profile,
-  cluster export/import), output `--json`, autocompletamento, `--debug` con segreti redatti (C-*).
+### Admin API, console and CLI
+- REST Admin API (`/api/v1`, contract in [api/openapi.yaml](api/openapi.yaml)) with per-action `admin:*`
+  authorization, `problem+json` errors and the Go client `pkg/nexoadmin`.
+- React console embedded in the binary: overview, buckets and settings, object browser with multipart upload, zip
+  download, previews, versions, retention, users, groups, policies (Monaco editor and builder), access keys,
+  shares, access rules, distributions, cache, cluster and healing, metrics, live trace and logs, audit,
+  configuration; light/dark theme, English/Italian, no serious/critical axe violations (D-*).
+- `nexoctl`: aliases, data commands (`ls`, `cp`, `mv`, `rm`, `mirror --watch`, `find`, `du`, `diff`, `tree`,
+  `share`, `presign`, `anonymous`), bucket settings, `access`, `dist`, `cache`, `admin` (users, groups, policies,
+  access keys, config, heal, info, trace, logs, audit, metrics, prometheus generate, speedtest, profile, cluster
+  export/import), `--json` output, shell completion, `--debug` with redacted secrets (C-*).
 
-### Packaging e deploy
-- Binari statici per Linux, macOS e Windows (amd64/arm64), archivi, pacchetti deb/rpm con unit systemd e utente
-  di sistema, cask Homebrew, SBOM SPDX (S-OPS-12, C-UX-00).
-- Immagini Docker multi-arch `nexo` e `nexoctl` distroless firmate con cosign, `nexo healthcheck` con TLS,
-  segreti `*_FILE`, Compose per singolo nodo, SNMD, cluster (anche TLS e più proxy), stack Swarm, Helm chart
-  `standalone`/`distributed` (S-OPS-13).
-- `nexo server --dry-run` e URL pubblico (`NEXO_SERVER_URL`) per i link dietro proxy (S-OPS-14).
+### Packaging and deployment
+- Static binaries for Linux, macOS and Windows (amd64/arm64), archives, deb/rpm packages with a systemd unit and a
+  system user, Homebrew cask, SPDX SBOMs (S-OPS-12, C-UX-00).
+- Multi-arch distroless Docker images `nexo` and `nexoctl` signed with cosign, `nexo healthcheck` with TLS,
+  `*_FILE` secrets, Compose files for single node, SNMD, cluster (also with TLS and multiple proxies), Swarm stack,
+  Helm chart `standalone`/`distributed` (S-OPS-13).
+- `nexo server --dry-run` and public URL (`NEXO_SERVER_URL`) for links behind a proxy (S-OPS-14).
 
-### Documentazione
-- Documentazione utente in [docs/user](docs/user/README.md) (quickstart, installazione, modalità, configurazione,
-  guida operativa, sicurezza, distribuzioni, riferimenti) con sito MkDocs e riferimento della CLI generato da cobra.
-- Benchmark `warp` e profiling in [docs/bench](docs/bench/README.md).
-- Matrice di tracciabilità [test/TRACEABILITY.md](test/TRACEABILITY.md): tutte le 147 funzionalità P0/P1 hanno
-  almeno un test; `make traceability-check` blocca la release altrimenti.
+### Documentation
+- User documentation in [docs/user](docs/user/README.md) (quickstart, installation, modes, configuration,
+  operations guide, security, distributions, references) with a MkDocs site and a CLI reference generated by
+  cobra.
+- `warp` benchmarks and profiling in [docs/bench](docs/bench/README.md).
+- Traceability matrix [test/TRACEABILITY.md](test/TRACEABILITY.md): all 147 P0/P1 features have at least one
+  test; otherwise `make traceability-check` blocks the release.
 
-### Modificato
-- Toolchain Go 1.26.9 (`go.mod`, Dockerfile, CI) e golangci-lint v2.14.0; aggiornati `x/net` v0.60.0, `x/text`
+### Changed
+- Go toolchain 1.26.9 (`go.mod`, Dockerfile, CI) and golangci-lint v2.14.0; upgraded `x/net` v0.60.0, `x/text`
   v0.42.0, pgx v5.9.2, OpenTelemetry v1.45.0, grpc v1.83.2, `klauspost/compress` v1.18.7, chi v5.3.0: `govulncheck`
-  senza vulnerabilità raggiunte.
+  reports no reachable vulnerabilities.
 - Go toolchain upgraded to 1.27.2 (`go.mod`, `golang:1.27.2-alpine` builder images in the Dockerfiles; CI reads
   `go.mod`); golangci-lint v2.14.0 (built with Go 1.27) unchanged, no module dependency changes required. mockery
   v2.53.4 is now pinned in a separate tools module (`tools/go.mod`, run with `go tool -modfile`) built with
@@ -113,117 +116,120 @@ state pubblicate: la base dei test di aggiornamento è il commit di M7 (`224bb31
   With Go 1.27 `encoding/json` is backed by the v2 implementation: the line and column of a policy JSON syntax
   error are now taken from the offending byte (`SyntaxError.Offset` counts it), and the race detector caught a
   `sync.WaitGroup` Add/Wait race in the RPC connection close (fixed by ordering both under the connection mutex).
-- Il client RPC internodo usa l'HTTP/2 di `net/http` invece di `x/net/http2` (deprecato).
-- SIGHUP ricarica solo i certificati TLS; `POST /api/v1/service/restart` riavvia il processo in place.
-- Nuove azioni di policy `admin:Profiling` e `admin:Speedtest`, incluse nella policy predefinita `diagnostics`.
-- Priorità del catalogo: S-OPS-11, D-MON-03 e C-ADM-12, consegnate in anticipo, passano da P2 a P1.
+- The internode RPC client uses the HTTP/2 of `net/http` instead of `x/net/http2` (deprecated).
+- SIGHUP reloads only the TLS certificates; `POST /api/v1/service/restart` restarts the process in place.
+- New policy actions `admin:Profiling` and `admin:Speedtest`, included in the built-in `diagnostics` policy.
+- Catalog priorities: S-OPS-11, D-MON-03 and C-ADM-12, delivered early, move from P2 to P1.
+- The project files (code comments, logs, deployment files, design documents, changelog) are in English; the
+  console defaults to English, with Italian available from the language switcher.
 
-### Corretto (revisione finale)
-- **Alias takeover delle distribuzioni**: gli host del deployment (endpoint dei nodi, `localhost`, `--server-url`,
-  `--browser-redirect-url`, `--domain`) sono riservati; il prefisso `/nexo/` (salute, metriche, RPC) non passa mai
-  dal routing per Host; l'RPC internodo salta solo i virtual host di `--domain`; un alias sotto il wildcard di
-  un'altra distribuzione richiede i permessi su di essa; il listener S3 serve le distribuzioni solo con
-  `--s3-distributions` (`auto`/`on`/`off`) e `--no-distributions` le disattiva per il ripristino (S-DST-01).
-- **Letture su istantanea con ridondanza**: una GET che ha rilasciato il lock tiene aperti gli shard di tutti i
-  dischi online (handle remoti via RPC), così bitrot, dischi o nodi persi durante il trasferimento non la
-  troncano anche se una PUT o DELETE concorrente ha già eliminato i dati, anche se dura più di un'ora (il nodo che
-  legge rinnova i suoi handle); il conteggio delle parti è corretto. Aprire e chiudere un handle costa lo stesso
-  qualunque sia il numero di handle aperti sul nodo.
-- **Client fermi su HTTP/2**: una connessione HTTP/2 che non accetta byte per `NEXO_SEND_TIMEOUT` viene chiusa con
-  tutti i suoi stream su ogni listener; prima un client anonimo che annunciava finestre grandi e smetteva di
-  svuotare il socket teneva a tempo indeterminato handler, corpi bufferizzati e il lock di lettura degli oggetti
-  di più di 8 parti. Su HTTP/2 il limite di stallo misura l'avanzamento di ogni stream a pezzi dimensionati sugli
-  stream della connessione: un browser che carica molte risorse in parallelo su una rete lenta non viene più
-  interrotto.
-- `/nexo/health/cluster` riporta nodi, dischi, quorum di scrittura e manutenzione reali (S-OPS-03);
-  `admin info` riporta oggetti e spazio usato dallo scanner.
+### Fixed (final review)
+- **Distribution alias takeover**: the deployment hosts (node endpoints, `localhost`, `--server-url`,
+  `--browser-redirect-url`, `--domain`) are reserved; the `/nexo/` prefix (health, metrics, RPC) never goes
+  through Host routing; the internode RPC skips only the virtual hosts of `--domain`; an alias under the wildcard
+  of another distribution requires permissions on it; the S3 listener serves distributions only with
+  `--s3-distributions` (`auto`/`on`/`off`) and `--no-distributions` disables them for recovery (S-DST-01).
+- **Redundant snapshot reads**: a GET that has released the lock keeps the shards of all online drives open
+  (remote handles over RPC), so bitrot or drives or nodes lost during the transfer do not truncate it even if a
+  concurrent PUT or DELETE has already removed the data, even if it lasts more than an hour (the reading node
+  renews its handles); the part count is correct. Opening and closing a handle costs the same regardless of the
+  number of handles open on the node.
+- **Stalled HTTP/2 clients**: an HTTP/2 connection that accepts no bytes for `NEXO_SEND_TIMEOUT` is closed with
+  all its streams on every listener; previously an anonymous client that advertised large windows and stopped
+  draining the socket held handlers, buffered bodies and the read lock of objects of more than 8 parts
+  indefinitely. On HTTP/2 the stall limit measures the progress of each stream in chunks sized on the streams of
+  the connection: a browser loading many resources in parallel over a slow network is no longer interrupted.
+- `/nexo/health/cluster` reports the real nodes, drives, write quorum and maintenance (S-OPS-03); `admin info`
+  reports the objects and used space from the scanner.
 - License: Nexo is released under the GNU AGPL v3.0 only (`AGPL-3.0-only`, `LICENSE`) with additional attribution
   terms under AGPL section 7(b) (`NOTICE`), and is also available under commercial licenses
   (`COMMERCIAL-LICENSE.md`); contributions require the sign-off described in `CONTRIBUTING.md`. `LICENSE` ships in
   archives, deb/rpm packages, OCI images and the Helm chart (the chart package is checked by `make helm-lint`);
-  `NOTICE` and `COMMERCIAL-LICENSE.md` ship in archives and `NOTICE` in the packages. The console shows the license,
-  the "Powered by Nexo" attribution and a link to the source code (AGPL section 13), and `nexo --version` and
-  `nexoctl --version` print the license.
-- Audit, metriche e trace riportano bucket e oggetto risolti come l'API S3, dai domini personalizzati e dai
-  virtual host scritti con il punto finale (`bucket.s3.example.com.`); l'audit non registra le sonde di salute
-  anonime né gli scrape anonimi riusciti delle metriche, ma registra sempre le richieste con credenziali (firma,
-  token: anche un tentativo fallito su `/nexo/health/*`) e gli scrape rifiutati.
-- Log di accesso JSON delle distribuzioni: l'inizio della richiesta è `event_time`, non una seconda chiave `time`
-  (rifiutata da Elasticsearch).
-- Bootstrap: il nodo che parte dopo i peer di un deployment nuovo registra a INFO l'attesa dei suoi dischi vuoti;
-  il WARN `empty local drives in an existing deployment` resta per i dischi sostituiti di un set con dati.
-- mTLS internodo: i client accettati sono firmati dalle CA di `CAs/` e hanno un SAN tra gli host degli endpoint.
-- Un solo predicato di redazione (firme, credenziali, token, password, policy e chiavi) per log, log stream,
-  audit, access log e trace.
-- `POST /api/v1/profile` invece di GET; i flussi live (trace, log) controllano l'origine della console.
-- Errori: codici S3 distinti per quorum di lettura e scrittura (`SlowDownRead`, `SlowDownWrite`), lock non
-  ottenuto (`XNexoLockTimeout`) e disco o nodo offline (`ServiceUnavailable`); l'Admin API risponde con un
-  messaggio curato e registra la catena dell'errore nel log con il request id; la console traduce
-  `lock_timeout`, `write_quorum` e `read_quorum`; `nexoctl` formatta gli errori dell'Admin API come quelli S3,
-  non ritenta gli errori di quorum, indica `nexoctl admin info` e riporta un server irraggiungibile come
-  `cannot reach <url>: <causa>`; `stat`, `cp`, `mv`, `rm` e `share --raw` su un bucket inesistente rispondono
-  `bucket not found` (non `object not found`), e il suggerimento sull'alias inesistente compare solo per gli
-  argomenti che indicano una posizione, non per i file di input (policy, YAML).
-- `nexo server --dry-run` verifica anche `--web-address`, `--web-tls-address` e `--acme-ca-cert`;
-  `nexo --version` stampa la versione come `nexo version`.
-- `make run-single`/`run-snmd` usano percorsi assoluti; `make run-cluster` mette la console sulla porta S3 + 1;
-  `make security` esegue govulncheck e gosec con la toolchain del modulo anche se il `go` installato è più vecchio.
-- Docker: `nexo.env.example` senza password predefinita, Prometheus e Grafana dello stack di osservabilità
-  legati a `127.0.0.1` e senza credenziali predefinite; in `compose.cluster.yml` nodi e load balancer stanno
-  sulla rete predefinita del progetto (con l'indirizzo fisso del load balancer), così l'overlay
-  `compose.observability.yml` raggiunge i target di `prometheus.cluster.yml` (verificato in CI).
-- CI: workflow puliti per actionlint con shellcheck, lint e vet anche dei test con tag `compose`, `upgrade` e
-  `nexotest`.
-- Documentazione: rimosse `NEXO_BROWSER` e `NEXO_CONSOLE_SESSION_DURATION`, mai lette (la sessione della console
-  dura 12 ore); quickstart allineato all'output reale.
+  `NOTICE` and `COMMERCIAL-LICENSE.md` ship in archives and OCI images (next to `/LICENSE`) and `NOTICE` in the
+  packages. The console
+  shows the license, the "Powered by Nexo" attribution and a link to the source code (AGPL section 13), and
+  `nexo --version` and `nexoctl --version` print the license.
+- Audit, metrics and trace report the bucket and object resolved like the S3 API, from custom domains and from
+  virtual hosts written with the trailing dot (`bucket.s3.example.com.`); the audit does not record anonymous
+  health probes or successful anonymous metrics scrapes, but always records requests with credentials (signature,
+  token: even a failed attempt on `/nexo/health/*`) and rejected scrapes.
+- JSON access logs of the distributions: the start of the request is `event_time`, not a second `time` key
+  (rejected by Elasticsearch).
+- Bootstrap: the node that starts after the peers of a new deployment logs at INFO that it is waiting for its
+  empty drives; the WARN `empty local drives in an existing deployment` remains for replaced drives of a set with
+  data.
+- Internode mTLS: accepted clients are signed by the CAs in `CAs/` and have a SAN among the endpoint hosts.
+- A single redaction predicate (signatures, credentials, tokens, passwords, policies and keys) for logs, log
+  stream, audit, access logs and trace.
+- `POST /api/v1/profile` instead of GET; the live streams (trace, logs) check the origin of the console.
+- Errors: distinct S3 codes for read and write quorum (`SlowDownRead`, `SlowDownWrite`), lock not acquired
+  (`XNexoLockTimeout`) and drive or node offline (`ServiceUnavailable`); the Admin API answers with a curated
+  message and logs the error chain with the request id; the console translates `lock_timeout`, `write_quorum` and
+  `read_quorum`; `nexoctl` formats Admin API errors like S3 ones, does not retry quorum errors, points to
+  `nexoctl admin info` and reports an unreachable server as `cannot reach <url>: <cause>`; `stat`, `cp`, `mv`, `rm`
+  and `share --raw` on a nonexistent bucket answer `bucket not found` (not `object not found`), and the hint about
+  a nonexistent alias appears only for arguments that name a location, not for input files (policies, YAML).
+- `nexo server --dry-run` also checks `--web-address`, `--web-tls-address` and `--acme-ca-cert`;
+  `nexo --version` prints the version as `nexo version`.
+- `make run-single`/`run-snmd` use absolute paths; `make run-cluster` puts the console on the S3 port + 1;
+  `make security` runs govulncheck and gosec with the module toolchain even if the installed `go` is older.
+- Docker: `nexo.env.example` without a default password, Prometheus and Grafana of the observability stack bound
+  to `127.0.0.1` and without default credentials; in `compose.cluster.yml` the nodes and the load balancer are on
+  the default project network (with the fixed address of the load balancer), so the `compose.observability.yml`
+  overlay reaches the targets of `prometheus.cluster.yml` (verified in CI).
+- CI: workflows clean for actionlint with shellcheck, lint and vet also of the tests with the `compose`,
+  `upgrade` and `nexotest` tags.
+- Documentation: removed `NEXO_BROWSER` and `NEXO_CONSOLE_SESSION_DURATION`, never read (the console session
+  lasts 12 hours); quickstart aligned with the real output.
 
-### Aggiornamento
-- I formati su disco sono invariati rispetto a `v0.7.0` (`format.json` v1, `xl.meta` 1.x): aggiornamento e
-  downgrade verificati in SNMD e con rolling upgrade di un cluster di 4 nodi sotto carico (`make test-upgrade`,
+### Upgrading
+- The on-disk formats are unchanged from `v0.7.0` (`format.json` v1, `xl.meta` 1.x): upgrade and downgrade
+  verified in SNMD and with a rolling upgrade of a 4-node cluster under load (`make test-upgrade`,
   [08](docs/08-deployment-modes.md)).
-- **Prima di riavviare il primo nodo** (cambi di comportamento che rompono un cluster misto o una configurazione
-  esistente):
-  - con `--tls-internode-verify` i certificati client dei nodi sono verificati solo con le CA di `CAs/` della
-    directory dei certificati (e con la foglia di default): una CA presente solo nella catena di `public.crt`,
-    accettata da `v0.7.0`, non basta più. Copiare la CA che firma i certificati dei nodi in `CAs/` su **tutti** i
-    nodi prima del rolling upgrade, altrimenti ogni nodo aggiornato rifiuta le chiamate internodo dei peer (che
-    vedono i suoi dischi offline) fino alla perdita del quorum. `nexo server --dry-run` avvisa quando `CAs/` è
-    vuota con `--tls-internode-verify` e una foglia non autofirmata;
-  - il listener S3 serve le distribuzioni solo con `--server-url`/`--domain` (`--s3-distributions=auto`, il
-    default) o con `--s3-distributions=on`: chi serve distribuzioni sulla porta 9000 senza quelle opzioni deve
-    impostare `NEXO_S3_DISTRIBUTIONS=on` (oppure `NEXO_SERVER_URL`/`NEXO_DOMAIN`) prima dell'aggiornamento, o
-    spostarle sui listener web (`--web-address`);
-  - durante il rolling upgrade le letture coordinate da un nodo aggiornato verso nodi `v0.7.0` (che non hanno
-    `storage/open-file`) restano sotto lock fino alla fine, come in `v0.7.0`.
+- **Before restarting the first node** (behavior changes that break a mixed cluster or an existing
+  configuration):
+  - with `--tls-internode-verify` the client certificates of the nodes are verified only with the CAs in `CAs/`
+    of the certificates directory (and with the default leaf): a CA present only in the chain of `public.crt`,
+    accepted by `v0.7.0`, is no longer enough. Copy the CA that signs the node certificates into `CAs/` on **all**
+    nodes before the rolling upgrade, otherwise every upgraded node rejects the internode calls of its peers (which
+    see its drives offline) until quorum is lost. `nexo server --dry-run` warns when `CAs/` is empty with
+    `--tls-internode-verify` and a leaf that is not self-signed;
+  - the S3 listener serves distributions only with `--server-url`/`--domain` (`--s3-distributions=auto`, the
+    default) or with `--s3-distributions=on`: whoever serves distributions on port 9000 without those options must
+    set `NEXO_S3_DISTRIBUTIONS=on` (or `NEXO_SERVER_URL`/`NEXO_DOMAIN`) before upgrading, or move them to the web
+    listeners (`--web-address`);
+  - during the rolling upgrade, reads coordinated by an upgraded node towards `v0.7.0` nodes (which lack
+    `storage/open-file`) stay under lock until the end, as in `v0.7.0`.
 
-### Limiti noti
-- Nessun rate limit per API o per distribuzione (S-OPS-10, S-DST-08 P2): mettere un reverse proxy con limiti
-  davanti a Nexo (`deploy/proxy`); `api.requests_max` e `api.requests_deadline` sono salvati ma non applicati.
-- Non inclusi (M10): replica di bucket e di sito, decommission e rebalance dei pool, OIDC e LDAP, tiering, S3 Select,
-  compressione, ACL diverse da `private`, ACME DNS-01, riavvio coordinato del cluster e aggiornamento orchestrato.
-- Pen test della console, O_DIRECT e zero-copy non ancora eseguiti.
+### Known limitations
+- No rate limiting per API or per distribution (S-OPS-10, S-DST-08 P2): put a reverse proxy with limits in front
+  of Nexo (`deploy/proxy`); `api.requests_max` and `api.requests_deadline` are stored but not applied.
+- Not included (M10): bucket and site replication, pool decommission and rebalance, OIDC and LDAP, tiering, S3
+  Select, compression, ACLs other than `private`, ACME DNS-01, coordinated cluster restart and orchestrated
+  upgrade.
+- Console pen test, O_DIRECT and zero-copy not yet performed.
 
-### Verifica
+### Verification
 
-Integrazione finale del 2026-10-15 sul working tree (Linux amd64, 4 vCPU, Go 1.26.9, Node.js 22):
+Final integration on 2026-10-15 on the working tree (Linux amd64, 4 vCPU, Go 1.26.9, Node.js 22):
 
-| Verifica | Esito | Durata |
-|----------|-------|-------:|
-| `go mod tidy`, `gofmt -l .` | nessuna modifica, nessun file da formattare | — |
-| `go build ./...` (anche `-tags cluster`, `compose`, `proxy`, `upgrade`, `nexotest`) | ok | 32 s |
-| `go vet ./...` (anche con i tag) | ok | 54 s |
-| `golangci-lint run ./...` v2.14.0 (anche con i tag) | 0 problemi | 35 s |
-| `go generate ./...` (mockery v2.53.4) | idempotente | 8 s |
-| `govulncheck` v1.1.4 | 0 vulnerabilità raggiunte | 25 s |
-| `gosec` v2.29.0, `npm audit --omit=dev` | 0 problemi, 0 vulnerabilità | 75 s |
-| `go test -race -count=1 ./...` (59 package, integrazione in SNSD, SNMD e cluster) | ok | 13 min 46 s |
-| `make test-cluster` (4 processi `bin/nexo`, TC-01..15) | ok | 4 min 17 s |
-| `make test-proxy` (proxy Go, nginx e HAProxy reali) | ok | 28 s |
-| `make test-upgrade` (`v0.7.0` → working tree, SNMD e rolling upgrade) | ok | 1 min 4 s |
-| `make traceability-check` | 75/75 P0 e 72/72 P1 con test | 2 s |
-| `npm run gen:api`, `lint`, `typecheck` | idempotente, ok, ok | 2 s, 52 s, 22 s |
-| Vitest | 67 file, 754 test | 1 min 26 s |
-| `npm run build`, bundle iniziale | ok, 305,76 kB gzip (limite 307,2) | 47 s |
+| Check | Result | Duration |
+|-------|--------|---------:|
+| `go mod tidy`, `gofmt -l .` | no changes, no files to format | — |
+| `go build ./...` (also `-tags cluster`, `compose`, `proxy`, `upgrade`, `nexotest`) | ok | 32 s |
+| `go vet ./...` (also with the tags) | ok | 54 s |
+| `golangci-lint run ./...` v2.14.0 (also with the tags) | 0 issues | 35 s |
+| `go generate ./...` (mockery v2.53.4) | idempotent | 8 s |
+| `govulncheck` v1.1.4 | 0 reachable vulnerabilities | 25 s |
+| `gosec` v2.29.0, `npm audit --omit=dev` | 0 issues, 0 vulnerabilities | 75 s |
+| `go test -race -count=1 ./...` (59 packages, integration in SNSD, SNMD and cluster) | ok | 13 min 46 s |
+| `make test-cluster` (4 `bin/nexo` processes, TC-01..15) | ok | 4 min 17 s |
+| `make test-proxy` (Go proxy, real nginx and HAProxy) | ok | 28 s |
+| `make test-upgrade` (`v0.7.0` → working tree, SNMD and rolling upgrade) | ok | 1 min 4 s |
+| `make traceability-check` | 75/75 P0 and 72/72 P1 with tests | 2 s |
+| `npm run gen:api`, `lint`, `typecheck` | idempotent, ok, ok | 2 s, 52 s, 22 s |
+| Vitest | 67 files, 754 tests | 1 min 26 s |
+| `npm run build`, initial bundle | ok, 305.76 kB gzip (limit 307.2) | 47 s |
 | `make build-embedded` | ok | 43 s |
-| Playwright (`chromium`, `snmd`, `cluster-smoke`, `cluster`) | 118 test | 3 min 8 s |
-| `make docs` | 238 pagine del riferimento CLI, deterministiche | 4 s |
+| Playwright (`chromium`, `snmd`, `cluster-smoke`, `cluster`) | 118 tests | 3 min 8 s |
+| `make docs` | 238 CLI reference pages, deterministic | 4 s |

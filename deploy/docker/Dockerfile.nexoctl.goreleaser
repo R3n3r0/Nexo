@@ -19,7 +19,7 @@ LABEL org.opencontainers.image.title="nexoctl" \
       org.opencontainers.image.licenses="AGPL-3.0-only" \
       org.opencontainers.image.vendor="r3n3r0"
 
-COPY LICENSE /LICENSE
+COPY LICENSE NOTICE COMMERCIAL-LICENSE.md /
 COPY $TARGETPLATFORM/nexoctl /nexoctl
 COPY --from=dirs --chown=65532:65532 /out/home/nonroot /home/nonroot
 

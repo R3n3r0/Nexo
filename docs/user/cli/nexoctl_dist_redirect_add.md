@@ -9,9 +9,9 @@ nexoctl dist redirect add ALIAS ID (--from RE --to TARGET | --host-from HOST --t
 ## Examples
 
 ```
-  nexoctl dist redirect add local sito-web --from '^/vecchio/(.*)$' --to '/nuovo/$1'
-  nexoctl dist redirect add local sito-web --host-from example.com --to-host www.example.com
-  nexoctl dist redirect add local sito-web --https-only
+  nexoctl dist redirect add local website --from '^/old/(.*)$' --to '/new/$1'
+  nexoctl dist redirect add local website --host-from example.com --to-host www.example.com
+  nexoctl dist redirect add local website --https-only
 ```
 
 ## Options

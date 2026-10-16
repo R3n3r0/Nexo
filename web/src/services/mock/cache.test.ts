@@ -53,13 +53,13 @@ describe('mock cache service', () => {
 
   it('refuses to delete a policy in use, then deletes it', async () => {
     const { cache } = admin({ cachePolicies: [{ name: 'short', ttl: { default: '10m' } }] });
-    const cfg = await cache.getDistribution('sito-web');
+    const cfg = await cache.getDistribution('website');
     await cache.updateDistribution({
       ...cfg,
       domains: [...(cfg.domains ?? []), { host: 'example.com', cache: { policy: 'short' } }],
     });
     expect((await failure(cache.deletePolicy('short'))).code).toBe('cache_policy_in_use');
-    const now = await cache.getDistribution('sito-web');
+    const now = await cache.getDistribution('website');
     await cache.updateDistribution({
       ...now,
       domains: (now.domains ?? []).filter((d) => d.host !== 'example.com'),
@@ -70,11 +70,11 @@ describe('mock cache service', () => {
 
   it('validates the settings of a distribution: domains, levels, webhooks', async () => {
     const { cache } = admin();
-    const cfg = await cache.getDistribution('sito-web');
+    const cfg = await cache.getDistribution('website');
     const bad = (domains: NonNullable<typeof cfg.domains>) =>
       failure(cache.updateDistribution({ ...cfg, domains }));
     expect((await bad([{ host: 'other.test', cache: { enabled: false } }])).detail).toContain(
-      'is not a domain of sito-web',
+      'is not a domain of website',
     );
     expect((await bad([{ host: 'example.com', cache: { policy: 'nope' } }])).detail).toContain(
       'does not exist',
@@ -97,25 +97,25 @@ describe('mock cache service', () => {
 
   it('masks the secrets of the webhooks and keeps the stored ones', async () => {
     const { cache } = admin();
-    const listed = await cache.webhooks('sito-web');
+    const listed = await cache.webhooks('website');
     expect(listed[0]).not.toHaveProperty('token');
     // The masked webhook saved back keeps its token...
-    const cfg = await cache.getDistribution('sito-web');
+    const cfg = await cache.getDistribution('website');
     await cache.updateDistribution(cfg, cfg.etag);
-    expect((await cache.testWebhook('sito-web', 'cloudflare-www')).ok).toBe(true);
+    expect((await cache.testWebhook('website', 'cloudflare-www')).ok).toBe(true);
     // ...a new one needs its own.
     expect(
-      (await failure(cache.addWebhook('sito-web', { id: 'cf2', type: 'cloudflare', zone: 'z' })))
+      (await failure(cache.addWebhook('website', { id: 'cf2', type: 'cloudflare', zone: 'z' })))
         .detail,
     ).toContain('needs token');
-    await cache.addWebhook('sito-web', {
+    await cache.addWebhook('website', {
       id: 'edge',
       type: 'generic',
       url: 'http://127.0.0.1:9/x',
     });
-    expect(await cache.testWebhook('sito-web', 'edge')).toMatchObject({ ok: false });
-    await cache.removeWebhook('sito-web', 'edge');
-    expect((await failure(cache.testWebhook('sito-web', 'edge'))).code).toBe('webhook_not_found');
+    expect(await cache.testWebhook('website', 'edge')).toMatchObject({ ok: false });
+    await cache.removeWebhook('website', 'edge');
+    expect((await failure(cache.testWebhook('website', 'edge'))).code).toBe('webhook_not_found');
   });
 
   it('completes an invalidation node by node as it is read, and drops the entries', async () => {
@@ -143,15 +143,15 @@ describe('mock cache service', () => {
 
   it('checks the requests of the invalidations', async () => {
     const { cache } = admin();
-    expect((await failure(cache.invalidate('sito-web', {}))).code).toBe('invalid_cache_request');
+    expect((await failure(cache.invalidate('website', {}))).code).toBe('invalid_cache_request');
     expect((await failure(cache.invalidate('', { paths: ['/'] }))).detail).toContain(
       'all is required',
     );
     expect(
-      (await failure(cache.invalidate('sito-web', { domain: 'other.test', all: false }))).detail,
+      (await failure(cache.invalidate('website', { domain: 'other.test', all: false }))).detail,
     ).toContain('is not a domain');
     expect(
-      (await failure(cache.invalidate('sito-web', { patterns: [{ type: 'regex', pattern: '(' }] })))
+      (await failure(cache.invalidate('website', { patterns: [{ type: 'regex', pattern: '(' }] })))
         .code,
     ).toBe('invalid_cache_request');
     expect((await cache.invalidate('', { all: true })).request.distribution).toBeUndefined();
@@ -187,8 +187,8 @@ describe('mock cache service', () => {
     const { cache } = services;
     expect((await failure(cache.listPolicies())).status).toBe(403);
     expect((await failure(cache.stats())).status).toBe(403);
-    expect((await failure(cache.getDistribution('sito-web'))).status).toBe(403);
-    const inv = await cache.invalidate('sito-web', { paths: ['/index.html'] });
+    expect((await failure(cache.getDistribution('website'))).status).toBe(403);
+    const inv = await cache.invalidate('website', { paths: ['/index.html'] });
     expect(inv.request.actor).toBe('ci');
     const job = await cache.warm('download', { prefix: '/db/' });
     expect(job.nodes[0]?.total).toBe(2);
@@ -199,7 +199,7 @@ describe('mock cache service', () => {
     const all = await cache.stats();
     expect(all.nodes).toHaveLength(4);
     expect(all.hosts).toHaveLength(4);
-    const site = await cache.stats({ distribution: 'sito-web' });
+    const site = await cache.stats({ distribution: 'website' });
     expect(site.hosts.map((h) => h.host)).toEqual([
       'www.example.com',
       'example.com',

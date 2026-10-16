@@ -92,7 +92,7 @@ const builtinTime = '0001-01-01T00:00:00Z';
 export function sampleCacheConfig(): DistributionCache[] {
   return [
     {
-      distribution: 'sito-web',
+      distribution: 'website',
       cache: { enabled: true, policy: 'standard' },
       domains: [
         { host: 'www.example.com', cache: { policy: 'aggressive', quota: '20GiB' } },
@@ -131,7 +131,7 @@ function counters(requests: Record<string, number>, bytes: number, hitShare = 0.
 export function sampleCacheStats(nodes: readonly string[]): CacheStats {
   const hosts: CacheHostStats[] = [
     {
-      distribution: 'sito-web',
+      distribution: 'website',
       host: 'www.example.com',
       ...counters(
         { HIT: 158_200, MISS: 9_800, STALE: 2_100, REVALIDATED: 640, EXPIRED: 300 },
@@ -143,7 +143,7 @@ export function sampleCacheStats(nodes: readonly string[]): CacheStats {
       diskBytes: 6_200_000_000,
     },
     {
-      distribution: 'sito-web',
+      distribution: 'website',
       host: 'example.com',
       ...counters({ HIT: 1_500, MISS: 2_200, BYPASS: 510 }, 2.1e7, 0.4),
       entries: 120,
@@ -151,7 +151,7 @@ export function sampleCacheStats(nodes: readonly string[]): CacheStats {
       diskBytes: 0,
     },
     {
-      distribution: 'sito-web',
+      distribution: 'website',
       host: 'pr-12.preview.example.com',
       ...counters({ BYPASS: 3_400 }, 4.2e7, 0),
       entries: 0,
@@ -169,27 +169,27 @@ export function sampleCacheStats(nodes: readonly string[]): CacheStats {
   ];
   const top: CacheObjectStat[] = [
     {
-      distribution: 'sito-web',
+      distribution: 'website',
       host: 'www.example.com',
       path: '/index.html',
       requests: 48_210,
       misses: 310,
     },
     {
-      distribution: 'sito-web',
+      distribution: 'website',
       host: 'www.example.com',
       path: '/assets/app.js',
       requests: 41_005,
       misses: 12,
     },
     {
-      distribution: 'sito-web',
+      distribution: 'website',
       host: 'www.example.com',
       path: '/assets/app.css',
       requests: 40_870,
       misses: 9,
     },
-    { distribution: 'sito-web', host: 'example.com', path: '/', requests: 3_900, misses: 2_100 },
+    { distribution: 'website', host: 'example.com', path: '/', requests: 3_900, misses: 2_100 },
     {
       distribution: 'download',
       host: 'download.example.com',

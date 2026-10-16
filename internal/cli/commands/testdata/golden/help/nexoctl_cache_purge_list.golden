@@ -7,7 +7,7 @@ Aliases:
   list, ls
 
 Examples:
-  nexoctl cache purge ls local sito-web
+  nexoctl cache purge ls local website
 
 Flags:
   -h, --help   help for list

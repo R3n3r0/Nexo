@@ -1,5 +1,5 @@
 // Package proxy holds the tests of Nexo behind several reverse proxies
-// (docs/10 §10.2 "Dietro uno o più proxy", §10.6 TCD-01..03, docs/11
+// (docs/10 §10.2 "Behind one or more proxies", §10.6 TCD-01..03, docs/11
 // §11.12 TCC-C-05, docs/09 TPS-19 on the custom domains of the
 // distributions).
 //

@@ -4,7 +4,7 @@ Usage:
   nexoctl dist info ALIAS ID [flags]
 
 Examples:
-  nexoctl dist info local sito-web
+  nexoctl dist info local website
 
 Flags:
   -h, --help   help for info

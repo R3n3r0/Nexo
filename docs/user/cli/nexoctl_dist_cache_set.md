@@ -19,11 +19,11 @@ nexoctl dist cache set ALIAS ID [--domain HOST | --behavior PATTERN] [flags]
 ## Examples
 
 ```
-  nexoctl dist cache set local sito-web --policy standard
-  nexoctl dist cache set local sito-web --domain www.example.com --policy aggressive --quota 20GiB
-  nexoctl dist cache set local sito-web --domain '*.preview.example.com' --disable
-  nexoctl dist cache set local sito-web --behavior '/assets/**' --ttl-default 365d
-  nexoctl dist cache set local sito-web --behavior '/api/' --behavior-type prefix --disable
+  nexoctl dist cache set local website --policy standard
+  nexoctl dist cache set local website --domain www.example.com --policy aggressive --quota 20GiB
+  nexoctl dist cache set local website --domain '*.preview.example.com' --disable
+  nexoctl dist cache set local website --behavior '/assets/**' --ttl-default 365d
+  nexoctl dist cache set local website --behavior '/api/' --behavior-type prefix --disable
 ```
 
 ## Options

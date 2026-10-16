@@ -9,7 +9,7 @@ nexoctl cache warm status ALIAS DIST JOB [--wait] [flags]
 ## Examples
 
 ```
-  nexoctl cache warm status local sito-web warm-18a2b3c4d5e6f-0a1b2c3d
+  nexoctl cache warm status local website warm-18a2b3c4d5e6f-0a1b2c3d
 ```
 
 ## Options

@@ -7,7 +7,7 @@ Aliases:
   remove, rm
 
 Examples:
-  nexoctl cache webhook rm local sito-web cloudflare
+  nexoctl cache webhook rm local website cloudflare
 
 Flags:
   -h, --help   help for remove

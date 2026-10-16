@@ -4,7 +4,7 @@
 // erasure set (.nexo.sys/config), whatever the deployment mode: the drives
 // are storage.StorageAPI values, local or remote (internode RPC), so that
 // every node of a cluster reads and writes the same documents (docs/03
-// §3.9: "metadati di bucket/IAM: scritti su quorum").
+// §3.9: "bucket/IAM metadata: written with quorum").
 //
 // Every document is replicated whole on every drive with a version stamp
 // (documents are small: a few KiB). A write takes the distributed write

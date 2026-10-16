@@ -25,7 +25,7 @@ func TestResolve(t *testing.T) {
 	svc := newService(t,
 		distribution.WithDomains("s3.example.org"),
 		distribution.WithMainHosts("console.example.org", "api.example.org"))
-	site := sample("sito-web", "www.example.com", "example.com", "*.preview.example.com")
+	site := sample("website", "www.example.com", "example.com", "*.preview.example.com")
 	_, err := svc.Create(ctx, site)
 	require.NoError(t, err)
 	deep := sample("deep", "*.eu.preview.example.com")
@@ -36,9 +36,9 @@ func TestResolve(t *testing.T) {
 	off.Enabled = false
 	_, err = svc.Create(ctx, off)
 	require.NoError(t, err)
-	s3d := sample("s3-cliente", "s3.cliente.it")
+	s3d := sample("s3-customer", "s3.customer.it")
 	s3d.Mode = distribution.ModeS3
-	s3d.Origin.Bucket = "cliente"
+	s3d.Origin.Bucket = "customer"
 	s3d.DefaultBehavior.IndexDocument = "" // a website setting
 	_, err = svc.Create(ctx, s3d)
 	require.NoError(t, err)
@@ -50,19 +50,19 @@ func TestResolve(t *testing.T) {
 		alias  string
 		bucket string
 	}{
-		{host: "www.example.com", kind: distribution.RouteDistribution, id: "sito-web", alias: "www.example.com", bucket: "web"},
-		{host: "WWW.Example.COM:8443", kind: distribution.RouteDistribution, id: "sito-web", alias: "www.example.com", bucket: "web"},
-		{host: "example.com.", kind: distribution.RouteDistribution, id: "sito-web", alias: "example.com", bucket: "web"},
-		{host: "pr-42.preview.example.com", kind: distribution.RouteDistribution, id: "sito-web", alias: "*.preview.example.com", bucket: "web"},
-		{host: "a.b.preview.example.com", kind: distribution.RouteDistribution, id: "sito-web", alias: "*.preview.example.com", bucket: "web"},
+		{host: "www.example.com", kind: distribution.RouteDistribution, id: "website", alias: "www.example.com", bucket: "web"},
+		{host: "WWW.Example.COM:8443", kind: distribution.RouteDistribution, id: "website", alias: "www.example.com", bucket: "web"},
+		{host: "example.com.", kind: distribution.RouteDistribution, id: "website", alias: "example.com", bucket: "web"},
+		{host: "pr-42.preview.example.com", kind: distribution.RouteDistribution, id: "website", alias: "*.preview.example.com", bucket: "web"},
+		{host: "a.b.preview.example.com", kind: distribution.RouteDistribution, id: "website", alias: "*.preview.example.com", bucket: "web"},
 		// The longest wildcard suffix wins.
 		{host: "x.eu.preview.example.com", kind: distribution.RouteDistribution, id: "deep", alias: "*.eu.preview.example.com", bucket: "deep"},
 		// A wildcard needs a label of its own.
 		{host: "preview.example.com", kind: distribution.RoutePathStyle},
-		{host: "eu.preview.example.com", kind: distribution.RouteDistribution, id: "sito-web", alias: "*.preview.example.com", bucket: "web"},
+		{host: "eu.preview.example.com", kind: distribution.RouteDistribution, id: "website", alias: "*.preview.example.com", bucket: "web"},
 		// Disabled distributions keep their hosts (answered 403).
 		{host: "off.example.com", kind: distribution.RouteDistribution, id: "off", alias: "off.example.com", bucket: "web"},
-		{host: "s3.cliente.it", kind: distribution.RouteDistribution, id: "s3-cliente", alias: "s3.cliente.it", bucket: "cliente"},
+		{host: "s3.customer.it", kind: distribution.RouteDistribution, id: "s3-customer", alias: "s3.customer.it", bucket: "customer"},
 		// Virtual host, main domains, IP literals, unknown hosts.
 		{host: "photos.s3.example.org", kind: distribution.RouteVirtualHost, bucket: "photos"},
 		{host: "s3.example.org:9000", kind: distribution.RouteMain},

@@ -9,8 +9,8 @@ nexoctl dist edit ALIAS ID [--bucket B] [--prefix P] [--mode M] [--access A] [--
 ## Examples
 
 ```
-  nexoctl dist edit local sito-web --prefix /v2 --cache-control 'public, max-age=300'
-  nexoctl dist edit local sito-web --access signed --key-group rilasci
+  nexoctl dist edit local website --prefix /v2 --cache-control 'public, max-age=300'
+  nexoctl dist edit local website --access signed --key-group rilasci
 ```
 
 ## Options

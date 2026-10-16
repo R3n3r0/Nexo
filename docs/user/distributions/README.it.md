@@ -7,7 +7,7 @@ cache; le modifiche raggiungono tutti i nodi senza riavvii.
 
 Si gestiscono dalla console (**Distribuzioni**, con un wizard di creazione), con `nexoctl dist` e
 `nexoctl cache`, o dall'Admin API (`/api/v1/distributions`, `/api/v1/cache`). Per un esempio completo dall'inizio
-alla fine segui il [tutorial del sito statico su due domini](tutorial-sito-statico.md).
+alla fine segui il [tutorial del sito statico su due domini](tutorial-static-site.md).
 
 ## Modalità
 
@@ -88,7 +88,7 @@ nexoctl dist test local sito-web /downloads/v1.zip     # quale behavior, accesso
 ```
 
 Un behavior `public` di una distribuzione `website` risponde `403` finché il
-[block public access](../sicurezza/condivisione.md#regole-di-accesso-pubbliche-e-block-public-access) del
+[block public access](../security/sharing.md#regole-di-accesso-pubbliche-e-block-public-access) del
 bucket o del cluster è attivo. Il bucket di origine può restare privato: la distribuzione legge gli oggetti per
 conto dei visitatori.
 
@@ -260,7 +260,7 @@ Con `nexoctl cache settings local --debug-secret-file debug.secret`, le richiest
 `nexo_distribution_requests_total{distribution,host,status}`, `nexo_distribution_bytes_served_total`,
 `nexo_distribution_request_duration_seconds`, `nexo_cache_requests_total{distribution,host,result}`,
 `nexo_cache_hit_ratio`, `nexo_cache_bytes_served_total{source}`, `nexo_cache_size_bytes`,
-`nexo_cache_invalidations_total`, `nexo_cache_webhook_calls_total`. Vedi [Monitoraggio](../operazioni/monitoraggio.md).
+`nexo_cache_invalidations_total`, `nexo_cache_webhook_calls_total`. Vedi [Monitoraggio](../operations/monitoring.md).
 
 ## GitOps
 

@@ -74,9 +74,9 @@ describe('cache pages', { timeout: 30_000 }, () => {
     // The busiest domain first, with a link to the cache of its distribution.
     expect(rows[1]).toHaveTextContent('www.example.com');
     expect(rows[1]).toHaveTextContent('94.1%');
-    expect(within(rows[1] as HTMLElement).getByRole('link', { name: 'sito-web' })).toHaveAttribute(
+    expect(within(rows[1] as HTMLElement).getByRole('link', { name: 'website' })).toHaveAttribute(
       'href',
-      '/distributions/sito-web/cache',
+      '/distributions/website/cache',
     );
     // D-CCH-08: the charts per domain (a lazy chunk) and the top objects.
     expect(await screen.findByText('Hit ratio per domain')).toBeInTheDocument();
@@ -202,7 +202,7 @@ describe('cache pages', { timeout: 30_000 }, () => {
     const { user } = open('/cache/invalidations', services);
     const form = await screen.findByRole('form', { name: 'Invalidate' });
     await user.click(within(form).getByRole('textbox', { name: 'Distribution' }));
-    await user.click(await screen.findByRole('option', { name: 'sito-web' }));
+    await user.click(await screen.findByRole('option', { name: 'website' }));
     await user.click(within(form).getByRole('radio', { name: 'Patterns' }));
     await user.type(within(form).getByRole('textbox', { name: 'Pattern 1' }), '/assets/**');
     await user.click(within(form).getByRole('textbox', { name: 'Only on the domain' }));
@@ -220,7 +220,7 @@ describe('cache pages', { timeout: 30_000 }, () => {
     ).toBeInTheDocument();
     const nodes = within(progress).getByRole('table');
     expect(within(nodes).getAllByText('Completed')).toHaveLength(4);
-    const history = await screen.findByRole('table', { name: 'History of sito-web' });
+    const history = await screen.findByRole('table', { name: 'History of website' });
     expect(history).toHaveTextContent('glob /assets/**');
     expect(history).toHaveTextContent('nexoadmin');
   });
@@ -345,7 +345,7 @@ describe('cache pages', { timeout: 30_000 }, () => {
     ).toEqual(['Invalidations', 'Warm-up']);
     // The distributions cannot be listed: the id is typed.
     const form = await screen.findByRole('form', { name: 'Invalidate' });
-    await user.type(within(form).getByRole('textbox', { name: 'Distribution' }), 'sito-web');
+    await user.type(within(form).getByRole('textbox', { name: 'Distribution' }), 'website');
     await user.type(within(form).getByRole('textbox', { name: 'Paths' }), '/index.html');
     await user.click(within(form).getByRole('button', { name: 'Invalidate' }));
     expect(await screen.findByRole('region', { name: /^Invalidation inv-/ })).toHaveTextContent(

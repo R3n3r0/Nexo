@@ -122,7 +122,7 @@ export function sampleDistributions(
         updatedAt: iso(-20),
       },
       {
-        id: 'sito-web',
+        id: 'website',
         enabled: true,
         comment: 'Public website',
         aliases: ['www.example.com', 'example.com', '*.preview.example.com'],
@@ -152,7 +152,7 @@ export function sampleDistributions(
           { status: 403, path: '/404.html', responseStatus: 404 },
         ],
         redirects: [
-          { from: '^/vecchio/(.*)$', to: '/nuovo/$1', status: 301 },
+          { from: '^/old/(.*)$', to: '/new/$1', status: 301 },
           { hostFrom: 'example.com', toHost: 'www.example.com', status: 301 },
         ],
         headers: {
@@ -179,17 +179,17 @@ export function sampleDistributions(
         updatedAt: iso(-30),
       },
     ],
-    certificates: [cert('www-example-com', ['www.example.com', 'example.com'], 12, ['sito-web'])],
+    certificates: [cert('www-example-com', ['www.example.com', 'example.com'], 12, ['website'])],
     traffic: [
       {
-        distribution: 'sito-web',
+        distribution: 'website',
         host: 'www.example.com',
         requests: 182_340,
         bytes: 9.1e9,
         hitRatio: 0.93,
       },
       {
-        distribution: 'sito-web',
+        distribution: 'website',
         host: 'example.com',
         requests: 4_210,
         bytes: 2.1e7,

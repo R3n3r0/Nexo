@@ -36,10 +36,10 @@ import (
 func testRoutes() map[string]distribution.Route {
 	site := &distribution.Distribution{ID: "site", Enabled: true, Mode: distribution.ModeWebsite, Origin: distribution.Origin{Bucket: "web"},
 		Logging: distribution.Logging{AccessLog: true, Format: distribution.LogFormatCombined}}
-	s3d := &distribution.Distribution{ID: "s3d", Enabled: true, Mode: distribution.ModeS3, Origin: distribution.Origin{Bucket: "cliente"}}
+	s3d := &distribution.Distribution{ID: "s3d", Enabled: true, Mode: distribution.ModeS3, Origin: distribution.Origin{Bucket: "customer"}}
 	return map[string]distribution.Route{
 		"www.example.com":   {Kind: distribution.RouteDistribution, Host: "www.example.com", Alias: "www.example.com", Distribution: site, Bucket: "web"},
-		"s3.cliente.it":     {Kind: distribution.RouteDistribution, Host: "s3.cliente.it", Alias: "s3.cliente.it", Distribution: s3d, Bucket: "cliente"},
+		"s3.customer.it":    {Kind: distribution.RouteDistribution, Host: "s3.customer.it", Alias: "s3.customer.it", Distribution: s3d, Bucket: "customer"},
 		"unknown.example":   {Kind: distribution.RouteMisdirected, Host: "unknown.example"},
 		"bucket.s3.example": {Kind: distribution.RouteVirtualHost, Host: "bucket.s3.example", Bucket: "bucket"},
 	}
@@ -211,10 +211,10 @@ func TestHostRouter(t *testing.T) {
 		body     string
 	}{
 		{name: "website on S3 listener", handler: s3Listener, host: "www.example.com:9000", path: "/", status: 200, body: "website site"},
-		{name: "s3 distribution admitted", handler: s3Listener, host: "s3.cliente.it", path: "/key", secret: "ok", status: 200, body: "s3 api"},
-		{name: "s3 distribution refused", handler: s3Listener, host: "s3.cliente.it", path: "/key", status: 403, body: "denied"},
-		{name: "s3 distribution anonymous", handler: s3Listener, host: "s3.cliente.it", path: "/private", secret: "ok", status: 403, body: "credentials"},
-		{name: "s3 distribution authenticated", handler: s3Listener, host: "s3.cliente.it", path: "/private", secret: "ok", identity: true,
+		{name: "s3 distribution admitted", handler: s3Listener, host: "s3.customer.it", path: "/key", secret: "ok", status: 200, body: "s3 api"},
+		{name: "s3 distribution refused", handler: s3Listener, host: "s3.customer.it", path: "/key", status: 403, body: "denied"},
+		{name: "s3 distribution anonymous", handler: s3Listener, host: "s3.customer.it", path: "/private", secret: "ok", status: 403, body: "credentials"},
+		{name: "s3 distribution authenticated", handler: s3Listener, host: "s3.customer.it", path: "/private", secret: "ok", identity: true,
 			status: 200, body: "s3 api"},
 		{name: "virtual host to the API", handler: s3Listener, host: "bucket.s3.example", path: "/key", status: 200, body: "s3 api"},
 		{name: "path style to the API", handler: s3Listener, host: "127.0.0.1:9000", path: "/bucket/key", status: 200, body: "s3 api"},
@@ -247,7 +247,7 @@ func TestHostRouter(t *testing.T) {
 	registry.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/metrics", nil))
 	text := w.Body.String()
 	assert.Contains(t, text, `nexo_distribution_requests_total{distribution="site",host="www.example.com",status="200"} 2`)
-	assert.Contains(t, text, `nexo_distribution_requests_total{distribution="s3d",host="s3.cliente.it",status="403"} 2`)
+	assert.Contains(t, text, `nexo_distribution_requests_total{distribution="s3d",host="s3.customer.it",status="403"} 2`)
 	assert.Contains(t, text, `nexo_distribution_bytes_served_total{distribution="site",host="www.example.com"} 24`)
 	assert.Contains(t, text, `nexo_distribution_request_duration_seconds_count{distribution="site"} 2`)
 	// Access log in the combined format for the distribution enabling it.
@@ -292,8 +292,8 @@ func TestRefusedS3Request(t *testing.T) {
 		}
 		return r
 	}
-	assert.True(t, refused(req("s3.cliente.it", "")), "no origin secret: refused before the signature")
-	assert.False(t, refused(req("s3.cliente.it", "ok")))
+	assert.True(t, refused(req("s3.customer.it", "")), "no origin secret: refused before the signature")
+	assert.False(t, refused(req("s3.customer.it", "ok")))
 	assert.False(t, refused(req("www.example.com", "")), "a website distribution")
 	assert.False(t, refused(req("bucket.s3.example", "")), "not a distribution")
 }

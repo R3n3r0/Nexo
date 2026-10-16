@@ -1,7 +1,7 @@
 # Prestazioni di Nexo (M9 T-9.2)
 
 Benchmark `warp` in tutte le modalità di deployment, profiling dei percorsi caldi via Admin API, ottimizzazioni
-misurate e confronto con gli obiettivi TP-01..TP-06 di [docs/06 §6.6](../06-test-plan.md#66-test-di-prestazioni-server).
+misurate e confronto con gli obiettivi TP-01..TP-06 di [docs/06 §6.6](../06-test-plan.md#66-server-performance-tests).
 I numeri sono reali e riproducibili con i comandi di §5; valgono per l'hardware di §1, molto diverso da quello di
 riferimento degli obiettivi (4 nodi NVMe, 25 GbE).
 

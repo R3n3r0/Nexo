@@ -402,7 +402,7 @@ type KeyResult struct {
 	Reason string        `json:"reason"`
 }
 
-// Preset is a simplified public access level (docs/10 §10.1 Scorciatoie).
+// Preset is a simplified public access level (docs/10 §10.1, "Public" shortcuts).
 type Preset string
 
 // Presets.

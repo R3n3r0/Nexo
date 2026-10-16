@@ -15,7 +15,7 @@ nexoctl cache webhook ls
 ## Examples
 
 ```
-  nexoctl cache webhook ls local sito-web
+  nexoctl cache webhook ls local website
 ```
 
 ## Options

@@ -14,7 +14,7 @@ nexoctl dist cache export ALIAS ID [-o FILE] [flags]
 ## Examples
 
 ```
-  nexoctl dist cache export local sito-web -o sito-web-cache.yaml
+  nexoctl dist cache export local website -o website-cache.yaml
 ```
 
 ## Options

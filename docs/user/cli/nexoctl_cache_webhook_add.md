@@ -21,8 +21,8 @@ nexoctl cache webhook add ALIAS DIST --type TYPE [--id ID] [--domain HOST]... [f
 ## Examples
 
 ```
-  nexoctl cache webhook add local sito-web --domain static.example.it --type cloudflare --zone 0123abcd --token-file cf.token
-  nexoctl cache webhook add local sito-web --type varnish --url http://varnish:6081 --id varnish
+  nexoctl cache webhook add local website --domain static.example.it --type cloudflare --zone 0123abcd --token-file cf.token
+  nexoctl cache webhook add local website --type varnish --url http://varnish:6081 --id varnish
 ```
 
 ## Options

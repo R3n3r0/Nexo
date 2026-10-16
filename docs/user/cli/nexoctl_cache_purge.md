@@ -20,10 +20,10 @@ nexoctl cache purge ALIAS [DIST] [PATH|GLOB|URL...] [flags]
 ## Examples
 
 ```
-  nexoctl cache purge local sito-web --domain www.example.com '/assets/**' --soft
-  nexoctl cache purge local sito-web --tag prodotto-42
-  nexoctl cache purge local sito-web --domain static.example.it --all
-  nexoctl cache purge local sito-web https://www.example.com/index.html --wait
+  nexoctl cache purge local website --domain www.example.com '/assets/**' --soft
+  nexoctl cache purge local website --tag product-42
+  nexoctl cache purge local website --domain static.example.it --all
+  nexoctl cache purge local website https://www.example.com/index.html --wait
   nexoctl cache purge local --all
 ```
 

@@ -15,8 +15,8 @@ nexoctl dist domain rm
 ## Examples
 
 ```
-  nexoctl dist domain add local sito-web '*.preview.example.com'
-  nexoctl dist domain rm local sito-web example.com
+  nexoctl dist domain add local website '*.preview.example.com'
+  nexoctl dist domain rm local website example.com
 ```
 
 ## Options

@@ -335,7 +335,7 @@ type BehaviorSettings struct {
 	Cache       Settings                 `json:"cache" yaml:"cache"`
 }
 
-// Webhook types (docs/11 §11.5 "Propagazione esterna").
+// Webhook types (docs/11 §11.5 "External propagation").
 const (
 	WebhookCloudflare = "cloudflare"
 	WebhookFastly     = "fastly"

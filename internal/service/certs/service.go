@@ -1,5 +1,5 @@
 // Package certs manages the TLS certificates of the domains of the
-// distributions (docs/10 §10.2 "TLS e certificati per dominio"): the
+// distributions (docs/10 §10.2 "TLS and per-domain certificates"): the
 // certificates uploaded by the operators (PEM chain and key, validated:
 // chain linkage, key matching the leaf, DNS names, validity) and the ones
 // obtained and renewed with ACME (RFC 8555: Let's Encrypt, ZeroSSL, any

@@ -1,16 +1,16 @@
 # Quickstart
 
-In cinque minuti: un server Nexo su un disco, la console nel browser, `nexoctl` configurato, un bucket,
-un file caricato e un link di condivisione revocabile. Scegli il **binario** o **Docker**: i passi dal 3
-in poi sono identici.
+In five minutes: a Nexo server on one drive, the console in the browser, `nexoctl` configured, a bucket,
+an uploaded file and a revocable share link. Choose the **binary** or **Docker**: the steps from 3
+onward are the same.
 
-## 1. Avvia il server
+## 1. Start the server
 
-### Con il binario
+### With the binary
 
-Scarica gli archivi `nexo_X.Y.Z_<os>_<arch>.tar.gz` e `nexoctl_X.Y.Z_<os>_<arch>.tar.gz` dalla
-[pagina delle release](https://github.com/R3n3r0/Nexo/releases) (oppure compila dai sorgenti con
-`make build`, vedi [Installazione](installazione.md#dai-sorgenti)), poi:
+Download the `nexo_X.Y.Z_<os>_<arch>.tar.gz` and `nexoctl_X.Y.Z_<os>_<arch>.tar.gz` archives from the
+[releases page](https://github.com/R3n3r0/Nexo/releases) (or build from source with
+`make build`, see [Installation](installation.md#from-source)), then:
 
 ```bash
 tar xzf nexo_*_linux_amd64.tar.gz nexo
@@ -18,36 +18,37 @@ tar xzf nexoctl_*_linux_amd64.tar.gz nexoctl
 mkdir -p ~/nexo-data
 
 export NEXO_ROOT_USER=admin
-export NEXO_ROOT_PASSWORD=supersegreta     # almeno 8 caratteri
+export NEXO_ROOT_PASSWORD=supersecret      # at least 8 characters
 ./nexo server ~/nexo-data
 ```
 
-Il percorso del disco deve essere **assoluto** (la shell espande `~`; un percorso relativo come `./data`
-è rifiutato). Il server scrive log JSON su stderr; l'ultima riga dell'avvio è:
+The drive path must be **absolute** (the shell expands `~`; a relative path such as `./data`
+is rejected). The server writes JSON logs to stderr; the last startup line is:
 
 ```json
 {"level":"INFO","msg":"nexo started","version":"…","mode":"snsd","s3":"0.0.0.0:9000","console":"0.0.0.0:9001"}
 ```
 
-Negli esempi seguenti `nexoctl` è nel `PATH` (altrimenti usa `./nexoctl`).
+In the following examples `nexoctl` is on the `PATH` (otherwise use `./nexoctl`).
 
-### Con Docker
+### With Docker
 
 ```bash
 docker run -d --name nexo -p 9000:9000 -p 9001:9001 \
-  -e NEXO_ROOT_USER=admin -e NEXO_ROOT_PASSWORD=supersegreta \
+  -e NEXO_ROOT_USER=admin -e NEXO_ROOT_PASSWORD=supersecret \
   -v nexo-data:/data ghcr.io/r3n3r0/nexo:latest server /data
 
-docker ps --filter name=nexo     # STATUS diventa "healthy" in pochi secondi
+docker ps --filter name=nexo     # STATUS becomes "healthy" within a few seconds
 ```
 
-L'immagine contiene anche `nexoctl` (`docker exec nexo /nexoctl …`). Per costruirla dai sorgenti:
-`make docker` (immagine locale `ghcr.io/r3n3r0/nexo:latest`).
+The image also contains `nexoctl` (`docker exec nexo /nexoctl …`). To build it from source:
+`make docker` (local image `ghcr.io/r3n3r0/nexo:latest`).
 
-Le credenziali root si passano **solo** da variabile d'ambiente (o da file con `NEXO_ROOT_USER_FILE` e
-`NEXO_ROOT_PASSWORD_FILE`): non esiste un flag, per non esporle nella lista dei processi.
+The root credentials are passed **only** through environment variables (or from files with
+`NEXO_ROOT_USER_FILE` and `NEXO_ROOT_PASSWORD_FILE`): there is no flag, so that they never show up in the
+process list.
 
-## 2. Controlla che risponda
+## 2. Check that it responds
 
 ```bash
 curl -s http://localhost:9000/nexo/health/live
@@ -56,19 +57,19 @@ curl -s http://localhost:9000/nexo/health/ready
 # {"ok":true,"status":"ok","checks":{"storage":"ok"}}
 ```
 
-## 3. Entra nella console
+## 3. Log in to the console
 
-Apri <http://localhost:9001>: nella pagina **Accedi a Nexo** inserisci **Access key** `admin` e
-**Secret key** `supersegreta`. La sessione dura 12 ore. Dalla console puoi creare bucket, caricare file
-(anche cartelle, con drag & drop), condividerli e gestire utenti e policy.
+Open <http://localhost:9001>: on the **Sign in to Nexo** page enter **Access key** `admin` and
+**Secret key** `supersecret`. The session lasts 12 hours. From the console you can create buckets, upload
+files (folders too, with drag and drop), share them and manage users and policies.
 
-## 4. Configura nexoctl
+## 4. Configure nexoctl
 
-Un **alias** associa un nome a un endpoint e a delle credenziali (salvati in `~/.nexoctl/config.json`,
-permessi 0600). Le credenziali vengono verificate prima del salvataggio:
+An **alias** binds a name to an endpoint and to credentials (saved in `~/.nexoctl/config.json`,
+permissions 0600). The credentials are verified before they are saved:
 
 ```console
-$ nexoctl alias set local http://localhost:9000 admin supersegreta
+$ nexoctl alias set local http://localhost:9000 admin supersecret
 Added alias "local" for http://localhost:9000 (credentials verified).
 
 $ nexoctl admin info local
@@ -82,67 +83,67 @@ Nodes: 1 online, 0 offline
     /data  online  used 1.2GiB of 50.0GiB (free 48.8GiB)
 ```
 
-Con Docker usa la CLI del container: `docker exec nexo /nexoctl alias set local http://localhost:9000 admin supersegreta`
-e prefissa i comandi seguenti con `docker exec nexo /nexoctl` invece di `nexoctl`.
+With Docker use the CLI inside the container: `docker exec nexo /nexoctl alias set local http://localhost:9000 admin supersecret`
+and prefix the following commands with `docker exec nexo /nexoctl` instead of `nexoctl`.
 
-I comandi di amministrazione (`nexoctl admin …`, i link gestiti) parlano con l'Admin API sulla porta
-successiva a quella dell'alias (9000 → 9001); `--admin-url` la imposta esplicitamente.
+The administration commands (`nexoctl admin …`, managed links) talk to the Admin API on the port
+after the alias's one (9000 → 9001); `--admin-url` sets it explicitly.
 
-## 5. Crea un bucket e carica un file
+## 5. Create a bucket and upload a file
 
 ```console
-$ echo "ciao Nexo" > hello.txt
-$ nexoctl mb local/foto
-Bucket created successfully `local/foto`.
-$ nexoctl cp hello.txt local/foto/
-`hello.txt` -> `local/foto/hello.txt` (10B)
-Copied 1 object (10B).
-$ nexoctl ls local/foto
-[2026-10-15 11:42:10 UTC]     10B STANDARD hello.txt
+$ echo "hi Nexo!" > hello.txt
+$ nexoctl mb local/photos
+Bucket created successfully `local/photos`.
+$ nexoctl cp hello.txt local/photos/
+`hello.txt` -> `local/photos/hello.txt` (9B)
+Copied 1 object (9B).
+$ nexoctl ls local/photos
+[2026-10-15 11:42:10 UTC]      9B STANDARD hello.txt
 ```
 
-`cp -r` copia cartelle intere, `mirror` sincronizza una directory con un bucket, `cat`, `stat`, `rm`
-funzionano come ci si aspetta: l'elenco completo è nella [reference CLI](riferimenti/cli.md).
+`cp -r` copies whole folders, `mirror` synchronizes a directory with a bucket, and `cat`, `stat` and `rm`
+work as you would expect: the complete list is in the [CLI reference](reference/cli.md).
 
-## 6. Condividi con un link
+## 6. Share with a link
 
 ```console
-$ nexoctl share download --expire 2h local/foto/hello.txt
-URL: local/foto/hello.txt
+$ nexoctl share download --expire 2h local/photos/hello.txt
+URL: local/photos/hello.txt
 Expire: 2h0m0s
-Share: http://localhost:9000/foto/hello.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=share-2h5zvraevd7j%2F…
+Share: http://localhost:9000/photos/hello.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=share-2h5zvraevd7j%2F…
 ID: 2h5zvraevd7j (revoke with: nexoctl share revoke local 2h5zvraevd7j)
 
-$ curl -s "http://localhost:9000/foto/hello.txt?X-Amz-Algorithm=…"
-ciao Nexo
+$ curl -s "http://localhost:9000/photos/hello.txt?X-Amz-Algorithm=…"
+hi Nexo!
 ```
 
-Il link è **gestito**: è firmato da un service account dedicato e si revoca in qualsiasi momento, con
-effetto immediato:
+The link is **managed**: it is signed by a dedicated service account and can be revoked at any time, with
+immediate effect:
 
 ```console
 $ nexoctl share list local
 ID             OWNER            ACCESS   EXPIRES                 TARGET
-2h5zvraevd7j   admin            download 2026-10-15 13:42:10 UTC local/foto/hello.txt
+2h5zvraevd7j   admin            download 2026-10-15 13:42:10 UTC local/photos/hello.txt
 $ nexoctl share revoke local 2h5zvraevd7j
 Revoked share 2h5zvraevd7j.
 ```
 
-Dopo la revoca lo stesso URL risponde `403`. Per un URL presigned classico (non revocabile) usa
-`nexoctl share download --raw` o `nexoctl presign`; i dettagli sono in
-[Condivisione e accesso anonimo](sicurezza/condivisione.md).
+After the revocation the same URL answers `403`. For a classic (non-revocable) presigned URL use
+`nexoctl share download --raw` or `nexoctl presign`; the details are in
+[Sharing and anonymous access](security/sharing.md).
 
-## 7. Arresta il server
+## 7. Stop the server
 
-`Ctrl-C` (o `docker stop nexo`) ferma il server in modo ordinato: le nuove richieste ricevono `503`, quelle
-in corso terminano. I dati restano nella directory (o nel volume) e il prossimo avvio li ritrova.
+`Ctrl-C` (or `docker stop nexo`) stops the server gracefully: new requests get `503`, the ones
+in flight complete. The data stays in the directory (or in the volume) and the next start finds it again.
 
-## Prossimi passi
+## Next steps
 
-- un utente non root per le applicazioni: [Utenti, policy e credenziali](sicurezza/utenti-policy.md);
-- più dischi o più nodi: [Modalità di deployment](modalita.md);
-- TLS: [TLS e certificati](sicurezza/tls.md);
-- metriche e alert: [Monitoraggio](operazioni/monitoraggio.md);
-- un SDK S3 qualsiasi funziona con endpoint `http://localhost:9000`, regione `us-east-1` e le
-  credenziali dell'utente (path-style; virtual-host con `NEXO_DOMAIN`, vedi
-  [Configurazione](configurazione.md)).
+- a non-root user for applications: [Users, policies and credentials](security/users-policies.md);
+- more drives or more nodes: [Deployment modes](deployment-modes.md);
+- TLS: [TLS and certificates](security/tls.md);
+- metrics and alerts: [Monitoring](operations/monitoring.md);
+- any S3 SDK works with endpoint `http://localhost:9000`, region `us-east-1` and the
+  user's credentials (path-style; virtual-host style with `NEXO_DOMAIN`, see
+  [Configuration](configuration.md)).

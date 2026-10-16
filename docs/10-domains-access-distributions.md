@@ -1,38 +1,38 @@
-# 10. Regole di accesso (wildcard/regex), domini e distribuzioni
+# 10. Access rules (wildcard/regex), domains and distributions
 
-Obiettivo: poter definire **chi accede a cosa** con pattern glob e **espressioni regolari**, rendere pubblici
-bucket o porzioni di bucket, e associare **più domini** a un bucket tramite **distribuzioni** in stile
-CloudFront. Tutto deve essere configurabile da **dashboard, CLI e Admin API**, a caldo, in singolo nodo e in cluster.
+Goal: define **who accesses what** with glob patterns and **regular expressions**, make buckets or parts of buckets
+public, and associate **several domains** with a bucket through CloudFront-style **distributions**. Everything must
+be configurable from the **dashboard, CLI and Admin API**, at runtime, in single-node and cluster mode.
 
-## 10.1 Regole di accesso (Access Rules)
+## 10.1 Access rules
 
-Le policy in formato AWS (vedi [09](09-presigned-policy-sharing.md)) supportano solo wildcard `*` e `?`.
-Nexo aggiunge un livello di **regole di accesso per bucket**, più semplice da usare e con supporto regex.
-Le regole vengono valutate dallo **stesso policy engine** come una sorgente resource-based aggiuntiva.
+AWS-format policies (see [09](09-presigned-policy-sharing.md)) only support the `*` and `?` wildcards.
+Nexo adds a layer of **per-bucket access rules**, simpler to use and with regex support.
+The rules are evaluated by the **same policy engine** as an additional resource-based source.
 
-### Modello
+### Model
 ```yaml
 bucket: media
 rules:
-  - id: immagini-pubbliche
-    priority: 10                 # ordine di valutazione (più basso = prima)
+  - id: public-images
+    priority: 10                 # evaluation order (lower = first)
     effect: allow                # allow | deny
-    principals: ["*"]            # "*" = anonimo/tutti, user:mario, group:marketing, accesskey:AK..., distribution:sito-web
-    actions: [read]              # read (GET/HEAD), list, write (PUT/POST/multipart), delete, tag, all; oppure azioni s3:* esplicite
+    principals: ["*"]            # "*" = anonymous/everyone, user:mario, group:marketing, accesskey:AK..., distribution:website
+    actions: [read]              # read (GET/HEAD), list, write (PUT/POST/multipart), delete, tag, all; or explicit s3:* actions
     match:
       type: regex                # prefix | glob | regex
       pattern: '^img/[0-9]{4}/.*\.(jpe?g|png|webp)$'
       caseInsensitive: true
-    conditions:                  # opzionali
+    conditions:                  # optional
       sourceIp: ["10.0.0.0/8", "2001:db8::/32"]
       notSourceIp: []
       referer: ["https://*.example.com/*"]
-      host: ["cdn.example.com"]  # dominio con cui è arrivata la richiesta
+      host: ["cdn.example.com"]  # domain the request arrived on
       secureTransport: true
       timeWindow: { from: "2026-01-01T00:00:00Z", to: "2026-12-31T23:59:59Z" }
       methods: [GET, HEAD]
       headers: { "X-Origin-Secret": "${secret:proxy-token}" }
-  - id: blocca-privati
+  - id: block-private
     priority: 5
     effect: deny
     principals: ["*"]
@@ -40,92 +40,92 @@ rules:
     match: { type: glob, pattern: "**/private/**" }
 ```
 
-### Tipi di pattern
-| Tipo | Sintassi | Esempio | Note |
+### Pattern types
+| Type | Syntax | Example | Notes |
 |------|----------|---------|------|
-| `prefix` | prefisso letterale | `public/` | Più veloce (lookup in trie) |
-| `glob` | `*` (un segmento), `**` (più segmenti), `?`, `[abc]`, `{a,b}` | `docs/**/*.pdf`, `{img,video}/*` | Compilato in regex anchored |
-| `regex` | **RE2** (`regexp` di Go) | `^users/[a-z0-9_-]+/avatar\.png$` | Tempo lineare garantito: **nessun ReDoS** |
+| `prefix` | literal prefix | `public/` | Fastest (trie lookup) |
+| `glob` | `*` (one segment), `**` (several segments), `?`, `[abc]`, `{a,b}` | `docs/**/*.pdf`, `{img,video}/*` | Compiled into an anchored regex |
+| `regex` | **RE2** (Go's `regexp`) | `^users/[a-z0-9_-]+/avatar\.png$` | Guaranteed linear time: **no ReDoS** |
 
-Regole di sicurezza per le regex:
-- solo RE2 (niente backreference/lookaround), lunghezza massima 1024 caratteri, max 200 regole per bucket (configurabile);
-- validazione e compilazione al salvataggio (errore con posizione), cache delle regex compilate per bucket;
-- match sulla **chiave decodificata** (URL-decoding prima del match, normalizzazione Unicode NFC configurabile),
-  così `%2e%2e/` o doppi encoding non aggirano le regole;
-- gruppi nominati utilizzabili nelle condizioni (es. `(?P<user>[^/]+)` confrontato con `${aws:username}`):
+Safety rules for regexes:
+- RE2 only (no backreferences/lookaround), maximum length 1024 characters, at most 200 rules per bucket (configurable);
+- validation and compilation on save (error with position), cache of the compiled regexes per bucket;
+- matching on the **decoded key** (URL decoding before the match, configurable Unicode NFC normalization),
+  so `%2e%2e/` or double encodings do not bypass the rules;
+- named groups usable in conditions (e.g. `(?P<user>[^/]+)` compared with `${aws:username}`):
   ```yaml
   match: { type: regex, pattern: '^home/(?P<user>[^/]+)/' }
   conditions: { captureEquals: { user: "${aws:username}" } }
   ```
 
-### Valutazione
-1. Raccolta di tutte le sorgenti: policy IAM dell'identità, bucket policy, **access rules**, regole di distribuzione (§10.2).
-2. Un `deny` applicabile in qualsiasi sorgente → **nega** (le regole non possono scavalcare object lock né i limiti delle policy inline dei service account).
-3. Altrimenti `allow` da almeno una sorgente → consenti.
-4. Altrimenti nega (deny-by-default).
-5. All'interno delle access rules, a parità di effetto conta la `priority`; la risposta del simulatore indica la regola determinante.
+### Evaluation
+1. Collection of all sources: the identity's IAM policies, bucket policy, **access rules**, distribution rules (§10.2).
+2. An applicable `deny` in any source → **deny** (rules cannot override object lock or the limits of service accounts' inline policies).
+3. Otherwise an `allow` from at least one source → allow.
+4. Otherwise deny (deny-by-default).
+5. Within the access rules, for equal effect the `priority` decides; the simulator's response names the deciding rule.
 
-### Scorciatoie "pubblico"
-| Preset | Effetto |
+### "Public" shortcuts
+| Preset | Effect |
 |--------|---------|
-| `private` | Nessuna regola anonima |
-| `public-read` | `allow * read` su tutto il bucket |
+| `private` | No anonymous rule |
+| `public-read` | `allow * read` on the whole bucket |
 | `public-read-list` | `read` + `list` |
-| `public-prefix` | `read` su un prefix/glob/regex scelto |
-| `public-write` | `write` anonimo (richiede conferma esplicita, con avviso in dashboard) |
+| `public-prefix` | `read` on a chosen prefix/glob/regex |
+| `public-write` | Anonymous `write` (requires explicit confirmation, with a warning in the dashboard) |
 
-### Protezioni globali
-- **Block public access** a livello di cluster e di bucket (come AWS): se attivo, le regole con `principals: ["*"]` vengono
-  rifiutate al salvataggio o ignorate in valutazione (scelta configurabile), con avviso in dashboard.
-- Audit di ogni modifica alle regole (chi, quando, diff).
+### Global protections
+- **Block public access** at cluster and bucket level (as in AWS): when active, rules with `principals: ["*"]` are
+  rejected on save or ignored during evaluation (configurable choice), with a warning in the dashboard.
+- Audit of every change to the rules (who, when, diff).
 
-## 10.2 Distribuzioni (stile CloudFront)
+## 10.2 Distributions (CloudFront style)
 
-Una **distribuzione** espone un bucket (o un prefix di un bucket) su uno o più **domini personalizzati**, con
-comportamenti per percorso. Più proxy/punti di accesso possono puntare allo stesso cluster usando domini diversi
-o la stessa distribuzione.
+A **distribution** exposes a bucket (or a prefix of a bucket) on one or more **custom domains**, with per-path
+behaviors. Several proxies/access points can point to the same cluster using different domains or the same
+distribution.
 
 ```
- utenti ─▶ cdn.example.com ─┐                     ┌─ distribuzione "sito-web" ─▶ bucket web, prefix /prod
- utenti ─▶ www.example.com ─┼─▶ proxy A ─┐        │      behaviors: /api/* deny, /assets/* cache 1y, /* SPA
- utenti ─▶ static.example.it ─▶ proxy B ─┼─▶ Nexo ─┤
- SDK S3 ─▶ s3.example.com ─────────────── ┘        └─ distribuzione "download" ─▶ bucket rilasci, signed URL
+ users  ─▶ cdn.example.com ─┐                     ┌─ distribution "website" ─▶ bucket web, prefix /prod
+ users  ─▶ www.example.com ─┼─▶ proxy A ─┐        │      behaviors: /api/* deny, /assets/* cache 1y, /* SPA
+ users  ─▶ static.example.it ─▶ proxy B ─┼─▶ Nexo ─┤
+ S3 SDK ─▶ s3.example.com ─────────────── ┘        └─ distribution "download" ─▶ bucket releases, signed URL
 ```
 
-### Modello
+### Model
 ```yaml
-id: sito-web
+id: website
 enabled: true
-aliases:                       # più domini per la stessa distribuzione
+aliases:                       # several domains for the same distribution
   - www.example.com
   - example.com
-  - "*.preview.example.com"    # wildcard di sottodominio
+  - "*.preview.example.com"    # subdomain wildcard
 origin:
   bucket: web
-  pathPrefix: /prod            # opzionale: la distribuzione vede solo questo prefix
+  pathPrefix: /prod            # optional: the distribution only sees this prefix
   versionPinning: false
-mode: website                  # website | s3   (vedi sotto)
+mode: website                  # website | s3   (see below)
 defaultBehavior:
   access: public               # public | signed | authenticated | deny
   allowedMethods: [GET, HEAD, OPTIONS]
   indexDocument: index.html
-  spaFallback: /index.html     # restituisce index.html per i path non trovati (SPA)
+  spaFallback: /index.html     # returns index.html for paths not found (SPA)
   cache: { cacheControl: "public, max-age=300" }
-behaviors:                     # valutati in ordine; primo match vince
+behaviors:                     # evaluated in order; first match wins
   - pathPattern: { type: glob, pattern: "/assets/**" }
     cache: { cacheControl: "public, max-age=31536000, immutable" }
   - pathPattern: { type: regex, pattern: '^/downloads/.*\.(zip|iso)$' }
-    access: signed             # richiede URL/cookie firmato dalla distribuzione
-    signing: { keyGroup: rilasci }
+    access: signed             # requires a URL/cookie signed by the distribution
+    signing: { keyGroup: releases }
   - pathPattern: { type: prefix, pattern: "/internal/" }
     access: deny
 errorPages:
   - { status: 404, path: /404.html, responseStatus: 404 }
-  - { status: 403, path: /404.html, responseStatus: 404 }   # nasconde l'esistenza degli oggetti
+  - { status: 403, path: /404.html, responseStatus: 404 }   # hides the existence of objects
 redirects:
-  - { from: '^/vecchio/(.*)$', to: '/nuovo/$1', status: 301 }
+  - { from: '^/old/(.*)$', to: '/new/$1', status: 301 }
   - { hostFrom: example.com, toHost: www.example.com, status: 301 }
-  - { httpsOnly: true }        # redirect HTTP → HTTPS
+  - { httpsOnly: true }        # HTTP → HTTPS redirect
 headers:
   response:
     Strict-Transport-Security: "max-age=63072000; includeSubDomains"
@@ -133,167 +133,165 @@ headers:
   cors: { allowedOrigins: ["https://app.example.com"], allowedMethods: [GET], maxAge: 3600 }
 restrictions:
   sourceIp: { allow: [], deny: ["203.0.113.0/24"] }
-  originSecretHeader: { name: X-Origin-Secret, value: "${secret:proxy-a}" }  # accetta solo traffico dal proxy
+  originSecretHeader: { name: X-Origin-Secret, value: "${secret:proxy-a}" }  # only accepts traffic from the proxy
   rateLimit: { requestsPerSecond: 200, burst: 400, per: ip }                 # P2
 tls:
-  certificate: auto            # auto (ACME/Let's Encrypt) | upload:<id> | none (TLS terminato dal proxy)
+  certificate: auto            # auto (ACME/Let's Encrypt) | upload:<id> | none (TLS terminated by the proxy)
 logging: { accessLog: true, target: webhook:audit }
 ```
 
-### Modalità di una distribuzione
-| `mode` | Comportamento | Uso |
+### Distribution modes
+| `mode` | Behavior | Use |
 |--------|---------------|-----|
-| `website` | Solo GET/HEAD/OPTIONS (POST/PUT se il behavior li consente con `signed`), risposte HTML/plain, index document, error page, SPA fallback, redirect, nessun XML S3 | Siti statici, asset, download pubblici |
-| `s3` | API S3 completa sul dominio personalizzato: il dominio è un alias del bucket (es. `s3.cliente.it` → bucket `cliente`), firma SigV4 verificata con l'host pubblico; i presigned generati usano quel dominio | Endpoint S3 dedicati per cliente/applicazione |
+| `website` | Only GET/HEAD/OPTIONS (POST/PUT if the behavior allows them with `signed`), HTML/plain responses, index document, error pages, SPA fallback, redirects, no S3 XML | Static sites, assets, public downloads |
+| `s3` | Full S3 API on the custom domain: the domain is an alias of the bucket (e.g. `s3.customer.example` → bucket `customer`), SigV4 signature verified with the public host; the generated presigned URLs use that domain | Dedicated S3 endpoints per customer/application |
 
-### Accesso ai contenuti
-| `access` | Descrizione |
+### Content access
+| `access` | Description |
 |----------|-------------|
-| `public` | Anonimo, ma sempre soggetto ai `deny` delle access rules e al block public access |
-| `signed` | **URL firmati di distribuzione** (`?Expires=&Signature=&Key-Pair-Id=` stile CloudFront, Ed25519/RSA) o **cookie firmati** per un path/glob: utile per contenuti premium su più file. Policy "custom" con risorsa wildcard, data di inizio/fine, IP |
-| `authenticated` | Richiede credenziali S3 (SigV4) o sessione console |
-| `deny` | Sempre 403/404 |
+| `public` | Anonymous, but always subject to the `deny`s of the access rules and to block public access |
+| `signed` | **Distribution-signed URLs** (CloudFront-style `?Expires=&Signature=&Key-Pair-Id=`, Ed25519/RSA) or **signed cookies** for a path/glob: useful for premium content spread over several files. "Custom" policy with a wildcard resource, start/end date, IP |
+| `authenticated` | Requires S3 credentials (SigV4) or a console session |
+| `deny` | Always 403/404 |
 
-Regole di accesso delle due modalità (implementazione):
-- **website**: un behavior `public` è rifiutato (403) finché il block public access del bucket (o del cluster) è
-  attivo, **qualunque cosa conceda la lettura** (una access rule per `distribution:<id>`, una bucket policy
-  pubblica): il guardrail precede la valutazione delle regole. Il flag è letto dalla cache in memoria dei metadati
-  del bucket (invalidata dal Notifier), mai con I/O sul percorso di ogni richiesta; una decisione che non si può
-  prendere (set senza quorum, metadati mai letti) risponde **503 + `Retry-After`**, mai 403. Un `deny` esplicito
-  (access rule, bucket policy) rifiuta sempre; un behavior `authenticated` richiede un allow.
-- **s3**: la distribuzione è l'intera API S3 del bucket sul dominio, governata da IAM, bucket policy e access rules
-  (un prefisso privato si protegge con una regola `deny`). Del behavior vale solo `defaultBehavior.access`:
-  `public` (default), `authenticated` (nessuna richiesta anonima) o `deny`, applicato dopo l'autenticazione SigV4.
-  Behavior per path, `signed`, `allowedMethods`, index/SPA, error page, redirect, header di risposta, CORS (vale
-  la configurazione CORS del bucket) e impostazioni di cache del behavior sono **rifiutati al salvataggio** (400):
-  niente viene accettato e poi ignorato, e `dist test` riporta la stessa decisione delle richieste reali.
-  L'ammissione (distribuzione abilitata, indirizzo, origin secret) precede anche la verifica della firma: un client
-  che aggira il proxy riceve il 403 dell'ammissione, mai gli errori SigV4.
-- I redirect regex espandono le catture del **path codificato**; un target che il browser porterebbe fuori sito
-  (`//host`, `/\host`, caratteri di controllo, backslash) non viene seguito. Il probe dell'index document di una
-  "directory" (`/dir` → `/dir/`) è autorizzato come la lettura dell'index: un oggetto negato non produce il 302.
-- CORS: `allowCredentials: true` con un'origine `*` (o wildcard) è rifiutato al salvataggio; l'origine non viene
-  mai riflessa per le regole wildcard.
-- `If-Range` (RFC 9110 §13.1.5): il range si applica solo se il validatore coincide con l'ETag forte (un ETag
-  debole non coincide mai) o con la data esatta di ultima modifica; altrimenti `200` con l'oggetto intero.
+Access rules of the two modes (implementation):
+- **website**: a `public` behavior is rejected (403) while the bucket's (or the cluster's) block public access is
+  active, **whatever grants the read** (an access rule for `distribution:<id>`, a public bucket policy): the
+  guardrail comes before the evaluation of the rules. The flag is read from the in-memory cache of the bucket
+  metadata (invalidated by the Notifier), never with I/O on the path of each request; a decision that cannot be made
+  (set without quorum, metadata never read) answers **503 + `Retry-After`**, never 403. An explicit `deny` (access
+  rule, bucket policy) always rejects; an `authenticated` behavior requires an allow.
+- **s3**: the distribution is the bucket's whole S3 API on the domain, governed by IAM, bucket policy and access rules
+  (a private prefix is protected with a `deny` rule). Of the behavior, only `defaultBehavior.access` applies:
+  `public` (default), `authenticated` (no anonymous requests) or `deny`, applied after SigV4 authentication.
+  Per-path behaviors, `signed`, `allowedMethods`, index/SPA, error pages, redirects, response headers, CORS (the
+  bucket's CORS configuration applies) and the behavior's cache settings are **rejected on save** (400): nothing is
+  accepted and then ignored, and `dist test` reports the same decision as real requests. Admission (distribution
+  enabled, address, origin secret) also comes before signature verification: a client that bypasses the proxy gets
+  the admission 403, never the SigV4 errors.
+- Regex redirects expand the captures of the **encoded path**; a target that the browser would take off-site
+  (`//host`, `/\host`, control characters, backslashes) is not followed. The index document probe of a
+  "directory" (`/dir` → `/dir/`) is authorized like the read of the index: a denied object does not produce the 302.
+- CORS: `allowCredentials: true` with a `*` (or wildcard) origin is rejected on save; the origin is never reflected
+  for wildcard rules.
+- `If-Range` (RFC 9110 §13.1.5): the range applies only if the validator matches the strong ETag (a weak ETag never
+  matches) or the exact last-modified date; otherwise `200` with the whole object.
 
-Chiavi di firma: **key group** con più chiavi (rotazione senza downtime), chiave privata generata dalla dashboard
-e scaricabile una sola volta, oppure chiave pubblica caricata dall'utente. Generazione URL da CLI/dashboard/SDK.
+Signing keys: **key groups** with several keys (rotation without downtime), private key generated by the dashboard
+and downloadable only once, or a public key uploaded by the user. URL generation from the CLI/dashboard/SDK.
 
-### Risoluzione dell'host (routing)
-Per ogni richiesta, l'header `Host` (o `X-Forwarded-Host` / `Forwarded host=` di un proxy fidato, solo con
-`--trust-forwarded-host` / `NEXO_TRUST_FORWARDED_HOST=true`) viene risolto in quest'ordine:
-1. alias esatto di una distribuzione;
-2. alias wildcard di una distribuzione (match più specifico);
-3. `<bucket>.<NEXO_DOMAIN>` (virtual-host S3);
-4. dominio S3/console principale (`NEXO_SERVER_URL`, `NEXO_BROWSER_REDIRECT_URL`);
-5. altrimenti: API S3 path-style (configurabile: oppure 421 Misdirected Request).
+### Host resolution (routing)
+For every request, the `Host` header (or the `X-Forwarded-Host` / `Forwarded host=` of a trusted proxy, only with
+`--trust-forwarded-host` / `NEXO_TRUST_FORWARDED_HOST=true`) is resolved in this order:
+1. exact alias of a distribution;
+2. wildcard alias of a distribution (most specific match);
+3. `<bucket>.<NEXO_DOMAIN>` (S3 virtual-host);
+4. main S3/console domain (`NEXO_SERVER_URL`, `NEXO_BROWSER_REDIRECT_URL`);
+5. otherwise: path-style S3 API (configurable: or 421 Misdirected Request).
 
-- Tabella di routing in memoria (mappa + trie per wildcard), aggiornata **a caldo** e propagata a tutti i nodi via peer RPC.
-- Conflitti di alias (stesso dominio su due distribuzioni) rifiutati al salvataggio.
-- **Domini riservati**: un alias (esatto o wildcard) che coincide con o copre i nomi su cui risponde il
-  deployment è rifiutato (409): i domini principali (`NEXO_SERVER_URL`, `NEXO_BROWSER_REDIRECT_URL`), un
-  `NEXO_DOMAIN` o i virtual-host `<bucket>.<NEXO_DOMAIN>`, gli host degli endpoint dei nodi (le chiamate RPC e le
-  sonde tra i peer), gli host di `--address`/`--console-address`, `localhost` e il nome della macchina (anche
-  senza dominio); gli indirizzi IP non sono mai alias validi. È ammesso solo il virtual-host del bucket di
-  origine della distribuzione stessa (e chi la salva deve essere autorizzato su quel bucket). Gli alias di
-  distribuzioni salvate prima di questa regola che la violano sono esclusi dalla tabella di routing al
-  caricamento (log di warning), così un alias non dirotta mai l'endpoint S3, il cluster o i bucket di altri.
-- **Wildcard di altre distribuzioni**: un alias esatto o una wildcard più specifica che cade sotto la wildcard
-  di un'altra distribuzione (`app.corp.example` sotto `*.corp.example`) vince il routing e le sottrae quegli
-  host: chi lo salva deve avere `admin:ManageDistributions` anche sul bucket di origine di quella distribuzione
-  (403 altrimenti).
-- **Percorsi riservati**: sul listener S3 i percorsi `/nexo/` (sonde di salute, metriche, RPC internode) non
-  sono mai instradati a una distribuzione, qualunque sia l'host: un load balancer o un peer che raggiunge il
-  nodo con un nome usato anche come alias riceve sempre il server. Solo i virtual host di `NEXO_DOMAIN` li
-  trattano come chiavi del proprio bucket. Gli oggetti `nexo/...` di un sito sono serviti dai listener web.
-- Listener: le distribuzioni rispondono sui listener dedicati `--web-address :80` e `--web-tls-address :443`
-  (solo distribuzioni, `421` per ogni altro host) e sulla porta S3 (9000) secondo `--s3-distributions`
-  (`NEXO_S3_DISTRIBUTIONS`): `auto` (default) solo quando il deployment dichiara i nomi dell'endpoint S3
-  (`NEXO_SERVER_URL` o `NEXO_DOMAIN`, che diventano riservati), `on` sempre (opt-in esplicito: l'operatore
-  garantisce che i client S3 non usano altri nomi), `off` mai. La porta S3 risponde a ogni nome che la
-  raggiunge (load balancer, nomi di servizio Kubernetes, alias DNS): senza nomi dichiarati nulla distingue un
-  alias da un nome usato dai client S3.
-- **Ripristino**: `nexo server --no-distributions` (`NEXO_NO_DISTRIBUTIONS=true`) non instrada nessun host a una
-  distribuzione su nessun listener, mentre le distribuzioni restano leggibili e modificabili dall'Admin API: si
-  avviano così i nodi per rimuovere o correggere una distribuzione che impedisce il funzionamento del
-  deployment, poi si riavviano senza l'opzione.
+- In-memory routing table (map + trie for wildcards), updated **at runtime** and propagated to all nodes via peer RPC.
+- Alias conflicts (the same domain on two distributions) are rejected on save.
+- **Reserved domains**: an alias (exact or wildcard) that matches or covers the names the deployment answers on is
+  rejected (409): the main domains (`NEXO_SERVER_URL`, `NEXO_BROWSER_REDIRECT_URL`), a `NEXO_DOMAIN` or the
+  `<bucket>.<NEXO_DOMAIN>` virtual hosts, the hosts of the nodes' endpoints (the RPC calls and the probes between
+  peers), the hosts of `--address`/`--console-address`, `localhost` and the machine name (also without a domain); IP
+  addresses are never valid aliases. Only the virtual host of the distribution's own origin bucket is allowed (and
+  whoever saves it must be authorized on that bucket). The aliases of distributions saved before this rule that
+  violate it are left out of the routing table on load (warning log), so an alias never hijacks the S3 endpoint, the
+  cluster or other people's buckets.
+- **Wildcards of other distributions**: an exact alias or a more specific wildcard that falls under the wildcard of
+  another distribution (`app.corp.example` under `*.corp.example`) wins the routing and takes those hosts away from
+  it: whoever saves it must also have `admin:ManageDistributions` on that distribution's origin bucket (403
+  otherwise).
+- **Reserved paths**: on the S3 listener the `/nexo/` paths (health probes, metrics, internode RPC) are never routed
+  to a distribution, whatever the host: a load balancer or a peer that reaches the node with a name also used as an
+  alias always gets the server. Only the `NEXO_DOMAIN` virtual hosts treat them as keys of their bucket. A site's
+  `nexo/...` objects are served by the web listeners.
+- Listeners: distributions answer on the dedicated listeners `--web-address :80` and `--web-tls-address :443`
+  (distributions only, `421` for any other host) and on the S3 port (9000) according to `--s3-distributions`
+  (`NEXO_S3_DISTRIBUTIONS`): `auto` (default) only when the deployment declares the names of the S3 endpoint
+  (`NEXO_SERVER_URL` or `NEXO_DOMAIN`, which become reserved), `on` always (explicit opt-in: the operator guarantees
+  that S3 clients use no other names), `off` never. The S3 port answers to every name that reaches it (load
+  balancers, Kubernetes service names, DNS aliases): without declared names nothing tells an alias apart from a name
+  used by S3 clients.
+- **Recovery**: `nexo server --no-distributions` (`NEXO_NO_DISTRIBUTIONS=true`) routes no host to a distribution on
+  any listener, while the distributions stay readable and editable from the Admin API: start the nodes this way to
+  remove or fix a distribution that prevents the deployment from working, then restart them without the option.
 
-### Dietro uno o più proxy
-- `NEXO_TRUSTED_PROXIES` (CIDR): solo da questi indirizzi si accettano `X-Forwarded-For/Proto/Host`, `Forwarded` (RFC 7239)
-  e **PROXY protocol v1/v2** (attivabile per listener).
-- **Origin secret header** per distribuzione: ogni proxy invia un header segreto diverso; le richieste senza header
-  (accesso diretto aggirando il proxy) vengono rifiutate. Più segreti attivi contemporaneamente per la rotazione.
-- L'IP client usato nelle condizioni (`sourceIp`) è quello reale ricavato dagli header fidati.
-- Esempi di configurazione nginx, Caddy, Traefik, HAProxy e Cloudflare in `deploy/proxy/`.
+### Behind one or more proxies
+- `NEXO_TRUSTED_PROXIES` (CIDR): `X-Forwarded-For/Proto/Host`, `Forwarded` (RFC 7239) and **PROXY protocol v1/v2**
+  (enabled per listener) are accepted only from these addresses.
+- **Origin secret header** per distribution: each proxy sends a different secret header; requests without the header
+  (direct access bypassing the proxy) are rejected. Several secrets can be active at the same time for rotation.
+- The client IP used in conditions (`sourceIp`) is the real one derived from the trusted headers.
+- Configuration examples for nginx, Caddy, Traefik, HAProxy and Cloudflare in `deploy/proxy/`.
 
-Scelte di implementazione (verificate da `test/proxy`, vedi §10.6 "Cluster e Docker"):
-- **Host inoltrato non fidato per default**: anche da un proxy fidato si usano indirizzo e schema inoltrati, ma il
-  dominio resta l'header `Host` (che tutte le configurazioni di `deploy/proxy` preservano). Alcuni proxy
-  (Cloudflare, una `location` nginx che non lo imposta) inoltrano l'`X-Forwarded-Host` del client così com'è: un
-  client potrebbe scegliere la distribuzione, le condizioni `nexo:host` e la destinazione dei redirect `httpsOnly`.
-  `--trust-forwarded-host` serve solo per i proxy che riscrivono l'`Host`.
-- **Una sola famiglia di header** per deployment (`NEXO_FORWARDED_HEADERS`: `x-forwarded`, default, oppure
-  `forwarded`): leggerle entrambe permetterebbe a un client di falsificare il proprio indirizzo attraverso un
-  proxy che imposta solo l'altra. `X-Forwarded-For` è letto da destra fino al primo indirizzo non fidato.
-- **PROXY protocol per listener** (`NEXO_PROXY_PROTOCOL=s3,console,web`), letto prima del TLS: usato solo dai
-  peer in `NEXO_TRUSTED_PROXIES`, letto e ignorato dagli altri, facoltativo anche per i proxy fidati (così
-  un proxy con `X-Forwarded-*`, le RPC internode e gli health check condividono la porta S3 con un HAProxy
-  `send-proxy-v2-ssl`); il TLV SSL rende la richiesta HTTPS (redirect `httpsOnly`, `aws:SecureTransport`).
-- **Origin secret**: `restrictions.originSecretHeader` ha un nome (default `X-Origin-Secret`) e fino a 8 valori
-  attivi insieme, tutti accettati da tutti i proxy della distribuzione. Un valore in chiaro è salvato come
-  hash (`sha256:`); un riferimento `${secret:<nome>}` è risolto su ogni nodo da `NEXO_SECRET_<NOME>` (o
-  `_FILE`, `-` e `_` equivalenti) e non finisce mai nella configurazione: è la forma consigliata con più proxy
-  (`values: ["${secret:proxy-a}", "${secret:proxy-b}"]`, un segreto per proxy, YAML senza segreti per il
-  GitOps). Un riferimento non risolvibile non accetta nessuna richiesta (fail closed). `dist origin-secret
-  rotate` genera un nuovo valore (mostrato una volta) mantenendo attivi i precedenti (`--keep`). Il controllo
-  vale in entrambe le modalità (website e s3) e precede ogni altra valutazione; le richieste S3 path-style e
-  la console sui domini principali non sono distribuzioni e non lo richiedono (si proteggono con la rete).
-- La firma degli URL di distribuzione (`dist sign-url`, `POST /distributions/{id}/sign`) e `dist test`
-  riportano il behavior del path anche quando la richiesta di prova sarebbe rifiutata dall'ammissione
-  (origin secret, indirizzo, distribuzione disabilitata): la firma di una distribuzione dietro proxy trova il
-  suo key group.
-- Un nodo di un cluster che si sta fermando risponde `503` finché gli health check non lo tolgono dal giro:
-  i proxy devono ritentare le letture su 502/503/504 (configurazioni di `deploy/proxy`).
+Implementation choices (verified by `test/proxy`, see §10.6 "Cluster and Docker"):
+- **Forwarded host not trusted by default**: even from a trusted proxy the forwarded address and scheme are used, but
+  the domain stays the `Host` header (which all the `deploy/proxy` configurations preserve). Some proxies (Cloudflare,
+  an nginx `location` that does not set it) forward the client's `X-Forwarded-Host` as is: a client could choose the
+  distribution, the `nexo:host` conditions and the target of `httpsOnly` redirects. `--trust-forwarded-host` is only
+  for proxies that rewrite the `Host`.
+- **A single header family** per deployment (`NEXO_FORWARDED_HEADERS`: `x-forwarded`, the default, or `forwarded`):
+  reading both would let a client forge its address through a proxy that sets only the other one.
+  `X-Forwarded-For` is read from the right up to the first untrusted address.
+- **PROXY protocol per listener** (`NEXO_PROXY_PROTOCOL=s3,console,web`), read before TLS: used only from peers in
+  `NEXO_TRUSTED_PROXIES`, read and ignored from the others, optional even for trusted proxies (so a proxy with
+  `X-Forwarded-*`, the internode RPCs and the health checks share the S3 port with an HAProxy
+  `send-proxy-v2-ssl`); the SSL TLV makes the request HTTPS (`httpsOnly` redirects, `aws:SecureTransport`).
+- **Origin secret**: `restrictions.originSecretHeader` has a name (default `X-Origin-Secret`) and up to 8 values
+  active together, all accepted from all the distribution's proxies. A plain-text value is stored as a hash
+  (`sha256:`); a `${secret:<name>}` reference is resolved on every node from `NEXO_SECRET_<NAME>` (or `_FILE`, with
+  `-` and `_` equivalent) and never ends up in the configuration: it is the recommended form with several proxies
+  (`values: ["${secret:proxy-a}", "${secret:proxy-b}"]`, one secret per proxy, secret-free YAML for GitOps). An
+  unresolvable reference accepts no request (fail closed). `dist origin-secret rotate` generates a new value (shown
+  once) while keeping the previous ones active (`--keep`). The check applies in both modes (website and s3) and comes
+  before any other evaluation; path-style S3 requests and the console on the main domains are not distributions and
+  do not require it (they are protected by the network).
+- Distribution URL signing (`dist sign-url`, `POST /distributions/{id}/sign`) and `dist test` report the path's
+  behavior even when the test request would be rejected by admission (origin secret, address, disabled
+  distribution): signing for a distribution behind a proxy finds its key group.
+- A cluster node that is stopping answers `503` until the health checks take it out of rotation: the proxies must
+  retry reads on 502/503/504 (the `deploy/proxy` configurations do).
 
-### TLS e certificati per dominio
-- Certificati caricati (PEM) o **ACME automatico** (Let's Encrypt/ZeroSSL, challenge HTTP-01 o TLS-ALPN-01; DNS-01 P2 per wildcard).
-- In cluster: certificati e stato ACME salvati cifrati in `.nexo.sys`, rinnovo eseguito dal leader, distribuzione a tutti i nodi.
-- Selezione via **SNI**; scadenza visibile in dashboard con alert a 21 giorni.
-- Un certificato è presentato solo per gli alias delle distribuzioni **abilitate** che lo referenziano
-  (`tls.certificate: upload:<id>`, o il certificato ACME di `auto`) e solo se copre il nome e non è scaduto;
-  altrimenti il listener usa il proprio certificato (quello statico del server per i domini S3/console). Un
-  certificato caricato con un nome dei domini principali, di `NEXO_DOMAIN` o `*.<NEXO_DOMAIN>` (o una wildcard
-  che li copre) è rifiutato: chi ha `admin:ManageCertificates` non può sostituire il certificato dell'endpoint S3.
+### TLS and per-domain certificates
+- Uploaded certificates (PEM) or **automatic ACME** (Let's Encrypt/ZeroSSL, HTTP-01 or TLS-ALPN-01 challenge; DNS-01 P2 for wildcards).
+- In a cluster: certificates and ACME state stored encrypted in `.nexo.sys`, renewal performed by the leader, distribution to all nodes.
+- Selection via **SNI**; expiry visible in the dashboard with an alert at 21 days.
+- A certificate is presented only for the aliases of the **enabled** distributions that reference it
+  (`tls.certificate: upload:<id>`, or the ACME certificate of `auto`) and only if it covers the name and has not
+  expired; otherwise the listener uses its own certificate (the server's static one for the S3/console domains). A
+  certificate uploaded with a name of the main domains, of `NEXO_DOMAIN` or `*.<NEXO_DOMAIN>` (or a wildcard covering
+  them) is rejected: whoever has `admin:ManageCertificates` cannot replace the S3 endpoint's certificate.
 
-### Cache e invalidazione
-Gestione completa della cache **per distribuzione, per dominio e per percorso**: vedi [11 — Cache per dominio](11-domain-cache.md).
+### Cache and invalidation
+Full cache management **per distribution, per domain and per path**: see [11 — Domain cache](11-domain-cache.md).
 
-### Osservabilità per distribuzione
-Metriche `nexo_distribution_requests_total{distribution,host,status}`, byte serviti, cache hit ratio, latenza;
-access log in formato combinato o JSON; grafici dedicati in dashboard.
+### Per-distribution observability
+Metrics `nexo_distribution_requests_total{distribution,host,status}`, bytes served, cache hit ratio, latency;
+access log in combined or JSON format; dedicated charts in the dashboard.
 
 ## 10.3 Dashboard
 
-| Codice | Funzionalità |
+| Code | Feature |
 |--------|--------------|
-| D-ACC-01 | Bucket → tab **Regole di accesso**: tabella regole ordinabile (drag & drop della priorità), editor con scelta prefix/glob/regex, principali, azioni, condizioni; vista YAML/JSON |
-| D-ACC-02 | **Tester di pattern**: inserisci una o più chiavi → evidenzia quali regole corrispondono e l'esito finale (allow/deny) per un'identità/IP/host scelti; esempi di chiavi esistenti nel bucket |
-| D-ACC-03 | Preset pubblico (private / public-read / public-prefix…) con avvisi chiari e stato "Pubblico" visibile nella lista bucket |
-| D-ACC-04 | Block public access a livello cluster e bucket |
-| D-DST-01 | Sezione **Distribuzioni**: elenco con domini, bucket, stato certificati, traffico |
-| D-DST-02 | Wizard di creazione: bucket/prefix → domini → modalità (website/s3) → accesso → TLS; istruzioni DNS (CNAME/A/AAAA) e verifica che il dominio punti al cluster |
-| D-DST-03 | Editor behavior: lista ordinata con pattern (prefix/glob/regex), metodi, accesso, cache, header; tester "questo URL quale behavior usa?" |
-| D-DST-04 | Error page, redirect, SPA fallback, CORS, header di sicurezza (preset consigliato) |
-| D-DST-05 | Key group e generatore di URL/cookie firmati |
-| D-DST-06 | Restrizioni: IP allow/deny, origin secret per proxy (generazione e rotazione), rate limit |
-| D-DST-07 | Certificati: upload, ACME, stato e scadenze |
-| D-DST-08 | Invalidazione cache e cronologia; metriche e log per distribuzione |
+| D-ACC-01 | Bucket → **Access rules** tab: sortable rule table (drag & drop of the priority), editor with a choice of prefix/glob/regex, principals, actions, conditions; YAML/JSON view |
+| D-ACC-02 | **Pattern tester**: enter one or more keys → highlights which rules match and the final outcome (allow/deny) for a chosen identity/IP/host; examples of keys existing in the bucket |
+| D-ACC-03 | Public preset (private / public-read / public-prefix…) with clear warnings and a "Public" status visible in the bucket list |
+| D-ACC-04 | Block public access at cluster and bucket level |
+| D-DST-01 | **Distributions** section: list with domains, buckets, certificate status, traffic |
+| D-DST-02 | Creation wizard: bucket/prefix → domains → mode (website/s3) → access → TLS; DNS instructions (CNAME/A/AAAA) and a check that the domain points to the cluster |
+| D-DST-03 | Behavior editor: ordered list with pattern (prefix/glob/regex), methods, access, cache, headers; "which behavior does this URL use?" tester |
+| D-DST-04 | Error pages, redirects, SPA fallback, CORS, security headers (recommended preset) |
+| D-DST-05 | Key groups and signed URL/cookie generator |
+| D-DST-06 | Restrictions: IP allow/deny, origin secret per proxy (generation and rotation), rate limit |
+| D-DST-07 | Certificates: upload, ACME, status and expiry dates |
+| D-DST-08 | Cache invalidation and history; metrics and logs per distribution |
 
 ## 10.4 CLI
 
 ```bash
-# Regole di accesso
+# Access rules
 nexoctl access rule add local/media --id img-pub --allow --principal '*' --action read \
         --regex '^img/[0-9]{4}/.*\.(jpe?g|png)$' --ignore-case
 nexoctl access rule add local/media --id no-private --deny --principal '*' --action all --glob '**/private/**' --priority 5
@@ -303,111 +301,110 @@ nexoctl access public set public-read local/media | access public set public-pre
 nexoctl access block-public on|off [local | local/media]
 nexoctl access export|import local/media rules.yaml
 
-# Distribuzioni
-nexoctl dist create local sito-web --bucket web --prefix /prod --mode website --domain www.example.com --domain example.com
-nexoctl dist domain add|rm local sito-web '*.preview.example.com'
-nexoctl dist behavior add local sito-web --glob '/assets/**' --cache-control 'public, max-age=31536000, immutable'
-nexoctl dist behavior add local sito-web --regex '^/downloads/.*\.zip$' --access signed --key-group rilasci
+# Distributions
+nexoctl dist create local website --bucket web --prefix /prod --mode website --domain www.example.com --domain example.com
+nexoctl dist domain add|rm local website '*.preview.example.com'
+nexoctl dist behavior add local website --glob '/assets/**' --cache-control 'public, max-age=31536000, immutable'
+nexoctl dist behavior add local website --regex '^/downloads/.*\.zip$' --access signed --key-group releases
 nexoctl dist error-page|redirect|headers|restrict ... 
-nexoctl dist keygroup create local rilasci && nexoctl dist sign-url local sito-web /downloads/v1.zip --expire 1h [--ip 1.2.3.4]
-nexoctl dist cert set local sito-web --auto | --cert crt.pem --key key.pem
-nexoctl dist origin-secret rotate local sito-web
-nexoctl dist test local sito-web https://www.example.com/assets/app.js   # mostra behavior, accesso, header risultanti
-nexoctl dist invalidate local sito-web '/assets/**'
+nexoctl dist keygroup create local releases && nexoctl dist sign-url local website /downloads/v1.zip --expire 1h [--ip 1.2.3.4]
+nexoctl dist cert set local website --auto | --cert crt.pem --key key.pem
+nexoctl dist origin-secret rotate local website
+nexoctl dist test local website https://www.example.com/assets/app.js   # shows the resulting behavior, access and headers
+nexoctl dist invalidate local website '/assets/**'
 nexoctl dist ls|info|edit|disable|enable|rm|export|import
 ```
-Tutti i comandi supportano `--json` e l'import/export YAML (gestione GitOps delle configurazioni).
+All commands support `--json` and YAML import/export (GitOps management of the configurations).
 
 ## 10.5 Admin API
 
-| Metodo | Path |
+| Method | Path |
 |--------|------|
-| GET/PUT | `/api/v1/buckets/{b}/access-rules` (sostituzione atomica con `If-Match` su ETag della configurazione) |
+| GET/PUT | `/api/v1/buckets/{b}/access-rules` (atomic replacement with `If-Match` on the configuration's ETag) |
 | POST | `/api/v1/buckets/{b}/access-rules/test` |
 | GET/PUT | `/api/v1/access/block-public`, `/api/v1/buckets/{b}/block-public` |
 | GET/POST | `/api/v1/distributions` · GET/PUT/DELETE `/api/v1/distributions/{id}` |
 | POST | `/api/v1/distributions/{id}/test` · `/invalidations` · `/origin-secret/rotate` |
 | GET/POST/DELETE | `/api/v1/keygroups`, `/api/v1/keygroups/{id}/keys` · POST `/api/v1/distributions/{id}/sign` |
 | GET/POST/DELETE | `/api/v1/certificates` |
-| GET | `/api/v1/routing/resolve?host=` (diagnostica: quale distribuzione/bucket risponde per un host) |
+| GET | `/api/v1/routing/resolve?host=` (diagnostics: which distribution/bucket answers for a host) |
 
-Azioni di policy: `admin:ManageAccessRules`, `admin:ManageDistributions`, `admin:ManageCertificates`, `admin:SignDistributionURL`.
-`admin:ManageDistributions` è valutata anche sul **bucket di origine** (risorsa `arn:aws:s3:::<bucket>`): per creare e
-modificare una distribuzione (bucket attuale e nuovo), eliminarla, ruotarne l'origin secret e modificare le chiavi
-di un key group (aggiunta, rimozione, eliminazione del gruppo), autorizzate su ogni bucket di origine delle
-distribuzioni che firmano con quel gruppo. Un utente negato su un bucket non può liberarne gli alias né firmarne i
-contenuti premium.
+Policy actions: `admin:ManageAccessRules`, `admin:ManageDistributions`, `admin:ManageCertificates`, `admin:SignDistributionURL`.
+`admin:ManageDistributions` is also evaluated on the **origin bucket** (resource `arn:aws:s3:::<bucket>`): to create
+and modify a distribution (current and new bucket), delete it, rotate its origin secret and modify the keys of a key
+group (addition, removal, deletion of the group), authorized on every origin bucket of the distributions that sign
+with that group. A user denied on a bucket can neither free its aliases nor sign its premium content.
 
-## 10.6 Test
+## 10.6 Tests
 
 ### Server
-| ID | Caso | Atteso |
+| ID | Case | Expected |
 |----|------|--------|
-| TAR-01 | Matching prefix/glob/regex: tabella > 200 casi (segmenti, `**`, classi, alternative, case-insensitive, unicode, chiavi con `%`, spazi, `+`) | Esiti attesi |
-| TAR-02 | Regex invalida, troppo lunga, oltre il limite di regole | Errore 400 con posizione |
-| TAR-03 | Tentativi di bypass: `%2F`, doppio encoding, `./`, `//`, varianti Unicode NFC/NFD, maiuscole | Nessun bypass |
-| TAR-04 | Regex patologiche (`(a+)+$` su input lungo) | Tempo lineare (< 1 ms su 1 KiB) |
-| TAR-05 | Deny in access rule prevale su allow IAM e su bucket policy; allow da regola senza policy IAM | Conforme §10.1 |
-| TAR-06 | Gruppi nominati con `${aws:username}` (home directory) | Ogni utente accede solo alla sua |
-| TAR-07 | Condizioni IP (IPv4/IPv6, dietro proxy fidato e non fidato), referer, host, finestra temporale, header | Esiti attesi; IP da proxy non fidato ignorato |
-| TAR-08 | Block public access attivo con regola `*` | Rifiutata / ignorata secondo configurazione |
-| TAR-09 | Modifica regole su nodo1 → effetto su nodo4 | < 1 s |
-| TAR-10 | Benchmark: 200 regole regex, valutazione per richiesta | p99 < 50 µs |
-| TDS-01 | Routing host: alias esatti, wildcard, più specifico vince, virtual-host, dominio sconosciuto | Distribuzione/bucket corretti |
-| TDS-02 | Alias duplicato su due distribuzioni | 409 |
-| TDS-03 | Modalità website: index, SPA fallback, error page con status configurato, redirect regex con gruppi, HTTP→HTTPS, www | Risposte attese |
-| TDS-04 | Modalità s3 su dominio custom: SDK con endpoint personalizzato, SigV4 e presigned generati con quel dominio | 200 |
-| TDS-05 | Behavior: ordine, primo match vince, metodi non consentiti → 405/403, cache-control e header di risposta applicati | — |
-| TDS-06 | URL e cookie firmati: validi, scaduti, firma alterata, IP diverso, risorsa wildcard, rotazione key group | 200 / 403 |
-| TDS-07 | Origin secret: con header corretto OK, senza o errato 403, due segreti attivi durante la rotazione | — |
-| TDS-08 | PROXY protocol v1/v2 e `Forwarded`/`X-Forwarded-*` solo da `NEXO_TRUSTED_PROXIES` | IP reale corretto, spoofing ignorato |
-| TDS-09 | `pathPrefix` di origine: impossibile uscire dal prefix (`/../`, encoded) | 403/404 |
-| TDS-10 | TLS: SNI con più certificati, ACME contro Pebble (ACME di test) inclusa la renewal, cluster con leader che rinnova | Certificato servito da tutti i nodi |
-| TDS-11 | Cache e invalidazione: vedi test TCC-* in [11](11-domain-cache.md#1112-test) | — |
-| TDS-12 | Range, conditional GET, HEAD, `Content-Type` corretti via distribuzione | Conforme |
-| TDS-13 | Rate limit per IP (P2) | 429 oltre soglia |
-| TDS-14 | Fuzzing di Host header, path e parametri di firma | Nessun panic/bypass |
+| TAR-01 | Prefix/glob/regex matching: table of > 200 cases (segments, `**`, classes, alternatives, case-insensitive, Unicode, keys with `%`, spaces, `+`) | Expected outcomes |
+| TAR-02 | Invalid regex, too long, over the rule limit | 400 error with position |
+| TAR-03 | Bypass attempts: `%2F`, double encoding, `./`, `//`, Unicode NFC/NFD variants, uppercase | No bypass |
+| TAR-04 | Pathological regexes (`(a+)+$` on long input) | Linear time (< 1 ms on 1 KiB) |
+| TAR-05 | A deny in an access rule prevails over an IAM allow and over the bucket policy; allow from a rule without an IAM policy | As in §10.1 |
+| TAR-06 | Named groups with `${aws:username}` (home directories) | Each user accesses only their own |
+| TAR-07 | IP conditions (IPv4/IPv6, behind a trusted and an untrusted proxy), referer, host, time window, headers | Expected outcomes; IP from an untrusted proxy ignored |
+| TAR-08 | Block public access active with a `*` rule | Rejected / ignored depending on configuration |
+| TAR-09 | Rule change on node1 → effect on node4 | < 1 s |
+| TAR-10 | Benchmark: 200 regex rules, evaluation per request | p99 < 50 µs |
+| TDS-01 | Host routing: exact aliases, wildcards, most specific wins, virtual-host, unknown domain | Correct distribution/bucket |
+| TDS-02 | Duplicate alias on two distributions | 409 |
+| TDS-03 | Website mode: index, SPA fallback, error page with configured status, regex redirect with groups, HTTP→HTTPS, www | Expected responses |
+| TDS-04 | s3 mode on a custom domain: SDK with a custom endpoint, SigV4 and presigned URLs generated with that domain | 200 |
+| TDS-05 | Behaviors: order, first match wins, disallowed methods → 405/403, cache-control and response headers applied | — |
+| TDS-06 | Signed URLs and cookies: valid, expired, altered signature, different IP, wildcard resource, key group rotation | 200 / 403 |
+| TDS-07 | Origin secret: OK with the correct header, 403 without or with a wrong one, two secrets active during rotation | — |
+| TDS-08 | PROXY protocol v1/v2 and `Forwarded`/`X-Forwarded-*` only from `NEXO_TRUSTED_PROXIES` | Correct real IP, spoofing ignored |
+| TDS-09 | Origin `pathPrefix`: impossible to escape the prefix (`/../`, encoded) | 403/404 |
+| TDS-10 | TLS: SNI with several certificates, ACME against Pebble (test ACME) including renewal, cluster with the leader renewing | Certificate served by all nodes |
+| TDS-11 | Cache and invalidation: see the TCC-* tests in [11](11-domain-cache.md#1112-tests) | — |
+| TDS-12 | Range, conditional GET, HEAD, correct `Content-Type` via a distribution | Compliant |
+| TDS-13 | Per-IP rate limit (P2) | 429 over the threshold |
+| TDS-14 | Fuzzing of the Host header, path and signature parameters | No panic/bypass |
 
 ### CLI
-| ID | Caso |
+| ID | Case |
 |----|------|
-| TCL-A-01 | `access rule add/ls/rm/move` + `access test` coerente con richieste reali via curl |
-| TCL-A-02 | `access export` → `import` su altro bucket: regole identiche |
-| TCL-D-01 | `dist create` con 2 domini → `curl -H 'Host: ...'` su entrambi restituisce il contenuto |
-| TCL-D-02 | `dist sign-url` → curl OK, dopo scadenza 403 |
-| TCL-D-03 | `dist test` mostra behavior e header attesi |
+| TCL-A-01 | `access rule add/ls/rm/move` + `access test` consistent with real requests via curl |
+| TCL-A-02 | `access export` → `import` on another bucket: identical rules |
+| TCL-D-01 | `dist create` with 2 domains → `curl -H 'Host: ...'` on both returns the content |
+| TCL-D-02 | `dist sign-url` → curl OK, 403 after expiry |
+| TCL-D-03 | `dist test` shows the expected behavior and headers |
 | TCL-D-04 | `dist origin-secret rotate`, `dist invalidate`, `dist cert set --cert/--key` |
 
 ### Dashboard
-| ID | Caso |
+| ID | Case |
 |----|------|
-| TD-A-01 | Crea regola regex con il tester: chiavi di esempio evidenziate correttamente; regex invalida bloccata con messaggio |
-| TD-A-02 | Riordino priorità con drag & drop persiste ed è rispettato dal server |
-| TD-A-03 | Preset public-prefix → oggetto accessibile anonimo solo nel prefix; badge "Pubblico" nella lista bucket |
-| TD-D-01 | Wizard distribuzione con 2 domini + istruzioni DNS; verifica raggiungibilità (in test: host risolti verso il server) |
-| TD-D-02 | Editor behavior + tester URL; SPA fallback e error page funzionanti da browser sul dominio configurato |
-| TD-D-03 | Key group: chiave privata mostrata una volta; URL firmato generato apre il file |
-| TD-D-04 | Certificato in scadenza evidenziato; upload certificato valido/invalido |
-| TD-D-05 | Utente senza `admin:ManageDistributions` non vede/modifica le distribuzioni |
+| TD-A-01 | Create a regex rule with the tester: example keys highlighted correctly; invalid regex blocked with a message |
+| TD-A-02 | Reordering priorities with drag & drop persists and is honored by the server |
+| TD-A-03 | public-prefix preset → object accessible anonymously only in the prefix; "Public" badge in the bucket list |
+| TD-D-01 | Distribution wizard with 2 domains + DNS instructions; reachability check (in tests: hosts resolved to the server) |
+| TD-D-02 | Behavior editor + URL tester; SPA fallback and error pages working from the browser on the configured domain |
+| TD-D-03 | Key group: private key shown once; generated signed URL opens the file |
+| TD-D-04 | Expiring certificate highlighted; upload of a valid/invalid certificate |
+| TD-D-05 | A user without `admin:ManageDistributions` cannot see/modify distributions |
 
-### Cluster e Docker
-| ID | Caso |
+### Cluster and Docker
+| ID | Case |
 |----|------|
-| TCD-01 | Compose con **2 proxy nginx** (domini diversi, origin secret diversi) davanti al cluster 4 nodi: entrambi i punti di accesso funzionano, accesso diretto ai nodi senza secret rifiutato |
-| TCD-02 | Nodo che serve una distribuzione viene fermato: il proxy ripiega sugli altri nodi senza errori |
-| TCD-03 | Creazione distribuzione dalla dashboard → attiva su tutti i nodi senza restart |
+| TCD-01 | Compose with **2 nginx proxies** (different domains, different origin secrets) in front of the 4-node cluster: both access points work, direct access to the nodes without the secret is rejected |
+| TCD-02 | A node serving a distribution is stopped: the proxy falls back to the other nodes without errors |
+| TCD-03 | Distribution created from the dashboard → active on all nodes without restart |
 
-Implementazione di TCD-01..03 (`test/proxy`, build tag `proxy`, `make test-proxy`, job CI `proxy`): i due
-proxy sono **nginx** (`X-Forwarded-*`) e **HAProxy** (PROXY protocol v2 con TLV SSL) invece di due nginx, per
-coprire entrambi i modi di descrivere il client (`deploy/docker/compose.multi-proxy.yml`). Senza Docker:
-- `TestMultiProxy` (SNSD, SNMD, cluster 4×2 in-process): due proxy Go (`httputil.ReverseProxy`) con TLS, dominio
-  e origin secret propri, bilanciamento e failover come nginx; distribuzioni create e modificate dall'Admin API
-  della console dietro il proxy A e servite subito da ogni nodo (decine di ms misurate, limite del test 3 s) (TCD-03); accesso diretto ai nodi senza
-  secret o con secret errato → 403, con secret ma senza HTTPS → redirect (TCD-01); IP reale e spoofing
-  (`X-Forwarded-For`, `Forwarded`, PROXY header di un peer non fidato) attraverso entrambi (TDS-08); nodo
-  fermato sotto carico → nessun errore client né 502, scritture e modifiche della distribuzione durante il
-  fermo, il nodo riavviato le serve (TCD-02); URL firmati di distribuzione con `IpAddress` del client reale;
-  TPS-19 sui domini custom (TCC-C-05 in [11](11-domain-cache.md#1112-test)).
-- `TestRealProxies` (cluster 4×2): gli **stessi file** nginx e HAProxy del compose, adattati agli indirizzi di
-  loopback, con i binari reali (saltato se mancano, obbligatorio con `NEXO_PROXY_REAL=1`), più le distribuzioni
-  d'esempio `multi-proxy/site.yaml`.
+Implementation of TCD-01..03 (`test/proxy`, build tag `proxy`, `make test-proxy`, CI job `proxy`): the two proxies
+are **nginx** (`X-Forwarded-*`) and **HAProxy** (PROXY protocol v2 with SSL TLV) instead of two nginx, to cover both
+ways of describing the client (`deploy/docker/compose.multi-proxy.yml`). Without Docker:
+- `TestMultiProxy` (SNSD, SNMD, 4×2 cluster in-process): two Go proxies (`httputil.ReverseProxy`) with their own TLS,
+  domain and origin secret, load balancing and failover like nginx; distributions created and modified through the
+  console's Admin API behind proxy A and served immediately by every node (tens of ms measured, test limit 3 s)
+  (TCD-03); direct access to the nodes without a secret or with a wrong secret → 403, with the secret but without
+  HTTPS → redirect (TCD-01); real IP and spoofing (`X-Forwarded-For`, `Forwarded`, PROXY header from an untrusted
+  peer) through both (TDS-08); node stopped under load → no client errors and no 502, writes and distribution
+  changes during the outage, the restarted node serves them (TCD-02); distribution-signed URLs with the real client's
+  `IpAddress`; TPS-19 on custom domains (TCC-C-05 in [11](11-domain-cache.md#1112-tests)).
+- `TestRealProxies` (4×2 cluster): the **same** nginx and HAProxy **files** as the compose, adapted to loopback
+  addresses, with the real binaries (skipped if missing, mandatory with `NEXO_PROXY_REAL=1`), plus the example
+  distributions in `multi-proxy/site.yaml`.

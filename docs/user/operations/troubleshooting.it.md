@@ -91,7 +91,7 @@ dipendono dagli orologi; l'ordine delle versioni di un oggetto resta monotono an
   per disco) e `nexo_drive_errors_total{drive,type}` (`timeout`, `faulty`, `corrupt`, `full`, …).
 - `nexoctl admin speedtest local drive` misura scrittura e lettura dei dischi locali del nodo (fuori
   orario).
-- Un disco che continua a dare errori o timeout va sostituito ([Healing e dischi](healing-dischi.md)): con
+- Un disco che continua a dare errori o timeout va sostituito ([Healing e dischi](healing-disks.md)): con
   la parità sufficiente il set continua a funzionare senza di lui.
 - Controlla il file system: XFS, `noatime`, nessun RAID o LVM sotto Nexo, nessun altro processo che usi
   intensamente lo stesso disco; `dmesg` per errori di I/O.

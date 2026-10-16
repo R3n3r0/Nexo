@@ -1,167 +1,167 @@
-# 3. Clusterizzazione
+# 3. Clustering
 
-## 3.1 Modello scelto
+## 3.1 Chosen model
 
-Nexo adotta un modello **shared-nothing a topologia statica per pool** (simile a MinIO):
+Nexo adopts a **shared-nothing model with a static per-pool topology** (similar to MinIO):
 
-- Un **deployment** è composto da uno o più **server pool**.
-- Un **pool** è un insieme di nodi × dischi definito all'avvio con l'espansione a ellissi:
+- A **deployment** consists of one or more **server pools**.
+- A **pool** is a set of nodes × disks defined at startup with ellipsis expansion:
   ```bash
   nexo server http://node{1...4}.example.com:9000/mnt/disk{1...4}
-  # espansione: si aggiunge un secondo pool
+  # expansion: a second pool is added
   nexo server http://node{1...4}.example.com:9000/mnt/disk{1...4} \
               http://node{5...8}.example.com:9000/mnt/disk{1...8}
   ```
-- Ogni pool è suddiviso in **erasure set** di dimensione fissa (2–16 dischi), scelta come il massimo
-  divisore comune che distribuisce i dischi uniformemente tra i nodi (un set usa dischi su nodi diversi).
-- Ogni oggetto appartiene a **un solo erasure set** di **un solo pool**.
-- Tutti i nodi sono **simmetrici**: qualsiasi nodo accetta qualsiasi richiesta S3 (dietro a un load balancer).
-- **Nessun nodo master, nessun DB di metadati**.
+- Each pool is split into **erasure sets** of a fixed size (2–16 disks), chosen as the greatest
+  common divisor that spreads the disks evenly across the nodes (a set uses disks on different nodes).
+- Each object belongs to **exactly one erasure set** of **exactly one pool**.
+- All the nodes are **symmetric**: any node accepts any S3 request (behind a load balancer).
+- **No master node, no metadata DB**.
 
-### Perché non consistent hashing dinamico?
-| Aspetto | Pool statici (scelto) | Consistent hashing + membership dinamica |
-|---------|----------------------|------------------------------------------|
-| Complessità | Bassa | Alta (gossip, ribilanciamento, versioni ring) |
-| Espansione | Aggiunta di un pool, nessun movimento dati | Movimento dati proporzionale |
-| Prevedibilità prestazioni | Alta | Ribilanciamenti impattano il traffico |
-| Granularità crescita | Per pool (gruppo di nodi) | Per nodo |
+### Why not dynamic consistent hashing?
+| Aspect | Static pools (chosen) | Consistent hashing + dynamic membership |
+|--------|-----------------------|-----------------------------------------|
+| Complexity | Low | High (gossip, rebalancing, ring versions) |
+| Expansion | A pool is added, no data movement | Proportional data movement |
+| Performance predictability | High | Rebalancing affects traffic |
+| Growth granularity | Per pool (group of nodes) | Per node |
 
-Il ribilanciamento tra pool resta disponibile come operazione esplicita (S-STO-10).
+Rebalancing between pools remains available as an explicit operation (S-STO-10).
 
 ## 3.2 Placement
 
-1. **Selezione del pool** (solo per nuovi oggetti):
-   - se l'oggetto esiste già (qualsiasi versione) in un pool → stesso pool;
-   - altrimenti scelta casuale pesata sullo spazio libero, escludendo pool in decommission o > 95% pieni.
-2. **Selezione del set**: `set = SipHash-2-4(objectKey, deploymentID) mod numSets`.
-3. **Distribuzione degli shard**: permutazione dei dischi del set derivata da `crc32(key)` per bilanciare
-   data/parity tra i dischi.
+1. **Pool selection** (new objects only):
+   - if the object already exists (any version) in a pool → same pool;
+   - otherwise a random choice weighted by free space, excluding pools being decommissioned or > 95% full.
+2. **Set selection**: `set = SipHash-2-4(objectKey, deploymentID) mod numSets`.
+3. **Shard distribution**: a permutation of the set's disks derived from `crc32(key)` to balance
+   data/parity across the disks.
 
-## 3.3 Erasure coding e quorum
+## 3.3 Erasure coding and quorum
 
-Per un set di **N** dischi con parità **P** (default: `N ≤ 5 → P=2`, `6–7 → 3`, `≥ 8 → 4`) e dati **D = N − P**:
+For a set of **N** disks with parity **P** (default: `N ≤ 5 → P=2`, `6–7 → 3`, `≥ 8 → 4`) and data **D = N − P**:
 
-| Operazione | Quorum |
-|------------|--------|
-| Lettura | `D` dischi con shard coerenti |
-| Scrittura | `D` dischi (`D+1` se `D == P`, per evitare split-brain) |
-| Lock | `N_nodi/2 + 1` dei lock server coinvolti |
+| Operation | Quorum |
+|-----------|--------|
+| Read | `D` disks with consistent shards |
+| Write | `D` disks (`D+1` if `D == P`, to avoid split-brain) |
+| Lock | `N_nodes/2 + 1` of the lock servers involved |
 
-Esempio 4 nodi × 4 dischi = 16 dischi, 1 set da 16 con EC:4 → tollera la perdita di 4 dischi (o 1 nodo intero)
-in lettura e scrittura; capacità utile 75%.
+Example: 4 nodes × 4 disks = 16 disks, 1 set of 16 with EC:4 → tolerates the loss of 4 disks (or 1 whole node)
+for reads and writes; usable capacity 75%.
 
-## 3.4 Comunicazione internode
+## 3.4 Internode communication
 
-- Trasporto: HTTP/2 sulla stessa porta S3 sotto `/nexo/rpc/v1/`, mTLS opzionale (raccomandato).
-- Autenticazione: JWT a breve durata (20 s) firmato con chiave derivata dalle credenziali root (HMAC) + verifica
-  deployment ID; rifiuto di nodi con versione/format incompatibile. La firma è verificata prima di qualsiasi
-  claim; il token è legato al nodo destinatario (`aud`) e a **una sola chiamata**: metodo e target (path e
-  query, `htm`/`htu`), hash SHA-256 degli argomenti (`bh`: il corpo msgpack, o il primo frame di un upload,
-  verificato dalle rotte) e id univoco (`jti`) accettato una volta sola (cache degli id fino alla scadenza);
-  un token intercettato non vale per nessun'altra chiamata né per ripetere la stessa. Lo skew tollerato è
-  15 s, le risposte d'errore non rivelano mai il deployment ID.
-- Legame al deployment: un nodo con i dischi formattati legge il deployment ID dal proprio `format.json`
-  **prima di aprire il listener**; un nodo con i dischi vuoti si lega appena lo conosce: quando un peer gli
-  scrive il `format.json` o quando il suo bootstrap lo legge o lo genera (il nodo che formatta il deployment
-  passa al nuovo ID prima di scrivere i formati sui peer). Un chiamante senza deployment ID (bootstrap)
-  accede solo alle chiamate di bootstrap (ping, `bootstrap/*`, lettura e stat di `format.json` senza glob,
-  stato del disco: niente elenchi di volumi o di oggetti); finché un nodo non conosce il proprio deployment
-  accetta da qualunque chiamante solo le stesse chiamate più la scrittura di `format.json` e del tracker di
-  healing. Questa restrizione protegge da errori di configurazione (un nodo di un altro deployment con le
-  stesse credenziali root), non da un attaccante: chi ha le credenziali root può sempre ottenere il
-  deployment ID (`bootstrap/config`) e firmare token validi.
-- Rifiuti: ogni rifiuto (token, deployment, versione, certificato client) è registrato a livello Warn con
-  indirizzo remoto e path (mai il token), al più una volta per indirizzo e motivo al minuto, e contato in
-  `nexo_rpc_auth_refused_total{reason}`; un indirizzo che accumula 20 fallimenti di autenticazione viene
-  rifiutato senza verifica (429) finché il credito non si ricarica (uno ogni 3 s): il server non è un oracolo
-  veloce sulla password root.
-- Trasporto: solo HTTP/2. Con endpoint `http` il traffico e i token sono in chiaro (avviso all'avvio): la
-  legatura dei token limita un'intercettazione passiva, non un attaccante attivo, quindi TLS è necessario su
-  reti non fidate. Con `--tls-internode-verify` (`NEXO_TLS_INTERNODE_VERIFY`, endpoint `https`) il TLS è
-  **mutuo**: ogni nodo presenta il proprio certificato (`public.crt`, con uso client) e le chiamate internode
-  senza un certificato client verificato con le CA di `certs/CAs` sono rifiutate (le richieste S3 sulla stessa
-  porta non ne presentano). Si è scelto di non rendere obbligatorio un flag di opt-in per gli endpoint `http`
-  (resta l'avviso), per non rompere i deployment su reti private. Il proxy pubblico non inoltra mai
-  `/nexo/rpc/`, e una richiesta virtual-host (`<bucket>.<dominio>/nexo/rpc/v1/...`) è una chiave S3, non una
-  chiamata internode. Le risposte unarie dei peer sono limitate a 64 MiB.
-- Servizi RPC:
-  | Servizio | Scopo |
-  |----------|-------|
-  | `storage` | Accesso remoto ai dischi (ReadVersion, WriteMetadata, CreateFile stream, ReadFileStream, RenameData, Walk, DiskInfo, Delete…) |
+- Transport: HTTP/2 on the same S3 port under `/nexo/rpc/v1/`, optional (recommended) mTLS.
+- Authentication: short-lived JWT (20 s) signed with a key derived from the root credentials (HMAC) + deployment ID
+  check; nodes with an incompatible version/format are rejected. The signature is verified before any
+  claim; the token is bound to the target node (`aud`) and to **a single call**: method and target (path and
+  query, `htm`/`htu`), SHA-256 hash of the arguments (`bh`: the msgpack body, or the first frame of an upload,
+  checked by the routes) and a unique id (`jti`) accepted only once (id cache until expiry);
+  an intercepted token is valid for no other call, nor for repeating the same one. The tolerated skew is
+  15 s; error responses never reveal the deployment ID.
+- Binding to the deployment: a node with formatted disks reads the deployment ID from its own `format.json`
+  **before opening the listener**; a node with empty disks binds as soon as it learns it: when a peer
+  writes its `format.json` or when its bootstrap reads or generates it (the node that formats the deployment
+  switches to the new ID before writing the formats on the peers). A caller without a deployment ID (bootstrap)
+  can reach only the bootstrap calls (ping, `bootstrap/*`, read and stat of `format.json` without glob,
+  disk state: no listing of volumes or objects); until a node knows its own deployment
+  it accepts from any caller only those same calls plus the write of `format.json` and of the healing
+  tracker. This restriction protects against configuration mistakes (a node of another deployment with the
+  same root credentials), not against an attacker: whoever holds the root credentials can always obtain the
+  deployment ID (`bootstrap/config`) and sign valid tokens.
+- Rejections: every rejection (token, deployment, version, client certificate) is logged at Warn level with
+  remote address and path (never the token), at most once per address and reason per minute, and counted in
+  `nexo_rpc_auth_refused_total{reason}`; an address that accumulates 20 authentication failures is
+  rejected without verification (429) until its credit refills (one every 3 s): the server is not a fast
+  oracle for the root password.
+- Transport: HTTP/2 only. With `http` endpoints the traffic and the tokens are in clear text (warning at startup): the
+  token binding limits passive eavesdropping, not an active attacker, so TLS is required on
+  untrusted networks. With `--tls-internode-verify` (`NEXO_TLS_INTERNODE_VERIFY`, `https` endpoints) TLS is
+  **mutual**: each node presents its own certificate (`public.crt`, with client usage) and internode calls
+  without a client certificate verified against the CAs in `certs/CAs` are rejected (S3 requests on the same
+  port present none). We chose not to require an opt-in flag for `http` endpoints
+  (the warning remains), so as not to break deployments on private networks. The public proxy never forwards
+  `/nexo/rpc/`, and a virtual-host request (`<bucket>.<domain>/nexo/rpc/v1/...`) is an S3 key, not an
+  internode call. Unary peer responses are limited to 64 MiB.
+- RPC services:
+  | Service | Purpose |
+  |---------|---------|
+  | `storage` | Remote disk access (ReadVersion, WriteMetadata, CreateFile stream, ReadFileStream, RenameData, Walk, DiskInfo, Delete…) |
   | `lock` | Lock/Unlock/RLock/RUnlock/Refresh/ForceUnlock |
-  | `peer` | Invalidazione cache (IAM, bucket metadata, config), server info, trace/log stream, signal (restart), metriche locali |
-  | `bootstrap` | Verifica coerenza della configurazione di avvio tra nodi |
-- Codifica: msgpack; stream binari per dati con framing e checksum.
-- Connection pooling, timeout per chiamata, circuit breaker per disco/nodo offline con riconnessione in background.
+  | `peer` | Cache invalidation (IAM, bucket metadata, config), server info, trace/log stream, signal (restart), local metrics |
+  | `bootstrap` | Consistency check of the startup configuration across nodes |
+- Encoding: msgpack; binary streams for data with framing and checksums.
+- Connection pooling, per-call timeout, circuit breaker for offline disks/nodes with background reconnection.
 
-## 3.5 Bootstrap del cluster
+## 3.5 Cluster bootstrap
 
-1. Ogni nodo espande gli endpoint e verifica che la lista sia identica su tutti i nodi (hash della topologia via `bootstrap` RPC).
-2. Attesa che almeno il **quorum dei dischi** di ogni set sia raggiungibile (retry con backoff, log chiaro di cosa manca).
-3. Se nessun `format.json` esiste → il nodo con il primo endpoint genera il formato (deployment ID, mappa set/dischi) e
-   lo scrive su tutti i dischi; gli altri attendono.
-4. Dischi nuovi/vuoti in un formato esistente → marcati per **healing** e ripopolati.
-5. Caricamento IAM/config dal bucket di sistema, avvio servizi di background (scanner, heal, ILM, replica) con
-   **leader election leggera** tramite lock distribuito (`leader` lock con lease) per i job che devono girare una sola volta.
+1. Each node expands the endpoints and checks that the list is identical on all the nodes (topology hash via the `bootstrap` RPC).
+2. Wait until at least the **disk quorum** of each set is reachable (retry with backoff, clear log of what is missing).
+3. If no `format.json` exists → the node with the first endpoint generates the format (deployment ID, set/disk map) and
+   writes it to all the disks; the others wait.
+4. New/empty disks in an existing format → marked for **healing** and repopulated.
+5. IAM/config loaded from the system bucket, background services started (scanner, heal, ILM, replication) with
+   **lightweight leader election** through a distributed lock (`leader` lock with lease) for the jobs that must run only once.
 
-## 3.6 Lock distribuiti (dsync)
+## 3.6 Distributed locks (dsync)
 
-- Ogni nodo espone un lock server in memoria.
-- Un lock è acquisito se `≥ n/2+1` lock server rispondono positivamente entro il timeout; altrimenti rilascio e retry con jitter.
-- **Lease + refresh** ogni 10 s: se il refresh perde il quorum, l'operazione viene annullata (context cancel).
-- Lock "orfani" scadono automaticamente dopo 1 min senza refresh.
-- Read lock multipli concorrenti, write lock esclusivi.
-- `admin lock list/clear` per diagnostica.
+- Each node exposes an in-memory lock server.
+- A lock is acquired if `≥ n/2+1` lock servers answer positively within the timeout; otherwise release and retry with jitter.
+- **Lease + refresh** every 10 s: if the refresh loses quorum, the operation is cancelled (context cancel).
+- "Orphan" locks expire automatically after 1 min without refresh.
+- Multiple concurrent read locks, exclusive write locks.
+- `admin lock list/clear` for diagnostics.
 
 ## 3.7 Healing
 
-| Meccanismo | Trigger | Azione |
-|------------|---------|--------|
-| Heal-on-read | Lettura rileva shard mancante/corrotto (bitrot) | Ricostruisce la risposta dai shard rimanenti, accoda heal |
-| MRF (Most Recently Failed) | Scrittura riuscita con quorum ma non su tutti i dischi | Coda in memoria (persistita periodicamente) ritentata in background |
-| Scanner | Ciclico, con throttling adattivo | Calcolo usage, applicazione ILM, verifica a campione dei shard, heal |
-| Disk replacement | Disco nuovo senza `format.json` | Healing completo del disco con checkpoint (`healing.bin`) e ripresa dopo restart |
-| Manuale | `nexoctl admin heal` | Heal di bucket/prefix, `--deep` per verifica bitrot completa |
+| Mechanism | Trigger | Action |
+|-----------|---------|--------|
+| Heal-on-read | A read detects a missing/corrupted shard (bitrot) | Rebuilds the response from the remaining shards, queues a heal |
+| MRF (Most Recently Failed) | Write succeeded with quorum but not on all the disks | In-memory queue (persisted periodically) retried in the background |
+| Scanner | Cyclic, with adaptive throttling | Usage computation, ILM application, sampled shard verification, heal |
+| Disk replacement | New disk without `format.json` | Full healing of the disk with checkpoint (`healing.bin`) and resume after restart |
+| Manual | `nexoctl admin heal` | Heal of bucket/prefix, `--deep` for full bitrot verification |
 
-- Un `xl.meta` non decodificabile non blocca il disco: alla prima scrittura o cancellazione viene spostato in
-  quarantena (`.nexo.sys/quarantine/`, mai ripulita automaticamente, per l'analisi) e trattato come assente;
-  heal-on-read, MRF, `HealObject` e l'healing del disco lo riscrivono da quello degli altri dischi con tutte
-  le versioni.
-- Le scritture e le cancellazioni rifiutate per mancanza di quorum sono annullate sui dischi che le avevano
-  applicate (versione precedente ripristinata), per non lasciare una minoranza divergente.
+- An `xl.meta` that cannot be decoded does not block the disk: at the first write or delete it is moved to
+  quarantine (`.nexo.sys/quarantine/`, never cleaned automatically, for analysis) and treated as absent;
+  heal-on-read, MRF, `HealObject` and disk healing rewrite it from the copy on the other disks with all
+  the versions.
+- Writes and deletes rejected for lack of quorum are rolled back on the disks that had
+  applied them (previous version restored), so as not to leave a diverging minority.
 
-## 3.8 Espansione, decommission, rebalance
+## 3.8 Expansion, decommission, rebalance
 
-- **Espansione**: si riavviano tutti i nodi con la nuova lista di pool (rolling restart). I nuovi pool vengono
-  formattati; i nuovi oggetti si distribuiscono pesati sullo spazio libero.
-- **Decommission** (P2): il pool viene marcato read-only, un job distribuito sposta ogni oggetto (tutte le versioni)
-  negli altri pool, con stato persistito e ripristinabile; al termine il pool può essere rimosso dalla command line.
-- **Rebalance** (P2): sposta oggetti dai pool più pieni verso i meno pieni fino a una soglia di bilanciamento.
+- **Expansion**: all the nodes are restarted with the new pool list (rolling restart). The new pools are
+  formatted; new objects are spread weighted by free space.
+- **Decommission** (P2): the pool is marked read-only, a distributed job moves every object (all versions)
+  to the other pools, with persisted and resumable state; at the end the pool can be removed from the command line.
+- **Rebalance** (P2): moves objects from the fullest pools to the least full ones up to a balance threshold.
 
-## 3.9 Coerenza
+## 3.9 Consistency
 
-- **Read-after-write strong consistency** per PUT/DELETE di nuovi oggetti e sovrascritture (grazie a lock + quorum).
-- Listing **consistente** con merge degli stream dai dischi del set (walk ordinato + quorum di listing),
-  con cache di listing opzionale per prefissi molto grandi.
-- Metadati di bucket/IAM: scritti su quorum, poi invalidazione cache via `peer` RPC; reload periodico come rete di sicurezza.
+- **Strong read-after-write consistency** for PUT/DELETE of new objects and overwrites (thanks to lock + quorum).
+- **Consistent** listing by merging the streams from the set's disks (ordered walk + listing quorum),
+  with an optional listing cache for very large prefixes.
+- Bucket/IAM metadata: written to quorum, then cache invalidation via the `peer` RPC; periodic reload as a safety net.
 
-## 3.10 Multi-sito (P2)
+## 3.10 Multi-site (P2)
 
-- **Bucket replication**: asincrona, per regola (prefix/tag), attivo-attivo con risoluzione last-writer-wins su mod-time
-  + version-id, resync esplicito.
-- **Site replication**: sincronizza IAM, policy, configurazione bucket tra N cluster; ogni bucket creato viene replicato.
+- **Bucket replication**: asynchronous, per rule (prefix/tag), active-active with last-writer-wins resolution on mod-time
+  + version-id, explicit resync.
+- **Site replication**: synchronizes IAM, policies and bucket configuration across N clusters; every created bucket is replicated.
 
-## 3.11 Scenari di guasto da supportare
+## 3.11 Failure scenarios to support
 
-| Scenario | Comportamento atteso |
-|----------|----------------------|
-| 1 disco offline | Letture/scritture OK, heal al rientro |
-| P dischi offline in un set | Letture/scritture OK (scritture se quorum D rispettato) |
-| > P dischi offline | Errore `503 SlowDownWrite`/`SlowDownRead` (`XNexoLockTimeout` senza quorum dei lock) per quel set, altri set funzionanti |
-| 1 nodo offline (4 nodi) | Cluster pienamente operativo |
-| Partizione di rete 2+2 | Nessuna scrittura possibile senza quorum lock (no split-brain); letture se quorum dati raggiungibile |
-| Disco corrotto (bitrot) | Rilevato in lettura, risposta corretta, shard riparato |
-| Crash durante la scrittura | Nessun oggetto parziale visibile; tmp ripuliti all'avvio e, durante il servizio, dal janitor (voci di `.nexo.sys/tmp` più vecchie di 24 h, controllo ogni ora) |
-| Crash durante il completamento multipart | Il completamento scrive prima un journal (`completing.json`) nella directory dell'upload e sposta le parti in una directory di staging; al nuovo tentativo l'upload viene concluso (versione già committata) o le parti tornano al loro posto: l'upload resta completabile |
-| Parti multipart su dischi diversi | Ogni parte richiede `D` dischi che la contengono integra; i dischi che non la hanno la ricevono ricostruita dagli shard prima del commit |
-| Clock skew tra nodi | Avviso se > 2 s; SigV4 tollera 15 min; lock indipendenti dal clock |
+| Scenario | Expected behavior |
+|----------|-------------------|
+| 1 disk offline | Reads/writes OK, heal when it comes back |
+| P disks offline in a set | Reads/writes OK (writes if the D quorum is met) |
+| > P disks offline | `503 SlowDownWrite`/`SlowDownRead` error (`XNexoLockTimeout` without lock quorum) for that set, other sets working |
+| 1 node offline (4 nodes) | Cluster fully operational |
+| 2+2 network partition | No write possible without lock quorum (no split-brain); reads if the data quorum is reachable |
+| Corrupted disk (bitrot) | Detected on read, correct response, shard repaired |
+| Crash during a write | No partial object visible; tmp files cleaned at startup and, while serving, by the janitor (`.nexo.sys/tmp` entries older than 24 h, checked every hour) |
+| Crash during multipart completion | Completion first writes a journal (`completing.json`) in the upload directory and moves the parts to a staging directory; on the next attempt the upload is concluded (version already committed) or the parts go back to their place: the upload stays completable |
+| Multipart parts on different disks | Each part requires `D` disks holding it intact; the disks that lack it receive it rebuilt from the shards before the commit |
+| Clock skew between nodes | Warning if > 2 s; SigV4 tolerates 15 min; locks independent of the clock |

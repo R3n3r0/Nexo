@@ -427,10 +427,10 @@ func TestAliasSetVerifiesCredentials(t *testing.T) {
 
 // TestMissingLocalPathNamesTheAlias: a source that is neither an alias
 // nor a local path says that no such alias exists (regression: "stat
-// nosuchalias/foto: no such file or directory" only).
+// nosuchalias/photos: no such file or directory" only).
 func TestMissingLocalPathNamesTheAlias(t *testing.T) {
 	h := newHarness(t)
-	r := h.run("ls", "nosuchalias/foto")
+	r := h.run("ls", "nosuchalias/photos")
 	assert.Equal(t, cli.ExitNotFound, r.code, "stdout: %s\nstderr: %s", r.stdout, r.stderr)
 	assert.Contains(t, r.stderr, `no alias named "nosuchalias"`)
 	assert.Contains(t, r.stderr, "nexoctl alias list")

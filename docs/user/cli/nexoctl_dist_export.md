@@ -15,7 +15,7 @@ nexoctl dist export ALIAS [ID] [-o FILE] [flags]
 ## Examples
 
 ```
-  nexoctl dist export local sito-web -o sito-web.yaml
+  nexoctl dist export local website -o website.yaml
   nexoctl dist export local > distributions.yaml
 ```
 

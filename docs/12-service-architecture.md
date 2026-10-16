@@ -1,66 +1,66 @@
-# 12. Architettura a servizi (interfaccia + implementazione)
+# 12. Service architecture (interface + implementation)
 
-Regola vincolante per tutto il codice Go di Nexo: **ogni unità funzionale è un servizio con un'interfaccia e
-un'implementazione separate**. Vale anche per le rotte HTTP/RPC: ogni gruppo di rotte è un servizio (`Routes`)
-con interfaccia e implementazione, che delega la logica ai servizi di dominio. Nessuna logica di business nei
-handler, nessuna variabile globale, nessun `init()` con effetti collaterali.
+A binding rule for all of Nexo's Go code: **every functional unit is a service with a separate interface and
+implementation**. This also applies to HTTP/RPC routes: every route group is a service (`Routes`) with an interface
+and an implementation, which delegates the logic to the domain services. No business logic in handlers, no global
+variables, no `init()` with side effects.
 
 ## 12.1 Layout
 
 ```
 internal/
-├── domain/                 # tipi condivisi e errori sentinel (nessuna dipendenza da altri package interni)
+├── domain/                 # shared types and sentinel errors (no dependency on other internal packages)
 │   ├── bucket.go object.go identity.go policy.go errors.go ...
-├── service/                # un sottopackage per servizio
-│   ├── storage/            # StorageAPI: accesso ai dischi (locale, remoto)
-│   │   ├── service.go      # interfaccia + tipi di input/output del servizio
-│   │   ├── local.go        # implementazione: disco locale (xl.meta)
-│   │   ├── remote.go       # implementazione: client RPC verso un altro nodo
-│   │   ├── options.go      # Option funzionali
-│   │   ├── mock/           # mock dell'interfaccia (generato con mockery)
+├── service/                # one subpackage per service
+│   ├── storage/            # StorageAPI: drive access (local, remote)
+│   │   ├── service.go      # interface + input/output types of the service
+│   │   ├── local.go        # implementation: local drive (xl.meta)
+│   │   ├── remote.go       # implementation: RPC client to another node
+│   │   ├── options.go      # functional Options
+│   │   ├── mock/           # mock of the interface (generated with mockery)
 │   │   └── *_test.go
 │   ├── object/             # ObjectLayer: fs (SNSD) + erasure (SNMD/cluster)
-│   ├── bucket/             # metadati bucket (versioning, policy, lifecycle, lock, quota, tag, cors, eventi)
-│   ├── auth/               # verifica SigV4 (header, query, chunked, POST policy)
-│   ├── iam/                # utenti, gruppi, access key, STS
+│   ├── bucket/             # bucket metadata (versioning, policy, lifecycle, lock, quota, tags, cors, events)
+│   ├── auth/               # SigV4 verification (header, query, chunked, POST policy)
+│   ├── iam/                # users, groups, access keys, STS
 │   ├── policy/             # policy engine (IAM + bucket policy + access rules)
-│   ├── accessrule/         # regole prefix/glob/regex
-│   ├── match/              # unico matcher prefix/glob/regex (RE2) + normalizzazione chiavi: access rules, behavior, cache
-│   ├── share/              # share link gestiti e revocabili
-│   ├── config/             # configurazione dinamica
-│   ├── event/              # notifiche bucket
-│   ├── lock/               # lock locali e distribuiti (dsync)
-│   ├── cluster/            # topologia, bootstrap, peer
-│   ├── erasure/            # codifica RS + bitrot
+│   ├── accessrule/         # prefix/glob/regex rules
+│   ├── match/              # the single prefix/glob/regex (RE2) matcher + key normalization: access rules, behaviors, cache
+│   ├── share/              # managed, revocable share links
+│   ├── config/             # dynamic configuration
+│   ├── event/              # bucket notifications
+│   ├── lock/               # local and distributed locks (dsync)
+│   ├── cluster/            # topology, bootstrap, peers
+│   ├── erasure/            # RS coding + bitrot
 │   ├── heal/ scanner/ ilm/ replication/
 │   ├── kms/ crypto/
-│   ├── session/            # sessioni console (JWT cookie + CSRF)
-│   ├── distribution/       # domini e distribuzioni
-│   ├── certs/              # certificati per dominio (upload, ACME dal leader, SNI)
-│   ├── cache/              # cache HTTP per dominio
+│   ├── session/            # console sessions (JWT cookie + CSRF)
+│   ├── distribution/       # domains and distributions
+│   ├── certs/              # per-domain certificates (upload, ACME from the leader, SNI)
+│   ├── cache/              # per-domain HTTP cache
 │   ├── metrics/ health/ audit/ trace/
-│   └── admin/              # facciata per l'Admin API (info, usage, heal…)
+│   └── admin/              # facade for the Admin API (info, usage, heal…)
 ├── transport/
 │   ├── http/
-│   │   ├── httpx/          # helper: encoding XML/JSON, problem+json, request-id, errori S3
-│   │   ├── middleware/     # servizi middleware (Middleware interface)
-│   │   ├── s3/             # Routes S3: bucket, object, multipart, versioning, policy, presigned, post…
-│   │   ├── admin/          # Routes Admin API per area (users, policies, buckets, config, heal…)
-│   │   ├── console/        # Routes console: SPA embedded, sessione
-│   │   ├── dist/           # Routes distribuzioni (website / s3 su dominio custom)
-│   │   └── server/         # Server service: listener, TLS, graceful shutdown, routing per Host
-│   └── rpc/                # Routes internode (storage, lock, peer, bootstrap) + client
-├── app/                    # composizione: collega implementazioni ↔ interfacce, selezione modalità
-└── testutil/               # server in-process, dischi fittizi, fault injection
+│   │   ├── httpx/          # helpers: XML/JSON encoding, problem+json, request id, S3 errors
+│   │   ├── middleware/     # middleware services (Middleware interface)
+│   │   ├── s3/             # S3 Routes: bucket, object, multipart, versioning, policy, presigned, post…
+│   │   ├── admin/          # Admin API Routes per area (users, policies, buckets, config, heal…)
+│   │   ├── console/        # console Routes: embedded SPA, session
+│   │   ├── dist/           # distribution Routes (website / s3 on a custom domain)
+│   │   └── server/         # Server service: listeners, TLS, graceful shutdown, routing by Host
+│   └── rpc/                # internode Routes (storage, lock, peer, bootstrap) + client
+├── app/                    # composition: wires implementations ↔ interfaces, mode selection
+└── testutil/               # in-process servers, fake drives, fault injection
 ```
 
-## 12.2 Contratto di un servizio
+## 12.2 Service contract
 
 ```go
 // internal/service/bucket/service.go
 package bucket
 
-// Service gestisce il ciclo di vita e i metadati dei bucket.
+// Service manages the lifecycle and the metadata of buckets.
 type Service interface {
     Create(ctx context.Context, in CreateInput) (*domain.Bucket, error)
     Get(ctx context.Context, name string) (*domain.Bucket, error)
@@ -70,7 +70,7 @@ type Service interface {
     // ...
 }
 
-// Deps elenca le dipendenze (solo interfacce) dell'implementazione.
+// Deps lists the dependencies (interfaces only) of the implementation.
 type Deps struct {
     Store  storage.Service
     Events event.Service
@@ -88,38 +88,38 @@ type service struct {
     opts options
 }
 
-// compile-time check: l'implementazione soddisfa l'interfaccia
+// compile-time check: the implementation satisfies the interface
 var _ Service = (*service)(nil)
 
 func New(deps Deps, opts ...Option) Service { ... }
 ```
 
-Regole:
-| # | Regola |
+Rules:
+| # | Rule |
 |---|--------|
-| 1 | Il file `service.go` contiene **solo** l'interfaccia, i tipi di input/output e la documentazione. Unica forma di metodo ammessa: l'adattatore di un tipo funzione (es. `ActionHandlerFunc.Handle`, come `http.HandlerFunc`). |
-| 2 | L'implementazione è un tipo **non esportato**; si crea solo tramite `New(deps, opts...)`. |
-| 3 | Le dipendenze sono **interfacce** passate nel costruttore (`Deps`); mai variabili di package. |
-| 4 | Ogni metodo riceve `context.Context` come primo parametro. Eccezione documentata: gli **accessori puri** che non fanno I/O né bloccano (es. `StorageAPI.Endpoint()`, `IsOnline()`, `Healing()`, `Target.ID()`, `metrics.Registry.Handler()`, `topology.IDGenerator.NewID()`), indicati come tali nel commento, e i metodi di wiring/encoding del transport legati a una richiesta o a un router (`Middleware.Wrap`, `Routes.Register`, `httpx.Encoder`, `HTTPDoer.Do` dove il contesto viaggia nella `*http.Request`). Rilasci e operazioni che potranno fare RPC prendono sempre il contesto (`LockContext.Unlock(ctx)`, `HostResolver.Hostname(ctx)`). |
-| 5 | Gli errori sono sentinel in `domain` (`domain.ErrBucketNotFound`), arricchiti con `fmt.Errorf("...: %w", err)`; i transport li mappano in codici S3/HTTP. Un package può definire sentinel più specifici purché **avvolgano** quelli di `domain` (es. `topology.ErrFormatMismatch` wrappa `domain.ErrFormatMismatch`), così `errors.Is` sul sentinel di dominio continua a funzionare. |
-| 6 | Più implementazioni della stessa interfaccia convivono (es. `object.NewFS` e `object.NewErasure`), scelte in `app`. |
-| 7 | Servizi con goroutine implementano anche `lifecycle.Runner` (`Start(ctx) error`, `Stop(ctx) error`). |
-| 8 | Ogni interfaccia dei package `service`, `transport`, `config` e `cli` ha un mock in `mock/` generato da mockery (configurazione unica `.mockery.yaml` alla radice, `//go:generate` in `internal/service/doc.go`, `with-expecter`); i test unitari usano i mock (package esterno `*_test` per evitare cicli), i test di integrazione le implementazioni reali. Niente fake scritti a mano per interfacce che hanno un mock (lo stato condiviso si modella con `RunAndReturn` sul mock). Restano nel package solo i test degli helper non esportati; quando un test esterno deve ispezionare un dettaglio interno lo espone un `export_test.go`. Fuori da questo perimetro `clock.Fake` è l'implementazione deterministica di riferimento di `clock.Clock`. |
-| 9 | Decoratori per responsabilità trasversali (metriche, tracing, audit, cache) implementano la stessa interfaccia e avvolgono il servizio: `metrics.WrapBucket(svc)`. Le librerie esterne non escono mai dal package che le usa: `metrics.Registry` è un'interfaccia neutrale (`Counter/Gauge/Histogram(ctx, metrics.Definition)` che restituiscono `metrics.Counter/Gauge/Histogram`, `Handler() http.Handler`) e il tipo non esportato `registry` incapsula `*prometheus.Registry` e `promhttp`; nessun tipo Prometheus compare fuori da `internal/service/metrics` (regola depguard). |
-| 10 | Nessun import da `transport` verso `app` e da `service` verso `transport`. Dipendenze solo verso il basso: `transport → service → domain`. |
+| 1 | The `service.go` file contains **only** the interface, the input/output types and the documentation. The only method form allowed: the adapter of a function type (e.g. `ActionHandlerFunc.Handle`, like `http.HandlerFunc`). |
+| 2 | The implementation is an **unexported** type; it is created only through `New(deps, opts...)`. |
+| 3 | Dependencies are **interfaces** passed to the constructor (`Deps`); never package variables. |
+| 4 | Every method takes `context.Context` as its first parameter. Documented exception: **pure accessors** that do no I/O and do not block (e.g. `StorageAPI.Endpoint()`, `IsOnline()`, `Healing()`, `Target.ID()`, `metrics.Registry.Handler()`, `topology.IDGenerator.NewID()`), marked as such in their comment, and the transport wiring/encoding methods bound to a request or a router (`Middleware.Wrap`, `Routes.Register`, `httpx.Encoder`, `HTTPDoer.Do`, where the context travels in the `*http.Request`). Releases and operations that may make RPCs always take the context (`LockContext.Unlock(ctx)`, `HostResolver.Hostname(ctx)`). |
+| 5 | Errors are sentinels in `domain` (`domain.ErrBucketNotFound`), enriched with `fmt.Errorf("...: %w", err)`; the transports map them to S3/HTTP codes. A package may define more specific sentinels as long as they **wrap** those of `domain` (e.g. `topology.ErrFormatMismatch` wraps `domain.ErrFormatMismatch`), so `errors.Is` on the domain sentinel keeps working. |
+| 6 | Several implementations of the same interface coexist (e.g. `object.NewFS` and `object.NewErasure`), chosen in `app`. |
+| 7 | Services with goroutines also implement `lifecycle.Runner` (`Start(ctx) error`, `Stop(ctx) error`). |
+| 8 | Every interface of the `service`, `transport`, `config` and `cli` packages has a mock in `mock/` generated by mockery (a single `.mockery.yaml` configuration at the root, `//go:generate` in `internal/service/doc.go`, `with-expecter`); unit tests use the mocks (external `*_test` package to avoid cycles), integration tests the real implementations. No hand-written fakes for interfaces that have a mock (shared state is modeled with `RunAndReturn` on the mock). Only the tests of unexported helpers stay in the package; when an external test must inspect an internal detail, an `export_test.go` exposes it. Outside this perimeter `clock.Fake` is the reference deterministic implementation of `clock.Clock`. |
+| 9 | Decorators for cross-cutting concerns (metrics, tracing, audit, cache) implement the same interface and wrap the service: `metrics.WrapBucket(svc)`. External libraries never leave the package that uses them: `metrics.Registry` is a neutral interface (`Counter/Gauge/Histogram(ctx, metrics.Definition)` returning `metrics.Counter/Gauge/Histogram`, `Handler() http.Handler`) and the unexported type `registry` wraps `*prometheus.Registry` and `promhttp`; no Prometheus type appears outside `internal/service/metrics` (depguard rule). |
+| 10 | No imports from `transport` to `app` or from `service` to `transport`. Dependencies only point downwards: `transport → service → domain`. |
 
-## 12.3 Le rotte sono servizi
+## 12.3 Routes are services
 
 ```go
 // internal/transport/http/s3/routes.go
 package s3
 
-// Routes registra un gruppo di rotte su un router.
+// Routes registers a group of routes on a router.
 type Routes interface {
     Register(r chi.Router)
 }
 
-// BucketRoutes espone le API S3 sui bucket.
+// BucketRoutes exposes the S3 APIs on buckets.
 type BucketRoutes interface{ Routes }
 
 type bucketRoutes struct {
@@ -138,23 +138,23 @@ func (h *bucketRoutes) Register(r chi.Router) {
 }
 ```
 
-- Un `Routes` per area funzionale: `BucketRoutes`, `ObjectRoutes`, `MultipartRoutes`, `PresignedRoutes`,
+- One `Routes` per functional area: `BucketRoutes`, `ObjectRoutes`, `MultipartRoutes`, `PresignedRoutes`,
   `PostPolicyRoutes`, `admin.UserRoutes`, `admin.PolicyRoutes`, `console.SessionRoutes`, `console.SPARoutes`,
-  `rpc.StorageRoutes`, `rpc.LockRoutes`, ecc.
-- Il handler fa tre cose: **decodifica** la richiesta → **chiama** un servizio → **codifica** la risposta/errore.
-- I middleware sono servizi: `type Middleware interface { Wrap(http.Handler) http.Handler }` con implementazioni
-  `auth`, `requestid`, `audit`, `metrics`, `ratelimit`, `cors`, `recover`, costruite come ogni servizio con
-  `NewX(XDeps, opts ...XOption)` (es. `middleware.NewAuth(middleware.AuthDeps{Verifier: v})`); una dipendenza
-  obbligatoria mancante è un errore di wiring (`domain.ErrInvalidArgument`), mai un comportamento degradato.
-- Il server HTTP è un servizio: `server.Service` (`Start/Stop`, registrazione dei `Routes`, selezione del router
-  per `Host` tramite `distribution.Resolver`).
+  `rpc.StorageRoutes`, `rpc.LockRoutes`, etc.
+- The handler does three things: **decodes** the request → **calls** a service → **encodes** the response/error.
+- Middlewares are services: `type Middleware interface { Wrap(http.Handler) http.Handler }` with the implementations
+  `auth`, `requestid`, `audit`, `metrics`, `ratelimit`, `cors`, `recover`, built like every service with
+  `NewX(XDeps, opts ...XOption)` (e.g. `middleware.NewAuth(middleware.AuthDeps{Verifier: v})`); a missing required
+  dependency is a wiring error (`domain.ErrInvalidArgument`), never degraded behavior.
+- The HTTP server is a service: `server.Service` (`Start/Stop`, registration of the `Routes`, router selection by
+  `Host` through `distribution.Resolver`).
 
-## 12.4 Composizione (`internal/app`)
+## 12.4 Composition (`internal/app`)
 
 ```go
 func Build(ctx context.Context, cfg config.Static, opts ...Option) (*App, error) {
-    layout, _  := topo.Parse(ctx, cfg.Endpoints)                       // modalità e layout dei dischi
-    drives, _  := openDrives(storage.Deps{...}, layout)                 // storage.NewLocal per ogni disco locale
+    layout, _  := topo.Parse(ctx, cfg.Endpoints)                       // mode and drive layout
+    drives, _  := openDrives(storage.Deps{...}, layout)                 // storage.NewLocal for each local drive
     depID, _   := storage.NewFormatter(...).EnsureFormats(ctx, layout, drives) // format.json
     store, _   := bucket.NewStore(bucket.StoreDeps{Drives: drives})
     var objects object.Service
@@ -174,63 +174,64 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (*App, error)
 }
 ```
 
-- Un solo punto di wiring, leggibile, senza framework DI; la modalità (SNSD/SNMD/cluster) decide le implementazioni.
-- `Build` **prepara i dischi** (crea le directory di sistema, scrive o verifica `format.json`) ma non apre socket:
-  i listener partono in `Start`. In caso di errore di composizione i dischi già aperti vengono chiusi.
-- `App.Run(ctx)` avvia i `Runner` in ordine, attende il segnale di stop e li ferma in ordine inverso (i dischi per ultimi).
-- I `cmd/` non importano mai i package `service` o `transport` (regola depguard `cmd-no-layers`): le costanti
-  condivise con i transport (es. i path di health `domain.HealthLivePath`/`HealthReadyPath`) stanno in `domain`;
-  `cmd/nexo` passa a `app.Build` solo opzioni
-  (`app.WithAssetsFS(fs.FS)`); `cmd/nexoctl` delega a `commands.Run(commands.DefaultDeps(), args)`: il punto di
-  iniezione delle dipendenze di processo della CLI è `internal/cli/commands.Deps` (stream, `LookupEnv`,
-  factory `Aliases` di `cli.AliasService`, `S3` e `Admin` (`cli.S3Factory`, `cli.AdminFactory`), `Clock`,
-  `IsTerminal`, `HomeDir`, `Exec`), che i test dei comandi sostituiscono con i mock generati e con gli
-  archivi in memoria costruiti su di essi (`clitest.MemS3`, `clitest.MemAdmin`); `cmd/nexoctl/main_test.go`
-  verifica solo il cablaggio del processo (exit code di `--version`, `--help`, comando o alias sconosciuto).
+- A single, readable wiring point, without a DI framework; the mode (SNSD/SNMD/cluster) decides the implementations.
+- `Build` **prepares the drives** (creates the system directories, writes or checks `format.json`) but opens no
+  sockets: the listeners start in `Start`. On a composition error the drives already opened are closed.
+- `App.Run(ctx)` starts the `Runner`s in order, waits for the stop signal and stops them in reverse order (the drives
+  last).
+- `cmd/` never imports the `service` or `transport` packages (depguard rule `cmd-no-layers`): the constants shared
+  with the transports (e.g. the health paths `domain.HealthLivePath`/`HealthReadyPath`) live in `domain`;
+  `cmd/nexo` passes only options to `app.Build` (`app.WithAssetsFS(fs.FS)`); `cmd/nexoctl` delegates to
+  `commands.Run(commands.DefaultDeps(), args)`: the injection point of the CLI's process dependencies is
+  `internal/cli/commands.Deps` (streams, `LookupEnv`, the `Aliases` factory of `cli.AliasService`, `S3` and `Admin`
+  (`cli.S3Factory`, `cli.AdminFactory`), `Clock`, `IsTerminal`, `HomeDir`, `Exec`), which the command tests replace
+  with the generated mocks and with the in-memory stores built on them (`clitest.MemS3`, `clitest.MemAdmin`);
+  `cmd/nexoctl/main_test.go` only verifies the process wiring (exit code of `--version`, `--help`, an unknown command
+  or alias).
 
-## 12.5 Frontend e CLI
+## 12.5 Frontend and CLI
 
-- **Dashboard**: stessa separazione in `web/src/services/`: `interfaces.ts` (es. `BucketService`) + `http/` (impl
-  sul client JSON) + `mock/` (impl in memoria usata nei test e in modalità demo). I componenti ricevono i servizi
-  da un `ServicesProvider` (context), mai importano `fetch` direttamente. I tipi di trasporto (`types.ts`) derivano
-  dal contratto OpenAPI `api/openapi.yaml` tramite `http/schema.d.ts`, generato con `npm run gen:api`
-  (`openapi-typescript`): il Go (`internal/transport/http/admin`) è l'implementazione di riferimento e un
-  cambio di contratto rompe il typecheck della console.
-- **CLI**: `internal/cli/` con `S3Client` e `AdminClient` come interfacce (factory `S3Factory`/`AdminFactory`)
-  e i building block dei comandi (es. `Mirrorer`, il motore di `mirror` e `mirror --watch`: piano, esecuzione,
-  eventi; `NewMirrorer(MirrorDeps, ...MirrorerOption)`): i comandi decodificano flag e argomenti, chiamano i
-  building block e stampano i risultati;
-  i comandi cobra di `internal/cli/commands` le ricevono tramite `commands.Deps` e vengono testati con i mock
-  generati in `internal/cli/mock` (stato condiviso modellato con `RunAndReturn` in `internal/cli/clitest`),
-  golden file e script `testscript` contro un server reale (`test/cli`).
+- **Dashboard**: the same separation in `web/src/services/`: `interfaces.ts` (e.g. `BucketService`) + `http/` (impl
+  on the JSON client) + `mock/` (in-memory impl used in tests and in demo mode). Components receive the services from
+  a `ServicesProvider` (context) and never import `fetch` directly. The transport types (`types.ts`) derive from the
+  OpenAPI contract `api/openapi.yaml` through `http/schema.d.ts`, generated with `npm run gen:api`
+  (`openapi-typescript`): the Go code (`internal/transport/http/admin`) is the reference implementation and a
+  contract change breaks the console's typecheck.
+- **CLI**: `internal/cli/` with `S3Client` and `AdminClient` as interfaces (factories `S3Factory`/`AdminFactory`) and
+  the building blocks of the commands (e.g. `Mirrorer`, the engine of `mirror` and `mirror --watch`: plan, execution,
+  events; `NewMirrorer(MirrorDeps, ...MirrorerOption)`): the commands decode flags and arguments, call the building
+  blocks and print the results; the cobra commands of `internal/cli/commands` receive them through `commands.Deps`
+  and are tested with the mocks generated in `internal/cli/mock` (shared state modeled with `RunAndReturn` in
+  `internal/cli/clitest`), golden files and `testscript` scripts against a real server (`test/cli`).
 
-## 12.6 Verifica in CI
-- Lint custom (`go vet` + regole `depguard` di golangci-lint) che vieta import "verso l'alto": `transport`
-  dentro `service`, `app` dentro `service`/`transport`, qualsiasi package interno dentro `domain`, `service` e
-  `transport` dentro `cmd/` (`cmd-no-layers`) e `github.com/prometheus/**` fuori da `internal/service/metrics`.
-- `internal/service/convention_test.go`: per ogni package `internal/service/*` verifica che esista `service.go`
-  con almeno un'interfaccia esportata e nessuna funzione (salvo gli adattatori di tipo funzione), che
-  l'implementazione sia non esportata e dichiari `var _ <Interfaccia> = (*impl)(nil)`, e che ogni interfaccia
-  abbia il mock generato in `mock/`; `TestMockCoverage` estende il controllo dei mock alle interfacce di
-  `transport`, `config` e `cli`; `TestNoMutableGlobals` vieta le variabili di package (ammessi solo
-  `var _ I = ...` e i sentinel `errors.New`/`fmt.Errorf`; eccezione `internal/version`, valorizzato da `-ldflags`).
-- Copertura dei mock: `go generate ./...` deve essere idempotente (`git diff --exit-code` in CI).
-- Contratto Admin API: `npm run gen:api` deve essere idempotente (`git diff --exit-code` su
+## 12.6 Verification in CI
+- Custom lint (`go vet` + golangci-lint `depguard` rules) that forbids "upward" imports: `transport` inside `service`,
+  `app` inside `service`/`transport`, any internal package inside `domain`, `service` and `transport` inside `cmd/`
+  (`cmd-no-layers`) and `github.com/prometheus/**` outside `internal/service/metrics`.
+- `internal/service/convention_test.go`: for every `internal/service/*` package it checks that `service.go` exists
+  with at least one exported interface and no functions (except function-type adapters), that the implementation is
+  unexported and declares `var _ <Interface> = (*impl)(nil)`, and that every interface has its generated mock in
+  `mock/`; `TestMockCoverage` extends the mock check to the interfaces of `transport`, `config` and `cli`;
+  `TestNoMutableGlobals` forbids package variables (only `var _ I = ...` and the `errors.New`/`fmt.Errorf` sentinels
+  are allowed; exception: `internal/version`, set by `-ldflags`).
+- Mock coverage: `go generate ./...` must be idempotent (`git diff --exit-code` in CI).
+- Admin API contract: `npm run gen:api` must be idempotent (`git diff --exit-code` on
   `web/src/services/http/schema.d.ts`).
 
-## 12.7 Autenticazione e autorizzazione dei transport
-- **S3** (`:9000`): il middleware `auth` (SigV4 header, presigned, chunked, POST policy) mette l'identità nel
-  contesto; ogni handler chiede al `policy.Service` l'azione `s3:*` corrispondente con le condizioni della
-  richiesta (`aws:SourceIp`, `s3:prefix`, …) e la bucket policy; il middleware `audit` registra l'operazione
-  (nome impostato dal dispatcher con `httpx.SetOperationName`).
-- **Admin API** (`:9001/api/v1`): il middleware di autenticazione (`admin.NewAuthenticator`) valida il cookie di
-  sessione e, sulle richieste mutanti, l'origine (`Sec-Fetch-Site: same-origin`, o in sua assenza `Origin`/`Referer`
-  della console: le porte di uno stesso host sono same-site, quindi le pagine servite dal listener S3 ricevono il
-  cookie `SameSite=Strict`) e il token CSRF (header `X-CSRF-Token`; il campo di form `csrfToken` solo sulla rotta
-  `download-zip`; il token sta nel payload della sessione, mai in un cookie leggibile); la sessione viene **ri-risolta in IAM a ogni richiesta** (gruppi, policy, stato), così
-  revoche e disabilitazioni hanno effetto immediato. Solo `POST /auth/login` è pubblico (`PublicRoutes`).
-  Ogni endpoint mappa su un'azione `admin:*` (costanti `policy.ActionAdmin*`) valutata dallo stesso motore;
-  le regole che dipendono dal chiamante oltre l'azione (ownership delle access key: root gestisce tutte le chiavi,
-  un utente solo le proprie, le credenziali derivate nessuna) sono applicate dal servizio, che riceve l'identità
-  nel contratto (`iam.Service.ListAccessKeys(ctx, caller, parent)`, `CreateAccessKeyInput.Caller`, ...);
-  gli errori sono `problem+json` con `code` stabile (`unauthenticated`, `invalid_csrf_token`, `access_denied`).
+## 12.7 Transport authentication and authorization
+- **S3** (`:9000`): the `auth` middleware (SigV4 header, presigned, chunked, POST policy) puts the identity in the
+  context; every handler asks the `policy.Service` for the corresponding `s3:*` action with the request's conditions
+  (`aws:SourceIp`, `s3:prefix`, …) and the bucket policy; the `audit` middleware records the operation (name set by
+  the dispatcher with `httpx.SetOperationName`).
+- **Admin API** (`:9001/api/v1`): the authentication middleware (`admin.NewAuthenticator`) validates the session
+  cookie and, on mutating requests, the origin (`Sec-Fetch-Site: same-origin`, or in its absence the console's
+  `Origin`/`Referer`: the ports of the same host are same-site, so the pages served by the S3 listener receive the
+  `SameSite=Strict` cookie) and the CSRF token (header `X-CSRF-Token`; the `csrfToken` form field only on the
+  `download-zip` route; the token lives in the session payload, never in a readable cookie); the session is
+  **re-resolved in IAM on every request** (groups, policies, status), so revocations and disablements take effect
+  immediately. Only `POST /auth/login` is public (`PublicRoutes`). Every endpoint maps to an `admin:*` action
+  (constants `policy.ActionAdmin*`) evaluated by the same engine; the rules that depend on the caller beyond the
+  action (ownership of access keys: root manages all keys, a user only their own, derived credentials none) are
+  enforced by the service, which receives the identity in the contract
+  (`iam.Service.ListAccessKeys(ctx, caller, parent)`, `CreateAccessKeyInput.Caller`, ...); errors are `problem+json`
+  with a stable `code` (`unauthenticated`, `invalid_csrf_token`, `access_denied`).

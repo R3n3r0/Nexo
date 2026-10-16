@@ -14,8 +14,8 @@
 //
 // # Host resolution
 //
-// Resolver.Resolve maps the Host of a request (docs/10 §10.2 "Risoluzione
-// dell'host") in this order: an exact alias of a distribution; the most
+// Resolver.Resolve maps the Host of a request (docs/10 §10.2 "Host
+// resolution") in this order: an exact alias of a distribution; the most
 // specific wildcard alias ("*.preview.example.com" matches any host below
 // preview.example.com, a longer suffix wins over a shorter one);
 // "<bucket>.<NEXO_DOMAIN>" (virtual-host S3); the main S3/console domains
@@ -108,7 +108,7 @@ const (
 // share a single matcher (internal/service/match).
 type PatternType = match.Type
 
-// Path pattern syntaxes (docs/10 §10.1 "Tipi di pattern").
+// Path pattern syntaxes (docs/10 §10.1 "Pattern types").
 const (
 	// PatternPrefix is a literal prefix.
 	PatternPrefix = match.TypePrefix
@@ -124,7 +124,7 @@ const (
 const MaxPatternLength = match.MaxPatternLength
 
 // PrincipalPrefix prefixes the id of a distribution in the principal of
-// the access rules ("distribution:sito-web"): every policy evaluation of a
+// the access rules ("distribution:website"): every policy evaluation of a
 // distribution request carries the id in the nexo:Distribution condition
 // (policy.KeyDistribution).
 const PrincipalPrefix = "distribution:"
@@ -679,7 +679,7 @@ type Website interface {
 	Serve(ctx context.Context, req WebRequest) (*WebResponse, error)
 	// Admit applies to a request of any mode the checks that come before
 	// the origin and before its authentication (docs/10 §10.2: the origin
-	// secret "precede ogni altra valutazione"): disabled distribution,
+	// secret "comes before any other evaluation"): disabled distribution,
 	// source IP, origin secret, a default behavior denying everything. It
 	// returns the refusal, nil when the request may go on (to the S3 API
 	// for the s3 mode).
