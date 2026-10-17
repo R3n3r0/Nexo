@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1280px; height: 640px; }
+  body {
+    font-family: Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: radial-gradient(1200px 700px at 85% 110%, #364fc7 0%, rgba(54,79,199,0) 60%),
+                radial-gradient(900px 600px at -10% -20%, #5c7cfa 0%, rgba(92,124,250,0) 55%),
+                #0b1020;
+    color: #fff; overflow: hidden; position: relative;
+  }
+  .grid {
+    position: absolute; inset: 0;
+    background-image: linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+    mask-image: linear-gradient(90deg, #000 0%, transparent 70%);
+  }
+  .left { position: absolute; left: 72px; top: 76px; width: 560px; }
+  .brand { display: flex; align-items: center; gap: 20px; }
+  .logo { width: 76px; height: 76px; border-radius: 18px; background: #4c6ef5;
+          display: grid; place-items: center; box-shadow: 0 10px 40px rgba(76,110,245,.55); }
+  .logo svg { width: 46px; height: 46px; }
+  h1 { font-size: 84px; font-weight: 800; letter-spacing: -2px; }
+  .tag { margin-top: 28px; font-size: 31px; line-height: 1.25; font-weight: 600; color: #e7ebff; }
+  .tag em { font-style: normal; color: #91a7ff; }
+  .chips { margin-top: 30px; display: flex; flex-wrap: wrap; gap: 10px; width: 540px; }
+  .chip { font-size: 18px; font-weight: 600; padding: 8px 14px; border-radius: 999px;
+          background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.16); color: #dbe4ff; }
+  .foot { position: absolute; left: 72px; bottom: 54px; font-size: 20px; color: #a5b4fc; letter-spacing: .3px; }
+  .foot b { color: #fff; font-weight: 700; }
+  .shot { position: absolute; left: 690px; top: 92px; width: 760px; border-radius: 14px; overflow: hidden;
+          box-shadow: 0 30px 80px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,.12);
+          transform: perspective(1600px) rotateY(-9deg) rotateX(3deg); transform-origin: left center; }
+  .bar { height: 30px; background: #1b2236; display: flex; align-items: center; gap: 8px; padding-left: 14px; }
+  .bar i { width: 11px; height: 11px; border-radius: 50%; background: #3b4560; display: block; }
+  .shot img { display: block; width: 100%; }
+</style>
+</head>
+<body>
+  <div class="grid"></div>
+  <div class="left">
+    <div class="brand">
+      <div class="logo"><svg viewBox="5 5 22 22"><path d="M9 23V9h3.2l6.6 9.3V9H22v14h-3.2l-6.6-9.3V23z" fill="#fff"/></svg></div>
+      <h1>Nexo</h1>
+    </div>
+    <p class="tag">Self-hosted <em>S3-compatible</em><br>object storage in Go.<br>One binary, web console included.</p>
+    <div class="chips">
+      <span class="chip">Erasure coding</span><span class="chip">Clustering</span>
+      <span class="chip">IAM &amp; policies</span><span class="chip">Presigned URLs</span>
+      <span class="chip">Custom domains + CDN cache</span>
+    </div>
+  </div>
+  <div class="foot"><b>github.com/R3n3r0/Nexo</b> &nbsp;·&nbsp; AGPL-3.0</div>
+  <div class="shot"><div class="bar"><i></i><i></i><i></i></div><img src="SCREENSHOT"></div>
+</body>
+</html>
