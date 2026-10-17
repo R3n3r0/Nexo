@@ -255,6 +255,12 @@ A `v*` tag starts [`.github/workflows/release.yml`](../.github/workflows/release
 [`.goreleaser.yaml`](../.goreleaser.yaml), then the verification jobs. No long-lived secrets: the signatures are
 **cosign keyless** (Sigstore, certificate issued for the workflow's OIDC identity).
 
+The tag name must start with `v` (`v1.0.0`, `v1.0.0-rc.1`): a tag such as `1.0.0` starts nothing. Push it with
+`git tag -a v1.0.0 -m v1.0.0 && git push origin v1.0.0`, or create it on GitHub (Releases → Draft a new release →
+Choose a tag → type `v1.0.0` → Create new tag on publish, target `main`) and publish the release: GoReleaser then
+fills that release with its artifacts and replaces its notes with the changelog (`release.mode: replace`). A release
+saved as a draft creates no tag and starts nothing.
+
 ### What a release produces
 
 | Artifact | Details |

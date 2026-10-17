@@ -199,7 +199,7 @@ jobs:
           done
 
       - name: Vulnerability scan of the images (High/Critical with a fix)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.REGISTRY }}/nexo:${{ github.ref_name }}
           format: table

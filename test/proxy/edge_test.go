@@ -3,6 +3,7 @@
 package proxy_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/http/httputil"
 	"strings"
 	"sync"
@@ -20,6 +22,7 @@ import (
 
 	proxyproto "github.com/pires/go-proxyproto"
 	"github.com/pires/go-proxyproto/tlvparse"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -278,10 +281,26 @@ func (u *upstream) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 	retryable := (req.Method == http.MethodGet || req.Method == http.MethodHead || req.Method == http.MethodOptions) &&
 		(req.Body == nil || req.Body == http.NoBody)
+	// The body is buffered, as nginx does (proxy_request_buffering): a
+	// failed round trip closes the body it was given, and a connection
+	// refused by the first node must not leave the next one a truncated
+	// request.
+	var body []byte
+	if req.Body != nil && req.Body != http.NoBody {
+		var err error
+		body, err = io.ReadAll(req.Body)
+		_ = req.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
 	var lastErr error
 	for i, target := range targets {
 		r := req.Clone(req.Context())
 		r.Body = req.Body
+		if body != nil {
+			r.Body = io.NopCloser(bytes.NewReader(body))
+		}
 		r.URL.Host = target
 		resp, err := u.edge.roundTripper(req).RoundTrip(r)
 		last := i == len(targets)-1
@@ -382,3 +401,54 @@ func (p *pool) isDown(target string) bool {
 	_, ok := p.down.Load(target)
 	return ok
 }
+
+// TestEdgeRetryKeepsBody: a write whose first node refuses the connection
+// reaches the next node with its whole body (TCD-02 writes right after a
+// node stops, before the probes mark it down).
+func TestEdgeRetryKeepsBody(t *testing.T) {
+	var got atomic.Value
+	node := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		got.Store(string(b))
+	}))
+	t.Cleanup(node.Close)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	refused := ln.Addr().String()
+	require.NoError(t, ln.Close())
+
+	e := &edge{cfg: edgeConfig{mode: forwardHeaders}, transport: &http.Transport{}}
+	t.Cleanup(e.transport.CloseIdleConnections)
+	// The first request of a pool starts at its second target.
+	p := &pool{targets: func() []string { return []string{node.Listener.Addr().String(), refused} }}
+	// The body of a request the edge received cannot be read once closed.
+	body := &closableBody{Reader: strings.NewReader("written while a node is down")}
+	req, err := http.NewRequest(http.MethodPut, "http://files.test/down/0.txt", body)
+	require.NoError(t, err)
+	req.ContentLength = int64(body.Len())
+	resp, err := (&upstream{edge: e, pool: p}).RoundTrip(req)
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, "written while a node is down", got.Load())
+}
+
+// closableBody is a request body whose reads fail once it is closed, like
+// the body of a request received by an http.Server.
+type closableBody struct {
+	*strings.Reader
+	closed atomic.Bool
+}
+
+func (b *closableBody) Read(p []byte) (int, error) {
+	if b.closed.Load() {
+		return 0, errors.New("http: invalid Read on closed Body")
+	}
+	return b.Reader.Read(p)
+}
+
+func (b *closableBody) Close() error { b.closed.Store(true); return nil }

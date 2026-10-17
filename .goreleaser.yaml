@@ -397,7 +397,9 @@ dockers_v2:
       org.opencontainers.image.created: "{{ .CommitDate }}"
       org.opencontainers.image.source: "{{ .GitURL }}"
     flags:
-      - --provenance=mode=max
+      # A snapshot loads each platform into the local daemon, whose exporter
+      # cannot store attestations; a release pushes them.
+      - '--provenance={{ if .IsSnapshot }}false{{ else }}mode=max{{ end }}'
 
   - id: nexoctl
     ids: [nexoctl]
@@ -414,7 +416,9 @@ dockers_v2:
     labels: *imagelabels
     annotations: *imageannotations
     flags:
-      - --provenance=mode=max
+      # A snapshot loads each platform into the local daemon, whose exporter
+      # cannot store attestations; a release pushes them.
+      - '--provenance={{ if .IsSnapshot }}false{{ else }}mode=max{{ end }}'
 
 # Every pushed docker.io name:tag, signed by digest: the signature is
 # stored next to the image in the Docker Hub repository.

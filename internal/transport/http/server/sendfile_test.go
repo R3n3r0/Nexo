@@ -136,21 +136,25 @@ func TestServerFileSectionStalledClient(t *testing.T) {
 // TestServerFileSectionSteadyClient: a client that keeps reading, with a
 // small receive buffer and a body larger than the send buffer of the
 // server socket (up to 4 MiB with the default tcp_wmem), so that its
-// reads pace the pieces, gets the whole answer. (The resumption of a
-// piece whose deadline expires after some progress is covered by
-// httpx.TestCopyFileSectionDeadlines: over loopback the kernel wakes a
-// blocked writer only once half of its send buffer is free, in bursts the
-// pace of a test client cannot control.)
+// reads pace the pieces for longer than the send timeout, gets the whole
+// answer. (The resumption of a piece whose deadline expires after some
+// progress is covered by httpx.TestCopyFileSectionDeadlines: over
+// loopback the kernel wakes a blocked writer only once half of its send
+// buffer is free, in bursts the pace of a test client cannot control. The
+// client reads fast enough for such a burst, 2 MiB, to take a fraction of
+// the timeout even on a slow runner with the race detector.)
 func TestServerFileSectionSteadyClient(t *testing.T) {
 	if testing.Short() {
 		t.Skip("slow client")
 	}
 	const timeout = time.Second
-	size := 6 << 20
+	size := 24 << 20
 	srv, _, done := fileServer(t, size, timeout)
-	// 64 KiB every 20 ms: ~3 MiB/s.
-	n, err := slowClient(t, srv.Addr(), 64<<10, 20*time.Millisecond)
+	// 64 KiB every 5 ms: at most ~12 MiB/s, so at least 1.9 s in all.
+	start := time.Now()
+	n, err := slowClient(t, srv.Addr(), 64<<10, 5*time.Millisecond)
 	require.NoError(t, err)
 	assert.Equal(t, int64(size-6), n)
 	require.NoError(t, <-done)
+	assert.Greater(t, time.Since(start), timeout, "the client must outlast the send timeout")
 }
