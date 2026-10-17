@@ -90,11 +90,11 @@ Con Docker:
 ```bash
 docker run -d --name nexo -p 9000:9000 -p 9001:9001 \
   -e NEXO_ROOT_USER=admin -e NEXO_ROOT_PASSWORD=supersegreta \
-  -v nexo-data:/data ghcr.io/r3n3r0/nexo:latest server /data
+  -v nexo-data:/data paolor/nexo:latest server /data
 ```
 
-Le stesse immagini sono su Docker Hub (`r3n3r0/nexo`, `r3n3r0/nexoctl`): per scaricarle da lì sostituire
-`ghcr.io/r3n3r0/nexo` con `r3n3r0/nexo`.
+Le immagini sono su Docker Hub: [`paolor/nexo`](https://hub.docker.com/r/paolor/nexo) (server e CLI) e
+[`paolor/nexoctl`](https://hub.docker.com/r/paolor/nexoctl) (solo CLI).
 
 Con il binario ([release](https://github.com/R3n3r0/Nexo/releases) o `make build`):
 

@@ -8,12 +8,19 @@ Nexo, the S3-compatible object storage server with an embedded web console, on K
 | `standalone` (default) | Deployment (1 replica, `Recreate`) + one PVC per drive | `standalone.drives=1`: SNSD (`/data`); `>1`: SNMD with erasure coding (`/data1 … /dataN`) |
 | `distributed` | StatefulSet (`replicas × pools` pods, `Parallel`), headless Service, PodDisruptionBudget, M PVCs per pod | Cluster: erasure sets across the pods |
 
+The chart is attached to every [GitHub release](https://github.com/R3n3r0/Nexo/releases) as `nexo-X.Y.Z.tgz`
+(with its cosign bundle `nexo-X.Y.Z.tgz.sigstore.json`); it is not published to an OCI registry. The image is
+`docker.io/paolor/nexo`.
+
 ```bash
+TAG=v1.0.0
+CHART="https://github.com/R3n3r0/Nexo/releases/download/$TAG/nexo-${TAG#v}.tgz"
+
 # standalone, one 10 GiB drive, generated root password
-helm install nexo oci://ghcr.io/r3n3r0/charts/nexo -n storage --create-namespace
+helm install nexo "$CHART" -n storage --create-namespace
 
 # cluster of 4 pods x 4 drives of 100 GiB, one pod per Kubernetes node
-helm install nexo oci://ghcr.io/r3n3r0/charts/nexo -n storage --create-namespace \
+helm install nexo "$CHART" -n storage --create-namespace \
   --set mode=distributed --set distributed.replicas=4 --set distributed.drivesPerNode=4 \
   --set persistence.size=100Gi --set podAntiAffinity=hard
 

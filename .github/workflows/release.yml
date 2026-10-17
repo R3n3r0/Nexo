@@ -2,23 +2,24 @@ name: Release
 
 # Release of a v* tag (docs/08 §8.7, T-9.5):
 #   1. goreleaser: binaries (console embedded), archives, deb/rpm, checksums
-#      signed with cosign keyless, SBOMs, multi-arch images on ghcr.io with
-#      SBOM and provenance attestations, signed; Homebrew casks; GitHub release;
+#      signed with cosign keyless, SBOMs, multi-arch images on Docker Hub
+#      (docker.io/<namespace>/nexo and .../nexoctl) with SBOM and provenance
+#      attestations, signed; Homebrew casks; GitHub release;
 #   2. verify (TM-11): signatures of checksums.txt and of the images, SBOM
 #      attestation, trivy scan without High/Critical vulnerabilities;
 #   3. smoke (TM-10): the binaries of every OS/arch start (QEMU for
 #      linux/arm64, Rosetta for darwin/amd64) and report the tag as version;
-#   4. helm: chart packaged with the version of the tag, pushed to
-#      oci://ghcr.io/r3n3r0/charts, signed and attached to the release;
+#   4. helm: chart packaged with the version of the tag, signed with cosign
+#      keyless (sign-blob bundle) and attached to the GitHub release
+#      (helm install nexo <release URL of nexo-X.Y.Z.tgz>);
 #   5. dockerhub-description: README and short description of the Docker Hub
 #      repositories (deploy/docker/DOCKERHUB.md).
 #
-# Docker Hub is opt-in: with the repository variable DOCKERHUB_NAMESPACE set
-# (Docker Hub user or organization) and the secrets DOCKERHUB_USERNAME and
-# DOCKERHUB_TOKEN (access token with Read, Write, Delete scope), the images
-# are also pushed as docker.io/<namespace>/nexo and .../nexoctl, signed and
-# verified like the ghcr.io ones. With the variable empty the release only
-# publishes to ghcr.io.
+# Images are published only on Docker Hub. Required: the secrets
+# DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (access token with Read, Write,
+# Delete scope; the goreleaser job fails early without them). The namespace
+# is the repository variable DOCKERHUB_NAMESPACE, default paolor; the public
+# repositories <namespace>/nexo and <namespace>/nexoctl must exist.
 on:
   push:
     tags: ["v*"]
@@ -37,16 +38,13 @@ env:
   COSIGN_VERSION: v3.1.3
   SYFT_VERSION: v1.54.1
   HELM_VERSION: v3.22.0
-  # Registry namespace of the images and of the chart, lowercase as in
-  # .goreleaser.yaml (the owner name of the repository has capitals).
-  REGISTRY: ghcr.io/r3n3r0
   # Identity of the keyless signatures made by this workflow (compared
   # exactly by cosign: the repository as GitHub spells it).
   CERT_IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}
   CERT_ISSUER: https://token.actions.githubusercontent.com
-  # Docker Hub namespace (repository variable, empty = Docker Hub disabled);
-  # read by .goreleaser.yaml.
-  DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
+  # Docker Hub namespace of the images (repository variable, default
+  # paolor); read by .goreleaser.yaml, lowercased where used.
+  DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE || 'paolor' }}
 
 jobs:
   goreleaser:
@@ -55,9 +53,20 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: write   # GitHub release and assets
-      packages: write   # ghcr.io images
       id-token: write   # cosign keyless signing (Sigstore, GitHub OIDC)
     steps:
+      # Fail early with a clear message when the Docker Hub credentials are
+      # missing, before building anything.
+      - name: Docker Hub credentials
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "::error::the DOCKERHUB_USERNAME and DOCKERHUB_TOKEN secrets are required to publish the images on Docker Hub (docs/08 §8.7)"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0   # full history and tags for the changelog
@@ -95,28 +104,9 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
+      # buildx and cosign both use this login (the signatures are pushed
+      # next to the docker.io images).
       - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      # Docker Hub (opt-in): fail early with a clear message when the
-      # namespace is set without the credentials. buildx and cosign both use
-      # this login (signatures are pushed next to the docker.io images).
-      - name: Docker Hub credentials
-        if: vars.DOCKERHUB_NAMESPACE != ''
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        run: |
-          if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
-            echo "::error::DOCKERHUB_NAMESPACE is set but the DOCKERHUB_USERNAME or DOCKERHUB_TOKEN secret is missing"
-            exit 1
-          fi
-
-      - uses: docker/login-action@v3
-        if: vars.DOCKERHUB_NAMESPACE != ''
         with:
           registry: docker.io
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -141,7 +131,7 @@ jobs:
           # Token allowed to push to r3n3r0/homebrew-tap; the casks are
           # skipped without it.
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
-          # DOCKERHUB_NAMESPACE (workflow env): adds the docker.io images.
+          # DOCKERHUB_NAMESPACE (workflow env): namespace of the images.
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -168,17 +158,9 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-      packages: read    # new ghcr.io packages are private until made public
     steps:
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       # Pulls from Docker Hub are rate limited for anonymous clients.
       - uses: docker/login-action@v3
-        if: vars.DOCKERHUB_NAMESPACE != ''
         with:
           registry: docker.io
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -201,31 +183,20 @@ jobs:
             --certificate-identity "$CERT_IDENTITY" --certificate-oidc-issuer "$CERT_ISSUER"
           sha256sum --ignore-missing -c checksums.txt
 
+      # docker.io/<namespace>, lowercase as in .goreleaser.yaml.
+      - name: Registry
+        run: echo "REGISTRY=docker.io/$(echo "$DOCKERHUB_NAMESPACE" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
       - name: Image signatures and SBOM attestations
         run: |
           set -eux
-          prefixes="$REGISTRY"
-          if [ -n "$DOCKERHUB_NAMESPACE" ]; then
-            namespace="$(echo "$DOCKERHUB_NAMESPACE" | tr '[:upper:]' '[:lower:]')"
-            prefixes="$prefixes docker.io/$namespace"
-          fi
-          for prefix in $prefixes; do
-            for image in nexo nexoctl; do
-              ref="${prefix}/${image}:${GITHUB_REF_NAME}"
-              cosign verify "$ref" --certificate-identity "$CERT_IDENTITY" --certificate-oidc-issuer "$CERT_ISSUER" >/dev/null
-              docker buildx imagetools inspect "$ref"
-              # One SPDX document per platform, attached by BuildKit.
-              docker buildx imagetools inspect "$ref" --format '{{ json .SBOM }}' | grep -q '"SPDX'
-            done
+          for image in nexo nexoctl; do
+            ref="${REGISTRY}/${image}:${GITHUB_REF_NAME}"
+            cosign verify "$ref" --certificate-identity "$CERT_IDENTITY" --certificate-oidc-issuer "$CERT_ISSUER" >/dev/null
+            docker buildx imagetools inspect "$ref"
+            # One SPDX document per platform, attached by BuildKit.
+            docker buildx imagetools inspect "$ref" --format '{{ json .SBOM }}' | grep -q '"SPDX'
           done
-          if [ -n "$DOCKERHUB_NAMESPACE" ]; then
-            # Same multi-arch index (same digest) in both registries.
-            for image in nexo nexoctl; do
-              ghcr="$(docker buildx imagetools inspect "${REGISTRY}/${image}:${GITHUB_REF_NAME}" --format '{{ json .Manifest.Digest }}')"
-              hub="$(docker buildx imagetools inspect "docker.io/${namespace}/${image}:${GITHUB_REF_NAME}" --format '{{ json .Manifest.Digest }}')"
-              test "$ghcr" = "$hub"
-            done
-          fi
 
       - name: Vulnerability scan of the images (High/Critical with a fix)
         uses: aquasecurity/trivy-action@0.28.0
@@ -303,7 +274,6 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write   # attach the chart to the release
-      packages: write   # oci://ghcr.io/r3n3r0/charts
       id-token: write   # cosign keyless signing
     steps:
       - uses: actions/checkout@v4
@@ -316,7 +286,11 @@ jobs:
         with:
           cosign-release: ${{ env.COSIGN_VERSION }}
 
-      - name: Package, push and sign
+      # The chart is not pushed to an OCI registry: on Docker Hub
+      # `helm push` would store chart "nexo" in the repository
+      # <namespace>/nexo, the one of the server image. It is attached to the
+      # release with a Sigstore bundle instead.
+      - name: Package, sign and attach
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -324,22 +298,18 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           helm lint --strict deploy/helm/nexo
           helm package deploy/helm/nexo --version "$version" --app-version "$GITHUB_REF_NAME" -d chart
-          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
-          helm push "chart/nexo-${version}.tgz" "oci://${REGISTRY}/charts" 2>&1 | tee push.log
-          digest="$(sed -n 's/^Digest: //p' push.log)"
-          test -n "$digest"
-          echo "${{ secrets.GITHUB_TOKEN }}" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
-          cosign sign --yes "${REGISTRY}/charts/nexo@${digest}"
-          gh release upload "$GITHUB_REF_NAME" "chart/nexo-${version}.tgz" --clobber
+          chart="chart/nexo-${version}.tgz"
+          cosign sign-blob --yes --bundle "${chart}.sigstore.json" "$chart"
+          cosign verify-blob "$chart" --bundle "${chart}.sigstore.json" \
+            --certificate-identity "$CERT_IDENTITY" --certificate-oidc-issuer "$CERT_ISSUER"
+          gh release upload "$GITHUB_REF_NAME" "$chart" "${chart}.sigstore.json" --clobber
 
   dockerhub-description:
     # README (deploy/docker/DOCKERHUB.md) and short description of the Docker
-    # Hub repositories, only when Docker Hub is configured. The token needs
-    # the Read, Write, Delete scope; for an organization namespace the user
-    # must be an admin of the repositories.
+    # Hub repositories. The token needs the Read, Write, Delete scope; for an
+    # organization namespace the user must be an admin of the repositories.
     name: Docker Hub description ${{ matrix.image }}
     needs: goreleaser
-    if: vars.DOCKERHUB_NAMESPACE != ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -365,7 +335,7 @@ jobs:
           set -eu
           namespace="$(echo "$DOCKERHUB_NAMESPACE" | tr '[:upper:]' '[:lower:]')"
           echo "name=${namespace}/${IMAGE}" >> "$GITHUB_OUTPUT"
-          sed -e '1,/^-->$/d' -e "s#docker\.io/r3n3r0/#docker.io/${namespace}/#g" \
+          sed -e '1,/^-->$/d' -e "s#docker\.io/paolor/#docker.io/${namespace}/#g" \
             deploy/docker/DOCKERHUB.md > "$RUNNER_TEMP/DOCKERHUB.md"
           grep -q '^# Nexo' "$RUNNER_TEMP/DOCKERHUB.md"
           echo "readme=$RUNNER_TEMP/DOCKERHUB.md" >> "$GITHUB_OUTPUT"

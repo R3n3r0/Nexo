@@ -1,7 +1,8 @@
 # Default values of the Nexo chart (docs/08 §8.4, deploy/helm/nexo/README.md).
 #
-#   helm install nexo oci://ghcr.io/r3n3r0/charts/nexo                      # standalone, 1 drive
-#   helm install nexo oci://ghcr.io/r3n3r0/charts/nexo --set mode=distributed  # 4 pods x 2 drives
+#   CHART=https://github.com/R3n3r0/Nexo/releases/download/vX.Y.Z/nexo-X.Y.Z.tgz
+#   helm install nexo "$CHART"                          # standalone, 1 drive
+#   helm install nexo "$CHART" --set mode=distributed   # 4 pods x 2 drives
 
 # -- Deployment mode:
 #   standalone:  one pod (Deployment) with standalone.drives volumes: one drive
@@ -15,7 +16,7 @@ mode: standalone
 
 image:
   # -- Image of the server (it also contains nexoctl, used by the Helm tests).
-  repository: ghcr.io/r3n3r0/nexo
+  repository: docker.io/paolor/nexo
   # -- Image tag; the chart appVersion when empty.
   tag: ""
   # -- Image digest (sha256:...); when set it pins the image instead of the tag.

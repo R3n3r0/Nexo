@@ -5,7 +5,7 @@
 #
 #   docker build -t nexo .
 #   docker buildx build --platform linux/amd64,linux/arm64 \
-#     --build-arg VERSION=$(git describe --tags --always) -t ghcr.io/r3n3r0/nexo .
+#     --build-arg VERSION=$(git describe --tags --always) -t docker.io/paolor/nexo .
 #
 # The deployment mode (SNSD / SNMD / cluster) is chosen by the arguments
 # passed to "nexo server" (see docs/08-deployment-modes.md); the image is the same.

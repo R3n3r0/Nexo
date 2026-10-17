@@ -94,10 +94,12 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
 - Multi-arch distroless Docker images `nexo` and `nexoctl` signed with cosign, `nexo healthcheck` with TLS,
   `*_FILE` secrets, Compose files for single node, SNMD, cluster (also with TLS and multiple proxies), Swarm stack,
   Helm chart `standalone`/`distributed` (S-OPS-13).
-- Opt-in publication of the images on Docker Hub (`docker.io/<namespace>/nexo` and `nexoctl`, same digests,
-  signatures and SBOM/provenance attestations as on ghcr.io) when the repository variable `DOCKERHUB_NAMESPACE`
-  and the secrets `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` are set; the release also updates the Docker Hub
-  description from `deploy/docker/DOCKERHUB.md`. Without the variable the release publishes to ghcr.io only.
+- Container images published only on Docker Hub: `docker.io/paolor/nexo` and `docker.io/paolor/nexoctl`
+  (namespace from the repository variable `DOCKERHUB_NAMESPACE`, default `paolor`; secrets
+  `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` required), multi-arch, signed with cosign keyless, with SBOM/provenance
+  attestations; the release also updates the Docker Hub description from `deploy/docker/DOCKERHUB.md`. GitHub
+  Container Registry is not used. The Helm chart `nexo-X.Y.Z.tgz` is attached to the GitHub release with its
+  cosign bundle (`helm install nexo https://github.com/R3n3r0/Nexo/releases/download/vX.Y.Z/nexo-X.Y.Z.tgz`).
 - `nexo server --dry-run` and public URL (`NEXO_SERVER_URL`) for links behind a proxy (S-OPS-14).
 
 ### Documentation

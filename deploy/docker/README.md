@@ -1,6 +1,6 @@
 # Nexo with Docker and Docker Compose
 
-Everything here uses the same image, `ghcr.io/r3n3r0/nexo` (server + `nexoctl`, distroless, non-root
+Everything here uses the same image, `paolor/nexo` (server + `nexoctl`, distroless, non-root
 UID 65532). The deployment mode is chosen by the arguments of `nexo server`, not by the image
 (see [docs/08-deployment-modes.md](../../docs/08-deployment-modes.md)).
 
@@ -29,7 +29,7 @@ docker buildx build --platform linux/amd64,linux/arm64 \
   --build-arg VERSION=$(git describe --tags --always) \
   --build-arg COMMIT=$(git rev-parse --short HEAD) \
   --build-arg DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
-  -t ghcr.io/r3n3r0/nexo:dev .
+  -t paolor/nexo:dev .
 ```
 
 Image facts: `EXPOSE 9000 9001`, `VOLUME /data`, `USER nonroot`, `HEALTHCHECK` with `nexo healthcheck`
@@ -56,7 +56,7 @@ Plain `docker run`:
 ```bash
 docker run -d --name nexo -p 9000:9000 -p 9001:9001 \
   -e NEXO_ROOT_USER=admin -e NEXO_ROOT_PASSWORD=supersecret \
-  -v nexo-data:/data ghcr.io/r3n3r0/nexo server /data
+  -v nexo-data:/data paolor/nexo server /data
 ```
 
 ### Secrets
@@ -70,7 +70,7 @@ The container runs as UID 65532. A bind-mounted directory must be writable by th
 
 ```bash
 sudo mkdir -p /srv/nexo && sudo chown 65532:65532 /srv/nexo
-docker run ... -v /srv/nexo:/data ghcr.io/r3n3r0/nexo server /data
+docker run ... -v /srv/nexo:/data paolor/nexo server /data
 ```
 
 Named volumes inherit the ownership of `/data` from the image and need nothing.
@@ -87,7 +87,7 @@ emptied or corrupt volume is rebuilt from the storage, without errors for the cl
 # bind mount of a fast disk, writable by the container user
 sudo mkdir -p /mnt/nvme/nexo-cache && sudo chown 65532:65532 /mnt/nvme/nexo-cache
 docker run ... -v /mnt/nvme/nexo-cache:/cache -e NEXO_CACHE_DIR=/cache -e NEXO_CACHE_SIZE=50GiB \
-  ghcr.io/r3n3r0/nexo server /data
+  paolor/nexo server /data
 ```
 
 Without `NEXO_CACHE_DIR` only the memory tier is used (`NEXO_CACHE_MEMORY`, default 256MiB). In a
@@ -214,8 +214,8 @@ PROMETHEUS_CONFIG=prometheus.cluster.yml \
 ```bash
 docker run --rm -it --network host \
   -v nexoctl-config:/home/nonroot/.nexoctl \
-  ghcr.io/r3n3r0/nexoctl alias set local http://localhost:9000 admin supersecret
-docker run --rm -it --network host -v nexoctl-config:/home/nonroot/.nexoctl ghcr.io/r3n3r0/nexoctl ls local
+  paolor/nexoctl alias set local http://localhost:9000 admin supersecret
+docker run --rm -it --network host -v nexoctl-config:/home/nonroot/.nexoctl paolor/nexoctl ls local
 
 # or from the server image
 docker exec -it nexo /nexoctl version

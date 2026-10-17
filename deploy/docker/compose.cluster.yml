@@ -11,7 +11,7 @@
 name: nexo-cluster
 
 x-nexo: &nexo
-  image: ${NEXO_IMAGE:-ghcr.io/r3n3r0/nexo:latest}
+  image: ${NEXO_IMAGE:-docker.io/paolor/nexo:latest}
   command: ["server", "--console-address", ":9001", "http://nexo{1...4}:9000/data{1...2}"]
   env_file:
     - nexo.env

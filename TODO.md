@@ -16,15 +16,18 @@ when the console is touched).
 ## 1. Release
 
 - [ ] **Release candidate `v1.0.0-rc.1`** (T-9.5): the tag starts `release.yml` (binaries, deb/rpm, Homebrew, SBOM,
-  cosign signatures, images on ghcr.io and, when configured, Docker Hub). Before: green CI on `main`, CHANGELOG with the date, check that the
-  repository secrets exist (Homebrew tap token, cosign). After: try deb/rpm/brew/docker installs on clean machines.
-- [ ] **Docker Hub (optional, one-time setup)**: the release workflow also pushes the images to Docker Hub once
-  configured (docs/08 §8.7 "Docker Hub (opt-in)"). On Docker Hub: create the repositories `nexo` and `nexoctl`
-  as public in the chosen namespace (user or organization) and a personal access token with the Read, Write,
-  Delete scope. On GitHub (Settings → Secrets and variables → Actions): variable `DOCKERHUB_NAMESPACE` = the
-  namespace, secrets `DOCKERHUB_USERNAME` (the token's user, an admin of the repositories for an organization) and
-  `DOCKERHUB_TOKEN`. The user docs and README name `r3n3r0` as the namespace: update them if it differs. After
-  the first tag: check the `verify` and `dockerhub-description` jobs and the README on Docker Hub.
+  cosign signatures, images on Docker Hub, Helm chart attached to the release). Before: green CI on `main`,
+  CHANGELOG with the date, the Docker Hub setup below, check that the repository secrets exist (Homebrew tap
+  token). After: try deb/rpm/brew/docker/helm installs on clean machines.
+- [ ] **Docker Hub (required, one-time setup before the first release)**: the images are published only on Docker
+  Hub (docs/08 §8.7 "Docker Hub") and the release fails without the credentials. On Docker Hub (account
+  `paolor`): create the public repositories `paolor/nexo` and `paolor/nexoctl` and a personal access token
+  (Account settings → Personal access tokens) with the Read, Write, Delete scope (Delete is needed by the
+  description update). On GitHub (Settings → Secrets and variables → Actions): secrets `DOCKERHUB_USERNAME`
+  (`paolor`, the token's user) and `DOCKERHUB_TOKEN`; optional variable `DOCKERHUB_NAMESPACE` only for a
+  namespace other than `paolor` (then also update README, docs, Helm values and Compose files). No chart
+  repository is needed: the chart is attached to the GitHub release. After the first tag: check the `verify`,
+  `helm` and `dockerhub-description` jobs and the README on Docker Hub.
 - [ ] **Merge the development branch into `main`** with a PR and run the full CI (nightly jobs included:
   s3-tests, mint, compose).
 - [ ] **License**: v1.0 ships under AGPL-3.0 plus a commercial license. Replace "R3n3r0" in `NOTICE` with the

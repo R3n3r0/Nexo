@@ -1,4 +1,4 @@
-# Release image ghcr.io/r3n3r0/nexoctl, built by GoReleaser (dockers_v2 in
+# Release image docker.io/paolor/nexoctl, built by GoReleaser (dockers_v2 in
 # .goreleaser.yaml) with buildx for linux/amd64 and linux/arm64 from the
 # already compiled binary ($TARGETPLATFORM/nexoctl in the build context).
 # For a build from the sources use Dockerfile.nexoctl at the repository

@@ -36,13 +36,13 @@ In the following examples `nexoctl` is on the `PATH` (otherwise use `./nexoctl`)
 ```bash
 docker run -d --name nexo -p 9000:9000 -p 9001:9001 \
   -e NEXO_ROOT_USER=admin -e NEXO_ROOT_PASSWORD=supersecret \
-  -v nexo-data:/data ghcr.io/r3n3r0/nexo:latest server /data
+  -v nexo-data:/data paolor/nexo:latest server /data
 
 docker ps --filter name=nexo     # STATUS becomes "healthy" within a few seconds
 ```
 
 The image also contains `nexoctl` (`docker exec nexo /nexoctl …`). To build it from source:
-`make docker` (local image `ghcr.io/r3n3r0/nexo:latest`).
+`make docker` (local image `paolor/nexo:latest`).
 
 The root credentials are passed **only** through environment variables (or from files with
 `NEXO_ROOT_USER_FILE` and `NEXO_ROOT_PASSWORD_FILE`): there is no flag, so that they never show up in the

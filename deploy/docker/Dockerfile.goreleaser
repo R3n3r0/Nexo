@@ -1,4 +1,4 @@
-# Release image ghcr.io/r3n3r0/nexo, built by GoReleaser (dockers_v2 in
+# Release image docker.io/paolor/nexo, built by GoReleaser (dockers_v2 in
 # .goreleaser.yaml) with buildx for linux/amd64 and linux/arm64 from the
 # binaries it already compiled: the build context holds them under
 # $TARGETPLATFORM/ (linux/amd64/nexo, linux/arm64/nexoctl, ...). For a

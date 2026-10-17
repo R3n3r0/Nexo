@@ -11,7 +11,7 @@ name: nexo
 
 services:
   nexo:
-    image: ${NEXO_IMAGE:-ghcr.io/r3n3r0/nexo:latest}
+    image: ${NEXO_IMAGE:-docker.io/paolor/nexo:latest}
     command: ["server", "/data"]
     env_file:
       - nexo.env

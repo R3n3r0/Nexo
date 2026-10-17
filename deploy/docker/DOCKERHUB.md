@@ -1,8 +1,8 @@
 <!--
 README of the Docker Hub repositories nexo and nexoctl, pushed by the
 dockerhub-description job of .github/workflows/release.yml (at most 25,000
-bytes). The job replaces "docker.io/r3n3r0/" with the configured
-DOCKERHUB_NAMESPACE; links must be absolute.
+bytes). The job replaces "docker.io/paolor/" with the configured
+DOCKERHUB_NAMESPACE (default paolor); links must be absolute.
 -->
 
 # Nexo
@@ -12,7 +12,7 @@ single node with several drives (erasure coding) or a distributed cluster.
 
 - **Source and issues**: <https://github.com/R3n3r0/Nexo>
 - **Documentation**: <https://github.com/R3n3r0/Nexo/tree/main/docs/user>
-- **Also on**: `ghcr.io/r3n3r0/nexo` and `ghcr.io/r3n3r0/nexoctl` (the same images, same digests)
+- **Helm chart and binaries**: attached to every [GitHub release](https://github.com/R3n3r0/Nexo/releases)
 
 ## Images
 
@@ -29,16 +29,16 @@ attestations.
 ```bash
 docker run -d --name nexo -p 9000:9000 -p 9001:9001 \
   -e NEXO_ROOT_USER=admin -e NEXO_ROOT_PASSWORD=supersecret \
-  -v nexo-data:/data docker.io/r3n3r0/nexo:latest server /data
+  -v nexo-data:/data docker.io/paolor/nexo:latest server /data
 ```
 
 Then open the console at <http://localhost:9001> or point any S3 client at <http://localhost:9000> with the root
 credentials. With the CLI:
 
 ```bash
-docker run --rm -it --network host -v nexoctl-config:/home/nonroot/.nexoctl docker.io/r3n3r0/nexoctl \
+docker run --rm -it --network host -v nexoctl-config:/home/nonroot/.nexoctl docker.io/paolor/nexoctl \
   alias set local http://localhost:9000 admin supersecret
-docker run --rm -it --network host -v nexoctl-config:/home/nonroot/.nexoctl docker.io/r3n3r0/nexoctl ls local
+docker run --rm -it --network host -v nexoctl-config:/home/nonroot/.nexoctl docker.io/paolor/nexoctl ls local
 ```
 
 The deployment mode follows the arguments of `nexo server`: several drives with
@@ -86,7 +86,7 @@ The complete list is in the
 - [Deployment modes](https://github.com/R3n3r0/Nexo/blob/main/docs/user/deployment-modes.md)
 - [Compose files](https://github.com/R3n3r0/Nexo/tree/main/deploy/docker) and
   [Helm chart](https://github.com/R3n3r0/Nexo/tree/main/deploy/helm/nexo)
-  (`oci://ghcr.io/r3n3r0/charts/nexo`)
+  (`nexo-X.Y.Z.tgz` attached to each [release](https://github.com/R3n3r0/Nexo/releases))
 - [Verifying a release](https://github.com/R3n3r0/Nexo/blob/main/docs/08-deployment-modes.md) (cosign signatures,
   SBOM, provenance)
 

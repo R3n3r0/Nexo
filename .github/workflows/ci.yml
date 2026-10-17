@@ -424,21 +424,23 @@ jobs:
       - name: Images built by GoReleaser
         run: |
           set -eux
-          docker images 'ghcr.io/r3n3r0/*'
+          # docker.io/paolor/<name> (default DOCKERHUB_NAMESPACE), listed by
+          # docker without the docker.io/ prefix.
+          docker images 'paolor/*'
           for name in nexo nexoctl; do
             for arch in amd64 arm64; do
-              img="$(docker images --format '{{.Repository}}:{{.Tag}}' "ghcr.io/r3n3r0/$name" | grep -- "-$arch\$" | head -1)"
+              img="$(docker images --format '{{.Repository}}:{{.Tag}}' "paolor/$name" | grep -- "-$arch\$" | head -1)"
               test -n "$img"
               test "$(docker image inspect -f '{{.Architecture}}' "$img")" = "$arch"
               test "$(docker image inspect -f '{{.Config.User}}' "$img")" = "65532:65532"
             done
-            docker run --rm --platform linux/amd64 "$(docker images --format '{{.Repository}}:{{.Tag}}' "ghcr.io/r3n3r0/$name" | grep -- '-amd64$' | head -1)" version
+            docker run --rm --platform linux/amd64 "$(docker images --format '{{.Repository}}:{{.Tag}}' "paolor/$name" | grep -- '-amd64$' | head -1)" version
           done
 
       - name: Image HEALTHCHECK with TLS (NEXO_CERTS_DIR)
         run: |
           set -eux
-          img="$(docker images --format '{{.Repository}}:{{.Tag}}' ghcr.io/r3n3r0/nexo | grep -- '-amd64$' | head -1)"
+          img="$(docker images --format '{{.Repository}}:{{.Tag}}' paolor/nexo | grep -- '-amd64$' | head -1)"
           certs="$RUNNER_TEMP/certs"
           CERTS_DIR="$certs" sh deploy/docker/gen-dev-certs.sh
           # Readable by the nonroot user of the image only.

@@ -14,7 +14,7 @@ GOFLAGS     ?=
 GO          ?= go
 NPM         ?= npm
 DOCKER      ?= docker
-IMAGE       ?= ghcr.io/r3n3r0/nexo
+IMAGE       ?= docker.io/paolor/nexo
 PKGS        := ./...
 # Pinned versions of the security scanners (make security).
 GOVULNCHECK_VERSION ?= v1.8.0

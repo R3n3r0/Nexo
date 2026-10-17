@@ -17,7 +17,7 @@
 version: "3.8"
 
 x-nexo: &nexo
-  image: ghcr.io/r3n3r0/nexo:${NEXO_TAG:-latest}
+  image: docker.io/paolor/nexo:${NEXO_TAG:-latest}
   command: ["server", "http://nexo{1...4}:9000/data{1...2}"]
   environment: &nexo-env
     NEXO_ROOT_USER_FILE: /run/secrets/nexo_root_user

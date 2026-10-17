@@ -36,13 +36,13 @@ Negli esempi seguenti `nexoctl` è nel `PATH` (altrimenti usa `./nexoctl`).
 ```bash
 docker run -d --name nexo -p 9000:9000 -p 9001:9001 \
   -e NEXO_ROOT_USER=admin -e NEXO_ROOT_PASSWORD=supersegreta \
-  -v nexo-data:/data ghcr.io/r3n3r0/nexo:latest server /data
+  -v nexo-data:/data paolor/nexo:latest server /data
 
 docker ps --filter name=nexo     # STATUS diventa "healthy" in pochi secondi
 ```
 
 L'immagine contiene anche `nexoctl` (`docker exec nexo /nexoctl …`). Per costruirla dai sorgenti:
-`make docker` (immagine locale `ghcr.io/r3n3r0/nexo:latest`).
+`make docker` (immagine locale `paolor/nexo:latest`).
 
 Le credenziali root si passano **solo** da variabile d'ambiente (o da file con `NEXO_ROOT_USER_FILE` e
 `NEXO_ROOT_PASSWORD_FILE`): non esiste un flag, per non esporle nella lista dei processi.

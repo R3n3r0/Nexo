@@ -14,13 +14,13 @@
 #   - checksums.txt (sha256) signed with cosign keyless (Sigstore bundle
 #     checksums.txt.sigstore.json); SPDX SBOMs (syft) of every archive,
 #     listed in checksums.txt;
-#   - images ghcr.io/r3n3r0/nexo and ghcr.io/r3n3r0/nexoctl, multi-arch
-#     (linux/amd64, linux/arm64), with BuildKit SBOM and provenance
-#     attestations, signed with cosign keyless; tags vX.Y.Z, plus vX.Y and
-#     latest for final releases; the same images are also pushed as
-#     docker.io/<namespace>/nexo and docker.io/<namespace>/nexoctl when
-#     DOCKERHUB_NAMESPACE is set (the release workflow sets it from the
-#     repository variable of the same name, after logging in to Docker Hub);
+#   - images docker.io/paolor/nexo and docker.io/paolor/nexoctl on Docker
+#     Hub (the only registry), multi-arch (linux/amd64, linux/arm64), with
+#     BuildKit SBOM and provenance attestations, signed with cosign keyless;
+#     tags vX.Y.Z, plus vX.Y and latest for final releases; the namespace is
+#     DOCKERHUB_NAMESPACE (default paolor, lowercased; the release workflow
+#     sets it from the repository variable of the same name and logs in to
+#     Docker Hub first);
 #   - Homebrew casks nexo and nexoctl pushed to r3n3r0/homebrew-tap when the
 #     HOMEBREW_TAP_GITHUB_TOKEN secret is set.
 #
@@ -367,19 +367,17 @@ signs:
 
 # One multi-arch image per name, built and pushed by buildx from the
 # binaries above (deploy/docker/Dockerfile*.goreleaser read them from
-# $TARGETPLATFORM/), with SBOM attestations. The Docker Hub name is opt-in:
-# with DOCKERHUB_NAMESPACE unset or empty its template renders "" and
-# GoReleaser drops empty image names, so only ghcr.io is pushed. A single
-# buildx build pushes the same index (same digest, attestations included)
-# to every name, and docker_signs signs each name:tag by that digest.
+# $TARGETPLATFORM/), with SBOM and provenance attestations, pushed to
+# Docker Hub only: docker.io/<DOCKERHUB_NAMESPACE>/nexo and .../nexoctl
+# (namespace default paolor, lowercased; an empty value counts as unset).
+# docker_signs signs each pushed name:tag by its digest.
 dockers_v2:
   - id: nexo
     ids: [nexo, nexoctl]
     dockerfile: deploy/docker/Dockerfile.goreleaser
     extra_files: [LICENSE, NOTICE, COMMERCIAL-LICENSE.md]
     images:
-      - ghcr.io/r3n3r0/nexo
-      - '{{ with envOrDefault "DOCKERHUB_NAMESPACE" "" }}docker.io/{{ tolower . }}/nexo{{ end }}'
+      - 'docker.io/{{ tolower (envOrDefault "DOCKERHUB_NAMESPACE" "paolor") }}/nexo'
     tags:
       - "{{ .Tag }}"
       - '{{ if not .Prerelease }}v{{ .Major }}.{{ .Minor }}{{ end }}'
@@ -406,8 +404,7 @@ dockers_v2:
     dockerfile: deploy/docker/Dockerfile.nexoctl.goreleaser
     extra_files: [LICENSE, NOTICE, COMMERCIAL-LICENSE.md]
     images:
-      - ghcr.io/r3n3r0/nexoctl
-      - '{{ with envOrDefault "DOCKERHUB_NAMESPACE" "" }}docker.io/{{ tolower . }}/nexoctl{{ end }}'
+      - 'docker.io/{{ tolower (envOrDefault "DOCKERHUB_NAMESPACE" "paolor") }}/nexoctl'
     tags:
       - "{{ .Tag }}"
       - '{{ if not .Prerelease }}v{{ .Major }}.{{ .Minor }}{{ end }}'
@@ -419,8 +416,8 @@ dockers_v2:
     flags:
       - --provenance=mode=max
 
-# Every pushed name:tag (ghcr.io and, when configured, docker.io), signed
-# by digest: the signature is stored in the registry of the name.
+# Every pushed docker.io name:tag, signed by digest: the signature is
+# stored next to the image in the Docker Hub repository.
 docker_signs:
   - id: images
     cmd: cosign
@@ -520,23 +517,19 @@ release:
     sha256sum --ignore-missing -c checksums.txt
 
     # images (multi-arch index, SBOM and provenance attestations)
-    cosign verify ghcr.io/r3n3r0/nexo:{{ .Tag }} \
+    cosign verify docker.io/{{ tolower (envOrDefault "DOCKERHUB_NAMESPACE" "paolor") }}/nexo:{{ .Tag }} \
       --certificate-identity 'https://github.com/R3n3r0/Nexo/.github/workflows/release.yml@refs/tags/{{ .Tag }}' \
       --certificate-oidc-issuer https://token.actions.githubusercontent.com
-    docker buildx imagetools inspect ghcr.io/r3n3r0/nexo:{{ .Tag }} --format '{{ "{{" }} json .SBOM {{ "}}" }}'
+    docker buildx imagetools inspect docker.io/{{ tolower (envOrDefault "DOCKERHUB_NAMESPACE" "paolor") }}/nexo:{{ .Tag }} --format '{{ "{{" }} json .SBOM {{ "}}" }}'
     ```
 
     ## Install
 
     ```sh
-    docker pull ghcr.io/r3n3r0/nexo:{{ .Tag }}
-    docker pull ghcr.io/r3n3r0/nexoctl:{{ .Tag }}
-    {{- with envOrDefault "DOCKERHUB_NAMESPACE" "" }}
-    # the same images on Docker Hub
-    docker pull docker.io/{{ tolower . }}/nexo:{{ $.Tag }}
-    docker pull docker.io/{{ tolower . }}/nexoctl:{{ $.Tag }}
-    {{- end }}
-    helm install nexo oci://ghcr.io/r3n3r0/charts/nexo --version {{ .Version }}
+    docker pull {{ tolower (envOrDefault "DOCKERHUB_NAMESPACE" "paolor") }}/nexo:{{ .Tag }}
+    docker pull {{ tolower (envOrDefault "DOCKERHUB_NAMESPACE" "paolor") }}/nexoctl:{{ .Tag }}
+    # Helm chart attached to this release (signature: nexo-{{ .Version }}.tgz.sigstore.json)
+    helm install nexo https://github.com/R3n3r0/Nexo/releases/download/{{ .Tag }}/nexo-{{ .Version }}.tgz
     ```
 
     deb/rpm packages `nexo` (server, systemd unit) and `nexoctl` (CLI) for
