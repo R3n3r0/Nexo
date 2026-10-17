@@ -140,6 +140,12 @@
     "distributed": "Cluster distribuito",
     "unknown": "Sconosciuta"
   },
+  "modesShort": {
+    "snsd": "Disco singolo",
+    "snmd": "Più dischi",
+    "distributed": "Cluster",
+    "unknown": "Sconosciuta"
+  },
   "duration": {
     "days": "{{count}}g",
     "hours": "{{count}}h",

@@ -307,14 +307,16 @@ export function OverviewPage() {
       <SimpleGrid cols={{ base: 1, xs: 2, lg: 4 }} spacing="md">
         <StatTile
           label={t('overview.tiles.mode')}
-          value={data ? t(`modes.${data.mode}`) : dash}
-          hint={data?.region}
+          value={data ? t(`modesShort.${data.mode}`) : dash}
+          hint={
+            data ? [t(`modes.${data.mode}`), data.region].filter(Boolean).join(' · ') : undefined
+          }
           loading={loading}
         />
         <StatTile
           label={t('overview.tiles.version')}
           value={data?.version ?? dash}
-          hint={data?.commit}
+          hint={data?.commit && data.commit !== data.version ? data.commit : undefined}
           loading={loading}
         />
         <StatTile

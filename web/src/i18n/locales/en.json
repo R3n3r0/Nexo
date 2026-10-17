@@ -140,6 +140,12 @@
     "distributed": "Distributed cluster",
     "unknown": "Unknown"
   },
+  "modesShort": {
+    "snsd": "Single drive",
+    "snmd": "Multi-drive",
+    "distributed": "Cluster",
+    "unknown": "Unknown"
+  },
   "duration": {
     "days": "{{count}}d",
     "hours": "{{count}}h",

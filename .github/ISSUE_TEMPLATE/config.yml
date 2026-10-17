@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/R3n3r0/Nexo/security/advisories/new
+    about: Report security issues privately, not in a public issue.
+  - name: Documentation
+    url: https://github.com/R3n3r0/Nexo/tree/main/docs/user
+    about: Installation, configuration and operations guides.

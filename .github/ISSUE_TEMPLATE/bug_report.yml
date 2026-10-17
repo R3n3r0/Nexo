@@ -1,0 +1,34 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Nexo version
+      description: Output of `nexo --version`.
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Deployment mode
+      options:
+        - Single drive
+        - Multiple drives (erasure coded)
+        - Distributed cluster
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Steps to reproduce, what you expected and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and client output
+      description: Relevant server logs (secrets are redacted by Nexo) and the client or SDK used.
+      render: text

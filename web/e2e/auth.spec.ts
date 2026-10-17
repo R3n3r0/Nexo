@@ -17,7 +17,9 @@ test.describe('authentication', () => {
     await loginWithForm(page, rootCredentials);
     await expect(page).toHaveURL(/\/$/);
     await expect(page.getByRole('heading', { name: 'Overview', level: 2 })).toBeVisible();
-    await expect(page.getByText(modeLabels[nexo.mode]).first()).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Deployment mode' })).toContainText(
+      modeLabels[nexo.mode],
+    );
 
     const session = (await context.cookies()).find((c) => c.name === 'nexo_session');
     expect(session?.value).toBeTruthy();

@@ -31,7 +31,8 @@ describe('OverviewPage (D-DASH-01)', () => {
       'href',
       '/cluster',
     );
-    expect(screen.getByText('Distributed cluster')).toBeInTheDocument();
+    expect(screen.getByText('Cluster')).toBeInTheDocument();
+    expect(screen.getByText(/^Distributed cluster/)).toBeInTheDocument();
   });
 
   it('renders the stat tiles from InfoService', async () => {
@@ -40,7 +41,8 @@ describe('OverviewPage (D-DASH-01)', () => {
       services: createMockServices({ info, initialAccessKey: 'nexoadmin' }),
     });
     expect(await screen.findByText('1.4.2')).toBeInTheDocument();
-    expect(screen.getByText('Single node, single drive')).toBeInTheDocument();
+    expect(screen.getByText('Single drive')).toBeInTheDocument();
+    expect(screen.getByText(/^Single node, single drive/)).toBeInTheDocument();
     expect(screen.getByText('42')).toBeInTheDocument();
     expect(screen.getByText('12.8K')).toBeInTheDocument();
     expect(

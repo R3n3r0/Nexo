@@ -385,7 +385,8 @@ export function ClusterPage() {
       <SimpleGrid cols={{ base: 1, xs: 2, lg: 3 }} spacing="md">
         <StatTile
           label={t('cluster.tiles.mode')}
-          value={data ? t(`modes.${data.mode}`) : dash}
+          value={data ? t(`modesShort.${data.mode}`) : dash}
+          hint={data ? t(`modes.${data.mode}`) : undefined}
           loading={query.isPending}
         />
         <StatTile
