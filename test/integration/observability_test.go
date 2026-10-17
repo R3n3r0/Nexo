@@ -273,6 +273,27 @@ func sum(samples map[string]float64, family string, fragments ...string) (float6
 	return total, n
 }
 
+// waitSetsOK waits until every erasure set of the deployment is ok: a node
+// that starts after the others joins with its drives healing the system
+// configuration, and its sets are degraded until they finish.
+func waitSetsOK(t *testing.T, e *env, admin nexoadmin.AdminClient) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		info, err := admin.ServerInfo(e.ctx)
+		if err != nil {
+			return false
+		}
+		for _, p := range info.Pools {
+			for _, s := range p.ErasureSets {
+				if s.State != nexoadmin.SetStateOK {
+					return false
+				}
+			}
+		}
+		return true
+	}, 30*time.Second, 100*time.Millisecond, "every erasure set ok")
+}
+
 // TestClusterMetrics scrapes the cluster and bucket endpoints of the
 // first node after requests served by the last one (T-8.1): the families
 // of every node with their server label, the cluster families from the
@@ -297,6 +318,8 @@ func TestClusterMetrics(t *testing.T) {
 	}
 	first := e.srv.Nodes[0].S3URL
 	nodes := len(e.srv.Nodes)
+	admin := nodeAdmin(t, e)
+	waitSetsOK(t, e, admin)
 
 	cluster := scrape(t, first+"/nexo/metrics/v1/cluster")
 	online, n := sum(cluster, "nexo_cluster_nodes_online")
@@ -322,7 +345,6 @@ func TestClusterMetrics(t *testing.T) {
 		assert.Positive(t, rpc, "the internode calls are measured")
 	}
 
-	admin := nodeAdmin(t, e)
 	info, err := admin.ServerInfo(e.ctx)
 	require.NoError(t, err)
 	usage, err := admin.DataUsage(e.ctx)
