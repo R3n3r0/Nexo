@@ -9,7 +9,16 @@ name: Release
 #   3. smoke (TM-10): the binaries of every OS/arch start (QEMU for
 #      linux/arm64, Rosetta for darwin/amd64) and report the tag as version;
 #   4. helm: chart packaged with the version of the tag, pushed to
-#      oci://ghcr.io/r3n3r0/charts, signed and attached to the release.
+#      oci://ghcr.io/r3n3r0/charts, signed and attached to the release;
+#   5. dockerhub-description: README and short description of the Docker Hub
+#      repositories (deploy/docker/DOCKERHUB.md).
+#
+# Docker Hub is opt-in: with the repository variable DOCKERHUB_NAMESPACE set
+# (Docker Hub user or organization) and the secrets DOCKERHUB_USERNAME and
+# DOCKERHUB_TOKEN (access token with Read, Write, Delete scope), the images
+# are also pushed as docker.io/<namespace>/nexo and .../nexoctl, signed and
+# verified like the ghcr.io ones. With the variable empty the release only
+# publishes to ghcr.io.
 on:
   push:
     tags: ["v*"]
@@ -35,6 +44,9 @@ env:
   # exactly by cosign: the repository as GitHub spells it).
   CERT_IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}
   CERT_ISSUER: https://token.actions.githubusercontent.com
+  # Docker Hub namespace (repository variable, empty = Docker Hub disabled);
+  # read by .goreleaser.yaml.
+  DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE }}
 
 jobs:
   goreleaser:
@@ -89,6 +101,27 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Docker Hub (opt-in): fail early with a clear message when the
+      # namespace is set without the credentials. buildx and cosign both use
+      # this login (signatures are pushed next to the docker.io images).
+      - name: Docker Hub credentials
+        if: vars.DOCKERHUB_NAMESPACE != ''
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "::error::DOCKERHUB_NAMESPACE is set but the DOCKERHUB_USERNAME or DOCKERHUB_TOKEN secret is missing"
+            exit 1
+          fi
+
+      - uses: docker/login-action@v3
+        if: vars.DOCKERHUB_NAMESPACE != ''
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - uses: sigstore/cosign-installer@v4
         with:
           cosign-release: ${{ env.COSIGN_VERSION }}
@@ -108,6 +141,7 @@ jobs:
           # Token allowed to push to r3n3r0/homebrew-tap; the casks are
           # skipped without it.
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          # DOCKERHUB_NAMESPACE (workflow env): adds the docker.io images.
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -142,6 +176,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Pulls from Docker Hub are rate limited for anonymous clients.
+      - uses: docker/login-action@v3
+        if: vars.DOCKERHUB_NAMESPACE != ''
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - uses: sigstore/cosign-installer@v4
         with:
           cosign-release: ${{ env.COSIGN_VERSION }}
@@ -162,13 +204,28 @@ jobs:
       - name: Image signatures and SBOM attestations
         run: |
           set -eux
-          for image in nexo nexoctl; do
-            ref="${REGISTRY}/${image}:${GITHUB_REF_NAME}"
-            cosign verify "$ref" --certificate-identity "$CERT_IDENTITY" --certificate-oidc-issuer "$CERT_ISSUER" >/dev/null
-            docker buildx imagetools inspect "$ref"
-            # One SPDX document per platform, attached by BuildKit.
-            docker buildx imagetools inspect "$ref" --format '{{ json .SBOM }}' | grep -q '"SPDX'
+          prefixes="$REGISTRY"
+          if [ -n "$DOCKERHUB_NAMESPACE" ]; then
+            namespace="$(echo "$DOCKERHUB_NAMESPACE" | tr '[:upper:]' '[:lower:]')"
+            prefixes="$prefixes docker.io/$namespace"
+          fi
+          for prefix in $prefixes; do
+            for image in nexo nexoctl; do
+              ref="${prefix}/${image}:${GITHUB_REF_NAME}"
+              cosign verify "$ref" --certificate-identity "$CERT_IDENTITY" --certificate-oidc-issuer "$CERT_ISSUER" >/dev/null
+              docker buildx imagetools inspect "$ref"
+              # One SPDX document per platform, attached by BuildKit.
+              docker buildx imagetools inspect "$ref" --format '{{ json .SBOM }}' | grep -q '"SPDX'
+            done
           done
+          if [ -n "$DOCKERHUB_NAMESPACE" ]; then
+            # Same multi-arch index (same digest) in both registries.
+            for image in nexo nexoctl; do
+              ghcr="$(docker buildx imagetools inspect "${REGISTRY}/${image}:${GITHUB_REF_NAME}" --format '{{ json .Manifest.Digest }}')"
+              hub="$(docker buildx imagetools inspect "docker.io/${namespace}/${image}:${GITHUB_REF_NAME}" --format '{{ json .Manifest.Digest }}')"
+              test "$ghcr" = "$hub"
+            done
+          fi
 
       - name: Vulnerability scan of the images (High/Critical with a fix)
         uses: aquasecurity/trivy-action@0.28.0
@@ -274,3 +331,49 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
           cosign sign --yes "${REGISTRY}/charts/nexo@${digest}"
           gh release upload "$GITHUB_REF_NAME" "chart/nexo-${version}.tgz" --clobber
+
+  dockerhub-description:
+    # README (deploy/docker/DOCKERHUB.md) and short description of the Docker
+    # Hub repositories, only when Docker Hub is configured. The token needs
+    # the Read, Write, Delete scope; for an organization namespace the user
+    # must be an admin of the repositories.
+    name: Docker Hub description ${{ matrix.image }}
+    needs: goreleaser
+    if: vars.DOCKERHUB_NAMESPACE != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: nexo
+            description: S3-compatible object storage server with an embedded web console
+          - image: nexoctl
+            description: Command-line client of Nexo, the S3-compatible object storage server
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: deploy/docker
+
+      # The repository name, and the README with the image names of the
+      # configured namespace and without its leading maintainer comment.
+      - name: Repository name and README
+        id: repo
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          set -eu
+          namespace="$(echo "$DOCKERHUB_NAMESPACE" | tr '[:upper:]' '[:lower:]')"
+          echo "name=${namespace}/${IMAGE}" >> "$GITHUB_OUTPUT"
+          sed -e '1,/^-->$/d' -e "s#docker\.io/r3n3r0/#docker.io/${namespace}/#g" \
+            deploy/docker/DOCKERHUB.md > "$RUNNER_TEMP/DOCKERHUB.md"
+          grep -q '^# Nexo' "$RUNNER_TEMP/DOCKERHUB.md"
+          echo "readme=$RUNNER_TEMP/DOCKERHUB.md" >> "$GITHUB_OUTPUT"
+
+      - uses: peter-evans/dockerhub-description@v5
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ steps.repo.outputs.name }}
+          short-description: ${{ matrix.description }}
+          readme-filepath: ${{ steps.repo.outputs.readme }}

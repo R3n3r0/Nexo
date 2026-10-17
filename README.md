@@ -94,6 +94,9 @@ docker run -d --name nexo -p 9000:9000 -p 9001:9001 \
   -v nexo-data:/data ghcr.io/r3n3r0/nexo:latest server /data
 ```
 
+The same images are on Docker Hub (`r3n3r0/nexo`, `r3n3r0/nexoctl`): replace `ghcr.io/r3n3r0/nexo` with
+`r3n3r0/nexo` to pull from there.
+
 With the binary ([releases](https://github.com/R3n3r0/Nexo/releases) or `make build`):
 
 ```bash

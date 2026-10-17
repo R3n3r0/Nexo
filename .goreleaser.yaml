@@ -17,7 +17,10 @@
 #   - images ghcr.io/r3n3r0/nexo and ghcr.io/r3n3r0/nexoctl, multi-arch
 #     (linux/amd64, linux/arm64), with BuildKit SBOM and provenance
 #     attestations, signed with cosign keyless; tags vX.Y.Z, plus vX.Y and
-#     latest for final releases;
+#     latest for final releases; the same images are also pushed as
+#     docker.io/<namespace>/nexo and docker.io/<namespace>/nexoctl when
+#     DOCKERHUB_NAMESPACE is set (the release workflow sets it from the
+#     repository variable of the same name, after logging in to Docker Hub);
 #   - Homebrew casks nexo and nexoctl pushed to r3n3r0/homebrew-tap when the
 #     HOMEBREW_TAP_GITHUB_TOKEN secret is set.
 #
@@ -364,7 +367,11 @@ signs:
 
 # One multi-arch image per name, built and pushed by buildx from the
 # binaries above (deploy/docker/Dockerfile*.goreleaser read them from
-# $TARGETPLATFORM/), with SBOM attestations.
+# $TARGETPLATFORM/), with SBOM attestations. The Docker Hub name is opt-in:
+# with DOCKERHUB_NAMESPACE unset or empty its template renders "" and
+# GoReleaser drops empty image names, so only ghcr.io is pushed. A single
+# buildx build pushes the same index (same digest, attestations included)
+# to every name, and docker_signs signs each name:tag by that digest.
 dockers_v2:
   - id: nexo
     ids: [nexo, nexoctl]
@@ -372,6 +379,7 @@ dockers_v2:
     extra_files: [LICENSE, NOTICE, COMMERCIAL-LICENSE.md]
     images:
       - ghcr.io/r3n3r0/nexo
+      - '{{ with envOrDefault "DOCKERHUB_NAMESPACE" "" }}docker.io/{{ tolower . }}/nexo{{ end }}'
     tags:
       - "{{ .Tag }}"
       - '{{ if not .Prerelease }}v{{ .Major }}.{{ .Minor }}{{ end }}'
@@ -399,6 +407,7 @@ dockers_v2:
     extra_files: [LICENSE, NOTICE, COMMERCIAL-LICENSE.md]
     images:
       - ghcr.io/r3n3r0/nexoctl
+      - '{{ with envOrDefault "DOCKERHUB_NAMESPACE" "" }}docker.io/{{ tolower . }}/nexoctl{{ end }}'
     tags:
       - "{{ .Tag }}"
       - '{{ if not .Prerelease }}v{{ .Major }}.{{ .Minor }}{{ end }}'
@@ -410,6 +419,8 @@ dockers_v2:
     flags:
       - --provenance=mode=max
 
+# Every pushed name:tag (ghcr.io and, when configured, docker.io), signed
+# by digest: the signature is stored in the registry of the name.
 docker_signs:
   - id: images
     cmd: cosign
@@ -520,6 +531,11 @@ release:
     ```sh
     docker pull ghcr.io/r3n3r0/nexo:{{ .Tag }}
     docker pull ghcr.io/r3n3r0/nexoctl:{{ .Tag }}
+    {{- with envOrDefault "DOCKERHUB_NAMESPACE" "" }}
+    # the same images on Docker Hub
+    docker pull docker.io/{{ tolower . }}/nexo:{{ $.Tag }}
+    docker pull docker.io/{{ tolower . }}/nexoctl:{{ $.Tag }}
+    {{- end }}
     helm install nexo oci://ghcr.io/r3n3r0/charts/nexo --version {{ .Version }}
     ```
 

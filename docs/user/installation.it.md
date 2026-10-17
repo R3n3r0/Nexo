@@ -84,6 +84,15 @@ da Apple (il cask rimuove l'attributo di quarantena).
 Tag: `vX.Y.Z`, e per le release finali `vX.Y` e `latest`. Le immagini sono multi-arch (linux/amd64,
 linux/arm64), firmate con cosign e con attestazioni SBOM e provenance.
 
+Le stesse immagini sono pubblicate anche su Docker Hub come `docker.io/r3n3r0/nexo` e `docker.io/r3n3r0/nexoctl`
+(stessi tag e digest, firme e attestazioni comprese), per gli ambienti che scaricano solo da Docker Hub o ne
+fanno il mirror. Si può scaricare da entrambi i registry; gli esempi seguenti usano ghcr.io:
+
+```bash
+docker pull ghcr.io/r3n3r0/nexo:latest     # GitHub Container Registry
+docker pull r3n3r0/nexo:latest             # Docker Hub (docker.io/r3n3r0/nexo)
+```
+
 ```bash
 docker run -d --name nexo -p 9000:9000 -p 9001:9001 \
   -e NEXO_ROOT_USER=admin -e NEXO_ROOT_PASSWORD=supersegreta \

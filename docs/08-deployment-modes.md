@@ -264,7 +264,7 @@ A `v*` tag starts [`.github/workflows/release.yml`](../.github/workflows/release
 | Packages | `.deb` and `.rpm` for amd64/arm64: `nexo` (binary in `/usr/bin`, unit in `/usr/lib/systemd/system`, `/etc/default/nexo` as a `0640 root:nexo` conffile with an empty password, `nexo` user created by `preinstall` with `useradd` (deb: `Pre-Depends: passwd`) and declared in `/usr/lib/sysusers.d/nexo.conf`, `/var/lib/nexo/data`; never started or restarted by the scripts; removal stops the service and keeps the data) and `nexoctl` (binary and completions); `nexo` recommends `nexoctl` |
 | Checksums | `checksums.txt` (SHA-256 of archives, packages, SBOMs, sources) + `checksums.txt.sigstore.json` (cosign bundle: signature, certificate, Rekor transparency log entry) |
 | SBOM | One SPDX JSON document per archive (`<archive>.sbom.json`, syft v1.54.1): Go modules and toolchain of each binary. The packages contain the same linux binaries as the archives |
-| Images | `ghcr.io/r3n3r0/nexo` (nexo + nexoctl) and `ghcr.io/r3n3r0/nexoctl`, linux/amd64+arm64 multi-arch index built by buildx from the already compiled binaries (`deploy/docker/Dockerfile*.goreleaser`, equivalent to the root Dockerfiles), BuildKit SBOM and provenance attestations (`mode=max`), cosign signature; tag `vX.Y.Z` and, for final releases, `vX.Y` and `latest` |
+| Images | `ghcr.io/r3n3r0/nexo` (nexo + nexoctl) and `ghcr.io/r3n3r0/nexoctl`, linux/amd64+arm64 multi-arch index built by buildx from the already compiled binaries (`deploy/docker/Dockerfile*.goreleaser`, equivalent to the root Dockerfiles), BuildKit SBOM and provenance attestations (`mode=max`), cosign signature; tag `vX.Y.Z` and, for final releases, `vX.Y` and `latest`. Opt-in: the same index (same digest, attestations and signatures included) also as `docker.io/<namespace>/nexo` and `docker.io/<namespace>/nexoctl` when the repository variable `DOCKERHUB_NAMESPACE` is set (see [Docker Hub](#docker-hub-opt-in)) |
 | Helm | `nexo-X.Y.Z.tgz` attached to the release and published in `oci://ghcr.io/r3n3r0/charts/nexo` (signed with cosign) |
 | Homebrew | `nexo` and `nexoctl` casks in `r3n3r0/homebrew-tap` (`brew install r3n3r0/tap/nexoctl`), only if the `HOMEBREW_TAP_GITHUB_TOKEN` secret exists; the macOS binaries are not notarized: the cask removes the quarantine attribute |
 
@@ -290,6 +290,9 @@ cosign verify ghcr.io/r3n3r0/nexo:$TAG --certificate-identity "$ID" --certificat
 docker buildx imagetools inspect ghcr.io/r3n3r0/nexo:$TAG --format '{{ json .SBOM }}'
 docker buildx imagetools inspect ghcr.io/r3n3r0/nexo:$TAG --format '{{ json .Provenance }}'
 
+#    the Docker Hub copies (when published; namespace r3n3r0 here) are verified the same way, by their own name
+cosign verify docker.io/r3n3r0/nexo:$TAG --certificate-identity "$ID" --certificate-oidc-issuer "$ISSUER"
+
 # 4. Helm chart
 cosign verify ghcr.io/r3n3r0/charts/nexo:${TAG#v} --certificate-identity "$ID" --certificate-oidc-issuer "$ISSUER"
 ```
@@ -299,6 +302,38 @@ available: the job fails); the `smoke` job (TM-10) extracts the archives on linu
 darwin/arm64, darwin/amd64 (Rosetta) and windows/amd64 and runs [`packaging/smoke.sh`](../packaging/smoke.sh):
 version equal to the tag, `--dry-run`, server on one drive, console served, S3 round trip with `nexoctl`, shutdown
 with SIGTERM (on Windows only version and `--dry-run`).
+
+### Docker Hub (opt-in)
+
+ghcr.io is always published; Docker Hub is added by repository settings only, without touching the files:
+
+| GitHub setting | Kind | Value |
+|----------------|------|-------|
+| `DOCKERHUB_NAMESPACE` | variable (Settings → Secrets and variables → Actions → Variables) | Docker Hub user or organization that owns the `nexo` and `nexoctl` repositories (lowercased by the workflow). Empty or missing: the release publishes to ghcr.io only, exactly as before |
+| `DOCKERHUB_USERNAME` | secret | Docker Hub user that owns the access token (an admin of the repositories for an organization namespace) |
+| `DOCKERHUB_TOKEN` | secret | Docker Hub personal access token with the **Read, Write, Delete** scope (Delete is required by the description update), never the password |
+
+With the variable set, `release.yml`:
+
+1. checks that both secrets exist (the job fails with a clear error otherwise) and logs in to `docker.io` with
+   `docker/login-action`;
+2. passes `DOCKERHUB_NAMESPACE` to GoReleaser: the templated image name `docker.io/<namespace>/nexo` (and
+   `nexoctl`) of `dockers_v2` renders, and buildx pushes the same multi-arch index with its SBOM and provenance
+   attestations to both registries in one build (when the variable is empty the template renders `""` and
+   GoReleaser drops the name). `docker_signs` signs every
+   `name:tag` by digest, so the cosign signatures are stored in both registries; the release notes list the
+   Docker Hub `docker pull` commands too;
+3. `verify` checks signature and SBOM of the Docker Hub images as well, and that both registries serve the same
+   digest;
+4. `dockerhub-description` pushes [`deploy/docker/DOCKERHUB.md`](../deploy/docker/DOCKERHUB.md) (image names
+   rewritten to the namespace) and a short description to both repositories with
+   `peter-evans/dockerhub-description@v5`.
+
+One-time setup on Docker Hub: create the repositories `nexo` and `nexoctl` in the namespace as **public** before
+the first release (a repository created by the first push takes the default visibility of the account, which can be
+private, and an organization may not let its members create repositories), create the access token (Account
+settings → Personal access tokens), then the variable and the two secrets above. The ghcr.io packages stay the
+reference: the Helm chart is published only to `oci://ghcr.io/r3n3r0/charts`.
 
 ### Reproducing and checking locally (without publishing)
 
@@ -339,12 +374,14 @@ hadolint v2.14.0, actionlint v1.7.7 with shellcheck 0.9.0, systemd 255, QEMU use
 
 Only configured (requires a Docker daemon, the workflow's OIDC identity or publishing): `dockers_v2` multi-arch
 images with SBOM/provenance attestations, cosign keyless signatures of checksums, images and chart, push to ghcr.io
-and to the Homebrew tap, the release's `verify` (TM-11) and `smoke` jobs on darwin/windows, package installation with
+(and to Docker Hub when configured) and to the Homebrew tap, the release's `verify` (TM-11) and `smoke` jobs on darwin/windows, package installation with
 systemd and in Fedora (CI job `packaging`).
 
 License: AGPL-3.0-only with the attribution terms of `NOTICE` (AGPL §7(b)) and commercial licenses
 (`COMMERCIAL-LICENSE.md` at the repository root); `LICENSE` is in archives, packages, images and charts, `NOTICE` in
 archives and packages. Open release decisions: the `r3n3r0/homebrew-tap` repository with the
-`HOMEBREW_TAP_GITHUB_TOKEN` secret, public visibility of the ghcr.io packages (private on first publication). The
+`HOMEBREW_TAP_GITHUB_TOKEN` secret, public visibility of the ghcr.io packages (private on first publication), the
+Docker Hub repositories with the `DOCKERHUB_NAMESPACE` variable and the `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN`
+secrets (optional). The
 toolchain is Go 1.27.2 (docs/security/threat-model.md §10.1): govulncheck finds no reachable vulnerabilities, so trivy
 in the `verify` job has no known standard library vulnerabilities left to report.
