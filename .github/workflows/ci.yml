@@ -408,7 +408,7 @@ jobs:
         run: |
           set -eux
           ls -la dist
-          sha256sum --ignore-missing -c dist/checksums.txt
+          (cd dist && sha256sum --ignore-missing -c checksums.txt)
           for f in dist/*.tar.gz dist/*.zip; do test -f "$f.sbom.json"; done
           ls dist/homebrew/Casks/nexo.rb dist/homebrew/Casks/nexoctl.rb
           dpkg-deb -c dist/nexo_*_amd64.deb

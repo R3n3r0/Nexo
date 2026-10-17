@@ -96,7 +96,11 @@ func TestServerKeepsSlowSharedHTTP2Streams(t *testing.T) {
 			}
 			dials.Add(1)
 			if tc, ok := c.(*net.TCPConn); ok {
-				_ = tc.SetReadBuffer(16 << 10)
+				// Above the loopback MSS (64 KiB): a receive window
+				// below one MSS leaves the server to zero window
+				// probes, whose backoff stalls the connection for
+				// seconds on some kernels.
+				_ = tc.SetReadBuffer(128 << 10)
 			}
 			return &throttledConn{Conn: c, rate: rate, start: time.Now()}, nil
 		}}}
