@@ -90,17 +90,13 @@ func TestServerKeepsSlowSharedHTTP2Streams(t *testing.T) {
 	protocols.SetUnencryptedHTTP2(true)
 	client := &http.Client{Transport: &http.Transport{Protocols: &protocols,
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			c, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+			c, err := (&net.Dialer{Control: realMSS}).DialContext(ctx, network, addr)
 			if err != nil {
 				return nil, err
 			}
 			dials.Add(1)
 			if tc, ok := c.(*net.TCPConn); ok {
-				// Above the loopback MSS (64 KiB): a receive window
-				// below one MSS leaves the server to zero window
-				// probes, whose backoff stalls the connection for
-				// seconds on some kernels.
-				_ = tc.SetReadBuffer(128 << 10)
+				_ = tc.SetReadBuffer(16 << 10)
 			}
 			return &throttledConn{Conn: c, rate: rate, start: time.Now()}, nil
 		}}}
