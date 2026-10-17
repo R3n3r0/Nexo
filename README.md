@@ -12,6 +12,12 @@
 administration. The same binary runs on one drive, on multiple drives with erasure coding and as a
 multi-node cluster, with no external metadata database.
 
+<p align="center">
+  <img src="docs/images/demo.gif" alt="Demo of the Nexo console: sign in, create a versioned bucket, upload photos, preview one and create a share link" width="960">
+</p>
+
+<sub>Sign in, a versioned bucket, an upload, a preview and a share link in the web console (recorded with `make demo-gif`).</sub>
+
 - **S3 API**: SigV4, buckets, objects, multipart, versioning, Object Lock, lifecycle, notifications, CORS,
   checksums, SSE-S3/SSE-KMS/SSE-C encryption, presigned URLs and POST policies; passes all 451 applicable tests
   of the Ceph `s3-tests` suite and the 638 of MinIO's `mint` SDK suites, on single drive, multiple drives and

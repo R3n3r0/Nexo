@@ -12,6 +12,12 @@
 l'amministrazione. Lo stesso binario gira su un disco, su più dischi con erasure coding e in cluster
 multi-nodo, senza database di metadati esterni.
 
+<p align="center">
+  <img src="docs/images/demo.gif" alt="Demo della console di Nexo: accesso, creazione di un bucket con versioning, caricamento di foto, anteprima e link di condivisione" width="960">
+</p>
+
+<sub>Accesso, un bucket con versioning, un caricamento, un'anteprima e un link di condivisione nella console web (registrata con `make demo-gif`).</sub>
+
 - **API S3**: SigV4, bucket, oggetti, multipart, versioning, Object Lock, lifecycle, notifiche, CORS,
   checksum, cifratura SSE-S3/SSE-KMS/SSE-C, URL presigned e POST policy; superati tutti i 451 test applicabili
   della suite Ceph `s3-tests` e i 638 delle suite SDK di MinIO `mint`, in singolo disco, più dischi e cluster.

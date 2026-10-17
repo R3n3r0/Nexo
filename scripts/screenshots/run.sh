@@ -96,7 +96,7 @@ pids+=("$!")
 sleep "$traffic_seconds"
 
 echo "screenshots: capturing into $out"
-(cd "$repo/web" && SCREENSHOTS_DIR="$out" npx playwright test -c screenshots/playwright.config.ts)
+(cd "$repo/web" && SCREENSHOTS_DIR="$out" npx playwright test -c screenshots/playwright.config.ts screenshots.spec.ts)
 
 if command -v pngquant >/dev/null; then
   pngquant --force --skip-if-larger --strip --quality 70-92 --speed 1 --ext .png "$out"/*.png || true

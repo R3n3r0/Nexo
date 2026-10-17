@@ -62,7 +62,7 @@ export CGO_ENABLED ?= 0
 .PHONY: all build publish-images build-go build-web build-embedded e2e test test-race test-integration test-cluster test-compose test-proxy test-s3compat test-mint test-upgrade bench-rpc lint web-lint \
         web-test generate fmt clean run-single run-snmd run-cluster docker docker-nexoctl help security fuzz bench \
         release-tools release-check release-snapshot release-smoke helm-lint systemd-verify hadolint packaging \
-        docs docs-check docs-api docs-tools docs-site traceability traceability-check dco zap-scan screenshots
+        docs docs-check docs-api docs-tools docs-site traceability traceability-check dco zap-scan screenshots demo-gif
 
 all: build
 
@@ -184,6 +184,11 @@ e2e:
 screenshots:
 	$(MAKE) build VERSION=$$(git describe --tags --always 2>/dev/null || echo dev)
 	scripts/screenshots/run.sh
+
+## demo-gif: record the demo animation of the README (docs/images/demo.gif) against a seeded demo deployment (needs ffmpeg)
+demo-gif:
+	$(MAKE) build VERSION=$$(git describe --tags --abbrev=0 2>/dev/null || echo dev)
+	scripts/screenshots/demo.sh
 
 ## generate: run go generate (mocks via mockery)
 generate:
