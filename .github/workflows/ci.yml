@@ -409,7 +409,11 @@ jobs:
           set -eux
           ls -la dist
           (cd dist && sha256sum --ignore-missing -c checksums.txt)
-          for f in dist/*.tar.gz dist/*.zip; do test -f "$f.sbom.json"; done
+          # One SBOM per binary archive (the source archive has none).
+          for f in dist/*.tar.gz dist/*.zip; do
+            case "$f" in *_source.tar.gz) continue ;; esac
+            test -f "$f.sbom.json"
+          done
           ls dist/homebrew/Casks/nexo.rb dist/homebrew/Casks/nexoctl.rb
           dpkg-deb -c dist/nexo_*_amd64.deb
           dpkg-deb -c dist/nexoctl_*_amd64.deb
