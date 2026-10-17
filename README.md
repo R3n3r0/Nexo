@@ -2,6 +2,11 @@
 
 **English** | [Italiano](README.it.md)
 
+[![CI](https://github.com/R3n3r0/Nexo/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/R3n3r0/Nexo/actions/workflows/ci.yml)
+[![Documentation](https://img.shields.io/badge/docs-r3n3r0.github.io%2FNexo-blue)](https://r3n3r0.github.io/Nexo/)
+[![Docker Hub](https://img.shields.io/docker/pulls/paolor/nexo?label=docker%20pulls)](https://hub.docker.com/r/paolor/nexo)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-green)](LICENSE)
+
 **Nexo** is an object store compatible with the **Amazon S3** API, written in Go. A single binary
 (`nexo`) contains the S3 server, the Admin API and the web console; `nexoctl` is the CLI for data and
 administration. The same binary runs on one drive, on multiple drives with erasure coding and as a
@@ -118,9 +123,12 @@ Any S3 client works with the endpoint `http://localhost:9000` and the same crede
 
 ## Documentation
 
-The **user documentation** is in [`docs/user`](docs/user/README.md), in English with an Italian translation
-next to every page (`<page>.it.md`; also at
-<https://github.com/R3n3r0/Nexo/tree/main/docs/user>, for those reading this file from a release archive):
+**📖 Documentation site: <https://r3n3r0.github.io/Nexo/>** (Italian: <https://r3n3r0.github.io/Nexo/it/>), with
+search, the CLI reference and the Admin API.
+
+The same pages are in [`docs/user`](docs/user/README.md), in English with an Italian translation next to every
+page (`<page>.it.md`; also at <https://github.com/R3n3r0/Nexo/tree/main/docs/user>, for those reading this file
+from a release archive):
 
 | | |
 |---|---|

@@ -11,6 +11,7 @@ on:
       - docs/user/**
       - docs/requirements.txt
       - mkdocs.yml
+      - docs/overrides/**
       - api/openapi.yaml
       - cmd/nexoctl/**
       - internal/cli/**
