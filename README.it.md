@@ -31,6 +31,10 @@ multi-nodo, senza database di metadati esterni.
 - **Operatività**: console web, metriche Prometheus con dashboard Grafana e alert pronti, trace e log in
   tempo reale, OpenTelemetry, pacchetti deb/rpm, Homebrew, immagini Docker, Helm chart, unit systemd.
 
+**Arrivi da MinIO?** Segui la [guida alla migrazione](https://r3n3r0.github.io/Nexo/it/migrate-from-minio/) (ogni versione,
+policy e utenti, verificata con `nexoctl diff`). **Stai scegliendo uno storage?** Vedi il [confronto](https://r3n3r0.github.io/Nexo/it/comparison/)
+con MinIO, SeaweedFS, Garage e Ceph RGW, compreso quando è meglio un altro progetto.
+
 ## Screenshot
 
 <picture>

@@ -80,10 +80,12 @@ plugins:
                   name: Tema chiaro
           nav_translations:
             Introduction: Introduzione
+            How Nexo compares: Confronto con le alternative
             Getting started: Per iniziare
             Installation: Installazione
             Deployment modes: Modalità di deployment
             Configuration: Configurazione
+            Migrating from MinIO: Migrare da MinIO
             Operations: Operazioni
             Monitoring: Monitoraggio
             Trace, logs and audit: Trace, log e audit
@@ -127,11 +129,13 @@ not_in_nav: |
 
 nav:
   - Introduction: README.md
+  - How Nexo compares: comparison.md
   - Getting started:
       - Quickstart: quickstart.md
       - Installation: installation.md
       - Deployment modes: deployment-modes.md
       - Configuration: configuration.md
+      - Migrating from MinIO: migrate-from-minio.md
   - Operations:
       - Monitoring: operations/monitoring.md
       - Trace, logs and audit: operations/trace-log-audit.md

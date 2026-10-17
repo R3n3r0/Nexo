@@ -32,6 +32,10 @@ multi-node cluster, with no external metadata database.
 - **Operations**: web console, Prometheus metrics with ready-made Grafana dashboard and alerts, real-time
   trace and logs, OpenTelemetry, deb/rpm packages, Homebrew, Docker images, Helm chart, systemd unit.
 
+**Coming from MinIO?** Follow the [migration guide](https://r3n3r0.github.io/Nexo/migrate-from-minio/) (every version, policies
+and users, verified with `nexoctl diff`). **Choosing a store?** See [how Nexo compares](https://r3n3r0.github.io/Nexo/comparison/)
+with MinIO, SeaweedFS, Garage and Ceph RGW, including where another project fits better.
+
 ## Screenshots
 
 <picture>
