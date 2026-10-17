@@ -59,7 +59,7 @@ REDOCLY_VERSION     ?= 2.56.1
 
 export CGO_ENABLED ?= 0
 
-.PHONY: all build build-go build-web build-embedded e2e test test-race test-integration test-cluster test-compose test-proxy test-s3compat test-mint test-upgrade bench-rpc lint web-lint \
+.PHONY: all build publish-images build-go build-web build-embedded e2e test test-race test-integration test-cluster test-compose test-proxy test-s3compat test-mint test-upgrade bench-rpc lint web-lint \
         web-test generate fmt clean run-single run-snmd run-cluster docker docker-nexoctl help security fuzz bench \
         release-tools release-check release-snapshot release-smoke helm-lint systemd-verify hadolint packaging \
         docs docs-check docs-api docs-tools docs-site traceability traceability-check dco zap-scan screenshots
@@ -285,6 +285,10 @@ release-tools:
 ## release-check: validate .goreleaser.yaml (goreleaser check)
 release-check:
 	$(GORELEASER) check
+
+## publish-images: build the multi-arch nexo and nexoctl images locally and push them to ghcr.io and/or Docker Hub with the credentials in the environment (GHCR_USERNAME/GHCR_TOKEN, DOCKERHUB_USERNAME/DOCKERHUB_TOKEN; see scripts/publish-images.sh)
+publish-images:
+	scripts/publish-images.sh
 
 ## release-snapshot: build the whole release locally in dist/ without publishing (binaries for every OS/arch with the console, archives, deb/rpm, checksums, SBOMs, Homebrew casks); RELEASE_SKIP=docker,sign by default
 release-snapshot:

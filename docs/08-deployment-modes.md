@@ -335,6 +335,24 @@ private, and an organization may not let its members create repositories), creat
 settings → Personal access tokens), then the variable and the two secrets above. The ghcr.io packages stay the
 reference: the Helm chart is published only to `oci://ghcr.io/r3n3r0/charts`.
 
+
+#### Publishing from a workstation
+
+`make publish-images` (`scripts/publish-images.sh`) builds the multi-arch `nexo` and `nexoctl` images with
+`docker buildx` and pushes them without a tag-driven release. It reads the credentials from the environment and
+pushes to every registry that has them: `GHCR_USERNAME`/`GHCR_TOKEN` (a token with `write:packages`) for ghcr.io and
+`DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` for Docker Hub; `GHCR_NAMESPACE` and `DOCKERHUB_NAMESPACE` override the
+namespace. `VERSION` defaults to `git describe` (a dirty tree is refused), a plain `vX.Y.Z` also gets `:vX.Y` and
+`:latest` (`LATEST=false` to skip), `PLATFORMS` defaults to `linux/amd64,linux/arm64`, `SIGN=true` signs the digests
+with cosign and `DRY_RUN=true` builds for the local platform only, without pushing. Images are built from source
+with the repository Dockerfiles, with SBOM and provenance attestations.
+
+```bash
+export DOCKERHUB_USERNAME=r3n3r0 DOCKERHUB_TOKEN=dckr_pat_...
+export GHCR_USERNAME=R3n3r0 GHCR_TOKEN=ghp_...
+VERSION=v1.0.0 make publish-images
+```
+
 ### Reproducing and checking locally (without publishing)
 
 | Command | What it does |
