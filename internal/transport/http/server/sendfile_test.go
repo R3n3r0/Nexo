@@ -94,7 +94,10 @@ func slowClient(t *testing.T, addr string, piece int, pause time.Duration) (int6
 	conn, err := net.Dial("tcp", addr)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
-	require.NoError(t, conn.(*net.TCPConn).SetReadBuffer(16<<10))
+	// Small, but several times the loopback MSS (64 KiB): a receive
+	// window below one MSS leaves the sender to zero window probes, whose
+	// backoff stalls the transfer for seconds on some kernels.
+	require.NoError(t, conn.(*net.TCPConn).SetReadBuffer(256<<10))
 	_, err = io.WriteString(conn, "GET /file HTTP/1.1\r\nHost: test\r\n\r\n")
 	require.NoError(t, err)
 	resp, err := http.ReadResponse(bufio.NewReaderSize(conn, 4<<10), nil)
