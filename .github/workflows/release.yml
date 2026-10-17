@@ -249,15 +249,19 @@ jobs:
         run: |
           set -eux
           version="${GITHUB_REF_NAME#v}"
-          mkdir -p smoke
+          # Each archive in its own directory, the binaries next to each
+          # other in smoke/ (an extraction directory named smoke/nexo would
+          # shadow the nexo binary).
+          mkdir -p smoke extract
           for name in nexo nexoctl; do
             archive="dist/${name}_${version}_${{ matrix.platform }}"
             if [ -f "$archive.zip" ]; then
-              unzip -o -q "$archive.zip" -d "smoke/$name"
+              unzip -o -q "$archive.zip" -d "extract/$name"
             else
-              mkdir -p "smoke/$name" && tar -xzf "$archive.tar.gz" -C "smoke/$name"
+              mkdir -p "extract/$name" && tar -xzf "$archive.tar.gz" -C "extract/$name"
             fi
-            cp smoke/$name/$name* smoke/
+            cp extract/$name/$name extract/$name/$name.exe smoke/ 2>/dev/null || true
+            test -f "smoke/$name" || test -f "smoke/$name.exe"
           done
           ls -la smoke
 
