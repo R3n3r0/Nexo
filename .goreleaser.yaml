@@ -377,7 +377,7 @@ dockers_v2:
     dockerfile: deploy/docker/Dockerfile.goreleaser
     extra_files: [LICENSE, NOTICE, COMMERCIAL-LICENSE.md]
     images:
-      - 'docker.io/{{ tolower (envOrDefault "DOCKERHUB_NAMESPACE" "paolor") }}/nexo'
+      - 'docker.io/{{ tolower (or (envOrDefault "DOCKERHUB_NAMESPACE" "") "paolor") }}/nexo'
     tags:
       - "{{ .Tag }}"
       - '{{ if not .Prerelease }}v{{ .Major }}.{{ .Minor }}{{ end }}'
@@ -404,7 +404,7 @@ dockers_v2:
     dockerfile: deploy/docker/Dockerfile.nexoctl.goreleaser
     extra_files: [LICENSE, NOTICE, COMMERCIAL-LICENSE.md]
     images:
-      - 'docker.io/{{ tolower (envOrDefault "DOCKERHUB_NAMESPACE" "paolor") }}/nexoctl'
+      - 'docker.io/{{ tolower (or (envOrDefault "DOCKERHUB_NAMESPACE" "") "paolor") }}/nexoctl'
     tags:
       - "{{ .Tag }}"
       - '{{ if not .Prerelease }}v{{ .Major }}.{{ .Minor }}{{ end }}'
@@ -517,17 +517,17 @@ release:
     sha256sum --ignore-missing -c checksums.txt
 
     # images (multi-arch index, SBOM and provenance attestations)
-    cosign verify docker.io/{{ tolower (envOrDefault "DOCKERHUB_NAMESPACE" "paolor") }}/nexo:{{ .Tag }} \
+    cosign verify docker.io/{{ tolower (or (envOrDefault "DOCKERHUB_NAMESPACE" "") "paolor") }}/nexo:{{ .Tag }} \
       --certificate-identity 'https://github.com/R3n3r0/Nexo/.github/workflows/release.yml@refs/tags/{{ .Tag }}' \
       --certificate-oidc-issuer https://token.actions.githubusercontent.com
-    docker buildx imagetools inspect docker.io/{{ tolower (envOrDefault "DOCKERHUB_NAMESPACE" "paolor") }}/nexo:{{ .Tag }} --format '{{ "{{" }} json .SBOM {{ "}}" }}'
+    docker buildx imagetools inspect docker.io/{{ tolower (or (envOrDefault "DOCKERHUB_NAMESPACE" "") "paolor") }}/nexo:{{ .Tag }} --format '{{ "{{" }} json .SBOM {{ "}}" }}'
     ```
 
     ## Install
 
     ```sh
-    docker pull {{ tolower (envOrDefault "DOCKERHUB_NAMESPACE" "paolor") }}/nexo:{{ .Tag }}
-    docker pull {{ tolower (envOrDefault "DOCKERHUB_NAMESPACE" "paolor") }}/nexoctl:{{ .Tag }}
+    docker pull {{ tolower (or (envOrDefault "DOCKERHUB_NAMESPACE" "") "paolor") }}/nexo:{{ .Tag }}
+    docker pull {{ tolower (or (envOrDefault "DOCKERHUB_NAMESPACE" "") "paolor") }}/nexoctl:{{ .Tag }}
     # Helm chart attached to this release (signature: nexo-{{ .Version }}.tgz.sigstore.json)
     helm install nexo https://github.com/R3n3r0/Nexo/releases/download/{{ .Tag }}/nexo-{{ .Version }}.tgz
     ```

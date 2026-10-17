@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # Builds the multi-arch nexo and nexoctl images on this machine and pushes them
-# to GitHub Container Registry and/or Docker Hub, using credentials from the
-# environment. Use it when you want to publish without a tag-driven release.
+# to Docker Hub (the only registry of the Nexo images), using credentials from
+# the environment. Use it when you want to publish without a tag-driven
+# release.
 #
-#   VERSION=v1.0.0 scripts/publish-images.sh
+#   DOCKERHUB_USERNAME=paolor DOCKERHUB_TOKEN=dckr_pat_... VERSION=v1.0.0 scripts/publish-images.sh
 #
-# Registries (each one is used only when its credentials are set):
-#   GHCR_USERNAME, GHCR_TOKEN            ghcr.io (token with write:packages)
-#   GHCR_NAMESPACE                       default: GHCR_USERNAME, lowercased
-#   DOCKERHUB_USERNAME, DOCKERHUB_TOKEN  docker.io (access token, Read & Write)
-#   DOCKERHUB_NAMESPACE                  default: DOCKERHUB_USERNAME, lowercased
+# Docker Hub:
+#   DOCKERHUB_USERNAME, DOCKERHUB_TOKEN  required unless DRY_RUN=true (access
+#                                        token with Read & Write scope)
+#   DOCKERHUB_NAMESPACE                  default: paolor (lowercased); images
+#                                        docker.io/<namespace>/nexo and nexoctl
 #
 # Options:
 #   VERSION     image tag; default: git describe (v1.2.3, v1.2.3-4-gabcdef)
@@ -19,7 +20,8 @@
 #               vX.Y.Z version, false otherwise)
 #   SIGN        "true" signs the pushed digests with cosign (keyless or
 #               COSIGN_KEY); default: false
-#   DRY_RUN     "true" builds for the local platform without pushing
+#   DRY_RUN     "true" builds for the local platform without logging in or
+#               pushing
 #
 # Requirements: docker with the buildx plugin (and QEMU binfmt for foreign
 # platforms: docker run --privileged --rm tonistiigi/binfmt --install all).
@@ -47,30 +49,23 @@ if [[ -z ${LATEST:-} ]]; then
 	if [[ $VERSION =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then LATEST=true; else LATEST=false; fi
 fi
 
-# Repositories to push to, one per configured registry.
-repos=()
-if [[ -n ${GHCR_USERNAME:-} && -n ${GHCR_TOKEN:-} ]]; then
-	repos+=("ghcr.io/$(lower "${GHCR_NAMESPACE:-$GHCR_USERNAME}")")
-	[[ $DRY_RUN == true ]] || printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
+# Docker Hub repository prefix of the images.
+NAMESPACE=$(lower "${DOCKERHUB_NAMESPACE:-paolor}")
+[[ -n $NAMESPACE ]] || NAMESPACE=paolor
+repo="docker.io/$NAMESPACE"
+if [[ $DRY_RUN != true ]]; then
+	[[ -n ${DOCKERHUB_USERNAME:-} && -n ${DOCKERHUB_TOKEN:-} ]] ||
+		die "DOCKERHUB_USERNAME and DOCKERHUB_TOKEN are required to push to Docker Hub (or set DRY_RUN=true)"
+	printf '%s' "$DOCKERHUB_TOKEN" | docker login docker.io -u "$DOCKERHUB_USERNAME" --password-stdin
 fi
-if [[ -n ${DOCKERHUB_USERNAME:-} && -n ${DOCKERHUB_TOKEN:-} ]]; then
-	repos+=("docker.io/$(lower "${DOCKERHUB_NAMESPACE:-$DOCKERHUB_USERNAME}")")
-	[[ $DRY_RUN == true ]] || printf '%s' "$DOCKERHUB_TOKEN" | docker login docker.io -u "$DOCKERHUB_USERNAME" --password-stdin
-fi
-if [[ ${#repos[@]} -eq 0 && $DRY_RUN != true ]]; then
-	die "no registry configured: set GHCR_USERNAME/GHCR_TOKEN and/or DOCKERHUB_USERNAME/DOCKERHUB_TOKEN"
-fi
-[[ ${#repos[@]} -gt 0 ]] || repos=("local")
 
-tags_for() { # image -> one --tag per repository and tag
-	local image=$1 repo
-	for repo in "${repos[@]}"; do
-		echo "--tag=$repo/$image:$VERSION"
-		if [[ $LATEST == true ]]; then
-			echo "--tag=$repo/$image:latest"
-			echo "--tag=$repo/$image:${VERSION%.*}"
-		fi
-	done
+tags_for() { # image -> one --tag per tag
+	local image=$1
+	echo "--tag=$repo/$image:$VERSION"
+	if [[ $LATEST == true ]]; then
+		echo "--tag=$repo/$image:latest"
+		echo "--tag=$repo/$image:${VERSION%.*}"
+	fi
 }
 
 mkdir -p bin
@@ -79,7 +74,7 @@ docker buildx inspect "$builder" >/dev/null 2>&1 ||
 	docker buildx create --name "$builder" --driver docker-container >/dev/null
 
 echo "publish-images: version $VERSION ($COMMIT), platforms $PLATFORMS"
-echo "publish-images: repositories ${repos[*]}"
+echo "publish-images: repository $repo (Docker Hub)"
 
 for image in $IMAGES; do
 	case $image in
@@ -107,14 +102,13 @@ for image in $IMAGES; do
 	if [[ $DRY_RUN != true && $SIGN == true ]]; then
 		command -v cosign >/dev/null || die "SIGN=true needs cosign"
 		digest=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["containerimage.digest"])' "bin/publish-$image.json")
-		for repo in "${repos[@]}"; do
-			cosign sign --yes "$repo/$image@$digest"
-		done
+		cosign sign --yes "$repo/$image@$digest"
 	fi
 done
 
+if [[ $DRY_RUN == true ]]; then
+	echo "publish-images: done (dry run, loaded locally, nothing pushed)"
+	exit 0
+fi
 echo "publish-images: done"
-for repo in "${repos[@]}"; do
-	[[ $repo == local ]] && continue
-	for image in $IMAGES; do echo "  docker pull $repo/$image:$VERSION"; done
-done
+for image in $IMAGES; do echo "  docker pull $repo/$image:$VERSION"; done

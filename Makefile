@@ -286,7 +286,7 @@ release-tools:
 release-check:
 	$(GORELEASER) check
 
-## publish-images: build the multi-arch nexo and nexoctl images locally and push them to ghcr.io and/or Docker Hub with the credentials in the environment (GHCR_USERNAME/GHCR_TOKEN, DOCKERHUB_USERNAME/DOCKERHUB_TOKEN; see scripts/publish-images.sh)
+## publish-images: build the multi-arch nexo and nexoctl images locally and push them to Docker Hub (docker.io/paolor, or DOCKERHUB_NAMESPACE) with DOCKERHUB_USERNAME/DOCKERHUB_TOKEN from the environment (see scripts/publish-images.sh)
 publish-images:
 	scripts/publish-images.sh
 

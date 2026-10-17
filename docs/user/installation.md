@@ -78,25 +78,23 @@ by Apple (the cask removes the quarantine attribute).
 
 | Image | Contents |
 |-------|----------|
-| `ghcr.io/r3n3r0/nexo` | `/nexo` and `/nexoctl`, distroless base, non-root user (UID 65532), `VOLUME /data`, ports 9000 and 9001, `HEALTHCHECK` with `nexo healthcheck` |
-| `ghcr.io/r3n3r0/nexoctl` | the CLI only, for CI pipelines and use from containers |
+| `paolor/nexo` | `/nexo` and `/nexoctl`, distroless base, non-root user (UID 65532), `VOLUME /data`, ports 9000 and 9001, `HEALTHCHECK` with `nexo healthcheck` |
+| `paolor/nexoctl` | the CLI only, for CI pipelines and use from containers |
 
 Tags: `vX.Y.Z`, plus `vX.Y` and `latest` for final releases. The images are multi-arch (linux/amd64,
 linux/arm64), signed with cosign and carry SBOM and provenance attestations.
 
-The same images are also published on Docker Hub as `docker.io/r3n3r0/nexo` and `docker.io/r3n3r0/nexoctl`
-(same tags and digests, signatures and attestations included), for environments that only pull from Docker Hub or
-mirror it. Pull from either registry; the examples below use ghcr.io:
+The images are published on Docker Hub only (`docker.io/paolor/nexo` and `docker.io/paolor/nexoctl`; `paolor/nexo`
+is the short form):
 
 ```bash
-docker pull ghcr.io/r3n3r0/nexo:latest     # GitHub Container Registry
-docker pull r3n3r0/nexo:latest             # Docker Hub (docker.io/r3n3r0/nexo)
+docker pull paolor/nexo:latest
 ```
 
 ```bash
 docker run -d --name nexo -p 9000:9000 -p 9001:9001 \
   -e NEXO_ROOT_USER=admin -e NEXO_ROOT_PASSWORD=supersecret \
-  -v nexo-data:/data ghcr.io/r3n3r0/nexo:latest server /data
+  -v nexo-data:/data paolor/nexo:latest server /data
 ```
 
 - **Secrets**: `NEXO_ROOT_USER_FILE` and `NEXO_ROOT_PASSWORD_FILE` read the credentials from files (Docker or
@@ -105,11 +103,11 @@ docker run -d --name nexo -p 9000:9000 -p 9001:9001 \
 - **Host volumes**: the container runs as UID 65532, so a mounted directory must belong to it:
   `sudo chown 65532:65532 /srv/nexo` before `-v /srv/nexo:/data`. Named volumes need nothing.
 - **Multiple drives**: one volume per drive and ellipses in the arguments:
-  `-v /mnt/d1:/data1 … -v /mnt/d4:/data4 ghcr.io/r3n3r0/nexo server /data{1...4}`.
+  `-v /mnt/d1:/data1 … -v /mnt/d4:/data4 paolor/nexo server /data{1...4}`.
 - **TLS**: mount the certificates directory and set `NEXO_CERTS_DIR`; the healthcheck switches to
   HTTPS as well (see [TLS and certificates](security/tls.md)).
 - **CLI from a container**:
-  `docker run --rm -it --network host -v nexoctl-config:/home/nonroot/.nexoctl ghcr.io/r3n3r0/nexoctl ls local`.
+  `docker run --rm -it --network host -v nexoctl-config:/home/nonroot/.nexoctl paolor/nexoctl ls local`.
 
 To build the images from source: `make docker` and `make docker-nexoctl`.
 
@@ -141,12 +139,20 @@ The published ports are changed with `NEXO_S3_PORT` and `NEXO_CONSOLE_PORT`, the
 The chart [`deploy/helm/nexo`](https://github.com/R3n3r0/Nexo/tree/main/deploy/helm/nexo) (Kubernetes
 ≥ 1.27) has two modes:
 
+The packaged chart `nexo-X.Y.Z.tgz` is attached to every
+[GitHub release](https://github.com/R3n3r0/Nexo/releases), signed with cosign (`nexo-X.Y.Z.tgz.sigstore.json`,
+see [Verifying a release](https://github.com/R3n3r0/Nexo/blob/main/docs/08-deployment-modes.md)); Helm installs it
+straight from the URL:
+
 ```bash
+TAG=v1.0.0
+CHART="https://github.com/R3n3r0/Nexo/releases/download/$TAG/nexo-${TAG#v}.tgz"
+
 # standalone: one Deployment, one PVC per drive (1 drive = SNSD, more drives = SNMD)
-helm install nexo oci://ghcr.io/r3n3r0/charts/nexo -n storage --create-namespace
+helm install nexo "$CHART" -n storage --create-namespace
 
 # distributed: StatefulSet of 4 pods × 4 drives of 100 GiB, one pod per Kubernetes node
-helm install nexo oci://ghcr.io/r3n3r0/charts/nexo -n storage --create-namespace \
+helm install nexo "$CHART" -n storage --create-namespace \
   --set mode=distributed --set distributed.replicas=4 --set distributed.drivesPerNode=4 \
   --set persistence.size=100Gi --set podAntiAffinity=hard
 
