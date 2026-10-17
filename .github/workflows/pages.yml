@@ -1,0 +1,77 @@
+# Publishes the user documentation site (mkdocs.yml, docs/user: English at /,
+# Italian at /it/, plus the Admin API reference) to GitHub Pages on every push
+# to main that touches it. One-time setup: Settings -> Pages -> Build and
+# deployment -> Source: "GitHub Actions".
+name: Docs site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docs/user/**
+      - docs/requirements.txt
+      - mkdocs.yml
+      - api/openapi.yaml
+      - cmd/nexoctl/**
+      - internal/cli/**
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the site
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: docs/requirements.txt
+
+      # make docs-site regenerates the CLI reference, runs mkdocs build --strict
+      # and renders the Admin API page; the pinned tools of docs/requirements.txt
+      # are installed globally here instead of in bin/docs-venv.
+      - name: Build (make docs-site)
+        env:
+          NO_MKDOCS_2_WARNING: "1"
+        run: |
+          python3 -m pip install --disable-pip-version-check -r docs/requirements.txt
+          make docs-site MKDOCS=mkdocs
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: bin/site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

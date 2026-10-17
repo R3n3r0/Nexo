@@ -12,6 +12,7 @@
 # English one in the Italian site.
 site_name: Nexo
 site_description: User documentation of Nexo, an S3-compatible object store
+site_url: https://r3n3r0.github.io/Nexo/
 repo_url: https://github.com/R3n3r0/Nexo
 repo_name: R3n3r0/Nexo
 edit_uri: edit/main/docs/user/
