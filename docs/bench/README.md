@@ -158,6 +158,22 @@ nexoctl admin speedtest --size 16MiB --duration 5s --concurrency 8 ALIAS object
 benchmark leaves in `bin/bench/<mode>` the text output (`<bench>.txt`), the raw data (`warp-*.json.zst`, to be reread
 with `warp analyze`), `summary.txt` and, with `PROFILE=1`, `<bench>.cpu.pb.gz`.
 
+### Comparing with another S3 server
+
+`scripts/bench/warp-compare.sh` runs the same benchmarks (`put`, `get`, `mixed`, optionally `list`) against several
+endpoints, one after the other, and writes a Markdown table (`bin/bench/compare/results.md`):
+
+```sh
+# servers already running, ideally on identical machines and drives
+scripts/bench/warp-compare.sh nexo=http://10.0.0.5:9000,admin,SECRET minio=http://10.0.0.6:9000,minioadmin,SECRET
+# or both started locally, one at a time, on the same DRIVES directories
+MINIO_BIN=/usr/local/bin/minio DRIVES=4 DURATION=60s scripts/bench/warp-compare.sh --local
+```
+
+Parameters (`DURATION`, `CONCURRENCY`, `SIZE`, `OBJECTS`, `MIXED_SIZE`, ...) are listed at the top of the script. For
+numbers worth publishing, run the servers on separate machines from the client, with the same drives and the same
+erasure layout, and repeat each run: one short run on a laptop measures noise.
+
 ## 7. O_DIRECT and zero-copy (T-9.2, October 2026)
 
 Two optimizations of the data path evaluated on the same VM (§1, Go 1.27.2), measured before and after with the
