@@ -82,6 +82,13 @@ linters:
               desc: use erasure.Codec (internal/service/erasure)
             - pkg: github.com/minio/highwayhash
               desc: use erasure.Codec bitrot readers/writers (internal/service/erasure)
+        mp4-only-in-media:
+          files:
+            - "$all"
+            - "!**/internal/service/media/**"
+          deny:
+            - pkg: github.com/Eyevinn/mp4ff
+              desc: use media.Service (internal/service/media)
   exclusions:
     # Third-party Go sources shipped inside npm packages are not ours.
     paths:

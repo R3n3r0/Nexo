@@ -234,6 +234,10 @@ packages:
   github.com/r3n3r0/nexo/internal/service/share:
     interfaces:
       Service:
+  github.com/r3n3r0/nexo/internal/service/media:
+    interfaces:
+      Links:
+      Service:
   github.com/r3n3r0/nexo/internal/service/settings:
     interfaces:
       Service:
