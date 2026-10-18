@@ -43,6 +43,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/kms"
 	"github.com/r3n3r0/nexo/internal/service/lock"
 	"github.com/r3n3r0/nexo/internal/service/logs"
+	"github.com/r3n3r0/nexo/internal/service/media"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
@@ -586,8 +587,9 @@ type requestLimits struct {
 
 // s3Limits returns the limit middlewares of the S3 listener. The health
 // probes, the metrics scrapes and the internode RPC (the reserved "/nexo/"
-// paths, outside the virtual hosts) are exempt, and so are the website
-// distributions, limited by their own rate limit in the host router.
+// paths but the video streams, outside the virtual hosts) are exempt, and
+// so are the website distributions, limited by their own rate limit in the
+// host router.
 func s3Limits(d middlewareDeps) (requestLimits, error) {
 	var out requestLimits
 	if d.limiter == nil {
@@ -599,7 +601,7 @@ func s3Limits(d middlewareDeps) (requestLimits, error) {
 		website = dist.WebsiteRequest(d.dist.s3Routes)
 	}
 	exempt := func(r *http.Request) bool {
-		if strings.HasPrefix(r.URL.Path, domain.SystemPathPrefix) && !virtualHost(r) {
+		if strings.HasPrefix(r.URL.Path, domain.SystemPathPrefix) && !strings.HasPrefix(r.URL.Path, domain.MediaPathPrefix) && !virtualHost(r) {
 			return true
 		}
 		return website != nil && website(r)
@@ -717,6 +719,7 @@ type adminDeps struct {
 	policy   policy.Service
 	buckets  bucket.Service
 	objects  object.Service
+	media    media.Service
 	shares   share.Service
 	config   configsvc.Service
 	// locks exposes the namespace locks of the deployment (diagnostics).
@@ -890,7 +893,7 @@ func buildAdminAPI(d adminDeps) (httpx.Routes, error) {
 	if err != nil {
 		return nil, err
 	}
-	objectRoutes, err := adminhttp.NewObjectRoutes(adminhttp.ObjectDeps{Browser: svc.browser, Uploads: svc.uploads, Authz: svc.authz, Enc: d.codec, Logger: d.logger})
+	objectRoutes, err := adminhttp.NewObjectRoutes(adminhttp.ObjectDeps{Browser: svc.browser, Uploads: svc.uploads, Authz: svc.authz, Media: d.media, Enc: d.codec, Logger: d.logger})
 	if err != nil {
 		return nil, err
 	}

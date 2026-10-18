@@ -120,6 +120,11 @@ type CreateInput struct {
 	ContentType string
 	// VersionID pins an object download to a version.
 	VersionID string
+	// Stream shares a video as an HLS stream: the link is the master
+	// playlist of the object (domain.MediaMasterPath), which the share
+	// signs like a download. Object download shares only, without
+	// overrides.
+	Stream bool
 }
 
 // ListFilter selects shares; empty fields match everything.
@@ -142,8 +147,10 @@ type Share struct {
 	// ContentType and ContentDisposition are the overrides of CreateInput.
 	ContentType        string
 	ContentDisposition string
-	Expires            time.Time
-	CreatedAt          time.Time
+	// Stream is set on the HLS stream shares (CreateInput.Stream).
+	Stream    bool
+	Expires   time.Time
+	CreatedAt time.Time
 	// URL is the presigned URL: GET or PUT of the object for object
 	// shares, a ListObjectsV2 of the prefix for prefix download shares,
 	// empty for prefix upload shares (use Presign).

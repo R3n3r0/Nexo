@@ -304,6 +304,7 @@ packages:
       STSRoutes:
       HealthRoutes:
       MetricsRoutes:
+      MediaRoutes:
       LifecycleRoutes:
       NotificationRoutes:
   github.com/r3n3r0/nexo/internal/transport/http/admin:

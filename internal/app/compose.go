@@ -26,6 +26,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/health"
 	"github.com/r3n3r0/nexo/internal/service/iam"
 	"github.com/r3n3r0/nexo/internal/service/ilm"
+	"github.com/r3n3r0/nexo/internal/service/media"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
@@ -375,6 +376,12 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The HLS presentations of the videos, for the console and the S3
+	// listener (share links).
+	mediaSvc, err := media.New(media.Deps{Objects: objects, Logger: logger.With("component", "media")})
+	if err != nil {
+		return nil, err
+	}
 
 	// Administration and health.
 	build := version.Get()
@@ -458,6 +465,11 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	if err != nil {
 		return nil, err
 	}
+	mediaRoutes, err := s3.NewMediaRoutes(s3.MediaDeps{Media: mediaSvc, Policy: s3Policy, Objects: objects, Signer: signer, Creds: identities,
+		Enc: codec, Clock: d.clock, Logger: logger}, s3.WithRegion(cfg.Region))
+	if err != nil {
+		return nil, err
+	}
 	lifecycleRoutes := s3.NewLifecycleRoutes(s3.LifecycleDeps{Buckets: buckets, Lifecycle: lifecycle, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger},
 		s3.WithDomains(domainsOf(cfg)...), s3.WithHostBuckets(distStack.hostBuckets()))
 	notificationRoutes := s3.NewNotificationRoutes(s3.NotificationDeps{Buckets: buckets, Events: events, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger},
@@ -468,6 +480,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	s3API := s3.NewAPI(s3.APIDeps{Enc: codec, Domains: domainsOf(cfg), HostBuckets: distStack.hostBuckets(), System: []httpx.Routes{
 		s3.NewHealthRoutes(s3.HealthDeps{Health: healthSvc, Enc: codec}),
 		metricsRoutes,
+		mediaRoutes,
 	}, Buckets: buckets, Settings: applied, Logger: logger},
 		s3.NewBucketRoutes(s3.BucketDeps{Buckets: buckets, Objects: objects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger},
 			s3.WithRegion(cfg.Region)),
@@ -507,7 +520,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	adminAPI, err := buildAdminAPI(adminDeps{
 		codec: codec, limiter: limiter, clock: d.clock, logger: logger, region: cfg.Region, s3URL: publicS3URL(cfg),
 		sessions: sessions, verifier: verifier, signer: signer, admin: adminSvc, iam: identities, policy: policies,
-		buckets: buckets, objects: objects, shares: shares, config: dynConfig, locks: f.lockManager, secureCookies: secureConsole(cfg),
+		buckets: buckets, objects: objects, media: mediaSvc, shares: shares, config: dynConfig, locks: f.lockManager, secureCookies: secureConsole(cfg),
 		consoleURL: cfg.BrowserRedirectURL, lifecycle: lifecycle, events: events, kms: keys,
 		accessRules: accessRules, dist: distStack, acmeDirectory: cfg.ACMEDirectory, acmeChallenge: cfg.ACMEChallenge,
 		cache: cacheSvc, diagnostics: newDiagnostics(f, objects, buckets, logger),

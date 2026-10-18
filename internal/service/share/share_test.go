@@ -210,6 +210,36 @@ func TestCreateObjectDownload(t *testing.T) {
 	assert.NotContains(t, string(raw), "secret-of-", "the secret is not persisted with the share")
 }
 
+// TestCreateStream: a stream share signs the HLS master playlist of the
+// object (domain.MediaMasterPath, key and version in the query) with a
+// service account limited to the object, as a download share.
+func TestCreateStream(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t, fixtureOption{})
+	f.expectIAM()
+	calls := f.expectSigner()
+	f.policy.EXPECT().Evaluate(mock.Anything, mock.Anything).Return(policy.Decision{Allowed: true}, nil).Once()
+
+	sh, err := f.svc.Create(ctx, share.CreateInput{
+		Owner: alice(), Bucket: "videos", Key: "talks/intro.mp4", Permission: share.PermissionDownload, Expires: time.Hour, VersionID: "v1", Stream: true,
+	})
+	require.NoError(t, err)
+	assert.True(t, sh.Stream)
+	require.Len(t, *calls, 1)
+	in := (*calls)[0]
+	assert.Equal(t, http.MethodGet, in.Method)
+	assert.Equal(t, "/nexo/media/v1/videos/master.m3u8", in.URL.Path)
+	assert.Equal(t, url.Values{"key": {"talks/intro.mp4"}, "versionId": {"v1"}}, in.URL.Query())
+	assert.Equal(t, &domain.Policy{Version: domain.PolicyVersion, Statement: domain.Statements{{
+		SID: "Share", Effect: domain.Allow,
+		Action:   domain.StringSet{"s3:GetObject", "s3:GetObjectVersion"},
+		Resource: domain.StringSet{"arn:aws:s3:::videos/talks/intro.mp4"},
+	}}}, f.key(sh.AccessKey).Policy)
+	got, err := f.svc.Get(ctx, alice(), sh.ID)
+	require.NoError(t, err)
+	assert.True(t, got.Stream, "persisted")
+}
+
 func TestCreateVariants(t *testing.T) {
 	ctx := context.Background()
 	tests := []struct {
@@ -306,6 +336,9 @@ func TestCreateValidation(t *testing.T) {
 			in.Permission, in.ContentDisposition = share.PermissionUpload, "attachment"
 		}), domain.ErrInvalidArgument},
 		{"version on prefix", with(func(in *share.CreateInput) { in.Prefix, in.VersionID = true, "v1" }), domain.ErrInvalidArgument},
+		{"stream of a prefix", with(func(in *share.CreateInput) { in.Key, in.Prefix, in.Stream = "a/", true, true }), domain.ErrInvalidArgument},
+		{"stream upload", with(func(in *share.CreateInput) { in.Permission, in.Stream = share.PermissionUpload, true }), domain.ErrInvalidArgument},
+		{"stream with overrides", with(func(in *share.CreateInput) { in.ContentType, in.Stream = "video/mp4", true }), domain.ErrInvalidArgument},
 		{"header injection", with(func(in *share.CreateInput) { in.ContentType = "text/plain\r\nX-Evil: 1" }), domain.ErrInvalidArgument},
 		{"long content type", with(func(in *share.CreateInput) { in.ContentType = strings.Repeat("x", 1025) }), domain.ErrInvalidArgument},
 		{"negative expiry", with(func(in *share.CreateInput) { in.Expires = -time.Second }), domain.ErrInvalidArgument},

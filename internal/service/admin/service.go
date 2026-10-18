@@ -1133,6 +1133,8 @@ type CreateShareInput struct {
 	ContentType        string
 	ContentDisposition string
 	VersionID          string
+	// Stream shares a video as an HLS stream (share.CreateInput.Stream).
+	Stream bool
 }
 
 // ListSharesInput are the parameters of ShareManager.List.

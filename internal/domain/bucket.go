@@ -152,6 +152,18 @@ const ReservedBucket = "nexo"
 // NEXO_DOMAIN keep it as an object key of their bucket.
 const SystemPathPrefix = "/" + ReservedBucket + "/"
 
+// MediaPathPrefix is the path prefix of the HLS presentations of the video
+// objects on the S3 port ("/nexo/media/v1/{bucket}/master.m3u8?key=...").
+// Unlike the other system paths they serve object data: the request limits
+// of the S3 API apply to them.
+const MediaPathPrefix = SystemPathPrefix + "media/"
+
+// MediaMasterPath is the path of the HLS master playlist of a video of
+// bucket on the S3 port; the key (and the versionId) go in the query.
+func MediaMasterPath(bucket string) string {
+	return MediaPathPrefix + "v1/" + bucket + "/master.m3u8"
+}
+
 // IsReservedBucket reports whether name cannot be used for a bucket: the
 // system metadata bucket and ReservedBucket. Services refuse such names
 // with ErrInvalidBucketName.

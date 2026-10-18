@@ -15,6 +15,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	adminsvc "github.com/r3n3r0/nexo/internal/service/admin"
+	"github.com/r3n3r0/nexo/internal/service/media"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
@@ -34,7 +35,10 @@ type ObjectDeps struct {
 	// Uploads serves the proxied uploads, single and multipart (required).
 	Uploads adminsvc.UploadManager
 	// Authz authorizes the routes (required).
-	Authz  adminsvc.Authorizer
+	Authz adminsvc.Authorizer
+	// Media packages the videos as HLS (optional: without it the HLS
+	// routes answer 404).
+	Media  media.Service
 	Enc    httpx.Codec
 	Logger *slog.Logger
 }
@@ -84,6 +88,12 @@ func (h *objectRoutes) routes() []route {
 		{http.MethodPut, "/buckets/{bucket}/objects/tags", onObject(policy.ActionPutObjectTagging).orVersion(policy.ActionPutObjectVersionTagging), h.putTags},
 		{http.MethodGet, "/buckets/{bucket}/objects/download", read, h.download},
 		{http.MethodGet, "/buckets/{bucket}/objects/preview", read, h.preview},
+		// The HLS presentation of a video (?key=&versionId=; the URIs of
+		// the master playlist add rev, the ETag they are pinned to).
+		{http.MethodGet, "/buckets/{bucket}/objects/hls/master.m3u8", read, h.hlsMaster()},
+		{http.MethodGet, "/buckets/{bucket}/objects/hls/media.m3u8", read, h.hlsMedia()},
+		{http.MethodGet, "/buckets/{bucket}/objects/hls/init.mp4", read, h.hlsInit()},
+		{http.MethodGet, "/buckets/{bucket}/objects/hls/segment.m4s", read, h.hlsSegment()},
 		{http.MethodPost, zipDownloadPattern, byService(policy.ActionGetObject, policy.ActionListBucket), h.zip},
 		{http.MethodPost, "/buckets/{bucket}/objects/upload", onObject(policy.ActionPutObject), h.upload},
 		// Object Lock and attributes of a version (?key=&versionId=). The

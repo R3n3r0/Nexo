@@ -48,6 +48,7 @@ type record struct {
 	VersionID          string     `json:"versionId,omitempty"`
 	ContentType        string     `json:"contentType,omitempty"`
 	ContentDisposition string     `json:"contentDisposition,omitempty"`
+	Stream             bool       `json:"stream,omitempty"`
 	Expires            time.Time  `json:"expires"`
 	CreatedAt          time.Time  `json:"createdAt"`
 	URL                string     `json:"url,omitempty"`
@@ -62,7 +63,7 @@ func (r *record) toShare() *Share {
 	return &Share{
 		ID: r.ID, Owner: r.Owner, Bucket: r.Bucket, Key: r.Key, Prefix: r.Prefix,
 		Permission: r.Permission, VersionID: r.VersionID, ContentType: r.ContentType,
-		ContentDisposition: r.ContentDisposition, Expires: r.Expires, CreatedAt: r.CreatedAt,
+		ContentDisposition: r.ContentDisposition, Stream: r.Stream, Expires: r.Expires, CreatedAt: r.CreatedAt,
 		URL: r.URL, AccessKey: r.AccessKey,
 	}
 }
@@ -160,7 +161,7 @@ func (s *service) Create(ctx context.Context, in CreateInput) (*Share, error) {
 	rec := &record{
 		ID: id, Owner: owner.EffectiveUser(), Bucket: in.Bucket, Key: in.Key, Prefix: in.Prefix,
 		Permission: in.Permission, VersionID: in.VersionID, ContentType: in.ContentType,
-		ContentDisposition: in.ContentDisposition, Expires: now.Add(validity), CreatedAt: now,
+		ContentDisposition: in.ContentDisposition, Stream: in.Stream, Expires: now.Add(validity), CreatedAt: now,
 		AccessKey: accessKeyPrefix + id,
 	}
 	if owner.AccessKey != rec.Owner {
@@ -223,6 +224,9 @@ func validateTarget(in CreateInput) error {
 	}
 	if in.Prefix && (in.VersionID != "" || in.ContentDisposition != "") {
 		return invalidArg("versionId and contentDisposition apply to object shares only")
+	}
+	if in.Stream && (in.Prefix || in.Permission != PermissionDownload || in.ContentType != "" || in.ContentDisposition != "") {
+		return invalidArg("stream applies to object download shares only, without contentType and contentDisposition")
 	}
 	for _, v := range []string{in.ContentType, in.ContentDisposition, in.VersionID} {
 		if len(v) > 1024 || !utf8.ValidString(v) || strings.ContainsAny(v, "\r\n\x00") {
@@ -379,6 +383,12 @@ func (s *service) presign(ctx context.Context, r *record, creds domain.Credentia
 		u.Path += "/" + r.Bucket
 		q.Set("list-type", "2")
 		q.Set("prefix", r.Key)
+	case r.Stream:
+		u.Path += domain.MediaMasterPath(r.Bucket)
+		q.Set("key", key)
+		if r.VersionID != "" {
+			q.Set("versionId", r.VersionID)
+		}
 	default:
 		u.Path += "/" + r.Bucket + "/" + key
 		if r.Permission == PermissionUpload {

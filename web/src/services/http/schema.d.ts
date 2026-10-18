@@ -896,6 +896,128 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/buckets/{bucket}/objects/hls/master.m3u8": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * HLS master playlist of a video
+         * @description The HLS presentation of an MP4 video (H.264 or H.265, optional AAC audio), packaged on
+         *     the fly without transcoding: the playlists and segments reference each other with relative
+         *     URIs pinned to the ETag of the object. Fragmented MP4 and SSE-C objects are refused.
+         */
+        get: operations["hlsMasterPlaylist"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/hls/media.m3u8": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * HLS media playlist of a video
+         * @description The segments of the presentation (VOD).
+         */
+        get: operations["hlsMediaPlaylist"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/hls/init.mp4": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * HLS init segment of a video
+         * @description The fMP4 initialization segment.
+         */
+        get: operations["hlsInitSegment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/hls/segment.m4s": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * HLS media segment of a video
+         * @description One fMP4 media segment, numbered from 0.
+         */
+        get: operations["hlsMediaSegment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/buckets/{bucket}/objects/download-zip": {
         parameters: {
             query?: never;
@@ -3636,12 +3758,14 @@ export interface components {
             versionId?: string;
             contentType?: string;
             contentDisposition?: string;
+            /** @description An HLS stream share of a video; the URL is its master playlist. */
+            stream?: boolean;
             /** Format: date-time */
             expiresAt: string;
             /** Format: date-time */
             createdAt: string;
             /**
-             * @description GET/PUT URL of the object; for a prefix download share the
+             * @description GET/PUT URL of the object (the HLS master playlist of a stream share); for a prefix download share the
              *     ListObjectsV2 URL of the prefix (an XML listing: the objects are
              *     handed out by GET /shares/{id}/links); absent for prefix upload shares.
              */
@@ -3679,6 +3803,13 @@ export interface components {
             contentType?: string;
             contentDisposition?: string;
             versionId?: string;
+            /**
+             * @description Share a video (MP4, H.264 or H.265 with AAC) as an HLS stream: the URL of the share
+             *     is the master playlist on the S3 listener (/nexo/media/v1/{bucket}/master.m3u8), whose
+             *     playlists are signed by the share until it expires. Object download shares only, without
+             *     contentType and contentDisposition.
+             */
+            stream?: boolean;
         };
         RevokeAllResult: {
             revoked: number;
@@ -6888,6 +7019,137 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    hlsMasterPlaylist: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description HLS master playlist of a video. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.apple.mpegurl": string;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    hlsMediaPlaylist: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+                /** @description The ETag the presentation is pinned to (412 once the object changed). */
+                rev: string;
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description HLS media playlist of a video. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.apple.mpegurl": string;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    hlsInitSegment: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+                /** @description The ETag the presentation is pinned to (412 once the object changed). */
+                rev: string;
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description HLS init segment of a video. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "video/mp4": string;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    hlsMediaSegment: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+                /** @description The ETag the presentation is pinned to (412 once the object changed). */
+                rev: string;
+                n: number;
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description HLS media segment of a video. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "video/iso.segment": string;
+                };
             };
             default: components["responses"]["Problem"];
         };

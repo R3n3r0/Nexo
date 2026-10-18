@@ -1152,6 +1152,91 @@ paths:
             "*/*": {}
         "304": { description: Not modified. }
         default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/hls/master.m3u8:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+      - { $ref: "#/components/parameters/versionId" }
+    get:
+      tags: [objects]
+      operationId: hlsMasterPlaylist
+      summary: HLS master playlist of a video
+      description: |
+        The HLS presentation of an MP4 video (H.264 or H.265, optional AAC audio), packaged on
+        the fly without transcoding: the playlists and segments reference each other with relative
+        URIs pinned to the ETag of the object. Fragmented MP4 and SSE-C objects are refused.
+      x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
+      responses:
+        "200":
+          description: HLS master playlist of a video.
+          content:
+            "application/vnd.apple.mpegurl":
+              schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/hls/media.m3u8:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+      - { $ref: "#/components/parameters/versionId" }
+    get:
+      tags: [objects]
+      operationId: hlsMediaPlaylist
+      summary: HLS media playlist of a video
+      description: |
+        The segments of the presentation (VOD).
+      x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
+      parameters:
+        - { name: rev, in: query, required: true, description: The ETag the presentation is pinned to (412 once the object changed)., schema: { type: string } }
+      responses:
+        "200":
+          description: HLS media playlist of a video.
+          content:
+            "application/vnd.apple.mpegurl":
+              schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/hls/init.mp4:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+      - { $ref: "#/components/parameters/versionId" }
+    get:
+      tags: [objects]
+      operationId: hlsInitSegment
+      summary: HLS init segment of a video
+      description: |
+        The fMP4 initialization segment.
+      x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
+      parameters:
+        - { name: rev, in: query, required: true, description: The ETag the presentation is pinned to (412 once the object changed)., schema: { type: string } }
+      responses:
+        "200":
+          description: HLS init segment of a video.
+          content:
+            "video/mp4":
+              schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/hls/segment.m4s:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+      - { $ref: "#/components/parameters/versionId" }
+    get:
+      tags: [objects]
+      operationId: hlsMediaSegment
+      summary: HLS media segment of a video
+      description: |
+        One fMP4 media segment, numbered from 0.
+      x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
+      parameters:
+        - { name: rev, in: query, required: true, description: The ETag the presentation is pinned to (412 once the object changed)., schema: { type: string } }
+        - { name: n, in: query, required: true, schema: { type: integer, minimum: 0 } }
+      responses:
+        "200":
+          description: HLS media segment of a video.
+          content:
+            "video/iso.segment":
+              schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Problem" }
   /buckets/{bucket}/objects/download-zip:
     parameters:
       - { $ref: "#/components/parameters/bucket" }
@@ -4713,12 +4798,15 @@ components:
         versionId: { type: string }
         contentType: { type: string }
         contentDisposition: { type: string }
+        stream:
+          type: boolean
+          description: An HLS stream share of a video; the URL is its master playlist.
         expiresAt: { type: string, format: date-time }
         createdAt: { type: string, format: date-time }
         url:
           type: string
           description: |
-            GET/PUT URL of the object; for a prefix download share the
+            GET/PUT URL of the object (the HLS master playlist of a stream share); for a prefix download share the
             ListObjectsV2 URL of the prefix (an XML listing: the objects are
             handed out by GET /shares/{id}/links); absent for prefix upload shares.
         accessKey:
@@ -4769,6 +4857,13 @@ components:
         contentType: { type: string }
         contentDisposition: { type: string }
         versionId: { type: string }
+        stream:
+          type: boolean
+          description: |
+            Share a video (MP4, H.264 or H.265 with AAC) as an HLS stream: the URL of the share
+            is the master playlist on the S3 listener (/nexo/media/v1/{bucket}/master.m3u8), whose
+            playlists are signed by the share until it expires. Object download shares only, without
+            contentType and contentDisposition.
     RevokeAllResult:
       type: object
       required: [revoked]

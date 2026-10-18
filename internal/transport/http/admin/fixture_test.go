@@ -29,6 +29,7 @@ import (
 	iammock "github.com/r3n3r0/nexo/internal/service/iam/mock"
 	lockmock "github.com/r3n3r0/nexo/internal/service/lock/mock"
 	logsmock "github.com/r3n3r0/nexo/internal/service/logs/mock"
+	mediamock "github.com/r3n3r0/nexo/internal/service/media/mock"
 	metricsmock "github.com/r3n3r0/nexo/internal/service/metrics/mock"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	policymock "github.com/r3n3r0/nexo/internal/service/policy/mock"
@@ -65,6 +66,7 @@ type fixture struct {
 	buckets    *adminmock.BucketManager
 	bucketSvc  *bucketmock.Service
 	browser    *adminmock.ObjectBrowser
+	media      *mediamock.Service
 	uploads    *adminmock.UploadManager
 	shares     *adminmock.ShareManager
 	identities *adminmock.IdentityManager
@@ -101,6 +103,7 @@ func newFixture(t *testing.T) *fixture {
 		t: t, clk: clk,
 		iam: iammock.NewService(t), authz: adminmock.NewAuthorizer(t), adm: adminmock.NewService(t),
 		buckets: adminmock.NewBucketManager(t), bucketSvc: bucketmock.NewService(t), browser: adminmock.NewObjectBrowser(t),
+		media:   mediamock.NewService(t),
 		uploads: adminmock.NewUploadManager(t), shares: adminmock.NewShareManager(t), identities: adminmock.NewIdentityManager(t),
 		accessKeys: adminmock.NewAccessKeyManager(t), policies: adminmock.NewPolicyManager(t), policy: policymock.NewService(t),
 		config: adminmock.NewConfigManager(t), cluster: adminmock.NewClusterManager(t), locks: lockmock.NewManager(t),
@@ -152,7 +155,7 @@ func newFixture(t *testing.T) *fixture {
 	require.NoError(t, err)
 	bucketRoutes, err := admin.NewBucketRoutes(admin.BucketDeps{Manager: f.buckets, Buckets: f.bucketSvc, Authz: f.authz, Enc: enc})
 	require.NoError(t, err)
-	objectRoutes, err := admin.NewObjectRoutes(admin.ObjectDeps{Browser: f.browser, Uploads: f.uploads, Authz: f.authz, Enc: enc})
+	objectRoutes, err := admin.NewObjectRoutes(admin.ObjectDeps{Browser: f.browser, Uploads: f.uploads, Authz: f.authz, Media: f.media, Enc: enc})
 	require.NoError(t, err)
 	shareRoutes, err := admin.NewShareRoutes(admin.ShareDeps{Shares: f.shares, Authz: f.authz, Enc: enc})
 	require.NoError(t, err)

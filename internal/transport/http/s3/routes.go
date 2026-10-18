@@ -121,6 +121,11 @@ type HealthRoutes interface{ Routes }
 // MetricsRoutes exposes /nexo/metrics/v1/{cluster,node,bucket}.
 type MetricsRoutes interface{ Routes }
 
+// MediaRoutes exposes the HLS presentations of the video objects under
+// /nexo/media/v1/{bucket}/ (master.m3u8, media.m3u8, init.mp4,
+// segment.m4s).
+type MediaRoutes interface{ Routes }
+
 // BucketName returns the bucket of the request as resolved by the
 // Dispatcher (path-style or virtual-host), falling back to the "bucket"
 // route parameter for handlers mounted without it.

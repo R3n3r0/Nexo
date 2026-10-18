@@ -183,6 +183,8 @@ func suite() []suiteTest {
 		{name: "TestLiveTrace", fn: TestLiveTrace},
 		{name: "TestAuditLog", fn: TestAuditLog},
 		{name: "TestClusterMetrics", fn: TestClusterMetrics},
+		{name: "TestConsoleVideoStreaming", fn: TestConsoleVideoStreaming},
+		{name: "TestVideoStreamShare", fn: TestVideoStreamShare},
 	}
 }
 

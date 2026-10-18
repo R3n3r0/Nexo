@@ -504,19 +504,22 @@ type DeleteObjectsResult struct {
 
 // Share is a managed share link.
 type Share struct {
-	ID                 string    `json:"id"`
-	Owner              string    `json:"owner"`
-	Bucket             string    `json:"bucket"`
-	Key                string    `json:"key"`
-	Prefix             bool      `json:"prefix"`
-	Permission         string    `json:"permission"`
-	VersionID          string    `json:"versionId,omitempty"`
-	ContentType        string    `json:"contentType,omitempty"`
-	ContentDisposition string    `json:"contentDisposition,omitempty"`
-	ExpiresAt          time.Time `json:"expiresAt"`
-	CreatedAt          time.Time `json:"createdAt"`
-	URL                string    `json:"url,omitempty"`
-	AccessKey          string    `json:"accessKey"`
+	ID                 string `json:"id"`
+	Owner              string `json:"owner"`
+	Bucket             string `json:"bucket"`
+	Key                string `json:"key"`
+	Prefix             bool   `json:"prefix"`
+	Permission         string `json:"permission"`
+	VersionID          string `json:"versionId,omitempty"`
+	ContentType        string `json:"contentType,omitempty"`
+	ContentDisposition string `json:"contentDisposition,omitempty"`
+	// Stream marks the HLS stream shares of a video: URL is the master
+	// playlist.
+	Stream    bool      `json:"stream,omitempty"`
+	ExpiresAt time.Time `json:"expiresAt"`
+	CreatedAt time.Time `json:"createdAt"`
+	URL       string    `json:"url,omitempty"`
+	AccessKey string    `json:"accessKey"`
 }
 
 // ShareList is a page of share links.
@@ -550,6 +553,9 @@ type CreateShareRequest struct {
 	ContentType        string `json:"contentType,omitempty"`
 	ContentDisposition string `json:"contentDisposition,omitempty"`
 	VersionID          string `json:"versionId,omitempty"`
+	// Stream shares a video as an HLS stream: the URL of the share is its
+	// master playlist (object download shares only).
+	Stream bool `json:"stream,omitempty"`
 }
 
 // PresignRequest asks for a raw presigned URL.

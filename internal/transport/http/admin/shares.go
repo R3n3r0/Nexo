@@ -98,12 +98,15 @@ type ShareResponse struct {
 	Key    string `json:"key"`
 	Prefix bool   `json:"prefix"`
 	// Permission is download or upload.
-	Permission         string    `json:"permission"`
-	VersionID          string    `json:"versionId,omitempty"`
-	ContentType        string    `json:"contentType,omitempty"`
-	ContentDisposition string    `json:"contentDisposition,omitempty"`
-	ExpiresAt          time.Time `json:"expiresAt"`
-	CreatedAt          time.Time `json:"createdAt"`
+	Permission         string `json:"permission"`
+	VersionID          string `json:"versionId,omitempty"`
+	ContentType        string `json:"contentType,omitempty"`
+	ContentDisposition string `json:"contentDisposition,omitempty"`
+	// Stream marks the HLS stream shares of a video: URL is the master
+	// playlist.
+	Stream    bool      `json:"stream,omitempty"`
+	ExpiresAt time.Time `json:"expiresAt"`
+	CreatedAt time.Time `json:"createdAt"`
 	// URL is the presigned URL: GET or PUT of the object for object
 	// shares, a ListObjectsV2 of the prefix for prefix download shares,
 	// empty for prefix upload shares.
@@ -115,7 +118,7 @@ type ShareResponse struct {
 func newShareResponse(s *share.Share) ShareResponse {
 	return ShareResponse{
 		ID: s.ID, Owner: s.Owner, Bucket: s.Bucket, Key: s.Key, Prefix: s.Prefix, Permission: string(s.Permission),
-		VersionID: s.VersionID, ContentType: s.ContentType, ContentDisposition: s.ContentDisposition,
+		VersionID: s.VersionID, ContentType: s.ContentType, ContentDisposition: s.ContentDisposition, Stream: s.Stream,
 		ExpiresAt: s.Expires.UTC(), CreatedAt: s.CreatedAt.UTC(), URL: s.URL, AccessKey: s.AccessKey,
 	}
 }
@@ -139,6 +142,8 @@ type CreateShareRequest struct {
 	ContentType        string `json:"contentType,omitempty"`
 	ContentDisposition string `json:"contentDisposition,omitempty"`
 	VersionID          string `json:"versionId,omitempty"`
+	// Stream shares a video as an HLS stream (object download shares).
+	Stream bool `json:"stream,omitempty"`
 }
 
 // RevokeAllResponse is the body of DELETE /shares.
@@ -175,7 +180,7 @@ func (h *shareRoutes) createShare(w http.ResponseWriter, r *http.Request, bucket
 	s, err := h.deps.Shares.Create(r.Context(), adminsvc.CreateShareInput{
 		Requester: requesterOf(r), Bucket: in.Bucket, Key: in.Key, Prefix: in.Prefix, Permission: share.Permission(in.Permission),
 		Expires: expires, ContentType: in.ContentType,
-		ContentDisposition: in.ContentDisposition, VersionID: in.VersionID,
+		ContentDisposition: in.ContentDisposition, VersionID: in.VersionID, Stream: in.Stream,
 	})
 	if err != nil {
 		h.fail(w, r, err)
