@@ -1059,6 +1059,10 @@
     },
     "contentType": "Content type",
     "contentTypeHint": "Facoltativo: chi carica deve inviare esattamente questo Content-Type.",
+    "stream": {
+      "label": "Condividi come video",
+      "hint": "Un link a un player che trasmette il video (HLS), con avanzamento libero, invece del file."
+    },
     "raw": {
       "label": "Link presigned grezzo",
       "hint": "Firmato con le tue credenziali invece che come condivisione gestita.",
@@ -1074,7 +1078,12 @@
       "qr": "QR code del link",
       "curl": "Carica con curl",
       "noUrl": "Le condivisioni di upload su un prefisso non hanno un URL diretto.",
-      "another": "Crea un altro link"
+      "another": "Crea un altro link",
+      "player": "Link al player",
+      "copyPlayer": "Copia il link al player",
+      "playlist": "Playlist HLS",
+      "copyPlaylist": "Copia il link della playlist",
+      "playlistHint": "Per i player video (VLC, Safari, hls.js) e le pagine che incorporano il video. Revocando la condivisione si disattivano entrambi i link."
     },
     "links": {
       "label": "Link degli oggetti condivisi",

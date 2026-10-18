@@ -57,6 +57,7 @@ signs in with the same access keys as the S3 API.
 | Custom domains, behaviors, signed URLs, cache | [Distributions and cache](distributions/README.md) |
 | Static site on two domains behind nginx with ACME TLS | [Tutorial: static site](distributions/tutorial-static-site.md) |
 | Notifications to webhooks and Kafka, lifecycle rules | [Events and lifecycle](events-lifecycle.md) |
+| Play videos in the browser, share them as streams | [Video streaming](video-streaming.md) |
 
 ## Reference
 

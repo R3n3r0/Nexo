@@ -2,12 +2,14 @@ package commands
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/r3n3r0/nexo/internal/cli"
+	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/pkg/nexoadmin"
 )
 
@@ -25,6 +27,9 @@ func (e *env) printManagedShare(t cli.Target, sh *nexoadmin.Share, method string
 		"Expire: " + cli.HumanDuration(expiry),
 		"Share: " + sh.URL,
 	}
+	if rec.Player != "" {
+		lines = append(lines, "Player: "+rec.Player)
+	}
 	if command != "" {
 		lines = append(lines, "Command: "+command)
 	}
@@ -38,7 +43,26 @@ func managedRecord(alias string, sh *nexoadmin.Share) managedShareRecord {
 		Alias: alias, ID: sh.ID, Target: cli.JoinRemote(alias, sh.Bucket, sh.Key), Owner: sh.Owner, Bucket: sh.Bucket,
 		Key: sh.Key, Prefix: sh.Prefix, Permission: sh.Permission, Managed: true, URL: sh.URL, VersionID: sh.VersionID,
 		ExpiresAt: sh.ExpiresAt.UTC(), CreatedAt: timePtr(sh.CreatedAt), AccessKey: sh.AccessKey,
+		Stream: sh.Stream, Player: playerURL(sh),
 	}
+}
+
+// playerURL returns the public player page of a stream share: the master
+// playlist (the URL of the share) goes in its fragment, which never
+// reaches a server log; "" for the other shares.
+func playerURL(sh *nexoadmin.Share) string {
+	if !sh.Stream {
+		return ""
+	}
+	u, err := url.Parse(sh.URL)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	master := u.EscapedPath()
+	if u.RawQuery != "" {
+		master += "?" + u.RawQuery
+	}
+	return (&url.URL{Scheme: u.Scheme, Host: u.Host, Path: domain.MediaPlayerPath}).String() + "#" + master
 }
 
 func newShareListCmd(e *env) *cobra.Command {

@@ -52,7 +52,7 @@ func shareModeFlags(cmd *cobra.Command) {
 func newShareDownloadCmd(e *env) *cobra.Command {
 	var (
 		expire, versionID, disposition, contentType string
-		recursive                                   bool
+		recursive, stream                           bool
 	)
 	cmd := &cobra.Command{
 		Use:   "download [flags] ALIAS/BUCKET/OBJECT",
@@ -61,10 +61,16 @@ func newShareDownloadCmd(e *env) *cobra.Command {
 default), or with --raw presigned GET URLs signed locally with the credentials of
 the alias, which cannot be revoked. A raw URL is signed after checking the
 object (HEAD): a missing object exits with code 3 and one the alias may not read
-with code 4. --recursive generates one link per object under a prefix.`,
+with code 4. --recursive generates one link per object under a prefix.
+
+--stream shares an MP4 video (H.264 or H.265, AAC audio) as an HLS stream: the
+link is its master playlist, for any HLS player, and the output adds the public
+player page of the server, for browsers. A stream link is managed: revoking it
+stops the playback.`,
 		Example: `  nexoctl share download --expire 2h local/docs/report.pdf
   nexoctl share download --recursive local/docs/2026/
-  nexoctl share download --raw --expire 10m local/docs/report.pdf`,
+  nexoctl share download --raw --expire 10m local/docs/report.pdf
+  nexoctl share download --stream --expire 7d local/videos/talk.mp4`,
 		Args:              exactArgs(1),
 		ValidArgsFunction: completeTargets(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -72,6 +78,9 @@ with code 4. --recursive generates one link per object under a prefix.`,
 			managed, err := shareMode(cmd)
 			if err != nil {
 				return err
+			}
+			if stream && (!managed || recursive || disposition != "" || contentType != "") {
+				return cli.UsageError("--stream excludes --raw, --recursive, --content-disposition and --content-type")
 			}
 			expiry, err := parseExpiry(expire)
 			if err != nil {
@@ -104,7 +113,7 @@ with code 4. --recursive generates one link per object under a prefix.`,
 				for _, key := range keys {
 					sh, err := admin.CreateShare(ctx, nexoadmin.CreateShareRequest{
 						Bucket: t.Bucket, Key: key, Permission: nexoadmin.PermissionDownload, ExpiresIn: int64(expiry / time.Second),
-						ContentType: contentType, ContentDisposition: disposition, VersionID: versionID,
+						ContentType: contentType, ContentDisposition: disposition, VersionID: versionID, Stream: stream,
 					})
 					if err != nil {
 						return fmt.Errorf("%s: %w", t.Child(key), err)
@@ -146,6 +155,7 @@ with code 4. --recursive generates one link per object under a prefix.`,
 	f.StringVar(&disposition, "content-disposition", "", `Content-Disposition of the download (e.g. "attachment")`)
 	f.StringVar(&contentType, "content-type", "", "Content-Type of the download")
 	f.BoolVarP(&recursive, "recursive", "r", false, "one link per object under the prefix")
+	f.BoolVar(&stream, "stream", false, "share a video as an HLS stream with a player page (managed links only)")
 	shareModeFlags(cmd)
 	return cmd
 }

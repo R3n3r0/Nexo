@@ -102,6 +102,7 @@ plugins:
             Distributions and cache: Distribuzioni e cache
             "Tutorial: static site": "Tutorial: sito statico"
             Events and lifecycle: Eventi e lifecycle
+            Video streaming: Streaming video
             Reference: Riferimenti
             nexoctl commands: Comandi di nexoctl
             S3 compatibility: Compatibilità S3
@@ -154,6 +155,7 @@ nav:
       - Distributions and cache: distributions/README.md
       - "Tutorial: static site": distributions/tutorial-static-site.md
       - Events and lifecycle: events-lifecycle.md
+      - Video streaming: video-streaming.md
   - Reference:
       - CLI: reference/cli.md
       - nexoctl commands: cli/nexoctl.md

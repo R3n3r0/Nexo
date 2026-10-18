@@ -107,6 +107,9 @@ export function createHttpObjectService(client: HttpClient): ObjectService {
     previewUrl(bucket, key, versionId) {
       return client.url(path(bucket, 'preview'), { key, versionId });
     },
+    streamUrl(bucket, key, versionId) {
+      return client.url(path(bucket, 'hls/master.m3u8'), { key, versionId });
+    },
     async previewText(bucket, key, { maxBytes, versionId, signal }) {
       let response: Response;
       try {

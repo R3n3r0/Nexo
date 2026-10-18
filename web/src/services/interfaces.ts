@@ -321,6 +321,11 @@ export interface ObjectService {
   downloadUrl(bucket: string, key: string, versionId?: string): string;
   /** URL that renders a safe preview inline (others are served as attachments). */
   previewUrl(bucket: string, key: string, versionId?: string): string;
+  /**
+   * URL of the HLS master playlist of an MP4 video (session cookie), or
+   * undefined when the backend cannot stream videos (the demo mocks).
+   */
+  streamUrl(bucket: string, key: string, versionId?: string): string | undefined;
   /** Reads at most maxBytes from the start of a text object. */
   previewText(
     bucket: string,

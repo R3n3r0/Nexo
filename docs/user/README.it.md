@@ -57,6 +57,7 @@ le stesse access key dell'API S3.
 | Domini personalizzati, behavior, URL firmati, cache | [Distribuzioni e cache](distributions/README.md) |
 | Sito statico su due domini dietro nginx con TLS ACME | [Tutorial: sito statico](distributions/tutorial-static-site.md) |
 | Notifiche verso webhook e Kafka, regole di lifecycle | [Eventi e lifecycle](events-lifecycle.md) |
+| Riprodurre video nel browser, condividerli in streaming | [Streaming video](video-streaming.md) |
 
 ## Riferimenti
 

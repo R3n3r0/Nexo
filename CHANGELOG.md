@@ -63,6 +63,19 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   on write, purge by path/glob/regex/tag/domain, webhooks to external CDNs, cluster-shared cache,
   stale-while-revalidate/if-error, request collapsing and range caching (S-DST-07, 07b, 07c).
 
+### Video streaming (HLS)
+- MP4 videos (H.264 or H.265, optional AAC) play as HLS streams packaged on the fly, without transcoding: the
+  `moov` index is read with ranged reads and cached by ETag, the segments are cut at the keyframes and built as
+  fMP4 with one ranged read each. Limits on the index, the segments and the sample tables guard against forged
+  files; a fuzz target covers the parser.
+- The console previews the videos as HLS (hls.js loaded on demand, progressive fallback) under
+  `/api/v1/buckets/{bucket}/objects/hls/`, with the authorization of a download.
+- The S3 listener serves the streams under `/nexo/media/v1/{bucket}/` to whoever may read the object: the URIs
+  of a presigned master playlist are presigned by its signer until the same expiry. Stream share links (`stream`
+  in POST /shares, **Stream as a video** in the console, `nexoctl share download --stream`) give a public player
+  page (`/nexo/media/player/`) and the playlist for any HLS player, and are revoked like any share. The video
+  streams count against the request limits of the S3 API.
+
 ### Observability (M8)
 - Prometheus metrics on `/nexo/metrics/v1/{cluster,node,bucket}`: API with latency histograms, drives, network,
   locks, KMS, events, healing, scanner, ILM, cache and distributions; Grafana dashboards, alerts and Prometheus

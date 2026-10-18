@@ -10,6 +10,11 @@ the alias, which cannot be revoked. A raw URL is signed after checking the
 object (HEAD): a missing object exits with code 3 and one the alias may not read
 with code 4. --recursive generates one link per object under a prefix.
 
+--stream shares an MP4 video (H.264 or H.265, AAC audio) as an HLS stream: the
+link is its master playlist, for any HLS player, and the output adds the public
+player page of the server, for browsers. A stream link is managed: revoking it
+stops the playback.
+
 ```
 nexoctl share download [flags] ALIAS/BUCKET/OBJECT
 ```
@@ -20,6 +25,7 @@ nexoctl share download [flags] ALIAS/BUCKET/OBJECT
   nexoctl share download --expire 2h local/docs/report.pdf
   nexoctl share download --recursive local/docs/2026/
   nexoctl share download --raw --expire 10m local/docs/report.pdf
+  nexoctl share download --stream --expire 7d local/videos/talk.mp4
 ```
 
 ## Options
@@ -32,6 +38,7 @@ nexoctl share download [flags] ALIAS/BUCKET/OBJECT
       --managed                      managed, revocable link signed by the server (Admin API) (default true)
       --raw                          raw URL signed locally with the alias credentials (not revocable)
   -r, --recursive                    one link per object under the prefix
+      --stream                       share a video as an HLS stream with a player page (managed links only)
       --version-id string            share this version of the object
 ```
 

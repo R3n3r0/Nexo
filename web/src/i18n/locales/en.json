@@ -1059,6 +1059,10 @@
     },
     "contentType": "Content type",
     "contentTypeHint": "Optional: the uploader must send exactly this Content-Type.",
+    "stream": {
+      "label": "Stream as a video",
+      "hint": "A player link that streams the video (HLS), with seeking, instead of the file."
+    },
     "raw": {
       "label": "Raw presigned link",
       "hint": "Signed with your own credentials instead of a managed share.",
@@ -1074,7 +1078,12 @@
       "qr": "QR code of the link",
       "curl": "Upload with curl",
       "noUrl": "Prefix upload shares have no direct URL.",
-      "another": "Create another link"
+      "another": "Create another link",
+      "player": "Player link",
+      "copyPlayer": "Copy the player link",
+      "playlist": "HLS playlist",
+      "copyPlaylist": "Copy the playlist link",
+      "playlistHint": "For video players (VLC, Safari, hls.js) and pages that embed the video. Revoking the share stops both links."
     },
     "links": {
       "label": "Links of the shared objects",

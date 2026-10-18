@@ -34,6 +34,7 @@ import {
   type ExpiryPreset,
 } from '@/lib/expiry';
 import { iamKeys } from '@/lib/iamQueries';
+import { canStream, playerUrl } from '@/lib/media';
 import { shellQuote } from '@/lib/uploadSnippets';
 import { useServices, type SharePermission } from '@/services';
 
@@ -52,6 +53,8 @@ export interface ShareDialogProps {
   prefix?: string | boolean;
   /** A specific version of the object. */
   versionId?: string;
+  /** Content type of the object, when known (videos can be streamed). */
+  contentType?: string;
 }
 
 /** What is shared, resolved from the props. */
@@ -60,18 +63,28 @@ interface ResolvedTarget {
   key: string;
   isPrefix: boolean;
   versionId: string | undefined;
+  /** A video object, which can be shared as an HLS stream. */
+  streamable: boolean;
 }
 
 function resolveTarget(props: ShareDialogProps): ResolvedTarget {
   if (typeof props.prefix === 'string') {
-    return { bucket: props.bucket, key: props.prefix, isPrefix: true, versionId: undefined };
+    return {
+      bucket: props.bucket,
+      key: props.prefix,
+      isPrefix: true,
+      versionId: undefined,
+      streamable: false,
+    };
   }
   const isPrefix = props.prefix === true;
+  const key = props.objectKey ?? '';
   return {
     bucket: props.bucket,
-    key: props.objectKey ?? '',
+    key,
     isPrefix,
     versionId: isPrefix ? undefined : props.versionId,
+    streamable: !isPrefix && canStream(key, props.contentType),
   };
 }
 
@@ -85,6 +98,8 @@ interface ShareResult {
   method: string;
   headers: Record<string, string>;
   managed: boolean;
+  /** A stream share: url is the HLS master playlist. */
+  stream: boolean;
   /**
    * The managed prefix download share whose objects are handed out one
    * link each (the share URL itself only lists the prefix).
@@ -136,6 +151,8 @@ function ShareForm({ target, onClose }: { target: ResolvedTarget; onClose: () =>
   const [disposition, setDisposition] = useState<Disposition>('default');
   const [contentType, setContentType] = useState('');
   const [raw, setRaw] = useState(false);
+  // A video is shared as a stream unless the user asks for the file.
+  const [stream, setStream] = useState(target.streamable);
   const [result, setResult] = useState<ShareResult | null>(null);
   const now = useMemo(() => new Date(), []);
   const maxDate = useMemo(() => new Date(now.getTime() + maxExpirySeconds * 1000), [now]);
@@ -148,13 +165,15 @@ function ShareForm({ target, onClose }: { target: ResolvedTarget; onClose: () =>
         : 0
       : expiryPresets[expiry];
   const contentDisposition =
-    permission === 'download' && !isPrefix ? dispositionValue(disposition, key) : undefined;
+    permission === 'download' && !isPrefix && !stream
+      ? dispositionValue(disposition, key)
+      : undefined;
   const signedType =
     permission === 'upload' && contentType.trim() !== '' ? contentType.trim() : undefined;
 
   const mutation = useMutation({
     mutationFn: async (): Promise<ShareResult> => {
-      if (raw && !isPrefix) {
+      if (raw && !isPrefix && !stream) {
         const presigned = await shares.presign({
           method: permission === 'upload' ? 'PUT' : 'GET',
           bucket: target.bucket,
@@ -170,6 +189,7 @@ function ShareForm({ target, onClose }: { target: ResolvedTarget; onClose: () =>
           method: presigned.method,
           headers: presigned.headers,
           managed: false,
+          stream: false,
         };
       }
       const share = await shares.create({
@@ -181,6 +201,7 @@ function ShareForm({ target, onClose }: { target: ResolvedTarget; onClose: () =>
         ...(versionId !== undefined ? { versionId } : {}),
         ...(contentDisposition !== undefined ? { contentDisposition } : {}),
         ...(signedType !== undefined ? { contentType: signedType } : {}),
+        ...(stream ? { stream: true } : {}),
       });
       return {
         url: share.url,
@@ -188,6 +209,7 @@ function ShareForm({ target, onClose }: { target: ResolvedTarget; onClose: () =>
         method: permission === 'upload' ? 'PUT' : 'GET',
         headers: signedType !== undefined ? { 'Content-Type': signedType } : {},
         managed: true,
+        stream,
         ...(isPrefix && permission === 'download' ? { prefixShareId: share.id } : {}),
       };
     },
@@ -249,7 +271,7 @@ function ShareForm({ target, onClose }: { target: ResolvedTarget; onClose: () =>
             }}
             data={[
               { value: 'download', label: t('shareDialog.download') },
-              { value: 'upload', label: t('shareDialog.upload'), disabled: isPrefix },
+              { value: 'upload', label: t('shareDialog.upload'), disabled: isPrefix || stream },
             ]}
           />
           {isPrefix ? (
@@ -295,7 +317,22 @@ function ShareForm({ target, onClose }: { target: ResolvedTarget; onClose: () =>
           />
         ) : null}
 
-        {permission === 'download' && !isPrefix ? (
+        {target.streamable ? (
+          <Switch
+            label={t('shareDialog.stream.label')}
+            description={t('shareDialog.stream.hint')}
+            checked={stream}
+            onChange={(event) => {
+              const checked = event.currentTarget.checked;
+              setStream(checked);
+              if (checked) {
+                setPermission('download');
+                setRaw(false);
+              }
+            }}
+          />
+        ) : null}
+        {permission === 'download' && !isPrefix && !stream ? (
           <Select
             label={t('shareDialog.disposition.label')}
             description={t('shareDialog.disposition.hint')}
@@ -327,7 +364,7 @@ function ShareForm({ target, onClose }: { target: ResolvedTarget; onClose: () =>
           label={t('shareDialog.raw.label')}
           description={t('shareDialog.raw.hint')}
           checked={raw}
-          disabled={isPrefix}
+          disabled={isPrefix || stream}
           onChange={(event) => {
             setRaw(event.currentTarget.checked);
           }}
@@ -381,7 +418,9 @@ function ShareResultView({
         {result.managed ? t('shareDialog.result.managed') : t('shareDialog.result.raw')}
       </Alert>
       <Text size="sm">{t('shareDialog.result.expires', { date: expiresLabel })}</Text>
-      {result.prefixShareId !== undefined ? (
+      {result.stream && result.url !== undefined ? (
+        <StreamResult masterUrl={result.url} />
+      ) : result.prefixShareId !== undefined ? (
         <ShareLinks shareId={result.prefixShareId} />
       ) : result.url !== undefined ? (
         <>
@@ -442,5 +481,78 @@ function ShareResultView({
         </Button>
       </Group>
     </Stack>
+  );
+}
+
+/** A URL field with a copy button. */
+function UrlField({
+  label,
+  value,
+  copyLabel,
+}: {
+  label: string;
+  value: string;
+  copyLabel: string;
+}) {
+  const { t } = useTranslation();
+  return (
+    <Group gap="xs" align="flex-end" wrap="nowrap">
+      <TextInput
+        label={label}
+        value={value}
+        readOnly
+        style={{ flex: 1 }}
+        onFocus={(event) => {
+          event.currentTarget.select();
+        }}
+      />
+      <CopyButton value={value}>
+        {({ copied, copy }) => (
+          <Tooltip label={copied ? t('common.copied') : t('common.copy')}>
+            <ActionIcon variant="default" size="lg" aria-label={copyLabel} onClick={copy}>
+              {copied ? <IconCheck size={16} /> : <IconCopy size={16} />}
+            </ActionIcon>
+          </Tooltip>
+        )}
+      </CopyButton>
+    </Group>
+  );
+}
+
+/**
+ * The links of a stream share: the public player page, for people, and
+ * the HLS playlist, for players and pages that embed the video.
+ */
+function StreamResult({ masterUrl }: { masterUrl: string }) {
+  const { t } = useTranslation();
+  const player = playerUrl(masterUrl);
+  return (
+    <>
+      <UrlField
+        label={t('shareDialog.result.player')}
+        value={player}
+        copyLabel={t('shareDialog.result.copyPlayer')}
+      />
+      <Group justify="center">
+        <QRCodeSVG
+          value={player}
+          size={176}
+          level="M"
+          marginSize={2}
+          title={t('shareDialog.result.qr')}
+          role="img"
+          aria-label={t('shareDialog.result.qr')}
+          style={{ background: 'white' }}
+        />
+      </Group>
+      <UrlField
+        label={t('shareDialog.result.playlist')}
+        value={masterUrl}
+        copyLabel={t('shareDialog.result.copyPlaylist')}
+      />
+      <Text size="xs" c="dimmed">
+        {t('shareDialog.result.playlistHint')}
+      </Text>
+    </>
   );
 }

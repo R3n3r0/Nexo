@@ -143,21 +143,25 @@ export function createMockShareService(
         expiresAt: new Date(created.getTime() + seconds * 1000).toISOString(),
         createdAt: created.toISOString(),
         accessKey: `share-${id}`,
+        ...(input.stream === true ? { stream: true } : {}),
       };
       if (!(prefix && permission === 'upload')) {
         const disposition =
           input.contentDisposition !== undefined && input.contentDisposition !== ''
             ? `&response-content-disposition=${encodeURIComponent(input.contentDisposition)}`
             : '';
-        share.url = prefix
-          ? `${endpoint}/${encodeURIComponent(bucket)}?list-type=2&prefix=${encodeURIComponent(input.key)}&X-Amz-Expires=${seconds}&X-Amz-Signature=mock`
-          : signedUrl(
-              permission === 'upload' ? 'PUT' : 'GET',
-              bucket,
-              input.key,
-              seconds,
-              disposition,
-            );
+        share.url =
+          input.stream === true
+            ? `${endpoint}/nexo/media/v1/${encodeURIComponent(bucket)}/master.m3u8?key=${encodeURIComponent(input.key)}&X-Amz-Expires=${seconds}&X-Amz-Signature=mock`
+            : prefix
+              ? `${endpoint}/${encodeURIComponent(bucket)}?list-type=2&prefix=${encodeURIComponent(input.key)}&X-Amz-Expires=${seconds}&X-Amz-Signature=mock`
+              : signedUrl(
+                  permission === 'upload' ? 'PUT' : 'GET',
+                  bucket,
+                  input.key,
+                  seconds,
+                  disposition,
+                );
       }
       shares.set(id, share);
       return clone(share);

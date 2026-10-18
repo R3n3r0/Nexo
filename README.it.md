@@ -26,6 +26,9 @@ multi-nodo, senza database di metadati esterni.
 - **Sicurezza**: utenti, gruppi e policy IAM, access key con scadenza, STS, regole di accesso con glob e
   regex, link di condivisione revocabili, TLS con ricarica a caldo, mTLS tra i nodi, KMS integrato o KES,
   audit log.
+- **Streaming video**: i video MP4 si riproducono come stream HLS impacchettati al volo, senza transcodifica:
+  nella console e tramite link di streaming revocabili con una pagina player pubblica, per i browser e
+  qualsiasi player HLS.
 - **Distribuzioni**: un bucket servito su domini personalizzati in stile CloudFront, con certificati ACME,
   URL firmati, cache in memoria e su disco con invalidazione automatica.
 - **Operatività**: console web, metriche Prometheus con dashboard Grafana e alert pronti, trace e log in

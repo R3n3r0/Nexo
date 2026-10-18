@@ -58,6 +58,19 @@ exec nexoctl share revoke --all local
 stdout '^Revoked 1 of your share link\(s\)\.$'
 http -status 403 $PUTURL
 
+# A stream share links the HLS master playlist and the player page; the
+# object is no video here, so the playlist answers 400 (but the link is
+# signed: no 403). --stream is managed only.
+exec nexoctl share download --stream --expire 1h --json local/shared/report.txt
+jsonlines stdout
+stdout '"stream":true'
+stdout '"player":"http://[^"]*/nexo/media/player/#/nexo/media/v1/shared/master\.m3u8\?'
+jsonfield stdout url STREAMURL
+http -status 400 $STREAMURL
+exec nexoctl share download --stream --expire 1h local/shared/report.txt
+stdout '^Player: http://.*/nexo/media/player/#/nexo/media/v1/shared/master\.m3u8\?'
+expectcode 2 nexoctl share download --stream --raw local/shared/report.txt
+
 -- report.txt --
 managed report
 -- upload.txt --

@@ -123,7 +123,8 @@ type MetricsRoutes interface{ Routes }
 
 // MediaRoutes exposes the HLS presentations of the video objects under
 // /nexo/media/v1/{bucket}/ (master.m3u8, media.m3u8, init.mp4,
-// segment.m4s).
+// segment.m4s) and the public player page of the stream shares
+// (/nexo/media/player/).
 type MediaRoutes interface{ Routes }
 
 // BucketName returns the bucket of the request as resolved by the

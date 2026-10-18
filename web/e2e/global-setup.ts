@@ -9,7 +9,17 @@ import { startNexo, stopNexo } from './support/nexo';
 import { seed } from './support/seed';
 
 /** Sources the binary embeds: a newer file means bin/nexo is stale. */
-const sources = ['cmd', 'internal', 'pkg', 'api', 'go.mod', 'go.sum', 'web/src', 'web/index.html'];
+const sources = [
+  'cmd',
+  'internal',
+  'pkg',
+  'api',
+  'go.mod',
+  'go.sum',
+  'web/src',
+  'web/index.html',
+  'web/player.html',
+];
 
 function newestMtime(path: string): number {
   const st = statSync(path, { throwIfNoEntry: false });

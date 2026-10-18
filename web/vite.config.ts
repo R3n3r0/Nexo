@@ -1,6 +1,7 @@
 import { fileURLToPath, URL } from 'node:url';
 
 import react from '@vitejs/plugin-react';
+import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
 
 // The console is served by the Go binary on :9001; in development Vite serves
@@ -8,8 +9,21 @@ import { defineConfig } from 'vitest/config';
 // (/nexo) to a locally running nexo server.
 const backend = 'http://localhost:9001';
 
+// The player page refers to its assets relatively: the S3 listener serves
+// it under /nexo/media/player/, not at the root like the console.
+const relativePlayerAssets: Plugin = {
+  name: 'nexo-relative-player-assets',
+  apply: 'build',
+  transformIndexHtml: {
+    order: 'post',
+    handler(html, { filename }) {
+      return filename.endsWith('player.html') ? html.replaceAll('="/assets/', '="./assets/') : html;
+    },
+  },
+};
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), relativePlayerAssets],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
@@ -31,6 +45,12 @@ export default defineConfig({
     // Asset file names carry a content hash so the Go server can serve them
     // with long-lived immutable caching; index.html stays no-cache.
     rollupOptions: {
+      // The console, and the public video player of the stream shares that
+      // the S3 listener serves under /nexo/media/player/.
+      input: {
+        main: fileURLToPath(new URL('./index.html', import.meta.url)),
+        player: fileURLToPath(new URL('./player.html', import.meta.url)),
+      },
       output: {
         entryFileNames: 'assets/[name]-[hash].js',
         chunkFileNames: 'assets/[name]-[hash].js',

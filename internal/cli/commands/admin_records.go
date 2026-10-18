@@ -175,24 +175,28 @@ type adminConfigExportRecord struct {
 // share download/upload without --raw: those also carry the presigned
 // members of shareRecord).
 type managedShareRecord struct {
-	Alias      string            `json:"alias"`
-	ID         string            `json:"id"`
-	Target     string            `json:"target"`
-	Owner      string            `json:"owner"`
-	Bucket     string            `json:"bucket"`
-	Key        string            `json:"key"`
-	Prefix     bool              `json:"prefix"`
-	Permission string            `json:"permission"`
-	Managed    bool              `json:"managed"`
-	Method     string            `json:"method,omitempty"`
-	URL        string            `json:"url,omitempty"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	VersionID  string            `json:"versionId,omitempty"`
-	Expire     string            `json:"expire,omitempty"`
-	ExpiresAt  time.Time         `json:"expiresAt"`
-	CreatedAt  *time.Time        `json:"createdAt,omitempty"`
-	AccessKey  string            `json:"accessKey"`
-	Command    string            `json:"command,omitempty"`
+	Alias      string `json:"alias"`
+	ID         string `json:"id"`
+	Target     string `json:"target"`
+	Owner      string `json:"owner"`
+	Bucket     string `json:"bucket"`
+	Key        string `json:"key"`
+	Prefix     bool   `json:"prefix"`
+	Permission string `json:"permission"`
+	Managed    bool   `json:"managed"`
+	Method     string `json:"method,omitempty"`
+	URL        string `json:"url,omitempty"`
+	// Stream and Player are set on the HLS stream shares: URL is the master
+	// playlist, Player the public player page playing it.
+	Stream    bool              `json:"stream,omitempty"`
+	Player    string            `json:"player,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
+	VersionID string            `json:"versionId,omitempty"`
+	Expire    string            `json:"expire,omitempty"`
+	ExpiresAt time.Time         `json:"expiresAt"`
+	CreatedAt *time.Time        `json:"createdAt,omitempty"`
+	AccessKey string            `json:"accessKey"`
+	Command   string            `json:"command,omitempty"`
 }
 
 // names returns s, or an empty slice for nil (JSON arrays, never null).

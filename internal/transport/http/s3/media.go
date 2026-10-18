@@ -2,11 +2,14 @@ package s3
 
 import (
 	"fmt"
+	"io/fs"
 	"log/slog"
+	"mime"
 	"net/http"
 	"net/url"
 	"path"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -24,6 +27,28 @@ import (
 // MediaPrefix is the path of the HLS presentations of a bucket on the S3
 // listener (domain.MediaPathPrefix, version 1): /nexo/media/v1/{bucket}/.
 const MediaPrefix = domain.MediaPathPrefix + "v1/"
+
+// PlayerPath is the public player page of the stream shares; the master
+// playlist goes in its fragment (/nexo/media/player/#/nexo/media/v1/...).
+const PlayerPath = domain.MediaPlayerPath
+
+// playerCSP confines the player page to its own scripts, styles and
+// streams: Media Source Extensions feed the video from blob: URLs.
+const playerCSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; " +
+	"media-src 'self' blob:; worker-src 'self' blob:; img-src 'self' data:; base-uri 'none'; form-action 'none'"
+
+// playerAssetName reports whether name is a script or a stylesheet of the
+// build output of the console (a file name: letters, digits, ".", "_",
+// "-").
+func playerAssetName(name string) bool {
+	if ext := path.Ext(name); ext != ".js" && ext != ".css" {
+		return false
+	}
+	valid := func(c rune) bool {
+		return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '.' || c == '_' || c == '-'
+	}
+	return !strings.HasPrefix(name, ".") && strings.IndexFunc(name, func(c rune) bool { return !valid(c) }) < 0
+}
 
 // The content types of HLS (RFC 8216 §4 and the fMP4 segments).
 const (
@@ -46,6 +71,9 @@ type MediaDeps struct {
 	// request (a share link) with the credentials that signed it.
 	Signer auth.Signer
 	Creds  auth.CredentialLookup
+	// Player holds the build of the web console (player.html and its
+	// assets); nil serves no player page.
+	Player fs.FS
 	Enc    httpx.Codec
 	Clock  clock.Clock
 	Logger *slog.Logger
@@ -86,6 +114,8 @@ func NewMediaRoutes(deps MediaDeps, opts ...Option) (MediaRoutes, error) {
 
 // Register implements Routes.
 func (h *mediaRoutes) Register(r chi.Router) {
+	r.Get(PlayerPath, h.player)
+	r.Get(PlayerPath+"assets/{name}", h.playerAsset)
 	r.Get(MediaPrefix+"{bucket}/master.m3u8", h.serve(false, func(r *http.Request, src media.Source, l media.Links) ([]byte, string, error) {
 		b, err := h.deps.Media.MasterPlaylist(r.Context(), src, l)
 		return b, contentTypePlaylist, err
@@ -152,6 +182,51 @@ func (h *mediaRoutes) serve(pinned bool, build func(r *http.Request, src media.S
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(body)
 	}
+}
+
+// player serves the player page: static, it reads the playlist from its
+// fragment and holds no data.
+func (h *mediaRoutes) player(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Player == nil {
+		h.deps.Enc.WriteS3Error(w, r, fmt.Errorf("%w: the player is not embedded in this build", domain.ErrNotFound))
+		return
+	}
+	page, err := fs.ReadFile(h.deps.Player, "player.html")
+	if err != nil {
+		h.deps.Enc.WriteS3Error(w, r, fmt.Errorf("%w: player page: %v", domain.ErrNotFound, err))
+		return
+	}
+	hdr := w.Header()
+	hdr.Set("Content-Type", "text/html; charset=utf-8")
+	hdr.Set("Content-Length", strconv.Itoa(len(page)))
+	hdr.Set("Cache-Control", "no-cache")
+	hdr.Set("Content-Security-Policy", playerCSP)
+	hdr.Set("X-Content-Type-Options", "nosniff")
+	hdr.Set("Referrer-Policy", "no-referrer")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(page)
+}
+
+// playerAsset serves a script or a stylesheet of the build: fingerprinted,
+// cached for good.
+func (h *mediaRoutes) playerAsset(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if h.deps.Player == nil || !playerAssetName(name) {
+		h.deps.Enc.WriteS3Error(w, r, fmt.Errorf("%w: %s", domain.ErrNotFound, name))
+		return
+	}
+	data, err := fs.ReadFile(h.deps.Player, "assets/"+name)
+	if err != nil {
+		h.deps.Enc.WriteS3Error(w, r, fmt.Errorf("%w: %s", domain.ErrNotFound, name))
+		return
+	}
+	hdr := w.Header()
+	hdr.Set("Content-Type", mime.TypeByExtension(path.Ext(name)))
+	hdr.Set("Content-Length", strconv.Itoa(len(data)))
+	hdr.Set("Cache-Control", "public, max-age=31536000, immutable")
+	hdr.Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
 }
 
 // links returns the URIs of the playlists of a request, relative to it.

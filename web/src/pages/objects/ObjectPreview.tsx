@@ -13,7 +13,9 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 
+import { HlsVideo } from '@/components/media/HlsVideo';
 import { formatBytes } from '@/lib/format';
+import { streamable } from '@/lib/media';
 import { problemMessage } from '@/lib/problem';
 import { storageKeys } from '@/lib/storageKeys';
 import { useServices } from '@/services';
@@ -180,7 +182,15 @@ export function ObjectPreview({
           <track kind="captions" />
         </audio>
       );
-    case 'video':
+    case 'video': {
+      const stream = streamable(contentType)
+        ? objects.streamUrl(bucket, objectKey, versionId)
+        : undefined;
+      if (stream !== undefined) {
+        return (
+          <HlsVideo src={stream} fallback={url} label={t('objectPreview.videoLabel', { name })} />
+        );
+      }
       return (
         <video
           controls
@@ -191,6 +201,7 @@ export function ObjectPreview({
           <track kind="captions" />
         </video>
       );
+    }
     case 'text':
     case 'json':
       if (size === 0) {

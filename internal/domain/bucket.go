@@ -158,6 +158,11 @@ const SystemPathPrefix = "/" + ReservedBucket + "/"
 // of the S3 API apply to them.
 const MediaPathPrefix = SystemPathPrefix + "media/"
 
+// MediaPlayerPath is the public player page of the stream shares on the
+// S3 port; the master playlist goes in its fragment
+// (MediaPlayerPath + "#" + MediaMasterPath(bucket) + "?key=...").
+const MediaPlayerPath = MediaPathPrefix + "player/"
+
 // MediaMasterPath is the path of the HLS master playlist of a video of
 // bucket on the S3 port; the key (and the versionId) go in the query.
 func MediaMasterPath(bucket string) string {

@@ -27,6 +27,8 @@ multi-node cluster, with no external metadata database.
 - **Security**: IAM users, groups and policies, access keys with expiry, STS, access rules with glob and
   regex, revocable share links, TLS with hot reload, mTLS between nodes, built-in KMS or KES,
   audit log.
+- **Video streaming**: MP4 videos play as HLS streams packaged on the fly, no transcoding: in the console and
+  through revocable stream links with a public player page, for browsers and any HLS player.
 - **Distributions**: a bucket served on custom domains CloudFront style, with ACME certificates,
   signed URLs, in-memory and on-disk cache with automatic invalidation.
 - **Operations**: web console, Prometheus metrics with ready-made Grafana dashboard and alerts, real-time

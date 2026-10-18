@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -40,7 +41,13 @@ func newMediaFixture(t *testing.T) *mediaFixture {
 		media: mediamock.NewService(t), policy: policymock.NewService(t), signer: authmock.NewSigner(t), creds: authmock.NewCredentialLookup(t),
 		router: chi.NewRouter(), now: time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC),
 	}
-	routes, err := s3.NewMediaRoutes(s3.MediaDeps{Media: f.media, Policy: f.policy, Signer: f.signer, Creds: f.creds, Clock: clock.NewFake(f.now)},
+	player := fstest.MapFS{
+		"player.html":             {Data: []byte(`<script src="./assets/player-abc123.js"></script>`)},
+		"assets/player-abc123.js": {Data: []byte("play()")},
+		"index.html":              {Data: []byte("console")},
+	}
+	routes, err := s3.NewMediaRoutes(s3.MediaDeps{Media: f.media, Policy: f.policy, Signer: f.signer, Creds: f.creds, Clock: clock.NewFake(f.now),
+		Player: player},
 		s3.WithRegion("eu-south-1"))
 	require.NoError(t, err)
 	routes.Register(f.router)
@@ -135,4 +142,26 @@ func TestMediaRoutesPresigned(t *testing.T) {
 	query = "key=a.mp4&rev=e1&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20261018T100000Z&X-Amz-Expires=3600&X-Amz-Signature=x"
 	rec = f.serve(s3.MediaPrefix+"films/media.m3u8?"+query, share)
 	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+// TestMediaPlayer: the player page and its assets, public and confined;
+// nothing else of the console build.
+func TestMediaPlayer(t *testing.T) {
+	f := newMediaFixture(t)
+	rec := f.serve(s3.PlayerPath, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "text/html; charset=utf-8", rec.Header().Get("Content-Type"))
+	assert.Contains(t, rec.Header().Get("Content-Security-Policy"), "media-src 'self' blob:")
+	assert.Equal(t, "no-referrer", rec.Header().Get("Referrer-Policy"))
+	assert.Contains(t, rec.Body.String(), "./assets/player-abc123.js")
+
+	rec = f.serve(s3.PlayerPath+"assets/player-abc123.js", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "play()", rec.Body.String())
+	assert.Contains(t, rec.Header().Get("Content-Type"), "javascript")
+	assert.Contains(t, rec.Header().Get("Cache-Control"), "immutable")
+
+	for _, target := range []string{"assets/missing.js", "assets/..%2Findex.html", "assets/index.html", "index.html"} {
+		assert.Equal(t, http.StatusNotFound, f.serve(s3.PlayerPath+target, nil).Code, target)
+	}
 }

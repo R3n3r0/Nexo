@@ -55,6 +55,45 @@ describe('ShareDialog (TD-U-10)', () => {
     expect(screen.getByRole('img', { name: 'QR code of the link' })).toBeInTheDocument();
   });
 
+  it('shares a video as a stream: a player link and the HLS playlist', async () => {
+    const user = userEvent.setup();
+    const { services } = renderDialog({ objectKey: 'clips/intro.mp4' });
+    const create = vi.spyOn(services.shares, 'create');
+    const toggle = await screen.findByRole('switch', { name: /Stream as a video/ });
+    expect(toggle).toBeChecked();
+    // A stream is a download, signed by a managed share, served as is.
+    expect(screen.queryByRole('textbox', { name: /When opened/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: /Raw presigned link/ })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Create link' }));
+    const player = await screen.findByRole('textbox', { name: 'Player link' });
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ key: 'clips/intro.mp4', permission: 'download', stream: true }),
+    );
+    expect((player as HTMLInputElement).value).toMatch(
+      /^http:\/\/localhost:9000\/nexo\/media\/player\/#\/nexo\/media\/v1\/media\/master\.m3u8\?key=clips%2Fintro\.mp4&/,
+    );
+    const playlist = screen.getByRole('textbox', { name: 'HLS playlist' });
+    expect((playlist as HTMLInputElement).value).toMatch(
+      /^http:\/\/localhost:9000\/nexo\/media\/v1\/media\/master\.m3u8\?/,
+    );
+  });
+
+  it('shares the file of a video on request', async () => {
+    const user = userEvent.setup();
+    const { services } = renderDialog({ objectKey: 'clips/intro.mp4' });
+    const create = vi.spyOn(services.shares, 'create');
+    await user.click(await screen.findByRole('switch', { name: /Stream as a video/ }));
+    await user.click(screen.getByRole('button', { name: 'Create link' }));
+    await screen.findByRole('textbox', { name: 'Link' });
+    expect(create).toHaveBeenCalledWith(expect.not.objectContaining({ stream: true }));
+  });
+
+  it('offers no stream for other objects', async () => {
+    renderDialog();
+    await screen.findByRole('button', { name: 'Create link' });
+    expect(screen.queryByRole('switch', { name: /Stream as a video/ })).not.toBeInTheDocument();
+  });
+
   it('refuses a custom expiration beyond 7 days', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-10-08T12:00:00Z'));

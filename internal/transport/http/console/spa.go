@@ -35,9 +35,10 @@ func WithCSP(csp string) SPAOption {
 	return func(h *spaRoutes) { h.csp = csp }
 }
 
-// DefaultCSP is the baseline Content-Security-Policy of the console.
+// DefaultCSP is the baseline Content-Security-Policy of the console. The
+// video previews play HLS through Media Source Extensions (blob: media).
 const DefaultCSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-	"img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; " +
+	"img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; " +
 	"frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
 
 // hashedAssetPattern matches Vite-style fingerprinted file names:

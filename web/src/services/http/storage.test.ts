@@ -72,6 +72,10 @@ describe('storage HTTP services (TD-U-14)', () => {
     const preview = new URL(services.objects.previewUrl('media', 'x.png'));
     expect(preview.pathname).toBe('/api/v1/buckets/media/objects/preview');
     expect(preview.searchParams.has('versionId')).toBe(false);
+    const stream = new URL(services.objects.streamUrl('media', 'clips/a b.mp4', 'v2') ?? '');
+    expect(stream.pathname).toBe('/api/v1/buckets/media/objects/hls/master.m3u8');
+    expect(stream.searchParams.get('key')).toBe('clips/a b.mp4');
+    expect(stream.searchParams.get('versionId')).toBe('v2');
   });
 
   it('reads the head of a text object with a range and reports truncation', async () => {

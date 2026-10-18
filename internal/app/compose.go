@@ -466,7 +466,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		return nil, err
 	}
 	mediaRoutes, err := s3.NewMediaRoutes(s3.MediaDeps{Media: mediaSvc, Policy: s3Policy, Objects: objects, Signer: signer, Creds: identities,
-		Enc: codec, Clock: d.clock, Logger: logger}, s3.WithRegion(cfg.Region))
+		Player: d.assets, Enc: codec, Clock: d.clock, Logger: logger}, s3.WithRegion(cfg.Region))
 	if err != nil {
 		return nil, err
 	}

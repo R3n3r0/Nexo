@@ -417,6 +417,10 @@ export function createMockObjectService(storage: MockStorage): ObjectService {
         ?.find((v) => (versionId ? v.versionId === versionId : !v.isDeleteMarker));
       return version ? dataUrl(version) : '#';
     },
+    streamUrl() {
+      // The demo has no media server: videos play from their data URL.
+      return undefined;
+    },
     async previewText(bucket, key, { maxBytes, versionId, signal }) {
       await ctx.delay();
       if (signal?.aborted) {
