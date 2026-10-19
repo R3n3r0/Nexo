@@ -26,6 +26,29 @@ stdout '"id":"courses".*"id":"clips"'
 exec nexoctl media rule rm local/videos clips
 expectcode 3 nexoctl media rule rm local/videos clips
 
+# --hls: the rule of the HLS option, changed by the other flags.
+exec nexoctl media rule add --json local/videos --hls --prefix hd/
+jsonlines stdout
+stdout '"id":"hls","prefix":"hd/"'
+stdout '"renditions":\["2160p","1440p","1080p","720p","480p","360p","240p"\],"poster":true,"thumbnails":\{"interval":"10s"\}'
+exec nexoctl media rule rm local/videos hls
+expectcode 2 nexoctl media rule add local/videos --prefix x/ --poster
+stderr '--id is required'
+
+# A video bucket made in one step: mb --with-hls.
+exec nexoctl mb --with-hls local/films
+stdout 'Bucket created successfully `local/films`, with HLS video'
+exec nexoctl media get --json local/films
+stdout '"id":"hls"'
+stdout '"poster":true'
+exec nexoctl mb --ignore-existing --with-hls local/films
+stdout 'already exists. HLS video set'
+exec nexoctl mb --json --ignore-existing --with-hls local/films
+! stdout '"created"'
+stdout '"hls":true'
+exec nexoctl media get --json local/films
+! stdout '"id":"hls".*"id":"hls"'
+
 # The processing state of a video and its reprocessing.
 exec nexoctl cp video.mp4 local/videos/courses/intro.mp4
 exec nexoctl media status local/videos/courses/intro.mp4

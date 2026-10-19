@@ -7,7 +7,10 @@ Make buckets
 Make buckets. --with-lock creates them with Object Lock (WORM retention and
 legal holds, see "nexoctl retention" and "nexoctl legalhold"), which implies
 versioning; an existing bucket can get it later only once its versioning is
-enabled.
+enabled. --with-hls makes a video bucket: it adds the media rule "hls", with
+which the media worker derives every rendition (240p to 2160p, up to the
+height of each video), a poster and timeline thumbnails from every video
+uploaded (see "nexoctl media"; it needs the Admin API and a media worker).
 
 ```
 nexoctl mb [flags] ALIAS/BUCKET...
@@ -18,6 +21,7 @@ nexoctl mb [flags] ALIAS/BUCKET...
 ```
   nexoctl mb --with-versioning local/photos
   nexoctl mb --with-lock local/vault
+  nexoctl mb --with-hls local/videos
 ```
 
 ## Options
@@ -26,6 +30,7 @@ nexoctl mb [flags] ALIAS/BUCKET...
   -h, --help              help for mb
   -p, --ignore-existing   do not fail when the bucket already exists
       --region string     location constraint (default: the region of the alias)
+      --with-hls          make a video bucket: the media rule "hls" (every rendition, a poster and thumbnails)
   -l, --with-lock         create the bucket with Object Lock (implies versioning)
       --with-versioning   enable versioning on the new bucket
 ```

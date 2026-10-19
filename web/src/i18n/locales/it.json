@@ -210,6 +210,8 @@
     "versioningHint": "Conserva tutte le versioni degli oggetti.",
     "objectLock": "Object lock",
     "objectLockHint": "Protegge le versioni dalla cancellazione (attiva il versioning; non si può disattivare).",
+    "hls": "Video HLS",
+    "hlsHint": "Ogni video caricato nel bucket riceve tutte le qualità da 240p a 4K, un poster e le miniature della timeline (regola media \"hls\", prodotte dal media worker).",
     "quota": "Quota",
     "quotaHint": "Limite rigido; lascia vuoto per nessuna quota.",
     "quotaUnit": "Unità della quota",

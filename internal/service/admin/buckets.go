@@ -196,6 +196,9 @@ func (m *bucketManager) Create(ctx context.Context, in CreateBucketInput) (*Buck
 	if in.QuotaBytes > 0 {
 		actions = append(actions, policy.ActionAdminSetBucketQuota)
 	}
+	if in.HLS {
+		actions = append(actions, policy.ActionAdminSetBucketMedia)
+	}
 	if err := authorizeAll(ctx, m.deps.Authz, in.Requester, in.Name, "", actions...); err != nil {
 		return nil, err
 	}
@@ -226,6 +229,11 @@ func (m *bucketManager) applySettings(ctx context.Context, in CreateBucketInput)
 	if in.QuotaBytes > 0 {
 		if _, err := m.deps.Buckets.SetQuota(ctx, in.Name, bucket.Quota{Type: bucket.QuotaHard, Size: in.QuotaBytes}); err != nil {
 			return fmt.Errorf("admin: quota of %s: %w", in.Name, err)
+		}
+	}
+	if in.HLS {
+		if err := m.deps.Buckets.SetMedia(ctx, in.Name, domain.MediaConfig{Rules: []domain.MediaRule{domain.HLSMediaRule()}}); err != nil {
+			return fmt.Errorf("admin: media rule of %s: %w", in.Name, err)
 		}
 	}
 	return nil

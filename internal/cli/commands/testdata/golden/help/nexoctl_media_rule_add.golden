@@ -1,18 +1,22 @@
 Add a video rule to a bucket, or replace the rule with the same ID (keeping its
 place: the first rule that selects a key applies). A rule produces at least one
-of --rendition, --poster and --thumbnails.
+of --rendition, --poster and --thumbnails. --hls is the rule of the HLS option of
+bucket creation (id "hls", every rendition, a poster and thumbnails every 10s);
+the other flags change it.
 Renditions: 2160p, 1440p, 1080p, 720p, 480p, 360p, 240p (those taller than the
 source are skipped).
 
 Usage:
-  nexoctl media rule add ALIAS/BUCKET --id ID [flags]
+  nexoctl media rule add ALIAS/BUCKET (--id ID | --hls) [flags]
 
 Examples:
   nexoctl media rule add local/videos --id hd --prefix courses/ --rendition 720p,480p --poster
   nexoctl media rule add local/videos --id clips --suffix .mp4 --suffix .webm --thumbnails 5s
+  nexoctl media rule add local/videos --hls
 
 Flags:
   -h, --help                help for add
+      --hls                 the rule of the HLS option: id "hls", every rendition, a poster and thumbnails
       --id string           ID of the rule (1-64 letters, digits, '.', '_' or '-'; required)
       --poster              produce a JPEG poster frame
       --prefix string       select the keys under this prefix (default: the whole bucket)

@@ -157,6 +157,9 @@ type CreateBucketRequest struct {
 	ObjectLock bool `json:"objectLock,omitempty"`
 	// QuotaBytes sets a hard quota in bytes (0: none).
 	QuotaBytes uint64 `json:"quotaBytes,omitempty"`
+	// HLS sets the media rule "hls": every rendition, a poster and
+	// thumbnails for every video (needs a media worker).
+	HLS bool `json:"hls,omitempty"`
 }
 
 // VersioningResponse is the body of the versioning endpoints.
@@ -252,7 +255,7 @@ func (h *bucketRoutes) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b, err := h.deps.Manager.Create(r.Context(), adminsvc.CreateBucketInput{
-		Requester: requesterOf(r), Name: in.Name, Region: in.Region, Versioning: in.Versioning, ObjectLock: in.ObjectLock, QuotaBytes: in.QuotaBytes,
+		Requester: requesterOf(r), Name: in.Name, Region: in.Region, Versioning: in.Versioning, ObjectLock: in.ObjectLock, QuotaBytes: in.QuotaBytes, HLS: in.HLS,
 	})
 	if err != nil {
 		h.fail(w, r, err)

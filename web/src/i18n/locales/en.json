@@ -210,6 +210,8 @@
     "versioningHint": "Keep every version of the objects.",
     "objectLock": "Object lock",
     "objectLockHint": "Protect versions from deletion (enables versioning; cannot be disabled later).",
+    "hls": "HLS video",
+    "hlsHint": "Every video uploaded to the bucket gets all the qualities from 240p to 4K, a poster and timeline thumbnails (media rule \"hls\", made by the media worker).",
     "quota": "Quota",
     "quotaHint": "Hard limit; leave empty for no quota.",
     "quotaUnit": "Quota unit",

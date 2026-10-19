@@ -3706,6 +3706,8 @@ export interface components {
              * @description Hard quota in bytes (0 none).
              */
             quotaBytes?: number;
+            /** @description Set the media rule "hls": the media worker derives every rendition (up to the height of each video), a poster and timeline thumbnails from every video of the bucket. Needs the admin:SetBucketMedia permission and a notify_media_worker target. */
+            hls?: boolean;
         };
         BucketVersioning: {
             status: components["schemas"]["VersioningState"];

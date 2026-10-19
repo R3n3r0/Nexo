@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -12,7 +13,7 @@ import (
 )
 
 func newMbCmd(e *env) *cobra.Command {
-	var withVersioning, withLock, ignoreExisting bool
+	var withVersioning, withLock, withHLS, ignoreExisting bool
 	var region string
 	cmd := &cobra.Command{
 		Use:   "mb [flags] ALIAS/BUCKET...",
@@ -20,9 +21,13 @@ func newMbCmd(e *env) *cobra.Command {
 		Long: `Make buckets. --with-lock creates them with Object Lock (WORM retention and
 legal holds, see "nexoctl retention" and "nexoctl legalhold"), which implies
 versioning; an existing bucket can get it later only once its versioning is
-enabled.`,
+enabled. --with-hls makes a video bucket: it adds the media rule "hls", with
+which the media worker derives every rendition (240p to 2160p, up to the
+height of each video), a poster and timeline thumbnails from every video
+uploaded (see "nexoctl media"; it needs the Admin API and a media worker).`,
 		Example: `  nexoctl mb --with-versioning local/photos
-  nexoctl mb --with-lock local/vault`,
+  nexoctl mb --with-lock local/vault
+  nexoctl mb --with-hls local/videos`,
 		Args:              minArgs(1),
 		ValidArgsFunction: completeTargets(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -58,6 +63,21 @@ enabled.`,
 					}
 					rec.Versioning = string(cli.VersioningEnabled)
 				}
+				if withHLS {
+					admin, err := e.admin(ctx, t.Alias)
+					if err == nil {
+						_, _, err = upsertMediaRule(ctx, admin, t.Bucket, hlsMediaRule())
+					}
+					if err != nil {
+						return fmt.Errorf("%s: media rule %q: %w", t, domain.HLSMediaRuleID, err)
+					}
+					rec.HLS = true
+					if rec.Created {
+						msg = strings.TrimSuffix(msg, ".") + ", with HLS video (media rule \"hls\": every rendition, a poster and thumbnails)."
+					} else {
+						msg += " HLS video set (media rule \"hls\")."
+					}
+				}
 				if err := e.out.Info(rec, msg); err != nil {
 					return err
 				}
@@ -68,6 +88,7 @@ enabled.`,
 	f := cmd.Flags()
 	f.BoolVar(&withVersioning, "with-versioning", false, "enable versioning on the new bucket")
 	f.BoolVarP(&withLock, "with-lock", "l", false, "create the bucket with Object Lock (implies versioning)")
+	f.BoolVar(&withHLS, "with-hls", false, `make a video bucket: the media rule "hls" (every rendition, a poster and thumbnails)`)
 	f.BoolVarP(&ignoreExisting, "ignore-existing", "p", false, "do not fail when the bucket already exists")
 	f.StringVar(&region, "region", "", "location constraint (default: the region of the alias)")
 	return cmd

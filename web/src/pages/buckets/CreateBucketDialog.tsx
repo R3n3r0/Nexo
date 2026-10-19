@@ -10,7 +10,7 @@ import {
   TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconAlertTriangle } from '@tabler/icons-react';
+import { IconAlertTriangle, IconMovie } from '@tabler/icons-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -28,7 +28,10 @@ export interface CreateBucketDialogProps {
   onClose: () => void;
 }
 
-/** D-BKT-01 / TD-U-04: creation with live DNS validation, versioning, lock and quota. */
+/**
+ * D-BKT-01 / TD-U-04: creation with live DNS validation, versioning, lock,
+ * quota and the HLS video option (the media rule "hls").
+ */
 export function CreateBucketDialog({ opened, onClose }: CreateBucketDialogProps) {
   const { t } = useTranslation();
   const { buckets } = useServices();
@@ -38,6 +41,7 @@ export function CreateBucketDialog({ opened, onClose }: CreateBucketDialogProps)
   const [touched, setTouched] = useState(false);
   const [versioning, setVersioning] = useState(false);
   const [objectLock, setObjectLock] = useState(false);
+  const [hls, setHls] = useState(false);
   const [quota, setQuota] = useState<number | string>('');
   const [unit, setUnit] = useState<SizeUnit>('GiB');
 
@@ -61,6 +65,7 @@ export function CreateBucketDialog({ opened, onClose }: CreateBucketDialogProps)
     setTouched(false);
     setVersioning(false);
     setObjectLock(false);
+    setHls(false);
     setQuota('');
     setUnit('GiB');
     mutation.reset();
@@ -92,6 +97,9 @@ export function CreateBucketDialog({ opened, onClose }: CreateBucketDialogProps)
     }
     if (Number.isFinite(quotaValue) && quotaValue > 0) {
       input.quotaBytes = toBytes(quotaValue, unit);
+    }
+    if (hls) {
+      input.hls = true;
     }
     mutation.mutate(input);
   };
@@ -140,6 +148,19 @@ export function CreateBucketDialog({ opened, onClose }: CreateBucketDialogProps)
               {t('buckets.objectLockWarning')}
             </Alert>
           ) : null}
+          <Switch
+            label={
+              <Group gap={6} wrap="nowrap">
+                <IconMovie size={16} aria-hidden />
+                {t('buckets.hls')}
+              </Group>
+            }
+            description={t('buckets.hlsHint')}
+            checked={hls}
+            onChange={(event) => {
+              setHls(event.currentTarget.checked);
+            }}
+          />
           <Group align="flex-end" gap="xs" wrap="nowrap">
             <NumberInput
               label={t('buckets.quota')}

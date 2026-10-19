@@ -143,30 +143,84 @@ type mediaRuleFlags struct {
 	renditions []string
 	poster     bool
 	thumbnails string
+	hls        bool
+}
+
+// hlsMediaRule is the rule of the HLS option (domain.HLSMediaRule): every
+// rendition, a poster and thumbnails.
+func hlsMediaRule() nexoadmin.MediaRule {
+	return cli.MediaFromDomain(domain.MediaConfig{Rules: []domain.MediaRule{domain.HLSMediaRule()}}).Rules[0]
+}
+
+// upsertMediaRule adds rule to the rules of a bucket, or replaces the rule
+// with the same ID in its place, and returns the rule as stored.
+func upsertMediaRule(ctx context.Context, client cli.AdminClient, bucket string, rule nexoadmin.MediaRule) (stored nexoadmin.MediaRule, replaced bool, err error) {
+	cfg, err := client.GetBucketMedia(ctx, bucket)
+	if err != nil {
+		return rule, false, err
+	}
+	rules := mediaRules(cfg)
+	for i, r := range rules {
+		if r.ID == rule.ID {
+			rules[i], replaced = rule, true
+		}
+	}
+	if !replaced {
+		rules = append(rules, rule)
+	}
+	out, err := client.SetBucketMedia(ctx, bucket, nexoadmin.MediaConfiguration{Rules: rules})
+	if err != nil {
+		return rule, false, err
+	}
+	for _, r := range out.Rules {
+		if r.ID == rule.ID {
+			rule = r
+		}
+	}
+	return rule, replaced, nil
 }
 
 func newMediaRuleAddCmd(e *env) *cobra.Command {
 	var f mediaRuleFlags
 	cmd := &cobra.Command{
-		Use:   "add ALIAS/BUCKET --id ID [flags]",
+		Use:   "add ALIAS/BUCKET (--id ID | --hls) [flags]",
 		Short: "Add a video rule to a bucket, or replace the rule with the same ID",
 		Long: `Add a video rule to a bucket, or replace the rule with the same ID (keeping its
 place: the first rule that selects a key applies). A rule produces at least one
-of --rendition, --poster and --thumbnails.
+of --rendition, --poster and --thumbnails. --hls is the rule of the HLS option of
+bucket creation (id "hls", every rendition, a poster and thumbnails every 10s);
+the other flags change it.
 Renditions: ` + strings.Join(domain.MediaRenditionNames(), ", ") + ` (those taller than the
 source are skipped).`,
 		Example: `  nexoctl media rule add local/videos --id hd --prefix courses/ --rendition 720p,480p --poster
-  nexoctl media rule add local/videos --id clips --suffix .mp4 --suffix .webm --thumbnails 5s`,
+  nexoctl media rule add local/videos --id clips --suffix .mp4 --suffix .webm --thumbnails 5s
+  nexoctl media rule add local/videos --hls`,
 		Args:              exactArgs(1),
 		ValidArgsFunction: completeTargets(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if strings.TrimSpace(f.id) == "" {
-				return cli.UsageError("--id is required")
-			}
+			changed := cmd.Flags().Changed
 			rule := nexoadmin.MediaRule{ID: strings.TrimSpace(f.id), Prefix: f.prefix, Suffixes: splitList(f.suffixes),
 				Renditions: splitList(f.renditions), Poster: f.poster}
-			if cmd.Flags().Changed("thumbnails") {
+			if changed("thumbnails") {
 				rule.Thumbnails = &nexoadmin.MediaThumbnails{Interval: f.thumbnails}
+			}
+			if f.hls {
+				preset := hlsMediaRule()
+				if rule.ID == "" {
+					rule.ID = preset.ID
+				}
+				if !changed("rendition") {
+					rule.Renditions = preset.Renditions
+				}
+				if !changed("poster") {
+					rule.Poster = preset.Poster
+				}
+				if !changed("thumbnails") {
+					rule.Thumbnails = preset.Thumbnails
+				}
+			}
+			if rule.ID == "" {
+				return cli.UsageError("--id is required (or --hls)")
 			}
 			if _, err := cli.NormalizeMedia(nexoadmin.MediaConfiguration{Rules: []nexoadmin.MediaRule{rule}}); err != nil {
 				return err
@@ -176,28 +230,9 @@ source are skipped).`,
 			if err != nil {
 				return err
 			}
-			cfg, err := client.GetBucketMedia(ctx, t.Bucket)
+			rule, replaced, err := upsertMediaRule(ctx, client, t.Bucket, rule)
 			if err != nil {
 				return fmt.Errorf("%s: %w", t, err)
-			}
-			replaced := false
-			rules := mediaRules(cfg)
-			for i, r := range rules {
-				if r.ID == rule.ID {
-					rules[i], replaced = rule, true
-				}
-			}
-			if !replaced {
-				rules = append(rules, rule)
-			}
-			stored, err := client.SetBucketMedia(ctx, t.Bucket, nexoadmin.MediaConfiguration{Rules: rules})
-			if err != nil {
-				return fmt.Errorf("%s: %w", t, err)
-			}
-			for _, r := range stored.Rules {
-				if r.ID == rule.ID {
-					rule = r
-				}
 			}
 			text := fmt.Sprintf("Media rule %q added to `%s`.", rule.ID, t)
 			if replaced {
@@ -213,6 +248,7 @@ source are skipped).`,
 	fs.StringSliceVar(&f.renditions, "rendition", nil, "produce these renditions (repeatable or comma-separated: "+strings.Join(domain.MediaRenditionNames(), ",")+")")
 	fs.BoolVar(&f.poster, "poster", false, "produce a JPEG poster frame")
 	fs.StringVar(&f.thumbnails, "thumbnails", "", "produce timeline thumbnails, one every INTERVAL (1s to 10m, e.g. 10s)")
+	fs.BoolVar(&f.hls, "hls", false, `the rule of the HLS option: id "hls", every rendition, a poster and thumbnails`)
 	return cmd
 }
 

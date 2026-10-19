@@ -1,4 +1,5 @@
 import { corsLimits, validateCorsRule, type CorsIssue } from '@/lib/cors';
+import { mediaRenditions } from '@/lib/mediaRules';
 
 import type { BucketService } from '../interfaces';
 import type { Bucket, PolicyError } from '../types';
@@ -121,6 +122,19 @@ export function createMockBucketService(storage: MockStorage): BucketService {
         policy: null,
         rules: [],
         encryption: null,
+        // The rule the server sets for the HLS option (domain.HLSMediaRule).
+        ...(input.hls === true
+          ? {
+              media: [
+                {
+                  id: 'hls',
+                  renditions: [...mediaRenditions],
+                  poster: true,
+                  thumbnails: { interval: '10s' },
+                },
+              ],
+            }
+          : {}),
       });
       return clone(bucket);
     },

@@ -380,6 +380,9 @@ type CreateBucketInput struct {
 	ObjectLock bool
 	// QuotaBytes sets a hard quota; 0 means none.
 	QuotaBytes uint64
+	// HLS sets the media rule domain.HLSMediaRule: the media worker derives
+	// every rendition, a poster and thumbnails from every video.
+	HLS bool
 }
 
 // DeleteBucketInput are the parameters of BucketManager.Delete.

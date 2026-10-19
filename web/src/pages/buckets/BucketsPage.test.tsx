@@ -229,6 +229,32 @@ describe('CreateBucketDialog (TD-U-04)', () => {
     });
   });
 
+  it('creates a video bucket with the HLS option and its media rule', async () => {
+    const services = adminServices();
+    const create = vi.spyOn(services.buckets, 'create');
+    renderRoutes(routes, { initialEntries: ['/buckets'], services });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Create bucket' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Create a bucket' });
+    await user.type(within(dialog).getByRole('textbox', { name: /Name/ }), 'videos');
+    await user.click(within(dialog).getByRole('switch', { name: /HLS video/ }));
+    await user.click(within(dialog).getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location')).toHaveTextContent('/buckets/videos/browse/');
+    });
+    expect(create).toHaveBeenCalledWith({ name: 'videos', hls: true });
+    const media = await services.media.get('videos');
+    expect(media.rules).toHaveLength(1);
+    expect(media.rules[0]).toMatchObject({
+      id: 'hls',
+      poster: true,
+      thumbnails: { interval: '10s' },
+    });
+    expect(media.rules[0]?.renditions).toContain('2160p');
+    expect(media.rules[0]?.renditions).toContain('240p');
+  });
+
   it('shows BucketAlreadyExists on the name field', async () => {
     renderRoutes(routes, { initialEntries: ['/buckets'], services: adminServices() });
     const user = userEvent.setup();

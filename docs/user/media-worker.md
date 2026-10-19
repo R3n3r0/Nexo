@@ -171,7 +171,21 @@ bucket notification: the media rules decide which videos it receives.
 
 ### 4. Media rules
 
-A bucket has up to 100 rules. A rule selects keys by `prefix` (empty: the whole bucket) and `suffixes`
+**The quick way: a video bucket.** Create the bucket with the **HLS video** option and every video uploaded to
+it gets every rendition (240p to 2160p, up to the height of the video), a poster and thumbnails every 10
+seconds, with no rule to write:
+
+```console
+$ nexoctl mb --with-hls local/videos               # a new video bucket
+$ nexoctl media rule add local/videos --hls         # the same for an existing bucket
+```
+
+In the console it is the **HLS video** switch of **Create bucket**; in the Admin API, `"hls": true` in the body
+of `POST /buckets` (it needs `admin:SetBucketMedia` besides `s3:CreateBucket`). The option is the rule
+`{"id": "hls", "renditions": [every preset], "poster": true, "thumbnails": {"interval": "10s"}}`: change it or
+add more rules as below.
+
+**Rules of your own.** A bucket has up to 100 rules. A rule selects keys by `prefix` (empty: the whole bucket) and `suffixes`
 (default `.mp4`, `.mov`, `.m4v`, matched without case); the first matching rule applies.
 
 ```json

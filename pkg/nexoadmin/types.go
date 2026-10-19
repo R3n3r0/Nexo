@@ -385,6 +385,9 @@ type CreateBucketRequest struct {
 	Versioning bool   `json:"versioning,omitempty"`
 	ObjectLock bool   `json:"objectLock,omitempty"`
 	QuotaBytes uint64 `json:"quotaBytes,omitempty"`
+	// HLS sets the media rule "hls": every rendition, a poster and
+	// thumbnails for every video of the bucket (needs a media worker).
+	HLS bool `json:"hls,omitempty"`
 }
 
 // BucketQuota is the quota of a bucket; a zero Size disables it.

@@ -208,6 +208,18 @@ func TestBucketManagerCreate(t *testing.T) {
 				e.objects.EXPECT().DataUsage(mock.Anything, "vault").Return(nil, nil)
 				e.buckets.EXPECT().IsPublic(mock.Anything, "vault").Return(false, nil)
 			}},
+		{name: "hls sets the media rule", in: admin.CreateBucketInput{Name: "videos", HLS: true},
+			actions: []policy.Action{policy.ActionCreateBucket, policy.ActionAdminSetBucketMedia},
+			setup: func(e *bucketEnv) {
+				e.buckets.EXPECT().Create(mock.Anything, bucket.CreateInput{Name: "videos"}).Return(&domain.Bucket{Name: "videos"}, nil)
+				e.buckets.EXPECT().SetMedia(mock.Anything, "videos", domain.MediaConfig{Rules: []domain.MediaRule{domain.HLSMediaRule()}}).Return(nil)
+				b := info("videos")
+				e.buckets.EXPECT().Get(mock.Anything, "videos").Return(&b, nil)
+				e.objects.EXPECT().DataUsage(mock.Anything, "videos").Return(nil, nil)
+				e.buckets.EXPECT().IsPublic(mock.Anything, "videos").Return(false, nil)
+			}},
+		{name: "hls needs its action", in: admin.CreateBucketInput{Name: "videos", HLS: true},
+			deny: policy.ActionAdminSetBucketMedia, wantErr: domain.ErrAccessDenied},
 		{name: "a failed setting removes the bucket", in: admin.CreateBucketInput{Name: "photos", Versioning: true, QuotaBytes: 10},
 			setup: func(e *bucketEnv) {
 				e.buckets.EXPECT().Create(mock.Anything, bucket.CreateInput{Name: "photos"}).Return(&domain.Bucket{Name: "photos"}, nil)

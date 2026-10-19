@@ -85,6 +85,18 @@ func (t MediaThumbnails) IntervalDuration() time.Duration {
 	return d
 }
 
+// HLSMediaRuleID is the ID of the rule HLSMediaRule returns.
+const HLSMediaRuleID = "hls"
+
+// HLSMediaRule is the rule of a bucket created for video (the HLS option of
+// bucket creation: console, Admin API, nexoctl mb --with-hls): every video
+// of the bucket gets every rendition up to its own height, a poster and
+// timeline thumbnails.
+func HLSMediaRule() MediaRule {
+	return MediaRule{ID: HLSMediaRuleID, Renditions: MediaRenditionNames(), Poster: true,
+		Thumbnails: &MediaThumbnails{Interval: "10s"}}
+}
+
 // DefaultMediaSuffixes are the suffixes of a rule that names none.
 func DefaultMediaSuffixes() []string { return []string{".mp4", ".mov", ".m4v"} }
 

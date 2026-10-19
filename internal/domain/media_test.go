@@ -2,6 +2,7 @@ package domain
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -40,4 +41,21 @@ func TestMediaConfigValidateAndMatch(t *testing.T) {
 	} {
 		assert.ErrorIs(t, bad.Validate(), ErrInvalidArgument)
 	}
+}
+
+func TestHLSMediaRule(t *testing.T) {
+	rule := HLSMediaRule()
+	cfg := MediaConfig{Rules: []MediaRule{rule}}
+	require.NoError(t, cfg.Validate())
+	assert.Equal(t, HLSMediaRuleID, rule.ID)
+	assert.Equal(t, MediaRenditionNames(), rule.Renditions, "every rendition")
+	assert.True(t, rule.Poster)
+	require.NotNil(t, rule.Thumbnails)
+	assert.Equal(t, 10*time.Second, rule.Thumbnails.IntervalDuration())
+	m, ok := cfg.Match("any/folder/clip.MOV")
+	require.True(t, ok, "the whole bucket, the default suffixes")
+	assert.Equal(t, HLSMediaRuleID, m.ID)
+	// A new rule each call: changing one leaves the next alone.
+	rule.Renditions[0] = "x"
+	assert.Equal(t, "2160p", HLSMediaRule().Renditions[0])
 }

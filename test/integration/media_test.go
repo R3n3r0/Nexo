@@ -344,4 +344,27 @@ func TestMediaWorker(t *testing.T) {
 	_, err = e.root.DeleteObject(e.ctx, &s3.DeleteObjectInput{Bucket: aws.String("archive"), Key: aws.String("talk.mp4"), VersionId: aws.String(versionID)})
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return sidecarVersions() == 0 }, time.Minute, 100*time.Millisecond, "every version of the sidecar is removed")
+
+	// A bucket created with the HLS option: every rendition up to the
+	// height of the video, a poster and thumbnails, with no rule written.
+	resp = root.do(http.MethodPost, "/buckets", `{"name":"films","hls":true}`)
+	require.Equal(t, http.StatusCreated, resp.StatusCode, "%s", resp.Body)
+	e.put("films", "trailer.mp4", video)
+	require.Eventually(t, func() bool {
+		resp := root.do(http.MethodGet, "/buckets/films/objects/media/status?key=trailer.mp4", "")
+		if resp.StatusCode != http.StatusOK || json.Unmarshal(resp.Body, &status) != nil {
+			return false
+		}
+		require.NotEqual(t, "failed", status.State, status.Error)
+		return status.State == "done"
+	}, 2*time.Minute, 100*time.Millisecond, "the worker processes the video of the HLS bucket")
+	assert.True(t, status.Poster)
+	names := make([]string, 0, len(status.Renditions))
+	for _, r := range status.Renditions {
+		names = append(names, r.Name)
+	}
+	assert.Equal(t, []string{"360p", "240p"}, names, "the presets up to the 360p source")
+	master = get(mustParse(t, e.srv.ConsoleURL+"/api/v1/buckets/films/objects/hls/master.m3u8?key=trailer.mp4"))
+	require.Equal(t, http.StatusOK, master.StatusCode)
+	assert.Equal(t, 3, strings.Count(string(master.Body), "#EXT-X-STREAM-INF"), "the source and two renditions: %s", master.Body)
 }
