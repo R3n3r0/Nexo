@@ -237,7 +237,10 @@ The console serves the same files under `/api/v1/buckets/{bucket}/objects/hls/` 
 
 ## Performance
 
-Measured on 4 vCPU at 2.1 GHz ([benchmarks](https://github.com/R3n3r0/Nexo/blob/main/docs/bench/media.md), `make bench-media`):
+Measured on a virtual machine with 4 vCPU Intel Xeon at 2.1 GHz (AVX-512, no SMT), 15.7 GiB of RAM, an ext4
+virtio disk, Ubuntu 24.04, Go 1.27.2 and OpenH264 2.4.1, on a 20-second 1080p H.264 High video at 6 Mbit/s with film
+grain ([machine and method](https://github.com/R3n3r0/Nexo/blob/main/docs/bench/media.md); `make bench-media` measures your own hardware and saves its description with the
+results):
 
 | Job (1080p H.264 source) | Speed |
 |--------------------------|-------|

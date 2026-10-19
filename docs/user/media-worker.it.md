@@ -243,7 +243,10 @@ La console serve gli stessi file sotto `/api/v1/buckets/{bucket}/objects/hls/` e
 
 ## Prestazioni
 
-Misurate su 4 vCPU a 2,1 GHz ([benchmark](https://github.com/R3n3r0/Nexo/blob/main/docs/bench/media.md), `make bench-media`):
+Misurate su una macchina virtuale con 4 vCPU Intel Xeon a 2,1 GHz (AVX-512, senza SMT), 15,7 GiB di RAM, un
+disco virtio ext4, Ubuntu 24.04, Go 1.27.2 e OpenH264 2.4.1, su un video H.264 High 1080p di 20 secondi a 6 Mbit/s
+con grana ([macchina e metodo](https://github.com/R3n3r0/Nexo/blob/main/docs/bench/media.md); `make bench-media` misura il tuo hardware e salva la sua descrizione con i
+risultati):
 
 | Job (sorgente H.264 1080p) | Velocità |
 |----------------------------|----------|

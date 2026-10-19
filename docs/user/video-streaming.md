@@ -78,7 +78,8 @@ The console serves the same presentation to its users under
 `/api/v1/buckets/{bucket}/objects/hls/` with their session ([Admin API](reference/admin-api.md)).
 
 Packaging costs the server little: about 0.3 ms to index a version on its first request (cached by ETag
-after that), 0.1 ms per segment plus its ranged read ([benchmarks](https://github.com/R3n3r0/Nexo/blob/main/docs/bench/media.md)).
+after that), 0.1 ms per segment plus its ranged read, measured on one core of a 2.1 GHz Xeon virtual machine
+([machine and method](https://github.com/R3n3r0/Nexo/blob/main/docs/bench/media.md)).
 
 The video streams count against the [rate limits](configuration.md#rate-limits) of the S3 API, unlike the other
 `/nexo/` paths (health probes, metrics).

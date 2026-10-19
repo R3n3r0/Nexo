@@ -7,13 +7,31 @@ thumbnails. They run with `make bench-media` (§5). The numbers are real and app
 
 ## 1. Machine and inputs
 
+Every number on this page was measured on this machine (the output of `test/bench/machine.sh`, which
+`make bench-media` saves with every run):
+
 | Item | Value |
 |------|-------|
-| Machine | Firecracker VM, 4 vCPU Intel Xeon @ 2.10 GHz, 15 GiB RAM (the machine of the [server benchmarks](README.md)) |
-| Go | 1.27.2 |
-| OpenH264 | 2.4.1, the Cisco build for linux/amd64 |
-| Fixture | `internal/mediaworker/transcode/testdata/h264_aac_360p.mp4`: 640x360, 25 fps, 3 s, H.264 High with B-frames, AAC |
-| 1080p video | 1920x1080, 25 fps, 20 s, H.264 High (libx264 `medium`, 6 Mbit/s, B-frames, a keyframe every 2 s) of a moving test pattern with film grain, AAC: `NEXO_BENCH_VIDEO` (§5); the grain makes it harder to decode than most camera footage |
+| Date | 2026-10-19 |
+| CPU | Intel Xeon @ 2.10 GHz (x86_64), server class; the hypervisor does not expose the exact model |
+| Cores | 4 vCPU: 1 socket × 4 cores × 1 thread (no SMT) |
+| Caches | L1d 48 KiB per core, L2 2 MiB per core, L3 260 MiB shared |
+| Instruction sets | AVX2, AVX-512 (F, BW), BMI2, SHA-NI, GFNI, VAES |
+| Virtualization | Firecracker micro-VM on KVM, shared host: expect some noise between runs |
+| RAM | 15.7 GiB |
+| OS | Ubuntu 24.04.5 LTS, Linux 6.18.44 |
+| Disk | ext4 on a virtio block device (`/dev/vda`): the work files of the renditions |
+| Go | 1.27.2 linux/amd64, GOMAXPROCS 4 |
+| OpenH264 | 2.4.1, the Cisco build `libopenh264-2.4.1-linux64.7.so` |
+
+| Input | Description |
+|-------|-------------|
+| 360p fixture | `internal/mediaworker/transcode/testdata/h264_aac_360p.mp4`: 640x360, 25 fps, 3 s, H.264 High with B-frames, AAC |
+| 1080p video | 1920x1080, 25 fps, 20 s, H.264 High (libx264 `medium`, 6 Mbit/s, B-frames, a keyframe every 2 s) of a moving test pattern with film grain, AAC, made with ffmpeg 6.1.1 (§5) and passed in `NEXO_BENCH_VIDEO`; the grain makes it harder to decode than most camera footage |
+
+The numbers depend on the machine: the single-core steps (encoding, decoding) follow the clock and the
+microarchitecture, the renditions of §4 the number of cores until decoding is the bound. Run `make bench-media` on
+your own hardware to size a worker.
 
 Speeds marked `x` are seconds of video processed per second (2× processes a 10-minute video in 5 minutes);
 `fps` are pictures per second.

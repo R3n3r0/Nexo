@@ -11,7 +11,8 @@
 # each benchmark (<bench>.txt), its data (warp-*.json.zst, see "warp
 # analyze") and summary.txt. With PROFILE=1 a CPU profile of the first node
 # is taken through the Admin API (POST /api/v1/profile) in the middle of
-# every benchmark: OUT/<bench>.cpu.pb.gz, read with "go tool pprof".
+# every benchmark: OUT/<bench>.cpu.pb.gz, read with "go tool pprof". The
+# machine is described in OUT/machine.md (test/bench/machine.sh).
 #
 # Environment (defaults in brackets):
 #   NEXO_BIN      server binary [bin/nexo]
@@ -68,6 +69,8 @@ if [ ! -x "$NEXO_BIN" ]; then
 fi
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
+# The machine the results belong to.
+"$ROOT/test/bench/machine.sh" >"$OUT/machine.md"
 
 WARP=${WARP:-$(command -v warp || true)}
 if [ -z "$WARP" ]; then

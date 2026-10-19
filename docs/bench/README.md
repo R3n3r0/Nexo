@@ -160,7 +160,9 @@ nexoctl admin speedtest --size 16MiB --duration 5s --concurrency 8 ALIAS object
 
 `test/bench/warp.sh` installs warp (`go install github.com/minio/warp@v1.8.2`) if it is not in the `PATH`. Every
 benchmark leaves in `bin/bench/<mode>` the text output (`<bench>.txt`), the raw data (`warp-*.json.zst`, to be reread
-with `warp analyze`), `summary.txt` and, with `PROFILE=1`, `<bench>.cpu.pb.gz`.
+with `warp analyze`), `summary.txt`, `machine.md` (the machine of the run, from `test/bench/machine.sh`: CPU, cores,
+caches, instruction sets, virtualization, RAM, OS, disk, Go) and, with `PROFILE=1`, `<bench>.cpu.pb.gz`. Publish
+results only with the description of their machine.
 
 ### Comparing with another S3 server
 
