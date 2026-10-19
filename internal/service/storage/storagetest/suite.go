@@ -79,6 +79,13 @@ func Run(t *testing.T, newDrive Factory) {
 }
 
 // newDir returns a fresh drive directory (not created yet).
+// metadataLog reports whether a drive keeps its metadata in the metadata
+// log: the tests that read or plant xl.meta files on disk do not apply.
+func metadataLog(s storage.StorageAPI) bool {
+	m, ok := s.(storage.MetadataLogTuner)
+	return ok && m.MetadataLogStats().Enabled
+}
+
 func newDir(t *testing.T) string {
 	t.Helper()
 	return filepath.Join(t.TempDir(), "drive")

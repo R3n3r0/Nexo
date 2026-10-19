@@ -124,7 +124,11 @@ func testConcurrentNullVersionOverwrites(t *testing.T, f Factory) {
 	for _, e := range entries {
 		names = append(names, e.Name())
 	}
-	assert.ElementsMatch(t, []string{storage.MetaFile, fi.DataDir}, names, "replaced data directories are purged")
+	want := []string{storage.MetaFile, fi.DataDir}
+	if metadataLog(s) {
+		want = want[1:]
+	}
+	assert.ElementsMatch(t, want, names, "replaced data directories are purged")
 	got, err := getObject(ctx, s, "b", "k", "")
 	require.NoError(t, err)
 	assert.Len(t, got, int(fi.Size))

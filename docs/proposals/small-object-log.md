@@ -1,6 +1,7 @@
 # Proposal: small-object log (segmented, group commit, in-memory index)
 
-Status: **proposal**, not implemented.
+Status: **accepted**; phase 1 in progress. Decisions: 64 MiB segments configurable from the console, the log holds the
+`xl.meta` of every object (large ones too), the index memory limit is a fraction of the RAM.
 
 ## 1. Summary
 
@@ -173,9 +174,15 @@ unaffected: quorum reads and writes call `ReadVersion` and `RenameData` per driv
 | 2 | Compaction, promotion to files, admin commands, metrics (records per flush, flush latency, garbage) |
 | 3 | Index pages by key range for very large buckets; optional background migration of existing small objects; default on after a release with it opt-in |
 
-## 8. Open questions
+## 8. Decisions
 
-1. Segment size: 256 MiB by default, or smaller (64 MiB) so compaction does less work per segment?
-2. Should the log also hold the `xl.meta` of large objects? It would remove the per-object directory for them
-   too, at the cost of making promotion the default path.
-3. The memory limit per drive: a fixed default (512 MiB?) or a fraction of the RAM?
+1. Segments of **64 MiB** by default, changed at runtime from the console (configuration subsystem `storage`,
+   `metadata_log_segment_mib`); a new size applies to the next segment.
+2. The log holds the `xl.meta` of **every** object of the user volumes, large ones included: their data stays in
+   data directories, but no object needs an `xl.meta` file nor, when it is small, a directory. There is no
+   promotion: §3.4 simplifies to "the metadata of a drive in log mode is entirely in the log". When the log is
+   enabled the drive converts its existing `xl.meta` files once, at open; when it is disabled again it converts
+   the log back to files at open, so that the switch is reversible (and a downgrade possible after disabling it).
+   The system volume (`.nexo.sys`: IAM, configuration, multipart uploads) keeps its files.
+3. The index memory limit is a **fraction of the RAM** (`metadata_log_memory_percent`, default 25%). Phase 1
+   reports the index size against it (log warning, statistics); the index pages of phase 3 enforce it.

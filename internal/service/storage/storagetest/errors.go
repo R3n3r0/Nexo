@@ -109,6 +109,14 @@ func testSymlinksAreNotFollowed(t *testing.T, f Factory) {
 		"stat link":           func() error { _, err := s.StatInfoFile(ctx, "b", "file", false); return err },
 		"delete through link": func() error { return s.Delete(ctx, "b", "link/secret", storage.DeleteOptions{}) },
 	}
+	if metadataLog(s) {
+		// Objects without data never touch the file system: nothing is
+		// read or written through a link, and the xl.meta files are not
+		// read.
+		for _, name := range []string{"object below link", "put below link", "linked xl.meta", "linked xl.meta data"} {
+			delete(denied, name)
+		}
+	}
 	for name, op := range denied {
 		t.Run(name, func(t *testing.T) {
 			assert.ErrorIs(t, op(), domain.ErrAccessDenied)
@@ -123,7 +131,11 @@ func testSymlinksAreNotFollowed(t *testing.T, f Factory) {
 	for _, info := range infos {
 		globbed = append(globbed, info.Name)
 	}
-	assert.ElementsMatch(t, []string{"obj", "metalink"}, globbed, "globs skip links")
+	want := []string{"obj", "metalink"}
+	if metadataLog(s) {
+		want = want[1:] // a small object has no directory
+	}
+	assert.ElementsMatch(t, want, globbed, "globs skip links")
 	data, err := os.ReadFile(filepath.Join(outside, "secret")) // #nosec G304 -- a file of the test's temporary directory
 	require.NoError(t, err)
 	assert.Equal(t, "secret", string(data))
@@ -242,6 +254,9 @@ func testStorageErrors(t *testing.T, f Factory) {
 	_, err = s.RenameData(ctx, "b", "f", storage.FileInfo{ModTime: now, DataDir: uuid.NewString()}, "b", "obj", storage.RenameOptions{})
 	assert.ErrorIs(t, err, domain.ErrObjectNotFound)
 
+	if metadataLog(s) {
+		return // the xl.meta files are not read
+	}
 	// Damaged metadata is reported as such.
 	require.NoError(t, s.WriteAll(ctx, "b", "broken/"+storage.MetaFile, []byte("garbage")))
 	_, err = s.ReadVersion(ctx, "b", "broken", "", storage.ReadOptions{})
@@ -276,6 +291,9 @@ func fixture(t *testing.T, name string) []byte {
 func testLegacyMetadataOnDisk(t *testing.T, f Factory) {
 	ctx := context.Background()
 	s, _ := open(t, f)
+	if metadataLog(s) {
+		t.Skip("xl.meta files are converted at open, not read (metalog_test.go)")
+	}
 	require.NoError(t, s.MakeVol(ctx, "b"))
 	require.NoError(t, s.WriteAll(ctx, "b", "old/"+storage.MetaFile, fixture(t, "legacy-json.meta")))
 
@@ -331,6 +349,9 @@ func testSharedDataDirSurvives(t *testing.T, f Factory) {
 func testCorruptMetadataQuarantined(t *testing.T, f Factory) {
 	ctx := context.Background()
 	s, dir := open(t, f)
+	if metadataLog(s) {
+		t.Skip("the records of the metadata log carry their own checksum (metalog_test.go)")
+	}
 	require.NoError(t, s.MakeVol(ctx, "b"))
 	now := time.Now()
 	corrupt := func(key string) {

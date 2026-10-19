@@ -136,6 +136,9 @@ func (s *xlStorage) mkdirAll(dir, base string) error {
 		err = os.Mkdir(dir, fs.FileMode(s.opts.dirPerm))
 		switch {
 		case err == nil:
+			// The entry of the new directory must reach the disk before
+			// anything committed below it is acknowledged.
+			s.syncDir(filepath.Dir(dir))
 			return nil
 		case errors.Is(err, fs.ErrExist):
 			st, serr := os.Lstat(dir)

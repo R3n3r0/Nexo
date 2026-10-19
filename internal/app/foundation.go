@@ -44,8 +44,11 @@ type foundation struct {
 	// local are the drives of this node; drives every drive of the layout
 	// in pool order, the remote ones through their node (the same as
 	// local in a single-node deployment).
-	local  []storage.StorageAPI
-	drives []storage.StorageAPI
+	local []storage.StorageAPI
+	// metaLogs tune the metadata log of the local drives (storage
+	// subsystem of the configuration, metalog.go).
+	metaLogs []storage.MetadataLogTuner
+	drives   []storage.StorageAPI
 
 	// mrf is the background healing queue of this node, persisted on its
 	// local drives (erasure-coded modes only: nil in SNSD, where a single
@@ -154,10 +157,21 @@ type foundationDeps struct {
 
 // driveOptions are the options of the local drives.
 func (d foundationDeps) driveOptions() []storage.Option {
+	var opts []storage.Option
 	if d.noFsync {
-		return []storage.Option{storage.WithoutFsync()}
+		opts = append(opts, storage.WithoutFsync())
 	}
-	return nil
+	if d.cfg.MetadataLog {
+		opts = append(opts, storage.WithMetadataLog(0, 0))
+	}
+	return opts
+}
+
+// keepTuner records the metadata log settings of a local drive.
+func (f *foundation) keepTuner(drive storage.StorageAPI) {
+	if t, ok := drive.(storage.MetadataLogTuner); ok {
+		f.metaLogs = append(f.metaLogs, t)
+	}
 }
 
 // newFoundation opens the drives and builds the locks and the cluster
@@ -197,6 +211,7 @@ func (f *foundation) openLocal(d foundationDeps) error {
 		if err != nil {
 			return fmt.Errorf("open drive %s: %w", ep, err)
 		}
+		f.keepTuner(drive)
 		if drive, err = f.measureDrive(drive); err != nil {
 			return err
 		}
@@ -326,6 +341,7 @@ func (f *foundation) openDistributed(d foundationDeps) error {
 			if err != nil {
 				return fmt.Errorf("open drive %s: %w", ep, err)
 			}
+			f.keepTuner(drive)
 			if drive, err = f.measureDrive(drive); err != nil {
 				return err
 			}

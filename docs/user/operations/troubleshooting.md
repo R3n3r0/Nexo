@@ -103,7 +103,9 @@ Every PUT is durable when it returns: the object (inline in `xl.meta` up to 128 
 before the answer. With many small objects the drive's flush latency sets the pace, more than the
 bandwidth.
 
-- Keep the audit records out of the server log (the default; `NEXO_AUDIT_LOG=off`) and the log level at
+- Enable the [metadata log](metadata-log.md) (`NEXO_METADATA_LOG=true`): concurrent writes share one flush
+  instead of two flushes per object.
+- Keep the audit records out of the server log (the default; `NEXO_AUDIT_LOG=false`) and the log level at
   `info`: one line per request is expensive, above all on a Windows console.
 - On Windows, exclude the data directory from the real-time scan of Microsoft Defender (or of the
   antivirus in use): every new file is otherwise scanned on the write path.

@@ -308,7 +308,7 @@ func composeObservability(ctx context.Context, d composeDeps, cluster metrics.Cl
 	return &composedObservability{
 		logs:     clusterLogs,
 		exporter: exporter,
-		runner:   runners(configurator, auditor),
+		runner:   runners(configurator, auditor, metaLogTuning(dyn, f.metaLogs, logger.With("component", "storage"))),
 	}, nil
 }
 

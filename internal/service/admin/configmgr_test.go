@@ -170,7 +170,7 @@ func TestConfigManagerListAndSchema(t *testing.T) {
 		names = append(names, s.Name)
 	}
 	assert.Equal(t, []string{"access", "api", "audit_kafka", "audit_webhook", "browser", "logger", "notify_amqp", "notify_kafka", "notify_nats",
-		"notify_postgres", "notify_redis", "notify_webhook", "ratelimit", "region", "scanner"}, names)
+		"notify_postgres", "notify_redis", "notify_webhook", "ratelimit", "region", "scanner", "storage"}, names)
 	// Every key says whether the server applies it (regression: keys were
 	// shown as if they took effect while nothing read them).
 	applied := map[string]bool{}

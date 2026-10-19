@@ -459,8 +459,8 @@ func (c *cluster) poolOf(t *testing.T, spec clusterSpec, bucket, key string) []i
 	perPool := spec.sets * spec.drives
 	var out []int
 	for p := 0; p < spec.pools; p++ {
-		for _, root := range c.roots[p*perPool : (p+1)*perPool] {
-			if _, err := os.Stat(filepath.Join(root, bucket, key, storage.MetaFile)); err == nil {
+		for i := p * perPool; i < (p+1)*perPool; i++ {
+			if c.hasMeta(i, bucket, key) {
 				out = append(out, p)
 				break
 			}

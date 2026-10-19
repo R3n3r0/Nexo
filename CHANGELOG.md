@@ -240,6 +240,24 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   drive (`internal/service/storage`, file system chosen with `NEXO_BENCH_DIR`) and `BenchmarkCopyBodyFile`
   (`httpx`, sendfile against a buffered copy).
 
+### Metadata log (opt-in, `NEXO_METADATA_LOG`)
+- Each drive can keep the metadata of its objects in append-only segments with group commit and an index in memory
+  (docs/proposals/small-object-log.md, [Metadata log](docs/user/operations/metadata-log.md)): concurrent writes share
+  one flush, small objects need no directory. 4 KiB PUTs at concurrency 20 on the reference VM: about 1800 → 3800
+  objects/s, p99 30 → 16 ms; 7x at the storage level with 32 writers.
+- Records with CRC-32C, replay at start (a torn record at the end is cut off), compaction of the segments that are
+  mostly garbage (deletes and drops kept while an older segment remains), volume removal recorded as a drop.
+- Durability: a write is acknowledged after `fdatasync`; a damaged record loses only itself (the replay resumes at
+  the next valid record); a compacted segment counts as present until its removal is flushed; the stale `xl.meta`
+  files of an interrupted conversion are removed before the drive serves (`PRUNE`). Every directory created for an
+  object is now flushed before the write is acknowledged, with or without the log.
+- Enabling converts the `xl.meta` files of the drives at start; disabling converts the log back (a reversible switch,
+  needed before a downgrade). A drive emptied or replaced while the server runs starts an empty log for the healing.
+- `storage` configuration subsystem, applied at once: `metadata_log_segment_mib` (64) and
+  `metadata_log_memory_percent` (25% of the RAM, warning beyond it).
+- The storage behavior suite, the object layer suites and the integration suite run in both layouts
+  (`NEXO_TEST_METADATA_LOG=1`).
+
 ### Performance (small objects, bulk deletes)
 - The audit records no longer go to the server log by default (`NEXO_AUDIT_LOG`, `--audit-log`; the `debug`
   level logs them anyway): one line per request cost throughput, a lot on a Windows console. They stay in memory
@@ -250,6 +268,8 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   request: the clean-up of a `warp` run is about 2.4 times faster (51,708 objects in 16 s).
 - Small PUTs skip two needless `unlink` calls after the commit; on Windows the directory sync (an extra handle
   open with no effect on NTFS) is skipped.
+- The new `xl.meta` of a write is staged in the object directory instead of the shared tmp directory of the drive,
+  which every write contended for (28% of the CPU of a 4 KiB PUT benchmark): p99 250 → 30 ms.
 - 4 KiB PUTs at concurrency 20 on the reference VM (SNSD): about 1450 → 1700 objects/s.
 
 ### Rate limiting (S-OPS-10, S-DST-08)

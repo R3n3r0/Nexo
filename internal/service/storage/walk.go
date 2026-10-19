@@ -37,6 +37,9 @@ func (s *xlStorage) WalkDir(ctx context.Context, opts WalkDirOptions, fn WalkDir
 	if fn == nil {
 		return fmt.Errorf("%w: nil walk function", domain.ErrInvalidArgument)
 	}
+	if s.logged(opts.Bucket) {
+		return s.walkLog(ctx, opts, fn)
+	}
 	volDir, err := s.ensureVolume(opts.Bucket)
 	if err != nil {
 		return err

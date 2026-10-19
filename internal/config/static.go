@@ -69,6 +69,12 @@ type Static struct {
 	// stay in memory for the console and the CLI and go to the audit
 	// targets either way, and the debug level logs them.
 	AuditLog bool `json:"auditLog,omitempty"`
+	// MetadataLog keeps the metadata of the objects in the metadata log of
+	// every local drive instead of one xl.meta file per object
+	// (NEXO_METADATA_LOG, --metadata-log): writes of small objects share
+	// their flushes. Enabling it converts the drives at start; disabling it
+	// converts them back.
+	MetadataLog bool `json:"metadataLog,omitempty"`
 	// TLSMinVersion is the oldest TLS version the listeners accept:
 	// TLSVersion12 (default) or TLSVersion13 (tls.go).
 	TLSMinVersion string `json:"tlsMinVersion,omitempty"`

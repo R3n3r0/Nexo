@@ -100,6 +100,10 @@ func knownSubsystems() []SubsystemSchema {
 			KeySchema{Name: "tls", Type: KeyBool, Default: "off", Description: "Connect with TLS"},
 			KeySchema{Name: "tls_skip_verify", Type: KeyBool, Default: "off", Description: "Accept any server certificate"},
 		)},
+		{Name: "storage", Description: "Metadata log of the drives (enabled with --metadata-log / NEXO_METADATA_LOG; applied at once)", Keys: []KeySchema{
+			{Name: "metadata_log_segment_mib", Type: KeyInt, Default: "64", Description: "Size of the next segments of the metadata log, in MiB (1-1024)"},
+			{Name: "metadata_log_memory_percent", Type: KeyInt, Default: "25", Description: "Share of the RAM the index of a drive may use before a warning (1-90)"},
+		}},
 		{Name: "logger", Description: "Server logs (applied at once; unset: the --log-level and --log-format of the server)", Keys: []KeySchema{
 			{Name: "level", Type: KeyEnum, Default: "info", Values: []string{"debug", "info", "warn", "error"}, Description: "Minimum level"},
 			{Name: "format", Type: KeyEnum, Default: "json", Values: []string{"text", "json"}, Description: "Output format"},

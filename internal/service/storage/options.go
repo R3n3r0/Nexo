@@ -14,6 +14,12 @@ type options struct {
 	// dirPerm and filePerm are the permissions of created entries.
 	dirPerm  uint32
 	filePerm uint32
+	// metaLog keeps the xl.meta documents of the user volumes in the
+	// metadata log (metalog.go) with segments of segmentSize bytes; an
+	// index of at most memPercent of the RAM is expected.
+	metaLog     bool
+	segmentSize int64
+	memPercent  int
 }
 
 func defaultOptions() options {
@@ -24,6 +30,17 @@ func defaultOptions() options {
 // operating system (tests, benchmarks).
 func WithoutFsync() Option {
 	return func(o *options) { o.fsync = false }
+}
+
+// WithMetadataLog keeps the xl.meta documents of the user volumes in the
+// metadata log of the drive, with segments of segmentSize bytes (0: 64
+// MiB) and an index expected to stay below memPercent of the RAM (0:
+// 25%). A drive that keeps xl.meta files converts them at open; without
+// this option, a drive whose metadata is in the log converts it back.
+func WithMetadataLog(segmentSize int64, memPercent int) Option {
+	return func(o *options) {
+		o.metaLog, o.segmentSize, o.memPercent = true, segmentSize, memPercent
+	}
 }
 
 // WithoutTmpCleanup keeps the content of the system tmp directory at startup.

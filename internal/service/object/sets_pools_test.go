@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -121,12 +120,12 @@ func TestErasureSetsEquivalence(t *testing.T) {
 		if i%spec.drives != 0 {
 			continue
 		}
-		_ = filepath.WalkDir(filepath.Join(root, "bkt"), func(path string, d os.DirEntry, err error) error {
-			if err == nil && d.Name() == storage.MetaFile {
+		require.NoError(t, c.drives[i].WalkDir(ctx, storage.WalkDirOptions{Bucket: "bkt", Recursive: true}, func(e storage.WalkEntry) error {
+			if !e.IsDir {
 				perSet[root]++
 			}
 			return nil
-		})
+		}))
 	}
 	total := 0
 	for _, n := range perSet {

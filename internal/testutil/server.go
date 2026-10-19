@@ -431,6 +431,9 @@ func (s *Server) start() error {
 
 // startNode builds and starts the application of one node.
 func (s *Server) startNode(ctx context.Context, n *Node) error {
+	if MetadataLogTests() {
+		n.Config.MetadataLog = true
+	}
 	appOpts := []app.Option{app.WithLogger(n.logger), app.WithStopTimeout(stopTimeout), app.WithoutFsync()}
 	if s.Clock != nil {
 		appOpts = append(appOpts, app.WithClock(s.Clock))

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -44,8 +45,10 @@ func TestHealContract(t *testing.T) {
 	assert.Equal(t, uint64(1), job.Drives[3].Healed)
 	require.Len(t, job.Items, 1)
 	assert.Equal(t, "dir/a.txt", job.Items[0].Object)
-	_, err := os.Stat(filepath.Join(drives[3], "docs", "dir", "a.txt", "xl.meta"))
-	assert.NoError(t, err, "the drive got the object back")
+	// The data directory is back (xl.meta may be in the metadata log).
+	entries, err := os.ReadDir(filepath.Join(drives[3], "docs", "dir", "a.txt"))
+	require.NoError(t, err, "the drive got the object back")
+	assert.True(t, slices.ContainsFunc(entries, func(e os.DirEntry) bool { return e.IsDir() }), "the drive got the data back")
 
 	list := decodeAs[admin.HealJobListResponse](t, c.call(http.MethodGet, "/heal", nil, http.StatusOK))
 	require.NotEmpty(t, list.Items)

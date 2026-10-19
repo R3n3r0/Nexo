@@ -212,13 +212,7 @@ func TestBitrotHealOnRead(t *testing.T) {
 			assert.Eventually(t, func() bool { return assert.ObjectsAreEqual([]string{"bkt/dir/large@null"}, c.heal.notified()) }, time.Second, 5*time.Millisecond)
 
 			// Inline content: the copy of one drive is damaged.
-			meta := filepath.Join(c.roots[0], "bkt", "small", storage.MetaFile)
-			raw, err = os.ReadFile(meta)
-			require.NoError(t, err)
-			at := bytes.Index(raw, objects["small"])
-			require.Positive(t, at)
-			raw[at] ^= 0x01
-			require.NoError(t, os.WriteFile(meta, raw, 0o600))
+			corruptStored(t, c.roots[0], objects["small"])
 			got, _ = get(t, c.svc, "bkt", "small", object.GetObjectOptions{})
 			assert.Equal(t, objects["small"], got)
 			assert.Contains(t, c.heal.notified(), "bkt/small@null")

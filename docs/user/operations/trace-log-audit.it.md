@@ -76,7 +76,7 @@ credenziali (firma SigV4 o presigned, token), anche verso `/nexo/health/*` e anc
 di provare credenziali lascia sempre traccia. I record:
 
 1. finiscono nel log del server (`"msg":"audit"`, componente `audit`; `time` è l'ora del record, `event_time`
-   quella della richiesta) con `NEXO_AUDIT_LOG=on` (`--audit-log`) o al livello di log `debug`. Disattivato
+   quella della richiesta) con `NEXO_AUDIT_LOG=true` (`--audit-log`) o al livello di log `debug`. Disattivato
    per default: una riga di log per richiesta costa throughput, molto su una console Windows;
 2. restano in memoria su ogni nodo (gli ultimi 10000) per la ricerca dalla console (**Monitoraggio →
    Audit**) e dalla CLI;

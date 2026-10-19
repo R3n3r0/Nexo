@@ -401,9 +401,7 @@ func TestPutGetHeadDelete(t *testing.T) {
 		put(t, svc, "bkt", "dir/large.bin", small)
 		data, _ = get(t, svc, "bkt", "dir/large.bin", object.GetObjectOptions{})
 		assert.Equal(t, small, data)
-		entries, err := os.ReadDir(filepath.Join(fx.roots[0], "bkt", "dir", "large.bin"))
-		require.NoError(t, err)
-		assert.Len(t, entries, 1, "only xl.meta remains for an inline object")
+		assert.Empty(t, dataEntries(t, filepath.Join(fx.roots[0], "bkt", "dir", "large.bin")), "only xl.meta remains for an inline object")
 
 		// Delete is idempotent in unversioned buckets.
 		del, err := svc.DeleteObject(ctx, "bkt", "small.txt", object.DeleteObjectOptions{})
@@ -607,9 +605,7 @@ func TestVersioning(t *testing.T) {
 		assert.Equal(t, v2.VersionID, rm.VersionID)
 		data, _ = get(t, svc, "ver", "k", object.GetObjectOptions{})
 		assert.Equal(t, "one", string(data))
-		entries, err := os.ReadDir(filepath.Join(fx.roots[0], "ver", "k"))
-		require.NoError(t, err)
-		assert.Len(t, entries, 1, "the data directory of the removed version is purged")
+		assert.Empty(t, dataEntries(t, filepath.Join(fx.roots[0], "ver", "k")), "the data directory of the removed version is purged")
 
 		// Suspended: writes replace the null version, deletes create a null marker.
 		fx.setBucketConfig("ver", object.BucketConfig{Versioning: domain.VersioningSuspended})

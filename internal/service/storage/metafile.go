@@ -39,7 +39,7 @@ func (s *xlStorage) readMeta(dir string, withData bool) (*xlMeta, error) {
 // drives of the set (on a single drive they were unreadable anyway; the
 // quarantined copy is kept for inspection).
 func (s *xlStorage) readMetaOrNew(volume, objPath, dir string) (*xlMeta, error) {
-	meta, err := s.readMeta(dir, true)
+	meta, err := s.loadMeta(volume, objPath, dir, true)
 	switch {
 	case err == nil:
 		return meta, nil
@@ -64,6 +64,25 @@ func (s *xlStorage) quarantineMeta(volume, objPath, dir string, cause error) err
 		return fmt.Errorf("storage: create %s: %w", qdir, mapErr(err))
 	}
 	dst := filepath.Join(qdir, s.deps.Clock.Now().UTC().Format("20060102T150405.000000000Z")+"-"+randomSuffix()+"."+MetaFile)
+	if s.logged(volume) {
+		// The record leaves the index; its content is kept as a file.
+		raw, err := s.ml().read(volume, objPath, true)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err == nil {
+			err = s.writeAtomic(dst, s.root, raw, true)
+		}
+		if err == nil {
+			err = s.ml().remove(volume, objPath)
+		}
+		if err != nil {
+			return fmt.Errorf("storage: quarantine %s/%s: %w", volume, objPath, err)
+		}
+		s.deps.Logger.Warn("storage: corrupt xl.meta moved to quarantine, the object starts over on this drive",
+			"bucket", volume, "key", objPath, "drive", s.root, "quarantined", dst, "err", cause)
+		return nil
+	}
 	if err := s.rename(filepath.Join(dir, MetaFile), dst); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil // moved by a concurrent write
@@ -83,6 +102,53 @@ func (s *xlStorage) metaErr(volume, objPath string, err error) error {
 		return fmt.Errorf("storage: %s/%s: %w", volume, objPath, err)
 	}
 	return s.fsErr(volume, objPath, err)
+}
+
+// loadMeta reads and decodes the xl.meta of an object: from the metadata
+// log in log mode, from its file otherwise. A missing object is
+// fs.ErrNotExist, unmapped.
+func (s *xlStorage) loadMeta(volume, objPath, dir string, withData bool) (*xlMeta, error) {
+	if !s.logged(volume) {
+		return s.readMeta(dir, withData)
+	}
+	if err := s.checkLog(); err != nil {
+		return nil, err
+	}
+	raw, err := s.ml().read(volume, objPath, withData)
+	if err != nil {
+		return nil, err
+	}
+	return decodeXLMeta(raw, withData)
+}
+
+// storeMeta writes the xl.meta of an object: a record of the metadata log
+// (always durable) in log mode, its file otherwise.
+func (s *xlStorage) storeMeta(volume, objPath, dir, volDir string, meta *xlMeta, sync bool) error {
+	if !s.logged(volume) {
+		return s.writeMeta(dir, volDir, meta, sync)
+	}
+	data, err := meta.encode()
+	if err != nil {
+		return err
+	}
+	if err := s.ml().put(volume, objPath, data); err != nil {
+		return fmt.Errorf("storage: write %s/%s: %w", volume, objPath, err)
+	}
+	return nil
+}
+
+// removeMeta removes the xl.meta of an object that has no version left.
+func (s *xlStorage) removeMeta(volume, objPath, dir string) error {
+	if s.logged(volume) {
+		if err := s.ml().remove(volume, objPath); err != nil {
+			return fmt.Errorf("storage: remove %s/%s: %w", volume, objPath, err)
+		}
+		return nil
+	}
+	if err := os.Remove(filepath.Join(dir, MetaFile)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("storage: remove %s/%s: %w", volume, objPath, mapErr(err))
+	}
+	return nil
 }
 
 // writeMeta encodes meta and writes it atomically as the xl.meta of dir.

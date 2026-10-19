@@ -58,6 +58,7 @@ Dettagli in [TLS e certificati](security/tls.md).
 
 | Variabile | Flag | Default | Descrizione |
 |-----------|------|---------|-------------|
+| `NEXO_METADATA_LOG` | `--metadata-log` | `false` | Tiene i metadati degli oggetti in un log segmentato con group commit su ogni disco (scritture piccole più veloci); i dischi vengono convertiti all'avvio, e riconvertiti quando lo disattivi. Vedi [Log dei metadati](operations/metadata-log.md) |
 | `NEXO_STORAGE_CLASS_STANDARD` | `--storage-class-standard` | automatico | Parità della classe `STANDARD` come `EC:n` (SNMD e cluster) |
 | `NEXO_STORAGE_CLASS_RRS` | `--storage-class-rrs` | `EC:1` | Parità della classe `REDUCED_REDUNDANCY` (al più quella di `STANDARD`) |
 
@@ -108,7 +109,7 @@ Solo da ambiente (nessun flag). Dettagli in [KMS e SSE](security/kms-sse.md).
 |-----------|------|---------|-------------|
 | `NEXO_LOG_LEVEL` | `--log-level` | `info` | `debug`, `info`, `warn`, `error` (modificabile a caldo con il sottosistema `logger`) |
 | `NEXO_LOG_FORMAT` | `--log-format` | `json` | `json` o `text` |
-| `NEXO_AUDIT_LOG` | `--audit-log` | `off` | Scrive anche nel log del server ogni record di audit (uno per richiesta); il livello `debug` li registra comunque |
+| `NEXO_AUDIT_LOG` | `--audit-log` | `false` | Scrive anche nel log del server ogni record di audit (uno per richiesta); il livello `debug` li registra comunque |
 | `NEXO_PROMETHEUS_AUTH_TYPE` | — | `jwt` | Endpoint `/nexo/metrics/v1/*`: `jwt` (bearer token) o `public` |
 | `NEXO_OTEL_EXPORTER_OTLP_ENDPOINT` | — | — (disattivato) | Collector OpenTelemetry (`http(s)://…`) |
 | `NEXO_OTEL_EXPORTER_OTLP_PROTOCOL` | — | `http/protobuf` | `http/protobuf` o `grpc` |

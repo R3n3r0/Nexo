@@ -31,6 +31,15 @@ const (
 	// BurstSuffix names the burst of a rate key ("s3_ip_burst").
 	BurstSuffix = "_burst"
 
+	// SubsystemStorage tunes the metadata log of the local drives
+	// (applied at once to the drives that use it).
+	SubsystemStorage = "storage"
+	// KeyMetadataLogSegmentMiB is the size of the next segments, in MiB.
+	KeyMetadataLogSegmentMiB = "metadata_log_segment_mib"
+	// KeyMetadataLogMemoryPercent is the share of the RAM the index of a
+	// drive may use before a warning.
+	KeyMetadataLogMemoryPercent = "metadata_log_memory_percent"
+
 	// DefaultRequestsDeadline is the default of api.requests_deadline.
 	DefaultRequestsDeadline = 10 * time.Second
 )
@@ -53,6 +62,9 @@ func Applied(subsystem, key string) bool {
 		// The block public access, read by the access rules
 		// (internal/service/accessrule) at every evaluation.
 		return key == "block_public" || key == "block_public_mode"
+	case SubsystemStorage:
+		// The metadata log of the local drives (internal/app/metalog.go).
+		return key == KeyMetadataLogSegmentMiB || key == KeyMetadataLogMemoryPercent
 	case "logger":
 		// The level and the format of the server logs, applied at once by
 		// the log stream (internal/service/logs).

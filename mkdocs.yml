@@ -143,6 +143,7 @@ nav:
       - Healing and disks: operations/healing-disks.md
       - Upgrade and expansion: operations/upgrade-expansion.md
       - Backup and migration: operations/backup-migration.md
+      - Metadata log: operations/metadata-log.md
       - Troubleshooting: operations/troubleshooting.md
   - Security:
       - Users, policies and credentials: security/users-policies.md

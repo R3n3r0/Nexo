@@ -99,8 +99,7 @@ func TestMultipartPartsOnDisjointDrives(t *testing.T) {
 				}
 			}
 			for _, i := range up2 {
-				_, err := os.Stat(filepath.Join(c.roots[i], "bkt", "obj", storage.MetaFile))
-				assert.NoError(t, err, "drive %d committed the object", i)
+				assert.True(t, c.hasMeta(i, "bkt", "obj"), "drive %d committed the object", i)
 			}
 			lost := append(append([]int(nil), up2[:parity-len(tc.down)]...), tc.down...)
 			c.setFaults(offline(true), lost...)
@@ -371,8 +370,7 @@ func TestRefusedDeleteRestoresVersion(t *testing.T) {
 			c.setFaults(offline(false), 2, 3)
 			require.ErrorIs(t, err, domain.ErrWriteQuorum)
 			for _, i := range []int{0, 1} {
-				_, err := os.Stat(filepath.Join(c.roots[i], "bkt", "k", storage.MetaFile))
-				require.NoError(t, err, "drive %d untouched", i)
+				require.True(t, c.hasMeta(i, "bkt", "k"), "drive %d untouched", i)
 			}
 
 			_, err = c.svc.DeleteObject(ctx, "bkt", "k", object.DeleteObjectOptions{})
@@ -450,6 +448,7 @@ func corruptMeta(t *testing.T, c *cluster, i int, bucket, key string) string {
 // repaired by HealObject, every version of the key included: afterwards
 // the drive alone with others of the minimum read quorum serves them.
 func TestHealCorruptMetadata(t *testing.T) {
+	skipMetadataLog(t)
 	for _, size := range []int{10, 2*testBlockSize + 5} {
 		t.Run(fmt.Sprint(size), func(t *testing.T) {
 			ctx := context.Background()
@@ -495,6 +494,7 @@ func TestHealCorruptMetadata(t *testing.T) {
 // and it can be overwritten and deleted: an undecodable xl.meta does not
 // take the write quorum away.
 func TestCorruptMetadataDoesNotBlockWrites(t *testing.T) {
+	skipMetadataLog(t)
 	ctx := context.Background()
 	c := newCluster(t, clusterSpec{pools: 1, sets: 1, drives: 4})
 	require.NoError(t, c.svc.MakeBucket(ctx, "bkt", object.MakeBucketOptions{}))

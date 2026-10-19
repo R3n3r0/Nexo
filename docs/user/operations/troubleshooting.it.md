@@ -102,7 +102,9 @@ Ogni PUT è durevole quando risponde: l'oggetto (inline in `xl.meta` fino a 128 
 prima della risposta. Con molti oggetti piccoli è la latenza del flush del disco a dettare il ritmo, più
 della banda.
 
-- Tieni i record di audit fuori dal log del server (il default; `NEXO_AUDIT_LOG=off`) e il livello di log a
+- Attiva il [log dei metadati](metadata-log.md) (`NEXO_METADATA_LOG=true`): le scritture concorrenti condividono
+  un solo flush invece di due flush per oggetto.
+- Tieni i record di audit fuori dal log del server (il default; `NEXO_AUDIT_LOG=false`) e il livello di log a
   `info`: una riga per richiesta costa, soprattutto su una console Windows.
 - Su Windows escludi la directory dei dati dalla scansione in tempo reale di Microsoft Defender (o
   dell'antivirus in uso): altrimenti ogni nuovo file viene scansionato durante la scrittura.

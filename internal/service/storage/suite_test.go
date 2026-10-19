@@ -26,6 +26,19 @@ func TestLocalBehavior(t *testing.T) {
 	})
 }
 
+// TestLocalBehaviorMetadataLog runs the behavior suite against a local
+// drive keeping its metadata in the metadata log.
+func TestLocalBehaviorMetadataLog(t *testing.T) {
+	storagetest.Run(t, func(t *testing.T, dir string) storage.StorageAPI {
+		ep, err := domain.ParseEndpoint(dir)
+		require.NoError(t, err)
+		d, err := storage.NewLocal(storage.Deps{Logger: slog.New(slog.DiscardHandler)}, ep, storage.WithoutFsync(), storage.WithMetadataLog(0, 0))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = d.Close(context.Background()) })
+		return d
+	})
+}
+
 // TestNewLocalURLEndpoint opens a drive of this node in a distributed
 // deployment: a URL endpoint marked local keeps its URL as Endpoint.
 func TestNewLocalURLEndpoint(t *testing.T) {
