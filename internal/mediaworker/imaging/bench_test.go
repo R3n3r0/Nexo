@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/png"
 	"os"
+	"runtime"
 	"sync"
 	"testing"
 
@@ -193,5 +194,48 @@ func BenchmarkJob(b *testing.B) {
 				b.ReportMetric(float64(n), "variants")
 			})
 		}
+	}
+}
+
+// BenchmarkColor measures the conversion to sRGB of the 12 MP picture:
+// building the tables of a Display P3 profile, converting the decoded
+// RGBA in place (every core), and decoding the JPEG with and without the
+// profile embedded (which converts it to RGBA, not kept in YCbCr).
+func BenchmarkColor(b *testing.B) {
+	pic, src := benchSources(b)
+	icc := displayP3ICC(b)
+	b.Run("tables", func(b *testing.B) {
+		for b.Loop() {
+			if newTransform(parseICC(icc)) == nil {
+				b.Fatal("no conversion")
+			}
+		}
+	})
+	b.Run("convert", func(b *testing.B) {
+		m := toRGBA(pic)
+		tr := newTransform(parseICC(icc))
+		for b.Loop() {
+			tr.apply(m)
+		}
+		report(b, benchW*benchH)
+	})
+	b.Run("convert/1-core", func(b *testing.B) {
+		m := toRGBA(pic)
+		tr := newTransform(parseICC(icc))
+		defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(1))
+		for b.Loop() {
+			tr.apply(m)
+		}
+		report(b, benchW*benchH)
+	})
+	for name, data := range map[string][]byte{"jpeg/srgb": src[JPEG], "jpeg/p3": withICC(b, src[JPEG], icc, 1)} {
+		b.Run("decode-"+name, func(b *testing.B) {
+			for b.Loop() {
+				if _, err := Decode(data, Limits{}); err != nil {
+					b.Fatal(err)
+				}
+			}
+			report(b, benchW*benchH)
+		})
 	}
 }

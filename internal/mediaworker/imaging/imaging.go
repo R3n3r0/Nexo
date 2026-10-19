@@ -1,10 +1,12 @@
 // Package imaging derives the variants of an image for the media worker:
 // it decodes JPEG, PNG, GIF (first frame), WebP, BMP, TIFF, AVIF and HEIC
-// (recognized by their content, not their name), turns the picture upright
-// (EXIF orientation of JPEG and TIFF, irot/imir of AVIF and HEIC), resizes
-// it with area averaging on premultiplied alpha, and encodes AVIF, WebP,
-// JPEG and PNG variants in parallel, without any metadata of the source
-// (no EXIF, no GPS position).
+// (recognized by their content, not their name), converts it to sRGB from
+// the color space it declares (ICC profile, nclx or cICP code points, PNG
+// gAMA and cHRM: color.go), turns it upright (EXIF orientation of JPEG,
+// TIFF, PNG and WebP, irot/imir of AVIF and HEIC), resizes it with area
+// averaging on premultiplied alpha, and encodes AVIF, WebP, JPEG and PNG
+// variants in parallel, in sRGB and without any metadata of the source
+// (no EXIF, no GPS position, no ICC profile).
 //
 // Everything is Go or WebAssembly run by wazero: the package builds with
 // CGO_ENABLED=0. HEIC is decoded by github.com/gen2brain/h265 (pure Go),

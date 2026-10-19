@@ -25,7 +25,8 @@ type Image struct {
 	Width, Height int
 
 	// The stored picture, one of the two, and the orientation still to
-	// apply to it (EXIF of JPEG and TIFF; AVIF and HEIC come upright).
+	// apply to it (EXIF of JPEG, TIFF, PNG and WebP; AVIF and HEIC come
+	// upright). The picture is in sRGB, converted when decoded.
 	rgba        *image.RGBA // premultiplied
 	ycc         *image.YCbCr
 	orientation int
@@ -103,8 +104,9 @@ func Decode(data []byte, lim Limits) (*Image, error) {
 		return nil, err
 	}
 	var m image.Image
+	var md meta
 	err = guard(cfg.Format, func() error {
-		m, err = decode(cfg.Format, data, lim)
+		m, md, err = decode(cfg.Format, data, lim)
 		return err
 	})
 	if err != nil {
@@ -114,22 +116,26 @@ func Decode(data []byte, lim Limits) (*Image, error) {
 	if b.Empty() || int64(b.Dx())*int64(b.Dy()) > lim.MaxPixels {
 		return nil, fmt.Errorf("%w: %s decoded to %dx%d pixels", ErrTooLarge, cfg.Format, b.Dx(), b.Dy())
 	}
-	im := &Image{Format: cfg.Format, orientation: 1, Width: b.Dx(), Height: b.Dy()}
-	switch cfg.Format {
-	case JPEG:
-		im.orientation = jpegOrientation(data)
-	case TIFF:
-		im.orientation = tiffOrientation(data)
+	im := &Image{Format: cfg.Format, orientation: md.orientation, Width: b.Dx(), Height: b.Dy()}
+	if im.orientation < 1 || im.orientation > 8 {
+		im.orientation = 1
 	}
 	if im.orientation >= 5 {
 		im.Width, im.Height = im.Height, im.Width
 	}
-	if y, ok := m.(*image.YCbCr); ok && y.Rect.Min == (image.Point{}) && fastRatio(y.SubsampleRatio) {
+	// A picture of another color space than sRGB is converted to sRGB, in
+	// RGBA: a JPEG is kept in YCbCr (resized faster) only when it is sRGB.
+	tr := newTransform(sourceProfile(md.color))
+	if y, ok := m.(*image.YCbCr); ok && tr == nil && y.Rect.Min == (image.Point{}) && fastRatio(y.SubsampleRatio) {
 		im.ycc, im.opaque = y, true
 		return im, nil
 	}
 	im.rgba = toRGBA(m)
-	im.opaque = opaque(im.rgba)
+	if tr != nil {
+		tr.apply(im.rgba)
+	}
+	_, ycc := m.(*image.YCbCr)
+	im.opaque = ycc || opaque(im.rgba)
 	return im, nil
 }
 
@@ -138,7 +144,18 @@ func Decode(data []byte, lim Limits) (*Image, error) {
 // transparency are flattened onto white.
 func (im *Image) Opaque() bool { return im.opaque }
 
-func decode(format string, data []byte, lim Limits) (image.Image, error) {
+// decode decodes a picture, and reads its orientation and color space.
+func decode(format string, data []byte, lim Limits) (image.Image, meta, error) {
+	if format == HEIC {
+		m, ci, err := heic.DecodeColor(bytes.NewReader(data), heic.Options{AutoRotate: true, FrameSizeLimit: int(min(lim.MaxPixels, 1<<40))})
+		return m, meta{orientation: 1, color: colorInfo{icc: ci.ICCP, hasCICP: true, primaries: ci.Primaries, transfer: ci.Transfer}}, err
+	}
+	m, err := decodePixels(format, data)
+	return m, sourceMeta(format, data), err
+}
+
+// decodePixels decodes the picture of a format other than HEIC.
+func decodePixels(format string, data []byte) (image.Image, error) {
 	r := bytes.NewReader(data)
 	switch format {
 	case JPEG:
@@ -161,8 +178,6 @@ func decode(format string, data []byte, lim Limits) (image.Image, error) {
 		return tiff.Decode(r)
 	case AVIF:
 		return avif.Decode(r, avif.Options{AutoRotate: true})
-	case HEIC:
-		return heic.Decode(r, heic.Options{AutoRotate: true, FrameSizeLimit: int(min(lim.MaxPixels, 1<<40))})
 	}
 	return nil, errors.New("unknown format")
 }

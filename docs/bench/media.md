@@ -175,11 +175,35 @@ source per second.
 
 | Source | Time | Speed | Decoder |
 |--------|------|-------|---------|
-| JPEG | 178 ms | 68 MP/s | `image/jpeg`, kept as YCbCr |
+| JPEG | 178 ms | 68 MP/s | `image/jpeg`, kept as YCbCr (when sRGB or untagged) |
 | PNG | 445 ms | 27 MP/s | `image/png` |
 | WebP (lossy) | 366 ms | 33 MP/s | `golang.org/x/image/webp` |
 | HEIC | 1.31 s | 9.1 MP/s | `github.com/gen2brain/h265` (pure Go) |
 | AVIF | 2.28 s | 5.3 MP/s | `github.com/gen2brain/avif` (dav1d in WebAssembly, one core) |
+
+### Color (12 MP, `BenchmarkColor`)
+
+Every picture is converted to sRGB once decoded, before it is resized, from the color space its source declares:
+an embedded ICC profile of the matrix/TRC kind (JPEG APP2, PNG iCCP, WebP ICCP, TIFF tag 34675, HEIF colr
+`prof`: sRGB, Display P3, Adobe RGB, ProPhoto, Rec. 2020, gray profiles), the H.273 code points of an AVIF or
+HEIC nclx box or a PNG cICP chunk (BT.709, BT.601, BT.2020, DCI-P3, Display P3 primaries; sRGB, gamma, linear,
+PQ and HLG transfers, the last two with a simple tone mapping), or the gAMA and cHRM chunks of a PNG. The
+conversion is a 256-entry table per channel to 16-bit linear light, a fixed-point 3x3 matrix to linear sRGB
+(Bradford adaptation from the D50 connection space of ICC), a clip to the sRGB gamut and a 64 Ki table back
+to 8-bit sRGB, on the straight color of translucent pixels. A source that is sRGB (its profile gives the same
+samples within one level), untagged, or tagged with a profile that cannot be used (LUT-based, CMYK, malformed)
+is left as it is, so the iPhone photo in Display P3 is converted and the usual camera JPEG is not. The variants
+are written untagged, which every viewer reads as sRGB.
+
+| Step | Time |
+|------|------|
+| Tables of a Display P3 profile (parse, tone curves, matrix, sRGB encoding) | 0.18 ms |
+| Conversion of the decoded picture, every core | 32 ms (370 MP/s) |
+| Conversion of the decoded picture, one core | 74 ms (163 MP/s) |
+| Decoding the 12 MP JPEG untagged / with a Display P3 profile (same run) | 140 ms / 277 ms |
+
+A JPEG with a profile other than sRGB is converted to RGBA when decoded instead of being kept in YCbCr (the
+conversion needs RGB), which is most of the difference; it is then resized from RGBA (the left column below).
 
 ### Resizing (12 MP source, every core)
 

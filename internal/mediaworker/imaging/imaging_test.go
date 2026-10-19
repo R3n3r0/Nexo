@@ -2,6 +2,7 @@ package imaging
 
 import (
 	"bytes"
+	"compress/zlib"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"image/gif"
 	"image/jpeg"
 	"image/png"
+	"os"
 	"slices"
 	"sync"
 	"testing"
@@ -118,8 +120,8 @@ func TestSizes(t *testing.T) {
 	assert.Equal(t, []Size{{PixelWidth: 5000, PixelHeight: 3}, {Width: 16, PixelWidth: 16, PixelHeight: 1}}, Sizes(5000, 3, []int{16}), "at least one pixel")
 }
 
-// TestOrientation: a JPEG with each EXIF orientation comes out upright,
-// at every size.
+// TestOrientation: a JPEG, PNG or WebP with each EXIF orientation comes
+// out upright, at every size.
 func TestOrientation(t *testing.T) {
 	red, green, blue, white := color.RGBA{255, 0, 0, 255}, color.RGBA{0, 255, 0, 255}, color.RGBA{0, 0, 255, 255}, color.RGBA{255, 255, 255, 255}
 	// The corners of the upright picture (top left, top right, bottom
@@ -134,30 +136,50 @@ func TestOrientation(t *testing.T) {
 		7: {white, green, blue, red},
 		8: {green, white, red, blue},
 	}
-	stored := encodeJPEG(t, quadrants(320, 160), 95)
-	for o := 1; o <= 8; o++ {
-		data := withExif(t, stored, o)
-		im, err := Decode(data, Limits{})
-		require.NoError(t, err)
-		w, h := 320, 160
-		if o >= 5 {
-			w, h = 160, 320
-		}
-		require.Equal(t, [2]int{w, h}, [2]int{im.Width, im.Height}, "orientation %d", o)
-		for _, s := range Sizes(im.Width, im.Height, []int{80}) {
-			pic := im.picture(s)
-			pw, ph := s.PixelWidth, s.PixelHeight
-			require.Equal(t, image.Rect(0, 0, pw, ph), pic.Rect)
-			corners := []image.Point{{pw / 8, ph / 8}, {pw * 7 / 8, ph / 8}, {pw / 8, ph * 7 / 8}, {pw * 7 / 8, ph * 7 / 8}}
-			for i, p := range corners {
-				assert.True(t, near(want[o][i], pic.At(p.X, p.Y), 40), "orientation %d, %dpx, corner %d: %v, want %v", o, pw, i, pic.At(p.X, p.Y), want[o][i])
+	stored := quadrants(320, 160)
+	jpg := encodeJPEG(t, stored, 95)
+	var pngData, webpData bytes.Buffer
+	require.NoError(t, png.Encode(&pngData, stored))
+	require.NoError(t, gwebp.Encode(&webpData, stored, gwebp.Options{Quality: 95}))
+	withOrientation := map[string]func(o int) []byte{
+		JPEG: func(o int) []byte { return withExif(t, jpg, o) },
+		PNG:  func(o int) []byte { return pngChunk(pngData.Bytes(), "eXIf", exifTIFF(o)) },
+		// Some writers keep the header of the JPEG segment.
+		"png (Exif header)": func(o int) []byte {
+			return pngChunk(pngData.Bytes(), "eXIf", append([]byte("Exif\x00\x00"), exifTIFF(o)...))
+		},
+		WebP: func(o int) []byte { return webpExtended(t, webpData.Bytes(), 320, 160, nil, exifTIFF(o)) },
+	}
+	for name, with := range withOrientation {
+		for o := 1; o <= 8; o++ {
+			im, err := Decode(with(o), Limits{})
+			require.NoError(t, err, name)
+			w, h := 320, 160
+			if o >= 5 {
+				w, h = 160, 320
+			}
+			require.Equal(t, [2]int{w, h}, [2]int{im.Width, im.Height}, "%s orientation %d", name, o)
+			for _, s := range Sizes(im.Width, im.Height, []int{80}) {
+				pic := im.picture(s)
+				pw, ph := s.PixelWidth, s.PixelHeight
+				require.Equal(t, image.Rect(0, 0, pw, ph), pic.Rect)
+				corners := []image.Point{{pw / 8, ph / 8}, {pw * 7 / 8, ph / 8}, {pw / 8, ph * 7 / 8}, {pw * 7 / 8, ph * 7 / 8}}
+				for i, p := range corners {
+					assert.True(t, near(want[o][i], pic.At(p.X, p.Y), 40), "%s orientation %d, %dpx, corner %d: %v, want %v", name, o, pw, i, pic.At(p.X, p.Y), want[o][i])
+				}
 			}
 		}
 	}
 	// TIFF carries its orientation in its own IFD0.
 	assert.Equal(t, 6, tiffOrientation(exifTIFF(6)))
 	assert.Equal(t, 1, tiffOrientation([]byte("II*\x00\xff\xff\xff\xff")), "bad offset")
-	assert.Equal(t, 1, jpegOrientation(stored), "no EXIF")
+	assert.Equal(t, 1, jpegMeta(jpg).orientation, "no EXIF")
+	assert.Equal(t, 1, pngMeta(pngData.Bytes()).orientation)
+	assert.Equal(t, 1, webpMeta(webpData.Bytes()).orientation)
+	for n := range 64 {
+		pngMeta(pngChunk(pngData.Bytes(), "eXIf", exifTIFF(6))[:n]) // no crash
+		webpMeta(webpExtended(t, webpData.Bytes(), 320, 160, nil, exifTIFF(6))[:n])
+	}
 }
 
 func TestLimits(t *testing.T) {
@@ -330,4 +352,87 @@ func TestVariantsFormatsAndErrors(t *testing.T) {
 		assert.LessOrEqual(t, EncodeMemory(v.Format, v.PixelWidth*v.PixelHeight), budget, "%s %dx%d", v.Format, v.PixelWidth, v.PixelHeight)
 	}
 	assert.Equal(t, map[string]int{JPEG: 2, AVIF: 1}, formats, "no AVIF at the size of the image")
+}
+
+// TestDecodeOtherModels: CMYK JPEG (Adobe, inverted), 16-bit PNG,
+// grayscale with alpha and paletted pictures decode to their colors.
+func TestDecodeOtherModels(t *testing.T) {
+	cmyk, err := os.ReadFile("testdata/video-001.cmyk.jpeg") // from Go's image/testdata
+	require.NoError(t, err)
+	ref, err := os.ReadFile("testdata/video-001.cmyk.png")
+	require.NoError(t, err)
+	want, err := png.Decode(bytes.NewReader(ref))
+	require.NoError(t, err)
+	im, err := Decode(cmyk, Limits{})
+	require.NoError(t, err)
+	assert.True(t, im.opaque)
+	pic := im.picture(Size{PixelWidth: im.Width, PixelHeight: im.Height})
+	require.Equal(t, want.Bounds().Size(), pic.Rect.Size())
+	for _, p := range []image.Point{{10, 10}, {60, 40}, {100, 80}, {140, 100}} {
+		assert.True(t, near(want.At(p.X, p.Y), pic.At(p.X, p.Y), 12), "CMYK at %v: %v, want %v", p, pic.At(p.X, p.Y), want.At(p.X, p.Y))
+	}
+
+	deep := image.NewNRGBA64(image.Rect(0, 0, 32, 32))
+	gray := image.NewGray16(image.Rect(0, 0, 32, 32))
+	for y := range 32 {
+		for x := range 32 {
+			deep.SetNRGBA64(x, y, color.NRGBA64{R: 0xc000, G: 0x4000, B: 0x2000, A: uint16(0xffff - y*0x0800)}) // #nosec G115 -- small
+			gray.SetGray16(x, y, color.Gray16{Y: 0x8080})
+		}
+	}
+	for name, c := range map[string]struct {
+		m       image.Image
+		at      image.Point
+		want    color.NRGBA
+		opaque  bool
+		pngType byte
+	}{
+		"rgba64":     {deep, image.Pt(5, 0), color.NRGBA{0xc0, 0x40, 0x20, 0xff}, false, 6},
+		"gray16":     {gray, image.Pt(5, 5), color.NRGBA{0x80, 0x80, 0x80, 0xff}, true, 0},
+		"gray+alpha": {nil, image.Pt(16, 5), color.NRGBA{90, 90, 90, 127}, false, 4},
+	} {
+		var b bytes.Buffer
+		if c.m != nil {
+			require.NoError(t, png.Encode(&b, c.m))
+		} else {
+			b.Write(grayAlphaPNG(t, 32, 32))
+		}
+		require.Equal(t, c.pngType, b.Bytes()[25], "%s: the PNG color type", name)
+		im, err := Decode(b.Bytes(), Limits{})
+		require.NoError(t, err, name)
+		assert.Equal(t, c.opaque, im.opaque, name)
+		got := color.NRGBAModel.Convert(im.picture(Size{PixelWidth: 32, PixelHeight: 32}).At(c.at.X, c.at.Y))
+		assert.True(t, near(c.want, got, 2), "%s: %v, want %v", name, got, c.want)
+	}
+}
+
+// grayAlphaPNG returns a PNG of gray and alpha samples (which image/png
+// does not write): gray 90, the alpha from 255 on the left to 7 on the
+// right.
+func grayAlphaPNG(t *testing.T, w, h int) []byte {
+	t.Helper()
+	var raw bytes.Buffer
+	for range h {
+		raw.WriteByte(0) // no filter
+		for x := range w {
+			raw.Write([]byte{90, uint8(255 - 8*x)}) // #nosec G115 -- small
+		}
+	}
+	var z bytes.Buffer
+	zw := zlib.NewWriter(&z)
+	_, _ = zw.Write(raw.Bytes())
+	require.NoError(t, zw.Close())
+	var b bytes.Buffer
+	b.WriteString("\x89PNG\r\n\x1a\n")
+	chunk := func(typ string, data []byte) {
+		_ = binary.Write(&b, binary.BigEndian, uint32(len(data))) // #nosec G115 -- small
+		b.WriteString(typ)
+		b.Write(data)
+		_ = binary.Write(&b, binary.BigEndian, crc32.ChecksumIEEE(append([]byte(typ), data...)))
+	}
+	ihdr := binary.BigEndian.AppendUint32(binary.BigEndian.AppendUint32(nil, uint32(w)), uint32(h)) // #nosec G115 -- small
+	chunk("IHDR", append(ihdr, 8, 4, 0, 0, 0))
+	chunk("IDAT", z.Bytes())
+	chunk("IEND", nil)
+	return b.Bytes()
 }
