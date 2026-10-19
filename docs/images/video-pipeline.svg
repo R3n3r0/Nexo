@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 380" width="960" height="380" role="img" aria-labelledby="title desc">
+  <title id="title">The video pipeline of Nexo</title>
+  <desc id="desc">An MP4 uploaded to Nexo plays at once as an HLS stream packaged on the fly. When a media rule selects it, Nexo sends a job to nexo-media-worker, which decodes and encodes the video with OpenH264 on every core and writes back renditions from 240p to 2160p, a poster and timeline thumbnails; the master playlist then offers every rendition to the players.</desc>
+  <style>
+    .bg { fill: #ffffff; }
+    .card { fill: #f5f7ff; stroke: #c5d0fa; stroke-width: 1.5; }
+    .hero { fill: #4c6ef5; }
+    .worker { fill: #fff8e6; stroke: #f5c451; stroke-width: 1.5; }
+    .out { fill: #ebfbee; stroke: #8ce99a; stroke-width: 1.5; }
+    .t { font: 600 15px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #1a1b1e; }
+    .s { font: 400 12.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #5c5f66; }
+    .w { font: 600 15px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #ffffff; }
+    .ws { font: 400 12.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #dbe4ff; }
+    .l { font: 500 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #4c6ef5; }
+    .a { stroke: #4c6ef5; stroke-width: 2; fill: none; }
+    .ad { stroke: #f08c00; stroke-width: 2; fill: none; stroke-dasharray: 6 4; }
+    .head { fill: #4c6ef5; }
+    .headd { fill: #f08c00; }
+    .pill { fill: #ffffff; stroke: #8ce99a; stroke-width: 1; }
+    .p { font: 600 11.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #2b8a3e; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .card { fill: #161b2e; stroke: #364fc7; }
+      .worker { fill: #2b2111; stroke: #e8a317; }
+      .out { fill: #102418; stroke: #2f9e44; }
+      .t { fill: #e9ecef; }
+      .s { fill: #adb5bd; }
+      .l { fill: #91a7ff; }
+      .a { stroke: #748ffc; }
+      .head { fill: #748ffc; }
+      .pill { fill: #0d1117; stroke: #2f9e44; }
+      .p { fill: #8ce99a; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="head" d="M0 0L10 5L0 10z"/>
+    </marker>
+    <marker id="arrowd" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="headd" d="M0 0L10 5L0 10z"/>
+    </marker>
+  </defs>
+  <rect class="bg" width="960" height="380" rx="16"/>
+
+  <!-- Upload -->
+  <rect class="card" x="24" y="40" width="190" height="96" rx="12"/>
+  <text class="t" x="44" y="74">📤 Upload an MP4</text>
+  <text class="s" x="44" y="98">console, nexoctl,</text>
+  <text class="s" x="44" y="116">any S3 client</text>
+
+  <path class="a" d="M214 88H286" marker-end="url(#arrow)"/>
+  <text class="l" x="226" y="78">PUT</text>
+
+  <!-- Nexo -->
+  <rect class="hero" x="292" y="24" width="300" height="128" rx="14"/>
+  <text class="w" x="314" y="58">Nexo</text>
+  <text class="ws" x="314" y="84">HLS packaged on the fly, no transcoding</text>
+  <text class="ws" x="314" y="104">playlists, fMP4 segments, stream links</text>
+  <text class="ws" x="314" y="124">master playlist lists every rendition</text>
+
+  <path class="a" d="M592 88H664" marker-end="url(#arrow)"/>
+  <text class="l" x="606" y="78">HLS</text>
+
+  <!-- Players -->
+  <rect class="card" x="670" y="40" width="266" height="96" rx="12"/>
+  <text class="t" x="690" y="74">▶️ Players</text>
+  <text class="s" x="690" y="98">browsers (hls.js, Safari), VLC, TVs;</text>
+  <text class="s" x="690" y="116">public player page, revocable links</text>
+
+  <!-- Job to worker -->
+  <path class="ad" d="M380 152V226" marker-end="url(#arrowd)"/>
+  <text class="l" x="390" y="196">job (media rule, durable queue)</text>
+
+  <!-- Worker -->
+  <rect class="worker" x="236" y="232" width="300" height="120" rx="14"/>
+  <text class="t" x="258" y="266">⚙️ nexo-media-worker</text>
+  <text class="s" x="258" y="290">OpenH264, no ffmpeg; S3 API only</text>
+  <text class="s" x="258" y="310">decodes and encodes on every core</text>
+  <text class="s" x="258" y="330">1080p → 3 renditions at 3.2× real time</text>
+
+  <path class="ad" d="M536 292H600" marker-end="url(#arrowd)"/>
+
+  <!-- Outputs -->
+  <rect class="out" x="606" y="214" width="330" height="156" rx="14"/>
+  <text class="t" x="626" y="246">🎞️ Derived, next to the video</text>
+  <rect class="pill" x="626" y="260" width="58" height="24" rx="12"/><text class="p" x="640" y="276">2160p</text>
+  <rect class="pill" x="690" y="260" width="58" height="24" rx="12"/><text class="p" x="704" y="276">1080p</text>
+  <rect class="pill" x="754" y="260" width="52" height="24" rx="12"/><text class="p" x="766" y="276">720p</text>
+  <rect class="pill" x="812" y="260" width="52" height="24" rx="12"/><text class="p" x="824" y="276">480p</text>
+  <rect class="pill" x="626" y="290" width="52" height="24" rx="12"/><text class="p" x="638" y="306">360p</text>
+  <rect class="pill" x="684" y="290" width="52" height="24" rx="12"/><text class="p" x="696" y="306">240p</text>
+  <rect class="pill" x="742" y="290" width="62" height="24" rx="12"/><text class="p" x="754" y="306">poster</text>
+  <rect class="pill" x="810" y="290" width="104" height="24" rx="12"/><text class="p" x="822" y="306">thumbnails</text>
+  <text class="s" x="626" y="342">.nexo-media/ of the bucket, per version;</text>
+  <text class="s" x="626" y="360">served once done for the current ETag</text>
+
+  <path class="a" d="M770 214V142" marker-end="url(#arrow)"/>
+</svg>

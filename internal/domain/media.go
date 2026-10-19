@@ -10,7 +10,7 @@ import (
 
 // MediaSidecarPrefix is the reserved prefix of a bucket under which the
 // media worker writes what it derives from a video (renditions, poster,
-// thumbnails, status.json): ".nexo-media/<key>/<versionId>/". Listings of
+// thumbnails, status.json) or an image (its variants): ".nexo-media/<key>/<versionId>/". Listings of
 // the console and of nexoctl hide it by default; the S3 API lists it like
 // any prefix, so backups and mirrors keep it.
 const MediaSidecarPrefix = ".nexo-media/"
@@ -29,7 +29,19 @@ const (
 	MediaPosterFile     = "poster.jpg"
 	MediaSpriteFile     = "thumbnails/sprite.jpg"
 	MediaThumbnailsFile = "thumbnails/thumbnails.vtt"
+	MediaImagesDir      = "images/"
 )
+
+// MediaImageFile returns the sidecar file of an image variant: width
+// pixels wide ("images/640.webp"), or the image at its own size when width
+// is 0 ("images/full.webp").
+func MediaImageFile(width int, format string) string {
+	name := "full"
+	if width > 0 {
+		name = fmt.Sprint(width)
+	}
+	return MediaImagesDir + name + "." + MediaImageExtension(format)
+}
 
 // MediaSidecarDir returns the sidecar directory of a version of a video,
 // with its trailing slash.
@@ -66,6 +78,57 @@ type MediaRule struct {
 	Poster bool `json:"poster,omitempty"`
 	// Thumbnails asks for a timeline thumbnail sprite with its WebVTT map.
 	Thumbnails *MediaThumbnails `json:"thumbnails,omitempty"`
+	// Images makes an image rule: it selects images (default suffixes
+	// DefaultImageSuffixes) and derives their variants, in every format
+	// and width it names. An image rule has no video output.
+	Images *MediaImages `json:"images,omitempty"`
+}
+
+// MediaImages configures the variants of an image rule.
+type MediaImages struct {
+	// Formats of the variants (MediaImageFormats names; default all of
+	// them).
+	Formats []string `json:"formats,omitempty"`
+	// Widths of the variants in pixels, 16 to 8192 (default
+	// DefaultImageWidths). Widths not smaller than the image are skipped;
+	// every format also gets the image at its own size.
+	Widths []int `json:"widths,omitempty"`
+}
+
+// MediaImageFormats are the formats of the image variants, the most
+// compact first: the order in which a client accepting several is served.
+func MediaImageFormats() []string { return []string{"avif", "webp", "jpeg", "png"} }
+
+// MediaImageExtension returns the file extension of an image format.
+func MediaImageExtension(format string) string {
+	if format == "jpeg" {
+		return "jpg"
+	}
+	return format
+}
+
+// MediaImageContentType returns the media type of an image format.
+func MediaImageContentType(format string) string { return "image/" + format }
+
+// DefaultImageWidths are the widths of an image rule that names none:
+// thumbnails to large screens.
+func DefaultImageWidths() []int { return []int{160, 320, 640, 1280, 1920, 2560} }
+
+// DefaultImageSuffixes are the suffixes of an image rule that names none:
+// the images the media worker decodes.
+func DefaultImageSuffixes() []string {
+	return []string{".avif", ".bmp", ".gif", ".heic", ".heif", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}
+}
+
+// ImagesMediaRuleID is the ID of the rule ImagesMediaRule returns.
+const ImagesMediaRuleID = "images"
+
+// ImagesMediaRule is the rule of a bucket created for images (the images
+// option of bucket creation: console, Admin API, nexoctl mb
+// --with-images): every image of the bucket gets every format at every
+// width up to its own.
+func ImagesMediaRule() MediaRule {
+	return MediaRule{ID: ImagesMediaRuleID, Images: &MediaImages{Formats: MediaImageFormats(), Widths: DefaultImageWidths()}}
 }
 
 // MediaThumbnails configures the timeline thumbnails.
@@ -155,8 +218,23 @@ func (r MediaRule) Clone() MediaRule {
 		t := *r.Thumbnails
 		r.Thumbnails = &t
 	}
+	if r.Images != nil {
+		img := MediaImages{Formats: slices.Clone(r.Images.Formats), Widths: slices.Clone(r.Images.Widths)}
+		r.Images = &img
+	}
 	return r
 }
+
+// defaultSuffixes returns the suffixes of the rule when it names none.
+func (r MediaRule) defaultSuffixes() []string {
+	if r.Images != nil {
+		return DefaultImageSuffixes()
+	}
+	return DefaultMediaSuffixes()
+}
+
+// maxImageWidths bounds the widths of an image rule.
+const maxImageWidths = 16
 
 // maxMediaRules bounds the rules of a bucket.
 const maxMediaRules = 100
@@ -187,7 +265,7 @@ func (c *MediaConfig) Validate() error {
 			return fmt.Errorf("%w: media rule %q: the prefix %s is reserved", ErrInvalidArgument, r.ID, MediaSidecarPrefix)
 		}
 		if len(r.Suffixes) == 0 {
-			r.Suffixes = DefaultMediaSuffixes()
+			r.Suffixes = r.defaultSuffixes()
 		}
 		for j, s := range r.Suffixes {
 			s = strings.ToLower(strings.TrimSpace(s))
@@ -220,9 +298,49 @@ func (c *MediaConfig) Validate() error {
 			}
 			r.Thumbnails.Interval = d.String()
 		}
+		if r.Images != nil {
+			if len(r.Renditions) > 0 || r.Poster || r.Thumbnails != nil {
+				return fmt.Errorf("%w: media rule %q: an image rule has no renditions, poster or thumbnails", ErrInvalidArgument, r.ID)
+			}
+			if err := r.Images.validate(); err != nil {
+				return fmt.Errorf("%w: media rule %q: %s", ErrInvalidArgument, r.ID, err)
+			}
+			continue
+		}
 		if len(r.Renditions) == 0 && !r.Poster && r.Thumbnails == nil {
 			return fmt.Errorf("%w: media rule %q: nothing to produce (renditions, poster or thumbnails)", ErrInvalidArgument, r.ID)
 		}
+	}
+	return nil
+}
+
+// validate normalizes the variants: formats in MediaImageFormats order
+// (all when none), widths deduplicated in ascending order (the defaults
+// when none).
+func (m *MediaImages) validate() error {
+	for _, f := range m.Formats {
+		if !slices.Contains(MediaImageFormats(), f) {
+			return fmt.Errorf("unknown image format %q (one of %s)", f, strings.Join(MediaImageFormats(), ", "))
+		}
+	}
+	var formats []string
+	for _, f := range MediaImageFormats() {
+		if len(m.Formats) == 0 || slices.Contains(m.Formats, f) {
+			formats = append(formats, f)
+		}
+	}
+	m.Formats = formats
+	if len(m.Widths) == 0 {
+		m.Widths = DefaultImageWidths()
+	}
+	for _, w := range m.Widths {
+		if w < 16 || w > 8192 {
+			return fmt.Errorf("the image widths must be from 16 to 8192 pixels, not %d", w)
+		}
+	}
+	m.Widths = slices.Compact(slices.Sorted(slices.Values(m.Widths)))
+	if len(m.Widths) > maxImageWidths {
+		return fmt.Errorf("at most %d image widths", maxImageWidths)
 	}
 	return nil
 }
@@ -239,7 +357,7 @@ func (c MediaConfig) Match(key string) (MediaRule, bool) {
 		}
 		suffixes := r.Suffixes
 		if len(suffixes) == 0 {
-			suffixes = DefaultMediaSuffixes()
+			suffixes = r.defaultSuffixes()
 		}
 		for _, s := range suffixes {
 			if strings.HasSuffix(lower, s) {
@@ -275,7 +393,8 @@ type MediaJob struct {
 	// A job without VersionID (a reprocessing of the current version)
 	// has none: the worker reads the current version and names it.
 	Sidecar string `json:"sidecar"`
-	// Rule is the rule that selected the video (MediaJobProcess).
+	// Rule is the rule that selected the video or the image
+	// (MediaJobProcess).
 	Rule *MediaRule `json:"rule,omitempty"`
 	Time time.Time  `json:"time"`
 }
@@ -307,8 +426,11 @@ type MediaStatus struct {
 	Renditions []MediaRenditionOutput `json:"renditions,omitempty"`
 	Poster     bool                   `json:"poster,omitempty"`
 	Thumbnails *MediaThumbnailsOutput `json:"thumbnails,omitempty"`
-	Started    time.Time              `json:"started"`
-	Updated    time.Time              `json:"updated"`
+	// Images are the variants of an image (Width and Height are the size
+	// of the image, after its orientation).
+	Images  []MediaImageOutput `json:"images,omitempty"`
+	Started time.Time          `json:"started"`
+	Updated time.Time          `json:"updated"`
 }
 
 // MediaRenditionOutput is a rendition produced by the worker
@@ -329,4 +451,18 @@ type MediaThumbnailsOutput struct {
 	Height   int     `json:"height"`
 	Columns  int     `json:"columns"`
 	Count    int     `json:"count"`
+}
+
+// MediaImageOutput is a variant of an image produced by the worker
+// (MediaImageFile(Width, Format) in the sidecar directory, Width 0 for the
+// image at its own size).
+type MediaImageOutput struct {
+	Format string `json:"format"`
+	// Width is the width the variant was asked for (0: the image at its
+	// own size).
+	Width int `json:"width"`
+	// PixelWidth and PixelHeight are the size of the variant.
+	PixelWidth  int   `json:"pixelWidth"`
+	PixelHeight int   `json:"pixelHeight"`
+	Size        int64 `json:"size"`
 }

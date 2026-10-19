@@ -59,3 +59,48 @@ func TestHLSMediaRule(t *testing.T) {
 	rule.Renditions[0] = "x"
 	assert.Equal(t, "2160p", HLSMediaRule().Renditions[0])
 }
+
+func TestImageMediaRules(t *testing.T) {
+	cfg := MediaConfig{Rules: []MediaRule{
+		{ID: "pics", Prefix: "pics/", Images: &MediaImages{Formats: []string{"jpeg", "webp", "jpeg"}, Widths: []int{640, 160, 640}}},
+		ImagesMediaRule(),
+		HLSMediaRule(),
+	}}
+	require.NoError(t, cfg.Validate())
+	pics := cfg.Rules[0]
+	assert.Equal(t, []string{"webp", "jpeg"}, pics.Images.Formats, "the most compact first, deduplicated")
+	assert.Equal(t, []int{160, 640}, pics.Images.Widths)
+	assert.Equal(t, DefaultImageSuffixes(), pics.Suffixes, "an image rule selects images")
+	assert.Equal(t, MediaImageFormats(), cfg.Rules[1].Images.Formats)
+
+	r, ok := cfg.Match("pics/beach.JPG")
+	require.True(t, ok)
+	assert.Equal(t, "pics", r.ID)
+	r, ok = cfg.Match("holidays/IMG_0001.heic")
+	require.True(t, ok)
+	assert.Equal(t, ImagesMediaRuleID, r.ID)
+	r, ok = cfg.Match("holidays/clip.mp4")
+	require.True(t, ok)
+	assert.Equal(t, HLSMediaRuleID, r.ID, "videos go to the video rule")
+	_, ok = cfg.Match(".nexo-media/pics/beach.jpg/null/images/640.webp")
+	assert.False(t, ok, "the variants are never selected")
+
+	for name, rule := range map[string]MediaRule{
+		"format":       {ID: "x", Images: &MediaImages{Formats: []string{"bmp"}}},
+		"small width":  {ID: "x", Images: &MediaImages{Widths: []int{8}}},
+		"large width":  {ID: "x", Images: &MediaImages{Widths: []int{9000}}},
+		"video output": {ID: "x", Poster: true, Images: &MediaImages{}},
+	} {
+		c := MediaConfig{Rules: []MediaRule{rule}}
+		assert.ErrorIs(t, c.Validate(), ErrInvalidArgument, name)
+	}
+	many := MediaConfig{Rules: []MediaRule{{ID: "x", Images: &MediaImages{Widths: []int{16, 32, 48, 64, 80, 96, 112, 128, 144, 160, 176, 192, 208, 224, 240, 256, 272}}}}}
+	assert.ErrorIs(t, many.Validate(), ErrInvalidArgument)
+
+	clone := cfg.Clone()
+	clone.Rules[0].Images.Widths[0] = 1
+	assert.Equal(t, 160, cfg.Rules[0].Images.Widths[0], "Clone copies the variants")
+	assert.Equal(t, "images/640.webp", MediaImageFile(640, "webp"))
+	assert.Equal(t, "images/full.jpg", MediaImageFile(0, "jpeg"))
+	assert.Equal(t, "image/avif", MediaImageContentType("avif"))
+}
