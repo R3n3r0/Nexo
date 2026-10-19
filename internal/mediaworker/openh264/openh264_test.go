@@ -13,7 +13,7 @@ import (
 
 // library opens the library named by NEXO_OPENH264 (the tests that need
 // it are skipped without it).
-func library(t *testing.T) *Library {
+func library(t testing.TB) *Library {
 	t.Helper()
 	path := os.Getenv("NEXO_OPENH264")
 	if path == "" {
@@ -163,4 +163,31 @@ func accessUnits(stream []byte) [][]byte {
 		aus = append(aus, annexB(cur))
 	}
 	return aus
+}
+
+// TestFreshGoroutines creates codecs on new goroutines, whose small stacks
+// grow during the calls: the out parameters of the C functions must not
+// live on a stack that moves (regression: "create encoder: 0").
+func TestFreshGoroutines(t *testing.T) {
+	l := library(t)
+	errs := make(chan error, 20)
+	for range 10 {
+		go func() {
+			enc, err := l.NewEncoder(EncoderParams{Width: 426, Height: 240, Bitrate: 400_000, FrameRate: 25})
+			if err == nil {
+				enc.Close()
+			}
+			errs <- err
+		}()
+		go func() {
+			dec, err := l.NewDecoder()
+			if err == nil {
+				dec.Close()
+			}
+			errs <- err
+		}()
+	}
+	for range 20 {
+		require.NoError(t, <-errs)
+	}
 }

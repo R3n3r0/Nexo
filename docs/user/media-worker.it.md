@@ -241,6 +241,19 @@ La console serve gli stessi file sotto `/api/v1/buckets/{bucket}/objects/hls/` e
 - Solo i video selezionati da una regola inviano job di pulizia: dopo aver rimosso una regola, gli output dei
   suoi video restano finché non li cancelli (`nexoctl rm --recursive --force local/video/.nexo-media/clip/`).
 
+## Prestazioni
+
+Misurate su 4 vCPU a 2,1 GHz ([benchmark](https://github.com/R3n3r0/Nexo/blob/main/docs/bench/media.md), `make bench-media`):
+
+| Job (sorgente H.264 1080p) | Velocità |
+|----------------------------|----------|
+| 720p + 360p + 240p | 2,1× il tempo reale (un video di 10 minuti in circa 5 minuti) |
+| una rendition | 2,2× (il limite è la decodifica della sorgente: più rendition costano poco di più) |
+| poster | 65 ms |
+| miniature, una al secondo | 28× il tempo reale |
+
+Ogni job usa fino a circa un core per rendition più uno per la decodifica.
+
 ## Scalabilità e sicurezza
 
 - Ogni job decodifica il video una volta e codifica le sue rendition in parallelo, un core ciascuna;

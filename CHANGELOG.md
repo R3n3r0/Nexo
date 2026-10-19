@@ -84,6 +84,11 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   API only, under the reserved prefix `.nexo-media/`, with a least-privilege policy. The master playlist lists the
   renditions once `status.json` is done for the current ETag; the poster, the sprite, the thumbnails and the state
   are served next to the playlists.
+- Benchmarks of every step of the video pipeline (`make bench-media`, [docs/bench/media.md](docs/bench/media.md)):
+  packager requests, OpenH264 decoding and encoding per size, scaling, renditions, poster and thumbnails. With
+  them the scaler (weights computed once, buffers reused, vertical pass first, parallel bands) and the decoding
+  (overlapped with the encoders) bring three renditions of a 1080p video from 0.92× to 2.1× real time; a C call
+  of the OpenH264 binding that could write to a moved goroutine stack was fixed.
 
 ### Observability (M8)
 - Prometheus metrics on `/nexo/metrics/v1/{cluster,node,bucket}`: API with latency histograms, drives, network,

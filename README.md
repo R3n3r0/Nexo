@@ -29,6 +29,9 @@ multi-node cluster, with no external metadata database.
   audit log.
 - **Video streaming**: MP4 videos play as HLS streams packaged on the fly, no transcoding: in the console and
   through revocable stream links with a public player page, for browsers and any HLS player.
+- **Media worker**: per-bucket rules have `nexo-media-worker` derive lower-quality renditions (240p to 2160p, added
+  to the HLS playlists), a poster and timeline thumbnails from the videos; a separate binary built on OpenH264
+  (no ffmpeg), with a durable job queue, working through the S3 API only with a least-privilege policy.
 - **Distributions**: a bucket served on custom domains CloudFront style, with ACME certificates,
   signed URLs, in-memory and on-disk cache with automatic invalidation.
 - **Operations**: web console, Prometheus metrics with ready-made Grafana dashboard and alerts, real-time
@@ -151,6 +154,7 @@ from a release archive):
 | [Operations guide](docs/user/operations/monitoring.md) | monitoring, healing, upgrades, backup, troubleshooting |
 | [Security](docs/user/security/users-policies.md) | policies, sharing, access rules, TLS, KMS |
 | [Distributions and cache](docs/user/distributions/README.md) | custom domains, with a complete [tutorial](docs/user/distributions/tutorial-static-site.md) |
+| [Video](docs/user/video-streaming.md) | HLS streaming, stream links and the [media worker](docs/user/media-worker.md) (renditions, posters, thumbnails) |
 | [Reference](docs/user/reference/cli.md) | CLI, [Admin API](docs/user/reference/admin-api.md), [S3 compatibility](docs/user/reference/s3-compatibility.md) |
 
 `make docs-site` publishes it as a static site with MkDocs (in `bin/site`, in English and in Italian under `/it/`).
@@ -191,6 +195,8 @@ You need Go (the version in `go.mod`) and, for the console, Node.js.
 | `make docs` / `make docs-check` | CLI reference in `docs/user/cli` |
 | `make traceability` / `make traceability-check` | feature → test matrix in `test/TRACEABILITY.md` |
 | `make security` | govulncheck, gosec and `npm audit` |
+| `make bench` / `make bench-media` | warp benchmarks of the server in every mode / benchmarks of the video pipeline ([docs/bench](docs/bench/README.md)) |
+| `make build-media-worker` / `make docker-media-worker` | the `bin/nexo-media-worker` binary / its image |
 | `make zap-scan` | authenticated OWASP ZAP active scan of the Admin API from `api/openapi.yaml` against `bin/nexo` (needs Java; [test/security/zap-api-scan.sh](test/security/zap-api-scan.sh)) |
 | `make screenshots` | regenerates the console screenshots in `docs/images/screenshots` from a seeded demo deployment (Playwright; [scripts/screenshots](scripts/screenshots/run.sh)) |
 | `make dco` | the sign-off check of the pull requests on the commits of the branch ([CONTRIBUTING.md](CONTRIBUTING.md)) |

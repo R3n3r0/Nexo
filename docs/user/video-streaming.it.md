@@ -79,5 +79,8 @@ rispondono `412` quando cambia.
 La console serve la stessa presentazione ai suoi utenti sotto
 `/api/v1/buckets/{bucket}/objects/hls/` con la loro sessione ([Admin API](reference/admin-api.md)).
 
+L'impacchettamento costa poco al server: circa 0,3 ms per indicizzare una versione alla prima richiesta (poi in
+cache per ETag), 0,1 ms per segmento più la sua lettura a intervallo ([benchmark](https://github.com/R3n3r0/Nexo/blob/main/docs/bench/media.md)).
+
 Gli stream video contano nei [limiti di richieste](configuration.md#limiti-di-richieste) dell'API S3, a differenza degli
 altri percorsi `/nexo/` (probe di salute, metriche).

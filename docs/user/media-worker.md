@@ -235,6 +235,19 @@ The console serves the same files under `/api/v1/buckets/{bucket}/objects/hls/` 
 - Only the videos a rule selects send cleanup jobs: after removing a rule, the outputs of its videos stay until
   you delete them (`nexoctl rm --recursive --force local/videos/.nexo-media/clips/`).
 
+## Performance
+
+Measured on 4 vCPU at 2.1 GHz ([benchmarks](https://github.com/R3n3r0/Nexo/blob/main/docs/bench/media.md), `make bench-media`):
+
+| Job (1080p H.264 source) | Speed |
+|--------------------------|-------|
+| 720p + 360p + 240p | 2.1× real time (a 10-minute video in about 5 minutes) |
+| one rendition | 2.2× (decoding the source is the bound: more renditions cost little more) |
+| poster | 65 ms |
+| thumbnails, one per second | 28× real time |
+
+Each job uses up to about one core per rendition plus one for decoding.
+
 ## Scaling and security
 
 - Each job decodes the video once and encodes its renditions in parallel, one core each; `--concurrency`

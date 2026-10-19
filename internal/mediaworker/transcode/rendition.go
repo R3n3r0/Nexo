@@ -50,6 +50,7 @@ type rendition struct {
 	width   int
 	height  int
 	enc     *openh264.Encoder
+	scaler  Scaler
 	data    *os.File // the video samples
 	written int64
 	samples []muxSample
@@ -118,32 +119,20 @@ func Renditions(ctx context.Context, lib *openh264.Library, src *Source, specs [
 		}
 		return nil
 	}
-	for _, sm := range samples {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		au, err := src.accessUnit(sm)
-		if err != nil {
-			return nil, err
-		}
-		pic, err := dec.Decode(au)
-		if err != nil {
-			return nil, err
-		}
-		if pic != nil {
-			if err := emit(pic); err != nil {
-				return nil, err
-			}
-		}
-	}
-	rest, err := dec.Flush()
-	if err != nil {
-		return nil, err
-	}
-	for _, pic := range rest {
+	// The decoder runs ahead of the encoders, on its own goroutine: decoding
+	// the next pictures overlaps with scaling and encoding this one.
+	decodeCtx, stop := context.WithCancel(ctx)
+	defer stop()
+	pics, decoded := decodeAhead(decodeCtx, dec, src, samples)
+	for pic := range pics {
 		if err := emit(pic); err != nil {
+			stop()
+			<-decoded
 			return nil, err
 		}
+	}
+	if err := <-decoded; err != nil {
+		return nil, err
 	}
 	if n == 0 {
 		return nil, fmt.Errorf("%w: no picture could be decoded", ErrUnsupported)
@@ -157,6 +146,56 @@ func Renditions(ctx context.Context, lib *openh264.Library, src *Source, specs [
 		results = append(results, res)
 	}
 	return results, nil
+}
+
+// decodeAhead decodes the samples on a goroutine and sends the pictures
+// in display order, flushing the decoder at the end. done gives the outcome
+// of the decoding once pics is closed; cancelling ctx stops it.
+func decodeAhead(ctx context.Context, dec *openh264.Decoder, src *Source, samples []Sample) (pics <-chan *image.YCbCr, done <-chan error) {
+	out := make(chan *image.YCbCr, 4)
+	result := make(chan error, 1)
+	go func() {
+		defer close(out)
+		result <- func() error {
+			send := func(pic *image.YCbCr) error {
+				select {
+				case out <- pic:
+					return nil
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			for _, sm := range samples {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				au, err := src.accessUnit(sm)
+				if err != nil {
+					return err
+				}
+				pic, err := dec.Decode(au)
+				if err != nil {
+					return err
+				}
+				if pic != nil {
+					if err := send(pic); err != nil {
+						return err
+					}
+				}
+			}
+			rest, err := dec.Flush()
+			if err != nil {
+				return err
+			}
+			for _, pic := range rest {
+				if err := send(pic); err != nil {
+					return err
+				}
+			}
+			return nil
+		}()
+	}()
+	return out, result
 }
 
 // frameDurations returns the duration of each displayed picture.
@@ -177,7 +216,7 @@ func frameDurations(pts []int64, video *Track) []uint32 {
 
 // encode scales and encodes a picture, appending its sample.
 func (r *rendition) encode(pic *image.YCbCr, t float64, idr bool) error {
-	scaled := Scale(pic, r.width, r.height)
+	scaled := r.scaler.Scale(pic, r.width, r.height)
 	nalus, key, err := r.enc.Encode(scaled, int64(t*1000), idr)
 	if err != nil {
 		return err

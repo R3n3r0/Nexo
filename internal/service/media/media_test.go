@@ -34,7 +34,7 @@ type store struct {
 	reads   atomic.Int64
 }
 
-func newStore(t *testing.T, files ...string) (*store, *objectmock.Service) {
+func newStore(t testing.TB, files ...string) (*store, *objectmock.Service) {
 	t.Helper()
 	s := &store{objects: map[string][]byte{}, info: map[string]domain.ObjectInfo{}}
 	for _, f := range files {
@@ -76,7 +76,7 @@ func (s *store) put(key string, data []byte) {
 	s.info[key] = domain.ObjectInfo{Bucket: "videos", Key: key, Size: int64(len(data)), ETag: hex.EncodeToString(sum[:]), ContentType: "video/mp4"}
 }
 
-func newService(t *testing.T, objects object.Service) media.Service {
+func newService(t testing.TB, objects object.Service) media.Service {
 	t.Helper()
 	svc, err := media.New(media.Deps{Objects: objects}, media.WithTargetSegment(time.Second))
 	require.NoError(t, err)

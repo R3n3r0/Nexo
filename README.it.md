@@ -29,6 +29,9 @@ multi-nodo, senza database di metadati esterni.
 - **Streaming video**: i video MP4 si riproducono come stream HLS impacchettati al volo, senza transcodifica:
   nella console e tramite link di streaming revocabili con una pagina player pubblica, per i browser e
   qualsiasi player HLS.
+- **Media worker**: regole per bucket fanno ricavare a `nexo-media-worker` rendition a qualità ridotta (da 240p a
+  2160p, aggiunte alle playlist HLS), un poster e le miniature della timeline dei video; un binario separato basato
+  su OpenH264 (niente ffmpeg), con una coda di job durevole, che lavora solo tramite l'API S3 con una policy minima.
 - **Distribuzioni**: un bucket servito su domini personalizzati in stile CloudFront, con certificati ACME,
   URL firmati, cache in memoria e su disco con invalidazione automatica.
 - **Operatività**: console web, metriche Prometheus con dashboard Grafana e alert pronti, trace e log in
@@ -151,6 +154,7 @@ questo file da un archivio di release):
 | [Guida operativa](docs/user/operations/monitoring.it.md) | monitoraggio, healing, aggiornamenti, backup, risoluzione dei problemi |
 | [Sicurezza](docs/user/security/users-policies.it.md) | policy, condivisione, regole di accesso, TLS, KMS |
 | [Distribuzioni e cache](docs/user/distributions/README.it.md) | domini personalizzati, con un [tutorial](docs/user/distributions/tutorial-static-site.it.md) completo |
+| [Video](docs/user/video-streaming.it.md) | streaming HLS, link di streaming e il [media worker](docs/user/media-worker.it.md) (rendition, poster, miniature) |
 | [Riferimenti](docs/user/reference/cli.it.md) | CLI, [Admin API](docs/user/reference/admin-api.it.md), [compatibilità S3](docs/user/reference/s3-compatibility.it.md) |
 
 `make docs-site` la pubblica come sito statico con MkDocs (in `bin/site`, in inglese e in italiano sotto `/it/`).
@@ -191,6 +195,8 @@ Servono Go (versione in `go.mod`) e, per la console, Node.js.
 | `make docs` / `make docs-check` | riferimento della CLI in `docs/user/cli` |
 | `make traceability` / `make traceability-check` | matrice funzionalità → test in `test/TRACEABILITY.md` |
 | `make security` | govulncheck, gosec e `npm audit` |
+| `make bench` / `make bench-media` | benchmark warp del server in ogni modalità / benchmark della pipeline video ([docs/bench](docs/bench/README.md)) |
+| `make build-media-worker` / `make docker-media-worker` | il binario `bin/nexo-media-worker` / la sua immagine |
 | `make zap-scan` | scansione attiva autenticata OWASP ZAP dell'Admin API da `api/openapi.yaml` contro `bin/nexo` (richiede Java; [test/security/zap-api-scan.sh](test/security/zap-api-scan.sh)) |
 | `make screenshots` | rigenera gli screenshot della console in `docs/images/screenshots` da un deployment dimostrativo popolato (Playwright; [scripts/screenshots](scripts/screenshots/run.sh)) |
 | `make dco` | il controllo del sign-off delle pull request sui commit del branch ([CONTRIBUTING.md](CONTRIBUTING.md)) |

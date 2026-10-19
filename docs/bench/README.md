@@ -5,6 +5,10 @@ and a comparison with the TP-01..TP-06 goals of [docs/06 §6.6](../06-test-plan.
 The numbers are real and reproducible with the commands in §6; they apply to the hardware in §1, very different from
 the reference hardware of the goals (4 NVMe nodes, 25 GbE).
 
+
+The video pipeline (HLS packager, media worker: decoding, scaling, encoding, renditions, poster, thumbnails) has
+its own page: [media.md](media.md).
+
 ## 1. Hardware and software
 
 | Item | Value |

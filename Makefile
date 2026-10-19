@@ -60,7 +60,7 @@ REDOCLY_VERSION     ?= 2.56.1
 export CGO_ENABLED ?= 0
 
 .PHONY: all build publish-images build-go build-web build-embedded e2e test test-race test-integration test-cluster test-compose test-proxy test-s3compat test-mint test-upgrade bench-rpc lint web-lint \
-        web-test generate fmt clean run-single run-snmd run-cluster docker docker-nexoctl docker-media-worker build-media-worker help security fuzz bench \
+        web-test generate fmt clean run-single run-snmd run-cluster docker docker-nexoctl docker-media-worker build-media-worker bench-media help security fuzz bench \
         release-tools release-check release-snapshot release-smoke helm-lint systemd-verify hadolint packaging \
         docs docs-check docs-api docs-tools docs-site traceability traceability-check dco zap-scan screenshots demo-gif
 
@@ -162,6 +162,12 @@ fuzz:
 ## bench: run the warp benchmarks of docs/bench (put, get, mixed, list) against a fresh bin/nexo in every mode of BENCH_MODES (snsd snmd cluster); results in bin/bench/<mode>, parameters in test/bench/warp.sh (DURATION, CONCURRENCY, BENCH_TMPFS=1, PROFILE=1, ...)
 bench: build-go
 	@for m in $(BENCH_MODES); do test/bench/warp.sh $$m || exit 1; done
+
+## bench-media: run the Go benchmarks of the video pipeline (packager, OpenH264 decode/encode, scaling, renditions, poster, sprite; docs/bench/media.md); OpenH264 is fetched into bin/openh264 unless NEXO_OPENH264 names it, NEXO_BENCH_VIDEO=<file.mp4> measures a video of your own, BENCH_COUNT repeats (default 1)
+bench-media:
+	@lib="$${NEXO_OPENH264:-$$($(GO) run ./cmd/nexo-media-worker fetch-openh264 --dir $(BIN_DIR)/openh264)}" && \
+	NEXO_OPENH264="$$lib" $(GO) test -run '^$$' -bench . -benchmem -count $${BENCH_COUNT:-1} \
+	  ./internal/service/media/ ./internal/mediaworker/openh264/ ./internal/mediaworker/transcode/
 
 ## lint: run gofmt, go vet and golangci-lint
 lint:

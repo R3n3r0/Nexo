@@ -21,7 +21,7 @@ import (
 
 const fixture = "testdata/h264_aac_360p.mp4" // 640x360, 25 fps, 3 s, H.264 High with B-frames, AAC
 
-func library(t *testing.T) *openh264.Library {
+func library(t testing.TB) *openh264.Library {
 	t.Helper()
 	path := os.Getenv("NEXO_OPENH264")
 	if path == "" {
@@ -32,7 +32,7 @@ func library(t *testing.T) *openh264.Library {
 	return l
 }
 
-func openFixture(t *testing.T) *Source {
+func openFixture(t testing.TB) *Source {
 	t.Helper()
 	src, err := Open(fixture)
 	require.NoError(t, err)
@@ -63,13 +63,15 @@ func TestOpenUnsupported(t *testing.T) {
 	assert.ErrorIs(t, err, ErrUnsupported)
 }
 
-func TestWeights(t *testing.T) {
+func TestTaps(t *testing.T) {
 	for _, c := range [][2]int{{1920, 640}, {360, 240}, {100, 100}, {90, 160}, {7, 3}} {
-		for i, cs := range weights(c[0], c[1]) {
+		tp := newTaps(c[0], c[1])
+		require.Len(t, tp.off, c[1]+1)
+		for i := range c[1] {
 			var sum int32
-			for _, w := range cs {
-				sum += w.weight
-				assert.True(t, w.idx >= 0 && w.idx < c[0])
+			for k := tp.off[i]; k < tp.off[i+1]; k++ {
+				sum += tp.wt[k]
+				assert.True(t, tp.idx[k] >= 0 && int(tp.idx[k]) < c[0])
 			}
 			assert.Equal(t, int32(65536), sum, "%v output %d", c, i)
 		}

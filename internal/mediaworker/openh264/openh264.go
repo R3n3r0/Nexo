@@ -69,6 +69,12 @@ func (l *Library) CodecVersion() string {
 }
 
 // call invokes a function of a vtable: the object pointer comes first.
+// Its arguments may be Go pointers converted to uintptr at the call site:
+// uintptrescapes moves what they point to to the heap and keeps it alive
+// until call returns, so that a growing goroutine stack never leaves the C
+// code writing to a stale address.
+//
+//go:uintptrescapes
 func call(fn uintptr, obj uintptr, args ...uintptr) uintptr {
 	r, _, _ := purego.SyscallN(fn, append([]uintptr{obj}, args...)...)
 	return r
