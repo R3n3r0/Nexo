@@ -38,10 +38,10 @@
     "i18next": "25.10.10",
     "monaco-editor": "0.52.2",
     "qrcode.react": "4.2.0",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
     "react-i18next": "16.6.6",
-    "react-router": "7.18.4",
+    "react-router": "8.4.0",
     "recharts": "2.15.4"
   },
   "devDependencies": {
