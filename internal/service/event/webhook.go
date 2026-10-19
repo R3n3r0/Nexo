@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/r3n3r0/nexo/internal/domain"
 )
 
 // webhook posts events as JSON (Payload) to an HTTP endpoint.
@@ -32,6 +34,11 @@ func (w *webhook) Send(ctx context.Context, e Event) error {
 	if err != nil {
 		return fmt.Errorf("webhook %s: encode: %w", w.id, err)
 	}
+	return w.post(ctx, body)
+}
+
+// post sends a JSON body to the endpoint.
+func (w *webhook) post(ctx context.Context, body []byte) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, w.cfg.Endpoint, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("webhook %s: build request: %w", w.id, redactURLError(err))
@@ -91,4 +98,29 @@ func redactURLError(err error) error {
 		return err
 	}
 	return &url.Error{Op: ue.Op, URL: redactURL(ue.URL), Err: ue.Err}
+}
+
+// mediaWorker posts the media jobs (Event.Media of the MediaJob events)
+// to a media worker, as JSON, with the authentication of a webhook. The
+// test event posts a job with the action "test"; any other event is not
+// for it and is dropped.
+type mediaWorker struct {
+	webhook
+}
+
+// Send implements Target.
+func (m *mediaWorker) Send(ctx context.Context, e Event) error {
+	job := e.Media
+	switch {
+	case job != nil:
+	case e.EventName == TestEvent:
+		job = &domain.MediaJob{Action: domain.MediaJobTest}
+	default:
+		return nil
+	}
+	body, err := json.Marshal(job)
+	if err != nil {
+		return fmt.Errorf("media worker %s: encode: %w", m.id, err)
+	}
+	return m.post(ctx, body)
 }

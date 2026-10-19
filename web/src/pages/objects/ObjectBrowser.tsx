@@ -12,6 +12,7 @@ import {
   Paper,
   Skeleton,
   Stack,
+  Switch,
   Text,
   TextInput,
 } from '@mantine/core';
@@ -43,6 +44,7 @@ import { StorageActions, usePermissions } from '@/auth/usePermissions';
 import { PermissionGuard } from '@/components/iam/PermissionGuard';
 import { ShareDialog } from '@/components/share/ShareDialog';
 import { downloadUrl } from '@/lib/download';
+import { mediaSidecarPrefix } from '@/lib/media';
 import { browsePath, prefixFromPathname, prefixSegments } from '@/lib/objectPath';
 import { problemMessage } from '@/lib/problem';
 import { storageKeys } from '@/lib/storageKeys';
@@ -96,6 +98,8 @@ export function ObjectBrowser() {
     queryFn: () => buckets.get(bucket),
   });
   const [filter, setFilter] = useState('');
+  // The outputs of the media worker stay out of the root listing unless asked for.
+  const [showMedia, setShowMedia] = useState(false);
   const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [renaming, setRenaming] = useState<BrowserRow | null>(null);
@@ -113,7 +117,13 @@ export function ObjectBrowser() {
   }, [bucket, prefix]);
 
   const pages = listing.data?.pages;
-  const rows = useMemo(() => buildRows(pages ?? [], filter), [pages, filter]);
+  const hasMediaOutputs =
+    prefix === '' && (pages ?? []).some((p) => p.prefixes.includes(mediaSidecarPrefix));
+  const hidden = useMemo(
+    () => (prefix === '' && !showMedia ? [mediaSidecarPrefix] : []),
+    [prefix, showMedia],
+  );
+  const rows = useMemo(() => buildRows(pages ?? [], filter, hidden), [pages, filter, hidden]);
   const selectedRows = useMemo(() => rows.filter((r) => selection.has(r.id)), [rows, selection]);
 
   const canUpload = perms.can(StorageActions.putObject);
@@ -431,6 +441,15 @@ export function ObjectBrowser() {
           ) : null}
         </Group>
         <Group gap="xs" wrap="nowrap">
+          {hasMediaOutputs ? (
+            <Switch
+              label={t('objects.showMediaOutputs')}
+              checked={showMedia}
+              onChange={(event) => {
+                setShowMedia(event.currentTarget.checked);
+              }}
+            />
+          ) : null}
           <TextInput
             leftSection={<IconSearch size={16} />}
             placeholder={t('objects.filterPlaceholder')}

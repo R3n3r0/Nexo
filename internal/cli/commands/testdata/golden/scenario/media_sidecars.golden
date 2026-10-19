@@ -1,0 +1,54 @@
+$ nexoctl ls mem/videos
+                              PRE docs/
+[2026-01-02 03:04:05 UTC]      5B STANDARD intro.mp4
+
+$ nexoctl ls --media mem/videos
+                              PRE .nexo-media/
+                              PRE docs/
+[2026-01-02 03:04:05 UTC]      5B STANDARD intro.mp4
+
+$ nexoctl ls -r mem/videos
+[2026-01-02 03:04:05 UTC]      4B STANDARD docs/readme.txt
+[2026-01-02 03:04:05 UTC]      5B STANDARD intro.mp4
+
+$ nexoctl ls -r --media mem/videos
+[2026-01-02 03:04:05 UTC]      4B STANDARD .nexo-media/intro.mp4/null/poster.jpg
+[2026-01-02 03:04:05 UTC]      2B STANDARD .nexo-media/intro.mp4/null/status.json
+[2026-01-02 03:04:05 UTC]      4B STANDARD docs/readme.txt
+[2026-01-02 03:04:05 UTC]      5B STANDARD intro.mp4
+
+$ nexoctl ls mem/videos/.nexo-media
+                              PRE intro.mp4/
+
+$ nexoctl ls -r mem/videos/.nexo-media/intro.mp4/
+[2026-01-02 03:04:05 UTC]      4B STANDARD null/poster.jpg
+[2026-01-02 03:04:05 UTC]      2B STANDARD null/status.json
+
+$ nexoctl find mem/videos
+mem/videos/docs/readme.txt
+mem/videos/intro.mp4
+
+$ nexoctl find --media --name *.jpg mem/videos
+mem/videos/.nexo-media/intro.mp4/null/poster.jpg
+
+$ nexoctl find mem/videos/.nexo-media/
+mem/videos/.nexo-media/intro.mp4/null/poster.jpg
+mem/videos/.nexo-media/intro.mp4/null/status.json
+
+$ nexoctl tree mem/videos
+mem/videos
+├─ docs/
+│  └─ readme.txt
+└─ intro.mp4
+
+$ nexoctl tree --media mem/videos
+mem/videos
+├─ .nexo-media/
+│  └─ intro.mp4/
+│     └─ null/
+│        ├─ poster.jpg
+│        └─ status.json
+├─ docs/
+│  └─ readme.txt
+└─ intro.mp4
+

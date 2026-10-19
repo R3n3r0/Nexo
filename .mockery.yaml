@@ -45,6 +45,8 @@ packages:
       LifecycleManager:
       NotificationManager:
       CORSManager:
+      MediaManager:
+      MediaJobs:
       KMSManager:
       AccessRuleManager:
       DistributionManager:
@@ -238,6 +240,7 @@ packages:
     interfaces:
       Links:
       Service:
+      Jobs:
   github.com/r3n3r0/nexo/internal/service/settings:
     interfaces:
       Service:
@@ -322,6 +325,7 @@ packages:
       LifecycleRoutes:
       NotificationRoutes:
       CORSRoutes:
+      MediaRoutes:
       KMSRoutes:
       AccessRuleRoutes:
       DistributionRoutes:

@@ -275,6 +275,53 @@ func (_c *Service_DeleteLifecycle_Call) RunAndReturn(run func(context.Context, s
 	return _c
 }
 
+// DeleteMedia provides a mock function with given fields: ctx, name
+func (_m *Service) DeleteMedia(ctx context.Context, name string) error {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteMedia")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, name)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Service_DeleteMedia_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteMedia'
+type Service_DeleteMedia_Call struct {
+	*mock.Call
+}
+
+// DeleteMedia is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+func (_e *Service_Expecter) DeleteMedia(ctx interface{}, name interface{}) *Service_DeleteMedia_Call {
+	return &Service_DeleteMedia_Call{Call: _e.mock.On("DeleteMedia", ctx, name)}
+}
+
+func (_c *Service_DeleteMedia_Call) Run(run func(ctx context.Context, name string)) *Service_DeleteMedia_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *Service_DeleteMedia_Call) Return(_a0 error) *Service_DeleteMedia_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Service_DeleteMedia_Call) RunAndReturn(run func(context.Context, string) error) *Service_DeleteMedia_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // DeletePolicy provides a mock function with given fields: ctx, name
 func (_m *Service) DeletePolicy(ctx context.Context, name string) error {
 	ret := _m.Called(ctx, name)
@@ -770,6 +817,63 @@ func (_c *Service_GetLifecycle_Call) Return(_a0 []byte, _a1 error) *Service_GetL
 }
 
 func (_c *Service_GetLifecycle_Call) RunAndReturn(run func(context.Context, string) ([]byte, error)) *Service_GetLifecycle_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetMedia provides a mock function with given fields: ctx, name
+func (_m *Service) GetMedia(ctx context.Context, name string) (domain.MediaConfig, error) {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetMedia")
+	}
+
+	var r0 domain.MediaConfig
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (domain.MediaConfig, error)); ok {
+		return rf(ctx, name)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) domain.MediaConfig); ok {
+		r0 = rf(ctx, name)
+	} else {
+		r0 = ret.Get(0).(domain.MediaConfig)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, name)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_GetMedia_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetMedia'
+type Service_GetMedia_Call struct {
+	*mock.Call
+}
+
+// GetMedia is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+func (_e *Service_Expecter) GetMedia(ctx interface{}, name interface{}) *Service_GetMedia_Call {
+	return &Service_GetMedia_Call{Call: _e.mock.On("GetMedia", ctx, name)}
+}
+
+func (_c *Service_GetMedia_Call) Run(run func(ctx context.Context, name string)) *Service_GetMedia_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *Service_GetMedia_Call) Return(_a0 domain.MediaConfig, _a1 error) *Service_GetMedia_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_GetMedia_Call) RunAndReturn(run func(context.Context, string) (domain.MediaConfig, error)) *Service_GetMedia_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1575,6 +1679,54 @@ func (_c *Service_SetLifecycle_Call) Return(_a0 error) *Service_SetLifecycle_Cal
 }
 
 func (_c *Service_SetLifecycle_Call) RunAndReturn(run func(context.Context, string, []byte) error) *Service_SetLifecycle_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetMedia provides a mock function with given fields: ctx, name, cfg
+func (_m *Service) SetMedia(ctx context.Context, name string, cfg domain.MediaConfig) error {
+	ret := _m.Called(ctx, name, cfg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetMedia")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, domain.MediaConfig) error); ok {
+		r0 = rf(ctx, name, cfg)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Service_SetMedia_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetMedia'
+type Service_SetMedia_Call struct {
+	*mock.Call
+}
+
+// SetMedia is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+//   - cfg domain.MediaConfig
+func (_e *Service_Expecter) SetMedia(ctx interface{}, name interface{}, cfg interface{}) *Service_SetMedia_Call {
+	return &Service_SetMedia_Call{Call: _e.mock.On("SetMedia", ctx, name, cfg)}
+}
+
+func (_c *Service_SetMedia_Call) Run(run func(ctx context.Context, name string, cfg domain.MediaConfig)) *Service_SetMedia_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(domain.MediaConfig))
+	})
+	return _c
+}
+
+func (_c *Service_SetMedia_Call) Return(_a0 error) *Service_SetMedia_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Service_SetMedia_Call) RunAndReturn(run func(context.Context, string, domain.MediaConfig) error) *Service_SetMedia_Call {
 	_c.Call.Return(run)
 	return _c
 }

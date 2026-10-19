@@ -60,6 +60,7 @@ func catalog() []catalogEntry {
 	out = append(out, scoped(scopeBucket,
 		policy.ActionAdminManageAccessRules,
 		policy.ActionAdminGetBucketQuota, policy.ActionAdminSetBucketQuota,
+		policy.ActionAdminGetBucketMedia, policy.ActionAdminSetBucketMedia,
 		policy.ActionDeleteBucket, policy.ActionForceDeleteBucket, policy.ActionListBucket,
 		policy.ActionListBucketVersions, policy.ActionListMultipart,
 		policy.ActionGetBucketPolicy, policy.ActionPutBucketPolicy, policy.ActionDeleteBucketPolicy,

@@ -9,6 +9,7 @@ Examples:
 Flags:
   -d, --dirs-only   show only the directories
   -h, --help        help for tree
+      --media       also show the media sidecars (.nexo-media/)
 
 Global Flags:
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)

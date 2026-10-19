@@ -1,6 +1,8 @@
 Search the objects under a prefix (or the files under a local directory)
 recursively and print the matches, or run a command for each one with --exec
 ("{}" is replaced by the path; the command is split on spaces, no shell).
+The media sidecars of a bucket (.nexo-media/) are skipped unless --media is
+given or the target is under them.
 
 Usage:
   nexoctl find [flags] TARGET...
@@ -15,6 +17,7 @@ Flags:
   -h, --help                help for find
       --larger string       only objects larger than the size (e.g. 10MiB)
       --maxdepth int        descend at most this many levels (0: unlimited)
+      --media               also search the media sidecars (.nexo-media/)
       --name string         glob on the base name (e.g. "*.log")
       --newer-than string   only objects newer than the duration
       --older-than string   only objects older than the duration (e.g. 7d)

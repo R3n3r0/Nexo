@@ -261,10 +261,17 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	// of the object layer, before they are acknowledged (docs/11 §11.5):
 	// the hook is installed once the cache is composed.
 	hook := &cacheHook{}
-	objectEvents, err := cache.NewEvents(cache.EventsDeps{Events: events, Invalidator: hook, Logger: logger.With("component", "cache")})
+	cacheEvents, err := cache.NewEvents(cache.EventsDeps{Events: events, Invalidator: hook, Logger: logger.With("component", "cache")})
 	if err != nil {
 		return nil, err
 	}
+	// The writes of the videos the media rules of their bucket select
+	// become jobs of the media worker (the media_worker targets).
+	mediaJobs, err := media.NewJobs(media.JobsDeps{Events: cacheEvents, Buckets: stores.buckets, Clock: d.clock, Logger: logger.With("component", "media")})
+	if err != nil {
+		return nil, err
+	}
+	var objectEvents event.Service = mediaJobs
 	objects, err := newObjectLayer(d, stores.buckets, objectEvents, notifier, sse)
 	if err != nil {
 		return nil, fmt.Errorf("object layer: %w", err)
@@ -525,7 +532,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		codec: codec, limiter: limiter, clock: d.clock, logger: logger, region: cfg.Region, s3URL: publicS3URL(cfg),
 		sessions: sessions, verifier: verifier, signer: signer, admin: adminSvc, iam: identities, policy: policies,
 		buckets: buckets, objects: objects, media: mediaSvc, shares: shares, config: dynConfig, locks: f.lockManager, secureCookies: secureConsole(cfg),
-		consoleURL: cfg.BrowserRedirectURL, lifecycle: lifecycle, events: events, kms: keys,
+		consoleURL: cfg.BrowserRedirectURL, lifecycle: lifecycle, events: events, kms: keys, mediaJobs: mediaJobs,
 		accessRules: accessRules, dist: distStack, acmeDirectory: cfg.ACMEDirectory, acmeChallenge: cfg.ACMEChallenge,
 		cache: cacheSvc, diagnostics: newDiagnostics(f, objects, buckets, logger),
 		obsTrace: f.obs.trace, obsLogs: obsSvc.logs, obsAudit: auditor, obsHistory: f.obs.history,

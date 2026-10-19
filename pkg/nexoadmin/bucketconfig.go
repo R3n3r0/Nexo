@@ -144,6 +144,72 @@ type CORSRule struct {
 	MaxAgeSeconds  *int     `json:"maxAgeSeconds,omitempty"`
 }
 
+// MediaConfiguration is the video configuration of a bucket: the first
+// rule selecting a key applies.
+type MediaConfiguration struct {
+	Rules []MediaRule `json:"rules"`
+}
+
+// MediaRule selects videos by key prefix and suffix and names what the
+// media worker derives from them.
+type MediaRule struct {
+	ID         string           `json:"id"`
+	Prefix     string           `json:"prefix,omitempty"`
+	Suffixes   []string         `json:"suffixes,omitempty"`
+	Renditions []string         `json:"renditions,omitempty"`
+	Poster     bool             `json:"poster,omitempty"`
+	Thumbnails *MediaThumbnails `json:"thumbnails,omitempty"`
+}
+
+// MediaThumbnails configures the timeline thumbnails of a rule.
+type MediaThumbnails struct {
+	// Interval is a Go duration from 1s to 10m (default 10s).
+	Interval string `json:"interval,omitempty"`
+}
+
+// MediaStatus is the processing state of a video by the media worker.
+type MediaStatus struct {
+	// State is processing, done or failed; none when the worker never
+	// processed the version.
+	State string `json:"state"`
+	// Current reports outputs derived from the current content of the
+	// version (only they are served); stale outputs are not.
+	Current   bool   `json:"current"`
+	VersionID string `json:"versionId,omitempty"`
+	Error     string `json:"error,omitempty"`
+	// Step is the step in progress or the one that failed.
+	Step string `json:"step,omitempty"`
+	// Rule is the id of the rule that selected the video.
+	Rule string `json:"rule,omitempty"`
+	// Duration of the video in seconds.
+	Duration   float64                `json:"duration,omitempty"`
+	Width      int                    `json:"width,omitempty"`
+	Height     int                    `json:"height,omitempty"`
+	Renditions []MediaRenditionOutput `json:"renditions,omitempty"`
+	Poster     bool                   `json:"poster,omitempty"`
+	Thumbnails *MediaThumbnailsOutput `json:"thumbnails,omitempty"`
+	Updated    *time.Time             `json:"updated,omitempty"`
+}
+
+// MediaRenditionOutput is a rendition produced by the media worker.
+type MediaRenditionOutput struct {
+	Name      string `json:"name"`
+	Width     int    `json:"width"`
+	Height    int    `json:"height"`
+	Bandwidth int    `json:"bandwidth"`
+}
+
+// MediaThumbnailsOutput is the thumbnail sprite produced by the media
+// worker: Count tiles of Width x Height in a grid of Columns, one every
+// Interval seconds.
+type MediaThumbnailsOutput struct {
+	Interval float64 `json:"interval"`
+	Width    int     `json:"width"`
+	Height   int     `json:"height"`
+	Columns  int     `json:"columns"`
+	Count    int     `json:"count"`
+}
+
 // ObjectRetention is the Object Lock retention of a version (no Mode when
 // it has none).
 type ObjectRetention struct {
@@ -305,6 +371,44 @@ func (c *client) SetBucketCORS(ctx context.Context, bucket string, cfg CORSConfi
 // DeleteBucketCORS implements AdminClient.
 func (c *client) DeleteBucketCORS(ctx context.Context, bucket string) error {
 	return c.do(ctx, request{method: http.MethodDelete, path: pathOf("buckets", bucket, "cors")}, nil)
+}
+
+// --- media ---------------------------------------------------------------------
+
+// GetBucketMedia implements AdminClient.
+func (c *client) GetBucketMedia(ctx context.Context, bucket string) (*MediaConfiguration, error) {
+	var out MediaConfiguration
+	return &out, c.do(ctx, request{method: http.MethodGet, path: pathOf("buckets", bucket, "media")}, &out)
+}
+
+// SetBucketMedia implements AdminClient.
+func (c *client) SetBucketMedia(ctx context.Context, bucket string, cfg MediaConfiguration) (*MediaConfiguration, error) {
+	if cfg.Rules == nil {
+		cfg.Rules = []MediaRule{}
+	}
+	var out MediaConfiguration
+	return &out, c.do(ctx, request{method: http.MethodPut, path: pathOf("buckets", bucket, "media"), body: cfg}, &out)
+}
+
+// DeleteBucketMedia implements AdminClient.
+func (c *client) DeleteBucketMedia(ctx context.Context, bucket string) error {
+	return c.do(ctx, request{method: http.MethodDelete, path: pathOf("buckets", bucket, "media")}, nil)
+}
+
+// ReprocessMedia implements AdminClient.
+func (c *client) ReprocessMedia(ctx context.Context, bucket, key, versionID string) error {
+	body := struct {
+		Key       string `json:"key"`
+		VersionID string `json:"versionId,omitempty"`
+	}{key, versionID}
+	return c.do(ctx, request{method: http.MethodPost, path: pathOf("buckets", bucket, "media", "reprocess"), body: body}, nil)
+}
+
+// GetMediaStatus implements AdminClient.
+func (c *client) GetMediaStatus(ctx context.Context, bucket, key, versionID string) (*MediaStatus, error) {
+	var out MediaStatus
+	return &out, c.do(ctx, request{method: http.MethodGet, path: pathOf("buckets", bucket, "objects", "media", "status"),
+		query: versionQuery(key, versionID)}, &out)
 }
 
 // --- Object Lock and attributes ------------------------------------------------

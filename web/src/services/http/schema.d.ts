@@ -636,6 +636,62 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/buckets/{bucket}/media": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Video rules of the bucket
+         * @description The rules that select the videos the media worker processes and what it derives from
+         *     them (renditions, poster, thumbnails); the first rule selecting a key applies. A bucket
+         *     without configuration answers no rule. Streaming the source needs no rule.
+         */
+        get: operations["getBucketMedia"];
+        /**
+         * Replace the video rules of the bucket
+         * @description At most 100 rules, each validated on its own: a rejected configuration answers 400
+         *     `invalid_configuration` with every invalid rule in `ruleErrors`. The stored rules are
+         *     normalized (suffixes lowercased with their default, renditions tallest first). No rule
+         *     removes the configuration.
+         */
+        put: operations["setBucketMedia"];
+        post?: never;
+        /** Remove the video rules */
+        delete: operations["deleteBucketMedia"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/media/reprocess": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Process a video again
+         * @description Queues a job of the media worker deriving the outputs of a version of a video again,
+         *     with the rule of the bucket that selects it (400 when none does). The job is delivered
+         *     through the persistent queue of the media worker target.
+         */
+        post: operations["reprocessMedia"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/buckets/{bucket}/replication": {
         parameters: {
             query?: never;
@@ -1010,6 +1066,127 @@ export interface paths {
          * @description One fMP4 media segment, numbered from 0.
          */
         get: operations["hlsMediaSegment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/hls/poster.jpg": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Poster frame of a video
+         * @description The JPEG poster the media worker derived from the current content of the video (404 otherwise).
+         */
+        get: operations["mediaPoster"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/hls/sprite.jpg": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Timeline thumbnails of a video
+         * @description The JPEG grid of thumbnails the media worker derived from the current content of the video, mapped by thumbnails.vtt.
+         */
+        get: operations["mediaThumbnailSprite"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/hls/thumbnails.vtt": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * WebVTT map of the timeline thumbnails
+         * @description One cue per thumbnail, pointing to its tile of sprite.jpg (`#xywh=x,y,w,h`).
+         */
+        get: operations["mediaThumbnails"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/media/status": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Processing state of a video by the media worker
+         * @description The status.json of the version written by the worker: `none` when it never processed it.
+         *     `current` is false when the outputs derive from an older content of the version.
+         */
+        get: operations["mediaStatus"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4274,6 +4451,60 @@ export interface components {
             exposeHeaders?: string[];
             maxAgeSeconds?: number;
         };
+        MediaStatus: {
+            /** @enum {string} */
+            state: "none" | "processing" | "done" | "failed";
+            current: boolean;
+            versionId?: string;
+            error?: string;
+            step?: string;
+            rule?: string;
+            /** @description Duration of the video in seconds. */
+            duration?: number;
+            width?: number;
+            height?: number;
+            renditions?: {
+                name: string;
+                width: number;
+                height: number;
+                bandwidth: number;
+            }[];
+            poster?: boolean;
+            thumbnails?: {
+                interval: number;
+                width: number;
+                height: number;
+                columns: number;
+                count: number;
+            };
+            /** Format: date-time */
+            updated?: string;
+        };
+        MediaConfiguration: {
+            rules: components["schemas"]["MediaRule"][];
+        };
+        MediaRule: {
+            id: string;
+            /** @description Prefix of the keys (empty for the whole bucket; never .nexo-media/). */
+            prefix?: string;
+            /** @description Suffixes of the keys, matched without case (default .mp4, .mov, .m4v). */
+            suffixes?: string[];
+            /** @description Lower qualities to produce, H.264 with the source audio; those taller than the source are skipped. */
+            renditions?: ("2160p" | "1440p" | "1080p" | "720p" | "480p" | "360p" | "240p")[];
+            /** @description A JPEG poster frame. */
+            poster?: boolean;
+            thumbnails?: components["schemas"]["MediaThumbnails"];
+        };
+        /** @description A timeline thumbnail sprite with its WebVTT map. */
+        MediaThumbnails: {
+            /** @description Interval between two thumbnails, a Go duration from 1s to 10m (default 10s). */
+            interval?: string;
+        };
+        MediaReprocessRequest: {
+            key: string;
+            /** @description The version to process (default the latest). */
+            versionId?: string;
+        };
         ObjectRetention: {
             versionId?: string;
             /** @enum {string} */
@@ -6656,6 +6887,102 @@ export interface operations {
             default: components["responses"]["Problem"];
         };
     };
+    getBucketMedia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The media rules. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaConfiguration"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    setBucketMedia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MediaConfiguration"];
+            };
+        };
+        responses: {
+            /** @description The media rules as stored. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaConfiguration"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    deleteBucketMedia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    reprocessMedia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MediaReprocessRequest"];
+            };
+        };
+        responses: {
+            /** @description Queued. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
     getBucketReplication: {
         parameters: {
             query?: never;
@@ -7066,6 +7393,8 @@ export interface operations {
                 versionId?: components["parameters"]["versionId"];
                 /** @description The ETag the presentation is pinned to (412 once the object changed). */
                 rev: string;
+                /** @description A rendition of the media worker (720p, 480p...): the presentation of that rendition, rev being its ETag. */
+                r?: string;
             };
             header?: never;
             path: {
@@ -7099,6 +7428,8 @@ export interface operations {
                 versionId?: components["parameters"]["versionId"];
                 /** @description The ETag the presentation is pinned to (412 once the object changed). */
                 rev: string;
+                /** @description A rendition of the media worker (720p, 480p...): the presentation of that rendition, rev being its ETag. */
+                r?: string;
             };
             header?: never;
             path: {
@@ -7132,6 +7463,8 @@ export interface operations {
                 versionId?: components["parameters"]["versionId"];
                 /** @description The ETag the presentation is pinned to (412 once the object changed). */
                 rev: string;
+                /** @description A rendition of the media worker (720p, 480p...): the presentation of that rendition, rev being its ETag. */
+                r?: string;
                 n: number;
             };
             header?: never;
@@ -7149,6 +7482,130 @@ export interface operations {
                 };
                 content: {
                     "video/iso.segment": string;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    mediaPoster: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The poster. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": string;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    mediaThumbnailSprite: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The sprite. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": string;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    mediaThumbnails: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The WebVTT map. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/vtt": string;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    mediaStatus: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaStatus"];
                 };
             };
             default: components["responses"]["Problem"];

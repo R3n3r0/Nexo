@@ -60,7 +60,7 @@ REDOCLY_VERSION     ?= 2.56.1
 export CGO_ENABLED ?= 0
 
 .PHONY: all build publish-images build-go build-web build-embedded e2e test test-race test-integration test-cluster test-compose test-proxy test-s3compat test-mint test-upgrade bench-rpc lint web-lint \
-        web-test generate fmt clean run-single run-snmd run-cluster docker docker-nexoctl help security fuzz bench \
+        web-test generate fmt clean run-single run-snmd run-cluster docker docker-nexoctl docker-media-worker build-media-worker help security fuzz bench \
         release-tools release-check release-snapshot release-smoke helm-lint systemd-verify hadolint packaging \
         docs docs-check docs-api docs-tools docs-site traceability traceability-check dco zap-scan screenshots demo-gif
 
@@ -79,6 +79,10 @@ build-embedded:
 build-go:
 	$(GO) build $(GOFLAGS) -trimpath -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/nexo ./cmd/nexo
 	$(GO) build $(GOFLAGS) -trimpath -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/nexoctl ./cmd/nexoctl
+
+## build-media-worker: build bin/nexo-media-worker (renditions, posters and thumbnails; OpenH264 is downloaded at its first start)
+build-media-worker:
+	$(GO) build $(GOFLAGS) -trimpath -ldflags '$(LDFLAGS)' -o $(BIN_DIR)/nexo-media-worker ./cmd/nexo-media-worker
 
 ## build-web: build the React dashboard into web/dist
 build-web:
@@ -280,6 +284,12 @@ docker-nexoctl:
 	  --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --build-arg DATE=$(DATE) \
 	  -t $(IMAGE)ctl:$(VERSION) -t $(IMAGE)ctl:latest .
 
+## docker-media-worker: build the media worker image from the sources (Dockerfile.media-worker)
+docker-media-worker:
+	$(DOCKER) build -f Dockerfile.media-worker \
+	  --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --build-arg DATE=$(DATE) \
+	  -t $(IMAGE)-media-worker:$(VERSION) -t $(IMAGE)-media-worker:latest .
+
 ## release-tools: install the pinned GoReleaser, Helm, kubeconform and syft in bin/tools (export PATH=$$PWD/bin/tools:$$PATH)
 release-tools:
 	GOBIN=$(TOOLS_DIR) GOTOOLCHAIN=auto $(GO) install github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION)
@@ -323,7 +333,7 @@ systemd-verify:
 
 ## hadolint: lint the Dockerfiles (sources and GoReleaser)
 hadolint:
-	$(HADOLINT) Dockerfile Dockerfile.nexoctl deploy/docker/Dockerfile.goreleaser deploy/docker/Dockerfile.nexoctl.goreleaser
+	$(HADOLINT) Dockerfile Dockerfile.nexoctl Dockerfile.media-worker deploy/docker/Dockerfile.goreleaser deploy/docker/Dockerfile.nexoctl.goreleaser
 
 ## packaging: every packaging check that needs no Docker daemon: release-check, helm-lint, systemd-verify, hadolint
 packaging: release-check helm-lint systemd-verify hadolint

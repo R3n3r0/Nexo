@@ -128,7 +128,7 @@ anything else is a local path.`,
 	)
 	add(groupSharing, newShareCmd(e), newPresignCmd(e), newAnonymousCmd(e), newCORSCmd(e), newAccessCmd(e), newDistCmd(e), newCacheCmd(e))
 	add(groupSettings, newVersionCmd(e), newTagCmd(e), newRetentionCmd(e), newLegalHoldCmd(e),
-		newILMCmd(e), newEventCmd(e), newQuotaCmd(e), newEncryptCmd(e))
+		newILMCmd(e), newEventCmd(e), newQuotaCmd(e), newEncryptCmd(e), newMediaCmd(e))
 	add(groupAdmin, newAdminCmd(e))
 	add(groupConfig, newAliasCmd(e))
 	root.AddCommand(newGenDocsCmd(e)) // hidden: make docs

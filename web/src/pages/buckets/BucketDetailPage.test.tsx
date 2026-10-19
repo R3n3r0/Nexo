@@ -11,6 +11,7 @@ import { UploadProvider } from '@/upload/UploadProvider';
 import { ObjectBrowser } from '../objects/ObjectBrowser';
 import { BucketAccessTab } from './BucketAccessTab';
 import { BucketDetailPage } from './BucketDetailPage';
+import { BucketMediaTab } from './BucketMediaTab';
 import { BucketSettingsTab } from './BucketSettingsTab';
 
 function Location() {
@@ -31,6 +32,7 @@ const routes = [
       { path: 'browse/*', element: <ObjectBrowser /> },
       { path: 'settings', element: <BucketSettingsTab /> },
       { path: 'access', element: <BucketAccessTab /> },
+      { path: 'media', element: <BucketMediaTab /> },
     ],
   },
   { path: '/buckets', element: <Location /> },
@@ -70,6 +72,9 @@ describe('BucketDetailPage', () => {
     await user.click(screen.getByRole('tab', { name: 'Access' }));
     expect(screen.getByTestId('location')).toHaveTextContent('/buckets/media/access');
     expect(screen.getByRole('tab', { name: 'Access' })).toHaveAttribute('aria-selected', 'true');
+    await user.click(screen.getByRole('tab', { name: 'Video' }));
+    expect(screen.getByTestId('location')).toHaveTextContent('/buckets/media/media');
+    expect(screen.getByRole('tab', { name: 'Video' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('tells when the bucket does not exist', async () => {

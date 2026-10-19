@@ -36,6 +36,20 @@ func TestParseTargetConfig(t *testing.T) {
 				Webhook: event.WebhookConfig{Endpoint: "https://hooks.example.com/s3", AuthToken: "secret", TLSSkipVerify: true}},
 		},
 		{
+			name:      "media worker",
+			subsystem: "notify_media_worker",
+			kv:        map[string]string{"enable": "on", "endpoint": "http://worker:9900/jobs", "auth_token": "t", "queue_dir": "media"},
+			want: event.TargetConfig{ID: "_", Type: event.TypeMediaWorker, Enabled: true, QueueDir: "media",
+				Filter:  event.Filter{Events: []event.Name{event.MediaJob}},
+				Webhook: event.WebhookConfig{Endpoint: "http://worker:9900/jobs", AuthToken: "t"}},
+		},
+		{
+			name:      "media worker without endpoint",
+			subsystem: "notify_media_worker",
+			kv:        map[string]string{"enable": "on"},
+			wantErr:   true,
+		},
+		{
 			name:      "disabled target is not validated",
 			subsystem: "notify_webhook:off",
 			kv:        map[string]string{"enable": "off"},

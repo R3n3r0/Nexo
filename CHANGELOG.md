@@ -75,6 +75,15 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   in POST /shares, **Stream as a video** in the console, `nexoctl share download --stream`) give a public player
   page (`/nexo/media/player/`) and the playlist for any HLS player, and are revoked like any share. The video
   streams count against the request limits of the S3 API.
+- Media worker (`nexo-media-worker`, a separate binary and image): the media rules of a bucket (Admin API
+  `/buckets/{bucket}/media`, `nexoctl media`, the **Video** tab of the console) select videos by prefix and suffix;
+  their jobs reach the worker through the persistent queue of the new `notify_media_worker` target, and the worker
+  derives H.264/AAC renditions (presets 240p to 2160p, never taller than the source), a JPEG poster and a timeline
+  thumbnail sprite with its WebVTT map. It uses OpenH264 (the Cisco build, downloaded and checksum-verified at the
+  first start) instead of ffmpeg, keeps its jobs in a durable queue on disk, and reads and writes through the S3
+  API only, under the reserved prefix `.nexo-media/`, with a least-privilege policy. The master playlist lists the
+  renditions once `status.json` is done for the current ETag; the poster, the sprite, the thumbnails and the state
+  are served next to the playlists.
 
 ### Observability (M8)
 - Prometheus metrics on `/nexo/metrics/v1/{cluster,node,bucket}`: API with latency histograms, drives, network,

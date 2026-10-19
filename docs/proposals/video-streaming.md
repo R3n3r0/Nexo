@@ -291,3 +291,22 @@ Each milestone is usable on its own: M1 alone already lets people share a playab
    (better quality, needs a GPU for speed)?
 4. Do we need per-viewer analytics (views, watch time), or only the existing access logs and metrics?
 5. AES-128 encrypted HLS for private videos, or are short-lived share tokens enough?
+
+## 10. Decisions taken in M2
+
+- **OpenH264 instead of ffmpeg.** The worker is a single Go program: it parses MP4 with mp4ff, decodes and
+  encodes H.264 with the Cisco build of OpenH264 loaded at run time (purego, no cgo), scales in Go and writes JPEG
+  with the standard library. The library is downloaded from Cisco at the first start (its patent license covers
+  the binaries end users download) and verified against a pinned SHA-256. The renditions are H.264 Constrained
+  Baseline (OpenH264 has no B-frames or CABAC), with the AAC track of the source copied; H.265 sources fail as
+  unsupported and still stream as source files.
+- **Delivery**: a dedicated `notify_media_worker` target (webhook semantics, persistent queue) instead of
+  bucket notifications to a generic target: the media rules decide which videos produce jobs, and the jobs carry
+  the matching rule. The worker acknowledges a job only after writing it durably to its own disk queue.
+- **Open question 1**: the reserved prefix `.nexo-media/` in the same bucket, hidden by the console and by
+  `nexoctl ls` by default.
+- **Open question 2**: the server never decodes; the poster comes from the worker.
+- **Versioned buckets**: the worker deletes the replaced versions of its own outputs and, on a permanent delete
+  of a video version, every version of its sidecar directory.
+- **Deferred**: the scanner sweep of orphaned sidecars (after a rule is removed), the separate "Video data"
+  usage figure, the CUDA image and metrics of the worker.

@@ -78,6 +78,7 @@ type fixture struct {
 	lifecycle  *adminmock.LifecycleManager
 	notify     *adminmock.NotificationManager
 	cors       *adminmock.CORSManager
+	mediaCfg   *adminmock.MediaManager
 	rules      *adminmock.AccessRuleManager
 	dists      *adminmock.DistributionManager
 	certs      *adminmock.CertificateManager
@@ -107,7 +108,7 @@ func newFixture(t *testing.T) *fixture {
 		uploads: adminmock.NewUploadManager(t), shares: adminmock.NewShareManager(t), identities: adminmock.NewIdentityManager(t),
 		accessKeys: adminmock.NewAccessKeyManager(t), policies: adminmock.NewPolicyManager(t), policy: policymock.NewService(t),
 		config: adminmock.NewConfigManager(t), cluster: adminmock.NewClusterManager(t), locks: lockmock.NewManager(t),
-		lifecycle: adminmock.NewLifecycleManager(t), notify: adminmock.NewNotificationManager(t), cors: adminmock.NewCORSManager(t),
+		lifecycle: adminmock.NewLifecycleManager(t), notify: adminmock.NewNotificationManager(t), cors: adminmock.NewCORSManager(t), mediaCfg: adminmock.NewMediaManager(t),
 		rules: adminmock.NewAccessRuleManager(t), dists: adminmock.NewDistributionManager(t), certs: adminmock.NewCertificateManager(t),
 		cache: adminmock.NewCacheManager(t), diag: adminmock.NewDiagnostics(t), catalog: adminsvc.CatalogActions(),
 		tracer: tracemock.NewService(t), logs: logsmock.NewService(t), audit: auditmock.NewService(t), history: metricsmock.NewHistory(t),
@@ -171,6 +172,8 @@ func newFixture(t *testing.T) *fixture {
 	require.NoError(t, err)
 	kmsRoutes, err := admin.NewKMSRoutes(admin.KMSDeps{Authz: f.authz, Enc: enc})
 	require.NoError(t, err)
+	mediaRoutes, err := admin.NewMediaRoutes(admin.MediaDeps{Media: f.mediaCfg, Authz: f.authz, Enc: enc})
+	require.NoError(t, err)
 	accessRuleRoutes, err := admin.NewAccessRuleRoutes(admin.AccessRuleDeps{Rules: f.rules, Authz: f.authz, Enc: enc})
 	require.NoError(t, err)
 	distributionRoutes, err := admin.NewDistributionRoutes(admin.DistributionDeps{Distributions: f.dists, Authz: f.authz, Enc: enc})
@@ -185,7 +188,7 @@ func newFixture(t *testing.T) *fixture {
 		History: f.history, Authz: f.authz, Enc: enc}, admin.WithHeartbeat(20*time.Millisecond))
 	require.NoError(t, err)
 	f.groups = []admin.Routes{sessionRoutes, infoRoutes, userRoutes, policyRoutes, bucketRoutes, objectRoutes, shareRoutes, configRoutes, clusterRoutes,
-		lifecycleRoutes, notificationRoutes, corsRoutes, kmsRoutes, accessRuleRoutes, distributionRoutes, certificateRoutes, cacheRoutes,
+		lifecycleRoutes, notificationRoutes, corsRoutes, mediaRoutes, kmsRoutes, accessRuleRoutes, distributionRoutes, certificateRoutes, cacheRoutes,
 		diagnosticsRoutes, observabilityRoutes}
 
 	r := chi.NewRouter()

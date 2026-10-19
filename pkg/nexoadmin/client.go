@@ -97,6 +97,18 @@ type AdminClient interface {
 	GetBucketCORS(ctx context.Context, bucket string) (*CORSConfiguration, error)
 	SetBucketCORS(ctx context.Context, bucket string, cfg CORSConfiguration) (*CORSConfiguration, error)
 	DeleteBucketCORS(ctx context.Context, bucket string) error
+	// GetBucketMedia returns the video rules of a bucket (no rule without
+	// configuration); SetBucketMedia stores them normalized and
+	// ReprocessMedia queues a job of the media worker for a video
+	// (admin:GetBucketMedia, admin:SetBucketMedia).
+	GetBucketMedia(ctx context.Context, bucket string) (*MediaConfiguration, error)
+	SetBucketMedia(ctx context.Context, bucket string, cfg MediaConfiguration) (*MediaConfiguration, error)
+	DeleteBucketMedia(ctx context.Context, bucket string) error
+	ReprocessMedia(ctx context.Context, bucket, key, versionID string) error
+	// GetMediaStatus returns the processing state of a version of a video
+	// (state "none" when the media worker never processed it; versionID ""
+	// is the latest version; s3:GetObject).
+	GetMediaStatus(ctx context.Context, bucket, key, versionID string) (*MediaStatus, error)
 
 	// Notification targets (admin:ConfigUpdate): their delivery state on
 	// the answering node and a test event. target is "<id>:<type>" or the

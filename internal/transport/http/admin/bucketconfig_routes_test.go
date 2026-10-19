@@ -123,6 +123,38 @@ func TestCORSRoutes(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 }
 
+func TestMediaRoutes(t *testing.T) {
+	f := newFixture(t)
+	c := f.root(t)
+	f.mediaCfg.EXPECT().Get(mock.Anything, "videos").Return(&domain.MediaConfig{Rules: []domain.MediaRule{}}, nil)
+	rec := c.do(http.MethodGet, "/buckets/videos/media", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"rules":[]}`, rec.Body.String())
+
+	in := domain.MediaConfig{Rules: []domain.MediaRule{{ID: "courses", Prefix: "c/", Renditions: []string{"720p"}, Poster: true,
+		Thumbnails: &domain.MediaThumbnails{Interval: "5s"}}}}
+	stored := in.Clone()
+	stored.Rules[0].Suffixes = []string{".mp4"}
+	f.mediaCfg.EXPECT().Set(mock.Anything, "videos", in).Return(&stored, nil)
+	rec = c.do(http.MethodPut, "/buckets/videos/media", `{"rules":[{"id":"courses","prefix":"c/","renditions":["720p"],"poster":true,"thumbnails":{"interval":"5s"}}]}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.JSONEq(t, `{"rules":[{"id":"courses","prefix":"c/","suffixes":[".mp4"],"renditions":["720p"],"poster":true,"thumbnails":{"interval":"5s"}}]}`, rec.Body.String())
+
+	f.mediaCfg.EXPECT().Set(mock.Anything, "videos", mock.Anything).Return(nil, &adminsvc.ConfigError{Kind: "media",
+		Problems: []adminsvc.RuleProblem{{Rule: 1, ID: "x", Code: "InvalidArgument", Message: "nothing to produce"}}})
+	rec = c.do(http.MethodPut, "/buckets/videos/media", `{"rules":[{"id":"x"}]}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, "invalid_configuration", problemOf(t, rec).Code)
+
+	f.mediaCfg.EXPECT().Reprocess(mock.Anything, "videos", "c/a.mp4", "v1").Return(nil)
+	rec = c.do(http.MethodPost, "/buckets/videos/media/reprocess", `{"key":"c/a.mp4","versionId":"v1"}`)
+	assert.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+
+	f.mediaCfg.EXPECT().Delete(mock.Anything, "videos").Return(nil)
+	rec = c.do(http.MethodDelete, "/buckets/videos/media", nil)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+}
+
 func TestObjectLockRoutes(t *testing.T) {
 	f := newFixture(t)
 	c := f.root(t)
@@ -221,6 +253,10 @@ func TestBucketConfigAuthorizationDenied(t *testing.T) {
 		{http.MethodGet, "/buckets/b1/cors", "", []policy.Action{policy.ActionGetBucketCORS}},
 		{http.MethodPut, "/buckets/b1/cors", `{"rules":[]}`, []policy.Action{policy.ActionPutBucketCORS}},
 		{http.MethodDelete, "/buckets/b1/cors", "", []policy.Action{policy.ActionPutBucketCORS}},
+		{http.MethodGet, "/buckets/b1/media", "", []policy.Action{policy.ActionAdminGetBucketMedia}},
+		{http.MethodPut, "/buckets/b1/media", `{"rules":[]}`, []policy.Action{policy.ActionAdminSetBucketMedia}},
+		{http.MethodDelete, "/buckets/b1/media", "", []policy.Action{policy.ActionAdminSetBucketMedia}},
+		{http.MethodPost, "/buckets/b1/media/reprocess", `{"key":"v.mp4"}`, []policy.Action{policy.ActionAdminSetBucketMedia}},
 		{http.MethodGet, "/buckets/b1/objects/retention?key=k", "", []policy.Action{policy.ActionGetObjectRetention}},
 		{http.MethodGet, "/buckets/b1/objects/legal-hold?key=k", "", []policy.Action{policy.ActionGetObjectLegalHold}},
 		{http.MethodPut, "/buckets/b1/objects/legal-hold?key=k", `{"status":"ON"}`, []policy.Action{policy.ActionPutObjectLegalHold}},
@@ -290,5 +326,7 @@ func TestBucketConfigConstructorsRefuseMissingServices(t *testing.T) {
 	_, err = admin.NewCORSRoutes(admin.CORSDeps{})
 	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
 	_, err = admin.NewKMSRoutes(admin.KMSDeps{})
+	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
+	_, err = admin.NewMediaRoutes(admin.MediaDeps{})
 	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
 }

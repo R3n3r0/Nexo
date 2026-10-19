@@ -24,6 +24,9 @@ export const StorageActions = {
   putEncryption: 's3:PutEncryptionConfiguration',
   putObjectLock: 's3:PutBucketObjectLockConfiguration',
   setQuota: 'admin:SetBucketQuota',
+  /** Video rules of the media worker and reprocessing of a video. */
+  getMedia: 'admin:GetBucketMedia',
+  setMedia: 'admin:SetBucketMedia',
   getObject: 's3:GetObject',
   getObjectVersion: 's3:GetObjectVersion',
   putObject: 's3:PutObject',

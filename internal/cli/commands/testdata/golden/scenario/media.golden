@@ -1,0 +1,171 @@
+$ nexoctl media get mem/videos
+`mem/videos` has no media rule.
+
+$ nexoctl media set mem/videos media.json
+Media rules of `mem/videos` set (1 rule).
+
+$ nexoctl media get mem/videos
+{
+  "rules": [
+    {
+      "id": "courses",
+      "prefix": "courses/",
+      "suffixes": [
+        ".m4v",
+        ".mov",
+        ".mp4"
+      ],
+      "renditions": [
+        "720p",
+        "480p"
+      ],
+      "poster": true
+    }
+  ]
+}
+
+$ nexoctl media get --json mem/videos
+{"status":"success","target":"mem/videos","bucket":"videos","rules":[{"id":"courses","prefix":"courses/","suffixes":[".m4v",".mov",".mp4"],"renditions":["720p","480p"],"poster":true}]}
+
+$ nexoctl media rule add mem/videos --id clips --suffix .MP4,.webm --thumbnails 5s
+Media rule "clips" added to `mem/videos`.
+
+$ nexoctl media rule add mem/videos --id courses --prefix courses/ --rendition 1080p --rendition 360p --json
+{"status":"success","target":"mem/videos","bucket":"videos","id":"courses","prefix":"courses/","suffixes":[".m4v",".mov",".mp4"],"renditions":["1080p","360p"]}
+
+$ nexoctl media get mem/videos
+{
+  "rules": [
+    {
+      "id": "courses",
+      "prefix": "courses/",
+      "suffixes": [
+        ".m4v",
+        ".mov",
+        ".mp4"
+      ],
+      "renditions": [
+        "1080p",
+        "360p"
+      ]
+    },
+    {
+      "id": "clips",
+      "suffixes": [
+        ".mp4",
+        ".webm"
+      ],
+      "thumbnails": {
+        "interval": "5s"
+      }
+    }
+  ]
+}
+
+$ nexoctl media rule rm mem/videos clips
+Media rule "clips" removed from `mem/videos`.
+
+$ nexoctl media reprocess mem/videos/courses/intro.mp4
+Processing of `mem/videos/courses/intro.mp4` queued.
+
+$ nexoctl media reprocess --json --version-id v2 mem/videos/courses/intro.mp4
+{"status":"success","target":"mem/videos/courses/intro.mp4","bucket":"videos","key":"courses/intro.mp4","versionId":"v2"}
+
+$ nexoctl media status mem/videos/courses/intro.mp4
+Video      : mem/videos/courses/intro.mp4
+State      : none (never processed)
+
+$ nexoctl media status mem/videos/courses/intro.mp4
+Video      : mem/videos/courses/intro.mp4
+VersionID  : v2
+State      : done (current)
+Rule       : courses
+Source     : 1920x1080, 12m34.3s
+Renditions : 1080p 1920x1080 5.1 Mbit/s, 360p 640x360 896 kbit/s
+Poster     : yes
+Thumbnails : 76 every 10s (160x90, 10 columns)
+Updated    : 2026-01-02 03:04:06 UTC
+
+$ nexoctl media status --json mem/videos/courses/intro.mp4
+{"status":"success","target":"mem/videos/courses/intro.mp4","bucket":"videos","key":"courses/intro.mp4","state":"done","current":true,"versionId":"v2","rule":"courses","duration":754.25,"width":1920,"height":1080,"renditions":[{"name":"1080p","width":1920,"height":1080,"bandwidth":5128000},{"name":"360p","width":640,"height":360,"bandwidth":896000}],"poster":true,"thumbnails":{"interval":10,"width":160,"height":90,"columns":10,"count":76},"updated":"2026-01-02T03:04:06Z"}
+
+$ nexoctl media status --version-id v1 mem/videos/courses/intro.mp4
+Video      : mem/videos/courses/intro.mp4
+VersionID  : v1
+State      : failed
+Step       : renditions
+Error      : ffmpeg: exit status 1
+Rule       : courses
+Updated    : 2026-01-02 03:04:06 UTC
+
+$ nexoctl media status mem/videos/old.mov
+Video      : mem/videos/old.mov
+VersionID  : null
+State      : done (stale: the object changed since, not served)
+Rule       : courses
+Poster     : yes
+
+$ nexoctl media set mem/videos bad.json
+! nexoctl: error: invalid media configuration: media rule "x": unknown rendition "4k" (one of 2160p, 1440p, 1080p, 720p, 480p, 360p, 240p)
+! Run 'nexoctl media set --help' for usage.
+[exit 2]
+
+$ nexoctl media set mem/videos empty.json
+! nexoctl: error: the media configuration has no rule (use "media rm" to remove it)
+! Run 'nexoctl media set --help' for usage.
+[exit 2]
+
+$ nexoctl media set mem/videos typo.json
+! nexoctl: error: invalid media JSON: json: unknown field "rendition"
+! Run 'nexoctl media set --help' for usage.
+[exit 2]
+
+$ nexoctl media set mem/videos/courses media.json
+! nexoctl: error: mem/videos/courses: media applies to ALIAS/BUCKET
+! Run 'nexoctl media set --help' for usage.
+[exit 2]
+
+$ nexoctl media rule add mem/videos --poster
+! nexoctl: error: --id is required
+! Run 'nexoctl media rule add --help' for usage.
+[exit 2]
+
+$ nexoctl media rule add mem/videos --id none
+! nexoctl: error: invalid media configuration: media rule "none": nothing to produce (renditions, poster or thumbnails)
+! Run 'nexoctl media rule add --help' for usage.
+[exit 2]
+
+$ nexoctl media rule add mem/videos --id fast --thumbnails 100ms
+! nexoctl: error: invalid media configuration: media rule "fast": the thumbnail interval must be a duration from 1s to 10m
+! Run 'nexoctl media rule add --help' for usage.
+[exit 2]
+
+$ nexoctl media rule add mem/videos --id side --prefix .nexo-media/ --poster
+! nexoctl: error: invalid media configuration: media rule "side": the prefix .nexo-media/ is reserved
+! Run 'nexoctl media rule add --help' for usage.
+[exit 2]
+
+$ nexoctl media rule rm mem/videos ghost
+! nexoctl: error: mem/videos: media rule "ghost": not found
+[exit 3]
+
+$ nexoctl media reprocess mem/videos/notes.txt
+! nexoctl: error: mem/videos/notes.txt: invalid argument: no media rule of bucket videos selects notes.txt (invalid_argument)
+[exit 1]
+
+$ nexoctl media reprocess mem/videos
+! nexoctl: error: mem/videos: expected a video (ALIAS/BUCKET/KEY)
+! Run 'nexoctl media reprocess --help' for usage.
+[exit 2]
+
+$ nexoctl media status mem/videos/courses/
+! nexoctl: error: mem/videos/courses/: expected a video (ALIAS/BUCKET/KEY)
+! Run 'nexoctl media status --help' for usage.
+[exit 2]
+
+$ nexoctl media rm mem/videos
+Removed the media rules of `mem/videos`.
+
+$ nexoctl media get mem/videos
+`mem/videos` has no media rule.
+

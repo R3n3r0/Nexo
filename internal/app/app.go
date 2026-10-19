@@ -739,6 +739,8 @@ type adminDeps struct {
 	events    event.Service
 	// kms is the KMS of the server-side encryption (/kms endpoints).
 	kms kms.Service
+	// mediaJobs queues the reprocessing of the videos (nil: unavailable).
+	mediaJobs adminsvc.MediaJobs
 	// secureCookies forces the Secure flag of the session cookies (the
 	// console is served over HTTPS, possibly by a proxy terminating TLS).
 	secureCookies bool
@@ -788,6 +790,8 @@ type adminServices struct {
 	lifecycle     adminsvc.LifecycleManager
 	notifications adminsvc.NotificationManager
 	cors          adminsvc.CORSManager
+	// media edits the video configurations and queues reprocessing.
+	media adminsvc.MediaManager
 	// kms manages the keys of the KMS (nil without one wired).
 	kms adminsvc.KMSManager
 	// accessRules, distributions and certificates manage the access
@@ -850,6 +854,9 @@ func buildAdminServices(d adminDeps) (adminServices, error) {
 		return out, err
 	}
 	if out.cors, err = adminsvc.NewCORSManager(adminsvc.CORSManagerDeps{Buckets: d.buckets, Logger: d.logger}); err != nil {
+		return out, err
+	}
+	if out.media, err = adminsvc.NewMediaManager(adminsvc.MediaManagerDeps{Buckets: d.buckets, Jobs: d.mediaJobs, Logger: d.logger}); err != nil {
 		return out, err
 	}
 	if d.kms != nil {
@@ -934,8 +941,12 @@ func buildAdminAPI(d adminDeps) (httpx.Routes, error) {
 	if err != nil {
 		return nil, err
 	}
+	mediaRoutes, err := adminhttp.NewMediaRoutes(adminhttp.MediaDeps{Media: svc.media, Authz: svc.authz, Enc: d.codec})
+	if err != nil {
+		return nil, err
+	}
 	groups := []httpx.Routes{sessionRoutes, infoRoutes, userRoutes, policyRoutes, bucketRoutes, objectRoutes, shareRoutes, configRoutes, clusterRoutes,
-		lifecycleRoutes, notificationRoutes, corsRoutes, kmsRoutes}
+		lifecycleRoutes, notificationRoutes, corsRoutes, mediaRoutes, kmsRoutes}
 	distRoutes, err := buildDistributionRoutes(d, svc)
 	if err != nil {
 		return nil, err

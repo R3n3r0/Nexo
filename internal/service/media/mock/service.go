@@ -320,6 +320,125 @@ func (_c *Service_Segment_Call) RunAndReturn(run func(context.Context, media.Sou
 	return _c
 }
 
+// Sidecar provides a mock function with given fields: ctx, src, file
+func (_m *Service) Sidecar(ctx context.Context, src media.Source, file string) ([]byte, error) {
+	ret := _m.Called(ctx, src, file)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Sidecar")
+	}
+
+	var r0 []byte
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source, string) ([]byte, error)); ok {
+		return rf(ctx, src, file)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source, string) []byte); ok {
+		r0 = rf(ctx, src, file)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]byte)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, media.Source, string) error); ok {
+		r1 = rf(ctx, src, file)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_Sidecar_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Sidecar'
+type Service_Sidecar_Call struct {
+	*mock.Call
+}
+
+// Sidecar is a helper method to define mock.On call
+//   - ctx context.Context
+//   - src media.Source
+//   - file string
+func (_e *Service_Expecter) Sidecar(ctx interface{}, src interface{}, file interface{}) *Service_Sidecar_Call {
+	return &Service_Sidecar_Call{Call: _e.mock.On("Sidecar", ctx, src, file)}
+}
+
+func (_c *Service_Sidecar_Call) Run(run func(ctx context.Context, src media.Source, file string)) *Service_Sidecar_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(media.Source), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *Service_Sidecar_Call) Return(_a0 []byte, _a1 error) *Service_Sidecar_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_Sidecar_Call) RunAndReturn(run func(context.Context, media.Source, string) ([]byte, error)) *Service_Sidecar_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Status provides a mock function with given fields: ctx, src
+func (_m *Service) Status(ctx context.Context, src media.Source) (*media.OutputStatus, error) {
+	ret := _m.Called(ctx, src)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Status")
+	}
+
+	var r0 *media.OutputStatus
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source) (*media.OutputStatus, error)); ok {
+		return rf(ctx, src)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source) *media.OutputStatus); ok {
+		r0 = rf(ctx, src)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*media.OutputStatus)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, media.Source) error); ok {
+		r1 = rf(ctx, src)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_Status_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Status'
+type Service_Status_Call struct {
+	*mock.Call
+}
+
+// Status is a helper method to define mock.On call
+//   - ctx context.Context
+//   - src media.Source
+func (_e *Service_Expecter) Status(ctx interface{}, src interface{}) *Service_Status_Call {
+	return &Service_Status_Call{Call: _e.mock.On("Status", ctx, src)}
+}
+
+func (_c *Service_Status_Call) Run(run func(ctx context.Context, src media.Source)) *Service_Status_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(media.Source))
+	})
+	return _c
+}
+
+func (_c *Service_Status_Call) Return(_a0 *media.OutputStatus, _a1 error) *Service_Status_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_Status_Call) RunAndReturn(run func(context.Context, media.Source) (*media.OutputStatus, error)) *Service_Status_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewService creates a new instance of Service. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewService(t interface {

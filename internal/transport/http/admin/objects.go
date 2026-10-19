@@ -94,6 +94,11 @@ func (h *objectRoutes) routes() []route {
 		{http.MethodGet, "/buckets/{bucket}/objects/hls/media.m3u8", read, h.hlsMedia()},
 		{http.MethodGet, "/buckets/{bucket}/objects/hls/init.mp4", read, h.hlsInit()},
 		{http.MethodGet, "/buckets/{bucket}/objects/hls/segment.m4s", read, h.hlsSegment()},
+		// What the media worker derived from the video.
+		{http.MethodGet, "/buckets/{bucket}/objects/hls/poster.jpg", read, h.hlsFile(domain.MediaPosterFile, contentTypeJPEG)},
+		{http.MethodGet, "/buckets/{bucket}/objects/hls/sprite.jpg", read, h.hlsFile(domain.MediaSpriteFile, contentTypeJPEG)},
+		{http.MethodGet, "/buckets/{bucket}/objects/hls/thumbnails.vtt", read, h.hlsThumbnails()},
+		{http.MethodGet, "/buckets/{bucket}/objects/media/status", read, h.mediaStatus},
 		{http.MethodPost, zipDownloadPattern, byService(policy.ActionGetObject, policy.ActionListBucket), h.zip},
 		{http.MethodPost, "/buckets/{bucket}/objects/upload", onObject(policy.ActionPutObject), h.upload},
 		// Object Lock and attributes of a version (?key=&versionId=). The

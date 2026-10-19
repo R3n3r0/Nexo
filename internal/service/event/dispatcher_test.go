@@ -521,3 +521,60 @@ func TestWebhookTLSSkipVerify(t *testing.T) {
 	_, err = f.New(ctx, cfg)
 	assert.ErrorIs(t, err, domain.ErrInvalidArgument, "unreadable client certificate")
 }
+
+// TestDispatcherDeliversMediaJobs: a media worker target receives the
+// media jobs, as JSON with its token, and no S3 event; the jobs never
+// reach the other targets; its test event is a job with the action test.
+func TestDispatcherDeliversMediaJobs(t *testing.T) {
+	ctx := context.Background()
+	var (
+		mu     sync.Mutex
+		bodies []string
+		auth   []string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		bodies = append(bodies, string(data))
+		auth = append(auth, r.Header.Get("Authorization"))
+		mu.Unlock()
+	}))
+	defer srv.Close()
+	h := newHook(t)
+	d := event.NewDispatcher(event.Deps{Factory: event.NewTargetFactory(event.FactoryDeps{HTTP: srv.Client()})}, event.WithQueueSize(8))
+	cfg, err := event.ParseTargetConfig("notify_media_worker", map[string]string{"enable": "on", "endpoint": srv.URL, "auth_token": "w"})
+	require.NoError(t, err)
+	require.NoError(t, d.SetTarget(ctx, cfg))
+	all := webhookTarget("all", h.srv.URL)
+	all.Filter = event.Filter{Events: []event.Name{"s3:*"}}
+	require.NoError(t, d.SetTarget(ctx, all))
+	require.NoError(t, d.Start(ctx))
+
+	require.NoError(t, d.Publish(ctx, objectEvent(event.ObjectCreatedPut, "videos", "a.mp4")))
+	job := objectEvent(event.MediaJob, "videos", "a.mp4")
+	job.Media = &domain.MediaJob{Action: domain.MediaJobProcess, Bucket: "videos", Key: "a.mp4", ETag: "e1", Sidecar: domain.MediaSidecarDir("a.mp4", "")}
+	require.NoError(t, d.Publish(ctx, job))
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(bodies) == 1
+	}, 5*time.Second, 5*time.Millisecond)
+	h.waitFor(t, 1)
+
+	res, err := d.TestTarget(ctx, cfg.TargetID())
+	require.NoError(t, err)
+	assert.True(t, res.Delivered)
+	stop(t, d)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, bodies, 2)
+	var got domain.MediaJob
+	require.NoError(t, json.Unmarshal([]byte(bodies[0]), &got))
+	assert.Equal(t, *job.Media, got)
+	assert.JSONEq(t, `{"action":"test","bucket":"","key":"","sidecar":"","time":"0001-01-01T00:00:00Z"}`, bodies[1])
+	assert.Equal(t, []string{"Bearer w", "Bearer w"}, auth)
+	payloads := h.payloads()
+	require.Len(t, payloads, 1, "the other targets get the S3 event only")
+	assert.Equal(t, event.ObjectCreatedPut, payloads[0].EventName)
+}

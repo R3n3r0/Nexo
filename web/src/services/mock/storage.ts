@@ -10,6 +10,8 @@ import type {
   KmsStatus,
   LegalHoldStatus,
   LifecycleRule,
+  MediaRule,
+  MediaStatus,
   NotifyTarget,
   ObjectChecksum,
   ObjectEncryption,
@@ -74,6 +76,10 @@ export interface MockBucketState {
   /** Event subscriptions (D-BKT-04). */
   notifications?: EventSubscription[];
   cors?: CorsRule[];
+  /** Video rules of the media worker. */
+  media?: MediaRule[];
+  /** Processing state of the videos, by "<key>\u0000<versionId>". */
+  mediaStatus?: Map<string, MediaStatus>;
   /** Access rules and bucket-level block public access (D-ACC-01..04). */
   access?: MockAccessRulesState;
 }

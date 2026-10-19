@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/r3n3r0/nexo/internal/domain"
 )
 
 // Name is an S3 event name such as "s3:ObjectCreated:Put".
@@ -41,6 +43,12 @@ const (
 	// retention, legal hold): the hooks of the object layer (the cache)
 	// see it, Publish never delivers it to a target.
 	ObjectMetadataChanged Name = "nexo:ObjectMetadata:Changed"
+
+	// MediaJob is the internal event carrying a job of the media worker
+	// (Event.Media): the dispatcher delivers it only to the media_worker
+	// targets, whose filter selects it; no bucket configuration can name
+	// it.
+	MediaJob Name = "nexo:Media:Job"
 
 	// ObjectCreatedPutTagging and ObjectCreatedDeleteTagging are the names
 	// the object layer publishes for its tagging operations: the S3
@@ -112,6 +120,8 @@ type Event struct {
 	ResponseElements  map[string]string `json:"responseElements"`
 	S3                Metadata          `json:"s3"`
 	Source            Source            `json:"source"`
+	// Media is the job of a MediaJob event (nil otherwise).
+	Media *domain.MediaJob `json:"media,omitempty"`
 }
 
 // namePrefix starts the configuration event types; the S3 records carry

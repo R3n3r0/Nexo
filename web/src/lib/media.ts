@@ -31,3 +31,10 @@ export function playerUrl(masterUrl: string): string {
   const master = new URL(masterUrl);
   return `${master.origin}${playerPath}#${master.pathname}${master.search}`;
 }
+
+/**
+ * The hidden prefix under which the media worker writes the outputs of the
+ * videos (renditions, posters, thumbnails, status). The object browser
+ * hides it at the root of a bucket unless asked to show it.
+ */
+export const mediaSidecarPrefix = '.nexo-media/';

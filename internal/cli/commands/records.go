@@ -319,6 +319,37 @@ type corsRecord struct {
 	Rules  []cli.CORSRule `json:"rules"`
 }
 
+// mediaRecord is the video rules of a bucket (media set, get, rm).
+type mediaRecord struct {
+	Target string                `json:"target"`
+	Bucket string                `json:"bucket"`
+	Rules  []nexoadmin.MediaRule `json:"rules"`
+}
+
+// mediaRuleRecord is a video rule of a bucket (media rule add, rm).
+type mediaRuleRecord struct {
+	Target string `json:"target"`
+	Bucket string `json:"bucket"`
+	nexoadmin.MediaRule
+}
+
+// mediaJobRecord is a reprocessing of a video queued (media reprocess).
+type mediaJobRecord struct {
+	Target    string `json:"target"`
+	Bucket    string `json:"bucket"`
+	Key       string `json:"key"`
+	VersionID string `json:"versionId,omitempty"`
+}
+
+// mediaStatusRecord is the processing state of a video (media status):
+// the members of the MediaStatus of the Admin API.
+type mediaStatusRecord struct {
+	Target string `json:"target"`
+	Bucket string `json:"bucket"`
+	Key    string `json:"key"`
+	nexoadmin.MediaStatus
+}
+
 // kmsStatusRecord is the state of the KMS of a server.
 type kmsStatusRecord struct {
 	Alias string `json:"alias"`

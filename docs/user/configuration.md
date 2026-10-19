@@ -184,6 +184,7 @@ stored one. The complete schema, with the default of every key and whether the s
 | `scanner` | `speed` (`fastest`…`slowest`), `cycle` (default `1m`) | ✅ at the start of every cycle |
 | `access` | `block_public`, `block_public_mode` (`reject`, `ignore`) | ✅ |
 | `notify_webhook`, `notify_kafka`, `notify_nats`, `notify_amqp`, `notify_redis`, `notify_postgres` (also `:<id>`) | `enable`, target keys, `queue_dir`, `queue_limit`, `comment` | ✅ (see [Events](events-lifecycle.md)) |
+| `notify_media_worker` (also `:<id>`) | `enable`, `endpoint`, `auth_token`, `client_cert`, `client_key`, `tls_skip_verify`, `queue_dir`, `queue_limit`, `comment` | ✅ (see [Media worker](media-worker.md)) |
 | `audit_webhook`, `audit_kafka` (also `:<id>`) | like the `notify_*` of the same type | ✅ (see [Audit](operations/trace-log-audit.md#audit-log)) |
 | `browser` | `session_duration` (12h), `upload_max_size` | ❌ not applied yet |
 | `region` | `name`, `comment` | ❌ the effective region is the one of `--region` |

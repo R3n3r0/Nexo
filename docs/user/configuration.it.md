@@ -185,6 +185,7 @@ applica, è su `GET /api/v1/config/schema` e nella pagina **Configurazione** del
 | `scanner` | `speed` (`fastest`…`slowest`), `cycle` (default `1m`) | ✅ all'inizio di ogni ciclo |
 | `access` | `block_public`, `block_public_mode` (`reject`, `ignore`) | ✅ |
 | `notify_webhook`, `notify_kafka`, `notify_nats`, `notify_amqp`, `notify_redis`, `notify_postgres` (anche `:<id>`) | `enable`, chiavi del target, `queue_dir`, `queue_limit`, `comment` | ✅ (vedi [Eventi](events-lifecycle.md)) |
+| `notify_media_worker` (anche `:<id>`) | `enable`, `endpoint`, `auth_token`, `client_cert`, `client_key`, `tls_skip_verify`, `queue_dir`, `queue_limit`, `comment` | ✅ (vedi [Media worker](media-worker.md)) |
 | `audit_webhook`, `audit_kafka` (anche `:<id>`) | come i `notify_*` dello stesso tipo | ✅ (vedi [Audit](operations/trace-log-audit.md#audit-log)) |
 | `browser` | `session_duration` (12h), `upload_max_size` | ❌ non ancora applicati |
 | `region` | `name`, `comment` | ❌ la regione effettiva è quella di `--region` |

@@ -60,12 +60,13 @@ const (
 // type.
 func subsystemTypes() map[string]string {
 	return map[string]string{
-		"webhook":  TypeWebhook,
-		"kafka":    TypeKafka,
-		"nats":     TypeNATS,
-		"amqp":     TypeAMQP,
-		"redis":    TypeRedis,
-		"postgres": TypePostgres,
+		"webhook":      TypeWebhook,
+		"kafka":        TypeKafka,
+		"nats":         TypeNATS,
+		"amqp":         TypeAMQP,
+		"redis":        TypeRedis,
+		"postgres":     TypePostgres,
+		"media_worker": TypeMediaWorker,
 	}
 }
 
@@ -132,7 +133,10 @@ func ParseTargetConfig(subsystem string, kv map[string]string) (TargetConfig, er
 	get := func(k string) string { return strings.TrimSpace(kv[k]) }
 	tlsOpts := TLSOptions{Enabled: flags.tls, SkipVerify: flags.skip}
 	switch typ {
-	case TypeWebhook:
+	case TypeWebhook, TypeMediaWorker:
+		if typ == TypeMediaWorker {
+			cfg.Filter = Filter{Events: []Name{MediaJob}}
+		}
 		cfg.Webhook = WebhookConfig{
 			Endpoint: get(KeyEndpoint), AuthToken: kv[KeyAuthToken], ClientCert: get(KeyClientCert), ClientKey: get(KeyClientKey),
 			TLSSkipVerify: flags.skip,

@@ -986,6 +986,25 @@ type CORSConfig struct {
 	Rules []domain.CORSRule
 }
 
+// MediaManager edits the video configurations of the buckets: the rules
+// that select the videos the media worker processes and what it derives
+// from them (docs/proposals/video-streaming.md), and queues reprocessing.
+// The routes authorize admin:GetBucketMedia and admin:SetBucketMedia.
+type MediaManager interface {
+	// Get returns the media rules of a bucket (none without
+	// configuration).
+	Get(ctx context.Context, bucket string) (*domain.MediaConfig, error)
+	// Set validates every rule (a *ConfigError wrapping
+	// domain.ErrInvalidArgument lists the invalid ones), stores the
+	// configuration and returns it normalized. No rule removes it.
+	Set(ctx context.Context, bucket string, cfg domain.MediaConfig) (*domain.MediaConfig, error)
+	// Delete removes the configuration of a bucket.
+	Delete(ctx context.Context, bucket string) error
+	// Reprocess queues a job deriving the outputs of a version of a video
+	// again ("" is the latest version).
+	Reprocess(ctx context.Context, bucket, key, versionID string) error
+}
+
 // --- proxied uploads -----------------------------------------------------
 
 // UploadManager implements the uploads the console proxies to the object

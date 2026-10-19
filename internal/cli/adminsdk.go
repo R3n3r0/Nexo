@@ -717,6 +717,34 @@ func (c *adminClient) ApplyBucketLifecycle(ctx context.Context, bucket string) (
 	return mapped(c, v, err)
 }
 
+// GetBucketMedia implements AdminClient.
+func (c *adminClient) GetBucketMedia(ctx context.Context, bucket string) (*nexoadmin.MediaConfiguration, error) {
+	v, err := c.api.GetBucketMedia(ctx, bucket)
+	return mapped(c, v, err)
+}
+
+// SetBucketMedia implements AdminClient.
+func (c *adminClient) SetBucketMedia(ctx context.Context, bucket string, cfg nexoadmin.MediaConfiguration) (*nexoadmin.MediaConfiguration, error) {
+	v, err := c.api.SetBucketMedia(ctx, bucket, cfg)
+	return mapped(c, v, err)
+}
+
+// DeleteBucketMedia implements AdminClient.
+func (c *adminClient) DeleteBucketMedia(ctx context.Context, bucket string) error {
+	return MapAdminError(c.api.DeleteBucketMedia(ctx, bucket), c.endpoint)
+}
+
+// ReprocessMedia implements AdminClient.
+func (c *adminClient) ReprocessMedia(ctx context.Context, bucket, key, versionID string) error {
+	return MapAdminError(c.api.ReprocessMedia(ctx, bucket, key, versionID), c.endpoint)
+}
+
+// GetMediaStatus implements AdminClient.
+func (c *adminClient) GetMediaStatus(ctx context.Context, bucket, key, versionID string) (*nexoadmin.MediaStatus, error) {
+	v, err := c.api.GetMediaStatus(ctx, bucket, key, versionID)
+	return mapped(c, v, err)
+}
+
 // ListNotifyTargets implements AdminClient.
 func (c *adminClient) ListNotifyTargets(ctx context.Context) ([]nexoadmin.NotifyTarget, error) {
 	v, err := c.api.ListNotifyTargets(ctx)

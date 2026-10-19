@@ -1,0 +1,18 @@
+Remove the video rules of a bucket: the media worker no longer processes its new
+videos. What it already derived stays in .nexo-media/ and is still served.
+
+Usage:
+  nexoctl media remove ALIAS/BUCKET [flags]
+
+Aliases:
+  remove, rm
+
+Flags:
+  -h, --help   help for remove
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

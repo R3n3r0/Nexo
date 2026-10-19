@@ -17,6 +17,7 @@ nexoctl tree [flags] TARGET...
 ```
   -d, --dirs-only   show only the directories
   -h, --help        help for tree
+      --media       also show the media sidecars (.nexo-media/)
 ```
 
 ## Options inherited from parent commands

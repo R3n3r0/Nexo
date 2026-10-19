@@ -290,8 +290,9 @@ func (d *dispatcher) Stop(ctx context.Context) error {
 
 // Publish implements Service.
 func (d *dispatcher) Publish(ctx context.Context, e Event) error {
-	if e.EventName.IsInternal() {
-		// For the hooks of the object layer only.
+	if e.EventName.IsInternal() && e.Media == nil {
+		// For the hooks of the object layer only (the media jobs are
+		// delivered to the media worker targets).
 		return nil
 	}
 	e = complete(ctx, e, d.opts.owner)

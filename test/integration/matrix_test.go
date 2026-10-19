@@ -185,6 +185,7 @@ func suite() []suiteTest {
 		{name: "TestClusterMetrics", fn: TestClusterMetrics},
 		{name: "TestConsoleVideoStreaming", fn: TestConsoleVideoStreaming},
 		{name: "TestVideoStreamShare", fn: TestVideoStreamShare},
+		{name: "TestMediaWorker", fn: TestMediaWorker},
 	}
 }
 

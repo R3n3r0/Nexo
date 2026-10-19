@@ -33,6 +33,12 @@ const BucketEventsTab = lazyPage(
   () => import('./buckets/BucketEventsTab'),
   (m) => m.BucketEventsTab,
 );
+// The page uses strings loaded on demand (i18n sections).
+const BucketMediaTab = lazyPage(
+  async () =>
+    (await Promise.all([import('./buckets/BucketMediaTab'), loadSectionTranslations()]))[0],
+  (m) => m.BucketMediaTab,
+);
 const BucketAccessTab = lazyPage(
   () => import('./buckets/BucketAccessTab'),
   (m) => m.BucketAccessTab,
@@ -85,6 +91,7 @@ export function storageRoutes(): RouteObject[] {
         { path: 'settings', element: page(BucketSettingsTab) },
         { path: 'lifecycle', element: page(BucketLifecycleTab) },
         { path: 'events', element: page(BucketEventsTab) },
+        { path: 'media', element: page(BucketMediaTab) },
         { path: 'access', element: page(BucketAccessTab) },
         { path: 'rules', element: page(BucketRulesTab) },
       ],

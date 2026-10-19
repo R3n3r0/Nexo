@@ -98,6 +98,9 @@ import type {
   LifecycleApplyResult,
   LifecycleConfiguration,
   ListObjectsQuery,
+  MediaConfiguration,
+  MediaReprocessRequest,
+  MediaStatus,
   NotifyTarget,
   NotifyTargetTest,
   ObjectAttributes,
@@ -266,6 +269,27 @@ export interface NotificationService {
   test(target: string): Promise<NotifyTargetTest>;
 }
 
+/**
+ * Video rules of a bucket and the outputs of the media worker
+ * (/buckets/{bucket}/media, admin:GetBucketMedia / admin:SetBucketMedia).
+ */
+export interface MediaService {
+  /** The rules; none when the bucket has no configuration. */
+  get(bucket: string): Promise<MediaConfiguration>;
+  /**
+   * Replaces the rules (none removes the configuration); resolves to the
+   * rules as stored (normalized suffixes and renditions). Every rule is
+   * validated on its own: a rejected configuration fails with
+   * invalid_configuration and ApiError.ruleErrors (1-based rule index).
+   */
+  set(bucket: string, config: MediaConfiguration): Promise<MediaConfiguration>;
+  remove(bucket: string): Promise<void>;
+  /** Queues the processing of a version of a video again (400 when no rule selects it). */
+  reprocess(bucket: string, request: MediaReprocessRequest): Promise<void>;
+  /** The processing state of a version of a video (state none when never processed). */
+  status(bucket: string, key: string, versionId?: string): Promise<MediaStatus>;
+}
+
 /** KMS of the server-side encryption (/kms). */
 export interface KmsService {
   /** Rejects with 501 when the server has no KMS service. */
@@ -326,6 +350,16 @@ export interface ObjectService {
    * undefined when the backend cannot stream videos (the demo mocks).
    */
   streamUrl(bucket: string, key: string, versionId?: string): string | undefined;
+  /**
+   * URL of the JPEG poster the media worker derived from a video, or
+   * undefined when the backend serves none (the demo mocks).
+   */
+  posterUrl(bucket: string, key: string, versionId?: string): string | undefined;
+  /**
+   * URL of the WebVTT map of the timeline thumbnails of a video (its cues
+   * point to the sprite), or undefined when the backend serves none.
+   */
+  thumbnailsUrl(bucket: string, key: string, versionId?: string): string | undefined;
   /** Reads at most maxBytes from the start of a text object. */
   previewText(
     bucket: string,
@@ -694,6 +728,7 @@ export interface Services {
   readonly buckets: BucketService;
   readonly lifecycle: LifecycleService;
   readonly notifications: NotificationService;
+  readonly media: MediaService;
   readonly kms: KmsService;
   readonly objects: ObjectService;
   readonly uploads: UploadService;

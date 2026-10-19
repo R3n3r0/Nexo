@@ -1,0 +1,94 @@
+# nexoctl media: the video rules of a bucket (set, get, rule add|rm, rm),
+# the reprocessing of a video and its processing state, and the media
+# sidecars (.nexo-media/) hidden by ls and find.
+
+exec nexoctl mb local/videos
+exec nexoctl media get local/videos
+stdout 'has no media rule'
+exec nexoctl media set local/videos media.json
+stdout 'set \(1 rule\)'
+exec nexoctl media get local/videos
+cmp stdout normalized.json
+exec nexoctl media get --json local/videos
+jsonlines stdout
+stdout '"renditions":\["720p","480p"\]'
+expectcode 2 nexoctl media set local/videos bad.json
+stderr 'unknown rendition "4k"'
+
+# rule add replaces the rule with the same id, in place.
+exec nexoctl media rule add local/videos --id clips --suffix .webm --thumbnails 5s
+stdout 'Media rule "clips" added'
+exec nexoctl media rule add --json local/videos --id courses --prefix courses/ --rendition 360p
+jsonlines stdout
+stdout '"renditions":\["360p"\]'
+exec nexoctl media get --json local/videos
+stdout '"id":"courses".*"id":"clips"'
+exec nexoctl media rule rm local/videos clips
+expectcode 3 nexoctl media rule rm local/videos clips
+
+# The processing state of a video and its reprocessing.
+exec nexoctl cp video.mp4 local/videos/courses/intro.mp4
+exec nexoctl media status local/videos/courses/intro.mp4
+stdout 'State      : none \(never processed\)'
+exec nexoctl media status --json local/videos/courses/intro.mp4
+jsonlines stdout
+stdout '"state":"none","current":false'
+exec nexoctl media reprocess local/videos/courses/intro.mp4
+stdout 'Processing of `local/videos/courses/intro.mp4` queued.'
+expectcode 1 nexoctl media reprocess local/videos/notes.txt
+stderr 'no media rule'
+expectcode 3 nexoctl media status local/videos/courses/missing.mp4
+
+# A status document derived from another content: stale.
+exec nexoctl cp status.json local/videos/.nexo-media/courses/intro.mp4/null/status.json
+exec nexoctl media status local/videos/courses/intro.mp4
+stdout 'State      : done \(stale'
+stdout 'Rule       : courses'
+stdout 'Source     : 1280x720, 12.5s'
+
+# The sidecars are hidden by the listings of the bucket.
+exec nexoctl ls local/videos
+stdout 'courses/'
+! stdout 'nexo-media'
+exec nexoctl ls --media local/videos
+stdout '\.nexo-media/'
+exec nexoctl ls -r local/videos/.nexo-media/
+stdout 'status.json'
+exec nexoctl find local/videos
+stdout 'intro.mp4'
+! stdout 'nexo-media'
+exec nexoctl find --media local/videos
+stdout 'status.json'
+
+exec nexoctl media rm local/videos
+stdout 'Removed the media rules'
+exec nexoctl media get local/videos
+stdout 'has no media rule'
+
+-- media.json --
+{"rules": [{"id": "courses", "prefix": "courses/", "renditions": ["480p", "720p"], "poster": true}]}
+-- normalized.json --
+{
+  "rules": [
+    {
+      "id": "courses",
+      "prefix": "courses/",
+      "suffixes": [
+        ".m4v",
+        ".mov",
+        ".mp4"
+      ],
+      "renditions": [
+        "720p",
+        "480p"
+      ],
+      "poster": true
+    }
+  ]
+}
+-- bad.json --
+{"rules": [{"id": "x", "renditions": ["4k"]}]}
+-- video.mp4 --
+not really a video
+-- status.json --
+{"state":"done","rule":"courses","etag":"0123456789abcdef0123456789abcdef","duration":12.5,"width":1280,"height":720,"poster":true,"started":"2026-01-02T03:04:05Z","updated":"2026-01-02T03:04:06Z"}

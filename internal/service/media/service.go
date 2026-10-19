@@ -15,6 +15,9 @@ package media
 import (
 	"context"
 	"time"
+
+	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/event"
 )
 
 // Service packages the MP4 objects of the object layer as HLS.
@@ -37,6 +40,39 @@ type Service interface {
 	// Segment returns the media segment n (0-based); a number past the
 	// last segment fails with domain.ErrNotFound.
 	Segment(ctx context.Context, src Source, n int) ([]byte, error)
+	// Status returns the job status of the media worker for the version
+	// of src: nil when the worker never processed it.
+	Status(ctx context.Context, src Source) (*OutputStatus, error)
+	// Sidecar returns a file the media worker derived from the version of
+	// src (domain.MediaPosterFile, MediaSpriteFile or
+	// MediaThumbnailsFile): domain.ErrNotFound when it did not, or not
+	// from the current content.
+	Sidecar(ctx context.Context, src Source, file string) ([]byte, error)
+}
+
+// OutputStatus is the status of the outputs of the media worker for a
+// version of a video.
+type OutputStatus struct {
+	domain.MediaStatus
+	// VersionID is the version the status is about.
+	VersionID string
+	// Current reports outputs derived from the current content of the
+	// version (done, for its ETag): only they are served.
+	Current bool
+}
+
+// Jobs derives the jobs of the media worker from the events of the object
+// layer: it decorates the event service, and for every creation of an
+// object a media rule of its bucket selects (domain.MediaConfig.Match) it
+// publishes a job (event.MediaJob) deriving the outputs of the version;
+// for every permanent removal of such a version, a job removing its
+// sidecars. The jobs reach the worker through the media_worker targets.
+type Jobs interface {
+	event.Service
+	// Reprocess publishes a job deriving the outputs of a version of a
+	// video again ("" is the current version): domain.ErrInvalidArgument
+	// when no media rule of the bucket selects the key.
+	Reprocess(ctx context.Context, bucket, key, versionID string) error
 }
 
 // Source names an object.
@@ -48,6 +84,10 @@ type Source struct {
 	// Revision is the ETag the request expects, as the links of a
 	// playlist carry it; empty accepts the current content.
 	Revision string
+	// Rendition names a rendition the media worker produced (a
+	// domain.MediaRenditionPreset name): the presentation is that of the
+	// rendition, whose ETag Revision then is. Empty is the source.
+	Rendition string
 }
 
 // Links builds the URIs a playlist refers to, relative to the playlist
@@ -59,6 +99,9 @@ type Links interface {
 	Init(rev string) string
 	// Segment is the URI of the media segment n of revision rev.
 	Segment(rev string, n int) string
+	// Rendition is the URI of the media playlist of a rendition of the
+	// media worker, rev being the ETag of the rendition.
+	Rendition(name, rev string) string
 }
 
 // Presentation describes the HLS presentation of an object.

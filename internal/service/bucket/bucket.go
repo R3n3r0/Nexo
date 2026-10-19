@@ -623,6 +623,41 @@ func (s *service) DeleteCORS(ctx context.Context, name string) error {
 	})
 }
 
+// GetMedia implements Service.
+func (s *service) GetMedia(ctx context.Context, name string) (domain.MediaConfig, error) {
+	m, err := s.load(ctx, name)
+	if err != nil {
+		return domain.MediaConfig{}, err
+	}
+	if m.Media == nil || len(m.Media.Rules) == 0 {
+		return domain.MediaConfig{}, noConfig("NoSuchMediaConfiguration", "The media configuration does not exist", name)
+	}
+	return m.Media.Clone(), nil
+}
+
+// SetMedia implements Service.
+func (s *service) SetMedia(ctx context.Context, name string, cfg domain.MediaConfig) error {
+	cfg = cfg.Clone()
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	if len(cfg.Rules) == 0 {
+		return s.DeleteMedia(ctx, name)
+	}
+	return s.update(ctx, name, func(m *Metadata) error {
+		m.Media = &cfg
+		return nil
+	})
+}
+
+// DeleteMedia implements Service.
+func (s *service) DeleteMedia(ctx context.Context, name string) error {
+	return s.update(ctx, name, func(m *Metadata) error {
+		m.Media = nil
+		return nil
+	})
+}
+
 // GetNotification implements Service. A bucket without configuration
 // yields an empty NotificationConfiguration document, as S3 does.
 func (s *service) GetNotification(ctx context.Context, name string) ([]byte, error) {

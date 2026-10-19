@@ -24,13 +24,15 @@ import {
   IconX,
 } from '@tabler/icons-react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, type ReactNode } from 'react';
+import { lazy, Suspense, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { StorageActions, type PermissionCheck } from '@/auth/usePermissions';
+import { loadSectionTranslations } from '@/i18n';
 import { TagEditor } from '@/components/storage/TagEditor';
 import { downloadUrl } from '@/lib/download';
 import { formatBytes } from '@/lib/format';
+import { canStream } from '@/lib/media';
 import { baseName } from '@/lib/objectPath';
 import { problemMessage } from '@/lib/problem';
 import { storageKeys } from '@/lib/storageKeys';
@@ -40,6 +42,13 @@ import { ObjectAttributesPanel } from './ObjectAttributesPanel';
 import { ObjectLockPanel } from './ObjectLockPanel';
 import { ObjectPreview } from './ObjectPreview';
 import { VersionDeleteDialog } from './VersionDeleteDialog';
+
+// The outputs of the media worker: a chunk of its own, with the strings of
+// the sections loaded on demand (i18n sections).
+const ObjectMediaPanel = lazy(async () => {
+  const [module] = await Promise.all([import('./ObjectMediaPanel'), loadSectionTranslations()]);
+  return { default: module.ObjectMediaPanel };
+});
 
 export interface ObjectDrawerProps {
   bucket: string;
@@ -393,6 +402,10 @@ export function ObjectDrawer({ bucket, objectKey, perms, onClose, onShare }: Obj
   const locale = i18n.resolvedLanguage;
   const details = stat.data;
   const canRead = perms.can(StorageActions.getObject);
+  // The media worker selects videos by suffix: the MP4 family by default.
+  const video =
+    details !== undefined &&
+    (details.contentType?.toLowerCase().startsWith('video/') === true || canStream(key, ''));
 
   return (
     <Drawer
@@ -450,6 +463,7 @@ export function ObjectDrawer({ bucket, objectKey, perms, onClose, onShare }: Obj
               <Tabs.Tab value="preview">{t('objectDetails.tabs.preview')}</Tabs.Tab>
               <Tabs.Tab value="tags">{t('objectDetails.tabs.tags')}</Tabs.Tab>
               <Tabs.Tab value="versions">{t('objectDetails.tabs.versions')}</Tabs.Tab>
+              {video ? <Tabs.Tab value="media">{t('objectDetails.tabs.media')}</Tabs.Tab> : null}
               {locked ? (
                 <Tabs.Tab value="lock" leftSection={<IconLock size={14} />}>
                   {t('objectDetails.tabs.lock')}
@@ -569,6 +583,24 @@ export function ObjectDrawer({ bucket, objectKey, perms, onClose, onShare }: Obj
                 </Text>
               )}
             </Tabs.Panel>
+            {video ? (
+              <Tabs.Panel value="media" pt="md">
+                {canRead ? (
+                  <Suspense fallback={<Skeleton height={120} />}>
+                    <ObjectMediaPanel
+                      bucket={bucket}
+                      objectKey={key}
+                      versionId={details.versionId}
+                      perms={perms}
+                    />
+                  </Suspense>
+                ) : (
+                  <Text size="sm" c="dimmed">
+                    {t('permissions.missing', { action: StorageActions.getObject })}
+                  </Text>
+                )}
+              </Tabs.Panel>
+            ) : null}
             {locked ? (
               <Tabs.Panel value="lock" pt="md">
                 <ObjectLockPanel

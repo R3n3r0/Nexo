@@ -109,6 +109,53 @@ func (_c *Links_Media_Call) RunAndReturn(run func(string) string) *Links_Media_C
 	return _c
 }
 
+// Rendition provides a mock function with given fields: name, rev
+func (_m *Links) Rendition(name string, rev string) string {
+	ret := _m.Called(name, rev)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Rendition")
+	}
+
+	var r0 string
+	if rf, ok := ret.Get(0).(func(string, string) string); ok {
+		r0 = rf(name, rev)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	return r0
+}
+
+// Links_Rendition_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Rendition'
+type Links_Rendition_Call struct {
+	*mock.Call
+}
+
+// Rendition is a helper method to define mock.On call
+//   - name string
+//   - rev string
+func (_e *Links_Expecter) Rendition(name interface{}, rev interface{}) *Links_Rendition_Call {
+	return &Links_Rendition_Call{Call: _e.mock.On("Rendition", name, rev)}
+}
+
+func (_c *Links_Rendition_Call) Run(run func(name string, rev string)) *Links_Rendition_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *Links_Rendition_Call) Return(_a0 string) *Links_Rendition_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Links_Rendition_Call) RunAndReturn(run func(string, string) string) *Links_Rendition_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Segment provides a mock function with given fields: rev, n
 func (_m *Links) Segment(rev string, n int) string {
 	ret := _m.Called(rev, n)

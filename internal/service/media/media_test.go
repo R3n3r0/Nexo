@@ -86,9 +86,10 @@ func newService(t *testing.T, objects object.Service) media.Service {
 // links names the URIs like the console routes, readable in assertions.
 type links struct{}
 
-func (links) Media(rev string) string          { return "media.m3u8?rev=" + rev }
-func (links) Init(rev string) string           { return "init.mp4?rev=" + rev }
-func (links) Segment(rev string, n int) string { return fmt.Sprintf("segment.m4s?rev=%s&n=%d", rev, n) }
+func (links) Media(rev string) string           { return "media.m3u8?rev=" + rev }
+func (links) Init(rev string) string            { return "init.mp4?rev=" + rev }
+func (links) Segment(rev string, n int) string  { return fmt.Sprintf("segment.m4s?rev=%s&n=%d", rev, n) }
+func (links) Rendition(name, rev string) string { return "media.m3u8?r=" + name + "&rev=" + rev }
 
 func TestNewRequiresObjects(t *testing.T) {
 	_, err := media.New(media.Deps{})
@@ -204,9 +205,10 @@ func TestSegmentsDecode(t *testing.T) {
 // fileLinks names the files TestSegmentsDecode writes.
 type fileLinks struct{}
 
-func (fileLinks) Media(string) string            { return "index.m3u8" }
-func (fileLinks) Init(string) string             { return "init.mp4" }
-func (fileLinks) Segment(_ string, n int) string { return fmt.Sprintf("seg%d.m4s", n) }
+func (fileLinks) Media(string) string             { return "index.m3u8" }
+func (fileLinks) Init(string) string              { return "init.mp4" }
+func (fileLinks) Segment(_ string, n int) string  { return fmt.Sprintf("seg%d.m4s", n) }
+func (fileLinks) Rendition(name, _ string) string { return name + ".m3u8" }
 
 // stream is what ffprobe reports of a stream.
 type stream struct {

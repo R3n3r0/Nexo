@@ -102,6 +102,16 @@ func (f *factory) New(_ context.Context, cfg TargetConfig) (Target, error) {
 			client = c
 		}
 		return &webhook{id: id, cfg: cfg.Webhook, client: client, userAgent: f.userAgent}, nil
+	case TypeMediaWorker:
+		client := withoutRedirects(f.deps.HTTP)
+		if client == nil {
+			c, err := webhookClient(cfg.Webhook)
+			if err != nil {
+				return nil, err
+			}
+			client = c
+		}
+		return &mediaWorker{webhook{id: id, cfg: cfg.Webhook, client: client, userAgent: f.userAgent}}, nil
 	case TypeKafka:
 		k := cfg.Kafka
 		return &kafkaTarget{id: id, conn: newLazy(func(ctx context.Context) (KafkaProducer, error) { return f.deps.Kafka.Dial(ctx, k) })}, nil
@@ -138,7 +148,7 @@ func validateTarget(cfg TargetConfig) error {
 		return fmt.Errorf("%s target %s: %w", cfg.Type, cfg.ID, err)
 	}
 	switch cfg.Type {
-	case TypeWebhook:
+	case TypeWebhook, TypeMediaWorker:
 		u, err := url.Parse(cfg.Webhook.Endpoint)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			return invalid("endpoint %q must be an http(s) URL", redactURL(cfg.Webhook.Endpoint))

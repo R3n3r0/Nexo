@@ -153,6 +153,13 @@ func knownSubsystems() []SubsystemSchema {
 			KeySchema{Name: "tls", Type: KeyBool, Default: "off", Description: "Connect with TLS"},
 			KeySchema{Name: "tls_skip_verify", Type: KeyBool, Default: "off", Description: "Accept any server certificate"},
 		)},
+		{Name: "notify_media_worker", Description: "Jobs of the media worker (renditions, poster, thumbnails of the videos selected by the media rules of the buckets)", Keys: notifyKeys(
+			KeySchema{Name: "endpoint", Type: KeyURL, Description: "URL of the jobs endpoint of the worker (http://<worker>:9600/jobs)"},
+			KeySchema{Name: "auth_token", Type: KeyString, Description: "Bearer token the worker expects (its --auth-token)", Sensitive: true},
+			KeySchema{Name: "client_cert", Type: KeyString, Description: "PEM file of the client certificate"},
+			KeySchema{Name: "client_key", Type: KeyString, Description: "PEM file of the client key"},
+			KeySchema{Name: "tls_skip_verify", Type: KeyBool, Default: "off", Description: "Accept any server certificate"},
+		)},
 		{Name: "notify_postgres", Description: "Bucket notifications to PostgreSQL", Keys: notifyKeys(
 			KeySchema{Name: "connection_string", Type: KeyString, Description: "Connection string (postgres:// URL or key=value)", Sensitive: true},
 			KeySchema{Name: "table", Type: KeyString, Description: "Table of the events (created when missing)"},

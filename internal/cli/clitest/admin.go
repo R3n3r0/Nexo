@@ -76,6 +76,9 @@ type MemAdmin struct {
 	dist memDistState
 	// cache holds the cache of the distributions (admin_cache.go).
 	cache memCacheState
+	// media holds the video rules and the media worker states
+	// (admin_media.go).
+	media memMediaState
 	// obs holds the live streams, the audit records and the metrics
 	// (admin_observability.go).
 	obs   memObsState
@@ -311,6 +314,7 @@ func (m *MemAdmin) Client(t TestingT, caller string) *climock.AdminClient {
 	c.EXPECT().ResealKMSKeys(x, x).RunAndReturn(s.resealKMSKeys).Maybe()
 	s.expectDistribution(c)
 	s.expectCache(c)
+	s.expectMedia(c)
 	return c
 }
 

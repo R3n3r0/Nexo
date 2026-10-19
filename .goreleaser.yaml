@@ -93,6 +93,25 @@ builds:
     goarch: [amd64, arm64]
     mod_timestamp: "{{ .CommitTimestamp }}"
 
+  # The media worker, for the platforms Cisco publishes an OpenH264 build
+  # for (downloaded by the worker at its first start, never shipped).
+  - id: nexo-media-worker
+    main: ./cmd/nexo-media-worker
+    binary: nexo-media-worker
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/r3n3r0/nexo/internal/version.Version=v{{ .Version }}
+      - -X github.com/r3n3r0/nexo/internal/version.Commit={{ .ShortCommit }}
+      - -X github.com/r3n3r0/nexo/internal/version.Date={{ .CommitDate }}
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
 archives:
   - id: nexo
     ids: [nexo]
@@ -167,6 +186,27 @@ archives:
       - src: bin/completions/*
         dst: completions
         strip_parent: true
+        info: *fileinfo
+
+  - id: nexo-media-worker
+    ids: [nexo-media-worker]
+    name_template: "nexo-media-worker_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    builds_info:
+      owner: root
+      group: root
+      mtime: "{{ .CommitDate }}"
+    files:
+      - src: LICENSE
+        info: *fileinfo
+      - src: NOTICE
+        info: *fileinfo
+      - src: COMMERCIAL-LICENSE.md
+        info: *fileinfo
+      - src: README.md
         info: *fileinfo
 
 nfpms:

@@ -58,6 +58,7 @@ signs in with the same access keys as the S3 API.
 | Static site on two domains behind nginx with ACME TLS | [Tutorial: static site](distributions/tutorial-static-site.md) |
 | Notifications to webhooks and Kafka, lifecycle rules | [Events and lifecycle](events-lifecycle.md) |
 | Play videos in the browser, share them as streams | [Video streaming](video-streaming.md) |
+| Lower qualities, posters and thumbnails of videos | [Media worker](media-worker.md) |
 
 ## Reference
 

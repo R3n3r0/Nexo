@@ -1684,5 +1684,82 @@
       "notReported": "The server does not report its TLS."
     },
     "infoUnavailable": "The state of the server needs admin:ServerInfo."
+  },
+  "bucketMedia": {
+    "title": "Video rules",
+    "description": "The media worker processes the videos these rules select: lower-quality renditions for adaptive streaming, a poster frame and timeline thumbnails. Streaming the original needs no rule.",
+    "add": "Add rule",
+    "addTitle": "New video rule",
+    "editTitle": "Edit the video rule",
+    "empty": "No rule: the videos of this bucket are streamed as uploaded.",
+    "rules": "Video rules",
+    "columns": {
+      "id": "Rule",
+      "objects": "Videos",
+      "outputs": "Outputs"
+    },
+    "id": "Rule ID",
+    "idHint": "1-64 letters, digits, “.”, “_” or “-”.",
+    "prefix": "Key prefix",
+    "prefixHint": "Empty for the whole bucket.",
+    "suffixes": "Key suffixes",
+    "suffixesHint": "Matched without case; {{suffixes}} when empty. Press Enter after each one.",
+    "renditions": "Renditions",
+    "renditionsHint": "Lower qualities to produce (H.264); those taller than the source are skipped.",
+    "poster": "Poster frame",
+    "posterHint": "A JPEG image of the video.",
+    "thumbnails": "Timeline thumbnails",
+    "thumbnailsHint": "A sprite of thumbnails with its WebVTT map, for the previews of the timeline.",
+    "interval": "Thumbnail interval",
+    "intervalHint": "A duration from 1s to 10m, such as 10s or 1m30s.",
+    "posterBadge": "Poster",
+    "thumbnailsBadge": "Thumbnails every {{interval}}",
+    "prefixIs": "Prefix {{prefix}}",
+    "wholeBucket": "Whole bucket",
+    "firstMatch": "The first rule selecting a video applies. The outputs are stored under .nexo-media/ in the bucket.",
+    "save": "Save rule",
+    "saved": "Video rules saved.",
+    "edit": "Edit rule {{id}}",
+    "remove": "Delete rule {{id}}",
+    "deleteTitle": "Delete the video rule",
+    "deleteConfirm": "Delete the video rule {{id}}? The outputs already produced are kept.",
+    "serverRefused": "The server refused the rule",
+    "unavailable": "You may not read the video rules of this bucket (admin:GetBucketMedia).",
+    "issues": {
+      "id": "1-64 letters, digits, “.”, “_” or “-”.",
+      "idDuplicate": "Another rule has this ID.",
+      "prefixTooLong": "At most 1024 bytes.",
+      "prefixReserved": "The prefix .nexo-media/ is reserved for the outputs.",
+      "suffix": "Each suffix must have 1-32 characters.",
+      "interval": "A duration from 1s to 10m, such as 10s.",
+      "nothing": "Choose at least one output: renditions, poster or thumbnails."
+    }
+  },
+  "objectMedia": {
+    "state": {
+      "none": "Not processed",
+      "processing": "Processing",
+      "done": "Processed",
+      "failed": "Failed"
+    },
+    "none": "The media worker has not processed this video: no rule selected it, or it is queued.",
+    "stale": "Outdated",
+    "staleHint": "The outputs derive from an older content of this object: they are not used until the video is processed again.",
+    "rule": "Rule {{rule}}",
+    "step": "Step: {{step}}",
+    "failed": "The processing failed",
+    "source": "Source {{width}}×{{height}}, {{duration}}",
+    "renditions": "Renditions",
+    "columns": {
+      "name": "Rendition",
+      "resolution": "Resolution",
+      "bandwidth": "Bandwidth"
+    },
+    "mbps": "{{value}} Mbit/s",
+    "thumbnails": "{{n}} timeline thumbnails, every {{interval}} s",
+    "poster": "Poster",
+    "posterAlt": "Poster of {{name}}",
+    "reprocess": "Reprocess",
+    "queued": "The video is queued for processing."
   }
 }

@@ -1,0 +1,85 @@
+# syntax=docker/dockerfile:1.7
+#
+# nexo-media-worker image: renditions, posters and thumbnails of the videos
+# of Nexo, encoded with OpenH264 (no ffmpeg).
+#
+#   docker build -f Dockerfile.media-worker -t nexo-media-worker .
+#   docker run -d -p 9600:9600 -v media-worker:/data \
+#     -e NEXO_WORKER_S3_ENDPOINT=http://nexo:9000 \
+#     -e NEXO_WORKER_ACCESS_KEY=... -e NEXO_WORKER_SECRET_KEY=... \
+#     -e NEXO_WORKER_AUTH_TOKEN=... nexo-media-worker
+#
+# The image does not contain OpenH264: Cisco licenses the H.264 patents of
+# its build to whoever downloads it from Cisco, so the worker downloads it
+# into /data/lib at its first start (checksum pinned), or loads the library
+# named by NEXO_WORKER_OPENH264.
+
+ARG GO_VERSION=1.27.2
+
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS go
+
+ARG TARGETOS
+ARG TARGETARCH
+ARG VERSION=dev
+ARG COMMIT=none
+ARG DATE=unknown
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
+
+COPY . .
+
+# purego loads OpenH264 without cgo; the binary needs the dynamic loader of
+# glibc, which the final image has.
+ENV CGO_ENABLED=0
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    set -eux; \
+    export GOOS="${TARGETOS}" GOARCH="${TARGETARCH}"; \
+    go build -trimpath -ldflags "-s -w \
+      -X github.com/r3n3r0/nexo/internal/version.Version=${VERSION} \
+      -X github.com/r3n3r0/nexo/internal/version.Commit=${COMMIT} \
+      -X github.com/r3n3r0/nexo/internal/version.Date=${DATE}" \
+      -o /out/nexo-media-worker ./cmd/nexo-media-worker; \
+    mkdir -p /out/data
+
+# glibc, libstdc++ and libgcc_s for the Cisco build of OpenH264; non-root,
+# no shell.
+FROM gcr.io/distroless/cc-debian12:nonroot
+
+ARG VERSION=dev
+ARG COMMIT=none
+ARG DATE=unknown
+
+LABEL org.opencontainers.image.title="nexo-media-worker" \
+      org.opencontainers.image.description="Media worker of Nexo: renditions, posters and thumbnails of videos (OpenH264)" \
+      org.opencontainers.image.url="https://github.com/r3n3r0/nexo" \
+      org.opencontainers.image.source="https://github.com/r3n3r0/nexo" \
+      org.opencontainers.image.documentation="https://github.com/r3n3r0/nexo/tree/main/docs" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.vendor="r3n3r0" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.created="${DATE}"
+
+COPY LICENSE NOTICE COMMERCIAL-LICENSE.md /
+COPY --from=go /out/nexo-media-worker /nexo-media-worker
+COPY --from=go --chown=65532:65532 /out/data /data
+
+USER 65532:65532
+
+# 9600: jobs endpoint (the endpoint of the notify_media_worker target).
+EXPOSE 9600
+# The job queue, the work files and the downloaded OpenH264 library.
+VOLUME /data
+
+ENV NEXO_WORKER_ADDRESS=:9600 \
+    NEXO_WORKER_DATA_DIR=/data
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
+    CMD ["/nexo-media-worker", "healthcheck"]
+
+ENTRYPOINT ["/nexo-media-worker"]

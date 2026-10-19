@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -80,6 +81,63 @@ func TestBucketConfigurationsAgainstServer(t *testing.T) {
 		_, err = c.SetBucketCORS(ctx, "conf", nexoadmin.CORSConfiguration{Rules: []nexoadmin.CORSRule{{AllowedOrigins: []string{"*"}}}})
 		assert.Equal(t, nexoadmin.CodeInvalidConfiguration, apiError(t, err).Code)
 		require.NoError(t, c.DeleteBucketCORS(ctx, "conf"))
+	})
+
+	t.Run("media", func(t *testing.T) {
+		got, err := c.GetBucketMedia(ctx, "conf")
+		require.NoError(t, err)
+		assert.Empty(t, got.Rules)
+		set, err := c.SetBucketMedia(ctx, "conf", nexoadmin.MediaConfiguration{Rules: []nexoadmin.MediaRule{
+			{ID: "videos", Prefix: "v/", Renditions: []string{"480p", "720p"}, Poster: true, Thumbnails: &nexoadmin.MediaThumbnails{}},
+		}})
+		require.NoError(t, err)
+		assert.Equal(t, []nexoadmin.MediaRule{{ID: "videos", Prefix: "v/", Suffixes: []string{".m4v", ".mov", ".mp4"},
+			Renditions: []string{"720p", "480p"}, Poster: true, Thumbnails: &nexoadmin.MediaThumbnails{Interval: "10s"}}}, set.Rules, "normalized")
+		got, err = c.GetBucketMedia(ctx, "conf")
+		require.NoError(t, err)
+		assert.Equal(t, set, got)
+		_, err = c.SetBucketMedia(ctx, "conf", nexoadmin.MediaConfiguration{Rules: []nexoadmin.MediaRule{{ID: "x"}}})
+		assert.Equal(t, nexoadmin.CodeInvalidConfiguration, apiError(t, err).Code)
+		require.NoError(t, c.DeleteBucketMedia(ctx, "conf"))
+		got, err = c.GetBucketMedia(ctx, "conf")
+		require.NoError(t, err)
+		assert.Empty(t, got.Rules)
+	})
+
+	t.Run("media status", func(t *testing.T) {
+		_, err := c.CreateBucket(ctx, nexoadmin.CreateBucketRequest{Name: "vids", Versioning: true})
+		require.NoError(t, err)
+		put, err := h.s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("vids"), Key: aws.String("v/a.mp4"), Body: strings.NewReader("video")})
+		require.NoError(t, err)
+		vid := aws.ToString(put.VersionId)
+
+		st, err := c.GetMediaStatus(ctx, "vids", "v/a.mp4", "")
+		require.NoError(t, err)
+		assert.Equal(t, &nexoadmin.MediaStatus{State: "none"}, st, "never processed")
+		_, err = c.GetMediaStatus(ctx, "vids", "v/missing.mp4", "")
+		assert.Equal(t, http.StatusNotFound, apiError(t, err).Status)
+
+		// The status document of the media worker, derived from the
+		// current content of the version.
+		doc := `{"state":"done","rule":"videos","etag":` + strconv.Quote(aws.ToString(put.ETag)) + `,"duration":12.5,"width":1920,"height":1080,` +
+			`"renditions":[{"name":"720p","width":1280,"height":720,"bandwidth":2928000}],"poster":true,` +
+			`"thumbnails":{"interval":10,"width":160,"height":90,"columns":10,"count":2},"started":"2026-01-02T03:04:05Z","updated":"2026-01-02T03:04:06Z"}`
+		h.put("vids", ".nexo-media/v/a.mp4/"+vid+"/status.json", doc)
+		st, err = c.GetMediaStatus(ctx, "vids", "v/a.mp4", vid)
+		require.NoError(t, err)
+		updated := time.Date(2026, 1, 2, 3, 4, 6, 0, time.UTC)
+		assert.Equal(t, &nexoadmin.MediaStatus{State: "done", Current: true, VersionID: vid, Rule: "videos", Duration: 12.5, Width: 1920, Height: 1080,
+			Renditions: []nexoadmin.MediaRenditionOutput{{Name: "720p", Width: 1280, Height: 720, Bandwidth: 2928000}}, Poster: true,
+			Thumbnails: &nexoadmin.MediaThumbnailsOutput{Interval: 10, Width: 160, Height: 90, Columns: 10, Count: 2}, Updated: &updated}, st)
+
+		// A new content makes the outputs stale.
+		h.put("vids", "v/a.mp4", "other video")
+		st, err = c.GetMediaStatus(ctx, "vids", "v/a.mp4", vid)
+		require.NoError(t, err)
+		assert.True(t, st.Current, "the old version keeps its outputs")
+		st, err = c.GetMediaStatus(ctx, "vids", "v/a.mp4", "")
+		require.NoError(t, err)
+		assert.Equal(t, "none", st.State, "the new version was never processed")
 	})
 
 	t.Run("notifications", func(t *testing.T) {

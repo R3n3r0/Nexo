@@ -43,6 +43,7 @@ anything else is a local path.
 * [nexoctl legalhold](nexoctl_legalhold.md)	 - Manage the Object Lock legal hold of objects
 * [nexoctl ls](nexoctl_ls.md)	 - List buckets, objects and object versions
 * [nexoctl mb](nexoctl_mb.md)	 - Make buckets
+* [nexoctl media](nexoctl_media.md)	 - Manage the video rules of buckets and the media worker (Admin API)
 * [nexoctl mirror](nexoctl_mirror.md)	 - Synchronize a directory or prefix to another one
 * [nexoctl mv](nexoctl_mv.md)	 - Move files and objects
 * [nexoctl pipe](nexoctl_pipe.md)	 - Stream the standard input to an object

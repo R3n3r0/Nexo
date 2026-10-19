@@ -60,8 +60,12 @@ type Metadata struct {
 	AccessRules *AccessRules `json:"accessRules,omitempty"`
 	// BlockPublicAccess blocks the access rules granting everyone ("*")
 	// on this bucket (docs/10 §10.1, Global protections).
-	BlockPublicAccess bool      `json:"blockPublicAccess,omitempty"`
-	UpdatedAt         time.Time `json:"updatedAt"`
+	BlockPublicAccess bool `json:"blockPublicAccess,omitempty"`
+	// Media is the video configuration of the bucket: the rules of the
+	// media worker (docs/proposals/video-streaming.md); nil when never
+	// set.
+	Media     *domain.MediaConfig `json:"media,omitempty"`
+	UpdatedAt time.Time           `json:"updatedAt"`
 }
 
 // AccessRules is the stored access rules document of a bucket.
@@ -225,6 +229,14 @@ type Service interface {
 
 	GetNotification(ctx context.Context, name string) ([]byte, error)
 	SetNotification(ctx context.Context, name string, xmlDoc []byte) error
+
+	// GetMedia returns the video configuration of a bucket (NoSuchMediaConfiguration,
+	// wrapping domain.ErrPolicyNotFound, when none).
+	GetMedia(ctx context.Context, name string) (domain.MediaConfig, error)
+	// SetMedia validates (domain.MediaConfig.Validate) and stores the
+	// video configuration of a bucket; no rule removes it.
+	SetMedia(ctx context.Context, name string, cfg domain.MediaConfig) error
+	DeleteMedia(ctx context.Context, name string) error
 
 	// GetAccessRules returns the access rules document of a bucket; a
 	// bucket without rules returns the document "[]" with its ETag.

@@ -123,6 +123,15 @@ describe('buildRows', () => {
       buildRows([{ objects: [entry('a/X.txt')], prefixes: [], isTruncated: false }], 'x'),
     ).toHaveLength(1);
   });
+
+  it('leaves out the hidden folders', () => {
+    const rows = buildRows(
+      [{ objects: [], prefixes: ['.nexo-media/', 'videos/'], isTruncated: false }],
+      '',
+      ['.nexo-media/'],
+    );
+    expect(rows.map((r) => r.key)).toEqual(['videos/']);
+  });
 });
 
 // covers: D-OBJ-01
@@ -219,6 +228,45 @@ describe('ObjectBrowser (TD-U-05)', () => {
         ),
       ).toBe('docs/report #1.pdf');
     });
+  });
+
+  it('hides the outputs of the media worker at the root unless asked', async () => {
+    const svc = services({
+      objects: {
+        media: [
+          ...seeds,
+          { key: 'videos/intro.mp4', contentType: 'video/mp4', size: 10 },
+          { key: '.nexo-media/videos/intro.mp4/null/status.json', contentType: 'application/json' },
+        ],
+      },
+    });
+    renderRoutes(routes, { initialEntries: ['/buckets/media/browse/'], services: svc });
+    expect(await screen.findByRole('link', { name: 'videos/' })).toBeInTheDocument();
+    expect(names()).not.toContain('.nexo-media/');
+    const user = userEvent.setup();
+    const toggle = screen.getByRole('switch', { name: 'Show media outputs' });
+    await user.click(toggle);
+    expect(await screen.findByRole('link', { name: '.nexo-media/' })).toBeInTheDocument();
+    await user.click(toggle);
+    await waitFor(() => {
+      expect(screen.queryByRole('link', { name: '.nexo-media/' })).toBeNull();
+    });
+  });
+
+  it('opens the folder of the media outputs by path', async () => {
+    const svc = services({
+      objects: {
+        media: [
+          { key: '.nexo-media/videos/intro.mp4/null/status.json', contentType: 'text/plain' },
+        ],
+      },
+    });
+    renderRoutes(routes, {
+      initialEntries: ['/buckets/media/browse/.nexo-media/'],
+      services: svc,
+    });
+    expect(await screen.findByRole('link', { name: 'videos/' })).toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: 'Show media outputs' })).toBeNull();
   });
 
   it('pages through a large folder with the cursor and renders only the visible rows', async () => {

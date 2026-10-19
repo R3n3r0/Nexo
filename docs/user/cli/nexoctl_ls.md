@@ -8,6 +8,10 @@ List the buckets of an alias, the objects of a bucket or prefix (one level,
 or every level with --recursive), the versions of the objects (--versions), the
 incomplete multipart uploads (--incomplete) or a local directory.
 
+The files the media worker derives from the videos (renditions, posters,
+thumbnails) live under the prefix .nexo-media/ of a bucket: the listings of a
+bucket hide it unless --media is given or the target is under it.
+
 ```
 nexoctl ls [flags] TARGET...
 ```
@@ -26,6 +30,7 @@ nexoctl ls [flags] TARGET...
 ```
   -h, --help         help for ls
   -I, --incomplete   list the incomplete multipart uploads
+      --media        also list the media sidecars (.nexo-media/)
   -r, --recursive    list every level under the prefix
       --versions     list every version and delete marker
 ```

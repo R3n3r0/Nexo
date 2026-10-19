@@ -355,6 +355,10 @@ func (m *Metadata) clone() *Metadata {
 	c.CORS = cloneBytes(m.CORS)
 	c.Notification = cloneBytes(m.Notification)
 	c.AccessRules = m.AccessRules.clone()
+	if m.Media != nil {
+		media := m.Media.Clone()
+		c.Media = &media
+	}
 	return &c
 }
 

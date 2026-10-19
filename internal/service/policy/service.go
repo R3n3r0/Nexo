@@ -329,6 +329,8 @@ const (
 	ActionAdminRemoveServiceAccount    Action = "admin:RemoveServiceAccount"
 	ActionAdminGetBucketQuota          Action = "admin:GetBucketQuota"
 	ActionAdminSetBucketQuota          Action = "admin:SetBucketQuota"
+	ActionAdminGetBucketMedia          Action = "admin:GetBucketMedia"
+	ActionAdminSetBucketMedia          Action = "admin:SetBucketMedia"
 	ActionAdminServerTrace             Action = "admin:ServerTrace"
 	ActionAdminConsoleLog              Action = "admin:ConsoleLog"
 	ActionAdminManageShares            Action = "admin:ManageShares"

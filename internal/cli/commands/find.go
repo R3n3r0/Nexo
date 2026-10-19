@@ -8,12 +8,15 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/r3n3r0/nexo/internal/cli"
+	"github.com/r3n3r0/nexo/internal/domain"
 )
 
 // findFlags are the flags of find.
 type findFlags struct {
 	name, path, larger, smaller, olderThan, newerThan, exec string
 	maxDepth                                                int
+	// media includes the media sidecars (domain.MediaSidecarPrefix).
+	media bool
 }
 
 func newFindCmd(e *env) *cobra.Command {
@@ -23,7 +26,9 @@ func newFindCmd(e *env) *cobra.Command {
 		Short: "Find objects and files by name, size and age",
 		Long: `Search the objects under a prefix (or the files under a local directory)
 recursively and print the matches, or run a command for each one with --exec
-("{}" is replaced by the path; the command is split on spaces, no shell).`,
+("{}" is replaced by the path; the command is split on spaces, no shell).
+The media sidecars of a bucket (` + domain.MediaSidecarPrefix + `) are skipped unless --media is
+given or the target is under them.`,
 		Example: `  nexoctl find local/logs --name "*.log" --older-than 1d
   nexoctl find local/media --larger 1GiB
   nexoctl find local/logs --name "*.gz" --exec "nexoctl rm {}"`,
@@ -42,6 +47,7 @@ recursively and print the matches, or run a command for each one with --exec
 	f.StringVar(&flags.newerThan, "newer-than", "", "only objects newer than the duration")
 	f.IntVar(&flags.maxDepth, "maxdepth", 0, "descend at most this many levels (0: unlimited)")
 	f.StringVar(&flags.exec, "exec", "", `run a command for each match ("{}" is the path)`)
+	f.BoolVar(&flags.media, "media", false, "also search the media sidecars ("+domain.MediaSidecarPrefix+")")
 	return cmd
 }
 
@@ -93,6 +99,9 @@ func (e *env) find(ctx context.Context, args []string, flags findFlags) error {
 			full, err := cli.JoinTarget(t, en.Rel)
 			if err != nil {
 				return err
+			}
+			if t.IsRemote() && hiddenMediaSidecar(t.Key, full.Key, flags.media) {
+				continue
 			}
 			if command != nil {
 				if err := e.runExec(ctx, command, full.String()); err != nil {
@@ -175,7 +184,7 @@ func newDuCmd(e *env) *cobra.Command {
 }
 
 func newTreeCmd(e *env) *cobra.Command {
-	var dirsOnly bool
+	var dirsOnly, media bool
 	cmd := &cobra.Command{
 		Use:               "tree [flags] TARGET...",
 		Short:             "Show the objects and prefixes as a tree",
@@ -196,6 +205,15 @@ func newTreeCmd(e *env) *cobra.Command {
 				for en, err := range cli.Walk(ctx, e.resolver(), t) {
 					if err != nil {
 						return fmt.Errorf("%s: %w", t, err)
+					}
+					if t.IsRemote() {
+						full, err := cli.JoinTarget(t, en.Rel)
+						if err != nil {
+							return err
+						}
+						if hiddenMediaSidecar(t.Key, full.Key, media) {
+							continue
+						}
 					}
 					rels = append(rels, en.Rel)
 				}
@@ -221,6 +239,7 @@ func newTreeCmd(e *env) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVarP(&dirsOnly, "dirs-only", "d", false, "show only the directories")
+	cmd.Flags().BoolVar(&media, "media", false, "also show the media sidecars ("+domain.MediaSidecarPrefix+")")
 	return cmd
 }
 

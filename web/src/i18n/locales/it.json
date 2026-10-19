@@ -232,6 +232,7 @@
       "access": "Accesso",
       "lifecycle": "Ciclo di vita",
       "events": "Eventi",
+      "media": "Video",
       "rules": "Regole di accesso"
     },
     "summary": "{{size}} · {{objects}} oggetti",
@@ -431,7 +432,8 @@
       "sseKmsDefault": "SSE-KMS (chiave predefinita)",
       "sseKmsKey": "SSE-KMS: {{key}}",
       "active": "Caricamenti cifrati con {{mode}}"
-    }
+    },
+    "showMediaOutputs": "Mostra output video"
   },
   "objectDetails": {
     "tabs": {
@@ -439,6 +441,7 @@
       "preview": "Anteprima",
       "tags": "Tag",
       "versions": "Versioni",
+      "media": "Video",
       "lock": "Object lock",
       "attributes": "Attributi"
     },

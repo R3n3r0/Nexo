@@ -21,6 +21,9 @@ export const storageKeys = {
     ['objects', bucket, 'lock', key, versionId ?? ''] as const,
   attributes: (bucket: string, key: string, versionId?: string) =>
     ['objects', bucket, 'attributes', key, versionId ?? ''] as const,
+  /** Processing state of a video by the media worker. */
+  mediaStatus: (bucket: string, key: string, versionId?: string) =>
+    ['objects', bucket, 'media', key, versionId ?? ''] as const,
   /** Notification targets with their state (GET /notify/targets). */
   notifyTargets: ['notify', 'targets'] as const,
   kmsStatus: ['kms', 'status'] as const,

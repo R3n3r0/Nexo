@@ -126,6 +126,26 @@ func MediaRenditionPreset(name string) (MediaRendition, bool) {
 	return r, true
 }
 
+// Clone returns a deep copy of the configuration.
+func (c MediaConfig) Clone() MediaConfig {
+	out := MediaConfig{Rules: make([]MediaRule, len(c.Rules))}
+	for i, r := range c.Rules {
+		out.Rules[i] = r.Clone()
+	}
+	return out
+}
+
+// Clone returns a deep copy of the rule.
+func (r MediaRule) Clone() MediaRule {
+	r.Suffixes = slices.Clone(r.Suffixes)
+	r.Renditions = slices.Clone(r.Renditions)
+	if r.Thumbnails != nil {
+		t := *r.Thumbnails
+		r.Thumbnails = &t
+	}
+	return r
+}
+
 // maxMediaRules bounds the rules of a bucket.
 const maxMediaRules = 100
 
@@ -227,6 +247,8 @@ const (
 	MediaJobProcess MediaJobAction = "process"
 	// MediaJobDelete removes the sidecars of a version that is gone.
 	MediaJobDelete MediaJobAction = "delete"
+	// MediaJobTest checks the delivery (the test event of the target).
+	MediaJobTest MediaJobAction = "test"
 )
 
 // MediaJob is a job sent to the media worker.
@@ -238,6 +260,8 @@ type MediaJob struct {
 	ETag      string         `json:"etag,omitempty"`
 	Size      int64          `json:"size,omitempty"`
 	// Sidecar is the sidecar directory of the version (MediaSidecarDir).
+	// A job without VersionID (a reprocessing of the current version)
+	// has none: the worker reads the current version and names it.
 	Sidecar string `json:"sidecar"`
 	// Rule is the rule that selected the video (MediaJobProcess).
 	Rule *MediaRule `json:"rule,omitempty"`

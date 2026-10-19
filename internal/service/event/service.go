@@ -219,6 +219,9 @@ const (
 	TypeAMQP     = "amqp"
 	TypeRedis    = "redis"
 	TypePostgres = "postgresql"
+	// TypeMediaWorker posts the media jobs (MediaJob events) to a media
+	// worker; it receives no S3 event.
+	TypeMediaWorker = "media_worker"
 )
 
 // Formats of the Redis and PostgreSQL targets.

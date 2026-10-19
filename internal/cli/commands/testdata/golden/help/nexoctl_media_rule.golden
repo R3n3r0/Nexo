@@ -1,0 +1,21 @@
+Add or remove one video rule of a bucket
+
+Usage:
+  nexoctl media rule [flags]
+  nexoctl media rule [command]
+
+Available Commands:
+  add         Add a video rule to a bucket, or replace the rule with the same ID
+  remove      Remove a video rule of a bucket
+
+Flags:
+  -h, --help   help for rule
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl media rule [command] --help" for more information about a command.

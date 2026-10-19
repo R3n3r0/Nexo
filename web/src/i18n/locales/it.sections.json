@@ -1684,5 +1684,82 @@
       "notReported": "Il server non riporta il suo TLS."
     },
     "infoUnavailable": "Lo stato del server richiede admin:ServerInfo."
+  },
+  "bucketMedia": {
+    "title": "Regole video",
+    "description": "Il media worker elabora i video selezionati da queste regole: rendition di qualità inferiore per lo streaming adattivo, un fotogramma di copertina e le miniature della timeline. Lo streaming dell'originale non richiede regole.",
+    "add": "Aggiungi regola",
+    "addTitle": "Nuova regola video",
+    "editTitle": "Modifica la regola video",
+    "empty": "Nessuna regola: i video di questo bucket sono trasmessi come caricati.",
+    "rules": "Regole video",
+    "columns": {
+      "id": "Regola",
+      "objects": "Video",
+      "outputs": "Output"
+    },
+    "id": "ID della regola",
+    "idHint": "1-64 lettere, cifre, “.”, “_” o “-”.",
+    "prefix": "Prefisso della chiave",
+    "prefixHint": "Vuoto per l'intero bucket.",
+    "suffixes": "Suffissi della chiave",
+    "suffixesHint": "Confrontati senza distinzione di maiuscole; {{suffixes}} se vuoto. Premi Invio dopo ciascuno.",
+    "renditions": "Rendition",
+    "renditionsHint": "Qualità inferiori da produrre (H.264); quelle più alte della sorgente sono saltate.",
+    "poster": "Fotogramma di copertina",
+    "posterHint": "Un'immagine JPEG del video.",
+    "thumbnails": "Miniature della timeline",
+    "thumbnailsHint": "Uno sprite di miniature con la sua mappa WebVTT, per le anteprime della timeline.",
+    "interval": "Intervallo delle miniature",
+    "intervalHint": "Una durata da 1s a 10m, come 10s o 1m30s.",
+    "posterBadge": "Copertina",
+    "thumbnailsBadge": "Miniature ogni {{interval}}",
+    "prefixIs": "Prefisso {{prefix}}",
+    "wholeBucket": "Intero bucket",
+    "firstMatch": "Si applica la prima regola che seleziona un video. Gli output sono salvati sotto .nexo-media/ nel bucket.",
+    "save": "Salva la regola",
+    "saved": "Regole video salvate.",
+    "edit": "Modifica la regola {{id}}",
+    "remove": "Elimina la regola {{id}}",
+    "deleteTitle": "Elimina la regola video",
+    "deleteConfirm": "Eliminare la regola video {{id}}? Gli output già prodotti sono conservati.",
+    "serverRefused": "Il server ha rifiutato la regola",
+    "unavailable": "Non puoi leggere le regole video di questo bucket (admin:GetBucketMedia).",
+    "issues": {
+      "id": "1-64 lettere, cifre, “.”, “_” o “-”.",
+      "idDuplicate": "Un'altra regola ha questo ID.",
+      "prefixTooLong": "Al massimo 1024 byte.",
+      "prefixReserved": "Il prefisso .nexo-media/ è riservato agli output.",
+      "suffix": "Ogni suffisso deve avere 1-32 caratteri.",
+      "interval": "Una durata da 1s a 10m, come 10s.",
+      "nothing": "Scegli almeno un output: rendition, copertina o miniature."
+    }
+  },
+  "objectMedia": {
+    "state": {
+      "none": "Non elaborato",
+      "processing": "In elaborazione",
+      "done": "Elaborato",
+      "failed": "Non riuscito"
+    },
+    "none": "Il media worker non ha elaborato questo video: nessuna regola lo seleziona, oppure è in coda.",
+    "stale": "Non aggiornato",
+    "staleHint": "Gli output derivano da un contenuto precedente di questo oggetto: non sono usati finché il video non viene elaborato di nuovo.",
+    "rule": "Regola {{rule}}",
+    "step": "Fase: {{step}}",
+    "failed": "L'elaborazione non è riuscita",
+    "source": "Sorgente {{width}}×{{height}}, {{duration}}",
+    "renditions": "Rendition",
+    "columns": {
+      "name": "Rendition",
+      "resolution": "Risoluzione",
+      "bandwidth": "Banda"
+    },
+    "mbps": "{{value}} Mbit/s",
+    "thumbnails": "{{n}} miniature della timeline, ogni {{interval}} s",
+    "poster": "Copertina",
+    "posterAlt": "Copertina di {{name}}",
+    "reprocess": "Elabora di nuovo",
+    "queued": "Il video è in coda per l'elaborazione."
   }
 }

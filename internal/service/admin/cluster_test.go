@@ -79,6 +79,7 @@ func exportFixture(t *testing.T, f *clusterFixture) {
 	f.buckets.EXPECT().GetTags(mock.Anything, "photos").Return(map[string]string{"team": "media"}, nil)
 	f.buckets.EXPECT().GetCORS(mock.Anything, "photos").Return([]byte("<CORSConfiguration/>"), nil)
 	f.buckets.EXPECT().GetNotification(mock.Anything, "photos").Return([]byte("<NotificationConfiguration/>"), nil)
+	f.buckets.EXPECT().GetMedia(mock.Anything, "photos").Return(testMediaConfig(), nil)
 	// plain: nothing set.
 	f.buckets.EXPECT().GetVersioning(mock.Anything, "plain").Return(domain.VersioningOff, nil)
 	f.buckets.EXPECT().GetObjectLock(mock.Anything, "plain").Return(bucket.ObjectLockConfig{}, noConfig)
@@ -89,6 +90,11 @@ func exportFixture(t *testing.T, f *clusterFixture) {
 	f.buckets.EXPECT().GetTags(mock.Anything, "plain").Return(nil, noConfig)
 	f.buckets.EXPECT().GetCORS(mock.Anything, "plain").Return(nil, noConfig)
 	f.buckets.EXPECT().GetNotification(mock.Anything, "plain").Return(nil, noConfig)
+	f.buckets.EXPECT().GetMedia(mock.Anything, "plain").Return(domain.MediaConfig{}, noConfig)
+}
+
+func testMediaConfig() domain.MediaConfig {
+	return domain.MediaConfig{Rules: []domain.MediaRule{{ID: "videos", Suffixes: []string{".mp4"}, Renditions: []string{"720p"}, Poster: true}}}
 }
 
 func zipEntries(t *testing.T, archive []byte) map[string][]byte {
@@ -132,6 +138,8 @@ func TestClusterExport(t *testing.T) {
 	require.NoError(t, json.Unmarshal(entries["buckets/photos.json"], &photos))
 	assert.Equal(t, "Enabled", photos["versioning"])
 	assert.Equal(t, "<LifecycleConfiguration/>", photos["lifecycle"])
+	assert.Equal(t, map[string]any{"rules": []any{map[string]any{"id": "videos", "suffixes": []any{".mp4"}, "renditions": []any{"720p"}, "poster": true}}},
+		photos["media"])
 }
 
 // archiveOf exports the fixture state with fresh mocks.
@@ -186,6 +194,7 @@ func TestClusterImportMerge(t *testing.T) {
 	f.buckets.EXPECT().SetTags(mock.Anything, "photos", map[string]string{"team": "media"}).Return(nil)
 	f.buckets.EXPECT().SetCORS(mock.Anything, "photos", []byte("<CORSConfiguration/>")).Return(nil)
 	f.buckets.EXPECT().SetNotification(mock.Anything, "photos", []byte("<NotificationConfiguration/>")).Return(nil)
+	f.buckets.EXPECT().SetMedia(mock.Anything, "photos", testMediaConfig()).Return(nil)
 	// plain: nothing set, nothing removed in merge mode.
 	sum, err := f.m.Import(ctx, archive, admin.ImportOptions{})
 	require.NoError(t, err)
@@ -220,6 +229,7 @@ func TestClusterImportReplace(t *testing.T) {
 	f.buckets.EXPECT().SetTags(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	f.buckets.EXPECT().SetCORS(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	f.buckets.EXPECT().SetNotification(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	f.buckets.EXPECT().SetMedia(mock.Anything, "photos", testMediaConfig()).Return(nil)
 	// The settings "plain" does not have in the archive are removed.
 	noConfig := domain.NewS3Error(domain.ErrPolicyNotFound, "NoSuchConfig", "none")
 	f.buckets.EXPECT().DeletePolicy(mock.Anything, "plain").Return(noConfig)
@@ -227,6 +237,7 @@ func TestClusterImportReplace(t *testing.T) {
 	f.buckets.EXPECT().DeleteEncryption(mock.Anything, "plain").Return(nil)
 	f.buckets.EXPECT().DeleteTags(mock.Anything, "plain").Return(nil)
 	f.buckets.EXPECT().DeleteCORS(mock.Anything, "plain").Return(nil)
+	f.buckets.EXPECT().DeleteMedia(mock.Anything, "plain").Return(nil)
 	sum, err := f.m.Import(ctx, archive, admin.ImportOptions{Mode: admin.ImportReplace})
 	require.NoError(t, err)
 	assert.Empty(t, sum.BucketsCreated)

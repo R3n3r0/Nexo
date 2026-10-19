@@ -897,6 +897,75 @@ paths:
       responses:
         "204": { description: Removed. }
         default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/media:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    get:
+      tags: [buckets]
+      operationId: getBucketMedia
+      summary: Video rules of the bucket
+      description: |
+        The rules that select the videos the media worker processes and what it derives from
+        them (renditions, poster, thumbnails); the first rule selecting a key applies. A bucket
+        without configuration answers no rule. Streaming the source needs no rule.
+      x-nexo-actions: ["admin:GetBucketMedia"]
+      responses:
+        "200":
+          description: The media rules.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MediaConfiguration" }
+        default: { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [buckets]
+      operationId: setBucketMedia
+      summary: Replace the video rules of the bucket
+      description: |
+        At most 100 rules, each validated on its own: a rejected configuration answers 400
+        `invalid_configuration` with every invalid rule in `ruleErrors`. The stored rules are
+        normalized (suffixes lowercased with their default, renditions tallest first). No rule
+        removes the configuration.
+      x-nexo-actions: ["admin:SetBucketMedia"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MediaConfiguration" }
+      responses:
+        "200":
+          description: The media rules as stored.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MediaConfiguration" }
+        default: { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [buckets]
+      operationId: deleteBucketMedia
+      summary: Remove the video rules
+      x-nexo-actions: ["admin:SetBucketMedia"]
+      responses:
+        "204": { description: Removed. }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/media/reprocess:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    post:
+      tags: [buckets]
+      operationId: reprocessMedia
+      summary: Process a video again
+      description: |
+        Queues a job of the media worker deriving the outputs of a version of a video again,
+        with the rule of the bucket that selects it (400 when none does). The job is delivered
+        through the persistent queue of the media worker target.
+      x-nexo-actions: ["admin:SetBucketMedia"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MediaReprocessRequest" }
+      responses:
+        "202": { description: Queued. }
+        default: { $ref: "#/components/responses/Problem" }
   /buckets/{bucket}/replication:
     parameters:
       - { $ref: "#/components/parameters/bucket" }
@@ -1187,6 +1256,7 @@ paths:
       x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
       parameters:
         - { name: rev, in: query, required: true, description: The ETag the presentation is pinned to (412 once the object changed)., schema: { type: string } }
+        - { name: r, in: query, required: false, description: "A rendition of the media worker (720p, 480p...): the presentation of that rendition, rev being its ETag.", schema: { type: string } }
       responses:
         "200":
           description: HLS media playlist of a video.
@@ -1208,6 +1278,7 @@ paths:
       x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
       parameters:
         - { name: rev, in: query, required: true, description: The ETag the presentation is pinned to (412 once the object changed)., schema: { type: string } }
+        - { name: r, in: query, required: false, description: "A rendition of the media worker (720p, 480p...): the presentation of that rendition, rev being its ETag.", schema: { type: string } }
       responses:
         "200":
           description: HLS init segment of a video.
@@ -1229,6 +1300,7 @@ paths:
       x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
       parameters:
         - { name: rev, in: query, required: true, description: The ETag the presentation is pinned to (412 once the object changed)., schema: { type: string } }
+        - { name: r, in: query, required: false, description: "A rendition of the media worker (720p, 480p...): the presentation of that rendition, rev being its ETag.", schema: { type: string } }
         - { name: n, in: query, required: true, schema: { type: integer, minimum: 0 } }
       responses:
         "200":
@@ -1236,6 +1308,80 @@ paths:
           content:
             "video/iso.segment":
               schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/hls/poster.jpg:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+      - { $ref: "#/components/parameters/versionId" }
+    get:
+      tags: [objects]
+      operationId: mediaPoster
+      summary: Poster frame of a video
+      description: The JPEG poster the media worker derived from the current content of the video (404 otherwise).
+      x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
+      responses:
+        "200":
+          description: The poster.
+          content:
+            "image/jpeg":
+              schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/hls/sprite.jpg:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+      - { $ref: "#/components/parameters/versionId" }
+    get:
+      tags: [objects]
+      operationId: mediaThumbnailSprite
+      summary: Timeline thumbnails of a video
+      description: The JPEG grid of thumbnails the media worker derived from the current content of the video, mapped by thumbnails.vtt.
+      x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
+      responses:
+        "200":
+          description: The sprite.
+          content:
+            "image/jpeg":
+              schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/hls/thumbnails.vtt:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+      - { $ref: "#/components/parameters/versionId" }
+    get:
+      tags: [objects]
+      operationId: mediaThumbnails
+      summary: WebVTT map of the timeline thumbnails
+      description: One cue per thumbnail, pointing to its tile of sprite.jpg (`#xywh=x,y,w,h`).
+      x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
+      responses:
+        "200":
+          description: The WebVTT map.
+          content:
+            "text/vtt":
+              schema: { type: string }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/media/status:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+      - { $ref: "#/components/parameters/versionId" }
+    get:
+      tags: [objects]
+      operationId: mediaStatus
+      summary: Processing state of a video by the media worker
+      description: |
+        The status.json of the version written by the worker: `none` when it never processed it.
+        `current` is false when the outputs derive from an older content of the version.
+      x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
+      responses:
+        "200":
+          description: The state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MediaStatus" }
         default: { $ref: "#/components/responses/Problem" }
   /buckets/{bucket}/objects/download-zip:
     parameters:
@@ -5510,6 +5656,84 @@ components:
           type: array
           items: { type: string }
         maxAgeSeconds: { type: integer }
+    MediaStatus:
+      type: object
+      required: [state, current]
+      properties:
+        state: { type: string, enum: [none, processing, done, failed] }
+        current: { type: boolean }
+        versionId: { type: string }
+        error: { type: string }
+        step: { type: string }
+        rule: { type: string }
+        duration: { type: number, description: Duration of the video in seconds. }
+        width: { type: integer }
+        height: { type: integer }
+        renditions:
+          type: array
+          items:
+            type: object
+            required: [name, width, height, bandwidth]
+            properties:
+              name: { type: string }
+              width: { type: integer }
+              height: { type: integer }
+              bandwidth: { type: integer }
+        poster: { type: boolean }
+        thumbnails:
+          type: object
+          required: [interval, width, height, columns, count]
+          properties:
+            interval: { type: number }
+            width: { type: integer }
+            height: { type: integer }
+            columns: { type: integer }
+            count: { type: integer }
+        updated: { type: string, format: date-time }
+    MediaConfiguration:
+      type: object
+      required: [rules]
+      properties:
+        rules:
+          type: array
+          maxItems: 100
+          items: { $ref: "#/components/schemas/MediaRule" }
+    MediaRule:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+          pattern: "^[A-Za-z0-9._-]{1,64}$"
+        prefix:
+          type: string
+          maxLength: 1024
+          description: Prefix of the keys (empty for the whole bucket; never .nexo-media/).
+        suffixes:
+          type: array
+          description: Suffixes of the keys, matched without case (default .mp4, .mov, .m4v).
+          items: { type: string, maxLength: 32 }
+        renditions:
+          type: array
+          description: Lower qualities to produce, H.264 with the source audio; those taller than the source are skipped.
+          items:
+            type: string
+            enum: ["2160p", "1440p", "1080p", "720p", "480p", "360p", "240p"]
+        poster: { type: boolean, description: A JPEG poster frame. }
+        thumbnails: { $ref: "#/components/schemas/MediaThumbnails" }
+    MediaThumbnails:
+      type: object
+      description: A timeline thumbnail sprite with its WebVTT map.
+      properties:
+        interval:
+          type: string
+          description: Interval between two thumbnails, a Go duration from 1s to 10m (default 10s).
+    MediaReprocessRequest:
+      type: object
+      required: [key]
+      properties:
+        key: { type: string }
+        versionId: { type: string, description: The version to process (default the latest). }
     ObjectRetention:
       type: object
       properties:

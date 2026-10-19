@@ -86,9 +86,10 @@ linters:
           files:
             - "$all"
             - "!**/internal/service/media/**"
+            - "!**/internal/mediaworker/**"
           deny:
             - pkg: github.com/Eyevinn/mp4ff
-              desc: use media.Service (internal/service/media)
+              desc: use media.Service (internal/service/media), or the media worker (internal/mediaworker)
   exclusions:
     # Third-party Go sources shipped inside npm packages are not ours.
     paths:

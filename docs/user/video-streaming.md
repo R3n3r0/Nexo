@@ -19,6 +19,10 @@ them as files. Objects encrypted with SSE-S3 or SSE-KMS stream like the others.
 The segments are cut at the keyframes of the video, about every 6 seconds: a video encoded with a
 keyframe every 1-2 seconds (the default of most encoders and cameras) seeks precisely.
 
+The source plays as it is. For lower qualities that players switch to on slow networks, a poster and
+timeline thumbnails, run the [media worker](media-worker.md): the master playlist then lists its renditions
+next to the source.
+
 ## In the console
 
 The preview of an MP4 video in the object browser is an HLS stream: playback starts at once and

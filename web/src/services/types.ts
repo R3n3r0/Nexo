@@ -310,6 +310,18 @@ export type NotifyTargetTest = Schemas['NotifyTargetTest'];
 export type CorsConfiguration = Schemas['CorsConfiguration'];
 export type CorsRule = Schemas['CorsRule'];
 
+/** The video rules of a bucket, applied by the media worker. */
+export type MediaConfiguration = Schemas['MediaConfiguration'];
+export type MediaRule = Schemas['MediaRule'];
+/** A rendition preset of a rule (2160p ... 240p). */
+export type MediaRendition = NonNullable<MediaRule['renditions']>[number];
+export type MediaThumbnails = Schemas['MediaThumbnails'];
+/** The version of a video to process again (default the latest). */
+export type MediaReprocessRequest = Schemas['MediaReprocessRequest'];
+/** The processing state of a video by the media worker. */
+export type MediaStatus = Schemas['MediaStatus'];
+export type MediaState = MediaStatus['state'];
+
 /** Object Lock retention mode. */
 export type RetentionMode = NonNullable<Schemas['ObjectRetention']['mode']>;
 /** The retention of a version: no mode when it has none. */

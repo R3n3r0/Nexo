@@ -20,6 +20,10 @@ I segmenti sono tagliati sui keyframe del video, circa ogni 6 secondi: un video 
 keyframe ogni 1-2 secondi (il default della maggior parte degli encoder e delle videocamere) si sposta
 con precisione.
 
+La sorgente viene riprodotta così com'è. Per qualità ridotte su cui i player passano con reti lente, un
+poster e le miniature della timeline, usa il [media worker](media-worker.md): la master playlist elenca allora
+le sue rendition accanto alla sorgente.
+
 ## Nella console
 
 L'anteprima di un video MP4 nel browser degli oggetti è uno stream HLS: la riproduzione parte subito

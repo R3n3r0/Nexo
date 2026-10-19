@@ -103,6 +103,7 @@ plugins:
             "Tutorial: static site": "Tutorial: sito statico"
             Events and lifecycle: Eventi e lifecycle
             Video streaming: Streaming video
+            Media worker: Media worker
             Reference: Riferimenti
             nexoctl commands: Comandi di nexoctl
             S3 compatibility: Compatibilità S3
@@ -157,6 +158,7 @@ nav:
       - "Tutorial: static site": distributions/tutorial-static-site.md
       - Events and lifecycle: events-lifecycle.md
       - Video streaming: video-streaming.md
+      - Media worker: media-worker.md
   - Reference:
       - CLI: reference/cli.md
       - nexoctl commands: cli/nexoctl.md

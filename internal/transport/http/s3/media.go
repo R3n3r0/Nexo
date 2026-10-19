@@ -1,6 +1,7 @@
 package s3
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -55,6 +56,8 @@ const (
 	contentTypePlaylist = "application/vnd.apple.mpegurl"
 	contentTypeInit     = "video/mp4"
 	contentTypeSegment  = "video/iso.segment"
+	contentTypeVTT      = "text/vtt; charset=utf-8"
+	contentTypeJPEG     = "image/jpeg"
 )
 
 // MediaDeps are the dependencies of the media routes; all but Objects,
@@ -136,6 +139,50 @@ func (h *mediaRoutes) Register(r chi.Router) {
 		b, err := h.deps.Media.Segment(r.Context(), src, n)
 		return b, contentTypeSegment, err
 	}))
+	// What the media worker derived from the video.
+	for name, file := range map[string]string{"poster.jpg": domain.MediaPosterFile, "sprite.jpg": domain.MediaSpriteFile} {
+		r.Get(MediaPrefix+"{bucket}/"+name, h.serve(false, func(r *http.Request, src media.Source, _ media.Links) ([]byte, string, error) {
+			b, err := h.deps.Media.Sidecar(r.Context(), src, file)
+			return b, contentTypeJPEG, err
+		}))
+	}
+	r.Get(MediaPrefix+"{bucket}/thumbnails.vtt", h.serve(false, func(r *http.Request, src media.Source, l media.Links) ([]byte, string, error) {
+		b, err := h.deps.Media.Sidecar(r.Context(), src, domain.MediaThumbnailsFile)
+		if err != nil {
+			return nil, "", err
+		}
+		return media.RewriteSprite(b, l.(mediaLinks).file("sprite.jpg")), contentTypeVTT, nil
+	}))
+	r.Get(MediaPrefix+"{bucket}/status.json", h.serve(false, func(r *http.Request, src media.Source, _ media.Links) ([]byte, string, error) {
+		st, err := h.deps.Media.Status(r.Context(), src)
+		if err != nil {
+			return nil, "", err
+		}
+		b, err := json.Marshal(newMediaStatus(st))
+		return b, "application/json", err
+	}))
+}
+
+// mediaStatus is the processing state of a video by the media worker
+// (status.json of the media routes).
+type mediaStatus struct {
+	// State is processing, done or failed; none when the worker never
+	// processed the version.
+	State      string                        `json:"state"`
+	Current    bool                          `json:"current"`
+	Error      string                        `json:"error,omitempty"`
+	Duration   float64                       `json:"duration,omitempty"`
+	Renditions []domain.MediaRenditionOutput `json:"renditions,omitempty"`
+	Poster     bool                          `json:"poster,omitempty"`
+	Thumbnails *domain.MediaThumbnailsOutput `json:"thumbnails,omitempty"`
+}
+
+func newMediaStatus(st *media.OutputStatus) mediaStatus {
+	if st == nil {
+		return mediaStatus{State: "none"}
+	}
+	return mediaStatus{State: string(st.State), Current: st.Current, Error: st.Error, Duration: st.Duration,
+		Renditions: st.Renditions, Poster: st.Poster, Thumbnails: st.Thumbnails}
 }
 
 // serve authorizes and serves one resource of a presentation; pinned
@@ -143,7 +190,7 @@ func (h *mediaRoutes) Register(r chi.Router) {
 func (h *mediaRoutes) serve(pinned bool, build func(r *http.Request, src media.Source, l media.Links) ([]byte, string, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		src := media.Source{Bucket: chi.URLParam(r, "bucket"), Key: q.Get("key"), VersionID: q.Get("versionId"), Revision: q.Get("rev")}
+		src := media.Source{Bucket: chi.URLParam(r, "bucket"), Key: q.Get("key"), VersionID: q.Get("versionId"), Revision: q.Get("rev"), Rendition: q.Get("r")}
 		if err := domain.ValidateObjectKey(src.Key); err != nil {
 			h.deps.Enc.WriteS3Error(w, r, err)
 			return
@@ -235,7 +282,7 @@ func (h *mediaRoutes) playerAsset(w http.ResponseWriter, r *http.Request) {
 // public object needs none, a request signed in its headers signs each of
 // its requests).
 func (h *mediaRoutes) links(r *http.Request, src media.Source) (media.Links, error) {
-	l := mediaLinks{key: src.Key, versionID: src.VersionID}
+	l := mediaLinks{key: src.Key, versionID: src.VersionID, rendition: src.Rendition}
 	q := r.URL.Query()
 	id, ok := middleware.IdentityFromContext(r.Context())
 	if !auth.IsPresigned(q) || !ok || id.IsAnonymous || id.AccessKey == "" {
@@ -275,8 +322,8 @@ func (h *mediaRoutes) links(r *http.Request, src media.Source) (media.Links, err
 // mediaLinks are the URIs of the playlists, relative to the master
 // playlist, optionally presigned.
 type mediaLinks struct {
-	key, versionID string
-	sign           func(name string, query url.Values) string
+	key, versionID, rendition string
+	sign                      func(name string, query url.Values) string
 }
 
 var _ media.Links = mediaLinks{}
@@ -285,6 +332,9 @@ func (l mediaLinks) uri(name, rev string, extra url.Values) string {
 	q := url.Values{"key": {l.key}, "rev": {rev}}
 	if l.versionID != "" {
 		q.Set("versionId", l.versionID)
+	}
+	if l.rendition != "" {
+		q.Set("r", l.rendition)
 	}
 	for k, v := range extra {
 		q[k] = v
@@ -301,4 +351,22 @@ func (l mediaLinks) Init(rev string) string { return l.uri("init.mp4", rev, nil)
 
 func (l mediaLinks) Segment(rev string, n int) string {
 	return l.uri("segment.m4s", rev, url.Values{"n": {strconv.Itoa(n)}})
+}
+
+// file is the URI of a file of the media worker of the object (no
+// revision: the files follow the current content).
+func (l mediaLinks) file(name string) string {
+	q := url.Values{"key": {l.key}}
+	if l.versionID != "" {
+		q.Set("versionId", l.versionID)
+	}
+	if l.sign != nil {
+		return l.sign(name, q)
+	}
+	return name + "?" + q.Encode()
+}
+
+func (l mediaLinks) Rendition(name, rev string) string {
+	l.rendition = name
+	return l.uri("media.m3u8", rev, nil)
 }

@@ -130,6 +130,9 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: OpenH264 for the media worker tests (Cisco build, checksum verified)
+        run: echo "NEXO_OPENH264=$(go run ./cmd/nexo-media-worker fetch-openh264 --dir "$RUNNER_TEMP/openh264")" >> "$GITHUB_ENV"
+
       - name: go test -race
         env:
           CGO_ENABLED: "1"
@@ -183,6 +186,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: OpenH264 for the media worker tests (Cisco build, checksum verified)
+        run: echo "NEXO_OPENH264=$(go run ./cmd/nexo-media-worker fetch-openh264 --dir "$RUNNER_TEMP/openh264")" >> "$GITHUB_ENV"
 
       - name: Integration suite (test/integration)
         env:

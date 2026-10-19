@@ -117,7 +117,7 @@ type archivedPolicy struct {
 
 // archivedBucket is buckets/<name>.json: the settings of one bucket. The
 // documents (policy, lifecycle, CORS, notification) are kept as the text
-// the bucket stores.
+// the bucket stores; the media configuration as its JSON document.
 type archivedBucket struct {
 	Name         string                   `json:"name"`
 	Versioning   string                   `json:"versioning,omitempty"`
@@ -129,6 +129,7 @@ type archivedBucket struct {
 	Tags         map[string]string        `json:"tags,omitempty"`
 	CORS         string                   `json:"cors,omitempty"`
 	Notification string                   `json:"notification,omitempty"`
+	Media        *domain.MediaConfig      `json:"media,omitempty"`
 }
 
 // Export implements ClusterManager.
@@ -294,6 +295,11 @@ func (m *clusterManager) exportBucket(ctx context.Context, name string) (archive
 		b.Notification = string(doc)
 	} else if !absentSetting(err) {
 		return fail("notification", err)
+	}
+	if media, err := m.deps.Buckets.GetMedia(ctx, name); err == nil {
+		b.Media = &media
+	} else if !absentSetting(err) {
+		return fail("media configuration", err)
 	}
 	return b, nil
 }
@@ -680,6 +686,15 @@ func (m *clusterManager) importBucket(ctx context.Context, b archivedBucket, mod
 	if b.Notification != "" {
 		if err := bk.SetNotification(ctx, name, []byte(b.Notification)); err != nil {
 			return fail("notification", err)
+		}
+	}
+	if b.Media != nil && len(b.Media.Rules) > 0 {
+		if err := bk.SetMedia(ctx, name, *b.Media); err != nil {
+			return fail("media configuration", err)
+		}
+	} else if replace {
+		if err := bk.DeleteMedia(ctx, name); err != nil && !absentSetting(err) {
+			return fail("media configuration", err)
 		}
 	}
 	return nil

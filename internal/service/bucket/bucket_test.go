@@ -494,3 +494,34 @@ func TestIsPublicRejectsCorruptStoredPolicy(t *testing.T) {
 	_, err = svc.IsPublic(ctx, "bkt")
 	assert.ErrorIs(t, err, domain.ErrInvalidArgument)
 }
+
+func TestMediaConfiguration(t *testing.T) {
+	ctx := context.Background()
+	svc, objects, _, _, _ := newService(t)
+	objects.EXPECT().GetBucketInfo(ctx, "bkt").Return(domain.BucketInfo{Bucket: domain.Bucket{Name: "bkt"}}, nil).Maybe()
+
+	_, err := svc.GetMedia(ctx, "bkt")
+	assert.ErrorIs(t, err, domain.ErrPolicyNotFound)
+	cfg := domain.MediaConfig{Rules: []domain.MediaRule{{ID: "videos", Prefix: "v/", Renditions: []string{"480p", "1080p"}, Poster: true}}}
+	require.NoError(t, svc.SetMedia(ctx, "bkt", cfg))
+	assert.Equal(t, []string{"480p", "1080p"}, cfg.Rules[0].Renditions, "the caller's document is not modified")
+	got, err := svc.GetMedia(ctx, "bkt")
+	require.NoError(t, err)
+	assert.Equal(t, domain.MediaConfig{Rules: []domain.MediaRule{{ID: "videos", Prefix: "v/", Suffixes: []string{".m4v", ".mov", ".mp4"},
+		Renditions: []string{"1080p", "480p"}, Poster: true}}}, got, "stored normalized")
+	got.Rules[0].Prefix = "changed"
+	again, err := svc.GetMedia(ctx, "bkt")
+	require.NoError(t, err)
+	assert.Equal(t, "v/", again.Rules[0].Prefix, "a copy is returned")
+
+	err = svc.SetMedia(ctx, "bkt", domain.MediaConfig{Rules: []domain.MediaRule{{ID: "x"}}})
+	assert.ErrorIs(t, err, domain.ErrInvalidArgument, "nothing to produce")
+
+	require.NoError(t, svc.SetMedia(ctx, "bkt", domain.MediaConfig{}), "no rule removes the configuration")
+	_, err = svc.GetMedia(ctx, "bkt")
+	assert.ErrorIs(t, err, domain.ErrPolicyNotFound)
+	require.NoError(t, svc.SetMedia(ctx, "bkt", cfg))
+	require.NoError(t, svc.DeleteMedia(ctx, "bkt"))
+	_, err = svc.GetMedia(ctx, "bkt")
+	assert.ErrorIs(t, err, domain.ErrPolicyNotFound)
+}

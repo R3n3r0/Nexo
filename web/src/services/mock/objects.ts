@@ -421,6 +421,13 @@ export function createMockObjectService(storage: MockStorage): ObjectService {
       // The demo has no media server: videos play from their data URL.
       return undefined;
     },
+    posterUrl() {
+      // Nor a media worker: no poster or thumbnails.
+      return undefined;
+    },
+    thumbnailsUrl() {
+      return undefined;
+    },
     async previewText(bucket, key, { maxBytes, versionId, signal }) {
       await ctx.delay();
       if (signal?.aborted) {

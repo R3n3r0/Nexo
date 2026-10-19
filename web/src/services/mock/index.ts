@@ -17,6 +17,7 @@ import { createMockIam, type MockIamOptions } from './iam';
 import { createMockInfoService, sampleServerInfo, type MockInfoOptions } from './info';
 import { createMockKmsService } from './kms';
 import { createMockLifecycleService } from './lifecycle';
+import { createMockMediaService } from './media';
 import {
   createMockMonitoringService,
   type MockMonitoringOptions,
@@ -110,6 +111,7 @@ export function createMockServices(options: MockServicesOptions = {}): MockServi
     buckets: createMockBucketService(storage),
     lifecycle: createMockLifecycleService(storage),
     notifications: createMockNotificationService(storage, options),
+    media: createMockMediaService(storage),
     kms: createMockKmsService(storage),
     objects,
     uploads: createMockUploadService(storage),

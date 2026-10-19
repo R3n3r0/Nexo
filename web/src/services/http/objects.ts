@@ -110,6 +110,12 @@ export function createHttpObjectService(client: HttpClient): ObjectService {
     streamUrl(bucket, key, versionId) {
       return client.url(path(bucket, 'hls/master.m3u8'), { key, versionId });
     },
+    posterUrl(bucket, key, versionId) {
+      return client.url(path(bucket, 'hls/poster.jpg'), { key, versionId });
+    },
+    thumbnailsUrl(bucket, key, versionId) {
+      return client.url(path(bucket, 'hls/thumbnails.vtt'), { key, versionId });
+    },
     async previewText(bucket, key, { maxBytes, versionId, signal }) {
       let response: Response;
       try {

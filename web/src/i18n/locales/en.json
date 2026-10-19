@@ -232,6 +232,7 @@
       "access": "Access",
       "lifecycle": "Lifecycle",
       "events": "Events",
+      "media": "Video",
       "rules": "Access rules"
     },
     "summary": "{{size}} · {{objects}} objects",
@@ -431,7 +432,8 @@
       "sseKmsDefault": "SSE-KMS (default key)",
       "sseKmsKey": "SSE-KMS: {{key}}",
       "active": "Uploads encrypted with {{mode}}"
-    }
+    },
+    "showMediaOutputs": "Show media outputs"
   },
   "objectDetails": {
     "tabs": {
@@ -439,6 +441,7 @@
       "preview": "Preview",
       "tags": "Tags",
       "versions": "Versions",
+      "media": "Video",
       "lock": "Object lock",
       "attributes": "Attributes"
     },

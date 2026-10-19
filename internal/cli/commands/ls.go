@@ -22,6 +22,8 @@ type lsOptions struct {
 	recursive  bool
 	versions   bool
 	incomplete bool
+	// media lists the media sidecars (domain.MediaSidecarPrefix).
+	media bool
 }
 
 func newLsCmd(e *env) *cobra.Command {
@@ -31,7 +33,11 @@ func newLsCmd(e *env) *cobra.Command {
 		Short: "List buckets, objects and object versions",
 		Long: `List the buckets of an alias, the objects of a bucket or prefix (one level,
 or every level with --recursive), the versions of the objects (--versions), the
-incomplete multipart uploads (--incomplete) or a local directory.`,
+incomplete multipart uploads (--incomplete) or a local directory.
+
+The files the media worker derives from the videos (renditions, posters,
+thumbnails) live under the prefix ` + domain.MediaSidecarPrefix + ` of a bucket: the listings of a
+bucket hide it unless --media is given or the target is under it.`,
 		Example: `  nexoctl ls local
   nexoctl ls local/photos/2026/
   nexoctl ls --recursive --versions local/photos
@@ -56,6 +62,7 @@ incomplete multipart uploads (--incomplete) or a local directory.`,
 	f.BoolVarP(&opts.recursive, "recursive", "r", false, "list every level under the prefix")
 	f.BoolVar(&opts.versions, "versions", false, "list every version and delete marker")
 	f.BoolVarP(&opts.incomplete, "incomplete", "I", false, "list the incomplete multipart uploads")
+	f.BoolVar(&opts.media, "media", false, "also list the media sidecars ("+domain.MediaSidecarPrefix+")")
 	return cmd
 }
 
@@ -99,6 +106,9 @@ func (e *env) ls(ctx context.Context, t cli.Target, opts lsOptions) error {
 			return fmt.Errorf("%s: %w", t, err)
 		}
 		listed++
+		if hiddenMediaSidecar(prefix, o.Key, opts.media) {
+			continue
+		}
 		if err := e.lsObject(t, o, strings.TrimPrefix(o.Key, prefix), opts.versions); err != nil {
 			return err
 		}
@@ -108,6 +118,13 @@ func (e *env) ls(ctx context.Context, t cli.Target, opts lsOptions) error {
 		return fmt.Errorf("%s: %w", t, domain.ErrObjectNotFound)
 	}
 	return nil
+}
+
+// hiddenMediaSidecar reports whether a key listed under prefix is a media
+// sidecar to hide: the keys under domain.MediaSidecarPrefix are hidden
+// unless show is set or the listing itself is under it.
+func hiddenMediaSidecar(prefix, key string, show bool) bool {
+	return !show && domain.IsMediaSidecar(key) && !domain.IsMediaSidecar(strings.TrimSuffix(prefix, "/")+"/")
 }
 
 // lsExact lists the object named by the key of t (all its versions with

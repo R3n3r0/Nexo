@@ -113,6 +113,10 @@ func (s *service) load(ctx context.Context, src Source) (*cached, error) {
 
 // Describe implements Service.
 func (s *service) Describe(ctx context.Context, src Source) (*Presentation, error) {
+	src, err := s.resolve(ctx, src)
+	if err != nil {
+		return nil, err
+	}
 	c, err := s.load(ctx, src)
 	if err != nil {
 		return nil, err
@@ -153,6 +157,9 @@ func seconds(ticks uint64, timescale uint32) float64 {
 
 // MasterPlaylist implements Service.
 func (s *service) MasterPlaylist(ctx context.Context, src Source, links Links) ([]byte, error) {
+	if src.Rendition != "" {
+		return nil, fmt.Errorf("%w: a rendition has no master playlist", domain.ErrInvalidArgument)
+	}
 	c, err := s.load(ctx, src)
 	if err != nil {
 		return nil, err
@@ -160,17 +167,43 @@ func (s *service) MasterPlaylist(ctx context.Context, src Source, links Links) (
 	d := c.p.describe(src)
 	var b bytes.Buffer
 	b.WriteString("#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-INDEPENDENT-SEGMENTS\n")
-	fmt.Fprintf(&b, "#EXT-X-STREAM-INF:BANDWIDTH=%d,AVERAGE-BANDWIDTH=%d,CODECS=%q,RESOLUTION=%dx%d",
+	variant(&b, d, links.Media(d.Revision))
+	// The renditions of the media worker, when they derive from this
+	// content: one variant each.
+	st, err := s.outputs(ctx, src.Bucket, src.Key, d.VersionID, d.Revision)
+	if err != nil {
+		s.deps.Logger.WarnContext(ctx, "media: status of the outputs unreadable", "bucket", src.Bucket, "key", src.Key, "err", err)
+	}
+	if st != nil && st.Current {
+		for _, r := range st.Renditions {
+			rc, err := s.load(ctx, Source{Bucket: src.Bucket, Key: renditionKey(src.Key, d.VersionID, r.Name)})
+			if err != nil {
+				s.deps.Logger.WarnContext(ctx, "media: rendition unreadable", "bucket", src.Bucket, "key", src.Key, "rendition", r.Name, "err", err)
+				continue
+			}
+			rd := rc.p.describe(src)
+			variant(&b, rd, links.Rendition(r.Name, rd.Revision))
+		}
+	}
+	return b.Bytes(), nil
+}
+
+// variant writes the EXT-X-STREAM-INF of a presentation and its URI.
+func variant(b *bytes.Buffer, d *Presentation, uri string) {
+	fmt.Fprintf(b, "#EXT-X-STREAM-INF:BANDWIDTH=%d,AVERAGE-BANDWIDTH=%d,CODECS=%q,RESOLUTION=%dx%d",
 		max(d.PeakBandwidth, 1), max(d.AverageBandwidth, 1), strings.Join(d.Codecs, ","), d.Width, d.Height)
 	if d.FrameRate > 0 {
-		fmt.Fprintf(&b, ",FRAME-RATE=%.3f", d.FrameRate)
+		fmt.Fprintf(b, ",FRAME-RATE=%.3f", d.FrameRate)
 	}
-	b.WriteString("\n" + links.Media(d.Revision) + "\n")
-	return b.Bytes(), nil
+	b.WriteString("\n" + uri + "\n")
 }
 
 // MediaPlaylist implements Service.
 func (s *service) MediaPlaylist(ctx context.Context, src Source, links Links) ([]byte, error) {
+	src, err := s.resolve(ctx, src)
+	if err != nil {
+		return nil, err
+	}
 	c, err := s.load(ctx, src)
 	if err != nil {
 		return nil, err
@@ -194,6 +227,10 @@ func (s *service) MediaPlaylist(ctx context.Context, src Source, links Links) ([
 
 // Init implements Service.
 func (s *service) Init(ctx context.Context, src Source) ([]byte, error) {
+	src, err := s.resolve(ctx, src)
+	if err != nil {
+		return nil, err
+	}
 	c, err := s.load(ctx, src)
 	if err != nil {
 		return nil, err
@@ -204,6 +241,10 @@ func (s *service) Init(ctx context.Context, src Source) ([]byte, error) {
 
 // Segment implements Service.
 func (s *service) Segment(ctx context.Context, src Source, n int) ([]byte, error) {
+	src, err := s.resolve(ctx, src)
+	if err != nil {
+		return nil, err
+	}
 	c, err := s.load(ctx, src)
 	if err != nil {
 		return nil, err

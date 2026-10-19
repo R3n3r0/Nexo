@@ -101,6 +101,17 @@ type AdminClient interface {
 	// ApplyBucketLifecycle applies the lifecycle rules of a bucket at once
 	// (ilm apply: s3:PutLifecycleConfiguration and admin:ApplyLifecycle).
 	ApplyBucketLifecycle(ctx context.Context, bucket string) (*nexoadmin.LifecycleApplyResult, error)
+	// Video rules of the buckets and the state of the media worker
+	// (nexoctl media): GetBucketMedia returns no rule without
+	// configuration, SetBucketMedia stores the rules normalized,
+	// ReprocessMedia queues a job of the worker for a video and
+	// GetMediaStatus returns its processing state (state "none" when the
+	// worker never processed it); versionID "" is the latest version.
+	GetBucketMedia(ctx context.Context, bucket string) (*nexoadmin.MediaConfiguration, error)
+	SetBucketMedia(ctx context.Context, bucket string, cfg nexoadmin.MediaConfiguration) (*nexoadmin.MediaConfiguration, error)
+	DeleteBucketMedia(ctx context.Context, bucket string) error
+	ReprocessMedia(ctx context.Context, bucket, key, versionID string) error
+	GetMediaStatus(ctx context.Context, bucket, key, versionID string) (*nexoadmin.MediaStatus, error)
 
 	// Notification targets (admin notify targets ls|test): their delivery
 	// state on the answering node and a test event; target is
