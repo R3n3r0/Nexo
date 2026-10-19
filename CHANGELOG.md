@@ -240,6 +240,18 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   drive (`internal/service/storage`, file system chosen with `NEXO_BENCH_DIR`) and `BenchmarkCopyBodyFile`
   (`httpx`, sendfile against a buffered copy).
 
+### Performance (small objects, bulk deletes)
+- The audit records no longer go to the server log by default (`NEXO_AUDIT_LOG`, `--audit-log`; the `debug`
+  level logs them anyway): one line per request cost throughput, a lot on a Windows console. They stay in memory
+  for the console and the CLI and go to the audit targets as before.
+- The scanner pauses while the S3 API is busy (the requests in progress against the CPUs), so its walk no longer
+  competes with a burst of writes.
+- `DeleteObjects` deletes up to 16 keys at once, each under its own lock, and reports them in the order of the
+  request: the clean-up of a `warp` run is about 2.4 times faster (51,708 objects in 16 s).
+- Small PUTs skip two needless `unlink` calls after the commit; on Windows the directory sync (an extra handle
+  open with no effect on NTFS) is skipped.
+- 4 KiB PUTs at concurrency 20 on the reference VM (SNSD): about 1450 → 1700 objects/s.
+
 ### Rate limiting (S-OPS-10, S-DST-08)
 - Request rate limits of each node with token buckets (`internal/service/ratelimit`), configured through the
   dynamic configuration (subsystem `ratelimit`, applied at the next request on every node, all off by default):

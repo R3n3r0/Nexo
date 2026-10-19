@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 
@@ -272,7 +273,9 @@ func (s *xlStorage) commitFile(tmp *os.File, dst, base string) error {
 
 // syncDir fsyncs a directory so that renames become durable (best effort).
 func (s *xlStorage) syncDir(dir string) {
-	if !s.opts.fsync {
+	// NTFS journals its directory entries and a directory handle cannot
+	// be flushed: the open would only cost time.
+	if !s.opts.fsync || runtime.GOOS == "windows" {
 		return
 	}
 	d, err := os.Open(dir) // #nosec G304 -- a directory of a drive, resolved and checked by the storage layer

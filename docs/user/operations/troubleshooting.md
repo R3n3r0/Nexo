@@ -97,6 +97,19 @@ not depend on clocks; the order of the versions of an object stays monotonic eve
 - Check the file system: XFS, `noatime`, no RAID or LVM under Nexo, no other process making heavy use of
   the same drive; `dmesg` for I/O errors.
 
+## Slow small writes (benchmarks)
+
+Every PUT is durable when it returns: the object (inline in `xl.meta` up to 128 KiB) is flushed to disk
+before the answer. With many small objects the drive's flush latency sets the pace, more than the
+bandwidth.
+
+- Keep the audit records out of the server log (the default; `NEXO_AUDIT_LOG=off`) and the log level at
+  `info`: one line per request is expensive, above all on a Windows console.
+- On Windows, exclude the data directory from the real-time scan of Microsoft Defender (or of the
+  antivirus in use): every new file is otherwise scanned on the write path.
+- The background scanner pauses while the S3 API is busy; it does not compete with a benchmark.
+- Clean-up after `warp` deletes up to 16 keys of a `DeleteObjects` request at once.
+
 ## Permissions and denied access
 
 | Symptom | Check |

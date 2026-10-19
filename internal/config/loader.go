@@ -47,6 +47,7 @@ const (
 	EnvKMSClientKey       = "NEXO_KMS_CLIENT_KEY"
 	EnvKMSCAPath          = "NEXO_KMS_CAPATH"
 	EnvSSECAllowInsecure  = "NEXO_SSEC_ALLOW_INSECURE"
+	EnvAuditLog           = "NEXO_AUDIT_LOG"
 	// FileSuffix is appended to a variable name to read its value from a file.
 	FileSuffix = "_FILE"
 )
@@ -67,6 +68,7 @@ const (
 	FlagStorageClassStd    = "storage-class-standard"
 	FlagStorageClassRRS    = "storage-class-rrs"
 	FlagTLSInternodeVerify = "tls-internode-verify"
+	FlagAuditLog           = "audit-log"
 )
 
 // BindFlags defines the server flags on fs. Root credentials have no flag
@@ -87,6 +89,7 @@ func BindFlags(fs *pflag.FlagSet) {
 	fs.String(FlagStorageClassStd, "", "parity of the STANDARD storage class as EC:n (erasure-coded modes)")
 	fs.String(FlagStorageClassRRS, "", "parity of the REDUCED_REDUNDANCY storage class as EC:n (erasure-coded modes)")
 	fs.Bool(FlagTLSInternodeVerify, false, "mutual TLS between the nodes: the internode calls need a client certificate verified with the CAs of --certs-dir (https endpoints)")
+	fs.Bool(FlagAuditLog, false, "write every audit record (one per request) to the server log; the debug level logs them anyway")
 	bindAccessFlags(fs)
 	bindDistributionFlags(fs)
 	bindCacheFlags(fs)
@@ -232,7 +235,7 @@ func (l *loader) applyEnv(cfg *Static) error {
 	}
 	set(EnvStorageClassStd, &cfg.StorageClassStandard)
 	set(EnvStorageClassRRS, &cfg.StorageClassRRS)
-	for key, dst := range map[string]*bool{EnvTLSInternodeVerify: &cfg.TLSInternodeVerify, EnvSSECAllowInsecure: &cfg.SSECAllowInsecure} {
+	for key, dst := range map[string]*bool{EnvTLSInternodeVerify: &cfg.TLSInternodeVerify, EnvSSECAllowInsecure: &cfg.SSECAllowInsecure, EnvAuditLog: &cfg.AuditLog} {
 		if v, ok := l.env(key); ok && strings.TrimSpace(v) != "" {
 			b, err := strconv.ParseBool(strings.TrimSpace(v))
 			if err != nil {
@@ -331,6 +334,13 @@ func applyFlags(cfg *Static, fs *pflag.FlagSet) error {
 	setString(FlagStorageClassRRS, &cfg.StorageClassRRS)
 	if err != nil {
 		return fmt.Errorf("read flags: %w", err)
+	}
+	if fs.Changed(FlagAuditLog) {
+		v, err := fs.GetBool(FlagAuditLog)
+		if err != nil {
+			return fmt.Errorf("read flags: %w", err)
+		}
+		cfg.AuditLog = v
 	}
 	if fs.Changed(FlagTLSInternodeVerify) {
 		v, err := fs.GetBool(FlagTLSInternodeVerify)

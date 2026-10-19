@@ -32,6 +32,9 @@ const (
 	// maxCopySize is the largest source of a single CopyObject (5 GiB);
 	// bigger objects are copied part by part with UploadPartCopy.
 	maxCopySize = 5 << 30
+	// deleteObjectsWorkers are the keys of a DeleteObjects deleted at
+	// once.
+	deleteObjectsWorkers = 16
 )
 
 // layer holds the S3 logic shared by the filesystem and erasure

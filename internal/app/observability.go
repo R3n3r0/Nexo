@@ -225,6 +225,15 @@ func (h *auditHolder) Search(ctx context.Context, q audit.Query) ([]audit.Entry,
 // first local drive (beside the queues of the notification targets).
 const auditDir = "audit"
 
+// auditLevel is the level of the audit records in the server log: Info
+// with AuditLog, Debug otherwise (not one line per request by default).
+func auditLevel(cfg config.Static) audit.Option {
+	if cfg.AuditLog {
+		return audit.WithLevel(slog.LevelInfo)
+	}
+	return audit.WithLevel(slog.LevelDebug)
+}
+
 // newAuditor composes the audit log of the node: the structured log, the
 // memory searched by the console (over the peers) and the audit targets
 // of the configuration with their persistent queues on a local drive.
@@ -245,7 +254,7 @@ func newAuditor(d composeDeps, dyn configsvc.Service) (audit.Dispatcher, error) 
 	auditor, err := audit.New(audit.Deps{
 		Logger: logger.With("component", "audit"), Clock: d.clock, NodeID: f.obs.nodeID, DeploymentID: d.deploymentID,
 		Peers: peers, Targets: targets, Config: dyn,
-	})
+	}, auditLevel(d.cfg))
 	if err != nil {
 		return nil, err
 	}

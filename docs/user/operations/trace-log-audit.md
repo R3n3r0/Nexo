@@ -76,7 +76,8 @@ presents credentials (SigV4 or presigned signature, token), even towards `/nexo/
 an attempt to try out credentials always leaves a trace. The records:
 
 1. end up in the server log (`"msg":"audit"`, component `audit`; `time` is the time of the record,
-   `event_time` that of the request);
+   `event_time` that of the request) when `NEXO_AUDIT_LOG=on` (`--audit-log`) or at the `debug` log
+   level. Off by default: one log line per request costs throughput, a lot on a Windows console;
 2. stay in memory on every node (the last 10000) for searching from the console (**Monitoring →
    Audit**) and from the CLI;
 3. are delivered to the configured **audit targets**, with a persistent on-disk queue if the target does

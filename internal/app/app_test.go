@@ -114,7 +114,9 @@ func TestAuditRecordsRejectedRequests(t *testing.T) {
 	ctx := context.Background()
 	logs := &syncBuffer{}
 	logger := slog.New(slog.NewJSONHandler(logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	a, err := app.Build(ctx, testConfig(t), app.WithLogger(logger), app.WithStopTimeout(5*time.Second))
+	cfg := testConfig(t)
+	cfg.AuditLog = true // the records in the server log (NEXO_AUDIT_LOG)
+	a, err := app.Build(ctx, cfg, app.WithLogger(logger), app.WithStopTimeout(5*time.Second))
 	require.NoError(t, err)
 	require.NoError(t, a.Start(ctx))
 	defer func() { require.NoError(t, a.Stop(ctx)) }()

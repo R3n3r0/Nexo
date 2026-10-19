@@ -916,7 +916,12 @@ func (s *xlStorage) RenameData(ctx context.Context, srcVolume, srcPath string, f
 	if err != nil {
 		return RenameDataResult{}, fmt.Errorf("storage: stage %s/%s: %w", dstVolume, dstPath, err)
 	}
-	defer func() { _ = os.Remove(staged) }() // no-op once committed
+	committed := false
+	defer func() {
+		if !committed {
+			_ = os.Remove(staged)
+		}
+	}()
 
 	if err := s.mkdirAll(dstDir, dstVolDir); err != nil {
 		return RenameDataResult{}, fmt.Errorf("storage: create %s/%s: %w", dstVolume, dstPath, s.writeErr(dstVolume, dstPath, err))
@@ -949,6 +954,7 @@ func (s *xlStorage) RenameData(ctx context.Context, srcVolume, srcPath string, f
 		s.pruneEmptyDirs(dstDir, dstVolDir)
 		return RenameDataResult{}, fmt.Errorf("storage: commit %s/%s: %w", dstVolume, dstPath, s.writeErr(dstVolume, dstPath, err))
 	}
+	committed = true
 	s.syncDir(dstDir)
 	if aside != "" {
 		if err := os.RemoveAll(aside); err != nil {

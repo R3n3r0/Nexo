@@ -39,6 +39,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/sysstore"
 	"github.com/r3n3r0/nexo/internal/transport/http/console"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
+	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
 	"github.com/r3n3r0/nexo/internal/transport/http/s3"
 	"github.com/r3n3r0/nexo/internal/transport/http/server"
 	"github.com/r3n3r0/nexo/internal/version"
@@ -280,7 +281,10 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	if err != nil {
 		return nil, err
 	}
-	healing, err := newHealing(d, objects, mrf, dynConfig, measuredILM)
+	// The S3 requests in progress: the scanner pauses while the API is
+	// busy, so that a burst of writes does not compete with its walk.
+	activity := middleware.NewActivity(middleware.ActivityDeps{})
+	healing, err := newHealing(d, objects, mrf, dynConfig, measuredILM, activity)
 	if err != nil {
 		return nil, fmt.Errorf("healing: %w", err)
 	}
@@ -454,7 +458,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		logger: logger, clock: d.clock, codec: codec, ids: ids,
 		registry: registry, verifier: verifier, auditor: auditor, domains: domainsOf(cfg),
 		trustedProxies: cfg.TrustedProxies, forwardedHeaders: cfg.ForwardedHeaders, trustForwardedHost: cfg.TrustForwardedHost, dist: distStack,
-		tracer: f.obs.trace, telemetry: f.obs.telemetry, limiter: limiter,
+		tracer: f.obs.trace, telemetry: f.obs.telemetry, limiter: limiter, activity: activity,
 	})
 	if err != nil {
 		return nil, err

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/r3n3r0/nexo/internal/domain"
@@ -180,18 +182,43 @@ func (l *layer) DeleteObjects(ctx context.Context, in DeleteObjectsInput) (Delet
 	if _, err := l.sets[0].StatVol(ctx, in.Bucket); err != nil {
 		return DeleteObjectsResult{}, fmt.Errorf("%s: delete objects in %s: %w", l.name, in.Bucket, err)
 	}
+	// The keys are deleted concurrently, each under its own lock, and
+	// reported in the order of the request.
+	type outcome struct {
+		done bool
+		del  DeletedObject
+		err  error
+	}
+	outcomes := make([]outcome, len(in.Objects))
+	var next atomic.Int64
+	var wg sync.WaitGroup
+	for range min(deleteObjectsWorkers, len(in.Objects)) {
+		wg.Go(func() {
+			for {
+				i := int(next.Add(1) - 1)
+				if i >= len(in.Objects) || ctx.Err() != nil {
+					return
+				}
+				o := in.Objects[i]
+				outcomes[i].del, outcomes[i].err = l.DeleteObject(ctx, in.Bucket, o.Key,
+					DeleteObjectOptions{VersionID: o.VersionID, BypassGovernance: in.BypassGovernance})
+				outcomes[i].done = true
+			}
+		})
+	}
+	wg.Wait()
 	res := DeleteObjectsResult{}
-	for _, o := range in.Objects {
-		if err := ctx.Err(); err != nil {
-			return res, err
+	for i, o := range in.Objects {
+		if !outcomes[i].done {
+			// Not attempted: the request ended.
+			return res, context.Cause(ctx)
 		}
-		del, err := l.DeleteObject(ctx, in.Bucket, o.Key, DeleteObjectOptions{VersionID: o.VersionID, BypassGovernance: in.BypassGovernance})
-		if err != nil {
+		if err := outcomes[i].err; err != nil {
 			res.Errors = append(res.Errors, DeleteError{Key: o.Key, VersionID: o.VersionID, Err: err})
 			continue
 		}
 		if !in.Quiet {
-			res.Deleted = append(res.Deleted, del)
+			res.Deleted = append(res.Deleted, outcomes[i].del)
 		}
 	}
 	return res, nil

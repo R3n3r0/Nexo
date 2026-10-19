@@ -96,6 +96,19 @@ dipendono dagli orologi; l'ordine delle versioni di un oggetto resta monotono an
 - Controlla il file system: XFS, `noatime`, nessun RAID o LVM sotto Nexo, nessun altro processo che usi
   intensamente lo stesso disco; `dmesg` per errori di I/O.
 
+## Scritture piccole lente (benchmark)
+
+Ogni PUT è durevole quando risponde: l'oggetto (inline in `xl.meta` fino a 128 KiB) è scritto su disco
+prima della risposta. Con molti oggetti piccoli è la latenza del flush del disco a dettare il ritmo, più
+della banda.
+
+- Tieni i record di audit fuori dal log del server (il default; `NEXO_AUDIT_LOG=off`) e il livello di log a
+  `info`: una riga per richiesta costa, soprattutto su una console Windows.
+- Su Windows escludi la directory dei dati dalla scansione in tempo reale di Microsoft Defender (o
+  dell'antivirus in uso): altrimenti ogni nuovo file viene scansionato durante la scrittura.
+- Lo scanner in background si mette in pausa mentre l'API S3 è impegnata; non compete con un benchmark.
+- La pulizia dopo `warp` cancella fino a 16 chiavi di una richiesta `DeleteObjects` alla volta.
+
 ## Permessi e accessi negati
 
 | Sintomo | Verifica |

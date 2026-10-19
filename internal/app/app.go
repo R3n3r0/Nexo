@@ -497,6 +497,9 @@ type middlewareDeps struct {
 	// limiter enforces the rate and concurrency limits of the requests
 	// (S-OPS-10; nil: none).
 	limiter ratelimit.Service
+	// activity counts the S3 requests in progress, the load the scanner
+	// yields to (nil: not counted).
+	activity *middleware.Activity
 }
 
 // s3Middlewares returns the middleware chain of the S3 listener, outermost
@@ -552,8 +555,14 @@ func s3Middlewares(d middlewareDeps) ([]middleware.Middleware, error) {
 	if err != nil {
 		return nil, err
 	}
+	var activity middleware.Middleware
+	if d.activity != nil {
+		activity = d.activity
+	}
 	return []middleware.Middleware{
 		middleware.NewRequestID(middleware.RequestIDDeps{IDs: d.ids}),
+		// The requests in progress, the load the scanner pauses for.
+		activity,
 		forwarded,
 		// The bucket and object of the request as the S3 API resolves
 		// them (custom domains of the s3 distributions included), for the

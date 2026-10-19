@@ -63,6 +63,12 @@ type Static struct {
 	// every node presents its own certificate as a client (it must allow
 	// client authentication). It needs TLS (CertsDir).
 	TLSInternodeVerify bool `json:"tlsInternodeVerify"`
+	// AuditLog writes every audit record to the server log as well
+	// (NEXO_AUDIT_LOG, --audit-log). Off by default: one log line per
+	// request costs throughput, a lot on a Windows console; the records
+	// stay in memory for the console and the CLI and go to the audit
+	// targets either way, and the debug level logs them.
+	AuditLog bool `json:"auditLog,omitempty"`
 	// TLSMinVersion is the oldest TLS version the listeners accept:
 	// TLSVersion12 (default) or TLSVersion13 (tls.go).
 	TLSMinVersion string `json:"tlsMinVersion,omitempty"`

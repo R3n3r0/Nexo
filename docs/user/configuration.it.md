@@ -108,6 +108,7 @@ Solo da ambiente (nessun flag). Dettagli in [KMS e SSE](security/kms-sse.md).
 |-----------|------|---------|-------------|
 | `NEXO_LOG_LEVEL` | `--log-level` | `info` | `debug`, `info`, `warn`, `error` (modificabile a caldo con il sottosistema `logger`) |
 | `NEXO_LOG_FORMAT` | `--log-format` | `json` | `json` o `text` |
+| `NEXO_AUDIT_LOG` | `--audit-log` | `off` | Scrive anche nel log del server ogni record di audit (uno per richiesta); il livello `debug` li registra comunque |
 | `NEXO_PROMETHEUS_AUTH_TYPE` | — | `jwt` | Endpoint `/nexo/metrics/v1/*`: `jwt` (bearer token) o `public` |
 | `NEXO_OTEL_EXPORTER_OTLP_ENDPOINT` | — | — (disattivato) | Collector OpenTelemetry (`http(s)://…`) |
 | `NEXO_OTEL_EXPORTER_OTLP_PROTOCOL` | — | `http/protobuf` | `http/protobuf` o `grpc` |
