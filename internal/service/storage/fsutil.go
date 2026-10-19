@@ -214,6 +214,27 @@ func (s *xlStorage) writeTemp(data []byte, sync bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return s.fillTemp(f, data, sync)
+}
+
+// stagedPrefix starts the name of a metadata file staged in its object
+// directory (writeTempIn).
+const stagedPrefix = ".staged-"
+
+// writeTempIn writes data to a new synced file of dir (stagedPrefix and a
+// random suffix) and returns its path.
+func (s *xlStorage) writeTempIn(dir string, data []byte, sync bool) (string, error) {
+	name := filepath.Join(dir, stagedPrefix+randomSuffix())
+	f, err := os.OpenFile(name, os.O_RDWR|os.O_CREATE|os.O_EXCL|oNoFollow, fs.FileMode(s.opts.filePerm)) // #nosec G304 -- a directory of the drive, resolved by the storage layer
+	if err != nil {
+		return "", mapErr(err)
+	}
+	return s.fillTemp(f, data, sync)
+}
+
+// fillTemp writes data to the new file f, syncs it when asked and closes
+// it; the file is removed on failure.
+func (s *xlStorage) fillTemp(f *os.File, data []byte, sync bool) (string, error) {
 	name := f.Name()
 	if _, err := f.Write(data); err != nil {
 		_ = f.Close()

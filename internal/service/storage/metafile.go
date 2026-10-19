@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"path/filepath"
 
 	"github.com/r3n3r0/nexo/internal/domain"
@@ -90,7 +91,21 @@ func (s *xlStorage) writeMeta(dir, volDir string, meta *xlMeta, sync bool) error
 	if err != nil {
 		return err
 	}
-	if err := s.writeAtomic(filepath.Join(dir, MetaFile), volDir, data, sync); err != nil {
+	dst := filepath.Join(dir, MetaFile)
+	// Staged in the object directory when it exists (a rename within the
+	// directory, see RenameData), through the temporary area otherwise.
+	staged, err := s.writeTempIn(dir, data, sync)
+	if errors.Is(err, fs.ErrNotExist) {
+		err = s.writeAtomic(dst, volDir, data, sync)
+	} else if err == nil {
+		if err = s.rename(staged, dst); err != nil {
+			_ = os.Remove(staged)
+			err = mapErr(err)
+		} else if sync {
+			s.syncDir(dir)
+		}
+	}
+	if err != nil {
 		return fmt.Errorf("storage: write %s: %w", MetaFile, s.writeErr(filepath.Base(volDir), "", err))
 	}
 	return nil

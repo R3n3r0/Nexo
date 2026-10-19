@@ -92,7 +92,7 @@ func TestCrashBeforeCommit(t *testing.T) {
 	// The writers freeze right before xl.meta is renamed into place.
 	frozen, release := make(chan struct{}, 2), make(chan struct{})
 	s.rename = func(oldpath, newpath string) error {
-		if filepath.Base(newpath) == MetaFile && strings.Contains(oldpath, TmpDir) {
+		if filepath.Base(newpath) == MetaFile && strings.HasPrefix(filepath.Base(oldpath), stagedPrefix) {
 			frozen <- struct{}{}
 			<-release
 			return errors.New("killed")
@@ -113,12 +113,18 @@ func TestCrashBeforeCommit(t *testing.T) {
 	<-frozen
 	<-frozen
 
-	// The "killed" process left: the moved data directories, the staged
-	// xl.meta of both writes, a partial part file.
+	// The "killed" process left: the moved data directories, the xl.meta
+	// of both writes staged in their object directories, a partial part
+	// file.
 	_, err = os.Stat(filepath.Join(dir, "b", "k", fi2.DataDir))
 	require.NoError(t, err, "the data directory was moved before the crash")
+	for _, key := range []string{"k", fresh} {
+		staged, err := filepath.Glob(filepath.Join(dir, "b", key, stagedPrefix+"*"))
+		require.NoError(t, err)
+		require.Len(t, staged, 1, "the staged metadata of %s", key)
+	}
 	require.NoError(t, os.WriteFile(filepath.Join(dir, domain.SystemBucket, TmpDir, "partial"), []byte("half"), 0o600))
-	require.Len(t, tmpEntries(t, dir), 3)
+	require.Len(t, tmpEntries(t, dir), 1)
 
 	// Restart: a new instance on the same drive.
 	s2 := openDrive(t, dir)
@@ -137,10 +143,11 @@ func TestCrashBeforeCommit(t *testing.T) {
 			names = append(names, e.Name)
 			return nil
 		}))
-		assert.Equal(t, []string{"k"}, names, "orphan data directories are not listed")
+		assert.Equal(t, []string{"k"}, names, "orphan data directories and staged files are not listed")
 	}
 
-	// Deleting the last version also removes the orphan data directories.
+	// Deleting the last version also removes the orphan data directories
+	// and the staged file.
 	require.NoError(t, s2.DeleteVersion(ctx, "b", "k", FileInfo{}, DeleteOptions{}))
 	_, err = os.Stat(filepath.Join(dir, "b", "k"))
 	assert.True(t, errors.Is(err, fs.ErrNotExist))

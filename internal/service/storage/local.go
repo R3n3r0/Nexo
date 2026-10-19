@@ -708,17 +708,22 @@ func (s *xlStorage) removeDataDir(objDir, dataDir string) {
 	}
 }
 
-// removeOrphanDataDirs removes the data directories left in an object
-// directory without metadata (interrupted commits, purged versions). Child
-// prefixes and objects are left alone, whatever their name.
+// removeOrphanDataDirs removes the data directories and the staged
+// metadata left in an object directory without metadata (interrupted
+// commits, purged versions); the caller holds the placement lock of the
+// object, so no write is staging there. Child prefixes and objects are
+// left alone, whatever their name.
 func (s *xlStorage) removeOrphanDataDirs(objDir string) {
 	entries, err := os.ReadDir(objDir)
 	if err != nil {
 		return
 	}
 	for _, e := range entries {
-		if e.IsDir() && isDataDir(e.Name()) {
+		switch {
+		case e.IsDir() && isDataDir(e.Name()):
 			s.removeDataDir(objDir, e.Name())
+		case e.Type().IsRegular() && strings.HasPrefix(e.Name(), stagedPrefix):
+			_ = os.Remove(filepath.Join(objDir, e.Name()))
 		}
 	}
 }
@@ -912,20 +917,25 @@ func (s *xlStorage) RenameData(ctx context.Context, srcVolume, srcPath string, f
 	if err != nil {
 		return RenameDataResult{}, err
 	}
-	staged, err := s.writeTemp(buf, true)
-	if err != nil {
-		return RenameDataResult{}, fmt.Errorf("storage: stage %s/%s: %w", dstVolume, dstPath, err)
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = os.Remove(staged)
-		}
-	}()
-
 	if err := s.mkdirAll(dstDir, dstVolDir); err != nil {
 		return RenameDataResult{}, fmt.Errorf("storage: create %s/%s: %w", dstVolume, dstPath, s.writeErr(dstVolume, dstPath, err))
 	}
+	// The new metadata is staged next to the one it replaces: a rename
+	// within a directory, and no shared temporary directory that every
+	// write of the drive would contend for. A stray staged file (a crash)
+	// is not an object: listings skip it.
+	staged, err := s.writeTempIn(dstDir, buf, true)
+	if err != nil {
+		s.pruneEmptyDirs(dstDir, dstVolDir)
+		return RenameDataResult{}, fmt.Errorf("storage: stage %s/%s: %w", dstVolume, dstPath, err)
+	}
+	committed := false
+	discard := func() {
+		if !committed {
+			_ = os.Remove(staged)
+		}
+	}
+	defer discard()
 	var target, aside string
 	if fi.DataDir != "" {
 		target = filepath.Join(dstDir, fi.DataDir)
@@ -939,6 +949,7 @@ func (s *xlStorage) RenameData(ctx context.Context, srcVolume, srcPath string, f
 		}
 		if err := s.rename(srcDir, target); err != nil {
 			s.restoreAside(aside, target)
+			discard()
 			s.pruneEmptyDirs(dstDir, dstVolDir)
 			return RenameDataResult{}, fmt.Errorf("storage: rename data into %s/%s: %w", dstVolume, dstPath, s.writeErr(srcVolume, srcPath, err))
 		}
@@ -951,6 +962,7 @@ func (s *xlStorage) RenameData(ctx context.Context, srcVolume, srcPath string, f
 			}
 			s.restoreAside(aside, target)
 		}
+		discard()
 		s.pruneEmptyDirs(dstDir, dstVolDir)
 		return RenameDataResult{}, fmt.Errorf("storage: commit %s/%s: %w", dstVolume, dstPath, s.writeErr(dstVolume, dstPath, err))
 	}
