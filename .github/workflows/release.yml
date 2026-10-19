@@ -67,11 +67,11 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # full history and tags for the changelog
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
@@ -82,7 +82,7 @@ jobs:
       - name: Traceability matrix
         run: make traceability-check
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -98,15 +98,15 @@ jobs:
 
       # buildx builds both platforms from the compiled binaries (no RUN in
       # the target platform), QEMU only for safety.
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@v4
         with:
           platforms: linux/arm64
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       # buildx and cosign both use this login (the signatures are pushed
       # next to the docker.io images).
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: docker.io
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -121,7 +121,7 @@ jobs:
           syft-version: ${{ env.SYFT_VERSION }}
 
       - name: GoReleaser
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: ${{ env.GORELEASER_VERSION }}
@@ -133,7 +133,7 @@ jobs:
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
           # DOCKERHUB_NAMESPACE (workflow env): namespace of the images.
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: release-dist
@@ -160,7 +160,7 @@ jobs:
       contents: read
     steps:
       # Pulls from Docker Hub are rate limited for anonymous clients.
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: docker.io
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -170,7 +170,7 @@ jobs:
         with:
           cosign-release: ${{ env.COSIGN_VERSION }}
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release-dist
           path: dist
@@ -228,11 +228,11 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: packaging
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release-dist
           path: dist
@@ -280,9 +280,9 @@ jobs:
       contents: write   # attach the chart to the release
       id-token: write   # cosign keyless signing
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
         with:
           version: ${{ env.HELM_VERSION }}
 
@@ -325,7 +325,7 @@ jobs:
           - image: nexoctl
             description: Command-line client of Nexo, the S3-compatible object storage server
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: deploy/docker
 
