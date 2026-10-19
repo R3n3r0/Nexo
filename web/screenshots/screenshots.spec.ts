@@ -229,3 +229,82 @@ test('dark mode', async ({ browser }) => {
   await shoot(page, 'overview-dark');
   await context.close();
 });
+
+/** The demo video of seed.sh and its stream link (run.sh exports the player page). */
+const videoBucket = 'videos';
+const videoKey = 'trailers/aurora.mp4';
+const playerUrl = process.env.SCREENSHOTS_PLAYER_URL;
+
+/** Whether the demo video exists and the media worker has processed it. */
+async function videoProcessed(context: BrowserContext): Promise<boolean> {
+  const res = await context.request.get(
+    `/api/v1/buckets/${videoBucket}/objects/media/status?key=${encodeURIComponent(videoKey)}`,
+  );
+  if (!res.ok()) return false;
+  const status = (await res.json()) as { state?: string; current?: boolean };
+  return status.state === 'done' && status.current === true;
+}
+
+test('video player', async ({ browser }) => {
+  test.skip(playerUrl === undefined || playerUrl === '', 'no stream link (seed.sh needs ffmpeg)');
+  // The player page of a stream link, served by the S3 listener: 16:9, the
+  // video fills it.
+  const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const page = await context.newPage();
+  await page.goto(playerUrl ?? '');
+  const h264 = await page.evaluate(() =>
+    MediaSource.isTypeSupported('video/mp4; codecs="avc1.640028,mp4a.40.2"'),
+  );
+  test.skip(!h264, 'this browser has no H.264 decoder: set NEXO_E2E_CHROMIUM to Google Chrome');
+  const video = page.locator('#video');
+  await expect
+    .poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState), { timeout: 30_000 })
+    .toBeGreaterThanOrEqual(1);
+  // A few seconds in and playing, a frame decoded: the click on the video
+  // is the user gesture that the autoplay policy asks for.
+  await video.evaluate(async (v: HTMLVideoElement) => {
+    v.currentTime = 6;
+    await new Promise((resolve) => v.addEventListener('seeked', resolve, { once: true }));
+  });
+  await video.click({ position: { x: 640, y: 300 } });
+  await video.evaluate(async (v: HTMLVideoElement) => {
+    if (v.paused) await v.play();
+    await new Promise((resolve) => v.requestVideoFrameCallback(resolve));
+  });
+  await expect
+    .poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime))
+    .toBeGreaterThan(6.5);
+  // The controls show while the pointer is over the video.
+  await page.mouse.move(640, 600);
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: join(out, 'video-player.png') });
+  await context.close();
+});
+
+test('media panel', async ({ browser }) => {
+  const { context, page } = await newSession(browser);
+  test.skip(!(await videoProcessed(context)), 'the demo video has no media worker outputs');
+  await page.goto(
+    `/buckets/${videoBucket}/browse/trailers/?object=${encodeURIComponent(videoKey)}`,
+  );
+  const drawer = page.getByRole('dialog');
+  await drawer.getByRole('tab', { name: 'Video', exact: true }).click();
+  await expect(drawer.getByRole('table')).toContainText('720p');
+  const poster = drawer.locator('img');
+  await expect(poster).toBeVisible();
+  await expect
+    .poll(() => poster.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth))
+    .toBeGreaterThan(0);
+  await shoot(page, 'media-panel');
+  await context.close();
+});
+
+test('media rules', async ({ browser }) => {
+  const { context, page } = await newSession(browser);
+  const res = await context.request.get(`/api/v1/buckets/${videoBucket}`);
+  test.skip(!res.ok(), 'no video bucket (seed.sh needs ffmpeg)');
+  await page.goto(`/buckets/${videoBucket}/media`);
+  await expect(page.getByText('social-clips')).toBeVisible();
+  await shoot(page, 'media-rules');
+  await context.close();
+});

@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 # Seeds the demo deployment of the README screenshots with nexoctl: buckets,
 # objects, versions, Object Lock, lifecycle, events, IAM, a share link, an
-# access rule, two distributions with their cache, and some traffic so that
-# the cache statistics and the metrics have data.
+# access rule, two distributions with their cache, a video with its media
+# rules and a stream link (when ffmpeg is installed), and some traffic so
+# that the cache statistics and the metrics have data.
 #
 # Usage: seed.sh WORKDIR
 # Environment: NEXOCTL (default bin/nexoctl), DEMO_S3_URL, DEMO_CONSOLE_URL,
-# DEMO_WEB_URL, DEMO_ROOT_USER, DEMO_ROOT_PASSWORD, DEMO_WEBHOOK_URL.
+# DEMO_WEB_URL, DEMO_ROOT_USER, DEMO_ROOT_PASSWORD, DEMO_WEBHOOK_URL; the
+# media worker started by run.sh: DEMO_MEDIA_WORKER_URL (its jobs endpoint;
+# unset: no worker), DEMO_MEDIA_WORKER_TOKEN, DEMO_MEDIA_WORKER_USER,
+# DEMO_MEDIA_WORKER_SECRET, DEMO_MEDIA_TIMEOUT (seconds, default 600).
+# Writes the player page of the stream link to WORKDIR/player.url.
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -166,6 +171,58 @@ nx dist create demo media --bucket photos --prefix /thumbnails --mode website \
   --domain img.example.org --domain cdn.example.org --comment 'Photo thumbnails'
 nx dist cache set demo media --enable --policy standard
 
+echo "seed: video"
+# A video bucket with media rules and a stream link: its renditions, poster
+# and thumbnails come from the media worker that run.sh starts (when it
+# could: DEMO_MEDIA_WORKER_URL). The video is generated with ffmpeg.
+video=""
+if ! command -v ffmpeg >/dev/null; then
+  echo "seed: ffmpeg not found, no demo video (the video screenshots are skipped)" >&2
+else
+  video="$files/videos/aurora.mp4"
+  if [ ! -s "$video" ]; then
+    mkdir -p "$files/videos"
+    "$repo/scripts/screenshots/gen_video.sh" "$video.tmp.mp4"
+    mv "$video.tmp.mp4" "$video"
+  fi
+fi
+if [ -n "$video" ]; then
+  if [ -n "${DEMO_MEDIA_WORKER_URL:-}" ]; then
+    # The worker reads the videos and writes only under .nexo-media/
+    # (docs/user/media-worker.md); run.sh started it with these credentials.
+    cat >"$work/media-worker.json" <<'JSON'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Effect": "Allow", "Action": ["s3:GetObject", "s3:GetObjectVersion"], "Resource": ["arn:aws:s3:::videos/*"]},
+    {"Effect": "Allow", "Action": ["s3:PutObject", "s3:DeleteObject", "s3:DeleteObjectVersion"],
+     "Resource": ["arn:aws:s3:::videos/.nexo-media/*"]},
+    {"Effect": "Allow", "Action": ["s3:ListBucket", "s3:ListBucketVersions"], "Resource": ["arn:aws:s3:::videos"],
+     "Condition": {"StringLike": {"s3:prefix": [".nexo-media/*"]}}}
+  ]
+}
+JSON
+    nx admin policy create --update demo media-worker "$work/media-worker.json"
+    if ! nx admin user info demo "${DEMO_MEDIA_WORKER_USER:-media-worker}" >/dev/null 2>&1; then
+      nx admin user add demo "${DEMO_MEDIA_WORKER_USER:-media-worker}" "${DEMO_MEDIA_WORKER_SECRET:?}" --policy media-worker
+    fi
+    nx admin config set demo notify_media_worker:transcoder enable=on endpoint="$DEMO_MEDIA_WORKER_URL" \
+      auth_token="${DEMO_MEDIA_WORKER_TOKEN:?}" comment='Renditions, posters and thumbnails'
+  else
+    echo "seed: no media worker, the demo video streams without renditions" >&2
+  fi
+  nx mb -p --with-versioning demo/videos
+  nx tag set demo/videos "team=media&env=production"
+  nx media rule add demo/videos --id trailers --prefix trailers/ \
+    --rendition 720p,480p,360p,240p --poster --thumbnails 2s
+  nx media rule add demo/videos --id courses --prefix courses/ --suffix .mp4,.mov \
+    --rendition 1080p,720p,360p --poster --thumbnails 10s
+  nx media rule add demo/videos --id social-clips --prefix clips/ --rendition 480p,240p --poster
+  nx cp "$video" demo/videos/trailers/aurora.mp4
+  "$nexoctl" --json share download --stream --expire 7d demo/videos/trailers/aurora.mp4 |
+    python3 -c 'import json, sys; print(json.load(sys.stdin)["player"])' >"$work/player.url"
+fi
+
 echo "seed: traffic"
 paths=(/ /about/ /blog/ /blog/packing-list-for-the-alps/ /blog/choosing-a-tent/ /assets/css/site.css
   /assets/js/app.js /assets/js/vendor.js /assets/img/logo.svg /assets/img/hero.jpg /assets/img/team.jpg
@@ -189,4 +246,21 @@ for round in $(seq 1 6); do
   nx cp "demo/logs/tmp/upload-$round.bin" "$work/download.bin"
   nx rm "demo/logs/tmp/upload-$round.bin"
 done
+
+if [ -n "$video" ] && [ -n "${DEMO_MEDIA_WORKER_URL:-}" ]; then
+  echo "seed: waiting for the media worker"
+  state=""
+  for _ in $(seq 1 "${DEMO_MEDIA_TIMEOUT:-600}"); do
+    state="$("$nexoctl" --json media status demo/videos/trailers/aurora.mp4 |
+      python3 -c 'import json, sys; s = json.load(sys.stdin); print(s["state"] + ("" if s.get("current") else "-stale"))')"
+    case "$state" in
+      done | failed*) break ;;
+    esac
+    sleep 1
+  done
+  if [ "$state" != "done" ]; then
+    echo "seed: the demo video is $state, not done (see media-worker.log)" >&2
+  fi
+  nx media status demo/videos/trailers/aurora.mp4
+fi
 echo "seed: done"

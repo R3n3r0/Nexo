@@ -195,7 +195,7 @@ e2e:
 # The binaries are built without the -dirty suffix of the version: the
 # screenshots show it, and are regenerated before they are committed.
 screenshots:
-	$(MAKE) build VERSION=$$(git describe --tags --always 2>/dev/null || echo dev)
+	$(MAKE) build build-media-worker VERSION=$$(git describe --tags --always 2>/dev/null || echo dev)
 	scripts/screenshots/run.sh
 
 ## demo-gif: record the demo animation of the README (docs/images/demo.gif) against a seeded demo deployment (needs ffmpeg)

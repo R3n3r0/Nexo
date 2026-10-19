@@ -1,47 +1,213 @@
-# Nexo
+<p align="center">
+  <img src="docs/images/logo.svg" alt="Nexo" width="88" height="88">
+</p>
 
-**English** | [Italiano](README.it.md)
+<h1 align="center">Nexo</h1>
 
-[![CI](https://github.com/R3n3r0/Nexo/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/R3n3r0/Nexo/actions/workflows/ci.yml)
-[![Documentation](https://img.shields.io/badge/docs-r3n3r0.github.io%2FNexo-blue)](https://r3n3r0.github.io/Nexo/)
-[![Docker Hub](https://img.shields.io/docker/pulls/paolor/nexo?label=docker%20pulls)](https://hub.docker.com/r/paolor/nexo)
-[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-green)](LICENSE)
+<p align="center">
+  <b>Self-hosted, S3-compatible object storage in Go, with video streaming built in.</b><br>
+  One binary: S3 server, Admin API and web console. From one drive to a multi-node cluster.
+</p>
 
-**Nexo** is an object store compatible with the **Amazon S3** API, written in Go. A single binary
-(`nexo`) contains the S3 server, the Admin API and the web console; `nexoctl` is the CLI for data and
-administration. The same binary runs on one drive, on multiple drives with erasure coding and as a
-multi-node cluster, with no external metadata database.
+<p align="center">
+  <a href="https://github.com/R3n3r0/Nexo/actions/workflows/ci.yml"><img src="https://github.com/R3n3r0/Nexo/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://r3n3r0.github.io/Nexo/"><img src="https://img.shields.io/badge/docs-r3n3r0.github.io%2FNexo-4c6ef5" alt="Documentation"></a>
+  <a href="https://hub.docker.com/r/paolor/nexo"><img src="https://img.shields.io/docker/pulls/paolor/nexo?label=docker%20pulls&color=4c6ef5" alt="Docker Hub"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-green" alt="License: AGPL-3.0"></a>
+  <img src="https://img.shields.io/badge/s3--tests-451%2F451-brightgreen" alt="Ceph s3-tests: 451 of 451">
+  <img src="https://img.shields.io/badge/mint-638%2F638-brightgreen" alt="MinIO mint: 638 of 638">
+</p>
+
+<p align="center">
+  <a href="#-quick-start"><b>Quick start</b></a> ·
+  <a href="#-features"><b>Features</b></a> ·
+  <a href="#-video-built-in"><b>Video</b></a> ·
+  <a href="#-screenshots"><b>Screenshots</b></a> ·
+  <a href="https://r3n3r0.github.io/Nexo/"><b>Documentation</b></a> ·
+  <a href="README.it.md"><b>Italiano</b></a>
+</p>
 
 <p align="center">
   <img src="docs/images/demo.gif" alt="Demo of the Nexo console: sign in, create a versioned bucket, upload photos, preview one and create a share link" width="960">
 </p>
 
-<sub>Sign in, a versioned bucket, an upload, a preview and a share link in the web console (recorded with `make demo-gif`).</sub>
+<p align="center"><sub>Sign in, a versioned bucket, an upload, a preview and a share link in the web console (recorded with <code>make demo-gif</code>).</sub></p>
 
-- **S3 API**: SigV4, buckets, objects, multipart, versioning, Object Lock, lifecycle, notifications, CORS,
-  checksums, SSE-S3/SSE-KMS/SSE-C encryption, presigned URLs and POST policies; passes all 451 applicable tests
-  of the Ceph `s3-tests` suite and the 638 of MinIO's `mint` SDK suites, on single drive, multiple drives and
-  cluster.
-- **Durability**: Reed-Solomon erasure coding with configurable parity, bitrot protection, automatic
-  healing, hot drive replacement, expansion with new pools.
-- **Security**: IAM users, groups and policies, access keys with expiry, STS, access rules with glob and
-  regex, revocable share links, TLS with hot reload, mTLS between nodes, built-in KMS or KES,
-  audit log.
-- **Video streaming**: MP4 videos play as HLS streams packaged on the fly, no transcoding: in the console and
-  through revocable stream links with a public player page, for browsers and any HLS player.
-- **Media worker**: per-bucket rules have `nexo-media-worker` derive lower-quality renditions (240p to 2160p, added
-  to the HLS playlists), a poster and timeline thumbnails from the videos; a separate binary built on OpenH264
-  (no ffmpeg), with a durable job queue, working through the S3 API only with a least-privilege policy.
-- **Distributions**: a bucket served on custom domains CloudFront style, with ACME certificates,
-  signed URLs, in-memory and on-disk cache with automatic invalidation.
-- **Operations**: web console, Prometheus metrics with ready-made Grafana dashboard and alerts, real-time
-  trace and logs, OpenTelemetry, deb/rpm packages, Homebrew, Docker images, Helm chart, systemd unit.
+## ✨ Why Nexo
 
-**Coming from MinIO?** Follow the [migration guide](https://r3n3r0.github.io/Nexo/migrate-from-minio/) (every version, policies
-and users, verified with `nexoctl diff`). **Choosing a store?** See [how Nexo compares](https://r3n3r0.github.io/Nexo/comparison/)
-with MinIO, SeaweedFS, Garage and Ceph RGW, including where another project fits better.
+- **One binary, no moving parts.** `nexo` is the S3 server, the Admin API and the web console; there is no
+  external metadata database. The same binary runs on one drive, on several drives with erasure coding, or as a
+  cluster of nodes.
+- **Really S3.** It passes all 451 applicable tests of Ceph's `s3-tests` and the 638 of MinIO's `mint` SDK
+  suites, on one drive, several drives and in a cluster: your SDKs, `aws`, `rclone` and backup tools just work.
+- **Your videos play the moment they land.** An uploaded MP4 streams as HLS straight away, and a media worker
+  can add every quality from 240p to 4K, a poster and seek-bar thumbnails, with no ffmpeg anywhere.
+- **Built for operators.** A console for everything, Prometheus metrics with a ready-made Grafana dashboard,
+  live traces and logs, and packages for every platform.
 
-## Screenshots
+**Coming from MinIO?** Follow the [migration guide](https://r3n3r0.github.io/Nexo/migrate-from-minio/) (every
+version, policies and users, verified with `nexoctl diff`). **Choosing a store?** See
+[how Nexo compares](https://r3n3r0.github.io/Nexo/comparison/) with MinIO, SeaweedFS, Garage and Ceph RGW,
+including where another project fits better.
+
+## 🚀 Quick start
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**Docker**
+
+```bash
+docker run -d --name nexo -p 9000:9000 -p 9001:9001 \
+  -e NEXO_ROOT_USER=admin \
+  -e NEXO_ROOT_PASSWORD=supersecret \
+  -v nexo-data:/data paolor/nexo:latest server /data
+```
+
+</td>
+<td width="50%" valign="top">
+
+**Binary** ([releases](https://github.com/R3n3r0/Nexo/releases) or `make build`)
+
+```bash
+export NEXO_ROOT_USER=admin NEXO_ROOT_PASSWORD=supersecret
+nexo server ~/nexo-data
+# several drives: nexo server /mnt/disk{1...4}
+```
+
+</td>
+</tr>
+</table>
+
+Open the console at <http://localhost:9001> (user `admin`, password `supersecret`), or use the CLI:
+
+```bash
+nexoctl alias set local http://localhost:9000 admin supersecret
+nexoctl mb local/photos
+nexoctl cp hello.txt local/photos/
+nexoctl share download --expire 2h local/photos/hello.txt     # a revocable link
+```
+
+Any S3 client works with the endpoint `http://localhost:9000` and the same credentials, for example
+`aws --endpoint-url http://localhost:9000 s3 ls`. The images are on Docker Hub:
+[`paolor/nexo`](https://hub.docker.com/r/paolor/nexo) (server and CLI) and
+[`paolor/nexoctl`](https://hub.docker.com/r/paolor/nexoctl) (CLI only).
+
+## 🧩 Features
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### 🪣 S3 API
+SigV4, buckets, objects, multipart, versioning, Object Lock, lifecycle, notifications, CORS, checksums,
+SSE-S3 / SSE-KMS / SSE-C encryption, presigned URLs and POST policies.
+
+</td>
+<td width="50%" valign="top">
+
+### 🛡️ Durability
+Reed-Solomon erasure coding with configurable parity, bitrot protection, automatic healing, hot drive
+replacement, expansion with new pools.
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### 🔐 Security
+IAM users, groups and policies, access keys with expiry, STS, access rules with glob and regex, revocable
+share links, TLS with hot reload, mTLS between nodes, built-in KMS or KES, audit log.
+
+</td>
+<td width="50%" valign="top">
+
+### 🎬 Video
+MP4 videos stream as HLS packaged on the fly, in the console and through revocable stream links with a public
+player page. The media worker adds renditions, posters and thumbnails ([below](#-video-built-in)).
+
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+
+### 🌍 Distributions
+A bucket served on your own domains, CloudFront style: ACME certificates, signed URLs, in-memory and on-disk
+cache with automatic invalidation.
+
+</td>
+<td width="50%" valign="top">
+
+### 📈 Operations
+Web console, Prometheus metrics with Grafana dashboard and alerts, live trace and logs, OpenTelemetry,
+deb/rpm, Homebrew, Docker images, Helm chart, systemd unit.
+
+</td>
+</tr>
+</table>
+
+## 🎬 Video, built in
+
+Upload an MP4 and it plays at once, in any browser and any HLS player: Nexo packages the stream on the fly from
+the file you stored, with no transcoding and nothing to prepare. Share it with a revocable stream link that opens
+a ready-made player page.
+
+Create the bucket with the **HLS video** option (or add a **media rule** to an existing one) and
+`nexo-media-worker` derives more from every video it selects: lower
+qualities for slow networks (240p to 2160p, offered by the same playlist), a poster and the thumbnails of the
+seek bar. The worker is a separate Go program built on Cisco's OpenH264, **no ffmpeg**, that works through the S3
+API with a least-privilege policy and never loses a job.
+
+<p align="center">
+  <img src="docs/images/video-pipeline.svg" alt="The video pipeline: an MP4 uploaded to Nexo streams as HLS at once; a media rule sends a job to nexo-media-worker, which writes back renditions, a poster and thumbnails that the playlist then offers" width="960">
+</p>
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/video-player.png"><img src="docs/images/screenshots/video-player.png" alt="The player page of a stream link" width="100%"></a><br>
+      <sub><b>Player</b>: HLS in any browser, with the quality picked for the network</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/media-panel.png"><img src="docs/images/screenshots/media-panel.png" alt="The media panel of a video in the console" width="100%"></a><br>
+      <sub><b>Media panel</b>: poster, timeline thumbnails and renditions of a video</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/media-rules.png"><img src="docs/images/screenshots/media-rules.png" alt="The media rules of a bucket" width="100%"></a><br>
+      <sub><b>Media rules</b>: which videos of a bucket get which outputs</sub>
+    </td>
+    <td width="50%" valign="top">
+
+```bash
+# stream any MP4 through a revocable link
+nexoctl share download --stream --expire 7d \
+  local/videos/talk.mp4
+
+# a video bucket: every quality, poster, thumbnails
+nexoctl mb --with-hls local/videos
+nexoctl cp intro.mp4 local/videos/
+nexoctl media status local/videos/intro.mp4
+```
+
+</td>
+  </tr>
+</table>
+
+| Job on a 20 s 1080p video (4 vCPU Xeon 2.1 GHz) | Speed |
+|---|---|
+| 720p + 360p + 240p renditions | **3.2× real time** (a 10-minute video in about 3 minutes) |
+| one rendition | 4–4.5× real time |
+| thumbnails, one per second | 74× real time |
+| poster | 44 ms |
+
+Every job uses all the cores: the video is split at its keyframes and each part is decoded and encoded on its
+own core, with the same result byte for byte. Details: [video streaming](docs/user/video-streaming.md),
+[media worker](docs/user/media-worker.md), [benchmarks](docs/bench/media.md).
+
+## 📸 Screenshots
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/screenshots/overview-dark.png">
@@ -104,39 +270,23 @@ taken from a demo deployment with `make screenshots`; drive capacity is shown as
   </tr>
 </table>
 
-## Quick start
+## ⚡ Performance
 
-With Docker:
+Measured on a 4 vCPU Xeon virtual machine, with the method and the machine described in
+[docs/bench](docs/bench/README.md) (`make bench` and `make bench-media` measure your own hardware and save its
+description with the results):
 
-```bash
-docker run -d --name nexo -p 9000:9000 -p 9001:9001 \
-  -e NEXO_ROOT_USER=admin -e NEXO_ROOT_PASSWORD=supersecret \
-  -v nexo-data:/data paolor/nexo:latest server /data
-```
+| warp, same VM | 1 drive | 4 drives, EC 2+2 | cluster, 4 processes × 2 drives, EC 4+4 |
+|---|---|---|---|
+| PUT 64 MiB objects | 727 MiB/s | 384 MiB/s | 296 MiB/s |
+| GET 64 MiB objects | 3.8 GiB/s | 2.9 GiB/s | 1.4 GiB/s |
+| Mixed workload | 4439 op/s | 2498 op/s | 327 op/s |
+| LIST | 61 680 keys/s | 18 604 keys/s | 7093 keys/s |
 
-The images are on Docker Hub: [`paolor/nexo`](https://hub.docker.com/r/paolor/nexo) (server and CLI) and
-[`paolor/nexoctl`](https://hub.docker.com/r/paolor/nexoctl) (CLI only).
+The cluster row runs four nodes on the same 4 vCPU machine: a real cluster spreads them over machines and
+networks. Video jobs are in [the section above](#-video-built-in).
 
-With the binary ([releases](https://github.com/R3n3r0/Nexo/releases) or `make build`):
-
-```bash
-export NEXO_ROOT_USER=admin NEXO_ROOT_PASSWORD=supersecret
-nexo server ~/nexo-data          # absolute path; multiple drives: nexo server /mnt/disk{1...4}
-```
-
-Then open the console at <http://localhost:9001> (user `admin`, password `supersecret`) or use the CLI:
-
-```bash
-nexoctl alias set local http://localhost:9000 admin supersecret
-nexoctl mb local/photos
-nexoctl cp hello.txt local/photos/
-nexoctl share download --expire 2h local/photos/hello.txt     # revocable link
-```
-
-Any S3 client works with the endpoint `http://localhost:9000` and the same credentials, for example
-`aws --endpoint-url http://localhost:9000 s3 ls`.
-
-## Documentation
+## 📚 Documentation
 
 **📖 Documentation site: <https://r3n3r0.github.io/Nexo/>** (Italian: <https://r3n3r0.github.io/Nexo/it/>), with
 search, the CLI reference and the Admin API.
@@ -147,19 +297,20 @@ from a release archive):
 
 | | |
 |---|---|
-| [Quickstart](docs/user/quickstart.md) | the complete walkthrough in five minutes |
-| [Installation](docs/user/installation.md) | binaries, deb/rpm, Homebrew, Docker, Compose, Helm, systemd |
-| [Deployment modes](docs/user/deployment-modes.md) | single drive, multiple drives, cluster, sizing |
-| [Configuration](docs/user/configuration.md) | flags, environment variables, dynamic configuration |
-| [Operations guide](docs/user/operations/monitoring.md) | monitoring, healing, upgrades, backup, troubleshooting |
-| [Security](docs/user/security/users-policies.md) | policies, sharing, access rules, TLS, KMS |
-| [Distributions and cache](docs/user/distributions/README.md) | custom domains, with a complete [tutorial](docs/user/distributions/tutorial-static-site.md) |
-| [Video](docs/user/video-streaming.md) | HLS streaming, stream links and the [media worker](docs/user/media-worker.md) (renditions, posters, thumbnails) |
-| [Reference](docs/user/reference/cli.md) | CLI, [Admin API](docs/user/reference/admin-api.md), [S3 compatibility](docs/user/reference/s3-compatibility.md) |
+| 🏁 [Quickstart](docs/user/quickstart.md) | the complete walkthrough in five minutes |
+| 📦 [Installation](docs/user/installation.md) | binaries, deb/rpm, Homebrew, Docker, Compose, Helm, systemd |
+| 🗄️ [Deployment modes](docs/user/deployment-modes.md) | single drive, multiple drives, cluster, sizing |
+| ⚙️ [Configuration](docs/user/configuration.md) | flags, environment variables, dynamic configuration |
+| 🩺 [Operations guide](docs/user/operations/monitoring.md) | monitoring, healing, upgrades, backup, troubleshooting |
+| 🔐 [Security](docs/user/security/users-policies.md) | policies, sharing, access rules, TLS, KMS |
+| 🌍 [Distributions and cache](docs/user/distributions/README.md) | custom domains, with a complete [tutorial](docs/user/distributions/tutorial-static-site.md) |
+| 🎬 [Video](docs/user/video-streaming.md) | HLS streaming, stream links and the [media worker](docs/user/media-worker.md) (renditions, posters, thumbnails) |
+| 📘 [Reference](docs/user/reference/cli.md) | CLI, [Admin API](docs/user/reference/admin-api.md), [S3 compatibility](docs/user/reference/s3-compatibility.md) |
 
 `make docs-site` publishes it as a static site with MkDocs (in `bin/site`, in English and in Italian under `/it/`).
 
-### Project documents
+<details>
+<summary><b>Project documents</b> (architecture, design, roadmap, test plan)</summary>
 
 | # | Document | Contents |
 |---|----------|----------|
@@ -179,9 +330,14 @@ from a release archive):
 The changes of every release are in the [CHANGELOG](CHANGELOG.md); the test coverage of every feature in the
 catalog is in the [traceability matrix](test/TRACEABILITY.md).
 
-## Development
+</details>
+
+## 🛠️ Development
 
 You need Go (the version in `go.mod`) and, for the console, Node.js.
+
+<details>
+<summary><b>Make targets</b></summary>
 
 | Command | What it runs |
 |---------|--------------|
@@ -202,10 +358,13 @@ You need Go (the version in `go.mod`) and, for the console, Node.js.
 | `make dco` | the sign-off check of the pull requests on the commits of the branch ([CONTRIBUTING.md](CONTRIBUTING.md)) |
 | `make help` | all the targets |
 
+</details>
+
 The code follows the convention of [docs/12](docs/12-service-architecture.md): every service has
 an interface and an unexported implementation, and composition happens only in `internal/app`.
+Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## License
+## 📄 License
 
 Nexo is free software licensed under the [GNU Affero General Public License v3.0 only](LICENSE)
 (`AGPL-3.0-only`): if you modify it and let users interact with it over a network, you must offer them the
