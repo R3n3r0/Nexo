@@ -599,6 +599,11 @@ func (w *website) serve(ctx context.Context, c *compiledDistribution, req WebReq
 	corsHeaders := simpleCORS(cors, origin)
 	resp := w.serveAllowed(ctx, c, req, p)
 	for k, v := range corsHeaders {
+		if k == "Vary" {
+			// Added to the Vary of the answer (Accept of an image).
+			resp.Header[k] = append(resp.Header[k], v...)
+			continue
+		}
 		resp.Header[k] = v
 	}
 	return resp
@@ -629,6 +634,11 @@ func (w *website) serveAllowed(ctx context.Context, c *compiledDistribution, req
 	}
 	if status, reason := w.authorize(ctx, c, req, b, policy.ActionGetObject, key); status != 0 {
 		return w.refuse(ctx, c, req, status, reason)
+	}
+	if negotiatesImages(b) && !p.directory && (req.Method == http.MethodGet || req.Method == http.MethodHead) {
+		if resp, ok := w.serveImage(ctx, c, req, b, key); ok {
+			return resp
+		}
 	}
 	resp, notFound := w.readObject(ctx, c, req, b, key, OutcomeObject)
 	if !notFound {

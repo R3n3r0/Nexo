@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/distribution"
 	"github.com/r3n3r0/nexo/internal/service/sysstore"
 )
@@ -95,13 +96,19 @@ func (s *service) afterChange(ctx context.Context, change ObjectChange, removed 
 	sn := s.snap.Load()
 	for _, d := range s.distributionsOf(change.Bucket) {
 		prefix := keyPrefixOf(d)
-		if !strings.HasPrefix(change.Key, prefix) {
+		key := change.Key
+		if source, ok := negotiatedImage(d, key); ok {
+			// The worker finished (or restarted) the variants of an image
+			// served at its own URL: the CDNs in front purge that URL.
+			key = source
+		}
+		if !strings.HasPrefix(key, prefix) {
 			continue
 		}
 		if !sn.resolveFor(ctx, d.ID, "", "/").eff.AutoInvalidate {
 			continue
 		}
-		rel := strings.TrimPrefix(change.Key, prefix)
+		rel := strings.TrimPrefix(key, prefix)
 		paths := []string{"/" + rel}
 		if idx := d.DefaultBehavior.IndexDocument; idx != "" && (rel == idx || strings.HasSuffix(rel, "/"+idx)) {
 			paths = append(paths, "/"+strings.TrimSuffix(rel, idx))
@@ -114,6 +121,21 @@ func (s *service) afterChange(ctx context.Context, change ObjectChange, removed 
 		}
 		s.queueWebhooks(ctx, sn, d, purgeJob{Distribution: d.ID, Paths: paths, Tags: splitTags(tags...), Automatic: true})
 	}
+}
+
+// negotiatedImage returns the image whose status.json key is, when a
+// behavior of d serves the variants of the images at their own URL
+// (distribution.Images).
+func negotiatedImage(d distribution.Distribution, key string) (string, bool) {
+	source, file, ok := domain.MediaSidecarSource(key)
+	if !ok || file != domain.MediaStatusFile {
+		return "", false
+	}
+	negotiates := func(b distribution.Behavior) bool { return b.Images != nil && b.Images.Negotiate }
+	if negotiates(d.DefaultBehavior) || slices.ContainsFunc(d.Behaviors, negotiates) {
+		return source, true
+	}
+	return "", false
 }
 
 // keyPrefixOf is the key prefix of the origin of a distribution.

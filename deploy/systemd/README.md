@@ -5,6 +5,8 @@
 | `nexo.service` | Unit: runs `nexo server` as user `nexo` in a sandbox (`ProtectSystem=strict`, no capability, syscall filter), with `nexo server --dry-run` as a pre-start check |
 | `nexo.env.example` | `/etc/default/nexo`: credentials, `NEXO_ENDPOINTS`, options |
 | `../../packaging/nfpm/*.sh` | Scripts of the `.deb`/`.rpm` packages (user `nexo`, systemd reload, stop on removal) |
+| `nexo-media-worker.service` | Unit of the [media worker](../../docs/user/media-worker.md): dynamic user, same sandbox, lower priority than Nexo |
+| `nexo-media-worker.env.example` | `/etc/default/nexo-media-worker`: S3 endpoint, credentials and token of the worker |
 
 The unit takes the endpoints from `NEXO_ENDPOINTS`, so it is the same for every mode (SNSD, SNMD,
 cluster) and every node: change the variable, never the unit. `systemd-analyze security nexo`
@@ -99,3 +101,37 @@ NEXO_ENDPOINTS=http://nexo{1...4}.lan:9000/mnt/disk{1...4}
 - `LimitNOFILE=1048576`, `TasksMax=infinity`: one file descriptor per open object part and connection.
 - Checked in CI by `make systemd-verify` (`systemd-analyze verify` and `systemd-analyze security`
   on a root with the unit, the env file and the binary).
+
+## Media worker
+
+`nexo-media-worker.service` runs [nexo-media-worker](../../docs/user/media-worker.md) (renditions, posters,
+thumbnails, image variants) on the same machine as Nexo or another one. It is installed by the
+`nexo-media-worker` deb/rpm package (with `/etc/default/nexo-media-worker`, root, mode 0600) and shipped in
+`systemd/` of its archives. `systemd-analyze security nexo-media-worker` rates it 1.3 ("OK").
+
+- `DynamicUser=yes`: no account to create; the state directory `/var/lib/nexo-media-worker` (a symlink to
+  `/var/lib/private/nexo-media-worker`) holds the job queue, the work files and OpenH264, downloaded from
+  Cisco at the first start.
+- The sandbox of `nexo.service` (read-only file system, no capability, `@system-service` system calls,
+  `MemoryDenyWriteExecute`: the Cisco builds of OpenH264 need no writable code), plus `PrivateUsers`.
+- `OOMScoreAdjust=500`, `CPUWeight=50`, `IOWeight=50`: on a shared machine Nexo keeps priority. Add a memory
+  limit in a drop-in (`MemoryMax=4G`): about 1 GiB per video job and 2 GiB per image job.
+
+```bash
+sudo apt install ./nexo-media-worker_1.0.0_amd64.deb    # or: sudo dnf install ./nexo-media-worker-1.0.0-1.x86_64.rpm
+sudoedit /etc/default/nexo-media-worker                 # NEXO_WORKER_S3_ENDPOINT, _ACCESS_KEY, _SECRET_KEY, _AUTH_TOKEN
+sudo systemctl enable --now nexo-media-worker
+# on Nexo: the user and policy of the worker, then the target (docs/user/media-worker.md, "Setup")
+nexoctl admin config set local notify_media_worker enable=on endpoint=http://<this host>:9600/jobs auth_token=<token>
+```
+
+Manual install from the archive:
+
+```bash
+sudo install -m 0755 nexo-media-worker /usr/local/bin/
+sudo install -m 0600 systemd/nexo-media-worker.env.example /etc/default/nexo-media-worker   # then edit it
+sudo install -m 0644 systemd/nexo-media-worker.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now nexo-media-worker
+```
+
+`make systemd-verify` checks both units (`systemd-analyze verify` and `security`).

@@ -258,3 +258,126 @@ storageClassName: {{ . | quote }}
 {{- end }}
 {{- end }}
 {{- end }}
+
+{{/*
+Media worker. Its pods carry their own app.kubernetes.io/name, so that the
+Services of Nexo never select them.
+*/}}
+{{- define "nexo.mediaWorker.fullname" -}}
+{{- printf "%s-media-worker" (include "nexo.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{- define "nexo.mediaWorker.selectorLabels" -}}
+app.kubernetes.io/name: {{ printf "%s-media-worker" (include "nexo.name" .) | trunc 63 | trimSuffix "-" }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/component: media-worker
+{{- end }}
+
+{{- define "nexo.mediaWorker.labels" -}}
+helm.sh/chart: {{ include "nexo.chart" . }}
+{{ include "nexo.mediaWorker.selectorLabels" . }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/part-of: nexo
+{{- end }}
+
+{{/* Labels of the setup Job pods (never selected by a Service). */}}
+{{- define "nexo.mediaWorker.setupLabels" -}}
+helm.sh/chart: {{ include "nexo.chart" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+app.kubernetes.io/part-of: nexo
+app.kubernetes.io/component: media-worker-setup
+{{- end }}
+
+{{- define "nexo.mediaWorker.image" -}}
+{{- $img := .Values.mediaWorker.image }}
+{{- if $img.digest }}
+{{- printf "%s@%s" $img.repository $img.digest }}
+{{- else }}
+{{- printf "%s:%s" $img.repository (default .Chart.AppVersion $img.tag) }}
+{{- end }}
+{{- end }}
+
+{{/* Secret with access-key, secret-key and auth-token of the worker. */}}
+{{- define "nexo.mediaWorker.secret" -}}
+{{- default (include "nexo.mediaWorker.fullname" .) .Values.mediaWorker.auth.existingSecret }}
+{{- end }}
+
+{{/*
+A generated value of the worker Secret: the value, else the one of the
+Secret already installed (kept on upgrades), else a random one.
+*/}}
+{{- define "nexo.mediaWorker.secretValue" -}}
+{{- $root := .root }}
+{{- if .value }}
+{{- .value }}
+{{- else }}
+{{- $existing := lookup "v1" "Secret" $root.Release.Namespace (include "nexo.mediaWorker.fullname" $root) }}
+{{- if and $existing (index ($existing.data | default dict) .key) }}
+{{- index $existing.data .key | b64dec }}
+{{- else }}
+{{- randAlphaNum 40 }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/* S3 URL and Admin API URL of Nexo, through its Service. */}}
+{{- define "nexo.s3URL" -}}
+{{- printf "%s://%s:%v" (include "nexo.scheme" .) (include "nexo.serviceHost" .) .Values.service.s3Port }}
+{{- end }}
+
+{{- define "nexo.adminURL" -}}
+{{- printf "%s://%s:%v" (include "nexo.scheme" .) (include "nexo.serviceHost" .) .Values.service.consolePort }}
+{{- end }}
+
+{{/* Jobs endpoint of the worker (endpoint of the notify_media_worker target). */}}
+{{- define "nexo.mediaWorker.endpoint" -}}
+{{- printf "http://%s.%s.svc.%s:%v/jobs" (include "nexo.mediaWorker.fullname" .) .Release.Namespace .Values.clusterDomain .Values.mediaWorker.service.port }}
+{{- end }}
+
+{{/*
+Least-privilege policy of the worker (docs/user/media-worker.md): it reads
+the objects and writes only under .nexo-media/ of mediaWorker.setup.buckets
+(every bucket when empty).
+*/}}
+{{- define "nexo.mediaWorker.policy" -}}
+{{- $buckets := .Values.mediaWorker.setup.buckets | default (list "*") }}
+{{- $objects := list }}
+{{- $media := list }}
+{{- $arns := list }}
+{{- range $buckets }}
+{{- $objects = append $objects (printf "arn:aws:s3:::%s/*" .) }}
+{{- $media = append $media (printf "arn:aws:s3:::%s/.nexo-media/*" .) }}
+{{- $arns = append $arns (printf "arn:aws:s3:::%s" .) }}
+{{- end }}
+{{- $statements := list
+  (dict "Effect" "Allow" "Action" (list "s3:GetObject" "s3:GetObjectVersion") "Resource" $objects)
+  (dict "Effect" "Allow" "Action" (list "s3:PutObject" "s3:DeleteObject" "s3:DeleteObjectVersion") "Resource" $media)
+  (dict "Effect" "Allow" "Action" (list "s3:ListBucket" "s3:ListBucketVersions") "Resource" $arns
+    "Condition" (dict "StringLike" (dict "s3:prefix" (list ".nexo-media/*"))))
+}}
+{{- dict "Version" "2012-10-17" "Statement" $statements | toPrettyJson }}
+{{- end }}
+
+{{/* Fails the rendering on invalid values of the media worker. */}}
+{{- define "nexo.mediaWorker.validate" -}}
+{{- $mw := .Values.mediaWorker }}
+{{- if gt (int $mw.replicas) 1 }}
+{{- fail "mediaWorker.replicas must be 0 or 1: every worker has its own job queue, scale it up (resources, concurrency) instead" }}
+{{- end }}
+{{- if not $mw.auth.existingSecret }}
+{{- if lt (len $mw.auth.accessKey) 3 }}
+{{- fail "mediaWorker.auth.accessKey must have at least 3 characters" }}
+{{- end }}
+{{- if and $mw.auth.secretKey (lt (len $mw.auth.secretKey) 8) }}
+{{- fail "mediaWorker.auth.secretKey must have at least 8 characters (or be empty to generate one)" }}
+{{- end }}
+{{- end }}
+{{- if not (regexMatch "^notify_media_worker(:[A-Za-z0-9_-]+)?$" $mw.setup.target) }}
+{{- fail (printf "mediaWorker.setup.target must be notify_media_worker or notify_media_worker:<id>, not %q" $mw.setup.target) }}
+{{- end }}
+{{- if and $mw.persistence.existingClaim (not $mw.persistence.enabled) }}
+{{- fail "mediaWorker.persistence.existingClaim requires mediaWorker.persistence.enabled" }}
+{{- end }}
+{{- end }}

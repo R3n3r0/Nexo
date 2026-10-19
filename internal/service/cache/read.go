@@ -98,6 +98,15 @@ type readSpec struct {
 // ex.
 func (s *service) specFor(ctx context.Context, ex *exchange, bucket, objectKey string) *readSpec {
 	rel := strings.TrimPrefix(objectKey, ex.keyPrefix)
+	if source, _, ok := domain.MediaSidecarSource(objectKey); ok && strings.HasPrefix(source, ex.keyPrefix) {
+		// A file the media worker derived from an object (the variant of
+		// an image served at the URL of the image): the policy and the
+		// path of its entries are those of the object, so that the
+		// settings of its behavior apply and an invalidation of its path
+		// drops them too. The key stays the one of the file: the format
+		// and the width of a variant key its entries.
+		rel = strings.TrimPrefix(source, ex.keyPrefix)
+	}
 	path := "/" + rel
 	res := s.snap.Load().resolveFor(ctx, ex.dist.ID, ex.req.Host, path)
 	sp := &readSpec{p: res.p, dist: ex.dist.ID, host: ex.req.Host, bucket: bucket, object: objectKey, path: path, policy: res.eff.PolicyName}

@@ -744,6 +744,9 @@ func effective(def, b nexoadmin.Behavior) nexoadmin.Behavior {
 	if b.CORS != nil {
 		out.CORS = b.CORS
 	}
+	if b.Images != nil {
+		out.Images = b.Images
+	}
 	return out
 }
 

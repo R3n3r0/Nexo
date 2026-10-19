@@ -18,6 +18,7 @@ nexoctl dist behavior add ALIAS ID (--prefix|--glob|--regex PATTERN) [--access A
   nexoctl dist behavior add local website --glob '/assets/**' --cache-control 'public, max-age=31536000, immutable'
   nexoctl dist behavior add local website --regex '^/downloads/.*\.zip$' --access signed --key-group rilasci
   nexoctl dist behavior add local website --prefix /internal/ --access deny --position 1
+  nexoctl dist behavior add local website --prefix /photos/ --negotiate-images
 ```
 
 ## Options
@@ -32,6 +33,8 @@ nexoctl dist behavior add ALIAS ID (--prefix|--glob|--regex PATTERN) [--access A
       --index string           index document appended to the paths ending with /
       --key-group string       key group of the signed URLs and cookies
       --methods stringArray    allowed methods (default GET,HEAD,OPTIONS)
+      --negotiate-images       serve the variants of the images (media worker image rule) at their own URL:
+                               format from Accept or ?format=, width from ?w=, ?format=original for the original (website mode)
       --position int           1-based position among the behaviors (default: last)
       --prefix string          paths of the behavior: a literal prefix
       --regex string           paths of the behavior: an RE2 regular expression

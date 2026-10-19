@@ -1,0 +1,158 @@
+{{- if and .Values.mediaWorker.enabled .Values.mediaWorker.setup.enabled }}
+{{- $mw := .Values.mediaWorker }}
+{{- $name := printf "%s-setup" (include "nexo.mediaWorker.fullname" .) }}
+{{/*
+Setup of the media worker in Nexo (files/media-worker-setup.sh), after
+every install and upgrade: the least-privilege policy, the user of the
+worker and the notify_media_worker target pointing to its Service. The
+images of Nexo have no shell: an init container copies nexoctl from the
+server image into an emptyDir, and the script runs in setup.shellImage.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nexo.mediaWorker.setupLabels" . | nindent 4 }}
+data:
+  setup.sh: |
+    {{- .Files.Get "files/media-worker-setup.sh" | nindent 4 }}
+  policy.json: |
+    {{- include "nexo.mediaWorker.policy" . | nindent 4 }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nexo.mediaWorker.setupLabels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "0"
+    # Kept after it succeeds (kubectl logs job/...), replaced at the next
+    # upgrade, removed by Kubernetes a day after it finished.
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: {{ add (int $mw.setup.timeout) 300 }}
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "nexo.mediaWorker.setupLabels" . | nindent 8 }}
+      annotations:
+        checksum/setup: {{ printf "%s%s" (.Files.Get "files/media-worker-setup.sh") (include "nexo.mediaWorker.policy" .) | sha256sum }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "nexo.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml $mw.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $mw.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $mw.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: nexoctl
+          image: {{ include "nexo.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/nexoctl"]
+          args: ["--quiet", "cp", "/nexoctl", "/tools/nexoctl"]
+          env:
+            - name: NEXOCTL_CONFIG_DIR
+              value: /tools/config
+          securityContext:
+            {{- toYaml $mw.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml $mw.setup.resources | nindent 12 }}
+          volumeMounts:
+            - name: tools
+              mountPath: /tools
+      containers:
+        - name: setup
+          image: {{ $mw.setup.shellImage | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "/setup/setup.sh"]
+          env:
+            - name: NEXO_URL
+              value: {{ include "nexo.s3URL" . | quote }}
+            - name: NEXO_ADMIN_URL
+              value: {{ include "nexo.adminURL" . | quote }}
+            - name: NEXO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nexo.credentialsSecret" . }}
+                  key: {{ include "nexo.userKey" . }}
+            - name: NEXO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nexo.credentialsSecret" . }}
+                  key: {{ include "nexo.passwordKey" . }}
+            - name: WORKER_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nexo.mediaWorker.secret" . }}
+                  key: access-key
+            - name: WORKER_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nexo.mediaWorker.secret" . }}
+                  key: secret-key
+            - name: WORKER_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nexo.mediaWorker.secret" . }}
+                  key: auth-token
+            - name: WORKER_ENDPOINT
+              value: {{ include "nexo.mediaWorker.endpoint" . | quote }}
+            - name: POLICY_NAME
+              value: {{ $mw.setup.policyName | quote }}
+            - name: TARGET
+              value: {{ $mw.setup.target | quote }}
+            - name: SETUP_TIMEOUT
+              value: {{ $mw.setup.timeout | quote }}
+            {{- if and .Values.tls.enabled .Values.tls.caSecretName }}
+            - name: SSL_CERT_FILE
+              value: /etc/nexo/ca/ca.crt
+            {{- end }}
+          securityContext:
+            {{- toYaml $mw.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml $mw.setup.resources | nindent 12 }}
+          volumeMounts:
+            - name: tools
+              mountPath: /tools
+            - name: setup
+              mountPath: /setup
+              readOnly: true
+            {{- if and .Values.tls.enabled .Values.tls.caSecretName }}
+            - name: ca
+              mountPath: /etc/nexo/ca
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: tools
+          emptyDir: {}
+        - name: setup
+          configMap:
+            name: {{ $name }}
+        {{- if and .Values.tls.enabled .Values.tls.caSecretName }}
+        - name: ca
+          secret:
+            secretName: {{ .Values.tls.caSecretName }}
+            defaultMode: 0440
+            items:
+              - key: {{ .Values.tls.caKey }}
+                path: ca.crt
+        {{- end }}
+{{- end }}

@@ -97,6 +97,15 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   revocable link. Pure Go decoders and encoders (no cgo), encoded in parallel within a memory budget
   (`--image-memory`, `--image-max-pixels`, `--image-max-bytes`); the scaler of the videos moved to
   `internal/mediaworker/resample` and is shared.
+- Images in every format on the same URL: a behavior of a distribution with `images: {negotiate: true}`
+  (`nexoctl dist behavior add --negotiate-images`, **Images in every format** in the behavior editor of the
+  console) serves the variants at the URL of the image itself: AVIF, WebP or JPEG as the `Accept` header allows
+  (`Vary: Accept`), `?w=640` for a width, `?format=webp` for a format, `?format=original` (and every object without
+  current variants) for the original. The cache keys the variants by format and width, never by `Accept`; an
+  invalidation of the path of the image drops its variants and the `status.json` of the worker purges the URL at
+  the CDNs in front; the query of a signed URL is signed. `GetObject` on the S3 port answers a variant only with
+  `x-nexo-image-format`/`x-nexo-image-width` (signed with the query; plain `GetObject` is unchanged), and the
+  Admin API image route answers `HEAD`.
 - Benchmarks of every step of the video pipeline (`make bench-media`, [docs/bench/media.md](docs/bench/media.md)):
   packager requests, OpenH264 decoding and encoding per size, scaling, renditions, poster and thumbnails. With
   them the scaler (weights computed once, buffers reused, vertical pass first, parallel bands) and the decoding

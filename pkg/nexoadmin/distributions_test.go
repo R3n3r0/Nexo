@@ -164,10 +164,16 @@ func TestDistributionsAgainstServer(t *testing.T) {
 		ID: "site", Enabled: true, Aliases: []string{"www.site.test", "site.test"}, Origin: nexoadmin.Origin{Bucket: "web"},
 		DefaultBehavior: nexoadmin.Behavior{Access: nexoadmin.AccessPublic, IndexDocument: "index.html"},
 		Behaviors: []nexoadmin.Behavior{{PathPattern: &nexoadmin.KeyPattern{Type: nexoadmin.PatternPrefix, Pattern: "/dl/"},
-			Access: nexoadmin.AccessSigned, Signing: &nexoadmin.Signing{KeyGroup: "rel"}}},
+			Access: nexoadmin.AccessSigned, Signing: &nexoadmin.Signing{KeyGroup: "rel"}},
+			{PathPattern: &nexoadmin.KeyPattern{Type: nexoadmin.PatternPrefix, Pattern: "/photos/"},
+				Images: &nexoadmin.BehaviorImages{Negotiate: true}}},
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, d.ETag)
+	require.Len(t, d.Behaviors, 2)
+	require.NotNil(t, d.Behaviors[1].Images)
+	assert.True(t, d.Behaviors[1].Images.Negotiate)
+	assert.Empty(t, d.Behaviors[1].Extra, "images is a known member")
 	assert.Equal(t, nexoadmin.ModeWebsite, d.Mode)
 	for _, host := range d.Aliases {
 		status, body := h.get(host, "/")

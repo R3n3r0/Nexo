@@ -326,7 +326,8 @@ jobs:
       - name: Dockerfiles (hadolint)
         run: |
           docker run --rm -v "$PWD:/src:ro" -w /src "hadolint/hadolint:${HADOLINT_VERSION}" hadolint \
-            Dockerfile Dockerfile.nexoctl deploy/docker/Dockerfile.goreleaser deploy/docker/Dockerfile.nexoctl.goreleaser
+            Dockerfile Dockerfile.nexoctl Dockerfile.media-worker deploy/docker/Dockerfile.goreleaser \
+            deploy/docker/Dockerfile.nexoctl.goreleaser deploy/docker/Dockerfile.media-worker.goreleaser
 
       - name: Helm chart (lint, template, kubeconform)
         run: make helm-lint
@@ -1030,9 +1031,14 @@ jobs:
         run: |
           cd deploy/docker
           cp nexo.env.example nexo.env
+          cp media-worker.env.example media-worker.env
           mkdir -p certs
           for f in compose.single.yml compose.snmd.yml compose.cluster.yml compose.cluster-tls.yml; do
             docker compose -f "$f" config --quiet
+          done
+          # The media worker overlay on every deployment.
+          for f in compose.single.yml compose.snmd.yml compose.cluster.yml; do
+            docker compose -f "$f" -f compose.media-worker.yml config --quiet
           done
           NEXO_SECRET_PROXY_A=a NEXO_SECRET_PROXY_B=b docker compose -f compose.multi-proxy.yml config --quiet
           GRAFANA_ADMIN_PASSWORD=ci docker compose -f compose.single.yml -f compose.observability.yml config --quiet
@@ -1103,6 +1109,8 @@ jobs:
         run: |
           cd deploy/swarm
           docker stack config -c stack.yml >/dev/null
+          cp ../docker/media-worker.env.example media-worker.env
+          docker stack config -c stack.yml -c media-worker.yml >/dev/null
 
   docs:
     name: User documentation (CLI reference, MkDocs)

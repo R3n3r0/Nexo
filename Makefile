@@ -311,11 +311,11 @@ release-tools:
 release-check:
 	$(GORELEASER) check
 
-## publish-images: build the multi-arch nexo and nexoctl images locally and push them to Docker Hub (docker.io/paolor, or DOCKERHUB_NAMESPACE) with DOCKERHUB_USERNAME/DOCKERHUB_TOKEN from the environment (see scripts/publish-images.sh)
+## publish-images: build the multi-arch nexo, nexoctl and nexo-media-worker images locally and push them to Docker Hub (docker.io/paolor, or DOCKERHUB_NAMESPACE) with DOCKERHUB_USERNAME/DOCKERHUB_TOKEN from the environment (see scripts/publish-images.sh)
 publish-images:
 	scripts/publish-images.sh
 
-## release-snapshot: build the whole release locally in dist/ without publishing (binaries for every OS/arch with the console, archives, deb/rpm, checksums, SBOMs, Homebrew casks); RELEASE_SKIP=docker,sign by default
+## release-snapshot: build the whole release locally in dist/ without publishing (binaries for every OS/arch with the console, media worker included, archives, deb/rpm, checksums, SBOMs, Homebrew casks); RELEASE_SKIP=docker,sign by default
 release-snapshot:
 	@test -f $(WEB_DIR)/dist/index.html || $(MAKE) build-web
 	$(GORELEASER) release --snapshot --clean --skip=$(RELEASE_SKIP)
@@ -336,14 +336,15 @@ release-smoke:
 helm-lint:
 	HELM=$(HELM) KUBECONFORM=$(KUBECONFORM) KUBE_VERSIONS="$(KUBE_VERSIONS)" deploy/helm/check.sh
 
-## systemd-verify: systemd-analyze verify and security (exposure <= 2.0) of deploy/systemd/nexo.service with bin/nexo
+## systemd-verify: systemd-analyze verify and security (exposure <= 2.0) of deploy/systemd/nexo.service and nexo-media-worker.service with bin/nexo and bin/nexo-media-worker
 systemd-verify:
 	@test -x $(BIN_DIR)/nexo || $(MAKE) build-go
-	packaging/systemd-verify.sh $(BIN_DIR)/nexo
+	@test -x $(BIN_DIR)/nexo-media-worker || $(MAKE) build-media-worker
+	packaging/systemd-verify.sh $(BIN_DIR)/nexo $(BIN_DIR)/nexo-media-worker
 
 ## hadolint: lint the Dockerfiles (sources and GoReleaser)
 hadolint:
-	$(HADOLINT) Dockerfile Dockerfile.nexoctl Dockerfile.media-worker deploy/docker/Dockerfile.goreleaser deploy/docker/Dockerfile.nexoctl.goreleaser
+	$(HADOLINT) Dockerfile Dockerfile.nexoctl Dockerfile.media-worker deploy/docker/Dockerfile.goreleaser deploy/docker/Dockerfile.nexoctl.goreleaser deploy/docker/Dockerfile.media-worker.goreleaser
 
 ## packaging: every packaging check that needs no Docker daemon: release-check, helm-lint, systemd-verify, hadolint
 packaging: release-check helm-lint systemd-verify hadolint

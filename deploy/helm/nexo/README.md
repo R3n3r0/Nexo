@@ -98,6 +98,47 @@ every pod and, once (through the Service, from the target of the first pod), `/n
 a token of `nexoctl admin prometheus generate` in a Secret and set `serviceMonitor.bearerTokenSecret`;
 or set `config.prometheusAuthType=public`. Dashboards and alerts: `deploy/docker/observability/`.
 
+## Media worker
+
+`mediaWorker.enabled=true` adds [nexo-media-worker](https://github.com/R3n3r0/Nexo/blob/main/docs/user/media-worker.md) (renditions,
+posters and thumbnails of the videos, variants of the images) and wires it to Nexo:
+
+```bash
+helm upgrade --install nexo "$CHART" -n storage --set mediaWorker.enabled=true
+nexoctl mb --with-hls --with-images nexo/media      # videos and images processed by the worker
+```
+
+| Resource | Content |
+|----------|---------|
+| Secret `<release>-nexo-media-worker` | `access-key`, `secret-key`, `auth-token`: generated at install, kept on upgrades and by `helm uninstall` (or `mediaWorker.auth.existingSecret` with the same keys) |
+| Deployment, 1 pod (`Recreate`) | image `docker.io/paolor/nexo-media-worker`, non-root, read-only root file system (`/data` and `/tmp` writable), probes on `/healthz` (port 9600) |
+| PVC (`mediaWorker.persistence`, 20 GiB) | `/data`: the job queue (it must persist), the work files and OpenH264 |
+| Service `<release>-nexo-media-worker:9600` | jobs endpoint, the `endpoint` of the target |
+| Job `<release>-nexo-media-worker-setup` (hook `post-install,post-upgrade`) | the least-privilege policy (`mediaWorker.setup.buckets`, every bucket when empty), the user of the worker, the target `notify_media_worker` (`mediaWorker.setup.target`) with the endpoint and the token |
+
+The target is part of the dynamic configuration of Nexo, which has no environment variable: the setup Job
+writes it through the Admin API with the root credentials, using `nexoctl` from the server image and the
+script [files/media-worker-setup.sh](files/media-worker-setup.sh) in `mediaWorker.setup.shellImage`
+(busybox; the images of Nexo have no shell). The script is idempotent: it waits for Nexo
+(`mediaWorker.setup.timeout`, 600 s: give `helm install` a longer `--timeout` for a large cluster), updates
+the policy, creates the user or re-creates it when the secret key of the Secret changed, and sets the
+target. With `mediaWorker.setup.enabled=false` do the same by hand ([docs](https://github.com/R3n3r0/Nexo/blob/main/docs/user/media-worker.md#setup),
+the NOTES print the command).
+
+- **One replica.** Every worker keeps its own queue on its own volume, without coordination: behind one
+  Service the jobs of the same object would race on different pods, and a job delivered again would be
+  processed twice. Scale it up: `mediaWorker.resources`, `mediaWorker.concurrency`.
+- **Memory.** A video job needs about 1 GiB, an image job about 2 GiB (AVIF): the limit (3 GiB by
+  default) must cover `concurrency` jobs; `mediaWorker.imageMemory` bounds the image encoders.
+- **OpenH264.** Downloaded from `ciscobinary.openh264.org` at the first start into the volume (egress
+  needed once; the startup probe allows 5 minutes). Without egress: `mediaWorker.openh264.path` and
+  `extraVolumes`/`extraVolumeMounts` with a library fetched by `nexo-media-worker fetch-openh264`, or a
+  mirror in `mediaWorker.openh264.downloadURL`.
+- **TLS.** With `tls.enabled` the worker and the Job use `https://` and trust `tls.caSecretName`.
+- **NetworkPolicy.** With `networkPolicy.enabled` only the Nexo pods reach the jobs endpoint, and the
+  worker and its Job reach Nexo even when `networkPolicy.allowedFrom` restricts S3 and console.
+- `helm test` also probes the jobs endpoint through its Service.
+
 ## Security defaults
 
 Non-root (UID/GID 65532, `fsGroup` for the volumes), read-only root file system (`/tmp` is an
@@ -109,5 +150,5 @@ only from `networkPolicy.allowedFrom`.
 
 `make helm-lint` runs `helm lint --strict`, `helm template` and `kubeconform -strict` (Kubernetes
 schemas and the ServiceMonitor CRD) on the defaults and on every `ci/*-values.yaml`
-(standalone, SNMD, distributed, distributed with TLS and two pools); the CI job `packaging`
-runs it on every pull request.
+(standalone, SNMD, distributed, distributed with TLS and two pools, the media worker in both modes); the
+CI job `packaging` runs it on every pull request.

@@ -3,23 +3,27 @@ name: Release
 # Release of a v* tag (docs/08 §8.7, T-9.5):
 #   1. goreleaser: binaries (console embedded), archives, deb/rpm, checksums
 #      signed with cosign keyless, SBOMs, multi-arch images on Docker Hub
-#      (docker.io/<namespace>/nexo and .../nexoctl) with SBOM and provenance
-#      attestations, signed; Homebrew casks; GitHub release;
+#      (docker.io/<namespace>/nexo, .../nexoctl and .../nexo-media-worker)
+#      with SBOM and provenance attestations, signed; Homebrew casks; GitHub
+#      release;
 #   2. verify (TM-11): signatures of checksums.txt and of the images, SBOM
 #      attestation, trivy scan without High/Critical vulnerabilities;
 #   3. smoke (TM-10): the binaries of every OS/arch start (QEMU for
-#      linux/arm64, Rosetta for darwin/amd64) and report the tag as version;
+#      linux/arm64, Rosetta for darwin/amd64) and report the tag as version
+#      (the media worker too, except on linux/arm64: it needs the dynamic
+#      loader of the platform, which QEMU user emulation lacks);
 #   4. helm: chart packaged with the version of the tag, signed with cosign
 #      keyless (sign-blob bundle) and attached to the GitHub release
 #      (helm install nexo <release URL of nexo-X.Y.Z.tgz>);
 #   5. dockerhub-description: README and short description of the Docker Hub
-#      repositories (deploy/docker/DOCKERHUB.md).
+#      repositories (deploy/docker/DOCKERHUB.md, DOCKERHUB.media-worker.md).
 #
 # Images are published only on Docker Hub. Required: the secrets
 # DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (access token with Read, Write,
 # Delete scope; the goreleaser job fails early without them). The namespace
 # is the repository variable DOCKERHUB_NAMESPACE, default paolor; the public
-# repositories <namespace>/nexo and <namespace>/nexoctl must exist.
+# repositories <namespace>/nexo, <namespace>/nexoctl and
+# <namespace>/nexo-media-worker must exist.
 on:
   push:
     tags: ["v*"]
@@ -190,7 +194,7 @@ jobs:
       - name: Image signatures and SBOM attestations
         run: |
           set -eux
-          for image in nexo nexoctl; do
+          for image in nexo nexoctl nexo-media-worker; do
             ref="${REGISTRY}/${image}:${GITHUB_REF_NAME}"
             cosign verify "$ref" --certificate-identity "$CERT_IDENTITY" --certificate-oidc-issuer "$CERT_ISSUER" >/dev/null
             docker buildx imagetools inspect "$ref"
@@ -202,6 +206,16 @@ jobs:
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.REGISTRY }}/nexo:${{ github.ref_name }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      # The worker image has a glibc base (distroless/cc) of its own.
+      - name: Vulnerability scan of the media worker image (High/Critical with a fix)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/nexo-media-worker:${{ github.ref_name }}
           format: table
           severity: CRITICAL,HIGH
           ignore-unfixed: true
@@ -271,6 +285,29 @@ jobs:
           SMOKE_QUICK: ${{ matrix.quick }}
         run: sh packaging/smoke.sh smoke "$GITHUB_REF_NAME"
 
+      # The media worker reports the tag. Not under QEMU user emulation: the
+      # binary needs the dynamic loader of linux/arm64 (OpenH264 is loaded
+      # with dlopen), absent from the amd64 runner.
+      - name: Media worker version
+        if: matrix.runner != 'qemu-aarch64-static'
+        env:
+          RUNNER: ${{ matrix.runner }}
+        run: |
+          set -eux
+          archive="dist/nexo-media-worker_${GITHUB_REF_NAME#v}_${{ matrix.platform }}"
+          mkdir -p extract/nexo-media-worker
+          if [ -f "$archive.zip" ]; then
+            unzip -o -q "$archive.zip" -d extract/nexo-media-worker
+            bin=extract/nexo-media-worker/nexo-media-worker.exe
+          else
+            tar -xzf "$archive.tar.gz" -C extract/nexo-media-worker
+            bin=extract/nexo-media-worker/nexo-media-worker
+            test -f extract/nexo-media-worker/systemd/nexo-media-worker.service
+          fi
+          # shellcheck disable=SC2086 # RUNNER is a command with its arguments
+          $RUNNER "$bin" version | tee version.txt
+          grep -q "nexo-media-worker ${GITHUB_REF_NAME}" version.txt
+
   helm:
     name: Helm chart
     needs: goreleaser
@@ -322,8 +359,16 @@ jobs:
         include:
           - image: nexo
             description: S3-compatible object storage server with an embedded web console
+            readme: DOCKERHUB.md
+            title: "# Nexo"
           - image: nexoctl
             description: Command-line client of Nexo, the S3-compatible object storage server
+            readme: DOCKERHUB.md
+            title: "# Nexo"
+          - image: nexo-media-worker
+            description: Media worker of Nexo - video renditions, posters, thumbnails and image variants
+            readme: DOCKERHUB.media-worker.md
+            title: "# Nexo media worker"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -335,13 +380,15 @@ jobs:
         id: repo
         env:
           IMAGE: ${{ matrix.image }}
+          README: ${{ matrix.readme }}
+          TITLE: ${{ matrix.title }}
         run: |
           set -eu
           namespace="$(echo "$DOCKERHUB_NAMESPACE" | tr '[:upper:]' '[:lower:]')"
           echo "name=${namespace}/${IMAGE}" >> "$GITHUB_OUTPUT"
           sed -e '1,/^-->$/d' -e "s#docker\.io/paolor/#docker.io/${namespace}/#g" \
-            deploy/docker/DOCKERHUB.md > "$RUNNER_TEMP/DOCKERHUB.md"
-          grep -q '^# Nexo' "$RUNNER_TEMP/DOCKERHUB.md"
+            "deploy/docker/$README" > "$RUNNER_TEMP/DOCKERHUB.md"
+          grep -qx "$TITLE" "$RUNNER_TEMP/DOCKERHUB.md"
           echo "readme=$RUNNER_TEMP/DOCKERHUB.md" >> "$GITHUB_OUTPUT"
 
       - uses: peter-evans/dockerhub-description@v5

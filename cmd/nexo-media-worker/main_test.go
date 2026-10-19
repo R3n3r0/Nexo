@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -65,6 +66,33 @@ func TestFlagsOverrideEnvironment(t *testing.T) {
 	region, _ := cmd.Flags().GetString("s3-region")
 	assert.Equal(t, ":2", address)
 	assert.Equal(t, "eu-south-1", region)
+}
+
+// TestSecretsFromFiles: the credentials and the token can be read from
+// files (Docker and Kubernetes secrets); a variable without _FILE wins.
+func TestSecretsFromFiles(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, data string) string {
+		path := filepath.Join(dir, name)
+		require.NoError(t, os.WriteFile(path, []byte(data), 0o600))
+		return path
+	}
+	deps, _, _ := testDeps(map[string]string{
+		"NEXO_WORKER_SECRET_KEY_FILE": write("secret", "s3cr3t\n"),
+		"NEXO_WORKER_AUTH_TOKEN_FILE": write("token", "tok\r\n"),
+		"NEXO_WORKER_ACCESS_KEY":      "from-env",
+		"NEXO_WORKER_ACCESS_KEY_FILE": write("access", "from-file"),
+		"NEXO_WORKER_S3_REGION_FILE":  write("region", "ignored"),
+	})
+	cmd := newRootCmd(deps)
+	require.NoError(t, applyEnv(cmd, deps.lookupEnv))
+	for flag, want := range map[string]string{"secret-key": "s3cr3t", "auth-token": "tok", "access-key": "from-env", "s3-region": "us-east-1"} {
+		got, _ := cmd.Flags().GetString(flag)
+		assert.Equal(t, want, got, flag)
+	}
+
+	deps, _, _ = testDeps(map[string]string{"NEXO_WORKER_AUTH_TOKEN_FILE": filepath.Join(dir, "missing")})
+	assert.ErrorContains(t, applyEnv(newRootCmd(deps), deps.lookupEnv), "NEXO_WORKER_AUTH_TOKEN_FILE")
 }
 
 func TestMissingLibrary(t *testing.T) {

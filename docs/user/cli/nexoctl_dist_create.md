@@ -36,6 +36,8 @@ nexoctl dist create ALIAS ID --bucket BUCKET --domain DOMAIN... [--mode website|
       --key-group string       key group of the signed URLs and cookies
       --methods stringArray    allowed methods (default GET,HEAD,OPTIONS)
       --mode string            website (default) or s3
+      --negotiate-images       serve the variants of the images (media worker image rule) at their own URL:
+                               format from Accept or ?format=, width from ?w=, ?format=original for the original (website mode)
       --prefix string          origin prefix (website mode): the distribution serves only the keys under it
       --spa string             path served (200) instead of a missing object (single page application)
 ```

@@ -57,6 +57,33 @@ exec nexoctl dist test local site /
 stdout '^Behavior: default$'
 stdout '^Object: web/prod/$'
 
+# The images of /photos/ in every format on their own URL: the variants
+# the media worker wrote (here by hand) are negotiated with Accept, ?w=
+# and ?format=; ?format=original is the original.
+exec nexoctl cp photo.jpg local/web/prod/photos/beach.jpg
+exec nexoctl cp photostatus.json local/web/.nexo-media/prod/photos/beach.jpg/null/status.json
+exec nexoctl cp full.webp local/web/.nexo-media/prod/photos/beach.jpg/null/images/full.webp
+exec nexoctl cp small.webp local/web/.nexo-media/prod/photos/beach.jpg/null/images/320.webp
+exec nexoctl cp full.jpg local/web/.nexo-media/prod/photos/beach.jpg/null/images/full.jpg
+exec nexoctl dist behavior add local site --prefix /photos/ --negotiate-images
+stdout 'Added a behavior for prefix /photos/ to `site` \(2 behaviors\)'
+exec nexoctl dist test local site /photos/beach.jpg
+stdout '^Settings: .*images negotiated'
+http -H 'Host: www.site.test' -H 'Accept: image/avif,image/webp,*/*' -D webp.headers $NEXO_URL/photos/beach.jpg
+stdout '^webp full$'
+grep '^Content-Type: image/webp$' webp.headers
+grep '^Vary: Accept$' webp.headers
+grep '^X-Nexo-Image-Variant: webp full$' webp.headers
+http -H 'Host: www.site.test' -H 'Accept: image/webp' $NEXO_URL/photos/beach.jpg?w=200
+stdout '^webp small$'
+http -H 'Host: www.site.test' -H 'Accept: */*' $NEXO_URL/photos/beach.jpg
+stdout '^jpeg full$'
+http -H 'Host: www.site.test' -H 'Accept: image/webp' -o got.jpg $NEXO_URL/photos/beach.jpg?format=original
+cmp got.jpg photo.jpg
+http -H 'Host: www.site.test' -status 400 $NEXO_URL/photos/beach.jpg?format=gif
+exec nexoctl dist behavior ls --json local site
+stdout '"images":\{"negotiate":true\}'
+
 # TCL-D-02: a key group with a generated key (stored privately), a signed
 # behavior, a URL valid a few seconds.
 exec nexoctl dist keygroup create local downloads --comment 'download links'
@@ -147,3 +174,13 @@ exec nexoctl dist rm local site
 console.log("app")
 -- v1.zip --
 zip data of the release
+-- photo.jpg --
+not really a photo
+-- photostatus.json --
+{"state":"done","rule":"images","etag":"d6a366c0d35815e022b2d04daccee090","width":1000,"height":750,"images":[{"format":"webp","width":320,"pixelWidth":320,"pixelHeight":240,"size":11},{"format":"webp","width":0,"pixelWidth":1000,"pixelHeight":750,"size":10},{"format":"jpeg","width":0,"pixelWidth":1000,"pixelHeight":750,"size":10}],"started":"2026-01-02T03:04:05Z","updated":"2026-01-02T03:04:06Z"}
+-- full.webp --
+webp full
+-- small.webp --
+webp small
+-- full.jpg --
+jpeg full

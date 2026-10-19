@@ -4,7 +4,8 @@
 # kubeconform -strict against the Kubernetes schemas (and the
 # ServiceMonitor CRD) for the default values and every ci/*-values.yaml,
 # on the oldest and the newest supported Kubernetes; then the endpoints
-# generated for each mode and the rendering errors of invalid values.
+# generated for each mode, the media worker and the rendering errors of
+# invalid values.
 #
 #   HELM=helm KUBECONFORM=kubeconform KUBE_VERSIONS="1.27.0 1.34.0" deploy/helm/check.sh
 #
@@ -93,11 +94,29 @@ expect "readiness probe" "path: /nexo/health/ready"
 expect "OpenTelemetry sample ratio" 'value: "0.25"' --set config.otel.sampleRatio=0.25
 expect "non-root" "runAsNonRoot: true"
 
+# The media worker: its Deployment, the endpoint of the target in the setup
+# Job, the bucket restriction of its policy, and no worker by default.
+mw="--set mediaWorker.enabled=true"
+expect "media worker" "name: nexo-media-worker" $mw
+expect "media worker target" 'value: "http://nexo-media-worker.storage.svc.cluster.local:9600/jobs"' $mw
+expect "media worker S3 endpoint" 'value: "https://nexo.storage.svc.cluster.local:9000"' $mw \
+    --set tls.enabled=true,tls.secretName=nexo-tls
+expect "media worker policy" '"arn:aws:s3:::videos/.nexo-media/*"' $mw --set 'mediaWorker.setup.buckets={videos}'
+expect "media worker setup hook" "helm.sh/hook: post-install,post-upgrade" $mw
+render >"$out"
+if grep -q "media-worker" "$out"; then
+    echo "chart: the media worker is rendered without mediaWorker.enabled" >&2
+    exit 1
+fi
+
 # Invalid values must fail the rendering with an explicit message.
 for args in "mode=cluster" "mode=distributed,distributed.replicas=1" \
     "mode=distributed,distributed.replicas=17,distributed.drivesPerNode=1" \
     "standalone.drives=17" "tls.enabled=true" "auth.rootPassword=short" \
-    "kms.kes.endpoint=https://kes:7373" "config.otel.sampleRatio=2"; do
+    "kms.kes.endpoint=https://kes:7373" "config.otel.sampleRatio=2" \
+    "mediaWorker.enabled=true,mediaWorker.replicas=2" \
+    "mediaWorker.enabled=true,mediaWorker.auth.secretKey=short" \
+    "mediaWorker.enabled=true,mediaWorker.setup.target=notify_webhook"; do
     if render --set "$args" >/dev/null 2>&1; then
         echo "expected a rendering error with --set $args" >&2
         exit 1

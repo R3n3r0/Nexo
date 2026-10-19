@@ -1,0 +1,50 @@
+# Release image docker.io/paolor/nexo-media-worker, built by GoReleaser
+# (dockers_v2 in .goreleaser.yaml) with buildx for linux/amd64 and
+# linux/arm64 from the binary it already compiled ($TARGETPLATFORM/
+# nexo-media-worker in the build context). For a build from the sources use
+# Dockerfile.media-worker at the repository root, which produces the same
+# image.
+#
+# The image does not contain OpenH264: Cisco licenses the H.264 patents of
+# its build to whoever downloads it from Cisco, so the worker downloads it
+# into /data/lib at its first start (checksum pinned), or loads the library
+# named by NEXO_WORKER_OPENH264.
+
+# Empty data directory owned by nonroot (distroless has no shell to run
+# mkdir/chown).
+FROM --platform=$BUILDPLATFORM busybox:1.37-musl AS dirs
+RUN mkdir -p /out/data
+
+# glibc, libstdc++ and libgcc_s for the Cisco build of OpenH264; non-root,
+# no shell.
+FROM gcr.io/distroless/cc-debian12:nonroot
+
+ARG TARGETPLATFORM
+
+# The version, revision, creation date and source labels are added by
+# GoReleaser (--label), with the same values as the image annotations.
+LABEL org.opencontainers.image.title="nexo-media-worker" \
+      org.opencontainers.image.description="Media worker of Nexo: renditions, posters and thumbnails of videos (OpenH264), variants of images" \
+      org.opencontainers.image.url="https://github.com/r3n3r0/nexo" \
+      org.opencontainers.image.documentation="https://github.com/r3n3r0/nexo/blob/main/docs/user/media-worker.md" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.vendor="r3n3r0"
+
+COPY LICENSE NOTICE COMMERCIAL-LICENSE.md /
+COPY $TARGETPLATFORM/nexo-media-worker /nexo-media-worker
+COPY --from=dirs --chown=65532:65532 /out/data /data
+
+USER 65532:65532
+
+# 9600: jobs endpoint (the endpoint of the notify_media_worker target).
+EXPOSE 9600
+# The job queue, the work files and the downloaded OpenH264 library.
+VOLUME /data
+
+ENV NEXO_WORKER_ADDRESS=:9600 \
+    NEXO_WORKER_DATA_DIR=/data
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
+    CMD ["/nexo-media-worker", "healthcheck"]
+
+ENTRYPOINT ["/nexo-media-worker"]

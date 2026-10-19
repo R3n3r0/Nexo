@@ -45,3 +45,26 @@ Upgrades restart one pod at a time (PodDisruptionBudget maxUnavailable={{ .Value
 Changing distributed.pools, the root credentials or the TLS settings changes
 every node: restart all the pods together (kubectl -n {{ .Release.Namespace }} delete pod -l app.kubernetes.io/instance={{ .Release.Name }}).
 {{- end }}
+{{- if .Values.mediaWorker.enabled }}
+
+Media worker: Deployment "{{ include "nexo.mediaWorker.fullname" . }}", jobs endpoint
+{{ include "nexo.mediaWorker.endpoint" . }}
+(credentials and token in Secret "{{ include "nexo.mediaWorker.secret" . }}"). At its first start it
+downloads OpenH264 from ciscobinary.openh264.org into its volume{{ if .Values.mediaWorker.openh264.path }} (here: {{ .Values.mediaWorker.openh264.path }} instead){{ end }}.
+{{- if .Values.mediaWorker.setup.enabled }}
+The Job "{{ include "nexo.mediaWorker.fullname" . }}-setup" created the policy "{{ .Values.mediaWorker.setup.policyName }}", the user
+of the worker and the {{ .Values.mediaWorker.setup.target }} target. Check them with:
+{{- else }}
+mediaWorker.setup.enabled=false: create the policy and the user of the worker
+(docs/user/media-worker.md, "Credentials of the worker") with the keys of the
+Secret above, then point the target to the worker:
+
+   nexoctl admin config set {{ .Release.Name }} {{ .Values.mediaWorker.setup.target }} enable=on endpoint={{ include "nexo.mediaWorker.endpoint" . }} auth_token=<auth-token of the Secret>
+
+and check it with:
+{{- end }}
+
+   kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "nexo.mediaWorker.fullname" . }}
+   nexoctl admin notify targets test {{ .Release.Name }} {{ .Values.mediaWorker.setup.target | trimPrefix "notify_media_worker" | trimPrefix ":" | default "_" }}:media_worker
+   nexoctl mb --with-hls --with-images {{ .Release.Name }}/media    # a bucket whose videos and images the worker processes
+{{- end }}

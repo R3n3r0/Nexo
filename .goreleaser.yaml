@@ -3,19 +3,24 @@
 #
 # Artefacts:
 #   - binaries: nexo (server + embedded console, -tags embedui) for
-#     linux/darwin/windows on amd64/arm64 (no windows/arm64) and nexoctl for
-#     the same platforms plus windows/arm64; static (CGO_ENABLED=0),
+#     linux/darwin/windows on amd64/arm64 (no windows/arm64), nexoctl for
+#     the same platforms plus windows/arm64 and nexo-media-worker for the
+#     platforms of nexo; CGO_ENABLED=0 (static, except the worker, which
+#     loads OpenH264 through the dynamic loader of the system),
 #     reproducible (-trimpath, mod_timestamp);
 #   - archives: tar.gz (zip on Windows) with LICENSE, NOTICE,
 #     COMMERCIAL-LICENSE.md, README and the systemd
-#     unit and env file (nexo, not on Windows: build and archive
-#     nexo-windows) or shell completions (nexoctl);
-#   - packages: nexo and nexoctl as deb and rpm (nfpm) for linux amd64/arm64;
+#     unit and env file (nexo and nexo-media-worker, not on Windows: builds
+#     and archives nexo-windows, nexo-media-worker-windows) or shell
+#     completions (nexoctl);
+#   - packages: nexo, nexoctl and nexo-media-worker as deb and rpm (nfpm)
+#     for linux amd64/arm64;
 #   - checksums.txt (sha256) signed with cosign keyless (Sigstore bundle
 #     checksums.txt.sigstore.json); SPDX SBOMs (syft) of every archive,
 #     listed in checksums.txt;
-#   - images docker.io/paolor/nexo and docker.io/paolor/nexoctl on Docker
-#     Hub (the only registry), multi-arch (linux/amd64, linux/arm64), with
+#   - images docker.io/paolor/nexo, docker.io/paolor/nexoctl and
+#     docker.io/paolor/nexo-media-worker on Docker Hub (the only registry),
+#     multi-arch (linux/amd64, linux/arm64), with
 #     BuildKit SBOM and provenance attestations, signed with cosign keyless;
 #     tags vX.Y.Z, plus vX.Y and latest for final releases; the namespace is
 #     DOCKERHUB_NAMESPACE (default paolor, lowercased; the release workflow
@@ -105,11 +110,24 @@ builds:
       - -X github.com/r3n3r0/nexo/internal/version.Version=v{{ .Version }}
       - -X github.com/r3n3r0/nexo/internal/version.Commit={{ .ShortCommit }}
       - -X github.com/r3n3r0/nexo/internal/version.Date={{ .CommitDate }}
-    goos: [linux, darwin, windows]
+    goos: [linux, darwin]
     goarch: [amd64, arm64]
-    ignore:
-      - goos: windows
-        goarch: arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+  # The worker for Windows: a build of its own, so that its archive has no
+  # systemd files (archive nexo-media-worker-windows).
+  - id: nexo-media-worker-windows
+    main: ./cmd/nexo-media-worker
+    binary: nexo-media-worker
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/r3n3r0/nexo/internal/version.Version=v{{ .Version }}
+      - -X github.com/r3n3r0/nexo/internal/version.Commit={{ .ShortCommit }}
+      - -X github.com/r3n3r0/nexo/internal/version.Date={{ .CommitDate }}
+    goos: [windows]
+    goarch: [amd64]
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
@@ -188,13 +206,39 @@ archives:
         strip_parent: true
         info: *fileinfo
 
+  # The worker: binary, licenses, README and its systemd unit and env file.
   - id: nexo-media-worker
     ids: [nexo-media-worker]
     name_template: "nexo-media-worker_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
-    format_overrides:
-      - goos: windows
-        formats: [zip]
+    builds_info:
+      owner: root
+      group: root
+      mtime: "{{ .CommitDate }}"
+    files:
+      - src: LICENSE
+        info: *fileinfo
+      - src: NOTICE
+        info: *fileinfo
+      - src: COMMERCIAL-LICENSE.md
+        info: *fileinfo
+      - src: README.md
+        info: *fileinfo
+      - src: deploy/systemd/nexo-media-worker.service
+        dst: systemd/nexo-media-worker.service
+        info: *fileinfo
+      - src: deploy/systemd/nexo-media-worker.env.example
+        dst: systemd/nexo-media-worker.env.example
+        info: *fileinfo
+      - src: deploy/systemd/README.md
+        dst: systemd/README.md
+        info: *fileinfo
+
+  # Windows: the binary, licenses and README, without the systemd files.
+  - id: nexo-media-worker-windows
+    ids: [nexo-media-worker-windows]
+    name_template: "nexo-media-worker_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [zip]
     builds_info:
       owner: root
       group: root
@@ -371,6 +415,79 @@ nfpms:
       lintian_overrides:
         - statically-linked-binary
 
+  # Media worker: binary, systemd unit (dynamic user, no account to create),
+  # /etc/default/nexo-media-worker. OpenH264, a C++ library, is downloaded
+  # by the worker at its first start: the package depends on libstdc++.
+  - id: nexo-media-worker
+    package_name: nexo-media-worker
+    ids: [nexo-media-worker]
+    file_name_template: "{{ .ConventionalFileName }}"
+    vendor: r3n3r0
+    homepage: https://github.com/r3n3r0/nexo
+    maintainer: r3n3r0 <r3n3r0@users.noreply.github.com>
+    license: AGPL-3.0-only
+    description: |-
+      Media worker of Nexo, the S3-compatible object storage server:
+      renditions, posters and thumbnails of videos (OpenH264, downloaded
+      from Cisco at the first start) and variants of images.
+    formats: [deb, rpm]
+    bindir: /usr/bin
+    section: video
+    priority: optional
+    mtime: "{{ .CommitDate }}"
+    overrides:
+      deb:
+        dependencies:
+          - libstdc++6
+      rpm:
+        dependencies:
+          - libstdc++
+    contents:
+      - dst: /etc/default
+        type: dir
+        packager: deb
+        file_info:
+          mode: 0755
+          owner: root
+          group: root
+      - src: deploy/systemd/nexo-media-worker.service
+        dst: /usr/lib/systemd/system/nexo-media-worker.service
+        file_info:
+          mode: 0644
+      - src: deploy/systemd/nexo-media-worker.env.example
+        dst: /etc/default/nexo-media-worker
+        type: config|noreplace
+        file_info:
+          mode: 0600
+          owner: root
+          group: root
+      - src: packaging/nfpm/copyright
+        dst: /usr/share/doc/nexo-media-worker/copyright
+        packager: deb
+        file_info:
+          mode: 0644
+      - src: LICENSE
+        dst: /usr/share/licenses/nexo-media-worker/LICENSE
+        packager: rpm
+        type: license
+        file_info:
+          mode: 0644
+      - src: NOTICE
+        dst: /usr/share/doc/nexo-media-worker/NOTICE
+        file_info:
+          mode: 0644
+      - src: deploy/systemd/README.md
+        dst: /usr/share/doc/nexo-media-worker/systemd.md
+        file_info:
+          mode: 0644
+    scripts:
+      postinstall: packaging/nfpm/media-worker-postinstall.sh
+      preremove: packaging/nfpm/media-worker-preremove.sh
+      postremove: packaging/nfpm/media-worker-postremove.sh
+    rpm:
+      summary: Media worker of Nexo (video renditions, image variants)
+      group: System Environment/Daemons
+
 checksum:
   name_template: checksums.txt
   algorithm: sha256
@@ -410,7 +527,8 @@ signs:
 # $TARGETPLATFORM/), with SBOM and provenance attestations, pushed to
 # Docker Hub only: docker.io/<DOCKERHUB_NAMESPACE>/nexo and .../nexoctl
 # (namespace default paolor, lowercased; an empty value counts as unset).
-# docker_signs signs each pushed name:tag by its digest.
+# docker_signs signs each pushed name:tag by its digest. The media worker has
+# an image of its own (glibc base, for OpenH264): .../nexo-media-worker.
 dockers_v2:
   - id: nexo
     ids: [nexo, nexoctl]
@@ -458,6 +576,23 @@ dockers_v2:
     flags:
       # A snapshot loads each platform into the local daemon, whose exporter
       # cannot store attestations; a release pushes them.
+      - '--provenance={{ if .IsSnapshot }}false{{ else }}mode=max{{ end }}'
+
+  - id: nexo-media-worker
+    ids: [nexo-media-worker]
+    dockerfile: deploy/docker/Dockerfile.media-worker.goreleaser
+    extra_files: [LICENSE, NOTICE, COMMERCIAL-LICENSE.md]
+    images:
+      - 'docker.io/{{ tolower (or (envOrDefault "DOCKERHUB_NAMESPACE" "") "paolor") }}/nexo-media-worker'
+    tags:
+      - "{{ .Tag }}"
+      - '{{ if not .Prerelease }}v{{ .Major }}.{{ .Minor }}{{ end }}'
+      - '{{ if not .Prerelease }}latest{{ end }}'
+    platforms: [linux/amd64, linux/arm64]
+    sbom: "true"
+    labels: *imagelabels
+    annotations: *imageannotations
+    flags:
       - '--provenance={{ if .IsSnapshot }}false{{ else }}mode=max{{ end }}'
 
 # Every pushed docker.io name:tag, signed by digest: the signature is
@@ -572,9 +707,12 @@ release:
     ```sh
     docker pull {{ tolower (or (envOrDefault "DOCKERHUB_NAMESPACE" "") "paolor") }}/nexo:{{ .Tag }}
     docker pull {{ tolower (or (envOrDefault "DOCKERHUB_NAMESPACE" "") "paolor") }}/nexoctl:{{ .Tag }}
+    docker pull {{ tolower (or (envOrDefault "DOCKERHUB_NAMESPACE" "") "paolor") }}/nexo-media-worker:{{ .Tag }}
     # Helm chart attached to this release (signature: nexo-{{ .Version }}.tgz.sigstore.json)
     helm install nexo https://github.com/R3n3r0/Nexo/releases/download/{{ .Tag }}/nexo-{{ .Version }}.tgz
     ```
 
-    deb/rpm packages `nexo` (server, systemd unit) and `nexoctl` (CLI) for
-    amd64 and arm64 are attached below; see docs/08-deployment-modes.md §8.7.
+    deb/rpm packages `nexo` (server, systemd unit), `nexoctl` (CLI) and
+    `nexo-media-worker` (media worker, systemd unit) for amd64 and arm64 are
+    attached below; see docs/08-deployment-modes.md §8.7 and
+    docs/user/media-worker.md.

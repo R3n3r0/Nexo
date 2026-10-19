@@ -339,3 +339,157 @@ networkPolicy:
 tests:
   # -- Bucket created, written, read and removed by "helm test".
   bucket: helm-test
+
+# Media worker (docs/user/media-worker.md): nexo-media-worker derives the
+# renditions, posters and thumbnails of the videos and the variants of the
+# images that the media rules of the buckets select. Off by default. When
+# enabled the chart runs it as a Deployment with its own volume and Service,
+# and a Job (Helm hook, after every install and upgrade) configures Nexo for
+# it: the least-privilege policy, the user of the worker and the
+# notify_media_worker target pointing to its Service with the shared token.
+mediaWorker:
+  enabled: false
+  image:
+    # -- Image of the worker (distroless, non-root; OpenH264 is downloaded
+    # from Cisco at the first start, never shipped in the image).
+    repository: docker.io/paolor/nexo-media-worker
+    # -- Image tag; the chart appVersion when empty.
+    tag: ""
+    # -- Image digest (sha256:...); when set it pins the image instead of the tag.
+    digest: ""
+    pullPolicy: IfNotPresent
+  # -- 1 (or 0 to stop it). Never more: every worker keeps its own job queue
+  # on its own volume, with no coordination between workers. Behind one
+  # Service the jobs of the same object (created, overwritten, reprocessed,
+  # deleted) would reach different pods and race, and a job that Nexo
+  # delivers again (an acknowledgment lost to a timeout) would be processed
+  # twice. A job already uses every core: scale the worker up (resources,
+  # concurrency), not out.
+  replicas: 1
+  # -- NEXO_WORKER_CONCURRENCY: jobs processed at once (each one uses every
+  # core); more helps with many short videos or small images. Raise the
+  # memory limit with it.
+  concurrency: 1
+  # -- NEXO_WORKER_IMAGE_MEMORY: memory budget of the image variants encoded
+  # at once, in bytes as a string, e.g. "1610612736" (empty = worker
+  # default, 2 GiB). Keep it about 1 GiB below resources.limits.memory.
+  imageMemory: ""
+  # -- NEXO_WORKER_LOG_LEVEL and NEXO_WORKER_LOG_FORMAT.
+  logLevel: info
+  logFormat: json
+  auth:
+    # -- Access key (user name) of the worker in Nexo.
+    accessKey: media-worker
+    # -- Secret key of the worker (at least 8 characters). Empty: a random
+    # one is generated at install and kept on upgrades.
+    secretKey: ""
+    # -- Bearer token shared by Nexo (auth_token of the target) and the
+    # worker. Empty: a random one is generated at install and kept on upgrades.
+    authToken: ""
+    # -- Existing Secret with the keys access-key, secret-key and
+    # auth-token; when set, the three values above are ignored.
+    existingSecret: ""
+  setup:
+    # -- Run the setup Job after every install and upgrade (idempotent):
+    # the policy, the user of the worker (created, or re-created when its
+    # secret key changed) and the notify_media_worker target. With false,
+    # do the same by hand (see NOTES and the README of the chart).
+    enabled: true
+    # -- Name of the policy of the worker.
+    policyName: media-worker
+    # -- Buckets the worker may read and write (under .nexo-media/); empty =
+    # every bucket. Restrict it to the buckets that have media rules.
+    buckets: []
+    # -- Subsystem of the target: notify_media_worker or
+    # notify_media_worker:<id>.
+    target: notify_media_worker
+    # -- Seconds the Job waits for Nexo to answer (a distributed cluster
+    # starts when enough nodes are up). helm install waits for the Job:
+    # give it a --timeout above this value for a large cluster.
+    timeout: 600
+    # -- Image with a POSIX shell running the setup script; nexoctl itself
+    # comes from the image of the server (image above).
+    shellImage: docker.io/library/busybox:1.37-musl
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 128Mi
+  openh264:
+    # -- NEXO_WORKER_OPENH264: path of a libopenh264 2.4.1 already present
+    # in the pod (mounted with extraVolumes/extraVolumeMounts); empty = the
+    # Cisco build, downloaded into the data volume at the first start
+    # (egress to ciscobinary.openh264.org needed once).
+    path: ""
+    # -- NEXO_WORKER_OPENH264_DOWNLOAD_URL: a mirror of the Cisco builds
+    # (the checksum pinned in the worker is still verified).
+    downloadURL: ""
+  persistence:
+    # -- Volume of /data: the job queue (it must persist: a job acknowledged
+    # to Nexo lives only there), the work files and the downloaded library.
+    # With false an emptyDir: queued jobs are lost with the pod.
+    enabled: true
+    # -- StorageClass ("" = the cluster default, "-" = none).
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    # -- Room for the largest video being processed plus its renditions.
+    size: 20Gi
+    annotations: {}
+    # -- An existing claim used as /data.
+    existingClaim: ""
+  # -- Video jobs need about 1 GiB, image jobs about 2 GiB (AVIF): the
+  # memory limit must cover concurrency x that, plus the imageMemory budget.
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      memory: 3Gi
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+  # -- Read-only root file system: only /data and /tmp are writable.
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    privileged: false
+    capabilities:
+      drop:
+        - ALL
+  probes:
+    # -- Port open once OpenH264 is loaded: the first start downloads it
+    # (5s x 60: five minutes).
+    startup:
+      periodSeconds: 5
+      failureThreshold: 60
+    liveness:
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+    readiness:
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+  service:
+    # -- Port of the jobs endpoint (POST /jobs, GET /healthz).
+    port: 9600
+    annotations: {}
+  # -- Extra environment variables of the worker (any NEXO_WORKER_* setting).
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  # -- Seconds granted to a stopping worker (the running jobs stay queued).
+  terminationGracePeriodSeconds: 30
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  priorityClassName: ""
+  podAnnotations: {}
+  podLabels: {}

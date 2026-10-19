@@ -130,7 +130,9 @@ func TestClusterTopologyMismatch(t *testing.T) {
 // identity changed on node 2 is invalidated on every node when the change
 // returns; a node that was down receives what it missed.
 func TestClusterInvalidationPropagates(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// The notifiers run with ctx: it outlives the wait for the retry below,
+	// or a loaded machine would stop the retry loop before it delivers.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	c := rpctest.New(t, rpctest.Options{})
 	c.StartAll()
@@ -171,7 +173,7 @@ func TestClusterInvalidationPropagates(t *testing.T) {
 	// Delivered by the retry loop of node 2 once its health checks see
 	// node 4 again: a few periods, much longer on a loaded machine (the
 	// race detector, parallel packages), hence the generous bound.
-	require.Eventually(t, func() bool { return received[3].Load() == 2 }, 30*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return received[3].Load() == 2 }, time.Minute, 10*time.Millisecond)
 }
 
 // TestClusterLeader is TC-14: exactly one node runs the singleton jobs;

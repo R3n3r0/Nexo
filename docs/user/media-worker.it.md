@@ -161,6 +161,12 @@ Una pagina web lascia scegliere al browser:
 local/foto/spiaggia.jpg` crea un link revocabile che serve l'immagine alla sua dimensione nel formato migliore
 per chi lo apre; la console offre lo stesso nella finestra di condivisione di un'immagine.
 
+Le varianti possono essere servite anche **all'URL dell'immagine stessa** da una distribuzione
+(`https://cdn.example.com/photos/spiaggia.jpg` in AVIF, WebP o JPEG secondo ciò che accetta il browser, `?w=640`
+per una larghezza) o da `GetObject` con `x-nexo-image-format`/`x-nexo-image-width`: vedi
+[Immagini in ogni formato sullo stesso URL](distributions/README.it.md#immagini-in-ogni-formato-sullo-stesso-url).
+La rotta dell'Admin API risponde anche a `HEAD` (gli header della variante senza il corpo).
+
 ### Limiti e memoria
 
 La codifica AVIF è il passo lento e affamato di memoria (circa 6 s e 1,2 GB per una foto da 12 megapixel alla
@@ -180,6 +186,17 @@ Un'immagine più grande o non decodificabile fallisce in modo definitivo (`nexoc
 motivo); la sorgente non viene mai modificata.
 
 ## Configurazione
+
+I quattro passi seguenti configurano un worker a mano, ovunque. Con Docker Compose, Docker Swarm e Helm i file
+di deployment del repository svolgono da soli i passi 1 e 3 (un servizio o un Job di setup crea la policy,
+l'utente e il target): vedi le [ricette di deployment](#ricette-di-deployment). Con qualunque metodo il worker
+ha bisogno di:
+
+- l'**API S3 di Nexo** (un nodo, o il load balancer di un cluster) e un **utente dai privilegi minimi** (passo 1);
+- un **token** condiviso con il target `notify_media_worker` di Nexo (passi 2 e 3);
+- una **directory dati persistente**: un job confermato a Nexo esiste solo nella coda che sta lì;
+- **OpenH264**: scaricato da Cisco al primo avvio, oppure una libreria fornita da te;
+- **memoria**: circa 1 GiB per job video e 2 GiB per job immagine (AVIF), moltiplicati per `--concurrency`.
 
 ### 1. Credenziali del worker
 
@@ -217,8 +234,12 @@ level=INFO msg="OpenH264 loaded" version=2.4.1 license="OpenH264 Video Codec pro
 level=INFO msg="nexo-media-worker started" address=:9600 s3=http://nexo.internal:9000 concurrency=1
 ```
 
-Con Docker (costruisci l'immagine con `make docker-media-worker`; scarica OpenH264 nel suo volume `/data` al
-primo avvio):
+Gli archivi della release (`nexo-media-worker_<versione>_<os>_<arch>.tar.gz`) e i pacchetti deb/rpm
+`nexo-media-worker` contengono il binario e una unit systemd irrobustita ([sotto](#systemd)).
+
+Con Docker (l'immagine multi-arch `docker.io/paolor/nexo-media-worker`, oppure `make docker-media-worker` dai
+sorgenti; scarica OpenH264 nel suo volume `/data` al primo avvio; pubblica la porta 9600 solo dove Nexo la
+raggiunge):
 
 ```console
 $ docker run -d --name nexo-media-worker -p 9600:9600 -v media-worker:/data \
@@ -230,8 +251,8 @@ $ docker run -d --name nexo-media-worker -p 9600:9600 -v media-worker:/data \
 | Flag | Ambiente | Default | |
 | --- | --- | --- | --- |
 | `--s3-endpoint` | `NEXO_WORKER_S3_ENDPOINT` | | URL dell'API S3 di Nexo (obbligatorio) |
-| `--access-key`, `--secret-key` | `NEXO_WORKER_ACCESS_KEY`, `NEXO_WORKER_SECRET_KEY` | | credenziali del worker (obbligatorie) |
-| `--auth-token` | `NEXO_WORKER_AUTH_TOKEN` | | bearer token inviato da Nexo (obbligatorio) |
+| `--access-key`, `--secret-key` | `NEXO_WORKER_ACCESS_KEY`, `NEXO_WORKER_SECRET_KEY` | | credenziali del worker (obbligatorie; anche da file: `NEXO_WORKER_ACCESS_KEY_FILE`, `NEXO_WORKER_SECRET_KEY_FILE`) |
+| `--auth-token` | `NEXO_WORKER_AUTH_TOKEN` | | bearer token inviato da Nexo (obbligatorio; anche da file: `NEXO_WORKER_AUTH_TOKEN_FILE`) |
 | `--address` | `NEXO_WORKER_ADDRESS` | `:9600` | indirizzo dell'endpoint dei job (`POST /jobs`, `GET /healthz`) |
 | `--data-dir` | `NEXO_WORKER_DATA_DIR` | `nexo-media-worker` | coda dei job, file di lavoro, libreria scaricata |
 | `--concurrency` | `NEXO_WORKER_CONCURRENCY` | `1` | job elaborati insieme (ognuno usa già tutti i core) |
@@ -360,6 +381,80 @@ Un job usa tutti i core: il video è diviso nelle sue immagini IDR in tratti di 
 e codificato sul proprio core, e i tratti sono uniti in ordine (il risultato è identico, byte per byte, con qualsiasi
 numero di core). La velocità cresce con i core; un video più corto di 2 secondi, o con una sola immagine IDR, è un
 solo tratto su un core.
+
+## Ricette di deployment
+
+### Docker Compose
+
+`deploy/docker/compose.media-worker.yml` è un overlay per i file Compose di Nexo. Aggiunge il worker (volume
+`media-worker-data` per la sua coda, file system radice in sola lettura) e un setup che si esegue una volta: attende
+Nexo, crea la policy `media-worker` e l'utente del worker e imposta il target `notify_media_worker` con il token,
+quindi i passi 1 e 3 sono già fatti:
+
+```console
+$ cd deploy/docker
+$ cp nexo.env.example nexo.env                  # credenziali root di Nexo
+$ cp media-worker.env.example media-worker.env  # NEXO_WORKER_SECRET_KEY, NEXO_WORKER_AUTH_TOKEN
+$ docker compose -f compose.single.yml -f compose.media-worker.yml up -d
+$ docker compose -f compose.single.yml -f compose.media-worker.yml logs media-worker-setup
+media-worker-setup: done: notify_media_worker -> http://media-worker:9600/jobs
+```
+
+Il setup è idempotente: dopo aver cambiato `media-worker.env` riesegui `up -d` (una nuova secret key ricrea
+l'utente, un nuovo token aggiorna il target). La policy è `media-worker-policy.json` (tutti i bucket: elenca i
+tuoi per restringerla). Con un file di cluster punta worker e setup al load balancer:
+`NEXO_MEDIA_S3_URL=http://lb:9000 NEXO_MEDIA_ADMIN_URL=http://lb:9001`.
+
+### Docker Swarm
+
+`deploy/swarm/media-worker.yml` aggiunge gli stessi servizi allo stack di `deploy/swarm`, sul nodo Swarm con
+l'etichetta `nexo.media=1` (la sua coda è un volume locale), con le credenziali root dai Docker secret dello
+stack:
+
+```console
+$ docker node update --label-add nexo.media=1 swarm-e
+$ cp ../docker/media-worker.env.example media-worker.env   # secret key e token
+$ docker stack deploy -c stack.yml -c media-worker.yml nexo
+```
+
+### Kubernetes (Helm)
+
+Il chart di Nexo installa il worker con `mediaWorker.enabled=true`: un Deployment di un pod (non root, file
+system radice in sola lettura, probe su `/healthz`), un PersistentVolumeClaim per `/data`, un Service sulla porta
+9600, un Secret con access key, secret key e token (generati e conservati negli upgrade, oppure
+`mediaWorker.auth.existingSecret`) e un Job eseguito dopo ogni install e upgrade (hook di Helm) che crea la
+policy (ristretta a `mediaWorker.setup.buckets`), l'utente e il target che punta al Service:
+
+```console
+$ helm upgrade --install nexo "$CHART" -n storage --set mediaWorker.enabled=true \
+    --set 'mediaWorker.setup.buckets={videos,photos}'
+$ kubectl -n storage logs job/nexo-media-worker-setup
+$ helm test nexo -n storage                     # verifica anche l'endpoint dei job
+```
+
+Il limite di memoria predefinito è 3 GiB; alza `mediaWorker.resources` insieme a `mediaWorker.concurrency`. Senza
+accesso a `ciscobinary.openh264.org`, monta una libreria e imposta `mediaWorker.openh264.path`. Gli altri valori
+sono nel [README del chart](https://github.com/R3n3r0/Nexo/tree/main/deploy/helm/nexo#media-worker).
+
+### systemd
+
+Il pacchetto `nexo-media-worker` installa `/usr/bin/nexo-media-worker`, la unit `nexo-media-worker.service` e
+`/etc/default/nexo-media-worker` (root, modo 0600); gli archivi contengono gli stessi file in `systemd/`. La unit
+esegue il worker come utente dinamico nella sandbox di `nexo.service` (file system in sola lettura tranne la sua
+directory di stato `/var/lib/nexo-media-worker`, nessuna capability, filtro delle system call), con
+`OOMScoreAdjust=500` e pesi di CPU e I/O più bassi, così che su una macchina condivisa Nexo abbia la precedenza:
+
+```console
+$ sudo apt install ./nexo-media-worker_1.0.0_amd64.deb   # oppure dnf install ./nexo-media-worker-1.0.0-1.x86_64.rpm
+$ sudoedit /etc/default/nexo-media-worker                # endpoint, access key, secret key, token
+$ sudo systemctl enable --now nexo-media-worker
+$ journalctl -u nexo-media-worker -f
+```
+
+Da un archivio: `sudo install -m 0755 nexo-media-worker /usr/local/bin/`, `sudo install -m 0600
+systemd/nexo-media-worker.env.example /etc/default/nexo-media-worker`, `sudo install -m 0644
+systemd/nexo-media-worker.service /etc/systemd/system/`, poi `sudo systemctl daemon-reload`. I passi 1 e 3 si
+fanno a mano; l'endpoint del target è `http://<host del worker>:9600/jobs`.
 
 ## Scalabilità e sicurezza
 

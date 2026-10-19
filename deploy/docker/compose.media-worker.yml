@@ -1,0 +1,104 @@
+# Media worker overlay (docs/user/media-worker.md): adds nexo-media-worker
+# to a Nexo of this directory and configures Nexo for it.
+#
+#   cp nexo.env.example nexo.env                  # root credentials
+#   cp media-worker.env.example media-worker.env  # secret key and token of the worker
+#   docker compose -f compose.single.yml -f compose.media-worker.yml up -d
+#   docker compose -f compose.single.yml -f compose.media-worker.yml logs media-worker-setup
+#
+# Services:
+#   media-worker        the worker (jobs endpoint http://media-worker:9600/jobs,
+#                       not published), its queue and OpenH264 in a volume;
+#   media-worker-tools  copies nexoctl out of the Nexo image (which has no
+#                       shell) into a volume, then exits;
+#   media-worker-setup  runs ../helm/nexo/files/media-worker-setup.sh (the
+#                       script of the Helm chart) with busybox: waits for Nexo,
+#                       creates the policy (media-worker-policy.json) and the
+#                       user of the worker, sets the notify_media_worker
+#                       target with the token; idempotent, then exits.
+#
+# With compose.snmd.yml the same; with a cluster file (compose.cluster.yml)
+# point the worker and the setup to the load balancer:
+#   NEXO_MEDIA_S3_URL=http://lb:9000 NEXO_MEDIA_ADMIN_URL=http://lb:9001 docker compose \
+#     -f compose.cluster.yml -f compose.media-worker.yml up -d
+#
+# Interpolated variables: NEXO_MEDIA_WORKER_IMAGE, NEXO_IMAGE, NEXO_MEDIA_SHELL_IMAGE,
+# NEXO_MEDIA_S3_URL, NEXO_MEDIA_ADMIN_URL, NEXO_MEDIA_TARGET.
+
+services:
+  media-worker:
+    image: ${NEXO_MEDIA_WORKER_IMAGE:-docker.io/paolor/nexo-media-worker:latest}
+    env_file:
+      - media-worker.env
+    environment:
+      NEXO_WORKER_S3_ENDPOINT: ${NEXO_MEDIA_S3_URL:-http://nexo:9000}
+      NEXO_WORKER_DATA_DIR: /data
+      NEXO_WORKER_ADDRESS: ":9600"
+    volumes:
+      # The job queue: it must persist (a job acknowledged to Nexo lives
+      # only there), with the work files and the downloaded OpenH264.
+      - media-worker-data:/data
+    tmpfs:
+      - /tmp
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    # Video jobs need about 1 GiB, image jobs about 2 GiB (AVIF): raise it
+    # with NEXO_WORKER_CONCURRENCY.
+    mem_limit: 3g
+    # The HEALTHCHECK of the image (nexo-media-worker healthcheck); the port
+    # opens once OpenH264 is loaded (downloaded at the first start).
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  media-worker-tools:
+    image: ${NEXO_IMAGE:-docker.io/paolor/nexo:latest}
+    entrypoint: ["/nexoctl"]
+    command: ["--quiet", "cp", "/nexoctl", "/data/nexoctl"]
+    environment:
+      NEXOCTL_CONFIG_DIR: /data/config
+    volumes:
+      # Mounted at /data, owned by the user of the image (65532): the new
+      # volume takes its owner.
+      - media-worker-tools:/data
+    read_only: true
+    restart: "no"
+
+  media-worker-setup:
+    image: ${NEXO_MEDIA_SHELL_IMAGE:-docker.io/library/busybox:1.37-musl}
+    user: "65532:65532"
+    command: ["/bin/sh", "/setup/setup.sh"]
+    depends_on:
+      media-worker-tools:
+        condition: service_completed_successfully
+    env_file:
+      - nexo.env
+      - media-worker.env
+    environment:
+      NEXO_URL: ${NEXO_MEDIA_S3_URL:-http://nexo:9000}
+      NEXO_ADMIN_URL: ${NEXO_MEDIA_ADMIN_URL:-http://nexo:9001}
+      WORKER_ENDPOINT: http://media-worker:9600/jobs
+      TARGET: ${NEXO_MEDIA_TARGET:-notify_media_worker}
+      POLICY_NAME: media-worker
+      SETUP_TIMEOUT: "600"
+    configs:
+      - source: media_worker_setup
+        target: /setup/setup.sh
+      - source: media_worker_policy
+        target: /setup/policy.json
+    volumes:
+      - media-worker-tools:/tools
+    read_only: true
+    restart: "no"
+
+configs:
+  media_worker_setup:
+    file: ../helm/nexo/files/media-worker-setup.sh
+  media_worker_policy:
+    # Every bucket; list yours in the Resource arrays to restrict it.
+    file: media-worker-policy.json
+
+volumes:
+  media-worker-data: {}
+  media-worker-tools: {}

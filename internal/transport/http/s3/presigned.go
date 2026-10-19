@@ -9,6 +9,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/service/auth"
 	"github.com/r3n3r0/nexo/internal/service/bucket"
+	"github.com/r3n3r0/nexo/internal/service/media"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
@@ -27,9 +28,11 @@ type PresignedDeps struct {
 	Objects  object.Service
 	Buckets  bucket.Service
 	Policy   policy.Service
-	Enc      httpx.Codec
-	Clock    clock.Clock
-	Logger   *slog.Logger
+	// Media serves the variants of the images (ObjectDeps.Media).
+	Media  media.Service
+	Enc    httpx.Codec
+	Clock  clock.Clock
+	Logger *slog.Logger
 }
 
 type presignedRoutes struct {
@@ -50,7 +53,7 @@ func NewPresignedRoutes(deps PresignedDeps, opts ...Option) PresignedRoutes {
 	return &presignedRoutes{
 		deps: deps,
 		objects: newObjectRoutes(ObjectDeps{
-			Objects: deps.Objects, Policy: deps.Policy, Enc: deps.Enc, Clock: deps.Clock, Logger: deps.Logger,
+			Objects: deps.Objects, Policy: deps.Policy, Media: deps.Media, Enc: deps.Enc, Clock: deps.Clock, Logger: deps.Logger,
 		}, opts...),
 		buckets: newBucketRoutes(BucketDeps{
 			Buckets: deps.Buckets, Objects: deps.Objects, Policy: deps.Policy, Enc: deps.Enc, Clock: deps.Clock, Logger: deps.Logger,

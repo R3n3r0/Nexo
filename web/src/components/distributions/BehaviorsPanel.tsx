@@ -93,6 +93,11 @@ export function BehaviorsPanel({
               </Text>
             </Group>
           )}
+          {b.images?.negotiate === true ? (
+            <Badge size="xs" variant="light" color="grape" mt={4}>
+              {t('distributions.behaviors.imagesBadge')}
+            </Badge>
+          ) : null}
         </Table.Td>
         <Table.Td>
           {b.access !== undefined ? (

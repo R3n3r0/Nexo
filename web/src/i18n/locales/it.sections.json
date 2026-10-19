@@ -415,6 +415,11 @@
       "spaHint": "Servito (200) al posto di un oggetto mancante.",
       "cacheHint": "Inviato ai browser; la cache della distribuzione ha le sue policy.",
       "corsHint": "Origini consentite da CORS su questi percorsi; nessuna eredita il CORS della distribuzione.",
+      "images": "Immagini in ogni formato",
+      "imagesHint": "L'URL di un'immagine serve le varianti create dal media worker (regola immagini del bucket): AVIF, WebP o JPEG secondo ciò che accetta il browser, ?w=640 per una larghezza, ?format=webp per un formato, ?format=original per l'originale. Gli altri oggetti sono serviti senza modifiche.",
+      "imagesOn": "Negozia formato e larghezza",
+      "imagesOff": "Servi l'originale",
+      "imagesBadge": "Immagini",
       "fixIssues": "Correggi i campi evidenziati.",
       "apply": "Applica"
     },

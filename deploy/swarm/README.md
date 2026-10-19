@@ -55,4 +55,33 @@ nexoctl admin info swarm
 - **KMS**: `docker secret create nexo_kms_key` with `<name>:<base64 of 32 bytes>` and
   `NEXO_KMS_SECRET_KEY_FILE=/run/secrets/nexo_kms_key`.
 
-Validate the file without a Swarm: `docker stack config -c stack.yml` (CI job `deploy-files`).
+## Media worker
+
+`media-worker.yml` adds [nexo-media-worker](../../docs/user/media-worker.md) (renditions, posters,
+thumbnails, image variants) to the same stack, with the target of Nexo configured for it:
+
+```bash
+# 1. the Swarm node of the worker (its job queue is a local volume): many cores, >= 4 GiB of memory
+docker node update --label-add nexo.media=1 swarm-e
+
+# 2. credentials of the worker and the token shared with Nexo
+cp ../docker/media-worker.env.example media-worker.env
+sed -i "s|^NEXO_WORKER_SECRET_KEY=.*|NEXO_WORKER_SECRET_KEY=$(openssl rand -hex 24)|; s|^NEXO_WORKER_AUTH_TOKEN=.*|NEXO_WORKER_AUTH_TOKEN=$(openssl rand -hex 32)|" media-worker.env
+
+# 3. deploy both files
+NEXO_TAG=v1.0.0 docker stack deploy -c stack.yml -c media-worker.yml nexo
+docker service logs nexo_media-worker-setup     # "media-worker-setup: done: notify_media_worker -> ..."
+```
+
+| Service | Role |
+|---------|------|
+| `media-worker` | The worker (`paolor/nexo-media-worker`), one task, jobs endpoint `http://media-worker:9600/jobs` on the overlay network only; reads and writes through `http://lb:9000`; downloads OpenH264 into its volume at the first start (egress to `ciscobinary.openh264.org`) |
+| `media-worker-tools` | Copies `nexoctl` out of the Nexo image (no shell) into the volume `media-worker-tools`, then exits |
+| `media-worker-setup` | Runs the setup script of the Helm chart (`../helm/nexo/files/media-worker-setup.sh`) with busybox and the root secrets: least-privilege policy (`../docker/media-worker-policy.json`), user of the worker, `notify_media_worker` target with the token. Idempotent: change `media-worker.env` and deploy again |
+
+`media-worker.env` is read by `docker stack deploy` (the worker takes its credentials from environment
+variables, not from secret files): keep it readable by the deploying user only. Never run more than one
+`media-worker` task: each one has its own job queue (see [Scaling and security](../../docs/user/media-worker.md#scaling-and-security)).
+
+Validate the files without a Swarm: `docker stack config -c stack.yml` (CI job `deploy-files`), and
+`docker stack config -c stack.yml -c media-worker.yml` with a `media-worker.env`.

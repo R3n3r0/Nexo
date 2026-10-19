@@ -1,0 +1,137 @@
+# Media worker for the Nexo stack (docs/user/media-worker.md), deployed with
+# stack.yml as a second file. See README.md, "Media worker":
+#
+#   docker node update --label-add nexo.media=1 <swarm-node>
+#   cp ../docker/media-worker.env.example media-worker.env   # secret key and token
+#   docker stack deploy -c stack.yml -c media-worker.yml nexo
+#
+# The three services run on the Swarm node labelled nexo.media=1: the job
+# queue of the worker lives in a local volume (it must persist), and the
+# setup reads nexoctl from a volume that media-worker-tools fills on the same
+# node.
+#   media-worker        the worker, jobs endpoint http://media-worker:9600/jobs
+#                       on the overlay network (never published);
+#   media-worker-tools  copies nexoctl out of the Nexo image (no shell) into
+#                       the volume media-worker-tools, then exits;
+#   media-worker-setup  runs the setup script of the Helm chart with busybox:
+#                       waits for Nexo, creates the policy and the user of the
+#                       worker, sets the notify_media_worker target with the
+#                       token; idempotent. It restarts until nexoctl is there
+#                       and Nexo answers, then exits.
+# The worker reads its credentials from media-worker.env (env_file, read by
+# "docker stack deploy"); the setup reads the root credentials from the
+# Docker secrets of stack.yml.
+version: "3.8"
+
+x-media-placement: &media-placement
+  constraints: [node.labels.nexo.media == 1]
+
+services:
+  media-worker:
+    image: docker.io/paolor/nexo-media-worker:${NEXO_TAG:-latest}
+    hostname: media-worker
+    env_file:
+      - media-worker.env
+    environment:
+      # Through the load balancer of stack.yml.
+      NEXO_WORKER_S3_ENDPOINT: http://lb:9000
+      NEXO_WORKER_DATA_DIR: /data
+      NEXO_WORKER_ADDRESS: ":9600"
+    volumes:
+      - media-worker-data:/data
+    tmpfs:
+      - /tmp
+    read_only: true
+    cap_drop: [ALL]
+    networks:
+      - nexo
+    stop_grace_period: 30s
+    deploy:
+      # Never more than one: every worker has its own job queue (docs).
+      mode: replicated
+      replicas: 1
+      endpoint_mode: dnsrr
+      placement: *media-placement
+      restart_policy:
+        condition: any
+        delay: 5s
+      update_config:
+        order: stop-first
+      resources:
+        # Video jobs need about 1 GiB, image jobs about 2 GiB (AVIF).
+        limits:
+          memory: 3G
+        reservations:
+          memory: 1G
+
+  media-worker-tools:
+    image: docker.io/paolor/nexo:${NEXO_TAG:-latest}
+    entrypoint: ["/nexoctl"]
+    command: ["--quiet", "cp", "/nexoctl", "/data/nexoctl"]
+    environment:
+      NEXOCTL_CONFIG_DIR: /data/config
+    volumes:
+      # At /data, owned by the user of the image: the new volume takes its owner.
+      - media-worker-tools:/data
+    read_only: true
+    networks:
+      - nexo
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement: *media-placement
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+
+  media-worker-setup:
+    image: busybox:1.37-musl
+    user: "65532:65532"
+    command: ["/bin/sh", "/setup/setup.sh"]
+    env_file:
+      - media-worker.env
+    environment:
+      NEXO_URL: http://lb:9000
+      NEXO_ADMIN_URL: http://lb:9001
+      NEXO_ROOT_USER_FILE: /run/secrets/nexo_root_user
+      NEXO_ROOT_PASSWORD_FILE: /run/secrets/nexo_root_password
+      WORKER_ENDPOINT: http://media-worker:9600/jobs
+      TARGET: notify_media_worker
+      POLICY_NAME: media-worker
+      SETUP_TIMEOUT: "600"
+    secrets:
+      - source: nexo_root_user
+        uid: "65532"
+        mode: 0400
+      - source: nexo_root_password
+        uid: "65532"
+        mode: 0400
+    configs:
+      - source: media_worker_setup
+        target: /setup/setup.sh
+      - source: media_worker_policy
+        target: /setup/policy.json
+    volumes:
+      - media-worker-tools:/tools
+    read_only: true
+    networks:
+      - nexo
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement: *media-placement
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 60
+
+configs:
+  media_worker_setup:
+    file: ../helm/nexo/files/media-worker-setup.sh
+  media_worker_policy:
+    # Every bucket; list yours in the Resource arrays to restrict it.
+    file: ../docker/media-worker-policy.json
+
+volumes:
+  media-worker-data: {}
+  media-worker-tools: {}

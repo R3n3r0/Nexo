@@ -156,6 +156,21 @@ func TestImageRoutes(t *testing.T) {
 	assert.Equal(t, "234", rec.Body.String())
 	assert.Equal(t, "bytes 2-4/10", rec.Header().Get("Content-Range"))
 
+	// HEAD: the headers of GET, no body.
+	f.media.EXPECT().Image(mock.Anything, media.Source{Bucket: "b", Key: "a.jpg"}, media.ImageRequest{Width: 320, Format: "auto", Accept: "image/webp"}).
+		Return(testImage("webp", 320, "0123456789"), nil).Once()
+	f.resetChecks()
+	req = c.newRequest(http.MethodHead, "/buckets/b/objects/image?key=a.jpg&w=320", nil)
+	req.Header.Set("Accept", "image/webp")
+	rec = c.serve(req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "image/webp", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "10", rec.Header().Get("Content-Length"))
+	assert.Equal(t, `"e1-webp-320"`, rec.Header().Get("ETag"))
+	assert.Equal(t, "Accept", rec.Header().Get("Vary"))
+	assert.Empty(t, rec.Body.String())
+	assert.Equal(t, []policy.Action{policy.ActionGetObject}, f.lastCheck().Actions)
+
 	// Malformed requests never reach the service.
 	for _, q := range []string{"", "key=a.jpg&w=x", "key=a.jpg&w=-1", "key=a.jpg&format=gif"} {
 		rec := c.do(http.MethodGet, "/buckets/b/objects/image?"+q, nil)

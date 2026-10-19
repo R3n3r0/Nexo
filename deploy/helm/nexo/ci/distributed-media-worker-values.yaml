@@ -1,0 +1,33 @@
+# Distributed with TLS and the media worker: credentials from an existing
+# Secret, OpenH264 from a mounted volume (no download), no persistence of
+# the queue (CI only).
+mode: distributed
+auth:
+  rootPassword: ci-password-123
+tls:
+  enabled: true
+  secretName: nexo-tls
+  caSecretName: nexo-ca
+mediaWorker:
+  enabled: true
+  image:
+    digest: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  auth:
+    existingSecret: nexo-media-worker-credentials
+  setup:
+    timeout: 900
+  openh264:
+    path: /opt/openh264/libopenh264-2.4.1-linux64.7.so
+  extraVolumes:
+    - name: openh264
+      persistentVolumeClaim:
+        claimName: openh264
+        readOnly: true
+  extraVolumeMounts:
+    - name: openh264
+      mountPath: /opt/openh264
+      readOnly: true
+  persistence:
+    enabled: false
+  nodeSelector:
+    kubernetes.io/arch: amd64

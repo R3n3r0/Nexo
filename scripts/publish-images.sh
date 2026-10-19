@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the multi-arch nexo and nexoctl images on this machine and pushes them
+# Builds the multi-arch nexo, nexoctl and nexo-media-worker images on this machine and pushes them
 # to Docker Hub (the only registry of the Nexo images), using credentials from
 # the environment. Use it when you want to publish without a tag-driven
 # release.
@@ -10,12 +10,13 @@
 #   DOCKERHUB_USERNAME, DOCKERHUB_TOKEN  required unless DRY_RUN=true (access
 #                                        token with Read & Write scope)
 #   DOCKERHUB_NAMESPACE                  default: paolor (lowercased); images
-#                                        docker.io/<namespace>/nexo and nexoctl
+#                                        docker.io/<namespace>/nexo, nexoctl and
+#                                        nexo-media-worker
 #
 # Options:
 #   VERSION     image tag; default: git describe (v1.2.3, v1.2.3-4-gabcdef)
 #   PLATFORMS   default: linux/amd64,linux/arm64
-#   IMAGES      default: "nexo nexoctl"
+#   IMAGES      default: "nexo nexoctl nexo-media-worker"
 #   LATEST      "true" also tags :latest and :vX.Y (default: true for a plain
 #               vX.Y.Z version, false otherwise)
 #   SIGN        "true" signs the pushed digests with cosign (keyless or
@@ -41,7 +42,7 @@ VERSION=${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo de
 COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 PLATFORMS=${PLATFORMS:-linux/amd64,linux/arm64}
-IMAGES=${IMAGES:-nexo nexoctl}
+IMAGES=${IMAGES:-nexo nexoctl nexo-media-worker}
 DRY_RUN=${DRY_RUN:-false}
 SIGN=${SIGN:-false}
 
@@ -80,6 +81,7 @@ for image in $IMAGES; do
 	case $image in
 	nexo) dockerfile=Dockerfile ;;
 	nexoctl) dockerfile=Dockerfile.nexoctl ;;
+	nexo-media-worker) dockerfile=Dockerfile.media-worker ;;
 	*) die "unknown image $image" ;;
 	esac
 

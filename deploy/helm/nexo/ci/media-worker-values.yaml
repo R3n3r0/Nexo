@@ -1,0 +1,24 @@
+# Standalone with the media worker: generated credentials and token, the
+# setup Job restricted to two buckets, a second target id, NetworkPolicies
+# limiting S3 and console to an Ingress controller.
+mode: standalone
+auth:
+  rootPassword: ci-password-123
+networkPolicy:
+  enabled: true
+  allowedFrom:
+    - namespaceSelector:
+        matchLabels: {kubernetes.io/metadata.name: ingress-nginx}
+mediaWorker:
+  enabled: true
+  concurrency: 2
+  imageMemory: "1610612736"
+  setup:
+    buckets: [videos, photos]
+    target: notify_media_worker:k8s
+  resources:
+    requests:
+      cpu: "2"
+      memory: 2Gi
+    limits:
+      memory: 4Gi

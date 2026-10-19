@@ -128,6 +128,7 @@ func (e *env) editAndReport(cmd *cobra.Command, args []string, action string, ch
 type behaviorFlags struct {
 	access, index, spa, keyGroup, cacheControl string
 	methods, headers                           []string
+	images                                     bool
 }
 
 func (b *behaviorFlags) register(cmd *cobra.Command) {
@@ -139,6 +140,8 @@ func (b *behaviorFlags) register(cmd *cobra.Command) {
 	f.StringVar(&b.cacheControl, "cache-control", "", "Cache-Control sent to the browsers")
 	f.StringArrayVar(&b.methods, "methods", nil, "allowed methods (default GET,HEAD,OPTIONS)")
 	f.StringArrayVar(&b.headers, "header", nil, "response header 'Name: value' (repeatable)")
+	f.BoolVar(&b.images, "negotiate-images", false, "serve the variants of the images (media worker image rule) at their own URL:\n"+
+		"format from Accept or ?format=, width from ?w=, ?format=original for the original (website mode)")
 }
 
 // apply sets the changed flags on b.
@@ -168,6 +171,9 @@ func (b *behaviorFlags) apply(cmd *cobra.Command, beh *nexoadmin.Behavior) error
 	}
 	if f.Changed("methods") {
 		beh.AllowedMethods = splitList(b.methods)
+	}
+	if f.Changed("negotiate-images") {
+		beh.Images = &nexoadmin.BehaviorImages{Negotiate: b.images}
 	}
 	if f.Changed("header") {
 		h, err := parseHeaderFlags("header", b.headers)
@@ -331,6 +337,13 @@ func formatBehavior(b nexoadmin.Behavior) string {
 	}
 	if b.Cache != nil && b.Cache.CacheControl != "" {
 		parts = append(parts, fmt.Sprintf("cache-control %q", b.Cache.CacheControl))
+	}
+	if b.Images != nil {
+		if b.Images.Negotiate {
+			parts = append(parts, "images negotiated")
+		} else {
+			parts = append(parts, "images original")
+		}
 	}
 	for _, k := range cli.SortedKeys(b.ResponseHeaders) {
 		parts = append(parts, fmt.Sprintf("header %s: %s", k, b.ResponseHeaders[k]))
@@ -686,7 +699,8 @@ in order and the first match wins; the fields a behavior does not set inherit
 from the default behavior. The paths include their leading "/".`,
 		Example: `  nexoctl dist behavior add local website --glob '/assets/**' --cache-control 'public, max-age=31536000, immutable'
   nexoctl dist behavior add local website --regex '^/downloads/.*\.zip$' --access signed --key-group rilasci
-  nexoctl dist behavior add local website --prefix /internal/ --access deny --position 1`,
+  nexoctl dist behavior add local website --prefix /internal/ --access deny --position 1
+  nexoctl dist behavior add local website --prefix /photos/ --negotiate-images`,
 		Args:              exactArgs(2),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {

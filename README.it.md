@@ -5,7 +5,7 @@
 <h1 align="center">Nexo</h1>
 
 <p align="center">
-  <b>Object storage self-hosted compatibile S3, scritto in Go, con lo streaming video incluso.</b><br>
+  <b>Object storage self-hosted compatibile S3, scritto in Go, con lo streaming video e le immagini responsive inclusi.</b><br>
   Un solo binario: server S3, Admin API e console web. Da un disco a un cluster multi-nodo.
 </p>
 
@@ -22,6 +22,7 @@
   <a href="#-avvio-rapido"><b>Avvio rapido</b></a> ·
   <a href="#-funzionalità"><b>Funzionalità</b></a> ·
   <a href="#-video-integrato"><b>Video</b></a> ·
+  <a href="#%EF%B8%8F-immagini-in-ogni-formato"><b>Immagini</b></a> ·
   <a href="#-screenshot"><b>Screenshot</b></a> ·
   <a href="https://r3n3r0.github.io/Nexo/it/"><b>Documentazione</b></a> ·
   <a href="README.md"><b>English</b></a>
@@ -42,6 +43,9 @@
   MinIO, su un disco, più dischi e in cluster: SDK, `aws`, `rclone` e gli strumenti di backup funzionano e basta.
 - **I tuoi video si vedono appena arrivano.** Un MP4 caricato va subito in streaming HLS, e un media worker può
   aggiungere ogni qualità da 240p a 4K, un poster e le miniature della barra di avanzamento, senza ffmpeg.
+- **Ogni foto nel formato e nella dimensione che serve a ogni schermo.** Lo stesso worker trasforma ogni immagine
+  caricata in AVIF, WebP, JPEG e PNG a ogni larghezza, e un solo URL serve la più compatta che il browser accetta,
+  sull'endpoint S3 o sul tuo dominio.
 - **Pensato per chi lo gestisce.** Una console per tutto, metriche Prometheus con una dashboard Grafana pronta,
   trace e log in tempo reale, pacchetti per ogni piattaforma.
 
@@ -123,9 +127,10 @@ condivisione revocabili, TLS con ricarica a caldo, mTLS tra i nodi, KMS integrat
 </td>
 <td width="50%" valign="top">
 
-### 🎬 Video
-I video MP4 vanno in streaming HLS impacchettati al volo, nella console e tramite link di streaming revocabili
-con una pagina player pubblica. Il media worker aggiunge rendition, poster e miniature ([sotto](#-video-integrato)).
+### 🎬 Video e immagini
+I video MP4 vanno in streaming HLS impacchettati al volo, con link di streaming revocabili e una pagina player
+pubblica. Il media worker aggiunge rendition, poster e miniature ([video](#-video-integrato)), e ogni immagine
+in AVIF, WebP, JPEG e PNG a ogni larghezza ([immagini](#%EF%B8%8F-immagini-in-ogni-formato)).
 
 </td>
 </tr>
@@ -177,7 +182,7 @@ lavora tramite l'API S3 con una policy minima e non perde mai un job.
   <tr>
     <td width="50%" valign="top">
       <a href="docs/images/screenshots/media-rules.png"><img src="docs/images/screenshots/media-rules.png" alt="Le regole media di un bucket" width="100%"></a><br>
-      <sub><b>Regole media</b>: quali video di un bucket ricevono quali output</sub>
+      <sub><b>Regole media</b>: quali video e immagini di un bucket ricevono quali output</sub>
     </td>
     <td width="50%" valign="top">
 
@@ -206,6 +211,68 @@ nexoctl media status local/video/intro.mp4
 Ogni job usa tutti i core: il video è diviso nei suoi keyframe e ogni parte è decodificata e codificata sul
 proprio core, con lo stesso risultato byte per byte. Dettagli: [streaming video](docs/user/video-streaming.it.md),
 [media worker](docs/user/media-worker.it.md), [benchmark](docs/bench/media.md).
+
+## 🖼️ Immagini in ogni formato
+
+Carica una foto una volta e ogni schermo riceve il file giusto. In un bucket di immagini `nexo-media-worker`
+trasforma ogni immagine in **AVIF, WebP, JPEG e PNG** alla sua dimensione e a ogni larghezza da 160 a 2560
+pixel, e un solo URL serve la variante più stretta abbastanza larga, nel formato più compatto che il client
+accetta: AVIF ai browser recenti, WebP agli altri, JPEG a chi non legge nessuno dei due. Solo Go, niente libvips
+o ImageMagick da installare.
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/image-variants.png"><img src="docs/images/screenshots/image-variants.png" alt="Le varianti di una foto nel pannello media della console" width="100%"></a><br>
+      <sub><b>Varianti</b>: ogni formato e larghezza di una foto, con la dimensione e un'anteprima</sub>
+    </td>
+    <td width="50%" valign="top">
+      <a href="docs/images/screenshots/create-bucket.png"><img src="docs/images/screenshots/create-bucket.png" alt="La finestra di creazione di un bucket con le opzioni Video HLS e Immagini in ogni formato" width="100%"></a><br>
+      <sub><b>Bucket di immagini</b>: un'opzione alla creazione del bucket, o una regola immagini dopo</sub>
+    </td>
+  </tr>
+</table>
+
+```bash
+# un bucket di immagini: ogni foto in AVIF, WebP, JPEG e PNG, a ogni larghezza
+nexoctl mb --with-images local/foto
+nexoctl cp spiaggia.jpg local/foto/
+nexoctl media status local/foto/spiaggia.jpg
+
+# larga 640 pixel, nel formato migliore che il client accetta (qui un bucket pubblico:
+# altrimenti firma l'URL o crea un link con nexoctl share download --image)
+curl -H 'Accept: image/avif,image/webp' -o spiaggia.avif \
+  'http://localhost:9000/nexo/media/v1/foto/image/spiaggia.jpg?w=640'
+```
+
+```html
+<!-- il browser sceglie la larghezza, Nexo il formato -->
+<img src="https://s3.example.com/nexo/media/v1/foto/image/spiaggia.jpg?w=640"
+     srcset="https://s3.example.com/nexo/media/v1/foto/image/spiaggia.jpg?w=320 320w,
+             https://s3.example.com/nexo/media/v1/foto/image/spiaggia.jpg?w=1280 1280w"
+     sizes="(max-width: 700px) 100vw, 640px" alt="La spiaggia">
+```
+
+**Sul tuo dominio, lo stesso URL serve AVIF, WebP o JPEG.** Una [distribuzione](docs/user/distributions/README.it.md)
+di un bucket di immagini risponde a `https://cdn.example.com/foto/spiaggia.jpg` con il formato migliore per
+l'header `Accept` di ogni browser; `?w=640` chiede una larghezza, `?format=webp` un formato e `?format=original`
+il file che hai caricato.
+
+| | |
+|---|---|
+| Formati | AVIF, WebP, JPEG, PNG (tutti, o quelli della regola) |
+| Larghezze | l'immagine alla sua dimensione e 160, 320, 640, 1280, 1920, 2560 px; mai ingrandita |
+| Sorgenti | JPEG, PNG, GIF, WebP, AVIF, HEIC (le foto degli iPhone), TIFF, BMP, riconosciute dal contenuto |
+| Varianti | dritte (orientamento EXIF applicato), senza metadati (niente EXIF, posizione GPS o dati della fotocamera), trasparenza mantenuta |
+
+| Job su una foto da 12 MP (4 vCPU Xeon 2,1 GHz) | Tempo |
+|---|---|
+| 28 varianti: 4 formati × la sua dimensione e 6 larghezze | **11 s** |
+| 14 varianti, solo WebP e JPEG | 3 s |
+
+Le varianti sono codificate in parallelo entro un budget di memoria, e le decompression bomb sono rifiutate prima
+di essere decodificate. Dettagli: [media worker](docs/user/media-worker.it.md#immagini-ogni-formato-e-larghezza),
+[benchmark](docs/bench/media.md#8-images).
 
 ## 📸 Screenshot
 
@@ -284,7 +351,8 @@ descrizione con i risultati):
 | LIST | 61 680 chiavi/s | 18 604 chiavi/s | 7093 chiavi/s |
 
 La riga del cluster esegue quattro nodi sulla stessa macchina con 4 vCPU: un cluster reale li distribuisce su
-macchine e reti. I job video sono nella [sezione sopra](#-video-integrato).
+macchine e reti. I job video e immagini sono nelle sezioni [video](#-video-integrato) e
+[immagini](#%EF%B8%8F-immagini-in-ogni-formato).
 
 ## 📚 Documentazione
 
@@ -304,7 +372,7 @@ questo file da un archivio di release):
 | 🩺 [Guida operativa](docs/user/operations/monitoring.it.md) | monitoraggio, healing, aggiornamenti, backup, risoluzione dei problemi |
 | 🔐 [Sicurezza](docs/user/security/users-policies.it.md) | policy, condivisione, regole di accesso, TLS, KMS |
 | 🌍 [Distribuzioni e cache](docs/user/distributions/README.it.md) | domini personalizzati, con un [tutorial](docs/user/distributions/tutorial-static-site.it.md) completo |
-| 🎬 [Video](docs/user/video-streaming.it.md) | streaming HLS, link di streaming e il [media worker](docs/user/media-worker.it.md) (rendition, poster, miniature) |
+| 🎬 [Video e immagini](docs/user/video-streaming.it.md) | streaming HLS, link di streaming e il [media worker](docs/user/media-worker.it.md): rendition, poster, miniature e [immagini in ogni formato](docs/user/media-worker.it.md#immagini-ogni-formato-e-larghezza) |
 | 📘 [Riferimenti](docs/user/reference/cli.it.md) | CLI, [Admin API](docs/user/reference/admin-api.it.md), [compatibilità S3](docs/user/reference/s3-compatibility.it.md) |
 
 `make docs-site` la pubblica come sito statico con MkDocs (in `bin/site`, in inglese e in italiano sotto `/it/`).
@@ -351,7 +419,7 @@ Servono Go (versione in `go.mod`) e, per la console, Node.js.
 | `make docs` / `make docs-check` | riferimento della CLI in `docs/user/cli` |
 | `make traceability` / `make traceability-check` | matrice funzionalità → test in `test/TRACEABILITY.md` |
 | `make security` | govulncheck, gosec e `npm audit` |
-| `make bench` / `make bench-media` | benchmark warp del server in ogni modalità / benchmark della pipeline video ([docs/bench](docs/bench/README.md)) |
+| `make bench` / `make bench-media` | benchmark warp del server in ogni modalità / benchmark della pipeline video e immagini ([docs/bench](docs/bench/README.md)) |
 | `make build-media-worker` / `make docker-media-worker` | il binario `bin/nexo-media-worker` / la sua immagine |
 | `make zap-scan` | scansione attiva autenticata OWASP ZAP dell'Admin API da `api/openapi.yaml` contro `bin/nexo` (richiede Java; [test/security/zap-api-scan.sh](test/security/zap-api-scan.sh)) |
 | `make screenshots` | rigenera gli screenshot della console in `docs/images/screenshots` da un deployment dimostrativo popolato (Playwright; [scripts/screenshots](scripts/screenshots/run.sh)) |

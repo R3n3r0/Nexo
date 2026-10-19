@@ -4,12 +4,15 @@ Nexo is distributed as two static binaries, `nexo` (server with the embedded web
 (CLI), and as multi-arch Docker images. The mode (single drive, multiple drives, cluster) does not depend
 on the package but on the arguments of `nexo server`: see [Deployment modes](deployment-modes.md).
 
-| Platform | `nexo` | `nexoctl` |
-|----------|--------|-----------|
-| Linux amd64, arm64 | ✅ | ✅ |
-| macOS amd64, arm64 | ✅ | ✅ |
-| Windows amd64 | ✅ | ✅ |
-| Windows arm64 | — | ✅ |
+| Platform | `nexo` | `nexoctl` | `nexo-media-worker` |
+|----------|--------|-----------|---------------------|
+| Linux amd64, arm64 | ✅ | ✅ | ✅ (glibc) |
+| macOS amd64, arm64 | ✅ | ✅ | ✅ |
+| Windows amd64 | ✅ | ✅ | ✅ |
+| Windows arm64 | — | ✅ | — |
+
+The third program, the optional [media worker](media-worker.md), has its own archives, packages and image:
+see [Media worker](#media-worker) below.
 
 Every release contains archives, `.deb`/`.rpm` packages, a `checksums.txt` signed with cosign (keyless) and
 an SPDX SBOM per archive. Verifying the signatures is described in
@@ -221,6 +224,41 @@ openssl rand -base64 30 | tr -d '\n' | docker secret create nexo_root_password -
 NEXO_TAG=v1.0.0 docker stack deploy -c stack.yml nexo
 ```
 
+## Media worker
+
+[`nexo-media-worker`](media-worker.md) derives the renditions, posters and thumbnails of the videos and the
+variants of the images. It is optional and separate from Nexo: it receives jobs from the `notify_media_worker`
+target of Nexo and reads and writes through the S3 API with a least-privilege user. Every installation
+method has it:
+
+| Method | What to install | Configuration of Nexo (user, policy, target) |
+|--------|-----------------|----------------------------------------------|
+| Archive | `nexo-media-worker_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows), with `systemd/nexo-media-worker.service` and its env file | by hand ([Setup](media-worker.md#setup)) |
+| deb/rpm | package `nexo-media-worker`: `/usr/bin/nexo-media-worker`, the unit, `/etc/default/nexo-media-worker` (mode 0600) | by hand |
+| Docker | image `docker.io/paolor/nexo-media-worker` (linux/amd64, linux/arm64) | by hand |
+| Docker Compose | overlay `deploy/docker/compose.media-worker.yml` | automatic (setup service) |
+| Docker Swarm | `deploy/swarm/media-worker.yml`, deployed with `stack.yml` | automatic (setup service) |
+| Helm | `--set mediaWorker.enabled=true` | automatic (setup Job, a Helm hook) |
+
+```bash
+# packages (they depend on libstdc++, needed by OpenH264)
+sudo apt install ./nexo-media-worker_1.0.0_amd64.deb    # or: sudo dnf install ./nexo-media-worker-1.0.0-1.x86_64.rpm
+sudoedit /etc/default/nexo-media-worker                 # S3 endpoint, access key, secret key, token
+sudo systemctl enable --now nexo-media-worker
+
+# Docker Compose, next to a single-node Nexo
+cd deploy/docker && cp media-worker.env.example media-worker.env    # then set the secret key and the token
+docker compose -f compose.single.yml -f compose.media-worker.yml up -d
+
+# Kubernetes
+helm upgrade --install nexo "$CHART" -n storage --set mediaWorker.enabled=true
+```
+
+The worker contains no H.264 codec: at its first start it downloads the Cisco build of OpenH264 into its data
+directory (network access to `ciscobinary.openh264.org` once, or a library you provide). Run a single worker per
+Nexo deployment and give it memory: about 1 GiB per video job and 2 GiB per image job. The
+[Setup](media-worker.md#setup) of the media worker page has the details of each method.
+
 ## From source
 
 You need Go ≥ 1.27.2 (with `GOTOOLCHAIN=auto`, the default, an older toolchain downloads the one in `go.mod`
@@ -232,6 +270,7 @@ make build            # React console + bin/nexo (console embedded) + bin/nexoct
 bin/nexo version
 ```
 
+`make build-media-worker` builds `bin/nexo-media-worker` and `make docker-media-worker` its image.
 `make build-go` builds the two binaries without the console (useful for backend development: on port 9001
 the Admin API works, and a "console not included" page takes the place of the console). `make help` lists
 all the targets.

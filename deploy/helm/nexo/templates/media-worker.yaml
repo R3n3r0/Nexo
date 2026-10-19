@@ -1,0 +1,257 @@
+{{- if .Values.mediaWorker.enabled }}
+{{- include "nexo.mediaWorker.validate" . }}
+{{- $mw := .Values.mediaWorker }}
+{{- $fullname := include "nexo.mediaWorker.fullname" . }}
+{{- $secretKey := include "nexo.mediaWorker.secretValue" (dict "root" . "value" $mw.auth.secretKey "key" "secret-key") }}
+{{- $authToken := include "nexo.mediaWorker.secretValue" (dict "root" . "value" $mw.auth.authToken "key" "auth-token") }}
+{{/*
+Media worker (docs/user/media-worker.md): Secret of its credentials and
+token, volume of its job queue, Service of its jobs endpoint and the
+Deployment (one pod, Recreate: the ReadWriteOnce volume is released before
+the new pod starts).
+*/}}
+{{- if not $mw.auth.existingSecret }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $fullname }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nexo.mediaWorker.labels" . | nindent 4 }}
+  annotations:
+    # Kept by "helm uninstall", like the root credentials: a reinstall finds
+    # the credentials of the user that the setup Job created in Nexo.
+    helm.sh/resource-policy: keep
+type: Opaque
+data:
+  access-key: {{ $mw.auth.accessKey | b64enc | quote }}
+  secret-key: {{ $secretKey | b64enc | quote }}
+  auth-token: {{ $authToken | b64enc | quote }}
+---
+{{- end }}
+{{- if and $mw.persistence.enabled (not $mw.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fullname }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nexo.mediaWorker.labels" . | nindent 4 }}
+  {{- with $mw.persistence.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml $mw.persistence.accessModes | nindent 4 }}
+  {{- include "nexo.storageClass" $mw.persistence.storageClass | nindent 2 }}
+  resources:
+    requests:
+      storage: {{ $mw.persistence.size | quote }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nexo.mediaWorker.labels" . | nindent 4 }}
+  {{- with $mw.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "nexo.mediaWorker.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: jobs
+      port: {{ $mw.service.port }}
+      targetPort: jobs
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nexo.mediaWorker.labels" . | nindent 4 }}
+spec:
+  replicas: {{ int $mw.replicas }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "nexo.mediaWorker.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "nexo.mediaWorker.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+        app.kubernetes.io/part-of: nexo
+        {{- with $mw.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- if or (not $mw.auth.existingSecret) $mw.podAnnotations }}
+      annotations:
+        {{- if not $mw.auth.existingSecret }}
+        # A new token or secret key restarts the worker.
+        checksum/secret: {{ printf "%s/%s/%s" $mw.auth.accessKey $secretKey $authToken | sha256sum }}
+        {{- end }}
+        {{- with $mw.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "nexo.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $mw.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ $mw.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml $mw.podSecurityContext | nindent 8 }}
+      {{- with $mw.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $mw.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $mw.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: media-worker
+          image: {{ include "nexo.mediaWorker.image" . | quote }}
+          imagePullPolicy: {{ $mw.image.pullPolicy }}
+          env:
+            - name: NEXO_WORKER_ADDRESS
+              value: ":9600"
+            - name: NEXO_WORKER_DATA_DIR
+              value: /data
+            - name: NEXO_WORKER_S3_ENDPOINT
+              value: {{ include "nexo.s3URL" . | quote }}
+            {{- with .Values.config.region }}
+            - name: NEXO_WORKER_S3_REGION
+              value: {{ . | quote }}
+            {{- end }}
+            - name: NEXO_WORKER_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nexo.mediaWorker.secret" . }}
+                  key: access-key
+            - name: NEXO_WORKER_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nexo.mediaWorker.secret" . }}
+                  key: secret-key
+            - name: NEXO_WORKER_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nexo.mediaWorker.secret" . }}
+                  key: auth-token
+            - name: NEXO_WORKER_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NEXO_WORKER_CONCURRENCY
+              value: {{ $mw.concurrency | quote }}
+            {{- with $mw.imageMemory }}
+            - name: NEXO_WORKER_IMAGE_MEMORY
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with $mw.openh264.path }}
+            - name: NEXO_WORKER_OPENH264
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with $mw.openh264.downloadURL }}
+            - name: NEXO_WORKER_OPENH264_DOWNLOAD_URL
+              value: {{ . | quote }}
+            {{- end }}
+            - name: NEXO_WORKER_LOG_LEVEL
+              value: {{ $mw.logLevel | quote }}
+            - name: NEXO_WORKER_LOG_FORMAT
+              value: {{ $mw.logFormat | quote }}
+            {{- if and .Values.tls.enabled .Values.tls.caSecretName }}
+            # The CA of the certificate of Nexo (S3 API over https).
+            - name: SSL_CERT_FILE
+              value: /etc/nexo/ca/ca.crt
+            {{- end }}
+            {{- with $mw.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: jobs
+              containerPort: 9600
+              protocol: TCP
+          # The port opens once OpenH264 is loaded (downloaded at the first
+          # start).
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: jobs
+            periodSeconds: {{ $mw.probes.startup.periodSeconds }}
+            failureThreshold: {{ $mw.probes.startup.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: jobs
+            periodSeconds: {{ $mw.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ $mw.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ $mw.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: jobs
+            periodSeconds: {{ $mw.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ $mw.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ $mw.probes.readiness.failureThreshold }}
+          resources:
+            {{- toYaml $mw.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml $mw.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+            {{- if and .Values.tls.enabled .Values.tls.caSecretName }}
+            - name: ca
+              mountPath: /etc/nexo/ca
+              readOnly: true
+            {{- end }}
+            {{- with $mw.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: data
+          {{- if not $mw.persistence.enabled }}
+          emptyDir: {}
+          {{- else }}
+          persistentVolumeClaim:
+            claimName: {{ default $fullname $mw.persistence.existingClaim }}
+          {{- end }}
+        - name: tmp
+          emptyDir: {}
+        {{- if and .Values.tls.enabled .Values.tls.caSecretName }}
+        - name: ca
+          secret:
+            secretName: {{ .Values.tls.caSecretName }}
+            defaultMode: 0440
+            items:
+              - key: {{ .Values.tls.caKey }}
+                path: ca.crt
+        {{- end }}
+        {{- with $mw.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+{{- end }}

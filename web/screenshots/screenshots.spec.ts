@@ -1,7 +1,14 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { type Browser, type BrowserContext, type Page, expect, test } from '@playwright/test';
+import {
+  type Browser,
+  type BrowserContext,
+  type Locator,
+  type Page,
+  expect,
+  test,
+} from '@playwright/test';
 
 /**
  * Screenshots of the console for the README, taken against the demo
@@ -235,14 +242,33 @@ const videoBucket = 'videos';
 const videoKey = 'trailers/aurora.mp4';
 const playerUrl = process.env.SCREENSHOTS_PLAYER_URL;
 
-/** Whether the demo video exists and the media worker has processed it. */
-async function videoProcessed(context: BrowserContext): Promise<boolean> {
+/**
+ * A still of the demo video, selected by the image rule "stills" of the
+ * video bucket (every format at 640 pixels and its own size: the variants and
+ * the preview fit in the drawer).
+ */
+const imageKey = 'stills/aurora-still.jpg';
+
+/** Whether an object exists and the media worker has processed it. */
+async function mediaProcessed(
+  context: BrowserContext,
+  bucket: string,
+  key: string,
+): Promise<boolean> {
   const res = await context.request.get(
-    `/api/v1/buckets/${videoBucket}/objects/media/status?key=${encodeURIComponent(videoKey)}`,
+    `/api/v1/buckets/${bucket}/objects/media/status?key=${encodeURIComponent(key)}`,
   );
   if (!res.ok()) return false;
   const status = (await res.json()) as { state?: string; current?: boolean };
   return status.state === 'done' && status.current === true;
+}
+
+/** Waits until an image of the page is loaded. */
+async function loaded(image: Locator): Promise<void> {
+  await expect(image).toBeVisible();
+  await expect
+    .poll(() => image.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth))
+    .toBeGreaterThan(0);
 }
 
 test('video player', async ({ browser }) => {
@@ -283,18 +309,17 @@ test('video player', async ({ browser }) => {
 
 test('media panel', async ({ browser }) => {
   const { context, page } = await newSession(browser);
-  test.skip(!(await videoProcessed(context)), 'the demo video has no media worker outputs');
+  test.skip(
+    !(await mediaProcessed(context, videoBucket, videoKey)),
+    'the demo video has no media worker outputs',
+  );
   await page.goto(
     `/buckets/${videoBucket}/browse/trailers/?object=${encodeURIComponent(videoKey)}`,
   );
   const drawer = page.getByRole('dialog');
   await drawer.getByRole('tab', { name: 'Media', exact: true }).click();
   await expect(drawer.getByRole('table')).toContainText('720p');
-  const poster = drawer.locator('img');
-  await expect(poster).toBeVisible();
-  await expect
-    .poll(() => poster.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth))
-    .toBeGreaterThan(0);
+  await loaded(drawer.locator('img'));
   await shoot(page, 'media-panel');
   await context.close();
 });
@@ -305,6 +330,36 @@ test('media rules', async ({ browser }) => {
   test.skip(!res.ok(), 'no video bucket (seed.sh needs ffmpeg)');
   await page.goto(`/buckets/${videoBucket}/media`);
   await expect(page.getByText('social-clips')).toBeVisible();
+  await expect(page.getByText('stills', { exact: true })).toBeVisible();
   await shoot(page, 'media-rules');
+  await context.close();
+});
+
+test('image variants', async ({ browser }) => {
+  const { context, page } = await newSession(browser);
+  test.skip(
+    !(await mediaProcessed(context, videoBucket, imageKey)),
+    'the demo still has no variants (seed.sh needs ffmpeg, Pillow and the media worker)',
+  );
+  await page.goto(`/buckets/${videoBucket}/browse/stills/?object=${encodeURIComponent(imageKey)}`);
+  const drawer = page.getByRole('dialog');
+  await drawer.getByRole('tab', { name: 'Media', exact: true }).click();
+  await expect(drawer.getByRole('table')).toContainText('AVIF');
+  await loaded(drawer.locator('img'));
+  await shoot(page, 'image-variants');
+  await context.close();
+});
+
+test('create bucket', async ({ browser }) => {
+  const { context, page } = await newSession(browser);
+  await page.goto('/buckets');
+  await page.getByRole('button', { name: 'Create bucket' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Create a bucket' });
+  await dialog.getByRole('textbox', { name: 'Name' }).fill('product-photos');
+  await dialog.getByText('Versioning', { exact: true }).click();
+  await dialog.getByText('Images in every format', { exact: true }).click();
+  await expect(dialog.getByRole('switch', { name: /^Images in every format/ })).toBeChecked();
+  await dialog.getByRole('heading', { name: 'Create a bucket' }).click();
+  await shoot(page, 'create-bucket');
   await context.close();
 });

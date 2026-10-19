@@ -119,6 +119,8 @@ behaviors:                     # evaluated in order; first match wins
     signing: { keyGroup: releases }
   - pathPattern: { type: prefix, pattern: "/internal/" }
     access: deny
+  - pathPattern: { type: prefix, pattern: "/photos/" }
+    images: { negotiate: true } # the image variants of the media worker on the URL of the image (Accept, ?w=, ?format=)
 errorPages:
   - { status: 404, path: /404.html, responseStatus: 404 }
   - { status: 403, path: /404.html, responseStatus: 404 }   # hides the existence of objects

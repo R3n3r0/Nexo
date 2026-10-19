@@ -89,16 +89,26 @@ type DistributionCORS struct {
 // inherits from the default behavior. Extra keeps the members this client
 // does not know.
 type Behavior struct {
-	PathPattern     *KeyPattern                `json:"pathPattern,omitempty" yaml:"pathPattern,omitempty"`
-	Access          string                     `json:"access,omitempty" yaml:"access,omitempty"`
-	AllowedMethods  []string                   `json:"allowedMethods,omitempty" yaml:"allowedMethods,omitempty"`
-	IndexDocument   string                     `json:"indexDocument,omitempty" yaml:"indexDocument,omitempty"`
-	SPAFallback     string                     `json:"spaFallback,omitempty" yaml:"spaFallback,omitempty"`
-	Cache           *BehaviorCache             `json:"cache,omitempty" yaml:"cache,omitempty"`
-	Signing         *Signing                   `json:"signing,omitempty" yaml:"signing,omitempty"`
-	ResponseHeaders map[string]string          `json:"responseHeaders,omitempty" yaml:"responseHeaders,omitempty"`
-	CORS            *DistributionCORS          `json:"cors,omitempty" yaml:"cors,omitempty"`
-	Extra           map[string]json.RawMessage `json:"-" yaml:"-"`
+	PathPattern     *KeyPattern       `json:"pathPattern,omitempty" yaml:"pathPattern,omitempty"`
+	Access          string            `json:"access,omitempty" yaml:"access,omitempty"`
+	AllowedMethods  []string          `json:"allowedMethods,omitempty" yaml:"allowedMethods,omitempty"`
+	IndexDocument   string            `json:"indexDocument,omitempty" yaml:"indexDocument,omitempty"`
+	SPAFallback     string            `json:"spaFallback,omitempty" yaml:"spaFallback,omitempty"`
+	Cache           *BehaviorCache    `json:"cache,omitempty" yaml:"cache,omitempty"`
+	Signing         *Signing          `json:"signing,omitempty" yaml:"signing,omitempty"`
+	ResponseHeaders map[string]string `json:"responseHeaders,omitempty" yaml:"responseHeaders,omitempty"`
+	CORS            *DistributionCORS `json:"cors,omitempty" yaml:"cors,omitempty"`
+	// Images serves the variants of the images at their own URL.
+	Images *BehaviorImages            `json:"images,omitempty" yaml:"images,omitempty"`
+	Extra  map[string]json.RawMessage `json:"-" yaml:"-"`
+}
+
+// BehaviorImages serves the variants of the images the media worker
+// derived at the URL of the image itself: with Negotiate, the format is
+// negotiated with the Accept header (or ?format=), the width chosen with
+// ?w=; ?format=original serves the original (website mode).
+type BehaviorImages struct {
+	Negotiate bool `json:"negotiate" yaml:"negotiate"`
 }
 
 type behaviorJSON Behavior

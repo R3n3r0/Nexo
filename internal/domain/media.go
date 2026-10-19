@@ -55,6 +55,35 @@ func MediaSidecarDir(key, versionID string) string {
 // IsMediaSidecar reports whether key is under MediaSidecarPrefix.
 func IsMediaSidecar(key string) bool { return strings.HasPrefix(key, MediaSidecarPrefix) }
 
+// MediaSidecarSource returns the key of the object a sidecar file derives
+// from (the inverse of MediaSidecarDir followed by a file of the
+// directory: status.json, poster.jpg, images/<name>, renditions/<name>,
+// thumbnails/<name>) and the file; ok is false for a key that is not
+// such a file.
+func MediaSidecarSource(key string) (source, file string, ok bool) {
+	rest, found := strings.CutPrefix(key, MediaSidecarPrefix)
+	if !found {
+		return "", "", false
+	}
+	segs := strings.Split(rest, "/")
+	// <key...>/<version>/<file> or <key...>/<version>/<dir>/<file>.
+	n := 1
+	if len(segs) >= 4 {
+		switch segs[len(segs)-2] + "/" {
+		case MediaImagesDir, MediaRenditionsDir, "thumbnails/":
+			n = 2
+		}
+	}
+	if len(segs) < n+2 || segs[len(segs)-1] == "" || segs[len(segs)-n-1] == "" {
+		return "", "", false
+	}
+	source = strings.Join(segs[:len(segs)-n-1], "/")
+	if source == "" {
+		return "", "", false
+	}
+	return source, strings.Join(segs[len(segs)-n:], "/"), true
+}
+
 // MediaConfig is the video configuration of a bucket: its rules select the
 // videos that the media worker processes and say what it derives from
 // them. Streaming the source (HLS packaged on the fly) needs no rule.

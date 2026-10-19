@@ -13,6 +13,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/media"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
@@ -25,9 +26,13 @@ import (
 type ObjectDeps struct {
 	Objects object.Service
 	Policy  policy.Service
-	Enc     httpx.Codec
-	Clock   clock.Clock
-	Logger  *slog.Logger
+	// Media serves the variants of the images to the GetObject and
+	// HeadObject asking for one (QueryImageFormat, QueryImageWidth); nil
+	// answers them NotImplemented.
+	Media  media.Service
+	Enc    httpx.Codec
+	Clock  clock.Clock
+	Logger *slog.Logger
 }
 
 type objectRoutes struct {
@@ -321,6 +326,9 @@ func (h *objectRoutes) getObject(w http.ResponseWriter, r *http.Request) {
 	if !h.authz.authorize(w, r, bucketName, key) {
 		return
 	}
+	if imageQueried(r.URL.Query()) && h.objectImage(w, r, bucketName, key) {
+		return
+	}
 	opts, err := getOptions(r, h.opts.insecureSSEC)
 	if err == nil {
 		err = checkResponseOverrides(r)
@@ -361,6 +369,9 @@ func (h *objectRoutes) getObject(w http.ResponseWriter, r *http.Request) {
 func (h *objectRoutes) headObject(w http.ResponseWriter, r *http.Request) {
 	bucketName, key := BucketName(r), ObjectKey(r)
 	if !h.authz.authorize(w, r, bucketName, key) {
+		return
+	}
+	if imageQueried(r.URL.Query()) && h.objectImage(w, r, bucketName, key) {
 		return
 	}
 	opts, err := getOptions(r, h.opts.insecureSSEC)

@@ -159,6 +159,39 @@ type Cache struct {
 	CacheControl string `json:"cacheControl,omitempty" yaml:"cacheControl,omitempty"`
 }
 
+// Images serves the variants of the images the media worker derived (an
+// image rule of the bucket) at the URL of the image itself. With
+// Negotiate, a GET or HEAD of an object whose variants derive from its
+// current content answers a variant instead of the original:
+//
+//   - the format is negotiated with the Accept header (AVIF, then WebP,
+//     then JPEG; PNG rather than a flattened JPEG for an image with
+//     transparency: media.SelectImage), or named by ?format=avif|webp|
+//     jpeg|png; the answer varies on Accept when it was negotiated;
+//   - the width is the image at its own size, or with ?w=<pixels> the
+//     narrowest variant at least that wide (the widest when none is);
+//   - ?format=original, an object that is not an image, has no variant
+//     yet or has none from its current content is served as the original.
+//
+// The variants are read as the objects of the sidecar directory of the
+// image, so the cache of the distribution keys their entries by variant
+// (format and width), never by the Accept header. Website mode only.
+type Images struct {
+	Negotiate bool `json:"negotiate" yaml:"negotiate"`
+}
+
+// Query parameters of the image variants of the behaviors that negotiate
+// them (Images).
+const (
+	// ImageParamWidth is the width the client displays, in pixels.
+	ImageParamWidth = "w"
+	// ImageParamFormat is auto (the default), avif, webp, jpeg (jpg), png
+	// or ImageFormatOriginal.
+	ImageParamFormat = "format"
+	// ImageFormatOriginal asks for the original object.
+	ImageFormatOriginal = "original"
+)
+
 // Signing names the key group whose keys sign the URLs and cookies of a
 // signed behavior.
 type Signing struct {
@@ -200,6 +233,9 @@ type Behavior struct {
 	ResponseHeaders map[string]string `json:"responseHeaders,omitempty" yaml:"responseHeaders,omitempty"`
 	// CORS replaces the CORS policy of the distribution on these paths.
 	CORS *CORS `json:"cors,omitempty" yaml:"cors,omitempty"`
+	// Images serves the variants of the images at their own URL (nil
+	// inherits from the default behavior).
+	Images *Images `json:"images,omitempty" yaml:"images,omitempty"`
 }
 
 // ErrorPage replaces the answer of an error status with an object of the

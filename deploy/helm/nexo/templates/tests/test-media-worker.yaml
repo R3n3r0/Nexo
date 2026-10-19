@@ -1,0 +1,41 @@
+{{- if and .Values.mediaWorker.enabled (gt (int .Values.mediaWorker.replicas) 0) }}
+{{/*
+helm test: the jobs endpoint of the media worker answers through its
+Service (nexo-media-worker healthcheck, from the worker image itself).
+*/}}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ include "nexo.mediaWorker.fullname" . }}-test
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nexo.testLabels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: test
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  automountServiceAccountToken: false
+  securityContext:
+    {{- toYaml .Values.mediaWorker.podSecurityContext | nindent 4 }}
+  {{- with .Values.imagePullSecrets }}
+  imagePullSecrets:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  containers:
+    - name: health
+      image: {{ include "nexo.mediaWorker.image" . | quote }}
+      imagePullPolicy: {{ .Values.mediaWorker.image.pullPolicy }}
+      args:
+        - healthcheck
+        - --address
+        - {{ printf "%s.%s.svc.%s:%v" (include "nexo.mediaWorker.fullname" .) .Release.Namespace .Values.clusterDomain .Values.mediaWorker.service.port | quote }}
+      securityContext:
+        {{- toYaml .Values.mediaWorker.securityContext | nindent 8 }}
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          memory: 128Mi
+{{- end }}

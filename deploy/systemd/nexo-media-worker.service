@@ -1,0 +1,86 @@
+# systemd unit of the Nexo media worker (docs/user/media-worker.md):
+# renditions, posters and thumbnails of the videos, variants of the images.
+#
+# Installed by the nexo-media-worker deb/rpm package as
+# /usr/lib/systemd/system/nexo-media-worker.service; for a manual install see
+# deploy/systemd/README.md. The settings (Nexo endpoint, credentials, token)
+# come from /etc/default/nexo-media-worker.
+#
+# The worker runs as a dynamic user (DynamicUser=yes: no account to create,
+# no file outside its state directory), in the same sandbox as nexo.service.
+# Its state directory /var/lib/nexo-media-worker holds the job queue (it
+# must persist), the work files and the Cisco build of OpenH264, downloaded
+# at the first start (or NEXO_WORKER_OPENH264). The executable is looked up
+# by name, /usr/local/bin before /usr/bin (systemd >= 239).
+#
+# Local changes go in a drop-in (systemctl edit nexo-media-worker): e.g. a
+# memory limit (MemoryMax=4G) or a library outside the state directory
+# (ReadOnlyPaths= is implied by ProtectSystem=strict: it only has to be
+# readable).
+
+[Unit]
+Description=Nexo media worker (renditions, posters, thumbnails, image variants)
+Documentation=https://github.com/r3n3r0/nexo/blob/main/docs/user/media-worker.md
+Wants=network-online.target
+# On the same machine as Nexo, start after it (no dependency otherwise).
+After=network-online.target nexo.service
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=exec
+DynamicUser=yes
+EnvironmentFile=/etc/default/nexo-media-worker
+StateDirectory=nexo-media-worker
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/nexo-media-worker
+ExecStart=nexo-media-worker
+
+Restart=always
+RestartSec=5s
+# SIGTERM: the worker stops taking jobs; the running ones stay queued and
+# start again at the next start.
+KillSignal=SIGTERM
+TimeoutStopSec=30s
+# The decoders parse untrusted files: when the machine runs out of memory
+# the worker goes first (nexo.service has -500), and it yields the CPU and
+# the disk to Nexo on a shared machine.
+OOMScoreAdjust=500
+CPUWeight=50
+IOWeight=50
+UMask=0077
+
+# Sandbox: read-only file system except the state directory, no
+# capability, no device, network limited to IP and Unix sockets.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+PrivateUsers=true
+# /proc/cpuinfo stays visible: OpenH264 reads the CPU features of ARM from it.
+ProtectProc=invisible
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+LockPersonality=true
+# OpenH264 is loaded with dlopen: its builds have no text relocation and no
+# executable stack, so no writable and executable memory is needed.
+MemoryDenyWriteExecute=true
+RemoveIPC=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+DevicePolicy=closed
+KeyringMode=private
+
+[Install]
+WantedBy=multi-user.target

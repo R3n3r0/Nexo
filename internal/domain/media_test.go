@@ -104,3 +104,25 @@ func TestImageMediaRules(t *testing.T) {
 	assert.Equal(t, "images/full.jpg", MediaImageFile(0, "jpeg"))
 	assert.Equal(t, "image/avif", MediaImageContentType("avif"))
 }
+
+func TestMediaSidecarSource(t *testing.T) {
+	for _, tc := range []struct {
+		key, source, file string
+		ok                bool
+	}{
+		{key: MediaSidecarDir("photos/beach.jpg", "") + MediaImageFile(640, "webp"), source: "photos/beach.jpg", file: "images/640.webp", ok: true},
+		{key: MediaSidecarDir("a.jpg", "v1") + MediaStatusFile, source: "a.jpg", file: "status.json", ok: true},
+		{key: MediaSidecarDir("images/x.png", "null") + MediaImageFile(0, "avif"), source: "images/x.png", file: "images/full.avif", ok: true},
+		{key: MediaSidecarDir("v.mp4", "null") + MediaSpriteFile, source: "v.mp4", file: MediaSpriteFile, ok: true},
+		{key: MediaSidecarDir("v.mp4", "null") + MediaRenditionsDir + "720p.mp4", source: "v.mp4", file: "renditions/720p.mp4", ok: true},
+		{key: "photos/beach.jpg"},
+		{key: MediaSidecarPrefix + "status.json"},
+		{key: MediaSidecarPrefix + "null/status.json"},
+		{key: MediaSidecarPrefix},
+	} {
+		source, file, ok := MediaSidecarSource(tc.key)
+		if source != tc.source || file != tc.file || ok != tc.ok {
+			t.Errorf("MediaSidecarSource(%q) = %q, %q, %v; want %q, %q, %v", tc.key, source, file, ok, tc.source, tc.file, tc.ok)
+		}
+	}
+}

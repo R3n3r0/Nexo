@@ -12,9 +12,10 @@ UID 65532). The deployment mode is chosen by the arguments of `nexo server`, not
 | `compose.cluster-tls.yml` + `nginx-tls.conf` | Same cluster with TLS: `./certs` mounted at `/certs`, nginx in TCP passthrough |
 | `compose.multi-proxy.yml` + `multi-proxy/` | Cluster 4 nodes × 2 drives behind **two edge proxies** (nginx and HAProxy) with different domains and origin secrets |
 | `compose.observability.yml` | Prometheus + Grafana overlay with a provisioned Nexo dashboard |
+| `compose.media-worker.yml` + `media-worker.env.example` + `media-worker-policy.json` | Overlay adding the media worker (`paolor/nexo-media-worker`) and configuring Nexo for it (policy, user, `notify_media_worker` target) |
 | `nexo.env.example` | Template for `nexo.env` (root credentials and options) |
 | `gen-dev-certs.sh` | Development CA and certificate for the TLS cluster |
-| `Dockerfile.goreleaser`, `Dockerfile.nexoctl.goreleaser` | Release images built by GoReleaser (`dockers_v2`: one multi-arch buildx build, the prebuilt binaries in `$TARGETPLATFORM/` of the context; same result as the root Dockerfiles, docs/08 §8.7) |
+| `Dockerfile.goreleaser`, `Dockerfile.nexoctl.goreleaser`, `Dockerfile.media-worker.goreleaser` | Release images built by GoReleaser (`dockers_v2`: one multi-arch buildx build, the prebuilt binaries in `$TARGETPLATFORM/` of the context; same result as the root Dockerfiles, docs/08 §8.7) |
 | `Dockerfile` | Symlink to the root `Dockerfile` (used by `make docker`) |
 
 ## Images
@@ -208,6 +209,37 @@ PROMETHEUS_CONFIG=prometheus.cluster.yml \
   dashboard *Nexo / Overview* are provisioned from `observability/grafana/`.
 - Nexo exposes metrics on the S3 port at `/nexo/metrics/v1/{cluster,node,bucket}`. Set
   `NEXO_PROMETHEUS_AUTH_TYPE=public` in `nexo.env` or configure a bearer token in the Prometheus files.
+
+## Media worker
+
+`compose.media-worker.yml` is an overlay that adds [nexo-media-worker](../../docs/user/media-worker.md)
+(renditions, posters and thumbnails of the videos, variants of the images) and configures Nexo for it:
+
+```bash
+cp media-worker.env.example media-worker.env
+sed -i "s|^NEXO_WORKER_SECRET_KEY=.*|NEXO_WORKER_SECRET_KEY=$(openssl rand -hex 24)|; s|^NEXO_WORKER_AUTH_TOKEN=.*|NEXO_WORKER_AUTH_TOKEN=$(openssl rand -hex 32)|" media-worker.env
+docker compose -f compose.single.yml -f compose.media-worker.yml up -d
+docker compose -f compose.single.yml -f compose.media-worker.yml logs media-worker-setup
+# media-worker-setup: done: notify_media_worker -> http://media-worker:9600/jobs
+```
+
+| Service | Role |
+|---------|------|
+| `media-worker` | the worker: jobs endpoint `http://media-worker:9600/jobs` (not published), S3 API of `http://nexo:9000`, volume `media-worker-data` for its job queue (it must persist), work files and OpenH264 (downloaded from Cisco at the first start), read-only root file system, 3 GiB memory limit |
+| `media-worker-tools` | copies `nexoctl` out of the Nexo image (which has no shell) into the volume `media-worker-tools`, then exits |
+| `media-worker-setup` | runs the setup script of the Helm chart ([`../helm/nexo/files/media-worker-setup.sh`](../helm/nexo/files/media-worker-setup.sh)) with busybox: waits for Nexo, creates the policy `media-worker` (`media-worker-policy.json`, every bucket: list yours to restrict it) and the user of the worker, sets the `notify_media_worker` target with the token, then exits |
+
+The setup is idempotent: after changing `media-worker.env` (a new secret key or token) run the same
+`up -d` again. It reads the root credentials of `nexo.env`; when that file uses `NEXO_ROOT_*_FILE`, mount
+the same files in `media-worker-setup`. On a cluster, point the worker and the setup to the load balancer:
+`NEXO_MEDIA_S3_URL=http://lb:9000 NEXO_MEDIA_ADMIN_URL=http://lb:9001 docker compose -f compose.cluster.yml
+-f compose.media-worker.yml up -d`. Then create a video or image bucket and check the worker:
+
+```bash
+nexoctl mb --with-hls --with-images local/media
+nexoctl admin notify targets test local _:media_worker      # the worker acknowledges a test job
+docker compose -f compose.single.yml -f compose.media-worker.yml logs -f media-worker
+```
 
 ## CLI from a container
 

@@ -6,9 +6,10 @@
 # (web/screenshots) and optimizes the PNG files (pngquant/oxipng when
 # installed). Every process it starts is stopped by PID on exit.
 #
-# The video screenshots (player, media panel, media rules) need ffmpeg (the
-# demo video) and bin/nexo-media-worker with OpenH264 (renditions, poster,
-# thumbnails); the player needs a browser that decodes H.264 (Google Chrome:
+# The media screenshots (player, media panel, media rules, image variants)
+# need ffmpeg (the demo video), Pillow (the demo photos) and
+# bin/nexo-media-worker with OpenH264 (renditions, poster, thumbnails, image
+# variants); the player needs a browser that decodes H.264 (Google Chrome:
 # the Chromium of Playwright does not). Without them they are skipped.
 #
 # Run through `make screenshots` (which builds bin/nexo, bin/nexoctl and
@@ -98,20 +99,16 @@ for _ in $(seq 1 300); do
 done
 curl -fs -o /dev/null "$DEMO_CONSOLE_URL/nexo/health/ready"
 
-# The media worker of the demo video, with credentials of its own (seed.sh
-# creates the user and the notify_media_worker target).
+# The media worker of the demo video and photos, with credentials of its own
+# (seed.sh creates the user and the notify_media_worker target).
 start_media_worker() {
-  if ! command -v ffmpeg >/dev/null; then
-    echo "screenshots: ffmpeg not found, no demo video" >&2
-    return 1
-  fi
   if [ ! -x "$media_worker" ]; then
-    echo "screenshots: $media_worker not found (make build-media-worker), no renditions" >&2
+    echo "screenshots: $media_worker not found (make build-media-worker), no media outputs" >&2
     return 1
   fi
   local lib="${NEXO_WORKER_OPENH264:-}"
   if [ -z "$lib" ] && ! lib="$("$media_worker" fetch-openh264 --dir "$work/media-worker/lib")"; then
-    echo "screenshots: OpenH264 could not be downloaded (set NEXO_WORKER_OPENH264), no renditions" >&2
+    echo "screenshots: OpenH264 could not be downloaded (set NEXO_WORKER_OPENH264), no media outputs" >&2
     return 1
   fi
   export DEMO_MEDIA_WORKER_USER=media-worker
@@ -132,7 +129,7 @@ start_media_worker() {
     kill -0 "${pids[-1]}" 2>/dev/null || break
     sleep 0.1
   done
-  echo "screenshots: nexo-media-worker did not start, no renditions:" >&2
+  echo "screenshots: nexo-media-worker did not start, no media outputs:" >&2
   cat "$work/media-worker.log" >&2
   return 1
 }

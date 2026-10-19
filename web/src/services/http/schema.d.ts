@@ -1197,7 +1197,13 @@ export interface paths {
         post?: never;
         delete?: never;
         options?: never;
-        head?: never;
+        /**
+         * The headers of a variant of an image
+         * @description The headers GET would answer for the same variant (Content-Type, Content-Length, ETag,
+         *     Last-Modified, Vary), without the body: a client checks that a variant exists, or its size,
+         *     before downloading it.
+         */
+        head: operations["mediaImageHead"];
         patch?: never;
         trace?: never;
     };
@@ -4923,6 +4929,21 @@ export interface components {
                 [key: string]: string;
             };
             cors?: components["schemas"]["DistributionCORS"];
+            images?: components["schemas"]["DistributionImages"];
+        };
+        /**
+         * @description Serves the variants of the images the media worker derived (an image rule of the bucket) at
+         *     the URL of the image itself (website mode only). With `negotiate`, a GET or HEAD of an image
+         *     whose variants derive from its current content answers the variant the request selects: the
+         *     format negotiated with the Accept header (AVIF, WebP, JPEG; PNG rather than a flattened JPEG
+         *     for a transparent image; `Vary: Accept`) or named by `?format=avif|webp|jpeg|png`, the image
+         *     at its own size or with `?w=<pixels>` the narrowest variant at least that wide.
+         *     `?format=original`, an object without variants (not an image, not processed yet, processed
+         *     from an older content) is served as the original. The header `X-Nexo-Image-Variant` names
+         *     the variant served. The cache of the distribution keys the variants by format and width.
+         */
+        DistributionImages: {
+            negotiate: boolean;
         };
         /**
          * @description A distribution (docs/10 §10.2): the document stored in the system store and
@@ -7717,6 +7738,65 @@ export interface operations {
                 content?: never;
             };
             default: components["responses"]["Problem"];
+        };
+    };
+    mediaImageHead: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+                /** @description The width the client displays, in pixels. */
+                w?: number;
+                /** @description auto (default) or a format (jpg is jpeg). */
+                format?: "auto" | "avif" | "webp" | "jpeg" | "jpg" | "png";
+            };
+            header?: {
+                Range?: string;
+            };
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The variant exists. */
+            200: {
+                headers: {
+                    ETag?: string;
+                    "Content-Length"?: number;
+                    /** @description Accept with format auto. */
+                    Vary?: string;
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A range of the variant. */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not modified. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The error (no body: 404 when the worker produced no variant from the current content). */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     mediaStatus: {

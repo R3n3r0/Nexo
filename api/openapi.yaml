@@ -1406,6 +1406,33 @@ paths:
               schema: { type: string, format: binary }
         "304": { description: Not modified. }
         default: { $ref: "#/components/responses/Problem" }
+    head:
+      tags: [objects]
+      operationId: mediaImageHead
+      summary: The headers of a variant of an image
+      description: |
+        The headers GET would answer for the same variant (Content-Type, Content-Length, ETag,
+        Last-Modified, Vary), without the body: a client checks that a variant exists, or its size,
+        before downloading it.
+      x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
+      parameters:
+        - { name: w, in: query, required: false, description: "The width the client displays, in pixels.", schema: { type: integer, minimum: 0 } }
+        - name: format
+          in: query
+          required: false
+          description: auto (default) or a format (jpg is jpeg).
+          schema: { type: string, enum: [auto, avif, webp, jpeg, jpg, png] }
+        - { name: Range, in: header, required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: The variant exists.
+          headers:
+            ETag: { schema: { type: string } }
+            Content-Length: { schema: { type: integer } }
+            Vary: { schema: { type: string }, description: Accept with format auto. }
+        "206": { description: A range of the variant. }
+        "304": { description: Not modified. }
+        default: { description: "The error (no body: 404 when the worker produced no variant from the current content)." }
   /buckets/{bucket}/objects/media/status:
     parameters:
       - { $ref: "#/components/parameters/bucket" }
@@ -6262,6 +6289,22 @@ components:
           type: object
           additionalProperties: { type: string }
         cors: { $ref: "#/components/schemas/DistributionCORS" }
+        images: { $ref: "#/components/schemas/DistributionImages" }
+    DistributionImages:
+      type: object
+      description: |
+        Serves the variants of the images the media worker derived (an image rule of the bucket) at
+        the URL of the image itself (website mode only). With `negotiate`, a GET or HEAD of an image
+        whose variants derive from its current content answers the variant the request selects: the
+        format negotiated with the Accept header (AVIF, WebP, JPEG; PNG rather than a flattened JPEG
+        for a transparent image; `Vary: Accept`) or named by `?format=avif|webp|jpeg|png`, the image
+        at its own size or with `?w=<pixels>` the narrowest variant at least that wide.
+        `?format=original`, an object without variants (not an image, not processed yet, processed
+        from an older content) is served as the original. The header `X-Nexo-Image-Variant` names
+        the variant served. The cache of the distribution keys the variants by format and width.
+      required: [negotiate]
+      properties:
+        negotiate: { type: boolean }
     Distribution:
       type: object
       required: [id, aliases, origin]

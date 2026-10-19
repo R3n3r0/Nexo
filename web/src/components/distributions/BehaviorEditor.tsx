@@ -61,15 +61,26 @@ function compact(b: DistributionBehavior, isDefault: boolean): DistributionBehav
     out.responseHeaders = b.responseHeaders;
   }
   if (b.cors !== undefined && b.cors.allowedOrigins.length > 0) out.cors = b.cors;
+  // The default behavior states the option only when it is on.
+  if (b.images !== undefined && (!isDefault || b.images.negotiate)) out.images = b.images;
   return out;
+}
+
+/** The value of the images select: inherited (not the default), on or off. */
+type ImagesChoice = 'inherit' | 'negotiate' | 'original';
+
+function imagesChoice(b: DistributionBehavior, isDefault: boolean): ImagesChoice {
+  if (b.images === undefined) return isDefault ? 'original' : 'inherit';
+  return b.images.negotiate ? 'negotiate' : 'original';
 }
 
 /**
  * D-DST-03: editor of a behavior of a distribution: the paths (prefix,
  * glob or regex), the access (public, signed with a key group,
  * authenticated, deny), the methods, the index document and SPA fallback,
- * the Cache-Control sent to the browsers, response headers and CORS. An
- * unset field inherits from the default behavior.
+ * the Cache-Control sent to the browsers, the images in every format on
+ * their own URL (website mode), response headers and CORS. An unset field
+ * inherits from the default behavior.
  */
 export function BehaviorEditor({
   behavior,
@@ -244,6 +255,30 @@ export function BehaviorEditor({
                 }}
               />
             </SimpleGrid>
+          ) : null}
+          {website ? (
+            <Select
+              label={t('distributions.behaviors.images')}
+              description={t('distributions.behaviors.imagesHint')}
+              data={[
+                ...(isDefault
+                  ? []
+                  : [{ value: 'inherit', label: t('distributions.behaviors.inherit') }]),
+                { value: 'negotiate', label: t('distributions.behaviors.imagesOn') },
+                { value: 'original', label: t('distributions.behaviors.imagesOff') },
+              ]}
+              value={imagesChoice(draft, isDefault)}
+              allowDeselect={false}
+              disabled={readOnly}
+              onChange={(value) => {
+                setDraft((d) => {
+                  const { images: _i, ...rest } = d;
+                  return value === 'inherit' || value === null
+                    ? rest
+                    : { ...rest, images: { negotiate: value === 'negotiate' } };
+                });
+              }}
+            />
           ) : null}
           <Autocomplete
             label={t('distributions.fields.cacheControl')}

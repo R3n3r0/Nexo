@@ -2,3 +2,4 @@
 nexo.env
 .env
 certs/
+media-worker.env

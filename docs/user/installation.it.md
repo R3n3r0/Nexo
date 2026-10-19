@@ -4,12 +4,15 @@ Nexo si distribuisce come due binari statici, `nexo` (server con la console web 
 (CLI), e come immagini Docker multi-arch. La modalità (singolo disco, più dischi, cluster) non dipende
 dal pacchetto ma dagli argomenti di `nexo server`: vedi [Modalità di deployment](deployment-modes.md).
 
-| Piattaforma | `nexo` | `nexoctl` |
-|-------------|--------|-----------|
-| Linux amd64, arm64 | ✅ | ✅ |
-| macOS amd64, arm64 | ✅ | ✅ |
-| Windows amd64 | ✅ | ✅ |
-| Windows arm64 | — | ✅ |
+| Piattaforma | `nexo` | `nexoctl` | `nexo-media-worker` |
+|-------------|--------|-----------|---------------------|
+| Linux amd64, arm64 | ✅ | ✅ | ✅ (glibc) |
+| macOS amd64, arm64 | ✅ | ✅ | ✅ |
+| Windows amd64 | ✅ | ✅ | ✅ |
+| Windows arm64 | — | ✅ | — |
+
+Il terzo programma, il [media worker](media-worker.md) facoltativo, ha archivi, pacchetti e immagine propri:
+vedi [Media worker](#media-worker) più sotto.
 
 Ogni release contiene archivi, pacchetti `.deb`/`.rpm`, `checksums.txt` firmato con cosign (keyless) e
 uno SBOM SPDX per archivio. La verifica delle firme è descritta in
@@ -221,9 +224,45 @@ openssl rand -base64 30 | tr -d '\n' | docker secret create nexo_root_password -
 NEXO_TAG=v1.0.0 docker stack deploy -c stack.yml nexo
 ```
 
+## Media worker
+
+[`nexo-media-worker`](media-worker.md) ricava le qualità ridotte, i poster e le miniature dei video e le
+varianti delle immagini. È facoltativo e separato da Nexo: riceve i job dal target `notify_media_worker` di
+Nexo e legge e scrive tramite l'API S3 con un utente dai privilegi minimi. Ogni metodo di installazione lo
+prevede:
+
+| Metodo | Cosa installare | Configurazione di Nexo (utente, policy, target) |
+|--------|-----------------|-------------------------------------------------|
+| Archivio | `nexo-media-worker_<versione>_<os>_<arch>.tar.gz` (`.zip` su Windows), con `systemd/nexo-media-worker.service` e il suo file di ambiente | a mano ([Configurazione](media-worker.md#configurazione)) |
+| deb/rpm | pacchetto `nexo-media-worker`: `/usr/bin/nexo-media-worker`, la unit, `/etc/default/nexo-media-worker` (modo 0600) | a mano |
+| Docker | immagine `docker.io/paolor/nexo-media-worker` (linux/amd64, linux/arm64) | a mano |
+| Docker Compose | overlay `deploy/docker/compose.media-worker.yml` | automatica (servizio di setup) |
+| Docker Swarm | `deploy/swarm/media-worker.yml`, distribuito insieme a `stack.yml` | automatica (servizio di setup) |
+| Helm | `--set mediaWorker.enabled=true` | automatica (Job di setup, un hook di Helm) |
+
+```bash
+# pacchetti (dipendono da libstdc++, che serve a OpenH264)
+sudo apt install ./nexo-media-worker_1.0.0_amd64.deb    # oppure: sudo dnf install ./nexo-media-worker-1.0.0-1.x86_64.rpm
+sudoedit /etc/default/nexo-media-worker                 # endpoint S3, access key, secret key, token
+sudo systemctl enable --now nexo-media-worker
+
+# Docker Compose, accanto a un Nexo a nodo singolo
+cd deploy/docker && cp media-worker.env.example media-worker.env    # poi imposta secret key e token
+docker compose -f compose.single.yml -f compose.media-worker.yml up -d
+
+# Kubernetes
+helm upgrade --install nexo "$CHART" -n storage --set mediaWorker.enabled=true
+```
+
+Il worker non contiene alcun codec H.264: al primo avvio scarica la build Cisco di OpenH264 nella sua directory
+dei dati (accesso a `ciscobinary.openh264.org` una volta sola, oppure una libreria fornita da te). Esegui un solo
+worker per deployment di Nexo e dagli memoria: circa 1 GiB per job video e 2 GiB per job immagine. La
+[Configurazione](media-worker.md#configurazione) della pagina del media worker riporta i dettagli di ogni metodo.
+
 ## Dai sorgenti
 
-You need Go ≥ 1.27.2 (with `GOTOOLCHAIN=auto`, the default, an older toolchain downloads the one in `go.mod` by itself), Node.js 22 with npm, and `make`:
+Servono Go ≥ 1.27.2 (con `GOTOOLCHAIN=auto`, il default, una toolchain più vecchia scarica da sola quella di
+`go.mod`), Node.js 22 con npm e `make`:
 
 ```bash
 git clone https://github.com/R3n3r0/Nexo.git && cd Nexo
@@ -231,6 +270,7 @@ make build            # console React + bin/nexo (console incorporata) + bin/nex
 bin/nexo version
 ```
 
+`make build-media-worker` compila `bin/nexo-media-worker` e `make docker-media-worker` la sua immagine.
 `make build-go` compila i due binari senza la console (utile per lo sviluppo del backend: sulla porta 9001
 l'Admin API funziona, al posto della console c'è una pagina "console not included"). `make help` elenca
 tutti i target.

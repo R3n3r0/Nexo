@@ -136,6 +136,48 @@ describe('distributions', () => {
     expect(within(result).getByText('public, max-age=31536000, immutable')).toBeInTheDocument();
   });
 
+  // covers: D-DST-03
+  it('serves the images of a behavior in every format on their own URL', async () => {
+    const services = admin();
+    const { user } = open('/distributions/website/behaviors', services);
+    const behaviors = await screen.findByRole('table', { name: 'Behaviors of the distribution' });
+    // The button appears once the permissions of the user are known.
+    await user.click(await screen.findByRole('button', { name: 'Add behavior' }));
+    const dialog = await screen.findByRole('dialog', { name: 'New behavior' });
+    await user.type(within(dialog).getByRole('textbox', { name: 'Path pattern' }), '/photos/**');
+    const images = within(dialog).getByRole('textbox', { name: 'Images in every format' });
+    // A new behavior inherits the option of the default behavior.
+    expect(images).toHaveValue('Inherit from the default');
+    expect(within(dialog).getByText(/\?format=original for the original/)).toBeInTheDocument();
+    await user.click(images);
+    await user.click(
+      await screen.findByRole('option', { name: 'Negotiate the format and the width' }),
+    );
+    await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
+    const row = (await within(behaviors).findByText('/photos/**')).closest('tr') as HTMLElement;
+    expect(within(row).getByText('Images')).toBeInTheDocument();
+
+    await user.click(
+      within(screen.getByRole('region', { name: 'Unsaved changes' })).getByRole('button', {
+        name: 'Save changes',
+      }),
+    );
+    await waitFor(async () => {
+      const d = await services.distributions.get('website');
+      expect(d.behaviors?.at(-1)).toEqual({
+        pathPattern: { type: 'glob', pattern: '/photos/**' },
+        images: { negotiate: true },
+      });
+    });
+
+    // The default behavior states it only when on.
+    await user.click(screen.getByRole('button', { name: 'Edit Default behavior' }));
+    const def = await screen.findByRole('dialog', { name: 'Default behavior' });
+    expect(within(def).getByRole('textbox', { name: 'Images in every format' })).toHaveValue(
+      'Serve the original',
+    );
+  });
+
   // covers: D-DST-04
   it('D-DST-04 applies the recommended security headers and the SPA fallback', async () => {
     const { user, services } = open('/distributions/download/responses');

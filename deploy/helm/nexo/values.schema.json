@@ -202,6 +202,88 @@
         "allowedFrom": {"type": "array"}
       }
     },
+    "mediaWorker": {
+      "description": "Optional nexo-media-worker (renditions, posters, thumbnails, image variants) and its setup Job",
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "image": {
+          "type": "object",
+          "required": ["repository"],
+          "properties": {
+            "repository": {"type": "string", "minLength": 1},
+            "tag": {"type": "string"},
+            "digest": {"type": "string", "pattern": "^(|sha256:[a-f0-9]{64})$"},
+            "pullPolicy": {"type": "string", "enum": ["Always", "IfNotPresent", "Never"]}
+          }
+        },
+        "replicas": {"description": "0 or 1: one job queue per worker, scale up instead", "type": "integer", "minimum": 0, "maximum": 1},
+        "concurrency": {"type": "integer", "minimum": 1},
+        "imageMemory": {"description": "bytes, as a string (\"1610612736\")", "type": "string", "pattern": "^[0-9]*$"},
+        "logLevel": {"type": "string", "enum": ["debug", "info", "warn", "error"]},
+        "logFormat": {"type": "string", "enum": ["text", "json"]},
+        "auth": {
+          "type": "object",
+          "properties": {
+            "accessKey": {"type": "string"},
+            "secretKey": {"type": "string"},
+            "authToken": {"type": "string"},
+            "existingSecret": {"type": "string"}
+          }
+        },
+        "setup": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "policyName": {"type": "string", "minLength": 1},
+            "buckets": {"type": "array", "items": {"type": "string", "minLength": 1}},
+            "target": {"type": "string", "pattern": "^notify_media_worker(:[A-Za-z0-9_-]+)?$"},
+            "timeout": {"type": "integer", "minimum": 30},
+            "shellImage": {"type": "string", "minLength": 1},
+            "resources": {"type": "object"}
+          }
+        },
+        "openh264": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "downloadURL": {"type": "string"}
+          }
+        },
+        "persistence": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "storageClass": {"type": "string"},
+            "accessModes": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+            "size": {"type": ["string", "integer"]},
+            "annotations": {"type": "object"},
+            "existingClaim": {"type": "string"}
+          }
+        },
+        "resources": {"type": "object"},
+        "podSecurityContext": {"type": "object"},
+        "securityContext": {"type": "object"},
+        "probes": {"type": "object"},
+        "service": {
+          "type": "object",
+          "properties": {
+            "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "annotations": {"type": "object"}
+          }
+        },
+        "extraEnv": {"type": "array"},
+        "extraVolumes": {"type": "array"},
+        "extraVolumeMounts": {"type": "array"},
+        "terminationGracePeriodSeconds": {"type": "integer", "minimum": 0},
+        "nodeSelector": {"type": "object"},
+        "tolerations": {"type": "array"},
+        "affinity": {"type": "object"},
+        "priorityClassName": {"type": "string"},
+        "podAnnotations": {"type": "object"},
+        "podLabels": {"type": "object"}
+      }
+    },
     "tests": {
       "type": "object",
       "properties": {

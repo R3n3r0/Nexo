@@ -105,6 +105,69 @@ behalf of the visitors.
 | CORS | `dist headers --cors-origin https://app.example.com --cors-method GET` |
 | Access log | `logging: {accessLog: true, format: combined}` in the YAML of the distribution (`json` by default: a `distribution access` record in the server log, with `event_time` the start of the request and `time` the time of the record) |
 
+## Images in every format on the same URL
+
+When the bucket has an [image rule](../media-worker.md#images-every-format-and-width), the media worker
+stores AVIF, WebP, JPEG and PNG variants of every image at several widths. A behavior with the
+**images** option serves them **at the URL of the image itself**: the page keeps one URL per photo and
+every browser gets the most compact format it decodes.
+
+```bash
+nexoctl dist behavior add local website --prefix /photos/ --negotiate-images
+```
+
+(in YAML/JSON: `images: {negotiate: true}` on the behavior, or on the default behavior for the whole site; a
+behavior with `images: {negotiate: false}` turns it off for its paths. In the console: **Images in every format**
+in the editor of a behavior.) On a `GET` or `HEAD` of an image whose variants derive from its current content:
+
+| Request | Served |
+|---------|--------|
+| `/photos/beach.jpg` | the image at its own size in the most compact format the `Accept` header names: AVIF, then WebP, else JPEG (PNG rather than a flattened JPEG for an image with transparency); `Vary: Accept` |
+| `/photos/beach.jpg?w=640` | the narrowest variant at least 640 pixels wide (the widest when none is), format as above |
+| `/photos/beach.jpg?format=webp` | that format (`avif`, `webp`, `jpeg`/`jpg`, `png`), no `Vary`; with `w` too |
+| `/photos/beach.jpg?format=original` | the original object, exactly as without the option |
+
+The original is also served, unchanged, for an object that is not an image, an image the worker has not
+processed yet (or processed from a previous content, until it processes the new one), and a format the worker did
+not produce. A malformed `w` or `format` on an image with variants answers `400`. The response carries the
+`Content-Type` of the variant, its `ETag` and `Last-Modified` (conditional requests and ranges are answered on the
+variant), the `Cache-Control` of the behavior or else of the image, and `X-Nexo-Image-Variant` (`webp 640`,
+`avif full`) to see which variant was served. Index documents, the SPA fallback and the error pages are not
+affected.
+
+```bash
+curl -sI -H 'Accept: image/avif,image/webp,*/*' https://cdn.example.com/photos/beach.jpg   # image/avif
+curl -sI -H 'Accept: image/webp,*/*' https://cdn.example.com/photos/beach.jpg             # image/webp (Safari)
+curl -sI -H 'Accept: */*' https://cdn.example.com/photos/beach.jpg                        # image/jpeg
+curl -sI 'https://cdn.example.com/photos/beach.jpg?w=320&format=png'                     # the 320 px PNG
+curl -so beach.jpg 'https://cdn.example.com/photos/beach.jpg?format=original'            # the uploaded bytes
+```
+
+```html
+<img src="https://cdn.example.com/photos/beach.jpg?w=640"
+     srcset="https://cdn.example.com/photos/beach.jpg?w=320 320w,
+             https://cdn.example.com/photos/beach.jpg?w=640 640w,
+             https://cdn.example.com/photos/beach.jpg?w=1280 1280w"
+     sizes="(max-width: 700px) 100vw, 640px" alt="The beach">
+```
+
+- **Cache.** The [cache](#cache) of the distribution reads the variant as the file of the sidecar directory it
+  is, so its entries are keyed by format and width, never by the `Accept` header: all the browsers that get the
+  WebP at 640 pixels share one entry. The entries use the policy of the path of the image and are dropped with
+  it: an invalidation of `/photos/beach.jpg` drops its variants, a new content of the image is served as the
+  original at once, and when the worker rewrites the variants (`status.json` last) the CDNs in front receive a
+  purge of `/photos/beach.jpg` through the purge webhooks. A CDN in front must honor `Vary: Accept` (or key on a
+  normalized `Accept`), or serve the explicit `?format=` URLs.
+- **Signed URLs.** The query is part of what a signed URL signs: sign the URL with its `?w=` and `?format=`
+  (`nexoctl dist sign-url local website '/photos/beach.jpg?w=640'`), or let the page choose them with a custom
+  policy whose resource ends with `*` (`--resource 'https://cdn.example.com/photos/*'`) or with signed cookies.
+  The `Accept` header is not signed: it only chooses the format of the same image.
+- **S3 API.** `GetObject` on the S3 port never changes: it returns the uploaded bytes. A client that wants a
+  variant there adds `x-nexo-image-format` (`auto`, `avif`, `webp`, `jpeg`, `png`, `original`) and/or
+  `x-nexo-image-width` to the query (`GET /photos/beach.jpg?x-nexo-image-format=auto&x-nexo-image-width=640`):
+  they are signed like the rest of the query (SigV4, presigned URLs) and need `s3:GetObject` on the image. The
+  `s3` mode of the distributions works the same way.
+
 ## Signed URLs and cookies
 
 For `--access signed` behaviors Nexo verifies URLs in the CloudFront format (`?Expires=&Signature=&Key-Pair-Id=`,

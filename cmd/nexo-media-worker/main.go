@@ -89,7 +89,10 @@ directory at the first start (Cisco licenses the H.264 patents of its build to
 whoever downloads it), unless --openh264 names a library.
 
 Every flag can be set with an environment variable: NEXO_WORKER_ followed by
-the flag name in upper case (NEXO_WORKER_S3_ENDPOINT, NEXO_WORKER_AUTH_TOKEN...).`,
+the flag name in upper case (NEXO_WORKER_S3_ENDPOINT, NEXO_WORKER_AUTH_TOKEN...);
+the credentials and the token can also be read from files named by
+NEXO_WORKER_ACCESS_KEY_FILE, NEXO_WORKER_SECRET_KEY_FILE and
+NEXO_WORKER_AUTH_TOKEN_FILE (Docker and Kubernetes secrets).`,
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -135,13 +138,32 @@ func applyEnv(cmd *cobra.Command, lookupEnv func(string) (string, bool)) error {
 			return
 		}
 		name := "NEXO_WORKER_" + strings.ToUpper(strings.ReplaceAll(fl.Name, "-", "_"))
-		if v, ok := lookupEnv(name); ok {
+		v, ok := lookupEnv(name)
+		if !ok && secretFlags()[fl.Name] {
+			// NAME_FILE: the value in a file (Docker and Kubernetes
+			// secrets), its trailing newline removed.
+			if path, fok := lookupEnv(name + "_FILE"); fok {
+				data, rerr := os.ReadFile(path) // #nosec G304 -- a path the operator names
+				if rerr != nil {
+					err = fmt.Errorf("%s_FILE: %w", name, rerr)
+					return
+				}
+				v, ok = strings.TrimRight(string(data), "\r\n"), true
+			}
+		}
+		if ok {
 			if serr := fl.Value.Set(v); serr != nil {
 				err = fmt.Errorf("%s: %w", name, serr)
 			}
 		}
 	})
 	return err
+}
+
+// secretFlags are the flags that can also be read from a file named by
+// NEXO_WORKER_<FLAG>_FILE.
+func secretFlags() map[string]bool {
+	return map[string]bool{"access-key": true, "secret-key": true, "auth-token": true}
 }
 
 func newLogger(w io.Writer, level, format string) (*slog.Logger, error) {
