@@ -10,6 +10,8 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"sync"
 
 	"github.com/Eyevinn/mp4ff/mp4"
@@ -44,13 +46,12 @@ type RenditionResult struct {
 // Progress reports the fraction of the work done.
 type Progress func(done float64)
 
-// rendition is the state of a rendition being encoded.
+// rendition is a rendition file being written: the spans of the video
+// are encoded apart and appended to it in order.
 type rendition struct {
 	spec    RenditionSpec
 	width   int
 	height  int
-	enc     *openh264.Encoder
-	scaler  Scaler
 	data    *os.File // the video samples
 	written int64
 	samples []muxSample
@@ -60,8 +61,30 @@ type rendition struct {
 
 // Renditions decodes the video of src once and encodes every spec from
 // it, then writes each rendition, with the source audio copied, to
-// dir/<name>.mp4.
-func Renditions(ctx context.Context, lib *openh264.Library, src *Source, specs []RenditionSpec, dir string, progress Progress) (results []RenditionResult, err error) {
+// dir/<name>.mp4. The video is split into spans that decode alone (they
+// start at an IDR picture), processed in parallel on every core.
+func Renditions(ctx context.Context, lib *openh264.Library, src *Source, specs []RenditionSpec, dir string, progress Progress) ([]RenditionResult, error) {
+	return renditions(ctx, lib, src, specs, dir, progress, workers(src))
+}
+
+// decodeMemory bounds the memory of the pictures held by the spans
+// decoded at once (decoders, pictures decoded ahead, scaled copies): a
+// larger video gets fewer workers.
+const decodeMemory = 1 << 30
+
+// picturesPerWorker estimates the pictures a worker holds: the references
+// and reordering of its decoder, the pictures it decodes ahead and the
+// scaled copies of the renditions.
+const picturesPerWorker = 24
+
+// workers returns how many spans of src to process at once: one per core,
+// within decodeMemory.
+func workers(src *Source) int {
+	perWorker := max(1, src.Width*src.Height*3/2*picturesPerWorker)
+	return max(1, min(runtime.GOMAXPROCS(0), decodeMemory/perWorker))
+}
+
+func renditions(ctx context.Context, lib *openh264.Library, src *Source, specs []RenditionSpec, dir string, progress Progress, nworkers int) (results []RenditionResult, err error) {
 	if len(specs) == 0 {
 		return nil, nil
 	}
@@ -69,75 +92,48 @@ func Renditions(ctx context.Context, lib *openh264.Library, src *Source, specs [
 	if len(samples) == 0 {
 		return nil, fmt.Errorf("%w: the video track has no samples", ErrUnsupported)
 	}
-	fps := float64(len(samples)) / max(src.Seconds(), 0.001)
+	spans, err := src.spans()
+	if err != nil {
+		return nil, err
+	}
 	var rs []*rendition
 	defer func() {
 		for _, r := range rs {
-			r.enc.Close()
 			_ = r.data.Close()
 			_ = os.Remove(r.data.Name())
 		}
 	}()
 	for _, spec := range specs {
 		w, h := FitHeight(src.Width, src.Height, spec.Height)
-		enc, err := lib.NewEncoder(openh264.EncoderParams{Width: w, Height: h, Bitrate: spec.Bitrate, FrameRate: min(fps, 60)})
-		if err != nil {
-			return nil, err
-		}
 		f, err := os.CreateTemp(dir, spec.Name+"-*.h264")
 		if err != nil {
-			enc.Close()
 			return nil, err
 		}
-		rs = append(rs, &rendition{spec: spec, width: w, height: h, enc: enc, data: f})
+		rs = append(rs, &rendition{spec: spec, width: w, height: h, data: f})
 	}
-	dec, err := lib.NewDecoder()
+	j := &spanJob{lib: lib, src: src, rs: rs, fps: float64(len(samples)) / max(src.Seconds(), 0.001)}
+	var shown []int64 // the presentation times of the encoded pictures
+	err = inOrder(ctx, len(spans), max(1, nworkers), j.newWorker, func(ctx context.Context, w *spanWorker, k int) (*spanOutput, error) {
+		return w.encode(ctx, spans[k])
+	}, func(k int, out *spanOutput) error {
+		for i, r := range rs {
+			if err := r.append(out.encodings[i]); err != nil {
+				return err
+			}
+		}
+		shown = append(shown, out.shown...)
+		if progress != nil {
+			progress(float64(spans[k].end) / float64(len(samples)))
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer dec.Close()
-
-	pts := src.presentationTimes()
-	scale := float64(src.Video.Timescale)
-	n := 0
-	nextKey := 0.0
-	emit := func(pic *image.YCbCr) error {
-		if n >= len(pts) {
-			return nil // more pictures than samples: never seen, ignored
-		}
-		t := float64(pts[n]-pts[0]) / scale
-		idr := n == 0 || t >= nextKey
-		if idr {
-			nextKey = math.Floor(t/keyInterval+1) * keyInterval
-		}
-		if err := encodeAll(rs, pic, t, idr); err != nil {
-			return err
-		}
-		n++
-		if progress != nil && n%25 == 0 {
-			progress(float64(n) / float64(len(pts)))
-		}
-		return nil
-	}
-	// The decoder runs ahead of the encoders, on its own goroutine: decoding
-	// the next pictures overlaps with scaling and encoding this one.
-	decodeCtx, stop := context.WithCancel(ctx)
-	defer stop()
-	pics, decoded := decodeAhead(decodeCtx, dec, src, samples)
-	for pic := range pics {
-		if err := emit(pic); err != nil {
-			stop()
-			<-decoded
-			return nil, err
-		}
-	}
-	if err := <-decoded; err != nil {
-		return nil, err
-	}
-	if n == 0 {
+	if len(shown) == 0 {
 		return nil, fmt.Errorf("%w: no picture could be decoded", ErrUnsupported)
 	}
-	durations := frameDurations(pts[:n], src.Video)
+	durations := frameDurations(shown, src.Video)
 	for _, r := range rs {
 		res, err := r.finish(src, durations, dir)
 		if err != nil {
@@ -146,6 +142,176 @@ func Renditions(ctx context.Context, lib *openh264.Library, src *Source, specs [
 		results = append(results, res)
 	}
 	return results, nil
+}
+
+// inOrder runs process over the items 0..n-1 on workers goroutines (each
+// with the state newWorker gives it) and passes the outputs to deliver in
+// item order, on the calling goroutine. At most 2*workers items are
+// processed or waiting to be delivered: the outputs of the items ahead of
+// a slow one stay bounded. The first error stops the work and is returned.
+func inOrder[W, T any](ctx context.Context, n, workers int, newWorker func() W,
+	process func(context.Context, W, int) (T, error), deliver func(int, T) error) error {
+	ctx, cancel := context.WithCancel(ctx)
+	var wg sync.WaitGroup
+	defer func() {
+		cancel()
+		wg.Wait()
+	}()
+	type result struct {
+		k   int
+		out T
+		err error
+	}
+	slots := make(chan struct{}, 2*workers)
+	next := make(chan int)
+	done := make(chan result, n) // never blocks a worker
+	wg.Go(func() {
+		defer close(next)
+		for k := range n {
+			select {
+			case slots <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			select {
+			case next <- k:
+			case <-ctx.Done():
+				return
+			}
+		}
+	})
+	for range min(workers, n) {
+		wg.Go(func() {
+			w := newWorker()
+			for k := range next {
+				out, err := process(ctx, w, k)
+				done <- result{k, out, err}
+			}
+		})
+	}
+	pending := map[int]T{}
+	for delivered := 0; delivered < n; {
+		var res result
+		select {
+		case res = <-done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		if res.err != nil {
+			return res.err
+		}
+		pending[res.k] = res.out
+		for {
+			out, ok := pending[delivered]
+			if !ok {
+				break
+			}
+			delete(pending, delivered)
+			if err := deliver(delivered, out); err != nil {
+				return err
+			}
+			delivered++
+			<-slots
+		}
+	}
+	return nil
+}
+
+// spanJob is what the workers of Renditions share.
+type spanJob struct {
+	lib *openh264.Library
+	src *Source
+	rs  []*rendition
+	fps float64
+}
+
+// spanWorker encodes spans; its scalers keep their weights from one
+// span to the next.
+type spanWorker struct {
+	*spanJob
+	scalers []Scaler
+}
+
+func (j *spanJob) newWorker() *spanWorker {
+	return &spanWorker{spanJob: j, scalers: make([]Scaler, len(j.rs))}
+}
+
+// spanOutput is a span encoded into every rendition.
+type spanOutput struct {
+	encodings []*encoding
+	shown     []int64
+}
+
+// encoding is a span being encoded into one rendition, in memory.
+type encoding struct {
+	width, height int
+	enc           *openh264.Encoder
+	scaler        *Scaler
+	data          []byte
+	samples       []muxSample // src: offset in data
+	sps, pps      []byte
+}
+
+// encode decodes a span with its own decoder and encodes it with new
+// encoders: the first picture of every rendition is an IDR picture, then
+// one every keyInterval as in a single pass.
+func (w *spanWorker) encode(ctx context.Context, c span) (out *spanOutput, err error) {
+	out = &spanOutput{}
+	defer func() {
+		for _, e := range out.encodings {
+			if e.enc != nil {
+				e.enc.Close()
+			}
+		}
+	}()
+	for i, r := range w.rs {
+		enc, err := w.lib.NewEncoder(openh264.EncoderParams{Width: r.width, Height: r.height, Bitrate: r.spec.Bitrate, FrameRate: min(w.fps, 60)})
+		if err != nil {
+			return nil, err
+		}
+		out.encodings = append(out.encodings, &encoding{width: r.width, height: r.height, enc: enc, scaler: &w.scalers[i]})
+	}
+	dec, err := w.lib.NewDecoder()
+	if err != nil {
+		return nil, err
+	}
+	defer dec.Close()
+
+	samples := w.src.Video.Samples[c.first:c.end]
+	pts := make([]int64, len(samples))
+	for i, s := range samples {
+		pts[i] = s.PTS()
+	}
+	slices.Sort(pts)
+	base := w.src.firstPTS()
+	scale := float64(w.src.Video.Timescale)
+	nextKey := 0.0
+	// The decoder runs ahead of the encoders, on its own goroutine: decoding
+	// the next pictures overlaps with scaling and encoding this one.
+	decodeCtx, stop := context.WithCancel(ctx)
+	defer stop()
+	pics, decoded := decodeAhead(decodeCtx, dec, w.src, samples)
+	for pic := range pics {
+		n := len(out.shown)
+		if n >= len(pts) {
+			continue // more pictures than samples: never seen, ignored
+		}
+		t := float64(pts[n]-base) / scale
+		idr := n == 0 || t >= nextKey
+		if idr {
+			nextKey = math.Floor(t/keyInterval+1) * keyInterval
+		}
+		if err := encodeAll(out.encodings, pic, t, idr); err != nil {
+			stop()
+			<-decoded
+			return nil, err
+		}
+		out.shown = append(out.shown, pts[n])
+	}
+	if err := <-decoded; err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // decodeAhead decodes the samples on a goroutine and sends the pictures
@@ -215,40 +381,59 @@ func frameDurations(pts []int64, video *Track) []uint32 {
 }
 
 // encode scales and encodes a picture, appending its sample.
-func (r *rendition) encode(pic *image.YCbCr, t float64, idr bool) error {
-	scaled := r.scaler.Scale(pic, r.width, r.height)
-	nalus, key, err := r.enc.Encode(scaled, int64(t*1000), idr)
+func (e *encoding) encode(pic *image.YCbCr, t float64, idr bool) error {
+	scaled := e.scaler.Scale(pic, e.width, e.height)
+	nalus, key, err := e.enc.Encode(scaled, int64(t*1000), idr)
 	if err != nil {
 		return err
 	}
-	var sample []byte
+	start := len(e.data)
 	for _, nal := range nalus {
 		if len(nal) == 0 {
 			continue
 		}
 		switch nal[0] & 0x1f {
 		case 7: // SPS: in the sample entry
-			if r.sps == nil {
-				r.sps = nal
+			if e.sps == nil {
+				e.sps = nal
 			}
 			continue
 		case 8: // PPS
-			if r.pps == nil {
-				r.pps = nal
+			if e.pps == nil {
+				e.pps = nal
 			}
 			continue
 		}
-		sample = binary.BigEndian.AppendUint32(sample, uint32(len(nal))) // #nosec G115 -- NAL sizes
-		sample = append(sample, nal...)
+		e.data = binary.BigEndian.AppendUint32(e.data, uint32(len(nal))) // #nosec G115 -- NAL sizes
+		e.data = append(e.data, nal...)
 	}
-	if len(sample) == 0 {
+	if len(e.data) == start {
 		return errors.New("transcode: the encoder produced an empty picture")
 	}
-	if _, err := r.data.Write(sample); err != nil {
+	e.samples = append(e.samples, muxSample{size: uint32(len(e.data) - start), sync: key, src: int64(start)}) // #nosec G115 -- sample sizes
+	return nil
+}
+
+// append writes an encoded span to the rendition. Every span comes from
+// an encoder with the same parameters: their parameter sets must match,
+// the file has one sample entry.
+func (r *rendition) append(e *encoding) error {
+	if len(e.samples) == 0 {
+		return nil
+	}
+	if r.sps == nil {
+		r.sps, r.pps = e.sps, e.pps
+	} else if !bytes.Equal(r.sps, e.sps) || !bytes.Equal(r.pps, e.pps) {
+		return errors.New("transcode: the encoders of two spans produced different parameter sets")
+	}
+	if _, err := r.data.Write(e.data); err != nil {
 		return err
 	}
-	r.samples = append(r.samples, muxSample{size: uint32(len(sample)), sync: key, src: r.written}) // #nosec G115 -- sample sizes
-	r.written += int64(len(sample))
+	for _, s := range e.samples {
+		s.src += r.written
+		r.samples = append(r.samples, s)
+	}
+	r.written += int64(len(e.data))
 	return nil
 }
 
@@ -340,14 +525,14 @@ func peakBandwidth(tracks []*muxTrack) int {
 
 // encodeAll scales and encodes a picture into every rendition, each on its
 // own goroutine: the encoders are independent.
-func encodeAll(rs []*rendition, pic *image.YCbCr, t float64, idr bool) error {
-	if len(rs) == 1 {
-		return rs[0].encode(pic, t, idr)
+func encodeAll(es []*encoding, pic *image.YCbCr, t float64, idr bool) error {
+	if len(es) == 1 {
+		return es[0].encode(pic, t, idr)
 	}
-	errs := make([]error, len(rs))
+	errs := make([]error, len(es))
 	var wg sync.WaitGroup
-	for i, r := range rs {
-		wg.Go(func() { errs[i] = r.encode(pic, t, idr) })
+	for i, e := range es {
+		wg.Go(func() { errs[i] = e.encode(pic, t, idr) })
 	}
 	wg.Wait()
 	return errors.Join(errs...)

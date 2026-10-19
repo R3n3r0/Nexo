@@ -146,7 +146,7 @@ $ docker run -d --name nexo-media-worker -p 9600:9600 -v media-worker:/data \
 | `--auth-token` | `NEXO_WORKER_AUTH_TOKEN` | | bearer token Nexo sends (required) |
 | `--address` | `NEXO_WORKER_ADDRESS` | `:9600` | address of the jobs endpoint (`POST /jobs`, `GET /healthz`) |
 | `--data-dir` | `NEXO_WORKER_DATA_DIR` | `nexo-media-worker` | job queue, work files, downloaded library |
-| `--concurrency` | `NEXO_WORKER_CONCURRENCY` | `1` | jobs processed at once (each uses about one core per rendition) |
+| `--concurrency` | `NEXO_WORKER_CONCURRENCY` | `1` | jobs processed at once (each one already uses every core) |
 | `--max-attempts` | `NEXO_WORKER_MAX_ATTEMPTS` | `5` | attempts of a job that fails for a transient reason |
 | `--openh264` | `NEXO_WORKER_OPENH264` | | path of the library (default: downloaded from Cisco) |
 | `--s3-region` | `NEXO_WORKER_S3_REGION` | `us-east-1` | region of the signatures |
@@ -244,17 +244,20 @@ results):
 
 | Job (1080p H.264 source) | Speed |
 |--------------------------|-------|
-| 720p + 360p + 240p | 2.1× real time (a 10-minute video in about 5 minutes) |
-| one rendition | 2.2× (decoding the source is the bound: more renditions cost little more) |
-| poster | 65 ms |
-| thumbnails, one per second | 28× real time |
+| 720p + 360p + 240p | 3.2× real time (a 10-minute video in about 3 minutes) |
+| one rendition | 4–4.5× |
+| poster | 44 ms |
+| thumbnails, one per second | 74× real time |
 
-Each job uses up to about one core per rendition plus one for decoding.
+A job uses every core: the video is split at its IDR pictures into spans of at least 2 seconds, each decoded and
+encoded on its own core, and the spans are joined in order (the result is the same, byte for byte, on any number
+of cores). The speed grows with the cores; a video shorter than 2 seconds, or with a single IDR picture, is one span
+on one core.
 
 ## Scaling and security
 
-- Each job decodes the video once and encodes its renditions in parallel, one core each; `--concurrency`
-  runs several jobs at once. Scale a worker up (cores, `--concurrency`) rather than out: each
+- Each job decodes the video once, on every core (one span per core), and encodes its renditions in parallel;
+  `--concurrency` runs several jobs at once, useful for many short videos. Scale a worker up (cores, `--concurrency`) rather than out: each
   `notify_media_worker:<id>` target receives every job, so two targets would process every video twice.
 - The decoder parses untrusted files: run the worker as an unprivileged user (the image uses UID 65532),
   with resource limits, and with the least-privilege policy above. It needs no admin rights and no network

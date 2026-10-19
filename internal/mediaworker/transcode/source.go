@@ -259,16 +259,5 @@ func (s *Source) accessUnit(sm Sample) ([]byte, error) {
 	return append(out, avc.ConvertSampleToByteStream(data)...), nil
 }
 
-// presentationTimes returns the presentation times of the video samples
-// in display order (the order of the decoded pictures).
-func (s *Source) presentationTimes() []int64 {
-	pts := make([]int64, len(s.Video.Samples))
-	for i, sm := range s.Video.Samples {
-		pts[i] = sm.PTS()
-	}
-	slices.Sort(pts)
-	return pts
-}
-
 // Close closes the file.
 func (s *Source) Close() error { return s.f.Close() }

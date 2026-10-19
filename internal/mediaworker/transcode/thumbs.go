@@ -8,6 +8,7 @@ import (
 	"image/jpeg"
 	"io"
 	"math"
+	"runtime"
 	"strings"
 	"time"
 
@@ -138,30 +139,41 @@ func Sprite(ctx context.Context, lib *openh264.Library, src *Source, interval ti
 	fillBlack(grid)
 	var cue strings.Builder
 	cue.WriteString("WEBVTT\n")
-	var (
-		lastKey  = -2
-		lastTile *image.YCbCr
-	)
+	// Each tile shows the keyframe at its time: the distinct keyframes are
+	// decoded in parallel, each with its own decoder, and pasted in order.
+	keys := make([]int, count)
+	var distinct []int
 	for i := range count {
-		if err := ctx.Err(); err != nil {
-			return SpriteResult{}, err
+		keys[i] = src.keyframeAt(float64(i) * step)
+		if i == 0 || keys[i] != keys[i-1] {
+			distinct = append(distinct, i)
 		}
-		t := float64(i) * step
-		k := src.keyframeAt(t)
-		if k != lastKey {
-			pic, err := src.decodeKeyframe(lib, k)
+	}
+	err := inOrder(ctx, len(distinct), runtime.GOMAXPROCS(0), func() struct{} { return struct{}{} },
+		func(_ context.Context, _ struct{}, d int) (*image.YCbCr, error) {
+			pic, err := src.decodeKeyframe(lib, keys[distinct[d]])
 			if err != nil {
-				return SpriteResult{}, err
+				return nil, err
 			}
-			lastKey, lastTile = k, Scale(pic, tw, th)
-		}
-		x, y := (i%columns)*tw, (i/columns)*th
-		paste(grid, lastTile, x, y)
-		end := min(t+step, dur)
-		fmt.Fprintf(&cue, "\n%s --> %s\n%s#xywh=%d,%d,%d,%d\n", vttTime(t), vttTime(end), spriteName, x, y, tw, th)
-		if progress != nil {
-			progress(float64(i+1) / float64(count))
-		}
+			return Scale(pic, tw, th), nil
+		}, func(d int, tile *image.YCbCr) error {
+			last := count
+			if d+1 < len(distinct) {
+				last = distinct[d+1]
+			}
+			for i := distinct[d]; i < last; i++ {
+				t := float64(i) * step
+				x, y := (i%columns)*tw, (i/columns)*th
+				paste(grid, tile, x, y)
+				fmt.Fprintf(&cue, "\n%s --> %s\n%s#xywh=%d,%d,%d,%d\n", vttTime(t), vttTime(min(t+step, dur)), spriteName, x, y, tw, th)
+				if progress != nil {
+					progress(float64(i+1) / float64(count))
+				}
+			}
+			return nil
+		})
+	if err != nil {
+		return SpriteResult{}, err
 	}
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, grid, &jpeg.Options{Quality: jpegQuality}); err != nil {

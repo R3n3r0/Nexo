@@ -67,7 +67,7 @@ drives, with no transcoding.
 | 1080p (1920x1080) | 116 fps | 181 fps |
 
 Decoding the 1080p video of §1 (High profile, CABAC, 6 Mbit/s of grain) is much slower than the generated
-pictures: about 55 fps, which is what bounds a job (§4).
+pictures: about 55 fps on one core. A job therefore decodes on every core at once (§4, §6).
 
 ### Scaling (one picture, as a rendition does it)
 
@@ -84,29 +84,32 @@ pictures: about 55 fps, which is what bounds a job (§4).
 | Step | 360p fixture (3 s) | 1080p video (20 s) |
 |------|--------------------|--------------------|
 | Parsing the MP4 (`Open`) | 79 µs | 270 µs |
-| Poster (decode one keyframe, scale, JPEG) | 5.8 ms | 65 ms |
-| Thumbnail sprite + WebVTT, one tile per second | 9 ms (330×) | 0.70 s (28×) |
+| Poster (decode one keyframe, scale, JPEG) | 5.8 ms | 44 ms |
+| Thumbnail sprite + WebVTT, one tile per second | 9 ms (330×) | 0.27 s (74×; 0.70 s, 28×, on one core) |
 
-The thumbnails decode only the keyframes they need, so they cost a fraction of the renditions.
+The thumbnails decode only the keyframes they need, each with its own decoder, on every core: they cost a
+fraction of the renditions.
 
 ## 4. Renditions, end to end
 
-`BenchmarkRenditions`: decode the source once, scale and encode every rendition, write the MP4 files (audio
-copied). Before/after are the commit of the media worker (`0322319`) and the optimizations of §6, `-count 4`,
-compared with `benchstat` (p = 0.029).
+`BenchmarkRenditions`: decode the source, scale and encode every rendition, write the MP4 files (audio copied).
+Three versions of the code, each step of §6 on top of the previous one: the commit of the media worker
+(`0322319`, `-count 4`), the scaler and the decoding ahead (`4e57463`, `-count 4`, `benchstat` p = 0.029), the
+video split into spans encoded on every core (`-count 3`, median).
 
-| Renditions from the 1080p video | Before | After | Δ |
-|---------------------------------|--------|-------|---|
-| 240p | 14.8 s (1.36×) | 9.1 s (2.20×) | −38% |
-| 360p | 14.1 s (1.42×) | 9.0 s (2.21×) | −36% |
-| 720p | 19.7 s (1.02×) | 9.0 s (2.22×) | −54% |
-| 720p + 360p + 240p | 21.8 s (0.92×) | 9.4 s (2.12×) | −57% |
+| Renditions from the 1080p video | M2 | Scaler, decoding ahead | Spans on every core | Δ total |
+|---------------------------------|----|------------------------|---------------------|---------|
+| 240p | 14.8 s (1.36×) | 9.1 s (2.20×) | 4.4 s (4.52×) | −70% |
+| 360p | 14.1 s (1.42×) | 9.0 s (2.21×) | 4.4 s (4.58×) | −69% |
+| 720p | 19.7 s (1.02×) | 9.0 s (2.22×) | 5.1 s (3.96×) | −74% |
+| 720p + 360p + 240p | 21.8 s (0.92×) | 9.4 s (2.12×) | 6.3 s (3.18×) | −71% |
 
-From the 360p fixture: 240p at 18×, 360p at 30×.
+From the 360p fixture (one span: it has a single IDR picture after the first one): 240p at 18×, 360p at 30×.
 
-Three renditions now cost what one does: the job is bound by decoding the source (one core), while scaling and
-encoding run on the others. A 10-minute 1080p video with three renditions takes about 4.7 minutes on this machine;
-`--concurrency` of the worker runs more jobs at once on more cores.
+With one decoder per span the job uses all 4 cores: decoding, scaling and encoding are all parallel, and the
+numbers grow with the cores (on this machine the four cores are busy for the whole job). A 10-minute 1080p video
+with three renditions takes about 3.1 minutes; `--concurrency` of the worker runs more jobs at once, which helps
+when the videos are short (a video shorter than 2 s is a single span).
 
 ## 5. Reproduction
 
@@ -133,13 +136,31 @@ $ ffmpeg -f lavfi -i "testsrc2=size=1920x1080:rate=25:duration=20" -f lavfi -i "
    the first implementation on every sample (`TestScalerMatchesReference`). Allocations per rendition: −43…72%.
 2. **Decoding ahead** (`internal/mediaworker/transcode/rendition.go`): the decoder runs on its own goroutine,
    a few pictures ahead, so decoding overlaps with scaling and encoding.
-3. **Fixed**: the benchmarks found that the C calls of the OpenH264 binding could write their out parameters to
+3. **Spans on every core** (`internal/mediaworker/transcode/span.go`, `rendition.go`): the video is split at
+   its IDR pictures into spans that decode alone (a span starts at an IDR picture and none of its pictures is
+   shown after one of the next span, checked on the presentation times). Each span is decoded by its own
+   decoder and encoded by its own encoders on a worker goroutine, one per core (fewer for very large videos,
+   within 1 GiB of pictures), and the encoded spans are appended to the files in order, at most two per worker
+   ahead of the file. A span starts where a single pass puts an IDR picture anyway (the first picture of a
+   2-second period), so the renditions keep an IDR picture every 2 s, aligned across renditions; the output
+   does not depend on the number of workers, byte for byte (`TestRenditionsInParallel`). The keyframes of the
+   thumbnails are decoded in parallel the same way.
+4. **Fixed**: the benchmarks found that the C calls of the OpenH264 binding could write their out parameters to
    a moved goroutine stack (`create encoder: 0` on a fresh goroutine). `call` is now `//go:uintptrescapes`, which
    keeps such arguments on the heap for the call (`TestFreshGoroutines`).
 
-## 7. Open work
+## 7. Threads of the OpenH264 decoder (not used)
 
-- Decoding is single-threaded: OpenH264 has a threaded decoder (`DECODER_OPTION_NUM_OF_THREADS`) not used yet;
-  it would lift the bound of §4 on machines with more cores.
+OpenH264 2.4.1 also has a threaded decoder (`DECODER_OPTION_NUM_OF_THREADS`, at most 3 threads, one picture
+per thread). It was measured and left out:
+
+- 1 thread: the same pictures as no thread, only 5% faster (parsing moves off the calling thread).
+- 2 or 3 threads: the pictures differ from those of the single-threaded decoder (about 47 dB PSNR), and with
+  B-frames they differ from one run to the next; with 3 threads a picture went missing and the decoder hung.
+
+The spans of §6 use every core with the single-threaded decoder, whose output is exact.
+
+## 8. Open work
+
 - The horizontal pass of the scaler and the colour conversion of the JPEGs are plain Go: SIMD assembly would
   speed them up further.

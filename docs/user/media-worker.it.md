@@ -147,7 +147,7 @@ $ docker run -d --name nexo-media-worker -p 9600:9600 -v media-worker:/data \
 | `--auth-token` | `NEXO_WORKER_AUTH_TOKEN` | | bearer token inviato da Nexo (obbligatorio) |
 | `--address` | `NEXO_WORKER_ADDRESS` | `:9600` | indirizzo dell'endpoint dei job (`POST /jobs`, `GET /healthz`) |
 | `--data-dir` | `NEXO_WORKER_DATA_DIR` | `nexo-media-worker` | coda dei job, file di lavoro, libreria scaricata |
-| `--concurrency` | `NEXO_WORKER_CONCURRENCY` | `1` | job elaborati insieme (ciascuno usa circa un core per rendition) |
+| `--concurrency` | `NEXO_WORKER_CONCURRENCY` | `1` | job elaborati insieme (ognuno usa già tutti i core) |
 | `--max-attempts` | `NEXO_WORKER_MAX_ATTEMPTS` | `5` | tentativi di un job che fallisce per un motivo temporaneo |
 | `--openh264` | `NEXO_WORKER_OPENH264` | | percorso della libreria (default: scaricata da Cisco) |
 | `--s3-region` | `NEXO_WORKER_S3_REGION` | `us-east-1` | regione delle firme |
@@ -250,17 +250,20 @@ risultati):
 
 | Job (sorgente H.264 1080p) | Velocità |
 |----------------------------|----------|
-| 720p + 360p + 240p | 2,1× il tempo reale (un video di 10 minuti in circa 5 minuti) |
-| una rendition | 2,2× (il limite è la decodifica della sorgente: più rendition costano poco di più) |
-| poster | 65 ms |
-| miniature, una al secondo | 28× il tempo reale |
+| 720p + 360p + 240p | 3,2× il tempo reale (un video di 10 minuti in circa 3 minuti) |
+| una rendition | 4–4,5× |
+| poster | 44 ms |
+| miniature, una al secondo | 74× il tempo reale |
 
-Ogni job usa fino a circa un core per rendition più uno per la decodifica.
+Un job usa tutti i core: il video è diviso nelle sue immagini IDR in tratti di almeno 2 secondi, ognuno decodificato
+e codificato sul proprio core, e i tratti sono uniti in ordine (il risultato è identico, byte per byte, con qualsiasi
+numero di core). La velocità cresce con i core; un video più corto di 2 secondi, o con una sola immagine IDR, è un
+solo tratto su un core.
 
 ## Scalabilità e sicurezza
 
-- Ogni job decodifica il video una volta e codifica le sue rendition in parallelo, un core ciascuna;
-  `--concurrency` esegue più job insieme. Scala un worker in verticale (core, `--concurrency`) piuttosto che in
+- Ogni job decodifica il video una volta, su tutti i core (un tratto per core), e codifica le sue rendition in
+  parallelo; `--concurrency` esegue più job insieme, utile per molti video brevi. Scala un worker in verticale (core, `--concurrency`) piuttosto che in
   orizzontale: ogni target `notify_media_worker:<id>` riceve tutti i job, quindi due target elaborerebbero ogni
   video due volte.
 - Il decoder legge file non fidati: esegui il worker come utente non privilegiato (l'immagine usa l'UID

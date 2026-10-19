@@ -87,8 +87,10 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
 - Benchmarks of every step of the video pipeline (`make bench-media`, [docs/bench/media.md](docs/bench/media.md)):
   packager requests, OpenH264 decoding and encoding per size, scaling, renditions, poster and thumbnails. With
   them the scaler (weights computed once, buffers reused, vertical pass first, parallel bands) and the decoding
-  (overlapped with the encoders) bring three renditions of a 1080p video from 0.92× to 2.1× real time (4 vCPU Xeon
-  virtual machine at 2.1 GHz); `make bench` and `make bench-media` save the description of the machine with their
+  (overlapped with the encoders) bring three renditions of a 1080p video from 0.92× to 2.1× real time, and the
+  video split at its IDR pictures into spans decoded and encoded on every core to 3.2× (4 vCPU Xeon virtual
+  machine at 2.1 GHz; the output is the same byte for byte on any number of cores; the thumbnails decode their
+  keyframes in parallel too, 28× → 74×); `make bench` and `make bench-media` save the description of the machine with their
   results (`test/bench/machine.sh`); a C call
   of the OpenH264 binding that could write to a moved goroutine stack was fixed.
 
