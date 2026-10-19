@@ -170,7 +170,7 @@ func (s *service) parseEndpoint(raw string) (domain.Endpoint, error) {
 		return domain.Endpoint{}, fmt.Errorf("%w: %q (use an absolute path or a http(s):// URL)", ErrRelativePath, raw)
 	}
 	clean := filepath.Clean(raw)
-	if clean == string(filepath.Separator) {
+	if isFilesystemRoot(clean) {
 		return domain.Endpoint{}, fmt.Errorf("%w: %q", ErrRootPath, raw)
 	}
 	return domain.Endpoint{Path: clean, IsLocal: true}, nil

@@ -2,6 +2,7 @@ package topology_test
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -113,6 +114,14 @@ func TestLayout_Validate(t *testing.T) {
 		} {
 			assert.NoError(t, parseLayout(t, args...).Validate(), "%v", args)
 		}
+	})
+
+	// Drive paths are native: C:\... on Windows must validate like /... on
+	// Unix (the Windows release smoke runs nexo server --dry-run on one).
+	t.Run("native absolute path", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "data")
+		assert.NoError(t, parseLayout(t, dir).Validate())
+		assert.NoError(t, parseLayout(t, dir+"{1...4}").Validate())
 	})
 
 	var nilLayout *topology.Layout

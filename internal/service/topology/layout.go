@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -370,10 +371,12 @@ func validateEndpoint(ep domain.Endpoint) error {
 		if ep.Host != "" {
 			return fmt.Errorf("%w: local path %q with host", ErrInvalidEndpoint, ep.Path)
 		}
-		if !strings.HasPrefix(ep.Path, "/") {
+		// A local drive path is native to the host: /srv/d1 on Unix,
+		// C:\nexo\d1 on Windows.
+		if !filepath.IsAbs(ep.Path) {
 			return fmt.Errorf("%w: %q", ErrRelativePath, ep.Path)
 		}
-		if ep.Path == "/" {
+		if isFilesystemRoot(ep.Path) {
 			return ErrRootPath
 		}
 		return nil
@@ -394,4 +397,11 @@ func validateEndpoint(ep domain.Endpoint) error {
 		return ErrRootPath
 	}
 	return nil
+}
+
+// isFilesystemRoot reports whether p names the root of a filesystem: "/" on
+// Unix, a volume root such as C:\ on Windows.
+func isFilesystemRoot(p string) bool {
+	clean := filepath.Clean(p)
+	return filepath.Dir(clean) == clean
 }

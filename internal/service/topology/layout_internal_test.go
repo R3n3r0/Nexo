@@ -1,6 +1,7 @@
 package topology
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -55,4 +56,16 @@ func TestValidMode(t *testing.T) {
 	assert.True(t, validMode(domain.ModeDistributed))
 	assert.False(t, validMode(domain.ModeUnknown))
 	assert.False(t, validMode(domain.Mode(42)))
+}
+
+func TestIsFilesystemRoot(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	assert.False(t, isFilesystemRoot(dir))
+	assert.False(t, isFilesystemRoot(filepath.Join(dir, "data")))
+	root := dir
+	for filepath.Dir(root) != root {
+		root = filepath.Dir(root)
+	}
+	assert.True(t, isFilesystemRoot(root), root)
 }
