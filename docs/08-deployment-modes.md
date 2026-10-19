@@ -390,7 +390,7 @@ hadolint v2.14.0, actionlint v1.7.7 with shellcheck 0.9.0, systemd 255, QEMU use
 | Compose and Swarm | `docker compose config` of all `compose.*.yml`, `docker stack config -c deploy/swarm/stack.yml` |
 | systemd | `systemd-analyze verify` clean, `security`: exposure 1.5 "OK" |
 | Dockerfile | hadolint with no findings on the four Dockerfiles |
-| Workflows and scripts | actionlint on `release.yml` and `ci.yml` (with shellcheck: two intentional SC2046 remain in the `lint-go` and `test-go` jobs), shellcheck of the scripts in `packaging/` and `deploy/helm/check.sh` |
+| Workflows and scripts | actionlint on `release.yml` and `ci.yml` (with shellcheck), shellcheck of the scripts in `packaging/` and `deploy/helm/check.sh` |
 | TLS healthcheck | Real server with `NEXO_CERTS_DIR`: the previous HTTP probe got `400`, the new one is `ok` even with a certificate that names only `nexo1` (hot reloaded) and fails with a foreign CA |
 
 Only configured (requires a Docker daemon, the workflow's OIDC identity or publishing): `dockers_v2` multi-arch

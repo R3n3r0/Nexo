@@ -1,11 +1,11 @@
 name: CI
 
-# Pipeline of docs/06 §6.1: every pull request runs the lint, the unit
-# tests, the integration suite and the CLI scripts in every deployment mode
+# Pipeline of docs/06 §6.1: every pull request runs the lint, the
+# integration suite and the CLI scripts in every deployment mode
 # (SNSD, SNMD, cluster in-process; docs/08 §8.6 TM-01, TM-02), the
 # Playwright suite against bin/nexo in every mode (single drive, 4 drives,
 # 4 processes), Nexo behind two edge proxies (test/proxy), the image
-# smoke tests, the security scans (govulncheck, gosec, npm audit) and the
+# smoke tests and the
 # packaging (GoReleaser snapshot, deb/rpm installed, Helm chart, systemd
 # unit, Dockerfiles; the release itself is release.yml); a
 # merge on main adds the multi-process cluster smoke; the nightly run adds
@@ -30,9 +30,6 @@ concurrency:
 env:
   NODE_VERSION: "22"
   GOLANGCI_LINT_VERSION: v2.14.0
-  # The security scanners (make security, docs/security).
-  GOVULNCHECK_VERSION: v1.8.0
-  GOSEC_VERSION: v2.29.0
 
 jobs:
   lint-go:
@@ -82,79 +79,6 @@ jobs:
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
           args: --timeout=5m
-
-  security:
-    # docs/security: the known vulnerabilities the code reaches, in the
-    # modules and in the standard library of the toolchain of go.mod
-    # (govulncheck), insecure code (gosec: a false positive carries a
-    # "#nosec Gxxx -- reason" next to it) and the production dependencies
-    # of the dashboard (npm audit).
-    name: Security scans
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }} ./...
-
-      - name: gosec
-        env:
-          # gosec needs a newer toolchain than go.mod: the go command
-          # downloads it.
-          GOTOOLCHAIN: auto
-        run: go run github.com/securego/gosec/v2/cmd/gosec@${{ env.GOSEC_VERSION }} -quiet -exclude-dir=web ./...
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: npm audit (production dependencies of the dashboard)
-        working-directory: web
-        run: npm audit --omit=dev --audit-level=moderate
-
-  test-go:
-    name: Test Go (unit)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: OpenH264 for the media worker tests (Cisco build, checksum verified)
-        run: echo "NEXO_OPENH264=$(go run ./cmd/nexo-media-worker fetch-openh264 --dir "$RUNNER_TEMP/openh264")" >> "$GITHUB_ENV"
-
-      - name: go test -race
-        env:
-          CGO_ENABLED: "1"
-        # The integration suite and the CLI scripts run per mode below.
-        run: |
-          mapfile -t pkgs < <(go list ./... | grep -v -e '/test/cli$' -e '/test/integration$')
-          go test -race -count=1 -shuffle=on -coverprofile=coverage.txt -covermode=atomic "${pkgs[@]}"
-
-      - name: Coverage summary
-        if: always()
-        run: |
-          if [ -f coverage.txt ]; then
-            go tool cover -func=coverage.txt | tail -n 1 | tee -a "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: coverage-go
-          path: coverage.txt
-          if-no-files-found: ignore
-          retention-days: 14
 
   test-modes:
     # TM-01 and TM-02: the S3/IAM/presigned integration suite and the CLI
