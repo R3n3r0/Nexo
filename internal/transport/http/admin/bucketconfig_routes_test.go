@@ -140,6 +140,15 @@ func TestMediaRoutes(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.JSONEq(t, `{"rules":[{"id":"courses","prefix":"c/","suffixes":[".mp4"],"renditions":["720p"],"poster":true,"thumbnails":{"interval":"5s"}}]}`, rec.Body.String())
 
+	// An image rule.
+	img := domain.MediaConfig{Rules: []domain.MediaRule{{ID: "pics", Prefix: "p/", Images: &domain.MediaImages{Formats: []string{"webp"}, Widths: []int{320}}}}}
+	storedImg := img.Clone()
+	storedImg.Rules[0].Suffixes = []string{".jpg"}
+	f.mediaCfg.EXPECT().Set(mock.Anything, "videos", img).Return(&storedImg, nil)
+	rec = c.do(http.MethodPut, "/buckets/videos/media", `{"rules":[{"id":"pics","prefix":"p/","images":{"formats":["webp"],"widths":[320]}}]}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.JSONEq(t, `{"rules":[{"id":"pics","prefix":"p/","suffixes":[".jpg"],"images":{"formats":["webp"],"widths":[320]}}]}`, rec.Body.String())
+
 	f.mediaCfg.EXPECT().Set(mock.Anything, "videos", mock.Anything).Return(nil, &adminsvc.ConfigError{Kind: "media",
 		Problems: []adminsvc.RuleProblem{{Rule: 1, ID: "x", Code: "InvalidArgument", Message: "nothing to produce"}}})
 	rec = c.do(http.MethodPut, "/buckets/videos/media", `{"rules":[{"id":"x"}]}`)

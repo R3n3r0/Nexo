@@ -78,6 +78,18 @@ type MediaRuleResponse struct {
 	Renditions []string                 `json:"renditions,omitempty"`
 	Poster     bool                     `json:"poster,omitempty"`
 	Thumbnails *MediaThumbnailsResponse `json:"thumbnails,omitempty"`
+	// Images makes an image rule: the variants of every image it selects.
+	Images *MediaImagesResponse `json:"images,omitempty"`
+}
+
+// MediaImagesResponse configures the variants of an image rule.
+type MediaImagesResponse struct {
+	// Formats of the variants: avif, webp, jpeg, png (default all).
+	Formats []string `json:"formats,omitempty"`
+	// Widths of the variants in pixels, 16 to 8192 (default 160, 320,
+	// 640, 1280, 1920, 2560); each format also gets the image at its own
+	// size.
+	Widths []int `json:"widths,omitempty"`
 }
 
 // MediaThumbnailsResponse configures the timeline thumbnails of a rule.
@@ -100,6 +112,9 @@ func newMediaResponse(cfg *domain.MediaConfig) MediaConfigResponse {
 		rule := MediaRuleResponse{ID: r.ID, Prefix: r.Prefix, Suffixes: r.Suffixes, Renditions: r.Renditions, Poster: r.Poster}
 		if r.Thumbnails != nil {
 			rule.Thumbnails = &MediaThumbnailsResponse{Interval: r.Thumbnails.Interval}
+		}
+		if r.Images != nil {
+			rule.Images = &MediaImagesResponse{Formats: r.Images.Formats, Widths: r.Images.Widths}
 		}
 		out.Rules = append(out.Rules, rule)
 	}
@@ -130,6 +145,9 @@ func (h *mediaRoutes) put(w http.ResponseWriter, r *http.Request) {
 		mr := domain.MediaRule{ID: rule.ID, Prefix: rule.Prefix, Suffixes: rule.Suffixes, Renditions: rule.Renditions, Poster: rule.Poster}
 		if rule.Thumbnails != nil {
 			mr.Thumbnails = &domain.MediaThumbnails{Interval: rule.Thumbnails.Interval}
+		}
+		if rule.Images != nil {
+			mr.Images = &domain.MediaImages{Formats: rule.Images.Formats, Widths: rule.Images.Widths}
 		}
 		cfg.Rules = append(cfg.Rules, mr)
 	}

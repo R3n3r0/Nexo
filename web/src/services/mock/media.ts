@@ -1,29 +1,27 @@
 import {
+  defaultImageWidths,
   matchMediaRule,
   maxMediaRules,
+  mediaImageFormats,
   mediaRenditions,
+  mediaRuleIssueMessage,
   normalizeMediaRule,
   parseGoDuration,
   validateMediaRule,
-  type MediaRuleIssue,
 } from '@/lib/mediaRules';
 
 import type { RuleProblem } from '../errors';
 import type { MediaService } from '../interfaces';
-import type { MediaRendition, MediaStatus } from '../types';
-import type { MockStorage } from './storage';
+import type {
+  MediaImageFormat,
+  MediaImageOutput,
+  MediaRendition,
+  MediaRule,
+  MediaStatus,
+} from '../types';
+import { dataUrl } from './objects';
+import type { MockStorage, MockVersion } from './storage';
 import { clone, invalidConfiguration, problem } from './support';
-
-/** Messages of the problems of a rule, as the server words them. */
-const messages: Record<MediaRuleIssue, string> = {
-  id: "the id must be 1-64 letters, digits, '.', '_' or '-'",
-  idDuplicate: 'duplicate rule id',
-  prefixTooLong: 'the prefix is longer than 1024 bytes',
-  prefixReserved: 'the prefix .nexo-media/ is reserved',
-  suffix: 'invalid suffix',
-  interval: 'the thumbnail interval must be a duration from 1s to 10m',
-  nothing: 'nothing to produce (renditions, poster or thumbnails)',
-};
 
 /** Height and bandwidth of the presets (domain.MediaRenditionPreset). */
 const presets: Record<MediaRendition, { height: number; bandwidth: number }> = {
@@ -39,11 +37,59 @@ const presets: Record<MediaRendition, { height: number; bandwidth: number }> = {
 /** The source every mock video pretends to be: 1080p, two minutes. */
 const source = { width: 1920, height: 1080, duration: 120 };
 
+/** The size every mock image pretends to be. */
+const imageSource = { width: 1600, height: 1200 };
+
+/** Bytes per pixel of each format, for plausible variant sizes. */
+const bytesPerPixel: Record<MediaImageFormat, number> = {
+  avif: 0.06,
+  webp: 0.1,
+  jpeg: 0.18,
+  png: 1.2,
+};
+
+/** The variants of an image as the worker derives them (the URL is the Admin API route). */
+function imageVariants(
+  bucket: string,
+  key: string,
+  version: MockVersion,
+  rule: MediaRule,
+): MediaImageOutput[] {
+  const formats = rule.images?.formats?.length ? rule.images.formats : mediaImageFormats;
+  const widths = (rule.images?.widths?.length ? rule.images.widths : defaultImageWidths).filter(
+    (w) => w < imageSource.width,
+  );
+  // The demo serves the original as every variant when it is small enough.
+  const demo = dataUrl(version);
+  return formats.flatMap((format) =>
+    [...widths, 0].map((width) => {
+      const pixelWidth = width === 0 ? imageSource.width : width;
+      const pixelHeight = Math.round((imageSource.height * pixelWidth) / imageSource.width);
+      const query = new URLSearchParams({ format, key });
+      if (width > 0) query.set('w', String(width));
+      if (version.versionId !== 'null') query.set('versionId', version.versionId);
+      return {
+        format,
+        width,
+        pixelWidth,
+        pixelHeight,
+        size: Math.round(pixelWidth * pixelHeight * bytesPerPixel[format]),
+        contentType: `image/${format}`,
+        url:
+          demo !== '#'
+            ? demo
+            : `/api/v1/buckets/${encodeURIComponent(bucket)}/objects/image?${query.toString()}`,
+      };
+    }),
+  );
+}
+
 const statusKey = (key: string, versionId: string) => `${key}\u0000${versionId}`;
 
 /**
- * Video rules of the mock buckets. The demo has no media worker: a
- * reprocessed video is done at once, with the outputs its rule asks for.
+ * Media rules of the mock buckets. The demo has no media worker: a
+ * reprocessed video or image is done at once, with the outputs its rule
+ * asks for.
  */
 export function createMockMediaService(storage: MockStorage): MediaService {
   const { ctx } = storage;
@@ -86,7 +132,7 @@ export function createMockMediaService(storage: MockStorage): MediaService {
             rule: i + 1,
             id: rule.id,
             code: 'InvalidArgument',
-            message: `media rule ${JSON.stringify(rule.id)}: ${messages[issue]}`,
+            message: `media rule ${JSON.stringify(rule.id)}: ${mediaRuleIssueMessage(rule, issue)}`,
           });
         }
       });
@@ -112,6 +158,22 @@ export function createMockMediaService(storage: MockStorage): MediaService {
       const rule = matchMediaRule(state.media ?? [], key);
       if (rule === undefined) {
         throw problem(400, 'invalid_argument', `No media rule of ${bucket} selects ${key}.`);
+      }
+      state.mediaStatus ??= new Map();
+      if (rule.images !== undefined) {
+        state.mediaStatus.set(statusKey(key, version.versionId), {
+          state: 'done',
+          current: true,
+          versionId: version.versionId,
+          rule: rule.id,
+          width: imageSource.width,
+          height: imageSource.height,
+          images: imageVariants(bucket, key, version, rule),
+          // PNG and GIF sources pretend to have transparency.
+          ...(/\.(png|gif)$/i.test(key) ? { alpha: true } : {}),
+          updated: ctx.nowIso(),
+        });
+        return;
       }
       const renditions = mediaRenditions
         .filter((r) => rule.renditions?.includes(r) === true)
@@ -151,7 +213,6 @@ export function createMockMediaService(storage: MockStorage): MediaService {
           : {}),
         updated: ctx.nowIso(),
       };
-      state.mediaStatus ??= new Map();
       state.mediaStatus.set(statusKey(key, version.versionId), status);
     },
     async status(bucket, key, versionId) {

@@ -1,9 +1,10 @@
-# Video pipeline performance
+# Media pipeline performance
 
 Go benchmarks of every step of the video features: the HLS packager of the server
 ([video streaming](../user/video-streaming.md)) and the jobs of the media worker
 ([media worker](../user/media-worker.md)): OpenH264 decoding and encoding, scaling, renditions, poster and
-thumbnails. They run with `make bench-media` (§5). The numbers are real and apply to the machine of §1.
+thumbnails; and of the image variants of the media worker (§8). They run with `make bench-media` (§5). The
+numbers are real and apply to the machine of §1.
 
 ## 1. Machine and inputs
 
@@ -116,6 +117,7 @@ when the videos are short (a video shorter than 2 s is a single span).
 ```console
 $ make bench-media                                   # fetches OpenH264 into bin/openh264
 $ NEXO_BENCH_VIDEO=$PWD/my-video.mp4 make bench-media    # renditions, poster and thumbnails of your own video
+$ NEXO_BENCH_IMAGE=$PWD/my-photo.heic make bench-media  # the image job of §8 on your own image
 $ BENCH_COUNT=6 make bench-media > new.txt           # then benchstat old.txt new.txt
 ```
 
@@ -160,7 +162,81 @@ per thread). It was measured and left out:
 
 The spans of §6 use every core with the single-threaded decoder, whose output is exact.
 
-## 8. Open work
+## 8. Images
+
+`go test -bench . ./internal/mediaworker/imaging/` (part of `make bench-media`): the variants an image rule
+asks for. The input is a generated 12-megapixel picture (4000x3000, the size of a phone camera) with the
+structure of a photograph: smooth gradients, shapes with sharp edges, and Gaussian sensor noise (σ = 4), which
+makes it harder to compress than most photos (the noise is averaged away by the smaller widths). It is encoded
+as JPEG (quality 90, 2.4 MB), PNG, WebP, AVIF and HEIC to measure each decoder. `MP/s` are megapixels of the
+source per second.
+
+### Decoding (12 MP, one image)
+
+| Source | Time | Speed | Decoder |
+|--------|------|-------|---------|
+| JPEG | 178 ms | 68 MP/s | `image/jpeg`, kept as YCbCr |
+| PNG | 445 ms | 27 MP/s | `image/png` |
+| WebP (lossy) | 366 ms | 33 MP/s | `golang.org/x/image/webp` |
+| HEIC | 1.31 s | 9.1 MP/s | `github.com/gen2brain/h265` (pure Go) |
+| AVIF | 2.28 s | 5.3 MP/s | `github.com/gen2brain/avif` (dav1d in WebAssembly, one core) |
+
+### Resizing (12 MP source, every core)
+
+Area averaging (each output pixel is the average of the source area it covers) on premultiplied RGBA, or on
+the YCbCr planes of a JPEG converted to RGBA after the resize (2.7 times less data to read). The weights are
+computed once per size and the rows are split into bands, one per core (`internal/mediaworker/resample`, shared
+with the renditions of the videos).
+
+| Width | From RGBA | From YCbCr (JPEG) |
+|-------|-----------|-------------------|
+| 2560 | 77 ms | 59 ms |
+| 1280 | 32 ms | 31 ms |
+| 640 | 22 ms | 16 ms |
+| 160 | 17 ms | 14 ms |
+| Own size (YCbCr → RGBA only) | — | 42 ms |
+
+Turning the 12 MP picture upright (EXIF orientation 6, a 90° rotation) takes 66 ms; the smaller widths are
+resized first and turned after, which costs less.
+
+### Encoding (one variant, one core)
+
+| Format | 4000x3000 (own size) | 1920x1440 | 640x480 | Settings |
+|--------|----------------------|-----------|---------|----------|
+| AVIF | 5.95 s, 537 KiB | 1.19 s, 24 KiB | 146 ms, 6.6 KiB | quality 60, speed 9, 4:2:0 (aom in WebAssembly) |
+| WebP | 2.69 s, 730 KiB | 402 ms, 32 KiB | 44 ms, 6.0 KiB | lossy, quality 80, method 2 (libwebp translated to Go) |
+| JPEG | 344 ms, 1569 KiB | 73 ms, 189 KiB | 8.7 ms, 18 KiB | quality 85, alpha flattened onto white |
+| PNG | 1.87 s, 15.2 MiB | 368 ms, 2.7 MiB | 36 ms, 270 KiB | default compression (lossless) |
+
+The settings were chosen with these benchmarks: AVIF speed 9 is 3 to 6 times faster than speed 6 for the same
+size (speed 10 is not faster in WebAssembly), WebP method 2 is 3 times faster than the default method 4 for the
+same size, and PNG `BestSpeed` saves only 20% of the time for larger files.
+
+### The job of one image
+
+`BenchmarkJob`: decode, then the image at its own size and every default width smaller than it (160, 320,
+640, 1280, 1920, 2560), each in every format of the rule, encoded in parallel on every core.
+
+| Source (12 MP) | Formats | Variants | Time |
+|----------------|---------|----------|------|
+| JPEG | AVIF, WebP, JPEG, PNG (the default) | 28 | 11.3 s |
+| JPEG | WebP, JPEG | 14 | 3.2 s |
+| HEIC | AVIF, WebP, JPEG, PNG | 28 | 15.4 s |
+| HEIC | WebP, JPEG | 14 | 4.2 s |
+
+AVIF is most of the cost: its variant at the image's own size takes 6 s on one core, and the job cannot end
+before it (it starts first). A rule that does not need AVIF (or the image at its own size in AVIF) is 3 to 4
+times faster. On this machine 4 encoders at once run only about twice as fast as one (the four vCPU of the
+shared host do not scale further, §1), so a machine with real cores does better.
+
+**Memory.** The encoders need, at their peak, about 100 bytes per pixel for AVIF (aom keeps its own buffers in
+the WebAssembly memory: 1.2 GB for the 12 MP image at its own size), 26 for WebP, 6 for PNG and 4 for JPEG. The
+worker starts a variant only when its estimate fits in its memory budget (2 GiB by default, `ImageMemory` of
+the worker configuration), so a 12 MP image with every format peaks at about 2 GB; a variant larger than the
+whole budget runs alone. Images above 100 megapixels (read from the header, before decoding) or 256 MiB are
+refused for good, as decompression bombs.
+
+## 9. Open work
 
 - The horizontal pass of the scaler and the colour conversion of the JPEGs are plain Go: SIMD assembly would
   speed them up further.

@@ -33,6 +33,7 @@ import { TagEditor } from '@/components/storage/TagEditor';
 import { downloadUrl } from '@/lib/download';
 import { formatBytes } from '@/lib/format';
 import { canStream } from '@/lib/media';
+import { isMediaImage } from '@/lib/mediaRules';
 import { baseName } from '@/lib/objectPath';
 import { problemMessage } from '@/lib/problem';
 import { storageKeys } from '@/lib/storageKeys';
@@ -406,6 +407,9 @@ export function ObjectDrawer({ bucket, objectKey, perms, onClose, onShare }: Obj
   const video =
     details !== undefined &&
     (details.contentType?.toLowerCase().startsWith('video/') === true || canStream(key, ''));
+  // An image rule selects the images the worker decodes (AVIF ... WebP).
+  const image = details !== undefined && !video && isMediaImage(key, details.contentType);
+  const media = video || image;
 
   return (
     <Drawer
@@ -463,7 +467,7 @@ export function ObjectDrawer({ bucket, objectKey, perms, onClose, onShare }: Obj
               <Tabs.Tab value="preview">{t('objectDetails.tabs.preview')}</Tabs.Tab>
               <Tabs.Tab value="tags">{t('objectDetails.tabs.tags')}</Tabs.Tab>
               <Tabs.Tab value="versions">{t('objectDetails.tabs.versions')}</Tabs.Tab>
-              {video ? <Tabs.Tab value="media">{t('objectDetails.tabs.media')}</Tabs.Tab> : null}
+              {media ? <Tabs.Tab value="media">{t('objectDetails.tabs.media')}</Tabs.Tab> : null}
               {locked ? (
                 <Tabs.Tab value="lock" leftSection={<IconLock size={14} />}>
                   {t('objectDetails.tabs.lock')}
@@ -583,11 +587,12 @@ export function ObjectDrawer({ bucket, objectKey, perms, onClose, onShare }: Obj
                 </Text>
               )}
             </Tabs.Panel>
-            {video ? (
+            {media ? (
               <Tabs.Panel value="media" pt="md">
                 {canRead ? (
                   <Suspense fallback={<Skeleton height={120} />}>
                     <ObjectMediaPanel
+                      kind={image ? 'image' : 'video'}
                       bucket={bucket}
                       objectKey={key}
                       versionId={details.versionId}

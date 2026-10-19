@@ -288,7 +288,7 @@ test('media panel', async ({ browser }) => {
     `/buckets/${videoBucket}/browse/trailers/?object=${encodeURIComponent(videoKey)}`,
   );
   const drawer = page.getByRole('dialog');
-  await drawer.getByRole('tab', { name: 'Video', exact: true }).click();
+  await drawer.getByRole('tab', { name: 'Media', exact: true }).click();
   await expect(drawer.getByRole('table')).toContainText('720p');
   const poster = drawer.locator('img');
   await expect(poster).toBeVisible();

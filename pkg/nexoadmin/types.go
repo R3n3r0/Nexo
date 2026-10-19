@@ -388,6 +388,10 @@ type CreateBucketRequest struct {
 	// HLS sets the media rule "hls": every rendition, a poster and
 	// thumbnails for every video of the bucket (needs a media worker).
 	HLS bool `json:"hls,omitempty"`
+	// Images sets the media rule "images": every format (AVIF, WebP,
+	// JPEG, PNG) at every width for every image of the bucket (needs a
+	// media worker).
+	Images bool `json:"images,omitempty"`
 }
 
 // BucketQuota is the quota of a bucket; a zero Size disables it.
@@ -518,7 +522,10 @@ type Share struct {
 	ContentDisposition string `json:"contentDisposition,omitempty"`
 	// Stream marks the HLS stream shares of a video: URL is the master
 	// playlist.
-	Stream    bool      `json:"stream,omitempty"`
+	Stream bool `json:"stream,omitempty"`
+	// Image marks the image shares: URL is the image route of the object
+	// (the variants the media worker derived).
+	Image     bool      `json:"image,omitempty"`
 	ExpiresAt time.Time `json:"expiresAt"`
 	CreatedAt time.Time `json:"createdAt"`
 	URL       string    `json:"url,omitempty"`
@@ -559,6 +566,10 @@ type CreateShareRequest struct {
 	// Stream shares a video as an HLS stream: the URL of the share is its
 	// master playlist (object download shares only).
 	Stream bool `json:"stream,omitempty"`
+	// Image shares the variants of an image the media worker derived: the
+	// URL of the share serves the image at its own size in the most
+	// compact format the client accepts (object download shares only).
+	Image bool `json:"image,omitempty"`
 }
 
 // PresignRequest asks for a raw presigned URL.

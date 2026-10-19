@@ -14,6 +14,7 @@ package media
 
 import (
 	"context"
+	"io"
 	"time"
 
 	"github.com/r3n3r0/nexo/internal/domain"
@@ -48,6 +49,47 @@ type Service interface {
 	// MediaThumbnailsFile): domain.ErrNotFound when it did not, or not
 	// from the current content.
 	Sidecar(ctx context.Context, src Source, file string) ([]byte, error)
+	// Image returns the variant of an image the media worker derived from
+	// the version of src that req selects (SelectImage):
+	// domain.ErrNotFound when the worker derived none from the current
+	// content, or none in the format req names; domain.ErrInvalidArgument
+	// for an unknown format or a malformed width.
+	Image(ctx context.Context, src Source, req ImageRequest) (*Image, error)
+}
+
+// ImageFormatAuto is the format of an ImageRequest that negotiates the
+// format with the Accept header of the client.
+const ImageFormatAuto = "auto"
+
+// ImageRequest selects a variant of an image (SelectImage).
+type ImageRequest struct {
+	// Width is the width the client displays, in pixels: the smallest
+	// variant at least that wide, else the largest. 0 asks for the image
+	// at its own size.
+	Width int
+	// Format is a domain.MediaImageFormats name ("jpg" is jpeg), or
+	// ImageFormatAuto (or empty): the most compact format the client
+	// accepts (ImageAccepts).
+	Format string
+	// Accept is the Accept header of the client (format auto).
+	Accept string
+}
+
+// Image is a variant of an image served to a client.
+type Image struct {
+	domain.MediaImageOutput
+	// VersionID is the version of the image the variant derives from.
+	VersionID string
+	// ContentType is the media type of the format.
+	ContentType string
+	// ETag identifies the variant: the ETag of the source, the format and
+	// the width (quoted).
+	ETag string
+	// Modified is when the worker finished the variants.
+	Modified time.Time
+	// Content reads the variant (Size bytes) from any offset; the caller
+	// closes it.
+	Content io.ReadSeekCloser
 }
 
 // OutputStatus is the status of the outputs of the media worker for a

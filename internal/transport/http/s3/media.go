@@ -153,18 +153,22 @@ func (h *mediaRoutes) Register(r chi.Router) {
 		}
 		return media.RewriteSprite(b, l.(mediaLinks).file("sprite.jpg")), contentTypeVTT, nil
 	}))
-	r.Get(MediaPrefix+"{bucket}/status.json", h.serve(false, func(r *http.Request, src media.Source, _ media.Links) ([]byte, string, error) {
+	r.Get(MediaPrefix+"{bucket}/status.json", h.serve(false, func(r *http.Request, src media.Source, l media.Links) ([]byte, string, error) {
 		st, err := h.deps.Media.Status(r.Context(), src)
 		if err != nil {
 			return nil, "", err
 		}
-		b, err := json.Marshal(newMediaStatus(st))
+		b, err := json.Marshal(newMediaStatus(st, l.(mediaLinks)))
 		return b, "application/json", err
 	}))
+	// The variants of an image, the key in the path (an <img src> or a
+	// CDN keeps the extension of the key).
+	r.Get(MediaPrefix+"{bucket}/image/*", h.image)
+	r.Head(MediaPrefix+"{bucket}/image/*", h.image)
 }
 
-// mediaStatus is the processing state of a video by the media worker
-// (status.json of the media routes).
+// mediaStatus is the processing state of a video or an image by the
+// media worker (status.json of the media routes).
 type mediaStatus struct {
 	// State is processing, done or failed; none when the worker never
 	// processed the version.
@@ -172,17 +176,108 @@ type mediaStatus struct {
 	Current    bool                          `json:"current"`
 	Error      string                        `json:"error,omitempty"`
 	Duration   float64                       `json:"duration,omitempty"`
+	Width      int                           `json:"width,omitempty"`
+	Height     int                           `json:"height,omitempty"`
 	Renditions []domain.MediaRenditionOutput `json:"renditions,omitempty"`
 	Poster     bool                          `json:"poster,omitempty"`
 	Thumbnails *domain.MediaThumbnailsOutput `json:"thumbnails,omitempty"`
+	Images     []mediaImage                  `json:"images,omitempty"`
+	Alpha      bool                          `json:"alpha,omitempty"`
 }
 
-func newMediaStatus(st *media.OutputStatus) mediaStatus {
+// mediaImage is a variant of an image with its URI, relative to
+// status.json (presigned like the request).
+type mediaImage struct {
+	domain.MediaImageOutput
+	ContentType string `json:"contentType"`
+	URL         string `json:"url"`
+}
+
+func newMediaStatus(st *media.OutputStatus, l mediaLinks) mediaStatus {
 	if st == nil {
 		return mediaStatus{State: "none"}
 	}
-	return mediaStatus{State: string(st.State), Current: st.Current, Error: st.Error, Duration: st.Duration,
-		Renditions: st.Renditions, Poster: st.Poster, Thumbnails: st.Thumbnails}
+	out := mediaStatus{State: string(st.State), Current: st.Current, Error: st.Error, Duration: st.Duration,
+		Width: st.Width, Height: st.Height, Renditions: st.Renditions, Poster: st.Poster, Thumbnails: st.Thumbnails, Alpha: st.Alpha}
+	for _, v := range st.Images {
+		out.Images = append(out.Images, mediaImage{MediaImageOutput: v, ContentType: domain.MediaImageContentType(v.Format), URL: l.image(v.Width, v.Format)})
+	}
+	return out
+}
+
+// imageKey returns the bucket and the key of an image request
+// (/nexo/media/v1/{bucket}/image/{key}): the key is the rest of the
+// decoded path, so that it may hold any character.
+func imageKey(r *http.Request) (bucket, key string) {
+	bucket = chi.URLParam(r, "bucket")
+	return bucket, strings.TrimPrefix(r.URL.Path, MediaPrefix+bucket+"/image/")
+}
+
+// image serves a variant of an image the media worker derived from the
+// current content of the object: ?w= the width the client displays,
+// ?format= auto (the default: the most compact format of the Accept
+// header) or a format, ?versionId= a version. It answers ranges and
+// conditional requests (the ETag names the variant), and varies on Accept
+// with format auto.
+func (h *mediaRoutes) image(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	bucket, key := imageKey(r)
+	src := media.Source{Bucket: bucket, Key: key, VersionID: q.Get("versionId")}
+	if err := domain.ValidateObjectKey(src.Key); err != nil {
+		h.deps.Enc.WriteS3Error(w, r, err)
+		return
+	}
+	req, err := imageRequest(r)
+	if err != nil {
+		h.deps.Enc.WriteS3Error(w, r, err)
+		return
+	}
+	action := policy.ActionGetObject
+	if src.VersionID != "" {
+		action = policy.ActionGetObjectVersion
+	}
+	if !h.authz.authorizeVersion(w, r, action, src.Bucket, src.Key, src.VersionID, nil) {
+		return
+	}
+	img, err := h.deps.Media.Image(r.Context(), src, req)
+	if err != nil {
+		h.deps.Enc.WriteS3Error(w, r, err)
+		return
+	}
+	serveImage(w, r, img, req)
+}
+
+// imageRequest reads the variant a request asks for: ?w=, ?format= and
+// the Accept header.
+func imageRequest(r *http.Request) (media.ImageRequest, error) {
+	q := r.URL.Query()
+	width, err := media.ParseImageWidth(q.Get("w"))
+	if err != nil {
+		return media.ImageRequest{}, err
+	}
+	format, err := media.ParseImageFormat(q.Get("format"))
+	if err != nil {
+		return media.ImageRequest{}, err
+	}
+	return media.ImageRequest{Width: width, Format: format, Accept: r.Header.Get("Accept")}, nil
+}
+
+// serveImage writes a variant of an image: its type, its ETag and
+// modification time for the conditional requests, the ranges
+// (http.ServeContent), and Vary: Accept when the format was negotiated.
+// Private and revalidated like the other files of the media worker: the
+// variants follow the current content of the object.
+func serveImage(w http.ResponseWriter, r *http.Request, img *media.Image, req media.ImageRequest) {
+	defer func() { _ = img.Content.Close() }()
+	hdr := w.Header()
+	hdr.Set("Content-Type", img.ContentType)
+	hdr.Set("ETag", img.ETag)
+	hdr.Set("Cache-Control", "private, no-cache")
+	hdr.Set("X-Content-Type-Options", "nosniff")
+	if req.Format == media.ImageFormatAuto {
+		hdr.Add("Vary", "Accept")
+	}
+	http.ServeContent(w, r, "", img.Modified, img.Content)
 }
 
 // serve authorizes and serves one resource of a presentation; pinned
@@ -312,9 +407,9 @@ func (h *mediaRoutes) links(r *http.Request, src media.Source) (media.Links, err
 			// The signer refuses only malformed input, which the URL
 			// built here is not: an unsigned URI is denied when used.
 			h.deps.Logger.ErrorContext(r.Context(), "s3: media: presign", "err", err)
-			return name + "?" + query.Encode()
+			return query.Encode()
 		}
-		return name + "?" + signed.RawQuery
+		return signed.RawQuery
 	}
 	return l, nil
 }
@@ -323,7 +418,32 @@ func (h *mediaRoutes) links(r *http.Request, src media.Source) (media.Links, err
 // playlist, optionally presigned.
 type mediaLinks struct {
 	key, versionID, rendition string
-	sign                      func(name string, query url.Values) string
+	// sign returns the presigned query of the URI name (a decoded path
+	// relative to the request) with query.
+	sign func(name string, query url.Values) string
+}
+
+// link returns the relative URI name?query, presigned when the request
+// was: name is a decoded path, escaped in the URI.
+func (l mediaLinks) link(name string, q url.Values) string {
+	escaped := (&url.URL{Path: name}).EscapedPath()
+	if l.sign != nil {
+		return escaped + "?" + l.sign(name, q)
+	}
+	return escaped + "?" + q.Encode()
+}
+
+// image is the URI of a variant of the image of the object (width 0: its
+// own size): the image route, the key in its path.
+func (l mediaLinks) image(width int, format string) string {
+	q := url.Values{"format": {format}}
+	if width > 0 {
+		q.Set("w", strconv.Itoa(width))
+	}
+	if l.versionID != "" {
+		q.Set("versionId", l.versionID)
+	}
+	return l.link("image/"+l.key, q)
 }
 
 var _ media.Links = mediaLinks{}
@@ -339,10 +459,7 @@ func (l mediaLinks) uri(name, rev string, extra url.Values) string {
 	for k, v := range extra {
 		q[k] = v
 	}
-	if l.sign != nil {
-		return l.sign(name, q)
-	}
-	return name + "?" + q.Encode()
+	return l.link(name, q)
 }
 
 func (l mediaLinks) Media(rev string) string { return l.uri("media.m3u8", rev, nil) }
@@ -360,10 +477,7 @@ func (l mediaLinks) file(name string) string {
 	if l.versionID != "" {
 		q.Set("versionId", l.versionID)
 	}
-	if l.sign != nil {
-		return l.sign(name, q)
-	}
-	return name + "?" + q.Encode()
+	return l.link(name, q)
 }
 
 func (l mediaLinks) Rendition(name, rev string) string {

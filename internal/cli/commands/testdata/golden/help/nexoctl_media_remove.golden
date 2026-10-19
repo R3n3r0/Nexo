@@ -1,5 +1,5 @@
-Remove the video rules of a bucket: the media worker no longer processes its new
-videos. What it already derived stays in .nexo-media/ and is still served.
+Remove the media rules of a bucket: the media worker no longer processes its new
+videos and images. What it already derived stays in .nexo-media/ and is still served.
 
 Usage:
   nexoctl media remove ALIAS/BUCKET [flags]

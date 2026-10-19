@@ -126,7 +126,7 @@ $ nexoctl media set mem/videos/courses media.json
 [exit 2]
 
 $ nexoctl media rule add mem/videos --poster
-! nexoctl: error: --id is required (or --hls)
+! nexoctl: error: --id is required (or --hls, --images)
 ! Run 'nexoctl media rule add --help' for usage.
 [exit 2]
 
@@ -154,12 +154,12 @@ $ nexoctl media reprocess mem/videos/notes.txt
 [exit 1]
 
 $ nexoctl media reprocess mem/videos
-! nexoctl: error: mem/videos: expected a video (ALIAS/BUCKET/KEY)
+! nexoctl: error: mem/videos: expected a video or an image (ALIAS/BUCKET/KEY)
 ! Run 'nexoctl media reprocess --help' for usage.
 [exit 2]
 
 $ nexoctl media status mem/videos/courses/
-! nexoctl: error: mem/videos/courses/: expected a video (ALIAS/BUCKET/KEY)
+! nexoctl: error: mem/videos/courses/: expected a video or an image (ALIAS/BUCKET/KEY)
 ! Run 'nexoctl media status --help' for usage.
 [exit 2]
 

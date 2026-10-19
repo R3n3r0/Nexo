@@ -1,14 +1,15 @@
 # nexoctl media status
 
-Show the processing state of a video by the media worker
+Show the processing state of a video or an image by the media worker
 
 ## Synopsis
 
-Show the processing state of a video (default its latest version): the state of
-its job (none, processing, done or failed), the step in progress or that failed,
-the rule that selected it, the source and what the worker derived. The outputs
-are current while they derive from the content of the version; stale outputs
-(the object was overwritten since) are not served.
+Show the processing state of a video or an image (default its latest version):
+the state of its job (none, processing, done or failed), the step in progress or
+that failed, the rule that selected it, the source and what the worker derived
+(the renditions, poster and thumbnails of a video, the variants of an image).
+The outputs are current while they derive from the content of the version;
+stale outputs (the object was overwritten since) are not served.
 
 ```
 nexoctl media status ALIAS/BUCKET/KEY [--version-id V] [flags]
@@ -40,5 +41,5 @@ nexoctl media status ALIAS/BUCKET/KEY [--version-id V] [flags]
 
 ## SEE ALSO
 
-* [nexoctl media](nexoctl_media.md)	 - Manage the video rules of buckets and the media worker (Admin API)
+* [nexoctl media](nexoctl_media.md)	 - Manage the video and image rules of buckets and the media worker (Admin API)
 

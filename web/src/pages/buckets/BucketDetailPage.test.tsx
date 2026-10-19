@@ -72,9 +72,9 @@ describe('BucketDetailPage', () => {
     await user.click(screen.getByRole('tab', { name: 'Access' }));
     expect(screen.getByTestId('location')).toHaveTextContent('/buckets/media/access');
     expect(screen.getByRole('tab', { name: 'Access' })).toHaveAttribute('aria-selected', 'true');
-    await user.click(screen.getByRole('tab', { name: 'Video' }));
+    await user.click(screen.getByRole('tab', { name: 'Media' }));
     expect(screen.getByTestId('location')).toHaveTextContent('/buckets/media/media');
-    expect(screen.getByRole('tab', { name: 'Video' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Media' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('tells when the bucket does not exist', async () => {

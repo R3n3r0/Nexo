@@ -1164,6 +1164,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/buckets/{bucket}/objects/image": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * A variant of an image
+         * @description A variant of an image the media worker derived from the current content of the object (an
+         *     image rule; 404 until the worker produced them, and once the object changed until it produces
+         *     them again). `format=auto` (the default) serves the most compact format the client accepts
+         *     among those produced, in the order AVIF, WebP, JPEG, PNG: AVIF and WebP only when the Accept
+         *     header names them, PNG only when asked (Accept or format) or when the image has no JPEG
+         *     variant; the response then varies on Accept. `w` serves the narrowest variant at least `w`
+         *     pixels wide (else the widest); without it, the image at its own size. Ranges and
+         *     conditional requests are answered (ETag and Last-Modified name the variant).
+         */
+        get: operations["mediaImage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/buckets/{bucket}/objects/media/status": {
         parameters: {
             query: {
@@ -1182,9 +1219,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Processing state of a video by the media worker
+         * Processing state of a video or an image by the media worker
          * @description The status.json of the version written by the worker: `none` when it never processed it.
-         *     `current` is false when the outputs derive from an older content of the version.
+         *     `current` is false when the outputs derive from an older content of the version. The
+         *     variants of an image carry their URL (GET /buckets/{bucket}/objects/image).
          */
         get: operations["mediaStatus"];
         put?: never;
@@ -3708,6 +3746,8 @@ export interface components {
             quotaBytes?: number;
             /** @description Set the media rule "hls": the media worker derives every rendition (up to the height of each video), a poster and timeline thumbnails from every video of the bucket. Needs the admin:SetBucketMedia permission and a notify_media_worker target. */
             hls?: boolean;
+            /** @description Set the media rule "images": the media worker derives every format (AVIF, WebP, JPEG, PNG) at every default width (up to the width of each image) from every image of the bucket. With hls, the bucket gets both rules. Needs the admin:SetBucketMedia permission and a notify_media_worker target. */
+            images?: boolean;
         };
         BucketVersioning: {
             status: components["schemas"]["VersioningState"];
@@ -3939,6 +3979,8 @@ export interface components {
             contentDisposition?: string;
             /** @description An HLS stream share of a video; the URL is its master playlist. */
             stream?: boolean;
+            /** @description An image share; the URL is the image route of the object on the S3 listener. */
+            image?: boolean;
             /** Format: date-time */
             expiresAt: string;
             /** Format: date-time */
@@ -3989,6 +4031,14 @@ export interface components {
              *     contentType and contentDisposition.
              */
             stream?: boolean;
+            /**
+             * @description Share an image through the variants the media worker derived from it (an image rule): the
+             *     URL of the share is the image route on the S3 listener (/nexo/media/v1/{bucket}/image/{key}),
+             *     which serves the image at its own size in the most compact format the client accepts
+             *     (Accept header). Object download shares only, without stream, contentType and
+             *     contentDisposition.
+             */
+            image?: boolean;
         };
         RevokeAllResult: {
             revoked: number;
@@ -4479,8 +4529,31 @@ export interface components {
                 columns: number;
                 count: number;
             };
+            /** @description The variants of an image (width and height are then the size of the image). */
+            images?: components["schemas"]["MediaImageOutput"][];
+            /** @description The image has transparency (its JPEG variants are flattened onto white). */
+            alpha?: boolean;
             /** Format: date-time */
             updated?: string;
+        };
+        MediaImageOutput: {
+            /** @enum {string} */
+            format: "avif" | "webp" | "jpeg" | "png";
+            /** @description The width the rule asked for; 0 for the image at its own size. */
+            width: number;
+            /** @description Width of the variant in pixels. */
+            pixelWidth: number;
+            /** @description Height of the variant in pixels. */
+            pixelHeight: number;
+            /**
+             * Format: int64
+             * @description Size of the variant in bytes.
+             */
+            size: number;
+            /** @description The media type of the format (image/avif...). */
+            contentType: string;
+            /** @description The variant on the Admin API (GET /buckets/{bucket}/objects/image), a path of the server. */
+            url: string;
         };
         MediaConfiguration: {
             rules: components["schemas"]["MediaRule"][];
@@ -4489,13 +4562,21 @@ export interface components {
             id: string;
             /** @description Prefix of the keys (empty for the whole bucket; never .nexo-media/). */
             prefix?: string;
-            /** @description Suffixes of the keys, matched without case (default .mp4, .mov, .m4v). */
+            /** @description Suffixes of the keys, matched without case (default .mp4, .mov, .m4v; for an image rule .avif, .bmp, .gif, .heic, .heif, .jpeg, .jpg, .png, .tif, .tiff, .webp). */
             suffixes?: string[];
             /** @description Lower qualities to produce, H.264 with the source audio; those taller than the source are skipped. */
             renditions?: ("2160p" | "1440p" | "1080p" | "720p" | "480p" | "360p" | "240p")[];
             /** @description A JPEG poster frame. */
             poster?: boolean;
             thumbnails?: components["schemas"]["MediaThumbnails"];
+            images?: components["schemas"]["MediaImages"];
+        };
+        /** @description Makes an image rule: the media worker derives the variants of every image the rule selects, in every format at every width (widths not smaller than the image are skipped; every format also gets the image at its own size). An image rule has no renditions, poster or thumbnails. */
+        MediaImages: {
+            /** @description Formats of the variants (default all), stored the most compact first. */
+            formats?: ("avif" | "webp" | "jpeg" | "png")[];
+            /** @description Widths of the variants in pixels (default 160, 320, 640, 1280, 1920, 2560), stored ascending. */
+            widths?: number[];
         };
         /** @description A timeline thumbnail sprite with its WebVTT map. */
         MediaThumbnails: {
@@ -7578,6 +7659,62 @@ export interface operations {
                 content: {
                     "text/vtt": string;
                 };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    mediaImage: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+                /** @description The width the client displays, in pixels. */
+                w?: number;
+                /** @description auto (default) or a format (jpg is jpeg). */
+                format?: "auto" | "avif" | "webp" | "jpeg" | "jpg" | "png";
+            };
+            header?: {
+                Range?: string;
+            };
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The variant. */
+            200: {
+                headers: {
+                    ETag?: string;
+                    /** @description Accept with format auto. */
+                    Vary?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/*": string;
+                };
+            };
+            /** @description A range of the variant. */
+            206: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/*": string;
+                };
+            };
+            /** @description Not modified. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             default: components["responses"]["Problem"];
         };

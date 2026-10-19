@@ -49,6 +49,70 @@ stdout '"hls":true'
 exec nexoctl media get --json local/films
 ! stdout '"id":"hls".*"id":"hls"'
 
+# An image bucket made in one step: mb --with-images; with --with-hls, both
+# rules.
+exec nexoctl mb --with-images local/pictures
+stdout 'Bucket created successfully `local/pictures`, with image variants'
+exec nexoctl media get --json local/pictures
+stdout '"id":"images"'
+stdout '"images":\{"formats":\["avif","webp","jpeg","png"\],"widths":\[160,320,640,1280,1920,2560\]\}'
+exec nexoctl mb --json --ignore-existing --with-images local/pictures
+stdout '"images":true'
+exec nexoctl mb --with-hls --with-images local/library
+stdout 'with HLS video .*, with image variants'
+exec nexoctl media get --json local/library
+stdout '"id":"hls".*"id":"images"'
+
+# --images: an image rule, changed by --format and --width.
+exec nexoctl media rule add --json local/videos --images --id thumbs --prefix gallery/ --format jpg,webp --width 640,320
+jsonlines stdout
+stdout '"id":"thumbs","prefix":"gallery/"'
+stdout '"images":\{"formats":\["webp","jpeg"\],"widths":\[320,640\]\}'
+exec nexoctl media rule rm local/videos thumbs
+expectcode 2 nexoctl media rule add local/videos --images --format gif
+stderr 'unknown image format "gif"'
+expectcode 2 nexoctl media rule add local/videos --id x --width 320
+stderr '--format and --width apply to an image rule'
+expectcode 2 nexoctl media rule add local/videos --images --poster
+stderr 'an image rule has no renditions, poster or thumbnails'
+expectcode 2 nexoctl media rule add local/videos --images --hls
+stderr 'two rules'
+
+# The variants of an image, as the worker writes them: the status lists
+# them, an image share serves the most compact format the client takes.
+exec nexoctl cp photo.jpg local/pictures/beach.jpg
+exec nexoctl cp photostatus.json local/pictures/.nexo-media/beach.jpg/null/status.json
+exec nexoctl cp full.webp local/pictures/.nexo-media/beach.jpg/null/images/full.webp
+exec nexoctl cp small.webp local/pictures/.nexo-media/beach.jpg/null/images/320.webp
+exec nexoctl cp full.jpg local/pictures/.nexo-media/beach.jpg/null/images/full.jpg
+exec nexoctl media status local/pictures/beach.jpg
+stdout 'Image      : local/pictures/beach.jpg'
+stdout 'State      : done \(current\)'
+stdout 'Source     : 1000x750'
+stdout 'Images     : webp: 320x240 .*, full 1000x750 '
+stdout '             jpeg: full 1000x750 '
+exec nexoctl media status --json local/pictures/beach.jpg
+jsonlines stdout
+stdout '"format":"webp","width":320,"pixelWidth":320,"pixelHeight":240,"size":11,"contentType":"image/webp","url":"/api/v1/buckets/pictures/objects/image\?format=webp&key=beach.jpg&w=320"'
+exec nexoctl share download --image --expire 1h --json local/pictures/beach.jpg
+jsonlines stdout
+stdout '"image":true'
+stdout '"url":"http://[^"]*/nexo/media/v1/pictures/image/beach\.jpg\?'
+jsonfield stdout url IMAGEURL
+http -H 'Accept: image/avif,image/webp,*/*' -D webp.headers $IMAGEURL
+stdout '^webp full$'
+grep '^Content-Type: image/webp$' webp.headers
+grep '^Vary: Accept$' webp.headers
+http -H 'Accept: */*' -D jpeg.headers $IMAGEURL
+stdout '^jpeg full$'
+grep '^Content-Type: image/jpeg$' jpeg.headers
+expectcode 2 nexoctl share download --image --raw local/pictures/beach.jpg
+# A new content: the variants no longer apply.
+exec nexoctl cp video.mp4 local/pictures/beach.jpg
+http -status 404 $IMAGEURL
+exec nexoctl media status local/pictures/beach.jpg
+stdout 'State      : done \(stale'
+
 # The processing state of a video and its reprocessing.
 exec nexoctl cp video.mp4 local/videos/courses/intro.mp4
 exec nexoctl media status local/videos/courses/intro.mp4
@@ -115,3 +179,13 @@ stdout 'has no media rule'
 not really a video
 -- status.json --
 {"state":"done","rule":"courses","etag":"0123456789abcdef0123456789abcdef","duration":12.5,"width":1280,"height":720,"poster":true,"started":"2026-01-02T03:04:05Z","updated":"2026-01-02T03:04:06Z"}
+-- photo.jpg --
+not really a photo
+-- photostatus.json --
+{"state":"done","rule":"images","etag":"d6a366c0d35815e022b2d04daccee090","width":1000,"height":750,"images":[{"format":"webp","width":320,"pixelWidth":320,"pixelHeight":240,"size":11},{"format":"webp","width":0,"pixelWidth":1000,"pixelHeight":750,"size":10},{"format":"jpeg","width":0,"pixelWidth":1000,"pixelHeight":750,"size":10}],"started":"2026-01-02T03:04:05Z","updated":"2026-01-02T03:04:06Z"}
+-- full.webp --
+webp full
+-- small.webp --
+webp small
+-- full.jpg --
+jpeg full

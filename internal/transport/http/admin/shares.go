@@ -104,7 +104,10 @@ type ShareResponse struct {
 	ContentDisposition string `json:"contentDisposition,omitempty"`
 	// Stream marks the HLS stream shares of a video: URL is the master
 	// playlist.
-	Stream    bool      `json:"stream,omitempty"`
+	Stream bool `json:"stream,omitempty"`
+	// Image marks the image shares: URL is the image route of the object
+	// (the variants of the media worker).
+	Image     bool      `json:"image,omitempty"`
 	ExpiresAt time.Time `json:"expiresAt"`
 	CreatedAt time.Time `json:"createdAt"`
 	// URL is the presigned URL: GET or PUT of the object for object
@@ -118,7 +121,7 @@ type ShareResponse struct {
 func newShareResponse(s *share.Share) ShareResponse {
 	return ShareResponse{
 		ID: s.ID, Owner: s.Owner, Bucket: s.Bucket, Key: s.Key, Prefix: s.Prefix, Permission: string(s.Permission),
-		VersionID: s.VersionID, ContentType: s.ContentType, ContentDisposition: s.ContentDisposition, Stream: s.Stream,
+		VersionID: s.VersionID, ContentType: s.ContentType, ContentDisposition: s.ContentDisposition, Stream: s.Stream, Image: s.Image,
 		ExpiresAt: s.Expires.UTC(), CreatedAt: s.CreatedAt.UTC(), URL: s.URL, AccessKey: s.AccessKey,
 	}
 }
@@ -144,6 +147,9 @@ type CreateShareRequest struct {
 	VersionID          string `json:"versionId,omitempty"`
 	// Stream shares a video as an HLS stream (object download shares).
 	Stream bool `json:"stream,omitempty"`
+	// Image shares the variants of an image the media worker derived
+	// (object download shares).
+	Image bool `json:"image,omitempty"`
 }
 
 // RevokeAllResponse is the body of DELETE /shares.
@@ -180,7 +186,7 @@ func (h *shareRoutes) createShare(w http.ResponseWriter, r *http.Request, bucket
 	s, err := h.deps.Shares.Create(r.Context(), adminsvc.CreateShareInput{
 		Requester: requesterOf(r), Bucket: in.Bucket, Key: in.Key, Prefix: in.Prefix, Permission: share.Permission(in.Permission),
 		Expires: expires, ContentType: in.ContentType,
-		ContentDisposition: in.ContentDisposition, VersionID: in.VersionID, Stream: in.Stream,
+		ContentDisposition: in.ContentDisposition, VersionID: in.VersionID, Stream: in.Stream, Image: in.Image,
 	})
 	if err != nil {
 		h.fail(w, r, err)

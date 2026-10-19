@@ -220,6 +220,29 @@ func TestBucketManagerCreate(t *testing.T) {
 			}},
 		{name: "hls needs its action", in: admin.CreateBucketInput{Name: "videos", HLS: true},
 			deny: policy.ActionAdminSetBucketMedia, wantErr: domain.ErrAccessDenied},
+		{name: "images sets the media rule", in: admin.CreateBucketInput{Name: "photos", Images: true},
+			actions: []policy.Action{policy.ActionCreateBucket, policy.ActionAdminSetBucketMedia},
+			setup: func(e *bucketEnv) {
+				e.buckets.EXPECT().Create(mock.Anything, bucket.CreateInput{Name: "photos"}).Return(&domain.Bucket{Name: "photos"}, nil)
+				e.buckets.EXPECT().SetMedia(mock.Anything, "photos", domain.MediaConfig{Rules: []domain.MediaRule{domain.ImagesMediaRule()}}).Return(nil)
+				b := info("photos")
+				e.buckets.EXPECT().Get(mock.Anything, "photos").Return(&b, nil)
+				e.objects.EXPECT().DataUsage(mock.Anything, "photos").Return(nil, nil)
+				e.buckets.EXPECT().IsPublic(mock.Anything, "photos").Return(false, nil)
+			}},
+		{name: "hls and images set both rules", in: admin.CreateBucketInput{Name: "media", HLS: true, Images: true},
+			actions: []policy.Action{policy.ActionCreateBucket, policy.ActionAdminSetBucketMedia},
+			setup: func(e *bucketEnv) {
+				e.buckets.EXPECT().Create(mock.Anything, bucket.CreateInput{Name: "media"}).Return(&domain.Bucket{Name: "media"}, nil)
+				e.buckets.EXPECT().SetMedia(mock.Anything, "media",
+					domain.MediaConfig{Rules: []domain.MediaRule{domain.HLSMediaRule(), domain.ImagesMediaRule()}}).Return(nil)
+				b := info("media")
+				e.buckets.EXPECT().Get(mock.Anything, "media").Return(&b, nil)
+				e.objects.EXPECT().DataUsage(mock.Anything, "media").Return(nil, nil)
+				e.buckets.EXPECT().IsPublic(mock.Anything, "media").Return(false, nil)
+			}},
+		{name: "images needs its action", in: admin.CreateBucketInput{Name: "photos", Images: true},
+			deny: policy.ActionAdminSetBucketMedia, wantErr: domain.ErrAccessDenied},
 		{name: "a failed setting removes the bucket", in: admin.CreateBucketInput{Name: "photos", Versioning: true, QuotaBytes: 10},
 			setup: func(e *bucketEnv) {
 				e.buckets.EXPECT().Create(mock.Anything, bucket.CreateInput{Name: "photos"}).Return(&domain.Bucket{Name: "photos"}, nil)

@@ -1,4 +1,4 @@
-Remove a video rule of a bucket
+Remove a media rule of a bucket
 
 Usage:
   nexoctl media rule remove ALIAS/BUCKET ID [flags]

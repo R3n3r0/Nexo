@@ -7,8 +7,10 @@ import { renderRoutes } from '@/test/render';
 
 import { ShareDialog, type ShareDialogProps } from './ShareDialog';
 
-function renderDialog(props: Partial<ShareDialogProps> = {}) {
-  const services = createMockServices({ initialAccessKey: 'nexoadmin' });
+function renderDialog(
+  props: Partial<ShareDialogProps> = {},
+  services = createMockServices({ initialAccessKey: 'nexoadmin' }),
+) {
   const onClose = vi.fn();
   const view = renderRoutes(
     [
@@ -92,6 +94,74 @@ describe('ShareDialog (TD-U-10)', () => {
     renderDialog();
     await screen.findByRole('button', { name: 'Create link' });
     expect(screen.queryByRole('switch', { name: /Stream as a video/ })).not.toBeInTheDocument();
+  });
+
+  it('shares an image covered by an image rule in the best format for the viewer', async () => {
+    const user = userEvent.setup();
+    const services = createMockServices({ initialAccessKey: 'nexoadmin' });
+    await services.media.set('media', { rules: [{ id: 'images', images: {} }] });
+    const create = vi.spyOn(services.shares, 'create');
+    renderDialog({ objectKey: 'photos/2026/beach.png' }, services);
+    const toggle = await screen.findByRole('switch', {
+      name: /Image link \(best format for the viewer\)/,
+    });
+    expect(toggle).not.toBeChecked();
+    await user.click(toggle);
+    // The image route serves the image as it is: no disposition, no raw link.
+    expect(screen.queryByRole('textbox', { name: /When opened/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: /Raw presigned link/ })).toBeDisabled();
+    expect(screen.getByRole('radio', { name: 'Upload' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Create link' }));
+    const link = await screen.findByRole('textbox', { name: 'Link' });
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: 'photos/2026/beach.png',
+        permission: 'download',
+        image: true,
+      }),
+    );
+    expect((link as HTMLInputElement).value).toMatch(
+      /^http:\/\/localhost:9000\/nexo\/media\/v1\/media\/image\/photos\/2026\/beach\.png\?/,
+    );
+  });
+
+  it('falls back on the variants when the rules cannot be read', async () => {
+    const services = createMockServices({ initialAccessKey: 'nexoadmin' });
+    const { ApiError } = await import('@/services');
+    vi.spyOn(services.media, 'get').mockRejectedValue(
+      new ApiError({ title: 'Forbidden', status: 403, code: 'access_denied', detail: 'no' }),
+    );
+    vi.spyOn(services.media, 'status').mockResolvedValue({
+      state: 'done',
+      current: true,
+      images: [
+        {
+          format: 'webp',
+          width: 0,
+          pixelWidth: 10,
+          pixelHeight: 10,
+          size: 100,
+          contentType: 'image/webp',
+          url: '/x',
+        },
+      ],
+    });
+    renderDialog({ objectKey: 'photos/2026/beach.png' }, services);
+    expect(
+      await screen.findByRole('switch', { name: /Image link \(best format for the viewer\)/ }),
+    ).toBeInTheDocument();
+  });
+
+  it('offers no image link for an image no image rule covers', async () => {
+    const services = createMockServices({ initialAccessKey: 'nexoadmin' });
+    const get = vi.spyOn(services.media, 'get');
+    await services.media.set('media', { rules: [{ id: 'v', poster: true }] });
+    renderDialog({ objectKey: 'photos/2026/beach.png' }, services);
+    await screen.findByRole('button', { name: 'Create link' });
+    await waitFor(() => {
+      expect(get).toHaveResolved();
+    });
+    expect(screen.queryByRole('switch', { name: /Image link/ })).not.toBeInTheDocument();
   });
 
   it('refuses a custom expiration beyond 7 days', async () => {

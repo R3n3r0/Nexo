@@ -1,8 +1,10 @@
 /**
- * The video rules of a bucket (media worker): rendition presets, defaults
- * and the validation the server applies to each rule (domain.MediaConfig).
+ * The media rules of a bucket (media worker): video rules (rendition
+ * presets, poster, thumbnails) and image rules (variants in every format
+ * and width), their defaults and the validation the server applies to
+ * each rule (domain.MediaConfig).
  */
-import type { MediaRendition, MediaRule } from '@/services';
+import type { MediaImageFormat, MediaImages, MediaRendition, MediaRule } from '@/services';
 
 import { mediaSidecarPrefix } from './media';
 
@@ -17,8 +19,66 @@ export const mediaRenditions: readonly MediaRendition[] = [
   '240p',
 ];
 
-/** The suffixes of a rule that names none. */
+/** The suffixes of a video rule that names none. */
 export const defaultMediaSuffixes: readonly string[] = ['.mp4', '.mov', '.m4v'];
+
+/** The suffixes of an image rule that names none: the images the worker decodes. */
+export const defaultImageSuffixes: readonly string[] = [
+  '.avif',
+  '.bmp',
+  '.gif',
+  '.heic',
+  '.heif',
+  '.jpeg',
+  '.jpg',
+  '.png',
+  '.tif',
+  '.tiff',
+  '.webp',
+];
+
+/** The formats of the image variants, the most compact first (domain.MediaImageFormats). */
+export const mediaImageFormats: readonly MediaImageFormat[] = ['avif', 'webp', 'jpeg', 'png'];
+
+/** How the formats are written for people. */
+export const imageFormatLabels: Record<MediaImageFormat, string> = {
+  avif: 'AVIF',
+  webp: 'WebP',
+  jpeg: 'JPEG',
+  png: 'PNG',
+};
+
+/** The widths of an image rule that names none: thumbnails to large screens. */
+export const defaultImageWidths: readonly number[] = [160, 320, 640, 1280, 1920, 2560];
+
+/** The bounds of an image width, in pixels. */
+export const minImageWidth = 16;
+export const maxImageWidth = 8192;
+
+/** At most this many widths per image rule. */
+export const maxImageWidths = 16;
+
+/** The id of the rule of the images option of bucket creation (domain.ImagesMediaRule). */
+export const imagesMediaRuleId = 'images';
+
+/** The rule of a bucket created with the images option: every format at every default width. */
+export function imagesMediaRule(): MediaRule {
+  return {
+    id: imagesMediaRuleId,
+    images: { formats: [...mediaImageFormats], widths: [...defaultImageWidths] },
+  };
+}
+
+/** Whether a rule is an image rule. */
+export function isImageRule(rule: MediaRule): boolean {
+  return rule.images !== undefined;
+}
+
+/** The suffixes a rule selects: its own, or the default of its kind. */
+export function mediaRuleSuffixes(rule: MediaRule): readonly string[] {
+  if (rule.suffixes !== undefined && rule.suffixes.length > 0) return rule.suffixes;
+  return isImageRule(rule) ? defaultImageSuffixes : defaultMediaSuffixes;
+}
 
 /** The interval of the thumbnails of a rule that names none. */
 export const defaultThumbnailInterval = '10s';
@@ -71,7 +131,66 @@ export function formatGoDuration(seconds: number): string {
 
 /** Problems of a rule (translated under bucketMedia.issues.*). */
 export type MediaRuleIssue =
-  'id' | 'idDuplicate' | 'prefixTooLong' | 'prefixReserved' | 'suffix' | 'interval' | 'nothing';
+  | 'id'
+  | 'idDuplicate'
+  | 'prefixTooLong'
+  | 'prefixReserved'
+  | 'suffix'
+  | 'interval'
+  | 'nothing'
+  | 'imageVideoOutputs'
+  | 'imageFormat'
+  | 'imageWidth'
+  | 'imageWidths';
+
+/** Whether a width is a whole number of pixels within the bounds. */
+export function validImageWidth(width: number): boolean {
+  return Number.isInteger(width) && width >= minImageWidth && width <= maxImageWidth;
+}
+
+/** The first problem of the variants of an image rule, as the server checks them. */
+function imageIssue(images: MediaImages): MediaRuleIssue | undefined {
+  if ((images.formats ?? []).some((f) => !mediaImageFormats.includes(f))) return 'imageFormat';
+  const widths = images.widths ?? [];
+  if (widths.some((w) => !validImageWidth(w))) return 'imageWidth';
+  if (new Set(widths).size > maxImageWidths) return 'imageWidths';
+  return undefined;
+}
+
+/**
+ * The message the server gives for a problem of a rule (domain.MediaConfig
+ * Validate), without the "media rule <id>:" lead.
+ */
+export function mediaRuleIssueMessage(rule: MediaRule, issue: MediaRuleIssue): string {
+  switch (issue) {
+    case 'id':
+      return "the id must be 1-64 letters, digits, '.', '_' or '-'";
+    case 'idDuplicate':
+      return 'duplicate id';
+    case 'prefixTooLong':
+      return 'the prefix is longer than 1024 bytes';
+    case 'prefixReserved':
+      return `the prefix ${mediaSidecarPrefix} is reserved`;
+    case 'suffix':
+      return 'invalid suffix';
+    case 'interval':
+      return 'the thumbnail interval must be a duration from 1s to 10m';
+    case 'nothing':
+      return 'nothing to produce (renditions, poster or thumbnails)';
+    case 'imageVideoOutputs':
+      return 'an image rule has no renditions, poster or thumbnails';
+    case 'imageFormat': {
+      const format = (rule.images?.formats ?? []).find((f) => !mediaImageFormats.includes(f));
+      return `unknown image format ${JSON.stringify(format ?? '')} (one of ${mediaImageFormats.join(', ')})`;
+    }
+    case 'imageWidth': {
+      const width = (rule.images?.widths ?? []).find((w) => !validImageWidth(w));
+      return `the image widths must be from ${String(minImageWidth)} to ${String(maxImageWidth)} pixels, not ${String(width)}`;
+    }
+    case 'imageWidths':
+      return `at most ${String(maxImageWidths)} image widths`;
+  }
+}
 
 /**
  * Validates a rule as the server does; others are the ids of the other
@@ -94,11 +213,13 @@ export function validateMediaRule(
     const seconds = parseGoDuration(rule.thumbnails.interval ?? defaultThumbnailInterval);
     if (seconds === undefined || seconds < 1 || seconds > 600) issues.push('interval');
   }
-  if (
-    (rule.renditions ?? []).length === 0 &&
-    rule.poster !== true &&
-    rule.thumbnails === undefined
-  ) {
+  const videoOutputs =
+    (rule.renditions ?? []).length > 0 || rule.poster === true || rule.thumbnails !== undefined;
+  if (rule.images !== undefined) {
+    if (videoOutputs) issues.push('imageVideoOutputs');
+    const image = imageIssue(rule.images);
+    if (image !== undefined) issues.push(image);
+  } else if (!videoOutputs) {
     issues.push('nothing');
   }
   return issues;
@@ -106,12 +227,13 @@ export function validateMediaRule(
 
 /**
  * The rule as the server stores it: suffixes lowercased, sorted and
- * deduplicated (the default when none), renditions tallest first, the
- * interval of the thumbnails normalized.
+ * deduplicated (the default of its kind when none), renditions tallest
+ * first, the interval of the thumbnails normalized; for an image rule the
+ * formats the most compact first (all when none) and the widths ascending
+ * and deduplicated (the defaults when none).
  */
 export function normalizeMediaRule(rule: MediaRule): MediaRule {
-  const given =
-    rule.suffixes !== undefined && rule.suffixes.length > 0 ? rule.suffixes : defaultMediaSuffixes;
+  const given = mediaRuleSuffixes(rule);
   const suffixes = [...new Set(given.map((s) => s.trim().toLowerCase()))].sort();
   const renditions = mediaRenditions.filter((r) => rule.renditions?.includes(r) === true);
   const out: MediaRule = { id: rule.id, suffixes };
@@ -122,6 +244,14 @@ export function normalizeMediaRule(rule: MediaRule): MediaRule {
     const seconds = parseGoDuration(rule.thumbnails.interval ?? defaultThumbnailInterval) ?? 10;
     out.thumbnails = { interval: formatGoDuration(Math.round(seconds)) };
   }
+  if (rule.images !== undefined) {
+    const named = rule.images.formats ?? [];
+    const widths = rule.images.widths?.length ? rule.images.widths : defaultImageWidths;
+    out.images = {
+      formats: mediaImageFormats.filter((f) => named.length === 0 || named.includes(f)),
+      widths: [...new Set(widths)].sort((a, b) => a - b),
+    };
+  }
   return out;
 }
 
@@ -131,7 +261,19 @@ export function matchMediaRule(rules: readonly MediaRule[], key: string): MediaR
   const lower = key.toLowerCase();
   return rules.find((rule) => {
     if (!key.startsWith(rule.prefix ?? '')) return false;
-    const suffixes = rule.suffixes?.length ? rule.suffixes : defaultMediaSuffixes;
-    return suffixes.some((s) => lower.endsWith(s));
+    return mediaRuleSuffixes(rule).some((s) => lower.endsWith(s));
   });
+}
+
+/** The image types the media worker decodes (by content type). */
+const imageTypes = /^image\/(avif|bmp|gif|heic|heif|jpeg|png|tiff|webp)\b/i;
+
+/**
+ * Whether an object is an image the media worker can derive variants
+ * from: by its content type or by the default suffixes of an image rule.
+ */
+export function isMediaImage(key: string, contentType?: string): boolean {
+  if (contentType !== undefined && imageTypes.test(contentType)) return true;
+  const lower = key.toLowerCase();
+  return defaultImageSuffixes.some((s) => lower.endsWith(s));
 }

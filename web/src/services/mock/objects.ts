@@ -63,7 +63,7 @@ function decodeCursor(cursor: string): string {
 }
 
 /** Base64 data URL of small in-memory contents (demo previews and downloads). */
-function dataUrl(version: MockVersion): string {
+export function dataUrl(version: MockVersion): string {
   const content = version.content;
   if (!ArrayBuffer.isView(content) || content.byteLength > 512 * 1024) {
     return '#';

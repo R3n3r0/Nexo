@@ -1,13 +1,14 @@
 # nexoctl media set
 
-Replace the video rules of a bucket (JSON)
+Replace the media rules of a bucket (JSON)
 
 ## Synopsis
 
-Replace the video rules of a bucket with a JSON document read from FILE or
+Replace the media rules of a bucket with a JSON document read from FILE or
 from the standard input ("-" or no FILE). The rules are checked before they are
 sent; the server stores them normalized (default suffixes, renditions tallest
-first, thumbnail interval).
+first, thumbnail interval, image formats the most compact first and widths
+ascending).
 
 ```
 nexoctl media set ALIAS/BUCKET [FILE] [flags]
@@ -38,5 +39,5 @@ nexoctl media set ALIAS/BUCKET [FILE] [flags]
 
 ## SEE ALSO
 
-* [nexoctl media](nexoctl_media.md)	 - Manage the video rules of buckets and the media worker (Admin API)
+* [nexoctl media](nexoctl_media.md)	 - Manage the video and image rules of buckets and the media worker (Admin API)
 

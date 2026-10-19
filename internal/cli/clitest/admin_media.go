@@ -159,6 +159,7 @@ func (s *memSession) getMediaStatus(_ context.Context, bucket, key, versionID st
 		st = nexoadmin.MediaStatus{State: "none"}
 	}
 	st.Renditions = slices.Clone(st.Renditions)
+	st.Images = slices.Clone(st.Images)
 	if st.Thumbnails != nil {
 		t := *st.Thumbnails
 		st.Thumbnails = &t

@@ -81,6 +81,66 @@ func (_c *Service_Describe_Call) RunAndReturn(run func(context.Context, media.So
 	return _c
 }
 
+// Image provides a mock function with given fields: ctx, src, req
+func (_m *Service) Image(ctx context.Context, src media.Source, req media.ImageRequest) (*media.Image, error) {
+	ret := _m.Called(ctx, src, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Image")
+	}
+
+	var r0 *media.Image
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source, media.ImageRequest) (*media.Image, error)); ok {
+		return rf(ctx, src, req)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source, media.ImageRequest) *media.Image); ok {
+		r0 = rf(ctx, src, req)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*media.Image)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, media.Source, media.ImageRequest) error); ok {
+		r1 = rf(ctx, src, req)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_Image_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Image'
+type Service_Image_Call struct {
+	*mock.Call
+}
+
+// Image is a helper method to define mock.On call
+//   - ctx context.Context
+//   - src media.Source
+//   - req media.ImageRequest
+func (_e *Service_Expecter) Image(ctx interface{}, src interface{}, req interface{}) *Service_Image_Call {
+	return &Service_Image_Call{Call: _e.mock.On("Image", ctx, src, req)}
+}
+
+func (_c *Service_Image_Call) Run(run func(ctx context.Context, src media.Source, req media.ImageRequest)) *Service_Image_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(media.Source), args[2].(media.ImageRequest))
+	})
+	return _c
+}
+
+func (_c *Service_Image_Call) Return(_a0 *media.Image, _a1 error) *Service_Image_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_Image_Call) RunAndReturn(run func(context.Context, media.Source, media.ImageRequest) (*media.Image, error)) *Service_Image_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Init provides a mock function with given fields: ctx, src
 func (_m *Service) Init(ctx context.Context, src media.Source) ([]byte, error) {
 	ret := _m.Called(ctx, src)

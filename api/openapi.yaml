@@ -1363,6 +1363,49 @@ paths:
             "text/vtt":
               schema: { type: string }
         default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/image:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+      - { $ref: "#/components/parameters/versionId" }
+    get:
+      tags: [objects]
+      operationId: mediaImage
+      summary: A variant of an image
+      description: |
+        A variant of an image the media worker derived from the current content of the object (an
+        image rule; 404 until the worker produced them, and once the object changed until it produces
+        them again). `format=auto` (the default) serves the most compact format the client accepts
+        among those produced, in the order AVIF, WebP, JPEG, PNG: AVIF and WebP only when the Accept
+        header names them, PNG only when asked (Accept or format) or when the image has no JPEG
+        variant; the response then varies on Accept. `w` serves the narrowest variant at least `w`
+        pixels wide (else the widest); without it, the image at its own size. Ranges and
+        conditional requests are answered (ETag and Last-Modified name the variant).
+      x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
+      parameters:
+        - { name: w, in: query, required: false, description: "The width the client displays, in pixels.", schema: { type: integer, minimum: 0 } }
+        - name: format
+          in: query
+          required: false
+          description: auto (default) or a format (jpg is jpeg).
+          schema: { type: string, enum: [auto, avif, webp, jpeg, jpg, png] }
+        - { name: Range, in: header, required: false, schema: { type: string } }
+      responses:
+        "200":
+          description: The variant.
+          headers:
+            ETag: { schema: { type: string } }
+            Vary: { schema: { type: string }, description: Accept with format auto. }
+          content:
+            "image/*":
+              schema: { type: string, format: binary }
+        "206":
+          description: A range of the variant.
+          content:
+            "image/*":
+              schema: { type: string, format: binary }
+        "304": { description: Not modified. }
+        default: { $ref: "#/components/responses/Problem" }
   /buckets/{bucket}/objects/media/status:
     parameters:
       - { $ref: "#/components/parameters/bucket" }
@@ -1371,10 +1414,11 @@ paths:
     get:
       tags: [objects]
       operationId: mediaStatus
-      summary: Processing state of a video by the media worker
+      summary: Processing state of a video or an image by the media worker
       description: |
         The status.json of the version written by the worker: `none` when it never processed it.
-        `current` is false when the outputs derive from an older content of the version.
+        `current` is false when the outputs derive from an older content of the version. The
+        variants of an image carry their URL (GET /buckets/{bucket}/objects/image).
       x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
       responses:
         "200":
@@ -4612,6 +4656,13 @@ components:
             Set the media rule "hls": the media worker derives every rendition (up to the height of each
             video), a poster and timeline thumbnails from every video of the bucket. Needs the
             admin:SetBucketMedia permission and a notify_media_worker target.
+        images:
+          type: boolean
+          description: >-
+            Set the media rule "images": the media worker derives every format (AVIF, WebP, JPEG, PNG)
+            at every default width (up to the width of each image) from every image of the bucket. With
+            hls, the bucket gets both rules. Needs the admin:SetBucketMedia permission and a
+            notify_media_worker target.
     BucketVersioning:
       type: object
       required: [status]
@@ -4953,6 +5004,9 @@ components:
         stream:
           type: boolean
           description: An HLS stream share of a video; the URL is its master playlist.
+        image:
+          type: boolean
+          description: An image share; the URL is the image route of the object on the S3 listener.
         expiresAt: { type: string, format: date-time }
         createdAt: { type: string, format: date-time }
         url:
@@ -5016,6 +5070,14 @@ components:
             is the master playlist on the S3 listener (/nexo/media/v1/{bucket}/master.m3u8), whose
             playlists are signed by the share until it expires. Object download shares only, without
             contentType and contentDisposition.
+        image:
+          type: boolean
+          description: |
+            Share an image through the variants the media worker derived from it (an image rule): the
+            URL of the share is the image route on the S3 listener (/nexo/media/v1/{bucket}/image/{key}),
+            which serves the image at its own size in the most compact format the client accepts
+            (Accept header). Object download shares only, without stream, contentType and
+            contentDisposition.
     RevokeAllResult:
       type: object
       required: [revoked]
@@ -5695,7 +5757,27 @@ components:
             height: { type: integer }
             columns: { type: integer }
             count: { type: integer }
+        images:
+          type: array
+          description: The variants of an image (width and height are then the size of the image).
+          items: { $ref: "#/components/schemas/MediaImageOutput" }
+        alpha:
+          type: boolean
+          description: The image has transparency (its JPEG variants are flattened onto white).
         updated: { type: string, format: date-time }
+    MediaImageOutput:
+      type: object
+      required: [format, width, pixelWidth, pixelHeight, size, contentType, url]
+      properties:
+        format: { type: string, enum: [avif, webp, jpeg, png] }
+        width: { type: integer, description: The width the rule asked for; 0 for the image at its own size. }
+        pixelWidth: { type: integer, description: Width of the variant in pixels. }
+        pixelHeight: { type: integer, description: Height of the variant in pixels. }
+        size: { type: integer, format: int64, description: Size of the variant in bytes. }
+        contentType: { type: string, description: The media type of the format (image/avif...). }
+        url:
+          type: string
+          description: The variant on the Admin API (GET /buckets/{bucket}/objects/image), a path of the server.
     MediaConfiguration:
       type: object
       required: [rules]
@@ -5717,7 +5799,9 @@ components:
           description: Prefix of the keys (empty for the whole bucket; never .nexo-media/).
         suffixes:
           type: array
-          description: Suffixes of the keys, matched without case (default .mp4, .mov, .m4v).
+          description: >-
+            Suffixes of the keys, matched without case (default .mp4, .mov, .m4v; for an image rule
+            .avif, .bmp, .gif, .heic, .heif, .jpeg, .jpg, .png, .tif, .tiff, .webp).
           items: { type: string, maxLength: 32 }
         renditions:
           type: array
@@ -5727,6 +5811,23 @@ components:
             enum: ["2160p", "1440p", "1080p", "720p", "480p", "360p", "240p"]
         poster: { type: boolean, description: A JPEG poster frame. }
         thumbnails: { $ref: "#/components/schemas/MediaThumbnails" }
+        images: { $ref: "#/components/schemas/MediaImages" }
+    MediaImages:
+      type: object
+      description: >-
+        Makes an image rule: the media worker derives the variants of every image the rule selects,
+        in every format at every width (widths not smaller than the image are skipped; every format
+        also gets the image at its own size). An image rule has no renditions, poster or thumbnails.
+      properties:
+        formats:
+          type: array
+          description: Formats of the variants (default all), stored the most compact first.
+          items: { type: string, enum: [avif, webp, jpeg, png] }
+        widths:
+          type: array
+          maxItems: 16
+          description: Widths of the variants in pixels (default 160, 320, 640, 1280, 1920, 2560), stored ascending.
+          items: { type: integer, minimum: 16, maximum: 8192 }
     MediaThumbnails:
       type: object
       description: A timeline thumbnail sprite with its WebVTT map.

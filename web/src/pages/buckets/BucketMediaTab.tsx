@@ -8,6 +8,7 @@ import {
   Modal,
   MultiSelect,
   Paper,
+  SegmentedControl,
   Skeleton,
   Stack,
   Switch,
@@ -21,7 +22,7 @@ import {
 import { notifications } from '@mantine/notifications';
 import { IconEdit, IconPlus, IconTrash } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router';
 
@@ -29,9 +30,15 @@ import { StorageActions, usePermissions } from '@/auth/usePermissions';
 import { ConfirmDialog } from '@/components/iam/common';
 import { PermissionGuard } from '@/components/iam/PermissionGuard';
 import {
+  defaultImageSuffixes,
+  defaultImageWidths,
   defaultMediaSuffixes,
   defaultThumbnailInterval,
+  imageFormatLabels,
+  isImageRule,
+  mediaImageFormats,
   mediaRenditions,
+  mediaRuleSuffixes,
   validateMediaRule,
   type MediaRuleIssue,
 } from '@/lib/mediaRules';
@@ -40,6 +47,7 @@ import { storageKeys } from '@/lib/storageKeys';
 import {
   isApiError,
   useServices,
+  type MediaImageFormat,
   type MediaRendition,
   type MediaRule,
   type RuleProblem,
@@ -61,7 +69,14 @@ interface RuleEditorProps {
   onClose: () => void;
 }
 
-/** Editor of one rule: id, keys selected, renditions, poster and thumbnails. */
+/** What a rule derives: video outputs or image variants. */
+type RuleKind = 'video' | 'images';
+
+/**
+ * Editor of one rule: id, keys selected, then for a video rule its
+ * renditions, poster and thumbnails, for an image rule the formats and
+ * widths of the variants.
+ */
 function RuleEditor({
   opened,
   rule,
@@ -73,6 +88,10 @@ function RuleEditor({
   onClose,
 }: RuleEditorProps) {
   const { t } = useTranslation();
+  const kindLabel = useId();
+  const [kind, setKind] = useState<RuleKind>('video');
+  const [formats, setFormats] = useState<string[]>([]);
+  const [widths, setWidths] = useState<string[]>([]);
   const [id, setId] = useState('');
   const [prefix, setPrefix] = useState('');
   const [suffixes, setSuffixes] = useState<string[]>([]);
@@ -84,6 +103,9 @@ function RuleEditor({
 
   useEffect(() => {
     if (!opened) return;
+    setKind(rule !== null && isImageRule(rule) ? 'images' : 'video');
+    setFormats(rule?.images?.formats ?? [...mediaImageFormats]);
+    setWidths((rule?.images?.widths ?? defaultImageWidths).map(String));
     setId(rule?.id ?? '');
     setPrefix(rule?.prefix ?? '');
     setSuffixes(rule?.suffixes ?? []);
@@ -94,20 +116,31 @@ function RuleEditor({
     setSubmitted(false);
   }, [opened, rule]);
 
+  const images = kind === 'images';
   const draft: MediaRule = {
     id: id.trim(),
     ...(prefix !== '' ? { prefix } : {}),
     ...(suffixes.length > 0 ? { suffixes } : {}),
-    ...(renditions.length > 0 ? { renditions: renditions as MediaRendition[] } : {}),
-    ...(poster ? { poster: true } : {}),
-    ...(thumbnails ? { thumbnails: { interval: interval.trim() } } : {}),
+    ...(images
+      ? {
+          images: {
+            ...(formats.length > 0 ? { formats: formats as MediaImageFormat[] } : {}),
+            ...(widths.length > 0 ? { widths: widths.map((w) => Number(w.trim())) } : {}),
+          },
+        }
+      : {
+          ...(renditions.length > 0 ? { renditions: renditions as MediaRendition[] } : {}),
+          ...(poster ? { poster: true } : {}),
+          ...(thumbnails ? { thumbnails: { interval: interval.trim() } } : {}),
+        }),
   };
+  const kindSuffixes = images ? defaultImageSuffixes : defaultMediaSuffixes;
   const issues = validateMediaRule(draft, otherIds);
   const issue = (kind: readonly MediaRuleIssue[]) => {
     const found = submitted ? issues.find((i) => kind.includes(i)) : undefined;
     return found === undefined ? undefined : t(`bucketMedia.issues.${found}`);
   };
-  const nothing = issue(['nothing']);
+  const nothing = issue(['nothing', 'imageVideoOutputs']);
 
   return (
     <Modal
@@ -126,10 +159,26 @@ function RuleEditor({
         }}
       >
         <Stack gap="md">
+          <div>
+            <Text size="sm" fw={500} id={kindLabel} mb={4}>
+              {t('bucketMedia.kind')}
+            </Text>
+            <SegmentedControl
+              aria-labelledby={kindLabel}
+              value={kind}
+              onChange={(value) => {
+                setKind(value === 'images' ? 'images' : 'video');
+              }}
+              data={[
+                { value: 'video', label: t('bucketMedia.kinds.video') },
+                { value: 'images', label: t('bucketMedia.kinds.images') },
+              ]}
+            />
+          </div>
           <TextInput
             label={t('bucketMedia.id')}
             description={t('bucketMedia.idHint')}
-            placeholder="videos"
+            placeholder={images ? 'images' : 'videos'}
             required
             value={id}
             error={issue(['id', 'idDuplicate'])}
@@ -140,7 +189,7 @@ function RuleEditor({
           <TextInput
             label={t('bucketMedia.prefix')}
             description={t('bucketMedia.prefixHint')}
-            placeholder="videos/"
+            placeholder={images ? 'photos/' : 'videos/'}
             value={prefix}
             error={issue(['prefixTooLong', 'prefixReserved'])}
             onChange={(event) => {
@@ -150,48 +199,74 @@ function RuleEditor({
           <TagsInput
             label={t('bucketMedia.suffixes')}
             description={t('bucketMedia.suffixesHint', {
-              suffixes: defaultMediaSuffixes.join(', '),
+              suffixes: kindSuffixes.join(', '),
             })}
-            placeholder={defaultMediaSuffixes.join(' ')}
+            placeholder={kindSuffixes.join(' ')}
             value={suffixes}
             error={issue(['suffix'])}
             onChange={setSuffixes}
           />
-          <MultiSelect
-            label={t('bucketMedia.renditions')}
-            description={t('bucketMedia.renditionsHint')}
-            data={mediaRenditions.map((r) => ({ value: r, label: r }))}
-            value={renditions}
-            onChange={setRenditions}
-          />
-          <Checkbox
-            label={t('bucketMedia.poster')}
-            description={t('bucketMedia.posterHint')}
-            checked={poster}
-            onChange={(event) => {
-              setPoster(event.currentTarget.checked);
-            }}
-          />
-          <Switch
-            label={t('bucketMedia.thumbnails')}
-            description={t('bucketMedia.thumbnailsHint')}
-            checked={thumbnails}
-            onChange={(event) => {
-              setThumbnails(event.currentTarget.checked);
-            }}
-          />
-          {thumbnails ? (
-            <TextInput
-              label={t('bucketMedia.interval')}
-              description={t('bucketMedia.intervalHint')}
-              placeholder={defaultThumbnailInterval}
-              value={interval}
-              error={issue(['interval'])}
-              onChange={(event) => {
-                setThumbInterval(event.currentTarget.value);
-              }}
-            />
-          ) : null}
+          {images ? (
+            <>
+              <MultiSelect
+                label={t('bucketMedia.formats')}
+                description={t('bucketMedia.formatsHint')}
+                data={mediaImageFormats.map((f) => ({ value: f, label: imageFormatLabels[f] }))}
+                value={formats}
+                error={issue(['imageFormat'])}
+                onChange={setFormats}
+              />
+              <TagsInput
+                label={t('bucketMedia.widths')}
+                description={t('bucketMedia.widthsHint', {
+                  widths: defaultImageWidths.join(', '),
+                })}
+                placeholder={defaultImageWidths.join(' ')}
+                value={widths}
+                error={issue(['imageWidth', 'imageWidths'])}
+                splitChars={[',', ' ']}
+                onChange={setWidths}
+              />
+            </>
+          ) : (
+            <>
+              <MultiSelect
+                label={t('bucketMedia.renditions')}
+                description={t('bucketMedia.renditionsHint')}
+                data={mediaRenditions.map((r) => ({ value: r, label: r }))}
+                value={renditions}
+                onChange={setRenditions}
+              />
+              <Checkbox
+                label={t('bucketMedia.poster')}
+                description={t('bucketMedia.posterHint')}
+                checked={poster}
+                onChange={(event) => {
+                  setPoster(event.currentTarget.checked);
+                }}
+              />
+              <Switch
+                label={t('bucketMedia.thumbnails')}
+                description={t('bucketMedia.thumbnailsHint')}
+                checked={thumbnails}
+                onChange={(event) => {
+                  setThumbnails(event.currentTarget.checked);
+                }}
+              />
+              {thumbnails ? (
+                <TextInput
+                  label={t('bucketMedia.interval')}
+                  description={t('bucketMedia.intervalHint')}
+                  placeholder={defaultThumbnailInterval}
+                  value={interval}
+                  error={issue(['interval'])}
+                  onChange={(event) => {
+                    setThumbInterval(event.currentTarget.value);
+                  }}
+                />
+              ) : null}
+            </>
+          )}
           {nothing !== undefined ? (
             <Text size="sm" c="red" role="alert">
               {nothing}
@@ -223,9 +298,25 @@ function RuleEditor({
   );
 }
 
-/** What a rule derives from the videos it selects, as badges. */
+/** What a rule derives from the objects it selects, as badges. */
 function RuleOutputs({ rule }: { rule: MediaRule }) {
   const { t } = useTranslation();
+  if (rule.images !== undefined) {
+    const formats = rule.images.formats?.length ? rule.images.formats : mediaImageFormats;
+    const widths = rule.images.widths?.length ? rule.images.widths : defaultImageWidths;
+    return (
+      <Group gap={4}>
+        {formats.map((f) => (
+          <Badge key={f} variant="light" color="teal" tt="none">
+            {imageFormatLabels[f]}
+          </Badge>
+        ))}
+        <Badge variant="outline" color="gray" tt="none">
+          {t('bucketMedia.widthsBadge', { widths: widths.join(', ') })}
+        </Badge>
+      </Group>
+    );
+  }
   return (
     <Group gap={4}>
       {(rule.renditions ?? []).map((r) => (
@@ -249,7 +340,10 @@ function RuleOutputs({ rule }: { rule: MediaRule }) {
   );
 }
 
-/** The video rules of a bucket: what the media worker derives from its videos. */
+/**
+ * The media rules of a bucket: what the media worker derives from its
+ * videos and images.
+ */
 export function BucketMediaTab() {
   const { t } = useTranslation();
   const { bucket = '' } = useParams();
@@ -359,9 +453,14 @@ export function BucketMediaTab() {
                   {rules.map((rule, index) => (
                     <Table.Tr key={rule.id}>
                       <Table.Td>
-                        <Text size="sm" ff="monospace" style={{ overflowWrap: 'anywhere' }}>
-                          {rule.id}
-                        </Text>
+                        <Stack gap={0}>
+                          <Text size="sm" ff="monospace" style={{ overflowWrap: 'anywhere' }}>
+                            {rule.id}
+                          </Text>
+                          <Text size="xs" c="dimmed">
+                            {t(`bucketMedia.kinds.${isImageRule(rule) ? 'images' : 'video'}`)}
+                          </Text>
+                        </Stack>
                       </Table.Td>
                       <Table.Td>
                         <Stack gap={0}>
@@ -371,9 +470,7 @@ export function BucketMediaTab() {
                               : t('bucketMedia.wholeBucket')}
                           </Text>
                           <Text size="xs" c="dimmed">
-                            {(rule.suffixes?.length ? rule.suffixes : defaultMediaSuffixes).join(
-                              ', ',
-                            )}
+                            {mediaRuleSuffixes(rule).join(', ')}
                           </Text>
                         </Stack>
                       </Table.Td>

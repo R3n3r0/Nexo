@@ -80,6 +80,9 @@ func (m *mediaManager) Set(ctx context.Context, name string, cfg domain.MediaCon
 		if err := one.Validate(); err != nil {
 			p := ruleProblem(i+1, cfg.Rules[i].ID, err)
 			p.Message = strings.TrimPrefix(p.Message, domain.ErrInvalidArgument.Error()+": ")
+			// The problem names its rule: not the message too.
+			p.Message = strings.TrimPrefix(p.Message, fmt.Sprintf("media rule %q: ", cfg.Rules[i].ID))
+			p.Message = strings.TrimPrefix(p.Message, "media rule 1: ")
 			problems = append(problems, p)
 			continue
 		}

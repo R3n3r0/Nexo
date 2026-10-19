@@ -150,8 +150,8 @@ type MediaConfiguration struct {
 	Rules []MediaRule `json:"rules"`
 }
 
-// MediaRule selects videos by key prefix and suffix and names what the
-// media worker derives from them.
+// MediaRule selects videos or images by key prefix and suffix and names
+// what the media worker derives from them.
 type MediaRule struct {
 	ID         string           `json:"id"`
 	Prefix     string           `json:"prefix,omitempty"`
@@ -159,6 +159,20 @@ type MediaRule struct {
 	Renditions []string         `json:"renditions,omitempty"`
 	Poster     bool             `json:"poster,omitempty"`
 	Thumbnails *MediaThumbnails `json:"thumbnails,omitempty"`
+	// Images makes an image rule (default suffixes: the image formats the
+	// worker decodes): the variants of every image it selects. An image
+	// rule has no renditions, poster or thumbnails.
+	Images *MediaImages `json:"images,omitempty"`
+}
+
+// MediaImages configures the variants of an image rule.
+type MediaImages struct {
+	// Formats of the variants: avif, webp, jpeg, png (default all).
+	Formats []string `json:"formats,omitempty"`
+	// Widths of the variants in pixels, 16 to 8192 (default 160, 320,
+	// 640, 1280, 1920, 2560); those not smaller than the image are
+	// skipped, and each format also gets the image at its own size.
+	Widths []int `json:"widths,omitempty"`
 }
 
 // MediaThumbnails configures the timeline thumbnails of a rule.
@@ -167,7 +181,8 @@ type MediaThumbnails struct {
 	Interval string `json:"interval,omitempty"`
 }
 
-// MediaStatus is the processing state of a video by the media worker.
+// MediaStatus is the processing state of a video or an image by the
+// media worker.
 type MediaStatus struct {
 	// State is processing, done or failed; none when the worker never
 	// processed the version.
@@ -188,7 +203,27 @@ type MediaStatus struct {
 	Renditions []MediaRenditionOutput `json:"renditions,omitempty"`
 	Poster     bool                   `json:"poster,omitempty"`
 	Thumbnails *MediaThumbnailsOutput `json:"thumbnails,omitempty"`
-	Updated    *time.Time             `json:"updated,omitempty"`
+	// Images are the variants of an image (Width and Height are then the
+	// size of the image).
+	Images []MediaImageOutput `json:"images,omitempty"`
+	// Alpha reports an image with transparency.
+	Alpha   bool       `json:"alpha,omitempty"`
+	Updated *time.Time `json:"updated,omitempty"`
+}
+
+// MediaImageOutput is a variant of an image produced by the media worker.
+type MediaImageOutput struct {
+	Format string `json:"format"`
+	// Width is the width the rule asked for, 0 for the image at its own
+	// size; PixelWidth and PixelHeight are the size of the variant.
+	Width       int    `json:"width"`
+	PixelWidth  int    `json:"pixelWidth"`
+	PixelHeight int    `json:"pixelHeight"`
+	Size        int64  `json:"size"`
+	ContentType string `json:"contentType"`
+	// URL serves the variant: a path of the server
+	// (/api/v1/buckets/{bucket}/objects/image?key=...).
+	URL string `json:"url"`
 }
 
 // MediaRenditionOutput is a rendition produced by the media worker.

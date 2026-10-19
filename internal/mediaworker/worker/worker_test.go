@@ -1,9 +1,14 @@
 package worker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/color"
+	"image/jpeg"
+	"image/png"
 	"io"
 	"log/slog"
 	"net/http"
@@ -445,4 +450,189 @@ func TestStopKeepsTheJob(t *testing.T) {
 	item, ok = w.queue.next()
 	require.True(t, ok, "the job is still queued")
 	assert.Equal(t, 0, item.Attempts)
+}
+
+// photoJPEG returns a w x h JPEG of gradients, its EXIF orientation 6
+// (stored on its side, shown rotated 90° clockwise) when rotated.
+func photoJPEG(t *testing.T, w, h int, rotated bool) []byte {
+	t.Helper()
+	m := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := range h {
+		for x := range w {
+			m.SetRGBA(x, y, color.RGBA{uint8(x * 255 / w), uint8(y * 255 / h), 128, 255}) // #nosec G115 -- < 256
+		}
+	}
+	var b bytes.Buffer
+	require.NoError(t, jpeg.Encode(&b, m, &jpeg.Options{Quality: 90}))
+	data := b.Bytes()
+	if !rotated {
+		return data
+	}
+	// APP1 Exif: a big-endian TIFF whose IFD0 holds Orientation = 6.
+	exif := []byte("Exif\x00\x00MM\x00*\x00\x00\x00\x08\x00\x01\x01\x12\x00\x03\x00\x00\x00\x01\x00\x06\x00\x00\x00\x00\x00\x00")
+	seg := []byte{0xff, 0xe1, 0, byte(len(exif) + 2)}
+	return slices.Concat(data[:2], seg, exif, data[2:])
+}
+
+// runJob pushes a job and runs the worker until the queue is empty.
+func runJob(t *testing.T, w *Worker, job domain.MediaJob) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() { w.Run(ctx); close(done) }()
+	require.NoError(t, w.queue.push(job))
+	require.Eventually(t, func() bool { return w.queue.pending() == 0 }, 2*time.Minute, 10*time.Millisecond)
+	cancel()
+	<-done
+}
+
+func TestProcessImage(t *testing.T) {
+	for _, versioned := range []bool{false, true} {
+		t.Run(map[bool]string{false: "unversioned", true: "versioned"}[versioned], func(t *testing.T) {
+			s := newMemStore()
+			s.versioned = versioned
+			version := ""
+			if versioned {
+				s.version = "v1"
+				version = "v1"
+			}
+			photo := photoJPEG(t, 400, 300, true) // shown 300x400
+			require.NoError(t, s.Put(t.Context(), "b", "photos/p.jpg", photo, "image/jpeg"))
+			dir := domain.MediaSidecarDir("photos/p.jpg", version)
+			// Outputs of an earlier run the rule no longer produces, and
+			// one it produces again.
+			require.NoError(t, s.Put(t.Context(), "b", dir+"images/640.avif", []byte("stale"), "image/avif"))
+			require.NoError(t, s.Put(t.Context(), "b", dir+"images/160.webp", []byte("old"), "image/webp"))
+
+			w := newWorker(t, s, nil, "")
+			rule := &domain.MediaRule{ID: "img", Images: &domain.MediaImages{Formats: domain.MediaImageFormats(), Widths: []int{160, 320, 640}}}
+			runJob(t, w, domain.MediaJob{Action: domain.MediaJobProcess, Bucket: "b", Key: "photos/p.jpg", ETag: etagOf(photo), Rule: rule})
+
+			st := s.status(t, "b", dir)
+			require.Equal(t, domain.MediaStateDone, st.State, st.Error)
+			assert.Equal(t, "img", st.Rule)
+			assert.Empty(t, st.Step)
+			assert.Equal(t, etagOf(photo), st.ETag)
+			assert.Equal(t, 300, st.Width, "upright")
+			assert.Equal(t, 400, st.Height)
+			assert.False(t, st.Alpha, "an opaque photo")
+			assert.Empty(t, st.Renditions)
+
+			var want []string
+			var outputs []domain.MediaImageOutput
+			for _, f := range domain.MediaImageFormats() {
+				for _, size := range [][3]int{{160, 160, 213}, {0, 300, 400}} {
+					want = append(want, dir+domain.MediaImageFile(size[0], f))
+					outputs = append(outputs, domain.MediaImageOutput{Format: f, Width: size[0], PixelWidth: size[1], PixelHeight: size[2]})
+				}
+			}
+			require.Len(t, st.Images, len(outputs), "320 and 640 are not smaller than the image")
+			for i, o := range st.Images {
+				data, ok := s.get("b", dir+domain.MediaImageFile(o.Width, o.Format))
+				require.True(t, ok)
+				assert.Equal(t, int64(len(data)), o.Size)
+				o.Size = 0
+				assert.Equal(t, outputs[i], o)
+				assert.Equal(t, domain.MediaImageContentType(o.Format), s.types["b/"+dir+domain.MediaImageFile(o.Width, o.Format)])
+			}
+			jpg, _ := s.get("b", dir+"images/full.jpg")
+			cfg, err := jpeg.DecodeConfig(bytes.NewReader(jpg))
+			require.NoError(t, err)
+			assert.Equal(t, [2]int{300, 400}, [2]int{cfg.Width, cfg.Height})
+			assert.NotContains(t, string(jpg), "Exif", "no metadata of the source")
+
+			want = append(want, dir+domain.MediaStatusFile)
+			slices.Sort(want)
+			assert.Equal(t, want, s.keys("b", dir), "the stale outputs are removed")
+			assert.Equal(t, len(want), s.versions("b", dir), "only the latest version of each output is kept")
+
+			// The delete job of the version removes every variant.
+			require.NoError(t, w.run(t.Context(), domain.MediaJob{Action: domain.MediaJobDelete, Bucket: "b", Key: "photos/p.jpg", VersionID: version, Sidecar: dir}))
+			assert.Equal(t, 0, s.versions("b", domain.MediaSidecarPrefix))
+		})
+	}
+}
+
+// TestProcessImageAlpha: an image with transparent pixels is marked
+// alpha; one whose color model has alpha but every pixel opaque is not.
+func TestProcessImageAlpha(t *testing.T) {
+	encode := func(a uint8) []byte {
+		m := image.NewNRGBA(image.Rect(0, 0, 64, 48))
+		for i := range m.Pix {
+			m.Pix[i] = []uint8{200, 200, 200, 255}[i%4]
+		}
+		m.SetNRGBA(10, 10, color.NRGBA{200, 200, 200, a})
+		var b bytes.Buffer
+		require.NoError(t, png.Encode(&b, m))
+		return b.Bytes()
+	}
+	s := newMemStore()
+	require.NoError(t, s.Put(t.Context(), "b", "clear.png", encode(0), "image/png"))
+	require.NoError(t, s.Put(t.Context(), "b", "solid.png", encode(255), "image/png"))
+	w := newWorker(t, s, nil, "")
+	rule := &domain.MediaRule{ID: "img", Images: &domain.MediaImages{Formats: []string{"jpeg", "png"}, Widths: []int{32}}}
+	for key, alpha := range map[string]bool{"clear.png": true, "solid.png": false} {
+		require.NoError(t, w.run(t.Context(), domain.MediaJob{Action: domain.MediaJobProcess, Bucket: "b", Key: key, Rule: rule}))
+		st := s.status(t, "b", domain.MediaSidecarDir(key, ""))
+		require.Equal(t, domain.MediaStateDone, st.State, st.Error)
+		assert.Equal(t, alpha, st.Alpha, key)
+		assert.Len(t, st.Images, 4)
+	}
+}
+
+func TestProcessImageFailures(t *testing.T) {
+	rule := &domain.MediaRule{ID: "img", Images: &domain.MediaImages{Formats: []string{"jpeg"}, Widths: []int{160}}}
+	handle := func(t *testing.T, w *Worker, key string) {
+		t.Helper()
+		require.NoError(t, w.queue.push(domain.MediaJob{Action: domain.MediaJobProcess, Bucket: "b", Key: key, Rule: rule}))
+		item, ok := w.queue.next()
+		require.True(t, ok)
+		w.handle(t.Context(), item)
+		assert.Equal(t, 0, w.queue.pending(), "a permanent failure is not retried")
+	}
+
+	t.Run("unsupported", func(t *testing.T) {
+		s := newMemStore()
+		require.NoError(t, s.Put(t.Context(), "b", "a.png", []byte("not a png"), "image/png"))
+		w := newWorker(t, s, nil, "")
+		handle(t, w, "a.png")
+		st := s.status(t, "b", domain.MediaSidecarDir("a.png", ""))
+		assert.Equal(t, domain.MediaStateFailed, st.State)
+		assert.Contains(t, st.Error, "unsupported image")
+		assert.Equal(t, []string{".nexo-media/a.png/null/status.json"}, s.keys("b", domain.MediaSidecarPrefix))
+	})
+
+	t.Run("too many pixels", func(t *testing.T) {
+		s := newMemStore()
+		require.NoError(t, s.Put(t.Context(), "b", "big.jpg", photoJPEG(t, 400, 300, false), "image/jpeg"))
+		w := newWorker(t, s, nil, "")
+		w.cfg.ImageLimits.MaxPixels = 400*300 - 1
+		handle(t, w, "big.jpg")
+		st := s.status(t, "b", domain.MediaSidecarDir("big.jpg", ""))
+		assert.Equal(t, domain.MediaStateFailed, st.State)
+		assert.Contains(t, st.Error, "too large")
+	})
+
+	t.Run("file too large", func(t *testing.T) {
+		s := newMemStore()
+		require.NoError(t, s.Put(t.Context(), "b", "big.jpg", photoJPEG(t, 40, 30, false), "image/jpeg"))
+		w := newWorker(t, s, nil, "")
+		w.cfg.ImageLimits.MaxBytes = 100
+		handle(t, w, "big.jpg")
+		st := s.status(t, "b", domain.MediaSidecarDir("big.jpg", ""))
+		assert.Equal(t, domain.MediaStateFailed, st.State)
+		assert.Equal(t, "", st.Step, "refused before the download")
+		assert.Contains(t, st.Error, "too large")
+	})
+
+	t.Run("overwritten or gone", func(t *testing.T) {
+		s := newMemStore()
+		w := newWorker(t, s, nil, "")
+		job := domain.MediaJob{Action: domain.MediaJobProcess, Bucket: "b", Key: "p.jpg", Rule: rule}
+		require.NoError(t, w.run(t.Context(), job), "the image is gone")
+		require.NoError(t, s.Put(t.Context(), "b", "p.jpg", photoJPEG(t, 40, 30, false), "image/jpeg"))
+		job.ETag = `"old"`
+		require.NoError(t, w.run(t.Context(), job), "overwritten meanwhile")
+		assert.Empty(t, s.keys("b", domain.MediaSidecarPrefix), "nothing written")
+	})
 }

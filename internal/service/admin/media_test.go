@@ -57,6 +57,36 @@ func TestMediaSetValidatesEachRule(t *testing.T) {
 	assert.Contains(t, cerr.Problems[2].Message, "nothing to produce")
 }
 
+// TestMediaSetImageRules: the problems of the image rules name their
+// rule once, in the problem, not again in the message.
+func TestMediaSetImageRules(t *testing.T) {
+	mgr, buckets := newMediaManager(t, nil)
+	buckets.EXPECT().GetVersioning(mock.Anything, "bkt").Return(domain.VersioningOff, nil)
+	_, err := mgr.Set(context.Background(), "bkt", domain.MediaConfig{Rules: []domain.MediaRule{
+		{ID: "gif", Images: &domain.MediaImages{Formats: []string{"gif"}}},
+		{ID: "tiny", Images: &domain.MediaImages{Widths: []int{8}}},
+		{ID: "mixed", Poster: true, Images: &domain.MediaImages{}},
+	}})
+	var cerr *admin.ConfigError
+	require.ErrorAs(t, err, &cerr)
+	require.Len(t, cerr.Problems, 3)
+	assert.Equal(t, admin.RuleProblem{Rule: 1, ID: "gif", Code: "InvalidArgument",
+		Message: `unknown image format "gif" (one of avif, webp, jpeg, png)`}, cerr.Problems[0])
+	assert.Equal(t, "the image widths must be from 16 to 8192 pixels, not 8", cerr.Problems[1].Message)
+	assert.Equal(t, "an image rule has no renditions, poster or thumbnails", cerr.Problems[2].Message)
+	assert.Contains(t, err.Error(), `rule 1 (gif): unknown image format "gif"`)
+
+	stored := domain.MediaConfig{Rules: []domain.MediaRule{{ID: "pics", Suffixes: domain.DefaultImageSuffixes(),
+		Images: &domain.MediaImages{Formats: []string{"webp", "jpeg"}, Widths: []int{320, 640}}}}}
+	buckets.EXPECT().SetMedia(mock.Anything, "bkt", stored).Return(nil)
+	buckets.EXPECT().GetMedia(mock.Anything, "bkt").Return(stored, nil)
+	got, err := mgr.Set(context.Background(), "bkt", domain.MediaConfig{Rules: []domain.MediaRule{
+		{ID: "pics", Images: &domain.MediaImages{Formats: []string{"jpeg", "webp"}, Widths: []int{640, 320}}},
+	}})
+	require.NoError(t, err)
+	assert.Equal(t, &stored, got, "normalized")
+}
+
 func TestMediaSetStoresAndReturnsNormalized(t *testing.T) {
 	mgr, buckets := newMediaManager(t, nil)
 	in := domain.MediaConfig{Rules: []domain.MediaRule{{ID: "v", Renditions: []string{"480p", "720p"}}}}

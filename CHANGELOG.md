@@ -76,7 +76,7 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   page (`/nexo/media/player/`) and the playlist for any HLS player, and are revoked like any share. The video
   streams count against the request limits of the S3 API.
 - Media worker (`nexo-media-worker`, a separate binary and image): the media rules of a bucket (Admin API
-  `/buckets/{bucket}/media`, `nexoctl media`, the **Video** tab of the console) select videos by prefix and suffix;
+  `/buckets/{bucket}/media`, `nexoctl media`, the **Media** tab of the console) select videos by prefix and suffix;
   their jobs reach the worker through the persistent queue of the new `notify_media_worker` target, and the worker
   derives H.264/AAC renditions (presets 240p to 2160p, never taller than the source), a JPEG poster and a timeline
   thumbnail sprite with its WebVTT map. It uses OpenH264 (the Cisco build, downloaded and checksum-verified at the
@@ -87,6 +87,16 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
 - Video buckets in one step: the **HLS video** option of bucket creation (console switch, `nexoctl mb --with-hls`,
   `"hls": true` in `POST /buckets`; `nexoctl media rule add --hls` for an existing bucket) sets the media rule
   `hls`: every video gets every rendition from 240p to 2160p (up to its own height), a poster and thumbnails.
+- Images in every format and width: an image rule of a bucket (the **Images in every format** option of bucket
+  creation, `nexoctl mb --with-images`, `"images": true` in `POST /buckets`, `nexoctl media rule add --images`)
+  makes the media worker turn every uploaded image (JPEG, PNG, GIF, WebP, AVIF, HEIC, TIFF, BMP) into AVIF, WebP,
+  JPEG and PNG variants at its own size and at 160 to 2560 pixels wide, upright (EXIF orientation) and without
+  metadata. `/nexo/media/v1/{bucket}/image/{key}?w=` and the console route serve the narrowest variant wide
+  enough in the most compact format the client accepts (`Accept`, `Vary: Accept`; PNG rather than a flattened
+  JPEG for a transparent image), with conditional requests and ranges; `nexoctl share download --image` makes a
+  revocable link. Pure Go decoders and encoders (no cgo), encoded in parallel within a memory budget
+  (`--image-memory`, `--image-max-pixels`, `--image-max-bytes`); the scaler of the videos moved to
+  `internal/mediaworker/resample` and is shared.
 - Benchmarks of every step of the video pipeline (`make bench-media`, [docs/bench/media.md](docs/bench/media.md)):
   packager requests, OpenH264 decoding and encoding per size, scaling, renditions, poster and thumbnails. With
   them the scaler (weights computed once, buffers reused, vertical pass first, parallel bands) and the decoding

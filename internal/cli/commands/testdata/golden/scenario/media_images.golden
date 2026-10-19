@@ -1,0 +1,181 @@
+$ nexoctl mb --with-images mem/pictures
+Bucket created successfully `mem/pictures`, with image variants (media rule "images": every format at every width).
+
+$ nexoctl mb --with-hls --with-images mem/library
+Bucket created successfully `mem/library`, with HLS video (media rule "hls": every rendition, a poster and thumbnails), with image variants (media rule "images": every format at every width).
+
+$ nexoctl mb --ignore-existing --with-images --json mem/library
+{"status":"success","target":"mem/library","bucket":"library","images":true}
+
+$ nexoctl media get mem/library
+{
+  "rules": [
+    {
+      "id": "hls",
+      "suffixes": [
+        ".m4v",
+        ".mov",
+        ".mp4"
+      ],
+      "renditions": [
+        "2160p",
+        "1440p",
+        "1080p",
+        "720p",
+        "480p",
+        "360p",
+        "240p"
+      ],
+      "poster": true,
+      "thumbnails": {
+        "interval": "10s"
+      }
+    },
+    {
+      "id": "images",
+      "suffixes": [
+        ".avif",
+        ".bmp",
+        ".gif",
+        ".heic",
+        ".heif",
+        ".jpeg",
+        ".jpg",
+        ".png",
+        ".tif",
+        ".tiff",
+        ".webp"
+      ],
+      "images": {
+        "formats": [
+          "avif",
+          "webp",
+          "jpeg",
+          "png"
+        ],
+        "widths": [
+          160,
+          320,
+          640,
+          1280,
+          1920,
+          2560
+        ]
+      }
+    }
+  ]
+}
+
+$ nexoctl media rule add mem/photos --images
+Media rule "images" added to `mem/photos`.
+
+$ nexoctl media rule add mem/photos --images --id thumbs --prefix gallery/ --format JPG,webp --width 640 --width 160 --json
+{"status":"success","target":"mem/photos","bucket":"photos","id":"thumbs","prefix":"gallery/","suffixes":[".avif",".bmp",".gif",".heic",".heif",".jpeg",".jpg",".png",".tif",".tiff",".webp"],"images":{"formats":["webp","jpeg"],"widths":[160,640]}}
+
+$ nexoctl media get mem/photos
+{
+  "rules": [
+    {
+      "id": "images",
+      "suffixes": [
+        ".avif",
+        ".bmp",
+        ".gif",
+        ".heic",
+        ".heif",
+        ".jpeg",
+        ".jpg",
+        ".png",
+        ".tif",
+        ".tiff",
+        ".webp"
+      ],
+      "images": {
+        "formats": [
+          "avif",
+          "webp",
+          "jpeg",
+          "png"
+        ],
+        "widths": [
+          160,
+          320,
+          640,
+          1280,
+          1920,
+          2560
+        ]
+      }
+    },
+    {
+      "id": "thumbs",
+      "prefix": "gallery/",
+      "suffixes": [
+        ".avif",
+        ".bmp",
+        ".gif",
+        ".heic",
+        ".heif",
+        ".jpeg",
+        ".jpg",
+        ".png",
+        ".tif",
+        ".tiff",
+        ".webp"
+      ],
+      "images": {
+        "formats": [
+          "webp",
+          "jpeg"
+        ],
+        "widths": [
+          160,
+          640
+        ]
+      }
+    }
+  ]
+}
+
+$ nexoctl media status mem/photos/gallery/beach.jpg
+Image      : mem/photos/gallery/beach.jpg
+VersionID  : null
+State      : done (current)
+Rule       : thumbs
+Source     : 4000x3000
+Images     : webp: 160x120 3.9KiB, 640x480 40.0KiB, full 4000x3000 1.1MiB
+             jpeg: 160x120 5.9KiB, full 4000x3000 2.4MiB
+Updated    : 2026-01-02 03:04:06 UTC
+
+$ nexoctl media status --json mem/photos/gallery/beach.jpg
+{"status":"success","target":"mem/photos/gallery/beach.jpg","bucket":"photos","key":"gallery/beach.jpg","state":"done","current":true,"versionId":"null","rule":"thumbs","width":4000,"height":3000,"images":[{"format":"webp","width":640,"pixelWidth":640,"pixelHeight":480,"size":41000,"contentType":"image/webp","url":"/api/v1/buckets/photos/objects/image?format=webp&key=gallery%2Fbeach.jpg&w=640"},{"format":"webp","width":0,"pixelWidth":4000,"pixelHeight":3000,"size":1200000,"contentType":"image/webp","url":"/api/v1/buckets/photos/objects/image?format=webp&key=gallery%2Fbeach.jpg"},{"format":"webp","width":160,"pixelWidth":160,"pixelHeight":120,"size":4000,"contentType":"image/webp","url":"/api/v1/buckets/photos/objects/image?format=webp&key=gallery%2Fbeach.jpg&w=160"},{"format":"jpeg","width":160,"pixelWidth":160,"pixelHeight":120,"size":6000,"contentType":"image/jpeg","url":"/api/v1/buckets/photos/objects/image?format=jpeg&key=gallery%2Fbeach.jpg&w=160"},{"format":"jpeg","width":0,"pixelWidth":4000,"pixelHeight":3000,"size":2500000,"contentType":"image/jpeg","url":"/api/v1/buckets/photos/objects/image?format=jpeg&key=gallery%2Fbeach.jpg"}],"updated":"2026-01-02T03:04:06Z"}
+
+$ nexoctl media status mem/photos/gallery/new.png
+Image      : mem/photos/gallery/new.png
+State      : none (never processed)
+
+$ nexoctl media rule add mem/photos --images --format gif
+! nexoctl: error: invalid media configuration: media rule "images": unknown image format "gif" (one of avif, webp, jpeg, png)
+! Run 'nexoctl media rule add --help' for usage.
+[exit 2]
+
+$ nexoctl media rule add mem/photos --images --width 8
+! nexoctl: error: invalid media configuration: media rule "images": the image widths must be from 16 to 8192 pixels, not 8
+! Run 'nexoctl media rule add --help' for usage.
+[exit 2]
+
+$ nexoctl media rule add mem/photos --images --thumbnails 10s
+! nexoctl: error: invalid media configuration: media rule "images": an image rule has no renditions, poster or thumbnails
+! Run 'nexoctl media rule add --help' for usage.
+[exit 2]
+
+$ nexoctl media rule add mem/photos --id x --format webp
+! nexoctl: error: --format and --width apply to an image rule (--images)
+! Run 'nexoctl media rule add --help' for usage.
+[exit 2]
+
+$ nexoctl media rule add mem/photos --images --hls
+! nexoctl: error: --hls and --images are two rules: add them one at a time
+! Run 'nexoctl media rule add --help' for usage.
+[exit 2]
+

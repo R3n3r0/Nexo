@@ -160,6 +160,9 @@ type CreateBucketRequest struct {
 	// HLS sets the media rule "hls": every rendition, a poster and
 	// thumbnails for every video (needs a media worker).
 	HLS bool `json:"hls,omitempty"`
+	// Images sets the media rule "images": every format at every width
+	// for every image (needs a media worker).
+	Images bool `json:"images,omitempty"`
 }
 
 // VersioningResponse is the body of the versioning endpoints.
@@ -255,7 +258,7 @@ func (h *bucketRoutes) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b, err := h.deps.Manager.Create(r.Context(), adminsvc.CreateBucketInput{
-		Requester: requesterOf(r), Name: in.Name, Region: in.Region, Versioning: in.Versioning, ObjectLock: in.ObjectLock, QuotaBytes: in.QuotaBytes, HLS: in.HLS,
+		Requester: requesterOf(r), Name: in.Name, Region: in.Region, Versioning: in.Versioning, ObjectLock: in.ObjectLock, QuotaBytes: in.QuotaBytes, HLS: in.HLS, Images: in.Images,
 	})
 	if err != nil {
 		h.fail(w, r, err)

@@ -1,6 +1,6 @@
 # nexoctl media rule
 
-Add or remove one video rule of a bucket
+Add or remove one media rule of a bucket
 
 ```
 nexoctl media rule [flags]
@@ -24,7 +24,7 @@ nexoctl media rule [flags]
 
 ## SEE ALSO
 
-* [nexoctl media](nexoctl_media.md)	 - Manage the video rules of buckets and the media worker (Admin API)
-* [nexoctl media rule add](nexoctl_media_rule_add.md)	 - Add a video rule to a bucket, or replace the rule with the same ID
-* [nexoctl media rule remove](nexoctl_media_rule_remove.md)	 - Remove a video rule of a bucket
+* [nexoctl media](nexoctl_media.md)	 - Manage the video and image rules of buckets and the media worker (Admin API)
+* [nexoctl media rule add](nexoctl_media_rule_add.md)	 - Add a video or image rule to a bucket, or replace the rule with the same ID
+* [nexoctl media rule remove](nexoctl_media_rule_remove.md)	 - Remove a media rule of a bucket
 

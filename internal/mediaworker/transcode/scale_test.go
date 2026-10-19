@@ -111,3 +111,5 @@ func requireClose(t *testing.T, want, got []byte, c [4]int) {
 		}
 	}
 }
+
+func clampIdx(i, n int) int { return max(0, min(i, n-1)) }

@@ -212,6 +212,8 @@
     "objectLockHint": "Protegge le versioni dalla cancellazione (attiva il versioning; non si può disattivare).",
     "hls": "Video HLS",
     "hlsHint": "Ogni video caricato nel bucket riceve tutte le qualità da 240p a 4K, un poster e le miniature della timeline (regola media \"hls\", prodotte dal media worker).",
+    "images": "Immagini in ogni formato",
+    "imagesHint": "Ogni immagine caricata nel bucket riceve le varianti AVIF, WebP, JPEG e PNG larghe da 160 a 2560 pixel, servite nel formato migliore per chi le guarda (regola media \"images\", prodotte dal media worker).",
     "quota": "Quota",
     "quotaHint": "Limite rigido; lascia vuoto per nessuna quota.",
     "quotaUnit": "Unità della quota",
@@ -234,7 +236,7 @@
       "access": "Accesso",
       "lifecycle": "Ciclo di vita",
       "events": "Eventi",
-      "media": "Video",
+      "media": "Media",
       "rules": "Regole di accesso"
     },
     "summary": "{{size}} · {{objects}} oggetti",
@@ -443,7 +445,7 @@
       "preview": "Anteprima",
       "tags": "Tag",
       "versions": "Versioni",
-      "media": "Video",
+      "media": "Media",
       "lock": "Object lock",
       "attributes": "Attributi"
     },
@@ -1067,6 +1069,10 @@
     "stream": {
       "label": "Condividi come video",
       "hint": "Un link a un player che trasmette il video (HLS), con avanzamento libero, invece del file."
+    },
+    "image": {
+      "label": "Link immagine (formato migliore per chi la guarda)",
+      "hint": "Serve l'immagine nel formato più compatto accettato da ogni browser (AVIF, WebP, JPEG o PNG), dalle varianti prodotte dal media worker, invece del file."
     },
     "raw": {
       "label": "Link presigned grezzo",

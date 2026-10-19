@@ -1,4 +1,4 @@
-Print the video rules of a bucket (JSON)
+Print the media rules of a bucket (JSON)
 
 Usage:
   nexoctl media get ALIAS/BUCKET [flags]

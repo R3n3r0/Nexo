@@ -1686,16 +1686,16 @@
     "infoUnavailable": "The state of the server needs admin:ServerInfo."
   },
   "bucketMedia": {
-    "title": "Video rules",
-    "description": "The media worker processes the videos these rules select: lower-quality renditions for adaptive streaming, a poster frame and timeline thumbnails. Streaming the original needs no rule.",
+    "title": "Media rules",
+    "description": "The media worker processes the videos and images these rules select: for videos, lower-quality renditions for adaptive streaming, a poster frame and timeline thumbnails; for images, variants in every format and width. Streaming the original video needs no rule.",
     "add": "Add rule",
-    "addTitle": "New video rule",
-    "editTitle": "Edit the video rule",
-    "empty": "No rule: the videos of this bucket are streamed as uploaded.",
-    "rules": "Video rules",
+    "addTitle": "New media rule",
+    "editTitle": "Edit the media rule",
+    "empty": "No rule: the videos and images of this bucket are served as uploaded.",
+    "rules": "Media rules",
     "columns": {
       "id": "Rule",
-      "objects": "Videos",
+      "objects": "Objects",
       "outputs": "Outputs"
     },
     "id": "Rule ID",
@@ -1716,15 +1716,15 @@
     "thumbnailsBadge": "Thumbnails every {{interval}}",
     "prefixIs": "Prefix {{prefix}}",
     "wholeBucket": "Whole bucket",
-    "firstMatch": "The first rule selecting a video applies. The outputs are stored under .nexo-media/ in the bucket.",
+    "firstMatch": "The first rule selecting an object applies. The outputs are stored under .nexo-media/ in the bucket.",
     "save": "Save rule",
-    "saved": "Video rules saved.",
+    "saved": "Media rules saved.",
     "edit": "Edit rule {{id}}",
     "remove": "Delete rule {{id}}",
-    "deleteTitle": "Delete the video rule",
-    "deleteConfirm": "Delete the video rule {{id}}? The outputs already produced are kept.",
+    "deleteTitle": "Delete the media rule",
+    "deleteConfirm": "Delete the media rule {{id}}? The outputs already produced are kept.",
     "serverRefused": "The server refused the rule",
-    "unavailable": "You may not read the video rules of this bucket (admin:GetBucketMedia).",
+    "unavailable": "You may not read the media rules of this bucket (admin:GetBucketMedia).",
     "issues": {
       "id": "1-64 letters, digits, “.”, “_” or “-”.",
       "idDuplicate": "Another rule has this ID.",
@@ -1732,8 +1732,22 @@
       "prefixReserved": "The prefix .nexo-media/ is reserved for the outputs.",
       "suffix": "Each suffix must have 1-32 characters.",
       "interval": "A duration from 1s to 10m, such as 10s.",
-      "nothing": "Choose at least one output: renditions, poster or thumbnails."
-    }
+      "nothing": "Choose at least one output: renditions, poster or thumbnails.",
+      "imageVideoOutputs": "An image rule has no renditions, poster or thumbnails.",
+      "imageFormat": "Unknown format: choose among AVIF, WebP, JPEG and PNG.",
+      "imageWidth": "Each width must be a whole number of pixels from 16 to 8192.",
+      "imageWidths": "At most 16 widths."
+    },
+    "kind": "Kind of rule",
+    "kinds": {
+      "video": "Video",
+      "images": "Images"
+    },
+    "formats": "Formats",
+    "formatsHint": "The formats of the variants; all of them when empty. Image links serve the most compact one each browser accepts.",
+    "widths": "Widths",
+    "widthsHint": "Pixel widths from 16 to 8192, at most 16; {{widths}} when empty. Widths not smaller than the image are skipped, and every format also gets the image at its own size. Press Enter after each one.",
+    "widthsBadge": "{{widths}} px"
   },
   "objectMedia": {
     "state": {
@@ -1742,9 +1756,9 @@
       "done": "Processed",
       "failed": "Failed"
     },
-    "none": "The media worker has not processed this video: no rule selected it, or it is queued.",
+    "none": "The media worker has not processed this object: no rule selected it, or it is queued.",
     "stale": "Outdated",
-    "staleHint": "The outputs derive from an older content of this object: they are not used until the video is processed again.",
+    "staleHint": "The outputs derive from an older content of this object: they are not used until it is processed again.",
     "rule": "Rule {{rule}}",
     "step": "Step: {{step}}",
     "failed": "The processing failed",
@@ -1760,6 +1774,24 @@
     "poster": "Poster",
     "posterAlt": "Poster of {{name}}",
     "reprocess": "Reprocess",
-    "queued": "The video is queued for processing."
+    "queued": "The object is queued for processing.",
+    "imageSource": "Image {{width}}×{{height}}",
+    "alpha": "Transparency",
+    "alphaHint": "The image has transparency: its JPEG variants are flattened, so browsers that take neither AVIF nor WebP get PNG.",
+    "variants": "Variants",
+    "variantColumns": {
+      "format": "Format",
+      "width": "Width asked",
+      "resolution": "Size",
+      "size": "File size"
+    },
+    "ownSize": "Own size",
+    "widthPx": "{{width}} px",
+    "preview": "Preview",
+    "previewVariant": "Preview the {{format}} variant {{resolution}}",
+    "openVariant": "Open the {{format}} variant {{resolution}}",
+    "copyVariant": "Copy the URL of the {{format}} variant {{resolution}}",
+    "variantAlt": "{{format}} variant of {{name}}, {{resolution}}",
+    "variantsHint": "These URLs need a console session: to give the image to others, share it with an image link."
   }
 }

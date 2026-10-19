@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/jpeg"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -113,6 +116,106 @@ func TestVideoStreamShare(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, resp.StatusCode, "%s", resp.Body)
 	assert.Equal(t, http.StatusForbidden, anonymous(master).StatusCode)
 	assert.Equal(t, http.StatusForbidden, anonymous(media).StatusCode)
+}
+
+// TestImageVariants: the variants of an image the media worker wrote in
+// the sidecar directory (written here as the worker would) are served by
+// the console and, through an image share, by the S3 listener: the format
+// the client accepts, the width it asks for, conditional requests, and
+// only while they derive from the current content of the image.
+func TestImageVariants(t *testing.T) {
+	e := newEnv(t)
+	root := e.consoleLogin(e.rootCreds())
+	resp := root.do(http.MethodPost, "/buckets", `{"name":"pics","images":true}`)
+	require.Equal(t, http.StatusCreated, resp.StatusCode, "%s", resp.Body)
+	resp = root.do(http.MethodGet, "/buckets/pics/media", "")
+	require.Equal(t, http.StatusOK, resp.StatusCode, "%s", resp.Body)
+	assert.Contains(t, string(resp.Body), `"id":"images"`)
+
+	etag := e.put("pics", "summer/beach.jpg", []byte("a photo"))
+	dir := domain.MediaSidecarDir("summer/beach.jpg", "")
+	var variants []domain.MediaImageOutput
+	for _, f := range []string{"avif", "webp", "jpeg"} {
+		for _, w := range []int{320, 0} {
+			name := domain.MediaImageFile(w, f)
+			e.put("pics", dir+name, []byte(name))
+			pw := 1000
+			if w > 0 {
+				pw = w
+			}
+			variants = append(variants, domain.MediaImageOutput{Format: f, Width: w, PixelWidth: pw, PixelHeight: pw * 3 / 4, Size: int64(len(name))})
+		}
+	}
+	status, err := json.Marshal(domain.MediaStatus{State: domain.MediaStateDone, Rule: "images", ETag: etag, Width: 1000, Height: 750,
+		Images: variants, Updated: time.Now()})
+	require.NoError(t, err)
+	e.put("pics", dir+domain.MediaStatusFile, status)
+
+	get := func(c *console, path string, hdr http.Header) response {
+		t.Helper()
+		return c.doRaw(http.MethodGet, path, nil, hdr)
+	}
+	const image = "/buckets/pics/objects/image?key=summer%2Fbeach.jpg"
+	for _, tc := range []struct{ query, accept, body, contentType string }{
+		{"", "image/avif,image/webp,*/*", "images/full.avif", "image/avif"},
+		{"", "image/webp,*/*", "images/full.webp", "image/webp"},
+		{"&w=200", "*/*", "images/320.jpg", "image/jpeg"},
+		{"&w=600", "image/webp", "images/full.webp", "image/webp"},
+		{"&format=jpeg&w=320", "image/avif", "images/320.jpg", "image/jpeg"},
+	} {
+		resp := get(root, image+tc.query, http.Header{"Accept": {tc.accept}})
+		require.Equal(t, http.StatusOK, resp.StatusCode, "%s %s: %s", tc.query, tc.accept, resp.Body)
+		assert.Equal(t, tc.body, string(resp.Body), "%s %s", tc.query, tc.accept)
+		assert.Equal(t, tc.contentType, resp.Header.Get("Content-Type"))
+		if tc.accept == "*/*" {
+			resp = get(root, image+tc.query, http.Header{"Accept": {tc.accept}, "If-None-Match": {resp.Header.Get("ETag")}})
+			assert.Equal(t, http.StatusNotModified, resp.StatusCode, "the ETag names the variant")
+		}
+	}
+	resp = get(root, image+"&format=png", nil)
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode, "a format the worker did not produce")
+	resp = root.do(http.MethodGet, "/buckets/pics/objects/media/status?key=summer%2Fbeach.jpg", "")
+	require.Equal(t, http.StatusOK, resp.StatusCode, "%s", resp.Body)
+	assert.Contains(t, string(resp.Body), `"url":"/api/v1/buckets/pics/objects/image?format=webp\u0026key=summer%2Fbeach.jpg\u0026w=320"`)
+
+	// A user without s3:GetObject.
+	frank := e.consoleLogin(e.createUser("frank", "frank-secret-1", "diagnostics"))
+	assert.Equal(t, http.StatusForbidden, get(frank, image, nil).StatusCode)
+
+	// An image share: the S3 listener, anonymous, the key in the path.
+	resp = root.do(http.MethodPost, "/buckets/pics/objects/share", `{"key":"summer/beach.jpg","image":true,"expiresIn":3600}`)
+	require.Equal(t, http.StatusCreated, resp.StatusCode, "%s", resp.Body)
+	var sh struct {
+		ID    string `json:"id"`
+		URL   string `json:"url"`
+		Image bool   `json:"image"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Body, &sh))
+	assert.True(t, sh.Image)
+	link := mustParse(t, sh.URL)
+	assert.Equal(t, "/nexo/media/v1/pics/image/summer/beach.jpg", link.Path)
+	anonymous := func(u *url.URL, accept string) response {
+		req := newRequest(t, http.MethodGet, u.String(), nil)
+		req.Header.Set("Accept", accept)
+		return do(t, req)
+	}
+	resp = anonymous(link, "image/webp,*/*")
+	require.Equal(t, http.StatusOK, resp.StatusCode, "%s", resp.Body)
+	assert.Equal(t, "images/full.webp", string(resp.Body))
+	assert.Equal(t, "Accept", resp.Header.Get("Vary"))
+	other := *link
+	other.Path = "/nexo/media/v1/pics/image/summer/other.jpg"
+	assert.Equal(t, http.StatusForbidden, anonymous(&other, "*/*").StatusCode, "the signature covers the key")
+
+	// A new content: the variants no longer apply.
+	e.put("pics", "summer/beach.jpg", []byte("another photo"))
+	assert.Equal(t, http.StatusNotFound, get(root, image, nil).StatusCode)
+	assert.Equal(t, http.StatusNotFound, anonymous(link, "*/*").StatusCode)
+
+	// Revoked, the link is denied.
+	resp = root.do(http.MethodDelete, "/shares/"+sh.ID, "")
+	require.Equal(t, http.StatusNoContent, resp.StatusCode, "%s", resp.Body)
+	assert.Equal(t, http.StatusForbidden, anonymous(link, "*/*").StatusCode)
 }
 
 // playHLS plays an HLS presentation with get: the master playlist and its
@@ -367,4 +470,51 @@ func TestMediaWorker(t *testing.T) {
 	master = get(mustParse(t, e.srv.ConsoleURL+"/api/v1/buckets/films/objects/hls/master.m3u8?key=trailer.mp4"))
 	require.Equal(t, http.StatusOK, master.StatusCode)
 	assert.Equal(t, 3, strings.Count(string(master.Body), "#EXT-X-STREAM-INF"), "the source and two renditions: %s", master.Body)
+
+	// A bucket created with the images option: the worker derives every
+	// format at every width up to the image's own, and the server serves the
+	// best one the client accepts.
+	resp = root.do(http.MethodPost, "/buckets", `{"name":"photos","images":true}`)
+	require.Equal(t, http.StatusCreated, resp.StatusCode, "%s", resp.Body)
+	photo := image.NewRGBA(image.Rect(0, 0, 800, 600))
+	for y := range 600 {
+		for x := range 800 {
+			photo.Set(x, y, color.RGBA{R: uint8(x * 255 / 800), G: uint8(y * 255 / 600), B: 128, A: 255}) // #nosec G115 -- bounded
+		}
+	}
+	var photoJPEG bytes.Buffer
+	require.NoError(t, jpeg.Encode(&photoJPEG, photo, &jpeg.Options{Quality: 90}))
+	e.put("photos", "trips/sea.jpg", photoJPEG.Bytes())
+	var imgStatus domain.MediaStatus
+	require.Eventually(t, func() bool {
+		resp := root.do(http.MethodGet, "/buckets/photos/objects/media/status?key=trips%2Fsea.jpg", "")
+		if resp.StatusCode != http.StatusOK || json.Unmarshal(resp.Body, &imgStatus) != nil {
+			return false
+		}
+		require.NotEqual(t, domain.MediaStateFailed, imgStatus.State, imgStatus.Error)
+		return imgStatus.State == domain.MediaStateDone
+	}, 2*time.Minute, 100*time.Millisecond, "the worker processes the image")
+	assert.Equal(t, 800, imgStatus.Width)
+	assert.False(t, imgStatus.Alpha)
+	perFormat := map[string][]int{}
+	for _, v := range imgStatus.Images {
+		perFormat[v.Format] = append(perFormat[v.Format], v.Width)
+	}
+	for _, f := range domain.MediaImageFormats() {
+		assert.ElementsMatch(t, []int{0, 160, 320, 640}, perFormat[f], "%s: the widths below 800 and the own size", f)
+	}
+	for accept, want := range map[string]string{
+		"image/avif,image/webp,*/*": "image/avif",
+		"image/webp,*/*":            "image/webp",
+		"*/*":                       "image/jpeg",
+	} {
+		r := root.doRaw(http.MethodGet, "/buckets/photos/objects/image?key=trips%2Fsea.jpg&w=300", nil, http.Header{"Accept": {accept}})
+		require.Equal(t, http.StatusOK, r.StatusCode, "%s", r.Body)
+		assert.Equal(t, want, r.Header.Get("Content-Type"), accept)
+		if want == "image/jpeg" {
+			cfg, err := jpeg.DecodeConfig(bytes.NewReader(r.Body))
+			require.NoError(t, err)
+			assert.Equal(t, 320, cfg.Width, "the narrowest variant at least 300 wide")
+		}
+	}
 }

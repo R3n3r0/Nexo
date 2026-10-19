@@ -43,7 +43,7 @@ func managedRecord(alias string, sh *nexoadmin.Share) managedShareRecord {
 		Alias: alias, ID: sh.ID, Target: cli.JoinRemote(alias, sh.Bucket, sh.Key), Owner: sh.Owner, Bucket: sh.Bucket,
 		Key: sh.Key, Prefix: sh.Prefix, Permission: sh.Permission, Managed: true, URL: sh.URL, VersionID: sh.VersionID,
 		ExpiresAt: sh.ExpiresAt.UTC(), CreatedAt: timePtr(sh.CreatedAt), AccessKey: sh.AccessKey,
-		Stream: sh.Stream, Player: playerURL(sh),
+		Stream: sh.Stream, Player: playerURL(sh), Image: sh.Image,
 	}
 }
 

@@ -41,6 +41,7 @@ function services(options: Parameters<typeof createMockServices>[0] = {}) {
     objects: {
       media: [
         { key: 'videos/intro.mp4', contentType: 'video/mp4', size: 10 },
+        { key: 'photos/beach.png', contentType: 'image/png', size: 10 },
         { key: 'notes.txt', contentType: 'text/plain', content: 'x' },
       ],
     },
@@ -55,7 +56,7 @@ async function openVideoTab(svc: ReturnType<typeof services>) {
   });
   const drawer = await screen.findByRole('dialog', { name: 'intro.mp4' });
   const user = userEvent.setup();
-  await user.click(await within(drawer).findByRole('tab', { name: 'Video' }));
+  await user.click(await within(drawer).findByRole('tab', { name: 'Media' }));
   return { drawer, user };
 }
 
@@ -116,7 +117,7 @@ describe('ObjectMediaPanel', () => {
     expect(within(drawer).getByText('12 timeline thumbnails, every 10 s')).toBeInTheDocument();
   });
 
-  it('offers the video tab for videos only', async () => {
+  it('offers the media tab for videos and images only', async () => {
     renderRoutes(routes, {
       initialEntries: ['/buckets/media/browse/?object=notes.txt'],
       services: services(),
@@ -125,6 +126,105 @@ describe('ObjectMediaPanel', () => {
     await waitFor(() => {
       expect(within(drawer).getByRole('tab', { name: 'Preview' })).toBeInTheDocument();
     });
-    expect(within(drawer).queryByRole('tab', { name: 'Video' })).toBeNull();
+    expect(within(drawer).queryByRole('tab', { name: 'Media' })).toBeNull();
+  });
+
+  it('shows the variants of a processed image, with a preview and their URLs', async () => {
+    const svc = services();
+    await svc.media.set('media', {
+      rules: [{ id: 'photos', images: { formats: ['webp', 'jpeg'], widths: [320, 640, 4096] } }],
+    });
+    renderRoutes(routes, {
+      initialEntries: ['/buckets/media/browse/?object=photos%2Fbeach.png'],
+      services: svc,
+    });
+    const drawer = await screen.findByRole('dialog', { name: 'beach.png' });
+    const user = userEvent.setup();
+    await user.click(await within(drawer).findByRole('tab', { name: 'Media' }));
+    expect(await within(drawer).findByText('Not processed')).toBeInTheDocument();
+    await user.click(within(drawer).getByRole('button', { name: 'Reprocess' }));
+    expect(await within(drawer).findByText('Processed')).toBeInTheDocument();
+    expect(within(drawer).getByText('Image 1600×1200')).toBeInTheDocument();
+    expect(within(drawer).getByText('Transparency')).toBeInTheDocument();
+
+    // WebP then JPEG, each at 320 and 640 pixels and at its own size (the
+    // 4096 width is wider than the image).
+    const table = within(drawer).getByRole('table', { name: 'Variants' });
+    const rows = within(table).getAllByRole('row').slice(1);
+    expect(rows.map((r) => r.textContent)).toEqual([
+      expect.stringMatching(/^WebP320 px320×240/),
+      expect.stringMatching(/^WebP640 px640×480/),
+      expect.stringMatching(/^WebPOwn size1600×1200/),
+      expect.stringMatching(/^JPEG320 px320×240/),
+      expect.stringMatching(/^JPEG640 px640×480/),
+      expect.stringMatching(/^JPEGOwn size1600×1200/),
+    ]);
+    expect(within(table).getByText('7.5 KiB')).toBeInTheDocument();
+
+    // The WebP variant at most 640 pixels wide is previewed first.
+    const preview = within(drawer).getByRole('img', { name: 'WebP variant of beach.png, 640×480' });
+    expect(preview).toHaveAttribute(
+      'src',
+      '/api/v1/buckets/media/objects/image?format=webp&key=photos%2Fbeach.png&w=640',
+    );
+    await user.click(
+      within(table).getByRole('button', { name: 'Preview the JPEG variant 1600×1200' }),
+    );
+    expect(
+      within(drawer).getByRole('img', { name: 'JPEG variant of beach.png, 1600×1200' }),
+    ).toHaveAttribute(
+      'src',
+      '/api/v1/buckets/media/objects/image?format=jpeg&key=photos%2Fbeach.png',
+    );
+    expect(
+      within(table).getByRole('link', { name: 'Open the JPEG variant 320×240' }),
+    ).toHaveAttribute(
+      'href',
+      '/api/v1/buckets/media/objects/image?format=jpeg&key=photos%2Fbeach.png&w=320',
+    );
+    await user.click(
+      within(table).getByRole('button', { name: 'Copy the URL of the WebP variant 320×240' }),
+    );
+    await waitFor(async () => {
+      expect(await navigator.clipboard.readText()).toBe(
+        new URL(
+          '/api/v1/buckets/media/objects/image?format=webp&key=photos%2Fbeach.png&w=320',
+          window.location.href,
+        ).href,
+      );
+    });
+  });
+
+  it('shows stale image variants without serving them', async () => {
+    const svc = services();
+    vi.spyOn(svc.media, 'status').mockResolvedValue({
+      state: 'done',
+      current: false,
+      width: 800,
+      height: 600,
+      images: [
+        {
+          format: 'avif',
+          width: 0,
+          pixelWidth: 800,
+          pixelHeight: 600,
+          size: 20_000,
+          contentType: 'image/avif',
+          url: '/api/v1/buckets/media/objects/image?format=avif&key=photos%2Fbeach.png',
+        },
+      ],
+    });
+    renderRoutes(routes, {
+      initialEntries: ['/buckets/media/browse/?object=photos%2Fbeach.png'],
+      services: svc,
+    });
+    const drawer = await screen.findByRole('dialog', { name: 'beach.png' });
+    const user = userEvent.setup();
+    await user.click(await within(drawer).findByRole('tab', { name: 'Media' }));
+    const table = await within(drawer).findByRole('table', { name: 'Variants' });
+    expect(within(table).getByText('AVIF')).toBeInTheDocument();
+    expect(within(drawer).getByText('Outdated')).toBeInTheDocument();
+    expect(within(drawer).queryByRole('img')).toBeNull();
+    expect(within(table).queryByRole('link')).toBeNull();
   });
 });

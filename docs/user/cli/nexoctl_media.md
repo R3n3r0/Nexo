@@ -1,10 +1,11 @@
 # nexoctl media
 
-Manage the video rules of buckets and the media worker (Admin API)
+Manage the video and image rules of buckets and the media worker (Admin API)
 
 ## Synopsis
 
-Manage the video rules of buckets and follow the work of the media worker.
+Manage the video and image rules of buckets and follow the work of the media
+worker.
 
 The rules select videos by key prefix and suffix (default .mp4, .mov and .m4v,
 matched without case); the first rule that selects a key applies. For each new
@@ -17,10 +18,20 @@ ls, find and tree hide it unless --media is given (mirror and cp copy it, so
 that the backups keep it). The worker receives its jobs from the notification
 target notify\_media\_worker of the server.
 
+An image rule ("images": {"formats": [...], "widths": [...]}) selects images
+instead, by default the suffixes
+.avif, .bmp, .gif, .heic, .heif, .jpeg, .jpg, .png, .tif, .tiff, .webp:
+the worker derives from each one a variant in every format (AVIF, WebP, JPEG,
+PNG) at every width smaller than the image, and the image at its own size in
+every format. The server serves the variant a client asks for, in the most
+compact format it accepts ("nexoctl share download --image", the Admin API
+and the S3 listener).
+
 The configuration is the JSON document of the Admin API and of the console
 ({"rules": [{"id": "videos", "prefix": "videos/", "renditions": ["720p"],
-"poster": true, "thumbnails": {"interval": "10s"}}]}), the form of "media get".
-Streaming a video (HLS packaged on the fly) needs no rule.
+"poster": true, "thumbnails": {"interval": "10s"}}, {"id": "images",
+"images": {"formats": ["webp", "jpeg"], "widths": [320, 640]}}]}), the form of
+"media get". Streaming a video (HLS packaged on the fly) needs no rule.
 
 ```
 nexoctl media [flags]
@@ -45,10 +56,10 @@ nexoctl media [flags]
 ## SEE ALSO
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
-* [nexoctl media get](nexoctl_media_get.md)	 - Print the video rules of a bucket (JSON)
-* [nexoctl media remove](nexoctl_media_remove.md)	 - Remove the video rules of a bucket
-* [nexoctl media reprocess](nexoctl_media_reprocess.md)	 - Queue the processing of a video again
-* [nexoctl media rule](nexoctl_media_rule.md)	 - Add or remove one video rule of a bucket
-* [nexoctl media set](nexoctl_media_set.md)	 - Replace the video rules of a bucket (JSON)
-* [nexoctl media status](nexoctl_media_status.md)	 - Show the processing state of a video by the media worker
+* [nexoctl media get](nexoctl_media_get.md)	 - Print the media rules of a bucket (JSON)
+* [nexoctl media remove](nexoctl_media_remove.md)	 - Remove the media rules of a bucket
+* [nexoctl media reprocess](nexoctl_media_reprocess.md)	 - Queue the processing of a video or an image again
+* [nexoctl media rule](nexoctl_media_rule.md)	 - Add or remove one media rule of a bucket
+* [nexoctl media set](nexoctl_media_set.md)	 - Replace the media rules of a bucket (JSON)
+* [nexoctl media status](nexoctl_media_status.md)	 - Show the processing state of a video or an image by the media worker
 

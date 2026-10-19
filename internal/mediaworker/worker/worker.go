@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/mediaworker/imaging"
 	"github.com/r3n3r0/nexo/internal/mediaworker/openh264"
 )
 
@@ -43,6 +44,13 @@ type Config struct {
 	Backoff time.Duration
 	// Name identifies the worker in status.json (default the host name).
 	Name string
+	// ImageLimits bound the images the worker decodes (default
+	// imaging.DefaultMaxBytes and imaging.DefaultMaxPixels): a larger one
+	// fails for good.
+	ImageLimits imaging.Limits
+	// ImageMemory bounds the memory of the image variants encoded at once
+	// (default imaging.DefaultMemoryBudget; see imaging.EncodeMemory).
+	ImageMemory int64
 }
 
 // Worker receives and processes the media jobs.
@@ -75,6 +83,7 @@ func New(cfg Config, store Store, lib *openh264.Library, logger *slog.Logger) (*
 	if cfg.Name == "" {
 		cfg.Name, _ = os.Hostname()
 	}
+	cfg.ImageLimits = cfg.ImageLimits.WithDefaults()
 	if logger == nil {
 		logger = slog.Default()
 	}

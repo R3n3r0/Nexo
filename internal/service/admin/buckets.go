@@ -196,7 +196,7 @@ func (m *bucketManager) Create(ctx context.Context, in CreateBucketInput) (*Buck
 	if in.QuotaBytes > 0 {
 		actions = append(actions, policy.ActionAdminSetBucketQuota)
 	}
-	if in.HLS {
+	if in.HLS || in.Images {
 		actions = append(actions, policy.ActionAdminSetBucketMedia)
 	}
 	if err := authorizeAll(ctx, m.deps.Authz, in.Requester, in.Name, "", actions...); err != nil {
@@ -231,9 +231,9 @@ func (m *bucketManager) applySettings(ctx context.Context, in CreateBucketInput)
 			return fmt.Errorf("admin: quota of %s: %w", in.Name, err)
 		}
 	}
-	if in.HLS {
-		if err := m.deps.Buckets.SetMedia(ctx, in.Name, domain.MediaConfig{Rules: []domain.MediaRule{domain.HLSMediaRule()}}); err != nil {
-			return fmt.Errorf("admin: media rule of %s: %w", in.Name, err)
+	if rules := createMediaRules(in); len(rules) > 0 {
+		if err := m.deps.Buckets.SetMedia(ctx, in.Name, domain.MediaConfig{Rules: rules}); err != nil {
+			return fmt.Errorf("admin: media rules of %s: %w", in.Name, err)
 		}
 	}
 	return nil
@@ -419,4 +419,17 @@ func (m *bucketManager) ObjectLock(ctx context.Context, name string) (bucket.Obj
 		return bucket.ObjectLockConfig{}, nil
 	}
 	return cfg, err
+}
+
+// createMediaRules returns the media rules of the options of a bucket
+// creation: "hls" for HLS, "images" for Images.
+func createMediaRules(in CreateBucketInput) []domain.MediaRule {
+	var rules []domain.MediaRule
+	if in.HLS {
+		rules = append(rules, domain.HLSMediaRule())
+	}
+	if in.Images {
+		rules = append(rules, domain.ImagesMediaRule())
+	}
+	return rules
 }

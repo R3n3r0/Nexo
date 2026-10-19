@@ -63,21 +63,6 @@ func TestOpenUnsupported(t *testing.T) {
 	assert.ErrorIs(t, err, ErrUnsupported)
 }
 
-func TestTaps(t *testing.T) {
-	for _, c := range [][2]int{{1920, 640}, {360, 240}, {100, 100}, {90, 160}, {7, 3}} {
-		tp := newTaps(c[0], c[1])
-		require.Len(t, tp.off, c[1]+1)
-		for i := range c[1] {
-			var sum int32
-			for k := tp.off[i]; k < tp.off[i+1]; k++ {
-				sum += tp.wt[k]
-				assert.True(t, tp.idx[k] >= 0 && int(tp.idx[k]) < c[0])
-			}
-			assert.Equal(t, int32(65536), sum, "%v output %d", c, i)
-		}
-	}
-}
-
 func TestScaleKeepsFlatColor(t *testing.T) {
 	src := image.NewYCbCr(image.Rect(0, 0, 640, 360), image.YCbCrSubsampleRatio420)
 	for i := range src.Y {

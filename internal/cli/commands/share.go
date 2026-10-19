@@ -52,7 +52,7 @@ func shareModeFlags(cmd *cobra.Command) {
 func newShareDownloadCmd(e *env) *cobra.Command {
 	var (
 		expire, versionID, disposition, contentType string
-		recursive, stream                           bool
+		recursive, stream, image                    bool
 	)
 	cmd := &cobra.Command{
 		Use:   "download [flags] ALIAS/BUCKET/OBJECT",
@@ -66,11 +66,17 @@ with code 4. --recursive generates one link per object under a prefix.
 --stream shares an MP4 video (H.264 or H.265, AAC audio) as an HLS stream: the
 link is its master playlist, for any HLS player, and the output adds the public
 player page of the server, for browsers. A stream link is managed: revoking it
-stops the playback.`,
+stops the playback.
+
+--image shares an image through the variants the media worker derived from it
+(an image rule, see "nexoctl media"): the link serves the image at its own size
+in the most compact format the browser accepts (AVIF, WebP, then JPEG), for an
+<img> tag. An image link is managed.`,
 		Example: `  nexoctl share download --expire 2h local/docs/report.pdf
   nexoctl share download --recursive local/docs/2026/
   nexoctl share download --raw --expire 10m local/docs/report.pdf
-  nexoctl share download --stream --expire 7d local/videos/talk.mp4`,
+  nexoctl share download --stream --expire 7d local/videos/talk.mp4
+  nexoctl share download --image local/photos/beach.jpg`,
 		Args:              exactArgs(1),
 		ValidArgsFunction: completeTargets(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -81,6 +87,9 @@ stops the playback.`,
 			}
 			if stream && (!managed || recursive || disposition != "" || contentType != "") {
 				return cli.UsageError("--stream excludes --raw, --recursive, --content-disposition and --content-type")
+			}
+			if image && (stream || !managed || recursive || disposition != "" || contentType != "") {
+				return cli.UsageError("--image excludes --stream, --raw, --recursive, --content-disposition and --content-type")
 			}
 			expiry, err := parseExpiry(expire)
 			if err != nil {
@@ -113,7 +122,7 @@ stops the playback.`,
 				for _, key := range keys {
 					sh, err := admin.CreateShare(ctx, nexoadmin.CreateShareRequest{
 						Bucket: t.Bucket, Key: key, Permission: nexoadmin.PermissionDownload, ExpiresIn: int64(expiry / time.Second),
-						ContentType: contentType, ContentDisposition: disposition, VersionID: versionID, Stream: stream,
+						ContentType: contentType, ContentDisposition: disposition, VersionID: versionID, Stream: stream, Image: image,
 					})
 					if err != nil {
 						return fmt.Errorf("%s: %w", t.Child(key), err)
@@ -156,6 +165,7 @@ stops the playback.`,
 	f.StringVar(&contentType, "content-type", "", "Content-Type of the download")
 	f.BoolVarP(&recursive, "recursive", "r", false, "one link per object under the prefix")
 	f.BoolVar(&stream, "stream", false, "share a video as an HLS stream with a player page (managed links only)")
+	f.BoolVar(&image, "image", false, "share an image through its variants, in the best format the browser takes (managed links only)")
 	shareModeFlags(cmd)
 	return cmd
 }

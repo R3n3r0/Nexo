@@ -212,6 +212,8 @@
     "objectLockHint": "Protect versions from deletion (enables versioning; cannot be disabled later).",
     "hls": "HLS video",
     "hlsHint": "Every video uploaded to the bucket gets all the qualities from 240p to 4K, a poster and timeline thumbnails (media rule \"hls\", made by the media worker).",
+    "images": "Images in every format",
+    "imagesHint": "Every image uploaded to the bucket gets AVIF, WebP, JPEG and PNG variants from 160 to 2560 pixels wide, served in the best format for each viewer (media rule \"images\", made by the media worker).",
     "quota": "Quota",
     "quotaHint": "Hard limit; leave empty for no quota.",
     "quotaUnit": "Quota unit",
@@ -234,7 +236,7 @@
       "access": "Access",
       "lifecycle": "Lifecycle",
       "events": "Events",
-      "media": "Video",
+      "media": "Media",
       "rules": "Access rules"
     },
     "summary": "{{size}} · {{objects}} objects",
@@ -443,7 +445,7 @@
       "preview": "Preview",
       "tags": "Tags",
       "versions": "Versions",
-      "media": "Video",
+      "media": "Media",
       "lock": "Object lock",
       "attributes": "Attributes"
     },
@@ -1067,6 +1069,10 @@
     "stream": {
       "label": "Stream as a video",
       "hint": "A player link that streams the video (HLS), with seeking, instead of the file."
+    },
+    "image": {
+      "label": "Image link (best format for the viewer)",
+      "hint": "Serves the image in the most compact format each browser accepts (AVIF, WebP, JPEG or PNG), from the variants made by the media worker, instead of the file."
     },
     "raw": {
       "label": "Raw presigned link",

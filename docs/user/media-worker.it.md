@@ -1,4 +1,4 @@
-# Media worker: rendition, poster e miniature
+# Media worker: rendition, poster, miniature e varianti delle immagini
 
 Lo [streaming video](video-streaming.md) riproduce il file sorgente di un video così com'è. Il **media
 worker** (`nexo-media-worker`) ricava altro dai video selezionati da una regola del bucket:
@@ -8,6 +8,8 @@ worker** (`nexo-media-worker`) ricava altro dai video selezionati da una regola 
 - un **poster**: un fotogramma JPEG mostrato prima della riproduzione;
 - **miniature della timeline**: uno sprite di piccoli fotogrammi con la sua mappa WebVTT, per le anteprime
   della barra di avanzamento.
+- **varianti delle immagini**: ogni immagine selezionata da una regola in AVIF, WebP, JPEG e PNG a più
+  larghezze, servita nel formato migliore per ogni client ([sotto](#immagini-ogni-formato-e-larghezza)).
 
 Il worker è un programma separato, sulla stessa macchina o su un'altra. Nexo non decodifica mai video: manda
 i job al worker, e il worker legge i video e scrive i suoi output attraverso l'API S3, con credenziali
@@ -91,6 +93,91 @@ Gli output di una versione stanno sotto `.nexo-media/<key>/<versionId>/` (`null`
 versionato). La console e `nexoctl ls`, `find` e `tree` nascondono questo prefisso per default (`--media` lo mostra); l'API S3 lo elenca come
 qualsiasi altro, quindi backup, mirror e replica conservano gli output insieme ai video. Contano nella quota
 del bucket.
+
+## Immagini: ogni formato e larghezza
+
+Una **regola immagini** fa trasformare al worker ogni immagine selezionata in *varianti*: l'immagine alla sua
+dimensione e a una serie di larghezze, in ogni formato della regola. I client chiedono la larghezza che
+mostrano e Nexo serve il formato più compatto che sanno decodificare: AVIF ai browser recenti, WebP agli altri,
+JPEG a tutti gli altri.
+
+**Il modo veloce: un bucket di immagini.** Crea il bucket con l'opzione **Immagini in ogni formato** e ogni
+immagine caricata riceve AVIF, WebP, JPEG e PNG, alla sua dimensione e larga 160, 320, 640, 1280, 1920 e 2560
+pixel (solo le larghezze minori dell'immagine: un'immagine non viene mai ingrandita):
+
+```console
+$ nexoctl mb --with-images local/foto              # un nuovo bucket di immagini
+$ nexoctl mb --with-hls --with-images local/media  # video e immagini nello stesso bucket
+$ nexoctl media rule add local/foto --images       # lo stesso per un bucket esistente
+$ nexoctl media rule add local/negozio --images --id prodotti --prefix prodotti/ --format webp,jpeg --width 320,800
+```
+
+Nella console è l'interruttore di **Crea bucket**; nell'Admin API, `"images": true` nel corpo di
+`POST /buckets` (con `admin:SetBucketMedia`). L'opzione è la regola `{"id": "images", "images": {"formats":
+["avif", "webp", "jpeg", "png"], "widths": [160, 320, 640, 1280, 1920, 2560]}}`. Una regola immagini non ha
+rendition, poster né miniature; i suoi suffissi predefiniti sono quelli delle immagini qui sotto.
+
+| | |
+| --- | --- |
+| Sorgenti | JPEG, PNG, GIF (primo fotogramma), WebP, AVIF, HEIC/HEIF (foto dell'iPhone), TIFF, BMP; riconosciute dal contenuto, non dall'estensione |
+| Formati | `avif`, `webp`, `jpeg`, `png` (formati di una regola, predefinito tutti) |
+| Larghezze | da 16 a 8192 pixel, al massimo 16 per regola (predefinite 160, 320, 640, 1280, 1920, 2560) |
+| Orientamento | l'orientamento EXIF delle foto JPEG e TIFF viene applicato: le varianti sono dritte |
+| Metadati | rimossi: le varianti non contengono EXIF, posizione GPS o dati della fotocamera |
+| Trasparenza | mantenuta in AVIF, WebP e PNG; il JPEG viene appiattito su bianco, quindi un'immagine trasparente è servita come PNG ai client senza AVIF né WebP |
+
+Le varianti stanno accanto all'immagine, come gli output di un video:
+`.nexo-media/<chiave>/<versionId>/images/<larghezza>.<ext>` e `images/full.<ext>` per l'immagine alla sua
+dimensione, con `status.json` che le elenca (`nexoctl media status` le stampa per formato).
+
+### Come vengono servite le varianti
+
+| Rotta | Per |
+| --- | --- |
+| `GET /api/v1/buckets/{bucket}/objects/image?key=...&w=640` | la console e i client dell'Admin API (sessione o SigV4), richiede `s3:GetObject` |
+| `GET` o `HEAD /nexo/media/v1/{bucket}/image/{chiave}?w=640` | pagine web e app, sulla porta S3: SigV4, presigned o un link di condivisione, come gli [stream video](video-streaming.md) |
+
+- `w`: la larghezza che il client mostra; viene servita la variante più stretta larga almeno così (la più
+  larga se nessuna lo è). Senza `w`, l'immagine alla sua dimensione.
+- `format`: `auto` (predefinito) sceglie il formato più compatto che l'header `Accept` nomina (AVIF, poi WebP;
+  JPEG per `*/*`), e la risposta dice `Vary: Accept` per cache e CDN; `avif`, `webp`, `jpeg` o `png` ne
+  chiedono uno.
+- `versionId`: una versione dell'immagine (`s3:GetObjectVersion`).
+- Le richieste condizionali (`If-None-Match`, `If-Modified-Since`) e i range funzionano; l'ETag nomina la
+  sorgente, il formato e la larghezza.
+- Una variante esiste solo finché `status.json` è done per il contenuto attuale dell'immagine: un'immagine
+  sovrascritta risponde 404 finché il worker non ha elaborato la nuova.
+
+Una pagina web lascia scegliere al browser:
+
+```html
+<img src="https://s3.example.com/nexo/media/v1/foto/image/spiaggia.jpg?w=640"
+     srcset="https://s3.example.com/nexo/media/v1/foto/image/spiaggia.jpg?w=320 320w,
+             https://s3.example.com/nexo/media/v1/foto/image/spiaggia.jpg?w=1280 1280w"
+     sizes="(max-width: 700px) 100vw, 640px" alt="La spiaggia">
+```
+
+(per un bucket privato, firma gli URL o usa i link di condivisione). `nexoctl share download --image
+local/foto/spiaggia.jpg` crea un link revocabile che serve l'immagine alla sua dimensione nel formato migliore
+per chi lo apre; la console offre lo stesso nella finestra di condivisione di un'immagine.
+
+### Limiti e memoria
+
+La codifica AVIF è il passo lento e affamato di memoria (circa 6 s e 1,2 GB per una foto da 12 megapixel alla
+sua dimensione, vedi [i benchmark](https://github.com/R3n3r0/Nexo/blob/main/docs/bench/media.md)): un job di 28
+varianti di una foto così richiede circa 11 secondi su 4 core, 3 secondi senza AVIF. Il worker codifica le
+varianti in parallelo entro un budget di memoria, e non produce mai una variante che da sola non ci starebbe
+(un AVIF di un'immagine molto grande: la servono gli altri formati), quindi un'immagine grande non può fargli
+esaurire la memoria.
+
+| Flag | Variabile d'ambiente | Predefinito | |
+| --- | --- | --- | --- |
+| `--image-max-bytes` | `NEXO_WORKER_IMAGE_MAX_BYTES` | 256 MiB | file immagine più grande elaborato |
+| `--image-max-pixels` | `NEXO_WORKER_IMAGE_MAX_PIXELS` | 100 000 000 | immagine più grande, letta dall'header prima di decodificarla (protegge dalle decompression bomb) |
+| `--image-memory` | `NEXO_WORKER_IMAGE_MEMORY` | 2 GiB | memoria delle varianti codificate insieme |
+
+Un'immagine più grande o non decodificabile fallisce in modo definitivo (`nexoctl media status` dice il
+motivo); la sorgente non viene mai modificata.
 
 ## Configurazione
 
@@ -206,7 +293,7 @@ $ nexoctl media rule add local/video --id clip --prefix clip/ --poster
 $ nexoctl media get local/video
 ```
 
-Nella console: bucket → **Video**. Le regole richiedono `admin:SetBucketMedia` per essere modificate e
+Nella console: bucket → **Media**. Le regole richiedono `admin:SetBucketMedia` per essere modificate e
 `admin:GetBucketMedia` per essere lette; fanno parte dei metadati del bucket (export e import del cluster
 compresi).
 

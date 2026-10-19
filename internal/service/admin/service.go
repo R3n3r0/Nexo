@@ -383,6 +383,10 @@ type CreateBucketInput struct {
 	// HLS sets the media rule domain.HLSMediaRule: the media worker derives
 	// every rendition, a poster and thumbnails from every video.
 	HLS bool
+	// Images sets the media rule domain.ImagesMediaRule: the media worker
+	// derives every format at every width from every image. With HLS, the
+	// bucket gets both rules.
+	Images bool
 }
 
 // DeleteBucketInput are the parameters of BucketManager.Delete.
@@ -1157,6 +1161,8 @@ type CreateShareInput struct {
 	VersionID          string
 	// Stream shares a video as an HLS stream (share.CreateInput.Stream).
 	Stream bool
+	// Image shares the variants of an image (share.CreateInput.Image).
+	Image bool
 }
 
 // ListSharesInput are the parameters of ShareManager.List.

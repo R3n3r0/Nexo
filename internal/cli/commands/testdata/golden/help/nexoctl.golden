@@ -39,7 +39,7 @@ Bucket and object settings:
   event       Manage the event notifications of buckets
   ilm         Manage the lifecycle rules of buckets (expiration, noncurrent versions, uploads)
   legalhold   Manage the Object Lock legal hold of objects
-  media       Manage the video rules of buckets and the media worker (Admin API)
+  media       Manage the video and image rules of buckets and the media worker (Admin API)
   quota       Manage the hard quota of buckets (Admin API)
   retention   Manage the Object Lock retention of objects and buckets
   tag         Manage the tags of buckets and objects

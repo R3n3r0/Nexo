@@ -1,6 +1,6 @@
 # nexoctl media get
 
-Print the video rules of a bucket (JSON)
+Print the media rules of a bucket (JSON)
 
 ```
 nexoctl media get ALIAS/BUCKET [flags]
@@ -37,5 +37,5 @@ nexoctl media info
 
 ## SEE ALSO
 
-* [nexoctl media](nexoctl_media.md)	 - Manage the video rules of buckets and the media worker (Admin API)
+* [nexoctl media](nexoctl_media.md)	 - Manage the video and image rules of buckets and the media worker (Admin API)
 

@@ -115,7 +115,7 @@ func (m *shareManager) Create(ctx context.Context, in CreateShareInput) (*share.
 	return m.deps.Shares.Create(ctx, share.CreateInput{
 		Owner: in.Requester.Identity, Bucket: in.Bucket, Key: in.Key, Prefix: in.Prefix, Permission: in.Permission,
 		Expires: in.Expires, ContentDisposition: in.ContentDisposition, ContentType: in.ContentType, VersionID: in.VersionID,
-		Stream: in.Stream,
+		Stream: in.Stream, Image: in.Image,
 	})
 }
 

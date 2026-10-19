@@ -428,9 +428,12 @@ type MediaStatus struct {
 	Thumbnails *MediaThumbnailsOutput `json:"thumbnails,omitempty"`
 	// Images are the variants of an image (Width and Height are the size
 	// of the image, after its orientation).
-	Images  []MediaImageOutput `json:"images,omitempty"`
-	Started time.Time          `json:"started"`
-	Updated time.Time          `json:"updated"`
+	Images []MediaImageOutput `json:"images,omitempty"`
+	// Alpha reports an image with transparency: its JPEG variants are
+	// flattened, so clients that cannot take AVIF or WebP get PNG.
+	Alpha   bool      `json:"alpha,omitempty"`
+	Started time.Time `json:"started"`
+	Updated time.Time `json:"updated"`
 }
 
 // MediaRenditionOutput is a rendition produced by the worker

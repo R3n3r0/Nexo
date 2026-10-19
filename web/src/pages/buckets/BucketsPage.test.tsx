@@ -255,6 +255,56 @@ describe('CreateBucketDialog (TD-U-04)', () => {
     expect(media.rules[0]?.renditions).toContain('240p');
   });
 
+  it('creates an image bucket with the images option and its media rule', async () => {
+    const services = adminServices();
+    const create = vi.spyOn(services.buckets, 'create');
+    renderRoutes(routes, { initialEntries: ['/buckets'], services });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Create bucket' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Create a bucket' });
+    await user.type(within(dialog).getByRole('textbox', { name: /Name/ }), 'photos');
+    await user.click(within(dialog).getByRole('switch', { name: /Images in every format/ }));
+    await user.click(within(dialog).getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location')).toHaveTextContent('/buckets/photos/browse/');
+    });
+    expect(create).toHaveBeenCalledWith({ name: 'photos', images: true });
+    const media = await services.media.get('photos');
+    expect(media.rules).toEqual([
+      {
+        id: 'images',
+        images: {
+          formats: ['avif', 'webp', 'jpeg', 'png'],
+          widths: [160, 320, 640, 1280, 1920, 2560],
+        },
+      },
+    ]);
+  });
+
+  it('creates a bucket with both the HLS and the images rules', async () => {
+    const services = adminServices();
+    const create = vi.spyOn(services.buckets, 'create');
+    renderRoutes(routes, { initialEntries: ['/buckets'], services });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Create bucket' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Create a bucket' });
+    await user.type(within(dialog).getByRole('textbox', { name: /Name/ }), 'library');
+    await user.click(within(dialog).getByRole('switch', { name: /HLS video/ }));
+    await user.click(within(dialog).getByRole('switch', { name: /Images in every format/ }));
+    await user.click(within(dialog).getByRole('button', { name: 'Create' }));
+
+    await waitFor(() => {
+      expect(create).toHaveBeenCalledWith({ name: 'library', hls: true, images: true });
+    });
+    await waitFor(async () => {
+      expect((await services.media.get('library')).rules.map((r) => r.id)).toEqual([
+        'hls',
+        'images',
+      ]);
+    });
+  });
+
   it('shows BucketAlreadyExists on the name field', async () => {
     renderRoutes(routes, { initialEntries: ['/buckets'], services: adminServices() });
     const user = userEvent.setup();

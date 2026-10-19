@@ -49,6 +49,7 @@ type record struct {
 	ContentType        string     `json:"contentType,omitempty"`
 	ContentDisposition string     `json:"contentDisposition,omitempty"`
 	Stream             bool       `json:"stream,omitempty"`
+	Image              bool       `json:"image,omitempty"`
 	Expires            time.Time  `json:"expires"`
 	CreatedAt          time.Time  `json:"createdAt"`
 	URL                string     `json:"url,omitempty"`
@@ -63,7 +64,7 @@ func (r *record) toShare() *Share {
 	return &Share{
 		ID: r.ID, Owner: r.Owner, Bucket: r.Bucket, Key: r.Key, Prefix: r.Prefix,
 		Permission: r.Permission, VersionID: r.VersionID, ContentType: r.ContentType,
-		ContentDisposition: r.ContentDisposition, Stream: r.Stream, Expires: r.Expires, CreatedAt: r.CreatedAt,
+		ContentDisposition: r.ContentDisposition, Stream: r.Stream, Image: r.Image, Expires: r.Expires, CreatedAt: r.CreatedAt,
 		URL: r.URL, AccessKey: r.AccessKey,
 	}
 }
@@ -161,7 +162,7 @@ func (s *service) Create(ctx context.Context, in CreateInput) (*Share, error) {
 	rec := &record{
 		ID: id, Owner: owner.EffectiveUser(), Bucket: in.Bucket, Key: in.Key, Prefix: in.Prefix,
 		Permission: in.Permission, VersionID: in.VersionID, ContentType: in.ContentType,
-		ContentDisposition: in.ContentDisposition, Stream: in.Stream, Expires: now.Add(validity), CreatedAt: now,
+		ContentDisposition: in.ContentDisposition, Stream: in.Stream, Image: in.Image, Expires: now.Add(validity), CreatedAt: now,
 		AccessKey: accessKeyPrefix + id,
 	}
 	if owner.AccessKey != rec.Owner {
@@ -227,6 +228,9 @@ func validateTarget(in CreateInput) error {
 	}
 	if in.Stream && (in.Prefix || in.Permission != PermissionDownload || in.ContentType != "" || in.ContentDisposition != "") {
 		return invalidArg("stream applies to object download shares only, without contentType and contentDisposition")
+	}
+	if in.Image && (in.Stream || in.Prefix || in.Permission != PermissionDownload || in.ContentType != "" || in.ContentDisposition != "") {
+		return invalidArg("image applies to object download shares only, without stream, contentType and contentDisposition")
 	}
 	for _, v := range []string{in.ContentType, in.ContentDisposition, in.VersionID} {
 		if len(v) > 1024 || !utf8.ValidString(v) || strings.ContainsAny(v, "\r\n\x00") {
@@ -386,6 +390,11 @@ func (s *service) presign(ctx context.Context, r *record, creds domain.Credentia
 	case r.Stream:
 		u.Path += domain.MediaMasterPath(r.Bucket)
 		q.Set("key", key)
+		if r.VersionID != "" {
+			q.Set("versionId", r.VersionID)
+		}
+	case r.Image:
+		u.Path += domain.MediaImagePath(r.Bucket, key)
 		if r.VersionID != "" {
 			q.Set("versionId", r.VersionID)
 		}

@@ -99,6 +99,8 @@ func (h *objectRoutes) routes() []route {
 		{http.MethodGet, "/buckets/{bucket}/objects/hls/sprite.jpg", read, h.hlsFile(domain.MediaSpriteFile, contentTypeJPEG)},
 		{http.MethodGet, "/buckets/{bucket}/objects/hls/thumbnails.vtt", read, h.hlsThumbnails()},
 		{http.MethodGet, "/buckets/{bucket}/objects/media/status", read, h.mediaStatus},
+		// A variant of an image the media worker derived (?key=&versionId=&w=&format=).
+		{http.MethodGet, "/buckets/{bucket}/objects/image", read, h.image},
 		{http.MethodPost, zipDownloadPattern, byService(policy.ActionGetObject, policy.ActionListBucket), h.zip},
 		{http.MethodPost, "/buckets/{bucket}/objects/upload", onObject(policy.ActionPutObject), h.upload},
 		// Object Lock and attributes of a version (?key=&versionId=). The

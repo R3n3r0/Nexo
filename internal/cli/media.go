@@ -7,7 +7,7 @@ import (
 	"github.com/r3n3r0/nexo/pkg/nexoadmin"
 )
 
-// The video rules of the media commands travel in the JSON form of the
+// The video and image rules of the media commands travel in the JSON form of the
 // Admin API ({"rules": [{"id": ..., "prefix": ..., "renditions": [...]}]}),
 // the one of "media get" and of the console.
 
@@ -46,6 +46,9 @@ func MediaDomain(cfg nexoadmin.MediaConfiguration) domain.MediaConfig {
 		if r.Thumbnails != nil {
 			dr.Thumbnails = &domain.MediaThumbnails{Interval: r.Thumbnails.Interval}
 		}
+		if r.Images != nil {
+			dr.Images = &domain.MediaImages{Formats: r.Images.Formats, Widths: r.Images.Widths}
+		}
 		out.Rules = append(out.Rules, dr.Clone())
 	}
 	return out
@@ -60,6 +63,9 @@ func MediaFromDomain(cfg domain.MediaConfig) nexoadmin.MediaConfiguration {
 		ar := nexoadmin.MediaRule{ID: r.ID, Prefix: r.Prefix, Suffixes: r.Suffixes, Renditions: r.Renditions, Poster: r.Poster}
 		if r.Thumbnails != nil {
 			ar.Thumbnails = &nexoadmin.MediaThumbnails{Interval: r.Thumbnails.Interval}
+		}
+		if r.Images != nil {
+			ar.Images = &nexoadmin.MediaImages{Formats: r.Images.Formats, Widths: r.Images.Widths}
 		}
 		out.Rules = append(out.Rules, ar)
 	}

@@ -1,7 +1,9 @@
 package s3_test
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -164,4 +166,123 @@ func TestMediaPlayer(t *testing.T) {
 	for _, target := range []string{"assets/missing.js", "assets/..%2Findex.html", "assets/index.html", "index.html"} {
 		assert.Equal(t, http.StatusNotFound, f.serve(s3.PlayerPath+target, nil).Code, target)
 	}
+}
+
+// imageContent is the content of a variant served from memory.
+type imageContent struct{ *bytes.Reader }
+
+func (imageContent) Close() error { return nil }
+
+func testImage(format string, width int, data string) *media.Image {
+	return &media.Image{
+		MediaImageOutput: domain.MediaImageOutput{Format: format, Width: width, PixelWidth: 640, PixelHeight: 480, Size: int64(len(data))},
+		ContentType:      domain.MediaImageContentType(format), ETag: `"e1-` + format + `"`,
+		Modified: time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC), Content: imageContent{bytes.NewReader([]byte(data))},
+	}
+}
+
+// serveReq sends a request as the identity id.
+func (f *mediaFixture) serveReq(req *http.Request, id *domain.Identity) *httptest.ResponseRecorder {
+	req.Host = "s3.example.com"
+	req = req.WithContext(middleware.WithIdentity(req.Context(), id))
+	rec := httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestMediaImageRoute(t *testing.T) {
+	f := newMediaFixture(t)
+	f.policy.EXPECT().Evaluate(mock.Anything, mock.MatchedBy(func(a policy.Args) bool {
+		return a.Action == policy.ActionGetObject && a.Bucket == "photos" && a.Object == "2026/a b.jpg"
+	})).Return(policy.Decision{Allowed: true}, nil)
+
+	// Format auto: the Accept header goes to the service, the response
+	// varies on it.
+	f.media.EXPECT().Image(mock.Anything, media.Source{Bucket: "photos", Key: "2026/a b.jpg"}, media.ImageRequest{Width: 300, Format: "auto", Accept: "image/avif,image/webp,*/*"}).
+		Return(testImage("avif", 320, "avif bytes"), nil).Once()
+	req := httptest.NewRequest(http.MethodGet, s3.MediaPrefix+"photos/image/2026/a%20b.jpg?w=300", nil)
+	req.Header.Set("Accept", "image/avif,image/webp,*/*")
+	rec := f.serveReq(req, domain.Anonymous())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, "image/avif", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "Accept", rec.Header().Get("Vary"))
+	assert.Equal(t, `"e1-avif"`, rec.Header().Get("ETag"))
+	assert.Equal(t, "private, no-cache", rec.Header().Get("Cache-Control"))
+	assert.Equal(t, "Mon, 19 Oct 2026 12:00:00 GMT", rec.Header().Get("Last-Modified"))
+	assert.Equal(t, "avif bytes", rec.Body.String())
+
+	// An explicit format, HEAD, conditional requests and ranges.
+	f.media.EXPECT().Image(mock.Anything, media.Source{Bucket: "photos", Key: "2026/a b.jpg"}, media.ImageRequest{Format: "png"}).
+		RunAndReturn(func(context.Context, media.Source, media.ImageRequest) (*media.Image, error) {
+			return testImage("png", 0, "0123456789"), nil
+		}).Times(4)
+	rec = f.serveReq(httptest.NewRequest(http.MethodHead, s3.MediaPrefix+"photos/image/2026/a%20b.jpg?format=png", nil), domain.Anonymous())
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "10", rec.Header().Get("Content-Length"))
+	assert.Empty(t, rec.Header().Get("Vary"))
+	assert.Empty(t, rec.Body.String())
+	req = httptest.NewRequest(http.MethodGet, s3.MediaPrefix+"photos/image/2026/a%20b.jpg?format=png", nil)
+	req.Header.Set("If-None-Match", `"e1-png"`)
+	assert.Equal(t, http.StatusNotModified, f.serveReq(req, domain.Anonymous()).Code)
+	req = httptest.NewRequest(http.MethodGet, s3.MediaPrefix+"photos/image/2026/a%20b.jpg?format=png", nil)
+	req.Header.Set("If-Modified-Since", "Mon, 19 Oct 2026 12:00:00 GMT")
+	assert.Equal(t, http.StatusNotModified, f.serveReq(req, domain.Anonymous()).Code)
+	req = httptest.NewRequest(http.MethodGet, s3.MediaPrefix+"photos/image/2026/a%20b.jpg?format=png", nil)
+	req.Header.Set("Range", "bytes=-3")
+	rec = f.serveReq(req, domain.Anonymous())
+	require.Equal(t, http.StatusPartialContent, rec.Code)
+	assert.Equal(t, "789", rec.Body.String())
+
+	// Not derived from the current content: 404.
+	f.media.EXPECT().Image(mock.Anything, media.Source{Bucket: "photos", Key: "2026/a b.jpg"}, media.ImageRequest{Format: "webp"}).
+		Return(nil, fmt.Errorf("%w: no media output", domain.ErrNotFound)).Once()
+	rec = f.serve(s3.MediaPrefix+"photos/image/2026/a%20b.jpg?format=webp", domain.Anonymous())
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+
+	// Malformed requests never reach the service.
+	for _, target := range []string{"image/2026/a%20b.jpg?w=x", "image/2026/a%20b.jpg?format=gif", "image/2026/a%20b.jpg?w=-5"} {
+		assert.Equal(t, http.StatusBadRequest, f.serve(s3.MediaPrefix+"photos/"+target, domain.Anonymous()).Code, target)
+	}
+}
+
+func TestMediaImageRouteDenied(t *testing.T) {
+	f := newMediaFixture(t)
+	f.policy.EXPECT().Evaluate(mock.Anything, mock.MatchedBy(func(a policy.Args) bool {
+		return a.Action == policy.ActionGetObjectVersion && a.Object == "a.jpg"
+	})).Return(policy.Decision{Reason: "no"}, nil)
+	rec := f.serve(s3.MediaPrefix+"photos/image/a.jpg?versionId=v1", domain.Anonymous())
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+// TestMediaStatusImages: status.json lists the variants of an image with
+// their URI, presigned like the request.
+func TestMediaStatusImages(t *testing.T) {
+	f := newMediaFixture(t)
+	share := &domain.Identity{AccessKey: "share-abc", Parent: "alice", AuthType: domain.AuthTypeQuery}
+	f.policy.EXPECT().Evaluate(mock.Anything, mock.Anything).Return(policy.Decision{Allowed: true}, nil)
+	creds := domain.Credentials{AccessKey: "share-abc", SecretKey: "secret"}
+	f.creds.EXPECT().LookupCredentials(mock.Anything, "share-abc").Return(creds, *share, nil)
+	var signed []auth.PresignInput
+	f.signer.EXPECT().Presign(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, in auth.PresignInput) (*url.URL, error) {
+		signed = append(signed, in)
+		u := *in.URL
+		q := u.Query()
+		q.Set("X-Amz-Signature", "sig")
+		u.RawQuery = q.Encode()
+		return &u, nil
+	})
+	st := &media.OutputStatus{Current: true, MediaStatus: domain.MediaStatus{State: domain.MediaStateDone, Width: 1000, Height: 750,
+		Images: []domain.MediaImageOutput{{Format: "webp", Width: 640, PixelWidth: 640, PixelHeight: 480, Size: 20}, {Format: "jpeg", PixelWidth: 1000, PixelHeight: 750, Size: 50}}}}
+	f.media.EXPECT().Status(mock.Anything, media.Source{Bucket: "photos", Key: "2026/a b.jpg", VersionID: "v1"}).Return(st, nil)
+	query := "key=2026%2Fa+b.jpg&versionId=v1&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20261018T115000Z&X-Amz-Expires=3600&X-Amz-Signature=x"
+	rec := f.serve(s3.MediaPrefix+"photos/status.json?"+query, share)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.JSONEq(t, `{"state":"done","current":true,"width":1000,"height":750,"images":[
+		{"format":"webp","width":640,"pixelWidth":640,"pixelHeight":480,"size":20,"contentType":"image/webp",
+		 "url":"image/2026/a%20b.jpg?X-Amz-Signature=sig&format=webp&versionId=v1&w=640"},
+		{"format":"jpeg","width":0,"pixelWidth":1000,"pixelHeight":750,"size":50,"contentType":"image/jpeg",
+		 "url":"image/2026/a%20b.jpg?X-Amz-Signature=sig&format=jpeg&versionId=v1"}]}`, rec.Body.String())
+	require.Len(t, signed, 2)
+	assert.Equal(t, s3.MediaPrefix+"photos/image/2026/a b.jpg", signed[0].URL.Path, "the decoded path is signed")
+	assert.Equal(t, 50*time.Minute, signed[0].Expires)
 }

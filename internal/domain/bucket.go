@@ -169,6 +169,13 @@ func MediaMasterPath(bucket string) string {
 	return MediaPathPrefix + "v1/" + bucket + "/master.m3u8"
 }
 
+// MediaImagePath is the path of the variants of an image of bucket on the
+// S3 port, the key in the path; the width (w), the format and the
+// versionId go in the query.
+func MediaImagePath(bucket, key string) string {
+	return MediaPathPrefix + "v1/" + bucket + "/image/" + key
+}
+
 // IsReservedBucket reports whether name cannot be used for a bucket: the
 // system metadata bucket and ReservedBucket. Services refuse such names
 // with ErrInvalidBucketName.

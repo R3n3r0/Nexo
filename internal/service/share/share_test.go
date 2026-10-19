@@ -240,6 +240,32 @@ func TestCreateStream(t *testing.T) {
 	assert.True(t, got.Stream, "persisted")
 }
 
+// TestCreateImage: an image share signs the image route of the object
+// (domain.MediaImagePath, the key in the path) with a service account
+// limited to the object.
+func TestCreateImage(t *testing.T) {
+	ctx := context.Background()
+	f := newFixture(t, fixtureOption{})
+	f.expectIAM()
+	calls := f.expectSigner()
+	f.policy.EXPECT().Evaluate(mock.Anything, mock.Anything).Return(policy.Decision{Allowed: true}, nil).Once()
+
+	sh, err := f.svc.Create(ctx, share.CreateInput{
+		Owner: alice(), Bucket: "photos", Key: "2026/beach day.jpg", Permission: share.PermissionDownload, Expires: time.Hour, VersionID: "v1", Image: true,
+	})
+	require.NoError(t, err)
+	assert.True(t, sh.Image)
+	require.Len(t, *calls, 1)
+	in := (*calls)[0]
+	assert.Equal(t, http.MethodGet, in.Method)
+	assert.Equal(t, "/nexo/media/v1/photos/image/2026/beach day.jpg", in.URL.Path)
+	assert.Equal(t, url.Values{"versionId": {"v1"}}, in.URL.Query())
+	assert.Equal(t, domain.StringSet{"arn:aws:s3:::photos/2026/beach day.jpg"}, f.key(sh.AccessKey).Policy.Statement[0].Resource)
+	got, err := f.svc.Get(ctx, alice(), sh.ID)
+	require.NoError(t, err)
+	assert.True(t, got.Image, "persisted")
+}
+
 func TestCreateVariants(t *testing.T) {
 	ctx := context.Background()
 	tests := []struct {
@@ -339,6 +365,10 @@ func TestCreateValidation(t *testing.T) {
 		{"stream of a prefix", with(func(in *share.CreateInput) { in.Key, in.Prefix, in.Stream = "a/", true, true }), domain.ErrInvalidArgument},
 		{"stream upload", with(func(in *share.CreateInput) { in.Permission, in.Stream = share.PermissionUpload, true }), domain.ErrInvalidArgument},
 		{"stream with overrides", with(func(in *share.CreateInput) { in.ContentType, in.Stream = "video/mp4", true }), domain.ErrInvalidArgument},
+		{"image of a prefix", with(func(in *share.CreateInput) { in.Key, in.Prefix, in.Image = "a/", true, true }), domain.ErrInvalidArgument},
+		{"image upload", with(func(in *share.CreateInput) { in.Permission, in.Image = share.PermissionUpload, true }), domain.ErrInvalidArgument},
+		{"image and stream", with(func(in *share.CreateInput) { in.Stream, in.Image = true, true }), domain.ErrInvalidArgument},
+		{"image with overrides", with(func(in *share.CreateInput) { in.ContentDisposition, in.Image = "inline", true }), domain.ErrInvalidArgument},
 		{"header injection", with(func(in *share.CreateInput) { in.ContentType = "text/plain\r\nX-Evil: 1" }), domain.ErrInvalidArgument},
 		{"long content type", with(func(in *share.CreateInput) { in.ContentType = strings.Repeat("x", 1025) }), domain.ErrInvalidArgument},
 		{"negative expiry", with(func(in *share.CreateInput) { in.Expires = -time.Second }), domain.ErrInvalidArgument},

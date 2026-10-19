@@ -2,11 +2,15 @@ import { describe, expect, it } from 'vitest';
 
 import {
   formatGoDuration,
+  imagesMediaRule,
+  isMediaImage,
   matchMediaRule,
+  mediaRuleIssueMessage,
   normalizeMediaRule,
   parseGoDuration,
   validateMediaRule,
 } from './mediaRules';
+import type { MediaImageFormat, MediaRule } from '@/services';
 
 describe('media rules', () => {
   it('parses and formats Go durations', () => {
@@ -54,5 +58,78 @@ describe('media rules', () => {
     expect(matchMediaRule(rules, 'clips/a.MP4')?.id).toBe('all');
     expect(matchMediaRule(rules, 'doc.pdf')).toBeUndefined();
     expect(matchMediaRule(rules, '.nexo-media/x.mp4')).toBeUndefined();
+  });
+
+  it('validates an image rule as the server does, with its messages', () => {
+    expect(validateMediaRule({ id: 'img', images: {} })).toEqual([]);
+    expect(validateMediaRule(imagesMediaRule())).toEqual([]);
+    const gif: MediaRule = { id: 'img', images: { formats: ['gif' as MediaImageFormat] } };
+    expect(validateMediaRule(gif)).toEqual(['imageFormat']);
+    expect(mediaRuleIssueMessage(gif, 'imageFormat')).toBe(
+      'unknown image format "gif" (one of avif, webp, jpeg, png)',
+    );
+    const narrow: MediaRule = { id: 'img', images: { widths: [320, 8] } };
+    expect(validateMediaRule(narrow)).toEqual(['imageWidth']);
+    expect(mediaRuleIssueMessage(narrow, 'imageWidth')).toBe(
+      'the image widths must be from 16 to 8192 pixels, not 8',
+    );
+    expect(validateMediaRule({ id: 'img', images: { widths: [8193] } })).toEqual(['imageWidth']);
+    const many: MediaRule = {
+      id: 'img',
+      images: { widths: Array.from({ length: 17 }, (_, i) => 100 + i) },
+    };
+    expect(validateMediaRule(many)).toEqual(['imageWidths']);
+    expect(mediaRuleIssueMessage(many, 'imageWidths')).toBe('at most 16 image widths');
+    // Duplicates count once, as the server deduplicates before counting.
+    expect(
+      validateMediaRule({
+        id: 'img',
+        images: { widths: [...Array(16).keys(), 0].map((i) => 100 + i) },
+      }),
+    ).toEqual([]);
+    const mixed: MediaRule = { id: 'img', poster: true, images: {} };
+    expect(validateMediaRule(mixed)).toEqual(['imageVideoOutputs']);
+    expect(mediaRuleIssueMessage(mixed, 'imageVideoOutputs')).toBe(
+      'an image rule has no renditions, poster or thumbnails',
+    );
+  });
+
+  it('normalizes an image rule and matches images with its default suffixes', () => {
+    expect(
+      normalizeMediaRule({
+        id: 'img',
+        images: { formats: ['png', 'avif'], widths: [640, 160, 640] },
+      }),
+    ).toEqual({
+      id: 'img',
+      suffixes: [
+        '.avif',
+        '.bmp',
+        '.gif',
+        '.heic',
+        '.heif',
+        '.jpeg',
+        '.jpg',
+        '.png',
+        '.tif',
+        '.tiff',
+        '.webp',
+      ],
+      images: { formats: ['avif', 'png'], widths: [160, 640] },
+    });
+    expect(normalizeMediaRule({ id: 'img', images: {} }).images).toEqual({
+      formats: ['avif', 'webp', 'jpeg', 'png'],
+      widths: [160, 320, 640, 1280, 1920, 2560],
+    });
+    const rules: MediaRule[] = [
+      { id: 'v', poster: true },
+      { id: 'img', images: {} },
+    ];
+    expect(matchMediaRule(rules, 'a.mp4')?.id).toBe('v');
+    expect(matchMediaRule(rules, 'photos/Beach.JPG')?.id).toBe('img');
+    expect(matchMediaRule(rules, 'doc.pdf')).toBeUndefined();
+    expect(isMediaImage('a.heic')).toBe(true);
+    expect(isMediaImage('photo', 'image/jpeg')).toBe(true);
+    expect(isMediaImage('logo.svg', 'image/svg+xml')).toBe(false);
   });
 });

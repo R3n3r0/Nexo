@@ -173,6 +173,11 @@ func TestBucketRoutes(t *testing.T) {
 	})).Return(&b, nil)
 	rec = c.do(http.MethodPost, "/buckets", `{"name":"videos","hls":true}`)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	f.buckets.EXPECT().Create(mock.Anything, mock.MatchedBy(func(in adminsvc.CreateBucketInput) bool {
+		return in.Name == "media" && in.HLS && in.Images
+	})).Return(&b, nil)
+	rec = c.do(http.MethodPost, "/buckets", `{"name":"media","hls":true,"images":true}`)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	f.buckets.EXPECT().Create(mock.Anything, mock.Anything).Return(nil, fmt.Errorf("x: %w", domain.ErrBucketAlreadyExists))
 	rec = c.do(http.MethodPost, "/buckets", `{"name":"new"}`)
 	assert.Equal(t, http.StatusConflict, rec.Code)

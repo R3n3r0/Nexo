@@ -1,11 +1,11 @@
 # nexoctl media remove
 
-Remove the video rules of a bucket
+Remove the media rules of a bucket
 
 ## Synopsis
 
-Remove the video rules of a bucket: the media worker no longer processes its new
-videos. What it already derived stays in .nexo-media/ and is still served.
+Remove the media rules of a bucket: the media worker no longer processes its new
+videos and images. What it already derived stays in .nexo-media/ and is still served.
 
 ```
 nexoctl media remove ALIAS/BUCKET [flags]
@@ -35,5 +35,5 @@ nexoctl media rm
 
 ## SEE ALSO
 
-* [nexoctl media](nexoctl_media.md)	 - Manage the video rules of buckets and the media worker (Admin API)
+* [nexoctl media](nexoctl_media.md)	 - Manage the video and image rules of buckets and the media worker (Admin API)
 

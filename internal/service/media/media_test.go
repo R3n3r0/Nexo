@@ -63,7 +63,10 @@ func newStore(t testing.TB, files ...string) (*store, *objectmock.Service) {
 			s.reads.Add(1)
 			lo, hi := int64(0), int64(len(data))
 			if opts.Range != nil {
-				lo, hi = opts.Range.Start, min(opts.Range.End+1, int64(len(data)))
+				lo = opts.Range.Start
+				if opts.Range.End >= 0 {
+					hi = min(opts.Range.End+1, int64(len(data)))
+				}
 			}
 			return &object.Reader{ReadCloser: io.NopCloser(bytes.NewReader(data[lo:hi])), Info: s.info[key], Offset: lo, Length: hi - lo}, nil
 		}).Maybe()

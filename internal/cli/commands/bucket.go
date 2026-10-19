@@ -13,7 +13,7 @@ import (
 )
 
 func newMbCmd(e *env) *cobra.Command {
-	var withVersioning, withLock, withHLS, ignoreExisting bool
+	var withVersioning, withLock, withHLS, withImages, ignoreExisting bool
 	var region string
 	cmd := &cobra.Command{
 		Use:   "mb [flags] ALIAS/BUCKET...",
@@ -24,10 +24,15 @@ versioning; an existing bucket can get it later only once its versioning is
 enabled. --with-hls makes a video bucket: it adds the media rule "hls", with
 which the media worker derives every rendition (240p to 2160p, up to the
 height of each video), a poster and timeline thumbnails from every video
-uploaded (see "nexoctl media"; it needs the Admin API and a media worker).`,
+uploaded (see "nexoctl media"; it needs the Admin API and a media worker).
+--with-images makes an image bucket: it adds the media rule "images", with which
+the media worker derives every format (AVIF, WebP, JPEG, PNG) at every width
+from 160 to 2560 pixels (up to the width of each image) from every image
+uploaded. Both make a bucket for videos and images.`,
 		Example: `  nexoctl mb --with-versioning local/photos
   nexoctl mb --with-lock local/vault
-  nexoctl mb --with-hls local/videos`,
+  nexoctl mb --with-hls local/videos
+  nexoctl mb --with-images local/pictures`,
 		Args:              minArgs(1),
 		ValidArgsFunction: completeTargets(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -78,6 +83,21 @@ uploaded (see "nexoctl media"; it needs the Admin API and a media worker).`,
 						msg += " HLS video set (media rule \"hls\")."
 					}
 				}
+				if withImages {
+					admin, err := e.admin(ctx, t.Alias)
+					if err == nil {
+						_, _, err = upsertMediaRule(ctx, admin, t.Bucket, imagesMediaRule())
+					}
+					if err != nil {
+						return fmt.Errorf("%s: media rule %q: %w", t, domain.ImagesMediaRuleID, err)
+					}
+					rec.Images = true
+					if rec.Created {
+						msg = strings.TrimSuffix(msg, ".") + ", with image variants (media rule \"images\": every format at every width)."
+					} else {
+						msg += " Image variants set (media rule \"images\")."
+					}
+				}
 				if err := e.out.Info(rec, msg); err != nil {
 					return err
 				}
@@ -89,6 +109,7 @@ uploaded (see "nexoctl media"; it needs the Admin API and a media worker).`,
 	f.BoolVar(&withVersioning, "with-versioning", false, "enable versioning on the new bucket")
 	f.BoolVarP(&withLock, "with-lock", "l", false, "create the bucket with Object Lock (implies versioning)")
 	f.BoolVar(&withHLS, "with-hls", false, `make a video bucket: the media rule "hls" (every rendition, a poster and thumbnails)`)
+	f.BoolVar(&withImages, "with-images", false, `make an image bucket: the media rule "images" (every format at every width)`)
 	f.BoolVarP(&ignoreExisting, "ignore-existing", "p", false, "do not fail when the bucket already exists")
 	f.StringVar(&region, "region", "", "location constraint (default: the region of the alias)")
 	return cmd

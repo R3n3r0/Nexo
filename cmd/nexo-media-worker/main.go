@@ -25,6 +25,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
+	"github.com/r3n3r0/nexo/internal/mediaworker/imaging"
 	"github.com/r3n3r0/nexo/internal/mediaworker/openh264"
 	"github.com/r3n3r0/nexo/internal/mediaworker/worker"
 	"github.com/r3n3r0/nexo/internal/version"
@@ -66,6 +67,9 @@ type options struct {
 	downloadURL string
 	logLevel    string
 	logFormat   string
+	imageBytes  int64
+	imagePixels int64
+	imageMemory int64
 }
 
 const defaultAddress = ":9600"
@@ -74,10 +78,12 @@ func newRootCmd(deps cmdDeps) *cobra.Command {
 	var o options
 	root := &cobra.Command{
 		Use:   "nexo-media-worker",
-		Short: "Nexo media worker: renditions, posters and thumbnails of videos",
+		Short: "Nexo media worker: renditions, posters and thumbnails of videos, variants of images",
 		Long: `nexo-media-worker receives the jobs of the media_worker notification target
 of Nexo (POST /jobs, bearer auth_token), keeps them in a queue on disk and
-derives the outputs the media rules of the buckets ask for. It encodes H.264
+derives the outputs the media rules of the buckets ask for: the renditions,
+posters and thumbnails of videos, the variants of images (AVIF, WebP, JPEG,
+PNG at several widths). It encodes H.264
 with OpenH264: the Cisco build of the library is downloaded into the data
 directory at the first start (Cisco licenses the H.264 patents of its build to
 whoever downloads it), unless --openh264 names a library.
@@ -113,6 +119,9 @@ the flag name in upper case (NEXO_WORKER_S3_ENDPOINT, NEXO_WORKER_AUTH_TOKEN...)
 	f.StringVar(&o.downloadURL, "openh264-download-url", openh264.DownloadBase, "where the Cisco builds of OpenH264 are downloaded from")
 	f.StringVar(&o.logLevel, "log-level", "info", "log level: debug, info, warn or error")
 	f.StringVar(&o.logFormat, "log-format", "text", "log format: text or json")
+	f.Int64Var(&o.imageBytes, "image-max-bytes", imaging.DefaultMaxBytes, "largest image file processed (a larger one fails for good)")
+	f.Int64Var(&o.imagePixels, "image-max-pixels", imaging.DefaultMaxPixels, "largest image processed, in pixels, read from its header before decoding")
+	f.Int64Var(&o.imageMemory, "image-memory", imaging.DefaultMemoryBudget, "memory of the image variants encoded at once, in bytes; a variant that alone needs more (an AVIF of a very large image) is not produced")
 	root.AddCommand(newVersionCmd(deps), newHealthcheckCmd(deps), newFetchCmd(deps))
 	return root
 }
@@ -179,7 +188,8 @@ func run(ctx context.Context, deps cmdDeps, o options) error {
 	}
 	logger.Info("OpenH264 loaded", "path", libPath, "version", lib.CodecVersion(),
 		"license", "OpenH264 Video Codec provided by Cisco Systems, Inc.")
-	w, err := worker.New(worker.Config{AuthToken: o.authToken, WorkDir: o.dataDir, Concurrency: o.concurrency, MaxAttempts: o.maxAttempts, Name: o.name}, store, lib, logger)
+	w, err := worker.New(worker.Config{AuthToken: o.authToken, WorkDir: o.dataDir, Concurrency: o.concurrency, MaxAttempts: o.maxAttempts, Name: o.name,
+		ImageLimits: imaging.Limits{MaxBytes: o.imageBytes, MaxPixels: o.imagePixels}, ImageMemory: o.imageMemory}, store, lib, logger)
 	if err != nil {
 		return err
 	}

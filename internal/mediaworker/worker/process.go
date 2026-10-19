@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/mediaworker/imaging"
 	"github.com/r3n3r0/nexo/internal/mediaworker/transcode"
 )
 
@@ -32,10 +33,12 @@ type job struct {
 	w       *Worker
 	job     domain.MediaJob
 	sidecar string
+	size    int64 // of the version
 	status  domain.MediaStatus
 }
 
-// process derives the outputs of the rule from a version of a video.
+// process derives the outputs of the rule from a version of a video or
+// an image.
 func (w *Worker) process(ctx context.Context, mj domain.MediaJob) error {
 	info, err := w.store.Head(ctx, mj.Bucket, mj.Key, mj.VersionID)
 	if errors.Is(err, ErrNotFound) {
@@ -51,7 +54,7 @@ func (w *Worker) process(ctx context.Context, mj domain.MediaJob) error {
 	if version == "" {
 		version = info.VersionID
 	}
-	j := &job{w: w, job: mj, sidecar: domain.MediaSidecarDir(mj.Key, version), status: domain.MediaStatus{
+	j := &job{w: w, job: mj, sidecar: domain.MediaSidecarDir(mj.Key, version), size: info.Size, status: domain.MediaStatus{
 		State: domain.MediaStateProcessing, Rule: mj.Rule.ID, ETag: info.ETag, Worker: w.cfg.Name, Started: time.Now().UTC(),
 	}}
 	err = j.run(ctx, version)
@@ -85,7 +88,13 @@ func (j *job) put(ctx context.Context, name string, data []byte, contentType str
 }
 
 func (j *job) run(ctx context.Context, version string) error {
-	w, mj, rule := j.w, j.job, j.job.Rule
+	w, mj := j.w, j.job
+	if mj.Rule.Images != nil {
+		// Refused before the download.
+		if limit := w.cfg.ImageLimits.WithDefaults().MaxBytes; j.size > limit {
+			return fmt.Errorf("%w: %w: %d bytes, more than %d", errPermanent, imaging.ErrTooLarge, j.size, limit)
+		}
+	}
 	if err := j.step(ctx, "download"); err != nil {
 		return err
 	}
@@ -98,16 +107,33 @@ func (j *job) run(ctx context.Context, version string) error {
 	if err := w.store.Download(ctx, mj.Bucket, mj.Key, version, srcPath); err != nil {
 		return err
 	}
+	produced := map[string]bool{domain.MediaStatusFile: true}
+	if mj.Rule.Images != nil {
+		err = j.images(ctx, srcPath, produced)
+	} else {
+		err = j.video(ctx, dir, srcPath, produced)
+	}
+	if err != nil {
+		return err
+	}
+	j.status.State, j.status.Step = domain.MediaStateDone, ""
+	if err := j.save(ctx); err != nil {
+		return err
+	}
+	j.prune(ctx, produced)
+	return nil
+}
+
+// video derives the renditions, the poster and the thumbnails of a video,
+// adding the files it writes to produced.
+func (j *job) video(ctx context.Context, dir, srcPath string, produced map[string]bool) error {
+	w, mj, rule := j.w, j.job, j.job.Rule
 	src, err := transcode.Open(srcPath)
 	if err != nil {
-		if errors.Is(err, transcode.ErrUnsupported) {
-			return fmt.Errorf("%w: %w", errPermanent, err)
-		}
-		return err
+		return wrapTranscode(err)
 	}
 	defer func() { _ = src.Close() }()
 	j.status.Duration, j.status.Width, j.status.Height = src.Seconds(), src.Width, src.Height
-	produced := map[string]bool{domain.MediaStatusFile: true}
 
 	// Renditions: those taller than the source are skipped.
 	var specs []transcode.RenditionSpec
@@ -167,11 +193,48 @@ func (j *job) run(ctx context.Context, version string) error {
 		produced[domain.MediaSpriteFile], produced[domain.MediaThumbnailsFile] = true, true
 		j.status.Thumbnails = &domain.MediaThumbnailsOutput{Interval: res.Interval, Width: res.Width, Height: res.Height, Columns: res.Columns, Count: res.Count}
 	}
-	j.status.State, j.status.Step = domain.MediaStateDone, ""
-	if err := j.save(ctx); err != nil {
+	return nil
+}
+
+// images derives the variants of an image, every format at every width
+// smaller than the image and at its own size, uploading each as soon as
+// it is encoded, and adds them to produced.
+func (j *job) images(ctx context.Context, srcPath string, produced map[string]bool) error {
+	rule := j.job.Rule.Images
+	img, err := decodeImage(srcPath, j.w.cfg.ImageLimits.WithDefaults())
+	if err != nil {
 		return err
 	}
-	j.prune(ctx, produced)
+	j.status.Width, j.status.Height, j.status.Alpha = img.Width, img.Height, !img.Opaque()
+	if err := j.step(ctx, "images"); err != nil {
+		return err
+	}
+	widths := rule.Widths
+	if len(widths) == 0 {
+		widths = domain.DefaultImageWidths()
+	}
+	err = img.Variants(ctx, imaging.Options{Formats: rule.Formats, Widths: widths, MemoryBudget: j.w.cfg.ImageMemory}, func(v imaging.Variant) error {
+		name := domain.MediaImageFile(v.Width, v.Format)
+		if err := j.put(ctx, name, v.Data, domain.MediaImageContentType(v.Format)); err != nil {
+			return err
+		}
+		produced[name] = true
+		j.status.Images = append(j.status.Images, domain.MediaImageOutput{Format: v.Format, Width: v.Width,
+			PixelWidth: v.PixelWidth, PixelHeight: v.PixelHeight, Size: int64(len(v.Data))})
+		return nil
+	})
+	if err != nil {
+		return wrapImaging(err)
+	}
+	// The order of the formats of domain.MediaImageFormats, smallest
+	// first.
+	formats := domain.MediaImageFormats()
+	slices.SortFunc(j.status.Images, func(a, b domain.MediaImageOutput) int {
+		if a.Format != b.Format {
+			return slices.Index(formats, a.Format) - slices.Index(formats, b.Format)
+		}
+		return a.PixelWidth - b.PixelWidth
+	})
 	return nil
 }
 
@@ -196,6 +259,35 @@ func (j *job) prune(ctx context.Context, produced map[string]bool) {
 			j.w.logger.Warn("worker: stale outputs not removed", "bucket", j.job.Bucket, "key", j.job.Key, "err", err)
 		}
 	}
+}
+
+// decodeImage decodes the image of a file within the limits.
+func decodeImage(path string, limits imaging.Limits) (*imaging.Image, error) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if st.Size() > limits.MaxBytes {
+		return nil, fmt.Errorf("%w: %w: %d bytes, more than %d", errPermanent, imaging.ErrTooLarge, st.Size(), limits.MaxBytes)
+	}
+	data, err := os.ReadFile(path) // #nosec G304 -- a file of the job directory
+	if err != nil {
+		return nil, err
+	}
+	img, err := imaging.Decode(data, limits)
+	return img, wrapImaging(err)
+}
+
+// wrapImaging marks the failures of an unsupported or too large image
+// permanent.
+func wrapImaging(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, imaging.ErrUnsupported) || errors.Is(err, imaging.ErrTooLarge) {
+		return fmt.Errorf("%w: %w", errPermanent, err)
+	}
+	return err
 }
 
 // wrapTranscode marks the failures of an unsupported source permanent.

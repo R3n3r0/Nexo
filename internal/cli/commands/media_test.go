@@ -72,6 +72,47 @@ func TestScenarioMedia(t *testing.T) {
 	assert.Empty(t, h.admin.MediaRules("videos").Rules)
 }
 
+// TestScenarioMediaImages: the image rules (mb --with-images, rule add
+// --images) and the variants of an image in media status.
+func TestScenarioMediaImages(t *testing.T) {
+	h := newHarness(t)
+	h.mem.MakeBucket("photos")
+	s := h.session()
+	s.run("mb", "--with-images", "mem/pictures")
+	s.run("mb", "--with-hls", "--with-images", "mem/library")
+	s.run("mb", "--ignore-existing", "--with-images", "--json", "mem/library")
+	s.run("media", "get", "mem/library")
+	s.run("media", "rule", "add", "mem/photos", "--images")
+	s.run("media", "rule", "add", "mem/photos", "--images", "--id", "thumbs", "--prefix", "gallery/", "--format", "JPG,webp", "--width", "640", "--width", "160", "--json")
+	s.run("media", "get", "mem/photos")
+	updated := time.Date(2026, 1, 2, 3, 4, 6, 0, time.UTC)
+	h.admin.SetMediaStatus("photos", "gallery/beach.jpg", "", nexoadmin.MediaStatus{
+		State: "done", Current: true, VersionID: "null", Rule: "thumbs", Width: 4000, Height: 3000, Updated: &updated,
+		Images: []nexoadmin.MediaImageOutput{
+			{Format: "webp", Width: 640, PixelWidth: 640, PixelHeight: 480, Size: 41_000, ContentType: "image/webp", URL: "/api/v1/buckets/photos/objects/image?format=webp&key=gallery%2Fbeach.jpg&w=640"},
+			{Format: "webp", Width: 0, PixelWidth: 4000, PixelHeight: 3000, Size: 1_200_000, ContentType: "image/webp", URL: "/api/v1/buckets/photos/objects/image?format=webp&key=gallery%2Fbeach.jpg"},
+			{Format: "webp", Width: 160, PixelWidth: 160, PixelHeight: 120, Size: 4_000, ContentType: "image/webp", URL: "/api/v1/buckets/photos/objects/image?format=webp&key=gallery%2Fbeach.jpg&w=160"},
+			{Format: "jpeg", Width: 160, PixelWidth: 160, PixelHeight: 120, Size: 6_000, ContentType: "image/jpeg", URL: "/api/v1/buckets/photos/objects/image?format=jpeg&key=gallery%2Fbeach.jpg&w=160"},
+			{Format: "jpeg", Width: 0, PixelWidth: 4000, PixelHeight: 3000, Size: 2_500_000, ContentType: "image/jpeg", URL: "/api/v1/buckets/photos/objects/image?format=jpeg&key=gallery%2Fbeach.jpg"},
+		},
+	})
+	s.run("media", "status", "mem/photos/gallery/beach.jpg")
+	s.run("media", "status", "--json", "mem/photos/gallery/beach.jpg")
+	s.run("media", "status", "mem/photos/gallery/new.png")
+	// Usage errors.
+	s.run("media", "rule", "add", "mem/photos", "--images", "--format", "gif")
+	s.run("media", "rule", "add", "mem/photos", "--images", "--width", "8")
+	s.run("media", "rule", "add", "mem/photos", "--images", "--thumbnails", "10s")
+	s.run("media", "rule", "add", "mem/photos", "--id", "x", "--format", "webp")
+	s.run("media", "rule", "add", "mem/photos", "--images", "--hls")
+	golden(t, "scenario/media_images", s.b.String())
+
+	rules := h.admin.MediaRules("library").Rules
+	require.Len(t, rules, 2)
+	assert.Equal(t, "hls", rules[0].ID)
+	assert.Equal(t, "images", rules[1].ID)
+}
+
 func TestMediaRuleRemoveLastDeletes(t *testing.T) {
 	h := newHarness(t)
 	h.mustRun("media", "rule", "add", "mem/videos", "--id", "only", "--poster")

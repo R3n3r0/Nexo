@@ -10,7 +10,7 @@ import {
   TextInput,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconAlertTriangle, IconMovie } from '@tabler/icons-react';
+import { IconAlertTriangle, IconMovie, IconPhoto } from '@tabler/icons-react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -30,7 +30,8 @@ export interface CreateBucketDialogProps {
 
 /**
  * D-BKT-01 / TD-U-04: creation with live DNS validation, versioning, lock,
- * quota and the HLS video option (the media rule "hls").
+ * quota, the HLS video option (the media rule "hls") and the images option
+ * (the media rule "images").
  */
 export function CreateBucketDialog({ opened, onClose }: CreateBucketDialogProps) {
   const { t } = useTranslation();
@@ -42,6 +43,7 @@ export function CreateBucketDialog({ opened, onClose }: CreateBucketDialogProps)
   const [versioning, setVersioning] = useState(false);
   const [objectLock, setObjectLock] = useState(false);
   const [hls, setHls] = useState(false);
+  const [images, setImages] = useState(false);
   const [quota, setQuota] = useState<number | string>('');
   const [unit, setUnit] = useState<SizeUnit>('GiB');
 
@@ -66,6 +68,7 @@ export function CreateBucketDialog({ opened, onClose }: CreateBucketDialogProps)
     setVersioning(false);
     setObjectLock(false);
     setHls(false);
+    setImages(false);
     setQuota('');
     setUnit('GiB');
     mutation.reset();
@@ -100,6 +103,9 @@ export function CreateBucketDialog({ opened, onClose }: CreateBucketDialogProps)
     }
     if (hls) {
       input.hls = true;
+    }
+    if (images) {
+      input.images = true;
     }
     mutation.mutate(input);
   };
@@ -159,6 +165,19 @@ export function CreateBucketDialog({ opened, onClose }: CreateBucketDialogProps)
             checked={hls}
             onChange={(event) => {
               setHls(event.currentTarget.checked);
+            }}
+          />
+          <Switch
+            label={
+              <Group gap={6} wrap="nowrap">
+                <IconPhoto size={16} aria-hidden />
+                {t('buckets.images')}
+              </Group>
+            }
+            description={t('buckets.imagesHint')}
+            checked={images}
+            onChange={(event) => {
+              setImages(event.currentTarget.checked);
             }}
           />
           <Group align="flex-end" gap="xs" wrap="nowrap">

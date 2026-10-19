@@ -188,8 +188,11 @@ type managedShareRecord struct {
 	URL        string `json:"url,omitempty"`
 	// Stream and Player are set on the HLS stream shares: URL is the master
 	// playlist, Player the public player page playing it.
-	Stream    bool              `json:"stream,omitempty"`
-	Player    string            `json:"player,omitempty"`
+	Stream bool   `json:"stream,omitempty"`
+	Player string `json:"player,omitempty"`
+	// Image is set on the image shares: URL serves the variants of the
+	// image.
+	Image     bool              `json:"image,omitempty"`
 	Headers   map[string]string `json:"headers,omitempty"`
 	VersionID string            `json:"versionId,omitempty"`
 	Expire    string            `json:"expire,omitempty"`

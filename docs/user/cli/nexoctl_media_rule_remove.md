@@ -1,6 +1,6 @@
 # nexoctl media rule remove
 
-Remove a video rule of a bucket
+Remove a media rule of a bucket
 
 ```
 nexoctl media rule remove ALIAS/BUCKET ID [flags]
@@ -36,5 +36,5 @@ nexoctl media rule rm
 
 ## SEE ALSO
 
-* [nexoctl media rule](nexoctl_media_rule.md)	 - Add or remove one video rule of a bucket
+* [nexoctl media rule](nexoctl_media_rule.md)	 - Add or remove one media rule of a bucket
 

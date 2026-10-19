@@ -15,6 +15,11 @@ link is its master playlist, for any HLS player, and the output adds the public
 player page of the server, for browsers. A stream link is managed: revoking it
 stops the playback.
 
+--image shares an image through the variants the media worker derived from it
+(an image rule, see "nexoctl media"): the link serves the image at its own size
+in the most compact format the browser accepts (AVIF, WebP, then JPEG), for an
+<img> tag. An image link is managed.
+
 ```
 nexoctl share download [flags] ALIAS/BUCKET/OBJECT
 ```
@@ -26,6 +31,7 @@ nexoctl share download [flags] ALIAS/BUCKET/OBJECT
   nexoctl share download --recursive local/docs/2026/
   nexoctl share download --raw --expire 10m local/docs/report.pdf
   nexoctl share download --stream --expire 7d local/videos/talk.mp4
+  nexoctl share download --image local/photos/beach.jpg
 ```
 
 ## Options
@@ -35,6 +41,7 @@ nexoctl share download [flags] ALIAS/BUCKET/OBJECT
       --content-type string          Content-Type of the download
   -E, --expire string                validity of the links (1s to 7d) (default "7d")
   -h, --help                         help for download
+      --image                        share an image through its variants, in the best format the browser takes (managed links only)
       --managed                      managed, revocable link signed by the server (Admin API) (default true)
       --raw                          raw URL signed locally with the alias credentials (not revocable)
   -r, --recursive                    one link per object under the prefix

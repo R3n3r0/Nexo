@@ -1686,16 +1686,16 @@
     "infoUnavailable": "Lo stato del server richiede admin:ServerInfo."
   },
   "bucketMedia": {
-    "title": "Regole video",
-    "description": "Il media worker elabora i video selezionati da queste regole: rendition di qualità inferiore per lo streaming adattivo, un fotogramma di copertina e le miniature della timeline. Lo streaming dell'originale non richiede regole.",
+    "title": "Regole media",
+    "description": "Il media worker elabora i video e le immagini selezionati da queste regole: per i video, rendition di qualità inferiore per lo streaming adattivo, un fotogramma di copertina e le miniature della timeline; per le immagini, varianti in ogni formato e larghezza. Lo streaming del video originale non richiede regole.",
     "add": "Aggiungi regola",
-    "addTitle": "Nuova regola video",
-    "editTitle": "Modifica la regola video",
-    "empty": "Nessuna regola: i video di questo bucket sono trasmessi come caricati.",
-    "rules": "Regole video",
+    "addTitle": "Nuova regola media",
+    "editTitle": "Modifica la regola media",
+    "empty": "Nessuna regola: i video e le immagini di questo bucket sono serviti come caricati.",
+    "rules": "Regole media",
     "columns": {
       "id": "Regola",
-      "objects": "Video",
+      "objects": "Oggetti",
       "outputs": "Output"
     },
     "id": "ID della regola",
@@ -1716,15 +1716,15 @@
     "thumbnailsBadge": "Miniature ogni {{interval}}",
     "prefixIs": "Prefisso {{prefix}}",
     "wholeBucket": "Intero bucket",
-    "firstMatch": "Si applica la prima regola che seleziona un video. Gli output sono salvati sotto .nexo-media/ nel bucket.",
+    "firstMatch": "Si applica la prima regola che seleziona un oggetto. Gli output sono salvati sotto .nexo-media/ nel bucket.",
     "save": "Salva la regola",
-    "saved": "Regole video salvate.",
+    "saved": "Regole media salvate.",
     "edit": "Modifica la regola {{id}}",
     "remove": "Elimina la regola {{id}}",
-    "deleteTitle": "Elimina la regola video",
-    "deleteConfirm": "Eliminare la regola video {{id}}? Gli output già prodotti sono conservati.",
+    "deleteTitle": "Elimina la regola media",
+    "deleteConfirm": "Eliminare la regola media {{id}}? Gli output già prodotti sono conservati.",
     "serverRefused": "Il server ha rifiutato la regola",
-    "unavailable": "Non puoi leggere le regole video di questo bucket (admin:GetBucketMedia).",
+    "unavailable": "Non puoi leggere le regole media di questo bucket (admin:GetBucketMedia).",
     "issues": {
       "id": "1-64 lettere, cifre, “.”, “_” o “-”.",
       "idDuplicate": "Un'altra regola ha questo ID.",
@@ -1732,8 +1732,22 @@
       "prefixReserved": "Il prefisso .nexo-media/ è riservato agli output.",
       "suffix": "Ogni suffisso deve avere 1-32 caratteri.",
       "interval": "Una durata da 1s a 10m, come 10s.",
-      "nothing": "Scegli almeno un output: rendition, copertina o miniature."
-    }
+      "nothing": "Scegli almeno un output: rendition, copertina o miniature.",
+      "imageVideoOutputs": "Una regola per immagini non ha rendition, copertina o miniature.",
+      "imageFormat": "Formato sconosciuto: scegli tra AVIF, WebP, JPEG e PNG.",
+      "imageWidth": "Ogni larghezza deve essere un numero intero di pixel da 16 a 8192.",
+      "imageWidths": "Al massimo 16 larghezze."
+    },
+    "kind": "Tipo di regola",
+    "kinds": {
+      "video": "Video",
+      "images": "Immagini"
+    },
+    "formats": "Formati",
+    "formatsHint": "I formati delle varianti; tutti se vuoto. I link alle immagini servono il più compatto accettato da ogni browser.",
+    "widths": "Larghezze",
+    "widthsHint": "Larghezze in pixel da 16 a 8192, al massimo 16; {{widths}} se vuoto. Le larghezze non inferiori all'immagine sono saltate, e ogni formato riceve anche l'immagine alla sua dimensione. Premi Invio dopo ciascuna.",
+    "widthsBadge": "{{widths}} px"
   },
   "objectMedia": {
     "state": {
@@ -1742,9 +1756,9 @@
       "done": "Elaborato",
       "failed": "Non riuscito"
     },
-    "none": "Il media worker non ha elaborato questo video: nessuna regola lo seleziona, oppure è in coda.",
+    "none": "Il media worker non ha elaborato questo oggetto: nessuna regola lo seleziona, oppure è in coda.",
     "stale": "Non aggiornato",
-    "staleHint": "Gli output derivano da un contenuto precedente di questo oggetto: non sono usati finché il video non viene elaborato di nuovo.",
+    "staleHint": "Gli output derivano da un contenuto precedente di questo oggetto: non sono usati finché non viene elaborato di nuovo.",
     "rule": "Regola {{rule}}",
     "step": "Fase: {{step}}",
     "failed": "L'elaborazione non è riuscita",
@@ -1760,6 +1774,24 @@
     "poster": "Copertina",
     "posterAlt": "Copertina di {{name}}",
     "reprocess": "Elabora di nuovo",
-    "queued": "Il video è in coda per l'elaborazione."
+    "queued": "L'oggetto è in coda per l'elaborazione.",
+    "imageSource": "Immagine {{width}}×{{height}}",
+    "alpha": "Trasparenza",
+    "alphaHint": "L'immagine ha trasparenza: le sue varianti JPEG sono appiattite, quindi i browser che non accettano né AVIF né WebP ricevono PNG.",
+    "variants": "Varianti",
+    "variantColumns": {
+      "format": "Formato",
+      "width": "Larghezza chiesta",
+      "resolution": "Dimensioni",
+      "size": "Peso"
+    },
+    "ownSize": "Dimensione propria",
+    "widthPx": "{{width}} px",
+    "preview": "Anteprima",
+    "previewVariant": "Anteprima della variante {{format}} {{resolution}}",
+    "openVariant": "Apri la variante {{format}} {{resolution}}",
+    "copyVariant": "Copia l'URL della variante {{format}} {{resolution}}",
+    "variantAlt": "Variante {{format}} di {{name}}, {{resolution}}",
+    "variantsHint": "Questi URL richiedono una sessione della console: per dare l'immagine ad altri, condividila con un link immagine."
   }
 }

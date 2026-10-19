@@ -97,6 +97,9 @@ type bucketRecord struct {
 	ObjectLock bool `json:"objectLock,omitempty"`
 	// HLS reports a video bucket (mb --with-hls): the media rule "hls".
 	HLS bool `json:"hls,omitempty"`
+	// Images reports an image bucket (mb --with-images): the media rule
+	// "images".
+	Images bool `json:"images,omitempty"`
 }
 
 // shareRecord is a presigned URL (share download/upload, presign).

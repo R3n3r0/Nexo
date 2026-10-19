@@ -163,13 +163,14 @@ fuzz:
 bench: build-go
 	@for m in $(BENCH_MODES); do test/bench/warp.sh $$m || exit 1; done
 
-## bench-media: run the Go benchmarks of the video pipeline (packager, OpenH264 decode/encode, scaling, renditions, poster, sprite; docs/bench/media.md) and save them with the machine they ran on (test/bench/machine.sh) in bin/bench/media/<date>.txt; OpenH264 is fetched into bin/openh264 unless NEXO_OPENH264 names it, NEXO_BENCH_VIDEO=<file.mp4> measures a video of your own, BENCH_COUNT repeats (default 1)
+## bench-media: run the Go benchmarks of the media pipeline (packager, OpenH264 decode/encode, scaling, renditions, poster, sprite, image decode/resize/encode/variants; docs/bench/media.md) and save them with the machine they ran on (test/bench/machine.sh) in bin/bench/media/<date>.txt; OpenH264 is fetched into bin/openh264 unless NEXO_OPENH264 names it, NEXO_BENCH_VIDEO=<file.mp4> measures a video of your own, NEXO_BENCH_IMAGE=<file> an image of your own, BENCH_COUNT repeats (default 1)
 bench-media:
 	@lib="$${NEXO_OPENH264:-$$($(GO) run ./cmd/nexo-media-worker fetch-openh264 --dir $(BIN_DIR)/openh264)}" && \
 	mkdir -p $(BIN_DIR)/bench/media && out="$(BIN_DIR)/bench/media/$$(date -u +%Y%m%dT%H%M%SZ).txt" && \
 	{ test/bench/machine.sh "$$lib"; echo; \
 	  NEXO_OPENH264="$$lib" $(GO) test -run '^$$' -bench . -benchmem -count $${BENCH_COUNT:-1} \
-	    ./internal/service/media/ ./internal/mediaworker/openh264/ ./internal/mediaworker/transcode/; } | tee "$$out" && \
+	    ./internal/service/media/ ./internal/mediaworker/openh264/ ./internal/mediaworker/transcode/ \
+	    ./internal/mediaworker/imaging/; } | tee "$$out" && \
 	echo "saved in $$out"
 
 ## lint: run gofmt, go vet and golangci-lint

@@ -19,7 +19,7 @@ import {
 } from '@mantine/core';
 import { DateTimePicker } from '@mantine/dates';
 import { IconAlertTriangle, IconCheck, IconCopy, IconLink } from '@tabler/icons-react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { QRCodeSVG } from 'qrcode.react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -35,6 +35,8 @@ import {
 } from '@/lib/expiry';
 import { iamKeys } from '@/lib/iamQueries';
 import { canStream, playerUrl } from '@/lib/media';
+import { isMediaImage, matchMediaRule } from '@/lib/mediaRules';
+import { storageKeys } from '@/lib/storageKeys';
 import { shellQuote } from '@/lib/uploadSnippets';
 import { useServices, type SharePermission } from '@/services';
 
@@ -53,7 +55,10 @@ export interface ShareDialogProps {
   prefix?: string | boolean;
   /** A specific version of the object. */
   versionId?: string;
-  /** Content type of the object, when known (videos can be streamed). */
+  /**
+   * Content type of the object, when known (videos can be streamed, images
+   * shared through their variants).
+   */
   contentType?: string;
 }
 
@@ -65,6 +70,8 @@ interface ResolvedTarget {
   versionId: string | undefined;
   /** A video object, which can be shared as an HLS stream. */
   streamable: boolean;
+  /** An image object, which an image rule may cover (image link). */
+  imageLike: boolean;
 }
 
 function resolveTarget(props: ShareDialogProps): ResolvedTarget {
@@ -75,6 +82,7 @@ function resolveTarget(props: ShareDialogProps): ResolvedTarget {
       isPrefix: true,
       versionId: undefined,
       streamable: false,
+      imageLike: false,
     };
   }
   const isPrefix = props.prefix === true;
@@ -85,11 +93,37 @@ function resolveTarget(props: ShareDialogProps): ResolvedTarget {
     isPrefix,
     versionId: isPrefix ? undefined : props.versionId,
     streamable: !isPrefix && canStream(key, props.contentType),
+    imageLike: !isPrefix && isMediaImage(key, props.contentType),
   };
 }
 
 type ExpiryChoice = ExpiryPreset | 'custom';
 type Disposition = 'default' | 'inline' | 'attachment';
+
+/**
+ * Whether an image rule of the bucket covers the image: read from the
+ * rules (admin:GetBucketMedia) or, without them, from the variants the
+ * media worker made of it.
+ */
+function useImageRuleCovers(target: ResolvedTarget): boolean {
+  const { media } = useServices();
+  const { bucket, key, versionId, imageLike } = target;
+  const rules = useQuery({
+    queryKey: storageKeys.bucketSetting(bucket, 'media'),
+    queryFn: () => media.get(bucket),
+    enabled: imageLike,
+    retry: false,
+  });
+  const status = useQuery({
+    queryKey: storageKeys.mediaStatus(bucket, key, versionId),
+    queryFn: () => media.status(bucket, key, versionId),
+    enabled: imageLike && rules.isError,
+    retry: false,
+  });
+  if (!imageLike) return false;
+  if (rules.data !== undefined) return matchMediaRule(rules.data.rules, key)?.images !== undefined;
+  return (status.data?.images ?? []).length > 0;
+}
 
 /** The link produced by the dialog. */
 interface ShareResult {
@@ -153,6 +187,12 @@ function ShareForm({ target, onClose }: { target: ResolvedTarget; onClose: () =>
   const [raw, setRaw] = useState(false);
   // A video is shared as a stream unless the user asks for the file.
   const [stream, setStream] = useState(target.streamable);
+  // An image covered by an image rule may be shared through its variants.
+  const imageCovered = useImageRuleCovers(target);
+  const [imageChoice, setImage] = useState(false);
+  const image = imageCovered && imageChoice;
+  // Both are served by the media routes, as they are.
+  const media = stream || image;
   const [result, setResult] = useState<ShareResult | null>(null);
   const now = useMemo(() => new Date(), []);
   const maxDate = useMemo(() => new Date(now.getTime() + maxExpirySeconds * 1000), [now]);
@@ -165,7 +205,7 @@ function ShareForm({ target, onClose }: { target: ResolvedTarget; onClose: () =>
         : 0
       : expiryPresets[expiry];
   const contentDisposition =
-    permission === 'download' && !isPrefix && !stream
+    permission === 'download' && !isPrefix && !media
       ? dispositionValue(disposition, key)
       : undefined;
   const signedType =
@@ -173,7 +213,7 @@ function ShareForm({ target, onClose }: { target: ResolvedTarget; onClose: () =>
 
   const mutation = useMutation({
     mutationFn: async (): Promise<ShareResult> => {
-      if (raw && !isPrefix && !stream) {
+      if (raw && !isPrefix && !media) {
         const presigned = await shares.presign({
           method: permission === 'upload' ? 'PUT' : 'GET',
           bucket: target.bucket,
@@ -202,6 +242,7 @@ function ShareForm({ target, onClose }: { target: ResolvedTarget; onClose: () =>
         ...(contentDisposition !== undefined ? { contentDisposition } : {}),
         ...(signedType !== undefined ? { contentType: signedType } : {}),
         ...(stream ? { stream: true } : {}),
+        ...(image ? { image: true } : {}),
       });
       return {
         url: share.url,
@@ -271,7 +312,7 @@ function ShareForm({ target, onClose }: { target: ResolvedTarget; onClose: () =>
             }}
             data={[
               { value: 'download', label: t('shareDialog.download') },
-              { value: 'upload', label: t('shareDialog.upload'), disabled: isPrefix || stream },
+              { value: 'upload', label: t('shareDialog.upload'), disabled: isPrefix || media },
             ]}
           />
           {isPrefix ? (
@@ -332,7 +373,22 @@ function ShareForm({ target, onClose }: { target: ResolvedTarget; onClose: () =>
             }}
           />
         ) : null}
-        {permission === 'download' && !isPrefix && !stream ? (
+        {imageCovered ? (
+          <Switch
+            label={t('shareDialog.image.label')}
+            description={t('shareDialog.image.hint')}
+            checked={imageChoice}
+            onChange={(event) => {
+              const checked = event.currentTarget.checked;
+              setImage(checked);
+              if (checked) {
+                setPermission('download');
+                setRaw(false);
+              }
+            }}
+          />
+        ) : null}
+        {permission === 'download' && !isPrefix && !media ? (
           <Select
             label={t('shareDialog.disposition.label')}
             description={t('shareDialog.disposition.hint')}
@@ -364,7 +420,7 @@ function ShareForm({ target, onClose }: { target: ResolvedTarget; onClose: () =>
           label={t('shareDialog.raw.label')}
           description={t('shareDialog.raw.hint')}
           checked={raw}
-          disabled={isPrefix || stream}
+          disabled={isPrefix || media}
           onChange={(event) => {
             setRaw(event.currentTarget.checked);
           }}

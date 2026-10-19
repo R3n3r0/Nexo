@@ -310,15 +310,24 @@ export type NotifyTargetTest = Schemas['NotifyTargetTest'];
 export type CorsConfiguration = Schemas['CorsConfiguration'];
 export type CorsRule = Schemas['CorsRule'];
 
-/** The video rules of a bucket, applied by the media worker. */
+/** The video and image rules of a bucket, applied by the media worker. */
 export type MediaConfiguration = Schemas['MediaConfiguration'];
 export type MediaRule = Schemas['MediaRule'];
 /** A rendition preset of a rule (2160p ... 240p). */
 export type MediaRendition = NonNullable<MediaRule['renditions']>[number];
 export type MediaThumbnails = Schemas['MediaThumbnails'];
+/** The variants of an image rule (formats and widths). */
+export type MediaImages = Schemas['MediaImages'];
+/** A format of the image variants (avif, webp, jpeg, png). */
+export type MediaImageFormat = NonNullable<MediaImages['formats']>[number];
+/** A variant of an image produced by the media worker. */
+export type MediaImageOutput = Schemas['MediaImageOutput'];
 /** The version of a video to process again (default the latest). */
 export type MediaReprocessRequest = Schemas['MediaReprocessRequest'];
-/** The processing state of a video by the media worker. */
+/**
+ * The processing state of a video or an image by the media worker; alpha
+ * reports an image with transparency (its JPEG variants are flattened).
+ */
 export type MediaStatus = Schemas['MediaStatus'];
 export type MediaState = MediaStatus['state'];
 

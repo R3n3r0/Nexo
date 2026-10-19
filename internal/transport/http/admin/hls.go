@@ -163,8 +163,76 @@ func (h *objectRoutes) hlsThumbnails() http.HandlerFunc {
 	})
 }
 
-// MediaStatusResponse is the processing state of a video by the media
-// worker (GET /buckets/{bucket}/objects/media/status).
+// image serves a variant of an image the media worker derived from the
+// current content of the object (404 otherwise): ?w= the width the client
+// displays, ?format= auto (the default: the most compact format of the
+// Accept header) or a format. It answers ranges and conditional requests
+// (the ETag names the variant).
+func (h *objectRoutes) image(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Media == nil {
+		h.fail(w, r, fmt.Errorf("%w: the media outputs are not enabled", domain.ErrNotFound))
+		return
+	}
+	src, err := hlsSource(r, false)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	q := r.URL.Query()
+	width, err := media.ParseImageWidth(q.Get("w"))
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	format, err := media.ParseImageFormat(q.Get("format"))
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	img, err := h.deps.Media.Image(r.Context(), media.Source{Bucket: src.Bucket, Key: src.Key, VersionID: src.VersionID},
+		media.ImageRequest{Width: width, Format: format, Accept: r.Header.Get("Accept")})
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	defer func() { _ = img.Content.Close() }()
+	hdr := w.Header()
+	hdr.Set("Content-Type", img.ContentType)
+	hdr.Set("ETag", img.ETag)
+	hdr.Set("Cache-Control", "private, no-cache")
+	hdr.Set("X-Content-Type-Options", "nosniff")
+	if format == media.ImageFormatAuto {
+		hdr.Add("Vary", "Accept")
+	}
+	http.ServeContent(w, r, "", img.Modified, img.Content)
+}
+
+// imageURL is the URL of a variant of an image on the Admin API (width 0:
+// the image at its own size).
+func imageURL(bucket, key, versionID string, width int, format string) string {
+	q := url.Values{"key": {key}, "format": {format}}
+	if width > 0 {
+		q.Set("w", strconv.Itoa(width))
+	}
+	if versionID != "" {
+		q.Set("versionId", versionID)
+	}
+	return Prefix + "/buckets/" + url.PathEscape(bucket) + "/objects/image?" + q.Encode()
+}
+
+// MediaImageResponse is a variant of an image produced by the media
+// worker.
+type MediaImageResponse struct {
+	domain.MediaImageOutput
+	// ContentType is the media type of the format.
+	ContentType string `json:"contentType"`
+	// URL serves the variant (GET /buckets/{bucket}/objects/image), a path
+	// of the server.
+	URL string `json:"url"`
+}
+
+// MediaStatusResponse is the processing state of a video or an image by
+// the media worker (GET /buckets/{bucket}/objects/media/status).
 type MediaStatusResponse struct {
 	// State is processing, done or failed; none when the worker never
 	// processed the version.
@@ -182,7 +250,12 @@ type MediaStatusResponse struct {
 	Renditions []domain.MediaRenditionOutput `json:"renditions,omitempty"`
 	Poster     bool                          `json:"poster,omitempty"`
 	Thumbnails *domain.MediaThumbnailsOutput `json:"thumbnails,omitempty"`
-	Updated    *time.Time                    `json:"updated,omitempty"`
+	// Images are the variants of an image (Width and Height are the size
+	// of the image).
+	Images []MediaImageResponse `json:"images,omitempty"`
+	// Alpha reports an image with transparency.
+	Alpha   bool       `json:"alpha,omitempty"`
+	Updated *time.Time `json:"updated,omitempty"`
 }
 
 // mediaStatus serves the processing state of a video.
@@ -201,16 +274,21 @@ func (h *objectRoutes) mediaStatus(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	h.deps.Enc.WriteJSON(w, http.StatusOK, newMediaStatusResponse(st))
+	h.deps.Enc.WriteJSON(w, http.StatusOK, newMediaStatusResponse(src, st))
 }
 
-func newMediaStatusResponse(st *media.OutputStatus) MediaStatusResponse {
+func newMediaStatusResponse(src media.Source, st *media.OutputStatus) MediaStatusResponse {
 	if st == nil {
 		return MediaStatusResponse{State: "none"}
 	}
 	out := MediaStatusResponse{
 		State: string(st.State), Current: st.Current, VersionID: st.VersionID, Error: st.Error, Step: st.Step, Rule: st.Rule,
 		Duration: st.Duration, Width: st.Width, Height: st.Height, Renditions: st.Renditions, Poster: st.Poster, Thumbnails: st.Thumbnails,
+		Alpha: st.Alpha,
+	}
+	for _, v := range st.Images {
+		out.Images = append(out.Images, MediaImageResponse{MediaImageOutput: v, ContentType: domain.MediaImageContentType(v.Format),
+			URL: imageURL(src.Bucket, src.Key, src.VersionID, v.Width, v.Format)})
 	}
 	if !st.Updated.IsZero() {
 		u := st.Updated.UTC()

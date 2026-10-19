@@ -125,6 +125,12 @@ type CreateInput struct {
 	// signs like a download. Object download shares only, without
 	// overrides.
 	Stream bool
+	// Image shares the variants of an image the media worker derived: the
+	// link is the image route of the object (domain.MediaImagePath), the
+	// image at its own size in the most compact format the client
+	// accepts. Object download shares only, without overrides; not with
+	// Stream.
+	Image bool
 }
 
 // ListFilter selects shares; empty fields match everything.
@@ -148,7 +154,9 @@ type Share struct {
 	ContentType        string
 	ContentDisposition string
 	// Stream is set on the HLS stream shares (CreateInput.Stream).
-	Stream    bool
+	Stream bool
+	// Image is set on the image shares (CreateInput.Image).
+	Image     bool
 	Expires   time.Time
 	CreatedAt time.Time
 	// URL is the presigned URL: GET or PUT of the object for object

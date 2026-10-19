@@ -1,12 +1,12 @@
 # nexoctl media reprocess
 
-Queue the processing of a video again
+Queue the processing of a video or an image again
 
 ## Synopsis
 
-Queue a job of the media worker for a video (default its latest version), with
-the rule of its bucket that selects it now: after a change of the rules, or to
-retry a failed job. "media status" follows the job.
+Queue a job of the media worker for a video or an image (default its latest
+version), with the rule of its bucket that selects it now: after a change of the
+rules, or to retry a failed job. "media status" follows the job.
 
 ```
 nexoctl media reprocess ALIAS/BUCKET/KEY [--version-id V] [flags]
@@ -38,5 +38,5 @@ nexoctl media reprocess ALIAS/BUCKET/KEY [--version-id V] [flags]
 
 ## SEE ALSO
 
-* [nexoctl media](nexoctl_media.md)	 - Manage the video rules of buckets and the media worker (Admin API)
+* [nexoctl media](nexoctl_media.md)	 - Manage the video and image rules of buckets and the media worker (Admin API)
 
