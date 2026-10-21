@@ -57,6 +57,12 @@ func (c *client) ListHeals(ctx context.Context) (*HealJobList, error) {
 	return &out, c.do(ctx, request{method: http.MethodGet, path: "/heal"}, &out)
 }
 
+// CompactMetadataLog implements AdminClient.
+func (c *client) CompactMetadataLog(ctx context.Context) (*MetadataLogCompaction, error) {
+	var out MetadataLogCompaction
+	return &out, c.do(ctx, request{method: http.MethodPost, path: "/storage/metadata-log/compact"}, &out)
+}
+
 // RestartService implements AdminClient.
 func (c *client) RestartService(ctx context.Context) error {
 	return c.do(ctx, request{method: http.MethodPost, path: "/service/restart"}, nil)

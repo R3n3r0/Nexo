@@ -315,6 +315,9 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   `metadata_log_memory_percent` (25% of the RAM, warning beyond it).
 - The storage behavior suite, the object layer suites and the integration suite run in both layouts
   (`NEXO_TEST_METADATA_LOG=1`).
+- Monitoring and compaction on demand: the `metadataLog` of the drives in `GET /info`, the `nexo_metadata_log_*`
+  Prometheus families (segments, live bytes, index memory, group commits, flush time, compactions, damaged areas),
+  `POST /storage/metadata-log/compact` and `nexoctl admin metadata-log status|compact`.
 
 ### Performance (small objects, bulk deletes)
 - The audit records no longer go to the server log by default (`NEXO_AUDIT_LOG`, `--audit-log`; the `debug`

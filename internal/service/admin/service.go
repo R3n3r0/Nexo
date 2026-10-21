@@ -80,6 +80,11 @@ type Service interface {
 	// healing: the single-drive mode); an identical running job is
 	// returned instead of a new one.
 	StartHeal(ctx context.Context, in HealInput) (heal.Job, error)
+	// CompactMetadataLog compacts at once the metadata log of the local
+	// drives of this node: every sealed segment holding garbage is
+	// rewritten (the background compaction waits for half of a segment).
+	// The drives without the log are left out.
+	CompactMetadataLog(ctx context.Context) ([]MetadataLogCompaction, error)
 	// HealStatus returns the state of a healing job (domain.ErrNotFound
 	// when unknown).
 	HealStatus(ctx context.Context, id string) (heal.Job, error)

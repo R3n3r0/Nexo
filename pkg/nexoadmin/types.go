@@ -193,7 +193,44 @@ type DiskInfo struct {
 	Healing  bool   `json:"healing"`
 	// HealingProgress is the progress of the drive healing, when healing.
 	HealingProgress *HealingProgress `json:"healingProgress,omitempty"`
-	Error           string           `json:"error,omitempty"`
+	// MetadataLog describes the metadata log of a drive in log mode.
+	MetadataLog *MetadataLog `json:"metadataLog,omitempty"`
+	Error       string       `json:"error,omitempty"`
+}
+
+// MetadataLog is the metadata log of a drive in DiskInfo.
+type MetadataLog struct {
+	Segments int `json:"segments"`
+	// Bytes of the segments; LiveBytes still hold current metadata (the
+	// rest is garbage the compaction reclaims).
+	Bytes       int64  `json:"bytes"`
+	LiveBytes   int64  `json:"liveBytes"`
+	Objects     int64  `json:"objects"`
+	IndexBytes  uint64 `json:"indexBytes"`
+	IndexBudget uint64 `json:"indexBudget"`
+	SegmentSize int64  `json:"segmentSize"`
+	// Counters since the drive opened.
+	Flushes        uint64  `json:"flushes"`
+	Records        uint64  `json:"records"`
+	FlushSeconds   float64 `json:"flushSeconds"`
+	Compactions    uint64  `json:"compactions"`
+	CompactedBytes uint64  `json:"compactedBytes"`
+	DamagedAreas   uint64  `json:"damagedAreas"`
+}
+
+// MetadataLogCompaction is the result of CompactMetadataLog: the
+// compaction of each drive in log mode of the answering node.
+type MetadataLogCompaction struct {
+	Drives []MetadataLogDriveCompaction `json:"drives"`
+}
+
+// MetadataLogDriveCompaction is the compaction of one drive.
+type MetadataLogDriveCompaction struct {
+	Endpoint string `json:"endpoint"`
+	// Segments rewritten and bytes of garbage reclaimed.
+	Segments       int    `json:"segments"`
+	ReclaimedBytes int64  `json:"reclaimedBytes"`
+	Error          string `json:"error,omitempty"`
 }
 
 // HealingProgress is the progress of the healing of a replaced or wiped

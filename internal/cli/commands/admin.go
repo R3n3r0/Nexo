@@ -28,13 +28,13 @@ users, groups, policies, access keys, configuration, service control, the export
 import of the state of a deployment, the lock diagnostics, the KMS of the
 server-side encryption, the notification targets, the live trace of the requests
 and the live logs, the audit log, the metrics and their Prometheus configuration,
-the runtime profiles, the speed tests and the DNS providers of the ACME DNS-01
-challenge.
+the runtime profiles, the speed tests, the metadata log of the drives and the DNS
+providers of the ACME DNS-01 challenge.
 
 The Admin API is served by the console listener of the server: see --admin-url
 of "nexoctl alias set". Every subcommand takes the alias as its first argument.`
 	cmd.AddCommand(
-		newAdminInfoCmd(e), newAdminUsageCmd(e), newAdminHealCmd(e),
+		newAdminInfoCmd(e), newAdminUsageCmd(e), newAdminHealCmd(e), newAdminMetadataLogCmd(e),
 		newAdminUserCmd(e), newAdminGroupCmd(e), newAdminPolicyCmd(e), newAdminAccessKeyCmd(e),
 		newAdminConfigCmd(e), newAdminServiceCmd(e), newAdminClusterCmd(e), newAdminLockCmd(e),
 		newAdminKMSCmd(e), newAdminNotifyCmd(e), newAdminProfileCmd(e), newAdminSpeedtestCmd(e),

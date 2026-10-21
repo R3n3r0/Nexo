@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -24,6 +25,13 @@ type MetadataLogTuner interface {
 	// MetadataLogStats returns the state of the log (Enabled false when
 	// the drive keeps xl.meta files).
 	MetadataLogStats() MetadataLogStats
+	// CompactMetadataLog compacts now every sealed segment that holds
+	// garbage (the background compaction waits for half of a segment):
+	// the segments removed and the bytes reclaimed; nothing without the
+	// log.
+	CompactMetadataLog(ctx context.Context) (segments int, reclaimed int64, err error)
+	// Endpoint names the drive.
+	Endpoint() domain.Endpoint
 }
 
 var _ MetadataLogTuner = (*xlStorage)(nil)
@@ -65,6 +73,18 @@ func (s *xlStorage) MetadataLogStats() MetadataLogStats {
 		return l.stats()
 	}
 	return MetadataLogStats{}
+}
+
+// CompactMetadataLog implements MetadataLogTuner.
+func (s *xlStorage) CompactMetadataLog(ctx context.Context) (int, int64, error) {
+	if err := s.checkOpen(ctx); err != nil {
+		return 0, 0, err
+	}
+	l := s.ml()
+	if l == nil {
+		return 0, 0, nil
+	}
+	return l.compact(true)
 }
 
 // ml returns the metadata log of the drive (nil without the log).

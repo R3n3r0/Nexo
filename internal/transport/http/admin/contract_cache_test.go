@@ -168,9 +168,14 @@ func TestCacheContract(t *testing.T) {
 	c.call(http.MethodGet, "/cache/inspect?url=/a.js", nil, http.StatusBadRequest)
 
 	// Statistics of the domains.
-	st := decodeAs[admin.CacheStatsResponse](t, c.call(http.MethodGet, "/cache/stats?distribution=site", nil, http.StatusOK))
-	assert.GreaterOrEqual(t, st.Requests["HIT"], int64(1))
-	assert.GreaterOrEqual(t, st.Requests["BYPASS"], int64(2))
+	// A request is counted once its response is sent: the client may read
+	// it first.
+	var st admin.CacheStatsResponse
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		st = decodeAs[admin.CacheStatsResponse](t, c.call(http.MethodGet, "/cache/stats?distribution=site", nil, http.StatusOK))
+		assert.GreaterOrEqual(ct, st.Requests["HIT"], int64(1))
+		assert.GreaterOrEqual(ct, st.Requests["BYPASS"], int64(2))
+	}, 5*time.Second, 10*time.Millisecond)
 	require.NotEmpty(t, st.Nodes)
 	assert.True(t, st.Nodes[0].Synced)
 	hostStats := decodeAs[admin.CacheStatsResponse](t, c.call(http.MethodGet, "/cache/stats?host=www.site.test&top=3", nil, http.StatusOK))

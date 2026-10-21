@@ -341,6 +341,12 @@ func (s *xlStorage) DiskInfo(ctx context.Context, opts DiskInfoOptions) (domain.
 		info.State = domain.StateHealing
 		info.HealingProgress = h.Progress()
 	}
+	if l := s.ml(); l != nil {
+		st := l.stats()
+		info.MetadataLog = &domain.MetadataLogInfo{Segments: st.Segments, Bytes: st.Bytes, LiveBytes: st.LiveBytes, Objects: st.Objects,
+			IndexBytes: st.IndexBytes, IndexBudget: st.IndexBudget, SegmentSize: st.SegmentSize, Flushes: st.Flushes, Records: st.Records,
+			FlushSeconds: st.FlushSeconds, Compactions: st.Compactions, CompactedBytes: st.CompactedBytes, DamagedAreas: st.DamagedAreas}
+	}
 	return info, nil
 }
 

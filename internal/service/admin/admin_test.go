@@ -1,8 +1,12 @@
 package admin_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -386,5 +390,42 @@ func TestServerInfoTLSAndTelemetry(t *testing.T) {
 				assert.NotSame(t, tt.telemetry, info.Telemetry, "a copy")
 			}
 		})
+	}
+}
+
+func TestCompactMetadataLog(t *testing.T) {
+	ctx := context.Background()
+	open := func(opts ...storage.Option) storage.MetadataLogTuner {
+		ep, err := domain.ParseEndpoint(filepath.Join(t.TempDir(), "d"))
+		require.NoError(t, err)
+		d, err := storage.NewLocal(storage.Deps{Logger: slog.New(slog.DiscardHandler)}, ep, opts...)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = d.Close(ctx) })
+		require.NoError(t, d.MakeVol(ctx, "b"))
+		// Every key written twice, over several segments.
+		for round := range 2 {
+			for i := range 120 {
+				data := append([]byte(fmt.Sprint(round)), bytes.Repeat([]byte("x"), 16<<10)...)
+				require.NoError(t, d.WriteMetadata(ctx, "b", fmt.Sprintf("k%d", i), storage.FileInfo{ModTime: time.Now(), Size: int64(len(data)), Data: data}))
+			}
+		}
+		tuner, ok := d.(storage.MetadataLogTuner)
+		require.True(t, ok)
+		return tuner
+	}
+	logged, files := open(storage.WithMetadataLog(storage.MinMetaLogSegmentSize, 0)), open()
+	svc := admin.New(admin.Deps{MetadataLogs: []storage.MetadataLogTuner{files, logged}})
+
+	res, err := svc.CompactMetadataLog(ctx)
+	require.NoError(t, err)
+	require.Len(t, res, 1, "only the drive in log mode")
+	assert.Equal(t, logged.Endpoint().String(), res[0].Endpoint)
+	assert.Empty(t, res[0].Error)
+	assert.Positive(t, res[0].ReclaimedBytes, "the overwrites are reclaimed")
+	for i := range 120 {
+		fi, err := logged.(storage.StorageAPI).ReadVersion(ctx, "b", fmt.Sprintf("k%d", i), "", storage.ReadOptions{ReadData: true})
+		require.NoError(t, err)
+		require.Len(t, fi.Data, 1+16<<10)
+		assert.Equal(t, byte('1'), fi.Data[0], "no metadata is lost")
 	}
 }

@@ -169,6 +169,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/storage/metadata-log/compact": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compact the metadata logs of the answering node
+         * @description Rewrites every segment of the metadata log holding garbage, on each local drive in
+         *     log mode of the node that answers (in a cluster, call each node). The live records
+         *     are copied before the old segment is removed, so no metadata is ever lost. Drives in
+         *     classic mode are skipped.
+         */
+        post: operations["compactMetadataLog"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/service/restart": {
         parameters: {
             query?: never;
@@ -3378,7 +3401,52 @@ export interface components {
             used: number;
             healing: boolean;
             healingProgress?: components["schemas"]["HealingProgress"];
+            metadataLog?: components["schemas"]["MetadataLog"];
             error?: string;
+        };
+        /**
+         * @description The metadata log of a drive in log mode (absent in classic mode). `bytes` is the size
+         *     of the segments, `liveBytes` the part still holding current metadata (the rest is
+         *     garbage the compaction reclaims). The counters run since the drive opened.
+         */
+        MetadataLog: {
+            segments: number;
+            /** Format: int64 */
+            bytes: number;
+            /** Format: int64 */
+            liveBytes: number;
+            /** Format: int64 */
+            objects: number;
+            /** Format: int64 */
+            indexBytes: number;
+            /** Format: int64 */
+            indexBudget: number;
+            /** Format: int64 */
+            segmentSize: number;
+            /** Format: int64 */
+            flushes: number;
+            /** Format: int64 */
+            records: number;
+            flushSeconds: number;
+            /** Format: int64 */
+            compactions: number;
+            /** Format: int64 */
+            compactedBytes: number;
+            /**
+             * Format: int64
+             * @description Damaged areas skipped while replaying the log.
+             */
+            damagedAreas: number;
+        };
+        MetadataLogCompaction: {
+            drives: {
+                endpoint: string;
+                /** @description Segments rewritten. */
+                segments: number;
+                /** Format: int64 */
+                reclaimedBytes: number;
+                error?: string;
+            }[];
         };
         ClusterImportResult: {
             /** @enum {string} */
@@ -6231,6 +6299,27 @@ export interface operations {
                 };
             };
             404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    compactMetadataLog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The compaction of each drive. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetadataLogCompaction"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };

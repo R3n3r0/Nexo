@@ -371,6 +371,64 @@ func (_c *AdminClient_CacheStats_Call) RunAndReturn(run func(context.Context, ne
 	return _c
 }
 
+// CompactMetadataLog provides a mock function with given fields: ctx
+func (_m *AdminClient) CompactMetadataLog(ctx context.Context) (*nexoadmin.MetadataLogCompaction, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CompactMetadataLog")
+	}
+
+	var r0 *nexoadmin.MetadataLogCompaction
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (*nexoadmin.MetadataLogCompaction, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) *nexoadmin.MetadataLogCompaction); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.MetadataLogCompaction)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_CompactMetadataLog_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CompactMetadataLog'
+type AdminClient_CompactMetadataLog_Call struct {
+	*mock.Call
+}
+
+// CompactMetadataLog is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) CompactMetadataLog(ctx interface{}) *AdminClient_CompactMetadataLog_Call {
+	return &AdminClient_CompactMetadataLog_Call{Call: _e.mock.On("CompactMetadataLog", ctx)}
+}
+
+func (_c *AdminClient_CompactMetadataLog_Call) Run(run func(ctx context.Context)) *AdminClient_CompactMetadataLog_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_CompactMetadataLog_Call) Return(_a0 *nexoadmin.MetadataLogCompaction, _a1 error) *AdminClient_CompactMetadataLog_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_CompactMetadataLog_Call) RunAndReturn(run func(context.Context) (*nexoadmin.MetadataLogCompaction, error)) *AdminClient_CompactMetadataLog_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ConfigSchema provides a mock function with given fields: ctx
 func (_m *AdminClient) ConfigSchema(ctx context.Context) ([]nexoadmin.ConfigSubsystemSchema, error) {
 	ret := _m.Called(ctx)

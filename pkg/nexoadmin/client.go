@@ -38,6 +38,9 @@ type AdminClient interface {
 	Heal(ctx context.Context, in HealRequest) (*HealJob, error)
 	HealStatus(ctx context.Context, id string) (*HealJob, error)
 	ListHeals(ctx context.Context) (*HealJobList, error)
+	// CompactMetadataLog compacts the metadata log of the drives of the
+	// node that answers (every segment holding garbage).
+	CompactMetadataLog(ctx context.Context) (*MetadataLogCompaction, error)
 	RestartService(ctx context.Context) error
 	StopService(ctx context.Context) error
 	// Profile collects a runtime profile of the node that serves the

@@ -247,6 +247,24 @@ paths:
               schema: { $ref: "#/components/schemas/HealJob" }
         "404": { $ref: "#/components/responses/Problem" }
         default: { $ref: "#/components/responses/Problem" }
+  /storage/metadata-log/compact:
+    post:
+      tags: [server]
+      operationId: compactMetadataLog
+      summary: Compact the metadata logs of the answering node
+      description: |
+        Rewrites every segment of the metadata log holding garbage, on each local drive in
+        log mode of the node that answers (in a cluster, call each node). The live records
+        are copied before the old segment is removed, so no metadata is ever lost. Drives in
+        classic mode are skipped.
+      x-nexo-actions: ["admin:Heal"]
+      responses:
+        "200":
+          description: The compaction of each drive.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MetadataLogCompaction" }
+        default: { $ref: "#/components/responses/Problem" }
   /service/restart:
     post:
       tags: [server]
@@ -4316,7 +4334,43 @@ components:
         used: { type: integer, format: int64 }
         healing: { type: boolean }
         healingProgress: { $ref: "#/components/schemas/HealingProgress" }
+        metadataLog: { $ref: "#/components/schemas/MetadataLog" }
         error: { type: string }
+    MetadataLog:
+      type: object
+      description: |
+        The metadata log of a drive in log mode (absent in classic mode). `bytes` is the size
+        of the segments, `liveBytes` the part still holding current metadata (the rest is
+        garbage the compaction reclaims). The counters run since the drive opened.
+      required: [segments, bytes, liveBytes, objects, indexBytes, indexBudget, segmentSize, flushes, records, flushSeconds, compactions, compactedBytes, damagedAreas]
+      properties:
+        segments: { type: integer }
+        bytes: { type: integer, format: int64 }
+        liveBytes: { type: integer, format: int64 }
+        objects: { type: integer, format: int64 }
+        indexBytes: { type: integer, format: int64 }
+        indexBudget: { type: integer, format: int64 }
+        segmentSize: { type: integer, format: int64 }
+        flushes: { type: integer, format: int64 }
+        records: { type: integer, format: int64 }
+        flushSeconds: { type: number }
+        compactions: { type: integer, format: int64 }
+        compactedBytes: { type: integer, format: int64 }
+        damagedAreas: { type: integer, format: int64, description: Damaged areas skipped while replaying the log. }
+    MetadataLogCompaction:
+      type: object
+      required: [drives]
+      properties:
+        drives:
+          type: array
+          items:
+            type: object
+            required: [endpoint, segments, reclaimedBytes]
+            properties:
+              endpoint: { type: string }
+              segments: { type: integer, description: Segments rewritten. }
+              reclaimedBytes: { type: integer, format: int64 }
+              error: { type: string }
     ClusterImportResult:
       type: object
       required: [mode, dryRun, users, groups, policies, configSubsystems, buckets, bucketsCreated, removed]

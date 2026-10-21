@@ -577,3 +577,26 @@ func TestScenarioAdminClusterAndLocks(t *testing.T) {
 	_, ok := h.admin.User("mallory")
 	assert.False(t, ok, "the replace import removed the user the archive does not hold")
 }
+
+// covers: C-ADM-01
+func TestScenarioAdminMetadataLog(t *testing.T) {
+	h := newHarness(t)
+	s := h.session()
+	s.run("admin", "metadata-log", "status", "mem")
+	s.run("admin", "metadata-log", "compact", "mem")
+	h.admin.SetServerInfo(nexoadmin.ServerInfo{
+		Version: "dev", Mode: "erasure",
+		Nodes: []nexoadmin.NodeInfo{{Endpoint: "http://node1:9000", State: "online", Local: true, Disks: []nexoadmin.DiskInfo{
+			{Endpoint: "http://node1:9000/data1", Path: "/data1", State: "online", MetadataLog: &nexoadmin.MetadataLog{
+				Segments: 3, Bytes: 4 << 20, LiveBytes: 1 << 20, Objects: 1200, IndexBytes: 96 << 10, IndexBudget: 1 << 30, SegmentSize: 64 << 20,
+				Flushes: 420, Records: 1500, FlushSeconds: 1.5, DamagedAreas: 1,
+			}},
+			{Endpoint: "http://node1:9000/data2", Path: "/data2", State: "online"},
+		}}},
+	})
+	s.run("admin", "metadata-log", "status", "mem")
+	s.run("admin", "metadata-log", "compact", "mem")
+	s.run("admin", "metadata-log", "status", "--json", "mem")
+	golden(t, "scenario/admin_metadata_log", s.b.String())
+	assert.Equal(t, 2, h.admin.Calls("CompactMetadataLog"))
+}

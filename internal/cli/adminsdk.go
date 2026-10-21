@@ -488,6 +488,12 @@ func (c *adminClient) ListHeals(ctx context.Context) (*nexoadmin.HealJobList, er
 	return mapped(c, v, err)
 }
 
+// CompactMetadataLog implements AdminClient.
+func (c *adminClient) CompactMetadataLog(ctx context.Context) (*nexoadmin.MetadataLogCompaction, error) {
+	v, err := c.api.CompactMetadataLog(ctx)
+	return mapped(c, v, err)
+}
+
 // RestartService implements AdminClient.
 func (c *adminClient) RestartService(ctx context.Context) error {
 	return MapAdminError(c.api.RestartService(ctx), c.endpoint)

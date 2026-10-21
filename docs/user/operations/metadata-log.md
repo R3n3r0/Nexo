@@ -45,6 +45,26 @@ The **storage** subsystem of the configuration (console **Configuration**, or
 The index takes about 70 bytes plus the length of the key per object (about 130 MB for a million objects with
 60-byte keys).
 
+## Monitoring and compaction
+
+`nexoctl admin metadata-log status <alias>` shows the log of every drive of the deployment: segments, share of the
+bytes still live, objects indexed, memory of the index, group commits since the start, damaged areas skipped at the
+replay. The same values are in the `metadataLog` field of the drives of `GET /api/v1/info` (Admin API) and in
+Prometheus:
+
+| Metric (labels `drive`, `pool`, `set`) | Meaning |
+|---|---|
+| `nexo_metadata_log_segments`, `nexo_metadata_log_bytes`, `nexo_metadata_log_live_bytes` | Segments and their bytes, the live ones (the rest is garbage) |
+| `nexo_metadata_log_objects`, `nexo_metadata_log_index_bytes`, `nexo_metadata_log_index_budget_bytes` | Objects indexed, memory of the index and its budget |
+| `nexo_metadata_log_flushes_total`, `nexo_metadata_log_records_total`, `nexo_metadata_log_flush_seconds_total` | Group commits, records made durable, time spent flushing (`records/flushes` is the batching, `seconds/flushes` the flush latency) |
+| `nexo_metadata_log_compactions_total`, `nexo_metadata_log_compacted_bytes_total` | Segments compacted and bytes reclaimed |
+| `nexo_metadata_log_damaged_areas_total` | Damaged areas skipped by the replay (run a heal of the set) |
+
+`nexoctl admin metadata-log compact <alias>` (Admin API `POST /api/v1/storage/metadata-log/compact`, action
+`admin:Heal`) rewrites at once every segment holding garbage, on the drives of the node that answers: after a large
+deletion, for instance, to give the space back without waiting for the background compaction. In a cluster, run it
+against each node. Like the background compaction, it copies and flushes the live records before removing a segment.
+
 ## How it works
 
 - **Segments**: `.nexo.sys/metalog/seg-*.log` on each drive. Every record carries a CRC-32C checksum; at start the

@@ -162,6 +162,17 @@ func nodeSources(info cluster.Info) []observed {
 	healGauge := func(name, help string, fn ObserveFunc) observed {
 		return observed{Definition{Subsystem: "heal", Name: name, Help: help, Labels: driveLabels()}, KindGauge, fn}
 	}
+	mlog := func(get func(l *domain.MetadataLogInfo) float64) ObserveFunc {
+		return drives(func(d domain.DiskInfo) (float64, bool) {
+			if d.MetadataLog == nil {
+				return 0, false
+			}
+			return get(d.MetadataLog), true
+		})
+	}
+	mlogMetric := func(name, help string, kind Kind, get func(l *domain.MetadataLogInfo) float64) observed {
+		return observed{Definition{Subsystem: "metadata_log", Name: name, Help: help, Labels: driveLabels()}, kind, mlog(get)}
+	}
 	return []observed{
 		gauge("online", "Whether a local drive answers (1) or not (0); a healing drive is online.",
 			drives(func(d domain.DiskInfo) (float64, bool) { return boolValue(online(d)), true })),
@@ -184,6 +195,30 @@ func nodeSources(info cluster.Info) []observed {
 			drives(healing(func(p *domain.HealingProgress) float64 { return float64(p.Started.Unix()) }))),
 		healGauge("drive_last_update_timestamp_seconds", "When the healing of a drive last made progress (a stalled healing stops moving it).",
 			drives(healing(func(p *domain.HealingProgress) float64 { return float64(p.LastUpdate.Unix()) }))),
+		mlogMetric("segments", "Segments of the metadata log of a local drive.", KindGauge,
+			func(l *domain.MetadataLogInfo) float64 { return float64(l.Segments) }),
+		mlogMetric("bytes", "Bytes of the segments of the metadata log of a local drive.", KindGauge,
+			func(l *domain.MetadataLogInfo) float64 { return float64(l.Bytes) }),
+		mlogMetric("live_bytes", "Bytes of the metadata log of a local drive still holding current metadata (the rest is garbage).", KindGauge,
+			func(l *domain.MetadataLogInfo) float64 { return float64(l.LiveBytes) }),
+		mlogMetric("objects", "Objects indexed by the metadata log of a local drive.", KindGauge,
+			func(l *domain.MetadataLogInfo) float64 { return float64(l.Objects) }),
+		mlogMetric("index_bytes", "Estimated memory of the index of the metadata log of a local drive.", KindGauge,
+			func(l *domain.MetadataLogInfo) float64 { return float64(l.IndexBytes) }),
+		mlogMetric("index_budget_bytes", "Memory the index of the metadata log of a local drive may use before a warning.", KindGauge,
+			func(l *domain.MetadataLogInfo) float64 { return float64(l.IndexBudget) }),
+		mlogMetric("flushes_total", "Group commits (flushes) of the metadata log of a local drive.", KindCounter,
+			func(l *domain.MetadataLogInfo) float64 { return float64(l.Flushes) }),
+		mlogMetric("records_total", "Records made durable by the metadata log of a local drive (divided by flushes_total: records per flush).", KindCounter,
+			func(l *domain.MetadataLogInfo) float64 { return float64(l.Records) }),
+		mlogMetric("flush_seconds_total", "Time spent writing and flushing the metadata log of a local drive (divided by flushes_total: the flush latency).", KindCounter,
+			func(l *domain.MetadataLogInfo) float64 { return l.FlushSeconds }),
+		mlogMetric("compactions_total", "Segments of the metadata log of a local drive rewritten by the compaction.", KindCounter,
+			func(l *domain.MetadataLogInfo) float64 { return float64(l.Compactions) }),
+		mlogMetric("compacted_bytes_total", "Garbage bytes reclaimed by the compaction of the metadata log of a local drive.", KindCounter,
+			func(l *domain.MetadataLogInfo) float64 { return float64(l.CompactedBytes) }),
+		mlogMetric("damaged_areas_total", "Damaged areas of the metadata log of a local drive skipped at start (their records are healed from the other drives).", KindCounter,
+			func(l *domain.MetadataLogInfo) float64 { return float64(l.DamagedAreas) }),
 		{Definition{Subsystem: "node", Name: "uptime_seconds", Help: "Time since the server process started."}, KindGauge,
 			func(ctx context.Context) []Observation {
 				ni, err := m.get(ctx)

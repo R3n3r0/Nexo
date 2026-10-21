@@ -417,6 +417,8 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		// The TLS of the listeners with their certificates, and the
 		// distributed tracing.
 		TLS: tlsInfoOf(cfg), Keystore: f.keystore, Telemetry: telemetryInfoOf(cfg, f.obs),
+		// The metadata log of the local drives (compaction on demand).
+		MetadataLogs: f.metaLogs,
 	})
 	// /nexo/health/cluster: the nodes and drives of the deployment that
 	// answer, the write quorum and whether one more node may go down.

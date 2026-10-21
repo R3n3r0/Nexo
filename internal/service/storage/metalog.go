@@ -199,6 +199,17 @@ type metaLog struct {
 	closing sync.Once
 	started bool
 	warned  atomic.Bool
+
+	// compactMu serializes the compactions (the background loop and a
+	// compaction asked for by an administrator).
+	compactMu sync.Mutex
+	// Counters since the drive opened (MetadataLogStats).
+	flushes        atomic.Uint64
+	records        atomic.Uint64
+	flushNanos     atomic.Int64
+	compactions    atomic.Uint64
+	compactedBytes atomic.Uint64
+	damaged        atomic.Uint64
 }
 
 // openMetaLog opens (creating it when missing) the log of dir and replays
@@ -399,6 +410,7 @@ func (l *metaLog) replaySegment(g *logSegment, last bool, tomb map[string]map[st
 			}
 			continue
 		}
+		l.damaged.Add(1)
 		l.logger.Error("storage: metadata log: damaged area skipped, the records it held are lost on this drive",
 			"segment", g.path, "offset", d.off, "bytes", d.end-d.off, "err", d.err)
 	}
@@ -683,6 +695,7 @@ func (l *metaLog) commit(batch []*logReq) error {
 	if err := l.flush(buf); err != nil {
 		return err
 	}
+	l.records.Add(uint64(len(batch)))
 	l.apply(batch)
 	return nil
 }
@@ -712,6 +725,11 @@ func (l *metaLog) flush(buf []byte) error {
 	}
 	g := l.active
 	size := g.size.Load()
+	start := time.Now()
+	defer func() {
+		l.flushes.Add(1)
+		l.flushNanos.Add(int64(time.Since(start)))
+	}()
 	if _, err := g.f.WriteAt(buf, size); err != nil {
 		_ = g.f.Truncate(size)
 		return fmt.Errorf("storage: write metadata log: %w", mapErr(err))
@@ -938,7 +956,7 @@ func (l *metaLog) compactLoop() {
 		case <-l.stop:
 			return
 		case <-t.C:
-			if _, err := l.compact(); err != nil {
+			if _, _, err := l.compact(false); err != nil {
 				l.logger.Warn("storage: metadata log compaction failed", "dir", l.dir, "err", err)
 			}
 		}
@@ -946,33 +964,44 @@ func (l *metaLog) compactLoop() {
 }
 
 // compact compacts the sealed segments whose live fraction is below
-// compactRatio and returns how many it removed.
-func (l *metaLog) compact() (int, error) {
-	n := 0
+// compactRatio (any sealed segment holding garbage with force) and returns
+// how many it removed and the bytes it reclaimed.
+func (l *metaLog) compact(force bool) (int, int64, error) {
+	l.compactMu.Lock()
+	defer l.compactMu.Unlock()
+	ratio := compactRatio
+	if force {
+		ratio = 1
+	}
+	n, reclaimed := 0, int64(0)
 	for {
-		g := l.candidate()
+		g := l.candidate(ratio)
 		if g == nil {
-			return n, nil
+			return n, reclaimed, nil
 		}
+		garbage := g.size.Load() - g.live.Load()
 		if err := l.compactSegment(g); err != nil {
-			return n, err
+			return n, reclaimed, err
 		}
 		n++
+		reclaimed += max(garbage, 0)
+		l.compactions.Add(1)
+		l.compactedBytes.Add(uint64(max(garbage, 0))) // #nosec G115 -- not negative
 		select {
 		case <-l.stop:
-			return n, nil
+			return n, reclaimed, nil
 		default:
 		}
 	}
 }
 
 // candidate returns the sealed segment with the least live fraction under
-// compactRatio, nil when none.
-func (l *metaLog) candidate() *logSegment {
+// ratio, nil when none.
+func (l *metaLog) candidate(ratio float64) *logSegment {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	var best *logSegment
-	bestRatio := compactRatio
+	bestRatio := ratio
 	for _, g := range l.segs {
 		if g == l.activeSegment() || g.retired.Load() {
 			continue
@@ -1100,13 +1129,25 @@ type MetadataLogStats struct {
 	IndexBytes  uint64
 	IndexBudget uint64
 	SegmentSize int64
+	// Counters since the drive opened: the flushes of the group commit,
+	// the records they made durable and the time they took; the segments
+	// compacted and the garbage bytes they reclaimed; the damaged areas
+	// the replay skipped.
+	Flushes        uint64
+	Records        uint64
+	FlushSeconds   float64
+	Compactions    uint64
+	CompactedBytes uint64
+	DamagedAreas   uint64
 }
 
 func (l *metaLog) stats() MetadataLogStats {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	st := MetadataLogStats{Enabled: true, Segments: len(l.segs), Objects: l.keys.Load(), IndexBytes: l.indexBytes(),
-		IndexBudget: l.memMax.Load(), SegmentSize: l.segSize.Load()}
+		IndexBudget: l.memMax.Load(), SegmentSize: l.segSize.Load(),
+		Flushes: l.flushes.Load(), Records: l.records.Load(), FlushSeconds: time.Duration(l.flushNanos.Load()).Seconds(),
+		Compactions: l.compactions.Load(), CompactedBytes: l.compactedBytes.Load(), DamagedAreas: l.damaged.Load()}
 	for _, g := range l.segs {
 		st.Bytes += g.size.Load()
 		st.LiveBytes += g.live.Load()

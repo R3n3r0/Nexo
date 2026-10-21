@@ -21,6 +21,9 @@ type AdminClient interface {
 	Heal(ctx context.Context, in nexoadmin.HealRequest) (*nexoadmin.HealJob, error)
 	HealStatus(ctx context.Context, id string) (*nexoadmin.HealJob, error)
 	ListHeals(ctx context.Context) (*nexoadmin.HealJobList, error)
+	// CompactMetadataLog compacts the metadata log of the drives of the
+	// node that serves the request.
+	CompactMetadataLog(ctx context.Context) (*nexoadmin.MetadataLogCompaction, error)
 	RestartService(ctx context.Context) error
 	StopService(ctx context.Context) error
 	// Diagnostics of the node that serves the request (S-OPS-11).

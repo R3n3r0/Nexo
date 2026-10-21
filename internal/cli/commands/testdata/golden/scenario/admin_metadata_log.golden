@@ -1,0 +1,16 @@
+$ nexoctl admin metadata-log status mem
+No drive uses the metadata log (start the server with --metadata-log).
+
+$ nexoctl admin metadata-log compact mem
+No drive of the node uses the metadata log.
+
+$ nexoctl admin metadata-log status mem
+/data1  3 segment(s), 4.0MiB (25% live), 1200 object(s), index 96.0KiB of 1.0GiB
+  420 flush(es) of 1500 record(s), 0 compaction(s) reclaimed 0B, 1 damaged area(s) skipped
+
+$ nexoctl admin metadata-log compact mem
+http://node1:9000/data1  1 segment(s) rewritten, 3.0MiB reclaimed
+
+$ nexoctl admin metadata-log status --json mem
+{"status":"success","alias":"mem","node":"http://node1:9000","endpoint":"http://node1:9000/data1","segments":3,"bytes":1048576,"liveBytes":1048576,"objects":1200,"indexBytes":98304,"indexBudget":1073741824,"segmentSize":67108864,"flushes":420,"records":1500,"flushSeconds":1.5,"compactions":1,"compactedBytes":3145728,"damagedAreas":1}
+

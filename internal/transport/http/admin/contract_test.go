@@ -239,6 +239,7 @@ func TestConsoleContract(t *testing.T) {
 	assert.Empty(t, perms.Denied)
 	c.call(http.MethodGet, "/info", nil, http.StatusOK)
 	c.call(http.MethodGet, "/usage", nil, http.StatusOK)
+	c.call(http.MethodPost, "/storage/metadata-log/compact", nil, http.StatusOK)
 	c.stream("/trace?type=s3,admin&status=2xx,404&threshold=0s")
 	c.stream("/logs?level=info&last=5")
 	audits := decodeAs[admin.AuditListResponse](t, c.call(http.MethodGet, "/audit?type=admin&limit=10", nil, http.StatusOK))

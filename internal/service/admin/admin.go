@@ -67,6 +67,10 @@ type Deps struct {
 	// Telemetry is the state of the distributed tracing that ServerInfo
 	// reports; nil leaves it out.
 	Telemetry *domain.TelemetryInfo
+	// MetadataLogs are the local drives whose metadata log
+	// CompactMetadataLog compacts (every local drive; those without the
+	// log have nothing to compact).
+	MetadataLogs []storage.MetadataLogTuner
 }
 
 // Option configures the facade.
@@ -383,4 +387,36 @@ func (s *service) ServiceAction(ctx context.Context, action Action) error {
 		return fmt.Errorf("%w: this server cannot %s itself", domain.ErrNotImplemented, action)
 	}
 	return s.deps.Actions.Handle(ctx, action)
+}
+
+// MetadataLogCompaction is the compaction of the metadata log of a drive.
+type MetadataLogCompaction struct {
+	Endpoint string
+	// Segments were rewritten and removed, ReclaimedBytes of garbage
+	// freed.
+	Segments       int
+	ReclaimedBytes int64
+	Error          string
+}
+
+// CompactMetadataLog implements Service.
+func (s *service) CompactMetadataLog(ctx context.Context) ([]MetadataLogCompaction, error) {
+	out := make([]MetadataLogCompaction, 0, len(s.deps.MetadataLogs))
+	for _, d := range s.deps.MetadataLogs {
+		if !d.MetadataLogStats().Enabled {
+			continue
+		}
+		c := MetadataLogCompaction{Endpoint: d.Endpoint().String()}
+		n, reclaimed, err := d.CompactMetadataLog(ctx)
+		c.Segments, c.ReclaimedBytes = n, reclaimed
+		if err != nil {
+			if ctx.Err() != nil {
+				return out, ctx.Err()
+			}
+			c.Error = err.Error()
+			s.deps.Logger.WarnContext(ctx, "admin: metadata log compaction failed", "drive", c.Endpoint, "err", err)
+		}
+		out = append(out, c)
+	}
+	return out, nil
 }

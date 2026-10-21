@@ -33,8 +33,33 @@ type DiskInfo struct {
 	// replaced or wiped drive being repopulated), nil when not healing.
 	HealingProgress *HealingProgress
 	Scanning        bool
+	// MetadataLog describes the metadata log of a drive in log mode (nil
+	// for a drive keeping xl.meta files).
+	MetadataLog *MetadataLogInfo
 	// Error is set when the drive could not be queried.
 	Error string
+}
+
+// MetadataLogInfo describes the metadata log of a drive.
+type MetadataLogInfo struct {
+	Segments int
+	// Bytes are the bytes of the segments, LiveBytes those still holding
+	// the current metadata (the rest is garbage the compaction reclaims).
+	Bytes     int64
+	LiveBytes int64
+	Objects   int64
+	// IndexBytes estimates the memory of the index, IndexBudget is the
+	// share of the RAM it may use.
+	IndexBytes  uint64
+	IndexBudget uint64
+	SegmentSize int64
+	// Counters since the drive opened.
+	Flushes        uint64
+	Records        uint64
+	FlushSeconds   float64
+	Compactions    uint64
+	CompactedBytes uint64
+	DamagedAreas   uint64
 }
 
 // HealingProgress is the progress of the healing of a drive, from its

@@ -46,6 +46,26 @@ Il sottosistema **storage** della configurazione (console **Configurazione**, op
 L'indice occupa circa 70 byte più la lunghezza della chiave per oggetto (circa 130 MB per un milione di oggetti con
 chiavi da 60 byte).
 
+## Monitoraggio e compattazione
+
+`nexoctl admin metadata-log status <alias>` mostra il log di ogni disco del deployment: segmenti, quota dei byte
+ancora vivi, oggetti indicizzati, memoria dell'indice, group commit dall'avvio, aree danneggiate saltate al replay.
+Gli stessi valori sono nel campo `metadataLog` dei dischi di `GET /api/v1/info` (Admin API) e in Prometheus:
+
+| Metrica (etichette `drive`, `pool`, `set`) | Significato |
+|---|---|
+| `nexo_metadata_log_segments`, `nexo_metadata_log_bytes`, `nexo_metadata_log_live_bytes` | Segmenti e loro byte, quelli vivi (il resto è spazzatura) |
+| `nexo_metadata_log_objects`, `nexo_metadata_log_index_bytes`, `nexo_metadata_log_index_budget_bytes` | Oggetti indicizzati, memoria dell'indice e suo budget |
+| `nexo_metadata_log_flushes_total`, `nexo_metadata_log_records_total`, `nexo_metadata_log_flush_seconds_total` | Group commit, record resi durevoli, tempo speso nei flush (`records/flushes` è il raggruppamento, `seconds/flushes` la latenza di un flush) |
+| `nexo_metadata_log_compactions_total`, `nexo_metadata_log_compacted_bytes_total` | Segmenti compattati e byte recuperati |
+| `nexo_metadata_log_damaged_areas_total` | Aree danneggiate saltate dal replay (eseguire un heal del set) |
+
+`nexoctl admin metadata-log compact <alias>` (Admin API `POST /api/v1/storage/metadata-log/compact`, azione
+`admin:Heal`) riscrive subito ogni segmento che contiene spazzatura, sui dischi del nodo che risponde: dopo una grande
+cancellazione, per esempio, per restituire lo spazio senza attendere la compattazione in background. In un cluster,
+eseguirlo verso ogni nodo. Come la compattazione in background, copia e rende durevoli i record vivi prima di
+rimuovere un segmento.
+
 ## Come funziona
 
 - **Segmenti**: `.nexo.sys/metalog/seg-*.log` su ogni disco. Ogni record ha un checksum CRC-32C; all'avvio i

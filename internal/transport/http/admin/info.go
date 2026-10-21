@@ -60,6 +60,7 @@ func (h *infoRoutes) routes() []route {
 		{http.MethodPost, "/heal", global(policy.ActionAdminHeal), h.heal},
 		{http.MethodGet, "/heal", global(policy.ActionAdminHeal), h.healList},
 		{http.MethodGet, "/heal/{id}", global(policy.ActionAdminHeal), h.healStatus},
+		{http.MethodPost, "/storage/metadata-log/compact", global(policy.ActionAdminHeal), h.compactMetadataLog},
 		{http.MethodPost, "/service/restart", global(policy.ActionAdminServiceRestart), h.serviceAction(adminsvc.ActionRestart)},
 		{http.MethodPost, "/service/stop", global(policy.ActionAdminServiceStop), h.serviceAction(adminsvc.ActionStop)},
 		// The live streams (/trace, /logs) are ObservabilityRoutes.
@@ -197,7 +198,66 @@ type DiskResponse struct {
 	Healing  bool   `json:"healing"`
 	// HealingProgress is the progress of the drive healing, when healing.
 	HealingProgress *HealingProgressResponse `json:"healingProgress,omitempty"`
-	Error           string                   `json:"error,omitempty"`
+	// MetadataLog describes the metadata log of a drive in log mode.
+	MetadataLog *MetadataLogResponse `json:"metadataLog,omitempty"`
+	Error       string               `json:"error,omitempty"`
+}
+
+// MetadataLogResponse is the metadata log of a drive in DiskResponse.
+type MetadataLogResponse struct {
+	Segments int `json:"segments"`
+	// Bytes of the segments; LiveBytes still hold current metadata (the
+	// rest is garbage the compaction reclaims).
+	Bytes       int64  `json:"bytes"`
+	LiveBytes   int64  `json:"liveBytes"`
+	Objects     int64  `json:"objects"`
+	IndexBytes  uint64 `json:"indexBytes"`
+	IndexBudget uint64 `json:"indexBudget"`
+	SegmentSize int64  `json:"segmentSize"`
+	// Counters since the drive opened.
+	Flushes        uint64  `json:"flushes"`
+	Records        uint64  `json:"records"`
+	FlushSeconds   float64 `json:"flushSeconds"`
+	Compactions    uint64  `json:"compactions"`
+	CompactedBytes uint64  `json:"compactedBytes"`
+	DamagedAreas   uint64  `json:"damagedAreas"`
+}
+
+func newMetadataLogResponse(l *domain.MetadataLogInfo) *MetadataLogResponse {
+	if l == nil {
+		return nil
+	}
+	return &MetadataLogResponse{Segments: l.Segments, Bytes: l.Bytes, LiveBytes: l.LiveBytes, Objects: l.Objects,
+		IndexBytes: l.IndexBytes, IndexBudget: l.IndexBudget, SegmentSize: l.SegmentSize, Flushes: l.Flushes, Records: l.Records,
+		FlushSeconds: l.FlushSeconds, Compactions: l.Compactions, CompactedBytes: l.CompactedBytes, DamagedAreas: l.DamagedAreas}
+}
+
+// MetadataLogCompactionResponse is the body of POST
+// /storage/metadata-log/compact: the compaction of every drive in log mode
+// of the answering node.
+type MetadataLogCompactionResponse struct {
+	Drives []MetadataLogDriveCompaction `json:"drives"`
+}
+
+// MetadataLogDriveCompaction is the compaction of one drive.
+type MetadataLogDriveCompaction struct {
+	Endpoint       string `json:"endpoint"`
+	Segments       int    `json:"segments"`
+	ReclaimedBytes int64  `json:"reclaimedBytes"`
+	Error          string `json:"error,omitempty"`
+}
+
+func (h *infoRoutes) compactMetadataLog(w http.ResponseWriter, r *http.Request) {
+	res, err := h.deps.Admin.CompactMetadataLog(r.Context())
+	if err != nil {
+		writeError(h.deps.Enc, w, r, err)
+		return
+	}
+	out := MetadataLogCompactionResponse{Drives: make([]MetadataLogDriveCompaction, 0, len(res))}
+	for _, c := range res {
+		out.Drives = append(out.Drives, MetadataLogDriveCompaction{Endpoint: c.Endpoint, Segments: c.Segments, ReclaimedBytes: c.ReclaimedBytes, Error: c.Error})
+	}
+	h.deps.Enc.WriteJSON(w, http.StatusOK, out)
 }
 
 // HealingProgressResponse is the progress of the healing of a drive in
@@ -291,7 +351,7 @@ func newServerInfoResponse(info *domain.ServerInfo) ServerInfoResponse {
 				Endpoint: d.Endpoint, Path: d.Path, ID: d.ID,
 				PoolIdx: d.PoolIdx, SetIdx: d.SetIdx, DiskIdx: d.DiskIdx,
 				State: d.State, Total: d.Total, Free: d.Free, Used: d.Used,
-				Healing: d.Healing, HealingProgress: newHealingProgressResponse(d.HealingProgress), Error: d.Error,
+				Healing: d.Healing, HealingProgress: newHealingProgressResponse(d.HealingProgress), MetadataLog: newMetadataLogResponse(d.MetadataLog), Error: d.Error,
 			})
 		}
 		resp.Nodes = append(resp.Nodes, node)

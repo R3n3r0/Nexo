@@ -243,6 +243,7 @@ func (m *MemAdmin) Client(t TestingT, caller string) *climock.AdminClient {
 	c.EXPECT().Heal(x, x).RunAndReturn(s.heal).Maybe()
 	c.EXPECT().HealStatus(x, x).RunAndReturn(s.healStatus).Maybe()
 	c.EXPECT().ListHeals(x).RunAndReturn(s.listHeals).Maybe()
+	c.EXPECT().CompactMetadataLog(x).RunAndReturn(s.compactMetadataLog).Maybe()
 	c.EXPECT().RestartService(x).RunAndReturn(func(ctx context.Context) error { return s.service(ctx, "RestartService") }).Maybe()
 	c.EXPECT().Profile(x, x).RunAndReturn(s.profile).Maybe()
 	c.EXPECT().Speedtest(x, x, x).RunAndReturn(s.speedtest).Maybe()
@@ -436,6 +437,40 @@ func (s *memSession) serverInfo(context.Context) (*nexoadmin.ServerInfo, error) 
 	defer s.m.mu.Unlock()
 	info := s.m.info
 	return &info, nil
+}
+
+// compactMetadataLog compacts the logs of the drives of the local node of
+// the server information: their garbage is reclaimed.
+func (s *memSession) compactMetadataLog(context.Context) (*nexoadmin.MetadataLogCompaction, error) {
+	if err := s.begin("CompactMetadataLog"); err != nil {
+		return nil, err
+	}
+	if err := s.requireAdminLocked("admin:Heal"); err != nil {
+		return nil, err
+	}
+	defer s.m.mu.Unlock()
+	out := &nexoadmin.MetadataLogCompaction{Drives: []nexoadmin.MetadataLogDriveCompaction{}}
+	for _, n := range s.m.info.Nodes {
+		if !n.Local {
+			continue
+		}
+		for i, d := range n.Disks {
+			if d.MetadataLog == nil {
+				continue
+			}
+			l := *d.MetadataLog
+			c := nexoadmin.MetadataLogDriveCompaction{Endpoint: d.Endpoint, ReclaimedBytes: l.Bytes - l.LiveBytes}
+			if c.ReclaimedBytes > 0 {
+				c.Segments = 1
+				l.Compactions++
+				l.CompactedBytes += uint64(c.ReclaimedBytes)
+				l.Bytes = l.LiveBytes
+			}
+			n.Disks[i].MetadataLog = &l
+			out.Drives = append(out.Drives, c)
+		}
+	}
+	return out, nil
 }
 
 func (s *memSession) dataUsage(context.Context) (*nexoadmin.DataUsage, error) {

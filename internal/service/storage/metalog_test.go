@@ -147,7 +147,7 @@ func TestMetaLogDamagedRecord(t *testing.T) {
 	putSmall(t, s, "b", "a", "new a")
 	putSmall(t, s, "b", "c", "new c")
 	putSmall(t, s, "b", "d", "new d")
-	n, err := s.ml().compact()
+	n, _, err := s.ml().compact(false)
 	require.NoError(t, err)
 	assert.Equal(t, 1, n)
 	require.NoError(t, s.Close(ctx))
@@ -171,7 +171,7 @@ func TestMetaLogKilled(t *testing.T) {
 		}
 	}
 	require.NoError(t, s.DeleteVersion(ctx, "b", "k00", FileInfo{}, DeleteOptions{}))
-	_, err := s.ml().compact()
+	_, _, err := s.ml().compact(false)
 	require.NoError(t, err)
 	fi := stageData(t, s, "up1", "large data")
 	_, err = s.RenameData(ctx, domain.SystemBucket, TmpDir+"/up1", fi, "b", "large", RenameOptions{})
@@ -211,7 +211,7 @@ func TestMetaLogRetiredSegmentKeepsDeletes(t *testing.T) {
 	_, g, ok := l.lookup("b", "pinned")
 	require.True(t, ok)
 	first := g.id
-	_, err := l.compact()
+	_, _, err := l.compact(false)
 	require.NoError(t, err)
 	require.True(t, g.retired.Load(), "the first segment is compacted")
 	assert.True(t, l.hasOlder(first+1), "still on disk while pinned")
@@ -268,7 +268,7 @@ func TestMetaLogCompaction(t *testing.T) {
 	before := s.MetadataLogStats()
 	require.Greater(t, before.Segments, 3)
 
-	n, err := s.ml().compact()
+	n, _, err := s.ml().compact(false)
 	require.NoError(t, err)
 	assert.Positive(t, n)
 	after := s.MetadataLogStats()
@@ -464,4 +464,72 @@ func BenchmarkMetaLogPut(b *testing.B) {
 			})
 		})
 	}
+}
+
+// TestMetaLogForcedCompactionAndStats: a compaction asked for rewrites every
+// sealed segment holding garbage, even under the background threshold;
+// the counters and DiskInfo describe the log; nothing is lost across a
+// restart.
+func TestMetaLogForcedCompactionAndStats(t *testing.T) {
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "d")
+	s := openDrive(t, root, WithMetadataLog(MinMetaLogSegmentSize, 0))
+	require.NoError(t, s.MakeVol(ctx, "b"))
+	big := string(bytes.Repeat([]byte("y"), 16<<10))
+	for i := range 120 {
+		putSmall(t, s, "b", fmt.Sprintf("k%03d", i), big)
+	}
+	// A few overwrites: a little garbage, under the background threshold.
+	for i := range 10 {
+		putSmall(t, s, "b", fmt.Sprintf("k%03d", i), "v2:"+big)
+	}
+	n, _, err := s.ml().compact(false)
+	require.NoError(t, err)
+	assert.Zero(t, n, "the background threshold is not reached")
+
+	before := s.MetadataLogStats()
+	assert.Positive(t, before.Flushes)
+	assert.GreaterOrEqual(t, before.Records, uint64(130))
+	assert.Positive(t, before.FlushSeconds)
+	segs, reclaimed, err := s.CompactMetadataLog(ctx)
+	require.NoError(t, err)
+	assert.Positive(t, segs)
+	assert.Positive(t, reclaimed)
+	after := s.MetadataLogStats()
+	assert.Equal(t, uint64(segs), after.Compactions) // #nosec G115 -- small
+	assert.Equal(t, uint64(reclaimed), after.CompactedBytes)
+	assert.Equal(t, before.LiveBytes, after.LiveBytes)
+	assert.Less(t, after.Bytes, before.Bytes)
+
+	info, err := s.DiskInfo(ctx, DiskInfoOptions{})
+	require.NoError(t, err)
+	require.NotNil(t, info.MetadataLog)
+	assert.Equal(t, int64(120), info.MetadataLog.Objects)
+	assert.Equal(t, after.Compactions, info.MetadataLog.Compactions)
+
+	check := func(s *xlStorage) {
+		t.Helper()
+		for i := range 120 {
+			got, err := getSmall(t, s, "b", fmt.Sprintf("k%03d", i))
+			require.NoError(t, err)
+			want := big
+			if i < 10 {
+				want = "v2:" + big
+			}
+			assert.Equal(t, want, got, "k%03d", i)
+		}
+	}
+	check(s)
+	require.NoError(t, s.Close(ctx))
+	s = openDrive(t, root, WithMetadataLog(MinMetaLogSegmentSize, 0))
+	check(s)
+
+	// A drive without the log: nothing to compact, no MetadataLog.
+	plain := openDrive(t, filepath.Join(t.TempDir(), "p"))
+	segs, _, err = plain.CompactMetadataLog(ctx)
+	require.NoError(t, err)
+	assert.Zero(t, segs)
+	info, err = plain.DiskInfo(ctx, DiskInfoOptions{})
+	require.NoError(t, err)
+	assert.Nil(t, info.MetadataLog)
 }

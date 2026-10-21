@@ -9,8 +9,8 @@ users, groups, policies, access keys, configuration, service control, the export
 import of the state of a deployment, the lock diagnostics, the KMS of the
 server-side encryption, the notification targets, the live trace of the requests
 and the live logs, the audit log, the metrics and their Prometheus configuration,
-the runtime profiles, the speed tests and the DNS providers of the ACME DNS-01
-challenge.
+the runtime profiles, the speed tests, the metadata log of the drives and the DNS
+providers of the ACME DNS-01 challenge.
 
 The Admin API is served by the console listener of the server: see --admin-url
 of "nexoctl alias set". Every subcommand takes the alias as its first argument.
@@ -49,6 +49,7 @@ nexoctl admin [flags]
 * [nexoctl admin kms](nexoctl_admin_kms.md)	 - Show the KMS of the server-side encryption and manage its keys
 * [nexoctl admin lock](nexoctl_admin_lock.md)	 - List and release the namespace locks of a cluster
 * [nexoctl admin logs](nexoctl_admin_logs.md)	 - Show the logs of the server, live
+* [nexoctl admin metadata-log](nexoctl_admin_metadata-log.md)	 - Inspect and compact the metadata log of the drives
 * [nexoctl admin metrics](nexoctl_admin_metrics.md)	 - Query the recent metrics kept by the server
 * [nexoctl admin notify](nexoctl_admin_notify.md)	 - Inspect and test the notification targets
 * [nexoctl admin policy](nexoctl_admin_policy.md)	 - Manage the IAM policies (AWS policy language)
