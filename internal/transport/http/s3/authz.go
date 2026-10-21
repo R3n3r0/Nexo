@@ -178,6 +178,8 @@ func ActionOf(operation string, versioned bool) policy.Action {
 		return actionGetObjectLegalHold
 	case "PutObjectLegalHold":
 		return actionPutObjectLegalHold
+	case "SelectObjectContent":
+		return policy.ActionGetObject
 	case "GetObjectAttributes":
 		return pick(actionGetObjectAttributes, actionGetObjectVersionAttributes)
 	default:

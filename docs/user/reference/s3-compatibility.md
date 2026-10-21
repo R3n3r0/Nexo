@@ -25,7 +25,8 @@ the results of the compatibility suite.
 
 **Objects**: `PutObject`, `GetObject` (ranges and conditional requests too), `HeadObject`, `DeleteObject`,
 `DeleteObjects`, `CopyObject`, `GetObjectAttributes`, `Get/Put/DeleteObjectTagging`, `Get/PutObjectRetention`,
-`Get/PutObjectLegalHold`, `PostObject`, `Get/PutObjectAcl` (`private` only).
+`Get/PutObjectLegalHold`, `PostObject`, `Get/PutObjectAcl` (`private` only), `SelectObjectContent` (see
+[S3 Select](#s3-select)).
 
 **Multipart**: `CreateMultipartUpload`, `UploadPart`, `UploadPartCopy`, `CompleteMultipartUpload`,
 `AbortMultipartUpload`, `ListParts`.
@@ -43,9 +44,26 @@ They answer `501 NotImplemented`: bucket website (`?website`; the
 [distributions](../distributions/README.md) take its place), `PublicAccessBlock` (the Nexo
 [block public access](../security/sharing.md#public-access-rules-and-block-public-access) takes its
 place), replication (`?replication`), server access logging, accelerate, analytics, inventory, metrics,
-intelligent tiering, ownership controls, request payment, `RestoreObject`, `SelectObjectContent`,
+intelligent tiering, ownership controls, request payment, `RestoreObject`,
 `GetObjectTorrent`. Lifecycle transitions to other storage classes are rejected. Planned after v1.0: full
 ACLs, replication between clusters, tiering to remote S3, `AssumeRoleWithWebIdentity`.
+
+### S3 Select
+
+`SelectObjectContent` runs SQL over CSV and JSON objects (plain, GZIP or BZIP2) and answers with the S3 event
+stream (`Records`, `Progress`, `Stats`, `End`), as the SDKs expect. It needs `s3:GetObject`.
+
+- **SQL**: `SELECT <columns or aggregates> FROM S3Object[*][.path] [alias] [WHERE …] [LIMIT n]`; paths
+  (`s.name`, `s._1`, `s.a.b[0]`, `"quoted"`), arithmetic, `||`, comparisons, `AND`/`OR`/`NOT`, `LIKE … ESCAPE`,
+  `BETWEEN`, `IN`, `IS [NOT] NULL|MISSING`, `CAST(… AS INT|FLOAT|DECIMAL|STRING|BOOL)`, `LOWER`, `UPPER`,
+  `CHAR_LENGTH`, `TRIM`, `SUBSTRING`, `COALESCE`, `NULLIF`; aggregates `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`.
+- **CSV**: `FileHeaderInfo` `USE`/`IGNORE`/`NONE`, field delimiter and comment character of one character,
+  record delimiter of one character or `\r\n`, `"` quotes. A comparison or an arithmetic operation with a
+  number reads a CSV field as a number when it holds one; an empty field has no value for `CAST` and the
+  aggregates.
+- **JSON**: `LINES` and `DOCUMENT` (a top-level array is a list of records).
+- **Not supported**: Parquet, `ScanRange`, the date and time functions (`501 NotImplemented` or
+  `UnsupportedSyntax`).
 
 ## Known differences
 

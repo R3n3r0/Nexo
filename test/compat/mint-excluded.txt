@@ -37,9 +37,9 @@ minio-java | putObjectFanOut | minio | fan-out upload (POST policy with x-minio-
 minio-java | removeBucket | minio | cleanup of the snowball test: the bucket still holds the archive the extension did not extract
 
 # --- P2 features (docs/02) ---
-s3select | * | p2 | S3 Select (SelectObjectContent) is a P2 feature: NotImplemented
-aws-sdk-go-v2 | testSelectObject | p2 | S3 Select (SelectObjectContent) is a P2 feature: NotImplemented (the suite stops at its first failure)
-minio-js | selectObjectContent* | p2 | S3 Select (SelectObjectContent) is a P2 feature: NotImplemented
+s3select | * | p2 | S3 Select (SelectObjectContent) is partial (no Parquet, ScanRange or date functions): not yet verified against this suite
+aws-sdk-go-v2 | testSelectObject | p2 | S3 Select (SelectObjectContent) is partial (no Parquet, ScanRange or date functions): not yet verified against this suite (the suite stops at its first failure)
+minio-js | selectObjectContent* | p2 | S3 Select (SelectObjectContent) is partial (no Parquet, ScanRange or date functions): not yet verified against this suite
 minio-js | "after all" hook for "Remove Object post select of content* | p2 | cleanup of the S3 Select test: its object stays when the select fails
 aws-sdk-ruby | presignedPut | p2 | presigned PUT with x-amz-acl: public-read; canned ACLs other than private and bucket-owner-full-control are P2 (501 NotImplemented)
 

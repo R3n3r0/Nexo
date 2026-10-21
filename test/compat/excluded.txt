@@ -41,7 +41,7 @@ marker:cloud_transition | p2 | Lifecycle transition to a remote tier: S-STO-12 /
 marker:cloud_restore | p2 | RestoreObject from a remote tier: S-STO-12, P2 (M10)
 marker:lifecycle_transition | p2 | Lifecycle transition between storage classes: S-BKT-07 transition, P2 (M10)
 marker:sns | out-of-catalog | SNS topics: Nexo notifications go to its own targets (S-BKT-10), not to an SNS API
-marker:s3select | p2 | SelectObjectContent: S-OBJ-16, P2
+marker:s3select | p2 | SelectObjectContent: S-OBJ-16, partial (no Parquet, ScanRange or date functions), not yet verified against this suite
 marker:iam_account | out-of-catalog | IAM API (accounts): Nexo has a single account managed through the Admin API (S-IAM-*)
 marker:iam_cross_account | out-of-catalog | IAM API (accounts): Nexo has a single account managed through the Admin API (S-IAM-*)
 marker:iam_role | out-of-catalog | IAM API (roles): Nexo has a single account managed through the Admin API (S-IAM-*)

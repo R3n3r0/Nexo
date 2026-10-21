@@ -16,6 +16,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/media"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
+	"github.com/r3n3r0/nexo/internal/service/s3select"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
 
@@ -29,7 +30,10 @@ type ObjectDeps struct {
 	// Media serves the variants of the images to the GetObject and
 	// HeadObject asking for one (QueryImageFormat, QueryImageWidth); nil
 	// answers them NotImplemented.
-	Media  media.Service
+	Media media.Service
+	// Select evaluates the queries of SelectObjectContent; nil answers
+	// them NotImplemented.
+	Select s3select.Service
 	Enc    httpx.Codec
 	Clock  clock.Clock
 	Logger *slog.Logger
@@ -86,6 +90,7 @@ func (h *objectRoutes) objectOperations() map[Operation]http.HandlerFunc {
 		{Name: "GetObjectLegalHold", Method: http.MethodGet, Scope: ScopeObject, Query: "legal-hold"}:  h.getLegalHold,
 		{Name: "PutObjectLegalHold", Method: http.MethodPut, Scope: ScopeObject, Query: "legal-hold"}:  h.putLegalHold,
 		{Name: "GetObjectAttributes", Method: http.MethodGet, Scope: ScopeObject, Query: "attributes"}: h.getAttributes,
+		{Name: "SelectObjectContent", Method: http.MethodPost, Scope: ScopeObject, Query: "select"}:    h.selectObjectContent,
 	}
 }
 

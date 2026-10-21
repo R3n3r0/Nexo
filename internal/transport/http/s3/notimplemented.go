@@ -88,6 +88,5 @@ func unsupportedObjectOperations() []Operation {
 	return []Operation{
 		{Name: "GetObjectTorrent", Method: http.MethodGet, Scope: ScopeObject, Query: "torrent"},
 		{Name: "RestoreObject", Method: http.MethodPost, Scope: ScopeObject, Query: "restore"},
-		{Name: "SelectObjectContent", Method: http.MethodPost, Scope: ScopeObject, Query: "select"},
 	}
 }

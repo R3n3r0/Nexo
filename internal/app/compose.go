@@ -32,6 +32,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/service/quota"
 	"github.com/r3n3r0/nexo/internal/service/ratelimit"
+	"github.com/r3n3r0/nexo/internal/service/s3select"
 	"github.com/r3n3r0/nexo/internal/service/session"
 	"github.com/r3n3r0/nexo/internal/service/settings"
 	"github.com/r3n3r0/nexo/internal/service/share"
@@ -498,7 +499,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	}, Buckets: buckets, Settings: applied, Logger: logger},
 		s3.NewBucketRoutes(s3.BucketDeps{Buckets: buckets, Objects: objects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger},
 			s3.WithRegion(cfg.Region)),
-		s3.NewObjectRoutes(s3.ObjectDeps{Objects: cachedObjects, Policy: s3Policy, Media: mediaSvc, Enc: codec, Clock: d.clock, Logger: logger}, ssecOpt, sendTimeoutOpt(cfg)),
+		s3.NewObjectRoutes(s3.ObjectDeps{Objects: cachedObjects, Policy: s3Policy, Media: mediaSvc, Select: s3select.New(s3select.Deps{Logger: logger}), Enc: codec, Clock: d.clock, Logger: logger}, ssecOpt, sendTimeoutOpt(cfg)),
 		s3.NewMultipartRoutes(s3.MultipartDeps{Objects: objects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger}, ssecOpt),
 		s3.NewPresignedRoutes(s3.PresignedDeps{Verifier: verifier, Objects: objects, Buckets: buckets, Policy: s3Policy, Media: mediaSvc, Enc: codec, Clock: d.clock, Logger: logger},
 			s3.WithRegion(cfg.Region), ssecOpt),

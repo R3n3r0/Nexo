@@ -196,6 +196,10 @@ packages:
       Subscription:
       Peer:
       Configurator:
+  github.com/r3n3r0/nexo/internal/service/s3select:
+    interfaces:
+      Service:
+      Sink:
   github.com/r3n3r0/nexo/internal/service/match:
     interfaces:
       Service:

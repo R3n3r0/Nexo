@@ -298,6 +298,11 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   drive (`internal/service/storage`, file system chosen with `NEXO_BENCH_DIR`) and `BenchmarkCopyBodyFile`
   (`httpx`, sendfile against a buffered copy).
 
+### S3 Select (S-OBJ-16)
+- `SelectObjectContent` over CSV and JSON objects (plain, GZIP, BZIP2) with the S3 event stream: projections,
+  `WHERE`, `LIMIT`, aggregates, `LIKE`/`BETWEEN`/`IN`/`IS NULL|MISSING`, `CAST` and the common string functions,
+  CSV or JSON output. Not supported: Parquet, `ScanRange`, date functions.
+
 ### Transparent compression (opt-in, S-OBJ-14)
 - `compression` configuration subsystem (`enable`, `extensions`, `mime_types`, applied to the next writes): the
   selected unencrypted versions are stored as S2 streams, one per part, with the block index of each part in its

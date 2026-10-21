@@ -25,7 +25,8 @@ risultati della suite di compatibilità.
 
 **Oggetti**: `PutObject`, `GetObject` (anche range e richieste condizionali), `HeadObject`, `DeleteObject`,
 `DeleteObjects`, `CopyObject`, `GetObjectAttributes`, `Get/Put/DeleteObjectTagging`, `Get/PutObjectRetention`,
-`Get/PutObjectLegalHold`, `PostObject`, `Get/PutObjectAcl` (solo `private`).
+`Get/PutObjectLegalHold`, `PostObject`, `Get/PutObjectAcl` (solo `private`), `SelectObjectContent` (vedi
+[S3 Select](#s3-select)).
 
 **Multipart**: `CreateMultipartUpload`, `UploadPart`, `UploadPartCopy`, `CompleteMultipartUpload`,
 `AbortMultipartUpload`, `ListParts`.
@@ -43,9 +44,26 @@ Rispondono `501 NotImplemented`: website del bucket (`?website`, al suo posto ci
 [distribuzioni](../distributions/README.md)), `PublicAccessBlock` (al suo posto il
 [block public access](../security/sharing.md#regole-di-accesso-pubbliche-e-block-public-access) di
 Nexo), replica (`?replication`), server access logging, accelerate, analytics, inventory, metrics,
-intelligent tiering, ownership controls, request payment, `RestoreObject`, `SelectObjectContent`,
+intelligent tiering, ownership controls, request payment, `RestoreObject`,
 `GetObjectTorrent`. Le transizioni di lifecycle verso altre classi di storage sono rifiutate. Sono previste
 dopo la v1.0: ACL complete, replica tra cluster, tiering verso S3 remoto, `AssumeRoleWithWebIdentity`.
+
+### S3 Select
+
+`SelectObjectContent` esegue SQL su oggetti CSV e JSON (in chiaro, GZIP o BZIP2) e risponde con l'event stream di
+S3 (`Records`, `Progress`, `Stats`, `End`), come si aspettano gli SDK. Richiede `s3:GetObject`.
+
+- **SQL**: `SELECT <colonne o aggregati> FROM S3Object[*][.path] [alias] [WHERE …] [LIMIT n]`; percorsi
+  (`s.name`, `s._1`, `s.a.b[0]`, `"tra virgolette"`), aritmetica, `||`, confronti, `AND`/`OR`/`NOT`,
+  `LIKE … ESCAPE`, `BETWEEN`, `IN`, `IS [NOT] NULL|MISSING`, `CAST(… AS INT|FLOAT|DECIMAL|STRING|BOOL)`, `LOWER`,
+  `UPPER`, `CHAR_LENGTH`, `TRIM`, `SUBSTRING`, `COALESCE`, `NULLIF`; aggregati `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`.
+- **CSV**: `FileHeaderInfo` `USE`/`IGNORE`/`NONE`, delimitatore di campo e carattere di commento di un carattere,
+  delimitatore di record di un carattere o `\r\n`, virgolette `"`. Un confronto o un'operazione aritmetica con un
+  numero legge un campo CSV come numero quando ne contiene uno; un campo vuoto non ha valore per `CAST` e gli
+  aggregati.
+- **JSON**: `LINES` e `DOCUMENT` (un array al primo livello è una lista di record).
+- **Non supportati**: Parquet, `ScanRange`, le funzioni di data e ora (`501 NotImplemented` o
+  `UnsupportedSyntax`).
 
 ## Differenze note
 
