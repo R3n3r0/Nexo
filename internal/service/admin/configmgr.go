@@ -104,6 +104,11 @@ func knownSubsystems() []SubsystemSchema {
 			{Name: "metadata_log_segment_mib", Type: KeyInt, Default: "64", Description: "Size of the next segments of the metadata log, in MiB (1-1024)"},
 			{Name: "metadata_log_memory_percent", Type: KeyInt, Default: "25", Description: "Share of the RAM the index of a drive may use before a warning (1-90)"},
 		}},
+		{Name: "compression", Description: "Transparent compression (S2) of the new unencrypted versions, by key extension or content type (applied to the next writes)", Keys: []KeySchema{
+			{Name: "enable", Type: KeyBool, Default: "off", Description: "Compress the new versions the extensions or content types select"},
+			{Name: "extensions", Type: KeyList, Default: ".txt,.log,.csv,.json,.tar,.xml,.bin", Description: "Key extensions to compress, comma separated"},
+			{Name: "mime_types", Type: KeyList, Default: "text/*,application/json,application/xml,binary/octet-stream", Description: "Content types to compress (text/* for a family), comma separated"},
+		}},
 		{Name: "logger", Description: "Server logs (applied at once; unset: the --log-level and --log-format of the server)", Keys: []KeySchema{
 			{Name: "level", Type: KeyEnum, Default: "info", Values: []string{"debug", "info", "warn", "error"}, Description: "Minimum level"},
 			{Name: "format", Type: KeyEnum, Default: "json", Values: []string{"text", "json"}, Description: "Output format"},

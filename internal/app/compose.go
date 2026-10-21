@@ -166,9 +166,9 @@ func openStores(ctx context.Context, d composeDeps, coh cluster.Coherence) (shar
 // filesystem layer on the single drive (SNSD), the erasure-coded server
 // pools otherwise, which report the objects to heal to mrf. sse seals the
 // keys of the encrypted objects.
-func newObjectLayer(d composeDeps, buckets object.BucketConfigSource, events event.Service, mrf object.HealNotifier, sse crypto.Service) (object.Service, error) {
+func newObjectLayer(d composeDeps, buckets object.BucketConfigSource, events event.Service, mrf object.HealNotifier, sse crypto.Service, applied settings.Service) (object.Service, error) {
 	f := d.f
-	opts := []object.Option{object.WithRegion(d.cfg.Region)}
+	opts := []object.Option{object.WithRegion(d.cfg.Region), object.WithCompression(compressionPolicy(applied, d.logger))}
 	if f.layout.Mode == domain.ModeSNSD {
 		return object.NewFS(object.Deps{
 			Store: f.local[0], Buckets: buckets, Locks: f.objectLocks(), Events: events, Crypto: sse, DeploymentID: d.deploymentID,
@@ -212,6 +212,11 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	// Cross-cutting services.
 	registry := d.f.registry
 	dynConfig := configsvc.New(configsvc.Deps{Store: stores.config, Logger: logger})
+	// The applied dynamic settings, read at every use (hot reloaded).
+	applied, err := settings.New(settings.Deps{Config: dynConfig, Logger: logger})
+	if err != nil {
+		return nil, err
+	}
 	// The audit log (docs/05 T-8.4): the structured log, the memory the
 	// console searches and the audit targets (observability.go).
 	auditor, err := newAuditor(d, dynConfig)
@@ -272,7 +277,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		return nil, err
 	}
 	var objectEvents event.Service = mediaJobs
-	objects, err := newObjectLayer(d, stores.buckets, objectEvents, notifier, sse)
+	objects, err := newObjectLayer(d, stores.buckets, objectEvents, notifier, sse, applied)
 	if err != nil {
 		return nil, fmt.Errorf("object layer: %w", err)
 	}
@@ -445,10 +450,6 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 
 	// The S3 API evaluates with the engine decorated by the applied
 	// dynamic settings (api.root_access, hot reloaded).
-	applied, err := settings.New(settings.Deps{Config: dynConfig, Logger: logger})
-	if err != nil {
-		return nil, err
-	}
 	s3Policy := settings.GuardRootAccess(policies, applied)
 	// The request limits of the node (S-OPS-10, S-DST-08), read from the
 	// dynamic configuration at every request; the refusals are measured.
@@ -658,4 +659,18 @@ func newDiagnostics(f *foundation, objects object.Service, buckets bucket.Servic
 	}
 	return adminsvc.NewDiagnostics(adminsvc.DiagnosticsDeps{Drives: f.local, Peers: peers, Objects: objects, Buckets: buckets,
 		Logger: logger.With("component", "diagnostics")}, adminsvc.WithDiagnosticsNode(f.nodeID))
+}
+
+// compressionPolicy selects the versions to compress from the
+// "compression" subsystem of the dynamic configuration, read at every
+// write; a configuration that cannot be read compresses nothing.
+func compressionPolicy(applied settings.Service, logger *slog.Logger) object.CompressionPolicy {
+	return func(ctx context.Context, _, key, contentType string) bool {
+		c, err := applied.Compression(ctx)
+		if err != nil {
+			logger.WarnContext(ctx, "compression: settings unavailable, storing uncompressed", "err", err)
+			return false
+		}
+		return c.Selects(key, contentType)
+	}
 }

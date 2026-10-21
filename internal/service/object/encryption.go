@@ -311,9 +311,10 @@ func actualSize(fi storage.FileInfo) int64 {
 	return fi.Size
 }
 
-// partPlainSize returns the plaintext size of a part of a version.
+// partPlainSize returns the plaintext (uncompressed) size of a part of a
+// version.
 func partPlainSize(fi storage.FileInfo, p storage.PartInfo) int64 {
-	if crypto.IsEncrypted(fi.Metadata) {
+	if crypto.IsEncrypted(fi.Metadata) || isCompressed(fi.Metadata) {
 		return p.ActualSize
 	}
 	if p.ActualSize > 0 {

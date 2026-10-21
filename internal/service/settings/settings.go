@@ -40,6 +40,17 @@ const (
 	// drive may use before a warning.
 	KeyMetadataLogMemoryPercent = "metadata_log_memory_percent"
 
+	// SubsystemCompression selects the new versions stored compressed
+	// (S-OBJ-14): by key extension or content type.
+	SubsystemCompression = "compression"
+	KeyCompressionEnable = "enable"
+	KeyExtensions        = "extensions"
+	KeyMimeTypes         = "mime_types"
+	// DefaultCompressionExtensions and DefaultCompressionMimeTypes are
+	// the defaults of compression.extensions and compression.mime_types.
+	DefaultCompressionExtensions = ".txt,.log,.csv,.json,.tar,.xml,.bin"
+	DefaultCompressionMimeTypes  = "text/*,application/json,application/xml,binary/octet-stream"
+
 	// DefaultRequestsDeadline is the default of api.requests_deadline.
 	DefaultRequestsDeadline = 10 * time.Second
 )
@@ -65,6 +76,9 @@ func Applied(subsystem, key string) bool {
 	case SubsystemStorage:
 		// The metadata log of the local drives (internal/app/metalog.go).
 		return key == KeyMetadataLogSegmentMiB || key == KeyMetadataLogMemoryPercent
+	case SubsystemCompression:
+		// Read by the object layer at every write.
+		return key == KeyCompressionEnable || key == KeyExtensions || key == KeyMimeTypes
 	case "logger":
 		// The level and the format of the server logs, applied at once by
 		// the log stream (internal/service/logs).
@@ -111,6 +125,26 @@ func (s *service) API(ctx context.Context) (API, error) {
 	return API{
 		RootAccess:      s.flag(ctx, SubsystemAPI, KeyRootAccess, kv[KeyRootAccess], true),
 		CORSAllowOrigin: list(kv[KeyCORSAllowOrigin]),
+	}, nil
+}
+
+// Compression implements Service.
+func (s *service) Compression(ctx context.Context) (Compression, error) {
+	kv, err := s.deps.Config.Get(ctx, SubsystemCompression)
+	if err != nil {
+		return Compression{}, fmt.Errorf("settings: %s: %w", SubsystemCompression, err)
+	}
+	ext, mime := kv[KeyExtensions], kv[KeyMimeTypes]
+	if _, ok := kv[KeyExtensions]; !ok {
+		ext = DefaultCompressionExtensions
+	}
+	if _, ok := kv[KeyMimeTypes]; !ok {
+		mime = DefaultCompressionMimeTypes
+	}
+	return Compression{
+		Enabled:    s.flag(ctx, SubsystemCompression, KeyCompressionEnable, kv[KeyCompressionEnable], false),
+		Extensions: list(ext),
+		MimeTypes:  list(mime),
 	}, nil
 }
 

@@ -110,12 +110,17 @@ type partMeta struct {
 	// Salt is the salt of the key the part was encrypted with
 	// (crypto.NewPartSalt; absent for the parts of earlier builds).
 	Salt []byte `json:"salt,omitempty"`
+	// Compressed reports a part stored compressed (S-OBJ-14): Size is the
+	// size of the S2 stream, ActualSize the one of the content, Index the
+	// part index of its blocks (encodeCompressionIndex).
+	Compressed bool   `json:"compressed,omitempty"`
+	Index      []byte `json:"index,omitempty"`
 }
 
 // plainSize returns the size of the content of the part (the plaintext
 // of an encrypted part).
 func (p partMeta) plainSize() int64 {
-	if p.Encrypted || p.ActualSize > 0 {
+	if p.Encrypted || p.Compressed || p.ActualSize > 0 {
 		return p.ActualSize
 	}
 	return p.Size
@@ -270,6 +275,11 @@ func (l *layer) NewMultipartUpload(ctx context.Context, in NewMultipartInput) (d
 			m.Metadata[k] = v
 		}
 	}
+	// Whether the parts are compressed is decided once, for the whole
+	// upload.
+	if l.compressFor(ctx, in.Bucket, in.Key, in.ContentType, -1, okey != nil) {
+		m.Metadata[metaCompression] = compressionS2
+	}
 	ei := st.ErasureInfo(in.Key, m.Metadata[metaStorageClass])
 	m.Erasure = &ei
 	data, err := json.Marshal(m)
@@ -354,16 +364,34 @@ func (l *layer) PutObjectPart(ctx context.Context, in PutObjectPartInput) (domai
 		}
 		storedSize = crypto.EncryptedSize(in.Size)
 	}
+	var comp *compressor
+	if okey == nil && isCompressed(m.Metadata) {
+		plain := io.Reader(hr)
+		if in.Size >= 0 {
+			plain = io.LimitReader(hr, in.Size)
+		}
+		comp = newCompressor(plain)
+		payload, storedSize = comp, -1
+	}
 	// The part is written to a private temporary directory, verified, then
 	// moved under a unique name into the upload directory.
 	tmpDir := l.newTmpDir()
 	defer l.cleanupTmp(ctx, st, tmpDir)
 	n, err := st.WriteData(ctx, tmpDir, in.PartNumber, storedSize, payload, m.layout(st))
 	if err != nil {
+		if comp != nil {
+			comp.abort()
+		}
 		return domain.Part{}, fmt.Errorf("%s: upload part %d of %s: %w", l.name, in.PartNumber, in.UploadID, mapBodyErr(err))
 	}
+	var compIndex []byte
+	if comp != nil {
+		if compIndex, err = comp.finish(); err != nil {
+			return domain.Part{}, fmt.Errorf("%s: upload part %d of %s: %w", l.name, in.PartNumber, in.UploadID, mapBodyErr(err))
+		}
+	}
 	plainN := n
-	if okey != nil {
+	if okey != nil || comp != nil {
 		plainN = hr.n
 	}
 	if in.Size >= 0 && plainN != in.Size {
@@ -380,6 +408,7 @@ func (l *layer) PutObjectPart(ctx context.Context, in PutObjectPartInput) (domai
 	part := partMeta{
 		Number: in.PartNumber, ETag: etag, Size: n, ActualSize: plainN, ModTime: l.now(), Checksum: checksum,
 		DataFile: partName(in.PartNumber) + "." + uuid.NewString(), Encrypted: okey != nil, Salt: salt,
+		Compressed: comp != nil, Index: compIndex,
 	}
 	// The description on the drives holds the checksum of an encrypted
 	// part sealed; the response reports it in clear.
@@ -662,6 +691,7 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 	}
 
 	encrypted := crypto.IsEncrypted(m.Metadata)
+	compressed := isCompressed(m.Metadata)
 	// The checksums of the parts of an encrypted upload are sealed: they
 	// are opened with the key of the upload when the completion needs them
 	// (the checksum of the object, a part checksum or a whole checksum to
@@ -708,6 +738,10 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 			return domain.ObjectInfo{}, domain.NewS3Error(domain.ErrInvalidPart, "InvalidPart",
 				fmt.Sprintf("One or more of the specified parts could not be found. Part %d was not stored with the encryption of the upload.", cp.Number))
 		}
+		if p.Compressed != compressed {
+			return domain.ObjectInfo{}, domain.NewS3Error(domain.ErrInvalidPart, "InvalidPart",
+				fmt.Sprintf("One or more of the specified parts could not be found. Part %d was not stored with the compression of the upload.", cp.Number))
+		}
 		sum, err := openPartChecksum(okey, p.Checksum)
 		if err != nil {
 			return domain.ObjectInfo{}, fmt.Errorf("%s: checksum of part %d of %s: %w", l.name, cp.Number, in.UploadID, err)
@@ -729,6 +763,9 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 			// The part keeps the key of its number and salt in the upload.
 			info.Index = encodePartIndex(p.Number, p.Salt)
 		}
+		if compressed {
+			info.Index = p.Index
+		}
 		parts = append(parts, info)
 		p.Checksum = sum
 		selected[len(selected)-1] = p
@@ -743,11 +780,7 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 	}
 	partSums := make([]partSum, len(selected))
 	for i, p := range selected {
-		size := p.ActualSize
-		if size <= 0 {
-			size = p.Size
-		}
-		partSums[i] = partSum{sum: p.Checksum, size: size}
+		partSums[i] = partSum{sum: p.Checksum, size: p.plainSize()}
 	}
 	checksum, err := multipartChecksum(m.Checksum, uploadType, partSums, in.Checksum)
 	if err != nil {
@@ -782,7 +815,7 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 	}
 	meta[metaETag] = hex.EncodeToString(etagSum.Sum(nil)) + "-" + strconv.Itoa(len(parts))
 	meta[metaUploadID] = in.UploadID
-	if encrypted {
+	if encrypted || compressed {
 		setActualSize(meta, plainTotal)
 	}
 	if !checksum.IsZero() {

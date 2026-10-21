@@ -183,6 +183,7 @@ applica, è su `GET /api/v1/config/schema` e nella pagina **Configurazione** del
 | `api` | `requests_max` (default `0`: nessun limite), `requests_deadline` (default `10s`): vedi [Limiti di richieste](#limiti-di-richieste) | ✅ alla richiesta successiva |
 | `ratelimit` | `s3_ip`, `s3_access_key`, `s3_bucket`, `admin_ip`, `admin_user` e i loro `_burst`: vedi [Limiti di richieste](#limiti-di-richieste) | ✅ alla richiesta successiva |
 | `scanner` | `speed` (`fastest`…`slowest`), `cycle` (default `1m`) | ✅ all'inizio di ogni ciclo |
+| `compression` | `enable` (default `off`), `extensions`, `mime_types`: vedi [Compressione trasparente](#compressione-trasparente) | ✅ alla scrittura successiva |
 | `access` | `block_public`, `block_public_mode` (`reject`, `ignore`) | ✅ |
 | `notify_webhook`, `notify_kafka`, `notify_nats`, `notify_amqp`, `notify_redis`, `notify_postgres` (anche `:<id>`) | `enable`, chiavi del target, `queue_dir`, `queue_limit`, `comment` | ✅ (vedi [Eventi](events-lifecycle.md)) |
 | `notify_media_worker` (anche `:<id>`) | `enable`, `endpoint`, `auth_token`, `client_cert`, `client_key`, `tls_skip_verify`, `queue_dir`, `queue_limit`, `comment` | ✅ (vedi [Media worker](media-worker.md)) |
@@ -192,6 +193,28 @@ applica, è su `GET /api/v1/config/schema` e nella pagina **Configurazione** del
 
 `nexoctl admin config set` avvisa quando imposta una chiave non applicata (`region.name is stored but not
 applied yet by the server`); la console la segnala allo stesso modo.
+
+### Compressione trasparente
+
+Con `compression.enable=on` le nuove versioni sono salvate compresse con S2 (un compressore veloce della classe di
+LZ4, circa 2-4x su log, CSV e JSON) quando la chiave termina con una di `extensions` (default
+`.txt,.log,.csv,.json,.tar,.xml,.bin`) o il content type corrisponde a uno di `mime_types` (default
+`text/*,application/json,application/xml,binary/octet-stream`); con entrambe le liste vuote, ogni versione lo è.
+Mai compressi: i formati già compressi (archivi, immagini, audio, video), le versioni cifrate (la lunghezza compressa
+direbbe qualcosa del contenuto in chiaro) e gli oggetti abbastanza piccoli da essere salvati inline (128 KiB).
+
+I client non vedono nulla: dimensioni, ETag, checksum, listing, quota e utilizzo sono quelli del contenuto. Una
+lettura per intervallo decomprime dal blocco di 1 MiB che ne contiene l'inizio. Ogni blocco porta un CRC-32C
+verificato in lettura, oltre alla protezione bitrot dei dischi. L'impostazione vale per le scritture successive: le
+versioni esistenti restano come sono, e restano leggibili qualunque sia l'impostazione.
+
+```bash
+nexoctl admin config set local compression enable=on
+nexoctl admin config set local compression extensions=.log,.csv mime_types=text/*
+```
+
+Una versione scritta compressa non è leggibile da una release senza compressione (precedente alla 1.0): disattivarla
+e riscrivere gli oggetti compressi (`nexoctl cp` su sé stessi) prima di un tale downgrade.
 
 ### Limiti di richieste
 

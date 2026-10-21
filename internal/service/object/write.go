@@ -123,6 +123,15 @@ func (l *layer) writeObject(ctx context.Context, bucket, key string, body io.Rea
 		}
 		storedSize = crypto.EncryptedSize(in.size)
 	}
+	var comp *compressor
+	if l.compressFor(ctx, bucket, key, in.meta[metaContentType], in.size, okey != nil) {
+		plain := io.Reader(hr)
+		if in.size >= 0 {
+			plain = io.LimitReader(hr, in.size)
+		}
+		comp = newCompressor(plain)
+		data, storedSize = comp, -1
+	}
 	fi := storage.FileInfo{
 		Volume:   bucket,
 		Name:     key,
@@ -130,6 +139,7 @@ func (l *layer) writeObject(ctx context.Context, bucket, key string, body io.Rea
 		Erasure:  st.ErasureInfo(key, in.meta[metaStorageClass]),
 	}
 	tmpDir := ""
+	var compIndex []byte
 	if storedSize >= 0 && storedSize <= l.opts.inlineLimit {
 		buf, err := io.ReadAll(io.LimitReader(data, storedSize+1))
 		if err != nil {
@@ -145,11 +155,20 @@ func (l *layer) writeObject(ctx context.Context, bucket, key string, body io.Rea
 		fi.DataDir = uuid.NewString()
 		n, err := st.WriteData(ctx, tmpDir, 1, storedSize, data, fi.Erasure)
 		if err != nil {
+			if comp != nil {
+				comp.abort()
+			}
 			l.cleanupTmp(ctx, st, tmpDir)
 			return domain.ObjectInfo{}, fmt.Errorf("%s: write %s/%s: %w", l.name, bucket, key, mapBodyErr(err))
 		}
+		if comp != nil {
+			if compIndex, err = comp.finish(); err != nil {
+				l.cleanupTmp(ctx, st, tmpDir)
+				return domain.ObjectInfo{}, fmt.Errorf("%s: write %s/%s: %w", l.name, bucket, key, mapBodyErr(err))
+			}
+		}
 		plainN := n
-		if okey != nil {
+		if okey != nil || comp != nil {
 			plainN = hr.n
 		}
 		if in.size >= 0 && plainN != in.size {
@@ -165,7 +184,7 @@ func (l *layer) writeObject(ctx context.Context, bucket, key string, body io.Rea
 		fi.Size = n
 	}
 	plainSize := fi.Size
-	if okey != nil {
+	if okey != nil || comp != nil {
 		plainSize = hr.n
 	}
 	checksum, err := hr.verify(in.md5Hex, in.sha256Hex, in.checksum)
@@ -182,6 +201,10 @@ func (l *layer) writeObject(ctx context.Context, bucket, key string, body io.Rea
 		for k, v := range okey.Metadata() {
 			fi.Metadata[k] = v
 		}
+		setActualSize(fi.Metadata, plainSize)
+	}
+	if comp != nil {
+		fi.Metadata[metaCompression] = compressionS2
 		setActualSize(fi.Metadata, plainSize)
 	}
 	fi.Metadata[metaETag] = etag
@@ -217,7 +240,7 @@ func (l *layer) writeObject(ctx context.Context, bucket, key string, body io.Rea
 	if fi.ModTime.IsZero() {
 		fi.ModTime = l.commitTime(ctx, bucket, key)
 	}
-	fi.Parts = []storage.PartInfo{{Number: 1, ETag: etag, Size: fi.Size, ActualSize: plainSize, ModTime: fi.ModTime}}
+	fi.Parts = []storage.PartInfo{{Number: 1, ETag: etag, Size: fi.Size, ActualSize: plainSize, ModTime: fi.ModTime, Index: compIndex}}
 	setRetentionMeta(fi.Metadata, in.retention)
 	setLegalHoldMeta(fi.Metadata, in.legalHold)
 	applyDefaultRetention(fi.Metadata, cfg, fi.ModTime)

@@ -298,6 +298,13 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   drive (`internal/service/storage`, file system chosen with `NEXO_BENCH_DIR`) and `BenchmarkCopyBodyFile`
   (`httpx`, sendfile against a buffered copy).
 
+### Transparent compression (opt-in, S-OBJ-14)
+- `compression` configuration subsystem (`enable`, `extensions`, `mime_types`, applied to the next writes): the
+  selected unencrypted versions are stored as S2 streams, one per part, with the block index of each part in its
+  metadata so that range reads decompress from the block holding their start. Sizes, ETags, checksums, listings,
+  quota and usage stay those of the content; every block carries a CRC-32C checked on read. Never compressed:
+  already compressed formats, encrypted versions, objects small enough to be inlined.
+
 ### Metadata log (opt-in, `NEXO_METADATA_LOG`)
 - Each drive can keep the metadata of its objects in append-only segments with group commit and an index in memory
   (docs/proposals/small-object-log.md, [Metadata log](docs/user/operations/metadata-log.md)): concurrent writes share

@@ -182,6 +182,7 @@ stored one. The complete schema, with the default of every key and whether the s
 | `api` | `requests_max` (default `0`: no limit), `requests_deadline` (default `10s`): see [Rate limits](#rate-limits) | ✅ at the next request |
 | `ratelimit` | `s3_ip`, `s3_access_key`, `s3_bucket`, `admin_ip`, `admin_user` and their `_burst`: see [Rate limits](#rate-limits) | ✅ at the next request |
 | `scanner` | `speed` (`fastest`…`slowest`), `cycle` (default `1m`) | ✅ at the start of every cycle |
+| `compression` | `enable` (default `off`), `extensions`, `mime_types`: see [Transparent compression](#transparent-compression) | ✅ at the next write |
 | `access` | `block_public`, `block_public_mode` (`reject`, `ignore`) | ✅ |
 | `notify_webhook`, `notify_kafka`, `notify_nats`, `notify_amqp`, `notify_redis`, `notify_postgres` (also `:<id>`) | `enable`, target keys, `queue_dir`, `queue_limit`, `comment` | ✅ (see [Events](events-lifecycle.md)) |
 | `notify_media_worker` (also `:<id>`) | `enable`, `endpoint`, `auth_token`, `client_cert`, `client_key`, `tls_skip_verify`, `queue_dir`, `queue_limit`, `comment` | ✅ (see [Media worker](media-worker.md)) |
@@ -191,6 +192,28 @@ stored one. The complete schema, with the default of every key and whether the s
 
 `nexoctl admin config set` warns when it sets a key that is not applied (`region.name is stored but not
 applied yet by the server`); the console flags it the same way.
+
+### Transparent compression
+
+With `compression.enable=on` the new versions are stored compressed with S2 (a fast LZ4-class compressor, about
+2-4x on logs, CSV and JSON) when their key ends with one of `extensions` (default
+`.txt,.log,.csv,.json,.tar,.xml,.bin`) or their content type matches one of `mime_types` (default
+`text/*,application/json,application/xml,binary/octet-stream`); with both lists empty, every version is. Never
+compressed: formats already compressed (archives, images, audio, video), encrypted versions (the compressed length
+would tell about the plaintext) and objects small enough to be stored inline (128 KiB).
+
+The clients see nothing: sizes, ETags, checksums, listings, the quota and the usage are those of the content. A
+range read decompresses from the 1 MiB block holding its start. Every block carries a CRC-32C checked when it is
+read, on top of the bitrot protection of the drives. The setting applies to the next writes: the existing versions
+stay as they are, and stay readable whatever the setting.
+
+```bash
+nexoctl admin config set local compression enable=on
+nexoctl admin config set local compression extensions=.log,.csv mime_types=text/*
+```
+
+A version written compressed cannot be read by a release without compression (before 1.0): disable it and rewrite
+the compressed objects (`nexoctl cp` onto themselves) before such a downgrade.
 
 ### Rate limits
 

@@ -215,6 +215,8 @@ func (l *layer) openObject(ctx context.Context, bucket, key string, opts GetObje
 	var rc io.ReadCloser
 	if okey != nil {
 		rc = l.openEncrypted(ctx, st, bucket, key, fi, okey, offset, length)
+	} else if isCompressed(fi.Metadata) && length > 0 {
+		rc = l.openCompressed(ctx, st, bucket, key, fi, offset, length)
 	} else if rc, err = l.openData(ctx, st, bucket, key, fi, offset, length); err != nil {
 		release()
 		return nil, storage.FileInfo{}, fmt.Errorf("%s: read %s/%s: %w", l.name, bucket, key, err)
@@ -236,10 +238,7 @@ func resolveRange(fi storage.FileInfo, opts GetObjectOptions) (int64, int64, err
 		}
 		var start int64
 		for i, p := range fi.Parts {
-			size := p.Size
-			if crypto.IsEncrypted(fi.Metadata) {
-				size = p.ActualSize
-			}
+			size := partPlainSize(fi, p)
 			if i+1 == opts.PartNumber {
 				return start, size, nil
 			}

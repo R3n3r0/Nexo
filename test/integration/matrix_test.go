@@ -132,6 +132,7 @@ func suite() []suiteTest {
 		{name: "TestBucketCORS", fn: TestBucketCORS},
 		{name: "TestBucketTagging", fn: TestBucketTagging},
 		{name: "TestObjectTagsAndPolicies", fn: TestObjectTagsAndPolicies},
+		{name: "TestTransparentCompression", fn: TestTransparentCompression},
 		{name: "TestServerSideEncryptionKMS", fn: TestServerSideEncryptionKMS},
 		{name: "TestServerSideEncryptionKES", fn: TestServerSideEncryptionKES},
 		{name: "TestServerSideEncryptionCustomerKeys", fn: TestServerSideEncryptionCustomerKeys},

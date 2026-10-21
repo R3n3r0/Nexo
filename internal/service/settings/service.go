@@ -41,6 +41,9 @@ type Service interface {
 	// subsystem. Unset keys are their defaults (no limit); a value that
 	// cannot be parsed keeps the default and is logged.
 	Limits(ctx context.Context) (Limits, error)
+	// Compression returns the applied settings of the "compression"
+	// subsystem (S-OBJ-14), read at every write.
+	Compression(ctx context.Context) (Compression, error)
 }
 
 // Rate is a token bucket: PerSecond requests per second on average, up to

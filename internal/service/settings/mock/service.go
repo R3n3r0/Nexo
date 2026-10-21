@@ -78,6 +78,62 @@ func (_c *Service_API_Call) RunAndReturn(run func(context.Context) (settings.API
 	return _c
 }
 
+// Compression provides a mock function with given fields: ctx
+func (_m *Service) Compression(ctx context.Context) (settings.Compression, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Compression")
+	}
+
+	var r0 settings.Compression
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (settings.Compression, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) settings.Compression); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Get(0).(settings.Compression)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_Compression_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Compression'
+type Service_Compression_Call struct {
+	*mock.Call
+}
+
+// Compression is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *Service_Expecter) Compression(ctx interface{}) *Service_Compression_Call {
+	return &Service_Compression_Call{Call: _e.mock.On("Compression", ctx)}
+}
+
+func (_c *Service_Compression_Call) Run(run func(ctx context.Context)) *Service_Compression_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *Service_Compression_Call) Return(_a0 settings.Compression, _a1 error) *Service_Compression_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_Compression_Call) RunAndReturn(run func(context.Context) (settings.Compression, error)) *Service_Compression_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Limits provides a mock function with given fields: ctx
 func (_m *Service) Limits(ctx context.Context) (settings.Limits, error) {
 	ret := _m.Called(ctx)

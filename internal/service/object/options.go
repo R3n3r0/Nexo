@@ -28,6 +28,8 @@ type options struct {
 	// pinnedReadParts is the number of parts a read opens up front to
 	// release its read lock before streaming (default 8, 0 disables).
 	pinnedReadParts int
+	// compression selects the versions stored compressed (nil: none).
+	compression CompressionPolicy
 }
 
 func defaultOptions() options {
@@ -124,5 +126,13 @@ func WithPinnedReadParts(n int) Option {
 		if n >= 0 {
 			o.pinnedReadParts = n
 		}
+	}
+}
+
+// WithCompression stores compressed the new unencrypted versions policy
+// selects (S-OBJ-14).
+func WithCompression(policy CompressionPolicy) Option {
+	return func(o *options) {
+		o.compression = policy
 	}
 }
