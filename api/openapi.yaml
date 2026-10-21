@@ -86,7 +86,11 @@ paths:
         right secret; the client is the peer of the connection or, behind the `--trusted-proxies`,
         the address they forward. Against login CSRF the body must be `application/json` (415
         `unsupported_media_type`) and a browser request must not be cross-site (`Sec-Fetch-Site`
-        `cross-site` or `same-site`: 403 `cross_site_request`).
+        `cross-site` or `same-site`: 403 `cross_site_request`). With `provider` `ldap` the user of
+        the LDAP directory (`identity_ldap`) logs in with `username` and `password`: the session
+        is backed by federated temporary credentials whose policies come from the Nexo groups
+        named like its directory groups (401 for wrong credentials or a user mapping to no
+        policy, 501 when LDAP is disabled, 503 when the directory is unreachable).
       security: []
       x-nexo-actions: []
       requestBody:
@@ -113,6 +117,56 @@ paths:
             application/problem+json:
               schema: { $ref: "#/components/schemas/Problem" }
         default: { $ref: "#/components/responses/Problem" }
+  /auth/providers:
+    get:
+      tags: [session]
+      operationId: authProviders
+      summary: The identity providers of the console login
+      description: Public endpoint, read by the login page.
+      security: []
+      x-nexo-actions: []
+      responses:
+        "200":
+          description: The enabled providers.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthProviders" }
+        default: { $ref: "#/components/responses/Problem" }
+  /auth/openid/start:
+    get:
+      tags: [session]
+      operationId: openIDStart
+      summary: Start the OpenID Connect login of the console
+      description: >-
+        Public endpoint the browser navigates to. Redirects to the authorization endpoint of the
+        provider (`identity_openid`) with a state, a nonce and a PKCE S256 challenge, kept in the
+        `nexo_oidc` cookie (HttpOnly, SameSite=Lax, ten minutes). When the provider is disabled or
+        unreachable, redirects to `/login?error=sso_unavailable`.
+      security: []
+      x-nexo-actions: []
+      responses:
+        "302": { description: "Redirect to the provider, or back to the login page." }
+  /auth/openid/callback:
+    get:
+      tags: [session]
+      operationId: openIDCallback
+      summary: Complete the OpenID Connect login of the console
+      description: >-
+        The redirect URI registered at the provider (`identity_openid` `redirect_uri`, else the
+        public console URL or the host reached, followed by `/api/v1/auth/openid/callback`).
+        Checks the state against the `nexo_oidc` cookie (single use), exchanges the code with
+        the PKCE verifier, verifies the ID token and its nonce, then sets the `nexo_session`
+        cookie and redirects to the console (`/`). A failure redirects to `/login?error=` with
+        `sso_denied` (refused by the provider, or a user mapping to no policy),
+        `sso_unavailable` or `sso_failed`.
+      security: []
+      x-nexo-actions: []
+      parameters:
+        - { name: code, in: query, schema: { type: string } }
+        - { name: state, in: query, schema: { type: string } }
+        - { name: error, in: query, schema: { type: string } }
+      responses:
+        "302": { description: "Redirect to the console, or back to the login page." }
   /auth/logout:
     post:
       tags: [session]
@@ -4273,16 +4327,30 @@ components:
 
     LoginRequest:
       type: object
-      required: [accessKey, secretKey]
+      description: An access key and its secret, or with `provider` `ldap` a username and password.
       properties:
         accessKey: { type: string }
         secretKey: { type: string }
+        provider: { type: string, enum: [ldap] }
+        username: { type: string }
+        password: { type: string }
+    AuthProviders:
+      type: object
+      required: [openid, ldap]
+      properties:
+        openid: { type: boolean, description: Login with OpenID Connect (GET /auth/openid/start). }
+        openidName: { type: string, description: Label of the OpenID login button. }
+        ldap: { type: boolean, description: Login with the LDAP username and password. }
     SessionIdentity:
       type: object
       required: [accessKey, isRoot, groups, policyNames]
       properties:
         accessKey: { type: string }
         isRoot: { type: boolean }
+        provider:
+          type: string
+          description: Identity provider of a federated session (openid, ldap).
+        username: { type: string, description: User at the identity provider. }
         groups:
           type: array
           description: Enabled groups of the user.

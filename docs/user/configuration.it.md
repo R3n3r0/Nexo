@@ -185,6 +185,8 @@ applica, è su `GET /api/v1/config/schema` e nella pagina **Configurazione** del
 | `scanner` | `speed` (`fastest`…`slowest`), `cycle` (default `1m`) | ✅ all'inizio di ogni ciclo |
 | `compression` | `enable` (default `off`), `extensions`, `mime_types`: vedi [Compressione trasparente](#compressione-trasparente) | ✅ alla scrittura successiva |
 | `access` | `block_public`, `block_public_mode` (`reject`, `ignore`) | ✅ |
+| `identity_openid` | `enable`, `config_url`, `client_id`, `client_secret`, `scopes`, `claim_name`, `groups_claim`, `username_claim`, `display_name`, `redirect_uri`: vedi [Federazione delle identità](security/users-policies.it.md#federazione-delle-identita-openid-connect-ldap) | ✅ al login successivo |
+| `identity_ldap` | `enable`, `server_addr`, `tls`, `starttls`, `tls_skip_verify`, `lookup_bind_dn`, `lookup_bind_password`, `user_dn_search_base_dn`, `user_dn_search_filter`, `group_search_base_dn`, `group_search_filter`, `group_name_attribute` | ✅ al login successivo |
 | `notify_webhook`, `notify_kafka`, `notify_nats`, `notify_amqp`, `notify_redis`, `notify_postgres` (anche `:<id>`) | `enable`, chiavi del target, `queue_dir`, `queue_limit`, `comment` | ✅ (vedi [Eventi](events-lifecycle.md)) |
 | `notify_media_worker` (anche `:<id>`) | `enable`, `endpoint`, `auth_token`, `client_cert`, `client_key`, `tls_skip_verify`, `queue_dir`, `queue_limit`, `comment` | ✅ (vedi [Media worker](media-worker.md)) |
 | `audit_webhook`, `audit_kafka` (anche `:<id>`) | come i `notify_*` dello stesso tipo | ✅ (vedi [Audit](operations/trace-log-audit.md#audit-log)) |

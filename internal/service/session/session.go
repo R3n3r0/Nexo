@@ -22,6 +22,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/iam"
+	"github.com/r3n3r0/nexo/internal/service/idp"
 )
 
 // Deps are the dependencies of the session service.
@@ -30,7 +31,10 @@ type Deps struct {
 	IAM iam.Service
 	// Store persists the revoked sessions in iam.NamespaceSessions
 	// (default: iam.NewMemoryStore(), which forgets them on restart).
-	Store  iam.Store
+	Store iam.Store
+	// IDP authenticates the federated logins (LoginLDAP, LoginOpenID);
+	// nil disables them.
+	IDP    idp.Service
 	Clock  clock.Clock
 	Logger *slog.Logger
 }
@@ -176,7 +180,11 @@ func (s *service) Login(ctx context.Context, in LoginInput) (*Session, error) {
 		return nil, err
 	}
 	s.throttle.reset(in.Client, in.AccessKey)
+	return s.issue(accessKey, creds, identity, now, now.Add(s.ttl))
+}
 
+// issue signs a session of the credentials, valid until exp.
+func (s *service) issue(accessKey string, creds domain.Credentials, identity domain.Identity, now, exp time.Time) (*Session, error) {
 	id, err := randomHex(16)
 	if err != nil {
 		return nil, fmt.Errorf("session: generate id: %w", err)
@@ -185,7 +193,6 @@ func (s *service) Login(ctx context.Context, in LoginInput) (*Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("session: generate csrf token: %w", err)
 	}
-	exp := now.Add(s.ttl)
 	cl := claims{
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        id,
@@ -204,7 +211,7 @@ func (s *service) Login(ctx context.Context, in LoginInput) (*Session, error) {
 		return nil, fmt.Errorf("session: sign token: %w", err)
 	}
 	identity.AccessKey = accessKey
-	return &Session{
+	sess := &Session{
 		ID:        id,
 		AccessKey: accessKey,
 		Identity:  identity,
@@ -212,7 +219,17 @@ func (s *service) Login(ctx context.Context, in LoginInput) (*Session, error) {
 		ExpiresAt: exp,
 		CSRFToken: csrf,
 		Token:     token,
-	}, nil
+	}
+	fillProvider(sess)
+	return sess, nil
+}
+
+// fillProvider names the provider and the user of a federated session.
+func fillProvider(sess *Session) {
+	if creds := sess.Identity.Claims; creds != nil {
+		sess.Provider, _ = creds["provider"].(string)
+		sess.Username, _ = creds["username"].(string)
+	}
 }
 
 // verify checks the credentials of a login: unknown, wrong, disabled,
@@ -278,14 +295,16 @@ func (s *service) Validate(ctx context.Context, token string) (*Session, error) 
 		return nil, fmt.Errorf("%w: the credentials changed since the login", domain.ErrAccessDenied)
 	}
 	identity.AccessKey = cl.Subject
-	return &Session{
+	sess := &Session{
 		ID:        cl.ID,
 		AccessKey: cl.Subject,
 		Identity:  identity,
 		IssuedAt:  cl.IssuedAt.Time,
 		ExpiresAt: cl.ExpiresAt.Time,
 		CSRFToken: cl.CSRF,
-	}, nil
+	}
+	fillProvider(sess)
+	return sess, nil
 }
 
 // Logout implements Service. Expired revocations are purged from the

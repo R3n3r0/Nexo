@@ -26,6 +26,8 @@ export interface SessionState {
 
 export interface SessionContextValue extends SessionState {
   login: (accessKey: string, secretKey: string) => Promise<Session>;
+  /** Opens a session for a user of the LDAP directory. */
+  loginLDAP: (username: string, password: string) => Promise<Session>;
   logout: () => Promise<void>;
 }
 
@@ -89,6 +91,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [services],
   );
 
+  const loginLDAP = useCallback(
+    async (username: string, password: string) => {
+      const session = await services.session.loginLDAP(username, password);
+      setState({ status: 'authenticated', session, expired: false });
+      return session;
+    },
+    [services],
+  );
+
   const logout = useCallback(async () => {
     try {
       await services.session.logout();
@@ -99,8 +110,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [services, queryClient]);
 
   const value = useMemo<SessionContextValue>(
-    () => ({ ...state, login, logout }),
-    [state, login, logout],
+    () => ({ ...state, login, loginLDAP, logout }),
+    [state, login, loginLDAP, logout],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

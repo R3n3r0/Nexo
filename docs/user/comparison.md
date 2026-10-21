@@ -23,7 +23,7 @@ them, and each of them does things Nexo does not.
 | Lifecycle | yes | yes | yes | expiration and incomplete uploads only | yes |
 | Bucket notifications | webhook, Kafka, NATS, AMQP, Redis, ... with a persistent queue | many targets (webhook, Kafka, NATS, ...) | via the filer's metadata events | no | yes |
 | Server-side encryption | SSE-S3, SSE-KMS, SSE-C (built-in KMS or KES) | SSE-S3, SSE-KMS, SSE-C (KES) | SSE-S3, SSE-KMS, SSE-C | SSE-C | SSE-S3, SSE-KMS, SSE-C |
-| IAM | users, groups, policies, access keys, STS AssumeRole | users, groups, policies, STS, OIDC, LDAP | users, groups, policies, STS, OIDC | per-key bucket permissions, no policies | users and policies, STS, OIDC, Keystone |
+| IAM | users, groups, policies, access keys, STS, OIDC, LDAP | users, groups, policies, STS, OIDC, LDAP | users, groups, policies, STS, OIDC | per-key bucket permissions, no policies | users and policies, STS, OIDC, Keystone |
 | Web console | included (full administration) | reduced to an object browser in 2025 | basic UIs for master and filer | none built in (community UIs exist) | Ceph Dashboard |
 | Geo / multi-site | no | site and bucket replication | async replication between clusters | multi-zone by design | multi-site |
 | Beyond S3 | CDN-style distributions on custom domains with cache and ACME certificates | | POSIX/FUSE, WebDAV, HDFS access to the same data | static websites | block (RBD) and file (CephFS) in the same cluster |
@@ -50,8 +50,7 @@ them, and each of them does things Nexo does not.
 - **Billions of small files, or file-system access to the same data** — SeaweedFS's volume design and its
   filer (FUSE, WebDAV, HDFS) are built for this.
 - **One platform for block, file and object at large scale** — Ceph, if you can run it.
-- **External identity (OIDC, LDAP, Keystone)** — not available in Nexo yet; MinIO, SeaweedFS and Ceph RGW support
-  some of them.
+- **Keystone** — Nexo federates OpenID Connect and LDAP identities but not OpenStack Keystone; Ceph RGW supports it.
 - **A long production track record** — every other project here has years of it. Nexo has extensive
   automated tests (multi-process clusters, fault injection, upgrade tests, fuzzing) but a short history in
   the field: try it on your workload first.

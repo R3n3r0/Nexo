@@ -265,7 +265,83 @@ curl -s --aws-sigv4 "aws:amz:us-east-1:sts" --user 'alice:alice-secret-123' \
 
 La risposta XML contiene `AccessKeyId`, `SecretAccessKey`, `SessionToken` ed `Expiration`. Le credenziali
 temporanee non possono a loro volta chiamare `AssumeRole`. Un URL presigned firmato con credenziali STS
-scade al più tardi con la sessione. Le federazioni di identità (OIDC, LDAP) non sono ancora disponibili.
+scade al più tardi con la sessione.
+
+## Federazione delle identità (OpenID Connect, LDAP)
+
+Gli utenti di un provider di identità esterno accedono alla console e ottengono credenziali temporanee senza un
+utente Nexo proprio. I loro permessi vengono da Nexo:
+
+- i **gruppi Nexo** con lo stesso nome dei loro gruppi nel provider (il claim `groups` di OpenID, i gruppi della
+  directory per LDAP) danno le loro policy; un gruppo disattivato non ne dà nessuna, e le modifiche valgono per
+  le sessioni aperte dalla richiesta successiva;
+- con OpenID si aggiungono le policy nominate dal claim `policy` (`claim_name`).
+
+Un utente che non corrisponde ad alcuna policy viene rifiutato. Le credenziali appartengono all'utente padre
+`openid:<username>` o `ldap:<username>` (visibile nell'audit log e utilizzabile nelle policy come
+`${aws:username}`); i claim del token sono disponibili nelle condizioni delle policy come `jwt:<claim>`.
+
+### OpenID Connect
+
+```bash
+nexoctl admin config set local identity_openid enable=on \
+  config_url=https://idp.example.com/.well-known/openid-configuration \
+  client_id=nexo-console client_secret=... display_name="SSO aziendale"
+```
+
+| Chiave | Default | Significato |
+|--------|---------|-------------|
+| `config_url` | | documento di discovery del provider |
+| `client_id`, `client_secret` | | il client registrato nel provider (client confidenziale) |
+| `scopes` | `openid,profile,email` | scope del login della console |
+| `claim_name` | `policy` | claim con le policy di Nexo (stringa separata da virgole o array) |
+| `groups_claim` | `groups` | claim con i gruppi |
+| `username_claim` | `preferred_username` | nome dell'utente (poi `email`, poi `sub`) |
+| `display_name` | `SSO` | etichetta del pulsante nella pagina di login |
+| `redirect_uri` | URL della console + `/api/v1/auth/openid/callback` | il redirect URI registrato nel provider |
+
+La pagina di login mostra **Accedi con <display_name>**: la console esegue l'authorization code flow con PKCE
+(S256), uno state legato al browser e un nonce. Registra il redirect URI nel provider: con
+`--browser-redirect-url` impostato è `<quell'URL>/api/v1/auth/openid/callback`, altrimenti l'URL della console
+come lo raggiunge il browser. La sessione della console dura quanto la durata di sessione configurata (12 ore),
+non quanto l'ID token.
+
+Le applicazioni scambiano un ID token con credenziali S3 tramite `AssumeRoleWithWebIdentity` (senza firma;
+l'audience del token deve essere `client_id`):
+
+```bash
+aws sts assume-role-with-web-identity --endpoint-url http://localhost:9000 \
+  --role-arn arn:aws:iam::000000000000:role/any --role-session-name ci \
+  --web-identity-token "$ID_TOKEN" --duration-seconds 3600
+```
+
+Le credenziali non sopravvivono mai al token. Sono accettate chiavi RSA (2048 bit e oltre) ed ECDSA (P-256,
+P-384, P-521); le chiavi del provider vengono riscaricate quando un token ne nomina una sconosciuta.
+
+### LDAP e Active Directory
+
+```bash
+nexoctl admin config set local identity_ldap enable=on server_addr=ldap.example.com:636 \
+  lookup_bind_dn="cn=nexo,ou=services,dc=example,dc=com" lookup_bind_password=... \
+  user_dn_search_base_dn="ou=people,dc=example,dc=com" user_dn_search_filter="(uid=%s)" \
+  group_search_base_dn="ou=groups,dc=example,dc=com" group_search_filter="(&(objectClass=groupOfNames)(member=%d))"
+```
+
+La connessione usa LDAPS (`tls=on`, il default) o StartTLS (`tls=off starttls=on`); `tls=off` da solo è LDAP in
+chiaro, solo per i test. Nexo si autentica con l'account di lookup, cerca l'utente con `user_dn_search_filter`
+(`%s` è lo username con escape; deve corrispondere esattamente una voce), si autentica come l'utente per
+verificare la password, poi elenca i suoi gruppi con `group_search_filter` (`%d` è il DN dell'utente, `%s` lo
+username), nominati da `group_name_attribute` (default `cn`). Per Active Directory usa `(sAMAccountName=%s)` e
+`(&(objectClass=group)(member=%d))`. Cinque tentativi falliti in un minuto bloccano uno username per un minuto.
+
+La pagina di login della console offre allora **Directory (LDAP)**. Le applicazioni usano
+`AssumeRoleWithLDAPIdentity` (campi `LDAPUsername` e `LDAPPassword` nel body, mai nell'URL):
+
+```bash
+curl -s -X POST http://localhost:9000/ -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data-urlencode Action=AssumeRoleWithLDAPIdentity --data-urlencode Version=2011-06-15 \
+  --data-urlencode LDAPUsername=carol --data-urlencode LDAPPassword="$PASSWORD"
+```
 
 ## Buone pratiche
 

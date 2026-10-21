@@ -39,6 +39,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/distribution"
 	"github.com/r3n3r0/nexo/internal/service/event"
 	"github.com/r3n3r0/nexo/internal/service/iam"
+	"github.com/r3n3r0/nexo/internal/service/idp"
 	"github.com/r3n3r0/nexo/internal/service/ilm"
 	"github.com/r3n3r0/nexo/internal/service/kms"
 	"github.com/r3n3r0/nexo/internal/service/lock"
@@ -721,6 +722,8 @@ type adminDeps struct {
 	region   string
 	s3URL    string
 	sessions session.Service
+	// idp names the identity providers of the console login.
+	idp      idp.Service
 	verifier auth.Verifier
 	signer   auth.Signer
 	admin    adminsvc.Service
@@ -889,7 +892,7 @@ func buildAdminAPI(d adminDeps) (httpx.Routes, error) {
 	if d.secureCookies {
 		sessionOpts = append(sessionOpts, adminhttp.WithSecureCookie(true))
 	}
-	sessionRoutes, err := adminhttp.NewSessionRoutes(adminhttp.SessionDeps{Sessions: d.sessions, Authz: svc.authz, Codec: d.codec, Clock: d.clock}, sessionOpts...)
+	sessionRoutes, err := adminhttp.NewSessionRoutes(adminhttp.SessionDeps{Sessions: d.sessions, IDP: d.idp, ConsoleURL: d.consoleURL, Authz: svc.authz, Codec: d.codec, Clock: d.clock}, sessionOpts...)
 	if err != nil {
 		return nil, err
 	}

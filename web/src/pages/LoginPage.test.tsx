@@ -197,4 +197,51 @@ describe('LoginPage', () => {
       await screen.findByText('Demo mode: sign in with nexoadmin / nexoadmin.'),
     ).toBeInTheDocument();
   });
+
+  it('offers the single sign-on of the OpenID provider (D-AUTH-02)', async () => {
+    renderRoutes(routes(), {
+      initialEntries: ['/login'],
+      services: createMockServices({
+        accounts,
+        authProviders: { openid: true, openidName: 'Corporate SSO', ldap: false },
+      }),
+    });
+    const sso = await screen.findByRole('link', { name: 'Sign in with Corporate SSO' });
+    expect(sso).toHaveAttribute('href', '/api/v1/auth/openid/start');
+    // The access keys still work, without the LDAP switch.
+    expect(screen.getByLabelText(/access key/i)).toBeInTheDocument();
+    expect(screen.queryByText('Directory (LDAP)')).not.toBeInTheDocument();
+  });
+
+  it('explains a failed single sign-on', async () => {
+    renderRoutes(routes(), {
+      initialEntries: ['/login?error=sso_denied'],
+      services: createMockServices({ accounts }),
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent('Single sign-on refused');
+  });
+
+  it('signs in a user of the LDAP directory (D-AUTH-02)', async () => {
+    const user = userEvent.setup();
+    const { router } = renderRoutes(routes(), {
+      initialEntries: ['/login'],
+      services: createMockServices({
+        accounts,
+        authProviders: { openid: false, ldap: true },
+        ldapAccounts: { carol: 'carol-pw' },
+      }),
+    });
+    await user.click(await screen.findByText('Directory (LDAP)'));
+    expect(screen.getByText('Use your directory username and password.')).toBeInTheDocument();
+    await user.type(screen.getByLabelText(/username/i), 'carol');
+    await user.type(screen.getByLabelText(/^password/i), 'wrong');
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Invalid username or password');
+
+    await user.clear(screen.getByLabelText(/^password/i));
+    await user.type(screen.getByLabelText(/^password/i), 'carol-pw');
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+    expect(await screen.findByText('overview page')).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/');
+  });
 });

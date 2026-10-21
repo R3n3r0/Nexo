@@ -157,8 +157,10 @@ version and does not create missing buckets: prefer `nexoctl mirror --preserve`.
 
 - **Console and alerts**: the web console runs on the console port (`:9001`); the Prometheus metrics, the
   Grafana dashboard and the alerts are described in [Monitoring](operations/monitoring.md).
-- **Identity providers**: users of an external OpenID Connect or LDAP provider configured in MinIO are not
-  migrated; Nexo uses its own IAM users, groups and STS (`AssumeRole`).
+- **Identity providers**: OpenID Connect and LDAP are configured with the same keys as MinIO
+  (`identity_openid`, `identity_ldap`, see [Identity federation](security/users-policies.md#identity-federation-openid-connect-ldap)).
+  The policies of the provider users come from the `policy` claim and from the Nexo groups named like their
+  groups: recreate those groups and their policies in Nexo.
 - **Site replication, bucket replication, tiering, batch jobs**: Nexo has no equivalent for these MinIO
   features; plan around them before migrating. The [S3 compatibility](reference/s3-compatibility.md) page lists
   what Nexo supports.

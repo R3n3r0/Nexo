@@ -303,6 +303,16 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   `WHERE`, `LIMIT`, aggregates, `LIKE`/`BETWEEN`/`IN`/`IS NULL|MISSING`, `CAST` and the common string functions,
   CSV or JSON output. Not supported: Parquet, `ScanRange`, date functions.
 
+### Identity federation (S-IAM-08, S-IAM-09, D-AUTH-02)
+- OpenID Connect (`identity_openid`): `AssumeRoleWithWebIdentity` on the S3 port and the console login with the
+  authorization code flow (PKCE S256, state cookie, nonce). ID tokens are checked against the keys of the
+  provider (RSA, ECDSA), its issuer, the audience `client_id` and their expiry.
+- LDAP and Active Directory (`identity_ldap`): `AssumeRoleWithLDAPIdentity` and the console login with username
+  and password, over LDAPS or StartTLS, with a lockout after repeated failures.
+- The federated users get temporary credentials whose policies come from the `policy` claim and from the Nexo
+  groups named like their groups at the provider, resolved again at each request; a user mapping to no policy is
+  refused. The console session of a federated user is backed by such credentials, never handed to the browser.
+
 ### Transparent compression (opt-in, S-OBJ-14)
 - `compression` configuration subsystem (`enable`, `extensions`, `mime_types`, applied to the next writes): the
   selected unencrypted versions are stored as S2 streams, one per part, with the block index of each part in its

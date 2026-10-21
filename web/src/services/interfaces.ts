@@ -10,6 +10,7 @@
 import type {
   AccessKey,
   AccessPresetInput,
+  AuthProviders,
   CacheEffectivePolicy,
   CacheEffectiveQuery,
   CacheGlobalSettings,
@@ -162,6 +163,15 @@ export interface SessionService {
   logout(): Promise<void>;
   /** Returns the current session or rejects with a 401 ApiError. */
   current(): Promise<Session>;
+  /** The identity providers the login page offers (public). */
+  providers(): Promise<AuthProviders>;
+  /** Authenticates a user of the LDAP directory and opens a session. */
+  loginLDAP(username: string, password: string): Promise<Session>;
+  /**
+   * URL the browser navigates to for the OpenID Connect login: the server
+   * redirects to the provider, which comes back with a session cookie.
+   */
+  openIDLoginURL(): string;
 }
 
 /** Server and cluster information. */

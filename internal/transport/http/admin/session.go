@@ -15,6 +15,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
 	adminsvc "github.com/r3n3r0/nexo/internal/service/admin"
+	"github.com/r3n3r0/nexo/internal/service/idp"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/service/session"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
@@ -24,6 +25,12 @@ import (
 // SessionDeps are the dependencies of the session routes.
 type SessionDeps struct {
 	Sessions session.Service
+	// IDP names the identity providers of the console login (nil: the
+	// access keys only).
+	IDP idp.Service
+	// ConsoleURL is the public URL of the console, when configured: the
+	// base of the OpenID redirect URI and of the redirects to the console.
+	ConsoleURL string
 	// Authz computes the effective permissions (/me/permissions) and
 	// authorizes the routes (required).
 	Authz adminsvc.Authorizer
@@ -72,6 +79,9 @@ func NewSessionRoutes(deps SessionDeps, opts ...SessionOption) (SessionRoutes, e
 // RegisterPublic implements PublicRoutes.
 func (h *sessionRoutes) RegisterPublic(r chi.Router) {
 	r.Post("/auth/login", h.login)
+	r.Get("/auth/providers", h.providers)
+	r.Get(oidcPath+"/start", h.openIDStart)
+	r.Get(callbackPath, h.openIDCallback)
 }
 
 // Register implements Routes.
@@ -91,16 +101,25 @@ func (h *sessionRoutes) routes() []route {
 	}
 }
 
-// LoginRequest is the JSON body of POST /auth/login.
+// LoginRequest is the JSON body of POST /auth/login: an access key and its
+// secret, or, with Provider "ldap", the username and password of a user of
+// the LDAP directory.
 type LoginRequest struct {
-	AccessKey string `json:"accessKey"`
-	SecretKey string `json:"secretKey"`
+	AccessKey string `json:"accessKey,omitempty"`
+	SecretKey string `json:"secretKey,omitempty"`
+	Provider  string `json:"provider,omitempty"`
+	Username  string `json:"username,omitempty"`
+	Password  string `json:"password,omitempty"`
 }
 
 // IdentityResponse is the principal behind a console session.
 type IdentityResponse struct {
 	AccessKey string `json:"accessKey"`
 	IsRoot    bool   `json:"isRoot"`
+	// Provider names the identity provider of a federated session
+	// ("openid", "ldap"), Username the user at the provider.
+	Provider string `json:"provider,omitempty"`
+	Username string `json:"username,omitempty"`
 	// Groups are the enabled groups of the user.
 	Groups []string `json:"groups"`
 	// PolicyNames are the effective policies: attached to the user and to
@@ -132,6 +151,8 @@ func newSessionResponse(sess *session.Session) SessionResponse {
 		Identity: IdentityResponse{
 			AccessKey:   sess.AccessKey,
 			IsRoot:      sess.Identity.IsRoot,
+			Provider:    sess.Provider,
+			Username:    sess.Username,
 			Groups:      nonNil(sess.Identity.Groups),
 			PolicyNames: nonNil(sess.Identity.PolicyNames),
 		},
@@ -177,16 +198,32 @@ func (h *sessionRoutes) login(w http.ResponseWriter, r *http.Request) {
 		writeError(h.deps.Codec, w, r, err)
 		return
 	}
-	sess, err := h.deps.Sessions.Login(r.Context(), session.LoginInput{
-		AccessKey: in.AccessKey, SecretKey: in.SecretKey, Client: clientIP(r),
-	})
+	var (
+		sess   *session.Session
+		err    error
+		detail = "invalid access key or secret key"
+	)
+	switch in.Provider {
+	case "":
+		sess, err = h.deps.Sessions.Login(r.Context(), session.LoginInput{
+			AccessKey: in.AccessKey, SecretKey: in.SecretKey, Client: clientIP(r),
+		})
+	case idp.ProviderLDAP:
+		detail = "invalid username or password"
+		sess, err = h.deps.Sessions.LoginLDAP(r.Context(), session.LDAPLoginInput{
+			Username: in.Username, Password: in.Password, Client: clientIP(r),
+		})
+	default:
+		problem(h.deps.Codec, w, r, http.StatusBadRequest, "invalid_provider", "unknown login provider "+strconv.Quote(in.Provider))
+		return
+	}
 	if err != nil {
 		var throttled *session.ThrottledError
 		if errors.As(err, &throttled) {
 			w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(throttled.RetryAfter.Seconds()))))
 		}
 		if errors.Is(err, domain.ErrAccessDenied) || errors.Is(err, domain.ErrInvalidAccessKey) {
-			h.deps.Codec.WriteProblem(w, r, httpx.Problem{Status: http.StatusUnauthorized, Code: "invalid_credentials", Detail: "invalid access key or secret key"})
+			h.deps.Codec.WriteProblem(w, r, httpx.Problem{Status: http.StatusUnauthorized, Code: "invalid_credentials", Detail: detail})
 			return
 		}
 		writeError(h.deps.Codec, w, r, err)

@@ -1,8 +1,11 @@
 import type { SessionService } from '../interfaces';
-import type { Session } from '../types';
+import type { AuthProviders, Session } from '../types';
 import type { HttpClient } from './client';
 
-/** SessionService over POST /auth/login, POST /auth/logout, GET /auth/session. */
+/**
+ * SessionService over POST /auth/login, POST /auth/logout, GET /auth/session
+ * and the identity providers (GET /auth/providers, /auth/openid/start).
+ */
 export function createHttpSessionService(client: HttpClient): SessionService {
   return {
     async login(accessKey, secretKey) {
@@ -20,6 +23,21 @@ export function createHttpSessionService(client: HttpClient): SessionService {
       } finally {
         client.setCsrfToken(undefined);
       }
+    },
+    async loginLDAP(username, password) {
+      const session = await client.request<Session>('/auth/login', {
+        method: 'POST',
+        body: { provider: 'ldap', username, password },
+        notifyUnauthorized: false,
+      });
+      client.setCsrfToken(session.csrfToken);
+      return session;
+    },
+    providers() {
+      return client.request<AuthProviders>('/auth/providers', { notifyUnauthorized: false });
+    },
+    openIDLoginURL() {
+      return client.url('/auth/openid/start');
     },
     async current() {
       const session = await client.request<Session>('/auth/session');

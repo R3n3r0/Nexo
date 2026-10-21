@@ -81,6 +81,124 @@ func (_c *Service_Login_Call) RunAndReturn(run func(context.Context, session.Log
 	return _c
 }
 
+// LoginLDAP provides a mock function with given fields: ctx, in
+func (_m *Service) LoginLDAP(ctx context.Context, in session.LDAPLoginInput) (*session.Session, error) {
+	ret := _m.Called(ctx, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LoginLDAP")
+	}
+
+	var r0 *session.Session
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, session.LDAPLoginInput) (*session.Session, error)); ok {
+		return rf(ctx, in)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, session.LDAPLoginInput) *session.Session); ok {
+		r0 = rf(ctx, in)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*session.Session)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, session.LDAPLoginInput) error); ok {
+		r1 = rf(ctx, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_LoginLDAP_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'LoginLDAP'
+type Service_LoginLDAP_Call struct {
+	*mock.Call
+}
+
+// LoginLDAP is a helper method to define mock.On call
+//   - ctx context.Context
+//   - in session.LDAPLoginInput
+func (_e *Service_Expecter) LoginLDAP(ctx interface{}, in interface{}) *Service_LoginLDAP_Call {
+	return &Service_LoginLDAP_Call{Call: _e.mock.On("LoginLDAP", ctx, in)}
+}
+
+func (_c *Service_LoginLDAP_Call) Run(run func(ctx context.Context, in session.LDAPLoginInput)) *Service_LoginLDAP_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(session.LDAPLoginInput))
+	})
+	return _c
+}
+
+func (_c *Service_LoginLDAP_Call) Return(_a0 *session.Session, _a1 error) *Service_LoginLDAP_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_LoginLDAP_Call) RunAndReturn(run func(context.Context, session.LDAPLoginInput) (*session.Session, error)) *Service_LoginLDAP_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// LoginOpenID provides a mock function with given fields: ctx, in
+func (_m *Service) LoginOpenID(ctx context.Context, in session.OpenIDLoginInput) (*session.Session, error) {
+	ret := _m.Called(ctx, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LoginOpenID")
+	}
+
+	var r0 *session.Session
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, session.OpenIDLoginInput) (*session.Session, error)); ok {
+		return rf(ctx, in)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, session.OpenIDLoginInput) *session.Session); ok {
+		r0 = rf(ctx, in)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*session.Session)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, session.OpenIDLoginInput) error); ok {
+		r1 = rf(ctx, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_LoginOpenID_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'LoginOpenID'
+type Service_LoginOpenID_Call struct {
+	*mock.Call
+}
+
+// LoginOpenID is a helper method to define mock.On call
+//   - ctx context.Context
+//   - in session.OpenIDLoginInput
+func (_e *Service_Expecter) LoginOpenID(ctx interface{}, in interface{}) *Service_LoginOpenID_Call {
+	return &Service_LoginOpenID_Call{Call: _e.mock.On("LoginOpenID", ctx, in)}
+}
+
+func (_c *Service_LoginOpenID_Call) Run(run func(ctx context.Context, in session.OpenIDLoginInput)) *Service_LoginOpenID_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(session.OpenIDLoginInput))
+	})
+	return _c
+}
+
+func (_c *Service_LoginOpenID_Call) Return(_a0 *session.Session, _a1 error) *Service_LoginOpenID_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_LoginOpenID_Call) RunAndReturn(run func(context.Context, session.OpenIDLoginInput) (*session.Session, error)) *Service_LoginOpenID_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Logout provides a mock function with given fields: ctx, token
 func (_m *Service) Logout(ctx context.Context, token string) error {
 	ret := _m.Called(ctx, token)

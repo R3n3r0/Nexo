@@ -79,7 +79,26 @@
       "secretKeyTooShort": "The secret key must be at least {{min}} characters."
     },
     "demoHint": "Demo mode: sign in with {{accessKey}} / {{secretKey}}.",
-    "sessionExpired": "Your session has expired. Sign in again to continue where you left off."
+    "sessionExpired": "Your session has expired. Sign in again to continue where you left off.",
+    "modeLabel": "Sign-in method",
+    "modeAccessKey": "Access key",
+    "modeLDAP": "Directory (LDAP)",
+    "ldapSubtitle": "Use your directory username and password.",
+    "username": "Username",
+    "usernamePlaceholder": "Your directory username",
+    "password": "Password",
+    "passwordPlaceholder": "Your password",
+    "usernameRequired": "Enter your username.",
+    "passwordRequired": "Enter your password.",
+    "invalidLDAPCredentials": "Invalid username or password, or no Nexo policy is assigned to this user.",
+    "ldapUnavailable": "The directory is unreachable: try again later.",
+    "sso": "Sign in with {{name}}",
+    "or": "or",
+    "ssoErrors": {
+      "sso_denied": "Single sign-on refused: the provider denied the login or no Nexo policy is assigned to this user.",
+      "sso_unavailable": "Single sign-on is unavailable: the identity provider is disabled or unreachable.",
+      "sso_failed": "Single sign-on failed: start again from this page."
+    }
   },
   "overview": {
     "title": "Overview",

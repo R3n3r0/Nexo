@@ -56,6 +56,10 @@ export interface MockServicesOptions
   accounts?: Record<string, string>;
   /** Start authenticated as this account (tests of protected pages). */
   initialAccessKey?: string;
+  /** Identity providers offered by the login page (default: none). */
+  authProviders?: MockSessionOptions['providers'];
+  /** LDAP users of the mock directory: username -> password. */
+  ldapAccounts?: Record<string, string>;
 }
 
 /** The mock bundle exposes the session mock so tests can expire the session. */
@@ -89,6 +93,8 @@ export function createMockServices(options: MockServicesOptions = {}): MockServi
     ...(options.initialAccessKey !== undefined
       ? { initialAccessKey: options.initialAccessKey }
       : {}),
+    ...(options.authProviders !== undefined ? { providers: options.authProviders } : {}),
+    ...(options.ldapAccounts !== undefined ? { ldapAccounts: options.ldapAccounts } : {}),
   };
   const session = createMockSessionService(ctx, sessionOptions);
   const objects = createMockObjectService(storage);

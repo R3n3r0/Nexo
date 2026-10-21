@@ -34,6 +34,8 @@ export type SessionIdentity = Schemas['SessionIdentity'];
 
 /** An authenticated console session (POST /auth/login, GET /auth/session). */
 export type Session = Schemas['Session'];
+/** The identity providers of the console login (GET /auth/providers). */
+export type AuthProviders = Schemas['AuthProviders'];
 
 export type DiskInfo = Schemas['DiskInfo'];
 export type NodeInfo = Schemas['NodeInfo'];

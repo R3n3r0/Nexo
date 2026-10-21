@@ -15,9 +15,69 @@ export interface paths {
         put?: never;
         /**
          * Open a console session
-         * @description Public endpoint. Sets the `nexo_session` cookie (HttpOnly); the CSRF token is in the body (`csrfToken`), never in a cookie. After 5 failed attempts of a client on an access key (or 20 of a client on any key) within 5 minutes, the attempts are refused for a minute (429 `too_many_requests` with Retry-After), even with the right secret; the client is the peer of the connection or, behind the `--trusted-proxies`, the address they forward. Against login CSRF the body must be `application/json` (415 `unsupported_media_type`) and a browser request must not be cross-site (`Sec-Fetch-Site` `cross-site` or `same-site`: 403 `cross_site_request`).
+         * @description Public endpoint. Sets the `nexo_session` cookie (HttpOnly); the CSRF token is in the body (`csrfToken`), never in a cookie. After 5 failed attempts of a client on an access key (or 20 of a client on any key) within 5 minutes, the attempts are refused for a minute (429 `too_many_requests` with Retry-After), even with the right secret; the client is the peer of the connection or, behind the `--trusted-proxies`, the address they forward. Against login CSRF the body must be `application/json` (415 `unsupported_media_type`) and a browser request must not be cross-site (`Sec-Fetch-Site` `cross-site` or `same-site`: 403 `cross_site_request`). With `provider` `ldap` the user of the LDAP directory (`identity_ldap`) logs in with `username` and `password`: the session is backed by federated temporary credentials whose policies come from the Nexo groups named like its directory groups (401 for wrong credentials or a user mapping to no policy, 501 when LDAP is disabled, 503 when the directory is unreachable).
          */
         post: operations["login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The identity providers of the console login
+         * @description Public endpoint, read by the login page.
+         */
+        get: operations["authProviders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/openid/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Start the OpenID Connect login of the console
+         * @description Public endpoint the browser navigates to. Redirects to the authorization endpoint of the provider (`identity_openid`) with a state, a nonce and a PKCE S256 challenge, kept in the `nexo_oidc` cookie (HttpOnly, SameSite=Lax, ten minutes). When the provider is disabled or unreachable, redirects to `/login?error=sso_unavailable`.
+         */
+        get: operations["openIDStart"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/openid/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Complete the OpenID Connect login of the console
+         * @description The redirect URI registered at the provider (`identity_openid` `redirect_uri`, else the public console URL or the host reached, followed by `/api/v1/auth/openid/callback`). Checks the state against the `nexo_oidc` cookie (single use), exchanges the code with the PKCE verifier, verifies the ID token and its nonce, then sets the `nexo_session` cookie and redirects to the console (`/`). A failure redirects to `/login?error=` with `sso_denied` (refused by the provider, or a user mapping to no policy), `sso_unavailable` or `sso_failed`.
+         */
+        get: operations["openIDCallback"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3354,13 +3414,30 @@ export interface components {
         AccessPreset: "private" | "download" | "upload" | "public" | "custom";
         /** @enum {string} */
         SharePermission: "download" | "upload";
+        /** @description An access key and its secret, or with `provider` `ldap` a username and password. */
         LoginRequest: {
-            accessKey: string;
-            secretKey: string;
+            accessKey?: string;
+            secretKey?: string;
+            /** @enum {string} */
+            provider?: "ldap";
+            username?: string;
+            password?: string;
+        };
+        AuthProviders: {
+            /** @description Login with OpenID Connect (GET /auth/openid/start). */
+            openid: boolean;
+            /** @description Label of the OpenID login button. */
+            openidName?: string;
+            /** @description Login with the LDAP username and password. */
+            ldap: boolean;
         };
         SessionIdentity: {
             accessKey: string;
             isRoot: boolean;
+            /** @description Identity provider of a federated session (openid, ldap). */
+            provider?: string;
+            /** @description User at the identity provider. */
+            username?: string;
             /** @description Enabled groups of the user. */
             groups: string[];
             /** @description Effective policies, attached to the user and to its enabled groups. */
@@ -6117,6 +6194,67 @@ export interface operations {
                 };
             };
             default: components["responses"]["Problem"];
+        };
+    };
+    authProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The enabled providers. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthProviders"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    openIDStart: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redirect to the provider, or back to the login page. */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    openIDCallback: {
+        parameters: {
+            query?: {
+                code?: string;
+                state?: string;
+                error?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redirect to the console, or back to the login page. */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
         };
     };
     logout: {

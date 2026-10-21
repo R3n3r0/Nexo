@@ -36,6 +36,36 @@ type Service interface {
 	// ValidateCSRF checks that csrfToken (from the request header) matches
 	// the session's token; mismatches return domain.ErrAccessDenied.
 	ValidateCSRF(ctx context.Context, s *Session, csrfToken string) error
+	// LoginLDAP authenticates a user of the LDAP directory (identity_ldap)
+	// and issues a session backed by federated temporary credentials
+	// (iam.Service.AssumeFederated), whose secret never leaves the server.
+	// Wrong credentials are domain.ErrAccessDenied, throttled per client
+	// and username like Login; an identity mapping to no policy is
+	// domain.ErrAccessDenied too; a disabled directory is
+	// domain.ErrNotImplemented and an unreachable one
+	// domain.ErrServiceUnavailable.
+	LoginLDAP(ctx context.Context, in LDAPLoginInput) (*Session, error)
+	// LoginOpenID completes the OpenID Connect authorization code flow of
+	// the console (idp.Service.Exchange) and issues a session backed by
+	// federated temporary credentials, as LoginLDAP.
+	LoginOpenID(ctx context.Context, in OpenIDLoginInput) (*Session, error)
+}
+
+// LDAPLoginInput are the credentials of a console login with LDAP.
+type LDAPLoginInput struct {
+	Username string
+	Password string
+	// Client identifies the caller for the throttling, as in LoginInput.
+	Client string
+}
+
+// OpenIDLoginInput completes a console login with OpenID Connect: the
+// parameters of idp.ExchangeInput.
+type OpenIDLoginInput struct {
+	Code         string
+	RedirectURI  string
+	CodeVerifier string
+	Nonce        string
 }
 
 // LoginInput are the credentials of a console login.
@@ -57,8 +87,13 @@ type Session struct {
 	ExpiresAt time.Time
 	// CSRFToken must be echoed by the browser in the X-CSRF-Token header.
 	CSRFToken string
-	// Token is the signed session token, populated by Login only.
+	// Token is the signed session token, populated by the logins only.
 	Token string
+	// Provider names the identity provider of a federated session
+	// ("openid", "ldap"), empty for the access keys; Username is then the
+	// user at the provider.
+	Provider string
+	Username string
 }
 
 // Header and cookie names used by the transport.

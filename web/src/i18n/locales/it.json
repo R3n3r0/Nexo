@@ -79,7 +79,26 @@
       "secretKeyTooShort": "La secret key deve avere almeno {{min}} caratteri."
     },
     "demoHint": "Modalità demo: accedi con {{accessKey}} / {{secretKey}}.",
-    "sessionExpired": "La sessione è scaduta. Accedi di nuovo per riprendere da dove eri rimasto."
+    "sessionExpired": "La sessione è scaduta. Accedi di nuovo per riprendere da dove eri rimasto.",
+    "modeLabel": "Metodo di accesso",
+    "modeAccessKey": "Access key",
+    "modeLDAP": "Directory (LDAP)",
+    "ldapSubtitle": "Usa nome utente e password della directory.",
+    "username": "Nome utente",
+    "usernamePlaceholder": "Il tuo nome utente della directory",
+    "password": "Password",
+    "passwordPlaceholder": "La tua password",
+    "usernameRequired": "Inserisci il nome utente.",
+    "passwordRequired": "Inserisci la password.",
+    "invalidLDAPCredentials": "Nome utente o password non validi, oppure all'utente non è assegnata alcuna policy di Nexo.",
+    "ldapUnavailable": "La directory non è raggiungibile: riprova più tardi.",
+    "sso": "Accedi con {{name}}",
+    "or": "oppure",
+    "ssoErrors": {
+      "sso_denied": "Single sign-on rifiutato: il provider ha negato l'accesso o all'utente non è assegnata alcuna policy di Nexo.",
+      "sso_unavailable": "Single sign-on non disponibile: il provider di identità è disattivato o non raggiungibile.",
+      "sso_failed": "Single sign-on non riuscito: ricomincia da questa pagina."
+    }
   },
   "overview": {
     "title": "Panoramica",

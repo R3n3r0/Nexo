@@ -518,7 +518,7 @@ func TestRouteTableMatchesSpec(t *testing.T) {
 	for _, a := range f.catalog {
 		catalog[string(a)] = true
 	}
-	served := map[string]bool{"POST /auth/login": true}
+	served := map[string]bool{"POST /auth/login": true, "GET /auth/providers": true, "GET /auth/openid/start": true, "GET /auth/openid/callback": true}
 	for _, rt := range routes {
 		key := rt.Method + " " + rt.Pattern
 		served[key] = true

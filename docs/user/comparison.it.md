@@ -23,7 +23,7 @@ produzione alle spalle, e ognuno di loro fa cose che Nexo non fa.
 | Lifecycle | sì | sì | sì | solo scadenza e upload incompleti | sì |
 | Notifiche dei bucket | webhook, Kafka, NATS, AMQP, Redis, ... con coda persistente | molti target (webhook, Kafka, NATS, ...) | tramite gli eventi dei metadati del filer | no | sì |
 | Cifratura lato server | SSE-S3, SSE-KMS, SSE-C (KMS integrato o KES) | SSE-S3, SSE-KMS, SSE-C (KES) | SSE-S3, SSE-KMS, SSE-C | SSE-C | SSE-S3, SSE-KMS, SSE-C |
-| IAM | utenti, gruppi, policy, access key, STS AssumeRole | utenti, gruppi, policy, STS, OIDC, LDAP | utenti, gruppi, policy, STS, OIDC | permessi per chiave sui bucket, niente policy | utenti e policy, STS, OIDC, Keystone |
+| IAM | utenti, gruppi, policy, access key, STS, OIDC, LDAP | utenti, gruppi, policy, STS, OIDC, LDAP | utenti, gruppi, policy, STS, OIDC | permessi per chiave sui bucket, niente policy | utenti e policy, STS, OIDC, Keystone |
 | Console web | inclusa (amministrazione completa) | ridotta a un object browser nel 2025 | UI di base per master e filer | nessuna integrata (esistono UI della comunità) | Ceph Dashboard |
 | Geo / multi-sito | no | replica di sito e di bucket | replica asincrona tra cluster | multi-zona per progetto | multi-site |
 | Oltre S3 | distribuzioni stile CDN su domini propri con cache e certificati ACME | | accesso POSIX/FUSE, WebDAV, HDFS agli stessi dati | siti statici | block (RBD) e file (CephFS) nello stesso cluster |
@@ -51,8 +51,7 @@ produzione alle spalle, e ognuno di loro fa cose che Nexo non fa.
 - **Miliardi di file piccoli, o accesso ai dati come file system**: il design a volumi di SeaweedFS e il suo
   filer (FUSE, WebDAV, HDFS) sono fatti per questo.
 - **Una piattaforma unica per block, file e object su larga scala**: Ceph, se sei in grado di gestirlo.
-- **Identità esterne (OIDC, LDAP, Keystone)**: non ancora disponibili in Nexo; MinIO, SeaweedFS e Ceph RGW ne
-  supportano alcune.
+- **Keystone**: Nexo federa le identità OpenID Connect e LDAP ma non OpenStack Keystone; Ceph RGW lo supporta.
 - **Una lunga storia in produzione**: tutti gli altri progetti qui ce l'hanno. Nexo ha molti test automatici
   (cluster multi-processo, iniezione di guasti, test di aggiornamento, fuzzing) ma poca storia sul campo:
   provalo prima sul tuo carico.

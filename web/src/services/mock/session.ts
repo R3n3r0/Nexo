@@ -1,6 +1,6 @@
 import type { AuthEventEmitter } from '../events';
 import type { SessionService } from '../interfaces';
-import type { Session } from '../types';
+import type { AuthProviders, Session } from '../types';
 import {
   clone,
   invalidCredentials,
@@ -22,6 +22,10 @@ export interface MockSessionOptions {
   identityOf?: (accessKey: string) => { groups: string[]; policyNames: string[] };
   /** Accepts other credentials (users created in the IAM mock). */
   verify?: (accessKey: string, secretKey: string) => boolean;
+  /** Identity providers of the login page (default: none). */
+  providers?: AuthProviders;
+  /** LDAP users: username -> password (with providers.ldap). */
+  ldapAccounts?: Record<string, string>;
 }
 
 /** SessionService with an in-memory session; login checks the configured accounts. */
@@ -47,7 +51,7 @@ export function createMockSessionService(
   // Failed logins per access key (the mock has a single client).
   const failures = new Map<string, { count: number; lockedUntil: number }>();
 
-  function open(accessKey: string): Session {
+  function open(accessKey: string, federated?: { provider: string; username: string }): Session {
     counter += 1;
     const issued = ctx.now();
     const expires = new Date(issued.getTime() + ttl * 1000);
@@ -58,7 +62,8 @@ export function createMockSessionService(
       accessKey,
       identity: {
         accessKey,
-        isRoot,
+        isRoot: federated === undefined && isRoot,
+        ...(federated ?? {}),
         groups: iam?.groups ?? [],
         policyNames: iam !== undefined && !isRoot ? iam.policyNames : ['consoleAdmin'],
       },
@@ -98,6 +103,41 @@ export function createMockSessionService(
       failures.delete(accessKey);
       session = open(accessKey);
       return clone(session);
+    },
+    async loginLDAP(username, password) {
+      await ctx.delay();
+      const key = `ldap:${username}`;
+      const now = ctx.now().getTime();
+      const failed = failures.get(key);
+      if (failed !== undefined && failed.lockedUntil > now) {
+        throw tooManyRequests();
+      }
+      const expected =
+        options.providers?.ldap === true && options.ldapAccounts !== undefined
+          ? options.ldapAccounts[username]
+          : undefined;
+      if (expected === undefined || password === '' || expected !== password) {
+        const count = (failed !== undefined && failed.lockedUntil === 0 ? failed.count : 0) + 1;
+        failures.set(key, {
+          count,
+          lockedUntil: count >= maxLoginFailures ? now + loginLockoutMs : 0,
+        });
+        throw invalidCredentials();
+      }
+      failures.delete(key);
+      counter += 1;
+      session = open(`FEDERATED${String(counter).padStart(11, '0')}`, {
+        provider: 'ldap',
+        username,
+      });
+      return clone(session);
+    },
+    async providers() {
+      await ctx.delay();
+      return { openid: false, ldap: false, ...options.providers };
+    },
+    openIDLoginURL() {
+      return '/api/v1/auth/openid/start';
     },
     async logout() {
       await ctx.delay();

@@ -184,6 +184,8 @@ stored one. The complete schema, with the default of every key and whether the s
 | `scanner` | `speed` (`fastest`…`slowest`), `cycle` (default `1m`) | ✅ at the start of every cycle |
 | `compression` | `enable` (default `off`), `extensions`, `mime_types`: see [Transparent compression](#transparent-compression) | ✅ at the next write |
 | `access` | `block_public`, `block_public_mode` (`reject`, `ignore`) | ✅ |
+| `identity_openid` | `enable`, `config_url`, `client_id`, `client_secret`, `scopes`, `claim_name`, `groups_claim`, `username_claim`, `display_name`, `redirect_uri`: see [Identity federation](security/users-policies.md#identity-federation-openid-connect-ldap) | ✅ at the next login |
+| `identity_ldap` | `enable`, `server_addr`, `tls`, `starttls`, `tls_skip_verify`, `lookup_bind_dn`, `lookup_bind_password`, `user_dn_search_base_dn`, `user_dn_search_filter`, `group_search_base_dn`, `group_search_filter`, `group_name_attribute` | ✅ at the next login |
 | `notify_webhook`, `notify_kafka`, `notify_nats`, `notify_amqp`, `notify_redis`, `notify_postgres` (also `:<id>`) | `enable`, target keys, `queue_dir`, `queue_limit`, `comment` | ✅ (see [Events](events-lifecycle.md)) |
 | `notify_media_worker` (also `:<id>`) | `enable`, `endpoint`, `auth_token`, `client_cert`, `client_key`, `tls_skip_verify`, `queue_dir`, `queue_limit`, `comment` | ✅ (see [Media worker](media-worker.md)) |
 | `audit_webhook`, `audit_kafka` (also `:<id>`) | like the `notify_*` of the same type | ✅ (see [Audit](operations/trace-log-audit.md#audit-log)) |

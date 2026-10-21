@@ -2,8 +2,10 @@ package integration_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"encoding/xml"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"strings"
 	"testing"
@@ -123,4 +125,100 @@ func TestAssumeRoleWithLDAPIdentity(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp = do(t, req)
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+// TestConsoleFederatedLogin (D-AUTH-02): the console login page offers the
+// enabled providers; the OpenID Connect login runs the authorization code
+// flow (state cookie, PKCE, nonce) and the LDAP login goes through POST
+// /auth/login, both opening a session of the federated user.
+//
+// covers: D-AUTH-02, S-IAM-08, S-IAM-09
+func TestConsoleFederatedLogin(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	ctx := e.ctx
+	p := testutil.NewFakeOIDC(t)
+	p.SetUser(map[string]any{"sub": "00u9", "preferred_username": "ann", "groups": []string{"analysts"}})
+	d := testutil.NewFakeLDAP(t)
+	d.AddUser("carol", "carol-pw", "analysts")
+	admin := adminClient(t, e)
+	_, err := admin.SetConfig(ctx, "identity_openid", map[string]string{
+		"enable": "on", "config_url": p.ConfigURL(), "client_id": p.ClientID, "client_secret": p.ClientSecret, "display_name": "Corporate SSO",
+	})
+	require.NoError(t, err)
+	_, err = admin.SetConfig(ctx, "identity_ldap", map[string]string{
+		"enable": "on", "server_addr": d.Addr, "tls": "off", "lookup_bind_dn": testutil.LDAPBindDN, "lookup_bind_password": testutil.LDAPBindPass,
+		"user_dn_search_base_dn": testutil.LDAPUserBase, "group_search_base_dn": testutil.LDAPGroupBase,
+	})
+	require.NoError(t, err)
+	_, err = e.srv.IAM.CreateGroup(ctx, iam.CreateGroupInput{Name: "analysts", PolicyNames: []string{"readonly"}})
+	require.NoError(t, err)
+
+	api := e.srv.ConsoleURL + "/api/v1"
+	browser := func() *http.Client {
+		jar, err := cookiejar.New(nil)
+		require.NoError(t, err)
+		return &http.Client{Jar: jar, CheckRedirect: noRedirect}
+	}
+	get := func(c *http.Client, target string) response {
+		t.Helper()
+		return doWith(t, c, newRequest(t, http.MethodGet, target, nil))
+	}
+
+	resp := get(browser(), api+"/auth/providers")
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.JSONEq(t, `{"openid":true,"openidName":"Corporate SSO","ldap":true}`, string(resp.Body))
+
+	// OpenID Connect: start, provider, callback.
+	c := browser()
+	resp = get(c, api+"/auth/openid/start")
+	require.Equal(t, http.StatusFound, resp.StatusCode, "%s", resp.Body)
+	authorize := resp.Header.Get("Location")
+	require.True(t, strings.HasPrefix(authorize, p.URL+"/authorize?"), authorize)
+	resp = get(c, authorize)
+	require.Equal(t, http.StatusFound, resp.StatusCode, "%s", resp.Body)
+	callback := resp.Header.Get("Location")
+	require.True(t, strings.HasPrefix(callback, api+"/auth/openid/callback?"), callback)
+
+	// Another browser (without the state cookie) cannot use the code.
+	resp = get(browser(), callback)
+	require.Equal(t, http.StatusFound, resp.StatusCode)
+	assert.Equal(t, "/login?error=sso_failed", resp.Header.Get("Location"))
+
+	resp = get(c, callback)
+	require.Equal(t, http.StatusFound, resp.StatusCode, "%s", resp.Body)
+	assert.Equal(t, "/", resp.Header.Get("Location"))
+	resp = get(c, api+"/auth/session")
+	require.Equal(t, http.StatusOK, resp.StatusCode, "%s", resp.Body)
+	var sess struct {
+		Identity struct {
+			Provider    string   `json:"provider"`
+			Username    string   `json:"username"`
+			PolicyNames []string `json:"policyNames"`
+		} `json:"identity"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Body, &sess))
+	assert.Equal(t, "openid", sess.Identity.Provider)
+	assert.Equal(t, "ann", sess.Identity.Username)
+	assert.Equal(t, []string{"readonly"}, sess.Identity.PolicyNames)
+	resp = get(c, api+"/buckets")
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "%s", resp.Body)
+
+	// The callback is single use: replaying it fails.
+	resp = get(c, callback)
+	assert.Equal(t, "/login?error=sso_failed", resp.Header.Get("Location"))
+
+	// LDAP through the login endpoint.
+	login := func(body string) response {
+		req := newRequest(t, http.MethodPost, api+"/auth/login", []byte(body))
+		req.Header.Set("Content-Type", "application/json")
+		return do(t, req)
+	}
+	resp = login(`{"provider":"ldap","username":"carol","password":"carol-pw"}`)
+	require.Equal(t, http.StatusOK, resp.StatusCode, "%s", resp.Body)
+	assert.Contains(t, string(resp.Body), `"username":"carol"`)
+	resp = login(`{"provider":"ldap","username":"carol","password":"wrong"}`)
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode, "%s", resp.Body)
+	resp = login(`{"provider":"kerberos","username":"carol","password":"carol-pw"}`)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "%s", resp.Body)
 }

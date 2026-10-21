@@ -394,7 +394,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	// The signing key derives from the root credentials and the deployment
 	// ID: every node of the deployment accepts the same cookies, no other
 	// deployment does.
-	sessions, err := session.New(session.Deps{IAM: identities, Store: stores.iam, Clock: d.clock, Logger: logger},
+	sessions, err := session.New(session.Deps{IAM: identities, Store: stores.iam, IDP: providers, Clock: d.clock, Logger: logger},
 		session.WithSigningKey(session.DeriveKey(cfg.RootUser, cfg.RootPassword, d.deploymentID)))
 	if err != nil {
 		return nil, err
@@ -540,7 +540,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	}
 	adminAPI, err := buildAdminAPI(adminDeps{
 		codec: codec, limiter: limiter, clock: d.clock, logger: logger, region: cfg.Region, s3URL: publicS3URL(cfg),
-		sessions: sessions, verifier: verifier, signer: signer, admin: adminSvc, iam: identities, policy: policies,
+		sessions: sessions, idp: providers, verifier: verifier, signer: signer, admin: adminSvc, iam: identities, policy: policies,
 		buckets: buckets, objects: objects, media: mediaSvc, shares: shares, config: dynConfig, locks: f.lockManager, secureCookies: secureConsole(cfg),
 		consoleURL: cfg.BrowserRedirectURL, lifecycle: lifecycle, events: events, kms: keys, mediaJobs: mediaJobs,
 		accessRules: accessRules, dist: distStack, acmeDirectory: cfg.ACMEDirectory, acmeChallenge: cfg.ACMEChallenge,

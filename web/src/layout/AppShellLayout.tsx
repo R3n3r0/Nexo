@@ -31,6 +31,8 @@ export function AppShellLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { session, logout } = useSession();
+  // A federated user is named by its provider, not by its temporary key.
+  const displayName = session?.identity.username ?? session?.accessKey ?? '';
   const permissions = usePermissions();
 
   const handleLogout = async () => {
@@ -68,22 +70,18 @@ export function AppShellLayout() {
             <ColorSchemeToggle />
             <Menu position="bottom-end" withinPortal>
               <Menu.Target>
-                <UnstyledButton
-                  aria-label={t('common.signedInAs', { user: session?.accessKey ?? '' })}
-                >
+                <UnstyledButton aria-label={t('common.signedInAs', { user: displayName })}>
                   <Group gap={6} wrap="nowrap">
                     <IconUserCircle size={20} />
                     <Text size="sm" visibleFrom="xs">
-                      {session?.accessKey}
+                      {displayName}
                     </Text>
                     <IconChevronDown size={14} />
                   </Group>
                 </UnstyledButton>
               </Menu.Target>
               <Menu.Dropdown>
-                <Menu.Label>
-                  {t('common.signedInAs', { user: session?.accessKey ?? '' })}
-                </Menu.Label>
+                <Menu.Label>{t('common.signedInAs', { user: displayName })}</Menu.Label>
                 <Menu.Item leftSection={<IconLogout size={16} />} onClick={handleLogout}>
                   {t('common.signOut')}
                 </Menu.Item>
