@@ -134,9 +134,19 @@ for reads and writes; usable capacity 75%.
 
 - **Expansion**: all the nodes are restarted with the new pool list (rolling restart). The new pools are
   formatted; new objects are spread weighted by free space.
-- **Decommission** (P2): the pool is marked read-only, a distributed job moves every object (all versions)
-  to the other pools, with persisted and resumable state; at the end the pool can be removed from the command line.
-- **Rebalance** (P2): moves objects from the fullest pools to the least full ones up to a balance threshold.
+- **Decommission** (P2): the pool is marked *draining* on every node (control document in the system store,
+  polled every 5 s): it takes no new object, version or multipart upload, a key it holds is overwritten in
+  another pool, reads still find it. A job on the leader walks the pool and moves every key with all its
+  versions (delete markers included) in three phases: snapshot of the versions under the read lock, copy of
+  the stored bytes (still encrypted/compressed) to a temporary area of the target and read-back with a
+  SHA-256 comparison without lock, then under the write lock, in batches, re-check that the source did not
+  change, commit, verify the metadata and only then delete from the source. A changed or failed key stays in
+  the pool and is retried by the next pass; passes repeat until one finds nothing, then the job waits for the
+  pool's multipart uploads. Progress is persisted and resumes after a restart or a leader change. The first
+  pool cannot be decommissioned: it holds the system documents. At the end the pool is removed from the
+  command line.
+- **Rebalance** (P2): moves keys with the same procedure from the pools above the average usage by more than
+  5 points to the pools below it, rechecking the usage every few keys, until the sources are near the average.
 
 ## 3.9 Consistency
 

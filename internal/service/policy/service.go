@@ -343,6 +343,11 @@ const (
 	// diagnostics of the namespace locks (admin lock list/clear).
 	ActionAdminListLocks   Action = "admin:TopLocksInfo"
 	ActionAdminForceUnlock Action = "admin:ForceUnlock"
+	// ActionAdminDecommission and ActionAdminRebalance authorize the
+	// start and the cancel of the decommission of a pool and of the
+	// rebalance between pools (admin pool decommission/rebalance).
+	ActionAdminDecommission Action = "admin:Decommission"
+	ActionAdminRebalance    Action = "admin:Rebalance"
 
 	// Bucket and object configuration actions of the S3 API, shared by
 	// the S3 and the Admin API transports.

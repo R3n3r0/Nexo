@@ -87,6 +87,15 @@ export const MonitoringActions = {
   consoleLog: 'admin:ConsoleLog',
 } as const;
 
+/**
+ * Policy actions of the pool management of the cluster page (D-CLU-03):
+ * the decommission of a pool and the rebalance.
+ */
+export const PoolActions = {
+  decommission: 'admin:Decommission',
+  rebalance: 'admin:Rebalance',
+} as const;
+
 export interface PermissionCheck {
   /** True until the first answer of GET /me/permissions. */
   loading: boolean;

@@ -209,6 +209,15 @@ type AdminClient interface {
 	ListLocks(ctx context.Context) ([]Lock, error)
 	ForceUnlock(ctx context.Context, resources ...string) error
 
+	// Server pools (admin decommission, admin rebalance): pool is the
+	// 1-based position of the pool in the command line. Single-drive
+	// deployments answer 501.
+	ListPools(ctx context.Context) (*Pools, error)
+	DecommissionPool(ctx context.Context, pool int) error
+	CancelDecommission(ctx context.Context, pool int) error
+	StartRebalance(ctx context.Context) error
+	StopRebalance(ctx context.Context) error
+
 	// KMS of the server-side encryption (admin:KMSKeyStatus,
 	// admin:KMSCreateKey): without KMS configured the server answers 501.
 	KMSStatus(ctx context.Context) (*KMSStatus, error)

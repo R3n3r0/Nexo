@@ -40,6 +40,7 @@ export function createHttpServices(options: HttpServicesOptions = {}): Services 
     // The services of the pages loaded on demand are loaded with them
     // (docs/06 §6.5: the initial bundle stays within its budget).
     heal: lazyService(async () => (await import('./heal')).createHttpHealService(client)),
+    pools: lazyService(async () => (await import('./pools')).createHttpPoolsService(client)),
     lifecycle: lazyService(async () =>
       (await import('./lifecycle')).createHttpLifecycleService(client),
     ),

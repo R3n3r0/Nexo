@@ -634,6 +634,39 @@
       "set": "Set",
       "usage": "Usage",
       "healingProgress": "{{objects}} objects healed ({{bytes}}), {{failed}} failed"
+    },
+    "pools": {
+      "title": "Pool management",
+      "subtitle": "Decommission a pool to remove it: it takes no new objects and every version of its objects moves to the other pools, verified before the copy in the pool is removed. A rebalance evens out the usage of the pools.",
+      "pool": "Pool",
+      "active": "Active",
+      "draining": "Draining",
+      "usage": "Usage of pool {{index}}",
+      "decommission": "Decommission",
+      "states": {
+        "running": "Running",
+        "complete": "Complete",
+        "canceled": "Canceled",
+        "failed": "Failed"
+      },
+      "moved_one": "{{objects}} object ({{bytes}}) moved",
+      "moved_other": "{{objects}} objects ({{bytes}}) moved",
+      "pass": "pass {{pass}}",
+      "failed_one": "{{count}} object not moved, retried",
+      "failed_other": "{{count}} objects not moved, retried",
+      "uploads_one": "waiting for {{count}} multipart upload",
+      "uploads_other": "waiting for {{count}} multipart uploads",
+      "at": "at {{position}}",
+      "start": "Decommission pool {{index}}",
+      "cancel": "Cancel decommission of pool {{index}}",
+      "removeHint": "A decommission is complete: remove the pool from the command line of every node and restart them.",
+      "confirmTitle": "Decommission pool {{index}}?",
+      "confirm": "Pool {{index}} will take no new objects and every object will move to the other pools, which need enough free space. The decommission can be canceled while it runs; once complete, remove the pool from the command line of every node.",
+      "confirmLabel": "Decommission",
+      "rebalance": "Rebalance",
+      "rebalanceHint": "Moves objects from the fullest pools to the emptiest ones, e.g. after adding a pool.",
+      "startRebalance": "Start rebalance",
+      "stopRebalance": "Stop rebalance"
     }
   },
   "healing": {

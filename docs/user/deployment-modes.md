@@ -202,8 +202,9 @@ nexo server "http://nexo{1...4}.lan:9000/mnt/disk{1...4}" "http://nexo{5...8}.la
 Existing objects stay in their pool (overwrites too); new objects go to the pools in
 proportion to their free space. The complete procedure is in
 [Upgrade and expansion](operations/upgrade-expansion.md#expansion-with-a-new-pool).
-Decommissioning a pool and rebalancing between pools are not available yet (planned after
-v1.0).
+To spread the existing objects over the new pool, or to retire a pool, see
+[Rebalancing](operations/upgrade-expansion.md#rebalancing-between-pools) and
+[Decommissioning a pool](operations/upgrade-expansion.md#decommissioning-a-pool).
 
 ## From one mode to another
 

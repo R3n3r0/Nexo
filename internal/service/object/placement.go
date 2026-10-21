@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"hash/crc32"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dchest/siphash"
@@ -102,10 +103,12 @@ func hashOrder(key string, n int) []int {
 
 // pool is one server pool: its erasure sets and the state of its space.
 type pool struct {
-	idx             int
-	sets            []*erasureSet
-	k0, k1          uint64
-	decommissioning bool
+	idx    int
+	sets   []*erasureSet
+	k0, k1 uint64
+	// draining excludes the pool from the placement of new objects, new
+	// versions and new uploads (decommission, PoolMover.SetPoolDraining).
+	draining atomic.Bool
 
 	mu       sync.Mutex
 	space    poolSpace
@@ -228,7 +231,10 @@ func (p *poolPlacement) forWrite(ctx context.Context, bucket, key string, size i
 	if err != nil {
 		return nil, err
 	}
-	if idx < 0 {
+	// A new key, or a key of a draining pool: its new versions go to a
+	// pool that is not draining, where the decommission moves the older
+	// ones (reads pick the newest version across pools).
+	if idx < 0 || p.pools[idx].draining.Load() {
 		if idx, err = p.pickPool(ctx, size); err != nil {
 			return nil, err
 		}
@@ -279,10 +285,15 @@ func (p *poolPlacement) others(st store, key string) []store {
 const maxPoolUsage = 0.95
 
 // pickPool chooses the pool of a new object: at random, weighted by free
-// space, among the pools that are not being decommissioned, are at most
+// space, among the pools that are not draining (decommission), are at most
 // 95% full and have room for size bytes. It fails with
 // domain.ErrStorageFull when no pool qualifies.
 func (p *poolPlacement) pickPool(ctx context.Context, size int64) (int, error) {
+	return p.pickPoolAmong(ctx, size, func(i int) bool { return !p.pools[i].draining.Load() })
+}
+
+// pickPoolAmong is pickPool among the pools allowed accepts.
+func (p *poolPlacement) pickPoolAmong(ctx context.Context, size int64, allowed func(int) bool) (int, error) {
 	spaces := make([]poolSpace, len(p.pools))
 	_ = parallel(len(p.pools), func(i int) error {
 		spaces[i] = p.pools[i].capacity(ctx, p.now(), p.spaceTTL)
@@ -290,9 +301,9 @@ func (p *poolPlacement) pickPool(ctx context.Context, size int64) (int, error) {
 	})
 	weights := make([]uint64, len(p.pools))
 	var total uint64
-	for i, pl := range p.pools {
+	for i := range p.pools {
 		s := spaces[i]
-		if pl.decommissioning || s.usedRatio() > maxPoolUsage || (size > 0 && s.free < uint64(size)) {
+		if !allowed(i) || s.usedRatio() > maxPoolUsage || (size > 0 && s.free < uint64(size)) {
 			continue
 		}
 		weights[i] = s.free

@@ -72,8 +72,8 @@ type ShareRoutes interface{ Routes }
 type ConfigRoutes interface{ Routes }
 
 // ClusterRoutes exposes the export and import of the state of the
-// deployment (/cluster/export, /cluster/import) and the diagnostics of the
-// namespace locks (/locks).
+// deployment (/cluster/export, /cluster/import), the diagnostics of the
+// namespace locks (/locks) and the pool management (/pools, /rebalance).
 type ClusterRoutes interface{ Routes }
 
 // APIDeps are the dependencies of the API composition.

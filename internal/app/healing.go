@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/r3n3r0/nexo/internal/clock"
@@ -13,8 +14,10 @@ import (
 	configsvc "github.com/r3n3r0/nexo/internal/service/config"
 	"github.com/r3n3r0/nexo/internal/service/heal"
 	"github.com/r3n3r0/nexo/internal/service/object"
+	poolsvc "github.com/r3n3r0/nexo/internal/service/pools"
 	"github.com/r3n3r0/nexo/internal/service/scanner"
 	"github.com/r3n3r0/nexo/internal/service/storage"
+	"github.com/r3n3r0/nexo/internal/service/sysstore"
 )
 
 // healingServices are the background services that keep the data whole
@@ -26,6 +29,8 @@ type healingServices struct {
 	queue   heal.Queue
 	heal    heal.Service
 	scanner scanner.Service
+	// pools runs the decommission and rebalance jobs (nil in SNSD).
+	pools poolsvc.Service
 }
 
 // poolSpecs returns the pools of the erasure object layer: the drives of
@@ -74,7 +79,7 @@ func healQueueReporter(q heal.Queue) cluster.HealQueueReporter {
 // buckets over its cycles. The usage of the scanner is saved on the
 // single drive (SNSD) or on the drives of the first erasure set, which
 // every node reads.
-func newHealing(d composeDeps, objects object.Service, queue heal.Queue, dyn configsvc.Service, lifecycle scanner.Lifecycle, load scanner.LoadSampler) (healingServices, error) {
+func newHealing(d composeDeps, objects object.Service, queue heal.Queue, dyn configsvc.Service, lifecycle scanner.Lifecycle, load scanner.LoadSampler, docs sysstore.Store) (healingServices, error) {
 	out := healingServices{queue: queue}
 	scanDeps := scanner.Deps{
 		Objects: objects, Leader: d.f.leader, Config: dyn, Lifecycle: lifecycle, Load: load, Clock: d.clock, Logger: d.logger.With("component", "scanner"),
@@ -98,6 +103,21 @@ func newHealing(d composeDeps, objects object.Service, queue heal.Queue, dyn con
 		}
 		scanDeps.Healer = healer
 		scanDeps.Drives = pools[0].Sets[0]
+		mover, ok := objects.(object.PoolMover)
+		if !ok {
+			return out, fmt.Errorf("%w: the erasure object layer does not implement object.PoolMover", domain.ErrInvalidArgument)
+		}
+		ids := make([]string, 0, len(d.f.layout.Pools))
+		for _, p := range d.f.layout.Pools {
+			ids = append(ids, strings.Join(p.Args, " "))
+		}
+		poolDeps := poolsvc.Deps{Objects: objects, Mover: mover, Docs: docs, PoolIDs: ids, Clock: d.clock, Logger: d.logger.With("component", "pools")}
+		if d.f.leader != nil {
+			poolDeps.Leader = d.f.leader
+		}
+		if out.pools, err = poolsvc.New(poolDeps); err != nil {
+			return out, err
+		}
 	}
 	var err error
 	if out.scanner, err = scanner.New(scanDeps); err != nil {
@@ -110,7 +130,7 @@ func newHealing(d composeDeps, objects object.Service, queue heal.Queue, dyn con
 // order and stops them in reverse order.
 func (h healingServices) runner() lifecycle.Runner {
 	var runners []lifecycle.Runner
-	for _, r := range []lifecycle.Runner{h.queue, h.heal, h.scanner} {
+	for _, r := range []lifecycle.Runner{h.queue, h.heal, h.scanner, h.pools} {
 		if r != nil {
 			runners = append(runners, r)
 		}

@@ -70,7 +70,8 @@ func NewServerPools(deps PoolsDeps, opts ...Option) (Service, error) {
 		if err != nil {
 			return nil, fmt.Errorf("object: pool %d: %w", pi+1, err)
 		}
-		pl := &pool{idx: pi, k0: k0, k1: k1, decommissioning: spec.Decommissioning}
+		pl := &pool{idx: pi, k0: k0, k1: k1}
+		pl.draining.Store(spec.Decommissioning)
 		for si, drives := range spec.Sets {
 			if len(drives) != size {
 				return nil, fmt.Errorf("%w: object: pool %d: set %d has %d drives, set 1 has %d", domain.ErrInvalidArgument, pi+1, si+1, len(drives), size)

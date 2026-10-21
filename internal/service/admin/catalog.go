@@ -48,6 +48,7 @@ func catalog() []catalogEntry {
 		policy.ActionAdminListAccessKeys, policy.ActionAdminManageShares,
 		policy.ActionAdminExportCluster, policy.ActionAdminImportCluster,
 		policy.ActionAdminListLocks, policy.ActionAdminForceUnlock,
+		policy.ActionAdminDecommission, policy.ActionAdminRebalance,
 		policy.ActionAdminKMSKeyStatus, policy.ActionAdminKMSCreateKey,
 		policy.ActionAdminManageDistributions, policy.ActionAdminManageCertificates, policy.ActionAdminSignDistributionURL,
 		policy.ActionAdminManageCache, policy.ActionAdminInvalidateCache,

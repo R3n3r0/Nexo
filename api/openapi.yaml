@@ -2803,6 +2803,71 @@ paths:
       responses:
         "204": { description: Released. }
         default: { $ref: "#/components/responses/Problem" }
+  /pools:
+    get:
+      tags: [cluster]
+      operationId: listPools
+      summary: The server pools, their capacity and their decommission, and the rebalance
+      description: 501 in single-drive mode.
+      x-nexo-actions: ["admin:ServerInfo"]
+      responses:
+        "200":
+          description: The pools.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Pools" }
+        default: { $ref: "#/components/responses/Problem" }
+  /pools/{pool}/decommission:
+    parameters:
+      - name: pool
+        in: path
+        required: true
+        description: 1-based position of the pool in the command line.
+        schema: { type: integer, minimum: 1 }
+    post:
+      tags: [cluster]
+      operationId: decommissionPool
+      summary: Start the decommission of a pool
+      description: >-
+        The pool takes no new object, version or multipart upload; the leader moves every version
+        of its objects to the other pools (copied, read back and compared before the source is
+        removed), pass after pass until a pass finds nothing left and no upload is in progress
+        there. The job resumes after a restart. The pool can then be removed from the command
+        line. The first pool (system documents), the last pool left, or a pool during a rebalance
+        are refused (400).
+      x-nexo-actions: ["admin:Decommission"]
+      responses:
+        "202": { description: Started (see GET /pools). }
+        default: { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [cluster]
+      operationId: cancelDecommission
+      summary: Cancel the decommission of a pool
+      description: The pool takes new objects again; the objects already moved stay where they are.
+      x-nexo-actions: ["admin:Decommission"]
+      responses:
+        "204": { description: Canceled. }
+        default: { $ref: "#/components/responses/Problem" }
+  /rebalance:
+    post:
+      tags: [cluster]
+      operationId: startRebalance
+      summary: Start the rebalance between the pools
+      description: >-
+        The pools fuller than the average by more than 5 points give objects to the emptier ones
+        until they are near the average. Refused with a single pool or during a decommission.
+      x-nexo-actions: ["admin:Rebalance"]
+      responses:
+        "202": { description: Started (see GET /pools). }
+        default: { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [cluster]
+      operationId: stopRebalance
+      summary: Stop the rebalance
+      x-nexo-actions: ["admin:Rebalance"]
+      responses:
+        "204": { description: Stopped. }
+        default: { $ref: "#/components/responses/Problem" }
   /config/{subsys}:
     parameters:
       - name: subsys
@@ -4458,6 +4523,42 @@ components:
           type: array
           description: Entries a replace import removes ("user:<name>", "group:<name>", "policy:<name>").
           items: { type: string }
+    PoolJob:
+      type: object
+      required: [state, startedAt, pass, objects, versions, bytes, failed, pendingUploads]
+      properties:
+        state: { type: string, enum: [running, complete, canceled, failed] }
+        startedAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        pass: { type: integer, description: Walks over the objects so far. }
+        pool: { type: integer, description: Source pool of a rebalance (1-based). }
+        bucket: { type: string, description: Where the job stands. }
+        object: { type: string }
+        objects: { type: integer, format: int64, description: Objects moved. }
+        versions: { type: integer, format: int64 }
+        bytes: { type: integer, format: int64, description: Stored bytes moved. }
+        failed: { type: integer, format: int64, description: Objects not moved in this pass (retried). }
+        pendingUploads: { type: integer, description: Multipart uploads the decommission waits for. }
+        error: { type: string }
+    PoolStatus:
+      type: object
+      required: [index, id, total, free, draining]
+      properties:
+        index: { type: integer, description: 1-based position in the command line. }
+        id: { type: string, description: The command-line arguments of the pool. }
+        total: { type: integer, format: int64 }
+        free: { type: integer, format: int64 }
+        draining: { type: boolean, description: The pool takes no new objects. }
+        decommission: { $ref: "#/components/schemas/PoolJob" }
+    Pools:
+      type: object
+      required: [pools]
+      properties:
+        pools:
+          type: array
+          items: { $ref: "#/components/schemas/PoolStatus" }
+        rebalance: { $ref: "#/components/schemas/PoolJob" }
     Lock:
       type: object
       required: [resource, uid, owner, type, quorum, since, refreshed, servers, total]

@@ -18,6 +18,7 @@ Available Commands:
   audit        Search the audit log of the server
   cluster      Export and import the state of a deployment (IAM, policies, configuration, bucket settings)
   config       Read and change the dynamic configuration of the server
+  decommission Drain a server pool so that it can be removed
   dns-provider Manage the DNS providers of the ACME DNS-01 challenge
   group        Manage the IAM groups and their members
   heal         Heal the drives of the server (erasure-coded deployments)
@@ -31,6 +32,7 @@ Available Commands:
   policy       Manage the IAM policies (AWS policy language)
   profile      Collect a runtime profile (pprof) of the server
   prometheus   Integrate the metrics of the server with Prometheus
+  rebalance    Move objects from the fullest pools to the emptiest ones
   service      Restart or stop the server
   speedtest    Measure the drives, the object layer or the network between the nodes
   trace        Show the requests served by the server, live

@@ -329,7 +329,9 @@ func TestStorageClasses(t *testing.T) {
 func TestPickPool(t *testing.T) {
 	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
 	newPool := func(idx int, total, free uint64, decom bool) *pool {
-		return &pool{idx: idx, decommissioning: decom, space: poolSpace{total: total, free: free}, spaceAt: now, hasSpace: true}
+		pl := &pool{idx: idx, space: poolSpace{total: total, free: free}, spaceAt: now, hasSpace: true}
+		pl.draining.Store(decom)
+		return pl
 	}
 	tests := []struct {
 		name    string

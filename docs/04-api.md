@@ -82,7 +82,7 @@ decodes them exactly once.
 | POST | `/service/{restart,stop}` | Service control (the restart happens in-process; `SIGHUP` reloads only the TLS certificates) |
 | GET | `/profile?type=cpu\|heap\|goroutine\|mutex\|block&seconds=` | pprof profile of the answering node (`admin:Profiling`: root, `diagnostics` policy), `application/octet-stream`, one at a time per node (409) |
 | POST | `/speedtest/{drive,object,net}` | Speed test of the answering node (`admin:Speedtest`): local disks, object layer (temporary `nexo-speedtest-*` bucket, removed afterwards), network to the other nodes (`501` outside a cluster); phases of at most 60 s, files/objects ≤ 64 MiB, ≤ 1 GiB written per target |
-| POST/GET | `/pools/{id}/decommission`, `/rebalance` | Pool management (P2) |
+| GET, POST/DELETE | `/pools`, `/pools/{pool}/decommission`, `/rebalance` | Pool management (P2): `{pool}` is the 1-based position in the command line |
 
 Errors in `application/problem+json` format (RFC 9457) with a stable `code`.
 

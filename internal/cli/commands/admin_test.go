@@ -600,3 +600,26 @@ func TestScenarioAdminMetadataLog(t *testing.T) {
 	golden(t, "scenario/admin_metadata_log", s.b.String())
 	assert.Equal(t, 2, h.admin.Calls("CompactMetadataLog"))
 }
+
+// covers: C-ADM-10
+func TestScenarioAdminPools(t *testing.T) {
+	h := newHarness(t)
+	s := h.session()
+	s.run("admin", "decommission", "status", "mem")
+	h.admin.SetPools(nexoadmin.Pools{Pools: []nexoadmin.PoolStatus{
+		{Index: 1, ID: "/mnt/p1/d{1...4}", Total: 4 << 40, Free: 1 << 40},
+		{Index: 2, ID: "/mnt/p2/d{1...4}", Total: 4 << 40, Free: 3 << 40},
+	}})
+	s.run("admin", "decommission", "start", "mem", "1")
+	s.run("admin", "decommission", "start", "mem", "x")
+	s.run("admin", "decommission", "start", "mem", "2")
+	s.run("admin", "decommission", "status", "mem")
+	s.run("admin", "decommission", "status", "--json", "mem")
+	s.run("admin", "decommission", "cancel", "mem", "2")
+	s.run("admin", "rebalance", "status", "mem")
+	s.run("admin", "rebalance", "start", "mem")
+	s.run("admin", "rebalance", "status", "mem")
+	s.run("admin", "rebalance", "stop", "mem")
+	s.run("admin", "rebalance", "stop", "mem")
+	golden(t, "scenario/admin_pools", s.b.String())
+}

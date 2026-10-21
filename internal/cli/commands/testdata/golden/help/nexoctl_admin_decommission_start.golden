@@ -1,0 +1,17 @@
+Start the decommission of a pool (its 1-based position in the command line)
+
+Usage:
+  nexoctl admin decommission start ALIAS POOL [flags]
+
+Examples:
+  nexoctl admin decommission start cluster 2
+
+Flags:
+  -h, --help   help for start
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

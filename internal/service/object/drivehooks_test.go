@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/crypto"
 	"github.com/r3n3r0/nexo/internal/service/erasure"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	objectmock "github.com/r3n3r0/nexo/internal/service/object/mock"
@@ -394,7 +395,9 @@ type clusterSpec struct {
 	decommissioning map[int]bool
 	// buckets is the bucket configuration source (nil: unversioned).
 	buckets object.BucketConfigSource
-	opts    []object.Option
+	// crypto seals the keys of the encrypted objects (nil: no SSE).
+	crypto crypto.Service
+	opts   []object.Option
 }
 
 // newCluster builds NewServerPools over hooked local drives.
@@ -431,7 +434,7 @@ func newCluster(t *testing.T, spec clusterSpec) *cluster {
 		object.WithLockTimeout(5 * time.Second),
 	}, spec.opts...)
 	svc, err := object.NewServerPools(object.PoolsDeps{
-		Pools: pools, DeploymentID: "deployment-test", Codecs: testCodecs("deployment-test", erasure.WithHedgeDelay(50*time.Millisecond)), Heal: c.heal, Buckets: spec.buckets, Logger: slog.New(slog.DiscardHandler),
+		Pools: pools, DeploymentID: "deployment-test", Codecs: testCodecs("deployment-test", erasure.WithHedgeDelay(50*time.Millisecond)), Heal: c.heal, Buckets: spec.buckets, Crypto: spec.crypto, Logger: slog.New(slog.DiscardHandler),
 	}, opts...)
 	require.NoError(t, err)
 	c.svc = svc
