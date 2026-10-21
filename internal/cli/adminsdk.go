@@ -706,6 +706,32 @@ func (c *adminClient) ListLocks(ctx context.Context) ([]nexoadmin.Lock, error) {
 	return mapped(c, v, err)
 }
 
+// ListPools implements AdminClient.
+func (c *adminClient) ListPools(ctx context.Context) (*nexoadmin.Pools, error) {
+	v, err := c.api.ListPools(ctx)
+	return mapped(c, v, err)
+}
+
+// DecommissionPool implements AdminClient.
+func (c *adminClient) DecommissionPool(ctx context.Context, pool int) error {
+	return MapAdminError(c.api.DecommissionPool(ctx, pool), c.endpoint)
+}
+
+// CancelDecommission implements AdminClient.
+func (c *adminClient) CancelDecommission(ctx context.Context, pool int) error {
+	return MapAdminError(c.api.CancelDecommission(ctx, pool), c.endpoint)
+}
+
+// StartRebalance implements AdminClient.
+func (c *adminClient) StartRebalance(ctx context.Context) error {
+	return MapAdminError(c.api.StartRebalance(ctx), c.endpoint)
+}
+
+// StopRebalance implements AdminClient.
+func (c *adminClient) StopRebalance(ctx context.Context) error {
+	return MapAdminError(c.api.StopRebalance(ctx), c.endpoint)
+}
+
 // ForceUnlock implements AdminClient.
 func (c *adminClient) ForceUnlock(ctx context.Context, resources ...string) error {
 	return MapAdminError(c.api.ForceUnlock(ctx, resources...), c.endpoint)

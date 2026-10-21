@@ -89,6 +89,11 @@ type AdminClient interface {
 	// Namespace locks (docs/03 §3.6: admin lock list/clear).
 	ListLocks(ctx context.Context) ([]nexoadmin.Lock, error)
 	ForceUnlock(ctx context.Context, resources ...string) error
+	ListPools(ctx context.Context) (*nexoadmin.Pools, error)
+	DecommissionPool(ctx context.Context, pool int) error
+	CancelDecommission(ctx context.Context, pool int) error
+	StartRebalance(ctx context.Context) error
+	StopRebalance(ctx context.Context) error
 
 	// GetBucket returns the summary of a bucket: usage, settings, tags
 	// (quota info reports the usage against the quota).

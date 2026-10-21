@@ -98,10 +98,56 @@ After the expansion:
 
 - the objects already present stay in their pool, even when they are overwritten;
 - new objects go to the pools in proportion to their free space (pools above 95% are excluded);
-- rebalancing data between pools and decommissioning a pool are not available yet.
+- to spread the existing objects over the new pool too, start a [rebalance](#rebalancing-between-pools).
 
 On Kubernetes the expansion is `distributed.pools` in the chart (here too with a restart of every pod); with
 Docker Compose or Swarm you add the services of the new nodes and change `command` on **all** of them.
+
+## Rebalancing between pools
+
+```bash
+nexoctl admin rebalance start cluster
+nexoctl admin rebalance status cluster      # objects and bytes moved, the pool being emptied
+nexoctl admin rebalance stop cluster
+```
+
+The rebalance moves objects, with all their versions, from the pools fuller than the average usage (by more
+than 5 points) to the pools below it, until every pool is close to the average. It runs on the leader node in
+the background, survives restarts (its progress is in the system documents) and can be stopped at any time:
+the objects moved so far stay where they are. It needs `admin:Rebalance`; the console shows it under
+**Cluster → Pool management**.
+
+## Decommissioning a pool
+
+A pool is removed in two steps: first its objects are moved to the other pools, then it is removed from the
+command line.
+
+```bash
+nexoctl admin decommission status cluster      # pools, usage, decommission progress
+nexoctl admin decommission start cluster 2     # the 1-based position of the pool in the command line
+nexoctl admin decommission cancel cluster 2    # the pool takes new objects again
+```
+
+1. Check that the other pools have enough free space for the objects of the pool (a pool above 95% takes
+   nothing).
+2. Start the decommission. From then on the pool takes no new object, version or multipart upload: they go
+   to the other pools. Reads keep working while the objects move.
+3. A background job on the leader walks the pool bucket by bucket and moves every version of every object
+   (delete markers included) to another pool. Each copy is read back and compared before the copy in the
+   pool is removed, under the lock of the key: an object written meanwhile is left in place and moved by the
+   next pass. Passes repeat until one finds nothing left; objects that could not be moved are retried (up
+   to 10 passes, then the job reports `failed` and the pool keeps them). Multipart uploads started before
+   the decommission complete in the pool and are moved afterwards.
+4. When the status reports `complete`, stop all the nodes, remove the pool from the command line
+   (`NEXO_ENDPOINTS`) of **every** node and restart them, as for an expansion.
+
+The progress survives restarts and a change of leader. It needs `admin:Decommission`; the console shows it
+under **Cluster → Pool management**.
+
+The **first pool** of the command line cannot be decommissioned: it holds the system documents (IAM,
+configuration, bucket metadata). To retire its nodes, move the data to a new deployment with
+`nexoctl admin cluster export/import` and `nexoctl mirror --preserve`
+([Backup and migration](backup-migration.md)).
 
 ## Before upgrading: checklist
 

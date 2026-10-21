@@ -79,6 +79,63 @@ type Healer interface {
 	HealObject(ctx context.Context, bucket, key, versionID string, opts HealOptions) (HealResult, error)
 }
 
+// PoolMover moves objects between the server pools of the erasure layer
+// (docs/03 §3.8): the decommission of a pool and the rebalance between
+// pools. The layer of NewServerPools implements it.
+//
+// A move never loses data: every version of the key is copied to the
+// target pool, read back and compared with the source, and only then
+// removed from the source, under the write lock of the key (writes,
+// deletes and reads of the key wait); a failure leaves the source as it
+// was, and copying again is harmless.
+type PoolMover interface {
+	// PoolUsage returns the capacity of every pool.
+	PoolUsage(ctx context.Context) []PoolUsage
+	// SetPoolDraining excludes a pool from the placement of new objects,
+	// new versions and new multipart uploads (draining), or makes it
+	// eligible again. Its objects stay readable and deletable.
+	SetPoolDraining(pool int, draining bool)
+	// PoolKeys returns, in key order, up to max keys of bucket after
+	// `after` with at least one version in pool.
+	PoolKeys(ctx context.Context, pool int, bucket, after string, max int) ([]string, error)
+	// MoveObject moves the versions of bucket/key held by in.From to
+	// another pool. A key without versions in in.From is not an error
+	// (Versions is 0).
+	MoveObject(ctx context.Context, in MoveObjectInput) (MoveObjectResult, error)
+	// PoolUploads counts the multipart uploads in progress in pool.
+	PoolUploads(ctx context.Context, pool int) (int, error)
+}
+
+// PoolUsage is the capacity of the online drives of a pool.
+type PoolUsage struct {
+	Index    int
+	Total    uint64
+	Free     uint64
+	Draining bool
+}
+
+// MoveObjectInput are the parameters of PoolMover.MoveObject.
+type MoveObjectInput struct {
+	Bucket string
+	Key    string
+	// From is the pool the versions leave.
+	From int
+	// Targets restricts the pools a key goes to when no other pool holds
+	// versions of it yet (nil: every pool but From that is not draining);
+	// a key with versions in another pool joins them there.
+	Targets []int
+}
+
+// MoveObjectResult reports a move.
+type MoveObjectResult struct {
+	// To is the pool the versions went to (-1 when nothing moved).
+	To int
+	// Versions counts the versions moved (delete markers included) and
+	// Bytes their stored size.
+	Versions int
+	Bytes    int64
+}
+
 // HealOptions tunes the healing operations.
 type HealOptions struct {
 	// Deep verifies the bitrot hash of every shard block (reads all the

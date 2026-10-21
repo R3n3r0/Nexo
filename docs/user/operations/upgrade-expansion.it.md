@@ -97,10 +97,56 @@ Dopo l'espansione:
 
 - gli oggetti già presenti restano nel loro pool, anche quando vengono sovrascritti;
 - i nuovi oggetti vanno nei pool in proporzione allo spazio libero (i pool oltre il 95% sono esclusi);
-- il bilanciamento dei dati tra pool e la dismissione di un pool non sono ancora disponibili.
+- per distribuire anche gli oggetti esistenti sul nuovo pool, avvia un [ribilanciamento](#ribilanciamento-tra-pool).
 
 Su Kubernetes l'espansione è `distributed.pools` nel chart (anche qui con il riavvio di tutti i pod); con
 Docker Compose o Swarm si aggiungono i servizi dei nuovi nodi e si cambia `command` su **tutti**.
+
+## Ribilanciamento tra pool
+
+```bash
+nexoctl admin rebalance start cluster
+nexoctl admin rebalance status cluster      # oggetti e byte spostati, il pool che si sta svuotando
+nexoctl admin rebalance stop cluster
+```
+
+Il ribilanciamento sposta oggetti, con tutte le loro versioni, dai pool più pieni della media (di oltre 5
+punti) ai pool sotto la media, finché ogni pool è vicino alla media. Gira in background sul nodo leader,
+sopravvive ai riavvii (l'avanzamento è nei documenti di sistema) e si può fermare in qualsiasi momento: gli
+oggetti già spostati restano dove sono. Richiede `admin:Rebalance`; la console lo mostra in
+**Cluster → Gestione dei pool**.
+
+## Dismissione di un pool
+
+Un pool si rimuove in due passi: prima i suoi oggetti vengono spostati sugli altri pool, poi lo si toglie
+dalla riga di comando.
+
+```bash
+nexoctl admin decommission status cluster      # pool, occupazione, avanzamento della dismissione
+nexoctl admin decommission start cluster 2     # la posizione (da 1) del pool nella riga di comando
+nexoctl admin decommission cancel cluster 2    # il pool torna a ricevere nuovi oggetti
+```
+
+1. Verifica che gli altri pool abbiano spazio libero sufficiente per gli oggetti del pool (un pool oltre
+   il 95% non riceve nulla).
+2. Avvia la dismissione. Da quel momento il pool non riceve nuovi oggetti, versioni o caricamenti
+   multipart: vanno sugli altri pool. Le letture continuano a funzionare mentre gli oggetti si spostano.
+3. Un job in background sul leader percorre il pool bucket per bucket e sposta ogni versione di ogni oggetto
+   (delete marker inclusi) su un altro pool. Ogni copia viene riletta e confrontata prima di rimuovere la
+   copia nel pool, sotto il lock della chiave: un oggetto scritto nel frattempo resta dov'è e viene
+   spostato dalla passata successiva. Le passate si ripetono finché una non trova più nulla; gli oggetti non
+   spostati vengono ritentati (fino a 10 passate, poi il job riporta `failed` e il pool li conserva). I
+   caricamenti multipart iniziati prima della dismissione si completano nel pool e vengono spostati dopo.
+4. Quando lo stato riporta `complete`, ferma tutti i nodi, rimuovi il pool dalla riga di comando
+   (`NEXO_ENDPOINTS`) di **ogni** nodo e riavviali, come per un'espansione.
+
+L'avanzamento sopravvive ai riavvii e al cambio di leader. Richiede `admin:Decommission`; la console lo
+mostra in **Cluster → Gestione dei pool**.
+
+Il **primo pool** della riga di comando non si può dismettere: contiene i documenti di sistema (IAM,
+configurazione, metadati dei bucket). Per ritirarne i nodi, sposta i dati su un nuovo deployment con
+`nexoctl admin cluster export/import` e `nexoctl mirror --preserve`
+([Backup e migrazione](backup-migration.md)).
 
 ## Prima di aggiornare: checklist
 

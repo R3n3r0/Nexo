@@ -60,6 +60,8 @@ type MemAdmin struct {
 	usage      nexoadmin.DataUsage
 	heals      []*nexoadmin.HealJob
 	locks      []nexoadmin.Lock
+	// pools are the server pools of ListPools (SetPools).
+	pools nexoadmin.Pools
 	// buckets are the bucket summaries of GetBucket (SetBucket).
 	buckets map[string]nexoadmin.Bucket
 	// lifecycleApply is the outcome of ApplyBucketLifecycle.
@@ -293,6 +295,11 @@ func (m *MemAdmin) Client(t TestingT, caller string) *climock.AdminClient {
 	c.EXPECT().ExportCluster(x).RunAndReturn(s.exportCluster).Maybe()
 	c.EXPECT().ImportCluster(x, x, x).RunAndReturn(s.importCluster).Maybe()
 	c.EXPECT().ListLocks(x).RunAndReturn(s.listLocks).Maybe()
+	c.EXPECT().ListPools(x).RunAndReturn(s.listPools).Maybe()
+	c.EXPECT().DecommissionPool(x, x).RunAndReturn(s.decommissionPool).Maybe()
+	c.EXPECT().CancelDecommission(x, x).RunAndReturn(s.cancelDecommission).Maybe()
+	c.EXPECT().StartRebalance(x).RunAndReturn(s.startRebalance).Maybe()
+	c.EXPECT().StopRebalance(x).RunAndReturn(s.stopRebalance).Maybe()
 	c.EXPECT().ForceUnlock(x, x).RunAndReturn(func(ctx context.Context, res ...string) error { return s.forceUnlock(ctx, res...) }).Maybe()
 	c.EXPECT().ForceUnlock(x, x, x).RunAndReturn(func(ctx context.Context, res ...string) error { return s.forceUnlock(ctx, res...) }).Maybe()
 	c.EXPECT().GetBucketQuota(x, x).RunAndReturn(s.getBucketQuota).Maybe()
@@ -1637,6 +1644,95 @@ func (s *memSession) forceUnlock(_ context.Context, resources ...string) error {
 		return invalid("at least one resource is required")
 	}
 	s.m.locks = slices.DeleteFunc(s.m.locks, func(l nexoadmin.Lock) bool { return slices.Contains(resources, l.Resource) })
+	return nil
+}
+
+// --- pools -----------------------------------------------------------------------------------
+
+// SetPools sets the server pools the store reports (none: a single-drive
+// deployment, whose pool calls fail with 501).
+func (m *MemAdmin) SetPools(pools nexoadmin.Pools) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pools = pools
+}
+
+// poolsLocked checks the action and the existence of pool (1-based); the
+// caller unlocks.
+func (s *memSession) poolsLocked(op, action string, pool int) error {
+	if err := s.begin(op); err != nil {
+		return err
+	}
+	if err := s.requireAdminLocked(action); err != nil {
+		return err
+	}
+	if len(s.m.pools.Pools) == 0 {
+		s.m.mu.Unlock()
+		return apiError(http.StatusNotImplemented, "not_implemented", "pool management needs an erasure-coded deployment")
+	}
+	if pool != 0 && (pool < 1 || pool > len(s.m.pools.Pools)) {
+		s.m.mu.Unlock()
+		return invalid("no pool %d", pool)
+	}
+	return nil
+}
+
+func (s *memSession) listPools(context.Context) (*nexoadmin.Pools, error) {
+	if err := s.poolsLocked("ListPools", "admin:ServerInfo", 0); err != nil {
+		return nil, err
+	}
+	defer s.m.mu.Unlock()
+	out := s.m.pools
+	out.Pools = slices.Clone(out.Pools)
+	return &out, nil
+}
+
+func (s *memSession) decommissionPool(_ context.Context, pool int) error {
+	if err := s.poolsLocked("DecommissionPool", "admin:Decommission", pool); err != nil {
+		return err
+	}
+	defer s.m.mu.Unlock()
+	if pool == 1 {
+		return invalid("the first pool holds the system documents and cannot be decommissioned")
+	}
+	p := &s.m.pools.Pools[pool-1]
+	p.Draining = true
+	p.Decommission = &nexoadmin.PoolJob{State: "running", StartedAt: s.m.clock.Now(), Pass: 1}
+	return nil
+}
+
+func (s *memSession) cancelDecommission(_ context.Context, pool int) error {
+	if err := s.poolsLocked("CancelDecommission", "admin:Decommission", pool); err != nil {
+		return err
+	}
+	defer s.m.mu.Unlock()
+	p := &s.m.pools.Pools[pool-1]
+	if p.Decommission == nil || p.Decommission.State != "running" {
+		return invalid("pool %d is not being decommissioned", pool)
+	}
+	p.Draining = false
+	p.Decommission.State = "canceled"
+	return nil
+}
+
+func (s *memSession) startRebalance(context.Context) error {
+	if err := s.poolsLocked("StartRebalance", "admin:Rebalance", 0); err != nil {
+		return err
+	}
+	defer s.m.mu.Unlock()
+	s.m.pools.Rebalance = &nexoadmin.PoolJob{State: "running", StartedAt: s.m.clock.Now(), Pass: 1, Pool: 1}
+	return nil
+}
+
+func (s *memSession) stopRebalance(context.Context) error {
+	if err := s.poolsLocked("StopRebalance", "admin:Rebalance", 0); err != nil {
+		return err
+	}
+	defer s.m.mu.Unlock()
+	if s.m.pools.Rebalance == nil || s.m.pools.Rebalance.State != "running" {
+		return invalid("no rebalance is running")
+	}
+	s.m.pools.Rebalance.State = "canceled"
 	return nil
 }
 

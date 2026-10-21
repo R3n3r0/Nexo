@@ -303,7 +303,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	// The S3 requests in progress: the scanner pauses while the API is
 	// busy, so that a burst of writes does not compete with its walk.
 	activity := middleware.NewActivity(middleware.ActivityDeps{})
-	healing, err := newHealing(d, objects, mrf, dynConfig, measuredILM, activity)
+	healing, err := newHealing(d, objects, mrf, dynConfig, measuredILM, activity, stores.docs)
 	if err != nil {
 		return nil, fmt.Errorf("healing: %w", err)
 	}
@@ -541,7 +541,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	adminAPI, err := buildAdminAPI(adminDeps{
 		codec: codec, limiter: limiter, clock: d.clock, logger: logger, region: cfg.Region, s3URL: publicS3URL(cfg),
 		sessions: sessions, idp: providers, verifier: verifier, signer: signer, admin: adminSvc, iam: identities, policy: policies,
-		buckets: buckets, objects: objects, media: mediaSvc, shares: shares, config: dynConfig, locks: f.lockManager, secureCookies: secureConsole(cfg),
+		buckets: buckets, objects: objects, media: mediaSvc, shares: shares, config: dynConfig, locks: f.lockManager, pools: healing.pools, secureCookies: secureConsole(cfg),
 		consoleURL: cfg.BrowserRedirectURL, lifecycle: lifecycle, events: events, kms: keys, mediaJobs: mediaJobs,
 		accessRules: accessRules, dist: distStack, acmeDirectory: cfg.ACMEDirectory, acmeChallenge: cfg.ACMEChallenge,
 		cache: cacheSvc, diagnostics: newDiagnostics(f, objects, buckets, logger),

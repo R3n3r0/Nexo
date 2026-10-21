@@ -93,6 +93,7 @@ import type {
   Group,
   HealJob,
   HealRequest,
+  Pools,
   KmsKey,
   KmsStatus,
   LegalHoldStatus,
@@ -197,6 +198,24 @@ export interface HealService {
   /** Running and recently finished jobs, newest first. */
   list(): Promise<HealJob[]>;
   get(id: string): Promise<HealJob>;
+}
+
+/**
+ * Pool management (D-CLU-03): GET /pools reports the pools, their usage,
+ * their decommission and the rebalance; a decommission drains a pool so
+ * that it can be removed, a rebalance evens out the usage of the pools.
+ * Pools are 1-based positions in the command line. A single-drive
+ * deployment has no pools to manage: every call rejects with a 501
+ * not_implemented ApiError.
+ */
+export interface PoolsService {
+  list(): Promise<Pools>;
+  /** Starts the decommission of a pool (400 for the first pool). */
+  decommission(pool: number): Promise<void>;
+  /** Cancels it: the pool takes new objects again. */
+  cancelDecommission(pool: number): Promise<void>;
+  startRebalance(): Promise<void>;
+  stopRebalance(): Promise<void>;
 }
 
 /** Bucket management. */
@@ -779,6 +798,7 @@ export interface Services {
   readonly session: SessionService;
   readonly info: InfoService;
   readonly heal: HealService;
+  readonly pools: PoolsService;
   readonly buckets: BucketService;
   readonly lifecycle: LifecycleService;
   readonly notifications: NotificationService;

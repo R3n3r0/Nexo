@@ -634,6 +634,39 @@
       "set": "Set",
       "usage": "Utilizzo",
       "healingProgress": "{{objects}} oggetti riparati ({{bytes}}), {{failed}} non riusciti"
+    },
+    "pools": {
+      "title": "Gestione dei pool",
+      "subtitle": "Dismetti un pool per rimuoverlo: non riceve nuovi oggetti e ogni versione dei suoi oggetti viene spostata sugli altri pool, verificata prima di rimuovere la copia nel pool. Il ribilanciamento uniforma l'occupazione dei pool.",
+      "pool": "Pool",
+      "active": "Attivo",
+      "draining": "In svuotamento",
+      "usage": "Occupazione del pool {{index}}",
+      "decommission": "Dismissione",
+      "states": {
+        "running": "In corso",
+        "complete": "Completata",
+        "canceled": "Annullata",
+        "failed": "Fallita"
+      },
+      "moved_one": "{{objects}} oggetto ({{bytes}}) spostato",
+      "moved_other": "{{objects}} oggetti ({{bytes}}) spostati",
+      "pass": "passata {{pass}}",
+      "failed_one": "{{count}} oggetto non spostato, verrà ritentato",
+      "failed_other": "{{count}} oggetti non spostati, verranno ritentati",
+      "uploads_one": "in attesa di {{count}} caricamento multipart",
+      "uploads_other": "in attesa di {{count}} caricamenti multipart",
+      "at": "a {{position}}",
+      "start": "Dismetti il pool {{index}}",
+      "cancel": "Annulla la dismissione del pool {{index}}",
+      "removeHint": "Una dismissione è completata: rimuovi il pool dalla riga di comando di ogni nodo e riavviali.",
+      "confirmTitle": "Dismettere il pool {{index}}?",
+      "confirm": "Il pool {{index}} non riceverà nuovi oggetti e ogni oggetto sarà spostato sugli altri pool, che devono avere spazio libero sufficiente. La dismissione può essere annullata mentre è in corso; una volta completata, rimuovi il pool dalla riga di comando di ogni nodo.",
+      "confirmLabel": "Dismetti",
+      "rebalance": "Ribilanciamento",
+      "rebalanceHint": "Sposta oggetti dai pool più pieni a quelli più vuoti, ad esempio dopo l'aggiunta di un pool.",
+      "startRebalance": "Avvia il ribilanciamento",
+      "stopRebalance": "Ferma il ribilanciamento"
     }
   },
   "healing": {

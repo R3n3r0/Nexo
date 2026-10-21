@@ -313,6 +313,18 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   groups named like their groups at the provider, resolved again at each request; a user mapping to no policy is
   refused. The console session of a federated user is backed by such credentials, never handed to the browser.
 
+### Pool decommission and rebalance (S-STO-09, S-STO-10, C-ADM-10, D-CLU-03)
+- `nexoctl admin decommission start|status|cancel` (`admin:Decommission`) drains a pool so that it can be removed
+  from the command line: the pool takes no new objects, versions or multipart uploads, and a job on the leader moves
+  every version of its objects (delete markers included) to the other pools. Each key is copied as stored, read back
+  and compared, committed and verified under its write lock, and only then removed from the pool; a key changed
+  meanwhile or not moved is retried by the next pass. The progress survives restarts and leader changes. The first
+  pool, which holds the system documents, cannot be decommissioned.
+- `nexoctl admin rebalance start|stop|status` (`admin:Rebalance`) moves objects from the pools fuller than the average
+  to the emptier ones.
+- Admin API `GET /pools`, `POST/DELETE /pools/{pool}/decommission`, `POST/DELETE /rebalance`; the console shows the
+  pools, their usage and both jobs on the Cluster page.
+
 ### Transparent compression (opt-in, S-OBJ-14)
 - `compression` configuration subsystem (`enable`, `extensions`, `mime_types`, applied to the next writes): the
   selected unencrypted versions are stored as S2 streams, one per part, with the block index of each part in its
@@ -415,8 +427,8 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
 ### Known limitations
 - Rate limits are per node (no cluster-wide counter) and bound requests, not bandwidth or connections: keep a
   reverse proxy with connection limits in front of public deployments (`deploy/proxy`).
-- Not included (M10): bucket and site replication, pool decommission and rebalance, OIDC and LDAP, tiering, S3
-  Select, compression, ACLs other than `private`, coordinated cluster restart and orchestrated upgrade. The
+- Not included (M10): bucket and site replication, tiering, ACLs other than `private`, coordinated cluster restart
+  and orchestrated upgrade. The
   DNS-01 propagation check does not follow a CNAME delegation of `_acme-challenge` (acme-dns style).
 - O_DIRECT is not used (measured slower on the reference VM, docs/bench §7.2); zero-copy covers single-drive
   downloads over HTTP/1.1 without TLS only.

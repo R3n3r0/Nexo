@@ -2337,6 +2337,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/pools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The server pools, their capacity and their decommission, and the rebalance
+         * @description 501 in single-drive mode.
+         */
+        get: operations["listPools"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pools/{pool}/decommission": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 1-based position of the pool in the command line. */
+                pool: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start the decommission of a pool
+         * @description The pool takes no new object, version or multipart upload; the leader moves every version of its objects to the other pools (copied, read back and compared before the source is removed), pass after pass until a pass finds nothing left and no upload is in progress there. The job resumes after a restart. The pool can then be removed from the command line. The first pool (system documents), the last pool left, or a pool during a rebalance are refused (400).
+         */
+        post: operations["decommissionPool"];
+        /**
+         * Cancel the decommission of a pool
+         * @description The pool takes new objects again; the objects already moved stay where they are.
+         */
+        delete: operations["cancelDecommission"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rebalance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start the rebalance between the pools
+         * @description The pools fuller than the average by more than 5 points give objects to the emptier ones until they are near the average. Refused with a single pool or during a decommission.
+         */
+        post: operations["startRebalance"];
+        /** Stop the rebalance */
+        delete: operations["stopRebalance"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/config/{subsys}": {
         parameters: {
             query?: never;
@@ -3541,6 +3609,60 @@ export interface components {
             bucketsCreated: string[];
             /** @description Entries a replace import removes ("user:<name>", "group:<name>", "policy:<name>"). */
             removed: string[];
+        };
+        PoolJob: {
+            /** @enum {string} */
+            state: "running" | "complete" | "canceled" | "failed";
+            /** Format: date-time */
+            startedAt: string;
+            /** Format: date-time */
+            updatedAt?: string;
+            /** Format: date-time */
+            finishedAt?: string;
+            /** @description Walks over the objects so far. */
+            pass: number;
+            /** @description Source pool of a rebalance (1-based). */
+            pool?: number;
+            /** @description Where the job stands. */
+            bucket?: string;
+            object?: string;
+            /**
+             * Format: int64
+             * @description Objects moved.
+             */
+            objects: number;
+            /** Format: int64 */
+            versions: number;
+            /**
+             * Format: int64
+             * @description Stored bytes moved.
+             */
+            bytes: number;
+            /**
+             * Format: int64
+             * @description Objects not moved in this pass (retried).
+             */
+            failed: number;
+            /** @description Multipart uploads the decommission waits for. */
+            pendingUploads: number;
+            error?: string;
+        };
+        PoolStatus: {
+            /** @description 1-based position in the command line. */
+            index: number;
+            /** @description The command-line arguments of the pool. */
+            id: string;
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            free: number;
+            /** @description The pool takes no new objects. */
+            draining: boolean;
+            decommission?: components["schemas"]["PoolJob"];
+        };
+        Pools: {
+            pools: components["schemas"]["PoolStatus"][];
+            rebalance?: components["schemas"]["PoolJob"];
         };
         Lock: {
             /** @description The locked resource ("bucket/key"). */
@@ -10100,6 +10222,109 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Released. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listPools: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pools. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Pools"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    decommissionPool: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 1-based position of the pool in the command line. */
+                pool: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Started (see GET /pools). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    cancelDecommission: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 1-based position of the pool in the command line. */
+                pool: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Canceled. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    startRebalance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Started (see GET /pools). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    stopRebalance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stopped. */
             204: {
                 headers: {
                     [name: string]: unknown;

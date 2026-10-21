@@ -123,6 +123,14 @@ export type CreatedAccessKey = AccessKey & { secretKey: string };
 export type CreateAccessKeyInput = Schemas['CreateAccessKeyRequest'];
 export type UpdateAccessKeyInput = Schemas['UpdateAccessKeyRequest'];
 
+/* Pool management (GET /pools, /pools/{pool}/decommission, /rebalance). */
+
+/** The pools, their decommission and the rebalance. */
+export type Pools = Schemas['Pools'];
+export type PoolStatus = Schemas['PoolStatus'];
+/** Progress of a decommission or of the rebalance. */
+export type PoolJob = Schemas['PoolJob'];
+
 /* Healing jobs (POST/GET /heal, GET /heal/{id}). */
 
 /** What to heal: no bucket = format and every bucket; recursive = the objects too. */

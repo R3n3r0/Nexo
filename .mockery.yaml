@@ -214,6 +214,7 @@ packages:
       BucketConfigSource:
       HealNotifier:
       Healer:
+      PoolMover:
   github.com/r3n3r0/nexo/internal/service/policy:
     interfaces:
       Service:
@@ -230,6 +231,9 @@ packages:
       Service:
       UsageSource:
   github.com/r3n3r0/nexo/internal/service/ratelimit:
+    interfaces:
+      Service:
+  github.com/r3n3r0/nexo/internal/service/pools:
     interfaces:
       Service:
   github.com/r3n3r0/nexo/internal/service/scanner:

@@ -51,13 +51,18 @@ func (h *streamHeap) Pop() any {
 // merged (newest first). fn stops the walk by returning an error, which
 // walkAll returns; a store whose walk fails makes the whole walk fail.
 func (l *layer) walkAll(ctx context.Context, opts storage.WalkDirOptions, fn func(walkEntry) error) error {
-	if len(l.sets) == 1 {
-		return l.sets[0].WalkVersions(ctx, opts, fn)
+	return walkStores(ctx, l.sets, opts, fn)
+}
+
+// walkStores is walkAll over the given stores.
+func walkStores(ctx context.Context, stores []store, opts storage.WalkDirOptions, fn func(walkEntry) error) error {
+	if len(stores) == 1 {
+		return stores[0].WalkVersions(ctx, opts, fn)
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	streams := make([]*setStream, len(l.sets))
-	for i, st := range l.sets {
+	streams := make([]*setStream, len(stores))
+	for i, st := range stores {
 		s := &setStream{ch: make(chan walkEntry, walkBuffer), errc: make(chan error, 1)}
 		streams[i] = s
 		go func() {

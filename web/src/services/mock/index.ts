@@ -13,6 +13,7 @@ import {
   type MockDistributionOptions,
 } from './distributions';
 import { createMockHealService, type MockHealOptions } from './heal';
+import { createMockPoolsService, type MockPoolsOptions } from './pools';
 import { createMockIam, type MockIamOptions } from './iam';
 import { createMockInfoService, sampleServerInfo, type MockInfoOptions } from './info';
 import { createMockKmsService } from './kms';
@@ -42,6 +43,7 @@ export interface MockServicesOptions
     MockBehaviour,
     MockInfoOptions,
     MockHealOptions,
+    MockPoolsOptions,
     MockBucketOptions,
     MockStorageOptions,
     MockIamOptions,
@@ -114,6 +116,7 @@ export function createMockServices(options: MockServicesOptions = {}): MockServi
     session,
     info: createMockInfoService(ctx, { ...options, info: serverInfo }, storage),
     heal: createMockHealService(ctx, () => serverInfo, options),
+    pools: createMockPoolsService(ctx, () => serverInfo, options),
     buckets: createMockBucketService(storage),
     lifecycle: createMockLifecycleService(storage),
     notifications: createMockNotificationService(storage, options),

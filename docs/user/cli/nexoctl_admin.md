@@ -42,6 +42,7 @@ nexoctl admin [flags]
 * [nexoctl admin audit](nexoctl_admin_audit.md)	 - Search the audit log of the server
 * [nexoctl admin cluster](nexoctl_admin_cluster.md)	 - Export and import the state of a deployment (IAM, policies, configuration, bucket settings)
 * [nexoctl admin config](nexoctl_admin_config.md)	 - Read and change the dynamic configuration of the server
+* [nexoctl admin decommission](nexoctl_admin_decommission.md)	 - Drain a server pool so that it can be removed
 * [nexoctl admin dns-provider](nexoctl_admin_dns-provider.md)	 - Manage the DNS providers of the ACME DNS-01 challenge
 * [nexoctl admin group](nexoctl_admin_group.md)	 - Manage the IAM groups and their members
 * [nexoctl admin heal](nexoctl_admin_heal.md)	 - Heal the drives of the server (erasure-coded deployments)
@@ -55,6 +56,7 @@ nexoctl admin [flags]
 * [nexoctl admin policy](nexoctl_admin_policy.md)	 - Manage the IAM policies (AWS policy language)
 * [nexoctl admin profile](nexoctl_admin_profile.md)	 - Collect a runtime profile (pprof) of the server
 * [nexoctl admin prometheus](nexoctl_admin_prometheus.md)	 - Integrate the metrics of the server with Prometheus
+* [nexoctl admin rebalance](nexoctl_admin_rebalance.md)	 - Move objects from the fullest pools to the emptiest ones
 * [nexoctl admin service](nexoctl_admin_service.md)	 - Restart or stop the server
 * [nexoctl admin speedtest](nexoctl_admin_speedtest.md)	 - Measure the drives, the object layer or the network between the nodes
 * [nexoctl admin trace](nexoctl_admin_trace.md)	 - Show the requests served by the server, live

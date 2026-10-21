@@ -48,6 +48,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/metrics"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
+	poolsvc "github.com/r3n3r0/nexo/internal/service/pools"
 	"github.com/r3n3r0/nexo/internal/service/ratelimit"
 	"github.com/r3n3r0/nexo/internal/service/session"
 	"github.com/r3n3r0/nexo/internal/service/share"
@@ -736,6 +737,8 @@ type adminDeps struct {
 	config   configsvc.Service
 	// locks exposes the namespace locks of the deployment (diagnostics).
 	locks lock.Manager
+	// pools runs the decommission and rebalance (nil in SNSD).
+	pools poolsvc.Service
 	// lifecycle and events back the lifecycle, notification and target
 	// endpoints of the console.
 	lifecycle ilm.Service
@@ -924,7 +927,7 @@ func buildAdminAPI(d adminDeps) (httpx.Routes, error) {
 	if err != nil {
 		return nil, err
 	}
-	clusterRoutes, err := adminhttp.NewClusterRoutes(adminhttp.ClusterDeps{Cluster: svc.cluster, Locks: d.locks, Authz: svc.authz, Enc: d.codec})
+	clusterRoutes, err := adminhttp.NewClusterRoutes(adminhttp.ClusterDeps{Cluster: svc.cluster, Locks: d.locks, Pools: d.pools, Authz: svc.authz, Enc: d.codec})
 	if err != nil {
 		return nil, err
 	}

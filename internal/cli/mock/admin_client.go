@@ -371,6 +371,53 @@ func (_c *AdminClient_CacheStats_Call) RunAndReturn(run func(context.Context, ne
 	return _c
 }
 
+// CancelDecommission provides a mock function with given fields: ctx, pool
+func (_m *AdminClient) CancelDecommission(ctx context.Context, pool int) error {
+	ret := _m.Called(ctx, pool)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CancelDecommission")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, int) error); ok {
+		r0 = rf(ctx, pool)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_CancelDecommission_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CancelDecommission'
+type AdminClient_CancelDecommission_Call struct {
+	*mock.Call
+}
+
+// CancelDecommission is a helper method to define mock.On call
+//   - ctx context.Context
+//   - pool int
+func (_e *AdminClient_Expecter) CancelDecommission(ctx interface{}, pool interface{}) *AdminClient_CancelDecommission_Call {
+	return &AdminClient_CancelDecommission_Call{Call: _e.mock.On("CancelDecommission", ctx, pool)}
+}
+
+func (_c *AdminClient_CancelDecommission_Call) Run(run func(ctx context.Context, pool int)) *AdminClient_CancelDecommission_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int))
+	})
+	return _c
+}
+
+func (_c *AdminClient_CancelDecommission_Call) Return(_a0 error) *AdminClient_CancelDecommission_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_CancelDecommission_Call) RunAndReturn(run func(context.Context, int) error) *AdminClient_CancelDecommission_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CompactMetadataLog provides a mock function with given fields: ctx
 func (_m *AdminClient) CompactMetadataLog(ctx context.Context) (*nexoadmin.MetadataLogCompaction, error) {
 	ret := _m.Called(ctx)
@@ -1132,6 +1179,53 @@ func (_c *AdminClient_DataUsage_Call) Return(_a0 *nexoadmin.DataUsage, _a1 error
 }
 
 func (_c *AdminClient_DataUsage_Call) RunAndReturn(run func(context.Context) (*nexoadmin.DataUsage, error)) *AdminClient_DataUsage_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DecommissionPool provides a mock function with given fields: ctx, pool
+func (_m *AdminClient) DecommissionPool(ctx context.Context, pool int) error {
+	ret := _m.Called(ctx, pool)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DecommissionPool")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, int) error); ok {
+		r0 = rf(ctx, pool)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_DecommissionPool_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DecommissionPool'
+type AdminClient_DecommissionPool_Call struct {
+	*mock.Call
+}
+
+// DecommissionPool is a helper method to define mock.On call
+//   - ctx context.Context
+//   - pool int
+func (_e *AdminClient_Expecter) DecommissionPool(ctx interface{}, pool interface{}) *AdminClient_DecommissionPool_Call {
+	return &AdminClient_DecommissionPool_Call{Call: _e.mock.On("DecommissionPool", ctx, pool)}
+}
+
+func (_c *AdminClient_DecommissionPool_Call) Run(run func(ctx context.Context, pool int)) *AdminClient_DecommissionPool_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int))
+	})
+	return _c
+}
+
+func (_c *AdminClient_DecommissionPool_Call) Return(_a0 error) *AdminClient_DecommissionPool_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_DecommissionPool_Call) RunAndReturn(run func(context.Context, int) error) *AdminClient_DecommissionPool_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -4907,6 +5001,64 @@ func (_c *AdminClient_ListPolicies_Call) RunAndReturn(run func(context.Context, 
 	return _c
 }
 
+// ListPools provides a mock function with given fields: ctx
+func (_m *AdminClient) ListPools(ctx context.Context) (*nexoadmin.Pools, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListPools")
+	}
+
+	var r0 *nexoadmin.Pools
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (*nexoadmin.Pools, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) *nexoadmin.Pools); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.Pools)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_ListPools_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListPools'
+type AdminClient_ListPools_Call struct {
+	*mock.Call
+}
+
+// ListPools is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) ListPools(ctx interface{}) *AdminClient_ListPools_Call {
+	return &AdminClient_ListPools_Call{Call: _e.mock.On("ListPools", ctx)}
+}
+
+func (_c *AdminClient_ListPools_Call) Run(run func(ctx context.Context)) *AdminClient_ListPools_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_ListPools_Call) Return(_a0 *nexoadmin.Pools, _a1 error) *AdminClient_ListPools_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_ListPools_Call) RunAndReturn(run func(context.Context) (*nexoadmin.Pools, error)) *AdminClient_ListPools_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListShares provides a mock function with given fields: ctx, opts
 func (_m *AdminClient) ListShares(ctx context.Context, opts nexoadmin.ListSharesOptions) (*nexoadmin.ShareList, error) {
 	ret := _m.Called(ctx, opts)
@@ -6591,6 +6743,98 @@ func (_c *AdminClient_Speedtest_Call) Return(_a0 *nexoadmin.SpeedtestResult, _a1
 }
 
 func (_c *AdminClient_Speedtest_Call) RunAndReturn(run func(context.Context, string, nexoadmin.SpeedtestRequest) (*nexoadmin.SpeedtestResult, error)) *AdminClient_Speedtest_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// StartRebalance provides a mock function with given fields: ctx
+func (_m *AdminClient) StartRebalance(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StartRebalance")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_StartRebalance_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StartRebalance'
+type AdminClient_StartRebalance_Call struct {
+	*mock.Call
+}
+
+// StartRebalance is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) StartRebalance(ctx interface{}) *AdminClient_StartRebalance_Call {
+	return &AdminClient_StartRebalance_Call{Call: _e.mock.On("StartRebalance", ctx)}
+}
+
+func (_c *AdminClient_StartRebalance_Call) Run(run func(ctx context.Context)) *AdminClient_StartRebalance_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_StartRebalance_Call) Return(_a0 error) *AdminClient_StartRebalance_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_StartRebalance_Call) RunAndReturn(run func(context.Context) error) *AdminClient_StartRebalance_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// StopRebalance provides a mock function with given fields: ctx
+func (_m *AdminClient) StopRebalance(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StopRebalance")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_StopRebalance_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StopRebalance'
+type AdminClient_StopRebalance_Call struct {
+	*mock.Call
+}
+
+// StopRebalance is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) StopRebalance(ctx interface{}) *AdminClient_StopRebalance_Call {
+	return &AdminClient_StopRebalance_Call{Call: _e.mock.On("StopRebalance", ctx)}
+}
+
+func (_c *AdminClient_StopRebalance_Call) Run(run func(ctx context.Context)) *AdminClient_StopRebalance_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_StopRebalance_Call) Return(_a0 error) *AdminClient_StopRebalance_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_StopRebalance_Call) RunAndReturn(run func(context.Context) error) *AdminClient_StopRebalance_Call {
 	_c.Call.Return(run)
 	return _c
 }
