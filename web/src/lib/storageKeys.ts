@@ -24,6 +24,11 @@ export const storageKeys = {
   /** Processing state of a video by the media worker. */
   mediaStatus: (bucket: string, key: string, versionId?: string) =>
     ['objects', bucket, 'media', key, versionId ?? ''] as const,
+  /** Subtitle tracks of a video, and the cues of one. */
+  subtitles: (bucket: string, key: string, versionId?: string) =>
+    ['objects', bucket, 'subtitles', key, versionId ?? ''] as const,
+  subtitleCues: (bucket: string, key: string, lang: string, versionId?: string) =>
+    ['objects', bucket, 'subtitles', key, versionId ?? '', lang] as const,
   /** Notification targets with their state (GET /notify/targets). */
   notifyTargets: ['notify', 'targets'] as const,
   kmsStatus: ['kms', 'status'] as const,

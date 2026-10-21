@@ -100,6 +100,10 @@ import type {
   ListObjectsQuery,
   MediaConfiguration,
   MediaReprocessRequest,
+  SubtitleCue,
+  SubtitleCues,
+  SubtitleFormat,
+  SubtitleTrack,
   MediaStatus,
   NotifyTarget,
   NotifyTargetTest,
@@ -288,6 +292,46 @@ export interface MediaService {
   reprocess(bucket: string, request: MediaReprocessRequest): Promise<void>;
   /** The processing state of a version of a video (state none when never processed). */
   status(bucket: string, key: string, versionId?: string): Promise<MediaStatus>;
+  /**
+   * The subtitle tracks of a video that apply to its content: the manual
+   * ones and the automatic ones the worker derived from this content.
+   */
+  subtitles(bucket: string, key: string, versionId?: string): Promise<SubtitleTrack[]>;
+  /** A track and its cues; 404 when the video has no current track of that language. */
+  subtitleCues(
+    bucket: string,
+    key: string,
+    lang: string,
+    versionId?: string,
+  ): Promise<SubtitleCues>;
+  /**
+   * Stores cues as the manual track of a language (replacing an automatic
+   * one, which the worker then leaves alone); resolves to the track.
+   */
+  putSubtitleCues(
+    bucket: string,
+    key: string,
+    lang: string,
+    cues: SubtitleCue[],
+    versionId?: string,
+  ): Promise<SubtitleTrack>;
+  /** Stores a WebVTT or SubRip document as the manual track of a language. */
+  uploadSubtitles(
+    bucket: string,
+    key: string,
+    lang: string,
+    document: string,
+    versionId?: string,
+  ): Promise<SubtitleTrack>;
+  deleteSubtitles(bucket: string, key: string, lang: string, versionId?: string): Promise<void>;
+  /** URL downloading a track as WebVTT or SubRip (the browser follows it with the session). */
+  subtitleDownloadUrl(
+    bucket: string,
+    key: string,
+    lang: string,
+    format: SubtitleFormat,
+    versionId?: string,
+  ): string;
 }
 
 /** KMS of the server-side encryption (/kms). */

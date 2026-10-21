@@ -142,3 +142,25 @@ func TestFetchCommand(t *testing.T) {
 	require.Error(t, err, "a download that is not the library")
 	assert.NoFileExists(t, filepath.Join(dir, name))
 }
+
+func TestSpeechServices(t *testing.T) {
+	tr, tl, err := speechServices(options{})
+	require.NoError(t, err)
+	assert.Nil(t, tr)
+	assert.Nil(t, tl)
+
+	tr, tl, err = speechServices(options{transcribeURL: "http://whisper:8080/inference", transcribeModel: "large-v3",
+		translateURL: "http://lt:5000/translate", translateEngine: "libretranslate"})
+	require.NoError(t, err)
+	assert.Equal(t, "openai:large-v3", tr.Engine())
+	assert.Equal(t, "libretranslate", tl.Engine())
+
+	_, tl, err = speechServices(options{translateURL: "https://api.example/v1/chat/completions", translateEngine: "chat", translateModel: "m"})
+	require.NoError(t, err)
+	assert.Equal(t, "chat:m", tl.Engine())
+
+	_, _, err = speechServices(options{translateURL: "http://x", translateEngine: "deepl"})
+	require.ErrorContains(t, err, "--translate-engine")
+	_, _, err = speechServices(options{transcribeURL: "whisper:8080"})
+	require.ErrorContains(t, err, "--transcribe-url")
+}

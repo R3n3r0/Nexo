@@ -481,8 +481,17 @@ mediaWorker:
     # -- Port of the jobs endpoint (POST /jobs, GET /healthz).
     port: 9600
     annotations: {}
-  # -- Extra environment variables of the worker (any NEXO_WORKER_* setting).
+  # -- Extra environment variables of the worker (any NEXO_WORKER_* setting),
+  # such as the speech services of the automatic subtitles
+  # (docs/user/media-worker.md#subtitles).
   extraEnv: []
+  #  - name: NEXO_WORKER_TRANSCRIBE_URL
+  #    value: http://whisper:8080/inference
+  #  - name: NEXO_WORKER_TRANSLATE_URL
+  #    value: http://libretranslate:5000/translate
+  #  - name: NEXO_WORKER_TRANSCRIBE_KEY
+  #    valueFrom:
+  #      secretKeyRef: {name: speech-keys, key: transcribe}
   extraVolumes: []
   extraVolumeMounts: []
   # -- Seconds granted to a stopping worker (the running jobs stay queued).

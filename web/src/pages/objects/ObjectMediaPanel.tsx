@@ -33,6 +33,8 @@ import { problemMessage } from '@/lib/problem';
 import { storageKeys } from '@/lib/storageKeys';
 import { useServices, type MediaImageOutput, type MediaState } from '@/services';
 
+import { SubtitlesPanel } from './SubtitlesPanel';
+
 /** How often the state of a video being processed is polled. */
 const processingPollMs = 5_000;
 
@@ -446,6 +448,16 @@ export function ObjectMediaPanel({
             radius="sm"
           />
         </Stack>
+      ) : null}
+
+      {!isImage ? (
+        <SubtitlesPanel
+          bucket={bucket}
+          objectKey={objectKey}
+          versionId={versionId}
+          perms={perms}
+          automaticError={status.subtitlesError}
+        />
       ) : null}
     </Stack>
   );

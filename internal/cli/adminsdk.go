@@ -745,6 +745,29 @@ func (c *adminClient) GetMediaStatus(ctx context.Context, bucket, key, versionID
 	return mapped(c, v, err)
 }
 
+// ListSubtitles implements AdminClient.
+func (c *adminClient) ListSubtitles(ctx context.Context, bucket, key, versionID string) ([]nexoadmin.SubtitleTrack, error) {
+	v, err := c.api.ListSubtitles(ctx, bucket, key, versionID)
+	return mapped(c, v, err)
+}
+
+// ExportSubtitles implements AdminClient.
+func (c *adminClient) ExportSubtitles(ctx context.Context, bucket, key, versionID, lang, format string) ([]byte, error) {
+	v, err := c.api.ExportSubtitles(ctx, bucket, key, versionID, lang, format)
+	return mapped(c, v, err)
+}
+
+// ImportSubtitles implements AdminClient.
+func (c *adminClient) ImportSubtitles(ctx context.Context, bucket, key, versionID, lang string, doc []byte) (*nexoadmin.SubtitleTrack, error) {
+	v, err := c.api.ImportSubtitles(ctx, bucket, key, versionID, lang, doc)
+	return mapped(c, v, err)
+}
+
+// DeleteSubtitles implements AdminClient.
+func (c *adminClient) DeleteSubtitles(ctx context.Context, bucket, key, versionID, lang string) error {
+	return MapAdminError(c.api.DeleteSubtitles(ctx, bucket, key, versionID, lang), c.endpoint)
+}
+
 // ListNotifyTargets implements AdminClient.
 func (c *adminClient) ListNotifyTargets(ctx context.Context) ([]nexoadmin.NotifyTarget, error) {
 	v, err := c.api.ListNotifyTargets(ctx)

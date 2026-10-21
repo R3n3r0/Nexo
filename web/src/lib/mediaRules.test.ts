@@ -13,6 +13,30 @@ import {
 import type { MediaImageFormat, MediaRule } from '@/services';
 
 describe('media rules', () => {
+  it('validates and normalizes the automatic subtitles of a rule', () => {
+    const rule: MediaRule = {
+      id: 'talks',
+      subtitles: { source: 'IT', languages: ['en', 'pt-br', 'en'] },
+    };
+    expect(validateMediaRule(rule)).toEqual([]);
+    expect(normalizeMediaRule(rule).subtitles).toEqual({
+      source: 'it',
+      languages: ['en', 'pt-BR'],
+    });
+    expect(normalizeMediaRule({ id: 'x', subtitles: {} }).subtitles).toEqual({});
+    const bad: MediaRule = { id: 'x', subtitles: { languages: ['en', '!!'] } };
+    expect(validateMediaRule(bad)).toEqual(['subtitleLanguage']);
+    expect(mediaRuleIssueMessage(bad, 'subtitleLanguage')).toBe('invalid language tag "!!"');
+    const many: MediaRule = {
+      id: 'x',
+      subtitles: { languages: Array.from({ length: 21 }, (_, i) => `en-${String(100 + i)}`) },
+    };
+    expect(validateMediaRule(many)).toEqual(['subtitleLanguages']);
+    expect(validateMediaRule({ id: 'img', images: {}, subtitles: {} })).toEqual([
+      'imageVideoOutputs',
+    ]);
+  });
+
   it('parses and formats Go durations', () => {
     expect(parseGoDuration('10s')).toBe(10);
     expect(parseGoDuration('1m30s')).toBe(90);
@@ -90,7 +114,7 @@ describe('media rules', () => {
     const mixed: MediaRule = { id: 'img', poster: true, images: {} };
     expect(validateMediaRule(mixed)).toEqual(['imageVideoOutputs']);
     expect(mediaRuleIssueMessage(mixed, 'imageVideoOutputs')).toBe(
-      'an image rule has no renditions, poster or thumbnails',
+      'an image rule has no renditions, poster, thumbnails or subtitles',
     );
   });
 

@@ -55,6 +55,26 @@ type Service interface {
 	// content, or none in the format req names; domain.ErrInvalidArgument
 	// for an unknown format or a malformed width.
 	Image(ctx context.Context, src Source, req ImageRequest) (*Image, error)
+	// Subtitles returns the subtitle tracks of the version of src that
+	// apply to its content: the manual ones, and the automatic ones the
+	// media worker derived from the current content.
+	Subtitles(ctx context.Context, src Source) ([]domain.MediaSubtitleTrack, error)
+	// SubtitlePlaylist returns the HLS media playlist of the subtitles of
+	// a language: one WebVTT segment spanning the video.
+	SubtitlePlaylist(ctx context.Context, src Source, lang string, links Links) ([]byte, error)
+	// SubtitleFile returns the WebVTT of the subtitles of a language, as
+	// a segment of SubtitlePlaylist (anchored with an X-TIMESTAMP-MAP).
+	SubtitleFile(ctx context.Context, src Source, lang string) ([]byte, error)
+	// SubtitleCues returns the track and the cues of a language:
+	// domain.ErrNotFound when the version has no current track of it.
+	SubtitleCues(ctx context.Context, src Source, lang string) (domain.MediaSubtitleTrack, []domain.SubtitleCue, error)
+	// PutSubtitles stores the cues of a language as a manual track of the
+	// version of src (replacing an automatic one, which the media worker
+	// then leaves alone); by names who wrote them.
+	PutSubtitles(ctx context.Context, src Source, lang string, cues []domain.SubtitleCue, by string) (domain.MediaSubtitleTrack, error)
+	// DeleteSubtitles removes the track of a language: domain.ErrNotFound
+	// when there is none.
+	DeleteSubtitles(ctx context.Context, src Source, lang string) error
 }
 
 // ImageFormatAuto is the format of an ImageRequest that negotiates the
@@ -144,6 +164,10 @@ type Links interface {
 	// Rendition is the URI of the media playlist of a rendition of the
 	// media worker, rev being the ETag of the rendition.
 	Rendition(name, rev string) string
+	// Subtitles is the URI of the subtitle playlist of a language.
+	Subtitles(lang string) string
+	// SubtitleFile is the URI of the WebVTT of a language.
+	SubtitleFile(lang string) string
 }
 
 // Presentation describes the HLS presentation of an object.

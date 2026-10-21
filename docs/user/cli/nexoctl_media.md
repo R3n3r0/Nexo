@@ -62,4 +62,5 @@ nexoctl media [flags]
 * [nexoctl media rule](nexoctl_media_rule.md)	 - Add or remove one media rule of a bucket
 * [nexoctl media set](nexoctl_media_set.md)	 - Replace the media rules of a bucket (JSON)
 * [nexoctl media status](nexoctl_media_status.md)	 - Show the processing state of a video or an image by the media worker
+* [nexoctl media subtitles](nexoctl_media_subtitles.md)	 - List, download, upload or remove the subtitle tracks of a video
 

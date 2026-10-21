@@ -183,6 +183,69 @@ very large image: the other formats serve it), so a large image cannot make it r
 A larger or undecodable image fails for good (`nexoctl media status` gives the reason); its source is never
 modified.
 
+## Subtitles
+
+A video rule with `subtitles` makes the worker transcribe the speech of the videos it selects and translate the
+transcription. The tracks play as captions in the console, the [player page](video-streaming.md#stream-links)
+and every HLS player of the [distributions](distributions/README.md#video-streaming-on-your-domain): the master
+playlist lists them as an `EXT-X-MEDIA` subtitle group, one WebVTT per language.
+
+```json
+{"rules": [{"id": "talks", "prefix": "talks/", "renditions": ["720p"],
+            "subtitles": {"source": "it", "languages": ["en", "de"]}}]}
+```
+
+`source` is the spoken language (BCP 47: `it`, `en`, `pt-BR`...); without it the transcription service detects
+it. `languages` are the translations (at most 20). With the CLI: `nexoctl media rule add local/videos --id talks
+--prefix talks/ --subtitles=it --translate en,de` (`--subtitles` alone detects the language).
+
+Nothing runs in the worker itself: it sends the audio to services named by URL.
+
+- **Transcription** (`--transcribe-url`): any OpenAI-compatible endpoint answering `verbose_json` with timed
+  segments: the OpenAI API (`https://api.openai.com/v1/audio/transcriptions`), a
+  [whisper.cpp](https://github.com/ggml-org/whisper.cpp) server (`http://whisper:8080/inference`),
+  faster-whisper-server or LocalAI. The worker copies the audio track of the video into M4A parts of at most 10
+  minutes and 24 MB (no decoding, no ffmpeg) and sends them one by one.
+- **Translation** (`--translate-url`): a [LibreTranslate](https://libretranslate.com) server
+  (`http://libretranslate:5000/translate`, the default engine) or, with `--translate-engine chat` and
+  `--translate-model`, an OpenAI-compatible chat completion endpoint (OpenAI, Ollama, vLLM...): the lines go by
+  batches of 40 and must come back as many.
+
+A fully self-hosted setup, with Docker:
+
+```console
+$ docker run -d --name whisper -p 8080:8080 ghcr.io/ggml-org/whisper.cpp:main-server \
+    --model /models/ggml-small.bin --host 0.0.0.0
+$ docker run -d --name libretranslate -p 5000:5000 libretranslate/libretranslate
+$ export NEXO_WORKER_TRANSCRIBE_URL=http://whisper:8080/inference
+$ export NEXO_WORKER_TRANSLATE_URL=http://libretranslate:5000/translate
+```
+
+The tracks are kept in the sidecar of the version, `subtitles/manifest.json` describing them:
+
+- An **automatic** track (`subtitles/auto/<lang>.vtt`) applies to the content it was made from: once the video
+  is overwritten it is no longer served, until the worker runs again. A later run reuses the transcription of
+  the same content instead of paying for it again, and removes the tracks of the languages the rule no longer
+  asks for.
+- A **manual** track (`subtitles/<lang>.vtt`), uploaded or edited in the console (*Media* tab of the object,
+  *Subtitles*), with `nexoctl media subtitles put` or the [Admin API](reference/admin-api.md), always applies.
+  The worker never writes it, not even when a user uploads it while a transcription runs (the automatic files
+  live apart and the manifest is updated conditionally): a manual track of the spoken language is used as the
+  source of the translations instead of the transcription.
+
+A failed transcription or translation does not fail the job: the renditions, the poster and the thumbnails are
+served, and `nexoctl media status` (or the console) shows why the subtitles failed; `nexoctl media reprocess`
+tries again. The worker sends the audio and the text of the videos to these services: choose self-hosted ones
+for private content.
+
+```console
+$ nexoctl media subtitles ls local/videos/talks/intro.mp4
+de       Deutsch            412 cues      38.1KiB  translated from it         2026-10-21 18:02:11 UTC
+it       Italiano           412 cues      36.4KiB  manual (alice)             2026-10-21 18:10:45 UTC
+$ nexoctl media subtitles get --format srt local/videos/talks/intro.mp4 de > intro.de.srt
+$ nexoctl media subtitles put local/videos/talks/intro.mp4 en intro.en.vtt
+```
+
 ## Setup
 
 The four steps below set up a worker by hand, anywhere. With Docker Compose, Docker Swarm and Helm the
@@ -259,6 +322,10 @@ $ docker run -d --name nexo-media-worker -p 9600:9600 -v media-worker:/data \
 | `--s3-region` | `NEXO_WORKER_S3_REGION` | `us-east-1` | region of the signatures |
 | `--name` | `NEXO_WORKER_NAME` | host name | name of the worker in `status.json` |
 | `--log-level`, `--log-format` | `NEXO_WORKER_LOG_LEVEL`, `NEXO_WORKER_LOG_FORMAT` | `info`, `text` | logs (`json` for collectors) |
+| `--transcribe-url` | `NEXO_WORKER_TRANSCRIBE_URL` | | OpenAI-compatible transcription endpoint of the [automatic subtitles](#subtitles) |
+| `--transcribe-key`, `--transcribe-model` | `NEXO_WORKER_TRANSCRIBE_KEY`, `NEXO_WORKER_TRANSCRIBE_MODEL` | `whisper-1` | its API key (also from `NEXO_WORKER_TRANSCRIBE_KEY_FILE`) and model |
+| `--translate-url`, `--translate-engine` | `NEXO_WORKER_TRANSLATE_URL`, `NEXO_WORKER_TRANSLATE_ENGINE` | `libretranslate` | translation endpoint: LibreTranslate or `chat` (OpenAI-compatible chat completions) |
+| `--translate-key`, `--translate-model` | `NEXO_WORKER_TRANSLATE_KEY`, `NEXO_WORKER_TRANSLATE_MODEL` | | its API key (also from `NEXO_WORKER_TRANSLATE_KEY_FILE`) and chat model |
 
 `nexo-media-worker healthcheck` probes a running worker (the `HEALTHCHECK` of the image). The data
 directory needs room for the video being processed and its renditions.

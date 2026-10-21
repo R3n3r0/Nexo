@@ -73,7 +73,7 @@ func TestMediaSetImageRules(t *testing.T) {
 	assert.Equal(t, admin.RuleProblem{Rule: 1, ID: "gif", Code: "InvalidArgument",
 		Message: `unknown image format "gif" (one of avif, webp, jpeg, png)`}, cerr.Problems[0])
 	assert.Equal(t, "the image widths must be from 16 to 8192 pixels, not 8", cerr.Problems[1].Message)
-	assert.Equal(t, "an image rule has no renditions, poster or thumbnails", cerr.Problems[2].Message)
+	assert.Equal(t, "an image rule has no renditions, poster, thumbnails or subtitles", cerr.Problems[2].Message)
 	assert.Contains(t, err.Error(), `rule 1 (gif): unknown image format "gif"`)
 
 	stored := domain.MediaConfig{Rules: []domain.MediaRule{{ID: "pics", Suffixes: domain.DefaultImageSuffixes(),

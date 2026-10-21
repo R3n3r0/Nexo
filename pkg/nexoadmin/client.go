@@ -109,6 +109,18 @@ type AdminClient interface {
 	// (state "none" when the media worker never processed it; versionID ""
 	// is the latest version; s3:GetObject).
 	GetMediaStatus(ctx context.Context, bucket, key, versionID string) (*MediaStatus, error)
+	// ListSubtitles returns the subtitle tracks of a video that apply to
+	// its content; GetSubtitles a track and its cues, ExportSubtitles the
+	// document of a track (format vtt or srt); PutSubtitles stores a
+	// manual track from cues, ImportSubtitles from a WebVTT or SubRip
+	// document; DeleteSubtitles removes a track (nexo:GetMediaStream or
+	// s3:GetObject to read, s3:PutObject to write).
+	ListSubtitles(ctx context.Context, bucket, key, versionID string) ([]SubtitleTrack, error)
+	GetSubtitles(ctx context.Context, bucket, key, versionID, lang string) (*SubtitleCues, error)
+	ExportSubtitles(ctx context.Context, bucket, key, versionID, lang, format string) ([]byte, error)
+	PutSubtitles(ctx context.Context, bucket, key, versionID, lang string, cues []SubtitleCue) (*SubtitleTrack, error)
+	ImportSubtitles(ctx context.Context, bucket, key, versionID, lang string, doc []byte) (*SubtitleTrack, error)
+	DeleteSubtitles(ctx context.Context, bucket, key, versionID, lang string) error
 
 	// Notification targets (admin:ConfigUpdate): their delivery state on
 	// the answering node and a test event. target is "<id>:<type>" or the

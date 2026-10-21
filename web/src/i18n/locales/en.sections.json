@@ -1743,11 +1743,13 @@
       "prefixReserved": "The prefix .nexo-media/ is reserved for the outputs.",
       "suffix": "Each suffix must have 1-32 characters.",
       "interval": "A duration from 1s to 10m, such as 10s.",
-      "nothing": "Choose at least one output: renditions, poster or thumbnails.",
-      "imageVideoOutputs": "An image rule has no renditions, poster or thumbnails.",
+      "nothing": "Choose at least one output: renditions, poster, thumbnails or subtitles.",
+      "imageVideoOutputs": "An image rule has no renditions, poster, thumbnails or subtitles.",
       "imageFormat": "Unknown format: choose among AVIF, WebP, JPEG and PNG.",
       "imageWidth": "Each width must be a whole number of pixels from 16 to 8192.",
-      "imageWidths": "At most 16 widths."
+      "imageWidths": "At most 16 widths.",
+      "subtitleLanguage": "Not a language tag (it, en, pt-BR...).",
+      "subtitleLanguages": "At most 20 translations."
     },
     "kind": "Kind of rule",
     "kinds": {
@@ -1758,7 +1760,16 @@
     "formatsHint": "The formats of the variants; all of them when empty. Image links serve the most compact one each browser accepts.",
     "widths": "Widths",
     "widthsHint": "Pixel widths from 16 to 8192, at most 16; {{widths}} when empty. Widths not smaller than the image are skipped, and every format also gets the image at its own size. Press Enter after each one.",
-    "widthsBadge": "{{widths}} px"
+    "widthsBadge": "{{widths}} px",
+    "subtitles": "Automatic subtitles",
+    "subtitlesHint": "The media worker transcribes the speech (a transcription service such as whisper.cpp) and translates it. Manual tracks uploaded in the object drawer are never overwritten.",
+    "spoken": "Spoken language",
+    "spokenHint": "A BCP 47 tag (it, en...); empty detects it.",
+    "spokenPlaceholder": "detected",
+    "translations": "Translations",
+    "translationsHint": "Languages to translate the transcription in (a translation service is needed), at most 20. Press Enter after each one.",
+    "subtitlesBadge": "Subtitles {{languages}}",
+    "detected": "auto"
   },
   "objectMedia": {
     "state": {
@@ -1804,5 +1815,54 @@
     "copyVariant": "Copy the URL of the {{format}} variant {{resolution}}",
     "variantAlt": "{{format}} variant of {{name}}, {{resolution}}",
     "variantsHint": "These URLs need a console session: to give the image to others, share it with an image link."
+  },
+  "subtitles": {
+    "title": "Subtitles",
+    "none": "No subtitles. Upload a WebVTT or SubRip file, or add \"subtitles\" to the media rule to transcribe the speech.",
+    "hint": "The subtitles play as captions in the console, the player page and every HLS player of the distributions.",
+    "upload": "Upload subtitles",
+    "uploadAction": "Upload",
+    "uploaded": "{{name}} subtitles uploaded ({{n}} cues).",
+    "language": "Language",
+    "languageHint": "A BCP 47 tag: it, en, pt-BR...",
+    "invalidLanguage": "Not a language tag.",
+    "file": "File",
+    "fileHint": "WebVTT (.vtt) or SubRip (.srt), at most 2 MiB. It replaces the track of that language.",
+    "tooLarge": "The file is larger than 2 MiB.",
+    "origin": "Origin",
+    "manual": "Manual",
+    "transcribed": "Automatic: transcribed",
+    "translated": "Automatic: translated from {{from}}",
+    "cues": "Cues",
+    "updated": "Updated",
+    "editTrack": "Edit the {{name}} subtitles",
+    "download": "Download the {{name}} subtitles",
+    "remove": "Remove the {{name}} subtitles",
+    "removeTitle": "Remove subtitles",
+    "removeManual": "Remove the {{name}} subtitles? The track cannot be recovered unless the bucket keeps versions.",
+    "removeAutomatic": "Remove the automatic {{name}} subtitles? They come back when the video is processed again.",
+    "format": {
+      "vtt": "WebVTT (.vtt)",
+      "srt": "SubRip (.srt)"
+    },
+    "automaticFailed": "The automatic subtitles failed",
+    "edit": "Edit subtitles",
+    "editTitle": "{{name}} subtitles ({{lang}})",
+    "editAutomatic": "This track was made by the media worker: once saved it becomes a manual track, which the worker never overwrites.",
+    "start": "Start",
+    "end": "End",
+    "text": "Text",
+    "startOf": "Start of cue {{n}}",
+    "endOf": "End of cue {{n}}",
+    "textOf": "Text of cue {{n}}",
+    "removeCue": "Remove cue {{n}}",
+    "addCue": "Add a cue",
+    "timeHint": "Times as hh:mm:ss.mmm",
+    "problem": {
+      "time": "A time is not hh:mm:ss.mmm.",
+      "order": "The cue must end after it starts.",
+      "text": "The cue has no text.",
+      "long": "The text is longer than 2048 bytes."
+    }
   }
 }

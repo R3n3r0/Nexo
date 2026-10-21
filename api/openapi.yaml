@@ -1363,6 +1363,46 @@ paths:
             "text/vtt":
               schema: { type: string }
         default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/hls/subtitles.m3u8:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+      - { $ref: "#/components/parameters/versionId" }
+      - { $ref: "#/components/parameters/subtitleLang" }
+    get:
+      tags: [objects]
+      operationId: mediaSubtitlePlaylist
+      summary: HLS playlist of the subtitles of a language
+      description: |
+        A subtitle rendition of the master playlist (`EXT-X-MEDIA TYPE=SUBTITLES`): one WebVTT
+        segment spanning the video. 404 when the video has no current track of that language.
+      x-nexo-actions: ["nexo:GetMediaStream", "s3:GetObject", "s3:GetObjectVersion"]
+      responses:
+        "200":
+          description: The playlist.
+          content:
+            "application/vnd.apple.mpegurl":
+              schema: { type: string }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/hls/subtitles.vtt:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+      - { $ref: "#/components/parameters/versionId" }
+      - { $ref: "#/components/parameters/subtitleLang" }
+    get:
+      tags: [objects]
+      operationId: mediaSubtitleFile
+      summary: WebVTT of the subtitles of a language
+      description: The segment of the subtitle playlist, anchored with `X-TIMESTAMP-MAP` at the start of the video.
+      x-nexo-actions: ["nexo:GetMediaStream", "s3:GetObject", "s3:GetObjectVersion"]
+      responses:
+        "200":
+          description: The WebVTT.
+          content:
+            "text/vtt":
+              schema: { type: string }
+        default: { $ref: "#/components/responses/Problem" }
   /buckets/{bucket}/objects/image:
     parameters:
       - { $ref: "#/components/parameters/bucket" }
@@ -1453,6 +1493,94 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/MediaStatus" }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/subtitles:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+      - { $ref: "#/components/parameters/versionId" }
+    get:
+      tags: [objects]
+      operationId: listSubtitles
+      summary: Subtitle tracks of a video
+      description: |
+        The tracks that apply to the current content of the version: the manual ones (uploaded or
+        edited) and the automatic ones the media worker transcribed or translated from this
+        content. The master playlist lists the same tracks.
+      x-nexo-actions: ["nexo:GetMediaStream", "s3:GetObject", "s3:GetObjectVersion"]
+      responses:
+        "200":
+          description: The tracks, by language.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Subtitles" }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/subtitles/{lang}:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+      - { $ref: "#/components/parameters/versionId" }
+      - name: lang
+        in: path
+        required: true
+        description: BCP 47 language tag (it, en, pt-BR...).
+        schema: { type: string }
+    get:
+      tags: [objects]
+      operationId: getSubtitles
+      summary: Cues of a subtitle track
+      description: The track and its cues; `format=vtt` or `format=srt` downloads the document instead.
+      x-nexo-actions: ["nexo:GetMediaStream", "s3:GetObject", "s3:GetObjectVersion"]
+      parameters:
+        - name: format
+          in: query
+          required: false
+          schema: { type: string, enum: [json, vtt, srt], default: json }
+      responses:
+        "200":
+          description: The track.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SubtitleCues" }
+            "text/vtt":
+              schema: { type: string }
+            "application/x-subrip":
+              schema: { type: string }
+        default: { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [objects]
+      operationId: putSubtitles
+      summary: Upload or edit a subtitle track
+      description: |
+        Stores the cues as a manual track of the version, replacing the track of that language (an
+        automatic one too: the media worker then leaves it alone). The body is a JSON list of cues,
+        or a WebVTT or SubRip document (any other content type, at most 2 MiB). The text of the
+        cues is sanitized: only the WebVTT tags b, i, u, c, v, lang and ruby are kept.
+      x-nexo-actions: ["s3:PutObject"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SubtitleCuesRequest" }
+          "text/vtt":
+            schema: { type: string }
+          "application/x-subrip":
+            schema: { type: string }
+      responses:
+        "200":
+          description: The stored track.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SubtitleTrack" }
+        default: { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [objects]
+      operationId: deleteSubtitles
+      summary: Remove a subtitle track
+      description: An automatic track comes back when the media worker processes the video again.
+      x-nexo-actions: ["s3:PutObject"]
+      responses:
+        "204": { description: Removed. }
         default: { $ref: "#/components/responses/Problem" }
   /buckets/{bucket}/objects/download-zip:
     parameters:
@@ -3951,6 +4079,12 @@ components:
       required: true
       description: Object key.
       schema: { type: string }
+    subtitleLang:
+      name: lang
+      in: query
+      required: true
+      description: BCP 47 language tag of the track (it, en, pt-BR...).
+      schema: { type: string }
     versionId:
       name: versionId
       in: query
@@ -5751,6 +5885,49 @@ components:
           type: array
           items: { type: string }
         maxAgeSeconds: { type: integer }
+    SubtitleTrack:
+      type: object
+      required: [lang, name, auto, cues, size]
+      properties:
+        lang: { type: string, description: BCP 47 language tag. }
+        name: { type: string, description: The name of the language in that language. }
+        auto: { type: boolean, description: "A track the media worker derived (transcribed or translated) from the current content." }
+        from: { type: string, description: The language an automatic translation derives from. }
+        engine: { type: string, description: What produced an automatic track. }
+        cues: { type: integer }
+        size: { type: integer, format: int64 }
+        updated: { type: string, format: date-time }
+        updatedBy: { type: string }
+    Subtitles:
+      type: object
+      required: [tracks]
+      properties:
+        tracks:
+          type: array
+          items: { $ref: "#/components/schemas/SubtitleTrack" }
+    SubtitleCue:
+      type: object
+      required: [start, end, text]
+      properties:
+        start: { type: number, description: Seconds from the start of the video. }
+        end: { type: number }
+        text: { type: string }
+        settings: { type: string, description: "WebVTT cue settings (line:0 align:start...)." }
+    SubtitleCues:
+      type: object
+      required: [track, cues]
+      properties:
+        track: { $ref: "#/components/schemas/SubtitleTrack" }
+        cues:
+          type: array
+          items: { $ref: "#/components/schemas/SubtitleCue" }
+    SubtitleCuesRequest:
+      type: object
+      required: [cues]
+      properties:
+        cues:
+          type: array
+          items: { $ref: "#/components/schemas/SubtitleCue" }
     MediaStatus:
       type: object
       required: [state, current]
@@ -5791,6 +5968,14 @@ components:
         alpha:
           type: boolean
           description: The image has transparency (its JPEG variants are flattened onto white).
+        subtitles:
+          type: array
+          description: The languages of the automatic subtitle tracks the worker made.
+          items: { type: string }
+        language: { type: string, description: The spoken language the transcription detected. }
+        subtitlesError:
+          type: string
+          description: Why the automatic subtitles failed (the other outputs are served nonetheless).
         updated: { type: string, format: date-time }
     MediaImageOutput:
       type: object
@@ -5839,12 +6024,28 @@ components:
         poster: { type: boolean, description: A JPEG poster frame. }
         thumbnails: { $ref: "#/components/schemas/MediaThumbnails" }
         images: { $ref: "#/components/schemas/MediaImages" }
+        subtitles: { $ref: "#/components/schemas/MediaSubtitles" }
+    MediaSubtitles:
+      type: object
+      description: >-
+        Automatic subtitles of the videos: the media worker transcribes the speech (an
+        OpenAI-compatible transcription service, such as whisper.cpp server) and translates the
+        transcription in the languages listed. Not for an image rule.
+      properties:
+        source:
+          type: string
+          description: The spoken language (BCP 47); empty detects it.
+        languages:
+          type: array
+          maxItems: 20
+          description: Languages (BCP 47) to translate the transcription in.
+          items: { type: string }
     MediaImages:
       type: object
       description: >-
         Makes an image rule: the media worker derives the variants of every image the rule selects,
         in every format at every width (widths not smaller than the image are skipped; every format
-        also gets the image at its own size). An image rule has no renditions, poster or thumbnails.
+        also gets the image at its own size). An image rule has no renditions, poster, thumbnails or subtitles.
       properties:
         formats:
           type: array

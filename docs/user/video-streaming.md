@@ -71,6 +71,8 @@ presentation at `https://videos.example.com/<key>/master.m3u8`.
 | `/nexo/media/v1/{bucket}/media.m3u8?key=…&rev=…` | media playlist (VOD) |
 | `/nexo/media/v1/{bucket}/init.mp4?key=…&rev=…` | fMP4 initialization segment |
 | `/nexo/media/v1/{bucket}/segment.m4s?key=…&rev=…&n=…` | fMP4 media segment `n` |
+| `/nexo/media/v1/{bucket}/subtitles.m3u8?key=…&lang=…` | subtitle playlist of a language (one WebVTT segment) |
+| `/nexo/media/v1/{bucket}/subtitles.vtt?key=…&lang=…` | WebVTT of a language, with its `X-TIMESTAMP-MAP` |
 | `/nexo/media/player/` | public player page |
 
 A request may be anonymous (a bucket readable by everyone), signed in its headers or presigned. The
@@ -80,6 +82,11 @@ in a player without credentials. `rev` is the ETag of the object: the URIs answe
 
 The console serves the same presentation to its users under
 `/api/v1/buckets/{bucket}/objects/hls/` with their session ([Admin API](reference/admin-api.md)).
+
+The master playlist lists the [subtitle tracks](media-worker.md#subtitles) of the video, manual or made by the
+media worker, as an `EXT-X-MEDIA` subtitle group: players show them as captions. The tracks are managed under
+`/api/v1/buckets/{bucket}/objects/subtitles` (list, cues, upload of a WebVTT or SubRip file, removal), in the
+*Media* tab of the console and with `nexoctl media subtitles`.
 
 Packaging costs the server little: about 0.3 ms to index a version on its first request (cached by ETag
 after that), 0.1 ms per segment plus its ranged read, measured on one core of a 2.1 GHz Xeon virtual machine

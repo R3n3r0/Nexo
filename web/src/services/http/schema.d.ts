@@ -1164,6 +1164,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/buckets/{bucket}/objects/hls/subtitles.m3u8": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+                /** @description BCP 47 language tag of the track (it, en, pt-BR...). */
+                lang: components["parameters"]["subtitleLang"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * HLS playlist of the subtitles of a language
+         * @description A subtitle rendition of the master playlist (`EXT-X-MEDIA TYPE=SUBTITLES`): one WebVTT
+         *     segment spanning the video. 404 when the video has no current track of that language.
+         */
+        get: operations["mediaSubtitlePlaylist"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/hls/subtitles.vtt": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+                /** @description BCP 47 language tag of the track (it, en, pt-BR...). */
+                lang: components["parameters"]["subtitleLang"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * WebVTT of the subtitles of a language
+         * @description The segment of the subtitle playlist, anchored with `X-TIMESTAMP-MAP` at the start of the video.
+         */
+        get: operations["mediaSubtitleFile"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/buckets/{bucket}/objects/image": {
         parameters: {
             query: {
@@ -1234,6 +1299,81 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/subtitles": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Subtitle tracks of a video
+         * @description The tracks that apply to the current content of the version: the manual ones (uploaded or
+         *     edited) and the automatic ones the media worker transcribed or translated from this
+         *     content. The master playlist lists the same tracks.
+         */
+        get: operations["listSubtitles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/subtitles/{lang}": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+                /** @description BCP 47 language tag (it, en, pt-BR...). */
+                lang: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Cues of a subtitle track
+         * @description The track and its cues; `format=vtt` or `format=srt` downloads the document instead.
+         */
+        get: operations["getSubtitles"];
+        /**
+         * Upload or edit a subtitle track
+         * @description Stores the cues as a manual track of the version, replacing the track of that language (an
+         *     automatic one too: the media worker then leaves it alone). The body is a JSON list of cues,
+         *     or a WebVTT or SubRip document (any other content type, at most 2 MiB). The text of the
+         *     cues is sanitized: only the WebVTT tags b, i, u, c, v, lang and ruby are kept.
+         */
+        put: operations["putSubtitles"];
+        post?: never;
+        /**
+         * Remove a subtitle track
+         * @description An automatic track comes back when the media worker processes the video again.
+         */
+        delete: operations["deleteSubtitles"];
         options?: never;
         head?: never;
         patch?: never;
@@ -4509,6 +4649,42 @@ export interface components {
             exposeHeaders?: string[];
             maxAgeSeconds?: number;
         };
+        SubtitleTrack: {
+            /** @description BCP 47 language tag. */
+            lang: string;
+            /** @description The name of the language in that language. */
+            name: string;
+            /** @description A track the media worker derived (transcribed or translated) from the current content. */
+            auto: boolean;
+            /** @description The language an automatic translation derives from. */
+            from?: string;
+            /** @description What produced an automatic track. */
+            engine?: string;
+            cues: number;
+            /** Format: int64 */
+            size: number;
+            /** Format: date-time */
+            updated?: string;
+            updatedBy?: string;
+        };
+        Subtitles: {
+            tracks: components["schemas"]["SubtitleTrack"][];
+        };
+        SubtitleCue: {
+            /** @description Seconds from the start of the video. */
+            start: number;
+            end: number;
+            text: string;
+            /** @description WebVTT cue settings (line:0 align:start...). */
+            settings?: string;
+        };
+        SubtitleCues: {
+            track: components["schemas"]["SubtitleTrack"];
+            cues: components["schemas"]["SubtitleCue"][];
+        };
+        SubtitleCuesRequest: {
+            cues: components["schemas"]["SubtitleCue"][];
+        };
         MediaStatus: {
             /** @enum {string} */
             state: "none" | "processing" | "done" | "failed";
@@ -4539,6 +4715,12 @@ export interface components {
             images?: components["schemas"]["MediaImageOutput"][];
             /** @description The image has transparency (its JPEG variants are flattened onto white). */
             alpha?: boolean;
+            /** @description The languages of the automatic subtitle tracks the worker made. */
+            subtitles?: string[];
+            /** @description The spoken language the transcription detected. */
+            language?: string;
+            /** @description Why the automatic subtitles failed (the other outputs are served nonetheless). */
+            subtitlesError?: string;
             /** Format: date-time */
             updated?: string;
         };
@@ -4576,8 +4758,16 @@ export interface components {
             poster?: boolean;
             thumbnails?: components["schemas"]["MediaThumbnails"];
             images?: components["schemas"]["MediaImages"];
+            subtitles?: components["schemas"]["MediaSubtitles"];
         };
-        /** @description Makes an image rule: the media worker derives the variants of every image the rule selects, in every format at every width (widths not smaller than the image are skipped; every format also gets the image at its own size). An image rule has no renditions, poster or thumbnails. */
+        /** @description Automatic subtitles of the videos: the media worker transcribes the speech (an OpenAI-compatible transcription service, such as whisper.cpp server) and translates the transcription in the languages listed. Not for an image rule. */
+        MediaSubtitles: {
+            /** @description The spoken language (BCP 47); empty detects it. */
+            source?: string;
+            /** @description Languages (BCP 47) to translate the transcription in. */
+            languages?: string[];
+        };
+        /** @description Makes an image rule: the media worker derives the variants of every image the rule selects, in every format at every width (widths not smaller than the image are skipped; every format also gets the image at its own size). An image rule has no renditions, poster, thumbnails or subtitles. */
         MediaImages: {
             /** @description Formats of the variants (default all), stored the most compact first. */
             formats?: ("avif" | "webp" | "jpeg" | "png")[];
@@ -5767,6 +5957,8 @@ export interface components {
         bucket: string;
         /** @description Object key. */
         key: string;
+        /** @description BCP 47 language tag of the track (it, en, pt-BR...). */
+        subtitleLang: string;
         /**
          * @description Version of the object; the policies see it as s3:versionid, as for the
          *     S3 request with the same versionId.
@@ -7700,6 +7892,72 @@ export interface operations {
             default: components["responses"]["Problem"];
         };
     };
+    mediaSubtitlePlaylist: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+                /** @description BCP 47 language tag of the track (it, en, pt-BR...). */
+                lang: components["parameters"]["subtitleLang"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The playlist. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.apple.mpegurl": string;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    mediaSubtitleFile: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+                /** @description BCP 47 language tag of the track (it, en, pt-BR...). */
+                lang: components["parameters"]["subtitleLang"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The WebVTT. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/vtt": string;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
     mediaImage: {
         parameters: {
             query: {
@@ -7842,6 +8100,143 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["MediaStatus"];
                 };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listSubtitles: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tracks, by language. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Subtitles"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getSubtitles: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+                format?: "json" | "vtt" | "srt";
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+                /** @description BCP 47 language tag (it, en, pt-BR...). */
+                lang: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The track. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubtitleCues"];
+                    "text/vtt": string;
+                    "application/x-subrip": string;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    putSubtitles: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+                /** @description BCP 47 language tag (it, en, pt-BR...). */
+                lang: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubtitleCuesRequest"];
+                "text/vtt": string;
+                "application/x-subrip": string;
+            };
+        };
+        responses: {
+            /** @description The stored track. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubtitleTrack"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    deleteSubtitles: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+                /** @description BCP 47 language tag (it, en, pt-BR...). */
+                lang: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             default: components["responses"]["Problem"];
         };

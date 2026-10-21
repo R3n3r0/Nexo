@@ -27,6 +27,10 @@ import (
 // ErrNotFound reports a missing object or version.
 var ErrNotFound = errors.New("not found")
 
+// ErrPrecondition reports a conditional write refused: the object changed
+// since it was read.
+var ErrPrecondition = errors.New("precondition failed")
+
 // ObjectInfo describes an object version.
 type ObjectInfo struct {
 	VersionID string
@@ -53,6 +57,11 @@ type Store interface {
 	Upload(ctx context.Context, bucket, key, path, contentType string) error
 	// Put stores data as an object.
 	Put(ctx context.Context, bucket, key string, data []byte, contentType string) error
+	// Get reads a small object (at most limit bytes) and its ETag.
+	Get(ctx context.Context, bucket, key string, limit int64) ([]byte, string, error)
+	// PutIf stores data as an object if its current ETag is ifMatch, or,
+	// ifMatch empty, if there is no object: ErrPrecondition otherwise.
+	PutIf(ctx context.Context, bucket, key string, data []byte, contentType, ifMatch string) error
 	// List returns every version (delete markers included) of the keys
 	// under a prefix.
 	List(ctx context.Context, bucket, prefix string) ([]ObjectVersion, error)
@@ -171,6 +180,38 @@ func (s *s3Store) Upload(ctx context.Context, bucket, key, path, contentType str
 func (s *s3Store) Put(ctx context.Context, bucket, key string, data []byte, contentType string) error {
 	_, err := s.api.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(bucket), Key: aws.String(key),
 		Body: strings.NewReader(string(data)), ContentLength: aws.Int64(int64(len(data))), ContentType: aws.String(contentType)})
+	return err
+}
+
+func (s *s3Store) Get(ctx context.Context, bucket, key string, limit int64) ([]byte, string, error) {
+	out, err := s.api.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
+	if err != nil {
+		return nil, "", notFound(err)
+	}
+	defer func() { _ = out.Body.Close() }()
+	data, err := io.ReadAll(io.LimitReader(out.Body, limit+1))
+	if err != nil {
+		return nil, "", err
+	}
+	if int64(len(data)) > limit {
+		return nil, "", fmt.Errorf("worker: %s/%s is larger than %d bytes", bucket, key, limit)
+	}
+	return data, aws.ToString(out.ETag), nil
+}
+
+func (s *s3Store) PutIf(ctx context.Context, bucket, key string, data []byte, contentType, ifMatch string) error {
+	in := &s3.PutObjectInput{Bucket: aws.String(bucket), Key: aws.String(key),
+		Body: strings.NewReader(string(data)), ContentLength: aws.Int64(int64(len(data))), ContentType: aws.String(contentType)}
+	if ifMatch != "" {
+		in.IfMatch = aws.String(ifMatch)
+	} else {
+		in.IfNoneMatch = aws.String("*")
+	}
+	_, err := s.api.PutObject(ctx, in)
+	var re *smithyhttp.ResponseError
+	if errors.As(err, &re) && (re.HTTPStatusCode() == http.StatusPreconditionFailed || re.HTTPStatusCode() == http.StatusConflict) {
+		return fmt.Errorf("%w: %w", ErrPrecondition, err)
+	}
 	return err
 }
 

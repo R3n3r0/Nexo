@@ -1,0 +1,38 @@
+# nexoctl media subtitles get
+
+Download a subtitle track (WebVTT or SubRip)
+
+```
+nexoctl media subtitles get ALIAS/BUCKET/KEY LANG [--format vtt|srt] [-o FILE] [flags]
+```
+
+## Examples
+
+```
+  nexoctl media subtitles get local/videos/courses/intro.mp4 it > intro.it.vtt
+  nexoctl media subtitles get --format srt -o intro.en.srt local/videos/courses/intro.mp4 en
+```
+
+## Options
+
+```
+      --format string       the format of the document: vtt (WebVTT) or srt (SubRip) (default "vtt")
+  -h, --help                help for get
+  -o, --output string       write the document to FILE (default: the standard output)
+      --version-id string   the version (default: the latest)
+```
+
+## Options inherited from parent commands
+
+```
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+```
+
+## SEE ALSO
+
+* [nexoctl media subtitles](nexoctl_media_subtitles.md)	 - List, download, upload or remove the subtitle tracks of a video
+

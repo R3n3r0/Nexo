@@ -163,6 +163,17 @@ type MediaRule struct {
 	// worker decodes): the variants of every image it selects. An image
 	// rule has no renditions, poster or thumbnails.
 	Images *MediaImages `json:"images,omitempty"`
+	// Subtitles asks for automatic subtitles of the videos: the speech
+	// transcribed, then translated.
+	Subtitles *MediaSubtitles `json:"subtitles,omitempty"`
+}
+
+// MediaSubtitles configures the automatic subtitles of a rule.
+type MediaSubtitles struct {
+	// Source is the spoken language (BCP 47); empty detects it.
+	Source string `json:"source,omitempty"`
+	// Languages are the translations to produce.
+	Languages []string `json:"languages,omitempty"`
 }
 
 // MediaImages configures the variants of an image rule.
@@ -207,8 +218,15 @@ type MediaStatus struct {
 	// size of the image).
 	Images []MediaImageOutput `json:"images,omitempty"`
 	// Alpha reports an image with transparency.
-	Alpha   bool       `json:"alpha,omitempty"`
-	Updated *time.Time `json:"updated,omitempty"`
+	Alpha bool `json:"alpha,omitempty"`
+	// Subtitles are the languages of the automatic subtitle tracks the
+	// worker made; Language is the spoken language it detected.
+	Subtitles []string `json:"subtitles,omitempty"`
+	Language  string   `json:"language,omitempty"`
+	// SubtitlesError is why the automatic subtitles failed (the other
+	// outputs are served nonetheless).
+	SubtitlesError string     `json:"subtitlesError,omitempty"`
+	Updated        *time.Time `json:"updated,omitempty"`
 }
 
 // MediaImageOutput is a variant of an image produced by the media worker.

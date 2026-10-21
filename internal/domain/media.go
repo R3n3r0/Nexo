@@ -70,7 +70,7 @@ func MediaSidecarSource(key string) (source, file string, ok bool) {
 	n := 1
 	if len(segs) >= 4 {
 		switch segs[len(segs)-2] + "/" {
-		case MediaImagesDir, MediaRenditionsDir, "thumbnails/":
+		case MediaImagesDir, MediaRenditionsDir, "thumbnails/", MediaSubtitlesDir:
 			n = 2
 		}
 	}
@@ -107,6 +107,10 @@ type MediaRule struct {
 	Poster bool `json:"poster,omitempty"`
 	// Thumbnails asks for a timeline thumbnail sprite with its WebVTT map.
 	Thumbnails *MediaThumbnails `json:"thumbnails,omitempty"`
+	// Subtitles asks for automatic subtitles: the speech transcribed and
+	// translated into the languages it names (needs a worker with a
+	// transcription backend).
+	Subtitles *MediaSubtitles `json:"subtitles,omitempty"`
 	// Images makes an image rule: it selects images (default suffixes
 	// DefaultImageSuffixes) and derives their variants, in every format
 	// and width it names. An image rule has no video output.
@@ -251,6 +255,10 @@ func (r MediaRule) Clone() MediaRule {
 		img := MediaImages{Formats: slices.Clone(r.Images.Formats), Widths: slices.Clone(r.Images.Widths)}
 		r.Images = &img
 	}
+	if r.Subtitles != nil {
+		s := MediaSubtitles{Source: r.Subtitles.Source, Languages: slices.Clone(r.Subtitles.Languages)}
+		r.Subtitles = &s
+	}
 	return r
 }
 
@@ -327,17 +335,22 @@ func (c *MediaConfig) Validate() error {
 			}
 			r.Thumbnails.Interval = d.String()
 		}
+		if r.Subtitles != nil {
+			if err := r.Subtitles.validate(); err != nil {
+				return fmt.Errorf("%w: media rule %q: %s", ErrInvalidArgument, r.ID, strings.TrimPrefix(err.Error(), ErrInvalidArgument.Error()+": "))
+			}
+		}
 		if r.Images != nil {
-			if len(r.Renditions) > 0 || r.Poster || r.Thumbnails != nil {
-				return fmt.Errorf("%w: media rule %q: an image rule has no renditions, poster or thumbnails", ErrInvalidArgument, r.ID)
+			if len(r.Renditions) > 0 || r.Poster || r.Thumbnails != nil || r.Subtitles != nil {
+				return fmt.Errorf("%w: media rule %q: an image rule has no renditions, poster, thumbnails or subtitles", ErrInvalidArgument, r.ID)
 			}
 			if err := r.Images.validate(); err != nil {
 				return fmt.Errorf("%w: media rule %q: %s", ErrInvalidArgument, r.ID, err)
 			}
 			continue
 		}
-		if len(r.Renditions) == 0 && !r.Poster && r.Thumbnails == nil {
-			return fmt.Errorf("%w: media rule %q: nothing to produce (renditions, poster or thumbnails)", ErrInvalidArgument, r.ID)
+		if len(r.Renditions) == 0 && !r.Poster && r.Thumbnails == nil && r.Subtitles == nil {
+			return fmt.Errorf("%w: media rule %q: nothing to produce (renditions, poster, thumbnails or subtitles)", ErrInvalidArgument, r.ID)
 		}
 	}
 	return nil
@@ -460,9 +473,17 @@ type MediaStatus struct {
 	Images []MediaImageOutput `json:"images,omitempty"`
 	// Alpha reports an image with transparency: its JPEG variants are
 	// flattened, so clients that cannot take AVIF or WebP get PNG.
-	Alpha   bool      `json:"alpha,omitempty"`
-	Started time.Time `json:"started"`
-	Updated time.Time `json:"updated"`
+	Alpha bool `json:"alpha,omitempty"`
+	// Subtitles are the languages of the automatic subtitle tracks the
+	// run made (MediaSubtitlesManifest describes every track).
+	Subtitles []string `json:"subtitles,omitempty"`
+	// Language is the spoken language the transcription detected.
+	Language string `json:"language,omitempty"`
+	// SubtitlesError is why the automatic subtitles failed (the other
+	// outputs do not depend on them: the job is done nonetheless).
+	SubtitlesError string    `json:"subtitlesError,omitempty"`
+	Started        time.Time `json:"started"`
+	Updated        time.Time `json:"updated"`
 }
 
 // MediaRenditionOutput is a rendition produced by the worker

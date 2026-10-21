@@ -7,6 +7,10 @@
 import type { MediaImageFormat, MediaImages, MediaRendition, MediaRule } from '@/services';
 
 import { mediaSidecarPrefix } from './media';
+import { canonicalLanguage } from './subtitles';
+
+/** At most this many translations of the automatic subtitles of a rule. */
+export const maxSubtitleLanguages = 20;
 
 /** The rendition presets, tallest first. */
 export const mediaRenditions: readonly MediaRendition[] = [
@@ -141,7 +145,9 @@ export type MediaRuleIssue =
   | 'imageVideoOutputs'
   | 'imageFormat'
   | 'imageWidth'
-  | 'imageWidths';
+  | 'imageWidths'
+  | 'subtitleLanguage'
+  | 'subtitleLanguages';
 
 /** Whether a width is a whole number of pixels within the bounds. */
 export function validImageWidth(width: number): boolean {
@@ -176,9 +182,18 @@ export function mediaRuleIssueMessage(rule: MediaRule, issue: MediaRuleIssue): s
     case 'interval':
       return 'the thumbnail interval must be a duration from 1s to 10m';
     case 'nothing':
-      return 'nothing to produce (renditions, poster or thumbnails)';
+      return 'nothing to produce (renditions, poster, thumbnails or subtitles)';
     case 'imageVideoOutputs':
-      return 'an image rule has no renditions, poster or thumbnails';
+      return 'an image rule has no renditions, poster, thumbnails or subtitles';
+    case 'subtitleLanguage': {
+      const s = rule.subtitles;
+      const bad = [s?.source ?? '', ...(s?.languages ?? [])].find(
+        (l) => l !== '' && canonicalLanguage(l) === undefined,
+      );
+      return `invalid language tag ${JSON.stringify(bad ?? '')}`;
+    }
+    case 'subtitleLanguages':
+      return `at most ${String(maxSubtitleLanguages)} subtitle languages`;
     case 'imageFormat': {
       const format = (rule.images?.formats ?? []).find((f) => !mediaImageFormats.includes(f));
       return `unknown image format ${JSON.stringify(format ?? '')} (one of ${mediaImageFormats.join(', ')})`;
@@ -213,8 +228,19 @@ export function validateMediaRule(
     const seconds = parseGoDuration(rule.thumbnails.interval ?? defaultThumbnailInterval);
     if (seconds === undefined || seconds < 1 || seconds > 600) issues.push('interval');
   }
+  if (rule.subtitles !== undefined) {
+    const { source = '', languages = [] } = rule.subtitles;
+    if ([source, ...languages].some((l) => l !== '' && canonicalLanguage(l) === undefined)) {
+      issues.push('subtitleLanguage');
+    } else if (languages.length > maxSubtitleLanguages) {
+      issues.push('subtitleLanguages');
+    }
+  }
   const videoOutputs =
-    (rule.renditions ?? []).length > 0 || rule.poster === true || rule.thumbnails !== undefined;
+    (rule.renditions ?? []).length > 0 ||
+    rule.poster === true ||
+    rule.thumbnails !== undefined ||
+    rule.subtitles !== undefined;
   if (rule.images !== undefined) {
     if (videoOutputs) issues.push('imageVideoOutputs');
     const image = imageIssue(rule.images);
@@ -243,6 +269,21 @@ export function normalizeMediaRule(rule: MediaRule): MediaRule {
   if (rule.thumbnails !== undefined) {
     const seconds = parseGoDuration(rule.thumbnails.interval ?? defaultThumbnailInterval) ?? 10;
     out.thumbnails = { interval: formatGoDuration(Math.round(seconds)) };
+  }
+  if (rule.subtitles !== undefined) {
+    const source = canonicalLanguage(rule.subtitles.source ?? '');
+    const languages = [
+      ...new Set(
+        (rule.subtitles.languages ?? []).flatMap((l) => {
+          const tag = canonicalLanguage(l);
+          return tag === undefined ? [] : [tag];
+        }),
+      ),
+    ];
+    out.subtitles = {
+      ...(source !== undefined ? { source } : {}),
+      ...(languages.length > 0 ? { languages } : {}),
+    };
   }
   if (rule.images !== undefined) {
     const named = rule.images.formats ?? [];

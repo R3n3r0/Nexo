@@ -102,7 +102,15 @@ func (h *objectRoutes) routes() []route {
 		{http.MethodGet, "/buckets/{bucket}/objects/hls/poster.jpg", stream, h.hlsFile(domain.MediaPosterFile, contentTypeJPEG)},
 		{http.MethodGet, "/buckets/{bucket}/objects/hls/sprite.jpg", stream, h.hlsFile(domain.MediaSpriteFile, contentTypeJPEG)},
 		{http.MethodGet, "/buckets/{bucket}/objects/hls/thumbnails.vtt", stream, h.hlsThumbnails()},
+		{http.MethodGet, "/buckets/{bucket}/objects/hls/subtitles.m3u8", stream, h.hlsSubtitles()},
+		{http.MethodGet, "/buckets/{bucket}/objects/hls/subtitles.vtt", stream, h.hlsSubtitleFile()},
 		{http.MethodGet, "/buckets/{bucket}/objects/media/status", read, h.mediaStatus},
+		// The subtitle tracks of a video (?key=&versionId=): read by a
+		// viewer, written by a writer of the video.
+		{http.MethodGet, "/buckets/{bucket}/objects/subtitles", stream, h.subtitles},
+		{http.MethodGet, "/buckets/{bucket}/objects/subtitles/{lang}", stream, h.subtitleCues},
+		{http.MethodPut, "/buckets/{bucket}/objects/subtitles/{lang}", onObject(policy.ActionPutObject), h.putSubtitles},
+		{http.MethodDelete, "/buckets/{bucket}/objects/subtitles/{lang}", onObject(policy.ActionPutObject), h.deleteSubtitles},
 		// A variant of an image the media worker derived (?key=&versionId=&w=&format=).
 		{http.MethodGet, "/buckets/{bucket}/objects/image", read, h.image},
 		{http.MethodHead, "/buckets/{bucket}/objects/image", read, h.image},

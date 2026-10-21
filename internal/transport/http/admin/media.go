@@ -80,6 +80,17 @@ type MediaRuleResponse struct {
 	Thumbnails *MediaThumbnailsResponse `json:"thumbnails,omitempty"`
 	// Images makes an image rule: the variants of every image it selects.
 	Images *MediaImagesResponse `json:"images,omitempty"`
+	// Subtitles asks for automatic subtitles of the videos.
+	Subtitles *MediaSubtitlesResponse `json:"subtitles,omitempty"`
+}
+
+// MediaSubtitlesResponse configures the automatic subtitles of a rule:
+// the speech transcribed, then translated.
+type MediaSubtitlesResponse struct {
+	// Source is the spoken language (BCP 47); empty detects it.
+	Source string `json:"source,omitempty"`
+	// Languages are the translations to produce.
+	Languages []string `json:"languages,omitempty"`
 }
 
 // MediaImagesResponse configures the variants of an image rule.
@@ -116,6 +127,9 @@ func newMediaResponse(cfg *domain.MediaConfig) MediaConfigResponse {
 		if r.Images != nil {
 			rule.Images = &MediaImagesResponse{Formats: r.Images.Formats, Widths: r.Images.Widths}
 		}
+		if r.Subtitles != nil {
+			rule.Subtitles = &MediaSubtitlesResponse{Source: r.Subtitles.Source, Languages: r.Subtitles.Languages}
+		}
 		out.Rules = append(out.Rules, rule)
 	}
 	return out
@@ -148,6 +162,9 @@ func (h *mediaRoutes) put(w http.ResponseWriter, r *http.Request) {
 		}
 		if rule.Images != nil {
 			mr.Images = &domain.MediaImages{Formats: rule.Images.Formats, Widths: rule.Images.Widths}
+		}
+		if rule.Subtitles != nil {
+			mr.Subtitles = &domain.MediaSubtitles{Source: rule.Subtitles.Source, Languages: rule.Subtitles.Languages}
 		}
 		cfg.Rules = append(cfg.Rules, mr)
 	}

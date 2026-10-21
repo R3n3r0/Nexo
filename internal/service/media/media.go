@@ -167,7 +167,15 @@ func (s *service) MasterPlaylist(ctx context.Context, src Source, links Links) (
 	d := c.p.describe(src)
 	var b bytes.Buffer
 	b.WriteString("#EXTM3U\n#EXT-X-VERSION:7\n#EXT-X-INDEPENDENT-SEGMENTS\n")
-	variant(&b, d, links.Media(d.Revision))
+	// The subtitle tracks that apply to this content: a rendition group
+	// every variant refers to.
+	tracks, err := s.currentTracks(ctx, src.Bucket, src.Key, domain.ObjectInfo{VersionID: d.VersionID, ETag: d.Revision})
+	if err != nil {
+		s.deps.Logger.WarnContext(ctx, "media: subtitle manifest unreadable", "bucket", src.Bucket, "key", src.Key, "err", err)
+	}
+	subtitleMedia(&b, tracks, links)
+	subs := len(tracks) > 0
+	variant(&b, d, subs, links.Media(d.Revision))
 	// The renditions of the media worker, when they derive from this
 	// content: one variant each.
 	st, err := s.outputs(ctx, src.Bucket, src.Key, d.VersionID, d.Revision)
@@ -182,18 +190,22 @@ func (s *service) MasterPlaylist(ctx context.Context, src Source, links Links) (
 				continue
 			}
 			rd := rc.p.describe(src)
-			variant(&b, rd, links.Rendition(r.Name, rd.Revision))
+			variant(&b, rd, subs, links.Rendition(r.Name, rd.Revision))
 		}
 	}
 	return b.Bytes(), nil
 }
 
 // variant writes the EXT-X-STREAM-INF of a presentation and its URI.
-func variant(b *bytes.Buffer, d *Presentation, uri string) {
+// subs refers the variant to the subtitle group.
+func variant(b *bytes.Buffer, d *Presentation, subs bool, uri string) {
 	fmt.Fprintf(b, "#EXT-X-STREAM-INF:BANDWIDTH=%d,AVERAGE-BANDWIDTH=%d,CODECS=%q,RESOLUTION=%dx%d",
 		max(d.PeakBandwidth, 1), max(d.AverageBandwidth, 1), strings.Join(d.Codecs, ","), d.Width, d.Height)
 	if d.FrameRate > 0 {
 		fmt.Fprintf(b, ",FRAME-RATE=%.3f", d.FrameRate)
+	}
+	if subs {
+		fmt.Fprintf(b, ",SUBTITLES=%q", subtitleGroup)
 	}
 	b.WriteString("\n" + uri + "\n")
 }

@@ -227,4 +227,81 @@ describe('ObjectMediaPanel', () => {
     expect(within(drawer).queryByRole('img')).toBeNull();
     expect(within(table).queryByRole('link')).toBeNull();
   });
+
+  it('uploads, edits, downloads and removes the subtitles of a video', async () => {
+    const svc = services();
+    const { drawer, user } = await openVideoTab(svc);
+    expect(await within(drawer).findByText(/No subtitles/)).toBeInTheDocument();
+
+    // Upload a SubRip file as the Italian track.
+    await user.click(within(drawer).getByRole('button', { name: 'Upload subtitles' }));
+    const upload = await screen.findByRole('dialog', { name: 'Upload subtitles' });
+    await user.type(within(upload).getByRole('textbox', { name: /Language/ }), 'xx_!');
+    expect(within(upload).getByText('Not a language tag.')).toBeInTheDocument();
+    await user.clear(within(upload).getByRole('textbox', { name: /Language/ }));
+    await user.type(within(upload).getByRole('textbox', { name: /Language/ }), 'IT');
+    const srt = new File(['1\n00:00:01,000 --> 00:00:02,500\nCiao a tutti\n'], 'it.srt', {
+      type: 'application/x-subrip',
+    });
+    const input = upload.querySelector('input[type="file"]');
+    if (!(input instanceof HTMLInputElement)) throw new Error('no file input');
+    await user.upload(input, srt);
+    await user.click(within(upload).getByRole('button', { name: 'Upload' }));
+    const table = await within(drawer).findByRole('table', { name: 'Subtitles' });
+    expect(within(table).getByText('Italiano')).toBeInTheDocument();
+    expect(within(table).getByText('Manual')).toBeInTheDocument();
+
+    // Edit: add a cue, an invalid time blocks the save.
+    await user.click(within(table).getByRole('button', { name: 'Edit the Italiano subtitles' }));
+    const editor = await screen.findByRole('dialog', { name: 'Italiano subtitles (it)' });
+    const start = within(editor).getByRole('textbox', { name: 'Start of cue 1' });
+    expect(start).toHaveValue('00:00:01.000');
+    await user.click(within(editor).getByRole('button', { name: 'Add a cue' }));
+    await user.type(within(editor).getByRole('textbox', { name: 'Text of cue 2' }), 'Benvenuti');
+    await user.clear(within(editor).getByRole('textbox', { name: 'End of cue 2' }));
+    await user.type(within(editor).getByRole('textbox', { name: 'End of cue 2' }), '1:2');
+    expect(within(editor).getByRole('button', { name: 'Save' })).toBeDisabled();
+    await user.clear(within(editor).getByRole('textbox', { name: 'End of cue 2' }));
+    await user.type(within(editor).getByRole('textbox', { name: 'End of cue 2' }), '00:00:04.000');
+    await user.click(within(editor).getByRole('button', { name: 'Save' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Italiano subtitles (it)' })).toBeNull();
+    });
+    const cues = await svc.media.subtitleCues('media', 'videos/intro.mp4', 'it');
+    expect(cues.cues).toEqual([
+      { start: 1, end: 2.5, text: 'Ciao a tutti' },
+      { start: 2.5, end: 4, text: 'Benvenuti' },
+    ]);
+    await waitFor(() => {
+      expect(within(table).getByText('2')).toBeInTheDocument();
+    });
+
+    // Download links for both formats.
+    await user.click(
+      within(table).getByRole('button', { name: 'Download the Italiano subtitles' }),
+    );
+    const srtLink = await screen.findByRole('menuitem', { name: 'SubRip (.srt)' });
+    expect(decodeURIComponent(srtLink.getAttribute('href') ?? '')).toContain(
+      '2\n00:00:02,500 --> 00:00:04,000\nBenvenuti',
+    );
+
+    // Remove.
+    await user.keyboard('{Escape}');
+    await user.click(within(table).getByRole('button', { name: 'Remove the Italiano subtitles' }));
+    const confirm = await screen.findByRole('dialog', { name: 'Remove subtitles' });
+    await user.click(within(confirm).getByRole('button', { name: 'Delete' }));
+    expect(await within(drawer).findByText(/No subtitles/)).toBeInTheDocument();
+  });
+
+  it('shows why the automatic subtitles failed', async () => {
+    const svc = services();
+    vi.spyOn(svc.media, 'status').mockResolvedValue({
+      state: 'done',
+      current: true,
+      subtitlesError: 'no transcription service is configured',
+    });
+    const { drawer } = await openVideoTab(svc);
+    expect(await within(drawer).findByText('The automatic subtitles failed')).toBeInTheDocument();
+    expect(within(drawer).getByText('no transcription service is configured')).toBeInTheDocument();
+  });
 });

@@ -18,6 +18,11 @@ selects a variant in every --format (avif, webp, jpeg, png; default all) at ever
 --width (16 to 8192 pixels; default 160,320,640,1280,1920,2560), widths not
 smaller than the image skipped, plus the image at its own size in every format.
 
+--subtitles makes the worker transcribe the speech of the videos (the language
+given, or detected with "auto" or no value) into a subtitle track, and
+--translate adds a translated track per language (BCP 47 tags: it, en,
+pt-BR...). The worker needs a transcription service ("media subtitles").
+
 ```
 nexoctl media rule add ALIAS/BUCKET (--id ID | --hls | --images) [flags]
 ```
@@ -29,23 +34,26 @@ nexoctl media rule add ALIAS/BUCKET (--id ID | --hls | --images) [flags]
   nexoctl media rule add local/videos --id clips --suffix .mp4 --suffix .webm --thumbnails 5s
   nexoctl media rule add local/videos --hls
   nexoctl media rule add local/photos --images
+  nexoctl media rule add local/videos --id talks --prefix talks/ --subtitles=it --translate en,de
   nexoctl media rule add local/photos --images --id thumbs --prefix gallery/ --format avif,webp --width 320,640
 ```
 
 ## Options
 
 ```
-      --format strings      image rule: the formats of the variants (repeatable or comma-separated: avif,webp,jpeg,png; default all)
-  -h, --help                help for add
-      --hls                 the rule of the HLS option: id "hls", every rendition, a poster and thumbnails
-      --id string           ID of the rule (1-64 letters, digits, '.', '_' or '-'; required)
-      --images              an image rule (default id "images"): the variants of every image
-      --poster              produce a JPEG poster frame
-      --prefix string       select the keys under this prefix (default: the whole bucket)
-      --rendition strings   produce these renditions (repeatable or comma-separated: 2160p,1440p,1080p,720p,480p,360p,240p)
-      --suffix strings      select the keys with these suffixes, without case (repeatable or comma-separated; default .mp4,.mov,.m4v)
-      --thumbnails string   produce timeline thumbnails, one every INTERVAL (1s to 10m, e.g. 10s)
-      --width ints          image rule: the widths of the variants in pixels (repeatable or comma-separated; default 160,320,640,1280,1920,2560)
+      --format strings              image rule: the formats of the variants (repeatable or comma-separated: avif,webp,jpeg,png; default all)
+  -h, --help                        help for add
+      --hls                         the rule of the HLS option: id "hls", every rendition, a poster and thumbnails
+      --id string                   ID of the rule (1-64 letters, digits, '.', '_' or '-'; required)
+      --images                      an image rule (default id "images"): the variants of every image
+      --poster                      produce a JPEG poster frame
+      --prefix string               select the keys under this prefix (default: the whole bucket)
+      --rendition strings           produce these renditions (repeatable or comma-separated: 2160p,1440p,1080p,720p,480p,360p,240p)
+      --subtitles string[="auto"]   automatic subtitles: the spoken LANG transcribed ("auto" detects it)
+      --suffix strings              select the keys with these suffixes, without case (repeatable or comma-separated; default .mp4,.mov,.m4v)
+      --thumbnails string           produce timeline thumbnails, one every INTERVAL (1s to 10m, e.g. 10s)
+      --translate strings           automatic subtitles: translate the transcription in these languages (repeatable or comma-separated)
+      --width ints                  image rule: the widths of the variants in pixels (repeatable or comma-separated; default 160,320,640,1280,1920,2560)
 ```
 
 ## Options inherited from parent commands

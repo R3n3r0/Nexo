@@ -153,6 +153,14 @@ func (h *mediaRoutes) Register(r chi.Router) {
 		}
 		return media.RewriteSprite(b, l.(mediaLinks).file("sprite.jpg")), contentTypeVTT, nil
 	}))
+	r.Get(MediaPrefix+"{bucket}/subtitles.m3u8", h.serve(false, func(r *http.Request, src media.Source, l media.Links) ([]byte, string, error) {
+		b, err := h.deps.Media.SubtitlePlaylist(r.Context(), src, r.URL.Query().Get("lang"), l)
+		return b, contentTypePlaylist, err
+	}))
+	r.Get(MediaPrefix+"{bucket}/subtitles.vtt", h.serve(false, func(r *http.Request, src media.Source, _ media.Links) ([]byte, string, error) {
+		b, err := h.deps.Media.SubtitleFile(r.Context(), src, r.URL.Query().Get("lang"))
+		return b, contentTypeVTT, err
+	}))
 	r.Get(MediaPrefix+"{bucket}/status.json", h.serve(false, func(r *http.Request, src media.Source, l media.Links) ([]byte, string, error) {
 		st, err := h.deps.Media.Status(r.Context(), src)
 		if err != nil {
@@ -484,6 +492,20 @@ func (l mediaLinks) Segment(rev string, n int) string {
 // revision: the files follow the current content).
 func (l mediaLinks) file(name string) string {
 	q := url.Values{"key": {l.key}}
+	if l.versionID != "" {
+		q.Set("versionId", l.versionID)
+	}
+	return l.link(name, q)
+}
+
+func (l mediaLinks) Subtitles(lang string) string { return l.subtitle("subtitles.m3u8", lang) }
+
+func (l mediaLinks) SubtitleFile(lang string) string { return l.subtitle("subtitles.vtt", lang) }
+
+// subtitle is the URI of a subtitle file of a language (no revision: the
+// tracks follow the current content).
+func (l mediaLinks) subtitle(name, lang string) string {
+	q := url.Values{"key": {l.key}, "lang": {lang}}
 	if l.versionID != "" {
 		q.Set("versionId", l.versionID)
 	}

@@ -152,7 +152,7 @@ func TestBucketConfigurationsAgainstServer(t *testing.T) {
 		e := apiError(t, err)
 		assert.Equal(t, nexoadmin.CodeInvalidConfiguration, e.Code)
 		require.Len(t, e.RuleErrors, 1)
-		assert.Equal(t, nexoadmin.RuleError{Rule: 1, ID: "x", Code: "InvalidArgument", Message: "an image rule has no renditions, poster or thumbnails"}, e.RuleErrors[0])
+		assert.Equal(t, nexoadmin.RuleError{Rule: 1, ID: "x", Code: "InvalidArgument", Message: "an image rule has no renditions, poster, thumbnails or subtitles"}, e.RuleErrors[0])
 
 		// The variants as the media worker writes them.
 		put, err := h.s3.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String("pics"), Key: aws.String("a b.jpg"), Body: strings.NewReader("photo")})

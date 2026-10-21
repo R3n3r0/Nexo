@@ -203,6 +203,98 @@ func (_c *Links_Segment_Call) RunAndReturn(run func(string, int) string) *Links_
 	return _c
 }
 
+// SubtitleFile provides a mock function with given fields: lang
+func (_m *Links) SubtitleFile(lang string) string {
+	ret := _m.Called(lang)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SubtitleFile")
+	}
+
+	var r0 string
+	if rf, ok := ret.Get(0).(func(string) string); ok {
+		r0 = rf(lang)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	return r0
+}
+
+// Links_SubtitleFile_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SubtitleFile'
+type Links_SubtitleFile_Call struct {
+	*mock.Call
+}
+
+// SubtitleFile is a helper method to define mock.On call
+//   - lang string
+func (_e *Links_Expecter) SubtitleFile(lang interface{}) *Links_SubtitleFile_Call {
+	return &Links_SubtitleFile_Call{Call: _e.mock.On("SubtitleFile", lang)}
+}
+
+func (_c *Links_SubtitleFile_Call) Run(run func(lang string)) *Links_SubtitleFile_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *Links_SubtitleFile_Call) Return(_a0 string) *Links_SubtitleFile_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Links_SubtitleFile_Call) RunAndReturn(run func(string) string) *Links_SubtitleFile_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Subtitles provides a mock function with given fields: lang
+func (_m *Links) Subtitles(lang string) string {
+	ret := _m.Called(lang)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Subtitles")
+	}
+
+	var r0 string
+	if rf, ok := ret.Get(0).(func(string) string); ok {
+		r0 = rf(lang)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	return r0
+}
+
+// Links_Subtitles_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Subtitles'
+type Links_Subtitles_Call struct {
+	*mock.Call
+}
+
+// Subtitles is a helper method to define mock.On call
+//   - lang string
+func (_e *Links_Expecter) Subtitles(lang interface{}) *Links_Subtitles_Call {
+	return &Links_Subtitles_Call{Call: _e.mock.On("Subtitles", lang)}
+}
+
+func (_c *Links_Subtitles_Call) Run(run func(lang string)) *Links_Subtitles_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *Links_Subtitles_Call) Return(_a0 string) *Links_Subtitles_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Links_Subtitles_Call) RunAndReturn(run func(string) string) *Links_Subtitles_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewLinks creates a new instance of Links. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewLinks(t interface {

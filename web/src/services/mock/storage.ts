@@ -18,6 +18,8 @@ import type {
   ObjectEntry,
   ObjectPart,
   RetentionMode,
+  SubtitleCue,
+  SubtitleTrack,
   TagSet,
   Upload,
   UploadEncryption,
@@ -80,6 +82,8 @@ export interface MockBucketState {
   media?: MediaRule[];
   /** Processing state of the videos, by "<key>\u0000<versionId>". */
   mediaStatus?: Map<string, MediaStatus>;
+  /** Subtitle tracks, by "<key>\u0000<versionId>" then language. */
+  subtitles?: Map<string, Map<string, { track: SubtitleTrack; cues: SubtitleCue[] }>>;
   /** Access rules and bucket-level block public access (D-ACC-01..04). */
   access?: MockAccessRulesState;
 }

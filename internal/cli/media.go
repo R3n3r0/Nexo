@@ -49,6 +49,9 @@ func MediaDomain(cfg nexoadmin.MediaConfiguration) domain.MediaConfig {
 		if r.Images != nil {
 			dr.Images = &domain.MediaImages{Formats: r.Images.Formats, Widths: r.Images.Widths}
 		}
+		if r.Subtitles != nil {
+			dr.Subtitles = &domain.MediaSubtitles{Source: r.Subtitles.Source, Languages: r.Subtitles.Languages}
+		}
 		out.Rules = append(out.Rules, dr.Clone())
 	}
 	return out
@@ -66,6 +69,9 @@ func MediaFromDomain(cfg domain.MediaConfig) nexoadmin.MediaConfiguration {
 		}
 		if r.Images != nil {
 			ar.Images = &nexoadmin.MediaImages{Formats: r.Images.Formats, Widths: r.Images.Widths}
+		}
+		if r.Subtitles != nil {
+			ar.Subtitles = &nexoadmin.MediaSubtitles{Source: r.Subtitles.Source, Languages: r.Subtitles.Languages}
 		}
 		out.Rules = append(out.Rules, ar)
 	}

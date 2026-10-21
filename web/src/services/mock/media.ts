@@ -1,4 +1,12 @@
 import {
+  canonicalLanguage,
+  cueProblem,
+  formatSRT,
+  formatWebVTT,
+  languageName,
+  parseSubtitles,
+} from '@/lib/subtitles';
+import {
   defaultImageWidths,
   matchMediaRule,
   maxMediaRules,
@@ -18,6 +26,8 @@ import type {
   MediaRendition,
   MediaRule,
   MediaStatus,
+  SubtitleCue,
+  SubtitleTrack,
 } from '../types';
 import { dataUrl } from './objects';
 import type { MockStorage, MockVersion } from './storage';
@@ -221,5 +231,109 @@ export function createMockMediaService(storage: MockStorage): MediaService {
       const found = storage.bucket(bucket).mediaStatus?.get(statusKey(key, version.versionId));
       return found ? clone(found) : { state: 'none', current: false };
     },
+    async subtitles(bucket, key, versionId) {
+      await ctx.delay();
+      return [...tracksOf(bucket, key, versionId).values()]
+        .map((t) => clone(t.track))
+        .sort((a, b) => a.lang.localeCompare(b.lang));
+    },
+    async subtitleCues(bucket, key, lang, versionId) {
+      await ctx.delay();
+      const found = trackOf(bucket, key, lang, versionId);
+      return clone(found);
+    },
+    async putSubtitleCues(bucket, key, lang, cues, versionId) {
+      await ctx.delay();
+      return store(bucket, key, lang, cues, versionId);
+    },
+    async uploadSubtitles(bucket, key, lang, document, versionId) {
+      await ctx.delay();
+      let cues: SubtitleCue[];
+      try {
+        cues = parseSubtitles(document);
+      } catch (error) {
+        throw problem(400, 'invalid_argument', `subtitles: ${(error as Error).message}`);
+      }
+      return store(bucket, key, lang, cues, versionId);
+    },
+    async deleteSubtitles(bucket, key, lang, versionId) {
+      await ctx.delay();
+      const tag = languageOf(lang);
+      if (!tracksOf(bucket, key, versionId).delete(tag)) {
+        throw problem(404, 'not_found', `No ${tag} subtitles for ${bucket}/${key}.`);
+      }
+    },
+    subtitleDownloadUrl(bucket, key, lang, format, versionId) {
+      // The demo has no server: a data URL of the document.
+      const found = tracksOf(bucket, key, versionId).get(lang);
+      const doc =
+        found === undefined
+          ? ''
+          : format === 'srt'
+            ? formatSRT(found.cues)
+            : formatWebVTT(found.cues);
+      return `data:text/${format === 'srt' ? 'plain' : 'vtt'};charset=utf-8,${encodeURIComponent(doc)}`;
+    },
   };
+
+  function languageOf(lang: string): string {
+    const tag = canonicalLanguage(lang);
+    if (tag === undefined) {
+      throw problem(400, 'invalid_argument', `invalid language tag ${JSON.stringify(lang)}`);
+    }
+    return tag;
+  }
+
+  function tracksOf(bucket: string, key: string, versionId?: string) {
+    const version = versionOf(bucket, key, versionId);
+    const state = storage.bucket(bucket);
+    state.subtitles ??= new Map();
+    const id = statusKey(key, version.versionId);
+    let tracks = state.subtitles.get(id);
+    if (tracks === undefined) {
+      tracks = new Map();
+      state.subtitles.set(id, tracks);
+    }
+    return tracks;
+  }
+
+  function trackOf(bucket: string, key: string, lang: string, versionId?: string) {
+    const tag = languageOf(lang);
+    const found = tracksOf(bucket, key, versionId).get(tag);
+    if (found === undefined) {
+      throw problem(404, 'not_found', `No ${tag} subtitles for ${bucket}/${key}.`);
+    }
+    return found;
+  }
+
+  function store(
+    bucket: string,
+    key: string,
+    lang: string,
+    cues: SubtitleCue[],
+    versionId?: string,
+  ): SubtitleTrack {
+    const tag = languageOf(lang);
+    if (cues.length === 0) {
+      throw problem(400, 'invalid_argument', 'subtitles without cues');
+    }
+    for (const cue of cues) {
+      const issue = cueProblem(cue);
+      if (issue !== undefined) {
+        throw problem(400, 'invalid_argument', `subtitles: an invalid cue (${issue})`);
+      }
+    }
+    const sorted = [...cues].sort((a, b) => a.start - b.start);
+    const track: SubtitleTrack = {
+      lang: tag,
+      name: languageName(tag),
+      auto: false,
+      cues: sorted.length,
+      size: new TextEncoder().encode(formatWebVTT(sorted)).length,
+      updated: ctx.nowIso(),
+      updatedBy: 'admin',
+    };
+    tracksOf(bucket, key, versionId).set(tag, { track, cues: clone(sorted) });
+    return clone(track);
+  }
 }

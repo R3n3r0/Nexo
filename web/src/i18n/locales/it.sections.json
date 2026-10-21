@@ -1743,11 +1743,13 @@
       "prefixReserved": "Il prefisso .nexo-media/ è riservato agli output.",
       "suffix": "Ogni suffisso deve avere 1-32 caratteri.",
       "interval": "Una durata da 1s a 10m, come 10s.",
-      "nothing": "Scegli almeno un output: rendition, copertina o miniature.",
-      "imageVideoOutputs": "Una regola per immagini non ha rendition, copertina o miniature.",
+      "nothing": "Scegli almeno un'uscita: rendition, poster, miniature o sottotitoli.",
+      "imageVideoOutputs": "Una regola per immagini non ha rendition, poster, miniature né sottotitoli.",
       "imageFormat": "Formato sconosciuto: scegli tra AVIF, WebP, JPEG e PNG.",
       "imageWidth": "Ogni larghezza deve essere un numero intero di pixel da 16 a 8192.",
-      "imageWidths": "Al massimo 16 larghezze."
+      "imageWidths": "Al massimo 16 larghezze.",
+      "subtitleLanguage": "Non è un tag di lingua (it, en, pt-BR...).",
+      "subtitleLanguages": "Al massimo 20 traduzioni."
     },
     "kind": "Tipo di regola",
     "kinds": {
@@ -1758,7 +1760,16 @@
     "formatsHint": "I formati delle varianti; tutti se vuoto. I link alle immagini servono il più compatto accettato da ogni browser.",
     "widths": "Larghezze",
     "widthsHint": "Larghezze in pixel da 16 a 8192, al massimo 16; {{widths}} se vuoto. Le larghezze non inferiori all'immagine sono saltate, e ogni formato riceve anche l'immagine alla sua dimensione. Premi Invio dopo ciascuna.",
-    "widthsBadge": "{{widths}} px"
+    "widthsBadge": "{{widths}} px",
+    "subtitles": "Sottotitoli automatici",
+    "subtitlesHint": "Il media worker trascrive il parlato (un servizio di trascrizione come whisper.cpp) e lo traduce. Le tracce manuali caricate dal pannello dell'oggetto non vengono mai sovrascritte.",
+    "spoken": "Lingua parlata",
+    "spokenHint": "Un tag BCP 47 (it, en...); vuoto la rileva.",
+    "spokenPlaceholder": "rilevata",
+    "translations": "Traduzioni",
+    "translationsHint": "Lingue in cui tradurre la trascrizione (serve un servizio di traduzione), al massimo 20. Premi Invio dopo ciascuna.",
+    "subtitlesBadge": "Sottotitoli {{languages}}",
+    "detected": "auto"
   },
   "objectMedia": {
     "state": {
@@ -1804,5 +1815,54 @@
     "copyVariant": "Copia l'URL della variante {{format}} {{resolution}}",
     "variantAlt": "Variante {{format}} di {{name}}, {{resolution}}",
     "variantsHint": "Questi URL richiedono una sessione della console: per dare l'immagine ad altri, condividila con un link immagine."
+  },
+  "subtitles": {
+    "title": "Sottotitoli",
+    "none": "Nessun sottotitolo. Carica un file WebVTT o SubRip, oppure aggiungi \"subtitles\" alla regola media per trascrivere il parlato.",
+    "hint": "I sottotitoli compaiono come didascalie nella console, nella pagina del player e in ogni player HLS delle distribuzioni.",
+    "upload": "Carica sottotitoli",
+    "uploadAction": "Carica",
+    "uploaded": "Sottotitoli {{name}} caricati ({{n}} battute).",
+    "language": "Lingua",
+    "languageHint": "Un tag BCP 47: it, en, pt-BR...",
+    "invalidLanguage": "Non è un tag di lingua.",
+    "file": "File",
+    "fileHint": "WebVTT (.vtt) o SubRip (.srt), al massimo 2 MiB. Sostituisce la traccia di quella lingua.",
+    "tooLarge": "Il file supera 2 MiB.",
+    "origin": "Origine",
+    "manual": "Manuale",
+    "transcribed": "Automatica: trascritta",
+    "translated": "Automatica: tradotta da {{from}}",
+    "cues": "Battute",
+    "updated": "Aggiornata",
+    "editTrack": "Modifica i sottotitoli {{name}}",
+    "download": "Scarica i sottotitoli {{name}}",
+    "remove": "Rimuovi i sottotitoli {{name}}",
+    "removeTitle": "Rimuovi sottotitoli",
+    "removeManual": "Rimuovere i sottotitoli {{name}}? La traccia non si recupera, a meno che il bucket conservi le versioni.",
+    "removeAutomatic": "Rimuovere i sottotitoli automatici {{name}}? Tornano quando il video viene rielaborato.",
+    "format": {
+      "vtt": "WebVTT (.vtt)",
+      "srt": "SubRip (.srt)"
+    },
+    "automaticFailed": "I sottotitoli automatici non sono riusciti",
+    "edit": "Modifica sottotitoli",
+    "editTitle": "Sottotitoli {{name}} ({{lang}})",
+    "editAutomatic": "Questa traccia l'ha creata il media worker: una volta salvata diventa manuale, e il worker non la sovrascrive mai.",
+    "start": "Inizio",
+    "end": "Fine",
+    "text": "Testo",
+    "startOf": "Inizio della battuta {{n}}",
+    "endOf": "Fine della battuta {{n}}",
+    "textOf": "Testo della battuta {{n}}",
+    "removeCue": "Rimuovi la battuta {{n}}",
+    "addCue": "Aggiungi una battuta",
+    "timeHint": "Tempi nel formato hh:mm:ss.mmm",
+    "problem": {
+      "time": "Un tempo non è nel formato hh:mm:ss.mmm.",
+      "order": "La battuta deve finire dopo l'inizio.",
+      "text": "La battuta non ha testo.",
+      "long": "Il testo supera 2048 byte."
+    }
   }
 }

@@ -165,7 +165,7 @@ $ nexoctl media rule add mem/photos --images --width 8
 [exit 2]
 
 $ nexoctl media rule add mem/photos --images --thumbnails 10s
-! nexoctl: error: invalid media configuration: media rule "images": an image rule has no renditions, poster or thumbnails
+! nexoctl: error: invalid media configuration: media rule "images": an image rule has no renditions, poster, thumbnails or subtitles
 ! Run 'nexoctl media rule add --help' for usage.
 [exit 2]
 

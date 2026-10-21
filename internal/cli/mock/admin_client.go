@@ -1705,6 +1705,56 @@ func (_c *AdminClient_DeletePolicy_Call) RunAndReturn(run func(context.Context, 
 	return _c
 }
 
+// DeleteSubtitles provides a mock function with given fields: ctx, bucket, key, versionID, lang
+func (_m *AdminClient) DeleteSubtitles(ctx context.Context, bucket string, key string, versionID string, lang string) error {
+	ret := _m.Called(ctx, bucket, key, versionID, lang)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteSubtitles")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) error); ok {
+		r0 = rf(ctx, bucket, key, versionID, lang)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_DeleteSubtitles_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteSubtitles'
+type AdminClient_DeleteSubtitles_Call struct {
+	*mock.Call
+}
+
+// DeleteSubtitles is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - key string
+//   - versionID string
+//   - lang string
+func (_e *AdminClient_Expecter) DeleteSubtitles(ctx interface{}, bucket interface{}, key interface{}, versionID interface{}, lang interface{}) *AdminClient_DeleteSubtitles_Call {
+	return &AdminClient_DeleteSubtitles_Call{Call: _e.mock.On("DeleteSubtitles", ctx, bucket, key, versionID, lang)}
+}
+
+func (_c *AdminClient_DeleteSubtitles_Call) Run(run func(ctx context.Context, bucket string, key string, versionID string, lang string)) *AdminClient_DeleteSubtitles_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_DeleteSubtitles_Call) Return(_a0 error) *AdminClient_DeleteSubtitles_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_DeleteSubtitles_Call) RunAndReturn(run func(context.Context, string, string, string, string) error) *AdminClient_DeleteSubtitles_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // DeleteUser provides a mock function with given fields: ctx, accessKey
 func (_m *AdminClient) DeleteUser(ctx context.Context, accessKey string) error {
 	ret := _m.Called(ctx, accessKey)
@@ -1972,6 +2022,69 @@ func (_c *AdminClient_ExportConfig_Call) Return(_a0 []byte, _a1 error) *AdminCli
 }
 
 func (_c *AdminClient_ExportConfig_Call) RunAndReturn(run func(context.Context) ([]byte, error)) *AdminClient_ExportConfig_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ExportSubtitles provides a mock function with given fields: ctx, bucket, key, versionID, lang, format
+func (_m *AdminClient) ExportSubtitles(ctx context.Context, bucket string, key string, versionID string, lang string, format string) ([]byte, error) {
+	ret := _m.Called(ctx, bucket, key, versionID, lang, format)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ExportSubtitles")
+	}
+
+	var r0 []byte
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, string) ([]byte, error)); ok {
+		return rf(ctx, bucket, key, versionID, lang, format)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, string) []byte); ok {
+		r0 = rf(ctx, bucket, key, versionID, lang, format)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]byte)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, string, string) error); ok {
+		r1 = rf(ctx, bucket, key, versionID, lang, format)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_ExportSubtitles_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ExportSubtitles'
+type AdminClient_ExportSubtitles_Call struct {
+	*mock.Call
+}
+
+// ExportSubtitles is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - key string
+//   - versionID string
+//   - lang string
+//   - format string
+func (_e *AdminClient_Expecter) ExportSubtitles(ctx interface{}, bucket interface{}, key interface{}, versionID interface{}, lang interface{}, format interface{}) *AdminClient_ExportSubtitles_Call {
+	return &AdminClient_ExportSubtitles_Call{Call: _e.mock.On("ExportSubtitles", ctx, bucket, key, versionID, lang, format)}
+}
+
+func (_c *AdminClient_ExportSubtitles_Call) Run(run func(ctx context.Context, bucket string, key string, versionID string, lang string, format string)) *AdminClient_ExportSubtitles_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_ExportSubtitles_Call) Return(_a0 []byte, _a1 error) *AdminClient_ExportSubtitles_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_ExportSubtitles_Call) RunAndReturn(run func(context.Context, string, string, string, string, string) ([]byte, error)) *AdminClient_ExportSubtitles_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -3562,6 +3675,69 @@ func (_c *AdminClient_ImportConfig_Call) RunAndReturn(run func(context.Context, 
 	return _c
 }
 
+// ImportSubtitles provides a mock function with given fields: ctx, bucket, key, versionID, lang, doc
+func (_m *AdminClient) ImportSubtitles(ctx context.Context, bucket string, key string, versionID string, lang string, doc []byte) (*nexoadmin.SubtitleTrack, error) {
+	ret := _m.Called(ctx, bucket, key, versionID, lang, doc)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ImportSubtitles")
+	}
+
+	var r0 *nexoadmin.SubtitleTrack
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, []byte) (*nexoadmin.SubtitleTrack, error)); ok {
+		return rf(ctx, bucket, key, versionID, lang, doc)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, []byte) *nexoadmin.SubtitleTrack); ok {
+		r0 = rf(ctx, bucket, key, versionID, lang, doc)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.SubtitleTrack)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, string, []byte) error); ok {
+		r1 = rf(ctx, bucket, key, versionID, lang, doc)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_ImportSubtitles_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ImportSubtitles'
+type AdminClient_ImportSubtitles_Call struct {
+	*mock.Call
+}
+
+// ImportSubtitles is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - key string
+//   - versionID string
+//   - lang string
+//   - doc []byte
+func (_e *AdminClient_Expecter) ImportSubtitles(ctx interface{}, bucket interface{}, key interface{}, versionID interface{}, lang interface{}, doc interface{}) *AdminClient_ImportSubtitles_Call {
+	return &AdminClient_ImportSubtitles_Call{Call: _e.mock.On("ImportSubtitles", ctx, bucket, key, versionID, lang, doc)}
+}
+
+func (_c *AdminClient_ImportSubtitles_Call) Run(run func(ctx context.Context, bucket string, key string, versionID string, lang string, doc []byte)) *AdminClient_ImportSubtitles_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].([]byte))
+	})
+	return _c
+}
+
+func (_c *AdminClient_ImportSubtitles_Call) Return(_a0 *nexoadmin.SubtitleTrack, _a1 error) *AdminClient_ImportSubtitles_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_ImportSubtitles_Call) RunAndReturn(run func(context.Context, string, string, string, string, []byte) (*nexoadmin.SubtitleTrack, error)) *AdminClient_ImportSubtitles_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // InspectCache provides a mock function with given fields: ctx, in
 func (_m *AdminClient) InspectCache(ctx context.Context, in nexoadmin.CacheInspectRequest) (*nexoadmin.CacheInspection, error) {
 	ret := _m.Called(ctx, in)
@@ -4728,6 +4904,67 @@ func (_c *AdminClient_ListShares_Call) Return(_a0 *nexoadmin.ShareList, _a1 erro
 }
 
 func (_c *AdminClient_ListShares_Call) RunAndReturn(run func(context.Context, nexoadmin.ListSharesOptions) (*nexoadmin.ShareList, error)) *AdminClient_ListShares_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListSubtitles provides a mock function with given fields: ctx, bucket, key, versionID
+func (_m *AdminClient) ListSubtitles(ctx context.Context, bucket string, key string, versionID string) ([]nexoadmin.SubtitleTrack, error) {
+	ret := _m.Called(ctx, bucket, key, versionID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListSubtitles")
+	}
+
+	var r0 []nexoadmin.SubtitleTrack
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) ([]nexoadmin.SubtitleTrack, error)); ok {
+		return rf(ctx, bucket, key, versionID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) []nexoadmin.SubtitleTrack); ok {
+		r0 = rf(ctx, bucket, key, versionID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]nexoadmin.SubtitleTrack)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
+		r1 = rf(ctx, bucket, key, versionID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_ListSubtitles_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListSubtitles'
+type AdminClient_ListSubtitles_Call struct {
+	*mock.Call
+}
+
+// ListSubtitles is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - key string
+//   - versionID string
+func (_e *AdminClient_Expecter) ListSubtitles(ctx interface{}, bucket interface{}, key interface{}, versionID interface{}) *AdminClient_ListSubtitles_Call {
+	return &AdminClient_ListSubtitles_Call{Call: _e.mock.On("ListSubtitles", ctx, bucket, key, versionID)}
+}
+
+func (_c *AdminClient_ListSubtitles_Call) Run(run func(ctx context.Context, bucket string, key string, versionID string)) *AdminClient_ListSubtitles_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_ListSubtitles_Call) Return(_a0 []nexoadmin.SubtitleTrack, _a1 error) *AdminClient_ListSubtitles_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_ListSubtitles_Call) RunAndReturn(run func(context.Context, string, string, string) ([]nexoadmin.SubtitleTrack, error)) *AdminClient_ListSubtitles_Call {
 	_c.Call.Return(run)
 	return _c
 }

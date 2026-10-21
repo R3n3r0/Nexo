@@ -131,7 +131,7 @@ $ nexoctl media rule add mem/videos --poster
 [exit 2]
 
 $ nexoctl media rule add mem/videos --id none
-! nexoctl: error: invalid media configuration: media rule "none": nothing to produce (renditions, poster or thumbnails)
+! nexoctl: error: invalid media configuration: media rule "none": nothing to produce (renditions, poster, thumbnails or subtitles)
 ! Run 'nexoctl media rule add --help' for usage.
 [exit 2]
 

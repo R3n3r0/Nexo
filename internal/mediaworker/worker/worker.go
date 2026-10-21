@@ -17,6 +17,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/mediaworker/imaging"
 	"github.com/r3n3r0/nexo/internal/mediaworker/openh264"
+	"github.com/r3n3r0/nexo/internal/mediaworker/speech"
 )
 
 // Defaults of the configuration.
@@ -51,6 +52,12 @@ type Config struct {
 	// ImageMemory bounds the memory of the image variants encoded at once
 	// (default imaging.DefaultMemoryBudget; see imaging.EncodeMemory).
 	ImageMemory int64
+	// Transcriber transcribes the speech of the videos whose rule asks
+	// for subtitles (nil: such a rule fails its subtitles).
+	Transcriber speech.Transcriber
+	// Translator translates the transcriptions (nil: the translations of
+	// a rule fail).
+	Translator speech.Translator
 }
 
 // Worker receives and processes the media jobs.

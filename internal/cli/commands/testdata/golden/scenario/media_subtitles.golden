@@ -1,0 +1,86 @@
+$ nexoctl media rule add mem/videos --id talks --prefix talks/ --subtitles --translate de,PT-br
+Media rule "talks" added to `mem/videos`.
+
+$ nexoctl media rule add mem/videos --id talks --prefix talks/ --subtitles=en --json
+{"status":"success","target":"mem/videos","bucket":"videos","id":"talks","prefix":"talks/","suffixes":[".m4v",".mov",".mp4"],"subtitles":{"source":"en"}}
+
+$ nexoctl media status mem/videos/talks/a.mp4
+Video      : mem/videos/talks/a.mp4
+VersionID  : null
+State      : done (current)
+Rule       : talks
+Language   : en
+Subtitles  : de, en
+Updated    : 2026-01-02 03:04:06 UTC
+
+$ nexoctl media subtitles ls mem/videos/talks/a.mp4
+de       Deutsch            1 cue         44B  translated from en         2026-01-02 03:04:06 UTC
+en       English            1 cue         44B  transcribed                2026-01-02 03:04:06 UTC
+
+$ nexoctl media subtitles put mem/videos/talks/a.mp4 IT it.srt
+Subtitles it of `mem/videos/talks/a.mp4` uploaded (2 cues).
+
+$ nexoctl media subtitles ls --json mem/videos/talks/a.mp4
+{"status":"success","target":"mem/videos/talks/a.mp4","bucket":"videos","key":"talks/a.mp4","tracks":[{"lang":"de","name":"Deutsch","auto":true,"from":"en","cues":1,"size":44,"updated":"2026-01-02T03:04:06Z"},{"lang":"en","name":"English","auto":true,"engine":"whisper-1","cues":1,"size":44,"updated":"2026-01-02T03:04:06Z"},{"lang":"it","name":"Italiano","auto":false,"cues":2,"size":93,"updatedBy":"MEMKEY"}]}
+
+$ nexoctl media subtitles get mem/videos/talks/a.mp4 it
+WEBVTT
+
+00:00:01.000 --> 00:00:02.500
+Ciao a tutti
+
+00:00:03.000 --> 00:00:04.000
+xBenvenuti
+
+$ nexoctl media subtitles get --format srt mem/videos/talks/a.mp4 it
+1
+00:00:01,000 --> 00:00:02,500
+Ciao a tutti
+
+2
+00:00:03,000 --> 00:00:04,000
+xBenvenuti
+
+$ nexoctl media subtitles rm mem/videos/talks/a.mp4 de
+Subtitles de of `mem/videos/talks/a.mp4` removed.
+
+$ nexoctl media subtitles ls mem/videos/talks/a.mp4
+en       English            1 cue         44B  transcribed                2026-01-02 03:04:06 UTC
+it       Italiano           2 cues        93B  manual (MEMKEY)
+
+$ nexoctl media rule add mem/videos --id x --subtitles=klingon!
+! nexoctl: error: invalid media configuration: media rule "x": invalid language tag "klingon!"
+! Run 'nexoctl media rule add --help' for usage.
+[exit 2]
+
+$ nexoctl media rule add mem/videos --images --subtitles
+! nexoctl: error: invalid media configuration: media rule "images": an image rule has no renditions, poster, thumbnails or subtitles
+! Run 'nexoctl media rule add --help' for usage.
+[exit 2]
+
+$ nexoctl media subtitles put mem/videos/talks/a.mp4 it bad.vtt
+! nexoctl: error: subtitles: a cue ends before it starts (00:02.000 --> 00:01.000)
+! Run 'nexoctl media subtitles put --help' for usage.
+[exit 2]
+
+$ nexoctl media subtitles put mem/videos/talks/a.mp4 ?? it.srt
+! nexoctl: error: ??: not a language tag (it, en, pt-BR...)
+! Run 'nexoctl media subtitles put --help' for usage.
+[exit 2]
+
+$ nexoctl media subtitles get --format ass mem/videos/talks/a.mp4 it
+! nexoctl: error: --format must be vtt or srt
+! Run 'nexoctl media subtitles get --help' for usage.
+[exit 2]
+
+$ nexoctl media subtitles get mem/videos/talks/a.mp4 fr
+! nexoctl: error: mem/videos/talks/a.mp4: not found: no fr subtitles for videos/talks/a.mp4 (not_found)
+[exit 3]
+
+$ nexoctl media subtitles rm mem/videos/talks/a.mp4 fr
+! nexoctl: error: mem/videos/talks/a.mp4: not found: no fr subtitles for videos/talks/a.mp4 (not_found)
+[exit 3]
+
+$ nexoctl media subtitles ls mem/videos/talks/b.mp4
+No subtitles for `mem/videos/talks/b.mp4`.
+

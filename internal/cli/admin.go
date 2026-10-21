@@ -112,6 +112,15 @@ type AdminClient interface {
 	DeleteBucketMedia(ctx context.Context, bucket string) error
 	ReprocessMedia(ctx context.Context, bucket, key, versionID string) error
 	GetMediaStatus(ctx context.Context, bucket, key, versionID string) (*nexoadmin.MediaStatus, error)
+	// Subtitle tracks of a video (nexoctl media subtitles): ListSubtitles
+	// returns those that apply to its content, ExportSubtitles the
+	// document of a track (format vtt or srt), ImportSubtitles stores a
+	// WebVTT or SubRip document as a manual track, DeleteSubtitles removes
+	// a track.
+	ListSubtitles(ctx context.Context, bucket, key, versionID string) ([]nexoadmin.SubtitleTrack, error)
+	ExportSubtitles(ctx context.Context, bucket, key, versionID, lang, format string) ([]byte, error)
+	ImportSubtitles(ctx context.Context, bucket, key, versionID, lang string, doc []byte) (*nexoadmin.SubtitleTrack, error)
+	DeleteSubtitles(ctx context.Context, bucket, key, versionID, lang string) error
 
 	// Notification targets (admin notify targets ls|test): their delivery
 	// state on the answering node and a test event; target is

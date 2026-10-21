@@ -268,7 +268,8 @@ describe('BucketMediaTab', () => {
     ).rejects.toMatchObject({
       ruleErrors: [
         expect.objectContaining({
-          message: 'media rule "img": an image rule has no renditions, poster or thumbnails',
+          message:
+            'media rule "img": an image rule has no renditions, poster, thumbnails or subtitles',
         }),
       ],
     });

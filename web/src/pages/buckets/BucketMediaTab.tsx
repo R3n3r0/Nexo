@@ -99,6 +99,9 @@ function RuleEditor({
   const [poster, setPoster] = useState(false);
   const [thumbnails, setThumbnails] = useState(false);
   const [interval, setThumbInterval] = useState(defaultThumbnailInterval);
+  const [subtitles, setSubtitles] = useState(false);
+  const [spoken, setSpoken] = useState('');
+  const [translations, setTranslations] = useState<string[]>([]);
   const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
@@ -113,6 +116,9 @@ function RuleEditor({
     setPoster(rule?.poster ?? rule === null);
     setThumbnails(rule?.thumbnails !== undefined);
     setThumbInterval(rule?.thumbnails?.interval ?? defaultThumbnailInterval);
+    setSubtitles(rule?.subtitles !== undefined);
+    setSpoken(rule?.subtitles?.source ?? '');
+    setTranslations(rule?.subtitles?.languages ?? []);
     setSubmitted(false);
   }, [opened, rule]);
 
@@ -132,6 +138,14 @@ function RuleEditor({
           ...(renditions.length > 0 ? { renditions: renditions as MediaRendition[] } : {}),
           ...(poster ? { poster: true } : {}),
           ...(thumbnails ? { thumbnails: { interval: interval.trim() } } : {}),
+          ...(subtitles
+            ? {
+                subtitles: {
+                  ...(spoken.trim() !== '' ? { source: spoken.trim() } : {}),
+                  ...(translations.length > 0 ? { languages: translations } : {}),
+                },
+              }
+            : {}),
         }),
   };
   const kindSuffixes = images ? defaultImageSuffixes : defaultMediaSuffixes;
@@ -265,6 +279,37 @@ function RuleEditor({
                   }}
                 />
               ) : null}
+              <Switch
+                label={t('bucketMedia.subtitles')}
+                description={t('bucketMedia.subtitlesHint')}
+                checked={subtitles}
+                onChange={(event) => {
+                  setSubtitles(event.currentTarget.checked);
+                }}
+              />
+              {subtitles ? (
+                <>
+                  <TextInput
+                    label={t('bucketMedia.spoken')}
+                    description={t('bucketMedia.spokenHint')}
+                    placeholder={t('bucketMedia.spokenPlaceholder')}
+                    value={spoken}
+                    error={issue(['subtitleLanguage'])}
+                    onChange={(event) => {
+                      setSpoken(event.currentTarget.value);
+                    }}
+                  />
+                  <TagsInput
+                    label={t('bucketMedia.translations')}
+                    description={t('bucketMedia.translationsHint')}
+                    placeholder="en, de, pt-BR"
+                    value={translations}
+                    error={issue(['subtitleLanguages'])}
+                    splitChars={[',', ' ']}
+                    onChange={setTranslations}
+                  />
+                </>
+              ) : null}
             </>
           )}
           {nothing !== undefined ? (
@@ -333,6 +378,16 @@ function RuleOutputs({ rule }: { rule: MediaRule }) {
         <Badge variant="light" color="grape" tt="none">
           {t('bucketMedia.thumbnailsBadge', {
             interval: rule.thumbnails.interval ?? defaultThumbnailInterval,
+          })}
+        </Badge>
+      ) : null}
+      {rule.subtitles !== undefined ? (
+        <Badge variant="light" color="cyan" tt="none">
+          {t('bucketMedia.subtitlesBadge', {
+            languages: [
+              rule.subtitles.source ?? t('bucketMedia.detected'),
+              ...(rule.subtitles.languages ?? []),
+            ].join(', '),
           })}
         </Badge>
       ) : null}

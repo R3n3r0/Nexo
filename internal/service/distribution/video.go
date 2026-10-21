@@ -30,6 +30,10 @@ const (
 	VideoPoster     = "poster.jpg"
 	VideoSprite     = "sprite.jpg"
 	VideoThumbnails = "thumbnails.vtt"
+	// VideoSubtitles and VideoSubtitleFile serve the subtitles of a
+	// language (?lang=): its playlist and its WebVTT.
+	VideoSubtitles    = "subtitles.m3u8"
+	VideoSubtitleFile = "subtitles.vtt"
 )
 
 // The content types of the HLS presentations (RFC 8216 §4 and the fMP4
@@ -86,6 +90,14 @@ func videoFiles() map[string]videoFile {
 				return nil, "", err
 			}
 			return media.RewriteSprite(b, l.(videoLinks).with(VideoSprite, nil)), contentTypeVTT, nil
+		}},
+		VideoSubtitles: {build: func(ctx context.Context, m media.Service, src media.Source, l media.Links, q url.Values) ([]byte, string, error) {
+			b, err := m.SubtitlePlaylist(ctx, src, q.Get("lang"), l)
+			return b, contentTypePlaylist, err
+		}},
+		VideoSubtitleFile: {build: func(ctx context.Context, m media.Service, src media.Source, _ media.Links, q url.Values) ([]byte, string, error) {
+			b, err := m.SubtitleFile(ctx, src, q.Get("lang"))
+			return b, contentTypeVTT, err
 		}},
 	}
 }
@@ -159,6 +171,14 @@ func (l videoLinks) Segment(rev string, n int) string {
 func (l videoLinks) Rendition(name, rev string) string {
 	l.rendition = name
 	return l.with(VideoMedia, l.query(rev))
+}
+
+func (l videoLinks) Subtitles(lang string) string {
+	return l.with(VideoSubtitles, url.Values{"lang": {lang}})
+}
+
+func (l videoLinks) SubtitleFile(lang string) string {
+	return l.with(VideoSubtitleFile, url.Values{"lang": {lang}})
 }
 
 // signingParams returns the parameters of a signed URL in rawQuery (none

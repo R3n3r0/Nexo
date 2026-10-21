@@ -1,0 +1,21 @@
+List the subtitle tracks of a video
+
+Usage:
+  nexoctl media subtitles ls ALIAS/BUCKET/KEY [--version-id V] [flags]
+
+Aliases:
+  ls, list
+
+Examples:
+  nexoctl media subtitles ls local/videos/courses/intro.mp4
+
+Flags:
+  -h, --help                help for ls
+      --version-id string   the version (default: the latest)
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

@@ -48,7 +48,8 @@ The configuration is the JSON document of the Admin API and of the console
 "media get". Streaming a video (HLS packaged on the fly) needs no rule.`
 	rule := groupCmd("rule", "Add or remove one media rule of a bucket")
 	rule.AddCommand(newMediaRuleAddCmd(e), newMediaRuleRemoveCmd(e))
-	cmd.AddCommand(newMediaSetCmd(e), newMediaGetCmd(e), newMediaRemoveCmd(e), rule, newMediaReprocessCmd(e), newMediaStatusCmd(e))
+	cmd.AddCommand(newMediaSetCmd(e), newMediaGetCmd(e), newMediaRemoveCmd(e), rule, newMediaReprocessCmd(e), newMediaStatusCmd(e),
+		newMediaSubtitlesCmd(e))
 	return cmd
 }
 
@@ -161,6 +162,8 @@ type mediaRuleFlags struct {
 	images     bool
 	formats    []string
 	widths     []int
+	subtitles  string
+	translate  []string
 }
 
 // imagesMediaRule is the rule of the images option
@@ -232,11 +235,17 @@ source are skipped).
 image formats the worker decodes): the worker derives from every image it
 selects a variant in every --format (` + strings.Join(domain.MediaImageFormats(), ", ") + `; default all) at every
 --width (16 to 8192 pixels; default ` + joinInts(domain.DefaultImageWidths()) + `), widths not
-smaller than the image skipped, plus the image at its own size in every format.`,
+smaller than the image skipped, plus the image at its own size in every format.
+
+--subtitles makes the worker transcribe the speech of the videos (the language
+given, or detected with "auto" or no value) into a subtitle track, and
+--translate adds a translated track per language (BCP 47 tags: it, en,
+pt-BR...). The worker needs a transcription service ("media subtitles").`,
 		Example: `  nexoctl media rule add local/videos --id hd --prefix courses/ --rendition 720p,480p --poster
   nexoctl media rule add local/videos --id clips --suffix .mp4 --suffix .webm --thumbnails 5s
   nexoctl media rule add local/videos --hls
   nexoctl media rule add local/photos --images
+  nexoctl media rule add local/videos --id talks --prefix talks/ --subtitles=it --translate en,de
   nexoctl media rule add local/photos --images --id thumbs --prefix gallery/ --format avif,webp --width 320,640`,
 		Args:              exactArgs(1),
 		ValidArgsFunction: completeTargets(e),
@@ -246,6 +255,12 @@ smaller than the image skipped, plus the image at its own size in every format.`
 				Renditions: splitList(f.renditions), Poster: f.poster}
 			if changed("thumbnails") {
 				rule.Thumbnails = &nexoadmin.MediaThumbnails{Interval: f.thumbnails}
+			}
+			if changed("subtitles") || changed("translate") {
+				rule.Subtitles = &nexoadmin.MediaSubtitles{Source: f.subtitles, Languages: splitList(f.translate)}
+				if rule.Subtitles.Source == "auto" {
+					rule.Subtitles.Source = ""
+				}
 			}
 			if f.hls && f.images {
 				return cli.UsageError("--hls and --images are two rules: add them one at a time")
@@ -313,6 +328,9 @@ smaller than the image skipped, plus the image at its own size in every format.`
 	fs.BoolVar(&f.hls, "hls", false, `the rule of the HLS option: id "hls", every rendition, a poster and thumbnails`)
 	fs.BoolVar(&f.images, "images", false, `an image rule (default id "images"): the variants of every image`)
 	fs.StringSliceVar(&f.formats, "format", nil, "image rule: the formats of the variants (repeatable or comma-separated: "+strings.Join(domain.MediaImageFormats(), ",")+"; default all)")
+	fs.StringVar(&f.subtitles, "subtitles", "", `automatic subtitles: the spoken LANG transcribed ("auto" detects it)`)
+	fs.Lookup("subtitles").NoOptDefVal = "auto"
+	fs.StringSliceVar(&f.translate, "translate", nil, "automatic subtitles: translate the transcription in these languages (repeatable or comma-separated)")
 	fs.IntSliceVar(&f.widths, "width", nil, "image rule: the widths of the variants in pixels (repeatable or comma-separated; default "+joinInts(domain.DefaultImageWidths())+")")
 	return cmd
 }
@@ -505,6 +523,13 @@ func (e *env) mediaStatusText(t cli.Target, st *nexoadmin.MediaStatus) string {
 	}
 	if len(st.Images) > 0 {
 		row("Images", imageVariantsText(st.Images))
+	}
+	row("Language", st.Language)
+	if len(st.Subtitles) > 0 {
+		row("Subtitles", strings.Join(st.Subtitles, ", "))
+	}
+	if st.SubtitlesError != "" {
+		row("Subtitles", e.out.Paint(cli.ColorRed, "failed")+": "+st.SubtitlesError)
 	}
 	if st.Updated != nil {
 		row("Updated", cli.FormatTime(*st.Updated))

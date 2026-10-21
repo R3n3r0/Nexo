@@ -113,6 +113,43 @@ func TestScenarioMediaImages(t *testing.T) {
 	assert.Equal(t, "images", rules[1].ID)
 }
 
+// TestScenarioMediaSubtitles: the subtitle rules (rule add --subtitles)
+// and the tracks of a video (media subtitles).
+func TestScenarioMediaSubtitles(t *testing.T) {
+	h := newHarness(t)
+	h.mem.MakeBucket("videos")
+	h.write("it.srt", "1\n00:00:01,000 --> 00:00:02,500\nCiao a tutti\n\n2\n00:00:03,000 --> 00:00:04,000\n<script>x</script>Benvenuti\n")
+	h.write("bad.vtt", "WEBVTT\n\n00:02.000 --> 00:01.000\nx\n")
+	updated := time.Date(2026, 1, 2, 3, 4, 6, 0, time.UTC)
+	require.NoError(t, h.admin.SetSubtitles("videos", "talks/a.mp4", "", nexoadmin.SubtitleTrack{Lang: "en", Auto: true, Engine: "whisper-1", Updated: &updated},
+		"WEBVTT\n\n00:00.000 --> 00:01.000\nHello\n"))
+	require.NoError(t, h.admin.SetSubtitles("videos", "talks/a.mp4", "", nexoadmin.SubtitleTrack{Lang: "de", Auto: true, From: "en", Updated: &updated},
+		"WEBVTT\n\n00:00.000 --> 00:01.000\nHallo\n"))
+	h.admin.SetMediaStatus("videos", "talks/a.mp4", "", nexoadmin.MediaStatus{State: "done", Current: true, VersionID: "null", Rule: "talks",
+		Language: "en", Subtitles: []string{"de", "en"}, Updated: &updated})
+	s := h.session()
+	s.run("media", "rule", "add", "mem/videos", "--id", "talks", "--prefix", "talks/", "--subtitles", "--translate", "de,PT-br")
+	s.run("media", "rule", "add", "mem/videos", "--id", "talks", "--prefix", "talks/", "--subtitles=en", "--json")
+	s.run("media", "status", "mem/videos/talks/a.mp4")
+	s.run("media", "subtitles", "ls", "mem/videos/talks/a.mp4")
+	s.run("media", "subtitles", "put", "mem/videos/talks/a.mp4", "IT", "it.srt")
+	s.run("media", "subtitles", "ls", "--json", "mem/videos/talks/a.mp4")
+	s.run("media", "subtitles", "get", "mem/videos/talks/a.mp4", "it")
+	s.run("media", "subtitles", "get", "--format", "srt", "mem/videos/talks/a.mp4", "it")
+	s.run("media", "subtitles", "rm", "mem/videos/talks/a.mp4", "de")
+	s.run("media", "subtitles", "ls", "mem/videos/talks/a.mp4")
+	// Usage errors and failures.
+	s.run("media", "rule", "add", "mem/videos", "--id", "x", "--subtitles=klingon!")
+	s.run("media", "rule", "add", "mem/videos", "--images", "--subtitles")
+	s.run("media", "subtitles", "put", "mem/videos/talks/a.mp4", "it", "bad.vtt")
+	s.run("media", "subtitles", "put", "mem/videos/talks/a.mp4", "??", "it.srt")
+	s.run("media", "subtitles", "get", "--format", "ass", "mem/videos/talks/a.mp4", "it")
+	s.run("media", "subtitles", "get", "mem/videos/talks/a.mp4", "fr")
+	s.run("media", "subtitles", "rm", "mem/videos/talks/a.mp4", "fr")
+	s.run("media", "subtitles", "ls", "mem/videos/talks/b.mp4")
+	golden(t, "scenario/media_subtitles", s.b.String())
+}
+
 func TestMediaRuleRemoveLastDeletes(t *testing.T) {
 	h := newHarness(t)
 	h.mustRun("media", "rule", "add", "mem/videos", "--id", "only", "--poster")

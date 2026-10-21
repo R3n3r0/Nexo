@@ -93,6 +93,8 @@ func (links) Media(rev string) string           { return "media.m3u8?rev=" + rev
 func (links) Init(rev string) string            { return "init.mp4?rev=" + rev }
 func (links) Segment(rev string, n int) string  { return fmt.Sprintf("segment.m4s?rev=%s&n=%d", rev, n) }
 func (links) Rendition(name, rev string) string { return "media.m3u8?r=" + name + "&rev=" + rev }
+func (links) Subtitles(lang string) string      { return "subtitles.m3u8?lang=" + lang }
+func (links) SubtitleFile(lang string) string   { return "subtitles.vtt?lang=" + lang }
 
 func TestNewRequiresObjects(t *testing.T) {
 	_, err := media.New(media.Deps{})
@@ -212,6 +214,8 @@ func (fileLinks) Media(string) string             { return "index.m3u8" }
 func (fileLinks) Init(string) string              { return "init.mp4" }
 func (fileLinks) Segment(_ string, n int) string  { return fmt.Sprintf("seg%d.m4s", n) }
 func (fileLinks) Rendition(name, _ string) string { return name + ".m3u8" }
+func (fileLinks) Subtitles(lang string) string    { return lang + ".m3u8" }
+func (fileLinks) SubtitleFile(lang string) string { return lang + ".vtt" }
 
 // stream is what ffprobe reports of a stream.
 type stream struct {

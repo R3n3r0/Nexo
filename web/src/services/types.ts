@@ -324,6 +324,13 @@ export type MediaImageFormat = NonNullable<MediaImages['formats']>[number];
 export type MediaImageOutput = Schemas['MediaImageOutput'];
 /** The version of a video to process again (default the latest). */
 export type MediaReprocessRequest = Schemas['MediaReprocessRequest'];
+export type MediaSubtitles = Schemas['MediaSubtitles'];
+export type SubtitleTrack = Schemas['SubtitleTrack'];
+export type SubtitleCue = Schemas['SubtitleCue'];
+export type SubtitleCues = Schemas['SubtitleCues'];
+export type Subtitles = Schemas['Subtitles'];
+/** The formats a subtitle track downloads as. */
+export type SubtitleFormat = 'vtt' | 'srt';
 /**
  * The processing state of a video or an image by the media worker; alpha
  * reports an image with transparency (its JPEG variants are flattened).

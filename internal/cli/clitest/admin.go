@@ -315,6 +315,7 @@ func (m *MemAdmin) Client(t TestingT, caller string) *climock.AdminClient {
 	s.expectDistribution(c)
 	s.expectCache(c)
 	s.expectMedia(c)
+	s.expectSubtitles(c)
 	return c
 }
 

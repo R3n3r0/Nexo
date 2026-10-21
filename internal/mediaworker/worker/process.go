@@ -193,7 +193,7 @@ func (j *job) video(ctx context.Context, dir, srcPath string, produced map[strin
 		produced[domain.MediaSpriteFile], produced[domain.MediaThumbnailsFile] = true, true
 		j.status.Thumbnails = &domain.MediaThumbnailsOutput{Interval: res.Interval, Width: res.Width, Height: res.Height, Columns: res.Columns, Count: res.Count}
 	}
-	return nil
+	return j.subtitles(ctx, dir, src)
 }
 
 // images derives the variants of an image, every format at every width
@@ -247,7 +247,13 @@ func (j *job) prune(ctx context.Context, produced map[string]bool) {
 	}
 	var stale []ObjectVersion
 	for _, v := range versions {
-		if !v.Latest || !produced[strings.TrimPrefix(v.Key, j.sidecar)] {
+		name := strings.TrimPrefix(v.Key, j.sidecar)
+		if strings.HasPrefix(name, domain.MediaSubtitlesDir) {
+			// The subtitles: the manual tracks belong to the users, the
+			// automatic ones are handled by the subtitles step.
+			continue
+		}
+		if !v.Latest || !produced[name] {
 			stale = append(stale, v)
 		}
 	}

@@ -188,6 +188,7 @@ func suite() []suiteTest {
 		{name: "TestImageVariants", fn: TestImageVariants},
 		{name: "TestDistributionImages", fn: TestDistributionImages},
 		{name: "TestDistributionVideo", fn: TestDistributionVideo},
+		{name: "TestVideoSubtitles", fn: TestVideoSubtitles},
 		{name: "TestS3GetObjectImageVariants", fn: TestS3GetObjectImageVariants},
 		{name: "TestMediaWorker", fn: TestMediaWorker},
 	}

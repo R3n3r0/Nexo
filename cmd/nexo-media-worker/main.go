@@ -27,6 +27,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/mediaworker/imaging"
 	"github.com/r3n3r0/nexo/internal/mediaworker/openh264"
+	"github.com/r3n3r0/nexo/internal/mediaworker/speech"
 	"github.com/r3n3r0/nexo/internal/mediaworker/worker"
 	"github.com/r3n3r0/nexo/internal/version"
 )
@@ -70,6 +71,14 @@ type options struct {
 	imageBytes  int64
 	imagePixels int64
 	imageMemory int64
+	// The speech services of the automatic subtitles.
+	transcribeURL   string
+	transcribeKey   string
+	transcribeModel string
+	translateURL    string
+	translateEngine string
+	translateKey    string
+	translateModel  string
 }
 
 const defaultAddress = ":9600"
@@ -92,7 +101,16 @@ Every flag can be set with an environment variable: NEXO_WORKER_ followed by
 the flag name in upper case (NEXO_WORKER_S3_ENDPOINT, NEXO_WORKER_AUTH_TOKEN...);
 the credentials and the token can also be read from files named by
 NEXO_WORKER_ACCESS_KEY_FILE, NEXO_WORKER_SECRET_KEY_FILE and
-NEXO_WORKER_AUTH_TOKEN_FILE (Docker and Kubernetes secrets).`,
+NEXO_WORKER_AUTH_TOKEN_FILE (Docker and Kubernetes secrets).
+
+Automatic subtitles (a media rule with "subtitles") need a transcription
+service: --transcribe-url names an OpenAI-compatible endpoint (the OpenAI
+API, a whisper.cpp server, faster-whisper-server...), which receives the audio
+of the video in M4A parts of at most 10 minutes. The translations need
+--translate-url: a LibreTranslate server (--translate-engine libretranslate)
+or an OpenAI-compatible chat completion endpoint (--translate-engine chat,
+with --translate-model). The keys can be read from files as well
+(NEXO_WORKER_TRANSCRIBE_KEY_FILE, NEXO_WORKER_TRANSLATE_KEY_FILE).`,
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -125,6 +143,13 @@ NEXO_WORKER_AUTH_TOKEN_FILE (Docker and Kubernetes secrets).`,
 	f.Int64Var(&o.imageBytes, "image-max-bytes", imaging.DefaultMaxBytes, "largest image file processed (a larger one fails for good)")
 	f.Int64Var(&o.imagePixels, "image-max-pixels", imaging.DefaultMaxPixels, "largest image processed, in pixels, read from its header before decoding")
 	f.Int64Var(&o.imageMemory, "image-memory", imaging.DefaultMemoryBudget, "memory of the image variants encoded at once, in bytes; a variant that alone needs more (an AVIF of a very large image) is not produced")
+	f.StringVar(&o.transcribeURL, "transcribe-url", "", "OpenAI-compatible transcription endpoint of the automatic subtitles (https://api.openai.com/v1/audio/transcriptions, http://whisper:8080/inference...)")
+	f.StringVar(&o.transcribeKey, "transcribe-key", "", "API key of the transcription service (prefer NEXO_WORKER_TRANSCRIBE_KEY)")
+	f.StringVar(&o.transcribeModel, "transcribe-model", "whisper-1", "transcription model")
+	f.StringVar(&o.translateURL, "translate-url", "", "translation endpoint of the automatic subtitles (http://libretranslate:5000/translate, https://api.openai.com/v1/chat/completions...)")
+	f.StringVar(&o.translateEngine, "translate-engine", "libretranslate", "translation service: libretranslate or chat (OpenAI-compatible chat completions)")
+	f.StringVar(&o.translateKey, "translate-key", "", "API key of the translation service (prefer NEXO_WORKER_TRANSLATE_KEY)")
+	f.StringVar(&o.translateModel, "translate-model", "", "chat model of the translations (--translate-engine chat)")
 	root.AddCommand(newVersionCmd(deps), newHealthcheckCmd(deps), newFetchCmd(deps))
 	return root
 }
@@ -163,7 +188,7 @@ func applyEnv(cmd *cobra.Command, lookupEnv func(string) (string, bool)) error {
 // secretFlags are the flags that can also be read from a file named by
 // NEXO_WORKER_<FLAG>_FILE.
 func secretFlags() map[string]bool {
-	return map[string]bool{"access-key": true, "secret-key": true, "auth-token": true}
+	return map[string]bool{"access-key": true, "secret-key": true, "auth-token": true, "transcribe-key": true, "translate-key": true}
 }
 
 func newLogger(w io.Writer, level, format string) (*slog.Logger, error) {
@@ -181,6 +206,35 @@ func newLogger(w io.Writer, level, format string) (*slog.Logger, error) {
 	return nil, fmt.Errorf("--log-format: %q is neither text nor json", format)
 }
 
+// speechServices returns the transcription and translation services of
+// the options (nil when not configured).
+func speechServices(o options) (speech.Transcriber, speech.Translator, error) {
+	var (
+		tr  speech.Transcriber
+		tl  speech.Translator
+		err error
+	)
+	if o.transcribeURL != "" {
+		if tr, err = speech.NewOpenAITranscriber(speech.OpenAIConfig{URL: o.transcribeURL, APIKey: o.transcribeKey, Model: o.transcribeModel}); err != nil {
+			return nil, nil, fmt.Errorf("--transcribe-url: %w", err)
+		}
+	}
+	if o.translateURL != "" {
+		switch o.translateEngine {
+		case "libretranslate":
+			tl, err = speech.NewLibreTranslator(speech.LibreTranslateConfig{URL: o.translateURL, APIKey: o.translateKey})
+		case "chat":
+			tl, err = speech.NewChatTranslator(speech.ChatConfig{URL: o.translateURL, APIKey: o.translateKey, Model: o.translateModel})
+		default:
+			err = fmt.Errorf("--translate-engine: %q is neither libretranslate nor chat", o.translateEngine)
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	return tr, tl, nil
+}
+
 func run(ctx context.Context, deps cmdDeps, o options) error {
 	logger, err := newLogger(deps.stderr, o.logLevel, o.logFormat)
 	if err != nil {
@@ -188,6 +242,10 @@ func run(ctx context.Context, deps cmdDeps, o options) error {
 	}
 	if o.authToken == "" {
 		return errors.New("--auth-token (NEXO_WORKER_AUTH_TOKEN) is required: the auth_token of the media_worker target")
+	}
+	transcriber, translator, err := speechServices(o)
+	if err != nil {
+		return err
 	}
 	store, err := worker.NewS3Store(worker.S3Config{Endpoint: o.endpoint, Region: o.region, AccessKey: o.accessKey, SecretKey: o.secretKey})
 	if err != nil {
@@ -211,7 +269,8 @@ func run(ctx context.Context, deps cmdDeps, o options) error {
 	logger.Info("OpenH264 loaded", "path", libPath, "version", lib.CodecVersion(),
 		"license", "OpenH264 Video Codec provided by Cisco Systems, Inc.")
 	w, err := worker.New(worker.Config{AuthToken: o.authToken, WorkDir: o.dataDir, Concurrency: o.concurrency, MaxAttempts: o.maxAttempts, Name: o.name,
-		ImageLimits: imaging.Limits{MaxBytes: o.imageBytes, MaxPixels: o.imagePixels}, ImageMemory: o.imageMemory}, store, lib, logger)
+		ImageLimits: imaging.Limits{MaxBytes: o.imageBytes, MaxPixels: o.imagePixels}, ImageMemory: o.imageMemory,
+		Transcriber: transcriber, Translator: translator}, store, lib, logger)
 	if err != nil {
 		return err
 	}

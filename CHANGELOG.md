@@ -116,6 +116,14 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   console routes, the `/nexo/media/v1/` routes of the S3 listener and the video behaviors serve whoever is allowed
   it or `s3:GetObject`. Bucket policies may grant it (`Principal: "*"`), the access rules have the class `stream`
   (and `read` includes it), and the console policy editor and simulator know it.
+- Subtitles: the master playlists list the subtitle tracks of a video as an `EXT-X-MEDIA` group (one WebVTT per
+  language with its `X-TIMESTAMP-MAP`) on the console, the S3 listener and the video behaviors. A media rule with
+  `subtitles` makes the worker transcribe the speech (an OpenAI-compatible endpoint: OpenAI, whisper.cpp server,
+  faster-whisper-server; the audio copied into M4A parts without decoding) and translate it (LibreTranslate or an
+  OpenAI-compatible chat model). Manual tracks (WebVTT or SubRip upload, cue editor in the console, Admin API
+  `/buckets/{bucket}/objects/subtitles`, `nexoctl media subtitles`) always apply and are never overwritten by the
+  worker: the automatic files live apart and the manifest is updated conditionally. Automatic tracks follow the
+  content they were made from; a failed transcription does not fail the job (`subtitlesError` in the status).
 - Benchmarks of every step of the video pipeline (`make bench-media`, [docs/bench/media.md](docs/bench/media.md)):
   packager requests, OpenH264 decoding and encoding per size, scaling, renditions, poster and thumbnails. With
   them the scaler (weights computed once, buffers reused, vertical pass first, parallel bands) and the decoding

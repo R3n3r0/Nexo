@@ -1,0 +1,35 @@
+List, download, upload or remove the subtitle tracks of a video (default its
+latest version).
+
+A track is manual (uploaded, or edited in the console) or automatic: a media
+rule with "subtitles" makes the media worker transcribe the speech of the video
+and translate the transcription. An automatic track applies only to the content
+it derives from (the video overwritten, it is no longer served until the worker
+runs again); a manual track always applies and the worker never overwrites it.
+The master playlist of the video lists the tracks: a player shows them as
+captions.
+
+Usage:
+  nexoctl media subtitles [flags]
+  nexoctl media subtitles [command]
+
+Aliases:
+  subtitles, subs
+
+Available Commands:
+  get         Download a subtitle track (WebVTT or SubRip)
+  ls          List the subtitle tracks of a video
+  put         Upload a subtitle track from a WebVTT or SubRip file
+  rm          Remove a subtitle track of a video
+
+Flags:
+  -h, --help   help for subtitles
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl media subtitles [command] --help" for more information about a command.

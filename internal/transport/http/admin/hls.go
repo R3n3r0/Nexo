@@ -59,6 +59,18 @@ func (l hlsLinks) Rendition(name, rev string) string {
 	return "media.m3u8?" + l.query(rev).Encode()
 }
 
+func (l hlsLinks) subtitleQuery(lang string) string {
+	q := l.query("")
+	q.Del("rev")
+	q.Del("r")
+	q.Set("lang", lang)
+	return q.Encode()
+}
+
+func (l hlsLinks) Subtitles(lang string) string { return "subtitles.m3u8?" + l.subtitleQuery(lang) }
+
+func (l hlsLinks) SubtitleFile(lang string) string { return "subtitles.vtt?" + l.subtitleQuery(lang) }
+
 // hlsSource returns the object of an HLS request; pinned requires the
 // revision (every URI but the master playlist).
 func hlsSource(r *http.Request, pinned bool) (media.Source, error) {
@@ -136,6 +148,23 @@ func (h *objectRoutes) hlsSegment() http.HandlerFunc {
 		}
 		b, err := h.deps.Media.Segment(r.Context(), src, n)
 		return b, contentTypeSegment, err
+	})
+}
+
+// hlsSubtitles serves the playlist of the subtitles of a language
+// (?lang=).
+func (h *objectRoutes) hlsSubtitles() http.HandlerFunc {
+	return h.hls(false, func(r *http.Request, src media.Source) ([]byte, string, error) {
+		b, err := h.deps.Media.SubtitlePlaylist(r.Context(), src, r.URL.Query().Get("lang"), hlsLinks{key: src.Key, versionID: src.VersionID})
+		return b, contentTypePlaylist, err
+	})
+}
+
+// hlsSubtitleFile serves the WebVTT of the subtitles of a language.
+func (h *objectRoutes) hlsSubtitleFile() http.HandlerFunc {
+	return h.hls(false, func(r *http.Request, src media.Source) ([]byte, string, error) {
+		b, err := h.deps.Media.SubtitleFile(r.Context(), src, r.URL.Query().Get("lang"))
+		return b, contentTypeVTT, err
 	})
 }
 
@@ -254,8 +283,15 @@ type MediaStatusResponse struct {
 	// of the image).
 	Images []MediaImageResponse `json:"images,omitempty"`
 	// Alpha reports an image with transparency.
-	Alpha   bool       `json:"alpha,omitempty"`
-	Updated *time.Time `json:"updated,omitempty"`
+	Alpha bool `json:"alpha,omitempty"`
+	// Subtitles are the languages of the automatic subtitle tracks the
+	// worker made; Language is the spoken language it detected.
+	Subtitles []string `json:"subtitles,omitempty"`
+	Language  string   `json:"language,omitempty"`
+	// SubtitlesError is why the automatic subtitles failed (the other
+	// outputs are served nonetheless).
+	SubtitlesError string     `json:"subtitlesError,omitempty"`
+	Updated        *time.Time `json:"updated,omitempty"`
 }
 
 // mediaStatus serves the processing state of a video.
@@ -284,7 +320,7 @@ func newMediaStatusResponse(src media.Source, st *media.OutputStatus) MediaStatu
 	out := MediaStatusResponse{
 		State: string(st.State), Current: st.Current, VersionID: st.VersionID, Error: st.Error, Step: st.Step, Rule: st.Rule,
 		Duration: st.Duration, Width: st.Width, Height: st.Height, Renditions: st.Renditions, Poster: st.Poster, Thumbnails: st.Thumbnails,
-		Alpha: st.Alpha,
+		Alpha: st.Alpha, Subtitles: st.Subtitles, Language: st.Language, SubtitlesError: st.SubtitlesError,
 	}
 	for _, v := range st.Images {
 		out.Images = append(out.Images, MediaImageResponse{MediaImageOutput: v, ContentType: domain.MediaImageContentType(v.Format),

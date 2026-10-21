@@ -40,6 +40,9 @@ type memStore struct {
 	version   string // the VersionID Head reports
 	failPut   error
 	seq       int
+	// putIfRace runs once before the next conditional write checks its
+	// condition: another writer.
+	putIfRace func()
 }
 
 type memVersion struct {
@@ -108,6 +111,34 @@ func (s *memStore) Put(_ context.Context, bucket, key string, data []byte, conte
 	}
 	s.types[k] = contentType
 	return nil
+}
+
+func (s *memStore) Get(_ context.Context, bucket, key string, _ int64) ([]byte, string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data, ok := s.latest(bucket + "/" + key)
+	if !ok {
+		return nil, "", ErrNotFound
+	}
+	return append([]byte(nil), data...), etagOf(data), nil
+}
+
+func (s *memStore) PutIf(ctx context.Context, bucket, key string, data []byte, contentType, ifMatch string) error {
+	s.mu.Lock()
+	cur, ok := s.latest(bucket + "/" + key)
+	race := s.putIfRace
+	s.putIfRace = nil
+	s.mu.Unlock()
+	if race != nil {
+		race()
+		s.mu.Lock()
+		cur, ok = s.latest(bucket + "/" + key)
+		s.mu.Unlock()
+	}
+	if (ifMatch == "" && ok) || (ifMatch != "" && (!ok || etagOf(cur) != ifMatch)) {
+		return ErrPrecondition
+	}
+	return s.Put(ctx, bucket, key, data, contentType)
 }
 
 func (s *memStore) List(_ context.Context, bucket, prefix string) ([]ObjectVersion, error) {

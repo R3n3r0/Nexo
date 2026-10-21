@@ -5,7 +5,9 @@ package mock
 import (
 	context "context"
 
+	domain "github.com/r3n3r0/nexo/internal/domain"
 	media "github.com/r3n3r0/nexo/internal/service/media"
+
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -20,6 +22,54 @@ type Service_Expecter struct {
 
 func (_m *Service) EXPECT() *Service_Expecter {
 	return &Service_Expecter{mock: &_m.Mock}
+}
+
+// DeleteSubtitles provides a mock function with given fields: ctx, src, lang
+func (_m *Service) DeleteSubtitles(ctx context.Context, src media.Source, lang string) error {
+	ret := _m.Called(ctx, src, lang)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteSubtitles")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source, string) error); ok {
+		r0 = rf(ctx, src, lang)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Service_DeleteSubtitles_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteSubtitles'
+type Service_DeleteSubtitles_Call struct {
+	*mock.Call
+}
+
+// DeleteSubtitles is a helper method to define mock.On call
+//   - ctx context.Context
+//   - src media.Source
+//   - lang string
+func (_e *Service_Expecter) DeleteSubtitles(ctx interface{}, src interface{}, lang interface{}) *Service_DeleteSubtitles_Call {
+	return &Service_DeleteSubtitles_Call{Call: _e.mock.On("DeleteSubtitles", ctx, src, lang)}
+}
+
+func (_c *Service_DeleteSubtitles_Call) Run(run func(ctx context.Context, src media.Source, lang string)) *Service_DeleteSubtitles_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(media.Source), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *Service_DeleteSubtitles_Call) Return(_a0 error) *Service_DeleteSubtitles_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Service_DeleteSubtitles_Call) RunAndReturn(run func(context.Context, media.Source, string) error) *Service_DeleteSubtitles_Call {
+	_c.Call.Return(run)
+	return _c
 }
 
 // Describe provides a mock function with given fields: ctx, src
@@ -320,6 +370,66 @@ func (_c *Service_MediaPlaylist_Call) RunAndReturn(run func(context.Context, med
 	return _c
 }
 
+// PutSubtitles provides a mock function with given fields: ctx, src, lang, cues, by
+func (_m *Service) PutSubtitles(ctx context.Context, src media.Source, lang string, cues []domain.SubtitleCue, by string) (domain.MediaSubtitleTrack, error) {
+	ret := _m.Called(ctx, src, lang, cues, by)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PutSubtitles")
+	}
+
+	var r0 domain.MediaSubtitleTrack
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source, string, []domain.SubtitleCue, string) (domain.MediaSubtitleTrack, error)); ok {
+		return rf(ctx, src, lang, cues, by)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source, string, []domain.SubtitleCue, string) domain.MediaSubtitleTrack); ok {
+		r0 = rf(ctx, src, lang, cues, by)
+	} else {
+		r0 = ret.Get(0).(domain.MediaSubtitleTrack)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, media.Source, string, []domain.SubtitleCue, string) error); ok {
+		r1 = rf(ctx, src, lang, cues, by)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_PutSubtitles_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PutSubtitles'
+type Service_PutSubtitles_Call struct {
+	*mock.Call
+}
+
+// PutSubtitles is a helper method to define mock.On call
+//   - ctx context.Context
+//   - src media.Source
+//   - lang string
+//   - cues []domain.SubtitleCue
+//   - by string
+func (_e *Service_Expecter) PutSubtitles(ctx interface{}, src interface{}, lang interface{}, cues interface{}, by interface{}) *Service_PutSubtitles_Call {
+	return &Service_PutSubtitles_Call{Call: _e.mock.On("PutSubtitles", ctx, src, lang, cues, by)}
+}
+
+func (_c *Service_PutSubtitles_Call) Run(run func(ctx context.Context, src media.Source, lang string, cues []domain.SubtitleCue, by string)) *Service_PutSubtitles_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(media.Source), args[2].(string), args[3].([]domain.SubtitleCue), args[4].(string))
+	})
+	return _c
+}
+
+func (_c *Service_PutSubtitles_Call) Return(_a0 domain.MediaSubtitleTrack, _a1 error) *Service_PutSubtitles_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_PutSubtitles_Call) RunAndReturn(run func(context.Context, media.Source, string, []domain.SubtitleCue, string) (domain.MediaSubtitleTrack, error)) *Service_PutSubtitles_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Segment provides a mock function with given fields: ctx, src, n
 func (_m *Service) Segment(ctx context.Context, src media.Source, n int) ([]byte, error) {
 	ret := _m.Called(ctx, src, n)
@@ -495,6 +605,253 @@ func (_c *Service_Status_Call) Return(_a0 *media.OutputStatus, _a1 error) *Servi
 }
 
 func (_c *Service_Status_Call) RunAndReturn(run func(context.Context, media.Source) (*media.OutputStatus, error)) *Service_Status_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SubtitleCues provides a mock function with given fields: ctx, src, lang
+func (_m *Service) SubtitleCues(ctx context.Context, src media.Source, lang string) (domain.MediaSubtitleTrack, []domain.SubtitleCue, error) {
+	ret := _m.Called(ctx, src, lang)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SubtitleCues")
+	}
+
+	var r0 domain.MediaSubtitleTrack
+	var r1 []domain.SubtitleCue
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source, string) (domain.MediaSubtitleTrack, []domain.SubtitleCue, error)); ok {
+		return rf(ctx, src, lang)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source, string) domain.MediaSubtitleTrack); ok {
+		r0 = rf(ctx, src, lang)
+	} else {
+		r0 = ret.Get(0).(domain.MediaSubtitleTrack)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, media.Source, string) []domain.SubtitleCue); ok {
+		r1 = rf(ctx, src, lang)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).([]domain.SubtitleCue)
+		}
+	}
+
+	if rf, ok := ret.Get(2).(func(context.Context, media.Source, string) error); ok {
+		r2 = rf(ctx, src, lang)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
+}
+
+// Service_SubtitleCues_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SubtitleCues'
+type Service_SubtitleCues_Call struct {
+	*mock.Call
+}
+
+// SubtitleCues is a helper method to define mock.On call
+//   - ctx context.Context
+//   - src media.Source
+//   - lang string
+func (_e *Service_Expecter) SubtitleCues(ctx interface{}, src interface{}, lang interface{}) *Service_SubtitleCues_Call {
+	return &Service_SubtitleCues_Call{Call: _e.mock.On("SubtitleCues", ctx, src, lang)}
+}
+
+func (_c *Service_SubtitleCues_Call) Run(run func(ctx context.Context, src media.Source, lang string)) *Service_SubtitleCues_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(media.Source), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *Service_SubtitleCues_Call) Return(_a0 domain.MediaSubtitleTrack, _a1 []domain.SubtitleCue, _a2 error) *Service_SubtitleCues_Call {
+	_c.Call.Return(_a0, _a1, _a2)
+	return _c
+}
+
+func (_c *Service_SubtitleCues_Call) RunAndReturn(run func(context.Context, media.Source, string) (domain.MediaSubtitleTrack, []domain.SubtitleCue, error)) *Service_SubtitleCues_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SubtitleFile provides a mock function with given fields: ctx, src, lang
+func (_m *Service) SubtitleFile(ctx context.Context, src media.Source, lang string) ([]byte, error) {
+	ret := _m.Called(ctx, src, lang)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SubtitleFile")
+	}
+
+	var r0 []byte
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source, string) ([]byte, error)); ok {
+		return rf(ctx, src, lang)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source, string) []byte); ok {
+		r0 = rf(ctx, src, lang)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]byte)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, media.Source, string) error); ok {
+		r1 = rf(ctx, src, lang)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_SubtitleFile_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SubtitleFile'
+type Service_SubtitleFile_Call struct {
+	*mock.Call
+}
+
+// SubtitleFile is a helper method to define mock.On call
+//   - ctx context.Context
+//   - src media.Source
+//   - lang string
+func (_e *Service_Expecter) SubtitleFile(ctx interface{}, src interface{}, lang interface{}) *Service_SubtitleFile_Call {
+	return &Service_SubtitleFile_Call{Call: _e.mock.On("SubtitleFile", ctx, src, lang)}
+}
+
+func (_c *Service_SubtitleFile_Call) Run(run func(ctx context.Context, src media.Source, lang string)) *Service_SubtitleFile_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(media.Source), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *Service_SubtitleFile_Call) Return(_a0 []byte, _a1 error) *Service_SubtitleFile_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_SubtitleFile_Call) RunAndReturn(run func(context.Context, media.Source, string) ([]byte, error)) *Service_SubtitleFile_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SubtitlePlaylist provides a mock function with given fields: ctx, src, lang, links
+func (_m *Service) SubtitlePlaylist(ctx context.Context, src media.Source, lang string, links media.Links) ([]byte, error) {
+	ret := _m.Called(ctx, src, lang, links)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SubtitlePlaylist")
+	}
+
+	var r0 []byte
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source, string, media.Links) ([]byte, error)); ok {
+		return rf(ctx, src, lang, links)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source, string, media.Links) []byte); ok {
+		r0 = rf(ctx, src, lang, links)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]byte)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, media.Source, string, media.Links) error); ok {
+		r1 = rf(ctx, src, lang, links)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_SubtitlePlaylist_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SubtitlePlaylist'
+type Service_SubtitlePlaylist_Call struct {
+	*mock.Call
+}
+
+// SubtitlePlaylist is a helper method to define mock.On call
+//   - ctx context.Context
+//   - src media.Source
+//   - lang string
+//   - links media.Links
+func (_e *Service_Expecter) SubtitlePlaylist(ctx interface{}, src interface{}, lang interface{}, links interface{}) *Service_SubtitlePlaylist_Call {
+	return &Service_SubtitlePlaylist_Call{Call: _e.mock.On("SubtitlePlaylist", ctx, src, lang, links)}
+}
+
+func (_c *Service_SubtitlePlaylist_Call) Run(run func(ctx context.Context, src media.Source, lang string, links media.Links)) *Service_SubtitlePlaylist_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(media.Source), args[2].(string), args[3].(media.Links))
+	})
+	return _c
+}
+
+func (_c *Service_SubtitlePlaylist_Call) Return(_a0 []byte, _a1 error) *Service_SubtitlePlaylist_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_SubtitlePlaylist_Call) RunAndReturn(run func(context.Context, media.Source, string, media.Links) ([]byte, error)) *Service_SubtitlePlaylist_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Subtitles provides a mock function with given fields: ctx, src
+func (_m *Service) Subtitles(ctx context.Context, src media.Source) ([]domain.MediaSubtitleTrack, error) {
+	ret := _m.Called(ctx, src)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Subtitles")
+	}
+
+	var r0 []domain.MediaSubtitleTrack
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source) ([]domain.MediaSubtitleTrack, error)); ok {
+		return rf(ctx, src)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source) []domain.MediaSubtitleTrack); ok {
+		r0 = rf(ctx, src)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]domain.MediaSubtitleTrack)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, media.Source) error); ok {
+		r1 = rf(ctx, src)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_Subtitles_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Subtitles'
+type Service_Subtitles_Call struct {
+	*mock.Call
+}
+
+// Subtitles is a helper method to define mock.On call
+//   - ctx context.Context
+//   - src media.Source
+func (_e *Service_Expecter) Subtitles(ctx interface{}, src interface{}) *Service_Subtitles_Call {
+	return &Service_Subtitles_Call{Call: _e.mock.On("Subtitles", ctx, src)}
+}
+
+func (_c *Service_Subtitles_Call) Run(run func(ctx context.Context, src media.Source)) *Service_Subtitles_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(media.Source))
+	})
+	return _c
+}
+
+func (_c *Service_Subtitles_Call) Return(_a0 []domain.MediaSubtitleTrack, _a1 error) *Service_Subtitles_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_Subtitles_Call) RunAndReturn(run func(context.Context, media.Source) ([]domain.MediaSubtitleTrack, error)) *Service_Subtitles_Call {
 	_c.Call.Return(run)
 	return _c
 }

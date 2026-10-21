@@ -74,7 +74,7 @@ stderr 'unknown image format "gif"'
 expectcode 2 nexoctl media rule add local/videos --id x --width 320
 stderr '--format and --width apply to an image rule'
 expectcode 2 nexoctl media rule add local/videos --images --poster
-stderr 'an image rule has no renditions, poster or thumbnails'
+stderr 'an image rule has no renditions, poster, thumbnails or subtitles'
 expectcode 2 nexoctl media rule add local/videos --images --hls
 stderr 'two rules'
 
