@@ -1,6 +1,6 @@
 # Proposal: small-object log (segmented, group commit, in-memory index)
 
-Status: **accepted**; phase 1 in progress. Decisions: 64 MiB segments configurable from the console, the log holds the
+Status: **accepted**; phases 1 and 2 implemented (opt-in, `NEXO_METADATA_LOG`), phase 3 deferred (see §9). Decisions: 64 MiB segments configurable from the console, the log holds the
 `xl.meta` of every object (large ones too), the index memory limit is a fraction of the RAM.
 
 ## 1. Summary
@@ -186,3 +186,23 @@ unaffected: quorum reads and writes call `ReadVersion` and `RenameData` per driv
    The system volume (`.nexo.sys`: IAM, configuration, multipart uploads) keeps its files.
 3. The index memory limit is a **fraction of the RAM** (`metadata_log_memory_percent`, default 25%). Phase 1
    reports the index size against it (log warning, statistics); the index pages of phase 3 enforce it.
+
+## 9. Phase 3: measurements and decision
+
+Phase 2 shipped the monitoring (`metadataLog` of the drives in `GET /info`, `nexo_metadata_log_*` metrics), the
+compaction on demand (`POST /storage/metadata-log/compact`, `nexoctl admin metadata-log status|compact`). The
+migration of existing objects is done by the conversion at open (decision 2).
+
+Measured on the reference VM (one drive, 300,000 objects of 512 bytes, page cache warm): the open replays the 184 MB
+of segments in 0.58 s, about 2 s per million objects, and the index takes about 89 bytes per object (60 MB per
+million). The replay verifies the checksum of every record, which also finds the damaged areas at start.
+
+The checkpoint and the index pages are deferred until a deployment needs them:
+
+- A checkpoint lets the open skip the segments it covers, but a compacted record keeps its sequence: the deletes of
+  the skipped segments must be in the checkpoint too, or a copied older put would bring a deleted object back.
+  The running index keeps no tombstones today, so the checkpoint needs them tracked until the compaction drops
+  them, plus a full replay as the fallback whenever the checkpoint and the segments disagree.
+- Index pages pay off beyond tens of millions of objects per drive; below that the memory warning against
+  `metadata_log_memory_percent` is enough.
+- The log stays opt-in: it becomes the default only after a release that ships it opt-in.
