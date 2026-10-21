@@ -41,9 +41,13 @@ func s3Actions() []string {
 	}
 }
 
+// nexoActions lists the object actions of Nexo a policy may name
+// (ActionGetMediaStream).
+func nexoActions() []string { return []string{"GetMediaStream"} }
+
 // validAction checks one Action/NotAction entry: "*" or
-// "<service>:<name>" with service s3, admin, sts or kms. S3 names must be
-// known actions or wildcard patterns matching one.
+// "<service>:<name>" with service s3, nexo, admin, sts or kms. S3 and nexo
+// names must be known actions or wildcard patterns matching one.
 func validAction(a string) error {
 	if a == "*" {
 		return nil
@@ -60,16 +64,20 @@ func validAction(a string) error {
 	switch strings.ToLower(service) {
 	case "admin", "sts", "kms":
 		return nil
-	case "s3":
+	case "s3", "nexo":
 	default:
-		return fmt.Errorf("invalid action %q: unknown service %q (s3, admin, sts, kms)", a, service)
+		return fmt.Errorf("invalid action %q: unknown service %q (s3, nexo, admin, sts, kms)", a, service)
 	}
-	for _, known := range s3Actions() {
-		if matchWildcard(name, known, true) {
+	known, label := s3Actions(), "S3"
+	if strings.EqualFold(service, "nexo") {
+		known, label = nexoActions(), "Nexo"
+	}
+	for _, k := range known {
+		if matchWildcard(name, k, true) {
 			return nil
 		}
 	}
-	return fmt.Errorf("unknown S3 action %q", a)
+	return fmt.Errorf("unknown %s action %q", label, a)
 }
 
 // isActionRune reports whether r may appear in an action name pattern.
@@ -82,9 +90,12 @@ func isActionRune(r rune) bool {
 	}
 }
 
-// isS3Action reports whether an action pattern may match S3 actions.
+// isS3Action reports whether an action pattern may match actions on the
+// buckets and objects: the S3 actions and the object actions of Nexo
+// (nexo:GetMediaStream), which bucket policies may grant too.
 func isS3Action(a string) bool {
-	return a == "*" || strings.HasPrefix(strings.ToLower(a), "s3:")
+	la := strings.ToLower(a)
+	return a == "*" || strings.HasPrefix(la, "s3:") || strings.HasPrefix(la, "nexo:")
 }
 
 // validResource checks one Resource/NotResource entry: "*" or an S3 ARN

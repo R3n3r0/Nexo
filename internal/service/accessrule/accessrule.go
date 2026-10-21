@@ -362,6 +362,8 @@ func testAction(a string) (policy.Action, error) {
 	switch strings.ToLower(strings.TrimSpace(a)) {
 	case "", ActionRead:
 		return policy.ActionGetObject, nil
+	case ActionStream:
+		return policy.ActionGetMediaStream, nil
 	case ActionList:
 		return policy.ActionListBucket, nil
 	case ActionWrite:
@@ -371,8 +373,8 @@ func testAction(a string) (policy.Action, error) {
 	case ActionTag:
 		return policy.ActionPutObjectTagging, nil
 	}
-	if !strings.HasPrefix(strings.ToLower(a), "s3:") || strings.ContainsAny(a, "*? ") {
-		return "", fmt.Errorf("%w: %q is not an S3 action nor an action class", domain.ErrInvalidArgument, a)
+	if la := strings.ToLower(a); (!strings.HasPrefix(la, "s3:") && !strings.HasPrefix(la, "nexo:")) || strings.ContainsAny(a, "*? ") {
+		return "", fmt.Errorf("%w: %q is not an action nor an action class", domain.ErrInvalidArgument, a)
 	}
 	return policy.Action(strings.TrimSpace(a)), nil
 }

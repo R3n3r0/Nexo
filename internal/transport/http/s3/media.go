@@ -65,8 +65,8 @@ const (
 type MediaDeps struct {
 	// Media packages the videos as HLS.
 	Media media.Service
-	// Policy authorizes s3:GetObject (s3:GetObjectVersion) as GetObject
-	// does; Objects provides the tags of the objects for the
+	// Policy authorizes nexo:GetMediaStream, else s3:GetObject
+	// (s3:GetObjectVersion) as GetObject does; Objects provides the tags of the objects for the
 	// s3:ExistingObjectTag/<key> condition keys.
 	Policy  policy.Service
 	Objects object.Service
@@ -91,8 +91,8 @@ type mediaRoutes struct {
 var _ MediaRoutes = (*mediaRoutes)(nil)
 
 // NewMediaRoutes returns the media routes: the HLS presentation of an MP4
-// video, readable by whoever may read the object (s3:GetObject, or
-// s3:GetObjectVersion with versionId) and signed by the auth middleware
+// video, readable by whoever may stream it (nexo:GetMediaStream) or read
+// the object (s3:GetObject, or s3:GetObjectVersion with versionId) and signed by the auth middleware
 // like any S3 request. A presigned master playlist (a share link) signs
 // the URIs of its playlists with the same credentials until the same
 // expiry, so the player needs nothing but the link. Missing dependencies
@@ -280,6 +280,20 @@ func serveImage(w http.ResponseWriter, r *http.Request, img *media.Image, req me
 	http.ServeContent(w, r, "", img.Modified, img.Content)
 }
 
+// authorizeStream authorizes the stream of a video: nexo:GetMediaStream
+// (the presentation without the original), else s3:GetObject
+// (s3:GetObjectVersion with versionId), whose refusal is answered.
+func (h *mediaRoutes) authorizeStream(w http.ResponseWriter, r *http.Request, src media.Source) bool {
+	if h.authz.allowed(r, policy.ActionGetMediaStream, src.Bucket, src.Key, src.VersionID) {
+		return true
+	}
+	action := policy.ActionGetObject
+	if src.VersionID != "" {
+		action = policy.ActionGetObjectVersion
+	}
+	return h.authz.authorizeVersion(w, r, action, src.Bucket, src.Key, src.VersionID, nil)
+}
+
 // serve authorizes and serves one resource of a presentation; pinned
 // requires the revision (every URI but the master playlist).
 func (h *mediaRoutes) serve(pinned bool, build func(r *http.Request, src media.Source, l media.Links) ([]byte, string, error)) http.HandlerFunc {
@@ -294,11 +308,7 @@ func (h *mediaRoutes) serve(pinned bool, build func(r *http.Request, src media.S
 			h.deps.Enc.WriteS3Error(w, r, fmt.Errorf("%w: rev is required", domain.ErrInvalidArgument))
 			return
 		}
-		action := policy.ActionGetObject
-		if src.VersionID != "" {
-			action = policy.ActionGetObjectVersion
-		}
-		if !h.authz.authorizeVersion(w, r, action, src.Bucket, src.Key, src.VersionID, nil) {
+		if !h.authorizeStream(w, r, src) {
 			return
 		}
 		links, err := h.links(r, src)

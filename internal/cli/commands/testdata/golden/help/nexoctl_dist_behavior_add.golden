@@ -10,6 +10,7 @@ Examples:
   nexoctl dist behavior add local website --regex '^/downloads/.*\.zip$' --access signed --key-group rilasci
   nexoctl dist behavior add local website --prefix /internal/ --access deny --position 1
   nexoctl dist behavior add local website --prefix /photos/ --negotiate-images
+  nexoctl dist behavior add local website --prefix /videos/ --stream-video
 
 Flags:
       --access string          access: public, signed (URLs/cookies of --key-group), authenticated (SigV4) or deny
@@ -27,6 +28,8 @@ Flags:
       --prefix string          paths of the behavior: a literal prefix
       --regex string           paths of the behavior: an RE2 regular expression
       --spa string             path served (200) instead of a missing object (single page application)
+      --stream-video           serve the HLS presentation of the videos below their URL:
+                               <video>/master.m3u8 and the files it names; nexo:GetMediaStream streams without download (website mode)
 
 Global Flags:
       --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)

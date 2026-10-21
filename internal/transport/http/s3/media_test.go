@@ -75,6 +75,10 @@ func TestNewMediaRoutesRequiresDeps(t *testing.T) {
 
 func TestMediaRoutesAnonymous(t *testing.T) {
 	f := newMediaFixture(t)
+	// No nexo:GetMediaStream: s3:GetObject allows the stream.
+	f.policy.EXPECT().Evaluate(mock.Anything, mock.MatchedBy(func(a policy.Args) bool {
+		return a.Action == policy.ActionGetMediaStream
+	})).Return(policy.Decision{Reason: "no"}, nil)
 	f.policy.EXPECT().Evaluate(mock.Anything, mock.MatchedBy(func(a policy.Args) bool {
 		return a.Action == policy.ActionGetObject && a.Bucket == "films" && a.Identity.IsAnonymous
 	})).Return(policy.Decision{Allowed: true}, nil)
@@ -101,10 +105,23 @@ func TestMediaRoutesAnonymous(t *testing.T) {
 func TestMediaRoutesDenied(t *testing.T) {
 	f := newMediaFixture(t)
 	f.policy.EXPECT().Evaluate(mock.Anything, mock.MatchedBy(func(a policy.Args) bool {
-		return a.Action == policy.ActionGetObjectVersion
+		return a.Action == policy.ActionGetObjectVersion || a.Action == policy.ActionGetMediaStream
 	})).Return(policy.Decision{Reason: "no"}, nil)
 	rec := f.serve(s3.MediaPrefix+"films/master.m3u8?key=a.mp4&versionId=v1", domain.Anonymous())
 	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+// TestMediaRoutesStreamOnly: nexo:GetMediaStream streams a video whose
+// download s3:GetObject denies.
+func TestMediaRoutesStreamOnly(t *testing.T) {
+	f := newMediaFixture(t)
+	f.policy.EXPECT().Evaluate(mock.Anything, mock.MatchedBy(func(a policy.Args) bool {
+		return a.Action == policy.ActionGetMediaStream && a.Bucket == "films" && a.Object == "a.mp4"
+	})).Return(policy.Decision{Allowed: true}, nil)
+	f.media.EXPECT().Init(mock.Anything, media.Source{Bucket: "films", Key: "a.mp4", Revision: "e1"}).Return([]byte("init"), nil)
+	rec := f.serve(s3.MediaPrefix+"films/init.mp4?key=a.mp4&rev=e1", domain.Anonymous())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, "init", rec.Body.String())
 }
 
 // TestMediaRoutesPresigned: the URIs of a presigned playlist are presigned

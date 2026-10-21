@@ -103,6 +103,12 @@ export const s3ActionNames = [
 
 export const s3Actions: readonly string[] = s3ActionNames.map((name) => `s3:${name}`);
 
+/** Object actions of Nexo (policy.nexoActions): nexo:GetMediaStream streams
+ * a video (HLS) without allowing the download of the original. */
+export const nexoActionNames = ['GetMediaStream'] as const;
+
+export const nexoActions: readonly string[] = nexoActionNames.map((name) => `nexo:${name}`);
+
 /** Admin API actions (policy.ActionAdmin*). */
 export const adminActions: readonly string[] = [
   'admin:ServerInfo',
@@ -158,11 +164,12 @@ export const policyActions: readonly string[] = [
   's3:*',
   'admin:*',
   ...s3Actions,
+  ...nexoActions,
   ...adminActions,
 ];
 
 /** Services an Action may name (policy.validAction). */
-export const actionServices = ['s3', 'admin', 'sts', 'kms'] as const;
+export const actionServices = ['s3', 'nexo', 'admin', 'sts', 'kms'] as const;
 
 /** Base condition operators (policy.operatorType). */
 export const conditionOperatorNames = [

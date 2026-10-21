@@ -20,7 +20,7 @@ gestiscono dalla scheda **Regole di accesso** del bucket in console, con `nexoct
 | `priority` | ordine di valutazione, il più basso prima (default 100) |
 | `effect` | `allow` o `deny` |
 | `principals` | `*` (tutti, anonimi compresi), `user:NOME`, `group:NOME`, `accesskey:CHIAVE`, `distribution:ID` |
-| `actions` | `read` (GET/HEAD), `list`, `write` (PUT/POST/multipart), `delete`, `tag`, `all`, oppure azioni S3 (`s3:GetObject`) |
+| `actions` | `read` (GET/HEAD, streaming dei video incluso), `stream` (i video si riproducono in HLS, gli originali non si scaricano: `nexo:GetMediaStream`), `list`, `write` (PUT/POST/multipart), `delete`, `tag`, `all`, oppure azioni (`s3:GetObject`, `nexo:GetMediaStream`) |
 | `match` | `prefix`, `glob` o `regex` sulla chiave (opzionale: senza, tutto il bucket) |
 | condizioni | IP o CIDR del client (`--source-ip`, `--not-source-ip`), `--referer`, `--host`, `--secure-transport`, finestra temporale (`--from`, `--to`), `--method`, `--header`, gruppi nominati della regex (`--capture`) |
 

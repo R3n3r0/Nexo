@@ -128,7 +128,7 @@ func (e *env) editAndReport(cmd *cobra.Command, args []string, action string, ch
 type behaviorFlags struct {
 	access, index, spa, keyGroup, cacheControl string
 	methods, headers                           []string
-	images                                     bool
+	images, video                              bool
 }
 
 func (b *behaviorFlags) register(cmd *cobra.Command) {
@@ -142,6 +142,8 @@ func (b *behaviorFlags) register(cmd *cobra.Command) {
 	f.StringArrayVar(&b.headers, "header", nil, "response header 'Name: value' (repeatable)")
 	f.BoolVar(&b.images, "negotiate-images", false, "serve the variants of the images (media worker image rule) at their own URL:\n"+
 		"format from Accept or ?format=, width from ?w=, ?format=original for the original (website mode)")
+	f.BoolVar(&b.video, "stream-video", false, "serve the HLS presentation of the videos below their URL:\n"+
+		"<video>/master.m3u8 and the files it names; nexo:GetMediaStream streams without download (website mode)")
 }
 
 // apply sets the changed flags on b.
@@ -174,6 +176,9 @@ func (b *behaviorFlags) apply(cmd *cobra.Command, beh *nexoadmin.Behavior) error
 	}
 	if f.Changed("negotiate-images") {
 		beh.Images = &nexoadmin.BehaviorImages{Negotiate: b.images}
+	}
+	if f.Changed("stream-video") {
+		beh.Video = &nexoadmin.BehaviorVideo{HLS: b.video}
 	}
 	if f.Changed("header") {
 		h, err := parseHeaderFlags("header", b.headers)
@@ -343,6 +348,13 @@ func formatBehavior(b nexoadmin.Behavior) string {
 			parts = append(parts, "images negotiated")
 		} else {
 			parts = append(parts, "images original")
+		}
+	}
+	if b.Video != nil {
+		if b.Video.HLS {
+			parts = append(parts, "video hls")
+		} else {
+			parts = append(parts, "video off")
 		}
 	}
 	for _, k := range cli.SortedKeys(b.ResponseHeaders) {
@@ -700,7 +712,8 @@ from the default behavior. The paths include their leading "/".`,
 		Example: `  nexoctl dist behavior add local website --glob '/assets/**' --cache-control 'public, max-age=31536000, immutable'
   nexoctl dist behavior add local website --regex '^/downloads/.*\.zip$' --access signed --key-group rilasci
   nexoctl dist behavior add local website --prefix /internal/ --access deny --position 1
-  nexoctl dist behavior add local website --prefix /photos/ --negotiate-images`,
+  nexoctl dist behavior add local website --prefix /photos/ --negotiate-images
+  nexoctl dist behavior add local website --prefix /videos/ --stream-video`,
 		Args:              exactArgs(2),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {

@@ -18,6 +18,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/distribution"
 	distmock "github.com/r3n3r0/nexo/internal/service/distribution/mock"
+	"github.com/r3n3r0/nexo/internal/service/media"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	objmock "github.com/r3n3r0/nexo/internal/service/object/mock"
 	"github.com/r3n3r0/nexo/internal/service/policy"
@@ -127,6 +128,8 @@ type engineFixture struct {
 	// blockErr fails the lookups of the block public access.
 	blockErr error
 	seen     []string
+	// media packages the videos (nil: none).
+	media media.Service
 }
 
 func newEngine(t *testing.T, denied map[string]bool) *engineFixture {
@@ -151,7 +154,7 @@ func (fx *engineFixture) start(t *testing.T, pol policy.Service) *engineFixture 
 		return fx.blocked, fx.blockErr
 	}).Maybe()
 	engine, err := distribution.NewWebsite(distribution.WebsiteDeps{
-		Objects: objectLayer(t, fx.state), Policy: pol, Signatures: sigs, PublicAccess: pab,
+		Objects: objectLayer(t, fx.state), Policy: pol, Signatures: sigs, PublicAccess: pab, Media: fx.media,
 		Logger: slog.New(slog.DiscardHandler),
 	}, distribution.WithServerHeader("Nexo"))
 	require.NoError(t, err)

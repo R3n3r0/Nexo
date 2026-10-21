@@ -163,6 +163,28 @@ Uno scanner o un sistema esterno deposita file in `inbox` senza poterli rilegger
 `arn:aws:s3:::inbox/scanner1/*`; per imporre la cifratura aggiungi una condizione su
 `s3:x-amz-server-side-encryption`.
 
+### Esempio: streaming dei video senza download
+
+`nexo:GetMediaStream` permette la presentazione HLS di un video (playlist, segmenti, qualità, poster, miniature: il
+player della console, i [link di condivisione](sharing.it.md) e i [behavior video](../distributions/README.it.md#streaming-video-sul-tuo-dominio)
+delle distribuzioni) senza `s3:GetObject`, che scarica l'originale. Una bucket policy può concederla a tutti:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": ["nexo:GetMediaStream"],
+      "Resource": ["arn:aws:s3:::courses/lessons/*"]
+    }
+  ]
+}
+```
+
+Chi può leggere un oggetto (`s3:GetObject`) può anche riprodurlo in streaming.
+
 ### Simulatore
 
 Prima di applicare una policy, o per capire un `AccessDenied`:

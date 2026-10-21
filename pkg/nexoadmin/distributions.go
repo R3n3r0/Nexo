@@ -99,8 +99,18 @@ type Behavior struct {
 	ResponseHeaders map[string]string `json:"responseHeaders,omitempty" yaml:"responseHeaders,omitempty"`
 	CORS            *DistributionCORS `json:"cors,omitempty" yaml:"cors,omitempty"`
 	// Images serves the variants of the images at their own URL.
-	Images *BehaviorImages            `json:"images,omitempty" yaml:"images,omitempty"`
-	Extra  map[string]json.RawMessage `json:"-" yaml:"-"`
+	Images *BehaviorImages `json:"images,omitempty" yaml:"images,omitempty"`
+	// Video serves the HLS presentations of the videos below their URL.
+	Video *BehaviorVideo             `json:"video,omitempty" yaml:"video,omitempty"`
+	Extra map[string]json.RawMessage `json:"-" yaml:"-"`
+}
+
+// BehaviorVideo serves the HLS presentation of a video below its URL:
+// with HLS, <video>/master.m3u8 and the files it names; a viewer allowed
+// nexo:GetMediaStream streams the video without downloading it (website
+// mode).
+type BehaviorVideo struct {
+	HLS bool `json:"hls" yaml:"hls"`
 }
 
 // BehaviorImages serves the variants of the images the media worker

@@ -3,6 +3,7 @@ package admin
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -77,6 +78,11 @@ func anyOf(actions ...policy.Action) requirement {
 	return requirement{actions: actions, scope: scopeGlobal, any: true}
 }
 
+// anyOnObject requires one of actions on the object named by ?key=.
+func anyOnObject(actions ...policy.Action) requirement {
+	return requirement{actions: actions, scope: scopeObject, any: true}
+}
+
 // byService documents the actions the service authorizes itself.
 func byService(actions ...policy.Action) requirement {
 	return requirement{actions: actions, byService: true}
@@ -115,8 +121,13 @@ func (q requirement) when(conditions func(r *http.Request) map[string][]string) 
 // declared lists every action the requirement may evaluate (the
 // x-nexo-actions of the operation in api/openapi.yaml).
 func (q requirement) declared() []policy.Action {
-	out := append(append([]policy.Action(nil), q.actions...), q.versioned...)
-	return append(out, q.extraActions...)
+	var out []policy.Action
+	for _, a := range append(append(append([]policy.Action(nil), q.actions...), q.versioned...), q.extraActions...) {
+		if !slices.Contains(out, a) {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // route is one endpoint of a route group.
@@ -182,10 +193,6 @@ func (g guard) middleware(req requirement) func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			if req.any {
-				g.authorizeAny(w, r, next, actions)
-				return
-			}
 			in := adminsvc.AuthorizeInput{Requester: requesterOf(r), Actions: actions, Partial: req.partial}
 			if req.conditions != nil {
 				in.Conditions = req.conditions(r)
@@ -208,6 +215,10 @@ func (g guard) middleware(req requirement) func(http.Handler) http.Handler {
 				// decides alike through the console and through S3.
 				in.Conditions = mergeConditions(adminsvc.ObjectConditions(objectRequestOf(r)), in.Conditions)
 			}
+			if req.any {
+				g.authorizeAny(w, r, next, in)
+				return
+			}
 			d, err := g.authz.Authorize(r.Context(), in)
 			if err != nil {
 				writeError(g.enc, w, r, err)
@@ -222,12 +233,15 @@ func (g guard) middleware(req requirement) func(http.Handler) http.Handler {
 	}
 }
 
-// authorizeAny serves the request when one of the global actions is
-// allowed, and answers the denial of the first one otherwise.
-func (g guard) authorizeAny(w http.ResponseWriter, r *http.Request, next http.Handler, actions []policy.Action) {
+// authorizeAny serves the request when one of the actions of in is
+// allowed on its resource, and answers the denial of the first one
+// otherwise.
+func (g guard) authorizeAny(w http.ResponseWriter, r *http.Request, next http.Handler, in adminsvc.AuthorizeInput) {
 	var first adminsvc.Decision
-	for i, a := range actions {
-		d, err := g.authz.Authorize(r.Context(), adminsvc.AuthorizeInput{Requester: requesterOf(r), Actions: []policy.Action{a}})
+	for i, a := range in.Actions {
+		one := in
+		one.Actions = []policy.Action{a}
+		d, err := g.authz.Authorize(r.Context(), one)
 		if err != nil {
 			writeError(g.enc, w, r, err)
 			return

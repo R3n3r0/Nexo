@@ -167,6 +167,50 @@ curl -so spiaggia.jpg 'https://cdn.example.com/photos/spiaggia.jpg?format=origin
   come il resto della query (SigV4, URL presigned) e richiedono `s3:GetObject` sull'immagine. La modalità `s3`
   delle distribuzioni funziona allo stesso modo.
 
+## Streaming video sul tuo dominio
+
+Un behavior con l'opzione **video** serve la [presentazione HLS](../media-worker.it.md) dei video MP4 **sotto il
+loro URL**: `https://videos.example.com/talks/intro.mp4/master.m3u8` è la playlist multivariante del video
+`talks/intro.mp4` dell'origine, con le qualità del media worker quando le ha prodotte (240p–4K), e ogni file che le
+playlist nominano (`media.m3u8`, `init.mp4`, `segment.m4s`, `poster.jpg`, `thumbnails.vtt`, `sprite.jpg`) sta
+accanto a lei. Un'alternativa self-hosted a una CDN con un media packager: basta dare l'URL a hls.js, Safari, VLC o a
+una smart TV.
+
+```bash
+nexoctl dist behavior add local website --prefix /talks/ --stream-video
+```
+
+(in YAML/JSON: `video: {hls: true}` sul behavior, o sul behavior predefinito per tutto il sito. Nella console:
+**Streaming video (HLS)** nell'editor di un behavior.)
+
+```html
+<video id="player" controls poster="https://videos.example.com/talks/intro.mp4/poster.jpg"></video>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+<script>
+  const src = 'https://videos.example.com/talks/intro.mp4/master.m3u8';
+  const video = document.getElementById('player');
+  if (video.canPlayType('application/vnd.apple.mpegurl')) video.src = src; // Safari
+  else { const hls = new Hls(); hls.loadSource(src); hls.attachMedia(video); }
+</script>
+```
+
+- **Streaming senza download.** L'azione di policy `nexo:GetMediaStream` permette le playlist e i segmenti di un
+  video senza permettere il download dell'originale (`s3:GetObject`): una bucket policy che nega `s3:GetObject` su
+  `talks/*` tiene privati i file MP4 mentre i video continuano a essere riprodotti. La classe di accesso `stream`
+  delle [regole di accesso](../security/access-rules.it.md) concede esattamente questo (`read` la include). Chi ha
+  `s3:GetObject` può fare anche lo streaming.
+- **Cache.** I file il cui URI nomina la revisione del video (`?rev=`: playlist media, segmenti init e media) non
+  cambiano mai: sono inviati con `max-age=86400, immutable` (public su un behavior pubblico), così i browser e una
+  CDN davanti li conservano. La playlist master, il poster e le miniature seguono il contenuto corrente del video e
+  vengono rivalidati (`no-cache`); un nuovo upload è riprodotto subito.
+- **Behavior firmati.** Un URL firmato della playlist master deve coprire i file sotto di essa: firma una custom
+  policy la cui risorsa finisce con `*` (`nexoctl dist sign-url local videos '/talks/intro.mp4/master.m3u8'
+  --resource 'https://videos.example.com/talks/intro.mp4/*'`). Le playlist riportano i parametri della firma negli
+  URI che nominano, quindi al player non serve altro. Funzionano anche i cookie firmati.
+- **Non un video.** Un percorso il cui prefisso non è un video riproducibile dal packager (un altro tipo, una chiave
+  inesistente) è servito come l'oggetto di quella chiave, quindi l'opzione è innocua su un percorso che contiene
+  anche altri file. I video SSE-C non sono mai riprodotti in streaming; quelli SSE-S3 e SSE-KMS sì.
+
 ## URL e cookie firmati
 
 Per i behavior `--access signed` Nexo verifica URL nel formato di CloudFront (`?Expires=&Signature=&Key-Pair-Id=`,

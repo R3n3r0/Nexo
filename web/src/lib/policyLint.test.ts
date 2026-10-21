@@ -113,7 +113,7 @@ describe('policy element checks', () => {
     ['admin:Anything', undefined],
     ['sts:AssumeRole', undefined],
     ['GetObject', 'invalid action "GetObject" (expected <service>:<action>)'],
-    ['ec2:Run', 'invalid action "ec2:Run": unknown service "ec2" (s3, admin, sts, kms)'],
+    ['ec2:Run', 'invalid action "ec2:Run": unknown service "ec2" (s3, nexo, admin, sts, kms)'],
     ['s3:Zap*', 'unknown S3 action "s3:Zap*"'],
   ])('action %s', (action, problem) => {
     expect(actionProblem(action)).toBe(problem);

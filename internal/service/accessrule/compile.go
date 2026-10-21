@@ -18,7 +18,9 @@ const secretRefPrefix = "secret:"
 // actionClasses maps the action classes to their S3 actions.
 func actionClasses() map[string][]policy.Action {
 	read := []policy.Action{policy.ActionGetObject, policy.ActionGetObjectVersion,
-		policy.ActionGetObjectAttributes, policy.ActionGetObjectVersionAttributes}
+		policy.ActionGetObjectAttributes, policy.ActionGetObjectVersionAttributes, policy.ActionGetMediaStream}
+	// stream plays the videos (HLS) without downloading them.
+	stream := []policy.Action{policy.ActionGetMediaStream}
 	list := []policy.Action{policy.ActionListBucket, policy.ActionListBucketVersions, policy.ActionListMultipart}
 	write := []policy.Action{policy.ActionPutObject, policy.ActionAbortMultipart, policy.ActionListMultipartParts}
 	del := []policy.Action{policy.ActionDeleteObject, policy.ActionDeleteObjectVersion}
@@ -29,7 +31,7 @@ func actionClasses() map[string][]policy.Action {
 		all = append(all, c...)
 	}
 	return map[string][]policy.Action{
-		ActionRead: read, ActionList: list, ActionWrite: write, ActionDelete: del, ActionTag: tag, ActionAll: all,
+		ActionRead: read, ActionStream: stream, ActionList: list, ActionWrite: write, ActionDelete: del, ActionTag: tag, ActionAll: all,
 	}
 }
 

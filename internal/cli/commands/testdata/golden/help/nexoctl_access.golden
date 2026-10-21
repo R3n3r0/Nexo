@@ -5,8 +5,9 @@ principals, actions and a pattern of the keys (a prefix, a glob with *, **, ?,
 next to the IAM policies and the bucket policy: a deny in any source denies.
 
 Principals: '*' (everyone, anonymous included), user:NAME, group:NAME,
-accesskey:KEY, distribution:ID. Actions: read, list, write, delete, tag, all,
-or S3 actions (s3:GetObject). Every change replaces the rules of the bucket
+accesskey:KEY, distribution:ID. Actions: read, stream (the videos play as HLS,
+the originals cannot be downloaded), list, write, delete, tag, all, or actions
+(s3:GetObject, nexo:GetMediaStream). Every change replaces the rules of the bucket
 atomically and fails if they changed meanwhile.
 
 Usage:

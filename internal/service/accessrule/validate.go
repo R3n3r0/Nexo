@@ -20,7 +20,7 @@ const (
 	headerNamePattern = "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$"
 	secretNamePattern = `^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$` // #nosec G101 -- the syntax of secret names, not a credential
 	methodPattern     = `^[A-Z]{1,16}$`
-	actionPattern     = `^s3:[A-Za-z*?]+$`
+	actionPattern     = `^(s3|nexo):[A-Za-z*?]+$`
 	// maxListLength bounds the principals, actions and condition values
 	// of a rule.
 	maxListLength = 100
@@ -208,7 +208,7 @@ func (c *compiler) actions(i int, id string, in []string, cr *compiledRule) ([]s
 			continue
 		}
 		if !c.syn.action.MatchString(a) {
-			return nil, ruleError(i, id, field, "%q must be read, list, write, delete, tag, all or an S3 action (s3:GetObject, s3:Get*)", a)
+			return nil, ruleError(i, id, field, "%q must be read, stream, list, write, delete, tag, all or an action (s3:GetObject, s3:Get*, nexo:GetMediaStream)", a)
 		}
 		la := strings.ToLower(a)
 		if strings.ContainsAny(la, "*?") {

@@ -178,6 +178,37 @@ describe('distributions', () => {
     );
   });
 
+  // covers: D-DST-03
+  it('streams the videos of a behavior as HLS', async () => {
+    const services = admin();
+    const { user } = open('/distributions/website/behaviors', services);
+    const behaviors = await screen.findByRole('table', { name: 'Behaviors of the distribution' });
+    await user.click(await screen.findByRole('button', { name: 'Add behavior' }));
+    const dialog = await screen.findByRole('dialog', { name: 'New behavior' });
+    await user.type(within(dialog).getByRole('textbox', { name: 'Path pattern' }), '/videos/**');
+    const video = within(dialog).getByRole('textbox', { name: 'Video streaming (HLS)' });
+    expect(video).toHaveValue('Inherit from the default');
+    expect(within(dialog).getByText(/nexo:GetMediaStream streams without/)).toBeInTheDocument();
+    await user.click(video);
+    await user.click(await screen.findByRole('option', { name: 'Stream the videos as HLS' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Apply' }));
+    const row = (await within(behaviors).findByText('/videos/**')).closest('tr') as HTMLElement;
+    expect(within(row).getByText('Video')).toBeInTheDocument();
+
+    await user.click(
+      within(screen.getByRole('region', { name: 'Unsaved changes' })).getByRole('button', {
+        name: 'Save changes',
+      }),
+    );
+    await waitFor(async () => {
+      const d = await services.distributions.get('website');
+      expect(d.behaviors?.at(-1)).toEqual({
+        pathPattern: { type: 'glob', pattern: '/videos/**' },
+        video: { hls: true },
+      });
+    });
+  });
+
   // covers: D-DST-04
   it('D-DST-04 applies the recommended security headers and the SPA fallback', async () => {
     const { user, services } = open('/distributions/download/responses');

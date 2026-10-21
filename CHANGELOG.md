@@ -106,6 +106,16 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   the CDNs in front; the query of a signed URL is signed. `GetObject` on the S3 port answers a variant only with
   `x-nexo-image-format`/`x-nexo-image-width` (signed with the query; plain `GetObject` is unchanged), and the
   Admin API image route answers `HEAD`.
+- Video streaming on the domains of the distributions: a behavior with `video: {hls: true}` (`nexoctl dist
+  behavior add --stream-video`, **Video streaming (HLS)** in the behavior editor of the console) serves
+  `<video>/master.m3u8` and every file its playlists name below the URL of the video, renditions of the media
+  worker included. The files pinned to a revision are cacheable for a day (`immutable`, public on a public
+  behavior); a path that is not a streamable video is served as its object. On a signed behavior the playlists
+  carry the parameters of a custom policy covering `…/video.mp4/*` to their URIs.
+- The policy action `nexo:GetMediaStream` streams a video without allowing the download of the original: the
+  console routes, the `/nexo/media/v1/` routes of the S3 listener and the video behaviors serve whoever is allowed
+  it or `s3:GetObject`. Bucket policies may grant it (`Principal: "*"`), the access rules have the class `stream`
+  (and `read` includes it), and the console policy editor and simulator know it.
 - Benchmarks of every step of the video pipeline (`make bench-media`, [docs/bench/media.md](docs/bench/media.md)):
   packager requests, OpenH264 decoding and encoding per size, scaling, renditions, poster and thumbnails. With
   them the scaler (weights computed once, buffers reused, vertical pass first, parallel bands) and the decoding

@@ -13,13 +13,15 @@
 //     "distribution:<id>" (the requests served by a distribution, docs/10
 //     §10.2). Names accept the "*" and "?" wildcards.
 //   - actions: the classes read (s3:GetObject, s3:GetObjectVersion,
-//     s3:GetObjectAttributes, s3:GetObjectVersionAttributes), list
+//     s3:GetObjectAttributes, s3:GetObjectVersionAttributes,
+//     nexo:GetMediaStream), stream (nexo:GetMediaStream: the videos play
+//     as HLS, the originals cannot be downloaded), list
 //     (s3:ListBucket, s3:ListBucketVersions, s3:ListBucketMultipartUploads),
 //     write (s3:PutObject, which covers the copies and the multipart
 //     uploads, s3:AbortMultipartUpload, s3:ListMultipartUploadParts),
 //     delete (s3:DeleteObject, s3:DeleteObjectVersion), tag (the
 //     Get/Put/DeleteObject[Version]Tagging actions) and all (every class),
-//     or explicit S3 actions ("s3:GetObject", "s3:Get*"). The actions of
+//     or explicit actions ("s3:GetObject", "s3:Get*", "nexo:GetMediaStream"). The actions of
 //     object lock (retention, legal hold, governance bypass, the object
 //     lock configuration) are never granted by an access rule: a rule
 //     cannot override object lock.
@@ -94,6 +96,7 @@ const (
 // Action classes of the rules.
 const (
 	ActionRead   = "read"
+	ActionStream = "stream"
 	ActionList   = "list"
 	ActionWrite  = "write"
 	ActionDelete = "delete"
@@ -142,8 +145,8 @@ type Rule struct {
 	// Principals are "*", "user:<name>", "group:<name>",
 	// "accesskey:<key>" or "distribution:<id>".
 	Principals []string `json:"principals" yaml:"principals"`
-	// Actions are action classes (read, list, write, delete, tag, all) or
-	// S3 actions ("s3:GetObject", "s3:Get*").
+	// Actions are action classes (read, stream, list, write, delete, tag,
+	// all) or actions ("s3:GetObject", "s3:Get*", "nexo:GetMediaStream").
 	Actions []string `json:"actions" yaml:"actions"`
 	// Match is the pattern of the keys; nil covers the whole bucket.
 	Match *match.Pattern `json:"match,omitempty" yaml:"match,omitempty"`
@@ -335,8 +338,8 @@ type TestInput struct {
 	// Keys are the keys to test; none tests the bucket itself (the empty
 	// key). For a listing action a key is the listing prefix.
 	Keys []string
-	// Action is an S3 action or an action class (read: s3:GetObject,
-	// list: s3:ListBucket, write: s3:PutObject, delete: s3:DeleteObject,
+	// Action is an action or an action class (read: s3:GetObject, stream:
+	// nexo:GetMediaStream, list: s3:ListBucket, write: s3:PutObject, delete: s3:DeleteObject,
 	// tag: s3:PutObjectTagging); default s3:GetObject.
 	Action string
 	// Identity is the caller; nil tests an anonymous request.

@@ -40,7 +40,8 @@ func TestHLSRoutes(t *testing.T) {
 	check := f.lastCheck()
 	assert.Equal(t, "b", check.Bucket)
 	assert.Equal(t, "v/a b.mp4", check.Object)
-	assert.Equal(t, []policy.Action{policy.ActionGetObjectVersion}, check.Actions)
+	// A stream is allowed by nexo:GetMediaStream first.
+	assert.Equal(t, []policy.Action{policy.ActionGetMediaStream}, check.Actions)
 
 	// The pinned resources.
 	src := media.Source{Bucket: "b", Key: "v.mp4", Revision: "e1"}
@@ -58,8 +59,26 @@ func TestHLSRoutes(t *testing.T) {
 		assert.Equal(t, tc.contentType, rec.Header().Get("Content-Type"), tc.path)
 		assert.Equal(t, "private, max-age=86400, immutable", rec.Header().Get("Cache-Control"), tc.path)
 		assert.Equal(t, tc.body, rec.Body.String(), tc.path)
-		assert.Equal(t, []policy.Action{policy.ActionGetObject}, f.lastCheck().Actions, tc.path)
+		assert.Equal(t, []policy.Action{policy.ActionGetMediaStream}, f.lastCheck().Actions, tc.path)
 	}
+
+	// Without nexo:GetMediaStream, s3:GetObject (s3:GetObjectVersion
+	// with a version) allows the stream.
+	f.denyActions(policy.ActionGetMediaStream)
+	f.resetChecks()
+	rec = c.do(http.MethodGet, "/buckets/b/objects/hls/master.m3u8?key=v%2Fa+b.mp4&versionId=v1", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, []policy.Action{policy.ActionGetObjectVersion}, f.lastCheck().Actions)
+	// Without s3:GetObject, nexo:GetMediaStream allows it.
+	f.denyActions(policy.ActionGetObject)
+	f.resetChecks()
+	rec = c.do(http.MethodGet, "/buckets/b/objects/hls/media.m3u8?key=v.mp4&rev=e1", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	// Neither: refused.
+	f.denyActions(policy.ActionGetObject, policy.ActionGetMediaStream)
+	rec = c.do(http.MethodGet, "/buckets/b/objects/hls/media.m3u8?key=v.mp4&rev=e1", nil)
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	f.denyActions()
 
 	// Malformed requests never reach the service.
 	for _, path := range []string{

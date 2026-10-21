@@ -535,6 +535,8 @@ func checkS3Mode(d Distribution) error {
 		return websiteOnly("signed URLs")
 	case b.Images != nil && b.Images.Negotiate:
 		return websiteOnly("image variants on the URL of the image (the S3 API takes x-nexo-image-format and x-nexo-image-width)")
+	case b.Video != nil && b.Video.HLS:
+		return websiteOnly("video streaming (the S3 API serves it under /nexo/media/v1/)")
 	}
 	switch b.Access {
 	case "", AccessPublic, AccessAuthenticated, AccessDeny:
@@ -686,6 +688,9 @@ func effectiveBehavior(def, b Behavior) Behavior {
 	if out.Images == nil {
 		out.Images = def.Images
 	}
+	if out.Video == nil {
+		out.Video = def.Video
+	}
 	if len(def.ResponseHeaders) > 0 {
 		merged := make(map[string]string, len(def.ResponseHeaders)+len(b.ResponseHeaders))
 		for k, v := range def.ResponseHeaders {
@@ -756,6 +761,10 @@ func cloneBehavior(b Behavior) Behavior {
 	if b.Images != nil {
 		i := *b.Images
 		out.Images = &i
+	}
+	if b.Video != nil {
+		v := *b.Video
+		out.Video = &v
 	}
 	return out
 }

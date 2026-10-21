@@ -78,6 +78,7 @@
     },
     "actions": {
       "read": "Read",
+      "stream": "Stream videos",
       "list": "List",
       "write": "Write",
       "delete": "Delete",
@@ -420,6 +421,11 @@
       "imagesOn": "Negotiate the format and the width",
       "imagesOff": "Serve the original",
       "imagesBadge": "Images",
+      "video": "Video streaming (HLS)",
+      "videoHint": "HLS at <video>/master.m3u8; nexo:GetMediaStream streams without download.",
+      "videoOn": "Stream the videos as HLS",
+      "videoOff": "No streaming",
+      "videoBadge": "Video",
       "fixIssues": "Fix the highlighted fields.",
       "apply": "Apply"
     },

@@ -98,6 +98,17 @@ export function BehaviorsPanel({
               {t('distributions.behaviors.imagesBadge')}
             </Badge>
           ) : null}
+          {b.video?.hls === true ? (
+            <Badge
+              size="xs"
+              variant="light"
+              color="pink"
+              mt={4}
+              ml={b.images?.negotiate === true ? 4 : 0}
+            >
+              {t('distributions.behaviors.videoBadge')}
+            </Badge>
+          ) : null}
         </Table.Td>
         <Table.Td>
           {b.access !== undefined ? (

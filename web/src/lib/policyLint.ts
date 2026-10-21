@@ -7,7 +7,13 @@
 import type { LocatedError } from '@/services';
 
 import { parseJson, pointerSegment, type TextPosition } from './json';
-import { actionServices, isConditionOperator, s3ActionNames, s3ArnPrefix } from './policyCatalog';
+import {
+  actionServices,
+  isConditionOperator,
+  nexoActionNames,
+  s3ActionNames,
+  s3ArnPrefix,
+} from './policyCatalog';
 
 /** The only supported policy version. */
 export const policyVersion = '2012-10-17';
@@ -61,10 +67,13 @@ export function actionProblem(action: string): string | undefined {
   }
   const lower = service.toLowerCase();
   if (!(actionServices as readonly string[]).includes(lower)) {
-    return `invalid action "${action}": unknown service "${service}" (s3, admin, sts, kms)`;
+    return `invalid action "${action}": unknown service "${service}" (s3, nexo, admin, sts, kms)`;
   }
   if (lower === 's3' && !s3ActionNames.some((known) => wildcardMatch(name, known, true))) {
     return `unknown S3 action "${action}"`;
+  }
+  if (lower === 'nexo' && !nexoActionNames.some((known) => wildcardMatch(name, known, true))) {
+    return `unknown Nexo action "${action}"`;
   }
   return undefined;
 }
@@ -80,7 +89,8 @@ export function resourceProblem(resource: string): string | undefined {
   return undefined;
 }
 
-const isS3Action = (action: string) => action === '*' || action.toLowerCase().startsWith('s3:');
+/** Actions on the buckets and objects: S3 and the object actions of Nexo. */
+const isS3Action = (action: string) => action === '*' || /^(s3|nexo):/i.test(action);
 
 /**
  * Lints a policy JSON text. Syntax errors stop the analysis; every other

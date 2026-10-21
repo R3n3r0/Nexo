@@ -76,6 +76,10 @@ func (h *objectRoutes) Register(r chi.Router) { h.guard.register(r, h.routes()) 
 
 func (h *objectRoutes) routes() []route {
 	read := onObject(policy.ActionGetObject).orVersion(policy.ActionGetObjectVersion)
+	// The HLS presentation of a video: streamed by a viewer allowed
+	// nexo:GetMediaStream, or one who may read the object.
+	stream := anyOnObject(policy.ActionGetMediaStream, policy.ActionGetObject).
+		orVersion(policy.ActionGetMediaStream, policy.ActionGetObjectVersion)
 	return []route{
 		{http.MethodGet, "/buckets/{bucket}/objects", byService(policy.ActionListBucket), h.list},
 		{http.MethodDelete, "/buckets/{bucket}/objects", byService(policy.ActionDeleteObject, policy.ActionDeleteObjectVersion, policy.ActionListBucket,
@@ -90,14 +94,14 @@ func (h *objectRoutes) routes() []route {
 		{http.MethodGet, "/buckets/{bucket}/objects/preview", read, h.preview},
 		// The HLS presentation of a video (?key=&versionId=; the URIs of
 		// the master playlist add rev, the ETag they are pinned to).
-		{http.MethodGet, "/buckets/{bucket}/objects/hls/master.m3u8", read, h.hlsMaster()},
-		{http.MethodGet, "/buckets/{bucket}/objects/hls/media.m3u8", read, h.hlsMedia()},
-		{http.MethodGet, "/buckets/{bucket}/objects/hls/init.mp4", read, h.hlsInit()},
-		{http.MethodGet, "/buckets/{bucket}/objects/hls/segment.m4s", read, h.hlsSegment()},
+		{http.MethodGet, "/buckets/{bucket}/objects/hls/master.m3u8", stream, h.hlsMaster()},
+		{http.MethodGet, "/buckets/{bucket}/objects/hls/media.m3u8", stream, h.hlsMedia()},
+		{http.MethodGet, "/buckets/{bucket}/objects/hls/init.mp4", stream, h.hlsInit()},
+		{http.MethodGet, "/buckets/{bucket}/objects/hls/segment.m4s", stream, h.hlsSegment()},
 		// What the media worker derived from the video.
-		{http.MethodGet, "/buckets/{bucket}/objects/hls/poster.jpg", read, h.hlsFile(domain.MediaPosterFile, contentTypeJPEG)},
-		{http.MethodGet, "/buckets/{bucket}/objects/hls/sprite.jpg", read, h.hlsFile(domain.MediaSpriteFile, contentTypeJPEG)},
-		{http.MethodGet, "/buckets/{bucket}/objects/hls/thumbnails.vtt", read, h.hlsThumbnails()},
+		{http.MethodGet, "/buckets/{bucket}/objects/hls/poster.jpg", stream, h.hlsFile(domain.MediaPosterFile, contentTypeJPEG)},
+		{http.MethodGet, "/buckets/{bucket}/objects/hls/sprite.jpg", stream, h.hlsFile(domain.MediaSpriteFile, contentTypeJPEG)},
+		{http.MethodGet, "/buckets/{bucket}/objects/hls/thumbnails.vtt", stream, h.hlsThumbnails()},
 		{http.MethodGet, "/buckets/{bucket}/objects/media/status", read, h.mediaStatus},
 		// A variant of an image the media worker derived (?key=&versionId=&w=&format=).
 		{http.MethodGet, "/buckets/{bucket}/objects/image", read, h.image},

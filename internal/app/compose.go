@@ -506,7 +506,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		notificationRoutes,
 	)
 	if err := distStack.composeHTTP(distHTTPDeps{
-		cfg: cfg, objects: cachedObjects, cache: cacheSvc, policy: s3Policy, verifier: verifier, publicAccess: accessRules,
+		cfg: cfg, objects: cachedObjects, cache: cacheSvc, policy: s3Policy, verifier: verifier, publicAccess: accessRules, media: mediaSvc,
 		secrets: accessrule.NewStaticSecrets(cfg.Secrets), registry: registry, ids: ids, clock: d.clock, logger: logger,
 		keystore: f.keystore, tracer: f.obs.trace, telemetry: f.obs.telemetry, limiter: limiter, codec: codec,
 	}); err != nil {

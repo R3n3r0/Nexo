@@ -1,6 +1,10 @@
 # Proposal: video streaming (HLS), renditions and automatic subtitles
 
-Status: **proposal**, not implemented. Feedback welcome in the GitHub Discussion that links here.
+Status: **implemented** except the automatic subtitles. M1 (packager, share links, player), M2 (media worker,
+renditions, poster, thumbnails, images) and M4 (the video behavior of the distributions and `nexo:GetMediaStream`)
+are in the release; M3 (subtitles) and the subtitle editor of M4 are in progress. The user documentation is in
+[video-streaming.md](../user/video-streaming.md), [media-worker.md](../user/media-worker.md) and
+[distributions](../user/distributions/README.md#video-streaming-on-your-domain).
 
 ## 1. Summary
 

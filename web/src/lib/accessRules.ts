@@ -14,7 +14,7 @@ import { compileKeyPattern, type PatternIssue } from './keyPattern';
 import { parseYaml, toYaml } from './yaml';
 
 /** Action classes of the rules (docs/10 §10.1). */
-export const actionClasses = ['read', 'list', 'write', 'delete', 'tag', 'all'] as const;
+export const actionClasses = ['read', 'stream', 'list', 'write', 'delete', 'tag', 'all'] as const;
 export type ActionClass = (typeof actionClasses)[number];
 
 export const patternTypes: readonly KeyPatternType[] = ['prefix', 'glob', 'regex'];

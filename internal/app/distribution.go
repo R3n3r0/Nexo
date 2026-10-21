@@ -25,6 +25,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/certs/dns01"
 	"github.com/r3n3r0/nexo/internal/service/distribution"
 	"github.com/r3n3r0/nexo/internal/service/match"
+	"github.com/r3n3r0/nexo/internal/service/media"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
@@ -241,6 +242,9 @@ type distHTTPDeps struct {
 	// nil: not enforced); codec writes the S3 errors of their refusals.
 	limiter ratelimit.Service
 	codec   httpx.Encoder
+	// media packages the videos of the behaviors that stream them (nil:
+	// none).
+	media media.Service
 }
 
 // composeHTTP builds the website engine, the host routers and the web
@@ -252,7 +256,7 @@ func (s *distStack) composeHTTP(d distHTTPDeps) error {
 	}
 	website, err := distribution.NewWebsite(distribution.WebsiteDeps{
 		Objects: d.objects, Policy: d.policy, Signatures: s.raw, Matcher: s.matcher, PublicAccess: d.publicAccess, Secrets: secrets,
-		Clock: d.clock, Logger: s.logger,
+		Media: d.media, Clock: d.clock, Logger: s.logger,
 	}, distribution.WithServerHeader("Nexo"))
 	if err != nil {
 		return err

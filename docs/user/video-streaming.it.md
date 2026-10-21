@@ -60,7 +60,11 @@ frammento del suo URL (dopo `#`), che i browser non inviano mai a un server.
 
 ## API HLS
 
-Gli stream seguono l'autorizzazione di `GetObject`: chi può leggere un oggetto può riprodurlo.
+Gli stream seguono l'autorizzazione di `GetObject`: chi può leggere un oggetto può riprodurlo. L'azione di
+policy `nexo:GetMediaStream` permette di riprodurlo senza consentire il download dell'originale
+([esempio](security/users-policies.it.md#esempio-streaming-dei-video-senza-download)). Sul tuo dominio, un
+[behavior video](distributions/README.it.md#streaming-video-sul-tuo-dominio) di una distribuzione serve la stessa
+presentazione su `https://videos.example.com/<chiave>/master.m3u8`.
 
 | Percorso (listener S3) | Contenuto |
 | --- | --- |

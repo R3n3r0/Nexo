@@ -20,7 +20,7 @@ API (`/api/v1/buckets/{bucket}/access-rules`), and take effect immediately on ev
 | `priority` | evaluation order, lowest first (default 100) |
 | `effect` | `allow` or `deny` |
 | `principals` | `*` (everyone, anonymous users included), `user:NAME`, `group:NAME`, `accesskey:KEY`, `distribution:ID` |
-| `actions` | `read` (GET/HEAD), `list`, `write` (PUT/POST/multipart), `delete`, `tag`, `all`, or S3 actions (`s3:GetObject`) |
+| `actions` | `read` (GET/HEAD, video streaming included), `stream` (the videos play as HLS, the originals cannot be downloaded: `nexo:GetMediaStream`), `list`, `write` (PUT/POST/multipart), `delete`, `tag`, `all`, or actions (`s3:GetObject`, `nexo:GetMediaStream`) |
 | `match` | `prefix`, `glob` or `regex` on the key (optional: without it, the whole bucket) |
 | conditions | client IP or CIDR (`--source-ip`, `--not-source-ip`), `--referer`, `--host`, `--secure-transport`, time window (`--from`, `--to`), `--method`, `--header`, named groups of the regex (`--capture`) |
 

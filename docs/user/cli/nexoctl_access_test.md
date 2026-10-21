@@ -25,7 +25,7 @@ nexoctl access test ALIAS/BUCKET/KEY... [--principal P] [--action A] [--ip IP] [
 ## Options
 
 ```
-      --action string         action: read (default), list, write, delete, tag or an S3 action
+      --action string         action: read (default), stream, list, write, delete, tag or an action
       --distribution string   distribution serving the requests
       --header stringArray    request header 'Name: value' (repeatable)
   -h, --help                  help for test

@@ -66,6 +66,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/cluster"
 	"github.com/r3n3r0/nexo/internal/service/lock"
 	"github.com/r3n3r0/nexo/internal/service/match"
+	"github.com/r3n3r0/nexo/internal/service/media"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/service/sysstore"
@@ -192,6 +193,22 @@ const (
 	ImageFormatOriginal = "original"
 )
 
+// Video serves the HLS presentations of the MP4 videos below their URL:
+// with HLS, <video>/master.m3u8 is the multivariant playlist of the video
+// at <video> (the renditions of the media worker included), and the
+// files it names (media playlists, init and media segments, poster.jpg,
+// thumbnails.vtt and their sprite.jpg) are its siblings. A viewer allowed
+// nexo:GetMediaStream on the video streams it without being allowed to
+// download it (s3:GetObject); a signed behavior needs a custom policy
+// whose resource covers the URL of the video with a wildcard
+// (https://videos.example.com/intro.mp4/*), or signed cookies: the
+// playlists carry the parameters of the signed URL to the files they
+// name. A path whose prefix is not a video the packager streams is
+// served as the object of that key. Website mode only.
+type Video struct {
+	HLS bool `json:"hls" yaml:"hls"`
+}
+
 // Signing names the key group whose keys sign the URLs and cookies of a
 // signed behavior.
 type Signing struct {
@@ -236,6 +253,9 @@ type Behavior struct {
 	// Images serves the variants of the images at their own URL (nil
 	// inherits from the default behavior).
 	Images *Images `json:"images,omitempty" yaml:"images,omitempty"`
+	// Video serves the HLS presentations of the videos below their URL
+	// (nil inherits from the default behavior).
+	Video *Video `json:"video,omitempty" yaml:"video,omitempty"`
 }
 
 // ErrorPage replaces the answer of an error status with an object of the
@@ -777,6 +797,9 @@ type WebsiteDeps struct {
 	// Secrets resolves the origin secrets given as "${secret:<name>}";
 	// nil leaves them unresolved (no request matches them).
 	Secrets SecretSource
-	Clock   clock.Clock
-	Logger  *slog.Logger
+	// Media packages the videos of the behaviors that stream them
+	// (Video); nil streams none.
+	Media  media.Service
+	Clock  clock.Clock
+	Logger *slog.Logger
 }

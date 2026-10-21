@@ -370,6 +370,11 @@ function validate(state: MockDistributionState, d: Distribution): Distribution {
     if (b.access === 'signed' && (b.signing?.keyGroup ?? '') === '') {
       throw invalid(`${where}: a signed behavior needs signing.keyGroup`);
     }
+    if (b.video?.hls === true && mode !== 'website') {
+      throw invalid(
+        `${where}: video streaming applies to the website mode only (the S3 API serves it under /nexo/media/v1/)`,
+      );
+    }
     if (b.images?.negotiate === true && mode !== 'website') {
       throw invalid(
         `${where}: image variants on the URL of the image apply to the website mode only (the S3 API takes x-nexo-image-format)`,

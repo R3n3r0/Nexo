@@ -29,7 +29,7 @@ nexoctl access rule add ALIAS/BUCKET --id ID (--allow|--deny) --principal P --ac
 ## Options
 
 ```
-      --action stringArray          action: read, list, write, delete, tag, all or an S3 action (repeatable)
+      --action stringArray          action: read, stream, list, write, delete, tag, all or an action (repeatable)
       --allow                       allow the actions
       --capture stringArray         condition: the named group NAME of the regex equals VALUE (repeatable)
       --deny                        deny the actions (a deny in any source denies)

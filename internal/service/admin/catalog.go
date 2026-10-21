@@ -83,6 +83,7 @@ func catalog() []catalogEntry {
 		policy.ActionGetObjectLegalHold, policy.ActionPutObjectLegalHold,
 		policy.ActionBypassGovernanceRetention,
 		policy.ActionGetObjectAttributes, policy.ActionGetObjectVersionAttributes,
+		policy.ActionGetMediaStream,
 	)...)
 	return out
 }

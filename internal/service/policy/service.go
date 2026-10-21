@@ -375,6 +375,12 @@ const (
 	ActionBypassGovernanceRetention  Action = "s3:BypassGovernanceRetention" // #nosec G101 -- an IAM action name, not a credential
 	ActionGetObjectAttributes        Action = "s3:GetObjectAttributes"
 	ActionGetObjectVersionAttributes Action = "s3:GetObjectVersionAttributes"
+	// ActionGetMediaStream allows the HLS presentation of a video (its
+	// playlists, segments, renditions, poster and thumbnails) without
+	// the download of the original: the media routes and the video
+	// behaviors of the distributions serve a viewer allowed either
+	// s3:GetObject or this action.
+	ActionGetMediaStream Action = "nexo:GetMediaStream"
 	// ActionAdminApplyLifecycle authorizes the immediate application of
 	// the lifecycle of a bucket from the Admin API (the scanner applies it
 	// over its cycle), on top of s3:PutLifecycleConfiguration.

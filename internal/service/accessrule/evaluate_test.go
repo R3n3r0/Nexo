@@ -321,3 +321,29 @@ func TestRulesFromAnotherBucket(t *testing.T) {
 	assert.False(t, d.Allowed)
 	assert.True(t, f.evaluate(req{id: domain.Anonymous(), key: "a"}).Allowed)
 }
+
+// TestStreamClass: the class stream grants nexo:GetMediaStream only (the
+// videos play, the originals cannot be downloaded); read covers it too.
+func TestStreamClass(t *testing.T) {
+	f := newFixture(t)
+	f.put(
+		rule("stream-videos", 10, allow, list("*"), list("stream"), prefixP("videos/"), nil),
+		rule("read-docs", 20, allow, list("*"), list("read"), prefixP("docs/"), nil),
+	)
+	anon := domain.Anonymous()
+	for _, tc := range []struct {
+		name    string
+		r       req
+		allowed bool
+	}{
+		{name: "stream a video", r: req{id: anon, action: policy.ActionGetMediaStream, key: "videos/a.mp4"}, allowed: true},
+		{name: "no download", r: req{id: anon, action: policy.ActionGetObject, key: "videos/a.mp4"}, allowed: false},
+		{name: "read covers the stream", r: req{id: anon, action: policy.ActionGetMediaStream, key: "docs/a.mp4"}, allowed: true},
+		{name: "elsewhere", r: req{id: anon, action: policy.ActionGetMediaStream, key: "other/a.mp4"}, allowed: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := f.evaluate(tc.r)
+			assert.Equal(t, tc.allowed, d.Allowed, d.Reason)
+		})
+	}
+}

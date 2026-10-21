@@ -4930,6 +4930,22 @@ export interface components {
             };
             cors?: components["schemas"]["DistributionCORS"];
             images?: components["schemas"]["DistributionImages"];
+            video?: components["schemas"]["DistributionVideo"];
+        };
+        /**
+         * @description Serves the HLS presentations of the MP4 videos below their URL (website mode only). With
+         *     `hls`, `<video>/master.m3u8` is the multivariant playlist of the video at `<video>` (the
+         *     renditions of the media worker included) and the files it names (media playlists, init and
+         *     media segments, `poster.jpg`, `thumbnails.vtt` and `sprite.jpg`) are its siblings. A viewer
+         *     allowed `nexo:GetMediaStream` streams the video without being allowed to download it
+         *     (`s3:GetObject`). On a signed behavior, sign a custom policy whose resource covers the URL of
+         *     the video with a wildcard (`https://videos.example.com/intro.mp4/*`), or use signed cookies:
+         *     the playlists carry the parameters of the signed URL to the files they name. The files pinned
+         *     to a revision (`?rev=`) are cacheable for a day; a path whose prefix is not a streamable video
+         *     is served as the object of that key.
+         */
+        DistributionVideo: {
+            hls: boolean;
         };
         /**
          * @description Serves the variants of the images the media worker derived (an image rule of the bucket) at

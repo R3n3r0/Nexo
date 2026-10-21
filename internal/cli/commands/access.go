@@ -30,8 +30,9 @@ principals, actions and a pattern of the keys (a prefix, a glob with *, **, ?,
 next to the IAM policies and the bucket policy: a deny in any source denies.
 
 Principals: '*' (everyone, anonymous included), user:NAME, group:NAME,
-accesskey:KEY, distribution:ID. Actions: read, list, write, delete, tag, all,
-or S3 actions (s3:GetObject). Every change replaces the rules of the bucket
+accesskey:KEY, distribution:ID. Actions: read, stream (the videos play as HLS,
+the originals cannot be downloaded), list, write, delete, tag, all, or actions
+(s3:GetObject, nexo:GetMediaStream). Every change replaces the rules of the bucket
 atomically and fails if they changed meanwhile.`
 	rule := groupCmd("rule", "Add, list, show, remove and reorder the access rules of a bucket")
 	rule.AddCommand(newAccessRuleAddCmd(e), newAccessRuleListCmd(e), newAccessRuleInfoCmd(e), newAccessRuleRemoveCmd(e), newAccessRuleMoveCmd(e))
@@ -298,7 +299,7 @@ the regex, e.g. user='${aws:username}').`,
 	f.BoolVar(&allow, "allow", false, "allow the actions")
 	f.BoolVar(&deny, "deny", false, "deny the actions (a deny in any source denies)")
 	f.StringArrayVar(&principals, "principal", nil, "principal: '*', user:NAME, group:NAME, accesskey:KEY, distribution:ID (repeatable)")
-	f.StringArrayVar(&actions, "action", nil, "action: read, list, write, delete, tag, all or an S3 action (repeatable)")
+	f.StringArrayVar(&actions, "action", nil, "action: read, stream, list, write, delete, tag, all or an action (repeatable)")
 	f.IntVar(&priority, "priority", defaultRulePriority, "order of evaluation, lower first")
 	f.StringVar(&description, "description", "", "free text")
 	f.BoolVar(&replace, "replace", false, "replace the rule with the same id")
@@ -631,7 +632,7 @@ user needs admin:SimulatePolicy. The command does not fail on a denial.`,
 	}
 	f := cmd.Flags()
 	f.StringVar(&in.Principal, "principal", "", "who makes the requests: anonymous, user:NAME, accesskey:KEY, distribution:ID")
-	f.StringVar(&in.Action, "action", "", "action: read (default), list, write, delete, tag or an S3 action")
+	f.StringVar(&in.Action, "action", "", "action: read (default), stream, list, write, delete, tag or an action")
 	f.StringVar(&in.IP, "ip", "", "address of the client")
 	f.StringVar(&in.Host, "host", "", "host the requests are addressed to")
 	f.StringVar(&in.Method, "method", "", "HTTP method (default: the one of the action)")

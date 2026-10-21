@@ -747,6 +747,9 @@ func effective(def, b nexoadmin.Behavior) nexoadmin.Behavior {
 	if b.Images != nil {
 		out.Images = b.Images
 	}
+	if b.Video != nil {
+		out.Video = b.Video
+	}
 	return out
 }
 

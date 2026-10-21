@@ -632,6 +632,13 @@ func (w *website) serveAllowed(ctx context.Context, c *compiledDistribution, req
 		}
 		key += b.IndexDocument
 	}
+	if streamsVideo(b) && !p.directory && (req.Method == http.MethodGet || req.Method == http.MethodHead) {
+		// Authorized as a stream of the video (nexo:GetMediaStream or
+		// s3:GetObject on its key), not as a read of the file's key.
+		if resp, ok := w.serveVideo(ctx, c, req, b, key); ok {
+			return resp
+		}
+	}
 	if status, reason := w.authorize(ctx, c, req, b, policy.ActionGetObject, key); status != 0 {
 		return w.refuse(ctx, c, req, status, reason)
 	}

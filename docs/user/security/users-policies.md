@@ -164,6 +164,28 @@ A scanner or an external system drops files into `inbox` without being able to r
 `arn:aws:s3:::inbox/scanner1/*`; to enforce encryption add a condition on
 `s3:x-amz-server-side-encryption`.
 
+### Example: stream the videos without download
+
+`nexo:GetMediaStream` allows the HLS presentation of a video (playlists, segments, renditions, poster, thumbnails:
+the console player, the [share links](sharing.md) and the [video behaviors](../distributions/README.md#video-streaming-on-your-domain)
+of the distributions) without `s3:GetObject`, which downloads the original. A bucket policy can grant it to everyone:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": "*",
+      "Action": ["nexo:GetMediaStream"],
+      "Resource": ["arn:aws:s3:::courses/lessons/*"]
+    }
+  ]
+}
+```
+
+Whoever may read an object (`s3:GetObject`) may stream it too.
+
 ### Simulator
 
 Before applying a policy, or to understand an `AccessDenied`:

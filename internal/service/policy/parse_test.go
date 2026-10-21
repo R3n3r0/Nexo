@@ -125,6 +125,8 @@ func TestParseInvalid(t *testing.T) {
 		{name: "action invalid characters", doc: stmt(`{"Effect":"Allow","Action":"s3:Get Object","Resource":"*"}`), want: "invalid action"},
 		{name: "unknown s3 action", doc: stmt(`{"Effect":"Allow","Action":"s3:GetObjekt","Resource":"*"}`), want: `unknown S3 action "s3:GetObjekt"`},
 		{name: "s3 wildcard matching nothing", doc: stmt(`{"Effect":"Allow","Action":"s3:Gte*","Resource":"*"}`), want: "unknown S3 action"},
+		{name: "unknown nexo action", doc: stmt(`{"Effect":"Allow","Action":"nexo:Stream","Resource":"*"}`), want: `unknown Nexo action "nexo:Stream"`},
+		{name: "nexo action without resource", doc: stmt(`{"Effect":"Allow","Action":"nexo:GetMediaStream"}`), want: "Resource or NotResource is required"},
 		{name: "missing resource", doc: stmt(`{"Effect":"Allow","Action":"s3:GetObject"}`), want: "Resource or NotResource is required"},
 		{name: "missing resource with NotAction", doc: stmt(`{"Effect":"Allow","NotAction":"admin:*"}`), want: "Resource or NotResource is required"},
 		{name: "missing resource with star", doc: stmt(`{"Effect":"Allow","Action":"*"}`), want: "Resource or NotResource is required"},
@@ -300,6 +302,10 @@ func TestParseBucketPolicy(t *testing.T) {
 		{"syntax", "photos", `{"Version":`, "invalid JSON"},
 		{"generic validation", "photos", doc(`{"Effect":"Allow","Principal":"*","Action":"s3:Nope","Resource":"arn:aws:s3:::photos/*"}`), "unknown S3 action"},
 	}
+	// A bucket policy may grant the stream of the videos to everyone.
+	stream := doc(`{"Effect":"Allow","Principal":"*","Action":["nexo:GetMediaStream"],"Resource":"arn:aws:s3:::photos/*"}`)
+	_, err = svc.ParseBucketPolicy(ctx, "photos", []byte(stream))
+	require.NoError(t, err)
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := svc.ParseBucketPolicy(ctx, tc.bucket, []byte(tc.doc))

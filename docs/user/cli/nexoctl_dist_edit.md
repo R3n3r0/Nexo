@@ -31,6 +31,8 @@ nexoctl dist edit ALIAS ID [--bucket B] [--prefix P] [--mode M] [--access A] [--
                                format from Accept or ?format=, width from ?w=, ?format=original for the original (website mode)
       --prefix string          origin prefix
       --spa string             path served (200) instead of a missing object (single page application)
+      --stream-video           serve the HLS presentation of the videos below their URL:
+                               <video>/master.m3u8 and the files it names; nexo:GetMediaStream streams without download (website mode)
 ```
 
 ## Options inherited from parent commands

@@ -63,6 +63,7 @@ function compact(b: DistributionBehavior, isDefault: boolean): DistributionBehav
   if (b.cors !== undefined && b.cors.allowedOrigins.length > 0) out.cors = b.cors;
   // The default behavior states the option only when it is on.
   if (b.images !== undefined && (!isDefault || b.images.negotiate)) out.images = b.images;
+  if (b.video !== undefined && (!isDefault || b.video.hls)) out.video = b.video;
   return out;
 }
 
@@ -74,12 +75,21 @@ function imagesChoice(b: DistributionBehavior, isDefault: boolean): ImagesChoice
   return b.images.negotiate ? 'negotiate' : 'original';
 }
 
+/** The value of the video select: inherited (not the default), on or off. */
+type VideoChoice = 'inherit' | 'hls' | 'off';
+
+function videoChoice(b: DistributionBehavior, isDefault: boolean): VideoChoice {
+  if (b.video === undefined) return isDefault ? 'off' : 'inherit';
+  return b.video.hls ? 'hls' : 'off';
+}
+
 /**
  * D-DST-03: editor of a behavior of a distribution: the paths (prefix,
  * glob or regex), the access (public, signed with a key group,
  * authenticated, deny), the methods, the index document and SPA fallback,
  * the Cache-Control sent to the browsers, the images in every format on
- * their own URL (website mode), response headers and CORS. An unset field
+ * their own URL and the HLS streaming of the videos (website mode),
+ * response headers and CORS. An unset field
  * inherits from the default behavior.
  */
 export function BehaviorEditor({
@@ -276,6 +286,30 @@ export function BehaviorEditor({
                   return value === 'inherit' || value === null
                     ? rest
                     : { ...rest, images: { negotiate: value === 'negotiate' } };
+                });
+              }}
+            />
+          ) : null}
+          {website ? (
+            <Select
+              label={t('distributions.behaviors.video')}
+              description={t('distributions.behaviors.videoHint')}
+              data={[
+                ...(isDefault
+                  ? []
+                  : [{ value: 'inherit', label: t('distributions.behaviors.inherit') }]),
+                { value: 'hls', label: t('distributions.behaviors.videoOn') },
+                { value: 'off', label: t('distributions.behaviors.videoOff') },
+              ]}
+              value={videoChoice(draft, isDefault)}
+              allowDeselect={false}
+              disabled={readOnly}
+              onChange={(value) => {
+                setDraft((d) => {
+                  const { video: _v, ...rest } = d;
+                  return value === 'inherit' || value === null
+                    ? rest
+                    : { ...rest, video: { hls: value === 'hls' } };
                 });
               }}
             />

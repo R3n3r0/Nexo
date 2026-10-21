@@ -59,7 +59,11 @@ of its URL (after `#`), which browsers never send to a server.
 
 ## HLS API
 
-The streams follow the authorization of `GetObject`: whoever may read an object may stream it.
+The streams follow the authorization of `GetObject`: whoever may read an object may stream it. The policy
+action `nexo:GetMediaStream` streams it without allowing the download of the original
+([example](security/users-policies.md#example-stream-the-videos-without-download)). On your own domain, a
+[video behavior](distributions/README.md#video-streaming-on-your-domain) of a distribution serves the same
+presentation at `https://videos.example.com/<key>/master.m3u8`.
 
 | Path (S3 listener) | Content |
 | --- | --- |

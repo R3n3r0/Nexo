@@ -1,3 +1,5 @@
+import { Center, Loader } from '@mantine/core';
+import { lazy, Suspense } from 'react';
 import {
   createBrowserRouter,
   createMemoryRouter,
@@ -10,7 +12,6 @@ import { RouteErrorPage } from '@/components/RouteErrorPage';
 import { AppShellLayout } from '@/layout/AppShellLayout';
 import { LoginPage, type LoginPageProps } from '@/pages/LoginPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
-import { OverviewPage } from '@/pages/OverviewPage';
 import { clusterRoutes } from '@/pages/clusterRoutes';
 import { distributionRoutes } from '@/pages/distributionRoutes';
 import { iamRoutes } from '@/pages/iamRoutes';
@@ -20,6 +21,12 @@ import { storageRoutes } from '@/pages/storageRoutes';
 import { UploadProvider } from '@/upload/UploadProvider';
 
 export type AppRouter = RouterProviderProps['router'];
+
+// The overview is a chunk of its own too: the initial bundle holds the
+// shell, the login and the services only (docs/06 §6.5).
+const OverviewPage = lazy(async () => ({
+  default: (await import('@/pages/OverviewPage')).OverviewPage,
+}));
 
 export interface RouteOptions {
   login?: LoginPageProps;
@@ -46,7 +53,20 @@ export function createRoutes(options: RouteOptions = {}): RouteObject[] {
             </UploadProvider>
           ),
           children: [
-            { index: true, element: <OverviewPage /> },
+            {
+              index: true,
+              element: (
+                <Suspense
+                  fallback={
+                    <Center py="xl">
+                      <Loader />
+                    </Center>
+                  }
+                >
+                  <OverviewPage />
+                </Suspense>
+              ),
+            },
             ...storageRoutes(),
             ...iamRoutes(),
             ...distributionRoutes(),

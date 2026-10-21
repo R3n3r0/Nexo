@@ -1234,7 +1234,7 @@ paths:
         The HLS presentation of an MP4 video (H.264 or H.265, optional AAC audio), packaged on
         the fly without transcoding: the playlists and segments reference each other with relative
         URIs pinned to the ETag of the object. Fragmented MP4 and SSE-C objects are refused.
-      x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
+      x-nexo-actions: ["nexo:GetMediaStream", "s3:GetObject", "s3:GetObjectVersion"]
       responses:
         "200":
           description: HLS master playlist of a video.
@@ -1253,7 +1253,7 @@ paths:
       summary: HLS media playlist of a video
       description: |
         The segments of the presentation (VOD).
-      x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
+      x-nexo-actions: ["nexo:GetMediaStream", "s3:GetObject", "s3:GetObjectVersion"]
       parameters:
         - { name: rev, in: query, required: true, description: The ETag the presentation is pinned to (412 once the object changed)., schema: { type: string } }
         - { name: r, in: query, required: false, description: "A rendition of the media worker (720p, 480p...): the presentation of that rendition, rev being its ETag.", schema: { type: string } }
@@ -1275,7 +1275,7 @@ paths:
       summary: HLS init segment of a video
       description: |
         The fMP4 initialization segment.
-      x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
+      x-nexo-actions: ["nexo:GetMediaStream", "s3:GetObject", "s3:GetObjectVersion"]
       parameters:
         - { name: rev, in: query, required: true, description: The ETag the presentation is pinned to (412 once the object changed)., schema: { type: string } }
         - { name: r, in: query, required: false, description: "A rendition of the media worker (720p, 480p...): the presentation of that rendition, rev being its ETag.", schema: { type: string } }
@@ -1297,7 +1297,7 @@ paths:
       summary: HLS media segment of a video
       description: |
         One fMP4 media segment, numbered from 0.
-      x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
+      x-nexo-actions: ["nexo:GetMediaStream", "s3:GetObject", "s3:GetObjectVersion"]
       parameters:
         - { name: rev, in: query, required: true, description: The ETag the presentation is pinned to (412 once the object changed)., schema: { type: string } }
         - { name: r, in: query, required: false, description: "A rendition of the media worker (720p, 480p...): the presentation of that rendition, rev being its ETag.", schema: { type: string } }
@@ -1319,7 +1319,7 @@ paths:
       operationId: mediaPoster
       summary: Poster frame of a video
       description: The JPEG poster the media worker derived from the current content of the video (404 otherwise).
-      x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
+      x-nexo-actions: ["nexo:GetMediaStream", "s3:GetObject", "s3:GetObjectVersion"]
       responses:
         "200":
           description: The poster.
@@ -1337,7 +1337,7 @@ paths:
       operationId: mediaThumbnailSprite
       summary: Timeline thumbnails of a video
       description: The JPEG grid of thumbnails the media worker derived from the current content of the video, mapped by thumbnails.vtt.
-      x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
+      x-nexo-actions: ["nexo:GetMediaStream", "s3:GetObject", "s3:GetObjectVersion"]
       responses:
         "200":
           description: The sprite.
@@ -1355,7 +1355,7 @@ paths:
       operationId: mediaThumbnails
       summary: WebVTT map of the timeline thumbnails
       description: One cue per thumbnail, pointing to its tile of sprite.jpg (`#xywh=x,y,w,h`).
-      x-nexo-actions: ["s3:GetObject", "s3:GetObjectVersion"]
+      x-nexo-actions: ["nexo:GetMediaStream", "s3:GetObject", "s3:GetObjectVersion"]
       responses:
         "200":
           description: The WebVTT map.
@@ -6290,6 +6290,23 @@ components:
           additionalProperties: { type: string }
         cors: { $ref: "#/components/schemas/DistributionCORS" }
         images: { $ref: "#/components/schemas/DistributionImages" }
+        video: { $ref: "#/components/schemas/DistributionVideo" }
+    DistributionVideo:
+      type: object
+      description: |
+        Serves the HLS presentations of the MP4 videos below their URL (website mode only). With
+        `hls`, `<video>/master.m3u8` is the multivariant playlist of the video at `<video>` (the
+        renditions of the media worker included) and the files it names (media playlists, init and
+        media segments, `poster.jpg`, `thumbnails.vtt` and `sprite.jpg`) are its siblings. A viewer
+        allowed `nexo:GetMediaStream` streams the video without being allowed to download it
+        (`s3:GetObject`). On a signed behavior, sign a custom policy whose resource covers the URL of
+        the video with a wildcard (`https://videos.example.com/intro.mp4/*`), or use signed cookies:
+        the playlists carry the parameters of the signed URL to the files they name. The files pinned
+        to a revision (`?rev=`) are cacheable for a day; a path whose prefix is not a streamable video
+        is served as the object of that key.
+      required: [hls]
+      properties:
+        hls: { type: boolean }
     DistributionImages:
       type: object
       description: |

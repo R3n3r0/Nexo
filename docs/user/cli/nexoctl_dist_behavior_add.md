@@ -19,6 +19,7 @@ nexoctl dist behavior add ALIAS ID (--prefix|--glob|--regex PATTERN) [--access A
   nexoctl dist behavior add local website --regex '^/downloads/.*\.zip$' --access signed --key-group rilasci
   nexoctl dist behavior add local website --prefix /internal/ --access deny --position 1
   nexoctl dist behavior add local website --prefix /photos/ --negotiate-images
+  nexoctl dist behavior add local website --prefix /videos/ --stream-video
 ```
 
 ## Options
@@ -39,6 +40,8 @@ nexoctl dist behavior add ALIAS ID (--prefix|--glob|--regex PATTERN) [--access A
       --prefix string          paths of the behavior: a literal prefix
       --regex string           paths of the behavior: an RE2 regular expression
       --spa string             path served (200) instead of a missing object (single page application)
+      --stream-video           serve the HLS presentation of the videos below their URL:
+                               <video>/master.m3u8 and the files it names; nexo:GetMediaStream streams without download (website mode)
 ```
 
 ## Options inherited from parent commands
