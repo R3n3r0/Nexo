@@ -76,6 +76,10 @@ func Applied(subsystem, key string) bool {
 	case SubsystemStorage:
 		// The metadata log of the local drives (internal/app/metalog.go).
 		return key == KeyMetadataLogSegmentMiB || key == KeyMetadataLogMemoryPercent
+	case "identity_openid", "identity_ldap":
+		// Read by the identity providers (internal/service/idp) at every
+		// login.
+		return true
 	case SubsystemCompression:
 		// Read by the object layer at every write.
 		return key == KeyCompressionEnable || key == KeyExtensions || key == KeyMimeTypes

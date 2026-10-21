@@ -10,7 +10,7 @@ Every feature of the [catalog](../docs/02-features.md) with the tests that cover
 |----------|---------:|-----------:|--------------:|
 | P0 | 75 | 75 | 0 |
 | P1 | 73 | 73 | 0 |
-| P2 (not in v1.0) | 17 | 3 | — |
+| P2 (not in v1.0) | 17 | 6 | — |
 
 A feature with a mixed priority (`P0/P1`, `P1 / P2`) is in the scope of v1.0 for its P0/P1 part and is counted with the highest priority.
 
@@ -212,14 +212,14 @@ Features after v1.0 ([05, M10](../docs/05-roadmap.md#m10--post-v10-p2)): they ar
 | S-BKT-13 | Server — Buckets | Basic canned ACLs (private, public-read) for compatibility only; until then the "BucketOwnerEnforced" Object Ownership applies (see §2.4) | — |
 | S-OBJ-14 | Server — Objects | Transparent compression (S2) for configured content types | **1**: `test/integration/compression_test.go` TestTransparentCompression |
 | S-OBJ-16 | Server — Objects | SelectObjectContent (CSV/JSON/Parquet) | **1**: `test/integration/select_test.go` TestSelectObjectContent |
-| S-IAM-08 | Server — Authentication and IAM | OpenID Connect (AssumeRoleWithWebIdentity, console SSO login) | — |
-| S-IAM-09 | Server — Authentication and IAM | LDAP/Active Directory | — |
+| S-IAM-08 | Server — Authentication and IAM | OpenID Connect (AssumeRoleWithWebIdentity, console SSO login) | **4**: `internal/service/iam/federated_test.go` TestAssumeFederated<br>`internal/service/idp/idp_test.go` TestWebIdentity<br>`internal/service/idp/idp_test.go` TestAuthorizationCodeFlow<br>`test/integration/federation_test.go` TestAssumeRoleWithWebIdentity |
+| S-IAM-09 | Server — Authentication and IAM | LDAP/Active Directory | **3**: `internal/service/iam/federated_test.go` TestAssumeFederated<br>`internal/service/idp/idp_test.go` TestLDAP<br>`test/integration/federation_test.go` TestAssumeRoleWithLDAPIdentity |
 | S-STO-09 | Server — Storage, durability, cluster | Pool decommission | — |
 | S-STO-10 | Server — Storage, durability, cluster | Rebalancing between pools | — |
 | S-STO-11 | Server — Storage, durability, cluster | Site replication (multiple clusters, synchronized IAM + buckets) | — |
 | S-STO-12 | Server — Storage, durability, cluster | ILM tiering to remote S3 | — |
 | S-OPS-09 | Server — Operations | Coordinated cluster restart/stop, rolling binary upgrade | — |
-| D-AUTH-02 | Dashboard (React console) | SSO login — OIDC button | — |
+| D-AUTH-02 | Dashboard (React console) | SSO login — OIDC button | **1**: `internal/service/idp/idp_test.go` TestAuthorizationCodeFlow |
 | D-BKT-05 | Dashboard (React console) | Bucket detail – Replication — Replication rules, status | — |
 | D-CLU-03 | Dashboard (React console) | Pools — Expansion (instructions), decommission, rebalance | — |
 | C-ADM-09 | CLI (`nexoctl`) | `admin service restart/stop` — Service control (restart and stop of the node receiving the request already in v1.0; coordinated across the cluster with S-OPS-09) | **1**: `internal/cli/commands/admin_test.go` TestScenarioAdminServer |

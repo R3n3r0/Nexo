@@ -25,6 +25,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/event"
 	"github.com/r3n3r0/nexo/internal/service/health"
 	"github.com/r3n3r0/nexo/internal/service/iam"
+	"github.com/r3n3r0/nexo/internal/service/idp"
 	"github.com/r3n3r0/nexo/internal/service/ilm"
 	"github.com/r3n3r0/nexo/internal/service/media"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
@@ -215,6 +216,11 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	dynConfig := configsvc.New(configsvc.Deps{Store: stores.config, Logger: logger})
 	// The applied dynamic settings, read at every use (hot reloaded).
 	applied, err := settings.New(settings.Deps{Config: dynConfig, Logger: logger})
+	if err != nil {
+		return nil, err
+	}
+	// The external identity providers (identity_openid, identity_ldap).
+	providers, err := idp.New(idp.Deps{Config: dynConfig, Clock: d.clock, Logger: logger})
 	if err != nil {
 		return nil, err
 	}
@@ -504,7 +510,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		s3.NewPresignedRoutes(s3.PresignedDeps{Verifier: verifier, Objects: objects, Buckets: buckets, Policy: s3Policy, Media: mediaSvc, Enc: codec, Clock: d.clock, Logger: logger},
 			s3.WithRegion(cfg.Region), ssecOpt),
 		s3.NewPostPolicyRoutes(s3.PostPolicyDeps{Verifier: verifier, Objects: objects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger}, ssecOpt),
-		s3.NewSTSRoutes(s3.STSDeps{IAM: identities, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger}),
+		s3.NewSTSRoutes(s3.STSDeps{IAM: identities, Policy: s3Policy, IDP: providers, Enc: codec, Clock: d.clock, Logger: logger}),
 		// The ?lifecycle and ?notification sub-resources.
 		lifecycleRoutes,
 		notificationRoutes,

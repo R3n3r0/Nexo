@@ -126,6 +126,12 @@ type Service interface {
 	// domain.ErrAccessDenied). They are persisted until they expire;
 	// expired ones are purged.
 	AssumeRole(ctx context.Context, in AssumeRoleInput) (*domain.Credentials, error)
+	// AssumeFederated issues temporary credentials for an identity an
+	// external provider authenticated (OpenID Connect, LDAP): its policies
+	// are those of in.PolicyNames and of the enabled Nexo groups named by
+	// in.Groups. An identity mapping to no policy is
+	// domain.ErrAccessDenied.
+	AssumeFederated(ctx context.Context, in FederatedInput) (*domain.Credentials, error)
 
 	// Invalidate drops the in-memory cache: the next call reloads the
 	// store. Peers call it when another node changed the IAM state. It
@@ -277,6 +283,32 @@ type UpdateAccessKeyInput struct {
 	Policy     *domain.Policy
 	// ClearPolicy removes the inline policy.
 	ClearPolicy bool
+}
+
+// FederatedInput are the parameters of AssumeFederated: an identity
+// authenticated by an external provider.
+type FederatedInput struct {
+	// Provider names the provider ("openid", "ldap").
+	Provider string
+	// Subject is the stable identifier of the user at the provider (the
+	// sub claim, the DN); Username its display name.
+	Subject  string
+	Username string
+	// Groups are the groups of the user at the provider: the Nexo groups
+	// of the same names give their policies.
+	Groups []string
+	// PolicyNames are the policies the provider assigns (a claim).
+	PolicyNames []string
+	// Claims are exposed to the policy conditions (jwt:<claim>).
+	Claims map[string]any
+	// Policy is the optional session policy restricting the credentials.
+	Policy *domain.Policy
+	// Duration is the validity (15 minutes to 12 hours, zero: one hour);
+	// NotAfter, when set, bounds it (the expiry of the provider token).
+	Duration time.Duration
+	NotAfter time.Time
+	// RoleSessionName is informational.
+	RoleSessionName string
 }
 
 // AssumeRoleInput are the parameters of AssumeRole.

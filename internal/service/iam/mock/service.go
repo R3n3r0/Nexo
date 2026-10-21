@@ -74,6 +74,65 @@ func (_c *Service_AddGroupMembers_Call) RunAndReturn(run func(context.Context, s
 	return _c
 }
 
+// AssumeFederated provides a mock function with given fields: ctx, in
+func (_m *Service) AssumeFederated(ctx context.Context, in iam.FederatedInput) (*domain.Credentials, error) {
+	ret := _m.Called(ctx, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AssumeFederated")
+	}
+
+	var r0 *domain.Credentials
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, iam.FederatedInput) (*domain.Credentials, error)); ok {
+		return rf(ctx, in)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, iam.FederatedInput) *domain.Credentials); ok {
+		r0 = rf(ctx, in)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*domain.Credentials)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, iam.FederatedInput) error); ok {
+		r1 = rf(ctx, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_AssumeFederated_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AssumeFederated'
+type Service_AssumeFederated_Call struct {
+	*mock.Call
+}
+
+// AssumeFederated is a helper method to define mock.On call
+//   - ctx context.Context
+//   - in iam.FederatedInput
+func (_e *Service_Expecter) AssumeFederated(ctx interface{}, in interface{}) *Service_AssumeFederated_Call {
+	return &Service_AssumeFederated_Call{Call: _e.mock.On("AssumeFederated", ctx, in)}
+}
+
+func (_c *Service_AssumeFederated_Call) Run(run func(ctx context.Context, in iam.FederatedInput)) *Service_AssumeFederated_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(iam.FederatedInput))
+	})
+	return _c
+}
+
+func (_c *Service_AssumeFederated_Call) Return(_a0 *domain.Credentials, _a1 error) *Service_AssumeFederated_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_AssumeFederated_Call) RunAndReturn(run func(context.Context, iam.FederatedInput) (*domain.Credentials, error)) *Service_AssumeFederated_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // AssumeRole provides a mock function with given fields: ctx, in
 func (_m *Service) AssumeRole(ctx context.Context, in iam.AssumeRoleInput) (*domain.Credentials, error) {
 	ret := _m.Called(ctx, in)

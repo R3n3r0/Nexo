@@ -110,6 +110,9 @@ var (
 	// refused, circuit breaker open). Remote drives of an offline node
 	// report ErrDiskNotFound as well.
 	ErrNodeOffline = errors.New("node offline")
+	// ErrServiceUnavailable reports an external service the request needs
+	// (an identity provider) that cannot be reached or answers badly.
+	ErrServiceUnavailable = errors.New("service unavailable")
 
 	// Requests.
 	ErrInvalidArgument  = errors.New("invalid argument")

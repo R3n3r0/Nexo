@@ -61,6 +61,9 @@ type stsRecord struct {
 	ParentUser   string    `json:"parentUser"`
 	Expiration   time.Time `json:"expiration"`
 	CreatedAt    time.Time `json:"createdAt"`
+	// Federated is set for the credentials of an identity of an external
+	// provider (federated.go).
+	Federated *federatedRecord `json:"federated,omitempty"`
 }
 
 // state is the cached IAM state. Records are never modified in place:

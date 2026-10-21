@@ -16,6 +16,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/iam"
+	"github.com/r3n3r0/nexo/internal/service/idp"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
@@ -38,16 +39,16 @@ const (
 // STS actions. AssumeRole is served; the identity-federation actions answer
 // NotImplemented until they are (docs/02 S-IAM-08).
 const (
-	stsActionAssumeRole = "AssumeRole"
+	stsActionAssumeRole                 = "AssumeRole"
+	stsActionAssumeRoleWithWebIdentity  = "AssumeRoleWithWebIdentity"
+	stsActionAssumeRoleWithLDAPIdentity = "AssumeRoleWithLDAPIdentity"
 )
 
 // stsUnsupportedActions are the STS actions (AWS and MinIO) Nexo knows but
 // does not serve yet.
 func stsUnsupportedActions() map[string]bool {
 	return map[string]bool{
-		"AssumeRoleWithWebIdentity":  true,
 		"AssumeRoleWithSAML":         true,
-		"AssumeRoleWithLDAPIdentity": true,
 		"AssumeRoleWithClientGrants": true,
 		"AssumeRoleWithCertificate":  true,
 		"AssumeRoleWithCustomToken":  true,
@@ -67,6 +68,10 @@ type STSDeps struct {
 	IAM iam.Service
 	// Policy parses the optional session policy.
 	Policy policy.Service
+	// IDP authenticates the users of the external identity providers
+	// (AssumeRoleWithWebIdentity, AssumeRoleWithLDAPIdentity); nil
+	// answers those actions NotImplemented.
+	IDP    idp.Service
 	Enc    httpx.Codec
 	Clock  clock.Clock
 	Logger *slog.Logger
@@ -177,7 +182,8 @@ func (h *stsRoutes) serve(w http.ResponseWriter, r *http.Request) {
 	case action == "":
 		h.fail(w, r, stsError(domain.ErrInvalidArgument, "MissingAction", "Missing Action parameter."))
 		return
-	case action == stsActionAssumeRole:
+	case action == stsActionAssumeRole, action == stsActionAssumeRoleWithWebIdentity, action == stsActionAssumeRoleWithLDAPIdentity:
+		httpx.SetOperationName(r.Context(), action)
 	case stsUnsupportedActions()[action]:
 		httpx.SetOperationName(r.Context(), action)
 		h.fail(w, r, fmt.Errorf("%w: STS action %s", domain.ErrNotImplemented, action))
@@ -190,7 +196,14 @@ func (h *stsRoutes) serve(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, stsError(domain.ErrInvalidArgument, "InvalidParameterValue", "Version must be "+STSVersion+"."))
 		return
 	}
-	h.assumeRole(w, r, params)
+	switch action {
+	case stsActionAssumeRoleWithWebIdentity:
+		h.assumeRoleWithWebIdentity(w, r, params)
+	case stsActionAssumeRoleWithLDAPIdentity:
+		h.assumeRoleWithLDAP(w, r, params)
+	default:
+		h.assumeRole(w, r, params)
+	}
 }
 
 // assumeRole issues temporary credentials for the caller.
@@ -243,6 +256,167 @@ func (h *stsRoutes) assumeRole(w http.ResponseWriter, r *http.Request, params ur
 		},
 		ResponseMetadata: STSResponseMetadata{RequestID: httpx.RequestIDFrom(ctx)},
 	})
+}
+
+// sessionParams reads DurationSeconds and Policy, shared by the actions.
+func (h *stsRoutes) sessionParams(r *http.Request, params url.Values) (time.Duration, *domain.Policy, error) {
+	var d time.Duration
+	if raw := params.Get("DurationSeconds"); raw != "" {
+		secs, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil || secs <= 0 || secs > maxSTSDurationSeconds {
+			return 0, nil, stsError(domain.ErrInvalidArgument, "InvalidParameterValue", "DurationSeconds must be a positive integer.")
+		}
+		d = time.Duration(secs) * time.Second
+	}
+	if raw := params.Get("Policy"); raw != "" {
+		p, err := h.deps.Policy.Parse(r.Context(), []byte(raw))
+		if err != nil {
+			return 0, nil, stsError(domain.ErrInvalidArgument, "MalformedPolicyDocument", "The session policy is not valid: "+policyMessage(err))
+		}
+		return d, p, nil
+	}
+	return d, nil, nil
+}
+
+// federate issues the credentials of a user an identity provider
+// authenticated.
+func (h *stsRoutes) federate(r *http.Request, params url.Values, id idp.Identity) (*domain.Credentials, string, error) {
+	d, p, err := h.sessionParams(r, params)
+	if err != nil {
+		return nil, "", err
+	}
+	in := iam.FederatedInput{
+		Provider: id.Provider, Subject: id.Subject, Username: id.Username, Groups: id.Groups, PolicyNames: id.PolicyNames,
+		Claims: id.Claims, Policy: p, Duration: d, NotAfter: id.Expiry, RoleSessionName: params.Get("RoleSessionName"),
+	}
+	creds, err := h.deps.IAM.AssumeFederated(r.Context(), in)
+	if err != nil {
+		return nil, "", err
+	}
+	session := in.RoleSessionName
+	if session == "" {
+		session = creds.AccessKey
+	}
+	return creds, session, nil
+}
+
+func stsCredentials(c *domain.Credentials) STSCredentials {
+	return STSCredentials{AccessKeyID: c.AccessKey, SecretAccessKey: c.SecretKey, SessionToken: c.SessionToken, Expiration: c.Expiration.UTC().Format(time.RFC3339)}
+}
+
+// AssumeRoleWithWebIdentityResponse is the body of a successful
+// AssumeRoleWithWebIdentity.
+type AssumeRoleWithWebIdentityResponse struct {
+	XMLName          xml.Name                        `xml:"https://sts.amazonaws.com/doc/2011-06-15/ AssumeRoleWithWebIdentityResponse"`
+	Result           AssumeRoleWithWebIdentityResult `xml:"AssumeRoleWithWebIdentityResult"`
+	ResponseMetadata STSResponseMetadata             `xml:"ResponseMetadata"`
+}
+
+// AssumeRoleWithWebIdentityResult carries the credentials and the subject
+// of the token.
+type AssumeRoleWithWebIdentityResult struct {
+	SubjectFromWebIdentityToken string          `xml:"SubjectFromWebIdentityToken"`
+	Audience                    string          `xml:"Audience,omitempty"`
+	AssumedRoleUser             AssumedRoleUser `xml:"AssumedRoleUser"`
+	Credentials                 STSCredentials  `xml:"Credentials"`
+	Provider                    string          `xml:"Provider,omitempty"`
+}
+
+// assumeRoleWithWebIdentity issues credentials for the user of an ID token
+// of the OpenID provider. The request needs no signature: the token
+// authenticates it.
+func (h *stsRoutes) assumeRoleWithWebIdentity(w http.ResponseWriter, r *http.Request, params url.Values) {
+	if h.deps.IDP == nil {
+		h.fail(w, r, fmt.Errorf("%w: no identity provider", domain.ErrNotImplemented))
+		return
+	}
+	token := params.Get("WebIdentityToken")
+	if token == "" {
+		h.fail(w, r, stsError(domain.ErrInvalidArgument, "MissingParameter", "WebIdentityToken is required."))
+		return
+	}
+	id, err := h.deps.IDP.WebIdentity(r.Context(), token)
+	if err != nil {
+		h.fail(w, r, idpError(err, "InvalidIdentityToken"))
+		return
+	}
+	creds, session, err := h.federate(r, params, id)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	iss, _ := id.Claims["iss"].(string)
+	var aud string
+	switch a := id.Claims["aud"].(type) {
+	case string:
+		aud = a
+	case []any:
+		if len(a) > 0 {
+			aud, _ = a[0].(string)
+		}
+	}
+	h.deps.Enc.WriteXML(w, http.StatusOK, AssumeRoleWithWebIdentityResponse{
+		Result: AssumeRoleWithWebIdentityResult{
+			SubjectFromWebIdentityToken: id.Subject, Audience: aud, Provider: iss,
+			AssumedRoleUser: AssumedRoleUser{Arn: "arn:aws:sts:::assumed-role/" + iam.FederatedParent(id.Provider, id.Username) + "/" + session, AssumedRoleID: creds.AccessKey + ":" + session},
+			Credentials:     stsCredentials(creds),
+		},
+		ResponseMetadata: STSResponseMetadata{RequestID: httpx.RequestIDFrom(r.Context())},
+	})
+}
+
+// AssumeRoleWithLDAPIdentityResponse is the body of a successful
+// AssumeRoleWithLDAPIdentity (the MinIO extension of STS).
+type AssumeRoleWithLDAPIdentityResponse struct {
+	XMLName          xml.Name                         `xml:"https://sts.amazonaws.com/doc/2011-06-15/ AssumeRoleWithLDAPIdentityResponse"`
+	Result           AssumeRoleWithLDAPIdentityResult `xml:"AssumeRoleWithLDAPIdentityResult"`
+	ResponseMetadata STSResponseMetadata              `xml:"ResponseMetadata"`
+}
+
+// AssumeRoleWithLDAPIdentityResult carries the credentials.
+type AssumeRoleWithLDAPIdentityResult struct {
+	Credentials STSCredentials `xml:"Credentials"`
+}
+
+// assumeRoleWithLDAP issues credentials for a user of the directory,
+// authenticated by its password. The password is only accepted in the
+// body: a query string ends up in logs.
+func (h *stsRoutes) assumeRoleWithLDAP(w http.ResponseWriter, r *http.Request, params url.Values) {
+	if h.deps.IDP == nil {
+		h.fail(w, r, fmt.Errorf("%w: no identity provider", domain.ErrNotImplemented))
+		return
+	}
+	if r.URL.Query().Has("LDAPPassword") {
+		h.fail(w, r, stsError(domain.ErrInvalidArgument, "InvalidParameterValue", "LDAPPassword is only accepted in the request body."))
+		return
+	}
+	user, password := params.Get("LDAPUsername"), params.Get("LDAPPassword")
+	if user == "" || password == "" {
+		h.fail(w, r, stsError(domain.ErrInvalidArgument, "MissingParameter", "LDAPUsername and LDAPPassword are required."))
+		return
+	}
+	id, err := h.deps.IDP.LDAP(r.Context(), user, password)
+	if err != nil {
+		h.fail(w, r, idpError(err, "AccessDenied"))
+		return
+	}
+	creds, _, err := h.federate(r, params, id)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	h.deps.Enc.WriteXML(w, http.StatusOK, AssumeRoleWithLDAPIdentityResponse{
+		Result:           AssumeRoleWithLDAPIdentityResult{Credentials: stsCredentials(creds)},
+		ResponseMetadata: STSResponseMetadata{RequestID: httpx.RequestIDFrom(r.Context())},
+	})
+}
+
+// idpError gives a refusal of the identity provider its STS code.
+func idpError(err error, deniedCode string) error {
+	if errors.Is(err, domain.ErrAccessDenied) {
+		return stsError(domain.ErrAccessDenied, deniedCode, "The identity provider did not accept the credentials.")
+	}
+	return err
 }
 
 // stsParams returns the parameters of an STS request: the query string

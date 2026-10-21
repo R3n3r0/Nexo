@@ -260,6 +260,7 @@ func mappings(c S3Codes) []errorMapping {
 		{domain.ErrStorageFull, c.StorageFull, http.StatusInsufficientStorage, "storage_full", "The drives have reached their minimum free space: delete some objects to proceed.", curated},
 		{domain.ErrDiskNotFound, c.ServiceUnavailable, http.StatusServiceUnavailable, "disk_not_found", "A drive needed by the request is offline, please retry later.", curated},
 		{domain.ErrNodeOffline, c.ServiceUnavailable, http.StatusServiceUnavailable, "node_offline", "A node needed by the request is offline, please retry later.", curated},
+		{domain.ErrServiceUnavailable, c.ServiceUnavailable, http.StatusServiceUnavailable, "service_unavailable", "An external service needed by the request is unavailable, please retry later.", reason},
 		{domain.ErrFaultyDisk, c.ServiceUnavailable, http.StatusServiceUnavailable, "faulty_disk", "A drive needed by the request is faulty, please retry later.", curated},
 		{domain.ErrReadQuorum, c.SlowDownRead, http.StatusServiceUnavailable, "read_quorum", c.SlowDownRead.Description, curated},
 		{domain.ErrWriteQuorum, c.SlowDownWrite, http.StatusServiceUnavailable, "write_quorum", c.SlowDownWrite.Description, curated},

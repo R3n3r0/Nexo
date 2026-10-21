@@ -70,6 +70,12 @@ func (s *service) lookup(st *state, ak string) (domain.Credentials, domain.Ident
 			return domain.Credentials{}, domain.Identity{}, err
 		}
 		id := domain.Identity{AccessKey: ak, Parent: t.ParentUser, SessionPolicy: sessionPolicy, Claims: claimsMap(claims)}
+		if t.Federated != nil {
+			st.fillFederated(&id, t.Federated)
+			return domain.Credentials{
+				AccessKey: ak, SecretKey: t.SecretKey, SessionToken: t.SessionToken, Expiration: t.Expiration, Status: domain.StatusEnabled,
+			}, id, nil
+		}
 		if err := s.fillParent(st, &id, ak); err != nil {
 			return domain.Credentials{}, domain.Identity{}, err
 		}

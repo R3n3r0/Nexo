@@ -196,6 +196,9 @@ packages:
       Subscription:
       Peer:
       Configurator:
+  github.com/r3n3r0/nexo/internal/service/idp:
+    interfaces:
+      Service:
   github.com/r3n3r0/nexo/internal/service/s3select:
     interfaces:
       Service:

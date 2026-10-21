@@ -133,6 +133,8 @@ func suite() []suiteTest {
 		{name: "TestBucketTagging", fn: TestBucketTagging},
 		{name: "TestObjectTagsAndPolicies", fn: TestObjectTagsAndPolicies},
 		{name: "TestTransparentCompression", fn: TestTransparentCompression},
+		{name: "TestAssumeRoleWithWebIdentity", fn: TestAssumeRoleWithWebIdentity},
+		{name: "TestAssumeRoleWithLDAPIdentity", fn: TestAssumeRoleWithLDAPIdentity},
 		{name: "TestSelectObjectContent", fn: TestSelectObjectContent},
 		{name: "TestServerSideEncryptionKMS", fn: TestServerSideEncryptionKMS},
 		{name: "TestServerSideEncryptionKES", fn: TestServerSideEncryptionKES},
