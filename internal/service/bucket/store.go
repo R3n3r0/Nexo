@@ -301,6 +301,16 @@ func (s *metadataStore) BucketConfig(ctx context.Context, bucket string) (object
 	if m.ObjectLock.Enabled {
 		cfg.DefaultRetention = m.ObjectLock.DefaultRetention()
 	}
+	if len(m.Replication) > 0 {
+		// Stored after validation: a document that no longer parses
+		// replicates nothing (logged), the writes go on.
+		rc, err := domain.ParseReplicationConfig(m.Replication, nil)
+		if err != nil {
+			s.deps.Logger.WarnContext(ctx, "bucket: invalid stored replication configuration", "bucket", bucket, "err", err)
+		} else {
+			cfg.Replication = rc
+		}
+	}
 	return cfg, nil
 }
 

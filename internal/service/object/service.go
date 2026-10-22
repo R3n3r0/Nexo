@@ -271,6 +271,10 @@ type BucketConfig struct {
 	// Encryption is the default encryption of the bucket (S-BKT-11),
 	// applied to the writes that ask for none (zero when none).
 	Encryption domain.BucketEncryption
+	// Replication is the replication configuration of the bucket
+	// (S-BKT-12, nil when none): the versions its rules select are written
+	// PENDING for their destinations.
+	Replication *domain.ReplicationConfig
 }
 
 // BucketConfigSource provides the bucket settings. The bucket service's
@@ -338,6 +342,14 @@ type Service interface {
 	ListMultipartUploads(ctx context.Context, in domain.ListMultipartUploadsInput) (domain.ListMultipartUploadsResult, error)
 	AbortMultipartUpload(ctx context.Context, bucket, key, uploadID string) error
 	CompleteMultipartUpload(ctx context.Context, in CompleteMultipartInput) (domain.ObjectInfo, error)
+
+	// SetReplicationStatus records the replication state of a version at
+	// the destination target (an ARN of the replication configuration of
+	// its bucket, S-BKT-12) and the overall state derived from all of
+	// them; the content, the modification time and the tags are kept and
+	// no event is published. A version replaced meanwhile is
+	// domain.ErrNoSuchVersion.
+	SetReplicationStatus(ctx context.Context, bucket, key, versionID, target string, status domain.ReplicationStatus) (domain.ObjectInfo, error)
 
 	// Tags.
 	PutObjectTags(ctx context.Context, bucket, key string, tags map[string]string, opts TagOptions) (domain.ObjectInfo, error)
@@ -453,6 +465,13 @@ type PutObjectInput struct {
 	VersionID string
 	// ModTime forces the modification time; zero means now.
 	ModTime time.Time
+	// Replica marks a version written by the replication of another site
+	// (with its VersionID and ModTime): it is stored as a REPLICA and
+	// never replicated again. ReplicaETag, when set, is the ETag the
+	// version has at the source, kept when the version is stored
+	// unencrypted.
+	Replica     bool
+	ReplicaETag string
 	// LengthRange, when set, bounds the content length (the
 	// content-length-range of a POST policy): a body outside [Min, Max]
 	// fails with domain.ErrEntityTooSmall or domain.ErrEntityTooLarge and
@@ -513,6 +532,9 @@ type DeleteObjectOptions struct {
 	BypassGovernance bool
 	// ModTime forces the delete marker time.
 	ModTime time.Time
+	// MarkerVersionID forces the version id of the delete marker of a
+	// versioned bucket (the replication of a marker); normally empty.
+	MarkerVersionID string
 	// IfModTime, when set, makes the delete conditional on the version it
 	// targets still having this modification time: the version named by
 	// VersionID, or without one the latest version (the one a delete
@@ -642,6 +664,12 @@ type NewMultipartInput struct {
 	// PutObjectInput: every part is encrypted with it, and the parts of an
 	// SSE-C upload need its key (PutObjectPartInput.SSECustomerKey).
 	SSE domain.SSERequest
+	// Replica, VersionID, ModTime and ReplicaETag make the completed
+	// object a replica, as for PutObjectInput.
+	Replica     bool
+	VersionID   string
+	ModTime     time.Time
+	ReplicaETag string
 }
 
 // PutObjectPartInput are the parameters of PutObjectPart.

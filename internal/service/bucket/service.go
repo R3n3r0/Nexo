@@ -55,6 +55,10 @@ type Metadata struct {
 	Tags         map[string]string `json:"tags,omitempty"`
 	CORS         []byte            `json:"cors,omitempty"`
 	Notification []byte            `json:"notification,omitempty"`
+	// Replication is the canonical ReplicationConfiguration document
+	// (S-BKT-12), validated by the replication service against the
+	// targets of the bucket before it is stored.
+	Replication []byte `json:"replication,omitempty"`
 	// AccessRules are the access rules of the bucket (docs/10 §10.1),
 	// parsed and evaluated by the accessrule package; nil when never set.
 	AccessRules *AccessRules `json:"accessRules,omitempty"`
@@ -178,6 +182,15 @@ type Service interface {
 	GetLifecycle(ctx context.Context, name string) ([]byte, error)
 	SetLifecycle(ctx context.Context, name string, xmlDoc []byte) error
 	DeleteLifecycle(ctx context.Context, name string) error
+
+	// GetReplication returns the replication configuration of a bucket
+	// (S3 ReplicationConfigurationNotFoundError when none). SetReplication
+	// stores a document the replication service validated: the bucket must
+	// have versioning enabled (S3 InvalidRequest), which then cannot be
+	// suspended while the configuration is there (InvalidBucketState).
+	GetReplication(ctx context.Context, name string) ([]byte, error)
+	SetReplication(ctx context.Context, name string, xmlDoc []byte) error
+	DeleteReplication(ctx context.Context, name string) error
 
 	// GetObjectLock returns the object lock configuration of a bucket
 	// created with object locking (S3 ObjectLockConfigurationNotFoundError

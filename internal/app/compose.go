@@ -33,6 +33,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/service/quota"
 	"github.com/r3n3r0/nexo/internal/service/ratelimit"
+	"github.com/r3n3r0/nexo/internal/service/replication"
 	"github.com/r3n3r0/nexo/internal/service/s3select"
 	"github.com/r3n3r0/nexo/internal/service/session"
 	"github.com/r3n3r0/nexo/internal/service/settings"
@@ -74,6 +75,8 @@ type services struct {
 	dist *distStack
 	// cache is the cache of the distributions (docs/11).
 	cache cache.Service
+	// replication replicates the buckets to other deployments (S-BKT-12).
+	replication replication.Service
 	// obs runs the audit targets and the logger configuration
 	// (observability.go).
 	obs lifecycle.Runner
@@ -283,7 +286,10 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	if err != nil {
 		return nil, err
 	}
-	var objectEvents event.Service = mediaJobs
+	// The writes the replication rules of their bucket select become
+	// replication tasks (bound once the replication service is built).
+	replEvents := &replicationEvents{Service: mediaJobs}
+	var objectEvents event.Service = replEvents
 	objects, err := newObjectLayer(d, stores.buckets, objectEvents, notifier, sse, applied)
 	if err != nil {
 		return nil, fmt.Errorf("object layer: %w", err)
@@ -491,6 +497,12 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	if err != nil {
 		return nil, err
 	}
+	replicationSvc, err := newReplication(d, objects, stores.buckets, distStack.docs)
+	if err != nil {
+		return nil, fmt.Errorf("replication: %w", err)
+	}
+	replEvents.bind(replicationSvc)
+	replicationRoutes := s3.NewReplicationRoutes(s3.ReplicationDeps{Buckets: buckets, Replication: replicationSvc, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger})
 	lifecycleRoutes := s3.NewLifecycleRoutes(s3.LifecycleDeps{Buckets: buckets, Lifecycle: lifecycle, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger},
 		s3.WithDomains(domainsOf(cfg)...), s3.WithHostBuckets(distStack.hostBuckets()))
 	notificationRoutes := s3.NewNotificationRoutes(s3.NotificationDeps{Buckets: buckets, Events: events, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger},
@@ -511,9 +523,10 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 			s3.WithRegion(cfg.Region), ssecOpt),
 		s3.NewPostPolicyRoutes(s3.PostPolicyDeps{Verifier: verifier, Objects: objects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger}, ssecOpt),
 		s3.NewSTSRoutes(s3.STSDeps{IAM: identities, Policy: s3Policy, IDP: providers, Enc: codec, Clock: d.clock, Logger: logger}),
-		// The ?lifecycle and ?notification sub-resources.
+		// The ?lifecycle, ?notification and ?replication sub-resources.
 		lifecycleRoutes,
 		notificationRoutes,
+		replicationRoutes,
 	)
 	if err := distStack.composeHTTP(distHTTPDeps{
 		cfg: cfg, objects: cachedObjects, cache: cacheSvc, policy: s3Policy, verifier: verifier, publicAccess: accessRules, media: mediaSvc,
@@ -544,7 +557,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		buckets: buckets, objects: objects, media: mediaSvc, shares: shares, config: dynConfig, locks: f.lockManager, pools: healing.pools, secureCookies: secureConsole(cfg),
 		consoleURL: cfg.BrowserRedirectURL, lifecycle: lifecycle, events: events, kms: keys, mediaJobs: mediaJobs,
 		accessRules: accessRules, dist: distStack, acmeDirectory: cfg.ACMEDirectory, acmeChallenge: cfg.ACMEChallenge,
-		cache: cacheSvc, diagnostics: newDiagnostics(f, objects, buckets, logger),
+		cache: cacheSvc, replication: replicationSvc, diagnostics: newDiagnostics(f, objects, buckets, logger),
 		obsTrace: f.obs.trace, obsLogs: obsSvc.logs, obsAudit: auditor, obsHistory: f.obs.history,
 	})
 	if err != nil {
@@ -576,6 +589,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		accessRules:  accessRules,
 		dist:         distStack,
 		cache:        cacheSvc,
+		replication:  replicationSvc,
 		events:       events,
 		lifecycle:    lifecycle,
 		s3Srv:        s3Srv,
@@ -607,9 +621,16 @@ func (s *services) runners() lifecycle.Runner {
 				_ = s.events.Stop(context.WithoutCancel(ctx))
 				return err
 			}
+			if err := s.replication.Start(ctx); err != nil {
+				_ = s.cache.Stop(context.WithoutCancel(ctx))
+				_ = healing.Stop(context.WithoutCancel(ctx))
+				_ = s.events.Stop(context.WithoutCancel(ctx))
+				return err
+			}
 			// The distributions last: their web listeners serve once
 			// everything else runs.
 			if err := s.dist.runner().Start(ctx); err != nil {
+				_ = s.replication.Stop(context.WithoutCancel(ctx))
 				_ = s.cache.Stop(context.WithoutCancel(ctx))
 				_ = healing.Stop(context.WithoutCancel(ctx))
 				_ = s.events.Stop(context.WithoutCancel(ctx))
@@ -620,6 +641,7 @@ func (s *services) runners() lifecycle.Runner {
 		OnStop: func(ctx context.Context) error {
 			s.unsubscribe()
 			derr := s.dist.runner().Stop(ctx)
+			derr = errors.Join(derr, s.replication.Stop(ctx))
 			derr = errors.Join(derr, s.cache.Stop(ctx))
 			herr := errors.Join(derr, healing.Stop(ctx))
 			if err := s.events.Stop(ctx); err != nil {

@@ -706,6 +706,52 @@ func (c *adminClient) ListLocks(ctx context.Context) ([]nexoadmin.Lock, error) {
 	return mapped(c, v, err)
 }
 
+// GetBucketReplication implements AdminClient.
+func (c *adminClient) GetBucketReplication(ctx context.Context, bucket string) (*nexoadmin.ReplicationConfiguration, error) {
+	v, err := c.api.GetBucketReplication(ctx, bucket)
+	return mapped(c, v, err)
+}
+
+// SetBucketReplication implements AdminClient.
+func (c *adminClient) SetBucketReplication(ctx context.Context, bucket string, cfg nexoadmin.ReplicationConfiguration) (*nexoadmin.ReplicationConfiguration, error) {
+	v, err := c.api.SetBucketReplication(ctx, bucket, cfg)
+	return mapped(c, v, err)
+}
+
+// DeleteBucketReplication implements AdminClient.
+func (c *adminClient) DeleteBucketReplication(ctx context.Context, bucket string) error {
+	return MapAdminError(c.api.DeleteBucketReplication(ctx, bucket), c.endpoint)
+}
+
+// ListReplicationTargets implements AdminClient.
+func (c *adminClient) ListReplicationTargets(ctx context.Context, bucket string) ([]nexoadmin.ReplicationTarget, error) {
+	v, err := c.api.ListReplicationTargets(ctx, bucket)
+	return mapped(c, v, err)
+}
+
+// SetReplicationTarget implements AdminClient.
+func (c *adminClient) SetReplicationTarget(ctx context.Context, bucket string, t nexoadmin.ReplicationTarget) (*nexoadmin.ReplicationTarget, error) {
+	v, err := c.api.SetReplicationTarget(ctx, bucket, t)
+	return mapped(c, v, err)
+}
+
+// RemoveReplicationTarget implements AdminClient.
+func (c *adminClient) RemoveReplicationTarget(ctx context.Context, bucket, arn string) error {
+	return MapAdminError(c.api.RemoveReplicationTarget(ctx, bucket, arn), c.endpoint)
+}
+
+// GetReplicationStatus implements AdminClient.
+func (c *adminClient) GetReplicationStatus(ctx context.Context, bucket string) (*nexoadmin.ReplicationStatus, error) {
+	v, err := c.api.GetReplicationStatus(ctx, bucket)
+	return mapped(c, v, err)
+}
+
+// StartReplicationResync implements AdminClient.
+func (c *adminClient) StartReplicationResync(ctx context.Context, bucket, target string) (*nexoadmin.ReplicationResync, error) {
+	v, err := c.api.StartReplicationResync(ctx, bucket, target)
+	return mapped(c, v, err)
+}
+
 // ListPools implements AdminClient.
 func (c *adminClient) ListPools(ctx context.Context) (*nexoadmin.Pools, error) {
 	v, err := c.api.ListPools(ctx)

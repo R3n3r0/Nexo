@@ -59,6 +59,7 @@ le stesse access key dell'API S3.
 | Notifiche verso webhook e Kafka, regole di lifecycle | [Eventi e lifecycle](events-lifecycle.md) |
 | Riprodurre video nel browser, condividerli in streaming | [Streaming video](video-streaming.md) |
 | Qualità ridotte, poster e miniature dei video | [Media worker](media-worker.md) |
+| Replica dei bucket verso un altro server, attivo-attivo | [Replica dei bucket](replication.md) |
 
 ## Riferimenti
 

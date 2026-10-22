@@ -218,6 +218,20 @@ type AdminClient interface {
 	StartRebalance(ctx context.Context) error
 	StopRebalance(ctx context.Context) error
 
+	// Bucket replication (S-BKT-12): the targets (remote buckets, with
+	// their credentials), the rules that replicate to them, the state of
+	// the replication as the node that answers sees it, and the resyncs.
+	GetBucketReplication(ctx context.Context, bucket string) (*ReplicationConfiguration, error)
+	SetBucketReplication(ctx context.Context, bucket string, cfg ReplicationConfiguration) (*ReplicationConfiguration, error)
+	DeleteBucketReplication(ctx context.Context, bucket string) error
+	ListReplicationTargets(ctx context.Context, bucket string) ([]ReplicationTarget, error)
+	// SetReplicationTarget creates a target (t.ARN empty) or replaces one;
+	// the server checks the remote bucket first.
+	SetReplicationTarget(ctx context.Context, bucket string, t ReplicationTarget) (*ReplicationTarget, error)
+	RemoveReplicationTarget(ctx context.Context, bucket, arn string) error
+	GetReplicationStatus(ctx context.Context, bucket string) (*ReplicationStatus, error)
+	StartReplicationResync(ctx context.Context, bucket, target string) (*ReplicationResync, error)
+
 	// KMS of the server-side encryption (admin:KMSKeyStatus,
 	// admin:KMSCreateKey): without KMS configured the server answers 501.
 	KMSStatus(ctx context.Context) (*KMSStatus, error)

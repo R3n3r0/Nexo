@@ -325,6 +325,19 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
 - Admin API `GET /pools`, `POST/DELETE /pools/{pool}/decommission`, `POST/DELETE /rebalance`; the console shows the
   pools, their usage and both jobs on the Cluster page.
 
+### Bucket replication (S-BKT-12, D-BKT-05)
+- Asynchronous replication of buckets to buckets of other S3 servers, per rule (prefix, tags, priority), with the
+  version id, the modification time and the ETag of the source; delete markers, permanent deletions (opt-in) and
+  tag changes follow. Two buckets replicating to each other converge (active-active): replicas are never sent
+  back and the most recent version wins on both sides.
+- Persistent per-node queue with retries (exponential backoff), `x-amz-replication-status` on HEAD/GET (`PENDING`,
+  `COMPLETED`, `FAILED`, `REPLICA`), resync of the versions written before a rule (`--existing`).
+- S3 API `PUT/GET/DELETE /{bucket}?replication`; Admin API `/buckets/{bucket}/replication`, `/targets`, `/status`,
+  `/resync`; new policy actions `admin:SetBucketTarget`, `admin:GetBucketTarget`, `s3:ResetBucketReplicationState`,
+  `s3:ReplicateObject`, `s3:ReplicateDelete`, `s3:ReplicateTags`.
+- `nexoctl replicate add|ls|rm|status|resync` (the remote is an alias of nexoctl) and the **Replication** tab of the
+  bucket in the console. Versioning cannot be suspended while a bucket has replication rules.
+
 ### Transparent compression (opt-in, S-OBJ-14)
 - `compression` configuration subsystem (`enable`, `extensions`, `mime_types`, applied to the next writes): the
   selected unencrypted versions are stored as S2 streams, one per part, with the block index of each part in its
@@ -427,7 +440,9 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
 ### Known limitations
 - Rate limits are per node (no cluster-wide counter) and bound requests, not bandwidth or connections: keep a
   reverse proxy with connection limits in front of public deployments (`deploy/proxy`).
-- Not included (M10): bucket and site replication, tiering, ACLs other than `private`, coordinated cluster restart
+- Bucket replication: SSE-C versions are not replicated, the status counters are per node, the targets are not
+  part of the cluster export and must be registered again after a change of the root password.
+- Not included (M10): site replication, tiering, ACLs other than `private`, coordinated cluster restart
   and orchestrated upgrade. The
   DNS-01 propagation check does not follow a CNAME delegation of `_acme-challenge` (acme-dns style).
 - O_DIRECT is not used (measured slower on the reference VM, docs/bench §7.2); zero-copy covers single-drive

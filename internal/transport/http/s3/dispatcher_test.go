@@ -390,7 +390,7 @@ func TestUnsupportedSubResources(t *testing.T) {
 	f := newFixture(t)
 	for _, tc := range []struct{ method, target string }{
 		{"GET", "/b?website"}, {"PUT", "/b?website"}, {"DELETE", "/b?website"},
-		{"GET", "/b?logging"}, {"GET", "/b?replication"}, {"GET", "/b?accelerate"}, {"GET", "/b?publicAccessBlock"},
+		{"GET", "/b?logging"}, {"GET", "/b?accelerate"}, {"GET", "/b?publicAccessBlock"},
 		{"GET", "/b/k?torrent"},
 		{"POST", "/b/k?restore"}, {"POST", "/b/k?select&select-type=2"},
 	} {

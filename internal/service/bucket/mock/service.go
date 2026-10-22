@@ -369,6 +369,53 @@ func (_c *Service_DeletePolicy_Call) RunAndReturn(run func(context.Context, stri
 	return _c
 }
 
+// DeleteReplication provides a mock function with given fields: ctx, name
+func (_m *Service) DeleteReplication(ctx context.Context, name string) error {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteReplication")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, name)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Service_DeleteReplication_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteReplication'
+type Service_DeleteReplication_Call struct {
+	*mock.Call
+}
+
+// DeleteReplication is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+func (_e *Service_Expecter) DeleteReplication(ctx interface{}, name interface{}) *Service_DeleteReplication_Call {
+	return &Service_DeleteReplication_Call{Call: _e.mock.On("DeleteReplication", ctx, name)}
+}
+
+func (_c *Service_DeleteReplication_Call) Run(run func(ctx context.Context, name string)) *Service_DeleteReplication_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *Service_DeleteReplication_Call) Return(_a0 error) *Service_DeleteReplication_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Service_DeleteReplication_Call) RunAndReturn(run func(context.Context, string) error) *Service_DeleteReplication_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // DeleteTags provides a mock function with given fields: ctx, name
 func (_m *Service) DeleteTags(ctx context.Context, name string) error {
 	ret := _m.Called(ctx, name)
@@ -1106,6 +1153,65 @@ func (_c *Service_GetQuota_Call) Return(_a0 bucket.Quota, _a1 error) *Service_Ge
 }
 
 func (_c *Service_GetQuota_Call) RunAndReturn(run func(context.Context, string) (bucket.Quota, error)) *Service_GetQuota_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetReplication provides a mock function with given fields: ctx, name
+func (_m *Service) GetReplication(ctx context.Context, name string) ([]byte, error) {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetReplication")
+	}
+
+	var r0 []byte
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]byte, error)); ok {
+		return rf(ctx, name)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []byte); ok {
+		r0 = rf(ctx, name)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]byte)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, name)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_GetReplication_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetReplication'
+type Service_GetReplication_Call struct {
+	*mock.Call
+}
+
+// GetReplication is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+func (_e *Service_Expecter) GetReplication(ctx interface{}, name interface{}) *Service_GetReplication_Call {
+	return &Service_GetReplication_Call{Call: _e.mock.On("GetReplication", ctx, name)}
+}
+
+func (_c *Service_GetReplication_Call) Run(run func(ctx context.Context, name string)) *Service_GetReplication_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *Service_GetReplication_Call) Return(_a0 []byte, _a1 error) *Service_GetReplication_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_GetReplication_Call) RunAndReturn(run func(context.Context, string) ([]byte, error)) *Service_GetReplication_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1929,6 +2035,54 @@ func (_c *Service_SetQuota_Call) Return(_a0 bucket.Quota, _a1 error) *Service_Se
 }
 
 func (_c *Service_SetQuota_Call) RunAndReturn(run func(context.Context, string, bucket.Quota) (bucket.Quota, error)) *Service_SetQuota_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetReplication provides a mock function with given fields: ctx, name, xmlDoc
+func (_m *Service) SetReplication(ctx context.Context, name string, xmlDoc []byte) error {
+	ret := _m.Called(ctx, name, xmlDoc)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetReplication")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, []byte) error); ok {
+		r0 = rf(ctx, name, xmlDoc)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Service_SetReplication_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetReplication'
+type Service_SetReplication_Call struct {
+	*mock.Call
+}
+
+// SetReplication is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+//   - xmlDoc []byte
+func (_e *Service_Expecter) SetReplication(ctx interface{}, name interface{}, xmlDoc interface{}) *Service_SetReplication_Call {
+	return &Service_SetReplication_Call{Call: _e.mock.On("SetReplication", ctx, name, xmlDoc)}
+}
+
+func (_c *Service_SetReplication_Call) Run(run func(ctx context.Context, name string, xmlDoc []byte)) *Service_SetReplication_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].([]byte))
+	})
+	return _c
+}
+
+func (_c *Service_SetReplication_Call) Return(_a0 error) *Service_SetReplication_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Service_SetReplication_Call) RunAndReturn(run func(context.Context, string, []byte) error) *Service_SetReplication_Call {
 	_c.Call.Return(run)
 	return _c
 }

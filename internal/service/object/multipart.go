@@ -83,6 +83,17 @@ type uploadMeta struct {
 	// Erasure is the layout the parts are written with, decided at the
 	// creation of the upload (absent for uploads of earlier builds).
 	Erasure *storage.ErasureInfo `json:"erasure,omitempty"`
+	// Replica is set for an upload of the replication of another site:
+	// the completed object is a replica with this version id, time and
+	// ETag (NewMultipartInput).
+	Replica *uploadReplica `json:"replica,omitempty"`
+}
+
+// uploadReplica is the version a replica upload completes into.
+type uploadReplica struct {
+	VersionID string    `json:"versionId,omitempty"`
+	ModTime   time.Time `json:"modTime"`
+	ETag      string    `json:"etag,omitempty"`
 }
 
 // layout returns the erasure layout of the upload's parts in st.
@@ -261,6 +272,9 @@ func (l *layer) NewMultipartUpload(ctx context.Context, in NewMultipartInput) (d
 		}.build(in.Tags, in.StorageClass),
 		Checksum:     in.Checksum,
 		ChecksumType: checksumType,
+	}
+	if in.Replica {
+		m.Replica = &uploadReplica{VersionID: in.VersionID, ModTime: in.ModTime, ETag: in.ReplicaETag}
 	}
 	setRetentionMeta(m.Metadata, in.Retention)
 	setLegalHoldMeta(m.Metadata, in.LegalHold)
@@ -808,7 +822,14 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 	// still stops when a namespace lock is lost (rolling back), since
 	// another node may then complete or abort the upload.
 	ctx = detached(ctx)
-	versionID, versioned := l.versionFor(cfg, "")
+	forcedID, modTime := "", time.Time{}
+	if m.Replica != nil {
+		forcedID, modTime = m.Replica.VersionID, m.Replica.ModTime
+	}
+	versionID, versioned := l.versionFor(cfg, forcedID)
+	if modTime.IsZero() {
+		modTime = l.commitTime(ctx, in.Bucket, in.Key)
+	}
 	meta := make(map[string]string, len(m.Metadata)+2)
 	for k, v := range m.Metadata {
 		meta[k] = v
@@ -826,7 +847,7 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 		Volume:    in.Bucket,
 		Name:      in.Key,
 		VersionID: versionID,
-		ModTime:   l.commitTime(ctx, in.Bucket, in.Key),
+		ModTime:   modTime,
 		Size:      total,
 		DataDir:   uuid.NewString(),
 		Metadata:  meta,
@@ -835,6 +856,10 @@ func (l *layer) CompleteMultipartUpload(ctx context.Context, in CompleteMultipar
 		Versioned: versioned,
 	}
 	applyDefaultRetention(fi.Metadata, cfg, fi.ModTime)
+	setReplicationMeta(fi.Metadata, cfg, in.Key, m.Replica != nil)
+	if m.Replica != nil {
+		keepReplicaETag(fi.Metadata, m.Replica.ETag)
+	}
 	if err := sealChecksums(okey, &fi); err != nil {
 		return domain.ObjectInfo{}, fmt.Errorf("%s: seal the checksum of %s: %w", l.name, in.UploadID, err)
 	}

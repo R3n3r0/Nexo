@@ -784,11 +784,92 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Replication configuration (not implemented yet) */
+        /**
+         * Replication rules of a bucket (S-BKT-12)
+         * @description The rules of the ReplicationConfiguration of the bucket in the console form (no rule: none). The S3 API serves the same configuration as XML (GetBucketReplication).
+         */
         get: operations["getBucketReplication"];
-        /** Replication configuration (not implemented yet) */
+        /**
+         * Replace the replication rules of a bucket
+         * @description The bucket must have versioning enabled (which then cannot be suspended) and every target must be a replication target of the bucket (400 otherwise). No rule removes the configuration. The versions written from then on are replicated asynchronously, with their id, time and ETag; a resync replicates those written before.
+         */
         put: operations["setBucketReplication"];
         post?: never;
+        /** Remove the replication rules of a bucket */
+        delete: operations["deleteBucketReplication"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/replication/targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Replication targets of a bucket
+         * @description The remote buckets the rules may replicate to, without their secret.
+         */
+        get: operations["listReplicationTargets"];
+        put?: never;
+        /**
+         * Create or replace a replication target
+         * @description Without arn a target is created (201) and gets an ARN (arn:nexo:replication::<id>:<remote bucket>); with arn it is replaced (200), the stored secret kept when secretKey is empty. The remote bucket is checked first: reachable with the credentials and versioning enabled (400 otherwise). The secret is sealed in the system documents and never returned. The credentials need s3:ReplicateObject, s3:ReplicateDelete, s3:ReplicateTags and the object actions on the remote bucket.
+         */
+        post: operations["setReplicationTarget"];
+        /**
+         * Remove a replication target
+         * @description A target the rules still use cannot be removed (400).
+         */
+        delete: operations["removeReplicationTarget"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/replication/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * State of the replication of a bucket
+         * @description Per target, the tasks queued and the counters of the node that answers since its start (each node replicates the writes it served), and the last resync.
+         */
+        get: operations["getReplicationStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/replication/resync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replicate again every version a target does not have
+         * @description The leader walks every version of the bucket the rules for the target select and queues those the destination does not have (asked first): existing objects, a replaced target, a queue lost with its drive. A resync in progress is replaced.
+         */
+        post: operations["startReplicationResync"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3609,6 +3690,101 @@ export interface components {
             bucketsCreated: string[];
             /** @description Entries a replace import removes ("user:<name>", "group:<name>", "policy:<name>"). */
             removed: string[];
+        };
+        ReplicationRule: {
+            id: string;
+            /** @description Among the rules of the same target, the highest wins. */
+            priority: number;
+            enabled: boolean;
+            /** @description Key prefix the rule selects. */
+            prefix?: string;
+            /** @description Tags the versions must have. */
+            tags?: {
+                [key: string]: string;
+            };
+            /** @description ARN of a replication target of the bucket. */
+            target: string;
+            /** @description Replicate the delete markers. */
+            deleteMarkers: boolean;
+            /** @description Replicate the permanent deletions of versions. */
+            deletes: boolean;
+            /** @description A resync replicates the versions written before the rule. */
+            existing: boolean;
+        };
+        ReplicationConfiguration: {
+            rules: components["schemas"]["ReplicationRule"][];
+        };
+        ReplicationTarget: {
+            /** @description Empty to create a target. */
+            arn?: string;
+            /** @description URL of the remote S3 API: http(s)://host[:port]. */
+            endpoint: string;
+            /** @description The remote bucket (versioning enabled). */
+            bucket: string;
+            region?: string;
+            accessKey: string;
+            /** @description Sent on creation (empty keeps the stored one on a replacement), never returned. */
+            secretKey?: string;
+            label?: string;
+            /** Format: date-time */
+            created?: string;
+            /** Format: date-time */
+            updated?: string;
+        };
+        ReplicationTargets: {
+            targets: components["schemas"]["ReplicationTarget"][];
+        };
+        ReplicationResync: {
+            id?: string;
+            /** @description ARN of the target. */
+            target: string;
+            /** @enum {string} */
+            state?: "running" | "complete" | "failed";
+            /** Format: date-time */
+            startedAt?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+            /** Format: date-time */
+            finishedAt?: string;
+            /**
+             * Format: int64
+             * @description Versions walked.
+             */
+            scanned?: number;
+            /**
+             * Format: int64
+             * @description Versions queued for the target.
+             */
+            queued?: number;
+            error?: string;
+        };
+        ReplicationTargetStatus: {
+            arn: string;
+            /** @description The last attempt succeeded. */
+            online: boolean;
+            /** @description Tasks queued on the node that answers. */
+            queued: number;
+            /** Format: int64 */
+            replicated: number;
+            /** Format: int64 */
+            bytes: number;
+            /** Format: int64 */
+            deletes: number;
+            /**
+             * Format: int64
+             * @description Failed attempts (retried).
+             */
+            failed: number;
+            lastError?: string;
+            /** Format: date-time */
+            lastFailed?: string;
+            /** Format: date-time */
+            lastOk?: string;
+        };
+        ReplicationStatus: {
+            targets: components["schemas"]["ReplicationTargetStatus"][];
+            queued: number;
+            resync?: components["schemas"]["ReplicationResync"];
         };
         PoolJob: {
             /** @enum {string} */
@@ -7655,7 +7831,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            501: components["responses"]["Problem"];
+            /** @description The rules. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplicationConfiguration"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -7668,9 +7852,181 @@ export interface operations {
             };
             cookie?: never;
         };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplicationConfiguration"];
+            };
+        };
+        responses: {
+            /** @description The rules stored. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplicationConfiguration"];
+                };
+            };
+            /** @description Removed (no rule). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    deleteBucketReplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
         requestBody?: never;
         responses: {
-            501: components["responses"]["Problem"];
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listReplicationTargets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The targets, by ARN. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplicationTargets"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    setReplicationTarget: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplicationTarget"];
+            };
+        };
+        responses: {
+            /** @description Replaced. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplicationTarget"];
+                };
+            };
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplicationTarget"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    removeReplicationTarget: {
+        parameters: {
+            query: {
+                arn: string;
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getReplicationStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplicationStatus"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    startReplicationResync: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplicationResync"];
+            };
+        };
+        responses: {
+            /** @description Started. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplicationResync"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };

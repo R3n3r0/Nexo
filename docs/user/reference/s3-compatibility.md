@@ -36,17 +36,18 @@ the results of the compatibility suite.
 **Features**: versioning with delete markers, Object Lock (governance and compliance, default retention,
 legal hold), SSE-S3, SSE-KMS and SSE-C encryption, additional checksums (`CRC32`, `CRC32C`, `CRC64NVME`, `SHA1`,
 `SHA256`, composite ones for multipart too), tags, lifecycle (expirations, noncurrent versions, delete markers,
-incomplete uploads), event notifications, CORS, quotas (a Nexo extension).
+incomplete uploads), event notifications, CORS, quotas (a Nexo extension), replication (`?replication`, with the
+ARN of a target registered through the Admin API as destination: see [bucket replication](../replication.md)).
 
 ### Not supported
 
 They answer `501 NotImplemented`: bucket website (`?website`; the
 [distributions](../distributions/README.md) take its place), `PublicAccessBlock` (the Nexo
 [block public access](../security/sharing.md#public-access-rules-and-block-public-access) takes its
-place), replication (`?replication`), server access logging, accelerate, analytics, inventory, metrics,
+place), server access logging, accelerate, analytics, inventory, metrics,
 intelligent tiering, ownership controls, request payment, `RestoreObject`,
 `GetObjectTorrent`. Lifecycle transitions to other storage classes are rejected. Planned after v1.0: full
-ACLs, replication between clusters, tiering to remote S3, `AssumeRoleWithWebIdentity`.
+ACLs, site replication, tiering to remote S3, `AssumeRoleWithWebIdentity`.
 
 ### S3 Select
 

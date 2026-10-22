@@ -279,6 +279,9 @@ func (s *service) SetVersioning(ctx context.Context, name string, v domain.Versi
 		if m.ObjectLock.Enabled && v != domain.VersioningEnabled {
 			return domain.NewS3Error(domain.ErrConflict, "InvalidBucketState", "An Object Lock configuration is present on this bucket, so the versioning state cannot be changed.")
 		}
+		if len(m.Replication) > 0 && v != domain.VersioningEnabled {
+			return domain.NewS3Error(domain.ErrConflict, "InvalidBucketState", "A replication configuration is present on this bucket, so the versioning state cannot be changed.")
+		}
 		m.Versioning = v
 		return nil
 	})
@@ -393,6 +396,40 @@ func (s *service) SetLifecycle(ctx context.Context, name string, xmlDoc []byte) 
 func (s *service) DeleteLifecycle(ctx context.Context, name string) error {
 	return s.update(ctx, name, func(m *Metadata) error {
 		m.Lifecycle = nil
+		return nil
+	})
+}
+
+// GetReplication implements Service.
+func (s *service) GetReplication(ctx context.Context, name string) ([]byte, error) {
+	m, err := s.load(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	if len(m.Replication) == 0 {
+		return nil, noConfig("ReplicationConfigurationNotFoundError", "The replication configuration was not found", name)
+	}
+	return m.Replication, nil
+}
+
+// SetReplication implements Service.
+func (s *service) SetReplication(ctx context.Context, name string, xmlDoc []byte) error {
+	if err := s.validateXML(xmlDoc, "ReplicationConfiguration"); err != nil {
+		return err
+	}
+	return s.update(ctx, name, func(m *Metadata) error {
+		if m.Versioning != domain.VersioningEnabled {
+			return domain.NewS3Error(domain.ErrInvalidArgument, "InvalidRequest", "Versioning must be 'Enabled' on the bucket to apply a replication configuration")
+		}
+		m.Replication = append([]byte(nil), xmlDoc...)
+		return nil
+	})
+}
+
+// DeleteReplication implements Service.
+func (s *service) DeleteReplication(ctx context.Context, name string) error {
+	return s.update(ctx, name, func(m *Metadata) error {
+		m.Replication = nil
 		return nil
 	})
 }

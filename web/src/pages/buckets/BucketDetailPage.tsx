@@ -12,6 +12,7 @@ import {
 } from '@mantine/core';
 import {
   IconAlertCircle,
+  IconArrowsExchange,
   IconBell,
   IconClockHour4,
   IconFolder,
@@ -35,10 +36,19 @@ import { isApiError, useServices } from '@/services';
 
 import { DeleteBucketDialog } from './DeleteBucketDialog';
 
-const tabs = ['browse', 'settings', 'lifecycle', 'events', 'media', 'access', 'rules'] as const;
+const tabs = [
+  'browse',
+  'settings',
+  'lifecycle',
+  'events',
+  'media',
+  'replication',
+  'access',
+  'rules',
+] as const;
 type BucketTab = (typeof tabs)[number];
 
-/** The tab of a bucket route: /buckets/:bucket/{browse/*,settings,lifecycle,events,media,access,rules}. */
+/** The tab of a bucket route: /buckets/:bucket/{browse/*,settings,lifecycle,events,media,replication,access,rules}. */
 function tabOf(pathname: string, bucket: string): BucketTab {
   const base = `/buckets/${encodeURIComponent(bucket)}/`;
   const rest = pathname.startsWith(base) ? pathname.slice(base.length) : '';
@@ -177,6 +187,9 @@ export function BucketDetailPage() {
           </Tabs.Tab>
           <Tabs.Tab value="media" leftSection={<IconVideo size={16} />}>
             {t('bucket.tabs.media')}
+          </Tabs.Tab>
+          <Tabs.Tab value="replication" leftSection={<IconArrowsExchange size={16} />}>
+            {t('bucket.tabs.replication')}
           </Tabs.Tab>
           <Tabs.Tab value="access" leftSection={<IconLock size={16} />}>
             {t('bucket.tabs.access')}

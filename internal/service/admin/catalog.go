@@ -72,7 +72,8 @@ func catalog() []catalogEntry {
 		policy.ActionGetLifecycle, policy.ActionPutLifecycle, policy.ActionAdminApplyLifecycle,
 		policy.ActionGetBucketNotification, policy.ActionPutBucketNotification,
 		policy.ActionGetBucketCORS, policy.ActionPutBucketCORS,
-		policy.ActionGetReplication, policy.ActionPutReplication,
+		policy.ActionGetReplication, policy.ActionPutReplication, policy.ActionResetReplication,
+		policy.ActionAdminSetBucketTarget, policy.ActionAdminGetBucketTarget,
 	)...)
 	out = append(out, scoped(scopeObject,
 		policy.ActionGetObject, policy.ActionGetObjectVersion, policy.ActionPutObject,

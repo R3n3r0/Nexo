@@ -131,6 +131,20 @@ export type PoolStatus = Schemas['PoolStatus'];
 /** Progress of a decommission or of the rebalance. */
 export type PoolJob = Schemas['PoolJob'];
 
+/* Bucket replication (/buckets/{bucket}/replication, S-BKT-12). */
+
+/** One rule: the keys it selects, the target it sends them to and what it replicates. */
+export type ReplicationRule = Schemas['ReplicationRule'];
+/** The rules of a bucket (none: not replicated). */
+export type ReplicationConfiguration = Schemas['ReplicationConfiguration'];
+/** A remote bucket the bucket replicates to; secretKey is sent, never returned. */
+export type ReplicationTarget = Schemas['ReplicationTarget'];
+/** The replication to one target as the node that answered sees it. */
+export type ReplicationTargetStatus = Schemas['ReplicationTargetStatus'];
+/** The progress of a resync of the bucket to a target. */
+export type ReplicationResync = Schemas['ReplicationResync'];
+export type ReplicationStatus = Schemas['ReplicationStatus'];
+
 /* Healing jobs (POST/GET /heal, GET /heal/{id}). */
 
 /** What to heal: no bucket = format and every bucket; recursive = the objects too. */

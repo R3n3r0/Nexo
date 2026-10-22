@@ -27,6 +27,12 @@ export const StorageActions = {
   /** Video rules of the media worker and reprocessing of a video. */
   getMedia: 'admin:GetBucketMedia',
   setMedia: 'admin:SetBucketMedia',
+  /** Replication of a bucket (S-BKT-12): rules, targets and resync. */
+  getReplication: 's3:GetReplicationConfiguration',
+  putReplication: 's3:PutReplicationConfiguration',
+  getBucketTarget: 'admin:GetBucketTarget',
+  setBucketTarget: 'admin:SetBucketTarget',
+  resyncReplication: 's3:ResetBucketReplicationState',
   getObject: 's3:GetObject',
   getObjectVersion: 's3:GetObjectVersion',
   putObject: 's3:PutObject',

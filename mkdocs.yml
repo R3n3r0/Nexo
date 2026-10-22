@@ -159,6 +159,7 @@ nav:
       - Events and lifecycle: events-lifecycle.md
       - Video streaming: video-streaming.md
       - Media worker: media-worker.md
+      - Bucket replication: replication.md
   - Reference:
       - CLI: reference/cli.md
       - nexoctl commands: cli/nexoctl.md
