@@ -774,6 +774,29 @@ func (c *adminClient) SyncSiteReplication(ctx context.Context) error {
 	return MapAdminError(c.api.SyncSiteReplication(ctx), c.endpoint)
 }
 
+// ListTiers implements AdminClient.
+func (c *adminClient) ListTiers(ctx context.Context) ([]nexoadmin.Tier, error) {
+	v, err := c.api.ListTiers(ctx)
+	return mapped(c, v, err)
+}
+
+// AddTier implements AdminClient.
+func (c *adminClient) AddTier(ctx context.Context, in nexoadmin.TierInput) (*nexoadmin.Tier, error) {
+	v, err := c.api.AddTier(ctx, in)
+	return mapped(c, v, err)
+}
+
+// EditTier implements AdminClient.
+func (c *adminClient) EditTier(ctx context.Context, name string, in nexoadmin.TierInput) (*nexoadmin.Tier, error) {
+	v, err := c.api.EditTier(ctx, name, in)
+	return mapped(c, v, err)
+}
+
+// RemoveTier implements AdminClient.
+func (c *adminClient) RemoveTier(ctx context.Context, name string) error {
+	return MapAdminError(c.api.RemoveTier(ctx, name), c.endpoint)
+}
+
 // ListPools implements AdminClient.
 func (c *adminClient) ListPools(ctx context.Context) (*nexoadmin.Pools, error) {
 	v, err := c.api.ListPools(ctx)

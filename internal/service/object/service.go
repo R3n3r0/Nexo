@@ -52,6 +52,9 @@ type Deps struct {
 	// Crypto seals the object keys of the encrypted objects (see
 	// PoolsDeps.Crypto); nil refuses server-side encryption.
 	Crypto crypto.Service
+	// Tiers keeps the data of the versions transitioned to remote tiers
+	// (see PoolsDeps.Tiers); nil refuses the transitions.
+	Tiers TierStore
 	// IDs generates version identifiers and temporary directory names
 	// (default: time-ordered UUID v7). Upload ids embed one of its ids when
 	// it is a UUID.
@@ -237,6 +240,11 @@ type PoolsDeps struct {
 	// the erasure coding. Nil refuses every encryption request (S3
 	// NotImplemented) and every read of an encrypted object.
 	Crypto crypto.Service
+	// Tiers keeps the data of the versions transitioned to remote tiers
+	// (S-STO-12): TransitionObject writes it there, the reads of those
+	// versions fetch it. Nil refuses the transitions, and the reads of a
+	// transitioned version fail with domain.ErrNotImplemented.
+	Tiers TierStore
 	// IDs generates version identifiers and temporary directory names
 	// (default: time-ordered UUID v7).
 	IDs    topology.IDGenerator
@@ -256,6 +264,49 @@ type PoolSpec struct {
 	// Decommissioning excludes the pool from the placement of new objects
 	// (its objects stay readable and writable).
 	Decommissioning bool
+}
+
+// TierStore keeps the data of the versions transitioned to remote tiers
+// (S-STO-12); tier.Service implements it.
+type TierStore interface {
+	// PutTiered writes the size bytes of r as a new object of tier, for
+	// the version ref, checks it there and returns its name.
+	PutTiered(ctx context.Context, tier string, r io.Reader, size int64, ref TierRef) (string, error)
+	// OpenTiered streams [offset, offset+length) of an object of tier; a
+	// stream shorter than length fails.
+	OpenTiered(ctx context.Context, tier, name string, offset, length int64) (io.ReadCloser, error)
+	// DeleteTiered removes an object of tier that no version refers to.
+	DeleteTiered(ctx context.Context, tier, name string) error
+}
+
+// TierRef is the version an object of a tier holds the data of.
+type TierRef struct {
+	Bucket    string
+	Key       string
+	VersionID string
+}
+
+// TransitionInput are the parameters of TransitionObject.
+type TransitionInput struct {
+	Bucket string
+	Key    string
+	// VersionID is the version ("" or "null" for the null version).
+	VersionID string
+	// ModTime, when set, is the modification time the version must still
+	// have.
+	ModTime time.Time
+	// Tier is the name of the tier.
+	Tier string
+}
+
+// TierLocation is where the data of a version is (TierLocation).
+type TierLocation struct {
+	// Exists reports that the version exists.
+	Exists bool
+	// Tier and Object name the object of a transitioned version, empty
+	// otherwise.
+	Tier   string
+	Object string
 }
 
 // BucketConfig is the subset of bucket settings the object layer enforces.
@@ -350,6 +401,22 @@ type Service interface {
 	// no event is published. A version replaced meanwhile is
 	// domain.ErrNoSuchVersion.
 	SetReplicationStatus(ctx context.Context, bucket, key, versionID, target string, status domain.ReplicationStatus) (domain.ObjectInfo, error)
+
+	// TransitionObject moves the data of a version to a remote tier
+	// (S-STO-12, the Transition actions of the lifecycle): the stored
+	// bytes are written to the tier as one object and the version keeps
+	// its metadata on the drives, naming that object; its storage class
+	// becomes the name of the tier. Reads fetch the data from the tier; a
+	// copy brings it back. The version must still have in.ModTime (when
+	// set; domain.ErrPreconditionFailed otherwise); one stored inline is
+	// not transitioned (domain.ErrInvalidArgument), one already in the
+	// tier is left as it is. No event is published.
+	TransitionObject(ctx context.Context, in TransitionInput) (domain.ObjectInfo, error)
+	// TierLocation tells where the data of a version is: the tier and the
+	// object of a transitioned version, nothing for a version stored on
+	// the drives, Exists false for a version (or a bucket) that does not
+	// exist. The tiers find their orphaned objects with it.
+	TierLocation(ctx context.Context, bucket, key, versionID string) (TierLocation, error)
 
 	// Tags.
 	PutObjectTags(ctx context.Context, bucket, key string, tags map[string]string, opts TagOptions) (domain.ObjectInfo, error)

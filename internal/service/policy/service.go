@@ -360,6 +360,10 @@ const (
 	ActionAdminSiteReplicationInfo      Action = "admin:SiteReplicationInfo"
 	ActionAdminSiteReplicationRemove    Action = "admin:SiteReplicationRemove"
 	ActionAdminSiteReplicationOperation Action = "admin:SiteReplicationOperation"
+	// ActionAdminListTier and ActionAdminSetTier authorize the reading and
+	// the management of the remote tiers of the lifecycle (S-STO-12).
+	ActionAdminListTier Action = "admin:ListTier"
+	ActionAdminSetTier  Action = "admin:SetTier"
 
 	// Bucket and object configuration actions of the S3 API, shared by
 	// the S3 and the Admin API transports.

@@ -46,8 +46,8 @@ type Rule struct {
 	// AbortIncompleteUpload aborts the incomplete multipart uploads.
 	AbortIncompleteUpload *AbortIncompleteUpload
 	// Transitions and NoncurrentTransitions move versions to a remote
-	// tier (P2): accepted only for the storage classes of a configured
-	// tier (WithStorageClasses), not applied yet.
+	// tier (S-STO-12): the storage class names the tier, which must
+	// exist.
 	Transitions           []Transition
 	NoncurrentTransitions []NoncurrentTransition
 }
@@ -435,15 +435,15 @@ func parseTransition(t transitionXML, tiers map[string]bool) (Transition, error)
 	return tr, checkTier(t.StorageClass, tiers)
 }
 
-// checkTier refuses the transitions to a storage class without tier: the
-// remote tiers are P2.
+// checkTier refuses the transitions to a storage class that names no
+// tier (nexoctl admin tier add).
 func checkTier(class string, tiers map[string]bool) error {
 	if class == "" {
 		return malformed("a transition needs a StorageClass")
 	}
 	if !tiers[class] {
-		return domain.NewS3Error(domain.ErrNotImplemented, "NotImplemented",
-			fmt.Sprintf("Transition to the storage class %q is not supported: no remote tier is configured", class))
+		return domain.NewS3Error(domain.ErrInvalidArgument, "InvalidStorageClass",
+			fmt.Sprintf("The storage class %q of the transition names no remote tier", class))
 	}
 	return nil
 }

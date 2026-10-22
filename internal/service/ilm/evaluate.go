@@ -102,10 +102,16 @@ func evaluate(now time.Time, in EvaluateInput) []Action {
 		if i == 0 {
 			if a, ok := evaluateCurrent(now, in, v); ok {
 				out = append(out, a)
+			} else if a, ok := currentTransition(now, cfg, v); ok {
+				a.Bucket = in.Bucket
+				out = append(out, a)
 			}
 			continue
 		}
 		if a, ok := evaluateNoncurrent(now, cfg, v, in.Versions[i-1].ModTime, noncurrent); ok {
+			a.Bucket = in.Bucket
+			out = append(out, a)
+		} else if a, ok := noncurrentTransition(now, cfg, v, in.Versions[i-1].ModTime, noncurrent); ok {
 			a.Bucket = in.Bucket
 			out = append(out, a)
 		}
@@ -208,7 +214,8 @@ func isNullVersion(id string) bool { return id == "" || id == domain.NullVersion
 // mayApply reports whether a rule of cfg can act on the objects of key.
 func (c *Configuration) mayApply(key string) bool {
 	for _, r := range c.Rules {
-		if r.Enabled && (r.Expiration != nil || r.NoncurrentExpiration != nil) && strings.HasPrefix(key, r.Filter.Prefix) {
+		acts := r.Expiration != nil || r.NoncurrentExpiration != nil || len(r.Transitions) > 0 || len(r.NoncurrentTransitions) > 0
+		if r.Enabled && acts && strings.HasPrefix(key, r.Filter.Prefix) {
 			return true
 		}
 	}
@@ -223,7 +230,7 @@ func (c *Configuration) needsVersions() bool {
 		if !r.Enabled {
 			continue
 		}
-		if e := r.Expiration; r.NoncurrentExpiration != nil || (e != nil && (e.ExpiredObjectDeleteMarker || e.Days > 0)) {
+		if e := r.Expiration; r.NoncurrentExpiration != nil || len(r.NoncurrentTransitions) > 0 || (e != nil && (e.ExpiredObjectDeleteMarker || e.Days > 0)) {
 			return true
 		}
 	}
@@ -238,4 +245,75 @@ func (c *Configuration) abortsUploads() bool {
 		}
 	}
 	return false
+}
+
+// canTransition reports whether a version may move to a tier: an object
+// with data stored on the drives (not inline, not empty, not in a tier
+// already).
+func canTransition(v domain.ObjectInfo) bool {
+	if v.IsDeleteMarker || v.Inlined || v.Size == 0 {
+		return false
+	}
+	return v.StorageClass == "" || v.StorageClass == domain.StorageClassStandard || v.StorageClass == domain.StorageClassReducedRedundancy
+}
+
+// pick is a candidate transition: the earliest due wins, then the latest
+// declared.
+type pick struct {
+	due
+	class string
+}
+
+func (p *pick) offer(at time.Time, ruleID, class string) {
+	if !p.ok || at.Before(p.at) {
+		p.at, p.ruleID, p.ok, p.class = at, ruleID, true, class
+	}
+}
+
+// currentTransition returns the transition due on the current version v.
+func currentTransition(now time.Time, cfg *Configuration, v domain.ObjectInfo) (Action, bool) {
+	if !canTransition(v) {
+		return Action{}, false
+	}
+	var p pick
+	for _, r := range cfg.Rules {
+		if !r.Enabled || !r.Filter.matches(v.Key, v.Tags, v.Size, false) {
+			continue
+		}
+		for _, t := range r.Transitions {
+			if t.Date.IsZero() {
+				p.offer(expiryTime(v.ModTime, t.Days), r.ID, t.StorageClass)
+			} else {
+				p.offer(t.Date, r.ID, t.StorageClass)
+			}
+		}
+	}
+	if !p.ok || now.Before(p.at) {
+		return Action{}, false
+	}
+	return Action{Type: ActionTransition, RuleID: p.ruleID, Key: v.Key, VersionID: v.VersionID, ModTime: v.ModTime, Due: p.at, StorageClass: p.class}, true
+}
+
+// noncurrentTransition returns the transition due on the noncurrent
+// version v (see evaluateNoncurrent).
+func noncurrentTransition(now time.Time, cfg *Configuration, v domain.ObjectInfo, successor time.Time, index int) (Action, bool) {
+	if !canTransition(v) {
+		return Action{}, false
+	}
+	var p pick
+	for _, r := range cfg.Rules {
+		if !r.Enabled || !r.Filter.matches(v.Key, v.Tags, v.Size, false) {
+			continue
+		}
+		for _, t := range r.NoncurrentTransitions {
+			if index < t.NewerNoncurrentVersions {
+				continue
+			}
+			p.offer(expiryTime(successor, t.NoncurrentDays), r.ID, t.StorageClass)
+		}
+	}
+	if !p.ok || now.Before(p.at) {
+		return Action{}, false
+	}
+	return Action{Type: ActionTransition, RuleID: p.ruleID, Key: v.Key, VersionID: v.VersionID, ModTime: v.ModTime, Due: p.at, StorageClass: p.class}, true
 }

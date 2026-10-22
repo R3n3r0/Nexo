@@ -55,6 +55,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/share"
 	"github.com/r3n3r0/nexo/internal/service/siterepl"
 	"github.com/r3n3r0/nexo/internal/service/storage"
+	"github.com/r3n3r0/nexo/internal/service/tier"
 	"github.com/r3n3r0/nexo/internal/service/topology"
 	"github.com/r3n3r0/nexo/internal/service/trace"
 	adminhttp "github.com/r3n3r0/nexo/internal/transport/http/admin"
@@ -753,6 +754,8 @@ type adminDeps struct {
 	replication replication.Service
 	// siteReplication keeps the deployment in sync with other sites.
 	siteReplication siterepl.Service
+	// tiers manages the remote tiers (S-STO-12).
+	tiers tier.Service
 	// secureCookies forces the Secure flag of the session cookies (the
 	// console is served over HTTPS, possibly by a proxy terminating TLS).
 	secureCookies bool
@@ -972,6 +975,13 @@ func buildAdminAPI(d adminDeps) (httpx.Routes, error) {
 			return nil, err
 		}
 		groups = append(groups, siteRoutes)
+	}
+	if d.tiers != nil {
+		tierRoutes, err := adminhttp.NewTierRoutes(adminhttp.TierDeps{Tiers: d.tiers, Authz: svc.authz, Enc: d.codec})
+		if err != nil {
+			return nil, err
+		}
+		groups = append(groups, tierRoutes)
 	}
 	distRoutes, err := buildDistributionRoutes(d, svc)
 	if err != nil {
@@ -1256,6 +1266,15 @@ func (a *App) Shares() share.Service {
 func (a *App) ILM() ilm.Service {
 	if s := a.services(); s != nil {
 		return s.lifecycle
+	}
+	return nil
+}
+
+// Tiers returns the remote tiers of the lifecycle (integration tests run
+// the sweep of their orphaned objects at once).
+func (a *App) Tiers() tier.Service {
+	if s := a.services(); s != nil {
+		return s.tiers
 	}
 	return nil
 }

@@ -52,6 +52,13 @@ type world struct {
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
+	return newWorldWith(t, nil, nil)
+}
+
+// newWorldWith is newWorld with the tier store of the object layer and
+// the tiers of the lifecycle.
+func newWorldWith(t *testing.T, tiers object.TierStore, names ilm.Tiers) *world {
+	t.Helper()
 	ctx := context.Background()
 	w := &world{t: t, clk: clock.NewFake(time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC)), settings: map[string]*bucket.Metadata{}}
 	ep, err := domain.ParseEndpoint(t.TempDir())
@@ -76,8 +83,8 @@ func newWorld(t *testing.T) *world {
 		w.events = append(w.events, published{name: e.EventName, key: e.S3.Object.Key, lifecycle: req.Lifecycle})
 		return nil
 	}).Maybe()
-	w.objects, err = object.NewFS(object.Deps{Store: drive, Buckets: cfgs, Events: events, Clock: w.clk, Logger: quiet()},
-		object.WithMinPartSize(16))
+	w.objects, err = object.NewFS(object.Deps{Store: drive, Buckets: cfgs, Events: events, Tiers: tiers, Clock: w.clk, Logger: quiet()},
+		object.WithMinPartSize(16), object.WithInlineLimit(8))
 	require.NoError(t, err)
 	settings := ilmmock.NewBucketSettings(t)
 	settings.EXPECT().Load(mock.Anything, mock.Anything).RunAndReturn(func(_ context.Context, b string) (*bucket.Metadata, error) {
@@ -89,7 +96,7 @@ func newWorld(t *testing.T) *world {
 		}
 		return &bucket.Metadata{Name: b}, nil
 	}).Maybe()
-	w.svc, err = ilm.New(ilm.Deps{Objects: w.objects, Buckets: settings, Clock: w.clk, Logger: quiet()}, ilm.WithPageSize(2))
+	w.svc, err = ilm.New(ilm.Deps{Objects: w.objects, Buckets: settings, Tiers: names, Clock: w.clk, Logger: quiet()}, ilm.WithPageSize(2))
 	require.NoError(t, err)
 	return w
 }

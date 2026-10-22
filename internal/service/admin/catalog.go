@@ -51,6 +51,7 @@ func catalog() []catalogEntry {
 		policy.ActionAdminDecommission, policy.ActionAdminRebalance,
 		policy.ActionAdminSiteReplicationAdd, policy.ActionAdminSiteReplicationInfo,
 		policy.ActionAdminSiteReplicationRemove, policy.ActionAdminSiteReplicationOperation,
+		policy.ActionAdminListTier, policy.ActionAdminSetTier,
 		policy.ActionAdminKMSKeyStatus, policy.ActionAdminKMSCreateKey,
 		policy.ActionAdminManageDistributions, policy.ActionAdminManageCertificates, policy.ActionAdminSignDistributionURL,
 		policy.ActionAdminManageCache, policy.ActionAdminInvalidateCache,

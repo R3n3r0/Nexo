@@ -2636,6 +2636,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tiers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the remote tiers of the lifecycle transitions */
+        get: operations["listTiers"];
+        put?: never;
+        /** Add a remote tier (its bucket is checked with the credentials) */
+        post: operations["addTier"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tiers/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace the credentials (and the region, the storage class) of a tier */
+        put: operations["editTier"];
+        post?: never;
+        /** Remove a tier that holds no data of this deployment */
+        delete: operations["removeTier"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/config/{subsys}": {
         parameters: {
             query?: never;
@@ -3945,6 +3983,35 @@ export interface components {
             endpoint: string;
             /** @description URL of the Admin API (console listener) of the site. */
             adminEndpoint: string;
+        };
+        TierInput: {
+            /** @description Storage class the transitions name (A-Z, 0-9, '-', '_'); POST only. */
+            name?: string;
+            /** @description URL of the S3 API (http(s)://host[:port]); POST only. */
+            endpoint?: string;
+            /** @description Remote bucket; POST only. */
+            bucket?: string;
+            /** @description Prefix of the objects in the bucket, ending with '/'; POST only. */
+            prefix?: string;
+            region?: string;
+            /** @description Storage class of the remote objects (readable at once). */
+            storageClass?: string;
+            accessKey: string;
+            /** Format: password */
+            secretKey: string;
+        };
+        Tier: {
+            name: string;
+            endpoint: string;
+            bucket: string;
+            prefix?: string;
+            region?: string;
+            storageClass?: string;
+            accessKey: string;
+            /** Format: date-time */
+            created: string;
+            /** Format: date-time */
+            updated: string;
         };
         SiteReplicationSites: {
             sites: components["schemas"]["SiteReplicationSite"][];
@@ -11128,6 +11195,103 @@ export interface operations {
                     };
                 };
             };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listTiers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tiers, without their secret. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        tiers: components["schemas"]["Tier"][];
+                    };
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    addTier: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TierInput"];
+            };
+        };
+        responses: {
+            /** @description The tier. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tier"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    editTier: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TierInput"];
+            };
+        };
+        responses: {
+            /** @description The tier. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tier"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    removeTier: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: components["responses"]["Problem"];
             default: components["responses"]["Problem"];
         };
     };

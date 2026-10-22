@@ -33,6 +33,7 @@ import { serverInfoQueryKey } from '@/lib/serverInfo';
 import { useServices, type NodeInfo, type PoolInfo, type ServerInfo } from '@/services';
 
 import { PoolManagement } from './PoolManagement';
+import { RemoteTiers } from './RemoteTiers';
 import { SiteReplication } from './SiteReplication';
 
 /** Severity colour of a usage meter. */
@@ -456,6 +457,7 @@ export function ClusterPage() {
       ))}
       {data && data.mode !== 'snsd' ? <PoolManagement /> : null}
       {data ? <SiteReplication /> : null}
+      {data ? <RemoteTiers /> : null}
     </Stack>
   );
 }

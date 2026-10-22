@@ -61,6 +61,7 @@ le stesse access key dell'API S3.
 | Qualità ridotte, poster e miniature dei video | [Media worker](media-worker.md) |
 | Replica dei bucket verso un altro server, attivo-attivo | [Replica dei bucket](replication.md) |
 | Mantenere sincronizzate più installazioni (IAM, policy, bucket) | [Replica di sito](site-replication.md) |
+| Spostare le versioni vecchie su un bucket S3 più economico | [Tier remoti](tiering.md) |
 
 ## Riferimenti
 

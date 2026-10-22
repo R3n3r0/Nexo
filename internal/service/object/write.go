@@ -502,7 +502,11 @@ func (l *layer) CopyObject(ctx context.Context, in CopyObjectInput) (domain.Obje
 	same := in.SrcBucket == in.DstBucket && in.SrcKey == in.DstKey
 	storageClass := in.StorageClass
 	if storageClass == "" {
-		storageClass = src.Info.StorageClass
+		// The class the version was written with: the copy of a
+		// transitioned version is stored on the drives again.
+		if storageClass = fi.Metadata[metaStorageClass]; storageClass == "" {
+			storageClass = domain.StorageClassStandard
+		}
 	}
 	checksumAlgo := in.ChecksumAlgorithm
 	if checksumAlgo == domain.ChecksumNone {

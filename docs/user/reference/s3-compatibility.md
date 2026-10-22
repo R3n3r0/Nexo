@@ -46,8 +46,8 @@ They answer `501 NotImplemented`: bucket website (`?website`; the
 [block public access](../security/sharing.md#public-access-rules-and-block-public-access) takes its
 place), server access logging, accelerate, analytics, inventory, metrics,
 intelligent tiering, ownership controls, request payment, `RestoreObject`,
-`GetObjectTorrent`. Lifecycle transitions to other storage classes are rejected. Planned after v1.0: full
-ACLs, tiering to remote S3, `AssumeRoleWithWebIdentity`.
+`GetObjectTorrent`. Lifecycle transitions name a remote tier ([Remote tiers](../tiering.md)); the other storage
+classes are rejected (`InvalidStorageClass`). Planned after v1.0: full ACLs, `AssumeRoleWithWebIdentity`.
 
 ### S3 Select
 

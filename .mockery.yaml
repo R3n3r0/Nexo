@@ -164,6 +164,7 @@ packages:
     interfaces:
       Service:
       BucketSettings:
+      Tiers:
   github.com/r3n3r0/nexo/internal/service/iam:
     interfaces:
       Service:
@@ -215,6 +216,7 @@ packages:
       HealNotifier:
       Healer:
       PoolMover:
+      TierStore:
   github.com/r3n3r0/nexo/internal/service/policy:
     interfaces:
       Service:
@@ -253,6 +255,14 @@ packages:
       Leader:
       Dialer:
       Peer:
+  github.com/r3n3r0/nexo/internal/service/tier:
+    interfaces:
+      Service:
+      Objects:
+      Sealer:
+      Leader:
+      Dialer:
+      Remote:
   github.com/r3n3r0/nexo/internal/service/scanner:
     interfaces:
       Service:
@@ -355,6 +365,7 @@ packages:
       NotificationRoutes:
       ReplicationRoutes:
       SiteReplicationRoutes:
+      TierRoutes:
       CORSRoutes:
       MediaRoutes:
       KMSRoutes:

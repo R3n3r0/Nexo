@@ -151,6 +151,8 @@ export type SiteReplicationSite = Schemas['SiteReplicationSite'];
 export type SiteReplicationPeerStatus = Schemas['SiteReplicationPeerStatus'];
 /** The group of sites of this deployment and the synchronization with each one. */
 export type SiteReplicationInfo = Schemas['SiteReplicationInfo'];
+export type Tier = Schemas['Tier'];
+export type TierInput = Schemas['TierInput'];
 
 /* Healing jobs (POST/GET /heal, GET /heal/{id}). */
 

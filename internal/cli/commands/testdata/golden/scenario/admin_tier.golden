@@ -1,0 +1,75 @@
+$ nexoctl admin tier ls mem
+"mem" has no tier.
+
+$ nexoctl admin tier add mem COLD archive/cold-data --prefix nexo/
+Tier COLD added: https://archive.example.test/cold-data/nexo.
+
+$ nexoctl admin tier add mem WARM archive/warm --storage-class STANDARD_IA
+Tier WARM added: https://archive.example.test/warm.
+
+$ nexoctl admin tier ls mem
+NAME             ENDPOINT                                 BUCKET                   CLASS          ACCESS KEY
+COLD             https://archive.example.test             cold-data/nexo           -              ARCHKEY
+WARM             https://archive.example.test             warm                     STANDARD_IA    ARCHKEY
+
+$ nexoctl admin tier ls --json mem
+{"status":"success","alias":"mem","name":"COLD","endpoint":"https://archive.example.test","bucket":"cold-data","prefix":"nexo/","accessKey":"ARCHKEY","created":"2026-01-02T03:04:05Z","updated":"2026-01-02T03:04:05Z"}
+{"status":"success","alias":"mem","name":"WARM","endpoint":"https://archive.example.test","bucket":"warm","storageClass":"STANDARD_IA","accessKey":"ARCHKEY","created":"2026-01-02T03:04:05Z","updated":"2026-01-02T03:04:05Z"}
+
+$ nexoctl admin tier edit mem COLD archive2
+Credentials of tier COLD replaced.
+
+$ nexoctl mb mem/app
+Bucket created successfully `mem/app`.
+
+$ nexoctl ilm rule add --id cold --prefix logs/ --transition-days 30 --transition-tier COLD --noncurrent-transition-days 7 mem/app
+Lifecycle rule "cold" added to `mem/app`.
+
+$ nexoctl ilm rule edit --id cold --transition-days -1 mem/app
+Lifecycle rule "cold" of `mem/app` updated.
+
+$ nexoctl ilm rule ls mem/app
+ID               STATUS   FILTER                         ACTIONS
+cold             Enabled  prefix=logs/                   noncurrent transition to COLD after 7d
+
+$ nexoctl ilm rule add --transition-days 30 mem/app
+! nexoctl: error: --transition-days needs a --transition-tier
+! Run 'nexoctl ilm rule add --help' for usage.
+[exit 2]
+
+$ nexoctl admin tier add mem cold archive/x
+! nexoctl: error: invalid argument: invalid tier name "cold": upper case letters, digits, '-' and '_' only (invalid_argument)
+[exit 1]
+
+$ nexoctl admin tier add mem COLD archive/cold-data
+! nexoctl: error: conflict: tier COLD exists (conflict)
+[exit 1]
+
+$ nexoctl admin tier add mem OTHER archive
+! nexoctl: error: archive: a bucket is required (ALIAS/BUCKET)
+! Run 'nexoctl admin tier add --help' for usage.
+[exit 2]
+
+$ nexoctl admin tier add mem OTHER ghost/bucket
+! nexoctl: error: unknown alias "ghost" in "ghost/bucket" (remote locations are ALIAS/BUCKET[/PREFIX], see "nexoctl alias list")
+[exit 3]
+
+$ nexoctl admin tier edit mem NOPE archive2
+! nexoctl: error: not found: tier NOPE (not_found)
+[exit 3]
+
+$ nexoctl admin tier rm mem COLD
+! nexoctl: error: conflict: tier COLD holds the data of transitioned versions: bring them back or delete them first (conflict)
+[exit 1]
+
+$ nexoctl admin tier rm mem WARM
+Tier WARM removed.
+
+$ nexoctl admin tier rm mem WARM
+! nexoctl: error: not found: tier WARM (not_found)
+[exit 3]
+
+$ nexoctl admin tier ls mem
+NAME             ENDPOINT                                 BUCKET                   CLASS          ACCESS KEY
+COLD             https://archive.example.test             cold-data/nexo           -              ARCHKEY2
+

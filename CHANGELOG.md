@@ -348,6 +348,18 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   `admin:SiteReplicationRemove`, `admin:SiteReplicationOperation`; a **Site replication** panel on the Cluster page
   of the console.
 
+### Remote tiers (S-STO-12, S-BKT-07 transitions)
+- The `Transition` and `NoncurrentVersionTransition` lifecycle actions move the data of old versions to a remote
+  tier: an S3 bucket of another server (`nexoctl admin tier add|ls|edit|rm`, Admin API `/tiers`, policy actions
+  `admin:ListTier` and `admin:SetTier`, a **Remote tiers** panel on the Cluster page of the console). The name of
+  the tier is the storage class the rules name; a rule naming no tier is refused (`InvalidStorageClass`).
+- A transitioned version keeps its metadata on the drives and is read from its tier, whole or by range; its
+  storage class is the name of the tier and a copy onto itself brings its data back. The data is written to the
+  tier and checked before the version records it, under its write lock; the healing completes a transition
+  interrupted before the local data was released. The objects of a tier that no version refers to any more are
+  swept by the leader; a tier holding data cannot be removed.
+- `nexoctl ilm rule add|edit --transition-days`, `--noncurrent-transition-days`, `--transition-tier`.
+
 ### Transparent compression (opt-in, S-OBJ-14)
 - `compression` configuration subsystem (`enable`, `extensions`, `mime_types`, applied to the next writes): the
   selected unencrypted versions are stored as S2 streams, one per part, with the block index of each part in its
@@ -454,7 +466,9 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   part of the cluster export and must be registered again after a change of the root password.
 - Site replication: a bucket is deleted on the other sites only once empty there; the share links of a deleted
   user are not revoked on the other sites.
-- Not included (M10): tiering, ACLs other than `private`, coordinated cluster restart
+- Remote tiers: `RestoreObject` is not supported (a copy of the object onto itself brings its data back); a version
+  whose tier is unreachable cannot be read until the tier comes back.
+- Not included (M10): ACLs other than `private`, coordinated cluster restart
   and orchestrated upgrade. The
   DNS-01 propagation check does not follow a CNAME delegation of `_acme-challenge` (acme-dns style).
 - O_DIRECT is not used (measured slower on the reference VM, docs/bench §7.2); zero-copy covers single-drive

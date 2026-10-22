@@ -198,6 +198,10 @@ func (l *layer) openObject(ctx context.Context, bucket, key string, opts GetObje
 		release()
 		return nil, storage.FileInfo{}, err
 	}
+	if st, err = l.readerFor(st, fi); err != nil {
+		release()
+		return nil, storage.FileInfo{}, fmt.Errorf("%s: get %s/%s: %w", l.name, bucket, key, err)
+	}
 	if lk != nil {
 		if rc, ok := l.openPinned(lk.free, st, bucket, key, fi, okey, offset, length); ok {
 			if err := checkLocks(ctx); err != nil {
@@ -258,7 +262,7 @@ func (l *layer) openData(ctx context.Context, st store, bucket, key string, fi s
 	if length <= 0 {
 		return io.NopCloser(bytes.NewReader(nil)), nil
 	}
-	if fi.DataDir == "" {
+	if inlineData(fi) {
 		if offset+length > int64(len(fi.Data)) {
 			return nil, fmt.Errorf("%w: inline data of %d bytes, want [%d,%d)", domain.ErrFaultyDisk, len(fi.Data), offset, offset+length)
 		}

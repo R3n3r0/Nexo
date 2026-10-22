@@ -233,7 +233,7 @@ func (r *compressedReader) openNext() error {
 	}
 	stored := rd.part.Size - rd.storedOff
 	var raw io.Reader
-	if r.fi.DataDir == "" {
+	if inlineData(r.fi) {
 		if rd.part.Size > int64(len(r.fi.Data)) {
 			return fmt.Errorf("%w: inline data of %d bytes, want %d", domain.ErrFaultyDisk, len(r.fi.Data), rd.part.Size)
 		}
@@ -261,7 +261,7 @@ func (r *compressedReader) openNext() error {
 // pin implements pinnable: the stored streams of the parts of the range
 // are opened up front (inline data needs none).
 func (r *compressedReader) pin(max int) bool {
-	if r.fi.DataDir == "" {
+	if inlineData(r.fi) {
 		return true
 	}
 	parts := 0

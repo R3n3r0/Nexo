@@ -204,6 +204,65 @@ func (_c *AdminClient_AddSiteReplication_Call) RunAndReturn(run func(context.Con
 	return _c
 }
 
+// AddTier provides a mock function with given fields: ctx, in
+func (_m *AdminClient) AddTier(ctx context.Context, in nexoadmin.TierInput) (*nexoadmin.Tier, error) {
+	ret := _m.Called(ctx, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AddTier")
+	}
+
+	var r0 *nexoadmin.Tier
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, nexoadmin.TierInput) (*nexoadmin.Tier, error)); ok {
+		return rf(ctx, in)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, nexoadmin.TierInput) *nexoadmin.Tier); ok {
+		r0 = rf(ctx, in)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.Tier)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, nexoadmin.TierInput) error); ok {
+		r1 = rf(ctx, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_AddTier_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AddTier'
+type AdminClient_AddTier_Call struct {
+	*mock.Call
+}
+
+// AddTier is a helper method to define mock.On call
+//   - ctx context.Context
+//   - in nexoadmin.TierInput
+func (_e *AdminClient_Expecter) AddTier(ctx interface{}, in interface{}) *AdminClient_AddTier_Call {
+	return &AdminClient_AddTier_Call{Call: _e.mock.On("AddTier", ctx, in)}
+}
+
+func (_c *AdminClient_AddTier_Call) Run(run func(ctx context.Context, in nexoadmin.TierInput)) *AdminClient_AddTier_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(nexoadmin.TierInput))
+	})
+	return _c
+}
+
+func (_c *AdminClient_AddTier_Call) Return(_a0 *nexoadmin.Tier, _a1 error) *AdminClient_AddTier_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_AddTier_Call) RunAndReturn(run func(context.Context, nexoadmin.TierInput) (*nexoadmin.Tier, error)) *AdminClient_AddTier_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ApplyAccessPreset provides a mock function with given fields: ctx, bucket, in, ifMatch
 func (_m *AdminClient) ApplyAccessPreset(ctx context.Context, bucket string, in nexoadmin.AccessPresetRequest, ifMatch string) (*nexoadmin.AccessRules, error) {
 	ret := _m.Called(ctx, bucket, in, ifMatch)
@@ -2103,6 +2162,66 @@ func (_c *AdminClient_DetachPolicy_Call) Return(_a0 error) *AdminClient_DetachPo
 }
 
 func (_c *AdminClient_DetachPolicy_Call) RunAndReturn(run func(context.Context, nexoadmin.AttachRequest) error) *AdminClient_DetachPolicy_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// EditTier provides a mock function with given fields: ctx, name, in
+func (_m *AdminClient) EditTier(ctx context.Context, name string, in nexoadmin.TierInput) (*nexoadmin.Tier, error) {
+	ret := _m.Called(ctx, name, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for EditTier")
+	}
+
+	var r0 *nexoadmin.Tier
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, nexoadmin.TierInput) (*nexoadmin.Tier, error)); ok {
+		return rf(ctx, name, in)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, nexoadmin.TierInput) *nexoadmin.Tier); ok {
+		r0 = rf(ctx, name, in)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.Tier)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, nexoadmin.TierInput) error); ok {
+		r1 = rf(ctx, name, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_EditTier_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'EditTier'
+type AdminClient_EditTier_Call struct {
+	*mock.Call
+}
+
+// EditTier is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+//   - in nexoadmin.TierInput
+func (_e *AdminClient_Expecter) EditTier(ctx interface{}, name interface{}, in interface{}) *AdminClient_EditTier_Call {
+	return &AdminClient_EditTier_Call{Call: _e.mock.On("EditTier", ctx, name, in)}
+}
+
+func (_c *AdminClient_EditTier_Call) Run(run func(ctx context.Context, name string, in nexoadmin.TierInput)) *AdminClient_EditTier_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(nexoadmin.TierInput))
+	})
+	return _c
+}
+
+func (_c *AdminClient_EditTier_Call) Return(_a0 *nexoadmin.Tier, _a1 error) *AdminClient_EditTier_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_EditTier_Call) RunAndReturn(run func(context.Context, string, nexoadmin.TierInput) (*nexoadmin.Tier, error)) *AdminClient_EditTier_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -5520,6 +5639,64 @@ func (_c *AdminClient_ListSubtitles_Call) RunAndReturn(run func(context.Context,
 	return _c
 }
 
+// ListTiers provides a mock function with given fields: ctx
+func (_m *AdminClient) ListTiers(ctx context.Context) ([]nexoadmin.Tier, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListTiers")
+	}
+
+	var r0 []nexoadmin.Tier
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]nexoadmin.Tier, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []nexoadmin.Tier); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]nexoadmin.Tier)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_ListTiers_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListTiers'
+type AdminClient_ListTiers_Call struct {
+	*mock.Call
+}
+
+// ListTiers is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) ListTiers(ctx interface{}) *AdminClient_ListTiers_Call {
+	return &AdminClient_ListTiers_Call{Call: _e.mock.On("ListTiers", ctx)}
+}
+
+func (_c *AdminClient_ListTiers_Call) Run(run func(ctx context.Context)) *AdminClient_ListTiers_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_ListTiers_Call) Return(_a0 []nexoadmin.Tier, _a1 error) *AdminClient_ListTiers_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_ListTiers_Call) RunAndReturn(run func(context.Context) ([]nexoadmin.Tier, error)) *AdminClient_ListTiers_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListUsers provides a mock function with given fields: ctx, opts
 func (_m *AdminClient) ListUsers(ctx context.Context, opts nexoadmin.ListOptions) (*nexoadmin.UserList, error) {
 	ret := _m.Called(ctx, opts)
@@ -5964,6 +6141,53 @@ func (_c *AdminClient_RemoveSiteReplication_Call) Return(_a0 error) *AdminClient
 }
 
 func (_c *AdminClient_RemoveSiteReplication_Call) RunAndReturn(run func(context.Context) error) *AdminClient_RemoveSiteReplication_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RemoveTier provides a mock function with given fields: ctx, name
+func (_m *AdminClient) RemoveTier(ctx context.Context, name string) error {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RemoveTier")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, name)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_RemoveTier_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RemoveTier'
+type AdminClient_RemoveTier_Call struct {
+	*mock.Call
+}
+
+// RemoveTier is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+func (_e *AdminClient_Expecter) RemoveTier(ctx interface{}, name interface{}) *AdminClient_RemoveTier_Call {
+	return &AdminClient_RemoveTier_Call{Call: _e.mock.On("RemoveTier", ctx, name)}
+}
+
+func (_c *AdminClient_RemoveTier_Call) Run(run func(ctx context.Context, name string)) *AdminClient_RemoveTier_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_RemoveTier_Call) Return(_a0 error) *AdminClient_RemoveTier_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_RemoveTier_Call) RunAndReturn(run func(context.Context, string) error) *AdminClient_RemoveTier_Call {
 	_c.Call.Return(run)
 	return _c
 }

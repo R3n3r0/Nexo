@@ -1994,5 +1994,32 @@
     "lastSync": "Last round {{time}}",
     "pendingChanges_one": "{{count}} change pending (retried)",
     "pendingChanges_other": "{{count}} changes pending (retried)"
+  },
+  "remoteTiers": {
+    "title": "Remote tiers",
+    "subtitle": "S3 buckets of other servers that the Transition actions of the bucket lifecycle move the data of old versions to. A transitioned version keeps its metadata here and is read from its tier, transparently.",
+    "none": "No remote tier: the lifecycle transitions need one.",
+    "add": "Add a tier",
+    "addTitle": "Add a remote tier",
+    "addHint": "The name is the storage class the lifecycle transitions name. The remote bucket must exist and be reachable with the credentials (read, write, list and delete); they are stored sealed.",
+    "create": "Add",
+    "name": "Name",
+    "nameHint": "Upper case letters, digits, “-” and “_” (e.g. COLD).",
+    "nameInvalid": "Upper case letters, digits, “-” and “_”; STANDARD and REDUCED_REDUNDANCY are reserved.",
+    "endpoint": "S3 endpoint",
+    "urlInvalid": "Enter an http(s)://host[:port] URL.",
+    "bucket": "Bucket",
+    "prefix": "Prefix",
+    "prefixInvalid": "The prefix ends with “/”.",
+    "region": "Region",
+    "storageClass": "Remote storage class",
+    "accessKey": "Access key",
+    "secretKey": "Secret key",
+    "required": "Required.",
+    "created": "Tier {{name}} added.",
+    "removed": "Tier {{name}} removed.",
+    "removeTier": "Remove tier {{name}}",
+    "removeTitle": "Remove the tier",
+    "removeConfirm": "Remove tier {{name}}? A tier that still holds the data of transitioned versions cannot be removed."
   }
 }

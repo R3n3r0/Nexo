@@ -2,10 +2,16 @@
 // the LifecycleConfiguration documents of S3 (parsing and validation),
 // their evaluation against the versions of a key and the in-progress
 // multipart uploads with an injected clock (Expiration, expired object
-// delete markers, NoncurrentVersionExpiration, AbortIncompleteMultipartUpload;
-// transitions to remote tiers are P2), and their application: by the
-// background scanner, which hands every version to the service
-// (scanner.Lifecycle), or on demand (ApplyNow).
+// delete markers, NoncurrentVersionExpiration, AbortIncompleteMultipartUpload,
+// Transition and NoncurrentVersionTransition to the remote tiers of
+// S-STO-12), and their application: by the background scanner, which hands
+// every version to the service (scanner.Lifecycle), or on demand
+// (ApplyNow).
+//
+// An expiration due wins over a transition. A transition moves the data of
+// a version to the tier its storage class names (object.TransitionObject);
+// the versions stored inline, empty or already in a tier stay where they
+// are.
 //
 // Versions protected by Object Lock (retention or legal hold) are never
 // deleted: an expiration only puts a delete marker over them. The
@@ -35,8 +41,8 @@ type Service interface {
 
 	// Parse decodes and validates a LifecycleConfiguration document: S3
 	// MalformedXML, InvalidArgument or InvalidRequest errors (wrapping
-	// domain.ErrMalformedXML / ErrInvalidArgument), NotImplemented for a
-	// transition to a storage class without tier.
+	// domain.ErrMalformedXML / ErrInvalidArgument), InvalidStorageClass
+	// for a transition to a storage class without tier.
 	Parse(ctx context.Context, doc []byte) (*Configuration, error)
 	// Validate parses doc and returns its canonical form, the document to
 	// store (rules without ID get one).
@@ -63,15 +69,24 @@ type BucketSettings interface {
 	Load(ctx context.Context, bucket string) (*bucket.Metadata, error)
 }
 
+// Tiers lists the remote tiers the transitions may name (tier.Service,
+// through an adapter).
+type Tiers interface {
+	TierNames(ctx context.Context) ([]string, error)
+}
+
 // Deps are the dependencies of the lifecycle service.
 type Deps struct {
-	// Objects lists, reads and deletes the versions and the uploads
-	// (required).
+	// Objects lists, reads, deletes and transitions the versions and the
+	// uploads (required).
 	Objects object.Service
 	// Buckets provides the configurations (required).
 	Buckets BucketSettings
-	Clock   clock.Clock
-	Logger  *slog.Logger
+	// Tiers provides the tiers of the transitions (nil: only those of
+	// WithStorageClasses).
+	Tiers  Tiers
+	Clock  clock.Clock
+	Logger *slog.Logger
 }
 
 // EvaluateInput are the parameters of Evaluate.
@@ -100,6 +115,9 @@ const (
 	ActionDeleteMarker ActionType = "DeleteMarker"
 	// ActionAbortUpload aborts an incomplete multipart upload.
 	ActionAbortUpload ActionType = "AbortUpload"
+	// ActionTransition moves the data of a version to the tier
+	// Action.StorageClass names.
+	ActionTransition ActionType = "Transition"
 )
 
 // Action is an action due on a version or an upload.
@@ -118,6 +136,8 @@ type Action struct {
 	UploadID  string
 	// Due is when the action became due.
 	Due time.Time
+	// StorageClass is the tier of a transition.
+	StorageClass string
 }
 
 // Expiry is the expiration of a version: the zero value when none.
@@ -141,4 +161,6 @@ type ApplyResult struct {
 	// Locked counts the expirations skipped because Object Lock protects
 	// the version.
 	Locked int `json:"locked"`
+	// Transitioned counts the versions moved to a remote tier.
+	Transitioned int `json:"transitioned"`
 }

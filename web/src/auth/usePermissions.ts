@@ -102,6 +102,12 @@ export const PoolActions = {
   rebalance: 'admin:Rebalance',
 } as const;
 
+/** Policy actions of the remote tiers (S-STO-12). */
+export const TierActions = {
+  list: 'admin:ListTier',
+  set: 'admin:SetTier',
+} as const;
+
 /** Policy actions of the site replication (S-STO-11). */
 export const SiteReplicationActions = {
   info: 'admin:SiteReplicationInfo',

@@ -356,6 +356,14 @@ type AdminClient interface {
 	SiteReplicationState(ctx context.Context) (*SiteReplicationState, error)
 	SiteReplicationItems(ctx context.Context, keys []string) ([]byte, error)
 	SiteReplicationApply(ctx context.Context, sealed []byte) ([]SiteReplicationResult, error)
+
+	// Remote tiers of the lifecycle transitions (S-STO-12,
+	// admin:ListTier/SetTier). AddTier checks the remote bucket with the
+	// credentials; RemoveTier refuses a tier that holds data.
+	ListTiers(ctx context.Context) ([]Tier, error)
+	AddTier(ctx context.Context, in TierInput) (*Tier, error)
+	EditTier(ctx context.Context, name string, in TierInput) (*Tier, error)
+	RemoveTier(ctx context.Context, name string) error
 }
 
 // DefaultRegion is the signing region when Config.Region is empty.
