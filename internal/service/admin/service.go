@@ -1521,6 +1521,14 @@ type ClusterManager interface {
 	// buckets are created). Malformed archives are
 	// domain.ErrInvalidArgument.
 	Import(ctx context.Context, archive []byte, opts ImportOptions) (ImportSummary, error)
+
+	// SiteBucket returns the settings of a bucket replicated by the site
+	// replication (S-STO-11), as a JSON document: those of the archive
+	// without the notification, whose targets belong to each deployment.
+	SiteBucket(ctx context.Context, name string) ([]byte, error)
+	// ApplySiteBucket creates the bucket of a document of SiteBucket when
+	// missing and replaces its settings with those of the document.
+	ApplySiteBucket(ctx context.Context, doc []byte) error
 }
 
 // ImportMode is what an import does with the state the archive does not

@@ -15,6 +15,7 @@ import {
 import { createMockHealService, type MockHealOptions } from './heal';
 import { createMockPoolsService, type MockPoolsOptions } from './pools';
 import { createMockReplicationService } from './replication';
+import { createMockSiteReplicationService } from './siteReplication';
 import { createMockIam, type MockIamOptions } from './iam';
 import { createMockInfoService, sampleServerInfo, type MockInfoOptions } from './info';
 import { createMockKmsService } from './kms';
@@ -123,6 +124,7 @@ export function createMockServices(options: MockServicesOptions = {}): MockServi
     notifications: createMockNotificationService(storage, options),
     media: createMockMediaService(storage),
     replication: createMockReplicationService(storage),
+    siteReplication: createMockSiteReplicationService(ctx),
     kms: createMockKmsService(storage),
     objects,
     uploads: createMockUploadService(storage),

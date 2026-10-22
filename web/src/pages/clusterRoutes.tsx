@@ -2,13 +2,16 @@ import { Center, Loader } from '@mantine/core';
 import { lazy, Suspense, type ComponentType, type LazyExoticComponent } from 'react';
 import type { RouteObject } from 'react-router';
 
+import { loadSectionTranslations } from '@/i18n';
+
 /** Lazily loads a named page export, so that each section is its own chunk. */
 function lazyPage<M>(load: () => Promise<M>, pick: (module: M) => ComponentType) {
   return lazy(async () => ({ default: pick(await load()) }));
 }
 
+// The site replication panel uses strings loaded on demand (i18n sections).
 const ClusterPage = lazyPage(
-  () => import('./cluster/ClusterPage'),
+  async () => (await Promise.all([import('./cluster/ClusterPage'), loadSectionTranslations()]))[0],
   (m) => m.ClusterPage,
 );
 const HealingPage = lazyPage(

@@ -243,6 +243,16 @@ packages:
       Leader:
       Dialer:
       Remote:
+  github.com/r3n3r0/nexo/internal/service/siterepl:
+    interfaces:
+      Service:
+      IAM:
+      Policies:
+      BucketSettings:
+      Sealer:
+      Leader:
+      Dialer:
+      Peer:
   github.com/r3n3r0/nexo/internal/service/scanner:
     interfaces:
       Service:
@@ -344,6 +354,7 @@ packages:
       LifecycleRoutes:
       NotificationRoutes:
       ReplicationRoutes:
+      SiteReplicationRoutes:
       CORSRoutes:
       MediaRoutes:
       KMSRoutes:

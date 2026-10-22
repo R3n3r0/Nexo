@@ -85,7 +85,9 @@ type MemAdmin struct {
 	// (admin_observability.go).
 	obs memObsState
 	// repl holds the replication of the buckets (admin_replication.go).
-	repl  memReplState
+	repl memReplState
+	// site holds the site replication (admin_sitereplication.go).
+	site  memSiteState
 	seq   int
 	fail  map[string]error
 	calls map[string]int
@@ -327,6 +329,7 @@ func (m *MemAdmin) Client(t TestingT, caller string) *climock.AdminClient {
 	s.expectMedia(c)
 	s.expectSubtitles(c)
 	s.expectReplication(c)
+	s.expectSiteReplication(c)
 	return c
 }
 

@@ -2996,6 +2996,164 @@ paths:
       responses:
         "204": { description: Stopped. }
         default: { $ref: "#/components/responses/Problem" }
+  /site-replication:
+    get:
+      tags: [cluster]
+      operationId: getSiteReplication
+      summary: Site replication of this deployment
+      description: >-
+        The group of sites this deployment is in (S-STO-11) and, per other site, the last round of
+        synchronization as the leader recorded it. Disabled when in no group.
+      x-nexo-actions: ["admin:SiteReplicationInfo"]
+      responses:
+        "200":
+          description: The site replication.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SiteReplicationInfo" }
+        default: { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [cluster]
+      operationId: addSiteReplication
+      summary: Group sites
+      description: >-
+        Groups the sites, this one among them: their users, groups, access keys, named policies and
+        buckets are kept in sync, and every bucket replicates to the same bucket of every other site.
+        Every site must accept the root credentials of this one at its Admin API and be in no group.
+      x-nexo-actions: ["admin:SiteReplicationAdd"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SiteReplicationSites" }
+      responses:
+        "200":
+          description: The group, saved on every site.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SiteReplicationInfo" }
+        default: { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [cluster]
+      operationId: removeSiteReplication
+      summary: Dissolve the group
+      description: >-
+        Every site reached forgets the group and the replication rules it added; what was replicated
+        stays. 409 when some sites were not reached (the group is removed here).
+      x-nexo-actions: ["admin:SiteReplicationRemove"]
+      responses:
+        "204": { description: Removed. }
+        default: { $ref: "#/components/responses/Problem" }
+  /site-replication/sync:
+    post:
+      tags: [cluster]
+      operationId: syncSiteReplication
+      summary: Run a round of synchronization now
+      x-nexo-actions: ["admin:SiteReplicationAdd"]
+      responses:
+        "202": { description: Asked. }
+        default: { $ref: "#/components/responses/Problem" }
+  /site-replication/peer:
+    get:
+      tags: [cluster]
+      operationId: siteReplicationPeerInfo
+      summary: Describe this site to another one (internal)
+      description: Calls between the sites of a group, reserved to the root credentials.
+      x-nexo-actions: ["admin:SiteReplicationOperation"]
+      responses:
+        "200":
+          description: This site.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SiteReplicationPeer" }
+        default: { $ref: "#/components/responses/Problem" }
+  /site-replication/peer/join:
+    post:
+      tags: [cluster]
+      operationId: joinSiteReplication
+      summary: Save the group of sites (internal)
+      x-nexo-actions: ["admin:SiteReplicationOperation"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SiteReplicationSites" }
+      responses:
+        "204": { description: Joined. }
+        default: { $ref: "#/components/responses/Problem" }
+  /site-replication/peer/leave:
+    post:
+      tags: [cluster]
+      operationId: leaveSiteReplication
+      summary: Forget the group (internal)
+      x-nexo-actions: ["admin:SiteReplicationOperation"]
+      responses:
+        "204": { description: Left. }
+        default: { $ref: "#/components/responses/Problem" }
+  /site-replication/peer/state:
+    get:
+      tags: [cluster]
+      operationId: siteReplicationState
+      summary: Hashes of the replicated entries of this site (internal)
+      x-nexo-actions: ["admin:SiteReplicationOperation"]
+      responses:
+        "200":
+          description: The entries.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SiteReplicationState" }
+        default: { $ref: "#/components/responses/Problem" }
+  /site-replication/peer/items:
+    post:
+      tags: [cluster]
+      operationId: siteReplicationItems
+      summary: Sealed values of entries (internal)
+      x-nexo-actions: ["admin:SiteReplicationOperation"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [keys]
+              properties:
+                keys: { type: array, items: { type: string } }
+      responses:
+        "200":
+          description: The sealed entries.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SiteReplicationSealed" }
+        default: { $ref: "#/components/responses/Problem" }
+  /site-replication/peer/apply:
+    post:
+      tags: [cluster]
+      operationId: siteReplicationApply
+      summary: Apply sealed changes (internal)
+      x-nexo-actions: ["admin:SiteReplicationOperation"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SiteReplicationSealed" }
+      responses:
+        "200":
+          description: The outcome of each change.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results]
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      required: [key]
+                      properties:
+                        key: { type: string }
+                        error: { type: string }
+        default: { $ref: "#/components/responses/Problem" }
   /config/{subsys}:
     parameters:
       - name: subsys
@@ -4730,6 +4888,74 @@ components:
           items: { $ref: "#/components/schemas/ReplicationTargetStatus" }
         queued: { type: integer }
         resync: { $ref: "#/components/schemas/ReplicationResync" }
+    SiteReplicationSite:
+      type: object
+      required: [name, endpoint, adminEndpoint]
+      properties:
+        name: { type: string, description: "1-63 letters, digits, '.', '_' or '-'." }
+        deploymentId: { type: string, description: Filled by the server. }
+        endpoint: { type: string, description: "URL of the S3 API of the site." }
+        adminEndpoint: { type: string, description: "URL of the Admin API (console listener) of the site." }
+    SiteReplicationSites:
+      type: object
+      required: [sites]
+      properties:
+        sites:
+          type: array
+          items: { $ref: "#/components/schemas/SiteReplicationSite" }
+    SiteReplicationPeerStatus:
+      type: object
+      required: [name, deploymentId, pushed, pulled, pending]
+      properties:
+        name: { type: string }
+        deploymentId: { type: string }
+        lastSync: { type: string, format: date-time }
+        lastError: { type: string }
+        lastErrorAt: { type: string, format: date-time }
+        pushed: { type: integer, format: int64, description: Entries sent to the site. }
+        pulled: { type: integer, format: int64, description: Entries taken from the site. }
+        pending: { type: integer, description: Changes not applied at the last round (retried). }
+    SiteReplicationInfo:
+      type: object
+      required: [enabled, deploymentId, sites, peers, entries]
+      properties:
+        enabled: { type: boolean }
+        name: { type: string, description: Name of this site in the group. }
+        deploymentId: { type: string }
+        sites:
+          type: array
+          items: { $ref: "#/components/schemas/SiteReplicationSite" }
+        peers:
+          type: array
+          items: { $ref: "#/components/schemas/SiteReplicationPeerStatus" }
+        entries: { type: integer, description: Replicated entries at the last round. }
+    SiteReplicationPeer:
+      type: object
+      required: [deploymentId, enabled]
+      properties:
+        deploymentId: { type: string }
+        enabled: { type: boolean }
+        sites:
+          type: array
+          items: { $ref: "#/components/schemas/SiteReplicationSite" }
+    SiteReplicationState:
+      type: object
+      required: [deploymentId, entries]
+      properties:
+        deploymentId: { type: string }
+        entries:
+          type: object
+          additionalProperties:
+            type: object
+            required: [hash]
+            properties:
+              hash: { type: string }
+              modTime: { type: string, format: date-time }
+    SiteReplicationSealed:
+      type: object
+      required: [data]
+      properties:
+        data: { type: string, format: byte, description: Entries sealed with a key derived from the root credentials. }
     PoolJob:
       type: object
       required: [state, startedAt, pass, objects, versions, bytes, failed, pendingUploads]

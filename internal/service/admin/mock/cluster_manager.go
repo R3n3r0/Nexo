@@ -23,6 +23,53 @@ func (_m *ClusterManager) EXPECT() *ClusterManager_Expecter {
 	return &ClusterManager_Expecter{mock: &_m.Mock}
 }
 
+// ApplySiteBucket provides a mock function with given fields: ctx, doc
+func (_m *ClusterManager) ApplySiteBucket(ctx context.Context, doc []byte) error {
+	ret := _m.Called(ctx, doc)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ApplySiteBucket")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, []byte) error); ok {
+		r0 = rf(ctx, doc)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// ClusterManager_ApplySiteBucket_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ApplySiteBucket'
+type ClusterManager_ApplySiteBucket_Call struct {
+	*mock.Call
+}
+
+// ApplySiteBucket is a helper method to define mock.On call
+//   - ctx context.Context
+//   - doc []byte
+func (_e *ClusterManager_Expecter) ApplySiteBucket(ctx interface{}, doc interface{}) *ClusterManager_ApplySiteBucket_Call {
+	return &ClusterManager_ApplySiteBucket_Call{Call: _e.mock.On("ApplySiteBucket", ctx, doc)}
+}
+
+func (_c *ClusterManager_ApplySiteBucket_Call) Run(run func(ctx context.Context, doc []byte)) *ClusterManager_ApplySiteBucket_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]byte))
+	})
+	return _c
+}
+
+func (_c *ClusterManager_ApplySiteBucket_Call) Return(_a0 error) *ClusterManager_ApplySiteBucket_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *ClusterManager_ApplySiteBucket_Call) RunAndReturn(run func(context.Context, []byte) error) *ClusterManager_ApplySiteBucket_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Export provides a mock function with given fields: ctx
 func (_m *ClusterManager) Export(ctx context.Context) ([]byte, error) {
 	ret := _m.Called(ctx)
@@ -135,6 +182,65 @@ func (_c *ClusterManager_Import_Call) Return(_a0 admin.ImportSummary, _a1 error)
 }
 
 func (_c *ClusterManager_Import_Call) RunAndReturn(run func(context.Context, []byte, admin.ImportOptions) (admin.ImportSummary, error)) *ClusterManager_Import_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SiteBucket provides a mock function with given fields: ctx, name
+func (_m *ClusterManager) SiteBucket(ctx context.Context, name string) ([]byte, error) {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SiteBucket")
+	}
+
+	var r0 []byte
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]byte, error)); ok {
+		return rf(ctx, name)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []byte); ok {
+		r0 = rf(ctx, name)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]byte)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, name)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ClusterManager_SiteBucket_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SiteBucket'
+type ClusterManager_SiteBucket_Call struct {
+	*mock.Call
+}
+
+// SiteBucket is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+func (_e *ClusterManager_Expecter) SiteBucket(ctx interface{}, name interface{}) *ClusterManager_SiteBucket_Call {
+	return &ClusterManager_SiteBucket_Call{Call: _e.mock.On("SiteBucket", ctx, name)}
+}
+
+func (_c *ClusterManager_SiteBucket_Call) Run(run func(ctx context.Context, name string)) *ClusterManager_SiteBucket_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *ClusterManager_SiteBucket_Call) Return(_a0 []byte, _a1 error) *ClusterManager_SiteBucket_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *ClusterManager_SiteBucket_Call) RunAndReturn(run func(context.Context, string) ([]byte, error)) *ClusterManager_SiteBucket_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -102,6 +102,13 @@ export const PoolActions = {
   rebalance: 'admin:Rebalance',
 } as const;
 
+/** Policy actions of the site replication (S-STO-11). */
+export const SiteReplicationActions = {
+  info: 'admin:SiteReplicationInfo',
+  add: 'admin:SiteReplicationAdd',
+  remove: 'admin:SiteReplicationRemove',
+} as const;
+
 export interface PermissionCheck {
   /** True until the first answer of GET /me/permissions. */
   loading: boolean;

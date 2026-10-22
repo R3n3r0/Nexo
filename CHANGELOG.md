@@ -338,6 +338,16 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
 - `nexoctl replicate add|ls|rm|status|resync` (the remote is an alias of nexoctl) and the **Replication** tab of the
   bucket in the console. Versioning cannot be suspended while a bucket has replication rules.
 
+### Site replication (S-STO-11, C-ADM-11)
+- `nexoctl admin replicate add|info|remove|sync` groups deployments sharing the root credentials: users, groups,
+  access keys, named policies and buckets with their settings are kept in sync by a three-way merge with the last
+  agreed state (the newest change wins, a change beats a deletion, the first round only adds), and every bucket
+  replicates its objects to the same bucket of every other site (`site-<name>` rules, existing objects resynced).
+- Admin API `/site-replication` (and the calls between the sites under `/site-replication/peer`, root only, with
+  sealed entries); policy actions `admin:SiteReplicationAdd`, `admin:SiteReplicationInfo`,
+  `admin:SiteReplicationRemove`, `admin:SiteReplicationOperation`; a **Site replication** panel on the Cluster page
+  of the console.
+
 ### Transparent compression (opt-in, S-OBJ-14)
 - `compression` configuration subsystem (`enable`, `extensions`, `mime_types`, applied to the next writes): the
   selected unencrypted versions are stored as S2 streams, one per part, with the block index of each part in its
@@ -442,7 +452,9 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   reverse proxy with connection limits in front of public deployments (`deploy/proxy`).
 - Bucket replication: SSE-C versions are not replicated, the status counters are per node, the targets are not
   part of the cluster export and must be registered again after a change of the root password.
-- Not included (M10): site replication, tiering, ACLs other than `private`, coordinated cluster restart
+- Site replication: a bucket is deleted on the other sites only once empty there; the share links of a deleted
+  user are not revoked on the other sites.
+- Not included (M10): tiering, ACLs other than `private`, coordinated cluster restart
   and orchestrated upgrade. The
   DNS-01 propagation check does not follow a CNAME delegation of `_acme-challenge` (acme-dns style).
 - O_DIRECT is not used (measured slower on the reference VM, docs/bench §7.2); zero-copy covers single-drive

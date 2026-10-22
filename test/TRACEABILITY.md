@@ -10,7 +10,7 @@ Every feature of the [catalog](../docs/02-features.md) with the tests that cover
 |----------|---------:|-----------:|--------------:|
 | P0 | 75 | 75 | 0 |
 | P1 | 73 | 73 | 0 |
-| P2 (not in v1.0) | 17 | 12 | — |
+| P2 (not in v1.0) | 17 | 14 | — |
 
 A feature with a mixed priority (`P0/P1`, `P1 / P2`) is in the scope of v1.0 for its P0/P1 part and is counted with the highest priority.
 
@@ -216,7 +216,7 @@ Features after v1.0 ([05, M10](../docs/05-roadmap.md#m10--post-v10-p2)): they ar
 | S-IAM-09 | Server — Authentication and IAM | LDAP/Active Directory | **5**: `internal/service/iam/federated_test.go` TestAssumeFederated<br>`internal/service/idp/idp_test.go` TestLDAP<br>`internal/service/session/federated_test.go` TestLoginLDAP<br>`test/integration/federation_test.go` TestAssumeRoleWithLDAPIdentity<br>`test/integration/federation_test.go` TestConsoleFederatedLogin |
 | S-STO-09 | Server — Storage, durability, cluster | Pool decommission | **7**: `internal/service/object/poolmove_test.go` TestMoveObject<br>`internal/service/object/poolmove_test.go` TestDrainingPool<br>`internal/service/object/poolmove_test.go` TestMoveObjectFailureKeepsSource<br>`internal/service/object/poolmove_test.go` TestMoveObjectConcurrentWrites<br>`internal/service/pools/pools_test.go` TestDecommission<br>`internal/service/pools/pools_test.go` TestDecommissionResumeAndCancel<br>`test/integration/pools_test.go` TestPoolDecommission |
 | S-STO-10 | Server — Storage, durability, cluster | Rebalancing between pools | **2**: `internal/service/object/poolmove_test.go` TestMoveObjectConcurrentWrites<br>`internal/service/pools/pools_test.go` TestRebalance |
-| S-STO-11 | Server — Storage, durability, cluster | Site replication (multiple clusters, synchronized IAM + buckets) | — |
+| S-STO-11 | Server — Storage, durability, cluster | Site replication (multiple clusters, synchronized IAM + buckets) | **3**: `internal/service/siterepl/merge_test.go` TestMerge<br>`test/integration/sitereplication_test.go` TestSiteReplication<br>`web/src/pages/cluster/SiteReplication.test.tsx` SiteReplication (S-STO-11) |
 | S-STO-12 | Server — Storage, durability, cluster | ILM tiering to remote S3 | — |
 | S-OPS-09 | Server — Operations | Coordinated cluster restart/stop, rolling binary upgrade | — |
 | D-AUTH-02 | Dashboard (React console) | SSO login — OIDC button | **3**: `internal/service/idp/idp_test.go` TestAuthorizationCodeFlow<br>`internal/service/session/federated_test.go` TestLoginLDAP<br>`test/integration/federation_test.go` TestConsoleFederatedLogin |
@@ -224,4 +224,4 @@ Features after v1.0 ([05, M10](../docs/05-roadmap.md#m10--post-v10-p2)): they ar
 | D-CLU-03 | Dashboard (React console) | Pools — Expansion (instructions), decommission, rebalance | **1**: `web/src/pages/cluster/ClusterPage.test.tsx` ClusterPage pool management (D-CLU-03) |
 | C-ADM-09 | CLI (`nexoctl`) | `admin service restart/stop` — Service control (restart and stop of the node receiving the request already in v1.0; coordinated across the cluster with S-OPS-09) | **1**: `internal/cli/commands/admin_test.go` TestScenarioAdminServer |
 | C-ADM-10 | CLI (`nexoctl`) | `admin decommission start/status/cancel`, `admin rebalance` — Pool management | **2**: `internal/cli/commands/admin_test.go` TestScenarioAdminPools<br>`test/integration/pools_test.go` TestPoolDecommission |
-| C-ADM-11 | CLI (`nexoctl`) | `admin replicate add/info/remove` — Site replication | — |
+| C-ADM-11 | CLI (`nexoctl`) | `admin replicate add/info/remove` — Site replication | **1**: `internal/cli/commands/admin_replicate_test.go` TestScenarioAdminReplicate |

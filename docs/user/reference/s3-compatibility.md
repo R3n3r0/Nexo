@@ -47,7 +47,7 @@ They answer `501 NotImplemented`: bucket website (`?website`; the
 place), server access logging, accelerate, analytics, inventory, metrics,
 intelligent tiering, ownership controls, request payment, `RestoreObject`,
 `GetObjectTorrent`. Lifecycle transitions to other storage classes are rejected. Planned after v1.0: full
-ACLs, site replication, tiering to remote S3, `AssumeRoleWithWebIdentity`.
+ACLs, tiering to remote S3, `AssumeRoleWithWebIdentity`.
 
 ### S3 Select
 

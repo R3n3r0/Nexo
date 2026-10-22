@@ -146,6 +146,16 @@ type Service interface {
 	// credentials are skipped. A wrong key returns ErrWrongKey, a damaged
 	// document domain.ErrInvalidFormat.
 	Import(ctx context.Context, data []byte) error
+
+	// SiteRecords returns the users, groups and access keys (not root,
+	// not temporary credentials) as stored, keyed by SiteUserPrefix,
+	// SiteGroupPrefix or SiteServiceAccountPrefix and their name, for the
+	// site replication (S-STO-11).
+	SiteRecords(ctx context.Context) (map[string]SiteRecord, error)
+	// ApplySiteRecords writes records of SiteRecords of another site as
+	// they are, and removes the deleted keys (a missing one is ignored).
+	// The records are validated before anything is written.
+	ApplySiteRecords(ctx context.Context, puts map[string][]byte, deletes []string) error
 }
 
 // Namespace partitions the entries of a Store.

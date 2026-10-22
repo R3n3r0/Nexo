@@ -1,0 +1,55 @@
+$ nexoctl admin replicate info mem
+"mem" is in no site replication group.
+
+$ nexoctl admin replicate add mem site-b site-c
+Sites mem, site-b, site-c grouped: they synchronize now (follow it with "nexoctl admin replicate info mem").
+
+$ nexoctl admin replicate info mem
+Site mem (deployment dep-mem), 0 replicated entries.
+SITE             S3 ENDPOINT                              ADMIN ENDPOINT                           STATE
+mem              http://s3.mem.test                       http://s3.mem.test                       this site
+site-b           https://b.example.test:9000              https://b.example.test:9001              not synchronized yet
+site-c           https://c.example.test                   https://admin.c.example.test             not synchronized yet
+
+$ nexoctl admin replicate info mem
+Site mem (deployment dep-mem), 0 replicated entries.
+SITE             S3 ENDPOINT                              ADMIN ENDPOINT                           STATE
+mem              http://s3.mem.test                       http://s3.mem.test                       this site
+site-b           https://b.example.test:9000              https://b.example.test:9001              in sync at 2026-01-02T03:04:06Z
+site-c           https://c.example.test                   https://admin.c.example.test             error: dial tcp: connection refused (3 changes pending)
+
+$ nexoctl admin replicate info --json mem
+{"status":"success","alias":"mem","enabled":true,"name":"mem","deploymentId":"dep-mem","sites":[{"name":"mem","deploymentId":"dep-mem","endpoint":"http://s3.mem.test","adminEndpoint":"http://s3.mem.test"},{"name":"site-b","deploymentId":"dep-site-b","endpoint":"https://b.example.test:9000","adminEndpoint":"https://b.example.test:9001"},{"name":"site-c","deploymentId":"dep-site-c","endpoint":"https://c.example.test","adminEndpoint":"https://admin.c.example.test"}],"peers":[{"name":"site-b","deploymentId":"dep-site-b","lastSync":"2026-01-02T03:04:06Z","pushed":4,"pulled":2,"pending":0},{"name":"site-c","deploymentId":"dep-site-c","lastError":"dial tcp: connection refused","pushed":0,"pulled":0,"pending":3}],"entries":0}
+
+$ nexoctl admin replicate sync mem
+Synchronization of "mem" asked.
+
+$ nexoctl admin replicate add mem
+! nexoctl: error: requires at least 2 arg(s), only received 1
+! Run 'nexoctl admin replicate add --help' for usage.
+[exit 2]
+
+$ nexoctl admin replicate add mem mem
+! nexoctl: error: alias "mem" given twice
+! Run 'nexoctl admin replicate add --help' for usage.
+[exit 2]
+
+$ nexoctl admin replicate add mem ghost
+! nexoctl: error: unknown alias "ghost" (see "nexoctl alias list")
+[exit 3]
+
+$ nexoctl admin replicate add mem site-b
+! nexoctl: error: conflict: this site is already in a site replication group: remove it first (conflict)
+[exit 1]
+
+$ nexoctl admin replicate remove mem
+Site replication of "mem" removed.
+
+$ nexoctl admin replicate remove mem
+! nexoctl: error: not found: this site is in no site replication group (not_found)
+[exit 3]
+
+$ nexoctl admin replicate sync mem
+! nexoctl: error: not found: this site is in no site replication group (not_found)
+[exit 3]
+

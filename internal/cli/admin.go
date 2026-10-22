@@ -90,6 +90,11 @@ type AdminClient interface {
 	ListLocks(ctx context.Context) ([]nexoadmin.Lock, error)
 	ForceUnlock(ctx context.Context, resources ...string) error
 	ListPools(ctx context.Context) (*nexoadmin.Pools, error)
+	// Site replication (C-ADM-11: nexoctl admin replicate).
+	GetSiteReplication(ctx context.Context) (*nexoadmin.SiteReplicationInfo, error)
+	AddSiteReplication(ctx context.Context, sites []nexoadmin.SiteReplicationSite) (*nexoadmin.SiteReplicationInfo, error)
+	RemoveSiteReplication(ctx context.Context) error
+	SyncSiteReplication(ctx context.Context) error
 	DecommissionPool(ctx context.Context, pool int) error
 	CancelDecommission(ctx context.Context, pool int) error
 	StartRebalance(ctx context.Context) error

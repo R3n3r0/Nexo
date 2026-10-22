@@ -53,6 +53,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/replication"
 	"github.com/r3n3r0/nexo/internal/service/session"
 	"github.com/r3n3r0/nexo/internal/service/share"
+	"github.com/r3n3r0/nexo/internal/service/siterepl"
 	"github.com/r3n3r0/nexo/internal/service/storage"
 	"github.com/r3n3r0/nexo/internal/service/topology"
 	"github.com/r3n3r0/nexo/internal/service/trace"
@@ -750,6 +751,8 @@ type adminDeps struct {
 	mediaJobs adminsvc.MediaJobs
 	// replication replicates the buckets to other deployments.
 	replication replication.Service
+	// siteReplication keeps the deployment in sync with other sites.
+	siteReplication siterepl.Service
 	// secureCookies forces the Secure flag of the session cookies (the
 	// console is served over HTTPS, possibly by a proxy terminating TLS).
 	secureCookies bool
@@ -962,6 +965,13 @@ func buildAdminAPI(d adminDeps) (httpx.Routes, error) {
 			return nil, err
 		}
 		groups = append(groups, replicationRoutes)
+	}
+	if d.siteReplication != nil {
+		siteRoutes, err := adminhttp.NewSiteReplicationRoutes(adminhttp.SiteReplicationDeps{SiteReplication: d.siteReplication, Authz: svc.authz, Enc: d.codec})
+		if err != nil {
+			return nil, err
+		}
+		groups = append(groups, siteRoutes)
 	}
 	distRoutes, err := buildDistributionRoutes(d, svc)
 	if err != nil {

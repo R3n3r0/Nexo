@@ -110,7 +110,8 @@ does not lose it.
 - A change of metadata alone (other than the tags) is not replicated; a copy onto the same key is.
 - The targets and their credentials are not part of `admin cluster export`. They are sealed with a key derived
   from the root credentials: after changing the root password, register the targets again.
-- Site replication (IAM, policies and every bucket across several deployments) is a separate feature.
+- [Site replication](site-replication.md) keeps IAM, policies and every bucket in sync across several
+  deployments.
 
 ## Admin API and S3 API
 

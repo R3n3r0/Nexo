@@ -338,6 +338,24 @@ type AdminClient interface {
 	ListCacheInvalidations(ctx context.Context, distribution string) ([]CacheInvalidation, error)
 	WarmCache(ctx context.Context, distribution string, in CacheWarmRequest) (*CacheWarmJob, error)
 	GetCacheWarmJob(ctx context.Context, distribution, id string) (*CacheWarmJob, error)
+
+	// Site replication (S-STO-11, admin:SiteReplicationInfo/Add/Remove).
+	GetSiteReplication(ctx context.Context) (*SiteReplicationInfo, error)
+	// AddSiteReplication groups the sites (this one among them): their
+	// users, groups, access keys, policies and buckets are kept in sync.
+	// Every site must accept the root credentials of this one.
+	AddSiteReplication(ctx context.Context, sites []SiteReplicationSite) (*SiteReplicationInfo, error)
+	// RemoveSiteReplication dissolves the group on every site it reaches.
+	RemoveSiteReplication(ctx context.Context) error
+	// SyncSiteReplication runs a synchronization now.
+	SyncSiteReplication(ctx context.Context) error
+	// The calls between the sites of a group (root credentials only).
+	SiteReplicationPeerInfo(ctx context.Context) (*SiteReplicationPeer, error)
+	JoinSiteReplication(ctx context.Context, sites []SiteReplicationSite) error
+	LeaveSiteReplication(ctx context.Context) error
+	SiteReplicationState(ctx context.Context) (*SiteReplicationState, error)
+	SiteReplicationItems(ctx context.Context, keys []string) ([]byte, error)
+	SiteReplicationApply(ctx context.Context, sealed []byte) ([]SiteReplicationResult, error)
 }
 
 // DefaultRegion is the signing region when Config.Region is empty.
