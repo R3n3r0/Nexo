@@ -36,6 +36,7 @@ Available Commands:
   replicate    Keep several deployments in sync (site replication)
   service      Restart or stop the server
   speedtest    Measure the drives, the object layer or the network between the nodes
+  tier         Manage the remote tiers of the lifecycle transitions
   trace        Show the requests served by the server, live
   usage        Show the data usage of the server and of each bucket
   user         Manage the IAM users

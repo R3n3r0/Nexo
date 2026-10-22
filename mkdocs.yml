@@ -161,6 +161,7 @@ nav:
       - Media worker: media-worker.md
       - Bucket replication: replication.md
       - Site replication: site-replication.md
+      - Remote tiers: tiering.md
   - Reference:
       - CLI: reference/cli.md
       - nexoctl commands: cli/nexoctl.md

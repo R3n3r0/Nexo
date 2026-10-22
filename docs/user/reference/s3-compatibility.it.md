@@ -47,8 +47,9 @@ Rispondono `501 NotImplemented`: website del bucket (`?website`, al suo posto ci
 [block public access](../security/sharing.md#regole-di-accesso-pubbliche-e-block-public-access) di
 Nexo), server access logging, accelerate, analytics, inventory, metrics,
 intelligent tiering, ownership controls, request payment, `RestoreObject`,
-`GetObjectTorrent`. Le transizioni di lifecycle verso altre classi di storage sono rifiutate. Sono previste
-dopo la v1.0: ACL complete, tiering verso S3 remoto, `AssumeRoleWithWebIdentity`.
+`GetObjectTorrent`. Le transizioni di lifecycle indicano un tier remoto ([Tier remoti](../tiering.md)); le altre
+classi di storage sono rifiutate (`InvalidStorageClass`). Sono previste dopo la v1.0: ACL complete,
+`AssumeRoleWithWebIdentity`.
 
 ### S3 Select
 

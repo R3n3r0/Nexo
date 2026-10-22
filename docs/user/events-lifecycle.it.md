@@ -177,8 +177,8 @@ documento senza regole rimuove la configurazione. Le stesse regole si gestiscono
 `PutBucketLifecycleConfiguration` da qualsiasi SDK e dalla scheda **Lifecycle** del bucket in console.
 `ilm apply` richiede `s3:PutLifecycleConfiguration` e `admin:ApplyLifecycle`.
 
-Le transizioni verso altre classi di storage o tier remoti (`Transition`) non sono ancora supportate e
-vengono rifiutate.
+Le azioni `Transition` e `NoncurrentVersionTransition` spostano i dati delle versioni vecchie su un tier remoto:
+vedi [Tier remoti](tiering.md). Una transizione che non indica alcun tier viene rifiutata (`InvalidStorageClass`).
 
 ### Eventi del lifecycle
 

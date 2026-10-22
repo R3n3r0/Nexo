@@ -83,7 +83,7 @@ func (l *layer) openPinned(free context.Context, st store, bucket, key string, f
 		r = l.openEncrypted(free, st, bucket, key, fi, okey, offset, length)
 	case length > 0 && isCompressed(fi.Metadata):
 		r = l.openCompressed(free, st, bucket, key, fi, offset, length)
-	case length <= 0 || fi.DataDir == "":
+	case length <= 0 || inlineData(fi):
 		// Inline data is in memory: nothing to open.
 		rc, err := l.openData(free, st, bucket, key, fi, offset, length)
 		return rc, err == nil

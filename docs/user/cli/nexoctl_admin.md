@@ -60,6 +60,7 @@ nexoctl admin [flags]
 * [nexoctl admin replicate](nexoctl_admin_replicate.md)	 - Keep several deployments in sync (site replication)
 * [nexoctl admin service](nexoctl_admin_service.md)	 - Restart or stop the server
 * [nexoctl admin speedtest](nexoctl_admin_speedtest.md)	 - Measure the drives, the object layer or the network between the nodes
+* [nexoctl admin tier](nexoctl_admin_tier.md)	 - Manage the remote tiers of the lifecycle transitions
 * [nexoctl admin trace](nexoctl_admin_trace.md)	 - Show the requests served by the server, live
 * [nexoctl admin usage](nexoctl_admin_usage.md)	 - Show the data usage of the server and of each bucket
 * [nexoctl admin user](nexoctl_admin_user.md)	 - Manage the IAM users

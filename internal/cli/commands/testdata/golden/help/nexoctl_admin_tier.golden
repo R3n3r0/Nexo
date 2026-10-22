@@ -1,0 +1,33 @@
+Manage the remote tiers: buckets of other S3 servers (Nexo, a cloud provider) that the
+Transition actions of the bucket lifecycle move the data of old versions to. The name of a tier is
+the storage class the transitions name (nexoctl ilm rule add --transition-days 30 --transition-tier COLD).
+
+A transitioned version keeps its metadata here and is read from the tier, transparently; its
+storage class becomes the name of the tier. A copy of the object onto itself brings its data back.
+The objects of the tier that no version refers to any more are removed by a periodic sweep. A tier
+that holds data cannot be removed.
+
+The remote bucket is given as REMOTE_ALIAS/BUCKET: the URL and the credentials of that alias are
+stored, sealed, by the server (read, write, list and delete in the bucket).
+
+Usage:
+  nexoctl admin tier [flags]
+  nexoctl admin tier [command]
+
+Available Commands:
+  add         Add a remote tier (its bucket is checked with the credentials of the remote alias)
+  edit        Replace the credentials of a tier with those of the remote alias
+  ls          List the tiers
+  rm          Remove a tier that holds no data
+
+Flags:
+  -h, --help   help for tier
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl admin tier [command] --help" for more information about a command.

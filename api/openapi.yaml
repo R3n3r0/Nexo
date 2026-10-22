@@ -3154,6 +3154,71 @@ paths:
                         key: { type: string }
                         error: { type: string }
         default: { $ref: "#/components/responses/Problem" }
+  /tiers:
+    get:
+      tags: [cluster]
+      operationId: listTiers
+      summary: List the remote tiers of the lifecycle transitions
+      x-nexo-actions: ["admin:ListTier"]
+      responses:
+        "200":
+          description: The tiers, without their secret.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tiers]
+                properties:
+                  tiers:
+                    type: array
+                    items: { $ref: "#/components/schemas/Tier" }
+        default: { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [cluster]
+      operationId: addTier
+      summary: Add a remote tier (its bucket is checked with the credentials)
+      x-nexo-actions: ["admin:SetTier"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TierInput" }
+      responses:
+        "201":
+          description: The tier.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Tier" }
+        default: { $ref: "#/components/responses/Problem" }
+  /tiers/{name}:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string } }
+    put:
+      tags: [cluster]
+      operationId: editTier
+      summary: Replace the credentials (and the region, the storage class) of a tier
+      x-nexo-actions: ["admin:SetTier"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TierInput" }
+      responses:
+        "200":
+          description: The tier.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Tier" }
+        default: { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [cluster]
+      operationId: removeTier
+      summary: Remove a tier that holds no data of this deployment
+      x-nexo-actions: ["admin:SetTier"]
+      responses:
+        "204": { description: Removed. }
+        "409": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
   /config/{subsys}:
     parameters:
       - name: subsys
@@ -4896,6 +4961,31 @@ components:
         deploymentId: { type: string, description: Filled by the server. }
         endpoint: { type: string, description: "URL of the S3 API of the site." }
         adminEndpoint: { type: string, description: "URL of the Admin API (console listener) of the site." }
+    TierInput:
+      type: object
+      required: [accessKey, secretKey]
+      properties:
+        name: { type: string, description: "Storage class the transitions name (A-Z, 0-9, '-', '_'); POST only." }
+        endpoint: { type: string, description: "URL of the S3 API (http(s)://host[:port]); POST only." }
+        bucket: { type: string, description: Remote bucket; POST only. }
+        prefix: { type: string, description: "Prefix of the objects in the bucket, ending with '/'; POST only." }
+        region: { type: string }
+        storageClass: { type: string, description: Storage class of the remote objects (readable at once). }
+        accessKey: { type: string }
+        secretKey: { type: string, format: password }
+    Tier:
+      type: object
+      required: [name, endpoint, bucket, accessKey, created, updated]
+      properties:
+        name: { type: string }
+        endpoint: { type: string }
+        bucket: { type: string }
+        prefix: { type: string }
+        region: { type: string }
+        storageClass: { type: string }
+        accessKey: { type: string }
+        created: { type: string, format: date-time }
+        updated: { type: string, format: date-time }
     SiteReplicationSites:
       type: object
       required: [sites]

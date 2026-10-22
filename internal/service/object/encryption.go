@@ -419,7 +419,7 @@ func (r *encryptedReader) openNext() error {
 	}
 	rng := rd.rng
 	var raw io.Reader
-	if r.fi.DataDir == "" {
+	if inlineData(r.fi) {
 		if rng.StoredOffset+rng.StoredLength > int64(len(r.fi.Data)) {
 			return fmt.Errorf("%w: inline data of %d bytes, want [%d,+%d)", domain.ErrFaultyDisk, len(r.fi.Data), rng.StoredOffset, rng.StoredLength)
 		}
@@ -447,7 +447,7 @@ func (r *encryptedReader) openNext() error {
 // range are opened up front (inline data needs none). A range over more
 // than max parts is read under the lock without opening anything first.
 func (r *encryptedReader) pin(max int) bool {
-	if r.fi.DataDir == "" {
+	if inlineData(r.fi) {
 		return true
 	}
 	parts := 0

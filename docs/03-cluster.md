@@ -178,6 +178,8 @@ for reads and writes; usable capacity 75%.
   target at a time per bucket). Not replicated: configuration, KMS keys, notification targets, distributions,
   STS credentials and sessions.
 
+- **Remote tiers** (S-STO-12, §3.12).
+
 ## 3.11 Failure scenarios to support
 
 | Scenario | Expected behavior |
@@ -192,3 +194,19 @@ for reads and writes; usable capacity 75%.
 | Crash during multipart completion | Completion first writes a journal (`completing.json`) in the upload directory and moves the parts to a staging directory; on the next attempt the upload is concluded (version already committed) or the parts go back to their place: the upload stays completable |
 | Multipart parts on different disks | Each part requires `D` disks holding it intact; the disks that lack it receive it rebuilt from the shards before the commit |
 | Clock skew between nodes | Warning if > 2 s; SigV4 tolerates 15 min; locks independent of the clock |
+
+## 3.12 Remote tiers
+
+The `Transition` actions of the lifecycle move the data of versions to remote tiers: S3 buckets (endpoint,
+bucket, prefix, sealed credentials in the system store, `tiers/config.json`). A transition copies the stored
+bytes of the version (encrypted and compressed as on the drives) to the tier as one object
+`<prefix><deployment id>/<uuid v7>`, its metadata naming the version, under the read lock of the key, and checks
+its size. Then, under the write lock and if the version is still the same, it records the tier in the metadata
+of the version (`UpdateMetadata`, local data kept), then writes the version without data directory
+(`WriteMetadata`, local data released). The version keeps its parts, sizes and checksums; its reads fetch ranges
+of the tier object (never pinned: the read lock is held until the body is closed). The drives agree on a
+transitioned version whatever the state of its local data (the quorum key names the tier object instead of the
+data directory), and the healing releases the data left by an interrupted transition. A pool move carries the
+metadata only. The leader sweeps the tiers every hour: an object of this deployment older than one hour whose
+version, looked up under its lock, does not name it is removed. A tier holding objects of this deployment
+cannot be removed. A copy onto itself stores the data on the drives again.

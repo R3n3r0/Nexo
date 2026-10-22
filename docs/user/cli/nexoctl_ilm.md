@@ -5,8 +5,9 @@ Manage the lifecycle rules of buckets (expiration, noncurrent versions, uploads)
 ## Synopsis
 
 Manage the lifecycle (ILM) rules of buckets: the expiration of the objects, of
-their noncurrent versions and of the expired delete markers, and the abort of the
-incomplete multipart uploads. The server applies the rules in the background;
+their noncurrent versions and of the expired delete markers, the abort of the
+incomplete multipart uploads, and the transition of the data of old versions to a
+remote tier (nexoctl admin tier). The server applies the rules in the background;
 "ilm apply" applies them at once (Admin API).
 
 The rules travel as the JSON of the Admin API and of the console (ilm rule

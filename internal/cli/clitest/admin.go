@@ -87,7 +87,9 @@ type MemAdmin struct {
 	// repl holds the replication of the buckets (admin_replication.go).
 	repl memReplState
 	// site holds the site replication (admin_sitereplication.go).
-	site  memSiteState
+	site memSiteState
+	// tier holds the remote tiers (admin_tier.go).
+	tier  memTierState
 	seq   int
 	fail  map[string]error
 	calls map[string]int
@@ -330,6 +332,7 @@ func (m *MemAdmin) Client(t TestingT, caller string) *climock.AdminClient {
 	s.expectSubtitles(c)
 	s.expectReplication(c)
 	s.expectSiteReplication(c)
+	s.expectTiers(c)
 	return c
 }
 

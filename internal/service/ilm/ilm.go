@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
@@ -26,8 +27,7 @@ type options struct {
 }
 
 // WithStorageClasses accepts the transitions to the given storage classes
-// (the remote tiers, P2): the other transitions are refused with
-// NotImplemented. The transitions are accepted but not applied yet.
+// besides the tiers of Deps.Tiers (tests).
 func WithStorageClasses(classes ...string) Option {
 	return func(o *options) {
 		for _, c := range classes {
@@ -48,11 +48,17 @@ func WithPageSize(n int) Option {
 	}
 }
 
-// cachedConfig is the parsed lifecycle document of a bucket.
+// cachedConfig is the parsed lifecycle document of a bucket: cfg nil when
+// it could not be parsed at parsed (tried again after retryParse).
 type cachedConfig struct {
-	doc []byte
-	cfg *Configuration
+	doc    []byte
+	cfg    *Configuration
+	parsed time.Time
 }
+
+// retryParse is how long a configuration that could not be parsed (a
+// transition to a tier not created yet) is left before parsing it again.
+const retryParse = time.Minute
 
 // keyState is what the scanner hook decided for the versions of the key
 // being scanned.
@@ -98,8 +104,31 @@ func New(deps Deps, opts ...Option) (Service, error) {
 }
 
 // Parse implements Service.
-func (s *service) Parse(_ context.Context, doc []byte) (*Configuration, error) {
-	return parseConfiguration(doc, s.opts.tiers)
+func (s *service) Parse(ctx context.Context, doc []byte) (*Configuration, error) {
+	tiers, err := s.tierSet(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return parseConfiguration(doc, tiers)
+}
+
+// tierSet returns the storage classes the transitions may name.
+func (s *service) tierSet(ctx context.Context) (map[string]bool, error) {
+	if s.deps.Tiers == nil {
+		return s.opts.tiers, nil
+	}
+	names, err := s.deps.Tiers.TierNames(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("ilm: tiers: %w", err)
+	}
+	out := make(map[string]bool, len(names)+len(s.opts.tiers))
+	for c := range s.opts.tiers {
+		out[c] = true
+	}
+	for _, n := range names {
+		out[n] = true
+	}
+	return out, nil
 }
 
 // Validate implements Service.
@@ -129,20 +158,28 @@ func (s *service) bucketSettings(ctx context.Context, bucket string) (*Configura
 	if len(m.Lifecycle) == 0 {
 		return nil, m.Versioning, nil
 	}
+	now := s.deps.Clock.Now()
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	if c, ok := s.configs[bucket]; ok && bytes.Equal(c.doc, m.Lifecycle) {
+	c, ok := s.configs[bucket]
+	s.mu.Unlock()
+	if ok && bytes.Equal(c.doc, m.Lifecycle) && (c.cfg != nil || now.Sub(c.parsed) < retryParse) {
 		return c.cfg, m.Versioning, nil
 	}
+	tiers, err := s.tierSet(ctx)
+	if err != nil {
+		return nil, m.Versioning, err
+	}
 	// Stored documents were validated; a configuration this release
-	// cannot parse (a transition to a tier no longer configured) applies
-	// nothing rather than half of its rules.
-	cfg, err := parseConfiguration(m.Lifecycle, s.opts.tiers)
+	// cannot parse (a transition to a tier removed since) applies nothing
+	// rather than half of its rules.
+	cfg, err := parseConfiguration(m.Lifecycle, tiers)
 	if err != nil {
 		s.deps.Logger.WarnContext(ctx, "ilm: lifecycle configuration not applied", "bucket", bucket, "err", err)
 		cfg = nil
 	}
-	s.configs[bucket] = cachedConfig{doc: bytes.Clone(m.Lifecycle), cfg: cfg}
+	s.mu.Lock()
+	s.configs[bucket] = cachedConfig{doc: bytes.Clone(m.Lifecycle), cfg: cfg, parsed: now}
+	s.mu.Unlock()
 	return cfg, m.Versioning, nil
 }
 
@@ -307,6 +344,22 @@ func (s *service) execute(ctx context.Context, a Action, res *ApplyResult) scann
 		}
 		res.DeleteMarkers++
 		log.DebugContext(ctx, "ilm: current version expired under a delete marker")
+		return scanner.LifecycleNone
+	case ActionTransition:
+		_, err := s.deps.Objects.TransitionObject(ctx, object.TransitionInput{
+			Bucket: a.Bucket, Key: a.Key, VersionID: a.VersionID, ModTime: a.ModTime, Tier: a.StorageClass,
+		})
+		switch {
+		case err == nil:
+		case errors.Is(err, domain.ErrPreconditionFailed):
+			log.DebugContext(ctx, "ilm: version changed since its evaluation, not transitioned")
+			return scanner.LifecycleNone
+		default:
+			log.WarnContext(ctx, "ilm: cannot transition a version", "tier", a.StorageClass, "err", err)
+			return scanner.LifecycleNone
+		}
+		res.Transitioned++
+		log.DebugContext(ctx, "ilm: version transitioned", "tier", a.StorageClass)
 		return scanner.LifecycleNone
 	case ActionAbortUpload:
 		if err := s.deps.Objects.AbortMultipartUpload(lctx, a.Bucket, a.Key, a.UploadID); err != nil {

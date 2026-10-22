@@ -95,6 +95,11 @@ type AdminClient interface {
 	AddSiteReplication(ctx context.Context, sites []nexoadmin.SiteReplicationSite) (*nexoadmin.SiteReplicationInfo, error)
 	RemoveSiteReplication(ctx context.Context) error
 	SyncSiteReplication(ctx context.Context) error
+	// Remote tiers of the lifecycle transitions (S-STO-12: nexoctl admin tier).
+	ListTiers(ctx context.Context) ([]nexoadmin.Tier, error)
+	AddTier(ctx context.Context, in nexoadmin.TierInput) (*nexoadmin.Tier, error)
+	EditTier(ctx context.Context, name string, in nexoadmin.TierInput) (*nexoadmin.Tier, error)
+	RemoveTier(ctx context.Context, name string) error
 	DecommissionPool(ctx context.Context, pool int) error
 	CancelDecommission(ctx context.Context, pool int) error
 	StartRebalance(ctx context.Context) error

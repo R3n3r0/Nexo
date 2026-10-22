@@ -102,6 +102,7 @@ Common codes: `unauthenticated`, `access_denied`, `invalid_csrf_token`, `invalid
 | buckets | `/buckets`, `/buckets/{bucket}/{versioning,policy,quota,tags,objectlock,encryption,access,lifecycle,events,cors}` | buckets and their settings |
 | replication | `/buckets/{bucket}/replication`, `.../replication/{targets,status,resync}` | bucket replication rules, remote targets, status and resync |
 | site-replication | `/site-replication`, `.../sync`, `.../peer/...` (between the sites, root only) | site replication group, its synchronization |
+| tiers | `/tiers`, `/tiers/{name}` | remote tiers of the lifecycle transitions |
 | objects | `/buckets/{bucket}/objects`, `.../stat`, `.../versions`, `.../download`, `.../download-zip`, `.../retention`, `.../legal-hold` | browsing and managing objects |
 | uploads | `/buckets/{bucket}/objects/upload`, `/buckets/{bucket}/uploads/...` | simple and multipart uploads from the console |
 | shares | `/shares`, `/buckets/{bucket}/objects/share`, `/presign`, `/post-policy` | share links, presigned URLs, POST policies |

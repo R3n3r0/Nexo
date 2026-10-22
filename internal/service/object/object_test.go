@@ -90,6 +90,13 @@ func newDrives(t *testing.T, n int) ([]storage.StorageAPI, []string) {
 // over fresh drives; extra options override the test defaults.
 func newFixture(t *testing.T, kind string, extra ...object.Option) *fixture {
 	t.Helper()
+	return newFixtureDeps(t, kind, nil, extra...)
+}
+
+// newFixtureDeps is newFixture with the dependencies of the layer changed
+// by edit first.
+func newFixtureDeps(t *testing.T, kind string, edit func(d *object.Deps), extra ...object.Option) *fixture {
+	t.Helper()
 	fx := &fixture{
 		buckets: objectmock.NewBucketConfigSource(t),
 		events:  eventmock.NewService(t),
@@ -112,6 +119,9 @@ func newFixture(t *testing.T, kind string, extra ...object.Option) *fixture {
 		return nil
 	}).Maybe()
 	deps := object.Deps{Buckets: fx.buckets, Events: fx.events, Crypto: newTestCrypto(t), Clock: fx.clk, Logger: slog.New(slog.DiscardHandler)}
+	if edit != nil {
+		edit(&deps)
+	}
 	opts := []object.Option{object.WithInlineLimit(testInlineLimit), object.WithBlockSize(testBlockSize), object.WithMinPartSize(16), object.WithLockTimeout(5 * time.Second)}
 	opts = append(opts, extra...)
 	var err error
@@ -138,6 +148,7 @@ func newFixture(t *testing.T, kind string, extra ...object.Option) *fixture {
 			Buckets:      deps.Buckets,
 			Events:       deps.Events,
 			Crypto:       deps.Crypto,
+			Tiers:        deps.Tiers,
 			Clock:        deps.Clock,
 			Logger:       deps.Logger,
 		}, opts...)

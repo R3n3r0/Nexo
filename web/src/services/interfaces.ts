@@ -100,6 +100,8 @@ import type {
   ReplicationTarget,
   SiteReplicationInfo,
   SiteReplicationSite,
+  Tier,
+  TierInput,
   KmsKey,
   KmsStatus,
   LegalHoldStatus,
@@ -344,6 +346,20 @@ export interface SiteReplicationService {
   remove(): Promise<void>;
   /** Asks for a round of synchronization now. */
   sync(): Promise<void>;
+}
+
+/**
+ * Remote tiers of the lifecycle transitions (S-STO-12,
+ * admin:ListTier / SetTier).
+ */
+export interface TierService {
+  list(): Promise<Tier[]>;
+  /** Adds a tier; its bucket is checked with the credentials. */
+  add(input: TierInput): Promise<Tier>;
+  /** Replaces the credentials (and the region, the storage class). */
+  edit(name: string, input: TierInput): Promise<Tier>;
+  /** Removes a tier that holds no data. */
+  remove(name: string): Promise<void>;
 }
 
 /**
@@ -849,6 +865,7 @@ export interface Services {
   readonly media: MediaService;
   readonly replication: ReplicationService;
   readonly siteReplication: SiteReplicationService;
+  readonly tiers: TierService;
   readonly kms: KmsService;
   readonly objects: ObjectService;
   readonly uploads: UploadService;

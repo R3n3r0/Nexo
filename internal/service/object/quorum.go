@@ -23,7 +23,13 @@ func versionKey(fi storage.FileInfo) string {
 	b.WriteByte('|')
 	b.WriteString(strconv.FormatInt(fi.ModTime.UnixNano(), 10))
 	b.WriteByte('|')
-	b.WriteString(fi.DataDir)
+	if tiered(fi) {
+		// A transitioned version is its object in the tier, whether a
+		// drive released its local data already or not (tier.go).
+		b.WriteString("tier:" + fi.Metadata[metaTierObject])
+	} else {
+		b.WriteString(fi.DataDir)
+	}
 	b.WriteByte('|')
 	b.WriteString(strconv.FormatInt(fi.Size, 10))
 	b.WriteByte('|')
@@ -150,6 +156,17 @@ func pickValidFileInfo(infos []storage.FileInfo, errs []error, defaultQuorum int
 		metaCounts[mk]++
 		if betterMeta(metaCounts[mk], infos[i], chosenCount, infos[chosen]) {
 			chosen, chosenCount = i, metaCounts[mk]
+		}
+	}
+	if tiered(infos[chosen]) && infos[chosen].DataDir != "" {
+		// A transitioned version some drives released the local data of:
+		// their copy is the one to heal the others with.
+		mk := metadataKey(infos[chosen])
+		for i, ok := range agreeing {
+			if ok && infos[i].DataDir == "" && metadataKey(infos[i]) == mk {
+				chosen = i
+				break
+			}
 		}
 	}
 	return infos[chosen], agreeing, nil

@@ -130,7 +130,7 @@ func TestLifecycleValidationPerRule(t *testing.T) {
 				{ID: "abort", Enabled: true, Filter: admin.LifecycleFilter{Tags: map[string]string{"k": "v"}}, AbortIncompleteUpload: &admin.LifecycleAbortUpload{DaysAfterInitiation: intp(1)}},
 			},
 			want: []admin.RuleProblem{
-				{Rule: 1, ID: "cold", Code: "NotImplemented", Message: `Transition to the storage class "GLACIER" is not supported: no remote tier is configured`},
+				{Rule: 1, ID: "cold", Code: "InvalidStorageClass", Message: `The storage class "GLACIER" of the transition names no remote tier`},
 				{Rule: 2, ID: "abort", Code: "InvalidRequest", Message: "AbortIncompleteMultipartUpload cannot be specified with Tags or object size filters"},
 			},
 		},

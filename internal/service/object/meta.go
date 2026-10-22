@@ -187,7 +187,7 @@ func objectInfo(bucket, key string, fi storage.FileInfo) domain.ObjectInfo {
 		IsDeleteMarker: fi.Deleted,
 		IsLatest:       fi.IsLatest,
 		UserMetadata:   map[string]string{},
-		Inlined:        fi.DataDir == "" && !fi.Deleted,
+		Inlined:        inlineData(fi) && !fi.Deleted,
 	}
 	if info.VersionID == "" && fi.Versioned {
 		// The null version of a versioned (or suspended) bucket is
@@ -254,6 +254,10 @@ func objectInfo(bucket, key string, fi storage.FileInfo) domain.ObjectInfo {
 	info.Encryption = crypto.InfoOf(fi.Metadata)
 	if isMultipartETag(info.ETag) {
 		info.Parts = len(fi.Parts)
+	}
+	if tier := fi.Metadata[metaTier]; tier != "" && tiered(fi) {
+		// A transitioned version reports its tier as its storage class.
+		info.StorageClass = tier
 	}
 	if info.StorageClass == "" && !fi.Deleted {
 		info.StorageClass = domain.StorageClassStandard

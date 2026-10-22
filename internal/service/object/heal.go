@@ -393,6 +393,11 @@ func (e *erasureSet) healVersion(ctx context.Context, bucket, key, versionID str
 			before[i] = HealDriveCorrupt
 		case shards != HealDriveOK:
 			before[i] = shards
+		case tiered(fi) && infos[i].DataDir != fi.DataDir:
+			// A transitioned version whose local data is still here: the
+			// transition was interrupted, the healing releases it.
+			t.metaOnly = true
+			before[i] = HealDriveCorrupt
 		case metadataKey(infos[i]) != want:
 			t.metaOnly = true
 			before[i] = HealDriveCorrupt

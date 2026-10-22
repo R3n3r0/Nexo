@@ -118,8 +118,8 @@ func TestParseErrors(t *testing.T) {
 		{"too many newer versions", doc(`<Rule><Status>Enabled</Status><Filter></Filter><NoncurrentVersionExpiration><NoncurrentDays>1</NoncurrentDays><NewerNoncurrentVersions>101</NewerNoncurrentVersions></NoncurrentVersionExpiration></Rule>`), domain.ErrInvalidArgument, "InvalidArgument"},
 		{"abort without days", doc(`<Rule><Status>Enabled</Status><Filter></Filter><AbortIncompleteMultipartUpload></AbortIncompleteMultipartUpload></Rule>`), domain.ErrInvalidArgument, "InvalidArgument"},
 		{"abort with tags", doc(`<Rule><Filter><Tag><Key>k</Key><Value>v</Value></Tag></Filter><Status>Enabled</Status><AbortIncompleteMultipartUpload><DaysAfterInitiation>1</DaysAfterInitiation></AbortIncompleteMultipartUpload></Rule>`), domain.ErrInvalidArgument, "InvalidRequest"},
-		{"transition without tier", doc(`<Rule><Status>Enabled</Status><Filter></Filter><Transition><Days>30</Days><StorageClass>GLACIER</StorageClass></Transition></Rule>`), domain.ErrNotImplemented, "NotImplemented"},
-		{"noncurrent transition without tier", doc(`<Rule><Status>Enabled</Status><Filter></Filter><NoncurrentVersionTransition><NoncurrentDays>30</NoncurrentDays><StorageClass>WARM</StorageClass></NoncurrentVersionTransition></Rule>`), domain.ErrNotImplemented, "NotImplemented"},
+		{"transition without tier", doc(`<Rule><Status>Enabled</Status><Filter></Filter><Transition><Days>30</Days><StorageClass>GLACIER</StorageClass></Transition></Rule>`), domain.ErrInvalidArgument, "InvalidStorageClass"},
+		{"noncurrent transition without tier", doc(`<Rule><Status>Enabled</Status><Filter></Filter><NoncurrentVersionTransition><NoncurrentDays>30</NoncurrentDays><StorageClass>WARM</StorageClass></NoncurrentVersionTransition></Rule>`), domain.ErrInvalidArgument, "InvalidStorageClass"},
 		{"transition without class", doc(`<Rule><Status>Enabled</Status><Filter></Filter><Transition><Days>30</Days></Transition></Rule>`), domain.ErrMalformedXML, "MalformedXML"},
 	}
 	for _, tc := range tests {

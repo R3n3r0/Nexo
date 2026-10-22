@@ -1994,5 +1994,32 @@
     "lastSync": "Ultimo giro {{time}}",
     "pendingChanges_one": "{{count}} modifica in attesa (ritentata)",
     "pendingChanges_other": "{{count}} modifiche in attesa (ritentate)"
+  },
+  "remoteTiers": {
+    "title": "Tier remoti",
+    "subtitle": "Bucket S3 di altri server in cui le azioni Transition del ciclo di vita dei bucket spostano i dati delle versioni vecchie. Una versione trasferita conserva qui i suoi metadati e viene letta dal suo tier in modo trasparente.",
+    "none": "Nessun tier remoto: le transizioni del ciclo di vita ne richiedono uno.",
+    "add": "Aggiungi un tier",
+    "addTitle": "Aggiungi un tier remoto",
+    "addHint": "Il nome è la classe di storage indicata dalle transizioni del ciclo di vita. Il bucket remoto deve esistere ed essere raggiungibile con le credenziali (lettura, scrittura, elenco ed eliminazione), che vengono conservate cifrate.",
+    "create": "Aggiungi",
+    "name": "Nome",
+    "nameHint": "Lettere maiuscole, cifre, “-” e “_” (es. COLD).",
+    "nameInvalid": "Lettere maiuscole, cifre, “-” e “_”; STANDARD e REDUCED_REDUNDANCY sono riservati.",
+    "endpoint": "Endpoint S3",
+    "urlInvalid": "Inserisci un URL http(s)://host[:porta].",
+    "bucket": "Bucket",
+    "prefix": "Prefisso",
+    "prefixInvalid": "Il prefisso termina con “/”.",
+    "region": "Regione",
+    "storageClass": "Classe di storage remota",
+    "accessKey": "Access key",
+    "secretKey": "Secret key",
+    "required": "Obbligatorio.",
+    "created": "Tier {{name}} aggiunto.",
+    "removed": "Tier {{name}} rimosso.",
+    "removeTier": "Rimuovi il tier {{name}}",
+    "removeTitle": "Rimuovi il tier",
+    "removeConfirm": "Rimuovere il tier {{name}}? Un tier che contiene ancora i dati di versioni trasferite non può essere rimosso."
   }
 }
