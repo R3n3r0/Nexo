@@ -74,6 +74,54 @@ func (_c *Service_AddGroupMembers_Call) RunAndReturn(run func(context.Context, s
 	return _c
 }
 
+// ApplySiteRecords provides a mock function with given fields: ctx, puts, deletes
+func (_m *Service) ApplySiteRecords(ctx context.Context, puts map[string][]byte, deletes []string) error {
+	ret := _m.Called(ctx, puts, deletes)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ApplySiteRecords")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, map[string][]byte, []string) error); ok {
+		r0 = rf(ctx, puts, deletes)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Service_ApplySiteRecords_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ApplySiteRecords'
+type Service_ApplySiteRecords_Call struct {
+	*mock.Call
+}
+
+// ApplySiteRecords is a helper method to define mock.On call
+//   - ctx context.Context
+//   - puts map[string][]byte
+//   - deletes []string
+func (_e *Service_Expecter) ApplySiteRecords(ctx interface{}, puts interface{}, deletes interface{}) *Service_ApplySiteRecords_Call {
+	return &Service_ApplySiteRecords_Call{Call: _e.mock.On("ApplySiteRecords", ctx, puts, deletes)}
+}
+
+func (_c *Service_ApplySiteRecords_Call) Run(run func(ctx context.Context, puts map[string][]byte, deletes []string)) *Service_ApplySiteRecords_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(map[string][]byte), args[2].([]string))
+	})
+	return _c
+}
+
+func (_c *Service_ApplySiteRecords_Call) Return(_a0 error) *Service_ApplySiteRecords_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Service_ApplySiteRecords_Call) RunAndReturn(run func(context.Context, map[string][]byte, []string) error) *Service_ApplySiteRecords_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // AssumeFederated provides a mock function with given fields: ctx, in
 func (_m *Service) AssumeFederated(ctx context.Context, in iam.FederatedInput) (*domain.Credentials, error) {
 	ret := _m.Called(ctx, in)
@@ -1610,6 +1658,64 @@ func (_c *Service_SetUserStatus_Call) Return(_a0 error) *Service_SetUserStatus_C
 }
 
 func (_c *Service_SetUserStatus_Call) RunAndReturn(run func(context.Context, string, domain.CredentialStatus) error) *Service_SetUserStatus_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SiteRecords provides a mock function with given fields: ctx
+func (_m *Service) SiteRecords(ctx context.Context) (map[string]iam.SiteRecord, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SiteRecords")
+	}
+
+	var r0 map[string]iam.SiteRecord
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (map[string]iam.SiteRecord, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) map[string]iam.SiteRecord); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string]iam.SiteRecord)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_SiteRecords_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SiteRecords'
+type Service_SiteRecords_Call struct {
+	*mock.Call
+}
+
+// SiteRecords is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *Service_Expecter) SiteRecords(ctx interface{}) *Service_SiteRecords_Call {
+	return &Service_SiteRecords_Call{Call: _e.mock.On("SiteRecords", ctx)}
+}
+
+func (_c *Service_SiteRecords_Call) Run(run func(ctx context.Context)) *Service_SiteRecords_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *Service_SiteRecords_Call) Return(_a0 map[string]iam.SiteRecord, _a1 error) *Service_SiteRecords_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_SiteRecords_Call) RunAndReturn(run func(context.Context) (map[string]iam.SiteRecord, error)) *Service_SiteRecords_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -752,6 +752,28 @@ func (c *adminClient) StartReplicationResync(ctx context.Context, bucket, target
 	return mapped(c, v, err)
 }
 
+// GetSiteReplication implements AdminClient.
+func (c *adminClient) GetSiteReplication(ctx context.Context) (*nexoadmin.SiteReplicationInfo, error) {
+	v, err := c.api.GetSiteReplication(ctx)
+	return mapped(c, v, err)
+}
+
+// AddSiteReplication implements AdminClient.
+func (c *adminClient) AddSiteReplication(ctx context.Context, sites []nexoadmin.SiteReplicationSite) (*nexoadmin.SiteReplicationInfo, error) {
+	v, err := c.api.AddSiteReplication(ctx, sites)
+	return mapped(c, v, err)
+}
+
+// RemoveSiteReplication implements AdminClient.
+func (c *adminClient) RemoveSiteReplication(ctx context.Context) error {
+	return MapAdminError(c.api.RemoveSiteReplication(ctx), c.endpoint)
+}
+
+// SyncSiteReplication implements AdminClient.
+func (c *adminClient) SyncSiteReplication(ctx context.Context) error {
+	return MapAdminError(c.api.SyncSiteReplication(ctx), c.endpoint)
+}
+
 // ListPools implements AdminClient.
 func (c *adminClient) ListPools(ctx context.Context) (*nexoadmin.Pools, error) {
 	v, err := c.api.ListPools(ctx)

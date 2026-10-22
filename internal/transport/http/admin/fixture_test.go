@@ -35,6 +35,7 @@ import (
 	policymock "github.com/r3n3r0/nexo/internal/service/policy/mock"
 	replmock "github.com/r3n3r0/nexo/internal/service/replication/mock"
 	"github.com/r3n3r0/nexo/internal/service/session"
+	sitemock "github.com/r3n3r0/nexo/internal/service/siterepl/mock"
 	tracemock "github.com/r3n3r0/nexo/internal/service/trace/mock"
 	"github.com/r3n3r0/nexo/internal/transport/http/admin"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
@@ -86,6 +87,7 @@ type fixture struct {
 	cache       *adminmock.CacheManager
 	diag        *adminmock.Diagnostics
 	replication *replmock.Service
+	siteRepl    *sitemock.Service
 	tracer      *tracemock.Service
 	logs        *logsmock.Service
 	audit       *auditmock.Service
@@ -114,6 +116,7 @@ func newFixture(t *testing.T) *fixture {
 		rules: adminmock.NewAccessRuleManager(t), dists: adminmock.NewDistributionManager(t), certs: adminmock.NewCertificateManager(t),
 		cache: adminmock.NewCacheManager(t), diag: adminmock.NewDiagnostics(t), catalog: adminsvc.CatalogActions(),
 		replication: replmock.NewService(t),
+		siteRepl:    sitemock.NewService(t),
 		tracer:      tracemock.NewService(t), logs: logsmock.NewService(t), audit: auditmock.NewService(t), history: metricsmock.NewHistory(t),
 	}
 	f.iam.EXPECT().LookupCredentials(mock.Anything, mock.Anything).RunAndReturn(
@@ -179,6 +182,8 @@ func newFixture(t *testing.T) *fixture {
 	require.NoError(t, err)
 	replicationRoutes, err := admin.NewReplicationRoutes(admin.ReplicationDeps{Replication: f.replication, Buckets: f.bucketSvc, Authz: f.authz, Enc: enc})
 	require.NoError(t, err)
+	siteRoutes, err := admin.NewSiteReplicationRoutes(admin.SiteReplicationDeps{SiteReplication: f.siteRepl, Authz: f.authz, Enc: enc})
+	require.NoError(t, err)
 	accessRuleRoutes, err := admin.NewAccessRuleRoutes(admin.AccessRuleDeps{Rules: f.rules, Authz: f.authz, Enc: enc})
 	require.NoError(t, err)
 	distributionRoutes, err := admin.NewDistributionRoutes(admin.DistributionDeps{Distributions: f.dists, Authz: f.authz, Enc: enc})
@@ -194,7 +199,7 @@ func newFixture(t *testing.T) *fixture {
 	require.NoError(t, err)
 	f.groups = []admin.Routes{sessionRoutes, infoRoutes, userRoutes, policyRoutes, bucketRoutes, objectRoutes, shareRoutes, configRoutes, clusterRoutes,
 		lifecycleRoutes, notificationRoutes, corsRoutes, mediaRoutes, kmsRoutes, accessRuleRoutes, distributionRoutes, certificateRoutes, cacheRoutes,
-		diagnosticsRoutes, observabilityRoutes, replicationRoutes}
+		diagnosticsRoutes, observabilityRoutes, replicationRoutes, siteRoutes}
 
 	r := chi.NewRouter()
 	api, err := admin.NewAPI(admin.APIDeps{Enc: enc, Auth: authn}, f.groups...)

@@ -48,7 +48,7 @@ Rispondono `501 NotImplemented`: website del bucket (`?website`, al suo posto ci
 Nexo), server access logging, accelerate, analytics, inventory, metrics,
 intelligent tiering, ownership controls, request payment, `RestoreObject`,
 `GetObjectTorrent`. Le transizioni di lifecycle verso altre classi di storage sono rifiutate. Sono previste
-dopo la v1.0: ACL complete, replica di sito, tiering verso S3 remoto, `AssumeRoleWithWebIdentity`.
+dopo la v1.0: ACL complete, tiering verso S3 remoto, `AssumeRoleWithWebIdentity`.
 
 ### S3 Select
 

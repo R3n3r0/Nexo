@@ -145,6 +145,65 @@ func (_c *AdminClient_AddKeyGroupKey_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
+// AddSiteReplication provides a mock function with given fields: ctx, sites
+func (_m *AdminClient) AddSiteReplication(ctx context.Context, sites []nexoadmin.SiteReplicationSite) (*nexoadmin.SiteReplicationInfo, error) {
+	ret := _m.Called(ctx, sites)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AddSiteReplication")
+	}
+
+	var r0 *nexoadmin.SiteReplicationInfo
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, []nexoadmin.SiteReplicationSite) (*nexoadmin.SiteReplicationInfo, error)); ok {
+		return rf(ctx, sites)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, []nexoadmin.SiteReplicationSite) *nexoadmin.SiteReplicationInfo); ok {
+		r0 = rf(ctx, sites)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.SiteReplicationInfo)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, []nexoadmin.SiteReplicationSite) error); ok {
+		r1 = rf(ctx, sites)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_AddSiteReplication_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AddSiteReplication'
+type AdminClient_AddSiteReplication_Call struct {
+	*mock.Call
+}
+
+// AddSiteReplication is a helper method to define mock.On call
+//   - ctx context.Context
+//   - sites []nexoadmin.SiteReplicationSite
+func (_e *AdminClient_Expecter) AddSiteReplication(ctx interface{}, sites interface{}) *AdminClient_AddSiteReplication_Call {
+	return &AdminClient_AddSiteReplication_Call{Call: _e.mock.On("AddSiteReplication", ctx, sites)}
+}
+
+func (_c *AdminClient_AddSiteReplication_Call) Run(run func(ctx context.Context, sites []nexoadmin.SiteReplicationSite)) *AdminClient_AddSiteReplication_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]nexoadmin.SiteReplicationSite))
+	})
+	return _c
+}
+
+func (_c *AdminClient_AddSiteReplication_Call) Return(_a0 *nexoadmin.SiteReplicationInfo, _a1 error) *AdminClient_AddSiteReplication_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_AddSiteReplication_Call) RunAndReturn(run func(context.Context, []nexoadmin.SiteReplicationSite) (*nexoadmin.SiteReplicationInfo, error)) *AdminClient_AddSiteReplication_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ApplyAccessPreset provides a mock function with given fields: ctx, bucket, in, ifMatch
 func (_m *AdminClient) ApplyAccessPreset(ctx context.Context, bucket string, in nexoadmin.AccessPresetRequest, ifMatch string) (*nexoadmin.AccessRules, error) {
 	ret := _m.Called(ctx, bucket, in, ifMatch)
@@ -3708,6 +3767,64 @@ func (_c *AdminClient_GetShare_Call) RunAndReturn(run func(context.Context, stri
 	return _c
 }
 
+// GetSiteReplication provides a mock function with given fields: ctx
+func (_m *AdminClient) GetSiteReplication(ctx context.Context) (*nexoadmin.SiteReplicationInfo, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetSiteReplication")
+	}
+
+	var r0 *nexoadmin.SiteReplicationInfo
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (*nexoadmin.SiteReplicationInfo, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) *nexoadmin.SiteReplicationInfo); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.SiteReplicationInfo)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_GetSiteReplication_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetSiteReplication'
+type AdminClient_GetSiteReplication_Call struct {
+	*mock.Call
+}
+
+// GetSiteReplication is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) GetSiteReplication(ctx interface{}) *AdminClient_GetSiteReplication_Call {
+	return &AdminClient_GetSiteReplication_Call{Call: _e.mock.On("GetSiteReplication", ctx)}
+}
+
+func (_c *AdminClient_GetSiteReplication_Call) Run(run func(ctx context.Context)) *AdminClient_GetSiteReplication_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_GetSiteReplication_Call) Return(_a0 *nexoadmin.SiteReplicationInfo, _a1 error) *AdminClient_GetSiteReplication_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_GetSiteReplication_Call) RunAndReturn(run func(context.Context) (*nexoadmin.SiteReplicationInfo, error)) *AdminClient_GetSiteReplication_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetUser provides a mock function with given fields: ctx, accessKey
 func (_m *AdminClient) GetUser(ctx context.Context, accessKey string) (*nexoadmin.User, error) {
 	ret := _m.Called(ctx, accessKey)
@@ -5805,6 +5922,52 @@ func (_c *AdminClient_RemoveReplicationTarget_Call) RunAndReturn(run func(contex
 	return _c
 }
 
+// RemoveSiteReplication provides a mock function with given fields: ctx
+func (_m *AdminClient) RemoveSiteReplication(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RemoveSiteReplication")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_RemoveSiteReplication_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RemoveSiteReplication'
+type AdminClient_RemoveSiteReplication_Call struct {
+	*mock.Call
+}
+
+// RemoveSiteReplication is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) RemoveSiteReplication(ctx interface{}) *AdminClient_RemoveSiteReplication_Call {
+	return &AdminClient_RemoveSiteReplication_Call{Call: _e.mock.On("RemoveSiteReplication", ctx)}
+}
+
+func (_c *AdminClient_RemoveSiteReplication_Call) Run(run func(ctx context.Context)) *AdminClient_RemoveSiteReplication_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_RemoveSiteReplication_Call) Return(_a0 error) *AdminClient_RemoveSiteReplication_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_RemoveSiteReplication_Call) RunAndReturn(run func(context.Context) error) *AdminClient_RemoveSiteReplication_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ReprocessMedia provides a mock function with given fields: ctx, bucket, key, versionID
 func (_m *AdminClient) ReprocessMedia(ctx context.Context, bucket string, key string, versionID string) error {
 	ret := _m.Called(ctx, bucket, key, versionID)
@@ -7333,6 +7496,52 @@ func (_c *AdminClient_StopService_Call) Return(_a0 error) *AdminClient_StopServi
 }
 
 func (_c *AdminClient_StopService_Call) RunAndReturn(run func(context.Context) error) *AdminClient_StopService_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SyncSiteReplication provides a mock function with given fields: ctx
+func (_m *AdminClient) SyncSiteReplication(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SyncSiteReplication")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_SyncSiteReplication_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SyncSiteReplication'
+type AdminClient_SyncSiteReplication_Call struct {
+	*mock.Call
+}
+
+// SyncSiteReplication is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) SyncSiteReplication(ctx interface{}) *AdminClient_SyncSiteReplication_Call {
+	return &AdminClient_SyncSiteReplication_Call{Call: _e.mock.On("SyncSiteReplication", ctx)}
+}
+
+func (_c *AdminClient_SyncSiteReplication_Call) Run(run func(ctx context.Context)) *AdminClient_SyncSiteReplication_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_SyncSiteReplication_Call) Return(_a0 error) *AdminClient_SyncSiteReplication_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_SyncSiteReplication_Call) RunAndReturn(run func(context.Context) error) *AdminClient_SyncSiteReplication_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -98,6 +98,8 @@ import type {
   ReplicationResync,
   ReplicationStatus,
   ReplicationTarget,
+  SiteReplicationInfo,
+  SiteReplicationSite,
   KmsKey,
   KmsStatus,
   LegalHoldStatus,
@@ -327,6 +329,21 @@ export interface ReplicationService {
   status(bucket: string): Promise<ReplicationStatus>;
   /** Starts a resync of the versions written before the rules of a target. */
   resync(bucket: string, target: string): Promise<ReplicationResync>;
+}
+
+/**
+ * Site replication (S-STO-11): several deployments sharing the root
+ * credentials keep their IAM, policies and buckets in sync
+ * (admin:SiteReplicationInfo / Add / Remove).
+ */
+export interface SiteReplicationService {
+  info(): Promise<SiteReplicationInfo>;
+  /** Groups the sites (this one among them). */
+  add(sites: SiteReplicationSite[]): Promise<SiteReplicationInfo>;
+  /** Dissolves the group on every site reached. */
+  remove(): Promise<void>;
+  /** Asks for a round of synchronization now. */
+  sync(): Promise<void>;
 }
 
 /**
@@ -831,6 +848,7 @@ export interface Services {
   readonly notifications: NotificationService;
   readonly media: MediaService;
   readonly replication: ReplicationService;
+  readonly siteReplication: SiteReplicationService;
   readonly kms: KmsService;
   readonly objects: ObjectService;
   readonly uploads: UploadService;

@@ -138,6 +138,7 @@ func suite() []suiteTest {
 		{name: "TestConsoleFederatedLogin", fn: TestConsoleFederatedLogin},
 		{name: "TestPoolDecommission", fn: TestPoolDecommission},
 		{name: "TestBucketReplication", fn: TestBucketReplication},
+		{name: "TestSiteReplication", fn: TestSiteReplication},
 		{name: "TestSelectObjectContent", fn: TestSelectObjectContent},
 		{name: "TestServerSideEncryptionKMS", fn: TestServerSideEncryptionKMS},
 		{name: "TestServerSideEncryptionKES", fn: TestServerSideEncryptionKES},

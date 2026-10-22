@@ -60,6 +60,7 @@ signs in with the same access keys as the S3 API.
 | Play videos in the browser, share them as streams | [Video streaming](video-streaming.md) |
 | Lower qualities, posters and thumbnails of videos | [Media worker](media-worker.md) |
 | Replicate buckets to another server, active-active | [Bucket replication](replication.md) |
+| Keep several deployments in sync (IAM, policies, buckets) | [Site replication](site-replication.md) |
 
 ## Reference
 

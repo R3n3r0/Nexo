@@ -699,3 +699,29 @@ func (m *clusterManager) importBucket(ctx context.Context, b archivedBucket, mod
 	}
 	return nil
 }
+
+// SiteBucket implements ClusterManager.
+func (m *clusterManager) SiteBucket(ctx context.Context, name string) ([]byte, error) {
+	b, err := m.exportBucket(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	b.Notification = ""
+	return json.Marshal(b)
+}
+
+// ApplySiteBucket implements ClusterManager.
+func (m *clusterManager) ApplySiteBucket(ctx context.Context, doc []byte) error {
+	var b archivedBucket
+	if err := json.Unmarshal(doc, &b); err != nil {
+		return fmt.Errorf("%w: bucket settings: %v", domain.ErrInvalidArgument, err)
+	}
+	if err := domain.ValidateBucketName(b.Name); err != nil {
+		return err
+	}
+	_, err := m.deps.Buckets.Create(ctx, bucket.CreateInput{Name: b.Name, ObjectLock: b.ObjectLock != nil && b.ObjectLock.Enabled})
+	if err != nil && !errors.Is(err, domain.ErrBucketAlreadyExists) {
+		return fmt.Errorf("admin: create bucket %s: %w", b.Name, err)
+	}
+	return m.importBucket(ctx, b, ImportReplace)
+}

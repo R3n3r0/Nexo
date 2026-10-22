@@ -103,7 +103,8 @@ ricevuto la scrittura, quindi un riavvio non la perde.
 - Una modifica dei soli metadati (diversi dai tag) non viene replicata; una copia sulla stessa chiave sì.
 - Le destinazioni e le loro credenziali non fanno parte di `admin cluster export`. Sono cifrate con una chiave
   derivata dalle credenziali root: dopo aver cambiato la password root, registra di nuovo le destinazioni.
-- La replica di sito (IAM, policy e tutti i bucket tra più installazioni) è una funzione separata.
+- La [replica di sito](site-replication.md) mantiene sincronizzati IAM, policy e tutti i bucket tra più
+  installazioni.
 
 ## Admin API e API S3
 

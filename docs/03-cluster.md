@@ -167,7 +167,16 @@ for reads and writes; usable capacity 75%.
   Failures are retried with exponential backoff (1 s to 5 min, 30 attempts) and end as `FAILED`. Targets (endpoint,
   bucket, sealed credentials, ARN `arn:nexo:replication::<id>:<bucket>`) live in the system store; a resync job on
   the leader walks the versions, HEADs the remote and queues what it lacks.
-- **Site replication**: synchronizes IAM, policies and bucket configuration across N clusters; every created bucket is replicated.
+- **Site replication** (S-STO-11): the sites of a group share the root credentials and call each other's Admin
+  API with them (`/site-replication/peer/...`, root only); the entries they exchange are sealed with a key derived
+  from them. The leader of each site runs a round every 5 s with every other site: it compares the hashes of the
+  replicated entries (users, groups, access keys as stored by IAM, named policies, bucket settings) of both sides
+  with the base both had after the last round (`site-replication/base/<peer>.json`), pushes what changed here,
+  pulls what changed there, and on a double change keeps the newest (`updatedAt`; else the smallest deployment
+  ID), a change beating a deletion. Without a base nothing is deleted. Each round then gives every bucket
+  versioning and a bucket replication rule `site-<name>` to every other site (resync of the existing objects, one
+  target at a time per bucket). Not replicated: configuration, KMS keys, notification targets, distributions,
+  STS credentials and sessions.
 
 ## 3.11 Failure scenarios to support
 

@@ -36,7 +36,7 @@ of "nexoctl alias set". Every subcommand takes the alias as its first argument.`
 	cmd.AddCommand(
 		newAdminInfoCmd(e), newAdminUsageCmd(e), newAdminHealCmd(e), newAdminMetadataLogCmd(e),
 		newAdminUserCmd(e), newAdminGroupCmd(e), newAdminPolicyCmd(e), newAdminAccessKeyCmd(e),
-		newAdminConfigCmd(e), newAdminServiceCmd(e), newAdminClusterCmd(e), newAdminLockCmd(e), newAdminDecommissionCmd(e), newAdminRebalanceCmd(e),
+		newAdminConfigCmd(e), newAdminServiceCmd(e), newAdminClusterCmd(e), newAdminLockCmd(e), newAdminDecommissionCmd(e), newAdminRebalanceCmd(e), newAdminReplicateCmd(e),
 		newAdminKMSCmd(e), newAdminNotifyCmd(e), newAdminProfileCmd(e), newAdminSpeedtestCmd(e),
 		newAdminTraceCmd(e), newAdminLogsCmd(e), newAdminAuditCmd(e), newAdminMetricsCmd(e), newAdminPrometheusCmd(e),
 		newAdminDNSProviderCmd(e),

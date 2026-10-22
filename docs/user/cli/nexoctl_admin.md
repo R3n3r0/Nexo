@@ -57,6 +57,7 @@ nexoctl admin [flags]
 * [nexoctl admin profile](nexoctl_admin_profile.md)	 - Collect a runtime profile (pprof) of the server
 * [nexoctl admin prometheus](nexoctl_admin_prometheus.md)	 - Integrate the metrics of the server with Prometheus
 * [nexoctl admin rebalance](nexoctl_admin_rebalance.md)	 - Move objects from the fullest pools to the emptiest ones
+* [nexoctl admin replicate](nexoctl_admin_replicate.md)	 - Keep several deployments in sync (site replication)
 * [nexoctl admin service](nexoctl_admin_service.md)	 - Restart or stop the server
 * [nexoctl admin speedtest](nexoctl_admin_speedtest.md)	 - Measure the drives, the object layer or the network between the nodes
 * [nexoctl admin trace](nexoctl_admin_trace.md)	 - Show the requests served by the server, live

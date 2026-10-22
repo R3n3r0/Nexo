@@ -33,6 +33,7 @@ Available Commands:
   profile      Collect a runtime profile (pprof) of the server
   prometheus   Integrate the metrics of the server with Prometheus
   rebalance    Move objects from the fullest pools to the emptiest ones
+  replicate    Keep several deployments in sync (site replication)
   service      Restart or stop the server
   speedtest    Measure the drives, the object layer or the network between the nodes
   trace        Show the requests served by the server, live

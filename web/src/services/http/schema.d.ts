@@ -2486,6 +2486,156 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/site-replication": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Site replication of this deployment
+         * @description The group of sites this deployment is in (S-STO-11) and, per other site, the last round of synchronization as the leader recorded it. Disabled when in no group.
+         */
+        get: operations["getSiteReplication"];
+        put?: never;
+        /**
+         * Group sites
+         * @description Groups the sites, this one among them: their users, groups, access keys, named policies and buckets are kept in sync, and every bucket replicates to the same bucket of every other site. Every site must accept the root credentials of this one at its Admin API and be in no group.
+         */
+        post: operations["addSiteReplication"];
+        /**
+         * Dissolve the group
+         * @description Every site reached forgets the group and the replication rules it added; what was replicated stays. 409 when some sites were not reached (the group is removed here).
+         */
+        delete: operations["removeSiteReplication"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/site-replication/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run a round of synchronization now */
+        post: operations["syncSiteReplication"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/site-replication/peer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Describe this site to another one (internal)
+         * @description Calls between the sites of a group, reserved to the root credentials.
+         */
+        get: operations["siteReplicationPeerInfo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/site-replication/peer/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Save the group of sites (internal) */
+        post: operations["joinSiteReplication"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/site-replication/peer/leave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Forget the group (internal) */
+        post: operations["leaveSiteReplication"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/site-replication/peer/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Hashes of the replicated entries of this site (internal) */
+        get: operations["siteReplicationState"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/site-replication/peer/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sealed values of entries (internal) */
+        post: operations["siteReplicationItems"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/site-replication/peer/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply sealed changes (internal) */
+        post: operations["siteReplicationApply"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/config/{subsys}": {
         parameters: {
             query?: never;
@@ -3785,6 +3935,72 @@ export interface components {
             targets: components["schemas"]["ReplicationTargetStatus"][];
             queued: number;
             resync?: components["schemas"]["ReplicationResync"];
+        };
+        SiteReplicationSite: {
+            /** @description 1-63 letters, digits, '.', '_' or '-'. */
+            name: string;
+            /** @description Filled by the server. */
+            deploymentId?: string;
+            /** @description URL of the S3 API of the site. */
+            endpoint: string;
+            /** @description URL of the Admin API (console listener) of the site. */
+            adminEndpoint: string;
+        };
+        SiteReplicationSites: {
+            sites: components["schemas"]["SiteReplicationSite"][];
+        };
+        SiteReplicationPeerStatus: {
+            name: string;
+            deploymentId: string;
+            /** Format: date-time */
+            lastSync?: string;
+            lastError?: string;
+            /** Format: date-time */
+            lastErrorAt?: string;
+            /**
+             * Format: int64
+             * @description Entries sent to the site.
+             */
+            pushed: number;
+            /**
+             * Format: int64
+             * @description Entries taken from the site.
+             */
+            pulled: number;
+            /** @description Changes not applied at the last round (retried). */
+            pending: number;
+        };
+        SiteReplicationInfo: {
+            enabled: boolean;
+            /** @description Name of this site in the group. */
+            name?: string;
+            deploymentId: string;
+            sites: components["schemas"]["SiteReplicationSite"][];
+            peers: components["schemas"]["SiteReplicationPeerStatus"][];
+            /** @description Replicated entries at the last round. */
+            entries: number;
+        };
+        SiteReplicationPeer: {
+            deploymentId: string;
+            enabled: boolean;
+            sites?: components["schemas"]["SiteReplicationSite"][];
+        };
+        SiteReplicationState: {
+            deploymentId: string;
+            entries: {
+                [key: string]: {
+                    hash: string;
+                    /** Format: date-time */
+                    modTime?: string;
+                };
+            };
+        };
+        SiteReplicationSealed: {
+            /**
+             * Format: byte
+             * @description Entries sealed with a key derived from the root credentials.
+             */
+            data: string;
         };
         PoolJob: {
             /** @enum {string} */
@@ -10686,6 +10902,231 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getSiteReplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The site replication. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteReplicationInfo"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    addSiteReplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SiteReplicationSites"];
+            };
+        };
+        responses: {
+            /** @description The group, saved on every site. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteReplicationInfo"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    removeSiteReplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    syncSiteReplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Asked. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    siteReplicationPeerInfo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description This site. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteReplicationPeer"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    joinSiteReplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SiteReplicationSites"];
+            };
+        };
+        responses: {
+            /** @description Joined. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    leaveSiteReplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Left. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    siteReplicationState: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The entries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteReplicationState"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    siteReplicationItems: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    keys: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description The sealed entries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteReplicationSealed"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    siteReplicationApply: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SiteReplicationSealed"];
+            };
+        };
+        responses: {
+            /** @description The outcome of each change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        results: {
+                            key: string;
+                            error?: string;
+                        }[];
+                    };
+                };
             };
             default: components["responses"]["Problem"];
         };

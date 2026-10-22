@@ -353,6 +353,13 @@ const (
 	// bucket (S-BKT-12).
 	ActionAdminSetBucketTarget Action = "admin:SetBucketTarget"
 	ActionAdminGetBucketTarget Action = "admin:GetBucketTarget"
+	// The site replication actions (S-STO-11): create, read, remove the
+	// group, and the calls between its sites (which also need the root
+	// credentials).
+	ActionAdminSiteReplicationAdd       Action = "admin:SiteReplicationAdd"
+	ActionAdminSiteReplicationInfo      Action = "admin:SiteReplicationInfo"
+	ActionAdminSiteReplicationRemove    Action = "admin:SiteReplicationRemove"
+	ActionAdminSiteReplicationOperation Action = "admin:SiteReplicationOperation"
 
 	// Bucket and object configuration actions of the S3 API, shared by
 	// the S3 and the Admin API transports.

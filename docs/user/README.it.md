@@ -60,6 +60,7 @@ le stesse access key dell'API S3.
 | Riprodurre video nel browser, condividerli in streaming | [Streaming video](video-streaming.md) |
 | Qualità ridotte, poster e miniature dei video | [Media worker](media-worker.md) |
 | Replica dei bucket verso un altro server, attivo-attivo | [Replica dei bucket](replication.md) |
+| Mantenere sincronizzate più installazioni (IAM, policy, bucket) | [Replica di sito](site-replication.md) |
 
 ## Riferimenti
 

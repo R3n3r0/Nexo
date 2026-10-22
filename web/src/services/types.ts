@@ -145,6 +145,13 @@ export type ReplicationTargetStatus = Schemas['ReplicationTargetStatus'];
 export type ReplicationResync = Schemas['ReplicationResync'];
 export type ReplicationStatus = Schemas['ReplicationStatus'];
 
+/* Site replication (/site-replication, S-STO-11). */
+
+export type SiteReplicationSite = Schemas['SiteReplicationSite'];
+export type SiteReplicationPeerStatus = Schemas['SiteReplicationPeerStatus'];
+/** The group of sites of this deployment and the synchronization with each one. */
+export type SiteReplicationInfo = Schemas['SiteReplicationInfo'];
+
 /* Healing jobs (POST/GET /heal, GET /heal/{id}). */
 
 /** What to heal: no bucket = format and every bucket; recursive = the objects too. */
