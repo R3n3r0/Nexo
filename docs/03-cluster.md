@@ -157,8 +157,16 @@ for reads and writes; usable capacity 75%.
 
 ## 3.10 Multi-site (P2)
 
-- **Bucket replication**: asynchronous, per rule (prefix/tag), active-active with last-writer-wins resolution on mod-time
-  + version-id, explicit resync.
+- **Bucket replication** (S-BKT-12): asynchronous, per rule (prefix/tag, priority), active-active. A write that a
+  rule selects is stored with `x-amz-replication-status: PENDING` and one internal state per target, then the events
+  decorator queues one task per target in a persistent per-node queue (`.nexo.sys/replication` on the first drive,
+  FIFO per key). Workers read the version and PUT it to the remote with the replica headers (`X-Nexo-Replica*`:
+  version id, mod-time, ETag, delete marker), which the remote accepts with `s3:ReplicateObject`/`ReplicateDelete`/
+  `ReplicateTags` and stores as `REPLICA` without queueing it again (no ping-pong). The version keeps its id and
+  mod-time on both sides, so xl.meta orders concurrent writes the same way everywhere: last writer wins on mod-time.
+  Failures are retried with exponential backoff (1 s to 5 min, 30 attempts) and end as `FAILED`. Targets (endpoint,
+  bucket, sealed credentials, ARN `arn:nexo:replication::<id>:<bucket>`) live in the system store; a resync job on
+  the leader walks the versions, HEADs the remote and queues what it lacks.
 - **Site replication**: synchronizes IAM, policies and bucket configuration across N clusters; every created bucket is replicated.
 
 ## 3.11 Failure scenarios to support

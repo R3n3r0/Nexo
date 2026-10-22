@@ -256,6 +256,7 @@
       "lifecycle": "Ciclo di vita",
       "events": "Eventi",
       "media": "Media",
+      "replication": "Replica",
       "rules": "Regole di accesso"
     },
     "summary": "{{size}} · {{objects}} oggetti",

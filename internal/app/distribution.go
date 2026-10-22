@@ -66,7 +66,10 @@ type distStack struct {
 	// configured).
 	webSrv    server.Service
 	webTLSSrv server.Service
-	logger    *slog.Logger
+	// docs are the system documents of the distributions (in SNSD, a
+	// store on the single drive), shared with the replication.
+	docs   sysstore.Store
+	logger *slog.Logger
 }
 
 // distCoreDeps are the inputs of newDistCore.
@@ -157,6 +160,7 @@ func newDistCore(d distCoreDeps) (*distStack, error) {
 		dnsProviders: dnsProviders,
 		signer:       distribution.NewSigner(distribution.SignerDeps{Clock: d.clock}),
 		matcher:      d.matcher,
+		docs:         docs,
 		logger:       logger,
 	}, nil
 }

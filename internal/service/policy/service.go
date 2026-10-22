@@ -348,6 +348,11 @@ const (
 	// rebalance between pools (admin pool decommission/rebalance).
 	ActionAdminDecommission Action = "admin:Decommission"
 	ActionAdminRebalance    Action = "admin:Rebalance"
+	// ActionAdminSetBucketTarget and ActionAdminGetBucketTarget authorize
+	// the management and the reading of the replication targets of a
+	// bucket (S-BKT-12).
+	ActionAdminSetBucketTarget Action = "admin:SetBucketTarget"
+	ActionAdminGetBucketTarget Action = "admin:GetBucketTarget"
 
 	// Bucket and object configuration actions of the S3 API, shared by
 	// the S3 and the Admin API transports.
@@ -366,6 +371,9 @@ const (
 	ActionPutBucketNotification      Action = "s3:PutBucketNotification"
 	ActionGetReplication             Action = "s3:GetReplicationConfiguration"
 	ActionPutReplication             Action = "s3:PutReplicationConfiguration"
+	// ActionResetReplication authorizes a resync of the replication of a
+	// bucket.
+	ActionResetReplication Action = "s3:ResetBucketReplicationState"
 	// ActionForceDeleteBucket is required on top of s3:DeleteBucket to
 	// delete a non-empty bucket.
 	ActionForceDeleteBucket Action = "s3:ForceDeleteBucket"

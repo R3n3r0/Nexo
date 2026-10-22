@@ -78,6 +78,11 @@ type ObjectInfo struct {
 	// Encryption is the server-side encryption of the version (zero when
 	// not encrypted); Size is always the size of the plaintext.
 	Encryption EncryptionInfo
+	// ReplicationStatus is the replication state of the version (S-BKT-12,
+	// empty when no replication rule selected it); ReplicationTargets the
+	// state at every destination, by the ARN of its target.
+	ReplicationStatus  ReplicationStatus
+	ReplicationTargets map[string]ReplicationStatus
 }
 
 // ObjectPart describes one part of a multipart object, as reported by

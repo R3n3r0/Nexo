@@ -60,7 +60,6 @@ func NewBucketRoutes(deps BucketDeps, opts ...BucketOption) (BucketRoutes, error
 func (h *bucketRoutes) Register(r chi.Router) { h.guard.register(r, h.routes()) }
 
 func (h *bucketRoutes) routes() []route {
-	ni := notImplemented(h.deps.Enc)
 	force := func(r *http.Request) []policy.Action {
 		if f, _ := queryBool(r, "force"); f {
 			return []policy.Action{policy.ActionForceDeleteBucket}
@@ -96,11 +95,9 @@ func (h *bucketRoutes) routes() []route {
 		{http.MethodPut, "/buckets/{bucket}/access", onBucket(policy.ActionPutBucketPolicy), h.putAccess},
 		{http.MethodDelete, "/buckets/{bucket}/access", onBucket(policy.ActionPutBucketPolicy), h.deleteAccess},
 
-		// The lifecycle, notification and CORS configurations have their
-		// own route groups (LifecycleRoutes, NotificationRoutes,
-		// CORSRoutes); bucket replication is P2.
-		{http.MethodGet, "/buckets/{bucket}/replication", onBucket(policy.ActionGetReplication), ni},
-		{http.MethodPut, "/buckets/{bucket}/replication", onBucket(policy.ActionPutReplication), ni},
+		// The lifecycle, notification, CORS and replication configurations
+		// have their own route groups (LifecycleRoutes, NotificationRoutes,
+		// CORSRoutes, ReplicationRoutes).
 	}
 }
 

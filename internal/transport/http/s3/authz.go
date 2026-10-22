@@ -142,6 +142,10 @@ func ActionOf(operation string, versioned bool) policy.Action {
 		return actionGetBucketObjectLock
 	case "PutObjectLockConfiguration":
 		return actionPutBucketObjectLock
+	case "GetBucketReplication":
+		return policy.ActionGetReplication
+	case "PutBucketReplication", "DeleteBucketReplication":
+		return policy.ActionPutReplication
 	case "GetBucketNotification":
 		return actionGetBucketNotification
 	case "PutBucketNotification":

@@ -95,6 +95,16 @@ type AdminClient interface {
 	StartRebalance(ctx context.Context) error
 	StopRebalance(ctx context.Context) error
 
+	// Bucket replication (S-BKT-12: nexoctl replicate).
+	GetBucketReplication(ctx context.Context, bucket string) (*nexoadmin.ReplicationConfiguration, error)
+	SetBucketReplication(ctx context.Context, bucket string, cfg nexoadmin.ReplicationConfiguration) (*nexoadmin.ReplicationConfiguration, error)
+	DeleteBucketReplication(ctx context.Context, bucket string) error
+	ListReplicationTargets(ctx context.Context, bucket string) ([]nexoadmin.ReplicationTarget, error)
+	SetReplicationTarget(ctx context.Context, bucket string, t nexoadmin.ReplicationTarget) (*nexoadmin.ReplicationTarget, error)
+	RemoveReplicationTarget(ctx context.Context, bucket, arn string) error
+	GetReplicationStatus(ctx context.Context, bucket string) (*nexoadmin.ReplicationStatus, error)
+	StartReplicationResync(ctx context.Context, bucket, target string) (*nexoadmin.ReplicationResync, error)
+
 	// GetBucket returns the summary of a bucket: usage, settings, tags
 	// (quota info reports the usage against the quota).
 	GetBucket(ctx context.Context, bucket string) (*nexoadmin.Bucket, error)

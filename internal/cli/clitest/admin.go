@@ -83,7 +83,9 @@ type MemAdmin struct {
 	media memMediaState
 	// obs holds the live streams, the audit records and the metrics
 	// (admin_observability.go).
-	obs   memObsState
+	obs memObsState
+	// repl holds the replication of the buckets (admin_replication.go).
+	repl  memReplState
 	seq   int
 	fail  map[string]error
 	calls map[string]int
@@ -324,6 +326,7 @@ func (m *MemAdmin) Client(t TestingT, caller string) *climock.AdminClient {
 	s.expectCache(c)
 	s.expectMedia(c)
 	s.expectSubtitles(c)
+	s.expectReplication(c)
 	return c
 }
 

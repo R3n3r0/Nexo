@@ -41,6 +41,7 @@ Bucket and object settings:
   legalhold   Manage the Object Lock legal hold of objects
   media       Manage the video and image rules of buckets and the media worker (Admin API)
   quota       Manage the hard quota of buckets (Admin API)
+  replicate   Manage the replication of buckets to other servers (Admin API)
   retention   Manage the Object Lock retention of objects and buckets
   tag         Manage the tags of buckets and objects
   version     Print the nexoctl version, or manage bucket versioning

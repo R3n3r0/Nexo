@@ -61,6 +61,9 @@ func (l *layer) DeleteObject(ctx context.Context, bucket, key string, opts Delet
 		reported := nullVersion
 		if cfg.Versioning == domain.VersioningEnabled {
 			marker.VersionID = l.newID()
+			if opts.MarkerVersionID != "" && opts.MarkerVersionID != nullVersion {
+				marker.VersionID = opts.MarkerVersionID
+			}
 			reported = marker.VersionID
 		}
 		if err := checkLocks(ctx); err != nil {

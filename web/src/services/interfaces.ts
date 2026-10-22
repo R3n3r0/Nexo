@@ -94,6 +94,10 @@ import type {
   HealJob,
   HealRequest,
   Pools,
+  ReplicationConfiguration,
+  ReplicationResync,
+  ReplicationStatus,
+  ReplicationTarget,
   KmsKey,
   KmsStatus,
   LegalHoldStatus,
@@ -300,6 +304,29 @@ export interface NotificationService {
    * failed delivery resolves with delivered false.
    */
   test(target: string): Promise<NotifyTargetTest>;
+}
+
+/**
+ * Replication of a bucket to remote buckets (S-BKT-12): the targets
+ * (/buckets/{bucket}/replication/targets, admin:GetBucketTarget /
+ * admin:SetBucketTarget), the rules (s3:Get/PutReplicationConfiguration),
+ * the status and the resync (s3:ResetBucketReplicationState).
+ */
+export interface ReplicationService {
+  /** The rules; none when the bucket is not replicated. */
+  get(bucket: string): Promise<ReplicationConfiguration>;
+  /** Replaces the rules (they name targets of the bucket; versioning must be enabled). */
+  set(bucket: string, config: ReplicationConfiguration): Promise<ReplicationConfiguration>;
+  remove(bucket: string): Promise<void>;
+  /** The targets, without their secret keys. */
+  targets(bucket: string): Promise<ReplicationTarget[]>;
+  /** Creates a target (no arn) or updates one (an empty secret keeps the stored one). */
+  setTarget(bucket: string, target: ReplicationTarget): Promise<ReplicationTarget>;
+  /** Removes a target no rule uses (409 otherwise). */
+  removeTarget(bucket: string, arn: string): Promise<void>;
+  status(bucket: string): Promise<ReplicationStatus>;
+  /** Starts a resync of the versions written before the rules of a target. */
+  resync(bucket: string, target: string): Promise<ReplicationResync>;
 }
 
 /**
@@ -803,6 +830,7 @@ export interface Services {
   readonly lifecycle: LifecycleService;
   readonly notifications: NotificationService;
   readonly media: MediaService;
+  readonly replication: ReplicationService;
   readonly kms: KmsService;
   readonly objects: ObjectService;
   readonly uploads: UploadService;

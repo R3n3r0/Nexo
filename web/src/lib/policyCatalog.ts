@@ -148,6 +148,8 @@ export const adminActions: readonly string[] = [
   'admin:SetBucketQuota',
   'admin:GetBucketMedia',
   'admin:SetBucketMedia',
+  'admin:GetBucketTarget',
+  'admin:SetBucketTarget',
   'admin:ApplyLifecycle',
   'admin:KMSKeyStatus',
   'admin:KMSCreateKey',
@@ -306,6 +308,8 @@ export const consoleActionScopes: ReadonlyArray<readonly [string, ActionScope]> 
     'admin:SetBucketQuota',
     'admin:GetBucketMedia',
     'admin:SetBucketMedia',
+    'admin:GetBucketTarget',
+    'admin:SetBucketTarget',
     's3:DeleteBucket',
     's3:ForceDeleteBucket',
     's3:ListBucket',
@@ -328,6 +332,7 @@ export const consoleActionScopes: ReadonlyArray<readonly [string, ActionScope]> 
     's3:PutBucketNotification',
     's3:GetReplicationConfiguration',
     's3:PutReplicationConfiguration',
+    's3:ResetBucketReplicationState',
   ].map((a) => [a, 'bucket'] as const),
   ...[
     's3:GetObject',
@@ -341,6 +346,9 @@ export const consoleActionScopes: ReadonlyArray<readonly [string, ActionScope]> 
     's3:PutObjectVersionTagging',
     's3:AbortMultipartUpload',
     's3:ListMultipartUploadParts',
+    's3:ReplicateObject',
+    's3:ReplicateDelete',
+    's3:ReplicateTags',
   ].map((a) => [a, 'object'] as const),
 ];
 

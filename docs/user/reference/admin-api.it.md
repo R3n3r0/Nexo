@@ -99,6 +99,7 @@ Codici frequenti: `unauthenticated`, `access_denied`, `invalid_csrf_token`, `inv
 | monitoring | `/metrics`, `/metrics/query`, `/trace`, `/logs`, `/audit` | metriche, trace e log in streaming (SSE), audit |
 | diagnostics | `/profile`, `/speedtest/{kind}` | profili pprof, test di velocità |
 | buckets | `/buckets`, `/buckets/{bucket}/{versioning,policy,quota,tags,objectlock,encryption,access,lifecycle,events,cors}` | bucket e loro impostazioni |
+| replication | `/buckets/{bucket}/replication`, `.../replication/{targets,status,resync}` | regole di replica del bucket, destinazioni remote, stato e risincronizzazione |
 | objects | `/buckets/{bucket}/objects`, `.../stat`, `.../versions`, `.../download`, `.../download-zip`, `.../retention`, `.../legal-hold` | navigazione e gestione degli oggetti |
 | uploads | `/buckets/{bucket}/objects/upload`, `/buckets/{bucket}/uploads/...` | upload semplici e multipart dalla console |
 | shares | `/shares`, `/buckets/{bucket}/objects/share`, `/presign`, `/post-policy` | link di condivisione, presigned, POST policy |

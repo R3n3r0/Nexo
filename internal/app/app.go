@@ -50,6 +50,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	poolsvc "github.com/r3n3r0/nexo/internal/service/pools"
 	"github.com/r3n3r0/nexo/internal/service/ratelimit"
+	"github.com/r3n3r0/nexo/internal/service/replication"
 	"github.com/r3n3r0/nexo/internal/service/session"
 	"github.com/r3n3r0/nexo/internal/service/share"
 	"github.com/r3n3r0/nexo/internal/service/storage"
@@ -747,6 +748,8 @@ type adminDeps struct {
 	kms kms.Service
 	// mediaJobs queues the reprocessing of the videos (nil: unavailable).
 	mediaJobs adminsvc.MediaJobs
+	// replication replicates the buckets to other deployments.
+	replication replication.Service
 	// secureCookies forces the Secure flag of the session cookies (the
 	// console is served over HTTPS, possibly by a proxy terminating TLS).
 	secureCookies bool
@@ -953,6 +956,13 @@ func buildAdminAPI(d adminDeps) (httpx.Routes, error) {
 	}
 	groups := []httpx.Routes{sessionRoutes, infoRoutes, userRoutes, policyRoutes, bucketRoutes, objectRoutes, shareRoutes, configRoutes, clusterRoutes,
 		lifecycleRoutes, notificationRoutes, corsRoutes, mediaRoutes, kmsRoutes}
+	if d.replication != nil {
+		replicationRoutes, err := adminhttp.NewReplicationRoutes(adminhttp.ReplicationDeps{Replication: d.replication, Buckets: d.buckets, Authz: svc.authz, Enc: d.codec})
+		if err != nil {
+			return nil, err
+		}
+		groups = append(groups, replicationRoutes)
+	}
 	distRoutes, err := buildDistributionRoutes(d, svc)
 	if err != nil {
 		return nil, err

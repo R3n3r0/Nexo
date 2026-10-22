@@ -77,10 +77,17 @@ func (h *multipartRoutes) createUpload(w http.ResponseWriter, r *http.Request) {
 	if !h.authz.authorize(w, r, bucketName, key) {
 		return
 	}
+	r, rep, ok := h.authz.replicaRequest(w, r, actionReplicateObject, bucketName, key)
+	if !ok {
+		return
+	}
 	in, err := newMultipartInput(r, bucketName, key, h.opts.insecureSSEC)
 	if err != nil {
 		h.fail(w, r, err)
 		return
+	}
+	if rep.set {
+		in.Replica, in.VersionID, in.ModTime, in.ReplicaETag = true, rep.versionID, rep.modTime, rep.etag
 	}
 	if !h.authz.authorizeLockHeaders(w, r, bucketName, key, in.Retention, in.LegalHold) {
 		return
@@ -258,6 +265,11 @@ func (h *multipartRoutes) copyPart(w http.ResponseWriter, r *http.Request) {
 func (h *multipartRoutes) completeUpload(w http.ResponseWriter, r *http.Request) {
 	bucketName, key := BucketName(r), ObjectKey(r)
 	if !h.authz.authorize(w, r, bucketName, key) {
+		return
+	}
+	// The completion of a replica upload is not replicated back.
+	r, _, ok := h.authz.replicaRequest(w, r, actionReplicateObject, bucketName, key)
+	if !ok {
 		return
 	}
 	var req CompleteMultipartUploadRequest

@@ -236,6 +236,13 @@ packages:
   github.com/r3n3r0/nexo/internal/service/pools:
     interfaces:
       Service:
+  github.com/r3n3r0/nexo/internal/service/replication:
+    interfaces:
+      Service:
+      Sealer:
+      Leader:
+      Dialer:
+      Remote:
   github.com/r3n3r0/nexo/internal/service/scanner:
     interfaces:
       Service:
@@ -321,6 +328,7 @@ packages:
       MediaRoutes:
       LifecycleRoutes:
       NotificationRoutes:
+      ReplicationRoutes:
   github.com/r3n3r0/nexo/internal/transport/http/admin:
     interfaces:
       PublicRoutes:
@@ -335,6 +343,7 @@ packages:
       ClusterRoutes:
       LifecycleRoutes:
       NotificationRoutes:
+      ReplicationRoutes:
       CORSRoutes:
       MediaRoutes:
       KMSRoutes:

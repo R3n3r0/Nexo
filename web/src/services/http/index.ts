@@ -48,6 +48,9 @@ export function createHttpServices(options: HttpServicesOptions = {}): Services 
       (await import('./notifications')).createHttpNotificationService(client),
     ),
     media: lazyService(async () => (await import('./media')).createHttpMediaService(client)),
+    replication: lazyService(async () =>
+      (await import('./replication')).createHttpReplicationService(client),
+    ),
     kms: lazyService(async () => (await import('./kms')).createHttpKmsService(client)),
     users: lazyService(async () => (await import('./iam')).createHttpUserService(client)),
     groups: lazyService(async () => (await import('./iam')).createHttpGroupService(client)),
