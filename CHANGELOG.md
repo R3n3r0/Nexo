@@ -370,6 +370,9 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   new credentials, which every node must share).
 - A pool is never resized (validated by the API) and is removed only when confirmed decommissioned
   (`nexo.r3n3r0.github.io/decommissioned-pools`); the PersistentVolumeClaims of the drives are never deleted.
+- Released with the server: image `docker.io/paolor/nexo-operator` (multi-arch, signed, SBOM and provenance) and
+  `nexo-operator.yaml` attached to the release with the image pinned to the tag
+  (`kubectl apply --server-side -f .../releases/download/vX.Y.Z/nexo-operator.yaml`); `nexo-operator -version`.
 - Tested against a real API server (envtest): creation, rolling and all-at-once updates, pool expansion and
   removal, the sample manifest; `make operator-test`, `make operator-check`, CI job `operator`.
 

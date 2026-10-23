@@ -8,6 +8,17 @@ health-gated updates, pool expansion and the protection of the drives.
 
 ## Installation
 
+Every release attaches `nexo-operator.yaml` (namespace `nexo-operator`, CRD, ClusterRole, the operator) with
+the image pinned to its tag, `docker.io/paolor/nexo-operator:vX.Y.Z`, signed like the other images
+(`releases/download/vX.Y.Z/nexo-operator.yaml` for a given release):
+
+```bash
+kubectl apply --server-side -f https://github.com/R3n3r0/Nexo/releases/latest/download/nexo-operator.yaml
+kubectl -n nexo-operator rollout status deploy/nexo-operator
+```
+
+From the sources, the same manifests with the `latest` image:
+
 ```bash
 kubectl apply -k deploy/operator          # namespace nexo-operator, CRD, ClusterRole, the operator
 kubectl -n nexo-operator rollout status deploy/nexo-operator
