@@ -3,8 +3,10 @@ package integration_test
 import (
 	"bytes"
 	"context"
+	"encoding/xml"
 	"fmt"
 	"io"
+	"net/http"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -167,37 +169,38 @@ func nexoctl(t *testing.T, dir string, args ...string) string {
 func versionHistory(t *testing.T, e *env, bucket string) []string {
 	t.Helper()
 	ctx := e.ctx
-	list, err := e.root.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{Bucket: aws.String(bucket)})
-	require.NoError(t, err)
-	require.False(t, aws.ToBool(list.IsTruncated))
+	// The raw document: versions and delete markers interleave in the
+	// order of the listing (newest first within a key), which the SDK
+	// splits into two arrays and dates cannot restore (millisecond
+	// precision: a delete right after a write ties).
+	resp := e.signedDo(http.MethodGet, "/"+bucket+"?versions", e.rootCreds(), nil, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode, string(resp.Body))
 	type entry struct {
 		key, id string
 		latest  bool
 		marker  bool
-		order   int
 	}
 	var all []entry
-	for i, v := range list.Versions {
-		all = append(all, entry{key: aws.ToString(v.Key), id: aws.ToString(v.VersionId), latest: aws.ToBool(v.IsLatest), order: i})
-	}
-	for i, m := range list.DeleteMarkers {
-		all = append(all, entry{key: aws.ToString(m.Key), id: aws.ToString(m.VersionId), latest: aws.ToBool(m.IsLatest), marker: true, order: len(list.Versions) + i})
-	}
-	// Versions and markers interleave by date within a key: the listing
-	// returns them in two arrays, so the dates order them back.
-	dates := map[string]int64{}
-	for _, v := range list.Versions {
-		dates[aws.ToString(v.VersionId)] = aws.ToTime(v.LastModified).UnixNano()
-	}
-	for _, m := range list.DeleteMarkers {
-		dates[aws.ToString(m.VersionId)] = aws.ToTime(m.LastModified).UnixNano()
-	}
-	sort.SliceStable(all, func(i, j int) bool {
-		if all[i].key != all[j].key {
-			return all[i].key < all[j].key
+	dec := xml.NewDecoder(bytes.NewReader(resp.Body))
+	for {
+		tok, err := dec.Token()
+		if err == io.EOF {
+			break
 		}
-		return dates[all[i].id] > dates[all[j].id]
-	})
+		require.NoError(t, err)
+		se, ok := tok.(xml.StartElement)
+		if !ok || (se.Name.Local != "Version" && se.Name.Local != "DeleteMarker") {
+			continue
+		}
+		var v struct {
+			Key       string `xml:"Key"`
+			VersionID string `xml:"VersionId"`
+			IsLatest  bool   `xml:"IsLatest"`
+		}
+		require.NoError(t, dec.DecodeElement(&v, &se))
+		all = append(all, entry{key: v.Key, id: v.VersionID, latest: v.IsLatest, marker: se.Name.Local == "DeleteMarker"})
+	}
+	require.NotContains(t, string(resp.Body), "<IsTruncated>true</IsTruncated>")
 	var out []string
 	for _, v := range all {
 		if v.marker {
