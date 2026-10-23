@@ -62,6 +62,7 @@ nexoctl admin [flags]
 * [nexoctl admin speedtest](nexoctl_admin_speedtest.md)	 - Measure the drives, the object layer or the network between the nodes
 * [nexoctl admin tier](nexoctl_admin_tier.md)	 - Manage the remote tiers of the lifecycle transitions
 * [nexoctl admin trace](nexoctl_admin_trace.md)	 - Show the requests served by the server, live
+* [nexoctl admin update](nexoctl_admin_update.md)	 - Update the server binary of every node (rolling, without downtime)
 * [nexoctl admin usage](nexoctl_admin_usage.md)	 - Show the data usage of the server and of each bucket
 * [nexoctl admin user](nexoctl_admin_user.md)	 - Manage the IAM users
 

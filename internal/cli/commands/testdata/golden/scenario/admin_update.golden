@@ -1,0 +1,67 @@
+$ nexoctl admin update --status mem
+! nexoctl: error: not found: no update or coordinated restart ran (not_found)
+[exit 3]
+
+$ nexoctl admin update --yes --sha256 3f5a0c3e1b2d4f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8 mem https://dl.example.test/nexo-v1.1.0-linux-amd64
+Job 0000000000000001 (update, rolling) started by node node1:9000.
+  node1:9000                   done (v1.1.0)
+  node2:9000                   done (v1.1.0)
+  node3:9000                   done (v1.1.0)
+Every node of "mem" runs v1.1.0.
+
+$ nexoctl admin update --status mem
+Job 0000000000000001: update (rolling) completed, started 2026-01-02 03:04:05 by node1:9000, ended 2026-01-02 03:05:05
+Binary: https://dl.example.test/nexo-v1.1.0-linux-amd64 (sha256 3f5a0c3e1b2d4f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8), version v1.1.0
+  node1:9000                   done (v1.1.0)
+  node2:9000                   done (v1.1.0)
+  node3:9000                   done (v1.1.0)
+
+$ nexoctl admin update --status --json mem
+{"status":"success","alias":"mem","id":"0000000000000001","kind":"update","mode":"rolling","state":"completed","url":"https://dl.example.test/nexo-v1.1.0-linux-amd64","sha256":"3f5a0c3e1b2d4f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8","version":"v1.1.0","node":"node1:9000","started":"2026-01-02T03:04:05Z","finished":"2026-01-02T03:05:05Z","nodes":[{"node":"node1:9000","phase":"done","version":"v1.1.0"},{"node":"node2:9000","phase":"done","version":"v1.1.0"},{"node":"node3:9000","phase":"done","version":"v1.1.0"}]}
+
+$ nexoctl admin update --yes --no-wait --all-at-once --sha256 3f5a0c3e1b2d4f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8 mem https://dl.example.test/nexo
+Job 0000000000000002 (update, all) started on "mem": nexoctl admin update --status mem
+
+$ nexoctl admin update --yes --sha256 3f5a0c3e1b2d4f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8 mem https://dl.example.test/broken
+Job 0000000000000003 (update, rolling) started by node node1:9000.
+  node1:9000                   failed: the binary does not run on this node
+  node2:9000                   failed: the binary does not run on this node
+  node3:9000                   failed: the binary does not run on this node
+! nexoctl: error: job 0000000000000003 (update) failed: staging: the binary does not run on this node
+[exit 1]
+
+$ nexoctl admin service restart --cluster --yes mem
+Job 0000000000000004 (restart, rolling) started by node node1:9000.
+  node1:9000                   done
+  node2:9000                   done
+  node3:9000                   done
+Every node of "mem" restarted.
+
+$ nexoctl admin service restart --cluster --all-at-once --yes --json mem
+{"status":"success","alias":"mem","id":"0000000000000005","kind":"restart","mode":"all","state":"completed","node":"node1:9000","started":"2026-01-02T03:04:05Z","finished":"2026-01-02T03:05:05Z","nodes":[{"node":"node1:9000","phase":"done"},{"node":"node2:9000","phase":"done"},{"node":"node3:9000","phase":"done"}]}
+
+$ nexoctl admin service stop --cluster --yes mem
+Every node of "mem" is stopping.
+
+$ nexoctl admin update --yes mem https://dl.example.test/nexo
+! nexoctl: error: --sha256 is required: the SHA-256 of the binary (sha256sum, or the checksums file of the release)
+! Run 'nexoctl admin update --help' for usage.
+[exit 2]
+
+$ nexoctl admin update --yes --sha256 abc mem https://dl.example.test/nexo
+! nexoctl: error: update mem: invalid argument: update: the SHA-256 of the binary must be 64 hex digits (invalid_argument)
+[exit 1]
+
+$ nexoctl admin update --yes --sha256 3f5a0c3e1b2d4f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8 mem ftp://dl.example.test/nexo
+! nexoctl: error: update mem: invalid argument: update: the URL of the binary must be http(s)://host/path (invalid_argument)
+[exit 1]
+
+$ nexoctl admin update --sha256 3f5a0c3e1b2d4f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8 --json mem https://dl.example.test/nexo
+! {"status":"error","error":{"code":"UsageError","message":"confirmation required: add --yes","exitCode":2}}
+[exit 2]
+
+$ nexoctl admin update mem
+! nexoctl: error: nexoctl admin update takes 2 argument(s), got 1
+! Run 'nexoctl admin update --help' for usage.
+[exit 2]
+

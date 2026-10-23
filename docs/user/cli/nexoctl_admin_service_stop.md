@@ -8,6 +8,9 @@ Stop the server process (it must be started again by hand).
 
 The command asks for a confirmation on the terminal; --yes skips it (scripts).
 
+Without --cluster only the node answering the request (behind a load balancer: any node) stops.
+--cluster stops every node of the deployment: the other nodes first, then the one answering.
+
 ```
 nexoctl admin service stop [flags] ALIAS
 ```
@@ -16,13 +19,15 @@ nexoctl admin service stop [flags] ALIAS
 
 ```
   nexoctl admin service stop --yes local
+  nexoctl admin service stop --cluster --yes mycluster
 ```
 
 ## Options
 
 ```
-  -h, --help   help for stop
-  -y, --yes    do not ask for a confirmation
+      --cluster   stop every node of the deployment
+  -h, --help      help for stop
+  -y, --yes       do not ask for a confirmation
 ```
 
 ## Options inherited from parent commands

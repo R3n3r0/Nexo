@@ -95,7 +95,7 @@ Codici frequenti: `unauthenticated`, `access_denied`, `invalid_csrf_token`, `inv
 | Tag | Percorsi principali | Per |
 |-----|---------------------|-----|
 | session | `/auth/login`, `/auth/logout`, `/auth/session`, `/me/permissions` | sessione della console |
-| server | `/info`, `/usage`, `/heal`, `/service/restart`, `/service/stop` | stato, utilizzo, healing, servizio |
+| server | `/info`, `/usage`, `/heal`, `/service/restart`, `/service/stop`, `/service/update`, `/service/cluster/{restart,stop}` | stato, utilizzo, healing, servizio, aggiornamento e riavvio coordinato |
 | monitoring | `/metrics`, `/metrics/query`, `/trace`, `/logs`, `/audit` | metriche, trace e log in streaming (SSE), audit |
 | diagnostics | `/profile`, `/speedtest/{kind}` | profili pprof, test di velocità |
 | buckets | `/buckets`, `/buckets/{bucket}/{versioning,policy,quota,tags,objectlock,encryption,access,lifecycle,events,cors}` | bucket e loro impostazioni |

@@ -26,6 +26,10 @@ type AdminClient interface {
 	CompactMetadataLog(ctx context.Context) (*nexoadmin.MetadataLogCompaction, error)
 	RestartService(ctx context.Context) error
 	StopService(ctx context.Context) error
+	StartUpdate(ctx context.Context, in nexoadmin.UpdateRequest) (*nexoadmin.UpdateJob, error)
+	UpdateStatus(ctx context.Context) (*nexoadmin.UpdateJob, error)
+	RestartCluster(ctx context.Context, mode string) (*nexoadmin.UpdateJob, error)
+	StopCluster(ctx context.Context) error
 	// Diagnostics of the node that serves the request (S-OPS-11).
 	Profile(ctx context.Context, in nexoadmin.ProfileRequest) (*nexoadmin.Profile, error)
 	Speedtest(ctx context.Context, kind string, in nexoadmin.SpeedtestRequest) (*nexoadmin.SpeedtestResult, error)

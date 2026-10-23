@@ -43,6 +43,15 @@ type AdminClient interface {
 	CompactMetadataLog(ctx context.Context) (*MetadataLogCompaction, error)
 	RestartService(ctx context.Context) error
 	StopService(ctx context.Context) error
+	// StartUpdate updates the binary of every node, UpdateStatus returns
+	// the last update or coordinated restart (S-OPS-09,
+	// admin:ServerUpdate, admin:ServerInfo); the jobs run in the
+	// background. RestartCluster restarts every node ("rolling" or "all"),
+	// StopCluster stops them (admin:ServiceRestart, admin:ServiceStop).
+	StartUpdate(ctx context.Context, in UpdateRequest) (*UpdateJob, error)
+	UpdateStatus(ctx context.Context) (*UpdateJob, error)
+	RestartCluster(ctx context.Context, mode string) (*UpdateJob, error)
+	StopCluster(ctx context.Context) error
 	// Profile collects a runtime profile of the node that serves the
 	// request; Speedtest runs a speed test (SpeedtestDrive,
 	// SpeedtestObject, SpeedtestNet) on it.

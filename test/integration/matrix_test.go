@@ -140,6 +140,7 @@ func suite() []suiteTest {
 		{name: "TestBucketReplication", fn: TestBucketReplication},
 		{name: "TestSiteReplication", fn: TestSiteReplication},
 		{name: "TestTiering", fn: TestTiering},
+		{name: "TestUpdateNotAProcess", fn: TestUpdateNotAProcess},
 		{name: "TestSelectObjectContent", fn: TestSelectObjectContent},
 		{name: "TestServerSideEncryptionKMS", fn: TestServerSideEncryptionKMS},
 		{name: "TestServerSideEncryptionKES", fn: TestServerSideEncryptionKES},

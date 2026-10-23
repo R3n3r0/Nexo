@@ -504,6 +504,29 @@ func (c *adminClient) StopService(ctx context.Context) error {
 	return MapAdminError(c.api.StopService(ctx), c.endpoint)
 }
 
+// StartUpdate implements AdminClient.
+func (c *adminClient) StartUpdate(ctx context.Context, in nexoadmin.UpdateRequest) (*nexoadmin.UpdateJob, error) {
+	v, err := c.api.StartUpdate(ctx, in)
+	return mapped(c, v, err)
+}
+
+// UpdateStatus implements AdminClient.
+func (c *adminClient) UpdateStatus(ctx context.Context) (*nexoadmin.UpdateJob, error) {
+	v, err := c.api.UpdateStatus(ctx)
+	return mapped(c, v, err)
+}
+
+// RestartCluster implements AdminClient.
+func (c *adminClient) RestartCluster(ctx context.Context, mode string) (*nexoadmin.UpdateJob, error) {
+	v, err := c.api.RestartCluster(ctx, mode)
+	return mapped(c, v, err)
+}
+
+// StopCluster implements AdminClient.
+func (c *adminClient) StopCluster(ctx context.Context) error {
+	return MapAdminError(c.api.StopCluster(ctx), c.endpoint)
+}
+
 // ListUsers implements AdminClient.
 func (c *adminClient) ListUsers(ctx context.Context, opts nexoadmin.ListOptions) (*nexoadmin.UserList, error) {
 	v, err := c.api.ListUsers(ctx, opts)

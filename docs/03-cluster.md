@@ -180,6 +180,8 @@ for reads and writes; usable capacity 75%.
 
 - **Remote tiers** (S-STO-12, §3.12).
 
+- **Updates and coordinated restarts** (S-OPS-09, §3.13).
+
 ## 3.11 Failure scenarios to support
 
 | Scenario | Expected behavior |
@@ -210,3 +212,29 @@ data directory), and the healing releases the data left by an interrupted transi
 metadata only. The leader sweeps the tiers every hour: an object of this deployment older than one hour whose
 version, looked up under its lock, does not name it is removed. A tier holding objects of this deployment
 cannot be removed. A copy onto itself stores the data on the drives again.
+
+## 3.13 Orchestrated update and coordinated restart
+
+Every node runs an update agent, reached by its peers over the internode RPC (`/update/state|stage|activate|restart|stop`).
+The node receiving `POST /service/update` (or `POST /service/cluster/restart`) orchestrates the job, kept in the
+system store (`update/job.json`): one job at a time.
+
+- **Staging** (update only): every node downloads the binary into the directory of the running one, verifies its
+  SHA-256, runs it (`version --json`, the version and the platform) and keeps it as `.nexo-update-<digest>`. Any
+  failure, or two versions, fails the job before any node changes; a rolling update refuses a change of major
+  version (the nodes would not form a cluster).
+- **Activation**: the other nodes first, sorted, this one last. Rolling: a node only once
+  `Health(Maintenance)` holds (one more node can stop without losing the write quorum of any set), the next one
+  once the node answers with a new run (`boot`) and, for an update, the new version (up to 5 minutes, else the job
+  fails and the nodes after it are untouched). All at once: every node without waiting. An update renames the
+  running binary `<binary>.old` and the staged one in its place (a failed rename puts it back), then the process
+  stops gracefully and replaces itself (`execve` on Unix; on Windows it starts its successor and exits); if the new
+  binary cannot be executed, `.old` is put back and executed. A restart restarts the server in its process.
+- **Completion**: the orchestrator records itself `restarting` before its own activation; its next run, or any
+  node reading the job once the orchestrator runs again, completes it: `completed` when every node is back (with
+  the version), `failed` when a node is on another version or the job was interrupted before activating it.
+- **Coordinated stop**: `POST /service/cluster/stop` stops the other nodes, then the one answering.
+
+Only a server run as a process by its binary (`nexo server`) can update or restart itself; embedded (the tests) the
+calls answer `501`. The binary directory must be writable by the server: packages and images are updated by their
+own tools.
