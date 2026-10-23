@@ -9,13 +9,13 @@ function lazyPage<M>(load: () => Promise<M>, pick: (module: M) => ComponentType)
   return lazy(async () => ({ default: pick(await load()) }));
 }
 
-// The site replication panel uses strings loaded on demand (i18n sections).
+// The cluster pages use strings loaded on demand (i18n sections).
 const ClusterPage = lazyPage(
   async () => (await Promise.all([import('./cluster/ClusterPage'), loadSectionTranslations()]))[0],
   (m) => m.ClusterPage,
 );
 const HealingPage = lazyPage(
-  () => import('./cluster/HealingPage'),
+  async () => (await Promise.all([import('./cluster/HealingPage'), loadSectionTranslations()]))[0],
   (m) => m.HealingPage,
 );
 

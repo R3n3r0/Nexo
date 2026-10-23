@@ -130,6 +130,19 @@ export type Pools = Schemas['Pools'];
 export type PoolStatus = Schemas['PoolStatus'];
 /** Progress of a decommission or of the rebalance. */
 export type PoolJob = Schemas['PoolJob'];
+/** A change of the pools to check (POST /pools/plan). */
+export type PoolPlanInput = Schemas['PoolPlanInput'];
+/** The topology after the change, and the command line of every node. */
+export type PoolPlan = Schemas['PoolPlan'];
+export type PlannedPool = Schemas['PlannedPool'];
+
+/* Orchestrated update and coordinated restart (/service/update, /service/cluster/*). */
+
+/** The last update or coordinated restart of the deployment. */
+export type UpdateJob = Schemas['UpdateJob'];
+export type UpdateRequest = Schemas['UpdateRequest'];
+/** One node at a time (rolling) or every node together (all). */
+export type RestartMode = NonNullable<UpdateRequest['mode']>;
 
 /* Bucket replication (/buckets/{bucket}/replication, S-BKT-12). */
 

@@ -32,6 +32,7 @@ import { problemMessage } from '@/lib/problem';
 import { serverInfoQueryKey } from '@/lib/serverInfo';
 import { useServices, type NodeInfo, type PoolInfo, type ServerInfo } from '@/services';
 
+import { ClusterMaintenance } from './ClusterMaintenance';
 import { PoolManagement } from './PoolManagement';
 import { RemoteTiers } from './RemoteTiers';
 import { SiteReplication } from './SiteReplication';
@@ -456,6 +457,7 @@ export function ClusterPage() {
         <PoolSection key={pool.index} info={data} pool={pool} />
       ))}
       {data && data.mode !== 'snsd' ? <PoolManagement /> : null}
+      {data ? <ClusterMaintenance /> : null}
       {data ? <SiteReplication /> : null}
       {data ? <RemoteTiers /> : null}
     </Stack>

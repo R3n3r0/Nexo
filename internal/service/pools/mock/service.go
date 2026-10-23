@@ -116,6 +116,63 @@ func (_c *Service_Decommission_Call) RunAndReturn(run func(context.Context, int)
 	return _c
 }
 
+// Plan provides a mock function with given fields: ctx, in
+func (_m *Service) Plan(ctx context.Context, in pools.PlanInput) (pools.Plan, error) {
+	ret := _m.Called(ctx, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Plan")
+	}
+
+	var r0 pools.Plan
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, pools.PlanInput) (pools.Plan, error)); ok {
+		return rf(ctx, in)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, pools.PlanInput) pools.Plan); ok {
+		r0 = rf(ctx, in)
+	} else {
+		r0 = ret.Get(0).(pools.Plan)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, pools.PlanInput) error); ok {
+		r1 = rf(ctx, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_Plan_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Plan'
+type Service_Plan_Call struct {
+	*mock.Call
+}
+
+// Plan is a helper method to define mock.On call
+//   - ctx context.Context
+//   - in pools.PlanInput
+func (_e *Service_Expecter) Plan(ctx interface{}, in interface{}) *Service_Plan_Call {
+	return &Service_Plan_Call{Call: _e.mock.On("Plan", ctx, in)}
+}
+
+func (_c *Service_Plan_Call) Run(run func(ctx context.Context, in pools.PlanInput)) *Service_Plan_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(pools.PlanInput))
+	})
+	return _c
+}
+
+func (_c *Service_Plan_Call) Return(_a0 pools.Plan, _a1 error) *Service_Plan_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_Plan_Call) RunAndReturn(run func(context.Context, pools.PlanInput) (pools.Plan, error)) *Service_Plan_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Start provides a mock function with given fields: ctx
 func (_m *Service) Start(ctx context.Context) error {
 	ret := _m.Called(ctx)

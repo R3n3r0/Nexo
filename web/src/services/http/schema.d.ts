@@ -2502,6 +2502,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/pools/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Plan a change of the pools (expansion, removal of decommissioned pools)
+         * @description Checks the pools appended after the existing ones and the pools removed once their decommission is complete the way every node parses its command line at startup (erasure sets, parity, nodes), and returns the new endpoint arguments of every node (NEXO_ENDPOINTS). Nothing changes: the nodes run the new topology once all of them are restarted with it. Every existing pool must be written as one argument with ellipses. 501 in single-drive mode.
+         */
+        post: operations["planPools"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pools/{pool}/decommission": {
         parameters: {
             query?: never;
@@ -4223,6 +4243,35 @@ export interface components {
         Pools: {
             pools: components["schemas"]["PoolStatus"][];
             rebalance?: components["schemas"]["PoolJob"];
+        };
+        PoolPlanInput: {
+            /** @description Arguments of the new pools, one with ellipses per pool ("http://nexo{5...8}:9000/mnt/disk{1...4}"). */
+            add?: string[];
+            /** @description Decommissioned pools to remove (1-based). */
+            remove?: number[];
+        };
+        PlannedPool: {
+            /** @description 1-based position in the planned command line. */
+            index: number;
+            /** @description 1-based position today (absent for a new pool). */
+            current?: number;
+            arg: string;
+            /** @description Nodes of the pool ("host:port", "local" for the drives of a single node). */
+            nodes: string[];
+            drives: number;
+            sets: number;
+            drivesPerSet: number;
+            parity: number;
+        };
+        PoolPlan: {
+            mode: string;
+            /** @description Endpoint arguments of every node, in order (NEXO_ENDPOINTS, or the arguments of nexo server). */
+            args: string[];
+            pools: components["schemas"]["PlannedPool"][];
+            removed: string[];
+            nodes: string[];
+            /** @description Nodes that are not part of the deployment today. */
+            newNodes: string[];
         };
         Lock: {
             /** @description The locked resource ("bucket/key"). */
@@ -11092,6 +11141,33 @@ export interface operations {
                     "application/json": components["schemas"]["Pools"];
                 };
             };
+            default: components["responses"]["Problem"];
+        };
+    };
+    planPools: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PoolPlanInput"];
+            };
+        };
+        responses: {
+            /** @description The planned topology. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolPlan"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            501: components["responses"]["Problem"];
             default: components["responses"]["Problem"];
         };
     };

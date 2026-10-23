@@ -45,6 +45,13 @@ type Service interface {
 	StartRebalance(ctx context.Context) error
 	// StopRebalance stops the rebalance.
 	StopRebalance(ctx context.Context) error
+	// Plan checks a change of the pools (new pools appended, pools
+	// removed once decommissioned) the way every node parses its command
+	// line at startup, and returns the new topology and command line. It
+	// changes nothing: the nodes run the new topology once restarted with
+	// it (domain.ErrInvalidArgument for an invalid change,
+	// domain.ErrNotImplemented without the layout).
+	Plan(ctx context.Context, in PlanInput) (Plan, error)
 }
 
 // JobState is the state of a job.

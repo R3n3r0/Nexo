@@ -3024,6 +3024,32 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Pools" }
         default: { $ref: "#/components/responses/Problem" }
+  /pools/plan:
+    post:
+      tags: [cluster]
+      operationId: planPools
+      summary: Plan a change of the pools (expansion, removal of decommissioned pools)
+      description: >-
+        Checks the pools appended after the existing ones and the pools removed once their decommission is complete
+        the way every node parses its command line at startup (erasure sets, parity, nodes), and returns the new
+        endpoint arguments of every node (NEXO_ENDPOINTS). Nothing changes: the nodes run the new topology once all
+        of them are restarted with it. Every existing pool must be written as one argument with ellipses. 501 in
+        single-drive mode.
+      x-nexo-actions: ["admin:ServerInfo"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PoolPlanInput" }
+      responses:
+        "200":
+          description: The planned topology.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PoolPlan" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "501": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
   /pools/{pool}/decommission:
     parameters:
       - name: pool
@@ -5195,6 +5221,54 @@ components:
           type: array
           items: { $ref: "#/components/schemas/PoolStatus" }
         rebalance: { $ref: "#/components/schemas/PoolJob" }
+    PoolPlanInput:
+      type: object
+      properties:
+        add:
+          type: array
+          description: Arguments of the new pools, one with ellipses per pool ("http://nexo{5...8}:9000/mnt/disk{1...4}").
+          items: { type: string }
+        remove:
+          type: array
+          description: Decommissioned pools to remove (1-based).
+          items: { type: integer, minimum: 1 }
+    PlannedPool:
+      type: object
+      required: [index, arg, nodes, drives, sets, drivesPerSet, parity]
+      properties:
+        index: { type: integer, description: 1-based position in the planned command line. }
+        current: { type: integer, description: 1-based position today (absent for a new pool). }
+        arg: { type: string }
+        nodes:
+          type: array
+          description: Nodes of the pool ("host:port", "local" for the drives of a single node).
+          items: { type: string }
+        drives: { type: integer }
+        sets: { type: integer }
+        drivesPerSet: { type: integer }
+        parity: { type: integer }
+    PoolPlan:
+      type: object
+      required: [mode, args, pools, removed, nodes, newNodes]
+      properties:
+        mode: { type: string }
+        args:
+          type: array
+          description: Endpoint arguments of every node, in order (NEXO_ENDPOINTS, or the arguments of nexo server).
+          items: { type: string }
+        pools:
+          type: array
+          items: { $ref: "#/components/schemas/PlannedPool" }
+        removed:
+          type: array
+          items: { type: string }
+        nodes:
+          type: array
+          items: { type: string }
+        newNodes:
+          type: array
+          description: Nodes that are not part of the deployment today.
+          items: { type: string }
     Lock:
       type: object
       required: [resource, uid, owner, type, quorum, since, refreshed, servers, total]

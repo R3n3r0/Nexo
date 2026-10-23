@@ -14,6 +14,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/sysstore"
+	"github.com/r3n3r0/nexo/internal/service/topology"
 )
 
 // Documents of the system store.
@@ -44,8 +45,12 @@ type Deps struct {
 	PoolIDs []string
 	// Leader runs the jobs on one node; nil runs them here.
 	Leader Leader
-	Clock  clock.Clock
-	Logger *slog.Logger
+	// Topology and Layout plan the changes of the pools (Plan); nil
+	// Plan answers domain.ErrNotImplemented.
+	Topology topology.Service
+	Layout   *topology.Layout
+	Clock    clock.Clock
+	Logger   *slog.Logger
 }
 
 // Option configures the service.

@@ -111,7 +111,7 @@ func newHealing(d composeDeps, objects object.Service, queue heal.Queue, dyn con
 		for _, p := range d.f.layout.Pools {
 			ids = append(ids, strings.Join(p.Args, " "))
 		}
-		poolDeps := poolsvc.Deps{Objects: objects, Mover: mover, Docs: docs, PoolIDs: ids, Clock: d.clock, Logger: d.logger.With("component", "pools")}
+		poolDeps := poolsvc.Deps{Objects: objects, Mover: mover, Docs: docs, PoolIDs: ids, Topology: d.f.topo, Layout: d.f.layout, Clock: d.clock, Logger: d.logger.With("component", "pools")}
 		if d.f.leader != nil {
 			poolDeps.Leader = d.f.leader
 		}

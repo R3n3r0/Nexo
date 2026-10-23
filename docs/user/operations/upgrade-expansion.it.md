@@ -118,6 +118,10 @@ Il riavvio rolling segue le stesse regole dell'aggiornamento orchestrato (il nod
 precedente è di nuovo in esecuzione e il deployment può perdere un nodo) e si segue allo stesso modo
 (`nexoctl admin update --status`).
 
+Dalla console, **Cluster → Manutenzione** avvia lo stesso aggiornamento (URL del binario e SHA-256), il
+riavvio coordinato (a rotazione o tutti insieme) e l'arresto coordinato (confermato scrivendo una parola), e
+mostra l'ultimo job nodo per nodo mentre i nodi si riavviano.
+
 Per ricaricare i certificati TLS non serve riavviare: `systemctl reload nexo` (`SIGHUP`) o la sola
 sostituzione dei file (vedi [TLS](../security/tls.md)).
 
@@ -141,6 +145,12 @@ dal primo pool). I dati esistenti non vengono spostati.
    rimasto con la riga di comando vecchia non entra nel cluster. È un'interruzione breve e pianificata.
 4. I dischi del nuovo pool vengono formattati con lo stesso deployment ID. Verifica con
    `nexoctl admin info local`: due pool, tutti i set `ok`.
+
+La console guida gli stessi passi: **Cluster → Gestione dei pool → Espandi il cluster** verifica i nuovi pool
+sul server esattamente come li leggeranno i nodi (`POST /api/v1/pools/plan`: erasure set, parità, nuovi nodi,
+dischi duplicati o non validi rifiutati), fornisce il nuovo `NEXO_ENDPOINTS` di ogni nodo da copiare e poi,
+confermata la checklist, ferma il cluster. Lo stesso assistente rimuove i pool la cui dismissione è completa.
+Ogni pool deve essere già scritto come un solo argomento con ellissi.
 
 Dopo l'espansione:
 

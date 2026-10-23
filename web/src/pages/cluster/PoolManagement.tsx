@@ -10,7 +10,7 @@ import {
   Text,
   Title,
 } from '@mantine/core';
-import { IconInfoCircle } from '@tabler/icons-react';
+import { IconInfoCircle, IconServerBolt } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -21,6 +21,8 @@ import { clusterRefreshMs, healRunningRefreshMs, poolsQueryKey } from '@/lib/clu
 import { formatBytes, formatNumber } from '@/lib/format';
 import { problemMessage } from '@/lib/problem';
 import { isApiError, useServices, type PoolJob, type Pools } from '@/services';
+
+import { ExpandClusterWizard } from './ExpandClusterWizard';
 
 /** Badge colours of the job states. */
 const jobColor: Record<PoolJob['state'], string> = {
@@ -43,27 +45,27 @@ function JobProgress({ job }: { job: PoolJob }) {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage;
   const details = [
-    t('cluster.pools.moved', {
+    t('clusterPools.moved', {
       count: job.objects,
       objects: formatNumber(job.objects, locale),
       bytes: formatBytes(job.bytes, locale),
     }),
   ];
-  if (job.pass > 1) details.push(t('cluster.pools.pass', { pass: job.pass }));
-  if (job.failed > 0) details.push(t('cluster.pools.failed', { count: job.failed }));
+  if (job.pass > 1) details.push(t('clusterPools.pass', { pass: job.pass }));
+  if (job.failed > 0) details.push(t('clusterPools.failed', { count: job.failed }));
   if (job.pendingUploads > 0) {
-    details.push(t('cluster.pools.uploads', { count: job.pendingUploads }));
+    details.push(t('clusterPools.uploads', { count: job.pendingUploads }));
   }
   if (job.state === 'running' && job.bucket !== undefined && job.bucket !== '') {
     details.push(
-      t('cluster.pools.at', { position: `${job.bucket}/${job.object ?? ''}`.replace(/\/$/, '') }),
+      t('clusterPools.at', { position: `${job.bucket}/${job.object ?? ''}`.replace(/\/$/, '') }),
     );
   }
   return (
     <Stack gap={2}>
       <Group gap="xs">
         <Badge color={jobColor[job.state]} variant="light">
-          {t(`cluster.pools.states.${job.state}`)}
+          {t(`clusterPools.states.${job.state}`)}
         </Badge>
       </Group>
       <Text size="xs" c="dimmed">
@@ -92,6 +94,7 @@ export function PoolManagement() {
   const queryClient = useQueryClient();
   const perms = usePermissions();
   const [confirm, setConfirm] = useState<number | null>(null);
+  const [expand, setExpand] = useState(false);
 
   const query = useQuery({
     queryKey: poolsQueryKey,
@@ -121,7 +124,7 @@ export function PoolManagement() {
   if (query.isError && isApiError(query.error) && query.error.status === 501) {
     return null;
   }
-  const title = t('cluster.pools.title');
+  const title = t('clusterPools.title');
   const data = query.data;
   const canDecommission = perms.can(PoolActions.decommission);
   const canRebalance = perms.can(PoolActions.rebalance);
@@ -132,12 +135,25 @@ export function PoolManagement() {
   return (
     <Paper withBorder radius="md" p="md" component="section" aria-label={title}>
       <Stack gap="md">
-        <Stack gap={2}>
-          <Title order={4}>{title}</Title>
-          <Text size="sm" c="dimmed">
-            {t('cluster.pools.subtitle')}
-          </Text>
-        </Stack>
+        <Group justify="space-between" align="flex-start" wrap="wrap">
+          <Stack gap={2} maw={640}>
+            <Title order={4}>{title}</Title>
+            <Text size="sm" c="dimmed">
+              {t('clusterPools.subtitle')}
+            </Text>
+          </Stack>
+          {data ? (
+            <Button
+              size="xs"
+              leftSection={<IconServerBolt size={14} />}
+              onClick={() => {
+                setExpand(true);
+              }}
+            >
+              {t('clusterExpand.open')}
+            </Button>
+          ) : null}
+        </Group>
         {query.isError ? (
           <Alert color="red" variant="light" role="alert">
             {problemMessage(t, query.error)}
@@ -146,7 +162,19 @@ export function PoolManagement() {
         {actionError !== null ? <ErrorAlert error={actionError} /> : null}
         {data?.pools.some((p) => p.decommission?.state === 'complete') ? (
           <Alert color="green" variant="light" icon={<IconInfoCircle size={18} />}>
-            {t('cluster.pools.removeHint')}
+            <Group justify="space-between" gap="xs">
+              <Text size="sm">{t('clusterPools.removeHint')}</Text>
+              <Button
+                size="xs"
+                variant="light"
+                color="green"
+                onClick={() => {
+                  setExpand(true);
+                }}
+              >
+                {t('clusterExpand.planRemoval')}
+              </Button>
+            </Group>
           </Alert>
         ) : null}
 
@@ -155,10 +183,10 @@ export function PoolManagement() {
             <Table aria-label={title} verticalSpacing="xs">
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th>{t('cluster.pools.pool')}</Table.Th>
+                  <Table.Th>{t('clusterPools.pool')}</Table.Th>
                   <Table.Th>{t('common.status')}</Table.Th>
                   <Table.Th>{t('cluster.drives.usage')}</Table.Th>
-                  <Table.Th>{t('cluster.pools.decommission')}</Table.Th>
+                  <Table.Th>{t('clusterPools.decommission')}</Table.Th>
                   <Table.Th>{t('common.actions')}</Table.Th>
                 </Table.Tr>
               </Table.Thead>
@@ -184,7 +212,7 @@ export function PoolManagement() {
                       </Table.Td>
                       <Table.Td>
                         <Badge color={p.draining ? 'orange' : 'green'} variant="light">
-                          {t(p.draining ? 'cluster.pools.draining' : 'cluster.pools.active')}
+                          {t(p.draining ? 'clusterPools.draining' : 'clusterPools.active')}
                         </Badge>
                       </Table.Td>
                       <Table.Td miw={160}>
@@ -193,7 +221,7 @@ export function PoolManagement() {
                             <Progress
                               value={ratio * 100}
                               size="sm"
-                              aria-label={t('cluster.pools.usage', { index: p.index })}
+                              aria-label={t('clusterPools.usage', { index: p.index })}
                             />
                             <Text size="xs" c="dimmed" mt={2}>
                               {t('overview.nodes.usedOf', {
@@ -226,7 +254,7 @@ export function PoolManagement() {
                               cancel.mutate(p.index);
                             }}
                           >
-                            {t('cluster.pools.cancel', { index: p.index })}
+                            {t('clusterPools.cancel', { index: p.index })}
                           </Button>
                         ) : p.index > 1 && job?.state !== 'complete' ? (
                           <Button
@@ -239,7 +267,7 @@ export function PoolManagement() {
                               setConfirm(p.index);
                             }}
                           >
-                            {t('cluster.pools.start', { index: p.index })}
+                            {t('clusterPools.start', { index: p.index })}
                           </Button>
                         ) : null}
                       </Table.Td>
@@ -255,13 +283,13 @@ export function PoolManagement() {
           <Group justify="space-between" align="flex-start" wrap="wrap">
             <Stack gap={4}>
               <Text fw={600} size="sm">
-                {t('cluster.pools.rebalance')}
+                {t('clusterPools.rebalance')}
               </Text>
               {rebalanceJob ? (
                 <JobProgress job={rebalanceJob} />
               ) : (
                 <Text size="sm" c="dimmed">
-                  {t('cluster.pools.rebalanceHint')}
+                  {t('clusterPools.rebalanceHint')}
                 </Text>
               )}
             </Stack>
@@ -274,17 +302,26 @@ export function PoolManagement() {
                 rebalance.mutate(!rebalancing);
               }}
             >
-              {t(rebalancing ? 'cluster.pools.stopRebalance' : 'cluster.pools.startRebalance')}
+              {t(rebalancing ? 'clusterPools.stopRebalance' : 'clusterPools.startRebalance')}
             </Button>
           </Group>
         ) : null}
       </Stack>
 
+      {data ? (
+        <ExpandClusterWizard
+          opened={expand}
+          pools={data}
+          onClose={() => {
+            setExpand(false);
+          }}
+        />
+      ) : null}
       <ConfirmDialog
         opened={confirm !== null}
-        title={t('cluster.pools.confirmTitle', { index: confirm ?? 0 })}
-        message={t('cluster.pools.confirm', { index: confirm ?? 0 })}
-        confirmLabel={t('cluster.pools.confirmLabel')}
+        title={t('clusterPools.confirmTitle', { index: confirm ?? 0 })}
+        message={t('clusterPools.confirm', { index: confirm ?? 0 })}
+        confirmLabel={t('clusterPools.confirmLabel')}
         loading={decommission.isPending}
         error={decommission.isError ? decommission.error : undefined}
         onCancel={() => {

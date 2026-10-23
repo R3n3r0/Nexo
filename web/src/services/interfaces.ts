@@ -93,6 +93,8 @@ import type {
   Group,
   HealJob,
   HealRequest,
+  PoolPlan,
+  PoolPlanInput,
   Pools,
   ReplicationConfiguration,
   ReplicationResync,
@@ -100,6 +102,7 @@ import type {
   ReplicationTarget,
   SiteReplicationInfo,
   SiteReplicationSite,
+  RestartMode,
   Tier,
   TierInput,
   KmsKey,
@@ -151,6 +154,8 @@ import type {
   TransferOptions,
   UpdateAccessKeyInput,
   UpdateGroupInput,
+  UpdateJob,
+  UpdateRequest,
   UpdateUserInput,
   Upload,
   UploadList,
@@ -224,6 +229,26 @@ export interface PoolsService {
   cancelDecommission(pool: number): Promise<void>;
   startRebalance(): Promise<void>;
   stopRebalance(): Promise<void>;
+  /**
+   * Checks a change of the pools (new pools appended, decommissioned pools
+   * removed) the way every node parses its command line, and returns the
+   * new command line. Nothing changes until the nodes restart with it.
+   */
+  plan(input: PoolPlanInput): Promise<PoolPlan>;
+}
+
+/**
+ * Maintenance of the deployment (S-OPS-09, C-ADM-09): the orchestrated
+ * update of the binary of every node and the coordinated restart and stop.
+ * A job runs in the background on the node that answered (which restarts
+ * last); job() follows it and resolves to null when none ever ran.
+ */
+export interface MaintenanceService {
+  job(): Promise<UpdateJob | null>;
+  update(input: UpdateRequest): Promise<UpdateJob>;
+  restart(mode: RestartMode): Promise<UpdateJob>;
+  /** Stops every node, the one answering last: the console goes offline. */
+  stop(): Promise<void>;
 }
 
 /** Bucket management. */
@@ -859,6 +884,7 @@ export interface Services {
   readonly info: InfoService;
   readonly heal: HealService;
   readonly pools: PoolsService;
+  readonly maintenance: MaintenanceService;
   readonly buckets: BucketService;
   readonly lifecycle: LifecycleService;
   readonly notifications: NotificationService;
