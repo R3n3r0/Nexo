@@ -44,6 +44,12 @@ KUBECONFORM         ?= kubeconform
 HADOLINT            ?= hadolint
 RELEASE_SKIP        ?= docker,sign
 KUBE_VERSIONS       ?= 1.27.0 1.34.0
+# Kubernetes operator (operator/, a module of its own): the generator of its
+# CRD and ClusterRole, and the API server of its tests (envtest).
+CONTROLLER_GEN_VERSION ?= v0.23.0
+SETUP_ENVTEST_VERSION  ?= v0.25.2
+ENVTEST_K8S_VERSION    ?= 1.37.0
+KUSTOMIZE_VERSION      ?= v5.7.1
 # User documentation (docs/user, mkdocs.yml): the generated CLI reference,
 # the MkDocs site in English (/) and Italian (/it/) (MkDocs, Material for
 # MkDocs and mkdocs-static-i18n pinned in docs/requirements.txt, installed by
@@ -62,7 +68,8 @@ export CGO_ENABLED ?= 0
 .PHONY: all build publish-images build-go build-web build-embedded e2e test test-race test-integration test-cluster test-compose test-proxy test-s3compat test-mint test-upgrade bench-rpc lint web-lint \
         web-test generate fmt clean run-single run-snmd run-cluster docker docker-nexoctl docker-media-worker build-media-worker bench-media help security fuzz bench \
         release-tools release-check release-snapshot release-smoke helm-lint systemd-verify hadolint packaging \
-        docs docs-check docs-api docs-tools docs-site traceability traceability-check dco zap-scan screenshots demo-gif
+        docs docs-check docs-api docs-tools docs-site traceability traceability-check dco zap-scan screenshots demo-gif \
+        operator-build operator-manifests operator-test operator-lint operator-check docker-operator
 
 all: build
 
@@ -344,10 +351,38 @@ systemd-verify:
 
 ## hadolint: lint the Dockerfiles (sources and GoReleaser)
 hadolint:
-	$(HADOLINT) Dockerfile Dockerfile.nexoctl Dockerfile.media-worker deploy/docker/Dockerfile.goreleaser deploy/docker/Dockerfile.nexoctl.goreleaser deploy/docker/Dockerfile.media-worker.goreleaser
+	$(HADOLINT) Dockerfile Dockerfile.nexoctl Dockerfile.media-worker Dockerfile.operator deploy/docker/Dockerfile.goreleaser deploy/docker/Dockerfile.nexoctl.goreleaser deploy/docker/Dockerfile.media-worker.goreleaser
 
 ## packaging: every packaging check that needs no Docker daemon: release-check, helm-lint, systemd-verify, hadolint
 packaging: release-check helm-lint systemd-verify hadolint
+
+## operator-build: build bin/nexo-operator (the Kubernetes operator, module operator/)
+operator-build:
+	cd operator && $(GO) build -trimpath -ldflags "-s -w" -o ../$(BIN_DIR)/nexo-operator ./cmd/nexo-operator
+
+## operator-manifests: regenerate the deepcopy functions, the CRD and the ClusterRole of the operator (deploy/operator)
+operator-manifests:
+	cd operator && $(GO) run sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_GEN_VERSION) object crd rbac:roleName=nexo-operator \
+	  paths=./... output:crd:artifacts:config=../deploy/operator/crd output:rbac:artifacts:config=../deploy/operator/rbac
+
+## operator-test: unit and envtest tests of the operator (downloads kube-apiserver and etcd $(ENVTEST_K8S_VERSION) in $(TOOLS_DIR)/envtest)
+operator-test:
+	cd operator && KUBEBUILDER_ASSETS="$$($(GO) run sigs.k8s.io/controller-runtime/tools/setup-envtest@$(SETUP_ENVTEST_VERSION) \
+	  use $(ENVTEST_K8S_VERSION) -p path --bin-dir $(TOOLS_DIR)/envtest)" CGO_ENABLED=1 $(GO) test -race -count=1 ./...
+
+## operator-lint: golangci-lint of the operator with the configuration of the repository
+operator-lint:
+	cd operator && golangci-lint run --config ../.golangci.yml ./...
+
+## operator-check: the manifests of deploy/operator are up to date and valid (kustomize build | kubeconform -strict)
+operator-check: operator-manifests
+	git diff --exit-code -- deploy/operator operator/api || { echo "deploy/operator is stale: run make operator-manifests"; exit 1; }
+	$(GO) run sigs.k8s.io/kustomize/kustomize/v5@$(KUSTOMIZE_VERSION) build deploy/operator | \
+	  $(KUBECONFORM) -strict -summary -skip CustomResourceDefinition -kubernetes-version $(lastword $(KUBE_VERSIONS)) -
+
+## docker-operator: build the image of the operator (Dockerfile.operator)
+docker-operator:
+	docker build -f Dockerfile.operator -t docker.io/paolor/nexo-operator:dev .
 
 ## traceability: regenerate test/TRACEABILITY.md, the features of docs/02 mapped to the tests tagged "covers: <code>" (docs/06 §6.8; tool in cmd/tools/traceability, not part of any release binary)
 traceability:

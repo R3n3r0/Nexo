@@ -117,6 +117,7 @@ Details in [10](10-domains-access-distributions.md).
 | S-OPS-13 | Multi-arch `nexo` and `nexoctl` Docker images, built-in healthcheck, `*_FILE` secrets, single/SNMD/cluster Compose files | P0 |
 | S-OPS-14 | `nexo server --dry-run` (configuration validation), public URL for links behind a proxy | P1 |
 | S-OPS-15 | Full export/import of IAM, config and bucket metadata (migration between modes, backup) | P1 |
+| S-OPS-16 | Kubernetes operator: `NexoCluster` resource (pools as StatefulSets, Services, disruption budget), rolling replacement of the pods gated on the cluster health, pool expansion, claims of the drives never deleted | P2 |
 
 ## 2.2 Dashboard (React console)
 

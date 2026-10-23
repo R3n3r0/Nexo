@@ -1,0 +1,13 @@
+# The Nexo operator: kubectl apply -k deploy/operator
+# The CRD and the ClusterRole are generated from the sources of the operator
+# (make operator-manifests); the image tag is set with
+#   kustomize edit set image docker.io/paolor/nexo-operator=docker.io/paolor/nexo-operator:<tag>
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - crd/nexo.r3n3r0.github.io_nexoclusters.yaml
+  - rbac/service_account.yaml
+  - rbac/role.yaml
+  - rbac/role_binding.yaml
+  - manager.yaml

@@ -1,0 +1,36 @@
+# A cluster of 4 servers with 4 drives each (16 drives, erasure sets of 16,
+# parity 4): kubectl create namespace storage && kubectl apply -f this file.
+# Replace the credentials (at least 8 characters for the password) and the
+# storage class. Then: kubectl -n storage get nexo
+apiVersion: v1
+kind: Secret
+metadata:
+  name: lake-credentials
+  namespace: storage
+type: Opaque
+stringData:
+  root-user: lake-admin
+  root-password: change-me-please
+---
+apiVersion: nexo.r3n3r0.github.io/v1alpha1
+kind: NexoCluster
+metadata:
+  name: lake
+  namespace: storage
+spec:
+  image: docker.io/paolor/nexo:1.0.0
+  credentials:
+    secretName: lake-credentials
+  pools:
+    - name: pool-0
+      servers: 4
+      volumesPerServer: 4
+      storage: 100Gi
+      # storageClassName: fast-ssd
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+  # updateStrategy: Rolling (default) replaces one pod at a time while the
+  # cluster can lose a node; AllAtOnce replaces them together (needed to
+  # change the major version).

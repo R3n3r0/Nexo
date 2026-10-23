@@ -36,6 +36,7 @@ signs in with the same access keys as the S3 API.
 | Live trace and logs, audit log, OpenTelemetry | [Trace, logs and audit](operations/trace-log-audit.md) |
 | Healing, replacing a drive | [Healing and disks](operations/healing-disks.md) |
 | Rolling upgrade, expansion with a new pool | [Upgrade and expansion](operations/upgrade-expansion.md) |
+| Run clusters on Kubernetes with health-gated updates | [Kubernetes operator](kubernetes-operator.md) |
 | Configuration backup, migration between modes | [Backup and migration](operations/backup-migration.md) |
 | Quorum, clock skew, slow drives, permissions | [Troubleshooting](operations/troubleshooting.md) |
 

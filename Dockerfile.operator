@@ -1,0 +1,45 @@
+# syntax=docker/dockerfile:1.7
+#
+# Image of the Kubernetes operator of Nexo (the operator/ module), deployed by
+# deploy/operator (kubectl apply -k deploy/operator).
+#
+#   docker build -f Dockerfile.operator -t docker.io/paolor/nexo-operator .
+
+ARG GO_VERSION=1.27.2
+
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS go
+
+ARG TARGETOS
+ARG TARGETARCH
+
+WORKDIR /src/operator
+COPY operator/go.mod operator/go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY operator/ ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" \
+    go build -trimpath -ldflags "-s -w" -o /out/nexo-operator ./cmd/nexo-operator
+
+FROM gcr.io/distroless/static-debian12:nonroot
+
+ARG VERSION=dev
+ARG COMMIT=none
+ARG DATE=unknown
+
+LABEL org.opencontainers.image.title="nexo-operator" \
+      org.opencontainers.image.description="Kubernetes operator of Nexo, the S3-compatible object storage server" \
+      org.opencontainers.image.url="https://github.com/r3n3r0/nexo" \
+      org.opencontainers.image.source="https://github.com/r3n3r0/nexo" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.vendor="r3n3r0" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.created="${DATE}"
+
+COPY LICENSE NOTICE COMMERCIAL-LICENSE.md /
+COPY --from=go /out/nexo-operator /nexo-operator
+
+USER 65532:65532
+
+ENTRYPOINT ["/nexo-operator"]

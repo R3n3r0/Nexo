@@ -173,6 +173,8 @@ helm test nexo -n storage        # cluster health and S3 round trip
 - An image upgrade proceeds one pod at a time; the PodDisruptionBudget (`maxUnavailable: 1`)
   protects the quorum while nodes are drained. Adding a pool, or changing the root credentials or
   TLS, requires restarting all the pods together.
+- For several clusters, or updates gated on the health of the cluster, use the
+  [Kubernetes operator](kubernetes-operator.md) instead of the chart.
 
 All the values are documented in `values.yaml` and validated by `values.schema.json`.
 
