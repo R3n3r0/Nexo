@@ -360,6 +360,19 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   swept by the leader; a tier holding data cannot be removed.
 - `nexoctl ilm rule add|edit --transition-days`, `--noncurrent-transition-days`, `--transition-tier`.
 
+### Orchestrated update and coordinated restart (S-OPS-09, C-ADM-09)
+- `nexoctl admin update ALIAS URL --sha256 HEX` (Admin API `POST|GET /service/update`, policy action
+  `admin:ServerUpdate`) updates the binary of every node: each node downloads it next to the one it runs,
+  verifies its SHA-256 and its version (all or nothing), then the nodes restart with it one at a time, each once
+  the deployment can lose a node and the previous one is back with the new version, the node answering last
+  (`--all-at-once`: every node together, required for a new major version). The process replaces itself in place
+  (same PID, arguments and environment) and keeps the previous binary as `<binary>.old`, put back on Unix when
+  the new one cannot be executed. The job is kept in the system store and completed by the next run of the node
+  that orchestrated it.
+- `nexoctl admin service restart|stop --cluster` (`POST /service/cluster/restart|stop`): a rolling (or
+  `--all-at-once`) restart of every node, a stop of every node.
+- Tested end to end with four processes under load (`test/upgrade`, `TestOrchestratedUpdate`).
+
 ### Transparent compression (opt-in, S-OBJ-14)
 - `compression` configuration subsystem (`enable`, `extensions`, `mime_types`, applied to the next writes): the
   selected unencrypted versions are stored as S2 streams, one per part, with the block index of each part in its

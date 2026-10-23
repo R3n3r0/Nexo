@@ -162,3 +162,48 @@ func TestRunShutdownDuringRestart(t *testing.T) {
 		t.Fatal("Run did not return")
 	}
 }
+
+// TestProcessExecutable: the update service may replace the process only
+// while Run drives it and the command gave the path of its binary.
+//
+// covers: S-OPS-09
+func TestProcessExecutable(t *testing.T) {
+	running := &atomic.Bool{}
+	execs := 0
+	p := processActions{running: running, exe: "/opt/nexo/nexo", exec: func() error { execs++; return nil },
+		restart: func() error { return nil }, signal: func(os.Signal) error { return nil }}
+	_, err := p.Executable()
+	require.ErrorIs(t, err, domain.ErrNotImplemented, "outside Run")
+	require.ErrorIs(t, p.Exec(), domain.ErrNotImplemented)
+	running.Store(true)
+	exe, err := p.Executable()
+	require.NoError(t, err)
+	assert.Equal(t, "/opt/nexo/nexo", exe)
+	require.NoError(t, p.Exec())
+	assert.Equal(t, 1, execs)
+	require.NoError(t, p.Restart())
+	require.NoError(t, p.Stop())
+	p.exe = ""
+	_, err = p.Executable()
+	require.ErrorIs(t, err, domain.ErrNotImplemented, "without the path of the binary")
+}
+
+// TestRunReturnsErrExec: once an update installed a new binary, Run stops
+// every component and returns ErrExec, without building the application
+// again: the command replaces the process.
+//
+// covers: S-OPS-09
+func TestRunReturnsErrExec(t *testing.T) {
+	a, _, starts := buildRestartable(t)
+	done := make(chan error, 1)
+	go func() { done <- a.Run(context.Background()) }()
+	require.Eventually(t, a.running.Load, 10*time.Second, 10*time.Millisecond)
+	require.NoError(t, a.requestExec())
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, ErrExec)
+	case <-time.After(15 * time.Second):
+		t.Fatal("Run did not return")
+	}
+	assert.Equal(t, int32(1), starts.Load(), "the application is not built again")
+}

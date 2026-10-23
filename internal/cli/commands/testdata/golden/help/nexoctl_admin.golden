@@ -38,6 +38,7 @@ Available Commands:
   speedtest    Measure the drives, the object layer or the network between the nodes
   tier         Manage the remote tiers of the lifecycle transitions
   trace        Show the requests served by the server, live
+  update       Update the server binary of every node (rolling, without downtime)
   usage        Show the data usage of the server and of each bucket
   user         Manage the IAM users
 

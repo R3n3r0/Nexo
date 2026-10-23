@@ -42,6 +42,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/storage"
 	"github.com/r3n3r0/nexo/internal/service/sysstore"
 	"github.com/r3n3r0/nexo/internal/service/tier"
+	"github.com/r3n3r0/nexo/internal/service/update"
 	"github.com/r3n3r0/nexo/internal/transport/http/console"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
@@ -83,6 +84,9 @@ type services struct {
 	siteRepl siterepl.Service
 	// tiers keeps the data transitioned to remote tiers (S-STO-12).
 	tiers tier.Service
+	// updates orchestrates the updates and the coordinated restarts
+	// (S-OPS-09).
+	updates update.Service
 	// obs runs the audit targets and the logger configuration
 	// (observability.go).
 	obs lifecycle.Runner
@@ -99,6 +103,10 @@ type composeDeps struct {
 	running      *atomic.Bool
 	// restart asks Run for a restart (POST /service/restart).
 	restart func() error
+	// exe is the binary of the process; exec asks Run to replace the
+	// process with it (updates, S-OPS-09).
+	exe  string
+	exec func() error
 }
 
 // sharedStores are the stores of the documents shared by the services:
@@ -435,7 +443,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		Objects:      objects,
 		Heal:         healing.heal,
 		Scanner:      healing.scanner,
-		Actions:      processActions{running: d.running, signal: signalSelf, restart: d.restart},
+		Actions:      d.process(),
 		// Every node of the deployment (this one only on a single node),
 		// with its background healing and clock offset.
 		Cluster: f.info,
@@ -516,6 +524,13 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		return nil, fmt.Errorf("tiers: %w", err)
 	}
 	tiers.bind(tierSvc)
+	updateSvc, err := newUpdates(d, objects, distStack.docs, d.process())
+	if err != nil {
+		return nil, fmt.Errorf("updates: %w", err)
+	}
+	if f.updateNode != nil {
+		f.updateNode.bind(updateSvc)
+	}
 	siteReplSvc, err := newSiteReplication(d, identities, policies, buckets, dynConfig, replicationSvc, distStack.docs)
 	if err != nil {
 		return nil, fmt.Errorf("site replication: %w", err)
@@ -575,7 +590,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		buckets: buckets, objects: objects, media: mediaSvc, shares: shares, config: dynConfig, locks: f.lockManager, pools: healing.pools, secureCookies: secureConsole(cfg),
 		consoleURL: cfg.BrowserRedirectURL, lifecycle: lifecycle, events: events, kms: keys, mediaJobs: mediaJobs,
 		accessRules: accessRules, dist: distStack, acmeDirectory: cfg.ACMEDirectory, acmeChallenge: cfg.ACMEChallenge,
-		cache: cacheSvc, replication: replicationSvc, siteReplication: siteReplSvc, tiers: tierSvc, diagnostics: newDiagnostics(f, objects, buckets, logger),
+		cache: cacheSvc, replication: replicationSvc, siteReplication: siteReplSvc, tiers: tierSvc, updates: updateSvc, diagnostics: newDiagnostics(f, objects, buckets, logger),
 		obsTrace: f.obs.trace, obsLogs: obsSvc.logs, obsAudit: auditor, obsHistory: f.obs.history,
 	})
 	if err != nil {
@@ -610,6 +625,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		replication:  replicationSvc,
 		siteRepl:     siteReplSvc,
 		tiers:        tierSvc,
+		updates:      updateSvc,
 		events:       events,
 		lifecycle:    lifecycle,
 		s3Srv:        s3Srv,
@@ -677,7 +693,9 @@ func (s *services) runners() lifecycle.Runner {
 		},
 		OnStop: func(ctx context.Context) error {
 			s.unsubscribe()
-			derr := s.dist.runner().Stop(ctx)
+			// A job this node orchestrates ends first.
+			derr := s.updates.Stop(ctx)
+			derr = errors.Join(derr, s.dist.runner().Stop(ctx))
 			derr = errors.Join(derr, s.tiers.Stop(ctx))
 			derr = errors.Join(derr, s.siteRepl.Stop(ctx))
 			derr = errors.Join(derr, s.replication.Stop(ctx))

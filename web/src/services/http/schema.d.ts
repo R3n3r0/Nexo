@@ -289,6 +289,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/service/update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The last update or coordinated restart of the deployment
+         * @description A job whose orchestrating node restarted is completed by the node answering, once every node is back.
+         */
+        get: operations["updateStatus"];
+        put?: never;
+        /**
+         * Update the server binary of every node
+         * @description Every node downloads the binary next to the one it runs, verifies its SHA-256 and its version; the nodes then restart with it one at a time (rolling, while one more node can stop without losing the write quorum) or all at once. The node answering restarts last. The job runs in the background (GET /service/update).
+         */
+        post: operations["startUpdate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/service/cluster/restart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restart every node of the deployment
+         * @description One node at a time (rolling, default) or all at once; the node answering restarts last. The job runs in the background (GET /service/update).
+         */
+        post: operations["restartCluster"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/service/cluster/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop every node of the deployment
+         * @description The other nodes first, then the node answering, once the response is sent.
+         */
+        post: operations["stopCluster"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/trace": {
         parameters: {
             query?: never;
@@ -4000,6 +4064,43 @@ export interface components {
             /** Format: password */
             secretKey: string;
         };
+        UpdateRequest: {
+            /** @description http(s) URL of the server binary for the platform of the nodes */
+            url: string;
+            /** @description Hex SHA-256 of the binary */
+            sha256: string;
+            /** @enum {string} */
+            mode?: "rolling" | "all";
+        };
+        UpdateJob: {
+            id: string;
+            /** @enum {string} */
+            kind: "update" | "restart";
+            /** @enum {string} */
+            mode: "rolling" | "all";
+            /** @enum {string} */
+            state: "running" | "completed" | "failed";
+            url?: string;
+            sha256?: string;
+            /** @description Version of the new binary */
+            version?: string;
+            /** @description The node orchestrating the job (it restarts last) */
+            node: string;
+            boot?: string;
+            /** Format: date-time */
+            started: string;
+            /** Format: date-time */
+            finished?: string;
+            error?: string;
+            nodes: {
+                node: string;
+                /** @enum {string} */
+                phase: "pending" | "staged" | "restarting" | "done" | "failed";
+                version?: string;
+                boot?: string;
+                error?: string;
+            }[];
+        };
         Tier: {
             name: string;
             endpoint: string;
@@ -7065,6 +7166,109 @@ export interface operations {
         };
     };
     stopService: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stop accepted. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceAction"];
+                };
+            };
+            501: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    updateStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The job. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateJob"];
+                };
+            };
+            404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    startUpdate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The job, started. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateJob"];
+                };
+            };
+            409: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
+            501: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    restartCluster: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    mode?: "rolling" | "all";
+                };
+            };
+        };
+        responses: {
+            /** @description The job, started. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateJob"];
+                };
+            };
+            409: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
+            501: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    stopCluster: {
         parameters: {
             query?: never;
             header?: never;

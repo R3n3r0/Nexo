@@ -348,6 +348,85 @@ paths:
               schema: { $ref: "#/components/schemas/ServiceAction" }
         "501": { $ref: "#/components/responses/Problem" }
         default: { $ref: "#/components/responses/Problem" }
+  /service/update:
+    get:
+      tags: [server]
+      operationId: updateStatus
+      summary: The last update or coordinated restart of the deployment
+      description: A job whose orchestrating node restarted is completed by the node answering, once every node is back.
+      x-nexo-actions: ["admin:ServerInfo"]
+      responses:
+        "200":
+          description: The job.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdateJob" }
+        "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [server]
+      operationId: startUpdate
+      summary: Update the server binary of every node
+      description: >-
+        Every node downloads the binary next to the one it runs, verifies its SHA-256 and its version; the nodes then
+        restart with it one at a time (rolling, while one more node can stop without losing the write quorum) or all at
+        once. The node answering restarts last. The job runs in the background (GET /service/update).
+      x-nexo-actions: ["admin:ServerUpdate"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateRequest" }
+      responses:
+        "202":
+          description: The job, started.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdateJob" }
+        "409": { $ref: "#/components/responses/Problem" }
+        "412": { $ref: "#/components/responses/Problem" }
+        "501": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /service/cluster/restart:
+    post:
+      tags: [server]
+      operationId: restartCluster
+      summary: Restart every node of the deployment
+      description: One node at a time (rolling, default) or all at once; the node answering restarts last. The job runs in the background (GET /service/update).
+      x-nexo-actions: ["admin:ServiceRestart"]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode: { type: string, enum: [rolling, all] }
+      responses:
+        "202":
+          description: The job, started.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdateJob" }
+        "409": { $ref: "#/components/responses/Problem" }
+        "412": { $ref: "#/components/responses/Problem" }
+        "501": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /service/cluster/stop:
+    post:
+      tags: [server]
+      operationId: stopCluster
+      summary: Stop every node of the deployment
+      description: The other nodes first, then the node answering, once the response is sent.
+      x-nexo-actions: ["admin:ServiceStop"]
+      responses:
+        "202":
+          description: Stop accepted.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServiceAction" }
+        "501": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
   /trace:
     get:
       tags: [monitoring]
@@ -4973,6 +5052,40 @@ components:
         storageClass: { type: string, description: Storage class of the remote objects (readable at once). }
         accessKey: { type: string }
         secretKey: { type: string, format: password }
+    UpdateRequest:
+      type: object
+      required: [url, sha256]
+      properties:
+        url: { type: string, description: "http(s) URL of the server binary for the platform of the nodes" }
+        sha256: { type: string, description: Hex SHA-256 of the binary }
+        mode: { type: string, enum: [rolling, all] }
+    UpdateJob:
+      type: object
+      required: [id, kind, mode, state, node, started, nodes]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [update, restart] }
+        mode: { type: string, enum: [rolling, all] }
+        state: { type: string, enum: [running, completed, failed] }
+        url: { type: string }
+        sha256: { type: string }
+        version: { type: string, description: Version of the new binary }
+        node: { type: string, description: The node orchestrating the job (it restarts last) }
+        boot: { type: string }
+        started: { type: string, format: date-time }
+        finished: { type: string, format: date-time }
+        error: { type: string }
+        nodes:
+          type: array
+          items:
+            type: object
+            required: [node, phase]
+            properties:
+              node: { type: string }
+              phase: { type: string, enum: [pending, staged, restarting, done, failed] }
+              version: { type: string }
+              boot: { type: string }
+              error: { type: string }
     Tier:
       type: object
       required: [name, endpoint, bucket, accessKey, created, updated]

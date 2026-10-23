@@ -38,6 +38,7 @@ import (
 	sitemock "github.com/r3n3r0/nexo/internal/service/siterepl/mock"
 	tiermock "github.com/r3n3r0/nexo/internal/service/tier/mock"
 	tracemock "github.com/r3n3r0/nexo/internal/service/trace/mock"
+	updatemock "github.com/r3n3r0/nexo/internal/service/update/mock"
 	"github.com/r3n3r0/nexo/internal/transport/http/admin"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
@@ -90,6 +91,7 @@ type fixture struct {
 	replication *replmock.Service
 	siteRepl    *sitemock.Service
 	tiers       *tiermock.Service
+	updates     *updatemock.Service
 	tracer      *tracemock.Service
 	logs        *logsmock.Service
 	audit       *auditmock.Service
@@ -120,6 +122,7 @@ func newFixture(t *testing.T) *fixture {
 		replication: replmock.NewService(t),
 		siteRepl:    sitemock.NewService(t),
 		tiers:       tiermock.NewService(t),
+		updates:     updatemock.NewService(t),
 		tracer:      tracemock.NewService(t), logs: logsmock.NewService(t), audit: auditmock.NewService(t), history: metricsmock.NewHistory(t),
 	}
 	f.iam.EXPECT().LookupCredentials(mock.Anything, mock.Anything).RunAndReturn(
@@ -189,6 +192,8 @@ func newFixture(t *testing.T) *fixture {
 	require.NoError(t, err)
 	tierRoutes, err := admin.NewTierRoutes(admin.TierDeps{Tiers: f.tiers, Authz: f.authz, Enc: enc})
 	require.NoError(t, err)
+	updateRoutes, err := admin.NewUpdateRoutes(admin.UpdateDeps{Updates: f.updates, Authz: f.authz, Enc: enc})
+	require.NoError(t, err)
 	accessRuleRoutes, err := admin.NewAccessRuleRoutes(admin.AccessRuleDeps{Rules: f.rules, Authz: f.authz, Enc: enc})
 	require.NoError(t, err)
 	distributionRoutes, err := admin.NewDistributionRoutes(admin.DistributionDeps{Distributions: f.dists, Authz: f.authz, Enc: enc})
@@ -204,7 +209,7 @@ func newFixture(t *testing.T) *fixture {
 	require.NoError(t, err)
 	f.groups = []admin.Routes{sessionRoutes, infoRoutes, userRoutes, policyRoutes, bucketRoutes, objectRoutes, shareRoutes, configRoutes, clusterRoutes,
 		lifecycleRoutes, notificationRoutes, corsRoutes, mediaRoutes, kmsRoutes, accessRuleRoutes, distributionRoutes, certificateRoutes, cacheRoutes,
-		diagnosticsRoutes, observabilityRoutes, replicationRoutes, siteRoutes, tierRoutes}
+		diagnosticsRoutes, observabilityRoutes, replicationRoutes, siteRoutes, tierRoutes, updateRoutes}
 
 	r := chi.NewRouter()
 	api, err := admin.NewAPI(admin.APIDeps{Enc: enc, Auth: authn}, f.groups...)

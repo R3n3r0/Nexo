@@ -49,6 +49,9 @@ type Deps struct {
 	// admin logs) that ended or failed is opened again (0:
 	// cli.DefaultReconnectDelay).
 	ReconnectDelay time.Duration
+	// PollInterval paces the checks of a job the command waits for
+	// (admin update; 0: 2 seconds).
+	PollInterval time.Duration
 }
 
 // DefaultDeps returns the dependencies of the real process.
@@ -96,6 +99,9 @@ func (d Deps) withDefaults() Deps {
 	}
 	if d.ReconnectDelay <= 0 {
 		d.ReconnectDelay = cli.DefaultReconnectDelay
+	}
+	if d.PollInterval <= 0 {
+		d.PollInterval = 2 * time.Second
 	}
 	return d
 }

@@ -89,10 +89,11 @@ type MemAdmin struct {
 	// site holds the site replication (admin_sitereplication.go).
 	site memSiteState
 	// tier holds the remote tiers (admin_tier.go).
-	tier  memTierState
-	seq   int
-	fail  map[string]error
-	calls map[string]int
+	tier   memTierState
+	update memUpdateState
+	seq    int
+	fail   map[string]error
+	calls  map[string]int
 }
 
 // memConfigSchema is the configuration schema of MemAdmin.
@@ -333,6 +334,7 @@ func (m *MemAdmin) Client(t TestingT, caller string) *climock.AdminClient {
 	s.expectReplication(c)
 	s.expectSiteReplication(c)
 	s.expectTiers(c)
+	s.expectUpdates(c)
 	return c
 }
 

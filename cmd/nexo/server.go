@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -64,11 +65,27 @@ NEXO_CONSOLE_ADDRESS). Precedence: flags > environment > --config file.`,
 				return err
 			}
 			opts = append(opts, hooks...)
+			// The binary is resolved once, before an update replaces it:
+			// the process is then replaced with the new one at the same
+			// path.
+			var exe string
+			if deps.executable != nil && deps.exec != nil {
+				if exe, err = deps.executable(); err != nil {
+					logger.Warn("the path of the binary is unknown: the server cannot update itself", "err", err)
+				} else {
+					opts = append(opts, app.WithExecutable(exe))
+				}
+			}
 			application, err := app.Build(ctx, cfg, opts...)
 			if err != nil {
 				return err
 			}
-			return application.Run(ctx)
+			err = application.Run(ctx)
+			if errors.Is(err, app.ErrExec) && exe != "" {
+				logger.Info("starting the new binary", "path", exe)
+				return deps.exec(exe)
+			}
+			return err
 		},
 	}
 	config.BindFlags(cmd.Flags())

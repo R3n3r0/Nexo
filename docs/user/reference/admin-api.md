@@ -96,7 +96,7 @@ Common codes: `unauthenticated`, `access_denied`, `invalid_csrf_token`, `invalid
 | Tag | Main paths | For |
 |-----|------------|-----|
 | session | `/auth/login`, `/auth/logout`, `/auth/session`, `/me/permissions` | console session |
-| server | `/info`, `/usage`, `/heal`, `/service/restart`, `/service/stop` | status, usage, healing, service |
+| server | `/info`, `/usage`, `/heal`, `/service/restart`, `/service/stop`, `/service/update`, `/service/cluster/{restart,stop}` | status, usage, healing, service, update and coordinated restart |
 | monitoring | `/metrics`, `/metrics/query`, `/trace`, `/logs`, `/audit` | metrics, streaming trace and logs (SSE), audit |
 | diagnostics | `/profile`, `/speedtest/{kind}` | pprof profiles, speed tests |
 | buckets | `/buckets`, `/buckets/{bucket}/{versioning,policy,quota,tags,objectlock,encryption,access,lifecycle,events,cors}` | buckets and their settings |

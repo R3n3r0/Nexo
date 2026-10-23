@@ -11,10 +11,12 @@ import (
 
 func main() {
 	deps := cmdDeps{
-		stdout:    os.Stdout,
-		stderr:    os.Stderr,
-		lookupEnv: os.LookupEnv,
-		client:    &http.Client{Timeout: 5 * time.Second},
+		stdout:     os.Stdout,
+		stderr:     os.Stderr,
+		lookupEnv:  os.LookupEnv,
+		client:     &http.Client{Timeout: 5 * time.Second},
+		executable: executable,
+		exec:       replaceProcess,
 	}
 	if err := newRootCmd(deps).ExecuteContext(context.Background()); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)

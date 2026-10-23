@@ -6359,6 +6359,65 @@ func (_c *AdminClient_ResolveHost_Call) RunAndReturn(run func(context.Context, s
 	return _c
 }
 
+// RestartCluster provides a mock function with given fields: ctx, mode
+func (_m *AdminClient) RestartCluster(ctx context.Context, mode string) (*nexoadmin.UpdateJob, error) {
+	ret := _m.Called(ctx, mode)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RestartCluster")
+	}
+
+	var r0 *nexoadmin.UpdateJob
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*nexoadmin.UpdateJob, error)); ok {
+		return rf(ctx, mode)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *nexoadmin.UpdateJob); ok {
+		r0 = rf(ctx, mode)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.UpdateJob)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, mode)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_RestartCluster_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RestartCluster'
+type AdminClient_RestartCluster_Call struct {
+	*mock.Call
+}
+
+// RestartCluster is a helper method to define mock.On call
+//   - ctx context.Context
+//   - mode string
+func (_e *AdminClient_Expecter) RestartCluster(ctx interface{}, mode interface{}) *AdminClient_RestartCluster_Call {
+	return &AdminClient_RestartCluster_Call{Call: _e.mock.On("RestartCluster", ctx, mode)}
+}
+
+func (_c *AdminClient_RestartCluster_Call) Run(run func(ctx context.Context, mode string)) *AdminClient_RestartCluster_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_RestartCluster_Call) Return(_a0 *nexoadmin.UpdateJob, _a1 error) *AdminClient_RestartCluster_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_RestartCluster_Call) RunAndReturn(run func(context.Context, string) (*nexoadmin.UpdateJob, error)) *AdminClient_RestartCluster_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // RestartService provides a mock function with given fields: ctx
 func (_m *AdminClient) RestartService(ctx context.Context) error {
 	ret := _m.Called(ctx)
@@ -7632,6 +7691,111 @@ func (_c *AdminClient_StartReplicationResync_Call) RunAndReturn(run func(context
 	return _c
 }
 
+// StartUpdate provides a mock function with given fields: ctx, in
+func (_m *AdminClient) StartUpdate(ctx context.Context, in nexoadmin.UpdateRequest) (*nexoadmin.UpdateJob, error) {
+	ret := _m.Called(ctx, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StartUpdate")
+	}
+
+	var r0 *nexoadmin.UpdateJob
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, nexoadmin.UpdateRequest) (*nexoadmin.UpdateJob, error)); ok {
+		return rf(ctx, in)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, nexoadmin.UpdateRequest) *nexoadmin.UpdateJob); ok {
+		r0 = rf(ctx, in)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.UpdateJob)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, nexoadmin.UpdateRequest) error); ok {
+		r1 = rf(ctx, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_StartUpdate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StartUpdate'
+type AdminClient_StartUpdate_Call struct {
+	*mock.Call
+}
+
+// StartUpdate is a helper method to define mock.On call
+//   - ctx context.Context
+//   - in nexoadmin.UpdateRequest
+func (_e *AdminClient_Expecter) StartUpdate(ctx interface{}, in interface{}) *AdminClient_StartUpdate_Call {
+	return &AdminClient_StartUpdate_Call{Call: _e.mock.On("StartUpdate", ctx, in)}
+}
+
+func (_c *AdminClient_StartUpdate_Call) Run(run func(ctx context.Context, in nexoadmin.UpdateRequest)) *AdminClient_StartUpdate_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(nexoadmin.UpdateRequest))
+	})
+	return _c
+}
+
+func (_c *AdminClient_StartUpdate_Call) Return(_a0 *nexoadmin.UpdateJob, _a1 error) *AdminClient_StartUpdate_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_StartUpdate_Call) RunAndReturn(run func(context.Context, nexoadmin.UpdateRequest) (*nexoadmin.UpdateJob, error)) *AdminClient_StartUpdate_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// StopCluster provides a mock function with given fields: ctx
+func (_m *AdminClient) StopCluster(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StopCluster")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_StopCluster_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StopCluster'
+type AdminClient_StopCluster_Call struct {
+	*mock.Call
+}
+
+// StopCluster is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) StopCluster(ctx interface{}) *AdminClient_StopCluster_Call {
+	return &AdminClient_StopCluster_Call{Call: _e.mock.On("StopCluster", ctx)}
+}
+
+func (_c *AdminClient_StopCluster_Call) Run(run func(ctx context.Context)) *AdminClient_StopCluster_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_StopCluster_Call) Return(_a0 error) *AdminClient_StopCluster_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_StopCluster_Call) RunAndReturn(run func(context.Context) error) *AdminClient_StopCluster_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // StopRebalance provides a mock function with given fields: ctx
 func (_m *AdminClient) StopRebalance(ctx context.Context) error {
 	ret := _m.Called(ctx)
@@ -8424,6 +8588,64 @@ func (_c *AdminClient_UpdateGroup_Call) Return(_a0 *nexoadmin.Group, _a1 error) 
 }
 
 func (_c *AdminClient_UpdateGroup_Call) RunAndReturn(run func(context.Context, string, nexoadmin.UpdateGroupRequest) (*nexoadmin.Group, error)) *AdminClient_UpdateGroup_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateStatus provides a mock function with given fields: ctx
+func (_m *AdminClient) UpdateStatus(ctx context.Context) (*nexoadmin.UpdateJob, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateStatus")
+	}
+
+	var r0 *nexoadmin.UpdateJob
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (*nexoadmin.UpdateJob, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) *nexoadmin.UpdateJob); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.UpdateJob)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_UpdateStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateStatus'
+type AdminClient_UpdateStatus_Call struct {
+	*mock.Call
+}
+
+// UpdateStatus is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) UpdateStatus(ctx interface{}) *AdminClient_UpdateStatus_Call {
+	return &AdminClient_UpdateStatus_Call{Call: _e.mock.On("UpdateStatus", ctx)}
+}
+
+func (_c *AdminClient_UpdateStatus_Call) Run(run func(ctx context.Context)) *AdminClient_UpdateStatus_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_UpdateStatus_Call) Return(_a0 *nexoadmin.UpdateJob, _a1 error) *AdminClient_UpdateStatus_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_UpdateStatus_Call) RunAndReturn(run func(context.Context) (*nexoadmin.UpdateJob, error)) *AdminClient_UpdateStatus_Call {
 	_c.Call.Return(run)
 	return _c
 }

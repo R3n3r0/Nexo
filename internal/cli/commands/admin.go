@@ -36,7 +36,7 @@ of "nexoctl alias set". Every subcommand takes the alias as its first argument.`
 	cmd.AddCommand(
 		newAdminInfoCmd(e), newAdminUsageCmd(e), newAdminHealCmd(e), newAdminMetadataLogCmd(e),
 		newAdminUserCmd(e), newAdminGroupCmd(e), newAdminPolicyCmd(e), newAdminAccessKeyCmd(e),
-		newAdminConfigCmd(e), newAdminServiceCmd(e), newAdminClusterCmd(e), newAdminLockCmd(e), newAdminDecommissionCmd(e), newAdminRebalanceCmd(e), newAdminReplicateCmd(e), newAdminTierCmd(e),
+		newAdminConfigCmd(e), newAdminServiceCmd(e), newAdminClusterCmd(e), newAdminLockCmd(e), newAdminDecommissionCmd(e), newAdminRebalanceCmd(e), newAdminReplicateCmd(e), newAdminTierCmd(e), newAdminUpdateCmd(e),
 		newAdminKMSCmd(e), newAdminNotifyCmd(e), newAdminProfileCmd(e), newAdminSpeedtestCmd(e),
 		newAdminTraceCmd(e), newAdminLogsCmd(e), newAdminAuditCmd(e), newAdminMetricsCmd(e), newAdminPrometheusCmd(e),
 		newAdminDNSProviderCmd(e),
@@ -458,13 +458,30 @@ func newAdminServiceCmd(e *env) *cobra.Command {
 	return cmd
 }
 
+// serviceClusterLong documents --cluster (S-OPS-09, C-ADM-09).
+const serviceClusterLong = `
+
+Without --cluster only the node answering the request (behind a load balancer: any node) %s.
+--cluster %s every node of the deployment: %s`
+
 func newAdminServiceActionCmd(e *env, verb, short, done string, call func(context.Context, cli.AdminClient) error) *cobra.Command {
-	var yes bool
+	var (
+		yes, cluster, allAtOnce, noWait bool
+		timeout                         time.Duration
+	)
+	long := short + ".\n\nThe command asks for a confirmation on the terminal; --yes skips it (scripts)."
+	if verb == "restart" {
+		long += fmt.Sprintf(serviceClusterLong, "restarts", "restarts", `one at a time by default (a node only when one more
+node can stop without losing the write quorum of any erasure set, the next one once it is back), or all
+together with --all-at-once. The command waits for the job to end; --no-wait returns at once.`)
+	} else {
+		long += fmt.Sprintf(serviceClusterLong, "stops", "stops", "the other nodes first, then the one answering.")
+	}
 	cmd := &cobra.Command{
 		Use:               verb + " [flags] ALIAS",
 		Short:             short,
-		Long:              short + ".\n\nThe command asks for a confirmation on the terminal; --yes skips it (scripts).",
-		Example:           fmt.Sprintf("  nexoctl admin service %s --yes local", verb),
+		Long:              long,
+		Example:           fmt.Sprintf("  nexoctl admin service %s --yes local\n  nexoctl admin service %s --cluster --yes mycluster", verb, verb),
 		Args:              exactArgs(1),
 		ValidArgsFunction: completeAliasNames(e),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -472,6 +489,27 @@ func newAdminServiceActionCmd(e *env, verb, short, done string, call func(contex
 			alias, client, err := e.adminAlias(ctx, args[0])
 			if err != nil {
 				return err
+			}
+			if cluster {
+				if err := e.confirm(yes, fmt.Sprintf("%s every node of alias %q?", capitalize(verb), alias)); err != nil {
+					return err
+				}
+				if verb == "stop" {
+					if err := client.StopCluster(ctx); err != nil {
+						return fmt.Errorf("stop %s: %w", alias, err)
+					}
+					return e.out.Info(adminActionRecord{Alias: alias, Type: kindService, Action: done},
+						fmt.Sprintf("Every node of %q is stopping.", alias))
+				}
+				mode := "rolling"
+				if allAtOnce {
+					mode = "all"
+				}
+				j, err := client.RestartCluster(ctx, mode)
+				if err != nil {
+					return fmt.Errorf("restart %s: %w", alias, err)
+				}
+				return e.followJob(ctx, client, alias, j, noWait, timeout)
 			}
 			if err := e.confirm(yes, fmt.Sprintf("%s the server of alias %q?", capitalize(verb), alias)); err != nil {
 				return err
@@ -484,6 +522,11 @@ func newAdminServiceActionCmd(e *env, verb, short, done string, call func(contex
 		},
 	}
 	cmd.Flags().BoolVarP(&yes, "yes", "y", false, "do not ask for a confirmation")
+	cmd.Flags().BoolVar(&cluster, "cluster", false, verb+" every node of the deployment")
+	if verb == "restart" {
+		cmd.Flags().BoolVar(&allAtOnce, "all-at-once", false, "with --cluster: restart every node together instead of one at a time")
+		addJobFlags(cmd, &noWait, &timeout)
+	}
 	return cmd
 }
 

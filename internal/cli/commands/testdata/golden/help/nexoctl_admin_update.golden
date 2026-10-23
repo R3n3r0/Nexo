@@ -1,0 +1,39 @@
+Update the server binary of every node of the deployment to the binary at URL (the release
+archive of nexo for the platform of the nodes, extracted: the binary itself), whose SHA-256 --sha256
+gives.
+
+Every node downloads the binary next to the one it runs, verifies its digest and runs it to read its
+version; nothing changes unless every node succeeds. The nodes then restart with the new binary one at a
+time: a node only when one more node can stop without losing the write quorum of any erasure set, the
+next one once it is back with the new version. The node receiving the request restarts last. The
+previous binary of each node is kept as "<binary>.old". --all-at-once restarts every node together (a
+short outage; required to change the major version).
+
+The binary must be in a directory the user of the server can write. In a container or on Kubernetes the
+image is the binary: update the image instead (the operator rolls the pods).
+
+The command waits for the job to end, printing the progress of the nodes; --no-wait returns at once.
+--status prints the last update or coordinated restart.
+
+Usage:
+  nexoctl admin update [flags] ALIAS URL
+
+Examples:
+  nexoctl admin update --sha256 3f5a... myminio https://dl.example.com/nexo-v1.1.0-linux-amd64
+  nexoctl admin update --status myminio
+
+Flags:
+      --all-at-once        restart every node together (short outage) instead of one at a time
+  -h, --help               help for update
+      --no-wait            return once the job started
+      --sha256 string      SHA-256 of the binary (hex)
+      --status             print the last update or coordinated restart
+      --timeout duration   how long to wait for the job (default 30m0s)
+  -y, --yes                do not ask for a confirmation
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

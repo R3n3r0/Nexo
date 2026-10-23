@@ -58,6 +58,40 @@ With orchestrators:
 - **Docker Swarm**: `docker service update` with `parallelism: 1` (already set in `deploy/swarm/stack.yml`).
 - **Docker Compose**: `docker compose up -d --no-deps nexo1`, wait for `healthy`, then `nexo2`, …
 
+## Orchestrated update (`nexoctl admin update`)
+
+When every node runs the binary of a release archive (not a package, not an image), one command updates the
+whole deployment, one node at a time, without downtime:
+
+```bash
+sha256sum nexo-v1.1.0-linux-amd64                  # or the checksums file of the release
+nexoctl admin update --sha256 3f5a... cluster https://dl.example.com/nexo-v1.1.0-linux-amd64
+```
+
+The node that answers the request orchestrates the job:
+
+1. **Staging, all or nothing.** Every node downloads the binary into the directory of the one it runs,
+   verifies its SHA-256 and runs it (`nexo version --json`) to read its version and check its platform.
+   If a node fails, or the nodes do not agree on the version, nothing changes on any node.
+2. **Rolling activation.** Node by node (the node answering last), once `/nexo/health/cluster` would allow
+   a maintenance (one more node can stop without losing the write quorum of any erasure set): the staged
+   binary takes the place of the running one, which is kept as `nexo.old` next to it, and the process
+   replaces itself with it once the requests in flight are answered (same PID, arguments, environment
+   and log files). The next node waits until this one runs again with the new version.
+3. The command follows the progress and returns when every node runs the new version; through a load
+   balancer the polling survives the restart of the node answering. `--no-wait` returns at once,
+   `nexoctl admin update --status cluster` shows the last job.
+
+`--all-at-once` restarts every node together (an outage of a few seconds): it is required to change the
+**major version**, since nodes of different major versions do not form a cluster. A node that does not
+come back within 5 minutes stops the job, the nodes after it keep their binary: fix the node (its previous
+binary is `nexo.old`) and start the update again. On Unix, if the new binary cannot even be executed, the
+process puts `nexo.old` back and runs it. The update needs `admin:ServerUpdate` (`admin:ServerInfo` for the
+status), the Admin API on the nodes and a binary directory **writable by the user of the server**: with
+the packages (`/usr/bin`, owned by root) keep updating with the package manager. In a container or on
+Kubernetes the image is the binary: change the image tag instead (`helm upgrade`), which rolls the pods the
+same way.
+
 ## Restart without upgrading
 
 ```bash
@@ -68,6 +102,18 @@ Restarts the services of the **node that answers** the alias's Admin API within 
 binary and same static configuration): useful after a problem, not to install a new version.
 `nexoctl admin service stop` stops the process (it must be restarted by hand or by the supervisor). They
 require `admin:ServiceRestart` and `admin:ServiceStop`.
+
+`--cluster` acts on **every node** of the deployment:
+
+```bash
+nexoctl admin service restart --cluster cluster                  # one node at a time, the quorum kept
+nexoctl admin service restart --cluster --all-at-once cluster    # every node together
+nexoctl admin service stop --cluster cluster                     # the other nodes, then the one answering
+```
+
+The rolling restart follows the same rules as the orchestrated update (the next node once the previous
+one runs again and the deployment can lose a node) and is followed the same way (`nexoctl admin update
+--status`).
 
 Reloading the TLS certificates needs no restart: `systemctl reload nexo` (`SIGHUP`) or just
 replacing the files (see [TLS](../security/tls.md)).

@@ -8,6 +8,7 @@ package app
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -58,6 +59,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/tier"
 	"github.com/r3n3r0/nexo/internal/service/topology"
 	"github.com/r3n3r0/nexo/internal/service/trace"
+	"github.com/r3n3r0/nexo/internal/service/update"
 	adminhttp "github.com/r3n3r0/nexo/internal/transport/http/admin"
 	"github.com/r3n3r0/nexo/internal/transport/http/dist"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
@@ -84,6 +86,8 @@ type options struct {
 	keystoreOpts []certs.KeystoreOption
 	// logOutput is the output of the logs the server owns (WithLogOutput).
 	logOutput io.Writer
+	// executable is the binary of the process (WithExecutable).
+	executable string
 }
 
 // WithLogger sets the logger (default slog.Default()).
@@ -138,6 +142,13 @@ func WithInternodeDialer(d func(ctx context.Context, network, addr string) (net.
 	return func(o *options) { o.dial = d }
 }
 
+// WithExecutable sets the path of the binary the process runs: the
+// updates replace it (S-OPS-09). Without it the server cannot update
+// itself.
+func WithExecutable(path string) Option {
+	return func(o *options) { o.executable = path }
+}
+
 // WithStopTimeout bounds the shutdown (default 30s).
 func WithStopTimeout(d time.Duration) Option {
 	return func(o *options) {
@@ -175,6 +186,9 @@ type App struct {
 	// restarts carries the restart requests of the Admin API (POST
 	// /service/restart) to Run.
 	restarts chan struct{}
+	// execs is set when the restart requested replaces the process with
+	// its binary (an update installed it): Run returns ErrExec.
+	execs *atomic.Bool
 
 	mu sync.RWMutex
 	// svc are the composed services: set by Build in the single-node
@@ -232,7 +246,7 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (app *App, er
 	}()
 	a := &App{
 		cfg: cfg, opts: opts, o: o, layout: layout, logger: logger, stopWait: o.stopWait, f: f,
-		running: &atomic.Bool{}, restarts: make(chan struct{}, 1),
+		running: &atomic.Bool{}, restarts: make(chan struct{}, 1), execs: &atomic.Bool{},
 	}
 
 	// Components stop in reverse order: the drives are released last.
@@ -325,7 +339,7 @@ func newTopology(cfg config.Static, logger *slog.Logger) topology.Service {
 func (a *App) composeDeps(deploymentID string) composeDeps {
 	return composeDeps{
 		cfg: a.cfg, f: a.f, deploymentID: deploymentID, clock: a.o.clock, logger: a.logger,
-		assets: a.o.assets, running: a.running, restart: a.requestRestart,
+		assets: a.o.assets, running: a.running, restart: a.requestRestart, exe: a.o.executable, exec: a.requestExec,
 	}
 }
 
@@ -756,6 +770,9 @@ type adminDeps struct {
 	siteReplication siterepl.Service
 	// tiers manages the remote tiers (S-STO-12).
 	tiers tier.Service
+	// updates orchestrates the updates and the coordinated restarts
+	// (S-OPS-09).
+	updates update.Service
 	// secureCookies forces the Secure flag of the session cookies (the
 	// console is served over HTTPS, possibly by a proxy terminating TLS).
 	secureCookies bool
@@ -976,6 +993,13 @@ func buildAdminAPI(d adminDeps) (httpx.Routes, error) {
 		}
 		groups = append(groups, siteRoutes)
 	}
+	if d.updates != nil {
+		updateRoutes, err := adminhttp.NewUpdateRoutes(adminhttp.UpdateDeps{Updates: d.updates, Authz: svc.authz, Enc: d.codec})
+		if err != nil {
+			return nil, err
+		}
+		groups = append(groups, updateRoutes)
+	}
 	if d.tiers != nil {
 		tierRoutes, err := adminhttp.NewTierRoutes(adminhttp.TierDeps{Tiers: d.tiers, Authz: svc.authz, Enc: d.codec})
 		if err != nil {
@@ -1030,9 +1054,40 @@ type processActions struct {
 	running *atomic.Bool
 	signal  func(os.Signal) error
 	restart func() error
+	// exe is the binary of the process, exec replaces the process with it
+	// (updates).
+	exe  string
+	exec func() error
 }
 
-var _ adminsvc.ActionHandler = processActions{}
+var (
+	_ adminsvc.ActionHandler = processActions{}
+	_ update.Process         = processActions{}
+)
+
+// Executable implements update.Process.
+func (p processActions) Executable() (string, error) {
+	if !p.running.Load() || p.exe == "" || p.exec == nil {
+		return "", fmt.Errorf("app: only a server run as a process by its binary can update, restart or stop itself: %w", domain.ErrNotImplemented)
+	}
+	return p.exe, nil
+}
+
+// Exec implements update.Process.
+func (p processActions) Exec() error {
+	if _, err := p.Executable(); err != nil {
+		return err
+	}
+	return p.exec()
+}
+
+// Restart implements update.Process.
+func (p processActions) Restart() error {
+	return p.Handle(context.Background(), adminsvc.ActionRestart)
+}
+
+// Stop implements update.Process.
+func (p processActions) Stop() error { return p.Handle(context.Background(), adminsvc.ActionStop) }
 
 // Handle implements adminsvc.ActionHandler.
 func (p processActions) Handle(_ context.Context, action adminsvc.Action) error {
@@ -1069,6 +1124,18 @@ func (a *App) requestRestart() error {
 	}
 	return nil
 }
+
+// requestExec asks Run to stop the application and return ErrExec: the
+// command replaces the process with its binary, just installed.
+func (a *App) requestExec() error {
+	a.execs.Store(true)
+	return a.requestRestart()
+}
+
+// ErrExec is returned by Run when the process must be replaced with its
+// binary (an update installed a new one): the command execs it with the
+// same arguments.
+var ErrExec = errors.New("app: replace the process with the new binary")
 
 // reloadTLS reloads the certificates of the listeners without a restart
 // (SIGHUP, docs/07 §7.3): the certificates directory and the
@@ -1156,6 +1223,13 @@ func (a *App) Run(ctx context.Context) error {
 			}
 		}
 		cur.running.Store(false)
+		if cur.execs.Load() {
+			cur.logger.Info("restart with the new binary requested")
+			if err := cur.Stop(context.WithoutCancel(ctx)); err != nil {
+				return err
+			}
+			return ErrExec
+		}
 		cur.logger.Info("restart requested")
 		if err := cur.Stop(context.WithoutCancel(ctx)); err != nil {
 			return err

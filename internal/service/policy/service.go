@@ -364,6 +364,9 @@ const (
 	// the management of the remote tiers of the lifecycle (S-STO-12).
 	ActionAdminListTier Action = "admin:ListTier"
 	ActionAdminSetTier  Action = "admin:SetTier"
+	// ActionAdminServerUpdate authorizes the update of the binary of every
+	// node (S-OPS-09).
+	ActionAdminServerUpdate Action = "admin:ServerUpdate"
 
 	// Bucket and object configuration actions of the S3 API, shared by
 	// the S3 and the Admin API transports.

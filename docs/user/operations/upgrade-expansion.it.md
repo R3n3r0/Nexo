@@ -58,6 +58,41 @@ Con gli orchestratori:
 - **Docker Swarm**: `docker service update` con `parallelism: 1` (già impostato in `deploy/swarm/stack.yml`).
 - **Docker Compose**: `docker compose up -d --no-deps nexo1`, attendi `healthy`, poi `nexo2`, …
 
+## Aggiornamento orchestrato (`nexoctl admin update`)
+
+Quando ogni nodo esegue il binario di un archivio di release (non un pacchetto, non un'immagine), un solo
+comando aggiorna l'intero deployment, un nodo alla volta, senza interruzioni:
+
+```bash
+sha256sum nexo-v1.1.0-linux-amd64                  # o il file dei checksum della release
+nexoctl admin update --sha256 3f5a... cluster https://dl.example.com/nexo-v1.1.0-linux-amd64
+```
+
+Il nodo che risponde alla richiesta orchestra il job:
+
+1. **Staging, tutto o niente.** Ogni nodo scarica il binario nella directory di quello che esegue, ne
+   verifica lo SHA-256 e lo esegue (`nexo version --json`) per leggerne la versione e verificarne la
+   piattaforma. Se un nodo fallisce, o i nodi non concordano sulla versione, nessun nodo cambia.
+2. **Attivazione rolling.** Nodo per nodo (per ultimo il nodo che risponde), quando `/nexo/health/cluster`
+   consentirebbe una manutenzione (un altro nodo può fermarsi senza perdere il quorum di scrittura di alcun
+   erasure set): il binario preparato prende il posto di quello in esecuzione, conservato accanto come
+   `nexo.old`, e il processo si sostituisce con il nuovo dopo aver risposto alle richieste in corso (stesso
+   PID, argomenti, ambiente e file di log). Il nodo successivo attende che questo sia di nuovo in
+   esecuzione con la nuova versione.
+3. Il comando segue l'avanzamento e termina quando ogni nodo esegue la nuova versione; dietro un load
+   balancer il polling sopravvive al riavvio del nodo che risponde. `--no-wait` termina subito,
+   `nexoctl admin update --status cluster` mostra l'ultimo job.
+
+`--all-at-once` riavvia tutti i nodi insieme (un'interruzione di pochi secondi): è necessario per cambiare
+la **versione major**, perché nodi di versioni major diverse non formano un cluster. Un nodo che non torna
+entro 5 minuti ferma il job e i nodi successivi mantengono il loro binario: sistema il nodo (il binario
+precedente è `nexo.old`) e riavvia l'aggiornamento. Su Unix, se il nuovo binario non è neppure eseguibile,
+il processo rimette `nexo.old` al suo posto e lo esegue. L'aggiornamento richiede `admin:ServerUpdate`
+(`admin:ServerInfo` per lo stato), l'Admin API sui nodi e una directory del binario **scrivibile dall'utente
+del server**: con i pacchetti (`/usr/bin`, di root) continua ad aggiornare con il gestore dei pacchetti. In
+un container o su Kubernetes l'immagine è il binario: cambia invece il tag dell'immagine (`helm upgrade`),
+che aggiorna i pod nello stesso modo.
+
 ## Riavvio senza aggiornamento
 
 ```bash
@@ -68,6 +103,18 @@ Riavvia i servizi del **nodo che risponde** all'Admin API dell'alias nello stess
 stessa configurazione statica): utile dopo un problema, non per installare una nuova versione.
 `nexoctl admin service stop` arresta il processo (va riavviato a mano o dal supervisore). Richiedono
 `admin:ServiceRestart` e `admin:ServiceStop`.
+
+`--cluster` agisce su **tutti i nodi** del deployment:
+
+```bash
+nexoctl admin service restart --cluster cluster                  # un nodo alla volta, quorum preservato
+nexoctl admin service restart --cluster --all-at-once cluster    # tutti i nodi insieme
+nexoctl admin service stop --cluster cluster                     # gli altri nodi, poi quello che risponde
+```
+
+Il riavvio rolling segue le stesse regole dell'aggiornamento orchestrato (il nodo successivo quando il
+precedente è di nuovo in esecuzione e il deployment può perdere un nodo) e si segue allo stesso modo
+(`nexoctl admin update --status`).
 
 Per ricaricare i certificati TLS non serve riavviare: `systemctl reload nexo` (`SIGHUP`) o la sola
 sostituzione dei file (vedi [TLS](../security/tls.md)).

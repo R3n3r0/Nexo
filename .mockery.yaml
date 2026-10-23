@@ -263,6 +263,12 @@ packages:
       Leader:
       Dialer:
       Remote:
+  github.com/r3n3r0/nexo/internal/service/update:
+    interfaces:
+      Service:
+      Agent:
+      Process:
+      Health:
   github.com/r3n3r0/nexo/internal/service/scanner:
     interfaces:
       Service:
@@ -366,6 +372,7 @@ packages:
       ReplicationRoutes:
       SiteReplicationRoutes:
       TierRoutes:
+      UpdateRoutes:
       CORSRoutes:
       MediaRoutes:
       KMSRoutes:
@@ -385,6 +392,7 @@ packages:
       CacheRoutes:
       ObservabilityRoutes:
       ObservabilityPeer:
+      UpdateRoutes:
       Server:
       Authenticator:
       Conn:
