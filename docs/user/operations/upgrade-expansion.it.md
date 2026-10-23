@@ -55,6 +55,8 @@ Con gli orchestratori:
 
 - **Kubernetes (Helm)**: `helm upgrade` con il nuovo tag aggiorna lo StatefulSet un pod alla volta; il
   PodDisruptionBudget (`maxUnavailable: 1`) protegge il quorum durante i drain.
+- **Kubernetes (operatore)**: cambia `spec.image` del `NexoCluster`; l'operatore sostituisce un pod alla volta,
+  ciascuno solo finché il cluster può perdere un nodo ([Operatore Kubernetes](../kubernetes-operator.md)).
 - **Docker Swarm**: `docker service update` con `parallelism: 1` (già impostato in `deploy/swarm/stack.yml`).
 - **Docker Compose**: `docker compose up -d --no-deps nexo1`, attendi `healthy`, poi `nexo2`, …
 

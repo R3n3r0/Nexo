@@ -360,6 +360,19 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   swept by the leader; a tier holding data cannot be removed.
 - `nexoctl ilm rule add|edit --transition-days`, `--noncurrent-transition-days`, `--transition-tier`.
 
+### Kubernetes operator (S-OPS-16)
+- `nexo-operator` (module `operator/`, image built by `Dockerfile.operator`, manifests in `deploy/operator`:
+  `kubectl apply -k deploy/operator`) reconciles `NexoCluster` resources (`nexo.r3n3r0.github.io/v1alpha1`): a
+  StatefulSet per pool, the headless, S3 and console Services and a PodDisruptionBudget, the root credentials,
+  the KMS key and the TLS certificate from Secrets.
+- The pods are replaced by the operator (`OnDelete`): one at a time once every pod is ready and
+  `/nexo/health/cluster` allows a maintenance (`Rolling`), or together (`AllAtOnce`, and always for a new pool or
+  new credentials, which every node must share).
+- A pool is never resized (validated by the API) and is removed only when confirmed decommissioned
+  (`nexo.r3n3r0.github.io/decommissioned-pools`); the PersistentVolumeClaims of the drives are never deleted.
+- Tested against a real API server (envtest): creation, rolling and all-at-once updates, pool expansion and
+  removal, the sample manifest; `make operator-test`, `make operator-check`, CI job `operator`.
+
 ### Orchestrated update and coordinated restart (S-OPS-09, C-ADM-09)
 - `nexoctl admin update ALIAS URL --sha256 HEX` (Admin API `POST|GET /service/update`, policy action
   `admin:ServerUpdate`) updates the binary of every node: each node downloads it next to the one it runs,

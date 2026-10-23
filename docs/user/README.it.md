@@ -36,6 +36,7 @@ le stesse access key dell'API S3.
 | Trace e log live, audit log, OpenTelemetry | [Trace, log e audit](operations/trace-log-audit.md) |
 | Healing, sostituzione di un disco | [Healing e dischi](operations/healing-disks.md) |
 | Aggiornamento rolling, espansione con un nuovo pool | [Aggiornamento ed espansione](operations/upgrade-expansion.md) |
+| Cluster su Kubernetes con aggiornamenti guidati dallo stato di salute | [Operatore Kubernetes](kubernetes-operator.md) |
 | Backup della configurazione, migrazione tra modalità | [Backup e migrazione](operations/backup-migration.md) |
 | Quorum, orologi sfasati, dischi lenti, permessi | [Risoluzione dei problemi](operations/troubleshooting.md) |
 

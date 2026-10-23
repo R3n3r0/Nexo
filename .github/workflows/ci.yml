@@ -80,6 +80,39 @@ jobs:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
           args: --timeout=5m
 
+  operator:
+    name: Kubernetes operator (lint, envtest, manifests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      KUBECONFORM_VERSION: v0.7.0
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: operator/go.mod
+          cache-dependency-path: operator/go.sum
+
+      - name: go mod tidy is a no-op
+        working-directory: operator
+        run: go mod tidy -diff
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          working-directory: operator
+          args: --timeout=5m --config ../.golangci.yml
+
+      - name: Tests (unit and envtest API server)
+        run: make operator-test
+
+      - name: Manifests up to date and valid (kustomize, kubeconform)
+        run: |
+          go install "github.com/yannh/kubeconform/cmd/kubeconform@${KUBECONFORM_VERSION}"
+          make operator-check
+
   test-modes:
     # TM-01 and TM-02: the S3/IAM/presigned integration suite and the CLI
     # end-to-end scripts (testscript) in every deployment mode, the
@@ -326,7 +359,7 @@ jobs:
       - name: Dockerfiles (hadolint)
         run: |
           docker run --rm -v "$PWD:/src:ro" -w /src "hadolint/hadolint:${HADOLINT_VERSION}" hadolint \
-            Dockerfile Dockerfile.nexoctl Dockerfile.media-worker deploy/docker/Dockerfile.goreleaser \
+            Dockerfile Dockerfile.nexoctl Dockerfile.media-worker Dockerfile.operator deploy/docker/Dockerfile.goreleaser \
             deploy/docker/Dockerfile.nexoctl.goreleaser deploy/docker/Dockerfile.media-worker.goreleaser
 
       - name: Helm chart (lint, template, kubeconform)
