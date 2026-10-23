@@ -117,6 +117,10 @@ The rolling restart follows the same rules as the orchestrated update (the next 
 one runs again and the deployment can lose a node) and is followed the same way (`nexoctl admin update
 --status`).
 
+From the console, **Cluster → Maintenance** starts the same update (binary URL and SHA-256), the
+coordinated restart (rolling or all at once) and the coordinated stop (confirmed by typing a word), and
+shows the last job node by node while the nodes restart.
+
 Reloading the TLS certificates needs no restart: `systemctl reload nexo` (`SIGHUP`) or just
 replacing the files (see [TLS](../security/tls.md)).
 
@@ -141,6 +145,12 @@ from the first pool). Existing data is not moved.
    left with the old command line does not join the cluster. This is a short, planned interruption.
 4. The drives of the new pool are formatted with the same deployment ID. Verify with
    `nexoctl admin info local`: two pools, every set `ok`.
+
+The console guides the same steps: **Cluster → Pool management → Expand cluster** checks the new pools on
+the server exactly as the nodes will parse them (`POST /api/v1/pools/plan`: erasure sets, parity, new
+nodes, duplicate or invalid drives refused), gives the new `NEXO_ENDPOINTS` of every node to copy, then,
+once the checklist is confirmed, stops the cluster. The same wizard removes the pools whose decommission is
+complete. Every pool must already be written as one argument with ellipses.
 
 After the expansion:
 

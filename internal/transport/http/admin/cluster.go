@@ -69,6 +69,7 @@ func (h *clusterRoutes) routes() []route {
 		{http.MethodGet, "/locks", global(policy.ActionAdminListLocks), h.listLocks},
 		{http.MethodDelete, "/locks", global(policy.ActionAdminForceUnlock), h.forceUnlock},
 		{http.MethodGet, "/pools", global(policy.ActionAdminServerInfo), h.listPools},
+		{http.MethodPost, "/pools/plan", global(policy.ActionAdminServerInfo), h.planPools},
 		{http.MethodPost, "/pools/{pool}/decommission", global(policy.ActionAdminDecommission), h.poolAction(func(svc pools.Service, r *http.Request, pool int) error {
 			return svc.Decommission(r.Context(), pool)
 		}, http.StatusAccepted)},

@@ -137,3 +137,68 @@ func (h *clusterRoutes) rebalanceAction(action func(svc pools.Service, r *http.R
 		w.WriteHeader(status)
 	}
 }
+
+// PoolPlanBody is the body of POST /pools/plan.
+type PoolPlanBody struct {
+	// Add are the arguments of the new pools, one with ellipses per pool.
+	Add []string `json:"add,omitempty"`
+	// Remove are the decommissioned pools to remove (1-based).
+	Remove []int `json:"remove,omitempty"`
+}
+
+// PlannedPoolResponse is a pool of the planned topology.
+type PlannedPoolResponse struct {
+	// Index is the 1-based position in the planned command line; Current
+	// the position today, absent for a new pool.
+	Index        int      `json:"index"`
+	Current      int      `json:"current,omitempty"`
+	Arg          string   `json:"arg"`
+	Nodes        []string `json:"nodes"`
+	Drives       int      `json:"drives"`
+	Sets         int      `json:"sets"`
+	DrivesPerSet int      `json:"drivesPerSet"`
+	Parity       int      `json:"parity"`
+}
+
+// PoolPlanResponse is the body of the answer to POST /pools/plan.
+type PoolPlanResponse struct {
+	Mode string `json:"mode"`
+	// Args are the endpoint arguments of every node, in order.
+	Args     []string              `json:"args"`
+	Pools    []PlannedPoolResponse `json:"pools"`
+	Removed  []string              `json:"removed"`
+	Nodes    []string              `json:"nodes"`
+	NewNodes []string              `json:"newNodes"`
+}
+
+func (h *clusterRoutes) planPools(w http.ResponseWriter, r *http.Request) {
+	svc, ok := h.poolsService(w, r)
+	if !ok {
+		return
+	}
+	var in PoolPlanBody
+	if err := decodeJSON(h.deps.Enc, r, &in, false); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	remove := make([]int, 0, len(in.Remove))
+	for _, n := range in.Remove {
+		if n < 1 {
+			h.fail(w, r, fmt.Errorf("%w: a pool is its 1-based position in the command line", domain.ErrInvalidArgument))
+			return
+		}
+		remove = append(remove, n-1)
+	}
+	plan, err := svc.Plan(r.Context(), pools.PlanInput{Add: in.Add, Remove: remove})
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	out := PoolPlanResponse{Mode: plan.Mode.String(), Args: plan.Args, Pools: make([]PlannedPoolResponse, 0, len(plan.Pools)),
+		Removed: nonNil(plan.Removed), Nodes: nonNil(plan.Nodes), NewNodes: nonNil(plan.NewNodes)}
+	for _, p := range plan.Pools {
+		out.Pools = append(out.Pools, PlannedPoolResponse{Index: p.Index + 1, Current: p.Current + 1, Arg: p.Arg, Nodes: p.Nodes,
+			Drives: p.Drives, Sets: p.Sets, DrivesPerSet: p.DrivesPerSet, Parity: p.Parity})
+	}
+	h.deps.Enc.WriteJSON(w, http.StatusOK, out)
+}

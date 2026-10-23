@@ -226,6 +226,10 @@ type AdminClient interface {
 	CancelDecommission(ctx context.Context, pool int) error
 	StartRebalance(ctx context.Context) error
 	StopRebalance(ctx context.Context) error
+	// PlanPools checks a change of the pools (new pools appended, pools
+	// removed once decommissioned) as every node parses its command line,
+	// and returns the new command line. It changes nothing.
+	PlanPools(ctx context.Context, in PoolPlanInput) (*PoolPlan, error)
 
 	// Bucket replication (S-BKT-12): the targets (remote buckets, with
 	// their credentials), the rules that replicate to them, the state of

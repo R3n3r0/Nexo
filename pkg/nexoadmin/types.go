@@ -963,6 +963,40 @@ type Pools struct {
 	Rebalance *PoolJob     `json:"rebalance,omitempty"`
 }
 
+// PoolPlanInput is the body of POST /pools/plan.
+type PoolPlanInput struct {
+	// Add are the arguments of the new pools, one with ellipses per pool.
+	Add []string `json:"add,omitempty"`
+	// Remove are the decommissioned pools to remove (1-based).
+	Remove []int `json:"remove,omitempty"`
+}
+
+// PlannedPool is a pool of the planned topology.
+type PlannedPool struct {
+	// Index is the 1-based position in the planned command line; Current
+	// the position today, 0 for a new pool.
+	Index        int      `json:"index"`
+	Current      int      `json:"current,omitempty"`
+	Arg          string   `json:"arg"`
+	Nodes        []string `json:"nodes"`
+	Drives       int      `json:"drives"`
+	Sets         int      `json:"sets"`
+	DrivesPerSet int      `json:"drivesPerSet"`
+	Parity       int      `json:"parity"`
+}
+
+// PoolPlan is the answer of POST /pools/plan.
+type PoolPlan struct {
+	Mode string `json:"mode"`
+	// Args are the endpoint arguments of every node, in order
+	// (NEXO_ENDPOINTS).
+	Args     []string      `json:"args"`
+	Pools    []PlannedPool `json:"pools"`
+	Removed  []string      `json:"removed"`
+	Nodes    []string      `json:"nodes"`
+	NewNodes []string      `json:"newNodes"`
+}
+
 // Lock is a namespace lock held across the lock servers.
 type Lock struct {
 	Resource string `json:"resource"`

@@ -81,6 +81,18 @@ func TestPoolDecommission(t *testing.T) {
 	pools, err := admin.ListPools(ctx)
 	require.NoError(t, err)
 	require.Len(t, pools.Pools, 2)
+
+	// An expansion is planned as the nodes parse their command line.
+	pool3 := filepath.Join(base, "p3", "d{1...8}")
+	plan, err := admin.PlanPools(ctx, nexoadmin.PoolPlanInput{Add: []string{pool3}})
+	require.NoError(t, err)
+	assert.Equal(t, []string{pool1, pool2, pool3}, plan.Args)
+	assert.Equal(t, nexoadmin.PlannedPool{Index: 3, Arg: pool3, Nodes: []string{"local"}, Drives: 8, Sets: 1, DrivesPerSet: 8,
+		Parity: plan.Pools[2].Parity}, plan.Pools[2])
+	_, err = admin.PlanPools(ctx, nexoadmin.PoolPlanInput{Remove: []int{2}})
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, 400, apiErr.Status, "not decommissioned")
+
 	require.NoError(t, admin.DecommissionPool(ctx, 2))
 	require.Eventually(t, func() bool {
 		pools, err := admin.ListPools(ctx)
@@ -92,9 +104,14 @@ func TestPoolDecommission(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, pools.Pools[1].Draining)
 
-	// The pool goes: restart on the first pool alone.
+	// The pool goes: restart on the planned command line, the first pool
+	// alone.
+	plan, err = admin.PlanPools(ctx, nexoadmin.PoolPlanInput{Remove: []int{2}})
+	require.NoError(t, err)
+	require.Equal(t, []string{pool1}, plan.Args)
+	assert.Equal(t, []string{pool2}, plan.Removed)
 	srv.Stop(t)
-	srv = testutil.StartServer(t, testutil.WithEndpoints(pool1))
+	srv = testutil.StartServer(t, testutil.WithEndpoints(plan.Args...))
 	e = &env{t: t, srv: srv, ctx: ctx}
 	e.root = e.client(srv.RootUser, srv.RootPassword, "")
 	for name, data := range want {

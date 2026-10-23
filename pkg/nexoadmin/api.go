@@ -566,6 +566,12 @@ func (c *client) StopRebalance(ctx context.Context) error {
 	return c.do(ctx, request{method: http.MethodDelete, path: "/rebalance"}, nil)
 }
 
+// PlanPools implements AdminClient.
+func (c *client) PlanPools(ctx context.Context, in PoolPlanInput) (*PoolPlan, error) {
+	var out PoolPlan
+	return &out, c.do(ctx, request{method: http.MethodPost, path: "/pools/plan", body: in}, &out)
+}
+
 // ForceUnlock implements AdminClient.
 func (c *client) ForceUnlock(ctx context.Context, resources ...string) error {
 	return c.do(ctx, request{method: http.MethodDelete, path: "/locks", query: url.Values{"resource": resources}}, nil)

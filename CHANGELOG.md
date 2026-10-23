@@ -360,6 +360,16 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   swept by the leader; a tier holding data cannot be removed.
 - `nexoctl ilm rule add|edit --transition-days`, `--noncurrent-transition-days`, `--transition-tier`.
 
+### Cluster maintenance and expansion from the console (S-OPS-09, S-STO-08)
+- **Cluster → Maintenance**: the orchestrated update of every node (binary URL and SHA-256, rolling or all at
+  once), the coordinated restart and the coordinated stop, with the last job followed node by node.
+- **Cluster → Pool management → Expand cluster**: a wizard that checks the new pools (and the removal of the
+  decommissioned ones) on the server as every node parses its command line, gives the new `NEXO_ENDPOINTS`
+  of every node and stops the cluster once the checklist is confirmed. Admin API `POST /pools/plan`
+  (`admin:ServerInfo`), `nexoadmin.PlanPools`.
+- The strings of the cluster pages (pools, healing, maintenance) load with the page: the initial bundle of the
+  console is back within its 300 KiB budget.
+
 ### Kubernetes operator (S-OPS-16)
 - `nexo-operator` (module `operator/`, image built by `Dockerfile.operator`, manifests in `deploy/operator`:
   `kubectl apply -k deploy/operator`) reconciles `NexoCluster` resources (`nexo.r3n3r0.github.io/v1alpha1`): a

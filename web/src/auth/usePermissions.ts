@@ -102,6 +102,15 @@ export const PoolActions = {
   rebalance: 'admin:Rebalance',
 } as const;
 
+/** Policy actions of the maintenance of the deployment (S-OPS-09). */
+export const MaintenanceActions = {
+  update: 'admin:ServerUpdate',
+  restart: 'admin:ServiceRestart',
+  stop: 'admin:ServiceStop',
+  /** The plan of a change of the pools (expansion). */
+  plan: 'admin:ServerInfo',
+} as const;
+
 /** Policy actions of the remote tiers (S-STO-12). */
 export const TierActions = {
   list: 'admin:ListTier',

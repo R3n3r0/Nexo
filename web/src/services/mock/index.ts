@@ -13,6 +13,7 @@ import {
   type MockDistributionOptions,
 } from './distributions';
 import { createMockHealService, type MockHealOptions } from './heal';
+import { createMockMaintenanceService } from './maintenance';
 import { createMockPoolsService, type MockPoolsOptions } from './pools';
 import { createMockReplicationService } from './replication';
 import { createMockSiteReplicationService } from './siteReplication';
@@ -120,6 +121,7 @@ export function createMockServices(options: MockServicesOptions = {}): MockServi
     info: createMockInfoService(ctx, { ...options, info: serverInfo }, storage),
     heal: createMockHealService(ctx, () => serverInfo, options),
     pools: createMockPoolsService(ctx, () => serverInfo, options),
+    maintenance: createMockMaintenanceService(ctx, () => serverInfo),
     buckets: createMockBucketService(storage),
     lifecycle: createMockLifecycleService(storage),
     notifications: createMockNotificationService(storage, options),
