@@ -5,6 +5,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"strings"
 	"time"
@@ -22,15 +23,24 @@ import (
 	"github.com/r3n3r0/nexo/operator/internal/controller"
 )
 
+// version is the release of the operator, set at link time
+// (-X main.version=...).
+var version = "dev"
+
 func main() {
 	var metricsAddr, probeAddr string
-	var leaderElect bool
+	var leaderElect, printVersion bool
+	flag.BoolVar(&printVersion, "version", false, "print the version and exit")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "address of the metrics endpoint (0 disables it)")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "address of the health probes")
 	flag.BoolVar(&leaderElect, "leader-elect", true, "elect a leader among the replicas of the operator")
 	opts := zap.Options{}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
+	if printVersion {
+		fmt.Println("nexo-operator", version)
+		return
+	}
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 	setup := ctrl.Log.WithName("setup")
 
@@ -69,7 +79,7 @@ func main() {
 	}
 	utilruntime.Must(mgr.AddHealthzCheck("healthz", healthz.Ping))
 	utilruntime.Must(mgr.AddReadyzCheck("readyz", healthz.Ping))
-	setup.Info("starting the manager")
+	setup.Info("starting the manager", "version", version)
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		setup.Error(err, "manager stopped")
 		os.Exit(1)

@@ -351,7 +351,7 @@ systemd-verify:
 
 ## hadolint: lint the Dockerfiles (sources and GoReleaser)
 hadolint:
-	$(HADOLINT) Dockerfile Dockerfile.nexoctl Dockerfile.media-worker Dockerfile.operator deploy/docker/Dockerfile.goreleaser deploy/docker/Dockerfile.nexoctl.goreleaser deploy/docker/Dockerfile.media-worker.goreleaser
+	$(HADOLINT) Dockerfile Dockerfile.nexoctl Dockerfile.media-worker Dockerfile.operator deploy/docker/Dockerfile.goreleaser deploy/docker/Dockerfile.nexoctl.goreleaser deploy/docker/Dockerfile.media-worker.goreleaser deploy/docker/Dockerfile.operator.goreleaser
 
 ## packaging: every packaging check that needs no Docker daemon: release-check, helm-lint, systemd-verify, hadolint
 packaging: release-check helm-lint systemd-verify hadolint
@@ -378,6 +378,9 @@ operator-lint:
 operator-check: operator-manifests
 	git diff --exit-code -- deploy/operator operator/api || { echo "deploy/operator is stale: run make operator-manifests"; exit 1; }
 	$(GO) run sigs.k8s.io/kustomize/kustomize/v5@$(KUSTOMIZE_VERSION) build deploy/operator | \
+	  $(KUBECONFORM) -strict -summary -skip CustomResourceDefinition -kubernetes-version $(lastword $(KUBE_VERSIONS)) -
+	# The manifest attached to the releases (packaging/operator-manifest.sh).
+	packaging/operator-manifest.sh v0.0.0 | \
 	  $(KUBECONFORM) -strict -summary -skip CustomResourceDefinition -kubernetes-version $(lastword $(KUBE_VERSIONS)) -
 
 ## docker-operator: build the image of the operator (Dockerfile.operator)

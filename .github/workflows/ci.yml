@@ -360,7 +360,8 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/src:ro" -w /src "hadolint/hadolint:${HADOLINT_VERSION}" hadolint \
             Dockerfile Dockerfile.nexoctl Dockerfile.media-worker Dockerfile.operator deploy/docker/Dockerfile.goreleaser \
-            deploy/docker/Dockerfile.nexoctl.goreleaser deploy/docker/Dockerfile.media-worker.goreleaser
+            deploy/docker/Dockerfile.nexoctl.goreleaser deploy/docker/Dockerfile.media-worker.goreleaser \
+            deploy/docker/Dockerfile.operator.goreleaser
 
       - name: Helm chart (lint, template, kubeconform)
         run: make helm-lint
@@ -395,14 +396,16 @@ jobs:
           # docker.io/paolor/<name> (default DOCKERHUB_NAMESPACE), listed by
           # docker without the docker.io/ prefix.
           docker images 'paolor/*'
-          for name in nexo nexoctl; do
+          for name in nexo nexoctl nexo-operator; do
             for arch in amd64 arm64; do
               img="$(docker images --format '{{.Repository}}:{{.Tag}}' "paolor/$name" | grep -- "-$arch\$" | head -1)"
               test -n "$img"
               test "$(docker image inspect -f '{{.Architecture}}' "$img")" = "$arch"
               test "$(docker image inspect -f '{{.Config.User}}' "$img")" = "65532:65532"
             done
-            docker run --rm --platform linux/amd64 "$(docker images --format '{{.Repository}}:{{.Tag}}' "paolor/$name" | grep -- '-amd64$' | head -1)" version
+            arg=version
+            [ "$name" = nexo-operator ] && arg=--version
+            docker run --rm --platform linux/amd64 "$(docker images --format '{{.Repository}}:{{.Tag}}' "paolor/$name" | grep -- '-amd64$' | head -1)" "$arg"
           done
 
       - name: Image HEALTHCHECK with TLS (NEXO_CERTS_DIR)

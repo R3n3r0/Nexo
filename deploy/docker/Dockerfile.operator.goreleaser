@@ -1,0 +1,23 @@
+# Release image docker.io/paolor/nexo-operator, built by GoReleaser
+# (dockers_v2 in .goreleaser.yaml) with buildx for linux/amd64 and
+# linux/arm64 from the binary it already compiled ($TARGETPLATFORM/). For a
+# build from the sources use Dockerfile.operator at the repository root.
+FROM gcr.io/distroless/static-debian12:nonroot
+
+ARG TARGETPLATFORM
+
+# The version, revision, creation date and source labels are added by
+# GoReleaser (--label), with the same values as the image annotations.
+LABEL org.opencontainers.image.title="nexo-operator" \
+      org.opencontainers.image.description="Kubernetes operator of Nexo, the S3-compatible object storage server" \
+      org.opencontainers.image.url="https://github.com/r3n3r0/nexo" \
+      org.opencontainers.image.documentation="https://github.com/r3n3r0/nexo/tree/main/docs/user/kubernetes-operator.md" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.vendor="r3n3r0"
+
+COPY LICENSE NOTICE COMMERCIAL-LICENSE.md /
+COPY $TARGETPLATFORM/nexo-operator /nexo-operator
+
+USER 65532:65532
+
+ENTRYPOINT ["/nexo-operator"]
