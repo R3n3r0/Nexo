@@ -71,7 +71,7 @@
     "postcss-preset-mantine": "1.18.0",
     "postcss-simple-vars": "7.0.1",
     "prettier": "3.9.9",
-    "size-limit": "12.1.0",
+    "size-limit": "14.3.0",
     "typescript": "5.9.3",
     "typescript-eslint": "8.71.1",
     "vite": "6.4.4",
