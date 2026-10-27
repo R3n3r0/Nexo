@@ -1,0 +1,59 @@
+# nexoctl replicate add
+
+Replicate a bucket to a remote bucket, or change the rule with the same ID
+
+## Synopsis
+
+Replicate a bucket to a bucket of another server: register the remote as a
+replication target of the bucket (with the URL and the credentials of
+REMOTE\_ALIAS, updated if it is already one) and add a rule that sends it the
+keys under --prefix with the --tags (every key by default), or replace the rule
+with the same --id (default REMOTE\_ALIAS-BUCKET). When several rules select a
+key for the same remote, the one with the highest --priority applies.
+
+Delete markers are replicated unless --no-delete-markers; --deletes also
+replicates the deletions of versions (permanent: off by default); --existing
+lets "replicate resync" send the versions written before the rule.
+
+```
+nexoctl replicate add ALIAS/BUCKET REMOTE_ALIAS/BUCKET [flags]
+```
+
+## Examples
+
+```
+  nexoctl replicate add local/photos backup/photos
+  nexoctl replicate add local/photos backup/photos --id docs --prefix docs/ --tags class=public --existing
+  # active-active: one rule on each side
+  nexoctl replicate add site-a/shared site-b/shared --deletes
+  nexoctl replicate add site-b/shared site-a/shared --deletes
+```
+
+## Options
+
+```
+      --deletes             replicate the deletions of versions
+      --disable             add the rule disabled
+      --existing            let "replicate resync" send the versions written before the rule
+  -h, --help                help for add
+      --id string           ID of the rule (default REMOTE_ALIAS-BUCKET)
+      --no-delete-markers   do not replicate the delete markers
+      --prefix string       replicate the keys under this prefix (default: the whole bucket)
+      --priority int        priority of the rule among those to the same remote (default: above the others) (default 1)
+      --tags strings        replicate the objects with these tags (KEY=VALUE, repeatable or joined with '&')
+```
+
+## Options inherited from parent commands
+
+```
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+```
+
+## SEE ALSO
+
+* [nexoctl replicate](nexoctl_replicate.md)	 - Manage the replication of buckets to other servers (Admin API)
+

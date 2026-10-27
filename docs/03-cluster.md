@@ -134,9 +134,19 @@ for reads and writes; usable capacity 75%.
 
 - **Expansion**: all the nodes are restarted with the new pool list (rolling restart). The new pools are
   formatted; new objects are spread weighted by free space.
-- **Decommission** (P2): the pool is marked read-only, a distributed job moves every object (all versions)
-  to the other pools, with persisted and resumable state; at the end the pool can be removed from the command line.
-- **Rebalance** (P2): moves objects from the fullest pools to the least full ones up to a balance threshold.
+- **Decommission** (P2): the pool is marked *draining* on every node (control document in the system store,
+  polled every 5 s): it takes no new object, version or multipart upload, a key it holds is overwritten in
+  another pool, reads still find it. A job on the leader walks the pool and moves every key with all its
+  versions (delete markers included) in three phases: snapshot of the versions under the read lock, copy of
+  the stored bytes (still encrypted/compressed) to a temporary area of the target and read-back with a
+  SHA-256 comparison without lock, then under the write lock, in batches, re-check that the source did not
+  change, commit, verify the metadata and only then delete from the source. A changed or failed key stays in
+  the pool and is retried by the next pass; passes repeat until one finds nothing, then the job waits for the
+  pool's multipart uploads. Progress is persisted and resumes after a restart or a leader change. The first
+  pool cannot be decommissioned: it holds the system documents. At the end the pool is removed from the
+  command line.
+- **Rebalance** (P2): moves keys with the same procedure from the pools above the average usage by more than
+  5 points to the pools below it, rechecking the usage every few keys, until the sources are near the average.
 
 ## 3.9 Consistency
 
@@ -147,9 +157,30 @@ for reads and writes; usable capacity 75%.
 
 ## 3.10 Multi-site (P2)
 
-- **Bucket replication**: asynchronous, per rule (prefix/tag), active-active with last-writer-wins resolution on mod-time
-  + version-id, explicit resync.
-- **Site replication**: synchronizes IAM, policies and bucket configuration across N clusters; every created bucket is replicated.
+- **Bucket replication** (S-BKT-12): asynchronous, per rule (prefix/tag, priority), active-active. A write that a
+  rule selects is stored with `x-amz-replication-status: PENDING` and one internal state per target, then the events
+  decorator queues one task per target in a persistent per-node queue (`.nexo.sys/replication` on the first drive,
+  FIFO per key). Workers read the version and PUT it to the remote with the replica headers (`X-Nexo-Replica*`:
+  version id, mod-time, ETag, delete marker), which the remote accepts with `s3:ReplicateObject`/`ReplicateDelete`/
+  `ReplicateTags` and stores as `REPLICA` without queueing it again (no ping-pong). The version keeps its id and
+  mod-time on both sides, so xl.meta orders concurrent writes the same way everywhere: last writer wins on mod-time.
+  Failures are retried with exponential backoff (1 s to 5 min, 30 attempts) and end as `FAILED`. Targets (endpoint,
+  bucket, sealed credentials, ARN `arn:nexo:replication::<id>:<bucket>`) live in the system store; a resync job on
+  the leader walks the versions, HEADs the remote and queues what it lacks.
+- **Site replication** (S-STO-11): the sites of a group share the root credentials and call each other's Admin
+  API with them (`/site-replication/peer/...`, root only); the entries they exchange are sealed with a key derived
+  from them. The leader of each site runs a round every 5 s with every other site: it compares the hashes of the
+  replicated entries (users, groups, access keys as stored by IAM, named policies, bucket settings) of both sides
+  with the base both had after the last round (`site-replication/base/<peer>.json`), pushes what changed here,
+  pulls what changed there, and on a double change keeps the newest (`updatedAt`; else the smallest deployment
+  ID), a change beating a deletion. Without a base nothing is deleted. Each round then gives every bucket
+  versioning and a bucket replication rule `site-<name>` to every other site (resync of the existing objects, one
+  target at a time per bucket). Not replicated: configuration, KMS keys, notification targets, distributions,
+  STS credentials and sessions.
+
+- **Remote tiers** (S-STO-12, §3.12).
+
+- **Updates and coordinated restarts** (S-OPS-09, §3.13).
 
 ## 3.11 Failure scenarios to support
 
@@ -165,3 +196,45 @@ for reads and writes; usable capacity 75%.
 | Crash during multipart completion | Completion first writes a journal (`completing.json`) in the upload directory and moves the parts to a staging directory; on the next attempt the upload is concluded (version already committed) or the parts go back to their place: the upload stays completable |
 | Multipart parts on different disks | Each part requires `D` disks holding it intact; the disks that lack it receive it rebuilt from the shards before the commit |
 | Clock skew between nodes | Warning if > 2 s; SigV4 tolerates 15 min; locks independent of the clock |
+
+## 3.12 Remote tiers
+
+The `Transition` actions of the lifecycle move the data of versions to remote tiers: S3 buckets (endpoint,
+bucket, prefix, sealed credentials in the system store, `tiers/config.json`). A transition copies the stored
+bytes of the version (encrypted and compressed as on the drives) to the tier as one object
+`<prefix><deployment id>/<uuid v7>`, its metadata naming the version, under the read lock of the key, and checks
+its size. Then, under the write lock and if the version is still the same, it records the tier in the metadata
+of the version (`UpdateMetadata`, local data kept), then writes the version without data directory
+(`WriteMetadata`, local data released). The version keeps its parts, sizes and checksums; its reads fetch ranges
+of the tier object (never pinned: the read lock is held until the body is closed). The drives agree on a
+transitioned version whatever the state of its local data (the quorum key names the tier object instead of the
+data directory), and the healing releases the data left by an interrupted transition. A pool move carries the
+metadata only. The leader sweeps the tiers every hour: an object of this deployment older than one hour whose
+version, looked up under its lock, does not name it is removed. A tier holding objects of this deployment
+cannot be removed. A copy onto itself stores the data on the drives again.
+
+## 3.13 Orchestrated update and coordinated restart
+
+Every node runs an update agent, reached by its peers over the internode RPC (`/update/state|stage|activate|restart|stop`).
+The node receiving `POST /service/update` (or `POST /service/cluster/restart`) orchestrates the job, kept in the
+system store (`update/job.json`): one job at a time.
+
+- **Staging** (update only): every node downloads the binary into the directory of the running one, verifies its
+  SHA-256, runs it (`version --json`, the version and the platform) and keeps it as `.nexo-update-<digest>`. Any
+  failure, or two versions, fails the job before any node changes; a rolling update refuses a change of major
+  version (the nodes would not form a cluster).
+- **Activation**: the other nodes first, sorted, this one last. Rolling: a node only once
+  `Health(Maintenance)` holds (one more node can stop without losing the write quorum of any set), the next one
+  once the node answers with a new run (`boot`) and, for an update, the new version (up to 5 minutes, else the job
+  fails and the nodes after it are untouched). All at once: every node without waiting. An update renames the
+  running binary `<binary>.old` and the staged one in its place (a failed rename puts it back), then the process
+  stops gracefully and replaces itself (`execve` on Unix; on Windows it starts its successor and exits); if the new
+  binary cannot be executed, `.old` is put back and executed. A restart restarts the server in its process.
+- **Completion**: the orchestrator records itself `restarting` before its own activation; its next run, or any
+  node reading the job once the orchestrator runs again, completes it: `completed` when every node is back (with
+  the version), `failed` when a node is on another version or the job was interrupted before activating it.
+- **Coordinated stop**: `POST /service/cluster/stop` stops the other nodes, then the one answering.
+
+Only a server run as a process by its binary (`nexo server`) can update or restart itself; embedded (the tests) the
+calls answer `501`. The binary directory must be writable by the server: packages and images are updated by their
+own tools.

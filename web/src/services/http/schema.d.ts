@@ -289,6 +289,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/service/update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The last update or coordinated restart of the deployment
+         * @description A job whose orchestrating node restarted is completed by the node answering, once every node is back.
+         */
+        get: operations["updateStatus"];
+        put?: never;
+        /**
+         * Update the server binary of every node
+         * @description Every node downloads the binary next to the one it runs, verifies its SHA-256 and its version; the nodes then restart with it one at a time (rolling, while one more node can stop without losing the write quorum) or all at once. The node answering restarts last. The job runs in the background (GET /service/update).
+         */
+        post: operations["startUpdate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/service/cluster/restart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restart every node of the deployment
+         * @description One node at a time (rolling, default) or all at once; the node answering restarts last. The job runs in the background (GET /service/update).
+         */
+        post: operations["restartCluster"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/service/cluster/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop every node of the deployment
+         * @description The other nodes first, then the node answering, once the response is sent.
+         */
+        post: operations["stopCluster"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/trace": {
         parameters: {
             query?: never;
@@ -784,11 +848,92 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Replication configuration (not implemented yet) */
+        /**
+         * Replication rules of a bucket (S-BKT-12)
+         * @description The rules of the ReplicationConfiguration of the bucket in the console form (no rule: none). The S3 API serves the same configuration as XML (GetBucketReplication).
+         */
         get: operations["getBucketReplication"];
-        /** Replication configuration (not implemented yet) */
+        /**
+         * Replace the replication rules of a bucket
+         * @description The bucket must have versioning enabled (which then cannot be suspended) and every target must be a replication target of the bucket (400 otherwise). No rule removes the configuration. The versions written from then on are replicated asynchronously, with their id, time and ETag; a resync replicates those written before.
+         */
         put: operations["setBucketReplication"];
         post?: never;
+        /** Remove the replication rules of a bucket */
+        delete: operations["deleteBucketReplication"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/replication/targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Replication targets of a bucket
+         * @description The remote buckets the rules may replicate to, without their secret.
+         */
+        get: operations["listReplicationTargets"];
+        put?: never;
+        /**
+         * Create or replace a replication target
+         * @description Without arn a target is created (201) and gets an ARN (arn:nexo:replication::<id>:<remote bucket>); with arn it is replaced (200), the stored secret kept when secretKey is empty. The remote bucket is checked first: reachable with the credentials and versioning enabled (400 otherwise). The secret is sealed in the system documents and never returned. The credentials need s3:ReplicateObject, s3:ReplicateDelete, s3:ReplicateTags and the object actions on the remote bucket.
+         */
+        post: operations["setReplicationTarget"];
+        /**
+         * Remove a replication target
+         * @description A target the rules still use cannot be removed (400).
+         */
+        delete: operations["removeReplicationTarget"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/replication/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * State of the replication of a bucket
+         * @description Per target, the tasks queued and the counters of the node that answers since its start (each node replicates the writes it served), and the last resync.
+         */
+        get: operations["getReplicationStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/replication/resync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replicate again every version a target does not have
+         * @description The leader walks every version of the bucket the rules for the target select and queues those the destination does not have (asked first): existing objects, a replaced target, a queue lost with its drive. A resync in progress is replaced.
+         */
+        post: operations["startReplicationResync"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2337,6 +2482,282 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/pools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The server pools, their capacity and their decommission, and the rebalance
+         * @description 501 in single-drive mode.
+         */
+        get: operations["listPools"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pools/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Plan a change of the pools (expansion, removal of decommissioned pools)
+         * @description Checks the pools appended after the existing ones and the pools removed once their decommission is complete the way every node parses its command line at startup (erasure sets, parity, nodes), and returns the new endpoint arguments of every node (NEXO_ENDPOINTS). Nothing changes: the nodes run the new topology once all of them are restarted with it. Every existing pool must be written as one argument with ellipses. 501 in single-drive mode.
+         */
+        post: operations["planPools"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pools/{pool}/decommission": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 1-based position of the pool in the command line. */
+                pool: number;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start the decommission of a pool
+         * @description The pool takes no new object, version or multipart upload; the leader moves every version of its objects to the other pools (copied, read back and compared before the source is removed), pass after pass until a pass finds nothing left and no upload is in progress there. The job resumes after a restart. The pool can then be removed from the command line. The first pool (system documents), the last pool left, or a pool during a rebalance are refused (400).
+         */
+        post: operations["decommissionPool"];
+        /**
+         * Cancel the decommission of a pool
+         * @description The pool takes new objects again; the objects already moved stay where they are.
+         */
+        delete: operations["cancelDecommission"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rebalance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start the rebalance between the pools
+         * @description The pools fuller than the average by more than 5 points give objects to the emptier ones until they are near the average. Refused with a single pool or during a decommission.
+         */
+        post: operations["startRebalance"];
+        /** Stop the rebalance */
+        delete: operations["stopRebalance"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/site-replication": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Site replication of this deployment
+         * @description The group of sites this deployment is in (S-STO-11) and, per other site, the last round of synchronization as the leader recorded it. Disabled when in no group.
+         */
+        get: operations["getSiteReplication"];
+        put?: never;
+        /**
+         * Group sites
+         * @description Groups the sites, this one among them: their users, groups, access keys, named policies and buckets are kept in sync, and every bucket replicates to the same bucket of every other site. Every site must accept the root credentials of this one at its Admin API and be in no group.
+         */
+        post: operations["addSiteReplication"];
+        /**
+         * Dissolve the group
+         * @description Every site reached forgets the group and the replication rules it added; what was replicated stays. 409 when some sites were not reached (the group is removed here).
+         */
+        delete: operations["removeSiteReplication"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/site-replication/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run a round of synchronization now */
+        post: operations["syncSiteReplication"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/site-replication/peer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Describe this site to another one (internal)
+         * @description Calls between the sites of a group, reserved to the root credentials.
+         */
+        get: operations["siteReplicationPeerInfo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/site-replication/peer/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Save the group of sites (internal) */
+        post: operations["joinSiteReplication"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/site-replication/peer/leave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Forget the group (internal) */
+        post: operations["leaveSiteReplication"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/site-replication/peer/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Hashes of the replicated entries of this site (internal) */
+        get: operations["siteReplicationState"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/site-replication/peer/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sealed values of entries (internal) */
+        post: operations["siteReplicationItems"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/site-replication/peer/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply sealed changes (internal) */
+        post: operations["siteReplicationApply"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tiers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the remote tiers of the lifecycle transitions */
+        get: operations["listTiers"];
+        put?: never;
+        /** Add a remote tier (its bucket is checked with the credentials) */
+        post: operations["addTier"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tiers/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace the credentials (and the region, the storage class) of a tier */
+        put: operations["editTier"];
+        post?: never;
+        /** Remove a tier that holds no data of this deployment */
+        delete: operations["removeTier"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/config/{subsys}": {
         parameters: {
             query?: never;
@@ -3541,6 +3962,316 @@ export interface components {
             bucketsCreated: string[];
             /** @description Entries a replace import removes ("user:<name>", "group:<name>", "policy:<name>"). */
             removed: string[];
+        };
+        ReplicationRule: {
+            id: string;
+            /** @description Among the rules of the same target, the highest wins. */
+            priority: number;
+            enabled: boolean;
+            /** @description Key prefix the rule selects. */
+            prefix?: string;
+            /** @description Tags the versions must have. */
+            tags?: {
+                [key: string]: string;
+            };
+            /** @description ARN of a replication target of the bucket. */
+            target: string;
+            /** @description Replicate the delete markers. */
+            deleteMarkers: boolean;
+            /** @description Replicate the permanent deletions of versions. */
+            deletes: boolean;
+            /** @description A resync replicates the versions written before the rule. */
+            existing: boolean;
+        };
+        ReplicationConfiguration: {
+            rules: components["schemas"]["ReplicationRule"][];
+        };
+        ReplicationTarget: {
+            /** @description Empty to create a target. */
+            arn?: string;
+            /** @description URL of the remote S3 API: http(s)://host[:port]. */
+            endpoint: string;
+            /** @description The remote bucket (versioning enabled). */
+            bucket: string;
+            region?: string;
+            accessKey: string;
+            /** @description Sent on creation (empty keeps the stored one on a replacement), never returned. */
+            secretKey?: string;
+            label?: string;
+            /** Format: date-time */
+            created?: string;
+            /** Format: date-time */
+            updated?: string;
+        };
+        ReplicationTargets: {
+            targets: components["schemas"]["ReplicationTarget"][];
+        };
+        ReplicationResync: {
+            id?: string;
+            /** @description ARN of the target. */
+            target: string;
+            /** @enum {string} */
+            state?: "running" | "complete" | "failed";
+            /** Format: date-time */
+            startedAt?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+            /** Format: date-time */
+            finishedAt?: string;
+            /**
+             * Format: int64
+             * @description Versions walked.
+             */
+            scanned?: number;
+            /**
+             * Format: int64
+             * @description Versions queued for the target.
+             */
+            queued?: number;
+            error?: string;
+        };
+        ReplicationTargetStatus: {
+            arn: string;
+            /** @description The last attempt succeeded. */
+            online: boolean;
+            /** @description Tasks queued on the node that answers. */
+            queued: number;
+            /** Format: int64 */
+            replicated: number;
+            /** Format: int64 */
+            bytes: number;
+            /** Format: int64 */
+            deletes: number;
+            /**
+             * Format: int64
+             * @description Failed attempts (retried).
+             */
+            failed: number;
+            lastError?: string;
+            /** Format: date-time */
+            lastFailed?: string;
+            /** Format: date-time */
+            lastOk?: string;
+        };
+        ReplicationStatus: {
+            targets: components["schemas"]["ReplicationTargetStatus"][];
+            queued: number;
+            resync?: components["schemas"]["ReplicationResync"];
+        };
+        SiteReplicationSite: {
+            /** @description 1-63 letters, digits, '.', '_' or '-'. */
+            name: string;
+            /** @description Filled by the server. */
+            deploymentId?: string;
+            /** @description URL of the S3 API of the site. */
+            endpoint: string;
+            /** @description URL of the Admin API (console listener) of the site. */
+            adminEndpoint: string;
+        };
+        TierInput: {
+            /** @description Storage class the transitions name (A-Z, 0-9, '-', '_'); POST only. */
+            name?: string;
+            /** @description URL of the S3 API (http(s)://host[:port]); POST only. */
+            endpoint?: string;
+            /** @description Remote bucket; POST only. */
+            bucket?: string;
+            /** @description Prefix of the objects in the bucket, ending with '/'; POST only. */
+            prefix?: string;
+            region?: string;
+            /** @description Storage class of the remote objects (readable at once). */
+            storageClass?: string;
+            accessKey: string;
+            /** Format: password */
+            secretKey: string;
+        };
+        UpdateRequest: {
+            /** @description http(s) URL of the server binary for the platform of the nodes */
+            url: string;
+            /** @description Hex SHA-256 of the binary */
+            sha256: string;
+            /** @enum {string} */
+            mode?: "rolling" | "all";
+        };
+        UpdateJob: {
+            id: string;
+            /** @enum {string} */
+            kind: "update" | "restart";
+            /** @enum {string} */
+            mode: "rolling" | "all";
+            /** @enum {string} */
+            state: "running" | "completed" | "failed";
+            url?: string;
+            sha256?: string;
+            /** @description Version of the new binary */
+            version?: string;
+            /** @description The node orchestrating the job (it restarts last) */
+            node: string;
+            boot?: string;
+            /** Format: date-time */
+            started: string;
+            /** Format: date-time */
+            finished?: string;
+            error?: string;
+            nodes: {
+                node: string;
+                /** @enum {string} */
+                phase: "pending" | "staged" | "restarting" | "done" | "failed";
+                version?: string;
+                boot?: string;
+                error?: string;
+            }[];
+        };
+        Tier: {
+            name: string;
+            endpoint: string;
+            bucket: string;
+            prefix?: string;
+            region?: string;
+            storageClass?: string;
+            accessKey: string;
+            /** Format: date-time */
+            created: string;
+            /** Format: date-time */
+            updated: string;
+        };
+        SiteReplicationSites: {
+            sites: components["schemas"]["SiteReplicationSite"][];
+        };
+        SiteReplicationPeerStatus: {
+            name: string;
+            deploymentId: string;
+            /** Format: date-time */
+            lastSync?: string;
+            lastError?: string;
+            /** Format: date-time */
+            lastErrorAt?: string;
+            /**
+             * Format: int64
+             * @description Entries sent to the site.
+             */
+            pushed: number;
+            /**
+             * Format: int64
+             * @description Entries taken from the site.
+             */
+            pulled: number;
+            /** @description Changes not applied at the last round (retried). */
+            pending: number;
+        };
+        SiteReplicationInfo: {
+            enabled: boolean;
+            /** @description Name of this site in the group. */
+            name?: string;
+            deploymentId: string;
+            sites: components["schemas"]["SiteReplicationSite"][];
+            peers: components["schemas"]["SiteReplicationPeerStatus"][];
+            /** @description Replicated entries at the last round. */
+            entries: number;
+        };
+        SiteReplicationPeer: {
+            deploymentId: string;
+            enabled: boolean;
+            sites?: components["schemas"]["SiteReplicationSite"][];
+        };
+        SiteReplicationState: {
+            deploymentId: string;
+            entries: {
+                [key: string]: {
+                    hash: string;
+                    /** Format: date-time */
+                    modTime?: string;
+                };
+            };
+        };
+        SiteReplicationSealed: {
+            /**
+             * Format: byte
+             * @description Entries sealed with a key derived from the root credentials.
+             */
+            data: string;
+        };
+        PoolJob: {
+            /** @enum {string} */
+            state: "running" | "complete" | "canceled" | "failed";
+            /** Format: date-time */
+            startedAt: string;
+            /** Format: date-time */
+            updatedAt?: string;
+            /** Format: date-time */
+            finishedAt?: string;
+            /** @description Walks over the objects so far. */
+            pass: number;
+            /** @description Source pool of a rebalance (1-based). */
+            pool?: number;
+            /** @description Where the job stands. */
+            bucket?: string;
+            object?: string;
+            /**
+             * Format: int64
+             * @description Objects moved.
+             */
+            objects: number;
+            /** Format: int64 */
+            versions: number;
+            /**
+             * Format: int64
+             * @description Stored bytes moved.
+             */
+            bytes: number;
+            /**
+             * Format: int64
+             * @description Objects not moved in this pass (retried).
+             */
+            failed: number;
+            /** @description Multipart uploads the decommission waits for. */
+            pendingUploads: number;
+            error?: string;
+        };
+        PoolStatus: {
+            /** @description 1-based position in the command line. */
+            index: number;
+            /** @description The command-line arguments of the pool. */
+            id: string;
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            free: number;
+            /** @description The pool takes no new objects. */
+            draining: boolean;
+            decommission?: components["schemas"]["PoolJob"];
+        };
+        Pools: {
+            pools: components["schemas"]["PoolStatus"][];
+            rebalance?: components["schemas"]["PoolJob"];
+        };
+        PoolPlanInput: {
+            /** @description Arguments of the new pools, one with ellipses per pool ("http://nexo{5...8}:9000/mnt/disk{1...4}"). */
+            add?: string[];
+            /** @description Decommissioned pools to remove (1-based). */
+            remove?: number[];
+        };
+        PlannedPool: {
+            /** @description 1-based position in the planned command line. */
+            index: number;
+            /** @description 1-based position today (absent for a new pool). */
+            current?: number;
+            arg: string;
+            /** @description Nodes of the pool ("host:port", "local" for the drives of a single node). */
+            nodes: string[];
+            drives: number;
+            sets: number;
+            drivesPerSet: number;
+            parity: number;
+        };
+        PoolPlan: {
+            mode: string;
+            /** @description Endpoint arguments of every node, in order (NEXO_ENDPOINTS, or the arguments of nexo server). */
+            args: string[];
+            pools: components["schemas"]["PlannedPool"][];
+            removed: string[];
+            nodes: string[];
+            /** @description Nodes that are not part of the deployment today. */
+            newNodes: string[];
         };
         Lock: {
             /** @description The locked resource ("bucket/key"). */
@@ -6505,6 +7236,109 @@ export interface operations {
             default: components["responses"]["Problem"];
         };
     };
+    updateStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The job. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateJob"];
+                };
+            };
+            404: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    startUpdate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description The job, started. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateJob"];
+                };
+            };
+            409: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
+            501: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    restartCluster: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    mode?: "rolling" | "all";
+                };
+            };
+        };
+        responses: {
+            /** @description The job, started. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateJob"];
+                };
+            };
+            409: components["responses"]["Problem"];
+            412: components["responses"]["Problem"];
+            501: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    stopCluster: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stop accepted. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceAction"];
+                };
+            };
+            501: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
     serverTrace: {
         parameters: {
             query?: {
@@ -7533,7 +8367,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            501: components["responses"]["Problem"];
+            /** @description The rules. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplicationConfiguration"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -7546,9 +8388,181 @@ export interface operations {
             };
             cookie?: never;
         };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplicationConfiguration"];
+            };
+        };
+        responses: {
+            /** @description The rules stored. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplicationConfiguration"];
+                };
+            };
+            /** @description Removed (no rule). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    deleteBucketReplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
         requestBody?: never;
         responses: {
-            501: components["responses"]["Problem"];
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listReplicationTargets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The targets, by ARN. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplicationTargets"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    setReplicationTarget: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplicationTarget"];
+            };
+        };
+        responses: {
+            /** @description Replaced. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplicationTarget"];
+                };
+            };
+            /** @description Created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplicationTarget"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    removeReplicationTarget: {
+        parameters: {
+            query: {
+                arn: string;
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getReplicationStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplicationStatus"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    startReplicationResync: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplicationResync"];
+            };
+        };
+        responses: {
+            /** @description Started. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReplicationResync"];
+                };
+            };
             default: components["responses"]["Problem"];
         };
     };
@@ -10106,6 +11120,458 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listPools: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pools. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Pools"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    planPools: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PoolPlanInput"];
+            };
+        };
+        responses: {
+            /** @description The planned topology. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolPlan"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            501: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    decommissionPool: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 1-based position of the pool in the command line. */
+                pool: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Started (see GET /pools). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    cancelDecommission: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 1-based position of the pool in the command line. */
+                pool: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Canceled. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    startRebalance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Started (see GET /pools). */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    stopRebalance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stopped. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getSiteReplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The site replication. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteReplicationInfo"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    addSiteReplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SiteReplicationSites"];
+            };
+        };
+        responses: {
+            /** @description The group, saved on every site. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteReplicationInfo"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    removeSiteReplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    syncSiteReplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Asked. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    siteReplicationPeerInfo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description This site. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteReplicationPeer"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    joinSiteReplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SiteReplicationSites"];
+            };
+        };
+        responses: {
+            /** @description Joined. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    leaveSiteReplication: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Left. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    siteReplicationState: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The entries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteReplicationState"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    siteReplicationItems: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    keys: string[];
+                };
+            };
+        };
+        responses: {
+            /** @description The sealed entries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteReplicationSealed"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    siteReplicationApply: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SiteReplicationSealed"];
+            };
+        };
+        responses: {
+            /** @description The outcome of each change. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        results: {
+                            key: string;
+                            error?: string;
+                        }[];
+                    };
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    listTiers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tiers, without their secret. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        tiers: components["schemas"]["Tier"][];
+                    };
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    addTier: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TierInput"];
+            };
+        };
+        responses: {
+            /** @description The tier. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tier"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    editTier: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TierInput"];
+            };
+        };
+        responses: {
+            /** @description The tier. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tier"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    removeTier: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: components["responses"]["Problem"];
             default: components["responses"]["Problem"];
         };
     };

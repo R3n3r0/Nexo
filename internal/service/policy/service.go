@@ -343,6 +343,30 @@ const (
 	// diagnostics of the namespace locks (admin lock list/clear).
 	ActionAdminListLocks   Action = "admin:TopLocksInfo"
 	ActionAdminForceUnlock Action = "admin:ForceUnlock"
+	// ActionAdminDecommission and ActionAdminRebalance authorize the
+	// start and the cancel of the decommission of a pool and of the
+	// rebalance between pools (admin pool decommission/rebalance).
+	ActionAdminDecommission Action = "admin:Decommission"
+	ActionAdminRebalance    Action = "admin:Rebalance"
+	// ActionAdminSetBucketTarget and ActionAdminGetBucketTarget authorize
+	// the management and the reading of the replication targets of a
+	// bucket (S-BKT-12).
+	ActionAdminSetBucketTarget Action = "admin:SetBucketTarget"
+	ActionAdminGetBucketTarget Action = "admin:GetBucketTarget"
+	// The site replication actions (S-STO-11): create, read, remove the
+	// group, and the calls between its sites (which also need the root
+	// credentials).
+	ActionAdminSiteReplicationAdd       Action = "admin:SiteReplicationAdd"
+	ActionAdminSiteReplicationInfo      Action = "admin:SiteReplicationInfo"
+	ActionAdminSiteReplicationRemove    Action = "admin:SiteReplicationRemove"
+	ActionAdminSiteReplicationOperation Action = "admin:SiteReplicationOperation"
+	// ActionAdminListTier and ActionAdminSetTier authorize the reading and
+	// the management of the remote tiers of the lifecycle (S-STO-12).
+	ActionAdminListTier Action = "admin:ListTier"
+	ActionAdminSetTier  Action = "admin:SetTier"
+	// ActionAdminServerUpdate authorizes the update of the binary of every
+	// node (S-OPS-09).
+	ActionAdminServerUpdate Action = "admin:ServerUpdate"
 
 	// Bucket and object configuration actions of the S3 API, shared by
 	// the S3 and the Admin API transports.
@@ -361,6 +385,9 @@ const (
 	ActionPutBucketNotification      Action = "s3:PutBucketNotification"
 	ActionGetReplication             Action = "s3:GetReplicationConfiguration"
 	ActionPutReplication             Action = "s3:PutReplicationConfiguration"
+	// ActionResetReplication authorizes a resync of the replication of a
+	// bucket.
+	ActionResetReplication Action = "s3:ResetBucketReplicationState"
 	// ActionForceDeleteBucket is required on top of s3:DeleteBucket to
 	// delete a non-empty bucket.
 	ActionForceDeleteBucket Action = "s3:ForceDeleteBucket"

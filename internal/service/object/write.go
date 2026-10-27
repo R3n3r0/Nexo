@@ -56,6 +56,10 @@ type writeInput struct {
 	// sse is the encryption requested for the new version (zero: the
 	// default encryption of the bucket, if any).
 	sse domain.SSERequest
+	// replica marks a version written by the replication of another site,
+	// replicaETag its ETag there (PutObjectInput).
+	replica     bool
+	replicaETag string
 }
 
 // writeObject stores one stream as a new version of bucket/key. The body
@@ -244,6 +248,10 @@ func (l *layer) writeObject(ctx context.Context, bucket, key string, body io.Rea
 	setRetentionMeta(fi.Metadata, in.retention)
 	setLegalHoldMeta(fi.Metadata, in.legalHold)
 	applyDefaultRetention(fi.Metadata, cfg, fi.ModTime)
+	setReplicationMeta(fi.Metadata, cfg, key, in.replica)
+	if in.replica {
+		keepReplicaETag(fi.Metadata, in.replicaETag)
+	}
 	// The response reports the checksum computed above; the drives only
 	// receive it sealed when the version is encrypted.
 	clearInfo := objectInfo(bucket, key, fi)
@@ -456,6 +464,8 @@ func (l *layer) PutObject(ctx context.Context, in PutObjectInput) (domain.Object
 		retention:   in.Retention,
 		legalHold:   in.LegalHold,
 		sse:         in.SSE,
+		replica:     in.Replica,
+		replicaETag: in.ReplicaETag,
 	})
 }
 
@@ -492,7 +502,11 @@ func (l *layer) CopyObject(ctx context.Context, in CopyObjectInput) (domain.Obje
 	same := in.SrcBucket == in.DstBucket && in.SrcKey == in.DstKey
 	storageClass := in.StorageClass
 	if storageClass == "" {
-		storageClass = src.Info.StorageClass
+		// The class the version was written with: the copy of a
+		// transitioned version is stored on the drives again.
+		if storageClass = fi.Metadata[metaStorageClass]; storageClass == "" {
+			storageClass = domain.StorageClassStandard
+		}
 	}
 	checksumAlgo := in.ChecksumAlgorithm
 	if checksumAlgo == domain.ChecksumNone {

@@ -56,8 +56,8 @@ func registerStandalone(r chi.Router, enc httpx.Encoder, g Group) {
 // unsupportedBucketOperations are the bucket sub-resources Nexo does not
 // serve: they answer NotImplemented instead of falling back to the
 // default operation of their method (a GET ?website must not list the
-// bucket). The ?lifecycle and ?notification sub-resources belong to
-// LifecycleRoutes and NotificationRoutes.
+// bucket). The ?lifecycle, ?notification and ?replication sub-resources belong
+// to LifecycleRoutes, NotificationRoutes and ReplicationRoutes.
 func unsupportedBucketOperations() []Operation {
 	var ops []Operation
 	for _, sub := range []struct{ query, name string }{
@@ -69,7 +69,6 @@ func unsupportedBucketOperations() []Operation {
 		{"metrics", "BucketMetricsConfiguration"},
 		{"ownershipControls", "BucketOwnershipControls"},
 		{"publicAccessBlock", "PublicAccessBlock"},
-		{"replication", "BucketReplication"},
 		{"requestPayment", "BucketRequestPayment"},
 		{"website", "BucketWebsite"},
 	} {

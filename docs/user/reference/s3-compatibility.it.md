@@ -36,17 +36,20 @@ risultati della suite di compatibilità.
 **Funzionalità**: versioning con delete marker, Object Lock (governance e compliance, retention di default,
 legal hold), cifratura SSE-S3, SSE-KMS e SSE-C, checksum aggiuntivi (`CRC32`, `CRC32C`, `CRC64NVME`, `SHA1`,
 `SHA256`, anche compositi per il multipart), tag, lifecycle (scadenze, versioni non correnti, delete marker,
-upload incompleti), notifiche degli eventi, CORS, quote (estensione di Nexo).
+upload incompleti), notifiche degli eventi, CORS, quote (estensione di Nexo), replica (`?replication`, con
+l'ARN di una destinazione registrata tramite l'Admin API come bucket di destinazione: vedi la
+[replica dei bucket](../replication.md)).
 
 ### Non supportate
 
 Rispondono `501 NotImplemented`: website del bucket (`?website`, al suo posto ci sono le
 [distribuzioni](../distributions/README.md)), `PublicAccessBlock` (al suo posto il
 [block public access](../security/sharing.md#regole-di-accesso-pubbliche-e-block-public-access) di
-Nexo), replica (`?replication`), server access logging, accelerate, analytics, inventory, metrics,
+Nexo), server access logging, accelerate, analytics, inventory, metrics,
 intelligent tiering, ownership controls, request payment, `RestoreObject`,
-`GetObjectTorrent`. Le transizioni di lifecycle verso altre classi di storage sono rifiutate. Sono previste
-dopo la v1.0: ACL complete, replica tra cluster, tiering verso S3 remoto, `AssumeRoleWithWebIdentity`.
+`GetObjectTorrent`. Le transizioni di lifecycle indicano un tier remoto ([Tier remoti](../tiering.md)); le altre
+classi di storage sono rifiutate (`InvalidStorageClass`). Sono previste dopo la v1.0: ACL complete,
+`AssumeRoleWithWebIdentity`.
 
 ### S3 Select
 

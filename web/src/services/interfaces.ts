@@ -93,6 +93,18 @@ import type {
   Group,
   HealJob,
   HealRequest,
+  PoolPlan,
+  PoolPlanInput,
+  Pools,
+  ReplicationConfiguration,
+  ReplicationResync,
+  ReplicationStatus,
+  ReplicationTarget,
+  SiteReplicationInfo,
+  SiteReplicationSite,
+  RestartMode,
+  Tier,
+  TierInput,
   KmsKey,
   KmsStatus,
   LegalHoldStatus,
@@ -142,6 +154,8 @@ import type {
   TransferOptions,
   UpdateAccessKeyInput,
   UpdateGroupInput,
+  UpdateJob,
+  UpdateRequest,
   UpdateUserInput,
   Upload,
   UploadList,
@@ -197,6 +211,44 @@ export interface HealService {
   /** Running and recently finished jobs, newest first. */
   list(): Promise<HealJob[]>;
   get(id: string): Promise<HealJob>;
+}
+
+/**
+ * Pool management (D-CLU-03): GET /pools reports the pools, their usage,
+ * their decommission and the rebalance; a decommission drains a pool so
+ * that it can be removed, a rebalance evens out the usage of the pools.
+ * Pools are 1-based positions in the command line. A single-drive
+ * deployment has no pools to manage: every call rejects with a 501
+ * not_implemented ApiError.
+ */
+export interface PoolsService {
+  list(): Promise<Pools>;
+  /** Starts the decommission of a pool (400 for the first pool). */
+  decommission(pool: number): Promise<void>;
+  /** Cancels it: the pool takes new objects again. */
+  cancelDecommission(pool: number): Promise<void>;
+  startRebalance(): Promise<void>;
+  stopRebalance(): Promise<void>;
+  /**
+   * Checks a change of the pools (new pools appended, decommissioned pools
+   * removed) the way every node parses its command line, and returns the
+   * new command line. Nothing changes until the nodes restart with it.
+   */
+  plan(input: PoolPlanInput): Promise<PoolPlan>;
+}
+
+/**
+ * Maintenance of the deployment (S-OPS-09, C-ADM-09): the orchestrated
+ * update of the binary of every node and the coordinated restart and stop.
+ * A job runs in the background on the node that answered (which restarts
+ * last); job() follows it and resolves to null when none ever ran.
+ */
+export interface MaintenanceService {
+  job(): Promise<UpdateJob | null>;
+  update(input: UpdateRequest): Promise<UpdateJob>;
+  restart(mode: RestartMode): Promise<UpdateJob>;
+  /** Stops every node, the one answering last: the console goes offline. */
+  stop(): Promise<void>;
 }
 
 /** Bucket management. */
@@ -281,6 +333,58 @@ export interface NotificationService {
    * failed delivery resolves with delivered false.
    */
   test(target: string): Promise<NotifyTargetTest>;
+}
+
+/**
+ * Replication of a bucket to remote buckets (S-BKT-12): the targets
+ * (/buckets/{bucket}/replication/targets, admin:GetBucketTarget /
+ * admin:SetBucketTarget), the rules (s3:Get/PutReplicationConfiguration),
+ * the status and the resync (s3:ResetBucketReplicationState).
+ */
+export interface ReplicationService {
+  /** The rules; none when the bucket is not replicated. */
+  get(bucket: string): Promise<ReplicationConfiguration>;
+  /** Replaces the rules (they name targets of the bucket; versioning must be enabled). */
+  set(bucket: string, config: ReplicationConfiguration): Promise<ReplicationConfiguration>;
+  remove(bucket: string): Promise<void>;
+  /** The targets, without their secret keys. */
+  targets(bucket: string): Promise<ReplicationTarget[]>;
+  /** Creates a target (no arn) or updates one (an empty secret keeps the stored one). */
+  setTarget(bucket: string, target: ReplicationTarget): Promise<ReplicationTarget>;
+  /** Removes a target no rule uses (409 otherwise). */
+  removeTarget(bucket: string, arn: string): Promise<void>;
+  status(bucket: string): Promise<ReplicationStatus>;
+  /** Starts a resync of the versions written before the rules of a target. */
+  resync(bucket: string, target: string): Promise<ReplicationResync>;
+}
+
+/**
+ * Site replication (S-STO-11): several deployments sharing the root
+ * credentials keep their IAM, policies and buckets in sync
+ * (admin:SiteReplicationInfo / Add / Remove).
+ */
+export interface SiteReplicationService {
+  info(): Promise<SiteReplicationInfo>;
+  /** Groups the sites (this one among them). */
+  add(sites: SiteReplicationSite[]): Promise<SiteReplicationInfo>;
+  /** Dissolves the group on every site reached. */
+  remove(): Promise<void>;
+  /** Asks for a round of synchronization now. */
+  sync(): Promise<void>;
+}
+
+/**
+ * Remote tiers of the lifecycle transitions (S-STO-12,
+ * admin:ListTier / SetTier).
+ */
+export interface TierService {
+  list(): Promise<Tier[]>;
+  /** Adds a tier; its bucket is checked with the credentials. */
+  add(input: TierInput): Promise<Tier>;
+  /** Replaces the credentials (and the region, the storage class). */
+  edit(name: string, input: TierInput): Promise<Tier>;
+  /** Removes a tier that holds no data. */
+  remove(name: string): Promise<void>;
 }
 
 /**
@@ -779,10 +883,15 @@ export interface Services {
   readonly session: SessionService;
   readonly info: InfoService;
   readonly heal: HealService;
+  readonly pools: PoolsService;
+  readonly maintenance: MaintenanceService;
   readonly buckets: BucketService;
   readonly lifecycle: LifecycleService;
   readonly notifications: NotificationService;
   readonly media: MediaService;
+  readonly replication: ReplicationService;
+  readonly siteReplication: SiteReplicationService;
+  readonly tiers: TierService;
   readonly kms: KmsService;
   readonly objects: ObjectService;
   readonly uploads: UploadService;

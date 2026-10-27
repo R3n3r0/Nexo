@@ -33,12 +33,16 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/service/quota"
 	"github.com/r3n3r0/nexo/internal/service/ratelimit"
+	"github.com/r3n3r0/nexo/internal/service/replication"
 	"github.com/r3n3r0/nexo/internal/service/s3select"
 	"github.com/r3n3r0/nexo/internal/service/session"
 	"github.com/r3n3r0/nexo/internal/service/settings"
 	"github.com/r3n3r0/nexo/internal/service/share"
+	"github.com/r3n3r0/nexo/internal/service/siterepl"
 	"github.com/r3n3r0/nexo/internal/service/storage"
 	"github.com/r3n3r0/nexo/internal/service/sysstore"
+	"github.com/r3n3r0/nexo/internal/service/tier"
+	"github.com/r3n3r0/nexo/internal/service/update"
 	"github.com/r3n3r0/nexo/internal/transport/http/console"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
@@ -74,6 +78,15 @@ type services struct {
 	dist *distStack
 	// cache is the cache of the distributions (docs/11).
 	cache cache.Service
+	// replication replicates the buckets to other deployments (S-BKT-12).
+	replication replication.Service
+	// siteRepl keeps the deployment in sync with other sites (S-STO-11).
+	siteRepl siterepl.Service
+	// tiers keeps the data transitioned to remote tiers (S-STO-12).
+	tiers tier.Service
+	// updates orchestrates the updates and the coordinated restarts
+	// (S-OPS-09).
+	updates update.Service
 	// obs runs the audit targets and the logger configuration
 	// (observability.go).
 	obs lifecycle.Runner
@@ -90,6 +103,10 @@ type composeDeps struct {
 	running      *atomic.Bool
 	// restart asks Run for a restart (POST /service/restart).
 	restart func() error
+	// exe is the binary of the process; exec asks Run to replace the
+	// process with it (updates, S-OPS-09).
+	exe  string
+	exec func() error
 }
 
 // sharedStores are the stores of the documents shared by the services:
@@ -168,12 +185,12 @@ func openStores(ctx context.Context, d composeDeps, coh cluster.Coherence) (shar
 // filesystem layer on the single drive (SNSD), the erasure-coded server
 // pools otherwise, which report the objects to heal to mrf. sse seals the
 // keys of the encrypted objects.
-func newObjectLayer(d composeDeps, buckets object.BucketConfigSource, events event.Service, mrf object.HealNotifier, sse crypto.Service, applied settings.Service) (object.Service, error) {
+func newObjectLayer(d composeDeps, buckets object.BucketConfigSource, events event.Service, mrf object.HealNotifier, sse crypto.Service, applied settings.Service, tiers object.TierStore) (object.Service, error) {
 	f := d.f
 	opts := []object.Option{object.WithRegion(d.cfg.Region), object.WithCompression(compressionPolicy(applied, d.logger))}
 	if f.layout.Mode == domain.ModeSNSD {
 		return object.NewFS(object.Deps{
-			Store: f.local[0], Buckets: buckets, Locks: f.objectLocks(), Events: events, Crypto: sse, DeploymentID: d.deploymentID,
+			Store: f.local[0], Buckets: buckets, Locks: f.objectLocks(), Events: events, Crypto: sse, Tiers: tiers, DeploymentID: d.deploymentID,
 			Clock: d.clock, Logger: d.logger,
 		}, opts...)
 	}
@@ -191,7 +208,7 @@ func newObjectLayer(d composeDeps, buckets object.BucketConfigSource, events eve
 	codecs := erasure.NewFactory(erasure.Deps{Logger: d.logger}, erasure.WithDeploymentID(d.deploymentID))
 	return object.NewServerPools(object.PoolsDeps{
 		Pools: pools, DeploymentID: d.deploymentID, Locks: f.objectLocks(), Buckets: buckets, Events: events, Heal: mrf,
-		Codecs: codecs, Crypto: sse, Clock: d.clock, Logger: d.logger,
+		Codecs: codecs, Crypto: sse, Tiers: tiers, Clock: d.clock, Logger: d.logger,
 	}, opts...)
 }
 
@@ -283,14 +300,20 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	if err != nil {
 		return nil, err
 	}
-	var objectEvents event.Service = mediaJobs
-	objects, err := newObjectLayer(d, stores.buckets, objectEvents, notifier, sse, applied)
+	// The writes the replication rules of their bucket select become
+	// replication tasks (bound once the replication service is built).
+	replEvents := &replicationEvents{Service: mediaJobs}
+	var objectEvents event.Service = replEvents
+	// The remote tiers of the lifecycle transitions (bound once the tier
+	// service is built).
+	tiers := &tierHolder{}
+	objects, err := newObjectLayer(d, stores.buckets, objectEvents, notifier, sse, applied, tiers)
 	if err != nil {
 		return nil, fmt.Errorf("object layer: %w", err)
 	}
 	// Bucket lifecycle (ILM): applied by the scanner of the leader, read
 	// by the S3 API for x-amz-expiration.
-	lifecycle, err := ilm.New(ilm.Deps{Objects: objects, Buckets: stores.buckets, Clock: d.clock, Logger: logger.With("component", "ilm")})
+	lifecycle, err := ilm.New(ilm.Deps{Objects: objects, Buckets: stores.buckets, Tiers: tiers, Clock: d.clock, Logger: logger.With("component", "ilm")})
 	if err != nil {
 		return nil, fmt.Errorf("lifecycle: %w", err)
 	}
@@ -303,7 +326,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	// The S3 requests in progress: the scanner pauses while the API is
 	// busy, so that a burst of writes does not compete with its walk.
 	activity := middleware.NewActivity(middleware.ActivityDeps{})
-	healing, err := newHealing(d, objects, mrf, dynConfig, measuredILM, activity)
+	healing, err := newHealing(d, objects, mrf, dynConfig, measuredILM, activity, stores.docs)
 	if err != nil {
 		return nil, fmt.Errorf("healing: %w", err)
 	}
@@ -420,7 +443,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		Objects:      objects,
 		Heal:         healing.heal,
 		Scanner:      healing.scanner,
-		Actions:      processActions{running: d.running, signal: signalSelf, restart: d.restart},
+		Actions:      d.process(),
 		// Every node of the deployment (this one only on a single node),
 		// with its background healing and clock offset.
 		Cluster: f.info,
@@ -491,6 +514,28 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	if err != nil {
 		return nil, err
 	}
+	replicationSvc, err := newReplication(d, objects, stores.buckets, distStack.docs)
+	if err != nil {
+		return nil, fmt.Errorf("replication: %w", err)
+	}
+	replEvents.bind(replicationSvc)
+	tierSvc, err := newTiers(d, objects, distStack.docs)
+	if err != nil {
+		return nil, fmt.Errorf("tiers: %w", err)
+	}
+	tiers.bind(tierSvc)
+	updateSvc, err := newUpdates(d, objects, distStack.docs, d.process())
+	if err != nil {
+		return nil, fmt.Errorf("updates: %w", err)
+	}
+	if f.updateNode != nil {
+		f.updateNode.bind(updateSvc)
+	}
+	siteReplSvc, err := newSiteReplication(d, identities, policies, buckets, dynConfig, replicationSvc, distStack.docs)
+	if err != nil {
+		return nil, fmt.Errorf("site replication: %w", err)
+	}
+	replicationRoutes := s3.NewReplicationRoutes(s3.ReplicationDeps{Buckets: buckets, Replication: replicationSvc, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger})
 	lifecycleRoutes := s3.NewLifecycleRoutes(s3.LifecycleDeps{Buckets: buckets, Lifecycle: lifecycle, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger},
 		s3.WithDomains(domainsOf(cfg)...), s3.WithHostBuckets(distStack.hostBuckets()))
 	notificationRoutes := s3.NewNotificationRoutes(s3.NotificationDeps{Buckets: buckets, Events: events, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger},
@@ -511,9 +556,10 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 			s3.WithRegion(cfg.Region), ssecOpt),
 		s3.NewPostPolicyRoutes(s3.PostPolicyDeps{Verifier: verifier, Objects: objects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger}, ssecOpt),
 		s3.NewSTSRoutes(s3.STSDeps{IAM: identities, Policy: s3Policy, IDP: providers, Enc: codec, Clock: d.clock, Logger: logger}),
-		// The ?lifecycle and ?notification sub-resources.
+		// The ?lifecycle, ?notification and ?replication sub-resources.
 		lifecycleRoutes,
 		notificationRoutes,
+		replicationRoutes,
 	)
 	if err := distStack.composeHTTP(distHTTPDeps{
 		cfg: cfg, objects: cachedObjects, cache: cacheSvc, policy: s3Policy, verifier: verifier, publicAccess: accessRules, media: mediaSvc,
@@ -541,10 +587,10 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	adminAPI, err := buildAdminAPI(adminDeps{
 		codec: codec, limiter: limiter, clock: d.clock, logger: logger, region: cfg.Region, s3URL: publicS3URL(cfg),
 		sessions: sessions, idp: providers, verifier: verifier, signer: signer, admin: adminSvc, iam: identities, policy: policies,
-		buckets: buckets, objects: objects, media: mediaSvc, shares: shares, config: dynConfig, locks: f.lockManager, secureCookies: secureConsole(cfg),
+		buckets: buckets, objects: objects, media: mediaSvc, shares: shares, config: dynConfig, locks: f.lockManager, pools: healing.pools, secureCookies: secureConsole(cfg),
 		consoleURL: cfg.BrowserRedirectURL, lifecycle: lifecycle, events: events, kms: keys, mediaJobs: mediaJobs,
 		accessRules: accessRules, dist: distStack, acmeDirectory: cfg.ACMEDirectory, acmeChallenge: cfg.ACMEChallenge,
-		cache: cacheSvc, diagnostics: newDiagnostics(f, objects, buckets, logger),
+		cache: cacheSvc, replication: replicationSvc, siteReplication: siteReplSvc, tiers: tierSvc, updates: updateSvc, diagnostics: newDiagnostics(f, objects, buckets, logger),
 		obsTrace: f.obs.trace, obsLogs: obsSvc.logs, obsAudit: auditor, obsHistory: f.obs.history,
 	})
 	if err != nil {
@@ -576,6 +622,10 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		accessRules:  accessRules,
 		dist:         distStack,
 		cache:        cacheSvc,
+		replication:  replicationSvc,
+		siteRepl:     siteReplSvc,
+		tiers:        tierSvc,
+		updates:      updateSvc,
 		events:       events,
 		lifecycle:    lifecycle,
 		s3Srv:        s3Srv,
@@ -607,9 +657,33 @@ func (s *services) runners() lifecycle.Runner {
 				_ = s.events.Stop(context.WithoutCancel(ctx))
 				return err
 			}
+			if err := s.replication.Start(ctx); err != nil {
+				_ = s.cache.Stop(context.WithoutCancel(ctx))
+				_ = healing.Stop(context.WithoutCancel(ctx))
+				_ = s.events.Stop(context.WithoutCancel(ctx))
+				return err
+			}
+			if err := s.siteRepl.Start(ctx); err != nil {
+				_ = s.replication.Stop(context.WithoutCancel(ctx))
+				_ = s.cache.Stop(context.WithoutCancel(ctx))
+				_ = healing.Stop(context.WithoutCancel(ctx))
+				_ = s.events.Stop(context.WithoutCancel(ctx))
+				return err
+			}
+			if err := s.tiers.Start(ctx); err != nil {
+				_ = s.siteRepl.Stop(context.WithoutCancel(ctx))
+				_ = s.replication.Stop(context.WithoutCancel(ctx))
+				_ = s.cache.Stop(context.WithoutCancel(ctx))
+				_ = healing.Stop(context.WithoutCancel(ctx))
+				_ = s.events.Stop(context.WithoutCancel(ctx))
+				return err
+			}
 			// The distributions last: their web listeners serve once
 			// everything else runs.
 			if err := s.dist.runner().Start(ctx); err != nil {
+				_ = s.tiers.Stop(context.WithoutCancel(ctx))
+				_ = s.siteRepl.Stop(context.WithoutCancel(ctx))
+				_ = s.replication.Stop(context.WithoutCancel(ctx))
 				_ = s.cache.Stop(context.WithoutCancel(ctx))
 				_ = healing.Stop(context.WithoutCancel(ctx))
 				_ = s.events.Stop(context.WithoutCancel(ctx))
@@ -619,7 +693,12 @@ func (s *services) runners() lifecycle.Runner {
 		},
 		OnStop: func(ctx context.Context) error {
 			s.unsubscribe()
-			derr := s.dist.runner().Stop(ctx)
+			// A job this node orchestrates ends first.
+			derr := s.updates.Stop(ctx)
+			derr = errors.Join(derr, s.dist.runner().Stop(ctx))
+			derr = errors.Join(derr, s.tiers.Stop(ctx))
+			derr = errors.Join(derr, s.siteRepl.Stop(ctx))
+			derr = errors.Join(derr, s.replication.Stop(ctx))
 			derr = errors.Join(derr, s.cache.Stop(ctx))
 			herr := errors.Join(derr, healing.Stop(ctx))
 			if err := s.events.Stop(ctx); err != nil {

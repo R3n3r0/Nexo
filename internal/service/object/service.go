@@ -52,6 +52,9 @@ type Deps struct {
 	// Crypto seals the object keys of the encrypted objects (see
 	// PoolsDeps.Crypto); nil refuses server-side encryption.
 	Crypto crypto.Service
+	// Tiers keeps the data of the versions transitioned to remote tiers
+	// (see PoolsDeps.Tiers); nil refuses the transitions.
+	Tiers TierStore
 	// IDs generates version identifiers and temporary directory names
 	// (default: time-ordered UUID v7). Upload ids embed one of its ids when
 	// it is a UUID.
@@ -77,6 +80,63 @@ type Healer interface {
 	// reported, and removed with opts.Remove. A key no drive holds fails
 	// with domain.ErrObjectNotFound.
 	HealObject(ctx context.Context, bucket, key, versionID string, opts HealOptions) (HealResult, error)
+}
+
+// PoolMover moves objects between the server pools of the erasure layer
+// (docs/03 §3.8): the decommission of a pool and the rebalance between
+// pools. The layer of NewServerPools implements it.
+//
+// A move never loses data: every version of the key is copied to the
+// target pool, read back and compared with the source, and only then
+// removed from the source, under the write lock of the key (writes,
+// deletes and reads of the key wait); a failure leaves the source as it
+// was, and copying again is harmless.
+type PoolMover interface {
+	// PoolUsage returns the capacity of every pool.
+	PoolUsage(ctx context.Context) []PoolUsage
+	// SetPoolDraining excludes a pool from the placement of new objects,
+	// new versions and new multipart uploads (draining), or makes it
+	// eligible again. Its objects stay readable and deletable.
+	SetPoolDraining(pool int, draining bool)
+	// PoolKeys returns, in key order, up to max keys of bucket after
+	// `after` with at least one version in pool.
+	PoolKeys(ctx context.Context, pool int, bucket, after string, max int) ([]string, error)
+	// MoveObject moves the versions of bucket/key held by in.From to
+	// another pool. A key without versions in in.From is not an error
+	// (Versions is 0).
+	MoveObject(ctx context.Context, in MoveObjectInput) (MoveObjectResult, error)
+	// PoolUploads counts the multipart uploads in progress in pool.
+	PoolUploads(ctx context.Context, pool int) (int, error)
+}
+
+// PoolUsage is the capacity of the online drives of a pool.
+type PoolUsage struct {
+	Index    int
+	Total    uint64
+	Free     uint64
+	Draining bool
+}
+
+// MoveObjectInput are the parameters of PoolMover.MoveObject.
+type MoveObjectInput struct {
+	Bucket string
+	Key    string
+	// From is the pool the versions leave.
+	From int
+	// Targets restricts the pools a key goes to when no other pool holds
+	// versions of it yet (nil: every pool but From that is not draining);
+	// a key with versions in another pool joins them there.
+	Targets []int
+}
+
+// MoveObjectResult reports a move.
+type MoveObjectResult struct {
+	// To is the pool the versions went to (-1 when nothing moved).
+	To int
+	// Versions counts the versions moved (delete markers included) and
+	// Bytes their stored size.
+	Versions int
+	Bytes    int64
 }
 
 // HealOptions tunes the healing operations.
@@ -180,6 +240,11 @@ type PoolsDeps struct {
 	// the erasure coding. Nil refuses every encryption request (S3
 	// NotImplemented) and every read of an encrypted object.
 	Crypto crypto.Service
+	// Tiers keeps the data of the versions transitioned to remote tiers
+	// (S-STO-12): TransitionObject writes it there, the reads of those
+	// versions fetch it. Nil refuses the transitions, and the reads of a
+	// transitioned version fail with domain.ErrNotImplemented.
+	Tiers TierStore
 	// IDs generates version identifiers and temporary directory names
 	// (default: time-ordered UUID v7).
 	IDs    topology.IDGenerator
@@ -201,6 +266,49 @@ type PoolSpec struct {
 	Decommissioning bool
 }
 
+// TierStore keeps the data of the versions transitioned to remote tiers
+// (S-STO-12); tier.Service implements it.
+type TierStore interface {
+	// PutTiered writes the size bytes of r as a new object of tier, for
+	// the version ref, checks it there and returns its name.
+	PutTiered(ctx context.Context, tier string, r io.Reader, size int64, ref TierRef) (string, error)
+	// OpenTiered streams [offset, offset+length) of an object of tier; a
+	// stream shorter than length fails.
+	OpenTiered(ctx context.Context, tier, name string, offset, length int64) (io.ReadCloser, error)
+	// DeleteTiered removes an object of tier that no version refers to.
+	DeleteTiered(ctx context.Context, tier, name string) error
+}
+
+// TierRef is the version an object of a tier holds the data of.
+type TierRef struct {
+	Bucket    string
+	Key       string
+	VersionID string
+}
+
+// TransitionInput are the parameters of TransitionObject.
+type TransitionInput struct {
+	Bucket string
+	Key    string
+	// VersionID is the version ("" or "null" for the null version).
+	VersionID string
+	// ModTime, when set, is the modification time the version must still
+	// have.
+	ModTime time.Time
+	// Tier is the name of the tier.
+	Tier string
+}
+
+// TierLocation is where the data of a version is (TierLocation).
+type TierLocation struct {
+	// Exists reports that the version exists.
+	Exists bool
+	// Tier and Object name the object of a transitioned version, empty
+	// otherwise.
+	Tier   string
+	Object string
+}
+
 // BucketConfig is the subset of bucket settings the object layer enforces.
 type BucketConfig struct {
 	Versioning domain.Versioning
@@ -214,6 +322,10 @@ type BucketConfig struct {
 	// Encryption is the default encryption of the bucket (S-BKT-11),
 	// applied to the writes that ask for none (zero when none).
 	Encryption domain.BucketEncryption
+	// Replication is the replication configuration of the bucket
+	// (S-BKT-12, nil when none): the versions its rules select are written
+	// PENDING for their destinations.
+	Replication *domain.ReplicationConfig
 }
 
 // BucketConfigSource provides the bucket settings. The bucket service's
@@ -281,6 +393,30 @@ type Service interface {
 	ListMultipartUploads(ctx context.Context, in domain.ListMultipartUploadsInput) (domain.ListMultipartUploadsResult, error)
 	AbortMultipartUpload(ctx context.Context, bucket, key, uploadID string) error
 	CompleteMultipartUpload(ctx context.Context, in CompleteMultipartInput) (domain.ObjectInfo, error)
+
+	// SetReplicationStatus records the replication state of a version at
+	// the destination target (an ARN of the replication configuration of
+	// its bucket, S-BKT-12) and the overall state derived from all of
+	// them; the content, the modification time and the tags are kept and
+	// no event is published. A version replaced meanwhile is
+	// domain.ErrNoSuchVersion.
+	SetReplicationStatus(ctx context.Context, bucket, key, versionID, target string, status domain.ReplicationStatus) (domain.ObjectInfo, error)
+
+	// TransitionObject moves the data of a version to a remote tier
+	// (S-STO-12, the Transition actions of the lifecycle): the stored
+	// bytes are written to the tier as one object and the version keeps
+	// its metadata on the drives, naming that object; its storage class
+	// becomes the name of the tier. Reads fetch the data from the tier; a
+	// copy brings it back. The version must still have in.ModTime (when
+	// set; domain.ErrPreconditionFailed otherwise); one stored inline is
+	// not transitioned (domain.ErrInvalidArgument), one already in the
+	// tier is left as it is. No event is published.
+	TransitionObject(ctx context.Context, in TransitionInput) (domain.ObjectInfo, error)
+	// TierLocation tells where the data of a version is: the tier and the
+	// object of a transitioned version, nothing for a version stored on
+	// the drives, Exists false for a version (or a bucket) that does not
+	// exist. The tiers find their orphaned objects with it.
+	TierLocation(ctx context.Context, bucket, key, versionID string) (TierLocation, error)
 
 	// Tags.
 	PutObjectTags(ctx context.Context, bucket, key string, tags map[string]string, opts TagOptions) (domain.ObjectInfo, error)
@@ -396,6 +532,13 @@ type PutObjectInput struct {
 	VersionID string
 	// ModTime forces the modification time; zero means now.
 	ModTime time.Time
+	// Replica marks a version written by the replication of another site
+	// (with its VersionID and ModTime): it is stored as a REPLICA and
+	// never replicated again. ReplicaETag, when set, is the ETag the
+	// version has at the source, kept when the version is stored
+	// unencrypted.
+	Replica     bool
+	ReplicaETag string
 	// LengthRange, when set, bounds the content length (the
 	// content-length-range of a POST policy): a body outside [Min, Max]
 	// fails with domain.ErrEntityTooSmall or domain.ErrEntityTooLarge and
@@ -456,6 +599,9 @@ type DeleteObjectOptions struct {
 	BypassGovernance bool
 	// ModTime forces the delete marker time.
 	ModTime time.Time
+	// MarkerVersionID forces the version id of the delete marker of a
+	// versioned bucket (the replication of a marker); normally empty.
+	MarkerVersionID string
 	// IfModTime, when set, makes the delete conditional on the version it
 	// targets still having this modification time: the version named by
 	// VersionID, or without one the latest version (the one a delete
@@ -585,6 +731,12 @@ type NewMultipartInput struct {
 	// PutObjectInput: every part is encrypted with it, and the parts of an
 	// SSE-C upload need its key (PutObjectPartInput.SSECustomerKey).
 	SSE domain.SSERequest
+	// Replica, VersionID, ModTime and ReplicaETag make the completed
+	// object a replica, as for PutObjectInput.
+	Replica     bool
+	VersionID   string
+	ModTime     time.Time
+	ReplicaETag string
 }
 
 // PutObjectPartInput are the parameters of PutObjectPart.

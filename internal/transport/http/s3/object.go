@@ -171,10 +171,17 @@ func (h *objectRoutes) putObject(w http.ResponseWriter, r *http.Request) {
 	if !h.authz.authorize(w, r, bucketName, key) {
 		return
 	}
+	r, rep, ok := h.authz.replicaRequest(w, r, actionReplicateObject, bucketName, key)
+	if !ok {
+		return
+	}
 	in, err := putInput(r, bucketName, key, h.opts.insecureSSEC)
 	if err != nil {
 		h.fail(w, r, err)
 		return
+	}
+	if rep.set {
+		in.Replica, in.VersionID, in.ModTime, in.ReplicaETag = true, rep.versionID, rep.modTime, rep.etag
 	}
 	if !h.authz.authorizeLockHeaders(w, r, bucketName, key, in.Retention, in.LegalHold) {
 		return
@@ -489,11 +496,19 @@ func (h *objectRoutes) deleteObject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	r, rep, ok := h.authz.replicaRequest(w, r, actionReplicateDelete, bucketName, key)
+	if !ok {
+		return
+	}
 	versionID := r.URL.Query().Get("versionId")
-	del, err := h.deps.Objects.DeleteObject(r.Context(), bucketName, key, object.DeleteObjectOptions{
+	opts := object.DeleteObjectOptions{
 		VersionID: versionID, BypassGovernance: h.authz.bypassGovernance(r, bucketName, key, versionID),
 		IfMatch: r.Header.Get("If-Match"),
-	})
+	}
+	if rep.deleteMarker && versionID == "" {
+		opts.MarkerVersionID, opts.ModTime = rep.versionID, rep.modTime
+	}
+	del, err := h.deps.Objects.DeleteObject(r.Context(), bucketName, key, opts)
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -610,6 +625,10 @@ func (h *objectRoutes) putTagging(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !h.authz.authorizeVersion(w, r, ActionOf("PutObjectTagging", versionID != ""), bucketName, key, versionID, requestTagConditions(tags)) {
+		return
+	}
+	r, _, ok := h.authz.replicaRequest(w, r, actionReplicateTags, bucketName, key)
+	if !ok {
 		return
 	}
 	info, err := h.deps.Objects.PutObjectTags(r.Context(), bucketName, key, tags, object.TagOptions{VersionID: versionID})

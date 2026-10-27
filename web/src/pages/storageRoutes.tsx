@@ -39,6 +39,11 @@ const BucketMediaTab = lazyPage(
     (await Promise.all([import('./buckets/BucketMediaTab'), loadSectionTranslations()]))[0],
   (m) => m.BucketMediaTab,
 );
+const BucketReplicationTab = lazyPage(
+  async () =>
+    (await Promise.all([import('./buckets/BucketReplicationTab'), loadSectionTranslations()]))[0],
+  (m) => m.BucketReplicationTab,
+);
 const BucketAccessTab = lazyPage(
   () => import('./buckets/BucketAccessTab'),
   (m) => m.BucketAccessTab,
@@ -92,6 +97,7 @@ export function storageRoutes(): RouteObject[] {
         { path: 'lifecycle', element: page(BucketLifecycleTab) },
         { path: 'events', element: page(BucketEventsTab) },
         { path: 'media', element: page(BucketMediaTab) },
+        { path: 'replication', element: page(BucketReplicationTab) },
         { path: 'access', element: page(BucketAccessTab) },
         { path: 'rules', element: page(BucketRulesTab) },
       ],

@@ -1,0 +1,25 @@
+Remove a replication rule of a bucket, or all of them with --all. The targets
+no rule uses any more are removed with their stored credentials; what was
+already replicated stays on the remotes.
+
+Usage:
+  nexoctl replicate rm ALIAS/BUCKET (--id ID | --all) [flags]
+
+Aliases:
+  rm, remove
+
+Examples:
+  nexoctl replicate rm local/photos --id backup-photos
+  nexoctl replicate rm local/photos --all
+
+Flags:
+      --all         remove every rule
+  -h, --help        help for rm
+      --id string   the ID of the rule to remove
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

@@ -51,6 +51,7 @@ anything else is a local path.
 * [nexoctl put](nexoctl_put.md)	 - Upload local files
 * [nexoctl quota](nexoctl_quota.md)	 - Manage the hard quota of buckets (Admin API)
 * [nexoctl rb](nexoctl_rb.md)	 - Remove buckets
+* [nexoctl replicate](nexoctl_replicate.md)	 - Manage the replication of buckets to other servers (Admin API)
 * [nexoctl retention](nexoctl_retention.md)	 - Manage the Object Lock retention of objects and buckets
 * [nexoctl rm](nexoctl_rm.md)	 - Remove objects, object versions and incomplete uploads
 * [nexoctl share](nexoctl_share.md)	 - Share objects with links that need no credentials

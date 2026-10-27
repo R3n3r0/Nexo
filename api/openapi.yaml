@@ -348,6 +348,85 @@ paths:
               schema: { $ref: "#/components/schemas/ServiceAction" }
         "501": { $ref: "#/components/responses/Problem" }
         default: { $ref: "#/components/responses/Problem" }
+  /service/update:
+    get:
+      tags: [server]
+      operationId: updateStatus
+      summary: The last update or coordinated restart of the deployment
+      description: A job whose orchestrating node restarted is completed by the node answering, once every node is back.
+      x-nexo-actions: ["admin:ServerInfo"]
+      responses:
+        "200":
+          description: The job.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdateJob" }
+        "404": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [server]
+      operationId: startUpdate
+      summary: Update the server binary of every node
+      description: >-
+        Every node downloads the binary next to the one it runs, verifies its SHA-256 and its version; the nodes then
+        restart with it one at a time (rolling, while one more node can stop without losing the write quorum) or all at
+        once. The node answering restarts last. The job runs in the background (GET /service/update).
+      x-nexo-actions: ["admin:ServerUpdate"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateRequest" }
+      responses:
+        "202":
+          description: The job, started.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdateJob" }
+        "409": { $ref: "#/components/responses/Problem" }
+        "412": { $ref: "#/components/responses/Problem" }
+        "501": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /service/cluster/restart:
+    post:
+      tags: [server]
+      operationId: restartCluster
+      summary: Restart every node of the deployment
+      description: One node at a time (rolling, default) or all at once; the node answering restarts last. The job runs in the background (GET /service/update).
+      x-nexo-actions: ["admin:ServiceRestart"]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                mode: { type: string, enum: [rolling, all] }
+      responses:
+        "202":
+          description: The job, started.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdateJob" }
+        "409": { $ref: "#/components/responses/Problem" }
+        "412": { $ref: "#/components/responses/Problem" }
+        "501": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /service/cluster/stop:
+    post:
+      tags: [server]
+      operationId: stopCluster
+      summary: Stop every node of the deployment
+      description: The other nodes first, then the node answering, once the response is sent.
+      x-nexo-actions: ["admin:ServiceStop"]
+      responses:
+        "202":
+          description: Stop accepted.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ServiceAction" }
+        "501": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
   /trace:
     get:
       tags: [monitoring]
@@ -1044,18 +1123,146 @@ paths:
     get:
       tags: [buckets]
       operationId: getBucketReplication
-      summary: Replication configuration (not implemented yet)
+      summary: Replication rules of a bucket (S-BKT-12)
+      description: >-
+        The rules of the ReplicationConfiguration of the bucket in the console form (no rule:
+        none). The S3 API serves the same configuration as XML (GetBucketReplication).
       x-nexo-actions: ["s3:GetReplicationConfiguration"]
       responses:
-        "501": { $ref: "#/components/responses/Problem" }
+        "200":
+          description: The rules.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReplicationConfiguration" }
         default: { $ref: "#/components/responses/Problem" }
     put:
       tags: [buckets]
       operationId: setBucketReplication
-      summary: Replication configuration (not implemented yet)
+      summary: Replace the replication rules of a bucket
+      description: >-
+        The bucket must have versioning enabled (which then cannot be suspended) and every target
+        must be a replication target of the bucket (400 otherwise). No rule removes the
+        configuration. The versions written from then on are replicated asynchronously, with their
+        id, time and ETag; a resync replicates those written before.
+      x-nexo-actions: ["s3:PutReplicationConfiguration"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReplicationConfiguration" }
+      responses:
+        "200":
+          description: The rules stored.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReplicationConfiguration" }
+        "204": { description: Removed (no rule). }
+        default: { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [buckets]
+      operationId: deleteBucketReplication
+      summary: Remove the replication rules of a bucket
       x-nexo-actions: ["s3:PutReplicationConfiguration"]
       responses:
-        "501": { $ref: "#/components/responses/Problem" }
+        "204": { description: Removed. }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/replication/targets:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    get:
+      tags: [buckets]
+      operationId: listReplicationTargets
+      summary: Replication targets of a bucket
+      description: The remote buckets the rules may replicate to, without their secret.
+      x-nexo-actions: ["admin:GetBucketTarget"]
+      responses:
+        "200":
+          description: The targets, by ARN.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReplicationTargets" }
+        default: { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [buckets]
+      operationId: setReplicationTarget
+      summary: Create or replace a replication target
+      description: >-
+        Without arn a target is created (201) and gets an ARN
+        (arn:nexo:replication::<id>:<remote bucket>); with arn it is replaced (200), the stored
+        secret kept when secretKey is empty. The remote bucket is checked first: reachable with the
+        credentials and versioning enabled (400 otherwise). The secret is sealed in the system
+        documents and never returned. The credentials need s3:ReplicateObject, s3:ReplicateDelete,
+        s3:ReplicateTags and the object actions on the remote bucket.
+      x-nexo-actions: ["admin:SetBucketTarget"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReplicationTarget" }
+      responses:
+        "200":
+          description: Replaced.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReplicationTarget" }
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReplicationTarget" }
+        default: { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [buckets]
+      operationId: removeReplicationTarget
+      summary: Remove a replication target
+      description: A target the rules still use cannot be removed (400).
+      x-nexo-actions: ["admin:SetBucketTarget"]
+      parameters:
+        - { name: arn, in: query, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Removed. }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/replication/status:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    get:
+      tags: [buckets]
+      operationId: getReplicationStatus
+      summary: State of the replication of a bucket
+      description: >-
+        Per target, the tasks queued and the counters of the node that answers since its start
+        (each node replicates the writes it served), and the last resync.
+      x-nexo-actions: ["s3:GetReplicationConfiguration"]
+      responses:
+        "200":
+          description: The state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReplicationStatus" }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/replication/resync:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    post:
+      tags: [buckets]
+      operationId: startReplicationResync
+      summary: Replicate again every version a target does not have
+      description: >-
+        The leader walks every version of the bucket the rules for the target select and queues
+        those the destination does not have (asked first): existing objects, a replaced target, a
+        queue lost with its drive. A resync in progress is replaced.
+      x-nexo-actions: ["s3:ResetBucketReplicationState"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReplicationResync" }
+      responses:
+        "202":
+          description: Started.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReplicationResync" }
         default: { $ref: "#/components/responses/Problem" }
 
   /buckets/{bucket}/objects:
@@ -2803,6 +3010,320 @@ paths:
       responses:
         "204": { description: Released. }
         default: { $ref: "#/components/responses/Problem" }
+  /pools:
+    get:
+      tags: [cluster]
+      operationId: listPools
+      summary: The server pools, their capacity and their decommission, and the rebalance
+      description: 501 in single-drive mode.
+      x-nexo-actions: ["admin:ServerInfo"]
+      responses:
+        "200":
+          description: The pools.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Pools" }
+        default: { $ref: "#/components/responses/Problem" }
+  /pools/plan:
+    post:
+      tags: [cluster]
+      operationId: planPools
+      summary: Plan a change of the pools (expansion, removal of decommissioned pools)
+      description: >-
+        Checks the pools appended after the existing ones and the pools removed once their decommission is complete
+        the way every node parses its command line at startup (erasure sets, parity, nodes), and returns the new
+        endpoint arguments of every node (NEXO_ENDPOINTS). Nothing changes: the nodes run the new topology once all
+        of them are restarted with it. Every existing pool must be written as one argument with ellipses. 501 in
+        single-drive mode.
+      x-nexo-actions: ["admin:ServerInfo"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PoolPlanInput" }
+      responses:
+        "200":
+          description: The planned topology.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PoolPlan" }
+        "400": { $ref: "#/components/responses/Problem" }
+        "501": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /pools/{pool}/decommission:
+    parameters:
+      - name: pool
+        in: path
+        required: true
+        description: 1-based position of the pool in the command line.
+        schema: { type: integer, minimum: 1 }
+    post:
+      tags: [cluster]
+      operationId: decommissionPool
+      summary: Start the decommission of a pool
+      description: >-
+        The pool takes no new object, version or multipart upload; the leader moves every version
+        of its objects to the other pools (copied, read back and compared before the source is
+        removed), pass after pass until a pass finds nothing left and no upload is in progress
+        there. The job resumes after a restart. The pool can then be removed from the command
+        line. The first pool (system documents), the last pool left, or a pool during a rebalance
+        are refused (400).
+      x-nexo-actions: ["admin:Decommission"]
+      responses:
+        "202": { description: Started (see GET /pools). }
+        default: { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [cluster]
+      operationId: cancelDecommission
+      summary: Cancel the decommission of a pool
+      description: The pool takes new objects again; the objects already moved stay where they are.
+      x-nexo-actions: ["admin:Decommission"]
+      responses:
+        "204": { description: Canceled. }
+        default: { $ref: "#/components/responses/Problem" }
+  /rebalance:
+    post:
+      tags: [cluster]
+      operationId: startRebalance
+      summary: Start the rebalance between the pools
+      description: >-
+        The pools fuller than the average by more than 5 points give objects to the emptier ones
+        until they are near the average. Refused with a single pool or during a decommission.
+      x-nexo-actions: ["admin:Rebalance"]
+      responses:
+        "202": { description: Started (see GET /pools). }
+        default: { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [cluster]
+      operationId: stopRebalance
+      summary: Stop the rebalance
+      x-nexo-actions: ["admin:Rebalance"]
+      responses:
+        "204": { description: Stopped. }
+        default: { $ref: "#/components/responses/Problem" }
+  /site-replication:
+    get:
+      tags: [cluster]
+      operationId: getSiteReplication
+      summary: Site replication of this deployment
+      description: >-
+        The group of sites this deployment is in (S-STO-11) and, per other site, the last round of
+        synchronization as the leader recorded it. Disabled when in no group.
+      x-nexo-actions: ["admin:SiteReplicationInfo"]
+      responses:
+        "200":
+          description: The site replication.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SiteReplicationInfo" }
+        default: { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [cluster]
+      operationId: addSiteReplication
+      summary: Group sites
+      description: >-
+        Groups the sites, this one among them: their users, groups, access keys, named policies and
+        buckets are kept in sync, and every bucket replicates to the same bucket of every other site.
+        Every site must accept the root credentials of this one at its Admin API and be in no group.
+      x-nexo-actions: ["admin:SiteReplicationAdd"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SiteReplicationSites" }
+      responses:
+        "200":
+          description: The group, saved on every site.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SiteReplicationInfo" }
+        default: { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [cluster]
+      operationId: removeSiteReplication
+      summary: Dissolve the group
+      description: >-
+        Every site reached forgets the group and the replication rules it added; what was replicated
+        stays. 409 when some sites were not reached (the group is removed here).
+      x-nexo-actions: ["admin:SiteReplicationRemove"]
+      responses:
+        "204": { description: Removed. }
+        default: { $ref: "#/components/responses/Problem" }
+  /site-replication/sync:
+    post:
+      tags: [cluster]
+      operationId: syncSiteReplication
+      summary: Run a round of synchronization now
+      x-nexo-actions: ["admin:SiteReplicationAdd"]
+      responses:
+        "202": { description: Asked. }
+        default: { $ref: "#/components/responses/Problem" }
+  /site-replication/peer:
+    get:
+      tags: [cluster]
+      operationId: siteReplicationPeerInfo
+      summary: Describe this site to another one (internal)
+      description: Calls between the sites of a group, reserved to the root credentials.
+      x-nexo-actions: ["admin:SiteReplicationOperation"]
+      responses:
+        "200":
+          description: This site.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SiteReplicationPeer" }
+        default: { $ref: "#/components/responses/Problem" }
+  /site-replication/peer/join:
+    post:
+      tags: [cluster]
+      operationId: joinSiteReplication
+      summary: Save the group of sites (internal)
+      x-nexo-actions: ["admin:SiteReplicationOperation"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SiteReplicationSites" }
+      responses:
+        "204": { description: Joined. }
+        default: { $ref: "#/components/responses/Problem" }
+  /site-replication/peer/leave:
+    post:
+      tags: [cluster]
+      operationId: leaveSiteReplication
+      summary: Forget the group (internal)
+      x-nexo-actions: ["admin:SiteReplicationOperation"]
+      responses:
+        "204": { description: Left. }
+        default: { $ref: "#/components/responses/Problem" }
+  /site-replication/peer/state:
+    get:
+      tags: [cluster]
+      operationId: siteReplicationState
+      summary: Hashes of the replicated entries of this site (internal)
+      x-nexo-actions: ["admin:SiteReplicationOperation"]
+      responses:
+        "200":
+          description: The entries.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SiteReplicationState" }
+        default: { $ref: "#/components/responses/Problem" }
+  /site-replication/peer/items:
+    post:
+      tags: [cluster]
+      operationId: siteReplicationItems
+      summary: Sealed values of entries (internal)
+      x-nexo-actions: ["admin:SiteReplicationOperation"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [keys]
+              properties:
+                keys: { type: array, items: { type: string } }
+      responses:
+        "200":
+          description: The sealed entries.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SiteReplicationSealed" }
+        default: { $ref: "#/components/responses/Problem" }
+  /site-replication/peer/apply:
+    post:
+      tags: [cluster]
+      operationId: siteReplicationApply
+      summary: Apply sealed changes (internal)
+      x-nexo-actions: ["admin:SiteReplicationOperation"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SiteReplicationSealed" }
+      responses:
+        "200":
+          description: The outcome of each change.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [results]
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      required: [key]
+                      properties:
+                        key: { type: string }
+                        error: { type: string }
+        default: { $ref: "#/components/responses/Problem" }
+  /tiers:
+    get:
+      tags: [cluster]
+      operationId: listTiers
+      summary: List the remote tiers of the lifecycle transitions
+      x-nexo-actions: ["admin:ListTier"]
+      responses:
+        "200":
+          description: The tiers, without their secret.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tiers]
+                properties:
+                  tiers:
+                    type: array
+                    items: { $ref: "#/components/schemas/Tier" }
+        default: { $ref: "#/components/responses/Problem" }
+    post:
+      tags: [cluster]
+      operationId: addTier
+      summary: Add a remote tier (its bucket is checked with the credentials)
+      x-nexo-actions: ["admin:SetTier"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TierInput" }
+      responses:
+        "201":
+          description: The tier.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Tier" }
+        default: { $ref: "#/components/responses/Problem" }
+  /tiers/{name}:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string } }
+    put:
+      tags: [cluster]
+      operationId: editTier
+      summary: Replace the credentials (and the region, the storage class) of a tier
+      x-nexo-actions: ["admin:SetTier"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TierInput" }
+      responses:
+        "200":
+          description: The tier.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Tier" }
+        default: { $ref: "#/components/responses/Problem" }
+    delete:
+      tags: [cluster]
+      operationId: removeTier
+      summary: Remove a tier that holds no data of this deployment
+      x-nexo-actions: ["admin:SetTier"]
+      responses:
+        "204": { description: Removed. }
+        "409": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
   /config/{subsys}:
     parameters:
       - name: subsys
@@ -4457,6 +4978,296 @@ components:
         removed:
           type: array
           description: Entries a replace import removes ("user:<name>", "group:<name>", "policy:<name>").
+          items: { type: string }
+    ReplicationRule:
+      type: object
+      required: [id, priority, enabled, target, deleteMarkers, deletes, existing]
+      properties:
+        id: { type: string }
+        priority: { type: integer, description: "Among the rules of the same target, the highest wins." }
+        enabled: { type: boolean }
+        prefix: { type: string, description: Key prefix the rule selects. }
+        tags:
+          type: object
+          additionalProperties: { type: string }
+          description: Tags the versions must have.
+        target: { type: string, description: ARN of a replication target of the bucket. }
+        deleteMarkers: { type: boolean, description: Replicate the delete markers. }
+        deletes: { type: boolean, description: Replicate the permanent deletions of versions. }
+        existing: { type: boolean, description: A resync replicates the versions written before the rule. }
+    ReplicationConfiguration:
+      type: object
+      required: [rules]
+      properties:
+        rules:
+          type: array
+          items: { $ref: "#/components/schemas/ReplicationRule" }
+    ReplicationTarget:
+      type: object
+      required: [endpoint, bucket, accessKey]
+      properties:
+        arn: { type: string, description: Empty to create a target. }
+        endpoint: { type: string, description: "URL of the remote S3 API: http(s)://host[:port]." }
+        bucket: { type: string, description: The remote bucket (versioning enabled). }
+        region: { type: string }
+        accessKey: { type: string }
+        secretKey: { type: string, writeOnly: true, description: "Sent on creation (empty keeps the stored one on a replacement), never returned." }
+        label: { type: string }
+        created: { type: string, format: date-time }
+        updated: { type: string, format: date-time }
+    ReplicationTargets:
+      type: object
+      required: [targets]
+      properties:
+        targets:
+          type: array
+          items: { $ref: "#/components/schemas/ReplicationTarget" }
+    ReplicationResync:
+      type: object
+      required: [target]
+      properties:
+        id: { type: string }
+        target: { type: string, description: ARN of the target. }
+        state: { type: string, enum: [running, complete, failed] }
+        startedAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        scanned: { type: integer, format: int64, description: Versions walked. }
+        queued: { type: integer, format: int64, description: Versions queued for the target. }
+        error: { type: string }
+    ReplicationTargetStatus:
+      type: object
+      required: [arn, online, queued, replicated, bytes, deletes, failed]
+      properties:
+        arn: { type: string }
+        online: { type: boolean, description: The last attempt succeeded. }
+        queued: { type: integer, description: Tasks queued on the node that answers. }
+        replicated: { type: integer, format: int64 }
+        bytes: { type: integer, format: int64 }
+        deletes: { type: integer, format: int64 }
+        failed: { type: integer, format: int64, description: Failed attempts (retried). }
+        lastError: { type: string }
+        lastFailed: { type: string, format: date-time }
+        lastOk: { type: string, format: date-time }
+    ReplicationStatus:
+      type: object
+      required: [targets, queued]
+      properties:
+        targets:
+          type: array
+          items: { $ref: "#/components/schemas/ReplicationTargetStatus" }
+        queued: { type: integer }
+        resync: { $ref: "#/components/schemas/ReplicationResync" }
+    SiteReplicationSite:
+      type: object
+      required: [name, endpoint, adminEndpoint]
+      properties:
+        name: { type: string, description: "1-63 letters, digits, '.', '_' or '-'." }
+        deploymentId: { type: string, description: Filled by the server. }
+        endpoint: { type: string, description: "URL of the S3 API of the site." }
+        adminEndpoint: { type: string, description: "URL of the Admin API (console listener) of the site." }
+    TierInput:
+      type: object
+      required: [accessKey, secretKey]
+      properties:
+        name: { type: string, description: "Storage class the transitions name (A-Z, 0-9, '-', '_'); POST only." }
+        endpoint: { type: string, description: "URL of the S3 API (http(s)://host[:port]); POST only." }
+        bucket: { type: string, description: Remote bucket; POST only. }
+        prefix: { type: string, description: "Prefix of the objects in the bucket, ending with '/'; POST only." }
+        region: { type: string }
+        storageClass: { type: string, description: Storage class of the remote objects (readable at once). }
+        accessKey: { type: string }
+        secretKey: { type: string, format: password }
+    UpdateRequest:
+      type: object
+      required: [url, sha256]
+      properties:
+        url: { type: string, description: "http(s) URL of the server binary for the platform of the nodes" }
+        sha256: { type: string, description: Hex SHA-256 of the binary }
+        mode: { type: string, enum: [rolling, all] }
+    UpdateJob:
+      type: object
+      required: [id, kind, mode, state, node, started, nodes]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [update, restart] }
+        mode: { type: string, enum: [rolling, all] }
+        state: { type: string, enum: [running, completed, failed] }
+        url: { type: string }
+        sha256: { type: string }
+        version: { type: string, description: Version of the new binary }
+        node: { type: string, description: The node orchestrating the job (it restarts last) }
+        boot: { type: string }
+        started: { type: string, format: date-time }
+        finished: { type: string, format: date-time }
+        error: { type: string }
+        nodes:
+          type: array
+          items:
+            type: object
+            required: [node, phase]
+            properties:
+              node: { type: string }
+              phase: { type: string, enum: [pending, staged, restarting, done, failed] }
+              version: { type: string }
+              boot: { type: string }
+              error: { type: string }
+    Tier:
+      type: object
+      required: [name, endpoint, bucket, accessKey, created, updated]
+      properties:
+        name: { type: string }
+        endpoint: { type: string }
+        bucket: { type: string }
+        prefix: { type: string }
+        region: { type: string }
+        storageClass: { type: string }
+        accessKey: { type: string }
+        created: { type: string, format: date-time }
+        updated: { type: string, format: date-time }
+    SiteReplicationSites:
+      type: object
+      required: [sites]
+      properties:
+        sites:
+          type: array
+          items: { $ref: "#/components/schemas/SiteReplicationSite" }
+    SiteReplicationPeerStatus:
+      type: object
+      required: [name, deploymentId, pushed, pulled, pending]
+      properties:
+        name: { type: string }
+        deploymentId: { type: string }
+        lastSync: { type: string, format: date-time }
+        lastError: { type: string }
+        lastErrorAt: { type: string, format: date-time }
+        pushed: { type: integer, format: int64, description: Entries sent to the site. }
+        pulled: { type: integer, format: int64, description: Entries taken from the site. }
+        pending: { type: integer, description: Changes not applied at the last round (retried). }
+    SiteReplicationInfo:
+      type: object
+      required: [enabled, deploymentId, sites, peers, entries]
+      properties:
+        enabled: { type: boolean }
+        name: { type: string, description: Name of this site in the group. }
+        deploymentId: { type: string }
+        sites:
+          type: array
+          items: { $ref: "#/components/schemas/SiteReplicationSite" }
+        peers:
+          type: array
+          items: { $ref: "#/components/schemas/SiteReplicationPeerStatus" }
+        entries: { type: integer, description: Replicated entries at the last round. }
+    SiteReplicationPeer:
+      type: object
+      required: [deploymentId, enabled]
+      properties:
+        deploymentId: { type: string }
+        enabled: { type: boolean }
+        sites:
+          type: array
+          items: { $ref: "#/components/schemas/SiteReplicationSite" }
+    SiteReplicationState:
+      type: object
+      required: [deploymentId, entries]
+      properties:
+        deploymentId: { type: string }
+        entries:
+          type: object
+          additionalProperties:
+            type: object
+            required: [hash]
+            properties:
+              hash: { type: string }
+              modTime: { type: string, format: date-time }
+    SiteReplicationSealed:
+      type: object
+      required: [data]
+      properties:
+        data: { type: string, format: byte, description: Entries sealed with a key derived from the root credentials. }
+    PoolJob:
+      type: object
+      required: [state, startedAt, pass, objects, versions, bytes, failed, pendingUploads]
+      properties:
+        state: { type: string, enum: [running, complete, canceled, failed] }
+        startedAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
+        pass: { type: integer, description: Walks over the objects so far. }
+        pool: { type: integer, description: Source pool of a rebalance (1-based). }
+        bucket: { type: string, description: Where the job stands. }
+        object: { type: string }
+        objects: { type: integer, format: int64, description: Objects moved. }
+        versions: { type: integer, format: int64 }
+        bytes: { type: integer, format: int64, description: Stored bytes moved. }
+        failed: { type: integer, format: int64, description: Objects not moved in this pass (retried). }
+        pendingUploads: { type: integer, description: Multipart uploads the decommission waits for. }
+        error: { type: string }
+    PoolStatus:
+      type: object
+      required: [index, id, total, free, draining]
+      properties:
+        index: { type: integer, description: 1-based position in the command line. }
+        id: { type: string, description: The command-line arguments of the pool. }
+        total: { type: integer, format: int64 }
+        free: { type: integer, format: int64 }
+        draining: { type: boolean, description: The pool takes no new objects. }
+        decommission: { $ref: "#/components/schemas/PoolJob" }
+    Pools:
+      type: object
+      required: [pools]
+      properties:
+        pools:
+          type: array
+          items: { $ref: "#/components/schemas/PoolStatus" }
+        rebalance: { $ref: "#/components/schemas/PoolJob" }
+    PoolPlanInput:
+      type: object
+      properties:
+        add:
+          type: array
+          description: Arguments of the new pools, one with ellipses per pool ("http://nexo{5...8}:9000/mnt/disk{1...4}").
+          items: { type: string }
+        remove:
+          type: array
+          description: Decommissioned pools to remove (1-based).
+          items: { type: integer, minimum: 1 }
+    PlannedPool:
+      type: object
+      required: [index, arg, nodes, drives, sets, drivesPerSet, parity]
+      properties:
+        index: { type: integer, description: 1-based position in the planned command line. }
+        current: { type: integer, description: 1-based position today (absent for a new pool). }
+        arg: { type: string }
+        nodes:
+          type: array
+          description: Nodes of the pool ("host:port", "local" for the drives of a single node).
+          items: { type: string }
+        drives: { type: integer }
+        sets: { type: integer }
+        drivesPerSet: { type: integer }
+        parity: { type: integer }
+    PoolPlan:
+      type: object
+      required: [mode, args, pools, removed, nodes, newNodes]
+      properties:
+        mode: { type: string }
+        args:
+          type: array
+          description: Endpoint arguments of every node, in order (NEXO_ENDPOINTS, or the arguments of nexo server).
+          items: { type: string }
+        pools:
+          type: array
+          items: { $ref: "#/components/schemas/PlannedPool" }
+        removed:
+          type: array
+          items: { type: string }
+        nodes:
+          type: array
+          items: { type: string }
+        newNodes:
+          type: array
+          description: Nodes that are not part of the deployment today.
           items: { type: string }
     Lock:
       type: object

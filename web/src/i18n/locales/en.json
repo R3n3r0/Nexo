@@ -256,6 +256,7 @@
       "lifecycle": "Lifecycle",
       "events": "Events",
       "media": "Media",
+      "replication": "Replication",
       "rules": "Access rules"
     },
     "summary": "{{size}} · {{objects}} objects",
@@ -634,114 +635,6 @@
       "set": "Set",
       "usage": "Usage",
       "healingProgress": "{{objects}} objects healed ({{bytes}}), {{failed}} failed"
-    }
-  },
-  "healing": {
-    "title": "Healing",
-    "subtitle": "Repair the objects that miss copies or have corrupt shards, and follow the healing the cluster does by itself.",
-    "unsupported": "Healing needs an erasure-coded deployment: a single drive has no copies to rebuild from.",
-    "start": {
-      "title": "Start healing",
-      "hint": "Without a bucket the job heals the format of the drives and every bucket; with the objects option it also checks every object.",
-      "bucket": "Bucket",
-      "allBuckets": "All buckets and the drive format",
-      "noBuckets": "No bucket",
-      "prefix": "Prefix or object",
-      "prefixPlaceholder": "photos/2026/",
-      "submit": "Start healing"
-    },
-    "options": {
-      "recursive": "Include the objects (recursive)",
-      "dryRun": "Dry run: only report",
-      "deep": "Deep: verify the bitrot checksums",
-      "remove": "Remove dangling objects",
-      "removeHint": "Deletes the versions on too few drives to ever be read."
-    },
-    "badges": {
-      "recursive": "recursive",
-      "dryRun": "dry run",
-      "deep": "deep",
-      "remove": "remove"
-    },
-    "target": {
-      "all": "Format and all buckets"
-    },
-    "states": {
-      "running": "Running",
-      "done": "Done",
-      "failed": "Failed",
-      "canceled": "Canceled"
-    },
-    "jobs": {
-      "title": "Healing jobs",
-      "empty": "No healing job in the last hour.",
-      "started": "Started",
-      "target": "Target",
-      "options": "Options",
-      "details": "Details",
-      "showDetails": "Show the details of {{id}}"
-    },
-    "details": {
-      "title": "Job {{id}}",
-      "node": "on {{node}}",
-      "progress": "Healing progress",
-      "current": "Healing {{item}}",
-      "starting": "Starting…"
-    },
-    "counters": {
-      "scanned": "Scanned",
-      "healed": "Healed",
-      "failed": "Failed",
-      "dangling": "Dangling",
-      "removed": "Removed",
-      "bytes": "Size examined"
-    },
-    "drives": {
-      "title": "Results by drive",
-      "drive": "Drive",
-      "position": "Position",
-      "positionValue": "pool {{pool}}, set {{set}}, disk {{disk}}",
-      "missing": "Missing",
-      "corrupt": "Corrupt",
-      "offline": "Offline",
-      "healed": "Healed"
-    },
-    "items": {
-      "title": "Items that needed healing",
-      "item": "Item",
-      "drives": "Drives",
-      "result": "Result",
-      "kinds": {
-        "format": "Format",
-        "bucket": "Bucket",
-        "object": "Object"
-      },
-      "driveChange": "disk {{disk}}: {{before}} → {{after}}",
-      "healedCopies_one": "{{count}} copy rebuilt",
-      "healedCopies_other": "{{count}} copies rebuilt",
-      "dangling": "Dangling",
-      "removed": "Removed",
-      "truncated": "Only the first 1000 items are listed."
-    },
-    "driveStates": {
-      "ok": "ok",
-      "missing": "missing",
-      "corrupt": "corrupt",
-      "offline": "offline"
-    },
-    "background": {
-      "title": "Background healing",
-      "hint": "The objects written or read while a drive did not answer are repaired by the node that noticed it; replaced drives are repopulated.",
-      "queues": "Background healing queue of the nodes",
-      "pending": "Pending",
-      "healed": "Healed",
-      "retried": "Retried",
-      "dropped": "Dropped",
-      "drives": "Drives being healed",
-      "noDrives": "No drive is being healed.",
-      "onNode": "on {{node}}",
-      "driveProgress": "Healing of drive {{path}}",
-      "progress": "{{objects}} objects healed ({{bytes}}), {{failed}} failed, {{buckets}} buckets done"
     }
   },
   "storageErrors": {

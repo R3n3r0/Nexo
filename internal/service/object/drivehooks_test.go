@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/crypto"
 	"github.com/r3n3r0/nexo/internal/service/erasure"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	objectmock "github.com/r3n3r0/nexo/internal/service/object/mock"
@@ -47,6 +48,8 @@ type driveFaults struct {
 	failDelete   func(path string) error
 	// failDeleteVersion, when set, fails every DeleteVersion.
 	failDeleteVersion error
+	// failWriteMetadata, when set, fails every WriteMetadata.
+	failWriteMetadata error
 	// remote reports the drive as a drive of another node
 	// (Endpoint().IsLocal false), as the drives a read pins by handle.
 	remote bool
@@ -74,7 +77,7 @@ func (f *driveFaults) get() driveFaults {
 	defer f.mu.Unlock()
 	return driveFaults{offline: f.offline, slowReads: f.slowReads, full: f.full, failCommit: f.failCommit, diskInfo: f.diskInfo,
 		failRename: f.failRename, beforeCommit: f.beforeCommit, failWriteAll: f.failWriteAll, failDelete: f.failDelete,
-		failDeleteVersion: f.failDeleteVersion, remote: f.remote, brokenReads: f.brokenReads, failOpenFile: f.failOpenFile, opens: f.opens, host: f.host}
+		failDeleteVersion: f.failDeleteVersion, failWriteMetadata: f.failWriteMetadata, remote: f.remote, brokenReads: f.brokenReads, failOpenFile: f.failOpenFile, opens: f.opens, host: f.host}
 }
 
 // opened counts a data file opened and returns the faults in effect.
@@ -212,8 +215,12 @@ func hookedDrive(t *testing.T, base storage.StorageAPI, f *driveFaults) *storage
 			return base.ReadVersion(ctx, v, p, id, o)
 		}).Maybe()
 	m.EXPECT().WriteMetadata(mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, v, p string, fi storage.FileInfo) error {
-		if off() {
+		st := f.get()
+		switch {
+		case st.offline:
 			return errOffline()
+		case st.failWriteMetadata != nil:
+			return st.failWriteMetadata
 		}
 		return base.WriteMetadata(ctx, v, p, fi)
 	}).Maybe()
@@ -394,7 +401,11 @@ type clusterSpec struct {
 	decommissioning map[int]bool
 	// buckets is the bucket configuration source (nil: unversioned).
 	buckets object.BucketConfigSource
-	opts    []object.Option
+	// crypto seals the keys of the encrypted objects (nil: no SSE).
+	crypto crypto.Service
+	// tiers keeps the transitioned data (nil: no tier).
+	tiers object.TierStore
+	opts  []object.Option
 }
 
 // newCluster builds NewServerPools over hooked local drives.
@@ -431,7 +442,7 @@ func newCluster(t *testing.T, spec clusterSpec) *cluster {
 		object.WithLockTimeout(5 * time.Second),
 	}, spec.opts...)
 	svc, err := object.NewServerPools(object.PoolsDeps{
-		Pools: pools, DeploymentID: "deployment-test", Codecs: testCodecs("deployment-test", erasure.WithHedgeDelay(50*time.Millisecond)), Heal: c.heal, Buckets: spec.buckets, Logger: slog.New(slog.DiscardHandler),
+		Pools: pools, DeploymentID: "deployment-test", Codecs: testCodecs("deployment-test", erasure.WithHedgeDelay(50*time.Millisecond)), Heal: c.heal, Buckets: spec.buckets, Crypto: spec.crypto, Tiers: spec.tiers, Logger: slog.New(slog.DiscardHandler),
 	}, opts...)
 	require.NoError(t, err)
 	c.svc = svc

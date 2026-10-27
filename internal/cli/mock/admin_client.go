@@ -145,6 +145,124 @@ func (_c *AdminClient_AddKeyGroupKey_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
+// AddSiteReplication provides a mock function with given fields: ctx, sites
+func (_m *AdminClient) AddSiteReplication(ctx context.Context, sites []nexoadmin.SiteReplicationSite) (*nexoadmin.SiteReplicationInfo, error) {
+	ret := _m.Called(ctx, sites)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AddSiteReplication")
+	}
+
+	var r0 *nexoadmin.SiteReplicationInfo
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, []nexoadmin.SiteReplicationSite) (*nexoadmin.SiteReplicationInfo, error)); ok {
+		return rf(ctx, sites)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, []nexoadmin.SiteReplicationSite) *nexoadmin.SiteReplicationInfo); ok {
+		r0 = rf(ctx, sites)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.SiteReplicationInfo)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, []nexoadmin.SiteReplicationSite) error); ok {
+		r1 = rf(ctx, sites)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_AddSiteReplication_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AddSiteReplication'
+type AdminClient_AddSiteReplication_Call struct {
+	*mock.Call
+}
+
+// AddSiteReplication is a helper method to define mock.On call
+//   - ctx context.Context
+//   - sites []nexoadmin.SiteReplicationSite
+func (_e *AdminClient_Expecter) AddSiteReplication(ctx interface{}, sites interface{}) *AdminClient_AddSiteReplication_Call {
+	return &AdminClient_AddSiteReplication_Call{Call: _e.mock.On("AddSiteReplication", ctx, sites)}
+}
+
+func (_c *AdminClient_AddSiteReplication_Call) Run(run func(ctx context.Context, sites []nexoadmin.SiteReplicationSite)) *AdminClient_AddSiteReplication_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]nexoadmin.SiteReplicationSite))
+	})
+	return _c
+}
+
+func (_c *AdminClient_AddSiteReplication_Call) Return(_a0 *nexoadmin.SiteReplicationInfo, _a1 error) *AdminClient_AddSiteReplication_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_AddSiteReplication_Call) RunAndReturn(run func(context.Context, []nexoadmin.SiteReplicationSite) (*nexoadmin.SiteReplicationInfo, error)) *AdminClient_AddSiteReplication_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// AddTier provides a mock function with given fields: ctx, in
+func (_m *AdminClient) AddTier(ctx context.Context, in nexoadmin.TierInput) (*nexoadmin.Tier, error) {
+	ret := _m.Called(ctx, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AddTier")
+	}
+
+	var r0 *nexoadmin.Tier
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, nexoadmin.TierInput) (*nexoadmin.Tier, error)); ok {
+		return rf(ctx, in)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, nexoadmin.TierInput) *nexoadmin.Tier); ok {
+		r0 = rf(ctx, in)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.Tier)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, nexoadmin.TierInput) error); ok {
+		r1 = rf(ctx, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_AddTier_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AddTier'
+type AdminClient_AddTier_Call struct {
+	*mock.Call
+}
+
+// AddTier is a helper method to define mock.On call
+//   - ctx context.Context
+//   - in nexoadmin.TierInput
+func (_e *AdminClient_Expecter) AddTier(ctx interface{}, in interface{}) *AdminClient_AddTier_Call {
+	return &AdminClient_AddTier_Call{Call: _e.mock.On("AddTier", ctx, in)}
+}
+
+func (_c *AdminClient_AddTier_Call) Run(run func(ctx context.Context, in nexoadmin.TierInput)) *AdminClient_AddTier_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(nexoadmin.TierInput))
+	})
+	return _c
+}
+
+func (_c *AdminClient_AddTier_Call) Return(_a0 *nexoadmin.Tier, _a1 error) *AdminClient_AddTier_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_AddTier_Call) RunAndReturn(run func(context.Context, nexoadmin.TierInput) (*nexoadmin.Tier, error)) *AdminClient_AddTier_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ApplyAccessPreset provides a mock function with given fields: ctx, bucket, in, ifMatch
 func (_m *AdminClient) ApplyAccessPreset(ctx context.Context, bucket string, in nexoadmin.AccessPresetRequest, ifMatch string) (*nexoadmin.AccessRules, error) {
 	ret := _m.Called(ctx, bucket, in, ifMatch)
@@ -367,6 +485,53 @@ func (_c *AdminClient_CacheStats_Call) Return(_a0 *nexoadmin.CacheStats, _a1 err
 }
 
 func (_c *AdminClient_CacheStats_Call) RunAndReturn(run func(context.Context, nexoadmin.CacheStatsQuery) (*nexoadmin.CacheStats, error)) *AdminClient_CacheStats_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// CancelDecommission provides a mock function with given fields: ctx, pool
+func (_m *AdminClient) CancelDecommission(ctx context.Context, pool int) error {
+	ret := _m.Called(ctx, pool)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CancelDecommission")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, int) error); ok {
+		r0 = rf(ctx, pool)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_CancelDecommission_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CancelDecommission'
+type AdminClient_CancelDecommission_Call struct {
+	*mock.Call
+}
+
+// CancelDecommission is a helper method to define mock.On call
+//   - ctx context.Context
+//   - pool int
+func (_e *AdminClient_Expecter) CancelDecommission(ctx interface{}, pool interface{}) *AdminClient_CancelDecommission_Call {
+	return &AdminClient_CancelDecommission_Call{Call: _e.mock.On("CancelDecommission", ctx, pool)}
+}
+
+func (_c *AdminClient_CancelDecommission_Call) Run(run func(ctx context.Context, pool int)) *AdminClient_CancelDecommission_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int))
+	})
+	return _c
+}
+
+func (_c *AdminClient_CancelDecommission_Call) Return(_a0 error) *AdminClient_CancelDecommission_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_CancelDecommission_Call) RunAndReturn(run func(context.Context, int) error) *AdminClient_CancelDecommission_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1136,6 +1301,53 @@ func (_c *AdminClient_DataUsage_Call) RunAndReturn(run func(context.Context) (*n
 	return _c
 }
 
+// DecommissionPool provides a mock function with given fields: ctx, pool
+func (_m *AdminClient) DecommissionPool(ctx context.Context, pool int) error {
+	ret := _m.Called(ctx, pool)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DecommissionPool")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, int) error); ok {
+		r0 = rf(ctx, pool)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_DecommissionPool_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DecommissionPool'
+type AdminClient_DecommissionPool_Call struct {
+	*mock.Call
+}
+
+// DecommissionPool is a helper method to define mock.On call
+//   - ctx context.Context
+//   - pool int
+func (_e *AdminClient_Expecter) DecommissionPool(ctx interface{}, pool interface{}) *AdminClient_DecommissionPool_Call {
+	return &AdminClient_DecommissionPool_Call{Call: _e.mock.On("DecommissionPool", ctx, pool)}
+}
+
+func (_c *AdminClient_DecommissionPool_Call) Run(run func(ctx context.Context, pool int)) *AdminClient_DecommissionPool_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int))
+	})
+	return _c
+}
+
+func (_c *AdminClient_DecommissionPool_Call) Return(_a0 error) *AdminClient_DecommissionPool_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_DecommissionPool_Call) RunAndReturn(run func(context.Context, int) error) *AdminClient_DecommissionPool_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // DeleteAccessKey provides a mock function with given fields: ctx, accessKey
 func (_m *AdminClient) DeleteAccessKey(ctx context.Context, accessKey string) error {
 	ret := _m.Called(ctx, accessKey)
@@ -1273,6 +1485,53 @@ func (_c *AdminClient_DeleteBucketMedia_Call) Return(_a0 error) *AdminClient_Del
 }
 
 func (_c *AdminClient_DeleteBucketMedia_Call) RunAndReturn(run func(context.Context, string) error) *AdminClient_DeleteBucketMedia_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeleteBucketReplication provides a mock function with given fields: ctx, bucket
+func (_m *AdminClient) DeleteBucketReplication(ctx context.Context, bucket string) error {
+	ret := _m.Called(ctx, bucket)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteBucketReplication")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, bucket)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_DeleteBucketReplication_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteBucketReplication'
+type AdminClient_DeleteBucketReplication_Call struct {
+	*mock.Call
+}
+
+// DeleteBucketReplication is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+func (_e *AdminClient_Expecter) DeleteBucketReplication(ctx interface{}, bucket interface{}) *AdminClient_DeleteBucketReplication_Call {
+	return &AdminClient_DeleteBucketReplication_Call{Call: _e.mock.On("DeleteBucketReplication", ctx, bucket)}
+}
+
+func (_c *AdminClient_DeleteBucketReplication_Call) Run(run func(ctx context.Context, bucket string)) *AdminClient_DeleteBucketReplication_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_DeleteBucketReplication_Call) Return(_a0 error) *AdminClient_DeleteBucketReplication_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_DeleteBucketReplication_Call) RunAndReturn(run func(context.Context, string) error) *AdminClient_DeleteBucketReplication_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1903,6 +2162,66 @@ func (_c *AdminClient_DetachPolicy_Call) Return(_a0 error) *AdminClient_DetachPo
 }
 
 func (_c *AdminClient_DetachPolicy_Call) RunAndReturn(run func(context.Context, nexoadmin.AttachRequest) error) *AdminClient_DetachPolicy_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// EditTier provides a mock function with given fields: ctx, name, in
+func (_m *AdminClient) EditTier(ctx context.Context, name string, in nexoadmin.TierInput) (*nexoadmin.Tier, error) {
+	ret := _m.Called(ctx, name, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for EditTier")
+	}
+
+	var r0 *nexoadmin.Tier
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, nexoadmin.TierInput) (*nexoadmin.Tier, error)); ok {
+		return rf(ctx, name, in)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, nexoadmin.TierInput) *nexoadmin.Tier); ok {
+		r0 = rf(ctx, name, in)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.Tier)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, nexoadmin.TierInput) error); ok {
+		r1 = rf(ctx, name, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_EditTier_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'EditTier'
+type AdminClient_EditTier_Call struct {
+	*mock.Call
+}
+
+// EditTier is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+//   - in nexoadmin.TierInput
+func (_e *AdminClient_Expecter) EditTier(ctx interface{}, name interface{}, in interface{}) *AdminClient_EditTier_Call {
+	return &AdminClient_EditTier_Call{Call: _e.mock.On("EditTier", ctx, name, in)}
+}
+
+func (_c *AdminClient_EditTier_Call) Run(run func(ctx context.Context, name string, in nexoadmin.TierInput)) *AdminClient_EditTier_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(nexoadmin.TierInput))
+	})
+	return _c
+}
+
+func (_c *AdminClient_EditTier_Call) Return(_a0 *nexoadmin.Tier, _a1 error) *AdminClient_EditTier_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_EditTier_Call) RunAndReturn(run func(context.Context, string, nexoadmin.TierInput) (*nexoadmin.Tier, error)) *AdminClient_EditTier_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -2679,6 +2998,65 @@ func (_c *AdminClient_GetBucketQuota_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
+// GetBucketReplication provides a mock function with given fields: ctx, bucket
+func (_m *AdminClient) GetBucketReplication(ctx context.Context, bucket string) (*nexoadmin.ReplicationConfiguration, error) {
+	ret := _m.Called(ctx, bucket)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetBucketReplication")
+	}
+
+	var r0 *nexoadmin.ReplicationConfiguration
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*nexoadmin.ReplicationConfiguration, error)); ok {
+		return rf(ctx, bucket)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *nexoadmin.ReplicationConfiguration); ok {
+		r0 = rf(ctx, bucket)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.ReplicationConfiguration)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, bucket)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_GetBucketReplication_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetBucketReplication'
+type AdminClient_GetBucketReplication_Call struct {
+	*mock.Call
+}
+
+// GetBucketReplication is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+func (_e *AdminClient_Expecter) GetBucketReplication(ctx interface{}, bucket interface{}) *AdminClient_GetBucketReplication_Call {
+	return &AdminClient_GetBucketReplication_Call{Call: _e.mock.On("GetBucketReplication", ctx, bucket)}
+}
+
+func (_c *AdminClient_GetBucketReplication_Call) Run(run func(ctx context.Context, bucket string)) *AdminClient_GetBucketReplication_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_GetBucketReplication_Call) Return(_a0 *nexoadmin.ReplicationConfiguration, _a1 error) *AdminClient_GetBucketReplication_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_GetBucketReplication_Call) RunAndReturn(run func(context.Context, string) (*nexoadmin.ReplicationConfiguration, error)) *AdminClient_GetBucketReplication_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetCacheInvalidation provides a mock function with given fields: ctx, distribution, id
 func (_m *AdminClient) GetCacheInvalidation(ctx context.Context, distribution string, id string) (*nexoadmin.CacheInvalidation, error) {
 	ret := _m.Called(ctx, distribution, id)
@@ -3390,6 +3768,65 @@ func (_c *AdminClient_GetPolicy_Call) RunAndReturn(run func(context.Context, str
 	return _c
 }
 
+// GetReplicationStatus provides a mock function with given fields: ctx, bucket
+func (_m *AdminClient) GetReplicationStatus(ctx context.Context, bucket string) (*nexoadmin.ReplicationStatus, error) {
+	ret := _m.Called(ctx, bucket)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetReplicationStatus")
+	}
+
+	var r0 *nexoadmin.ReplicationStatus
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*nexoadmin.ReplicationStatus, error)); ok {
+		return rf(ctx, bucket)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *nexoadmin.ReplicationStatus); ok {
+		r0 = rf(ctx, bucket)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.ReplicationStatus)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, bucket)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_GetReplicationStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetReplicationStatus'
+type AdminClient_GetReplicationStatus_Call struct {
+	*mock.Call
+}
+
+// GetReplicationStatus is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+func (_e *AdminClient_Expecter) GetReplicationStatus(ctx interface{}, bucket interface{}) *AdminClient_GetReplicationStatus_Call {
+	return &AdminClient_GetReplicationStatus_Call{Call: _e.mock.On("GetReplicationStatus", ctx, bucket)}
+}
+
+func (_c *AdminClient_GetReplicationStatus_Call) Run(run func(ctx context.Context, bucket string)) *AdminClient_GetReplicationStatus_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_GetReplicationStatus_Call) Return(_a0 *nexoadmin.ReplicationStatus, _a1 error) *AdminClient_GetReplicationStatus_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_GetReplicationStatus_Call) RunAndReturn(run func(context.Context, string) (*nexoadmin.ReplicationStatus, error)) *AdminClient_GetReplicationStatus_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetShare provides a mock function with given fields: ctx, id
 func (_m *AdminClient) GetShare(ctx context.Context, id string) (*nexoadmin.Share, error) {
 	ret := _m.Called(ctx, id)
@@ -3445,6 +3882,64 @@ func (_c *AdminClient_GetShare_Call) Return(_a0 *nexoadmin.Share, _a1 error) *Ad
 }
 
 func (_c *AdminClient_GetShare_Call) RunAndReturn(run func(context.Context, string) (*nexoadmin.Share, error)) *AdminClient_GetShare_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetSiteReplication provides a mock function with given fields: ctx
+func (_m *AdminClient) GetSiteReplication(ctx context.Context) (*nexoadmin.SiteReplicationInfo, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetSiteReplication")
+	}
+
+	var r0 *nexoadmin.SiteReplicationInfo
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (*nexoadmin.SiteReplicationInfo, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) *nexoadmin.SiteReplicationInfo); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.SiteReplicationInfo)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_GetSiteReplication_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetSiteReplication'
+type AdminClient_GetSiteReplication_Call struct {
+	*mock.Call
+}
+
+// GetSiteReplication is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) GetSiteReplication(ctx interface{}) *AdminClient_GetSiteReplication_Call {
+	return &AdminClient_GetSiteReplication_Call{Call: _e.mock.On("GetSiteReplication", ctx)}
+}
+
+func (_c *AdminClient_GetSiteReplication_Call) Run(run func(ctx context.Context)) *AdminClient_GetSiteReplication_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_GetSiteReplication_Call) Return(_a0 *nexoadmin.SiteReplicationInfo, _a1 error) *AdminClient_GetSiteReplication_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_GetSiteReplication_Call) RunAndReturn(run func(context.Context) (*nexoadmin.SiteReplicationInfo, error)) *AdminClient_GetSiteReplication_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -4907,6 +5402,123 @@ func (_c *AdminClient_ListPolicies_Call) RunAndReturn(run func(context.Context, 
 	return _c
 }
 
+// ListPools provides a mock function with given fields: ctx
+func (_m *AdminClient) ListPools(ctx context.Context) (*nexoadmin.Pools, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListPools")
+	}
+
+	var r0 *nexoadmin.Pools
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (*nexoadmin.Pools, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) *nexoadmin.Pools); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.Pools)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_ListPools_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListPools'
+type AdminClient_ListPools_Call struct {
+	*mock.Call
+}
+
+// ListPools is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) ListPools(ctx interface{}) *AdminClient_ListPools_Call {
+	return &AdminClient_ListPools_Call{Call: _e.mock.On("ListPools", ctx)}
+}
+
+func (_c *AdminClient_ListPools_Call) Run(run func(ctx context.Context)) *AdminClient_ListPools_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_ListPools_Call) Return(_a0 *nexoadmin.Pools, _a1 error) *AdminClient_ListPools_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_ListPools_Call) RunAndReturn(run func(context.Context) (*nexoadmin.Pools, error)) *AdminClient_ListPools_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListReplicationTargets provides a mock function with given fields: ctx, bucket
+func (_m *AdminClient) ListReplicationTargets(ctx context.Context, bucket string) ([]nexoadmin.ReplicationTarget, error) {
+	ret := _m.Called(ctx, bucket)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListReplicationTargets")
+	}
+
+	var r0 []nexoadmin.ReplicationTarget
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) ([]nexoadmin.ReplicationTarget, error)); ok {
+		return rf(ctx, bucket)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) []nexoadmin.ReplicationTarget); ok {
+		r0 = rf(ctx, bucket)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]nexoadmin.ReplicationTarget)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, bucket)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_ListReplicationTargets_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListReplicationTargets'
+type AdminClient_ListReplicationTargets_Call struct {
+	*mock.Call
+}
+
+// ListReplicationTargets is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+func (_e *AdminClient_Expecter) ListReplicationTargets(ctx interface{}, bucket interface{}) *AdminClient_ListReplicationTargets_Call {
+	return &AdminClient_ListReplicationTargets_Call{Call: _e.mock.On("ListReplicationTargets", ctx, bucket)}
+}
+
+func (_c *AdminClient_ListReplicationTargets_Call) Run(run func(ctx context.Context, bucket string)) *AdminClient_ListReplicationTargets_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_ListReplicationTargets_Call) Return(_a0 []nexoadmin.ReplicationTarget, _a1 error) *AdminClient_ListReplicationTargets_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_ListReplicationTargets_Call) RunAndReturn(run func(context.Context, string) ([]nexoadmin.ReplicationTarget, error)) *AdminClient_ListReplicationTargets_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListShares provides a mock function with given fields: ctx, opts
 func (_m *AdminClient) ListShares(ctx context.Context, opts nexoadmin.ListSharesOptions) (*nexoadmin.ShareList, error) {
 	ret := _m.Called(ctx, opts)
@@ -5023,6 +5635,64 @@ func (_c *AdminClient_ListSubtitles_Call) Return(_a0 []nexoadmin.SubtitleTrack, 
 }
 
 func (_c *AdminClient_ListSubtitles_Call) RunAndReturn(run func(context.Context, string, string, string) ([]nexoadmin.SubtitleTrack, error)) *AdminClient_ListSubtitles_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListTiers provides a mock function with given fields: ctx
+func (_m *AdminClient) ListTiers(ctx context.Context) ([]nexoadmin.Tier, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListTiers")
+	}
+
+	var r0 []nexoadmin.Tier
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) ([]nexoadmin.Tier, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) []nexoadmin.Tier); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]nexoadmin.Tier)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_ListTiers_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListTiers'
+type AdminClient_ListTiers_Call struct {
+	*mock.Call
+}
+
+// ListTiers is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) ListTiers(ctx interface{}) *AdminClient_ListTiers_Call {
+	return &AdminClient_ListTiers_Call{Call: _e.mock.On("ListTiers", ctx)}
+}
+
+func (_c *AdminClient_ListTiers_Call) Run(run func(ctx context.Context)) *AdminClient_ListTiers_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_ListTiers_Call) Return(_a0 []nexoadmin.Tier, _a1 error) *AdminClient_ListTiers_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_ListTiers_Call) RunAndReturn(run func(context.Context) ([]nexoadmin.Tier, error)) *AdminClient_ListTiers_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -5381,6 +6051,147 @@ func (_c *AdminClient_QueryMetric_Call) RunAndReturn(run func(context.Context, n
 	return _c
 }
 
+// RemoveReplicationTarget provides a mock function with given fields: ctx, bucket, arn
+func (_m *AdminClient) RemoveReplicationTarget(ctx context.Context, bucket string, arn string) error {
+	ret := _m.Called(ctx, bucket, arn)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RemoveReplicationTarget")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, bucket, arn)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_RemoveReplicationTarget_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RemoveReplicationTarget'
+type AdminClient_RemoveReplicationTarget_Call struct {
+	*mock.Call
+}
+
+// RemoveReplicationTarget is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - arn string
+func (_e *AdminClient_Expecter) RemoveReplicationTarget(ctx interface{}, bucket interface{}, arn interface{}) *AdminClient_RemoveReplicationTarget_Call {
+	return &AdminClient_RemoveReplicationTarget_Call{Call: _e.mock.On("RemoveReplicationTarget", ctx, bucket, arn)}
+}
+
+func (_c *AdminClient_RemoveReplicationTarget_Call) Run(run func(ctx context.Context, bucket string, arn string)) *AdminClient_RemoveReplicationTarget_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_RemoveReplicationTarget_Call) Return(_a0 error) *AdminClient_RemoveReplicationTarget_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_RemoveReplicationTarget_Call) RunAndReturn(run func(context.Context, string, string) error) *AdminClient_RemoveReplicationTarget_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RemoveSiteReplication provides a mock function with given fields: ctx
+func (_m *AdminClient) RemoveSiteReplication(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RemoveSiteReplication")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_RemoveSiteReplication_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RemoveSiteReplication'
+type AdminClient_RemoveSiteReplication_Call struct {
+	*mock.Call
+}
+
+// RemoveSiteReplication is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) RemoveSiteReplication(ctx interface{}) *AdminClient_RemoveSiteReplication_Call {
+	return &AdminClient_RemoveSiteReplication_Call{Call: _e.mock.On("RemoveSiteReplication", ctx)}
+}
+
+func (_c *AdminClient_RemoveSiteReplication_Call) Run(run func(ctx context.Context)) *AdminClient_RemoveSiteReplication_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_RemoveSiteReplication_Call) Return(_a0 error) *AdminClient_RemoveSiteReplication_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_RemoveSiteReplication_Call) RunAndReturn(run func(context.Context) error) *AdminClient_RemoveSiteReplication_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RemoveTier provides a mock function with given fields: ctx, name
+func (_m *AdminClient) RemoveTier(ctx context.Context, name string) error {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RemoveTier")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, name)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_RemoveTier_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RemoveTier'
+type AdminClient_RemoveTier_Call struct {
+	*mock.Call
+}
+
+// RemoveTier is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+func (_e *AdminClient_Expecter) RemoveTier(ctx interface{}, name interface{}) *AdminClient_RemoveTier_Call {
+	return &AdminClient_RemoveTier_Call{Call: _e.mock.On("RemoveTier", ctx, name)}
+}
+
+func (_c *AdminClient_RemoveTier_Call) Run(run func(ctx context.Context, name string)) *AdminClient_RemoveTier_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_RemoveTier_Call) Return(_a0 error) *AdminClient_RemoveTier_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_RemoveTier_Call) RunAndReturn(run func(context.Context, string) error) *AdminClient_RemoveTier_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ReprocessMedia provides a mock function with given fields: ctx, bucket, key, versionID
 func (_m *AdminClient) ReprocessMedia(ctx context.Context, bucket string, key string, versionID string) error {
 	ret := _m.Called(ctx, bucket, key, versionID)
@@ -5544,6 +6355,65 @@ func (_c *AdminClient_ResolveHost_Call) Return(_a0 *nexoadmin.Route, _a1 error) 
 }
 
 func (_c *AdminClient_ResolveHost_Call) RunAndReturn(run func(context.Context, string) (*nexoadmin.Route, error)) *AdminClient_ResolveHost_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RestartCluster provides a mock function with given fields: ctx, mode
+func (_m *AdminClient) RestartCluster(ctx context.Context, mode string) (*nexoadmin.UpdateJob, error) {
+	ret := _m.Called(ctx, mode)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RestartCluster")
+	}
+
+	var r0 *nexoadmin.UpdateJob
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*nexoadmin.UpdateJob, error)); ok {
+		return rf(ctx, mode)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *nexoadmin.UpdateJob); ok {
+		r0 = rf(ctx, mode)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.UpdateJob)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, mode)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_RestartCluster_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RestartCluster'
+type AdminClient_RestartCluster_Call struct {
+	*mock.Call
+}
+
+// RestartCluster is a helper method to define mock.On call
+//   - ctx context.Context
+//   - mode string
+func (_e *AdminClient_Expecter) RestartCluster(ctx interface{}, mode interface{}) *AdminClient_RestartCluster_Call {
+	return &AdminClient_RestartCluster_Call{Call: _e.mock.On("RestartCluster", ctx, mode)}
+}
+
+func (_c *AdminClient_RestartCluster_Call) Run(run func(ctx context.Context, mode string)) *AdminClient_RestartCluster_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_RestartCluster_Call) Return(_a0 *nexoadmin.UpdateJob, _a1 error) *AdminClient_RestartCluster_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_RestartCluster_Call) RunAndReturn(run func(context.Context, string) (*nexoadmin.UpdateJob, error)) *AdminClient_RestartCluster_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -6236,6 +7106,66 @@ func (_c *AdminClient_SetBucketQuota_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
+// SetBucketReplication provides a mock function with given fields: ctx, bucket, cfg
+func (_m *AdminClient) SetBucketReplication(ctx context.Context, bucket string, cfg nexoadmin.ReplicationConfiguration) (*nexoadmin.ReplicationConfiguration, error) {
+	ret := _m.Called(ctx, bucket, cfg)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetBucketReplication")
+	}
+
+	var r0 *nexoadmin.ReplicationConfiguration
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, nexoadmin.ReplicationConfiguration) (*nexoadmin.ReplicationConfiguration, error)); ok {
+		return rf(ctx, bucket, cfg)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, nexoadmin.ReplicationConfiguration) *nexoadmin.ReplicationConfiguration); ok {
+		r0 = rf(ctx, bucket, cfg)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.ReplicationConfiguration)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, nexoadmin.ReplicationConfiguration) error); ok {
+		r1 = rf(ctx, bucket, cfg)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_SetBucketReplication_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetBucketReplication'
+type AdminClient_SetBucketReplication_Call struct {
+	*mock.Call
+}
+
+// SetBucketReplication is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - cfg nexoadmin.ReplicationConfiguration
+func (_e *AdminClient_Expecter) SetBucketReplication(ctx interface{}, bucket interface{}, cfg interface{}) *AdminClient_SetBucketReplication_Call {
+	return &AdminClient_SetBucketReplication_Call{Call: _e.mock.On("SetBucketReplication", ctx, bucket, cfg)}
+}
+
+func (_c *AdminClient_SetBucketReplication_Call) Run(run func(ctx context.Context, bucket string, cfg nexoadmin.ReplicationConfiguration)) *AdminClient_SetBucketReplication_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(nexoadmin.ReplicationConfiguration))
+	})
+	return _c
+}
+
+func (_c *AdminClient_SetBucketReplication_Call) Return(_a0 *nexoadmin.ReplicationConfiguration, _a1 error) *AdminClient_SetBucketReplication_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_SetBucketReplication_Call) RunAndReturn(run func(context.Context, string, nexoadmin.ReplicationConfiguration) (*nexoadmin.ReplicationConfiguration, error)) *AdminClient_SetBucketReplication_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SetCacheSettings provides a mock function with given fields: ctx, s, ifMatch
 func (_m *AdminClient) SetCacheSettings(ctx context.Context, s nexoadmin.CacheGlobalSettings, ifMatch string) (*nexoadmin.CacheGlobalSettings, error) {
 	ret := _m.Called(ctx, s, ifMatch)
@@ -6412,6 +7342,66 @@ func (_c *AdminClient_SetDistributionCache_Call) Return(_a0 *nexoadmin.Distribut
 }
 
 func (_c *AdminClient_SetDistributionCache_Call) RunAndReturn(run func(context.Context, nexoadmin.DistributionCache, string) (*nexoadmin.DistributionCache, error)) *AdminClient_SetDistributionCache_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetReplicationTarget provides a mock function with given fields: ctx, bucket, t
+func (_m *AdminClient) SetReplicationTarget(ctx context.Context, bucket string, t nexoadmin.ReplicationTarget) (*nexoadmin.ReplicationTarget, error) {
+	ret := _m.Called(ctx, bucket, t)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetReplicationTarget")
+	}
+
+	var r0 *nexoadmin.ReplicationTarget
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, nexoadmin.ReplicationTarget) (*nexoadmin.ReplicationTarget, error)); ok {
+		return rf(ctx, bucket, t)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, nexoadmin.ReplicationTarget) *nexoadmin.ReplicationTarget); ok {
+		r0 = rf(ctx, bucket, t)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.ReplicationTarget)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, nexoadmin.ReplicationTarget) error); ok {
+		r1 = rf(ctx, bucket, t)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_SetReplicationTarget_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetReplicationTarget'
+type AdminClient_SetReplicationTarget_Call struct {
+	*mock.Call
+}
+
+// SetReplicationTarget is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - t nexoadmin.ReplicationTarget
+func (_e *AdminClient_Expecter) SetReplicationTarget(ctx interface{}, bucket interface{}, t interface{}) *AdminClient_SetReplicationTarget_Call {
+	return &AdminClient_SetReplicationTarget_Call{Call: _e.mock.On("SetReplicationTarget", ctx, bucket, t)}
+}
+
+func (_c *AdminClient_SetReplicationTarget_Call) Run(run func(ctx context.Context, bucket string, t nexoadmin.ReplicationTarget)) *AdminClient_SetReplicationTarget_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(nexoadmin.ReplicationTarget))
+	})
+	return _c
+}
+
+func (_c *AdminClient_SetReplicationTarget_Call) Return(_a0 *nexoadmin.ReplicationTarget, _a1 error) *AdminClient_SetReplicationTarget_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_SetReplicationTarget_Call) RunAndReturn(run func(context.Context, string, nexoadmin.ReplicationTarget) (*nexoadmin.ReplicationTarget, error)) *AdminClient_SetReplicationTarget_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -6595,6 +7585,263 @@ func (_c *AdminClient_Speedtest_Call) RunAndReturn(run func(context.Context, str
 	return _c
 }
 
+// StartRebalance provides a mock function with given fields: ctx
+func (_m *AdminClient) StartRebalance(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StartRebalance")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_StartRebalance_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StartRebalance'
+type AdminClient_StartRebalance_Call struct {
+	*mock.Call
+}
+
+// StartRebalance is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) StartRebalance(ctx interface{}) *AdminClient_StartRebalance_Call {
+	return &AdminClient_StartRebalance_Call{Call: _e.mock.On("StartRebalance", ctx)}
+}
+
+func (_c *AdminClient_StartRebalance_Call) Run(run func(ctx context.Context)) *AdminClient_StartRebalance_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_StartRebalance_Call) Return(_a0 error) *AdminClient_StartRebalance_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_StartRebalance_Call) RunAndReturn(run func(context.Context) error) *AdminClient_StartRebalance_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// StartReplicationResync provides a mock function with given fields: ctx, bucket, target
+func (_m *AdminClient) StartReplicationResync(ctx context.Context, bucket string, target string) (*nexoadmin.ReplicationResync, error) {
+	ret := _m.Called(ctx, bucket, target)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StartReplicationResync")
+	}
+
+	var r0 *nexoadmin.ReplicationResync
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) (*nexoadmin.ReplicationResync, error)); ok {
+		return rf(ctx, bucket, target)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) *nexoadmin.ReplicationResync); ok {
+		r0 = rf(ctx, bucket, target)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.ReplicationResync)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, bucket, target)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_StartReplicationResync_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StartReplicationResync'
+type AdminClient_StartReplicationResync_Call struct {
+	*mock.Call
+}
+
+// StartReplicationResync is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - target string
+func (_e *AdminClient_Expecter) StartReplicationResync(ctx interface{}, bucket interface{}, target interface{}) *AdminClient_StartReplicationResync_Call {
+	return &AdminClient_StartReplicationResync_Call{Call: _e.mock.On("StartReplicationResync", ctx, bucket, target)}
+}
+
+func (_c *AdminClient_StartReplicationResync_Call) Run(run func(ctx context.Context, bucket string, target string)) *AdminClient_StartReplicationResync_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_StartReplicationResync_Call) Return(_a0 *nexoadmin.ReplicationResync, _a1 error) *AdminClient_StartReplicationResync_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_StartReplicationResync_Call) RunAndReturn(run func(context.Context, string, string) (*nexoadmin.ReplicationResync, error)) *AdminClient_StartReplicationResync_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// StartUpdate provides a mock function with given fields: ctx, in
+func (_m *AdminClient) StartUpdate(ctx context.Context, in nexoadmin.UpdateRequest) (*nexoadmin.UpdateJob, error) {
+	ret := _m.Called(ctx, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StartUpdate")
+	}
+
+	var r0 *nexoadmin.UpdateJob
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, nexoadmin.UpdateRequest) (*nexoadmin.UpdateJob, error)); ok {
+		return rf(ctx, in)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, nexoadmin.UpdateRequest) *nexoadmin.UpdateJob); ok {
+		r0 = rf(ctx, in)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.UpdateJob)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, nexoadmin.UpdateRequest) error); ok {
+		r1 = rf(ctx, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_StartUpdate_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StartUpdate'
+type AdminClient_StartUpdate_Call struct {
+	*mock.Call
+}
+
+// StartUpdate is a helper method to define mock.On call
+//   - ctx context.Context
+//   - in nexoadmin.UpdateRequest
+func (_e *AdminClient_Expecter) StartUpdate(ctx interface{}, in interface{}) *AdminClient_StartUpdate_Call {
+	return &AdminClient_StartUpdate_Call{Call: _e.mock.On("StartUpdate", ctx, in)}
+}
+
+func (_c *AdminClient_StartUpdate_Call) Run(run func(ctx context.Context, in nexoadmin.UpdateRequest)) *AdminClient_StartUpdate_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(nexoadmin.UpdateRequest))
+	})
+	return _c
+}
+
+func (_c *AdminClient_StartUpdate_Call) Return(_a0 *nexoadmin.UpdateJob, _a1 error) *AdminClient_StartUpdate_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_StartUpdate_Call) RunAndReturn(run func(context.Context, nexoadmin.UpdateRequest) (*nexoadmin.UpdateJob, error)) *AdminClient_StartUpdate_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// StopCluster provides a mock function with given fields: ctx
+func (_m *AdminClient) StopCluster(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StopCluster")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_StopCluster_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StopCluster'
+type AdminClient_StopCluster_Call struct {
+	*mock.Call
+}
+
+// StopCluster is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) StopCluster(ctx interface{}) *AdminClient_StopCluster_Call {
+	return &AdminClient_StopCluster_Call{Call: _e.mock.On("StopCluster", ctx)}
+}
+
+func (_c *AdminClient_StopCluster_Call) Run(run func(ctx context.Context)) *AdminClient_StopCluster_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_StopCluster_Call) Return(_a0 error) *AdminClient_StopCluster_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_StopCluster_Call) RunAndReturn(run func(context.Context) error) *AdminClient_StopCluster_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// StopRebalance provides a mock function with given fields: ctx
+func (_m *AdminClient) StopRebalance(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StopRebalance")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_StopRebalance_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StopRebalance'
+type AdminClient_StopRebalance_Call struct {
+	*mock.Call
+}
+
+// StopRebalance is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) StopRebalance(ctx interface{}) *AdminClient_StopRebalance_Call {
+	return &AdminClient_StopRebalance_Call{Call: _e.mock.On("StopRebalance", ctx)}
+}
+
+func (_c *AdminClient_StopRebalance_Call) Run(run func(ctx context.Context)) *AdminClient_StopRebalance_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_StopRebalance_Call) Return(_a0 error) *AdminClient_StopRebalance_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_StopRebalance_Call) RunAndReturn(run func(context.Context) error) *AdminClient_StopRebalance_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // StopService provides a mock function with given fields: ctx
 func (_m *AdminClient) StopService(ctx context.Context) error {
 	ret := _m.Called(ctx)
@@ -6637,6 +7884,52 @@ func (_c *AdminClient_StopService_Call) Return(_a0 error) *AdminClient_StopServi
 }
 
 func (_c *AdminClient_StopService_Call) RunAndReturn(run func(context.Context) error) *AdminClient_StopService_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SyncSiteReplication provides a mock function with given fields: ctx
+func (_m *AdminClient) SyncSiteReplication(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SyncSiteReplication")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_SyncSiteReplication_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SyncSiteReplication'
+type AdminClient_SyncSiteReplication_Call struct {
+	*mock.Call
+}
+
+// SyncSiteReplication is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) SyncSiteReplication(ctx interface{}) *AdminClient_SyncSiteReplication_Call {
+	return &AdminClient_SyncSiteReplication_Call{Call: _e.mock.On("SyncSiteReplication", ctx)}
+}
+
+func (_c *AdminClient_SyncSiteReplication_Call) Run(run func(ctx context.Context)) *AdminClient_SyncSiteReplication_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_SyncSiteReplication_Call) Return(_a0 error) *AdminClient_SyncSiteReplication_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_SyncSiteReplication_Call) RunAndReturn(run func(context.Context) error) *AdminClient_SyncSiteReplication_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -7295,6 +8588,64 @@ func (_c *AdminClient_UpdateGroup_Call) Return(_a0 *nexoadmin.Group, _a1 error) 
 }
 
 func (_c *AdminClient_UpdateGroup_Call) RunAndReturn(run func(context.Context, string, nexoadmin.UpdateGroupRequest) (*nexoadmin.Group, error)) *AdminClient_UpdateGroup_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// UpdateStatus provides a mock function with given fields: ctx
+func (_m *AdminClient) UpdateStatus(ctx context.Context) (*nexoadmin.UpdateJob, error) {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateStatus")
+	}
+
+	var r0 *nexoadmin.UpdateJob
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (*nexoadmin.UpdateJob, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) *nexoadmin.UpdateJob); ok {
+		r0 = rf(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.UpdateJob)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_UpdateStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateStatus'
+type AdminClient_UpdateStatus_Call struct {
+	*mock.Call
+}
+
+// UpdateStatus is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *AdminClient_Expecter) UpdateStatus(ctx interface{}) *AdminClient_UpdateStatus_Call {
+	return &AdminClient_UpdateStatus_Call{Call: _e.mock.On("UpdateStatus", ctx)}
+}
+
+func (_c *AdminClient_UpdateStatus_Call) Run(run func(ctx context.Context)) *AdminClient_UpdateStatus_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *AdminClient_UpdateStatus_Call) Return(_a0 *nexoadmin.UpdateJob, _a1 error) *AdminClient_UpdateStatus_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_UpdateStatus_Call) RunAndReturn(run func(context.Context) (*nexoadmin.UpdateJob, error)) *AdminClient_UpdateStatus_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -313,6 +313,92 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   groups named like their groups at the provider, resolved again at each request; a user mapping to no policy is
   refused. The console session of a federated user is backed by such credentials, never handed to the browser.
 
+### Pool decommission and rebalance (S-STO-09, S-STO-10, C-ADM-10, D-CLU-03)
+- `nexoctl admin decommission start|status|cancel` (`admin:Decommission`) drains a pool so that it can be removed
+  from the command line: the pool takes no new objects, versions or multipart uploads, and a job on the leader moves
+  every version of its objects (delete markers included) to the other pools. Each key is copied as stored, read back
+  and compared, committed and verified under its write lock, and only then removed from the pool; a key changed
+  meanwhile or not moved is retried by the next pass. The progress survives restarts and leader changes. The first
+  pool, which holds the system documents, cannot be decommissioned.
+- `nexoctl admin rebalance start|stop|status` (`admin:Rebalance`) moves objects from the pools fuller than the average
+  to the emptier ones.
+- Admin API `GET /pools`, `POST/DELETE /pools/{pool}/decommission`, `POST/DELETE /rebalance`; the console shows the
+  pools, their usage and both jobs on the Cluster page.
+
+### Bucket replication (S-BKT-12, D-BKT-05)
+- Asynchronous replication of buckets to buckets of other S3 servers, per rule (prefix, tags, priority), with the
+  version id, the modification time and the ETag of the source; delete markers, permanent deletions (opt-in) and
+  tag changes follow. Two buckets replicating to each other converge (active-active): replicas are never sent
+  back and the most recent version wins on both sides.
+- Persistent per-node queue with retries (exponential backoff), `x-amz-replication-status` on HEAD/GET (`PENDING`,
+  `COMPLETED`, `FAILED`, `REPLICA`), resync of the versions written before a rule (`--existing`).
+- S3 API `PUT/GET/DELETE /{bucket}?replication`; Admin API `/buckets/{bucket}/replication`, `/targets`, `/status`,
+  `/resync`; new policy actions `admin:SetBucketTarget`, `admin:GetBucketTarget`, `s3:ResetBucketReplicationState`,
+  `s3:ReplicateObject`, `s3:ReplicateDelete`, `s3:ReplicateTags`.
+- `nexoctl replicate add|ls|rm|status|resync` (the remote is an alias of nexoctl) and the **Replication** tab of the
+  bucket in the console. Versioning cannot be suspended while a bucket has replication rules.
+
+### Site replication (S-STO-11, C-ADM-11)
+- `nexoctl admin replicate add|info|remove|sync` groups deployments sharing the root credentials: users, groups,
+  access keys, named policies and buckets with their settings are kept in sync by a three-way merge with the last
+  agreed state (the newest change wins, a change beats a deletion, the first round only adds), and every bucket
+  replicates its objects to the same bucket of every other site (`site-<name>` rules, existing objects resynced).
+- Admin API `/site-replication` (and the calls between the sites under `/site-replication/peer`, root only, with
+  sealed entries); policy actions `admin:SiteReplicationAdd`, `admin:SiteReplicationInfo`,
+  `admin:SiteReplicationRemove`, `admin:SiteReplicationOperation`; a **Site replication** panel on the Cluster page
+  of the console.
+
+### Remote tiers (S-STO-12, S-BKT-07 transitions)
+- The `Transition` and `NoncurrentVersionTransition` lifecycle actions move the data of old versions to a remote
+  tier: an S3 bucket of another server (`nexoctl admin tier add|ls|edit|rm`, Admin API `/tiers`, policy actions
+  `admin:ListTier` and `admin:SetTier`, a **Remote tiers** panel on the Cluster page of the console). The name of
+  the tier is the storage class the rules name; a rule naming no tier is refused (`InvalidStorageClass`).
+- A transitioned version keeps its metadata on the drives and is read from its tier, whole or by range; its
+  storage class is the name of the tier and a copy onto itself brings its data back. The data is written to the
+  tier and checked before the version records it, under its write lock; the healing completes a transition
+  interrupted before the local data was released. The objects of a tier that no version refers to any more are
+  swept by the leader; a tier holding data cannot be removed.
+- `nexoctl ilm rule add|edit --transition-days`, `--noncurrent-transition-days`, `--transition-tier`.
+
+### Cluster maintenance and expansion from the console (S-OPS-09, S-STO-08)
+- **Cluster → Maintenance**: the orchestrated update of every node (binary URL and SHA-256, rolling or all at
+  once), the coordinated restart and the coordinated stop, with the last job followed node by node.
+- **Cluster → Pool management → Expand cluster**: a wizard that checks the new pools (and the removal of the
+  decommissioned ones) on the server as every node parses its command line, gives the new `NEXO_ENDPOINTS`
+  of every node and stops the cluster once the checklist is confirmed. Admin API `POST /pools/plan`
+  (`admin:ServerInfo`), `nexoadmin.PlanPools`.
+- The strings of the cluster pages (pools, healing, maintenance) load with the page: the initial bundle of the
+  console is back within its 300 KiB budget.
+
+### Kubernetes operator (S-OPS-16)
+- `nexo-operator` (module `operator/`, image built by `Dockerfile.operator`, manifests in `deploy/operator`:
+  `kubectl apply -k deploy/operator`) reconciles `NexoCluster` resources (`nexo.r3n3r0.github.io/v1alpha1`): a
+  StatefulSet per pool, the headless, S3 and console Services and a PodDisruptionBudget, the root credentials,
+  the KMS key and the TLS certificate from Secrets.
+- The pods are replaced by the operator (`OnDelete`): one at a time once every pod is ready and
+  `/nexo/health/cluster` allows a maintenance (`Rolling`), or together (`AllAtOnce`, and always for a new pool or
+  new credentials, which every node must share).
+- A pool is never resized (validated by the API) and is removed only when confirmed decommissioned
+  (`nexo.r3n3r0.github.io/decommissioned-pools`); the PersistentVolumeClaims of the drives are never deleted.
+- Released with the server: image `docker.io/paolor/nexo-operator` (multi-arch, signed, SBOM and provenance) and
+  `nexo-operator.yaml` attached to the release with the image pinned to the tag
+  (`kubectl apply --server-side -f .../releases/download/vX.Y.Z/nexo-operator.yaml`); `nexo-operator -version`.
+- Tested against a real API server (envtest): creation, rolling and all-at-once updates, pool expansion and
+  removal, the sample manifest; `make operator-test`, `make operator-check`, CI job `operator`.
+
+### Orchestrated update and coordinated restart (S-OPS-09, C-ADM-09)
+- `nexoctl admin update ALIAS URL --sha256 HEX` (Admin API `POST|GET /service/update`, policy action
+  `admin:ServerUpdate`) updates the binary of every node: each node downloads it next to the one it runs,
+  verifies its SHA-256 and its version (all or nothing), then the nodes restart with it one at a time, each once
+  the deployment can lose a node and the previous one is back with the new version, the node answering last
+  (`--all-at-once`: every node together, required for a new major version). The process replaces itself in place
+  (same PID, arguments and environment) and keeps the previous binary as `<binary>.old`, put back on Unix when
+  the new one cannot be executed. The job is kept in the system store and completed by the next run of the node
+  that orchestrated it.
+- `nexoctl admin service restart|stop --cluster` (`POST /service/cluster/restart|stop`): a rolling (or
+  `--all-at-once`) restart of every node, a stop of every node.
+- Tested end to end with four processes under load (`test/upgrade`, `TestOrchestratedUpdate`).
+
 ### Transparent compression (opt-in, S-OBJ-14)
 - `compression` configuration subsystem (`enable`, `extensions`, `mime_types`, applied to the next writes): the
   selected unencrypted versions are stored as S2 streams, one per part, with the block index of each part in its
@@ -415,8 +501,14 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
 ### Known limitations
 - Rate limits are per node (no cluster-wide counter) and bound requests, not bandwidth or connections: keep a
   reverse proxy with connection limits in front of public deployments (`deploy/proxy`).
-- Not included (M10): bucket and site replication, pool decommission and rebalance, OIDC and LDAP, tiering, S3
-  Select, compression, ACLs other than `private`, coordinated cluster restart and orchestrated upgrade. The
+- Bucket replication: SSE-C versions are not replicated, the status counters are per node, the targets are not
+  part of the cluster export and must be registered again after a change of the root password.
+- Site replication: a bucket is deleted on the other sites only once empty there; the share links of a deleted
+  user are not revoked on the other sites.
+- Remote tiers: `RestoreObject` is not supported (a copy of the object onto itself brings its data back); a version
+  whose tier is unreachable cannot be read until the tier comes back.
+- Not included (M10): ACLs other than `private`, coordinated cluster restart
+  and orchestrated upgrade. The
   DNS-01 propagation check does not follow a CNAME delegation of `_acme-challenge` (acme-dns style).
 - O_DIRECT is not used (measured slower on the reference VM, docs/bench §7.2); zero-copy covers single-drive
   downloads over HTTP/1.1 without TLS only.

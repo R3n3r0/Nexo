@@ -43,6 +43,15 @@ type AdminClient interface {
 	CompactMetadataLog(ctx context.Context) (*MetadataLogCompaction, error)
 	RestartService(ctx context.Context) error
 	StopService(ctx context.Context) error
+	// StartUpdate updates the binary of every node, UpdateStatus returns
+	// the last update or coordinated restart (S-OPS-09,
+	// admin:ServerUpdate, admin:ServerInfo); the jobs run in the
+	// background. RestartCluster restarts every node ("rolling" or "all"),
+	// StopCluster stops them (admin:ServiceRestart, admin:ServiceStop).
+	StartUpdate(ctx context.Context, in UpdateRequest) (*UpdateJob, error)
+	UpdateStatus(ctx context.Context) (*UpdateJob, error)
+	RestartCluster(ctx context.Context, mode string) (*UpdateJob, error)
+	StopCluster(ctx context.Context) error
 	// Profile collects a runtime profile of the node that serves the
 	// request; Speedtest runs a speed test (SpeedtestDrive,
 	// SpeedtestObject, SpeedtestNet) on it.
@@ -209,6 +218,33 @@ type AdminClient interface {
 	ListLocks(ctx context.Context) ([]Lock, error)
 	ForceUnlock(ctx context.Context, resources ...string) error
 
+	// Server pools (admin decommission, admin rebalance): pool is the
+	// 1-based position of the pool in the command line. Single-drive
+	// deployments answer 501.
+	ListPools(ctx context.Context) (*Pools, error)
+	DecommissionPool(ctx context.Context, pool int) error
+	CancelDecommission(ctx context.Context, pool int) error
+	StartRebalance(ctx context.Context) error
+	StopRebalance(ctx context.Context) error
+	// PlanPools checks a change of the pools (new pools appended, pools
+	// removed once decommissioned) as every node parses its command line,
+	// and returns the new command line. It changes nothing.
+	PlanPools(ctx context.Context, in PoolPlanInput) (*PoolPlan, error)
+
+	// Bucket replication (S-BKT-12): the targets (remote buckets, with
+	// their credentials), the rules that replicate to them, the state of
+	// the replication as the node that answers sees it, and the resyncs.
+	GetBucketReplication(ctx context.Context, bucket string) (*ReplicationConfiguration, error)
+	SetBucketReplication(ctx context.Context, bucket string, cfg ReplicationConfiguration) (*ReplicationConfiguration, error)
+	DeleteBucketReplication(ctx context.Context, bucket string) error
+	ListReplicationTargets(ctx context.Context, bucket string) ([]ReplicationTarget, error)
+	// SetReplicationTarget creates a target (t.ARN empty) or replaces one;
+	// the server checks the remote bucket first.
+	SetReplicationTarget(ctx context.Context, bucket string, t ReplicationTarget) (*ReplicationTarget, error)
+	RemoveReplicationTarget(ctx context.Context, bucket, arn string) error
+	GetReplicationStatus(ctx context.Context, bucket string) (*ReplicationStatus, error)
+	StartReplicationResync(ctx context.Context, bucket, target string) (*ReplicationResync, error)
+
 	// KMS of the server-side encryption (admin:KMSKeyStatus,
 	// admin:KMSCreateKey): without KMS configured the server answers 501.
 	KMSStatus(ctx context.Context) (*KMSStatus, error)
@@ -315,6 +351,32 @@ type AdminClient interface {
 	ListCacheInvalidations(ctx context.Context, distribution string) ([]CacheInvalidation, error)
 	WarmCache(ctx context.Context, distribution string, in CacheWarmRequest) (*CacheWarmJob, error)
 	GetCacheWarmJob(ctx context.Context, distribution, id string) (*CacheWarmJob, error)
+
+	// Site replication (S-STO-11, admin:SiteReplicationInfo/Add/Remove).
+	GetSiteReplication(ctx context.Context) (*SiteReplicationInfo, error)
+	// AddSiteReplication groups the sites (this one among them): their
+	// users, groups, access keys, policies and buckets are kept in sync.
+	// Every site must accept the root credentials of this one.
+	AddSiteReplication(ctx context.Context, sites []SiteReplicationSite) (*SiteReplicationInfo, error)
+	// RemoveSiteReplication dissolves the group on every site it reaches.
+	RemoveSiteReplication(ctx context.Context) error
+	// SyncSiteReplication runs a synchronization now.
+	SyncSiteReplication(ctx context.Context) error
+	// The calls between the sites of a group (root credentials only).
+	SiteReplicationPeerInfo(ctx context.Context) (*SiteReplicationPeer, error)
+	JoinSiteReplication(ctx context.Context, sites []SiteReplicationSite) error
+	LeaveSiteReplication(ctx context.Context) error
+	SiteReplicationState(ctx context.Context) (*SiteReplicationState, error)
+	SiteReplicationItems(ctx context.Context, keys []string) ([]byte, error)
+	SiteReplicationApply(ctx context.Context, sealed []byte) ([]SiteReplicationResult, error)
+
+	// Remote tiers of the lifecycle transitions (S-STO-12,
+	// admin:ListTier/SetTier). AddTier checks the remote bucket with the
+	// credentials; RemoveTier refuses a tier that holds data.
+	ListTiers(ctx context.Context) ([]Tier, error)
+	AddTier(ctx context.Context, in TierInput) (*Tier, error)
+	EditTier(ctx context.Context, name string, in TierInput) (*Tier, error)
+	RemoveTier(ctx context.Context, name string) error
 }
 
 // DefaultRegion is the signing region when Config.Region is empty.

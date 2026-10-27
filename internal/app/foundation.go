@@ -25,6 +25,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/metrics"
 	"github.com/r3n3r0/nexo/internal/service/storage"
 	"github.com/r3n3r0/nexo/internal/service/topology"
+	"github.com/r3n3r0/nexo/internal/service/update"
 	"github.com/r3n3r0/nexo/internal/transport/http/s3"
 	"github.com/r3n3r0/nexo/internal/transport/rpc"
 	"github.com/r3n3r0/nexo/internal/version"
@@ -90,6 +91,11 @@ type foundation struct {
 	// §11.4).
 	cacheNode  *cacheNodeHolder
 	cachePeers []cache.Peer
+	// updateNode serves the update agent of this node to its peers once it
+	// is composed; updatePeers are the agents of the other nodes
+	// (S-OPS-09).
+	updateNode  *updateHolder
+	updatePeers []update.Agent
 }
 
 // distributed reports a cluster deployment.
@@ -321,6 +327,11 @@ func (f *foundation) openDistributed(d foundationDeps) error {
 			return err
 		}
 		peers = append(peers, p)
+		up, err := rpc.NewUpdateClient(rpc.UpdateClientDeps{Conn: conn})
+		if err != nil {
+			return err
+		}
+		f.updatePeers = append(f.updatePeers, up)
 		bp, err := rpc.NewBootstrapClient(rpc.BootstrapClientDeps{Conn: conn})
 		if err != nil {
 			return err
@@ -416,6 +427,11 @@ func (f *foundation) openDistributed(d foundationDeps) error {
 	if err != nil {
 		return err
 	}
+	f.updateNode = &updateHolder{}
+	updateRoutes, err := rpc.NewUpdateRoutes(rpc.UpdateRoutesDeps{Agent: f.updateNode})
+	if err != nil {
+		return err
+	}
 	f.peers = peers
 	obsRoutes, err := f.openObservability(logger)
 	if err != nil {
@@ -430,7 +446,7 @@ func (f *foundation) openDistributed(d foundationDeps) error {
 		serverOpts = append(serverOpts, rpc.WithClientCertRequired(), rpc.WithClientCertHosts(endpointHosts(d.layout)...))
 	}
 	f.rpc, err = rpc.NewServer(rpc.ServerDeps{Auth: f.auth, Metrics: f.registry, Clock: d.clock, Logger: logger,
-		Routes: []rpc.Routes{storageRoutes, lockRoutes, peerRoutes, bootRoutes, cacheRoutes, obsRoutes}}, serverOpts...)
+		Routes: []rpc.Routes{storageRoutes, lockRoutes, peerRoutes, bootRoutes, cacheRoutes, obsRoutes, updateRoutes}}, serverOpts...)
 	return err
 }
 

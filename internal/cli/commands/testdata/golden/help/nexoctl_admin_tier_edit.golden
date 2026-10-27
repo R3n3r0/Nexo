@@ -1,0 +1,19 @@
+Replace the credentials (and the region) of a tier with those of REMOTE_ALIAS, checked first;
+the endpoint, the bucket and the prefix of a tier never change.
+
+Usage:
+  nexoctl admin tier edit ALIAS NAME REMOTE_ALIAS [flags]
+
+Examples:
+  nexoctl admin tier edit myminio COLD archive-rotated
+
+Flags:
+  -h, --help                   help for edit
+      --storage-class string   new storage class of the remote objects
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)

@@ -61,7 +61,8 @@ func TestLifecycleExpiration(t *testing.T) {
 		Filter:      &types.LifecycleRuleFilter{Prefix: aws.String("")},
 		Transitions: []types.Transition{{Days: aws.Int32(30), StorageClass: types.TransitionStorageClassGlacier}}})
 	require.Error(t, err)
-	assert.Equal(t, http.StatusNotImplemented, httpStatus(err), "no remote tier: %v", err)
+	assert.Equal(t, http.StatusBadRequest, httpStatus(err), "no remote tier: %v", err)
+	assert.Equal(t, "InvalidStorageClass", apiCode(err))
 	err = e.putLifecycle(bucket, types.LifecycleRule{ID: aws.String("zero"), Status: types.ExpirationStatusEnabled,
 		Filter: &types.LifecycleRuleFilter{Prefix: aws.String("")}, Expiration: &types.LifecycleExpiration{Days: aws.Int32(0)}})
 	assert.Equal(t, "InvalidArgument", apiCode(err))

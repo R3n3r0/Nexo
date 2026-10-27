@@ -200,9 +200,10 @@ nexo server "http://nexo{1...4}.lan:9000/mnt/disk{1...4}" "http://nexo{5...8}.la
 
 Gli oggetti esistenti restano nel loro pool (anche le sovrascritture); i nuovi oggetti vanno nei pool in
 proporzione allo spazio libero. La procedura completa è in
-[Aggiornamento ed espansione](operations/upgrade-expansion.md#espansione-con-un-nuovo-pool). La
-dismissione di un pool e il ribilanciamento tra pool non sono ancora disponibili (pianificati dopo la
-v1.0).
+[Aggiornamento ed espansione](operations/upgrade-expansion.md#espansione-con-un-nuovo-pool). Per
+distribuire gli oggetti esistenti anche sul nuovo pool, o per ritirare un pool, vedi
+[Ribilanciamento](operations/upgrade-expansion.md#ribilanciamento-tra-pool) e
+[Dismissione di un pool](operations/upgrade-expansion.md#dismissione-di-un-pool).
 
 ## Da una modalità all'altra
 

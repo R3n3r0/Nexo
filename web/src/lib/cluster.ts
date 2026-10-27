@@ -14,6 +14,9 @@ export const healKeys = {
   job: (id: string) => ['heal', 'jobs', id] as const,
 };
 
+/** TanStack Query key of the pools (GET /pools). */
+export const poolsQueryKey = ['pools'] as const;
+
 /** Polling of the cluster pages: fast while something changes, slow otherwise. */
 export const clusterRefreshMs = 5_000;
 export const healRunningRefreshMs = 1_000;

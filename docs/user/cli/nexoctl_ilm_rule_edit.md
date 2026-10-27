@@ -21,20 +21,23 @@ nexoctl ilm rule edit --id ID [flags] ALIAS/BUCKET
 ## Options
 
 ```
-      --abort-mpu-days int           abort the incomplete multipart uploads this many days after their start
-      --disable                      disable the rule
-      --enable                       enable the rule
-      --expire-date string           expire the current versions on this date (YYYY-MM-DD)
-      --expire-days int              expire the current versions this many days after their creation
-      --expired-delete-marker        remove the delete markers without noncurrent versions
-  -h, --help                         help for edit
-      --id string                    ID of the rule to edit (required)
-      --newer-noncurrent int         keep this many newest noncurrent versions
-      --noncurrent-expire-days int   remove the noncurrent versions this many days after they became noncurrent
-      --prefix string                apply to the objects under this prefix
-      --size-gt string               apply to the objects larger than this size (e.g. 1MiB)
-      --size-lt string               apply to the objects smaller than this size
-      --tags string                  apply to the objects with these tags: "key1=value1&key2=value2"
+      --abort-mpu-days int               abort the incomplete multipart uploads this many days after their start
+      --disable                          disable the rule
+      --enable                           enable the rule
+      --expire-date string               expire the current versions on this date (YYYY-MM-DD)
+      --expire-days int                  expire the current versions this many days after their creation
+      --expired-delete-marker            remove the delete markers without noncurrent versions
+  -h, --help                             help for edit
+      --id string                        ID of the rule to edit (required)
+      --newer-noncurrent int             keep this many newest noncurrent versions
+      --noncurrent-expire-days int       remove the noncurrent versions this many days after they became noncurrent
+      --noncurrent-transition-days int   move the noncurrent versions to the tier this many days after they became noncurrent (-1 removes)
+      --prefix string                    apply to the objects under this prefix
+      --size-gt string                   apply to the objects larger than this size (e.g. 1MiB)
+      --size-lt string                   apply to the objects smaller than this size
+      --tags string                      apply to the objects with these tags: "key1=value1&key2=value2"
+      --transition-days int              move the current versions to the tier this many days after their creation (-1 removes)
+      --transition-tier string           remote tier (nexoctl admin tier) the transitions move the data to ("" removes them)
 ```
 
 ## Options inherited from parent commands

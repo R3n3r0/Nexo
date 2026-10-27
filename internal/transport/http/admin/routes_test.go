@@ -257,10 +257,6 @@ func TestBucketRoutes(t *testing.T) {
 		Return(&adminsvc.BucketAccess{Bucket: "b", Rules: []policy.PublicAccessRule{}}, nil)
 	rec = c.do(http.MethodDelete, "/buckets/b/access?prefix=pub/", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
-
-	// Bucket replication is P2.
-	rec = c.do(http.MethodGet, "/buckets/b/replication", nil)
-	assert.Equal(t, http.StatusNotImplemented, rec.Code)
 }
 
 // TestListDecodesOnly: the listing handler only decodes: an absent

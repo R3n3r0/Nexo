@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -537,6 +538,38 @@ func (c *client) ImportCluster(ctx context.Context, archive []byte, opts ImportC
 func (c *client) ListLocks(ctx context.Context) ([]Lock, error) {
 	var out []Lock
 	return out, c.do(ctx, request{method: http.MethodGet, path: "/locks"}, &out)
+}
+
+// ListPools implements AdminClient.
+func (c *client) ListPools(ctx context.Context) (*Pools, error) {
+	var out Pools
+	return &out, c.do(ctx, request{method: http.MethodGet, path: "/pools"}, &out)
+}
+
+// DecommissionPool implements AdminClient.
+func (c *client) DecommissionPool(ctx context.Context, pool int) error {
+	return c.do(ctx, request{method: http.MethodPost, path: "/pools/" + strconv.Itoa(pool) + "/decommission"}, nil)
+}
+
+// CancelDecommission implements AdminClient.
+func (c *client) CancelDecommission(ctx context.Context, pool int) error {
+	return c.do(ctx, request{method: http.MethodDelete, path: "/pools/" + strconv.Itoa(pool) + "/decommission"}, nil)
+}
+
+// StartRebalance implements AdminClient.
+func (c *client) StartRebalance(ctx context.Context) error {
+	return c.do(ctx, request{method: http.MethodPost, path: "/rebalance"}, nil)
+}
+
+// StopRebalance implements AdminClient.
+func (c *client) StopRebalance(ctx context.Context) error {
+	return c.do(ctx, request{method: http.MethodDelete, path: "/rebalance"}, nil)
+}
+
+// PlanPools implements AdminClient.
+func (c *client) PlanPools(ctx context.Context, in PoolPlanInput) (*PoolPlan, error) {
+	var out PoolPlan
+	return &out, c.do(ctx, request{method: http.MethodPost, path: "/pools/plan", body: in}, &out)
 }
 
 // ForceUnlock implements AdminClient.

@@ -33,8 +33,12 @@ import (
 	metricsmock "github.com/r3n3r0/nexo/internal/service/metrics/mock"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	policymock "github.com/r3n3r0/nexo/internal/service/policy/mock"
+	replmock "github.com/r3n3r0/nexo/internal/service/replication/mock"
 	"github.com/r3n3r0/nexo/internal/service/session"
+	sitemock "github.com/r3n3r0/nexo/internal/service/siterepl/mock"
+	tiermock "github.com/r3n3r0/nexo/internal/service/tier/mock"
 	tracemock "github.com/r3n3r0/nexo/internal/service/trace/mock"
+	updatemock "github.com/r3n3r0/nexo/internal/service/update/mock"
 	"github.com/r3n3r0/nexo/internal/transport/http/admin"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
@@ -60,36 +64,40 @@ type fixture struct {
 	clk     *clock.Fake
 	signer  auth.Signer
 
-	iam        *iammock.Service
-	authz      *adminmock.Authorizer
-	adm        *adminmock.Service
-	buckets    *adminmock.BucketManager
-	bucketSvc  *bucketmock.Service
-	browser    *adminmock.ObjectBrowser
-	media      *mediamock.Service
-	uploads    *adminmock.UploadManager
-	shares     *adminmock.ShareManager
-	identities *adminmock.IdentityManager
-	accessKeys *adminmock.AccessKeyManager
-	policies   *adminmock.PolicyManager
-	policy     *policymock.Service
-	config     *adminmock.ConfigManager
-	cluster    *adminmock.ClusterManager
-	lifecycle  *adminmock.LifecycleManager
-	notify     *adminmock.NotificationManager
-	cors       *adminmock.CORSManager
-	mediaCfg   *adminmock.MediaManager
-	rules      *adminmock.AccessRuleManager
-	dists      *adminmock.DistributionManager
-	certs      *adminmock.CertificateManager
-	cache      *adminmock.CacheManager
-	diag       *adminmock.Diagnostics
-	tracer     *tracemock.Service
-	logs       *logsmock.Service
-	audit      *auditmock.Service
-	history    *metricsmock.History
-	locks      *lockmock.Manager
-	sessions   session.Service
+	iam         *iammock.Service
+	authz       *adminmock.Authorizer
+	adm         *adminmock.Service
+	buckets     *adminmock.BucketManager
+	bucketSvc   *bucketmock.Service
+	browser     *adminmock.ObjectBrowser
+	media       *mediamock.Service
+	uploads     *adminmock.UploadManager
+	shares      *adminmock.ShareManager
+	identities  *adminmock.IdentityManager
+	accessKeys  *adminmock.AccessKeyManager
+	policies    *adminmock.PolicyManager
+	policy      *policymock.Service
+	config      *adminmock.ConfigManager
+	cluster     *adminmock.ClusterManager
+	lifecycle   *adminmock.LifecycleManager
+	notify      *adminmock.NotificationManager
+	cors        *adminmock.CORSManager
+	mediaCfg    *adminmock.MediaManager
+	rules       *adminmock.AccessRuleManager
+	dists       *adminmock.DistributionManager
+	certs       *adminmock.CertificateManager
+	cache       *adminmock.CacheManager
+	diag        *adminmock.Diagnostics
+	replication *replmock.Service
+	siteRepl    *sitemock.Service
+	tiers       *tiermock.Service
+	updates     *updatemock.Service
+	tracer      *tracemock.Service
+	logs        *logsmock.Service
+	audit       *auditmock.Service
+	history     *metricsmock.History
+	locks       *lockmock.Manager
+	sessions    session.Service
 
 	mu     sync.Mutex
 	deny   bool
@@ -111,7 +119,11 @@ func newFixture(t *testing.T) *fixture {
 		lifecycle: adminmock.NewLifecycleManager(t), notify: adminmock.NewNotificationManager(t), cors: adminmock.NewCORSManager(t), mediaCfg: adminmock.NewMediaManager(t),
 		rules: adminmock.NewAccessRuleManager(t), dists: adminmock.NewDistributionManager(t), certs: adminmock.NewCertificateManager(t),
 		cache: adminmock.NewCacheManager(t), diag: adminmock.NewDiagnostics(t), catalog: adminsvc.CatalogActions(),
-		tracer: tracemock.NewService(t), logs: logsmock.NewService(t), audit: auditmock.NewService(t), history: metricsmock.NewHistory(t),
+		replication: replmock.NewService(t),
+		siteRepl:    sitemock.NewService(t),
+		tiers:       tiermock.NewService(t),
+		updates:     updatemock.NewService(t),
+		tracer:      tracemock.NewService(t), logs: logsmock.NewService(t), audit: auditmock.NewService(t), history: metricsmock.NewHistory(t),
 	}
 	f.iam.EXPECT().LookupCredentials(mock.Anything, mock.Anything).RunAndReturn(
 		func(_ context.Context, key string) (domain.Credentials, domain.Identity, error) {
@@ -174,6 +186,14 @@ func newFixture(t *testing.T) *fixture {
 	require.NoError(t, err)
 	mediaRoutes, err := admin.NewMediaRoutes(admin.MediaDeps{Media: f.mediaCfg, Authz: f.authz, Enc: enc})
 	require.NoError(t, err)
+	replicationRoutes, err := admin.NewReplicationRoutes(admin.ReplicationDeps{Replication: f.replication, Buckets: f.bucketSvc, Authz: f.authz, Enc: enc})
+	require.NoError(t, err)
+	siteRoutes, err := admin.NewSiteReplicationRoutes(admin.SiteReplicationDeps{SiteReplication: f.siteRepl, Authz: f.authz, Enc: enc})
+	require.NoError(t, err)
+	tierRoutes, err := admin.NewTierRoutes(admin.TierDeps{Tiers: f.tiers, Authz: f.authz, Enc: enc})
+	require.NoError(t, err)
+	updateRoutes, err := admin.NewUpdateRoutes(admin.UpdateDeps{Updates: f.updates, Authz: f.authz, Enc: enc})
+	require.NoError(t, err)
 	accessRuleRoutes, err := admin.NewAccessRuleRoutes(admin.AccessRuleDeps{Rules: f.rules, Authz: f.authz, Enc: enc})
 	require.NoError(t, err)
 	distributionRoutes, err := admin.NewDistributionRoutes(admin.DistributionDeps{Distributions: f.dists, Authz: f.authz, Enc: enc})
@@ -189,7 +209,7 @@ func newFixture(t *testing.T) *fixture {
 	require.NoError(t, err)
 	f.groups = []admin.Routes{sessionRoutes, infoRoutes, userRoutes, policyRoutes, bucketRoutes, objectRoutes, shareRoutes, configRoutes, clusterRoutes,
 		lifecycleRoutes, notificationRoutes, corsRoutes, mediaRoutes, kmsRoutes, accessRuleRoutes, distributionRoutes, certificateRoutes, cacheRoutes,
-		diagnosticsRoutes, observabilityRoutes}
+		diagnosticsRoutes, observabilityRoutes, replicationRoutes, siteRoutes, tierRoutes, updateRoutes}
 
 	r := chi.NewRouter()
 	api, err := admin.NewAPI(admin.APIDeps{Enc: enc, Auth: authn}, f.groups...)

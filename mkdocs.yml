@@ -91,6 +91,7 @@ plugins:
             Trace, logs and audit: Trace, log e audit
             Healing and disks: Healing e dischi
             Upgrade and expansion: Aggiornamento ed espansione
+            Kubernetes operator: Operatore Kubernetes
             Backup and migration: Backup e migrazione
             Troubleshooting: Risoluzione dei problemi
             Security: Sicurezza
@@ -143,6 +144,7 @@ nav:
       - Trace, logs and audit: operations/trace-log-audit.md
       - Healing and disks: operations/healing-disks.md
       - Upgrade and expansion: operations/upgrade-expansion.md
+      - Kubernetes operator: kubernetes-operator.md
       - Backup and migration: operations/backup-migration.md
       - Metadata log: operations/metadata-log.md
       - Troubleshooting: operations/troubleshooting.md
@@ -159,6 +161,9 @@ nav:
       - Events and lifecycle: events-lifecycle.md
       - Video streaming: video-streaming.md
       - Media worker: media-worker.md
+      - Bucket replication: replication.md
+      - Site replication: site-replication.md
+      - Remote tiers: tiering.md
   - Reference:
       - CLI: reference/cli.md
       - nexoctl commands: cli/nexoctl.md

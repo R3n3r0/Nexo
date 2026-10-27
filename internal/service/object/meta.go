@@ -43,6 +43,12 @@ const (
 	// a retried completion of that upload (its response lost) answers
 	// with the version instead of NoSuchUpload. It is internal.
 	metaUploadID = "x-nexo-internal-upload-id"
+	// metaReplicationStatus is the replication state of the version
+	// (x-amz-replication-status, S-BKT-12); metaReplicationTargetPrefix
+	// followed by the ARN of a target its state at that destination. They
+	// are never copied.
+	metaReplicationStatus       = "x-amz-replication-status"
+	metaReplicationTargetPrefix = "x-nexo-internal-replication-"
 )
 
 // metaStamp returns the in-place update stamp of a version's metadata, 0
@@ -181,7 +187,7 @@ func objectInfo(bucket, key string, fi storage.FileInfo) domain.ObjectInfo {
 		IsDeleteMarker: fi.Deleted,
 		IsLatest:       fi.IsLatest,
 		UserMetadata:   map[string]string{},
-		Inlined:        fi.DataDir == "" && !fi.Deleted,
+		Inlined:        inlineData(fi) && !fi.Deleted,
 	}
 	if info.VersionID == "" && fi.Versioned {
 		// The null version of a versioned (or suspended) bucket is
@@ -233,6 +239,13 @@ func objectInfo(bucket, key string, fi storage.FileInfo) domain.ObjectInfo {
 			}
 		case k == metaLockLegalHold:
 			info.LegalHold = domain.LegalHoldStatus(v)
+		case k == metaReplicationStatus:
+			info.ReplicationStatus = domain.ReplicationStatus(v)
+		case strings.HasPrefix(k, metaReplicationTargetPrefix):
+			if info.ReplicationTargets == nil {
+				info.ReplicationTargets = map[string]domain.ReplicationStatus{}
+			}
+			info.ReplicationTargets[strings.TrimPrefix(k, metaReplicationTargetPrefix)] = domain.ReplicationStatus(v)
 		}
 	}
 	if !info.Checksum.IsZero() {
@@ -241,6 +254,10 @@ func objectInfo(bucket, key string, fi storage.FileInfo) domain.ObjectInfo {
 	info.Encryption = crypto.InfoOf(fi.Metadata)
 	if isMultipartETag(info.ETag) {
 		info.Parts = len(fi.Parts)
+	}
+	if tier := fi.Metadata[metaTier]; tier != "" && tiered(fi) {
+		// A transitioned version reports its tier as its storage class.
+		info.StorageClass = tier
 	}
 	if info.StorageClass == "" && !fi.Deleted {
 		info.StorageClass = domain.StorageClassStandard

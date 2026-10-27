@@ -1,0 +1,86 @@
+$ nexoctl replicate ls mem/photos
+`mem/photos` is not replicated.
+
+$ nexoctl replicate add mem/photos backup/photos
+`mem/photos` replicates to https://backup.example.test:9000/photos (rule "backup-photos").
+
+$ nexoctl replicate add mem/photos backup/photos --id docs --prefix docs/ --tags class=public&tier=hot --existing --deletes
+`mem/photos` replicates to https://backup.example.test:9000/photos (rule "docs").
+
+$ nexoctl replicate add mem/photos backup/archive --no-delete-markers --disable --json
+{"status":"success","target":"mem/photos","bucket":"photos","id":"backup-archive","priority":3,"enabled":false,"deleteMarkers":false,"deletes":false,"existing":false,"endpoint":"https://backup.example.test:9000","remoteBucket":"archive"}
+
+$ nexoctl replicate add mem/photos backup/photos --id docs --prefix docs/v2/ --tags class=public --existing
+Replication rule "docs" of `mem/photos` replaced: to https://backup.example.test:9000/photos.
+
+$ nexoctl replicate ls mem/photos
+ID                   PRIORITY REMOTE                                   SELECTS                        REPLICATES
+backup-photos        1        https://backup.example.test:9000/photos  every key                      delete markers
+docs                 2        https://backup.example.test:9000/photos  prefix docs/v2/, tag class=public delete markers, existing
+backup-archive       3        https://backup.example.test:9000/archive every key                      disabled
+
+$ nexoctl replicate ls --json mem/photos
+{"status":"success","target":"mem/photos","bucket":"photos","id":"backup-photos","priority":1,"enabled":true,"deleteMarkers":true,"deletes":false,"existing":false,"endpoint":"https://backup.example.test:9000","remoteBucket":"photos"}
+{"status":"success","target":"mem/photos","bucket":"photos","id":"docs","priority":2,"enabled":true,"prefix":"docs/v2/","tags":{"class":"public"},"deleteMarkers":true,"deletes":false,"existing":true,"endpoint":"https://backup.example.test:9000","remoteBucket":"photos"}
+{"status":"success","target":"mem/photos","bucket":"photos","id":"backup-archive","priority":3,"enabled":false,"deleteMarkers":false,"deletes":false,"existing":false,"endpoint":"https://backup.example.test:9000","remoteBucket":"archive"}
+
+$ nexoctl replicate status mem/photos
+`mem/photos` has no replication target.
+
+$ nexoctl replicate resync mem/photos backup/photos
+Resync of `mem/photos` to backup/photos started: follow it with "nexoctl replicate status mem/photos".
+
+$ nexoctl replicate status mem/photos
+TARGET                                             STATE    QUEUED  REPLICATED  SIZE      FAILED  LAST ERROR
+arn:nexo:replication::85f953355032:photos          online   3       120         5.0MiB    0       -
+arn:nexo:replication::92311283813e:archive         offline  0       0           0B        2       dial tcp: connection refused
+Resync to arn:nexo:replication::85f953355032:photos: running, 0 versions scanned, 0 queued
+
+$ nexoctl replicate status --json mem/photos
+{"status":"success","target":"mem/photos","bucket":"photos","targets":[{"arn":"arn:nexo:replication::85f953355032:photos","online":true,"queued":3,"replicated":120,"bytes":5242880,"deletes":0,"failed":0,"lastOk":"2026-01-02T03:04:07Z"},{"arn":"arn:nexo:replication::92311283813e:archive","online":false,"queued":0,"replicated":0,"bytes":0,"deletes":0,"failed":2,"lastError":"dial tcp: connection refused","lastFailed":"2026-01-02T03:04:07Z"}],"queued":3,"resync":{"id":"resync-0001","target":"arn:nexo:replication::85f953355032:photos","state":"running","startedAt":"2026-01-02T03:04:05Z","updatedAt":"2026-01-02T03:04:05Z","scanned":0,"queued":0}}
+
+$ nexoctl replicate resync mem/photos backup/photos
+! nexoctl: error: mem/photos: conflict: a resync of the bucket is running (conflict)
+[exit 1]
+
+$ nexoctl replicate resync mem/photos backup/other
+! nexoctl: error: mem/photos: backup/other is not a replication target of the bucket
+[exit 1]
+
+$ nexoctl replicate add mem/photos mem/photos
+! nexoctl: error: a bucket cannot replicate to itself
+! Run 'nexoctl replicate add --help' for usage.
+[exit 2]
+
+$ nexoctl replicate add mem/photos backup/photos/key
+! nexoctl: error: backup/photos/key: the remote is ALIAS/BUCKET
+! Run 'nexoctl replicate add --help' for usage.
+[exit 2]
+
+$ nexoctl replicate add mem/photos backup/photos --tags novalue
+! nexoctl: error: invalid tag "novalue": use KEY=VALUE
+! Run 'nexoctl replicate add --help' for usage.
+[exit 2]
+
+$ nexoctl replicate add mem/photos ghost/photos
+! nexoctl: error: unknown alias "ghost" in "ghost/photos" (remote locations are ALIAS/BUCKET[/PREFIX], see "nexoctl alias list")
+[exit 3]
+
+$ nexoctl replicate rm mem/photos
+! nexoctl: error: give --id ID or --all
+! Run 'nexoctl replicate rm --help' for usage.
+[exit 2]
+
+$ nexoctl replicate rm mem/photos --id ghost
+! nexoctl: error: mem/photos: no replication rule "ghost"
+[exit 1]
+
+$ nexoctl replicate rm mem/photos --id backup-archive
+Removed replication rule "backup-archive" of `mem/photos`.
+
+$ nexoctl replicate rm mem/photos --all
+Removed the replication of `mem/photos` (2 rules).
+
+$ nexoctl replicate ls mem/photos
+`mem/photos` is not replicated.
+

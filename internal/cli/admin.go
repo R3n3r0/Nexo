@@ -26,6 +26,10 @@ type AdminClient interface {
 	CompactMetadataLog(ctx context.Context) (*nexoadmin.MetadataLogCompaction, error)
 	RestartService(ctx context.Context) error
 	StopService(ctx context.Context) error
+	StartUpdate(ctx context.Context, in nexoadmin.UpdateRequest) (*nexoadmin.UpdateJob, error)
+	UpdateStatus(ctx context.Context) (*nexoadmin.UpdateJob, error)
+	RestartCluster(ctx context.Context, mode string) (*nexoadmin.UpdateJob, error)
+	StopCluster(ctx context.Context) error
 	// Diagnostics of the node that serves the request (S-OPS-11).
 	Profile(ctx context.Context, in nexoadmin.ProfileRequest) (*nexoadmin.Profile, error)
 	Speedtest(ctx context.Context, kind string, in nexoadmin.SpeedtestRequest) (*nexoadmin.SpeedtestResult, error)
@@ -89,6 +93,31 @@ type AdminClient interface {
 	// Namespace locks (docs/03 §3.6: admin lock list/clear).
 	ListLocks(ctx context.Context) ([]nexoadmin.Lock, error)
 	ForceUnlock(ctx context.Context, resources ...string) error
+	ListPools(ctx context.Context) (*nexoadmin.Pools, error)
+	// Site replication (C-ADM-11: nexoctl admin replicate).
+	GetSiteReplication(ctx context.Context) (*nexoadmin.SiteReplicationInfo, error)
+	AddSiteReplication(ctx context.Context, sites []nexoadmin.SiteReplicationSite) (*nexoadmin.SiteReplicationInfo, error)
+	RemoveSiteReplication(ctx context.Context) error
+	SyncSiteReplication(ctx context.Context) error
+	// Remote tiers of the lifecycle transitions (S-STO-12: nexoctl admin tier).
+	ListTiers(ctx context.Context) ([]nexoadmin.Tier, error)
+	AddTier(ctx context.Context, in nexoadmin.TierInput) (*nexoadmin.Tier, error)
+	EditTier(ctx context.Context, name string, in nexoadmin.TierInput) (*nexoadmin.Tier, error)
+	RemoveTier(ctx context.Context, name string) error
+	DecommissionPool(ctx context.Context, pool int) error
+	CancelDecommission(ctx context.Context, pool int) error
+	StartRebalance(ctx context.Context) error
+	StopRebalance(ctx context.Context) error
+
+	// Bucket replication (S-BKT-12: nexoctl replicate).
+	GetBucketReplication(ctx context.Context, bucket string) (*nexoadmin.ReplicationConfiguration, error)
+	SetBucketReplication(ctx context.Context, bucket string, cfg nexoadmin.ReplicationConfiguration) (*nexoadmin.ReplicationConfiguration, error)
+	DeleteBucketReplication(ctx context.Context, bucket string) error
+	ListReplicationTargets(ctx context.Context, bucket string) ([]nexoadmin.ReplicationTarget, error)
+	SetReplicationTarget(ctx context.Context, bucket string, t nexoadmin.ReplicationTarget) (*nexoadmin.ReplicationTarget, error)
+	RemoveReplicationTarget(ctx context.Context, bucket, arn string) error
+	GetReplicationStatus(ctx context.Context, bucket string) (*nexoadmin.ReplicationStatus, error)
+	StartReplicationResync(ctx context.Context, bucket, target string) (*nexoadmin.ReplicationResync, error)
 
 	// GetBucket returns the summary of a bucket: usage, settings, tags
 	// (quota info reports the usage against the quota).

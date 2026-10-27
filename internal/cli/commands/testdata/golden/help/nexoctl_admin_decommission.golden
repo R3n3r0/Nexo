@@ -1,0 +1,25 @@
+Drain a server pool: it takes no new object, and every version of its objects moves to the
+other pools, verified before the source copy is removed. Once the status reports "complete",
+remove the pool from the command line of every node and restart them. The first pool, which
+holds the system documents, cannot be decommissioned.
+
+Usage:
+  nexoctl admin decommission [flags]
+  nexoctl admin decommission [command]
+
+Available Commands:
+  cancel      Cancel the decommission of a pool (it takes new objects again)
+  start       Start the decommission of a pool (its 1-based position in the command line)
+  status      Show the pools, their usage and their decommission
+
+Flags:
+  -h, --help   help for decommission
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl admin decommission [command] --help" for more information about a command.

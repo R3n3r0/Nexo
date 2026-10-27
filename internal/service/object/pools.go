@@ -70,7 +70,8 @@ func NewServerPools(deps PoolsDeps, opts ...Option) (Service, error) {
 		if err != nil {
 			return nil, fmt.Errorf("object: pool %d: %w", pi+1, err)
 		}
-		pl := &pool{idx: pi, k0: k0, k1: k1, decommissioning: spec.Decommissioning}
+		pl := &pool{idx: pi, k0: k0, k1: k1}
+		pl.draining.Store(spec.Decommissioning)
 		for si, drives := range spec.Sets {
 			if len(drives) != size {
 				return nil, fmt.Errorf("%w: object: pool %d: set %d has %d drives, set 1 has %d", domain.ErrInvalidArgument, pi+1, si+1, len(drives), size)
@@ -85,7 +86,7 @@ func NewServerPools(deps PoolsDeps, opts ...Option) (Service, error) {
 		pools = append(pools, pl)
 	}
 	l := newLayer(Deps{
-		Buckets: deps.Buckets, Locks: deps.Locks, Events: deps.Events, Heal: deps.Heal, Crypto: deps.Crypto,
+		Buckets: deps.Buckets, Locks: deps.Locks, Events: deps.Events, Heal: deps.Heal, Crypto: deps.Crypto, Tiers: deps.Tiers,
 		DeploymentID: deps.DeploymentID, IDs: deps.IDs, Clock: deps.Clock, Logger: deps.Logger,
 	}, opts, stores, "erasure")
 	l.place = &poolPlacement{pools: pools, spaceTTL: o.poolSpaceTTL, now: l.now, randN: rand.Uint64N}
@@ -118,6 +119,7 @@ func NewErasure(deps Deps, opts ...Option) (Service, error) {
 		Events:       deps.Events,
 		Codecs:       deps.Codecs,
 		Crypto:       deps.Crypto,
+		Tiers:        deps.Tiers,
 		IDs:          deps.IDs,
 		Clock:        deps.Clock,
 		Logger:       deps.Logger,

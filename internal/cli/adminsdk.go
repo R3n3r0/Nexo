@@ -504,6 +504,29 @@ func (c *adminClient) StopService(ctx context.Context) error {
 	return MapAdminError(c.api.StopService(ctx), c.endpoint)
 }
 
+// StartUpdate implements AdminClient.
+func (c *adminClient) StartUpdate(ctx context.Context, in nexoadmin.UpdateRequest) (*nexoadmin.UpdateJob, error) {
+	v, err := c.api.StartUpdate(ctx, in)
+	return mapped(c, v, err)
+}
+
+// UpdateStatus implements AdminClient.
+func (c *adminClient) UpdateStatus(ctx context.Context) (*nexoadmin.UpdateJob, error) {
+	v, err := c.api.UpdateStatus(ctx)
+	return mapped(c, v, err)
+}
+
+// RestartCluster implements AdminClient.
+func (c *adminClient) RestartCluster(ctx context.Context, mode string) (*nexoadmin.UpdateJob, error) {
+	v, err := c.api.RestartCluster(ctx, mode)
+	return mapped(c, v, err)
+}
+
+// StopCluster implements AdminClient.
+func (c *adminClient) StopCluster(ctx context.Context) error {
+	return MapAdminError(c.api.StopCluster(ctx), c.endpoint)
+}
+
 // ListUsers implements AdminClient.
 func (c *adminClient) ListUsers(ctx context.Context, opts nexoadmin.ListOptions) (*nexoadmin.UserList, error) {
 	v, err := c.api.ListUsers(ctx, opts)
@@ -704,6 +727,123 @@ func (c *adminClient) ImportCluster(ctx context.Context, archive []byte, opts ne
 func (c *adminClient) ListLocks(ctx context.Context) ([]nexoadmin.Lock, error) {
 	v, err := c.api.ListLocks(ctx)
 	return mapped(c, v, err)
+}
+
+// GetBucketReplication implements AdminClient.
+func (c *adminClient) GetBucketReplication(ctx context.Context, bucket string) (*nexoadmin.ReplicationConfiguration, error) {
+	v, err := c.api.GetBucketReplication(ctx, bucket)
+	return mapped(c, v, err)
+}
+
+// SetBucketReplication implements AdminClient.
+func (c *adminClient) SetBucketReplication(ctx context.Context, bucket string, cfg nexoadmin.ReplicationConfiguration) (*nexoadmin.ReplicationConfiguration, error) {
+	v, err := c.api.SetBucketReplication(ctx, bucket, cfg)
+	return mapped(c, v, err)
+}
+
+// DeleteBucketReplication implements AdminClient.
+func (c *adminClient) DeleteBucketReplication(ctx context.Context, bucket string) error {
+	return MapAdminError(c.api.DeleteBucketReplication(ctx, bucket), c.endpoint)
+}
+
+// ListReplicationTargets implements AdminClient.
+func (c *adminClient) ListReplicationTargets(ctx context.Context, bucket string) ([]nexoadmin.ReplicationTarget, error) {
+	v, err := c.api.ListReplicationTargets(ctx, bucket)
+	return mapped(c, v, err)
+}
+
+// SetReplicationTarget implements AdminClient.
+func (c *adminClient) SetReplicationTarget(ctx context.Context, bucket string, t nexoadmin.ReplicationTarget) (*nexoadmin.ReplicationTarget, error) {
+	v, err := c.api.SetReplicationTarget(ctx, bucket, t)
+	return mapped(c, v, err)
+}
+
+// RemoveReplicationTarget implements AdminClient.
+func (c *adminClient) RemoveReplicationTarget(ctx context.Context, bucket, arn string) error {
+	return MapAdminError(c.api.RemoveReplicationTarget(ctx, bucket, arn), c.endpoint)
+}
+
+// GetReplicationStatus implements AdminClient.
+func (c *adminClient) GetReplicationStatus(ctx context.Context, bucket string) (*nexoadmin.ReplicationStatus, error) {
+	v, err := c.api.GetReplicationStatus(ctx, bucket)
+	return mapped(c, v, err)
+}
+
+// StartReplicationResync implements AdminClient.
+func (c *adminClient) StartReplicationResync(ctx context.Context, bucket, target string) (*nexoadmin.ReplicationResync, error) {
+	v, err := c.api.StartReplicationResync(ctx, bucket, target)
+	return mapped(c, v, err)
+}
+
+// GetSiteReplication implements AdminClient.
+func (c *adminClient) GetSiteReplication(ctx context.Context) (*nexoadmin.SiteReplicationInfo, error) {
+	v, err := c.api.GetSiteReplication(ctx)
+	return mapped(c, v, err)
+}
+
+// AddSiteReplication implements AdminClient.
+func (c *adminClient) AddSiteReplication(ctx context.Context, sites []nexoadmin.SiteReplicationSite) (*nexoadmin.SiteReplicationInfo, error) {
+	v, err := c.api.AddSiteReplication(ctx, sites)
+	return mapped(c, v, err)
+}
+
+// RemoveSiteReplication implements AdminClient.
+func (c *adminClient) RemoveSiteReplication(ctx context.Context) error {
+	return MapAdminError(c.api.RemoveSiteReplication(ctx), c.endpoint)
+}
+
+// SyncSiteReplication implements AdminClient.
+func (c *adminClient) SyncSiteReplication(ctx context.Context) error {
+	return MapAdminError(c.api.SyncSiteReplication(ctx), c.endpoint)
+}
+
+// ListTiers implements AdminClient.
+func (c *adminClient) ListTiers(ctx context.Context) ([]nexoadmin.Tier, error) {
+	v, err := c.api.ListTiers(ctx)
+	return mapped(c, v, err)
+}
+
+// AddTier implements AdminClient.
+func (c *adminClient) AddTier(ctx context.Context, in nexoadmin.TierInput) (*nexoadmin.Tier, error) {
+	v, err := c.api.AddTier(ctx, in)
+	return mapped(c, v, err)
+}
+
+// EditTier implements AdminClient.
+func (c *adminClient) EditTier(ctx context.Context, name string, in nexoadmin.TierInput) (*nexoadmin.Tier, error) {
+	v, err := c.api.EditTier(ctx, name, in)
+	return mapped(c, v, err)
+}
+
+// RemoveTier implements AdminClient.
+func (c *adminClient) RemoveTier(ctx context.Context, name string) error {
+	return MapAdminError(c.api.RemoveTier(ctx, name), c.endpoint)
+}
+
+// ListPools implements AdminClient.
+func (c *adminClient) ListPools(ctx context.Context) (*nexoadmin.Pools, error) {
+	v, err := c.api.ListPools(ctx)
+	return mapped(c, v, err)
+}
+
+// DecommissionPool implements AdminClient.
+func (c *adminClient) DecommissionPool(ctx context.Context, pool int) error {
+	return MapAdminError(c.api.DecommissionPool(ctx, pool), c.endpoint)
+}
+
+// CancelDecommission implements AdminClient.
+func (c *adminClient) CancelDecommission(ctx context.Context, pool int) error {
+	return MapAdminError(c.api.CancelDecommission(ctx, pool), c.endpoint)
+}
+
+// StartRebalance implements AdminClient.
+func (c *adminClient) StartRebalance(ctx context.Context) error {
+	return MapAdminError(c.api.StartRebalance(ctx), c.endpoint)
+}
+
+// StopRebalance implements AdminClient.
+func (c *adminClient) StopRebalance(ctx context.Context) error {
+	return MapAdminError(c.api.StopRebalance(ctx), c.endpoint)
 }
 
 // ForceUnlock implements AdminClient.

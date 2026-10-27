@@ -11,6 +11,7 @@ import (
 	adminsvc "github.com/r3n3r0/nexo/internal/service/admin"
 	"github.com/r3n3r0/nexo/internal/service/lock"
 	"github.com/r3n3r0/nexo/internal/service/policy"
+	"github.com/r3n3r0/nexo/internal/service/pools"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
 
@@ -23,6 +24,9 @@ type ClusterDeps struct {
 	Cluster adminsvc.ClusterManager
 	// Locks lists and releases the namespace locks (required).
 	Locks lock.Manager
+	// Pools runs the decommission and rebalance jobs (nil: the routes
+	// answer 501, single-drive mode).
+	Pools pools.Service
 	// Authz authorizes the routes (required).
 	Authz adminsvc.Authorizer
 	Enc   httpx.Codec
@@ -64,6 +68,20 @@ func (h *clusterRoutes) routes() []route {
 		{http.MethodPost, "/cluster/import", global(policy.ActionAdminImportCluster), h.importArchive},
 		{http.MethodGet, "/locks", global(policy.ActionAdminListLocks), h.listLocks},
 		{http.MethodDelete, "/locks", global(policy.ActionAdminForceUnlock), h.forceUnlock},
+		{http.MethodGet, "/pools", global(policy.ActionAdminServerInfo), h.listPools},
+		{http.MethodPost, "/pools/plan", global(policy.ActionAdminServerInfo), h.planPools},
+		{http.MethodPost, "/pools/{pool}/decommission", global(policy.ActionAdminDecommission), h.poolAction(func(svc pools.Service, r *http.Request, pool int) error {
+			return svc.Decommission(r.Context(), pool)
+		}, http.StatusAccepted)},
+		{http.MethodDelete, "/pools/{pool}/decommission", global(policy.ActionAdminDecommission), h.poolAction(func(svc pools.Service, r *http.Request, pool int) error {
+			return svc.CancelDecommission(r.Context(), pool)
+		}, http.StatusNoContent)},
+		{http.MethodPost, "/rebalance", global(policy.ActionAdminRebalance), h.rebalanceAction(func(svc pools.Service, r *http.Request) error {
+			return svc.StartRebalance(r.Context())
+		}, http.StatusAccepted)},
+		{http.MethodDelete, "/rebalance", global(policy.ActionAdminRebalance), h.rebalanceAction(func(svc pools.Service, r *http.Request) error {
+			return svc.StopRebalance(r.Context())
+		}, http.StatusNoContent)},
 	}
 }
 

@@ -117,6 +117,7 @@ Details in [10](10-domains-access-distributions.md).
 | S-OPS-13 | Multi-arch `nexo` and `nexoctl` Docker images, built-in healthcheck, `*_FILE` secrets, single/SNMD/cluster Compose files | P0 |
 | S-OPS-14 | `nexo server --dry-run` (configuration validation), public URL for links behind a proxy | P1 |
 | S-OPS-15 | Full export/import of IAM, config and bucket metadata (migration between modes, backup) | P1 |
+| S-OPS-16 | Kubernetes operator: `NexoCluster` resource (pools as StatefulSets, Services, disruption budget), rolling replacement of the pods gated on the cluster health, pool expansion, claims of the drives never deleted | P2 |
 
 ## 2.2 Dashboard (React console)
 
@@ -188,7 +189,7 @@ Syntax: `nexoctl <group> <command> [ALIAS/BUCKET/PREFIX] [flags]`. `--json` outp
 | C-ADM-06 | `admin config get/set/reset/export/import` | Configuration | P1 |
 | C-ADM-07 | `admin heal [-r] [--dry-run]` | Healing | P1 |
 | C-ADM-08 | `admin trace`, `admin logs` | Live streams | P1 |
-| C-ADM-09 | `admin service restart/stop` | Service control (restart and stop of the node receiving the request already in v1.0; coordinated across the cluster with S-OPS-09) | P2 |
+| C-ADM-09 | `admin service restart/stop` | Service control (restart and stop of the node receiving the request already in v1.0; of every node with `--cluster`, S-OPS-09) | P2 |
 | C-ADM-10 | `admin decommission start/status/cancel`, `admin rebalance` | Pool management | P2 |
 | C-ADM-11 | `admin replicate add/info/remove` | Site replication | P2 |
 | C-ADM-12 | `admin speedtest`, `admin prometheus generate` | Diagnostics/integration | P1 (brought forward, was P2) |

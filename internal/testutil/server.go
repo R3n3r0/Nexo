@@ -38,6 +38,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/ilm"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/service/share"
+	"github.com/r3n3r0/nexo/internal/service/tier"
 )
 
 // Test credentials.
@@ -107,6 +108,8 @@ type Server struct {
 	// manages the notification targets.
 	ILM    ilm.Service
 	Events event.Service
+	// Tiers manages the remote tiers of the lifecycle (S-STO-12).
+	Tiers tier.Service
 	// Clock is the clock of the application (WithClock); nil means the
 	// wall clock.
 	Clock clock.Clock
@@ -425,6 +428,7 @@ func (s *Server) start() error {
 	s.Signer = first.App.Signer()
 	s.ILM = first.App.ILM()
 	s.Events = first.App.Events()
+	s.Tiers = first.App.Tiers()
 	s.running = true
 	return nil
 }

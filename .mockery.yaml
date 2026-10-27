@@ -164,6 +164,7 @@ packages:
     interfaces:
       Service:
       BucketSettings:
+      Tiers:
   github.com/r3n3r0/nexo/internal/service/iam:
     interfaces:
       Service:
@@ -214,6 +215,8 @@ packages:
       BucketConfigSource:
       HealNotifier:
       Healer:
+      PoolMover:
+      TierStore:
   github.com/r3n3r0/nexo/internal/service/policy:
     interfaces:
       Service:
@@ -232,6 +235,40 @@ packages:
   github.com/r3n3r0/nexo/internal/service/ratelimit:
     interfaces:
       Service:
+  github.com/r3n3r0/nexo/internal/service/pools:
+    interfaces:
+      Service:
+  github.com/r3n3r0/nexo/internal/service/replication:
+    interfaces:
+      Service:
+      Sealer:
+      Leader:
+      Dialer:
+      Remote:
+  github.com/r3n3r0/nexo/internal/service/siterepl:
+    interfaces:
+      Service:
+      IAM:
+      Policies:
+      BucketSettings:
+      Sealer:
+      Leader:
+      Dialer:
+      Peer:
+  github.com/r3n3r0/nexo/internal/service/tier:
+    interfaces:
+      Service:
+      Objects:
+      Sealer:
+      Leader:
+      Dialer:
+      Remote:
+  github.com/r3n3r0/nexo/internal/service/update:
+    interfaces:
+      Service:
+      Agent:
+      Process:
+      Health:
   github.com/r3n3r0/nexo/internal/service/scanner:
     interfaces:
       Service:
@@ -317,6 +354,7 @@ packages:
       MediaRoutes:
       LifecycleRoutes:
       NotificationRoutes:
+      ReplicationRoutes:
   github.com/r3n3r0/nexo/internal/transport/http/admin:
     interfaces:
       PublicRoutes:
@@ -331,6 +369,10 @@ packages:
       ClusterRoutes:
       LifecycleRoutes:
       NotificationRoutes:
+      ReplicationRoutes:
+      SiteReplicationRoutes:
+      TierRoutes:
+      UpdateRoutes:
       CORSRoutes:
       MediaRoutes:
       KMSRoutes:
@@ -350,6 +392,7 @@ packages:
       CacheRoutes:
       ObservabilityRoutes:
       ObservabilityPeer:
+      UpdateRoutes:
       Server:
       Authenticator:
       Conn:

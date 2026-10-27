@@ -36,6 +36,7 @@ signs in with the same access keys as the S3 API.
 | Live trace and logs, audit log, OpenTelemetry | [Trace, logs and audit](operations/trace-log-audit.md) |
 | Healing, replacing a drive | [Healing and disks](operations/healing-disks.md) |
 | Rolling upgrade, expansion with a new pool | [Upgrade and expansion](operations/upgrade-expansion.md) |
+| Run clusters on Kubernetes with health-gated updates | [Kubernetes operator](kubernetes-operator.md) |
 | Configuration backup, migration between modes | [Backup and migration](operations/backup-migration.md) |
 | Quorum, clock skew, slow drives, permissions | [Troubleshooting](operations/troubleshooting.md) |
 
@@ -59,6 +60,9 @@ signs in with the same access keys as the S3 API.
 | Notifications to webhooks and Kafka, lifecycle rules | [Events and lifecycle](events-lifecycle.md) |
 | Play videos in the browser, share them as streams | [Video streaming](video-streaming.md) |
 | Lower qualities, posters and thumbnails of videos | [Media worker](media-worker.md) |
+| Replicate buckets to another server, active-active | [Bucket replication](replication.md) |
+| Keep several deployments in sync (IAM, policies, buckets) | [Site replication](site-replication.md) |
+| Move old versions to a cheaper S3 bucket | [Remote tiers](tiering.md) |
 
 ## Reference
 

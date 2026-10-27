@@ -1,4 +1,5 @@
 import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import { createMockServices, sampleClusterInfo } from '@/services/mock';
@@ -67,5 +68,69 @@ describe('ClusterPage (D-CLU-01)', () => {
     expect(screen.getByRole('region', { name: 'Deployment mode' })).toHaveTextContent(
       'Single node, single drive',
     );
+  });
+});
+
+// covers: D-CLU-03
+describe('ClusterPage pool management (D-CLU-03)', () => {
+  const twoPools = {
+    pools: [
+      { index: 1, id: '/srv/p1/d{1...4}', total: 4000, free: 1000, draining: false },
+      { index: 2, id: '/srv/p2/d{1...4}', total: 4000, free: 3000, draining: false },
+    ],
+  };
+
+  it('decommissions a pool after confirmation and tells to remove it once complete', async () => {
+    const user = userEvent.setup();
+    const services = createMockServices({
+      info: sampleClusterInfo(),
+      pools: twoPools,
+      poolPolls: 1,
+      initialAccessKey: 'nexoadmin',
+    });
+    renderWithProviders(<ClusterPage />, { services });
+    const section = await screen.findByRole('region', { name: 'Pool management' });
+    const table = await within(section).findByRole('table', { name: 'Pool management' });
+    // The first pool holds the system documents: no decommission.
+    expect(
+      within(table).queryByRole('button', { name: 'Decommission pool 1' }),
+    ).not.toBeInTheDocument();
+    await user.click(await within(table).findByRole('button', { name: 'Decommission pool 2' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Decommission pool 2?' });
+    await user.click(within(dialog).getByRole('button', { name: 'Decommission' }));
+
+    expect(
+      await within(table).findByRole('button', { name: 'Cancel decommission of pool 2' }),
+    ).toBeInTheDocument();
+    expect(table).toHaveTextContent('Draining');
+    expect(
+      await within(section).findByText(/A decommission is complete/, {}, { timeout: 5000 }),
+    ).toBeInTheDocument();
+    expect(table).toHaveTextContent('Complete');
+    expect(table).toHaveTextContent('1 object (1,000 B) moved');
+  });
+
+  it('starts and stops the rebalance', async () => {
+    const user = userEvent.setup();
+    const services = createMockServices({
+      info: sampleClusterInfo(),
+      pools: twoPools,
+      poolPolls: 100,
+      initialAccessKey: 'nexoadmin',
+    });
+    renderWithProviders(<ClusterPage />, { services });
+    const section = await screen.findByRole('region', { name: 'Pool management' });
+    await user.click(await within(section).findByRole('button', { name: 'Start rebalance' }));
+    await user.click(await within(section).findByRole('button', { name: 'Stop rebalance' }));
+    expect(await within(section).findByText('Canceled')).toBeInTheDocument();
+    expect(await services.pools.list()).toMatchObject({ rebalance: { state: 'canceled' } });
+  });
+
+  it('hides the pool management in single-drive mode', async () => {
+    renderWithProviders(<ClusterPage />, {
+      services: createMockServices({ initialAccessKey: 'nexoadmin' }),
+    });
+    await screen.findByRole('region', { name: 'Pool 1' });
+    expect(screen.queryByRole('region', { name: 'Pool management' })).not.toBeInTheDocument();
   });
 });

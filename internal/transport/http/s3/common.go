@@ -478,6 +478,7 @@ func writeObjectHeaders(w http.ResponseWriter, r *http.Request, info domain.Obje
 	if len(info.Tags) > 0 {
 		h.Set(httpx.HeaderAmzTaggingCount, strconv.Itoa(len(info.Tags)))
 	}
+	writeReplicationStatus(w, info)
 	if whole && info.Checksum.Value != "" && strings.EqualFold(r.Header.Get(httpx.HeaderAmzChecksumMode), "ENABLED") {
 		writeChecksum(w, info.Checksum)
 	}

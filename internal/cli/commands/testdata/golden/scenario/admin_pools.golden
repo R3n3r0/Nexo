@@ -1,0 +1,44 @@
+$ nexoctl admin decommission status mem
+! nexoctl: error: not implemented: pool management needs an erasure-coded deployment (not_implemented)
+[exit 1]
+
+$ nexoctl admin decommission start mem 1
+! nexoctl: error: invalid argument: the first pool holds the system documents and cannot be decommissioned (invalid_argument)
+[exit 1]
+
+$ nexoctl admin decommission start mem x
+! nexoctl: error: invalid pool "x": give its position in the command line (1, 2, ...)
+! Run 'nexoctl admin decommission start --help' for usage.
+[exit 2]
+
+$ nexoctl admin decommission start mem 2
+Decommission of pool 2 started on "mem": follow it with "nexoctl admin decommission status mem".
+
+$ nexoctl admin decommission status mem
+POOL  STATE     USED       TOTAL      DECOMMISSION
+1     active    3.0TiB     4.0TiB     -
+2     draining  1.0TiB     4.0TiB     running, 0 objects (0B) moved
+
+$ nexoctl admin decommission status --json mem
+{"status":"success","alias":"mem","index":1,"id":"/mnt/p1/d{1...4}","total":4398046511104,"free":1099511627776,"draining":false}
+{"status":"success","alias":"mem","index":2,"id":"/mnt/p2/d{1...4}","total":4398046511104,"free":3298534883328,"draining":true,"decommission":{"state":"running","startedAt":"2026-01-02T03:04:05Z","pass":1,"objects":0,"versions":0,"bytes":0,"failed":0,"pendingUploads":0}}
+
+$ nexoctl admin decommission cancel mem 2
+Decommission of pool 2 canceled on "mem".
+
+$ nexoctl admin rebalance status mem
+No rebalance was started.
+
+$ nexoctl admin rebalance start mem
+Rebalance started on "mem".
+
+$ nexoctl admin rebalance status mem
+Rebalance: running, 0 objects (0B) moved
+
+$ nexoctl admin rebalance stop mem
+Rebalance stopped on "mem".
+
+$ nexoctl admin rebalance stop mem
+! nexoctl: error: invalid argument: no rebalance is running (invalid_argument)
+[exit 1]
+

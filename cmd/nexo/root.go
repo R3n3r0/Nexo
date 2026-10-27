@@ -17,6 +17,11 @@ type cmdDeps struct {
 	stderr    io.Writer
 	lookupEnv config.LookupEnv
 	client    *http.Client
+	// executable returns the binary of the process and exec replaces the
+	// process with a binary (updates, S-OPS-09); nil in the tests: the
+	// server cannot update itself.
+	executable func() (string, error)
+	exec       func(path string) error
 }
 
 func newRootCmd(deps cmdDeps) *cobra.Command {

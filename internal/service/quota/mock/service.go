@@ -1849,6 +1849,183 @@ func (_c *Service_ResealKeys_Call) RunAndReturn(run func(context.Context, string
 	return _c
 }
 
+// SetReplicationStatus provides a mock function with given fields: ctx, bucket, key, versionID, target, status
+func (_m *Service) SetReplicationStatus(ctx context.Context, bucket string, key string, versionID string, target string, status domain.ReplicationStatus) (domain.ObjectInfo, error) {
+	ret := _m.Called(ctx, bucket, key, versionID, target, status)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetReplicationStatus")
+	}
+
+	var r0 domain.ObjectInfo
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, domain.ReplicationStatus) (domain.ObjectInfo, error)); ok {
+		return rf(ctx, bucket, key, versionID, target, status)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, domain.ReplicationStatus) domain.ObjectInfo); ok {
+		r0 = rf(ctx, bucket, key, versionID, target, status)
+	} else {
+		r0 = ret.Get(0).(domain.ObjectInfo)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, string, domain.ReplicationStatus) error); ok {
+		r1 = rf(ctx, bucket, key, versionID, target, status)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_SetReplicationStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetReplicationStatus'
+type Service_SetReplicationStatus_Call struct {
+	*mock.Call
+}
+
+// SetReplicationStatus is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - key string
+//   - versionID string
+//   - target string
+//   - status domain.ReplicationStatus
+func (_e *Service_Expecter) SetReplicationStatus(ctx interface{}, bucket interface{}, key interface{}, versionID interface{}, target interface{}, status interface{}) *Service_SetReplicationStatus_Call {
+	return &Service_SetReplicationStatus_Call{Call: _e.mock.On("SetReplicationStatus", ctx, bucket, key, versionID, target, status)}
+}
+
+func (_c *Service_SetReplicationStatus_Call) Run(run func(ctx context.Context, bucket string, key string, versionID string, target string, status domain.ReplicationStatus)) *Service_SetReplicationStatus_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].(domain.ReplicationStatus))
+	})
+	return _c
+}
+
+func (_c *Service_SetReplicationStatus_Call) Return(_a0 domain.ObjectInfo, _a1 error) *Service_SetReplicationStatus_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_SetReplicationStatus_Call) RunAndReturn(run func(context.Context, string, string, string, string, domain.ReplicationStatus) (domain.ObjectInfo, error)) *Service_SetReplicationStatus_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// TierLocation provides a mock function with given fields: ctx, bucket, key, versionID
+func (_m *Service) TierLocation(ctx context.Context, bucket string, key string, versionID string) (object.TierLocation, error) {
+	ret := _m.Called(ctx, bucket, key, versionID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for TierLocation")
+	}
+
+	var r0 object.TierLocation
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) (object.TierLocation, error)); ok {
+		return rf(ctx, bucket, key, versionID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) object.TierLocation); ok {
+		r0 = rf(ctx, bucket, key, versionID)
+	} else {
+		r0 = ret.Get(0).(object.TierLocation)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
+		r1 = rf(ctx, bucket, key, versionID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_TierLocation_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TierLocation'
+type Service_TierLocation_Call struct {
+	*mock.Call
+}
+
+// TierLocation is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - key string
+//   - versionID string
+func (_e *Service_Expecter) TierLocation(ctx interface{}, bucket interface{}, key interface{}, versionID interface{}) *Service_TierLocation_Call {
+	return &Service_TierLocation_Call{Call: _e.mock.On("TierLocation", ctx, bucket, key, versionID)}
+}
+
+func (_c *Service_TierLocation_Call) Run(run func(ctx context.Context, bucket string, key string, versionID string)) *Service_TierLocation_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *Service_TierLocation_Call) Return(_a0 object.TierLocation, _a1 error) *Service_TierLocation_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_TierLocation_Call) RunAndReturn(run func(context.Context, string, string, string) (object.TierLocation, error)) *Service_TierLocation_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// TransitionObject provides a mock function with given fields: ctx, in
+func (_m *Service) TransitionObject(ctx context.Context, in object.TransitionInput) (domain.ObjectInfo, error) {
+	ret := _m.Called(ctx, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for TransitionObject")
+	}
+
+	var r0 domain.ObjectInfo
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, object.TransitionInput) (domain.ObjectInfo, error)); ok {
+		return rf(ctx, in)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, object.TransitionInput) domain.ObjectInfo); ok {
+		r0 = rf(ctx, in)
+	} else {
+		r0 = ret.Get(0).(domain.ObjectInfo)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, object.TransitionInput) error); ok {
+		r1 = rf(ctx, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_TransitionObject_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TransitionObject'
+type Service_TransitionObject_Call struct {
+	*mock.Call
+}
+
+// TransitionObject is a helper method to define mock.On call
+//   - ctx context.Context
+//   - in object.TransitionInput
+func (_e *Service_Expecter) TransitionObject(ctx interface{}, in interface{}) *Service_TransitionObject_Call {
+	return &Service_TransitionObject_Call{Call: _e.mock.On("TransitionObject", ctx, in)}
+}
+
+func (_c *Service_TransitionObject_Call) Run(run func(ctx context.Context, in object.TransitionInput)) *Service_TransitionObject_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(object.TransitionInput))
+	})
+	return _c
+}
+
+func (_c *Service_TransitionObject_Call) Return(_a0 domain.ObjectInfo, _a1 error) *Service_TransitionObject_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_TransitionObject_Call) RunAndReturn(run func(context.Context, object.TransitionInput) (domain.ObjectInfo, error)) *Service_TransitionObject_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewService creates a new instance of Service. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewService(t interface {

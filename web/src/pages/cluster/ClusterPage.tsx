@@ -32,6 +32,11 @@ import { problemMessage } from '@/lib/problem';
 import { serverInfoQueryKey } from '@/lib/serverInfo';
 import { useServices, type NodeInfo, type PoolInfo, type ServerInfo } from '@/services';
 
+import { ClusterMaintenance } from './ClusterMaintenance';
+import { PoolManagement } from './PoolManagement';
+import { RemoteTiers } from './RemoteTiers';
+import { SiteReplication } from './SiteReplication';
+
 /** Severity colour of a usage meter. */
 function meterColor(ratio: number): string {
   if (ratio >= 0.9) return 'red';
@@ -312,8 +317,9 @@ function PoolSection({ info, pool }: { info: ServerInfo; pool: PoolInfo }) {
 /**
  * D-CLU-01: the deployment mode, the pools with their erasure sets and
  * quorums, the nodes (version, uptime, clock offset, background healing)
- * and their drives (state, usage, healing progress). What does not answer
- * is highlighted; the page refreshes itself every few seconds.
+ * and their drives (state, usage, healing progress), and the pool
+ * management (D-CLU-03). What does not answer is highlighted; the page
+ * refreshes itself every few seconds.
  */
 export function ClusterPage() {
   const { t, i18n } = useTranslation();
@@ -450,6 +456,10 @@ export function ClusterPage() {
       {data?.pools.map((pool) => (
         <PoolSection key={pool.index} info={data} pool={pool} />
       ))}
+      {data && data.mode !== 'snsd' ? <PoolManagement /> : null}
+      {data ? <ClusterMaintenance /> : null}
+      {data ? <SiteReplication /> : null}
+      {data ? <RemoteTiers /> : null}
     </Stack>
   );
 }

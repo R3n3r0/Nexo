@@ -18,8 +18,9 @@ import (
 func newILMCmd(e *env) *cobra.Command {
 	cmd := groupCmd("ilm", "Manage the lifecycle rules of buckets (expiration, noncurrent versions, uploads)")
 	cmd.Long = `Manage the lifecycle (ILM) rules of buckets: the expiration of the objects, of
-their noncurrent versions and of the expired delete markers, and the abort of the
-incomplete multipart uploads. The server applies the rules in the background;
+their noncurrent versions and of the expired delete markers, the abort of the
+incomplete multipart uploads, and the transition of the data of old versions to a
+remote tier (nexoctl admin tier). The server applies the rules in the background;
 "ilm apply" applies them at once (Admin API).
 
 The rules travel as the JSON of the Admin API and of the console (ilm rule
@@ -43,7 +44,12 @@ type ilmRuleFlags struct {
 	noncurrentExpireDays int
 	newerNoncurrent      int
 	abortMPUDays         int
-	enable, disable      bool
+	// transitionTier is the tier of the transitions, transitionDays and
+	// noncurrentTransitionDays their periods (negative: remove).
+	transitionTier           string
+	transitionDays           int
+	noncurrentTransitionDays int
+	enable, disable          bool
 }
 
 func (f *ilmRuleFlags) register(fs *pflag.FlagSet, edit bool) {
@@ -62,6 +68,9 @@ func (f *ilmRuleFlags) register(fs *pflag.FlagSet, edit bool) {
 	fs.IntVar(&f.noncurrentExpireDays, "noncurrent-expire-days", 0, "remove the noncurrent versions this many days after they became noncurrent")
 	fs.IntVar(&f.newerNoncurrent, "newer-noncurrent", 0, "keep this many newest noncurrent versions")
 	fs.IntVar(&f.abortMPUDays, "abort-mpu-days", 0, "abort the incomplete multipart uploads this many days after their start")
+	fs.StringVar(&f.transitionTier, "transition-tier", "", `remote tier (nexoctl admin tier) the transitions move the data to ("" removes them)`)
+	fs.IntVar(&f.transitionDays, "transition-days", 0, "move the current versions to the tier this many days after their creation (-1 removes)")
+	fs.IntVar(&f.noncurrentTransitionDays, "noncurrent-transition-days", 0, "move the noncurrent versions to the tier this many days after they became noncurrent (-1 removes)")
 	fs.BoolVar(&f.disable, "disable", false, "disable the rule")
 	if edit {
 		fs.BoolVar(&f.enable, "enable", false, "enable the rule")
@@ -179,6 +188,9 @@ func (f *ilmRuleFlags) apply(fs *pflag.FlagSet, r *cli.LifecycleRule) error {
 			r.AbortIncompleteUpload = &cli.LifecycleAbortUpload{DaysAfterInitiation: positiveOrNil(f.abortMPUDays)}
 		}
 	}
+	if err := f.applyTransitions(changed, r); err != nil {
+		return err
+	}
 	switch {
 	case f.disable:
 		r.Enabled = boolPtr(false)
@@ -187,7 +199,62 @@ func (f *ilmRuleFlags) apply(fs *pflag.FlagSet, r *cli.LifecycleRule) error {
 	}
 	if r.Expiration == nil && r.NoncurrentExpiration == nil && r.AbortIncompleteUpload == nil &&
 		len(r.Transitions) == 0 && len(r.NoncurrentTransitions) == 0 {
-		return cli.UsageError("a rule needs an action: --expire-days, --expire-date, --expired-delete-marker, --noncurrent-expire-days, --newer-noncurrent or --abort-mpu-days")
+		return cli.UsageError("a rule needs an action: --expire-days, --expire-date, --expired-delete-marker, --noncurrent-expire-days, --newer-noncurrent, --abort-mpu-days or --transition-days")
+	}
+	return nil
+}
+
+// applyTransitions sets the transitions of r from the flags given: one
+// transition of the current versions and one of the noncurrent ones, to
+// the same tier.
+func (f *ilmRuleFlags) applyTransitions(changed func(string) bool, r *cli.LifecycleRule) error {
+	if !changed("transition-tier") && !changed("transition-days") && !changed("noncurrent-transition-days") {
+		return nil
+	}
+	if changed("transition-tier") && f.transitionTier == "" {
+		if changed("transition-days") && f.transitionDays >= 0 || changed("noncurrent-transition-days") && f.noncurrentTransitionDays >= 0 {
+			return cli.UsageError("--transition-days and --noncurrent-transition-days need a --transition-tier")
+		}
+		r.Transitions, r.NoncurrentTransitions = nil, nil
+		return nil
+	}
+	tier := f.transitionTier
+	if !changed("transition-tier") {
+		switch {
+		case len(r.Transitions) > 0:
+			tier = r.Transitions[0].StorageClass
+		case len(r.NoncurrentTransitions) > 0:
+			tier = r.NoncurrentTransitions[0].StorageClass
+		}
+	}
+	if changed("transition-days") {
+		r.Transitions = nil
+		if f.transitionDays >= 0 {
+			if tier == "" {
+				return cli.UsageError("--transition-days needs a --transition-tier")
+			}
+			days := f.transitionDays
+			r.Transitions = []cli.LifecycleTransition{{Days: &days, StorageClass: tier}}
+		}
+	}
+	if changed("noncurrent-transition-days") {
+		r.NoncurrentTransitions = nil
+		if f.noncurrentTransitionDays >= 0 {
+			if tier == "" {
+				return cli.UsageError("--noncurrent-transition-days needs a --transition-tier")
+			}
+			days := f.noncurrentTransitionDays
+			r.NoncurrentTransitions = []cli.LifecycleNoncurrentTransition{{NoncurrentDays: &days, StorageClass: tier}}
+		}
+	}
+	for i := range r.Transitions {
+		r.Transitions[i].StorageClass = tier
+	}
+	for i := range r.NoncurrentTransitions {
+		r.NoncurrentTransitions[i].StorageClass = tier
+	}
+	if tier != "" && len(r.Transitions) == 0 && len(r.NoncurrentTransitions) == 0 {
+		return cli.UsageError("--transition-tier needs --transition-days or --noncurrent-transition-days")
 	}
 	return nil
 }
@@ -406,7 +473,11 @@ func ilmActionsText(r cli.LifecycleRule) string {
 		parts = append(parts, fmt.Sprintf("transition to %s after %s", tr.StorageClass, when))
 	}
 	for _, tr := range r.NoncurrentTransitions {
-		parts = append(parts, "noncurrent transition to "+tr.StorageClass)
+		s := "noncurrent transition to " + tr.StorageClass
+		if tr.NoncurrentDays != nil {
+			s += fmt.Sprintf(" after %dd", *tr.NoncurrentDays)
+		}
+		parts = append(parts, s)
 	}
 	return strings.Join(parts, ", ")
 }

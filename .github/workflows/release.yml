@@ -3,8 +3,9 @@ name: Release
 # Release of a v* tag (docs/08 §8.7, T-9.5):
 #   1. goreleaser: binaries (console embedded), archives, deb/rpm, checksums
 #      signed with cosign keyless, SBOMs, multi-arch images on Docker Hub
-#      (docker.io/<namespace>/nexo, .../nexoctl and .../nexo-media-worker)
-#      with SBOM and provenance attestations, signed; Homebrew casks; GitHub
+#      (docker.io/<namespace>/nexo, .../nexoctl, .../nexo-media-worker and
+#      .../nexo-operator) with SBOM and provenance attestations, signed; the
+#      manifest of the operator (nexo-operator.yaml); Homebrew casks; GitHub
 #      release;
 #   2. verify (TM-11): signatures of checksums.txt and of the images, SBOM
 #      attestation, trivy scan without High/Critical vulnerabilities;
@@ -16,14 +17,15 @@ name: Release
 #      keyless (sign-blob bundle) and attached to the GitHub release
 #      (helm install nexo <release URL of nexo-X.Y.Z.tgz>);
 #   5. dockerhub-description: README and short description of the Docker Hub
-#      repositories (deploy/docker/DOCKERHUB.md, DOCKERHUB.media-worker.md).
+#      repositories (deploy/docker/DOCKERHUB.md, DOCKERHUB.media-worker.md,
+#      DOCKERHUB.operator.md).
 #
 # Images are published only on Docker Hub. Required: the secrets
 # DOCKERHUB_USERNAME and DOCKERHUB_TOKEN (access token with Read, Write,
 # Delete scope; the goreleaser job fails early without them). The namespace
 # is the repository variable DOCKERHUB_NAMESPACE, default paolor; the public
-# repositories <namespace>/nexo, <namespace>/nexoctl and
-# <namespace>/nexo-media-worker must exist.
+# repositories <namespace>/nexo, <namespace>/nexoctl,
+# <namespace>/nexo-media-worker and <namespace>/nexo-operator must exist.
 on:
   push:
     tags: ["v*"]
@@ -137,6 +139,12 @@ jobs:
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
           # DOCKERHUB_NAMESPACE (workflow env): namespace of the images.
 
+      # The manifest of the operator (a release asset, listed in
+      # checksums.txt) next to the other artefacts for the verify job.
+      - name: Operator manifest in dist
+        if: always()
+        run: cp bin/nexo-operator.yaml dist/ || true
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -150,6 +158,7 @@ jobs:
             dist/*.txt
             dist/*.sigstore.json
             dist/homebrew/Casks/*.rb
+            dist/nexo-operator.yaml
           if-no-files-found: ignore
           retention-days: 14
 
@@ -194,7 +203,7 @@ jobs:
       - name: Image signatures and SBOM attestations
         run: |
           set -eux
-          for image in nexo nexoctl nexo-media-worker; do
+          for image in nexo nexoctl nexo-media-worker nexo-operator; do
             ref="${REGISTRY}/${image}:${GITHUB_REF_NAME}"
             cosign verify "$ref" --certificate-identity "$CERT_IDENTITY" --certificate-oidc-issuer "$CERT_ISSUER" >/dev/null
             docker buildx imagetools inspect "$ref"
@@ -220,6 +229,25 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: "1"
+
+      - name: Vulnerability scan of the operator image (High/Critical with a fix)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/nexo-operator:${{ github.ref_name }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      # The manifest of the operator, listed in the signed checksums.txt,
+      # pins the image of this tag.
+      - name: Operator manifest
+        working-directory: dist
+        run: |
+          set -eux
+          sha256sum -c --ignore-missing checksums.txt
+          grep -q "nexo-operator.yaml" checksums.txt
+          grep -q "image: ${REGISTRY}/nexo-operator:${GITHUB_REF_NAME}\$" nexo-operator.yaml
 
   smoke:
     # TM-10: the binaries of the release archives start on every OS/arch and
@@ -369,6 +397,10 @@ jobs:
             description: Media worker of Nexo - video renditions, posters, thumbnails and image variants
             readme: DOCKERHUB.media-worker.md
             title: "# Nexo media worker"
+          - image: nexo-operator
+            description: Kubernetes operator of Nexo - NexoCluster resources with health-gated rolling updates
+            readme: DOCKERHUB.operator.md
+            title: "# Nexo operator"
     steps:
       - uses: actions/checkout@v4
         with:

@@ -40,6 +40,7 @@ export function createHttpServices(options: HttpServicesOptions = {}): Services 
     // The services of the pages loaded on demand are loaded with them
     // (docs/06 §6.5: the initial bundle stays within its budget).
     heal: lazyService(async () => (await import('./heal')).createHttpHealService(client)),
+    pools: lazyService(async () => (await import('./pools')).createHttpPoolsService(client)),
     lifecycle: lazyService(async () =>
       (await import('./lifecycle')).createHttpLifecycleService(client),
     ),
@@ -47,6 +48,16 @@ export function createHttpServices(options: HttpServicesOptions = {}): Services 
       (await import('./notifications')).createHttpNotificationService(client),
     ),
     media: lazyService(async () => (await import('./media')).createHttpMediaService(client)),
+    replication: lazyService(async () =>
+      (await import('./replication')).createHttpReplicationService(client),
+    ),
+    siteReplication: lazyService(async () =>
+      (await import('./siteReplication')).createHttpSiteReplicationService(client),
+    ),
+    tiers: lazyService(async () => (await import('./tiers')).createHttpTierService(client)),
+    maintenance: lazyService(async () =>
+      (await import('./maintenance')).createHttpMaintenanceService(client),
+    ),
     kms: lazyService(async () => (await import('./kms')).createHttpKmsService(client)),
     users: lazyService(async () => (await import('./iam')).createHttpUserService(client)),
     groups: lazyService(async () => (await import('./iam')).createHttpGroupService(client)),

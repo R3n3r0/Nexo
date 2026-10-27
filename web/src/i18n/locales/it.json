@@ -256,6 +256,7 @@
       "lifecycle": "Ciclo di vita",
       "events": "Eventi",
       "media": "Media",
+      "replication": "Replica",
       "rules": "Regole di accesso"
     },
     "summary": "{{size}} · {{objects}} oggetti",
@@ -634,114 +635,6 @@
       "set": "Set",
       "usage": "Utilizzo",
       "healingProgress": "{{objects}} oggetti riparati ({{bytes}}), {{failed}} non riusciti"
-    }
-  },
-  "healing": {
-    "title": "Riparazione",
-    "subtitle": "Ripara gli oggetti a cui mancano copie o con shard corrotti, e segui la riparazione che il cluster fa da sé.",
-    "unsupported": "La riparazione richiede un deployment con erasure coding: un singolo disco non ha copie da cui ricostruire.",
-    "start": {
-      "title": "Avvia una riparazione",
-      "hint": "Senza bucket il job ripara il formato dei dischi e ogni bucket; con l'opzione oggetti controlla anche ogni oggetto.",
-      "bucket": "Bucket",
-      "allBuckets": "Tutti i bucket e il formato dei dischi",
-      "noBuckets": "Nessun bucket",
-      "prefix": "Prefisso o oggetto",
-      "prefixPlaceholder": "foto/2026/",
-      "submit": "Avvia la riparazione"
-    },
-    "options": {
-      "recursive": "Includi gli oggetti (ricorsivo)",
-      "dryRun": "Simulazione: solo report",
-      "deep": "Approfondita: verifica i checksum bitrot",
-      "remove": "Rimuovi gli oggetti orfani",
-      "removeHint": "Elimina le versioni presenti su troppo pochi dischi per essere mai lette."
-    },
-    "badges": {
-      "recursive": "ricorsivo",
-      "dryRun": "simulazione",
-      "deep": "approfondita",
-      "remove": "rimozione"
-    },
-    "target": {
-      "all": "Formato e tutti i bucket"
-    },
-    "states": {
-      "running": "In corso",
-      "done": "Completato",
-      "failed": "Fallito",
-      "canceled": "Annullato"
-    },
-    "jobs": {
-      "title": "Job di riparazione",
-      "empty": "Nessun job di riparazione nell'ultima ora.",
-      "started": "Avviato",
-      "target": "Obiettivo",
-      "options": "Opzioni",
-      "details": "Dettagli",
-      "showDetails": "Mostra i dettagli di {{id}}"
-    },
-    "details": {
-      "title": "Job {{id}}",
-      "node": "su {{node}}",
-      "progress": "Avanzamento della riparazione",
-      "current": "Riparazione di {{item}}",
-      "starting": "Avvio…"
-    },
-    "counters": {
-      "scanned": "Esaminati",
-      "healed": "Riparati",
-      "failed": "Non riusciti",
-      "dangling": "Orfani",
-      "removed": "Rimossi",
-      "bytes": "Dimensione esaminata"
-    },
-    "drives": {
-      "title": "Risultati per disco",
-      "drive": "Disco",
-      "position": "Posizione",
-      "positionValue": "pool {{pool}}, set {{set}}, disco {{disk}}",
-      "missing": "Mancanti",
-      "corrupt": "Corrotti",
-      "offline": "Offline",
-      "healed": "Riparati"
-    },
-    "items": {
-      "title": "Elementi da riparare",
-      "item": "Elemento",
-      "drives": "Dischi",
-      "result": "Esito",
-      "kinds": {
-        "format": "Formato",
-        "bucket": "Bucket",
-        "object": "Oggetto"
-      },
-      "driveChange": "disco {{disk}}: {{before}} → {{after}}",
-      "healedCopies_one": "{{count}} copia ricostruita",
-      "healedCopies_other": "{{count}} copie ricostruite",
-      "dangling": "Orfano",
-      "removed": "Rimosso",
-      "truncated": "Sono elencati solo i primi 1000 elementi."
-    },
-    "driveStates": {
-      "ok": "ok",
-      "missing": "mancante",
-      "corrupt": "corrotto",
-      "offline": "offline"
-    },
-    "background": {
-      "title": "Riparazione in background",
-      "hint": "Gli oggetti scritti o letti mentre un disco non rispondeva sono riparati dal nodo che se n'è accorto; i dischi sostituiti vengono ripopolati.",
-      "queues": "Coda di riparazione in background dei nodi",
-      "pending": "In attesa",
-      "healed": "Riparati",
-      "retried": "Ritentati",
-      "dropped": "Scartati",
-      "drives": "Dischi in riparazione",
-      "noDrives": "Nessun disco in riparazione.",
-      "onNode": "su {{node}}",
-      "driveProgress": "Riparazione del disco {{path}}",
-      "progress": "{{objects}} oggetti riparati ({{bytes}}), {{failed}} non riusciti, {{buckets}} bucket completati"
     }
   },
   "storageErrors": {

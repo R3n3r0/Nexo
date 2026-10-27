@@ -123,6 +123,50 @@ export type CreatedAccessKey = AccessKey & { secretKey: string };
 export type CreateAccessKeyInput = Schemas['CreateAccessKeyRequest'];
 export type UpdateAccessKeyInput = Schemas['UpdateAccessKeyRequest'];
 
+/* Pool management (GET /pools, /pools/{pool}/decommission, /rebalance). */
+
+/** The pools, their decommission and the rebalance. */
+export type Pools = Schemas['Pools'];
+export type PoolStatus = Schemas['PoolStatus'];
+/** Progress of a decommission or of the rebalance. */
+export type PoolJob = Schemas['PoolJob'];
+/** A change of the pools to check (POST /pools/plan). */
+export type PoolPlanInput = Schemas['PoolPlanInput'];
+/** The topology after the change, and the command line of every node. */
+export type PoolPlan = Schemas['PoolPlan'];
+export type PlannedPool = Schemas['PlannedPool'];
+
+/* Orchestrated update and coordinated restart (/service/update, /service/cluster/*). */
+
+/** The last update or coordinated restart of the deployment. */
+export type UpdateJob = Schemas['UpdateJob'];
+export type UpdateRequest = Schemas['UpdateRequest'];
+/** One node at a time (rolling) or every node together (all). */
+export type RestartMode = NonNullable<UpdateRequest['mode']>;
+
+/* Bucket replication (/buckets/{bucket}/replication, S-BKT-12). */
+
+/** One rule: the keys it selects, the target it sends them to and what it replicates. */
+export type ReplicationRule = Schemas['ReplicationRule'];
+/** The rules of a bucket (none: not replicated). */
+export type ReplicationConfiguration = Schemas['ReplicationConfiguration'];
+/** A remote bucket the bucket replicates to; secretKey is sent, never returned. */
+export type ReplicationTarget = Schemas['ReplicationTarget'];
+/** The replication to one target as the node that answered sees it. */
+export type ReplicationTargetStatus = Schemas['ReplicationTargetStatus'];
+/** The progress of a resync of the bucket to a target. */
+export type ReplicationResync = Schemas['ReplicationResync'];
+export type ReplicationStatus = Schemas['ReplicationStatus'];
+
+/* Site replication (/site-replication, S-STO-11). */
+
+export type SiteReplicationSite = Schemas['SiteReplicationSite'];
+export type SiteReplicationPeerStatus = Schemas['SiteReplicationPeerStatus'];
+/** The group of sites of this deployment and the synchronization with each one. */
+export type SiteReplicationInfo = Schemas['SiteReplicationInfo'];
+export type Tier = Schemas['Tier'];
+export type TierInput = Schemas['TierInput'];
+
 /* Healing jobs (POST/GET /heal, GET /heal/{id}). */
 
 /** What to heal: no bucket = format and every bucket; recursive = the objects too. */
