@@ -29,6 +29,8 @@ RUN --mount=type=cache,target=/root/.npm \
     npm ci --no-audit --no-fund
 
 COPY web/ ./
+# The player page imports the session module of the JavaScript SDK.
+COPY sdk/js/src /src/sdk/js/src
 RUN npm run build
 
 # ---------------------------------------------------------------------------
