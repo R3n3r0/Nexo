@@ -63,6 +63,53 @@ func (_c *Links_Init_Call) RunAndReturn(run func(string) string) *Links_Init_Cal
 	return _c
 }
 
+// Key provides a mock function with given fields: rev, period
+func (_m *Links) Key(rev string, period int) string {
+	ret := _m.Called(rev, period)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Key")
+	}
+
+	var r0 string
+	if rf, ok := ret.Get(0).(func(string, int) string); ok {
+		r0 = rf(rev, period)
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	return r0
+}
+
+// Links_Key_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Key'
+type Links_Key_Call struct {
+	*mock.Call
+}
+
+// Key is a helper method to define mock.On call
+//   - rev string
+//   - period int
+func (_e *Links_Expecter) Key(rev interface{}, period interface{}) *Links_Key_Call {
+	return &Links_Key_Call{Call: _e.mock.On("Key", rev, period)}
+}
+
+func (_c *Links_Key_Call) Run(run func(rev string, period int)) *Links_Key_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].(int))
+	})
+	return _c
+}
+
+func (_c *Links_Key_Call) Return(_a0 string) *Links_Key_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Links_Key_Call) RunAndReturn(run func(string, int) string) *Links_Key_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Media provides a mock function with given fields: rev
 func (_m *Links) Media(rev string) string {
 	ret := _m.Called(rev)

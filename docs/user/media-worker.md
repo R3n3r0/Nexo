@@ -70,6 +70,7 @@ A video the worker cannot process (H.265, another codec, a damaged file) gets `s
 | Output | Content |
 | --- | --- |
 | `renditions/<name>.mp4` | H.264 Constrained Baseline + the AAC track of the source, progressive MP4, a keyframe every 2 seconds |
+| `renditions/<name>.b.mp4` | the B variant of a rendition, for the videos with the [forensic watermark](video-protection.md#6-forensic-watermark) |
 | `poster.jpg` | the keyframe at a tenth of the video (at most 10 seconds in), at most 1280 pixels wide |
 | `thumbnails/sprite.jpg` | tiles 160 pixels wide, 10 per row, one per interval (at most 500) |
 | `thumbnails/thumbnails.vtt` | WebVTT map of the sprite (`sprite.jpg#xywh=x,y,w,h`) |
@@ -92,6 +93,27 @@ The outputs of a version live under `.nexo-media/<key>/<versionId>/` (`null` in 
 The console and `nexoctl ls`, `find` and `tree` hide this prefix by default (`--media` shows it); the S3 API lists it like any other, so
 backups, mirrors and replication keep the outputs with their videos. They count against the quota of the
 bucket.
+
+### Forensic watermark
+
+When the [video protection](video-protection.md#6-forensic-watermark) of a bucket marks its videos (`--forensic`),
+the worker encodes every rendition twice from the same pictures: `renditions/<name>.mp4` carries an invisible
+pattern (±2 luma levels, a smooth grid of random signs drawn per video) added to the picture, `<name>.b.mp4` the
+same pattern subtracted. Both have the same keyframes and segments; the server picks one of them for every segment
+of a stream according to the code of the viewer's playback token. It doubles the encoding time and the storage of
+the renditions. The videos processed before the forensic watermark was turned on stream only once reprocessed
+(`nexoctl media reprocess`): a marked video never streams unmarked.
+
+`nexo-media-worker trace` reads the mark back from a leaked copy (an MP4 with H.264 video) with the credentials of
+the worker, and writes the votes that `nexoctl media trace` turns into the viewer the copy was streamed to:
+
+```sh
+nexo-media-worker trace --leak copy.mp4 --bucket lms --key courses/intro.mp4 --out votes.json
+nexoctl media trace local/lms/courses/intro.mp4 --votes votes.json
+```
+
+`--offset` gives the time of the video the first picture of a clip shows; `--every` the least time between two
+votes (200 ms).
 
 ## Images: every format and width
 
@@ -268,7 +290,7 @@ rules to restrict it further): it reads the videos and writes only under `.nexo-
 {
   "Version": "2012-10-17",
   "Statement": [
-    {"Effect": "Allow", "Action": ["s3:GetObject", "s3:GetObjectVersion"], "Resource": ["arn:aws:s3:::*/*"]},
+    {"Effect": "Allow", "Action": ["s3:GetObject", "s3:GetObjectVersion", "nexo:DownloadProtectedMedia"], "Resource": ["arn:aws:s3:::*/*"]},
     {"Effect": "Allow", "Action": ["s3:PutObject", "s3:DeleteObject", "s3:DeleteObjectVersion"],
      "Resource": ["arn:aws:s3:::*/.nexo-media/*"]},
     {"Effect": "Allow", "Action": ["s3:ListBucket", "s3:ListBucketVersions"], "Resource": ["arn:aws:s3:::*"],

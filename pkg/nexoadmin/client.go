@@ -121,6 +121,24 @@ type AdminClient interface {
 	// (state "none" when the media worker never processed it; versionID ""
 	// is the latest version; s3:GetObject).
 	GetMediaStatus(ctx context.Context, bucket, key, versionID string) (*MediaStatus, error)
+	// GetMediaProtection returns the download protection of the videos of
+	// a bucket (disabled when never set); SetMediaProtection stores it
+	// normalized (admin:GetBucketMedia, admin:SetBucketMedia).
+	GetMediaProtection(ctx context.Context, bucket string) (*MediaProtection, error)
+	SetMediaProtection(ctx context.Context, bucket string, p MediaProtection) (*MediaProtection, error)
+	// IssuePlaybackToken issues a playback token of a video for a viewer
+	// (nexo:IssuePlaybackToken on the object; versionID "" follows the
+	// current version). RevokePlaybackSession revokes one token by its
+	// session id, RevokePlaybackSubject every token of a viewer of the
+	// bucket (admin:RevokePlaybackTokens).
+	IssuePlaybackToken(ctx context.Context, bucket, key, versionID string, req PlaybackTokenRequest) (*PlaybackToken, error)
+	RevokePlaybackSession(ctx context.Context, bucket, sessionID string) error
+	RevokePlaybackSubject(ctx context.Context, bucket, subject string) error
+	// TracePlaybackLeak finds the playback tokens a leaked copy of a video
+	// marked by the forensic watermark may come from
+	// (admin:TracePlaybackLeaks on the bucket): the bits of its code, or
+	// the votes of nexo-media-worker trace.
+	TracePlaybackLeak(ctx context.Context, bucket, key, versionID string, req PlaybackTraceRequest) (*PlaybackTrace, error)
 	// ListSubtitles returns the subtitle tracks of a video that apply to
 	// its content; GetSubtitles a track and its cues, ExportSubtitles the
 	// document of a track (format vtt or srt); PutSubtitles stores a

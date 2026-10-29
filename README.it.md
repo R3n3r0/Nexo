@@ -43,6 +43,11 @@
   MinIO, su un disco, più dischi e in cluster: SDK, `aws`, `rclone` e gli strumenti di backup funzionano e basta.
 - **I tuoi video si vedono appena arrivano.** Un MP4 caricato va subito in streaming HLS, e un media worker può
   aggiungere ogni qualità da 240p a 4K, un poster e le miniature della barra di avanzamento, senza ffmpeg.
+- **Video che non si scaricano, senza fornitori di DRM.** Per corsi e aree riservate: flussi cifrati, token di
+  riproduzione per spettatore, un limite di flussi simultanei, una filigrana mobile con il nome dello spettatore e
+  l'originale bloccato; in più, una modalità solo player di Nexo con chiavi scambiate per sessione e una filigrana
+  forense invisibile che indica la fonte di una copia diffusa. Un interruttore nella console
+  ([video protetti](#-video-protetti)).
 - **Ogni foto nel formato e nella dimensione che serve a ogni schermo.** Lo stesso worker trasforma ogni immagine
   caricata in AVIF, WebP, JPEG e PNG a ogni larghezza, e un solo URL serve la più compatta che il browser accetta,
   sull'endpoint S3 o sul tuo dominio.
@@ -122,7 +127,8 @@ dei dischi a caldo, espansione con nuovi pool.
 
 ### 🔐 Sicurezza
 Utenti, gruppi e policy IAM, access key con scadenza, STS, regole di accesso con glob e regex, link di
-condivisione revocabili, TLS con ricarica a caldo, mTLS tra i nodi, KMS integrato o KES, audit log.
+condivisione revocabili, TLS con ricarica a caldo, mTLS tra i nodi, KMS integrato o KES, audit log,
+[video protetti](#-video-protetti). Segnalare una vulnerabilità: [SECURITY.md](SECURITY.md).
 
 </td>
 <td width="50%" valign="top">
@@ -130,7 +136,8 @@ condivisione revocabili, TLS con ricarica a caldo, mTLS tra i nodi, KMS integrat
 ### 🎬 Video e immagini
 I video MP4 vanno in streaming HLS impacchettati al volo, con link di streaming revocabili e una pagina player
 pubblica. Il media worker aggiunge rendition, poster e miniature ([video](#-video-integrato)), e ogni immagine
-in AVIF, WebP, JPEG e PNG a ogni larghezza ([immagini](#%EF%B8%8F-immagini-in-ogni-formato)).
+in AVIF, WebP, JPEG e PNG a ogni larghezza ([immagini](#%EF%B8%8F-immagini-in-ogni-formato)). I contenuti a
+pagamento vanno in streaming cifrati e non si scaricano ([video protetti](#-video-protetti)).
 
 </td>
 </tr>
@@ -163,6 +170,8 @@ Crea il bucket con l'opzione **Video HLS** (o aggiungi una **regola media** a un
 qualità ridotte per le reti lente (da 240p a 2160p, offerte dalla stessa playlist), un poster e le miniature della
 barra di avanzamento. Il worker è un programma Go separato basato su OpenH264 di Cisco, **niente ffmpeg**, che
 lavora tramite l'API S3 con una policy minima e non perde mai un job.
+
+Video che solo i tuoi utenti possono guardare e nessuno può scaricare: vedi [video protetti](#-video-protetti).
 
 <p align="center">
   <img src="docs/images/video-pipeline.svg" alt="La pipeline video: un MP4 caricato su Nexo va subito in streaming HLS; una regola media manda un job a nexo-media-worker, che scrive rendition, poster e miniature poi offerti dalla playlist" width="960">
@@ -211,6 +220,46 @@ nexoctl media status local/video/intro.mp4
 Ogni job usa tutti i core: il video è diviso nei suoi keyframe e ogni parte è decodificata e codificata sul
 proprio core, con lo stesso risultato byte per byte. Dettagli: [streaming video](docs/user/video-streaming.it.md),
 [media worker](docs/user/media-worker.it.md), [benchmark](docs/bench/media.md).
+
+## 🔒 Video protetti
+
+Per piattaforme di corsi, aree riservate e contenuti a pagamento: video che i tuoi utenti possono guardare ma
+**non scaricare**, **senza fornitori di DRM né license server**. Tutto gira dentro Nexo, e si attiva per bucket
+dalla console (bucket → **Media** → *Protezione video*) o con `nexoctl media protection set`.
+
+| Minaccia | Cosa fa Nexo |
+|---|---|
+| Scaricare il file | L'originale è rifiutato a chiunque non abbia `nexo:DownloadProtectedMedia`: GET S3, copy, select, console, archivi zip e distribuzioni |
+| Salvare lo stream con un downloader | I segmenti sono cifrati (HLS AES-128, una chiave nuova ogni 10 segmenti); le chiavi escono solo al ritmo della riproduzione, quindi un downloader riceve `429` e salva rumore |
+| Leggere le chiavi nel browser | **Modalità avanzata** (solo player di Nexo): scambio di chiavi ECDH su WebSocket, segmenti cifrati per sessione (AES-GCM), chiavi avvolte e non estraibili in WebCrypto; i player standard e i downloader HLS non ottengono nulla |
+| Condividere il link | Il link contiene un token di riproduzione a breve scadenza che la tua applicazione emette per ogni spettatore; scade, si revoca per sessione o per spettatore, e le chiavi si possono limitare all'origine del tuo sito |
+| Condividere l'account | Al massimo N flussi simultanei per spettatore: un flusso più recente sostituisce il più vecchio, su ogni nodo di un cluster |
+| Registrare lo schermo | Non si può impedire senza un DRM commerciale: il player disegna una **filigrana mobile** con il nome o l'email dello spettatore, così una copia diffusa dice da chi viene |
+| Ritagliare la filigrana, ricodificare | **Filigrana forense**: ogni flusso porta nell'immagine un codice invisibile del suo token (varianti A/B per segmento); `nexoctl media trace` lo legge da una copia diffusa e indica lo spettatore |
+
+```js
+// il tuo backend (Node.js, Deno, Bun): un token per ogni spettatore autenticato
+import { createNexoClient } from '@nexo-storage/player/server';
+const nexo = createNexoClient({ endpoint: 'https://nexo.example.com:9001', accessKey, secretKey });
+const { playlist } = await nexo.issuePlaybackToken({
+  bucket: 'lms', key: 'corsi/intro.mp4', subject: String(utente.id), watermark: utente.email,
+});
+```
+
+```html
+<!-- la tua pagina: va bene qualsiasi player HLS; questo disegna anche la filigrana -->
+<script type="module">
+  import { defineNexoPlayer } from 'https://nexo.example.com:9000/nexo/media/sdk/index.js';
+  defineNexoPlayer();
+</script>
+<nexo-player src="URL_PLAYLIST"></nexo-player>
+```
+
+**Due livelli.** In modalità standard non serve un player particolare: un video protetto è HLS standard,
+riproducibile da Safari, hls.js, Video.js, Shaka, ExoPlayer o VLC con il solo URL della playlist. In modalità
+avanzata lo riproduce solo il player di Nexo (la sua pagina, `<nexo-player>`, `createPlayer()`), con lo stesso codice
+dalla tua parte. Il piccolo [SDK JavaScript](sdk/js/README.it.md) (`<nexo-player>`, React, Angular, Vue, backend
+Node.js) copre entrambe. Guida: [protezione video](docs/user/video-protection.it.md).
 
 ## 🖼️ Immagini in ogni formato
 
@@ -373,6 +422,7 @@ questo file da un archivio di release):
 | 🔐 [Sicurezza](docs/user/security/users-policies.it.md) | policy, condivisione, regole di accesso, TLS, KMS |
 | 🌍 [Distribuzioni e cache](docs/user/distributions/README.it.md) | domini personalizzati, con un [tutorial](docs/user/distributions/tutorial-static-site.it.md) completo |
 | 🎬 [Video e immagini](docs/user/video-streaming.it.md) | streaming HLS, link di streaming e il [media worker](docs/user/media-worker.it.md): rendition, poster, miniature e [immagini in ogni formato](docs/user/media-worker.it.md#immagini-ogni-formato-e-larghezza) |
+| 🔒 [Protezione video](docs/user/video-protection.it.md) | flussi cifrati, token di riproduzione, modalità solo player di Nexo, filigrana visibile e forense, l'[SDK JavaScript](sdk/js/README.it.md) per pagine web e backend |
 | 📘 [Riferimenti](docs/user/reference/cli.it.md) | CLI, [Admin API](docs/user/reference/admin-api.it.md), [compatibilità S3](docs/user/reference/s3-compatibility.it.md) |
 
 `make docs-site` la pubblica come sito statico con MkDocs (in `bin/site`, in inglese e in italiano sotto `/it/`).
@@ -431,6 +481,10 @@ Servono Go (versione in `go.mod`) e, per la console, Node.js.
 Il codice segue la convenzione di [docs/12](docs/12-service-architecture.md): ogni servizio ha
 un'interfaccia e un'implementazione non esportata, la composizione avviene solo in `internal/app`.
 I contributi sono benvenuti: vedi [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## ✉️ Contatti
+
+Domande, licenze commerciali, collaborazioni: <paolorusso1991@gmail.com>. Problemi di sicurezza: vedi [SECURITY.md](SECURITY.md).
 
 ## 📄 Licenza
 

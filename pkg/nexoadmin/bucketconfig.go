@@ -512,3 +512,149 @@ func (c *client) GetObjectAttributes(ctx context.Context, bucket, key string, op
 	var out ObjectAttributes
 	return &out, c.do(ctx, request{method: http.MethodGet, path: pathOf("buckets", bucket, "objects", "attributes"), query: q}, &out)
 }
+
+// MediaProtection is the download protection of the videos of a bucket:
+// a protected video streams encrypted, its keys go only to a playback
+// token of the video, and its original cannot be downloaded without
+// nexo:DownloadProtectedMedia.
+type MediaProtection struct {
+	Enabled bool `json:"enabled"`
+	// Prefix limits the protection to the keys under it.
+	Prefix string `json:"prefix,omitempty"`
+	// Suffixes of the protected videos (default .mp4, .mov, .m4v).
+	Suffixes []string `json:"suffixes,omitempty"`
+	// TokenTTLSeconds is the longest validity of a playback token
+	// (default 7200).
+	TokenTTLSeconds int `json:"tokenTtlSeconds,omitempty"`
+	// MaxSessions is the number of simultaneous streams of a viewer
+	// (default 2; -1 for no limit).
+	MaxSessions int `json:"maxSessions,omitempty"`
+	// PaceFactor bounds the keys of a stream to this many times the pace
+	// of playback (default 2).
+	PaceFactor int `json:"paceFactor,omitempty"`
+	// Watermark draws the viewer's watermark in the player.
+	Watermark bool `json:"watermark"`
+	// AllowedOrigins may embed the player and fetch the keys (empty: any).
+	AllowedOrigins []string `json:"allowedOrigins"`
+	// ShareLinks lets the stream share links play the protected videos.
+	ShareLinks bool `json:"shareLinks"`
+	// Mode is standard (any HLS player) or advanced (only the player of
+	// Nexo: session keys negotiated with ECDH, segments encrypted for
+	// each session).
+	Mode string `json:"mode,omitempty"`
+	// LegacyDevices is what the advanced mode does with the browsers
+	// without Media Source Extensions: refuse (the default) or standard.
+	LegacyDevices string `json:"legacyDevices,omitempty"`
+	// Forensic marks every stream with an invisible watermark naming its
+	// playback token (two variants of every rendition, from the media
+	// worker).
+	Forensic bool `json:"forensic"`
+}
+
+// GetMediaProtection implements AdminClient.
+func (c *client) GetMediaProtection(ctx context.Context, bucket string) (*MediaProtection, error) {
+	var out MediaProtection
+	return &out, c.do(ctx, request{method: http.MethodGet, path: pathOf("buckets", bucket, "media", "protection")}, &out)
+}
+
+// SetMediaProtection implements AdminClient.
+func (c *client) SetMediaProtection(ctx context.Context, bucket string, p MediaProtection) (*MediaProtection, error) {
+	if p.AllowedOrigins == nil {
+		p.AllowedOrigins = []string{}
+	}
+	var out MediaProtection
+	return &out, c.do(ctx, request{method: http.MethodPut, path: pathOf("buckets", bucket, "media", "protection"), body: p}, &out)
+}
+
+// PlaybackTokenRequest asks for a playback token of a video.
+type PlaybackTokenRequest struct {
+	// Subject identifies the viewer for the application (required): the
+	// simultaneous streams are counted by subject.
+	Subject string `json:"subject"`
+	// Watermark is the text the Nexo player draws over the video (default:
+	// the subject).
+	Watermark string `json:"watermark,omitempty"`
+	// TTLSeconds is the validity of the token (0: 2 hours; at most the
+	// token TTL of the protection).
+	TTLSeconds int `json:"ttlSeconds,omitempty"`
+}
+
+// PlaybackToken is a playback token and where it plays.
+type PlaybackToken struct {
+	// Token is the value of the pt query parameter of the media routes.
+	Token     string    `json:"token"`
+	SessionID string    `json:"sessionId"`
+	ExpiresAt time.Time `json:"expiresAt"`
+	// Playlist is the master playlist with the token, for any HLS player;
+	// Player the Nexo player page.
+	Playlist string `json:"playlist"`
+	Player   string `json:"player"`
+}
+
+// IssuePlaybackToken implements AdminClient.
+func (c *client) IssuePlaybackToken(ctx context.Context, bucket, key, versionID string, req PlaybackTokenRequest) (*PlaybackToken, error) {
+	q := url.Values{"key": {key}}
+	if versionID != "" {
+		q.Set("versionId", versionID)
+	}
+	var out PlaybackToken
+	return &out, c.do(ctx, request{method: http.MethodPost, path: pathOf("buckets", bucket, "objects", "playback-tokens"), query: q, body: req}, &out)
+}
+
+// RevokePlaybackSession implements AdminClient.
+func (c *client) RevokePlaybackSession(ctx context.Context, bucket, sessionID string) error {
+	return c.do(ctx, request{method: http.MethodDelete, path: pathOf("buckets", bucket, "media", "playback-sessions", sessionID)}, nil)
+}
+
+// RevokePlaybackSubject implements AdminClient.
+func (c *client) RevokePlaybackSubject(ctx context.Context, bucket, subject string) error {
+	return c.do(ctx, request{method: http.MethodDelete, path: pathOf("buckets", bucket, "media", "playback-subjects", subject)}, nil)
+}
+
+// PlaybackTraceVote is what a picture of a leaked copy tells (the votes
+// of nexo-media-worker trace): at T seconds of the video, S about +1 for
+// the A variant, -1 for the B variant.
+type PlaybackTraceVote struct {
+	T float64 `json:"t"`
+	S float64 `json:"s"`
+	R string  `json:"r,omitempty"`
+}
+
+// PlaybackTraceRequest asks for the tokens a leaked copy may come from:
+// Bits ("0", "1", "?" for each segment, mod 64) or Votes.
+type PlaybackTraceRequest struct {
+	Bits  string              `json:"bits,omitempty"`
+	Votes []PlaybackTraceVote `json:"votes,omitempty"`
+	Limit int                 `json:"limit,omitempty"`
+}
+
+// PlaybackTrace are the bits read and the tokens agreeing with them.
+type PlaybackTrace struct {
+	Bits    string               `json:"bits"`
+	Matches []PlaybackTraceMatch `json:"matches"`
+}
+
+// PlaybackTraceMatch is a playback token a leaked copy may come from:
+// Agree of the Compared bits known in the copy are those of its Code.
+type PlaybackTraceMatch struct {
+	SessionID string    `json:"sessionId"`
+	Subject   string    `json:"subject"`
+	Watermark string    `json:"watermark,omitempty"`
+	Key       string    `json:"key"`
+	VersionID string    `json:"versionId,omitempty"`
+	IssuedAt  time.Time `json:"issuedAt"`
+	ExpiresAt time.Time `json:"expiresAt"`
+	Code      string    `json:"code"`
+	Agree     int       `json:"agree"`
+	Compared  int       `json:"compared"`
+}
+
+// TracePlaybackLeak implements AdminClient.
+func (c *client) TracePlaybackLeak(ctx context.Context, bucket, key, versionID string, req PlaybackTraceRequest) (*PlaybackTrace, error) {
+	q := url.Values{"key": {key}}
+	if versionID != "" {
+		q.Set("versionId", versionID)
+	}
+	var out PlaybackTrace
+	return &out, c.do(ctx, request{method: http.MethodPost, path: pathOf("buckets", bucket, "objects", "playback-trace"), query: q, body: req}, &out)
+}

@@ -275,6 +275,160 @@ describe('BucketMediaTab', () => {
     });
   });
 
+  it('turns the video protection on with its settings', async () => {
+    const services = createMockServices({ initialAccessKey: 'nexoadmin' });
+    const setProtection = vi.spyOn(services.media, 'setProtection');
+    const { user } = open(services);
+    const section = await screen.findByRole('region', { name: 'Video protection' });
+    const enabled = await within(section).findByRole('switch', { name: /^Protect the videos/ });
+    expect(enabled).not.toBeChecked();
+    expect(within(section).queryByRole('textbox', { name: 'Allowed origins' })).toBeNull();
+    await user.click(enabled);
+    await user.type(within(section).getByRole('textbox', { name: 'Key prefix' }), 'courses/');
+    const sessions = within(section).getByRole('textbox', {
+      name: 'Simultaneous streams per viewer',
+    });
+    expect(sessions).toHaveValue('2');
+    await user.clear(sessions);
+    await user.type(sessions, '3');
+    await user.type(
+      within(section).getByRole('textbox', { name: 'Allowed origins' }),
+      'https://learn.example.com{Enter}',
+    );
+    await user.click(within(section).getByRole('switch', { name: /^Viewer watermark/ }));
+    await user.click(within(section).getByRole('button', { name: 'Advanced' }));
+    const ttl = within(section).getByRole('textbox', {
+      name: 'Playback token validity (minutes)',
+    });
+    expect(ttl).toHaveValue('120');
+    await user.clear(ttl);
+    await user.type(ttl, '30');
+    await user.click(within(section).getByRole('button', { name: 'Save protection' }));
+
+    await waitFor(() => {
+      expect(setProtection).toHaveBeenCalledWith('media', {
+        enabled: true,
+        prefix: 'courses/',
+        suffixes: ['.mp4', '.mov', '.m4v'],
+        tokenTtlSeconds: 1800,
+        maxSessions: 3,
+        paceFactor: 2,
+        watermark: false,
+        allowedOrigins: ['https://learn.example.com'],
+        shareLinks: false,
+        mode: 'standard',
+        legacyDevices: 'refuse',
+        forensic: false,
+      });
+    });
+    expect(await services.media.getProtection('media')).toMatchObject({
+      enabled: true,
+      tokenTtlSeconds: 1800,
+      maxSessions: 3,
+    });
+  });
+
+  it('sends no limit of streams when unlimited is checked', async () => {
+    const services = createMockServices({ initialAccessKey: 'nexoadmin' });
+    await services.media.setProtection('media', {
+      enabled: true,
+      watermark: true,
+      allowedOrigins: [],
+      shareLinks: false,
+      forensic: false,
+    });
+    const setProtection = vi.spyOn(services.media, 'setProtection');
+    const { user } = open(services);
+    const section = await screen.findByRole('region', { name: 'Video protection' });
+    expect(
+      await within(section).findByRole('switch', { name: /^Protect the videos/ }),
+    ).toBeChecked();
+    await user.click(within(section).getByRole('checkbox', { name: 'No limit' }));
+    expect(
+      within(section).getByRole('textbox', { name: 'Simultaneous streams per viewer' }),
+    ).toBeDisabled();
+    await user.click(within(section).getByRole('button', { name: 'Save protection' }));
+    await waitFor(() => {
+      expect(setProtection).toHaveBeenCalledWith(
+        'media',
+        expect.objectContaining({ enabled: true, maxSessions: -1 }),
+      );
+    });
+  });
+
+  it('plays the protected videos in the Nexo player only, with a forensic watermark', async () => {
+    const services = createMockServices({ initialAccessKey: 'nexoadmin' });
+    await services.media.setProtection('media', {
+      enabled: true,
+      watermark: true,
+      allowedOrigins: [],
+      shareLinks: false,
+      forensic: false,
+    });
+    const setProtection = vi.spyOn(services.media, 'setProtection');
+    const { user } = open(services);
+    const section = await screen.findByRole('region', { name: 'Video protection' });
+    expect(
+      await within(section).findByRole('switch', { name: /^Protect the videos/ }),
+    ).toBeChecked();
+    expect(
+      within(section).queryByRole('switch', { name: /^Let older devices/ }),
+    ).not.toBeInTheDocument();
+    await user.click(within(section).getByRole('radio', { name: 'Nexo player only' }));
+    expect(within(section).getByText(/negotiates a key per session/)).toBeInTheDocument();
+    await user.click(within(section).getByRole('switch', { name: /^Let older devices/ }));
+    await user.click(within(section).getByRole('switch', { name: /^Forensic watermark/ }));
+    await user.click(within(section).getByRole('button', { name: 'Save protection' }));
+    await waitFor(() => {
+      expect(setProtection).toHaveBeenCalledWith(
+        'media',
+        expect.objectContaining({ mode: 'advanced', legacyDevices: 'standard', forensic: true }),
+      );
+    });
+    expect(await services.media.getProtection('media')).toMatchObject({
+      mode: 'advanced',
+      legacyDevices: 'standard',
+      forensic: true,
+    });
+  });
+
+  it('validates the video protection before sending', async () => {
+    const services = createMockServices({ initialAccessKey: 'nexoadmin' });
+    const setProtection = vi.spyOn(services.media, 'setProtection');
+    const { user } = open(services);
+    const section = await screen.findByRole('region', { name: 'Video protection' });
+    await user.click(await within(section).findByRole('switch', { name: /^Protect the videos/ }));
+    await user.type(
+      within(section).getByRole('textbox', { name: 'Allowed origins' }),
+      'https://learn.example.com/courses{Enter}',
+    );
+    await user.click(within(section).getByRole('button', { name: 'Save protection' }));
+    expect(
+      within(section).getByText('Each origin must be http(s)://host[:port], without a path.'),
+    ).toBeInTheDocument();
+    expect(setProtection).not.toHaveBeenCalled();
+  });
+
+  it('shows the error the server gives for the video protection', async () => {
+    const services = createMockServices({ initialAccessKey: 'nexoadmin' });
+    const { ApiError } = await import('@/services');
+    vi.spyOn(services.media, 'setProtection').mockRejectedValue(
+      new ApiError({
+        title: 'Bad Request',
+        status: 400,
+        code: 'invalid_argument',
+        detail: 'media protection: no key service',
+      }),
+    );
+    const { user } = open(services);
+    const section = await screen.findByRole('region', { name: 'Video protection' });
+    await user.click(await within(section).findByRole('switch', { name: /^Protect the videos/ }));
+    await user.click(within(section).getByRole('button', { name: 'Save protection' }));
+    const alert = await within(section).findByRole('alert');
+    expect(alert).toHaveTextContent('The server refused the protection');
+    expect(alert).toHaveTextContent('media protection: no key service');
+  });
+
   it('tells a user without admin:GetBucketMedia that the rules are hidden', async () => {
     open(readOnly());
     expect(await screen.findByRole('alert')).toHaveTextContent(

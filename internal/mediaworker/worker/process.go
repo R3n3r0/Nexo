@@ -140,7 +140,7 @@ func (j *job) video(ctx context.Context, dir, srcPath string, produced map[strin
 	for _, name := range rule.Renditions {
 		p, ok := domain.MediaRenditionPreset(name)
 		if ok && p.Height <= src.Height {
-			specs = append(specs, transcode.RenditionSpec{Name: name, Height: p.Height, Bitrate: p.VideoBitrate})
+			specs = append(specs, transcode.RenditionSpec{Name: name, Height: p.Height, Bitrate: p.VideoBitrate, Forensic: mj.Forensic})
 		}
 	}
 	if len(specs) > 0 {
@@ -152,13 +152,28 @@ func (j *job) video(ctx context.Context, dir, srcPath string, produced map[strin
 			return wrapTranscode(err)
 		}
 		for _, r := range results {
-			key := domain.MediaRenditionsDir + r.Name + ".mp4"
-			if err := w.store.Upload(ctx, mj.Bucket, j.sidecar+key, r.Path, "video/mp4"); err != nil {
-				return err
+			out := domain.MediaRenditionOutput{Name: r.Name, Width: r.Width, Height: r.Height, Bandwidth: r.Bandwidth}
+			files := []struct {
+				path     string
+				variantB bool
+			}{{r.Path, false}}
+			if r.PathB != "" {
+				// The B variant of the forensic watermark.
+				files = append(files, struct {
+					path     string
+					variantB bool
+				}{r.PathB, true})
+				out.Forensic = true
 			}
-			_ = os.Remove(r.Path)
-			produced[key] = true
-			j.status.Renditions = append(j.status.Renditions, domain.MediaRenditionOutput{Name: r.Name, Width: r.Width, Height: r.Height, Bandwidth: r.Bandwidth})
+			for _, f := range files {
+				key := domain.MediaRenditionsDir + domain.MediaRenditionFile(r.Name, f.variantB)
+				if err := w.store.Upload(ctx, mj.Bucket, j.sidecar+key, f.path, "video/mp4"); err != nil {
+					return err
+				}
+				_ = os.Remove(f.path)
+				produced[key] = true
+			}
+			j.status.Renditions = append(j.status.Renditions, out)
 		}
 	}
 	if rule.Poster {

@@ -49,7 +49,7 @@ func newMediaFixture(t *testing.T) *mediaFixture {
 		"index.html":              {Data: []byte("console")},
 	}
 	routes, err := s3.NewMediaRoutes(s3.MediaDeps{Media: f.media, Policy: f.policy, Signer: f.signer, Creds: f.creds, Clock: clock.NewFake(f.now),
-		Player: player},
+		Player: player, SDK: fstest.MapFS{"index.js": {Data: []byte("export {}")}}},
 		s3.WithRegion("eu-south-1"))
 	require.NoError(t, err)
 	routes.Register(f.router)
@@ -302,4 +302,57 @@ func TestMediaStatusImages(t *testing.T) {
 	require.Len(t, signed, 2)
 	assert.Equal(t, s3.MediaPrefix+"photos/image/2026/a b.jpg", signed[0].URL.Path, "the decoded path is signed")
 	assert.Equal(t, 50*time.Minute, signed[0].Expires)
+}
+
+// TestMediaRoutesKey: the key of a protected video goes, never cached, to
+// a signed request allowed to stream it from an allowed origin; not to an
+// anonymous one, nor a share link unless the protection lets them play.
+//
+// covers: S-OBJ-17
+func TestMediaRoutesKey(t *testing.T) {
+	f := newMediaFixture(t)
+	f.policy.EXPECT().Evaluate(mock.Anything, mock.Anything).Return(policy.Decision{Allowed: true}, nil)
+	src := media.Source{Bucket: "films", Key: "a.mp4", Revision: "e1"}
+	prot := &domain.MediaProtection{Enabled: true, AllowedOrigins: []string{"https://learn.example.com"}}
+	f.media.EXPECT().Protection(mock.Anything, src).Return(prot, nil)
+	f.media.EXPECT().Key(mock.Anything, src, 3).Return([]byte("0123456789abcdef"), nil)
+	alice := &domain.Identity{AccessKey: "alice", AuthType: domain.AuthTypeHeader}
+	target := s3.MediaPrefix + "films/key?key=a.mp4&rev=e1&i=3"
+
+	rec := f.serve(target, alice)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+	assert.Equal(t, "0123456789abcdef", rec.Body.String())
+
+	assert.Equal(t, http.StatusForbidden, f.serve(target, domain.Anonymous()).Code, "anonymous")
+	assert.Equal(t, http.StatusForbidden, f.serve(target+"&X-Amz-Signature=x&X-Amz-Credential=c", alice).Code, "share link")
+
+	req := httptest.NewRequest(http.MethodGet, target, nil)
+	req.Header.Set("Origin", "https://evil.example")
+	req = req.WithContext(middleware.WithIdentity(req.Context(), alice))
+	rec = httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusForbidden, rec.Code, "origin")
+
+	for _, bad := range []string{"films/key?key=a.mp4&i=3", "films/key?key=a.mp4&rev=e1&i=-1", "films/key?key=a.mp4&rev=e1"} {
+		assert.Equal(t, http.StatusBadRequest, f.serve(s3.MediaPrefix+bad, alice).Code, bad)
+	}
+
+	clearSrc := media.Source{Bucket: "films", Key: "b.mp4", Revision: "e1"}
+	f.media.EXPECT().Protection(mock.Anything, clearSrc).Return(nil, nil)
+	assert.Equal(t, http.StatusNotFound, f.serve(s3.MediaPrefix+"films/key?key=b.mp4&rev=e1&i=0", alice).Code, "not protected")
+}
+
+// TestMediaRoutesSDK: the modules of the JavaScript SDK are served to any
+// origin; nothing else is.
+func TestMediaRoutesSDK(t *testing.T) {
+	f := newMediaFixture(t)
+	rec := f.serve(s3.SDKPath+"index.js", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "text/javascript; charset=utf-8", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "*", rec.Header().Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, "export {}", rec.Body.String())
+	for _, name := range []string{"missing.js", "index.css", ".hidden.js"} {
+		assert.Equal(t, http.StatusNotFound, f.serve(s3.SDKPath+name, nil).Code, name)
+	}
 }

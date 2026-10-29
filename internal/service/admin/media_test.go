@@ -3,6 +3,7 @@ package admin_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -12,6 +13,8 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/admin"
 	adminmock "github.com/r3n3r0/nexo/internal/service/admin/mock"
 	bucketmock "github.com/r3n3r0/nexo/internal/service/bucket/mock"
+	"github.com/r3n3r0/nexo/internal/service/media"
+	mediamock "github.com/r3n3r0/nexo/internal/service/media/mock"
 )
 
 func newMediaManager(t *testing.T, jobs admin.MediaJobs) (admin.MediaManager, *bucketmock.Service) {
@@ -122,4 +125,72 @@ func TestMediaReprocess(t *testing.T) {
 	assert.ErrorIs(t, mgr.Reprocess(ctx, "bkt", "", ""), domain.ErrInvalidArgument)
 	jobs.EXPECT().Reprocess(mock.Anything, "bkt", "v.mp4", "v1").Return(nil)
 	require.NoError(t, mgr.Reprocess(ctx, "bkt", "v.mp4", "v1"))
+}
+
+// TestMediaTrace: the votes of a leaked copy are grouped by segment, then
+// by bit position (segment n is bit n mod 64), and read as '0' (variant
+// A), '1' (variant B) or '?'; the bits name the trace records.
+//
+// covers: S-OBJ-19
+func TestMediaTrace(t *testing.T) {
+	ctx := context.Background()
+	medias := mediamock.NewService(t)
+	mgr, err := admin.NewMediaManager(admin.MediaManagerDeps{Buckets: bucketmock.NewService(t), Media: medias})
+	require.NoError(t, err)
+
+	_, err = mgr.Trace(ctx, admin.TraceInput{Bucket: "bkt", Key: "a.mp4"})
+	require.ErrorIs(t, err, domain.ErrInvalidArgument)
+	_, err = mgr.Trace(ctx, admin.TraceInput{Bucket: "bkt", Key: "a.mp4", Bits: "01", Votes: []domain.MediaTraceVote{{T: 1}}})
+	require.ErrorIs(t, err, domain.ErrInvalidArgument)
+
+	match := []domain.MediaTraceMatch{{MediaTrace: domain.MediaTrace{SessionID: "ab", Subject: "s"}, Agree: 3, Compared: 3}}
+	medias.EXPECT().Trace(mock.Anything, "bkt", "01", 10).Return(match, nil).Once()
+	res, err := mgr.Trace(ctx, admin.TraceInput{Bucket: "bkt", Key: "a.mp4", Bits: "01"})
+	require.NoError(t, err)
+	assert.Equal(t, &admin.TraceResult{Bits: "01", Matches: match}, res)
+
+	src := media.Source{Bucket: "bkt", Key: "a.mp4"}
+	st := &media.OutputStatus{Current: true, MediaStatus: domain.MediaStatus{Renditions: []domain.MediaRenditionOutput{
+		{Name: "1080p"}, {Name: "720p", Forensic: true},
+	}}}
+	medias.EXPECT().Status(mock.Anything, src).Return(st, nil)
+	withRendition := src
+	withRendition.Rendition = "720p"
+	medias.EXPECT().Describe(mock.Anything, withRendition).Return(&media.Presentation{
+		Segments: []time.Duration{6 * time.Second, 6 * time.Second, 6 * time.Second, 6 * time.Second},
+	}, nil)
+	// Segment 0: A; segment 1: B (the boundary picture at 6s is of
+	// segment 1); segment 2: undecided; segment 3: A, but by one vote
+	// out of the video (24s).
+	votes := []domain.MediaTraceVote{
+		{T: 0.5, Score: 0.9}, {T: 3, Score: 0.6},
+		{T: 6, Score: -0.8}, {T: 9, Score: -0.7},
+		{T: 12.5, Score: 0.3}, {T: 15, Score: -0.3},
+		{T: 18.2, Score: 0.7}, {T: 24, Score: -5},
+	}
+	medias.EXPECT().Trace(mock.Anything, "bkt", "01?0", 5).Return(nil, nil).Once()
+	res, err = mgr.Trace(ctx, admin.TraceInput{Bucket: "bkt", Key: "a.mp4", Votes: votes, Limit: 5})
+	require.NoError(t, err)
+	assert.Equal(t, "01?0", res.Bits)
+
+	// Votes telling nothing.
+	_, err = mgr.Trace(ctx, admin.TraceInput{Bucket: "bkt", Key: "a.mp4", Votes: []domain.MediaTraceVote{{T: 1, Score: 0.1}}})
+	require.ErrorIs(t, err, domain.ErrInvalidArgument)
+}
+
+// TestMediaTraceWithoutForensicRenditions: votes are read against the
+// forensic renditions only.
+func TestMediaTraceWithoutForensicRenditions(t *testing.T) {
+	medias := mediamock.NewService(t)
+	mgr, err := admin.NewMediaManager(admin.MediaManagerDeps{Buckets: bucketmock.NewService(t), Media: medias})
+	require.NoError(t, err)
+	medias.EXPECT().Status(mock.Anything, mock.Anything).Return(&media.OutputStatus{Current: true}, nil)
+	_, err = mgr.Trace(context.Background(), admin.TraceInput{Bucket: "bkt", Key: "a.mp4", Votes: []domain.MediaTraceVote{{T: 1, Score: 1}}})
+	require.ErrorIs(t, err, domain.ErrInvalidArgument)
+	assert.Contains(t, err.Error(), "no rendition with the forensic watermark")
+
+	mgr, err = admin.NewMediaManager(admin.MediaManagerDeps{Buckets: bucketmock.NewService(t)})
+	require.NoError(t, err)
+	_, err = mgr.Trace(context.Background(), admin.TraceInput{Bucket: "bkt", Key: "a.mp4", Bits: "1"})
+	require.ErrorIs(t, err, domain.ErrNotImplemented)
 }

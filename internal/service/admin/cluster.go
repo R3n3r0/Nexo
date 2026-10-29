@@ -130,6 +130,8 @@ type archivedBucket struct {
 	CORS         string                   `json:"cors,omitempty"`
 	Notification string                   `json:"notification,omitempty"`
 	Media        *domain.MediaConfig      `json:"media,omitempty"`
+	// MediaProtection is the download protection of the videos.
+	MediaProtection *domain.MediaProtection `json:"mediaProtection,omitempty"`
 }
 
 // Export implements ClusterManager.
@@ -300,6 +302,11 @@ func (m *clusterManager) exportBucket(ctx context.Context, name string) (archive
 		b.Media = &media
 	} else if !absentSetting(err) {
 		return fail("media configuration", err)
+	}
+	if prot, err := m.deps.Buckets.GetMediaProtection(ctx, name); err != nil {
+		return fail("media protection", err)
+	} else if prot.Enabled {
+		b.MediaProtection = &prot
 	}
 	return b, nil
 }
@@ -695,6 +702,15 @@ func (m *clusterManager) importBucket(ctx context.Context, b archivedBucket, mod
 	} else if replace {
 		if err := bk.DeleteMedia(ctx, name); err != nil && !absentSetting(err) {
 			return fail("media configuration", err)
+		}
+	}
+	if b.MediaProtection != nil {
+		if err := bk.SetMediaProtection(ctx, name, *b.MediaProtection); err != nil {
+			return fail("media protection", err)
+		}
+	} else if replace {
+		if err := bk.SetMediaProtection(ctx, name, domain.MediaProtection{}); err != nil {
+			return fail("media protection", err)
 		}
 	}
 	return nil

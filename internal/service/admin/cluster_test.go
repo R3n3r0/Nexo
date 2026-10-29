@@ -80,6 +80,7 @@ func exportFixture(t *testing.T, f *clusterFixture) {
 	f.buckets.EXPECT().GetCORS(mock.Anything, "photos").Return([]byte("<CORSConfiguration/>"), nil)
 	f.buckets.EXPECT().GetNotification(mock.Anything, "photos").Return([]byte("<NotificationConfiguration/>"), nil)
 	f.buckets.EXPECT().GetMedia(mock.Anything, "photos").Return(testMediaConfig(), nil)
+	f.buckets.EXPECT().GetMediaProtection(mock.Anything, "photos").Return(testProtection(), nil)
 	// plain: nothing set.
 	f.buckets.EXPECT().GetVersioning(mock.Anything, "plain").Return(domain.VersioningOff, nil)
 	f.buckets.EXPECT().GetObjectLock(mock.Anything, "plain").Return(bucket.ObjectLockConfig{}, noConfig)
@@ -91,6 +92,11 @@ func exportFixture(t *testing.T, f *clusterFixture) {
 	f.buckets.EXPECT().GetCORS(mock.Anything, "plain").Return(nil, noConfig)
 	f.buckets.EXPECT().GetNotification(mock.Anything, "plain").Return(nil, noConfig)
 	f.buckets.EXPECT().GetMedia(mock.Anything, "plain").Return(domain.MediaConfig{}, noConfig)
+	f.buckets.EXPECT().GetMediaProtection(mock.Anything, "plain").Return(domain.MediaProtection{}, nil)
+}
+
+func testProtection() domain.MediaProtection {
+	return domain.MediaProtection{Enabled: true, Prefix: "courses/", MaxSessions: 1}
 }
 
 func testMediaConfig() domain.MediaConfig {
@@ -195,6 +201,7 @@ func TestClusterImportMerge(t *testing.T) {
 	f.buckets.EXPECT().SetCORS(mock.Anything, "photos", []byte("<CORSConfiguration/>")).Return(nil)
 	f.buckets.EXPECT().SetNotification(mock.Anything, "photos", []byte("<NotificationConfiguration/>")).Return(nil)
 	f.buckets.EXPECT().SetMedia(mock.Anything, "photos", testMediaConfig()).Return(nil)
+	f.buckets.EXPECT().SetMediaProtection(mock.Anything, "photos", testProtection()).Return(nil)
 	// plain: nothing set, nothing removed in merge mode.
 	sum, err := f.m.Import(ctx, archive, admin.ImportOptions{})
 	require.NoError(t, err)
@@ -238,6 +245,8 @@ func TestClusterImportReplace(t *testing.T) {
 	f.buckets.EXPECT().DeleteTags(mock.Anything, "plain").Return(nil)
 	f.buckets.EXPECT().DeleteCORS(mock.Anything, "plain").Return(nil)
 	f.buckets.EXPECT().DeleteMedia(mock.Anything, "plain").Return(nil)
+	f.buckets.EXPECT().SetMediaProtection(mock.Anything, "photos", testProtection()).Return(nil)
+	f.buckets.EXPECT().SetMediaProtection(mock.Anything, "plain", domain.MediaProtection{}).Return(nil)
 	sum, err := f.m.Import(ctx, archive, admin.ImportOptions{Mode: admin.ImportReplace})
 	require.NoError(t, err)
 	assert.Empty(t, sum.BucketsCreated)

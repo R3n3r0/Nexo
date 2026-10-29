@@ -250,7 +250,10 @@ func playMedia(t *testing.T, get func(u *url.URL) response, media *url.URL, fram
 		require.Equal(t, http.StatusOK, resp.StatusCode, "%s: %s", ref, resp.Body)
 		stream.Write(resp.Body)
 	}
-	if ffprobe, err := exec.LookPath("ffprobe"); err == nil {
+	// The segments of a protected video are encrypted (their decoding is
+	// covered by the tests of the media service).
+	encrypted := strings.Contains(playlist, "#EXT-X-KEY:")
+	if ffprobe, err := exec.LookPath("ffprobe"); err == nil && !encrypted {
 		file := filepath.Join(t.TempDir(), "stream.mp4")
 		require.NoError(t, os.WriteFile(file, stream.Bytes(), 0o600))
 		out, err := exec.CommandContext(t.Context(), ffprobe, "-v", "error", "-count_frames", "-select_streams", "v:0",
@@ -283,7 +286,7 @@ func mustParse(t *testing.T, raw string) *url.URL {
 const mediaWorkerPolicy = `{
   "Version": "2012-10-17",
   "Statement": [
-    {"Effect": "Allow", "Action": ["s3:GetObject", "s3:GetObjectVersion"], "Resource": ["arn:aws:s3:::*/*"]},
+    {"Effect": "Allow", "Action": ["s3:GetObject", "s3:GetObjectVersion", "nexo:DownloadProtectedMedia"], "Resource": ["arn:aws:s3:::*/*"]},
     {"Effect": "Allow", "Action": ["s3:PutObject", "s3:DeleteObject", "s3:DeleteObjectVersion"], "Resource": ["arn:aws:s3:::*/.nexo-media/*"]},
     {"Effect": "Allow", "Action": ["s3:ListBucket", "s3:ListBucketVersions"], "Resource": ["arn:aws:s3:::*"],
      "Condition": {"StringLike": {"s3:prefix": [".nexo-media/*"]}}}

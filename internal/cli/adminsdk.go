@@ -880,6 +880,40 @@ func (c *adminClient) DeleteBucketMedia(ctx context.Context, bucket string) erro
 	return MapAdminError(c.api.DeleteBucketMedia(ctx, bucket), c.endpoint)
 }
 
+// GetMediaProtection implements AdminClient.
+func (c *adminClient) GetMediaProtection(ctx context.Context, bucket string) (*nexoadmin.MediaProtection, error) {
+	v, err := c.api.GetMediaProtection(ctx, bucket)
+	return mapped(c, v, err)
+}
+
+// SetMediaProtection implements AdminClient.
+func (c *adminClient) SetMediaProtection(ctx context.Context, bucket string, p nexoadmin.MediaProtection) (*nexoadmin.MediaProtection, error) {
+	v, err := c.api.SetMediaProtection(ctx, bucket, p)
+	return mapped(c, v, err)
+}
+
+// IssuePlaybackToken implements AdminClient.
+func (c *adminClient) IssuePlaybackToken(ctx context.Context, bucket, key, versionID string, req nexoadmin.PlaybackTokenRequest) (*nexoadmin.PlaybackToken, error) {
+	v, err := c.api.IssuePlaybackToken(ctx, bucket, key, versionID, req)
+	return mapped(c, v, err)
+}
+
+// RevokePlaybackSession implements AdminClient.
+func (c *adminClient) RevokePlaybackSession(ctx context.Context, bucket, sessionID string) error {
+	return MapAdminError(c.api.RevokePlaybackSession(ctx, bucket, sessionID), c.endpoint)
+}
+
+// RevokePlaybackSubject implements AdminClient.
+func (c *adminClient) RevokePlaybackSubject(ctx context.Context, bucket, subject string) error {
+	return MapAdminError(c.api.RevokePlaybackSubject(ctx, bucket, subject), c.endpoint)
+}
+
+// TracePlaybackLeak implements AdminClient.
+func (c *adminClient) TracePlaybackLeak(ctx context.Context, bucket, key, versionID string, req nexoadmin.PlaybackTraceRequest) (*nexoadmin.PlaybackTrace, error) {
+	v, err := c.api.TracePlaybackLeak(ctx, bucket, key, versionID, req)
+	return mapped(c, v, err)
+}
+
 // ReprocessMedia implements AdminClient.
 func (c *adminClient) ReprocessMedia(ctx context.Context, bucket, key, versionID string) error {
 	return MapAdminError(c.api.ReprocessMedia(ctx, bucket, key, versionID), c.endpoint)

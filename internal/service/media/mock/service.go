@@ -250,6 +250,66 @@ func (_c *Service_Init_Call) RunAndReturn(run func(context.Context, media.Source
 	return _c
 }
 
+// Key provides a mock function with given fields: ctx, src, period
+func (_m *Service) Key(ctx context.Context, src media.Source, period int) ([]byte, error) {
+	ret := _m.Called(ctx, src, period)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Key")
+	}
+
+	var r0 []byte
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source, int) ([]byte, error)); ok {
+		return rf(ctx, src, period)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source, int) []byte); ok {
+		r0 = rf(ctx, src, period)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]byte)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, media.Source, int) error); ok {
+		r1 = rf(ctx, src, period)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_Key_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Key'
+type Service_Key_Call struct {
+	*mock.Call
+}
+
+// Key is a helper method to define mock.On call
+//   - ctx context.Context
+//   - src media.Source
+//   - period int
+func (_e *Service_Expecter) Key(ctx interface{}, src interface{}, period interface{}) *Service_Key_Call {
+	return &Service_Key_Call{Call: _e.mock.On("Key", ctx, src, period)}
+}
+
+func (_c *Service_Key_Call) Run(run func(ctx context.Context, src media.Source, period int)) *Service_Key_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(media.Source), args[2].(int))
+	})
+	return _c
+}
+
+func (_c *Service_Key_Call) Return(_a0 []byte, _a1 error) *Service_Key_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_Key_Call) RunAndReturn(run func(context.Context, media.Source, int) ([]byte, error)) *Service_Key_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // MasterPlaylist provides a mock function with given fields: ctx, src, links
 func (_m *Service) MasterPlaylist(ctx context.Context, src media.Source, links media.Links) ([]byte, error) {
 	ret := _m.Called(ctx, src, links)
@@ -370,6 +430,122 @@ func (_c *Service_MediaPlaylist_Call) RunAndReturn(run func(context.Context, med
 	return _c
 }
 
+// Periods provides a mock function with given fields: ctx, src
+func (_m *Service) Periods(ctx context.Context, src media.Source) (int, error) {
+	ret := _m.Called(ctx, src)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Periods")
+	}
+
+	var r0 int
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source) (int, error)); ok {
+		return rf(ctx, src)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source) int); ok {
+		r0 = rf(ctx, src)
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, media.Source) error); ok {
+		r1 = rf(ctx, src)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_Periods_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Periods'
+type Service_Periods_Call struct {
+	*mock.Call
+}
+
+// Periods is a helper method to define mock.On call
+//   - ctx context.Context
+//   - src media.Source
+func (_e *Service_Expecter) Periods(ctx interface{}, src interface{}) *Service_Periods_Call {
+	return &Service_Periods_Call{Call: _e.mock.On("Periods", ctx, src)}
+}
+
+func (_c *Service_Periods_Call) Run(run func(ctx context.Context, src media.Source)) *Service_Periods_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(media.Source))
+	})
+	return _c
+}
+
+func (_c *Service_Periods_Call) Return(_a0 int, _a1 error) *Service_Periods_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_Periods_Call) RunAndReturn(run func(context.Context, media.Source) (int, error)) *Service_Periods_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Protection provides a mock function with given fields: ctx, src
+func (_m *Service) Protection(ctx context.Context, src media.Source) (*domain.MediaProtection, error) {
+	ret := _m.Called(ctx, src)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Protection")
+	}
+
+	var r0 *domain.MediaProtection
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source) (*domain.MediaProtection, error)); ok {
+		return rf(ctx, src)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source) *domain.MediaProtection); ok {
+		r0 = rf(ctx, src)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*domain.MediaProtection)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, media.Source) error); ok {
+		r1 = rf(ctx, src)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_Protection_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Protection'
+type Service_Protection_Call struct {
+	*mock.Call
+}
+
+// Protection is a helper method to define mock.On call
+//   - ctx context.Context
+//   - src media.Source
+func (_e *Service_Expecter) Protection(ctx interface{}, src interface{}) *Service_Protection_Call {
+	return &Service_Protection_Call{Call: _e.mock.On("Protection", ctx, src)}
+}
+
+func (_c *Service_Protection_Call) Run(run func(ctx context.Context, src media.Source)) *Service_Protection_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(media.Source))
+	})
+	return _c
+}
+
+func (_c *Service_Protection_Call) Return(_a0 *domain.MediaProtection, _a1 error) *Service_Protection_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_Protection_Call) RunAndReturn(run func(context.Context, media.Source) (*domain.MediaProtection, error)) *Service_Protection_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // PutSubtitles provides a mock function with given fields: ctx, src, lang, cues, by
 func (_m *Service) PutSubtitles(ctx context.Context, src media.Source, lang string, cues []domain.SubtitleCue, by string) (domain.MediaSubtitleTrack, error) {
 	ret := _m.Called(ctx, src, lang, cues, by)
@@ -426,6 +602,53 @@ func (_c *Service_PutSubtitles_Call) Return(_a0 domain.MediaSubtitleTrack, _a1 e
 }
 
 func (_c *Service_PutSubtitles_Call) RunAndReturn(run func(context.Context, media.Source, string, []domain.SubtitleCue, string) (domain.MediaSubtitleTrack, error)) *Service_PutSubtitles_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RecordTrace provides a mock function with given fields: ctx, t
+func (_m *Service) RecordTrace(ctx context.Context, t domain.MediaTrace) error {
+	ret := _m.Called(ctx, t)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RecordTrace")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, domain.MediaTrace) error); ok {
+		r0 = rf(ctx, t)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Service_RecordTrace_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordTrace'
+type Service_RecordTrace_Call struct {
+	*mock.Call
+}
+
+// RecordTrace is a helper method to define mock.On call
+//   - ctx context.Context
+//   - t domain.MediaTrace
+func (_e *Service_Expecter) RecordTrace(ctx interface{}, t interface{}) *Service_RecordTrace_Call {
+	return &Service_RecordTrace_Call{Call: _e.mock.On("RecordTrace", ctx, t)}
+}
+
+func (_c *Service_RecordTrace_Call) Run(run func(ctx context.Context, t domain.MediaTrace)) *Service_RecordTrace_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(domain.MediaTrace))
+	})
+	return _c
+}
+
+func (_c *Service_RecordTrace_Call) Return(_a0 error) *Service_RecordTrace_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Service_RecordTrace_Call) RunAndReturn(run func(context.Context, domain.MediaTrace) error) *Service_RecordTrace_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -852,6 +1075,67 @@ func (_c *Service_Subtitles_Call) Return(_a0 []domain.MediaSubtitleTrack, _a1 er
 }
 
 func (_c *Service_Subtitles_Call) RunAndReturn(run func(context.Context, media.Source) ([]domain.MediaSubtitleTrack, error)) *Service_Subtitles_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Trace provides a mock function with given fields: ctx, bucket, bits, limit
+func (_m *Service) Trace(ctx context.Context, bucket string, bits string, limit int) ([]domain.MediaTraceMatch, error) {
+	ret := _m.Called(ctx, bucket, bits, limit)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Trace")
+	}
+
+	var r0 []domain.MediaTraceMatch
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, int) ([]domain.MediaTraceMatch, error)); ok {
+		return rf(ctx, bucket, bits, limit)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, int) []domain.MediaTraceMatch); ok {
+		r0 = rf(ctx, bucket, bits, limit)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]domain.MediaTraceMatch)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, int) error); ok {
+		r1 = rf(ctx, bucket, bits, limit)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_Trace_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Trace'
+type Service_Trace_Call struct {
+	*mock.Call
+}
+
+// Trace is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - bits string
+//   - limit int
+func (_e *Service_Expecter) Trace(ctx interface{}, bucket interface{}, bits interface{}, limit interface{}) *Service_Trace_Call {
+	return &Service_Trace_Call{Call: _e.mock.On("Trace", ctx, bucket, bits, limit)}
+}
+
+func (_c *Service_Trace_Call) Run(run func(ctx context.Context, bucket string, bits string, limit int)) *Service_Trace_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(int))
+	})
+	return _c
+}
+
+func (_c *Service_Trace_Call) Return(_a0 []domain.MediaTraceMatch, _a1 error) *Service_Trace_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_Trace_Call) RunAndReturn(run func(context.Context, string, string, int) ([]domain.MediaTraceMatch, error)) *Service_Trace_Call {
 	_c.Call.Return(run)
 	return _c
 }

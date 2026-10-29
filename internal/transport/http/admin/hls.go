@@ -54,6 +54,12 @@ func (l hlsLinks) Segment(rev string, n int) string {
 	return "segment.m4s?" + q.Encode()
 }
 
+func (l hlsLinks) Key(rev string, period int) string {
+	q := l.query(rev)
+	q.Set("i", strconv.Itoa(period))
+	return "key?" + q.Encode()
+}
+
 func (l hlsLinks) Rendition(name, rev string) string {
 	l.rendition = name
 	return "media.m3u8?" + l.query(rev).Encode()
@@ -149,6 +155,43 @@ func (h *objectRoutes) hlsSegment() http.HandlerFunc {
 		b, err := h.deps.Media.Segment(r.Context(), src, n)
 		return b, contentTypeSegment, err
 	})
+}
+
+// hlsKey serves the AES-128 key of a period (?i=) of a protected video to
+// a console session allowed to stream it; never cached.
+func (h *objectRoutes) hlsKey(w http.ResponseWriter, r *http.Request) {
+	if h.deps.Media == nil {
+		h.fail(w, r, fmt.Errorf("%w: video streaming is not enabled", domain.ErrNotFound))
+		return
+	}
+	src, err := hlsSource(r, true)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	period, err := strconv.Atoi(r.URL.Query().Get("i"))
+	if err != nil || period < 0 {
+		h.fail(w, r, fmt.Errorf("%w: i must be a non-negative integer", domain.ErrInvalidArgument))
+		return
+	}
+	key, err := h.deps.Media.Key(r.Context(), src, period)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	writeMediaKey(w, key)
+}
+
+// writeMediaKey writes the 16 bytes of a segment key: never stored by a
+// cache nor the browser.
+func writeMediaKey(w http.ResponseWriter, key []byte) {
+	hdr := w.Header()
+	hdr.Set("Content-Type", "application/octet-stream")
+	hdr.Set("Content-Length", strconv.Itoa(len(key)))
+	hdr.Set("Cache-Control", "no-store")
+	hdr.Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(key)
 }
 
 // hlsSubtitles serves the playlist of the subtitles of a language

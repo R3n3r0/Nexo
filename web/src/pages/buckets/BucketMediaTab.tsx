@@ -1,4 +1,5 @@
 import {
+  Accordion,
   ActionIcon,
   Alert,
   Badge,
@@ -7,6 +8,7 @@ import {
   Group,
   Modal,
   MultiSelect,
+  NumberInput,
   Paper,
   SegmentedControl,
   Skeleton,
@@ -42,12 +44,22 @@ import {
   validateMediaRule,
   type MediaRuleIssue,
 } from '@/lib/mediaRules';
+import {
+  defaultMediaProtection,
+  maxMaxSessions,
+  maxPaceFactor,
+  maxTokenTtlSeconds,
+  unlimitedSessions,
+  validateMediaProtection,
+  type MediaProtectionIssue,
+} from '@/lib/mediaProtection';
 import { problemMessage } from '@/lib/problem';
 import { storageKeys } from '@/lib/storageKeys';
 import {
   isApiError,
   useServices,
   type MediaImageFormat,
+  type MediaProtection,
   type MediaRendition,
   type MediaRule,
   type RuleProblem,
@@ -395,6 +407,309 @@ function RuleOutputs({ rule }: { rule: MediaRule }) {
   );
 }
 
+/** A number field as a number: 0 (the default) when empty. */
+const numberOf = (value: string | number) => (value === '' ? 0 : Number(value));
+
+type PlaybackMode = NonNullable<MediaProtection['mode']>;
+type LegacyDevices = NonNullable<MediaProtection['legacyDevices']>;
+
+/**
+ * The download protection of the videos of a bucket: encrypted segments
+ * whose keys are served only to playback tokens and authorized users, at
+ * playback pace, to a bounded number of streams per viewer; the original
+ * is not downloadable without nexo:DownloadProtectedMedia.
+ */
+function ProtectionSection({ bucket, canEdit }: { bucket: string; canEdit: boolean }) {
+  const { t } = useTranslation();
+  const { media } = useServices();
+  const queryClient = useQueryClient();
+  const key = storageKeys.bucketSetting(bucket, 'mediaProtection');
+  const modeLabel = useId();
+  const query = useQuery({ queryKey: key, queryFn: () => media.getProtection(bucket) });
+  const [enabled, setEnabled] = useState(false);
+  const [prefix, setPrefix] = useState('');
+  const [suffixes, setSuffixes] = useState<string[]>([]);
+  const [ttlMinutes, setTtlMinutes] = useState<string | number>('');
+  const [unlimited, setUnlimited] = useState(false);
+  const [sessions, setSessions] = useState<string | number>('');
+  const [pace, setPace] = useState<string | number>('');
+  const [watermark, setWatermark] = useState(true);
+  const [origins, setOrigins] = useState<string[]>([]);
+  const [shareLinks, setShareLinks] = useState(false);
+  const [mode, setMode] = useState<PlaybackMode>('standard');
+  const [legacyDevices, setLegacyDevices] = useState<LegacyDevices>('refuse');
+  const [forensic, setForensic] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+
+  useEffect(() => {
+    const p = query.data ?? defaultMediaProtection();
+    const fallback = defaultMediaProtection();
+    setEnabled(p.enabled);
+    setPrefix(p.prefix ?? '');
+    setSuffixes(p.suffixes ?? []);
+    setTtlMinutes(Math.round((p.tokenTtlSeconds ?? fallback.tokenTtlSeconds ?? 0) / 60));
+    setUnlimited(p.maxSessions === unlimitedSessions);
+    setSessions(
+      p.maxSessions === unlimitedSessions
+        ? (fallback.maxSessions ?? '')
+        : (p.maxSessions ?? fallback.maxSessions ?? ''),
+    );
+    setPace(p.paceFactor ?? fallback.paceFactor ?? '');
+    setWatermark(p.watermark);
+    setOrigins(p.allowedOrigins);
+    setShareLinks(p.shareLinks);
+    setMode(p.mode ?? 'standard');
+    setLegacyDevices(p.legacyDevices ?? 'refuse');
+    setForensic(p.forensic);
+    setSubmitted(false);
+  }, [query.data]);
+
+  const save = useMutation({
+    mutationFn: (next: MediaProtection) => media.setProtection(bucket, next),
+    onSuccess: (stored) => {
+      queryClient.setQueryData(key, stored);
+      notifications.show({ color: 'green', message: t('bucketMedia.protection.saved') });
+    },
+  });
+
+  const draft: MediaProtection = {
+    enabled,
+    ...(prefix !== '' ? { prefix } : {}),
+    ...(suffixes.length > 0 ? { suffixes } : {}),
+    tokenTtlSeconds: numberOf(ttlMinutes) * 60,
+    maxSessions: unlimited ? unlimitedSessions : numberOf(sessions),
+    paceFactor: numberOf(pace),
+    watermark,
+    allowedOrigins: origins,
+    shareLinks,
+    mode,
+    legacyDevices,
+    forensic,
+  };
+  const issues = validateMediaProtection(draft);
+  const issue = (kind: readonly MediaProtectionIssue[]) => {
+    const found = submitted ? issues.find((i) => kind.includes(i)) : undefined;
+    return found === undefined ? undefined : t(`bucketMedia.protection.issues.${found}`);
+  };
+  const disabled = !canEdit || query.isPending;
+
+  return (
+    <Paper
+      withBorder
+      radius="md"
+      p="md"
+      component="section"
+      aria-label={t('bucketMedia.protection.title')}
+    >
+      <form
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          setSubmitted(true);
+          if (issues.length === 0) save.mutate(draft);
+        }}
+      >
+        <Stack gap="md">
+          <Stack gap={2}>
+            <Title order={4}>{t('bucketMedia.protection.title')}</Title>
+            <Text size="sm" c="dimmed">
+              {t('bucketMedia.protection.description')}
+            </Text>
+          </Stack>
+          {query.isError ? (
+            <Alert color="red" variant="light" role="alert">
+              {problemMessage(t, query.error)}
+            </Alert>
+          ) : query.isPending ? (
+            <Skeleton height={60} />
+          ) : (
+            <>
+              <Switch
+                label={t('bucketMedia.protection.enabled')}
+                description={t('bucketMedia.protection.enabledHint')}
+                checked={enabled}
+                disabled={disabled}
+                onChange={(event) => {
+                  setEnabled(event.currentTarget.checked);
+                }}
+              />
+              {enabled ? (
+                <>
+                  <Stack gap={4}>
+                    <Text size="sm" fw={500} id={modeLabel}>
+                      {t('bucketMedia.protection.mode')}
+                    </Text>
+                    <SegmentedControl
+                      aria-labelledby={modeLabel}
+                      value={mode}
+                      disabled={disabled}
+                      data={[
+                        { value: 'standard', label: t('bucketMedia.protection.modeStandard') },
+                        { value: 'advanced', label: t('bucketMedia.protection.modeAdvanced') },
+                      ]}
+                      onChange={(value) => {
+                        setMode(value as PlaybackMode);
+                      }}
+                    />
+                    <Text size="xs" c="dimmed">
+                      {mode === 'advanced'
+                        ? t('bucketMedia.protection.modeAdvancedHint')
+                        : t('bucketMedia.protection.modeStandardHint')}
+                    </Text>
+                  </Stack>
+                  {mode === 'advanced' ? (
+                    <Switch
+                      label={t('bucketMedia.protection.legacyDevices')}
+                      description={t('bucketMedia.protection.legacyDevicesHint')}
+                      checked={legacyDevices === 'standard'}
+                      disabled={disabled}
+                      onChange={(event) => {
+                        setLegacyDevices(event.currentTarget.checked ? 'standard' : 'refuse');
+                      }}
+                    />
+                  ) : null}
+                  <Switch
+                    label={t('bucketMedia.protection.forensic')}
+                    description={t('bucketMedia.protection.forensicHint')}
+                    checked={forensic}
+                    disabled={disabled}
+                    onChange={(event) => {
+                      setForensic(event.currentTarget.checked);
+                    }}
+                  />
+                  <TextInput
+                    label={t('bucketMedia.prefix')}
+                    description={t('bucketMedia.protection.prefixHint')}
+                    placeholder="courses/"
+                    value={prefix}
+                    disabled={disabled}
+                    error={issue(['prefixTooLong', 'prefixReserved'])}
+                    onChange={(event) => {
+                      setPrefix(event.currentTarget.value);
+                    }}
+                  />
+                  <Group align="flex-end" gap="md" wrap="wrap">
+                    <NumberInput
+                      label={t('bucketMedia.protection.sessions')}
+                      description={t('bucketMedia.protection.sessionsHint')}
+                      min={1}
+                      max={maxMaxSessions}
+                      allowDecimal={false}
+                      w={260}
+                      value={sessions}
+                      disabled={disabled || unlimited}
+                      error={issue(['maxSessions'])}
+                      onChange={setSessions}
+                    />
+                    <Checkbox
+                      label={t('bucketMedia.protection.unlimited')}
+                      checked={unlimited}
+                      disabled={disabled}
+                      mb={8}
+                      onChange={(event) => {
+                        setUnlimited(event.currentTarget.checked);
+                      }}
+                    />
+                  </Group>
+                  <TagsInput
+                    label={t('bucketMedia.protection.origins')}
+                    description={t('bucketMedia.protection.originsHint')}
+                    placeholder="https://learn.example.com"
+                    value={origins}
+                    disabled={disabled}
+                    error={issue(['origins', 'origin'])}
+                    splitChars={[',', ' ']}
+                    onChange={setOrigins}
+                  />
+                  <Switch
+                    label={t('bucketMedia.protection.watermark')}
+                    description={t('bucketMedia.protection.watermarkHint')}
+                    checked={watermark}
+                    disabled={disabled}
+                    onChange={(event) => {
+                      setWatermark(event.currentTarget.checked);
+                    }}
+                  />
+                  <Switch
+                    label={t('bucketMedia.protection.shareLinks')}
+                    description={t('bucketMedia.protection.shareLinksHint')}
+                    checked={shareLinks}
+                    disabled={disabled}
+                    onChange={(event) => {
+                      setShareLinks(event.currentTarget.checked);
+                    }}
+                  />
+                  <Accordion variant="contained">
+                    <Accordion.Item value="advanced">
+                      <Accordion.Control>{t('bucketMedia.protection.advanced')}</Accordion.Control>
+                      <Accordion.Panel>
+                        <Stack gap="md">
+                          <NumberInput
+                            label={t('bucketMedia.protection.ttl')}
+                            description={t('bucketMedia.protection.ttlHint')}
+                            min={1}
+                            max={maxTokenTtlSeconds / 60}
+                            allowDecimal={false}
+                            value={ttlMinutes}
+                            disabled={disabled}
+                            error={issue(['tokenTtl'])}
+                            onChange={setTtlMinutes}
+                          />
+                          <NumberInput
+                            label={t('bucketMedia.protection.pace')}
+                            description={t('bucketMedia.protection.paceHint')}
+                            min={1}
+                            max={maxPaceFactor}
+                            allowDecimal={false}
+                            value={pace}
+                            disabled={disabled}
+                            error={issue(['paceFactor'])}
+                            onChange={setPace}
+                          />
+                          <TagsInput
+                            label={t('bucketMedia.suffixes')}
+                            description={t('bucketMedia.suffixesHint', {
+                              suffixes: defaultMediaSuffixes.join(', '),
+                            })}
+                            placeholder={defaultMediaSuffixes.join(' ')}
+                            value={suffixes}
+                            disabled={disabled}
+                            error={issue(['suffix'])}
+                            onChange={setSuffixes}
+                          />
+                        </Stack>
+                      </Accordion.Panel>
+                    </Accordion.Item>
+                  </Accordion>
+                </>
+              ) : null}
+              {save.isError ? (
+                <Alert
+                  color="red"
+                  variant="light"
+                  role="alert"
+                  title={t('bucketMedia.protection.refused')}
+                >
+                  {problemMessage(t, save.error)}
+                </Alert>
+              ) : null}
+              <Group justify="flex-end">
+                <PermissionGuard allowed={canEdit} action={StorageActions.setMedia}>
+                  {(guarded) => (
+                    <Button type="submit" loading={save.isPending} disabled={guarded || disabled}>
+                      {t('bucketMedia.protection.save')}
+                    </Button>
+                  )}
+                </PermissionGuard>
+              </Group>
+            </>
+          )}
+        </Stack>
+      </form>
+    </Paper>
+  );
+}
+
 /**
  * The media rules of a bucket: what the media worker derives from its
  * videos and images.
@@ -574,6 +889,8 @@ export function BucketMediaTab() {
           </Text>
         </Stack>
       </Paper>
+
+      <ProtectionSection bucket={bucket} canEdit={canEdit} />
 
       <RuleEditor
         opened={editing !== null}

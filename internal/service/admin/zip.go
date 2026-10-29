@@ -50,6 +50,9 @@ func (b *objectBrowser) Zip(ctx context.Context, in ZipInput, open ZipOpener) (*
 		if err := authorizeObject(ctx, b.deps.Authz, in.Requester, in.Bucket, key, ObjectRequest{}, policy.ActionGetObject); err != nil {
 			return nil, err
 		}
+		if err := b.authorizeProtected(ctx, in.Requester, in.Bucket, key, ""); err != nil {
+			return nil, err
+		}
 		info, err := b.deps.Objects.GetObjectInfo(ctx, in.Bucket, key, object.GetObjectOptions{})
 		if err != nil {
 			return nil, err
@@ -76,6 +79,10 @@ func (b *objectBrowser) Zip(ctx context.Context, in ZipInput, open ZipOpener) (*
 		err := b.walkObjects(ctx, in.Bucket, p, func(info domain.ObjectInfo) error {
 			if !b.allowed(ctx, in.Requester, in.Bucket, info.Key, ObjectConditions(ObjectRequest{}), policy.ActionGetObject) {
 				zw.skip(info.Key, fmt.Errorf("%w: s3:GetObject", domain.ErrAccessDenied))
+				return nil
+			}
+			if err := b.authorizeProtected(ctx, in.Requester, in.Bucket, info.Key, ""); err != nil {
+				zw.skip(info.Key, err)
 				return nil
 			}
 			return zw.add(info)

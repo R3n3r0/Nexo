@@ -80,7 +80,8 @@ type MemAdmin struct {
 	cache memCacheState
 	// media holds the video rules and the media worker states
 	// (admin_media.go).
-	media memMediaState
+	media    memMediaState
+	playback memPlaybackState
 	// obs holds the live streams, the audit records and the metrics
 	// (admin_observability.go).
 	obs memObsState
@@ -330,6 +331,7 @@ func (m *MemAdmin) Client(t TestingT, caller string) *climock.AdminClient {
 	s.expectDistribution(c)
 	s.expectCache(c)
 	s.expectMedia(c)
+	s.expectPlayback(c)
 	s.expectSubtitles(c)
 	s.expectReplication(c)
 	s.expectSiteReplication(c)

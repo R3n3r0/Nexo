@@ -48,6 +48,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/media"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
 	"github.com/r3n3r0/nexo/internal/service/object"
+	"github.com/r3n3r0/nexo/internal/service/playback"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	poolsvc "github.com/r3n3r0/nexo/internal/service/pools"
 	"github.com/r3n3r0/nexo/internal/service/ratelimit"
@@ -189,6 +190,11 @@ type App struct {
 	// execs is set when the restart requested replaces the process with
 	// its binary (an update installed it): Run returns ErrExec.
 	execs *atomic.Bool
+	// stopping is closed when the node stops: the long-lived connections
+	// (the sessions of the player of Nexo) end, so that the requests in
+	// progress drain.
+	stopping     chan struct{}
+	stoppingOnce sync.Once
 
 	mu sync.RWMutex
 	// svc are the composed services: set by Build in the single-node
@@ -247,6 +253,7 @@ func Build(ctx context.Context, cfg config.Static, opts ...Option) (app *App, er
 	a := &App{
 		cfg: cfg, opts: opts, o: o, layout: layout, logger: logger, stopWait: o.stopWait, f: f,
 		running: &atomic.Bool{}, restarts: make(chan struct{}, 1), execs: &atomic.Bool{},
+		stopping: make(chan struct{}),
 	}
 
 	// Components stop in reverse order: the drives are released last.
@@ -340,7 +347,13 @@ func (a *App) composeDeps(deploymentID string) composeDeps {
 	return composeDeps{
 		cfg: a.cfg, f: a.f, deploymentID: deploymentID, clock: a.o.clock, logger: a.logger,
 		assets: a.o.assets, running: a.running, restart: a.requestRestart, exe: a.o.executable, exec: a.requestExec,
+		stopping: a.stopping,
 	}
+}
+
+// signalStopping ends the long-lived connections of the node, once.
+func (a *App) signalStopping() {
+	a.stoppingOnce.Do(func() { close(a.stopping) })
 }
 
 // joinCluster runs the bootstrap of a cluster node (its listeners are
@@ -389,6 +402,7 @@ func (a *App) joinCluster(ctx context.Context) error {
 // before the components stop and persist their state. The listeners stay
 // open for the internode RPC of the peers until the group stops them.
 func (a *App) leaveCluster(ctx context.Context) error {
+	a.signalStopping()
 	a.s3Gate.Close("the node is stopping")
 	a.consGate.Close("the node is stopping")
 	for _, g := range []struct {
@@ -750,6 +764,8 @@ type adminDeps struct {
 	buckets  bucket.Service
 	objects  object.Service
 	media    media.Service
+	// playback issues and revokes the playback tokens of the videos.
+	playback playback.Service
 	shares   share.Service
 	config   configsvc.Service
 	// locks exposes the namespace locks of the deployment (diagnostics).
@@ -850,7 +866,7 @@ func buildAdminServices(d adminDeps) (adminServices, error) {
 		AccessRules: d.accessRules, Logger: d.logger}); err != nil {
 		return out, err
 	}
-	if out.browser, err = adminsvc.NewObjectBrowser(adminsvc.ObjectBrowserDeps{Objects: d.objects, Authz: out.authz, Clock: d.clock, Logger: d.logger}); err != nil {
+	if out.browser, err = adminsvc.NewObjectBrowser(adminsvc.ObjectBrowserDeps{Objects: d.objects, Authz: out.authz, Protections: d.buckets, Clock: d.clock, Logger: d.logger}); err != nil {
 		return out, err
 	}
 	if out.uploads, err = adminsvc.NewUploadManager(adminsvc.UploadManagerDeps{Objects: d.objects, Logger: d.logger}); err != nil {
@@ -888,7 +904,7 @@ func buildAdminServices(d adminDeps) (adminServices, error) {
 	if out.cors, err = adminsvc.NewCORSManager(adminsvc.CORSManagerDeps{Buckets: d.buckets, Logger: d.logger}); err != nil {
 		return out, err
 	}
-	if out.media, err = adminsvc.NewMediaManager(adminsvc.MediaManagerDeps{Buckets: d.buckets, Jobs: d.mediaJobs, Logger: d.logger}); err != nil {
+	if out.media, err = adminsvc.NewMediaManager(adminsvc.MediaManagerDeps{Buckets: d.buckets, Jobs: d.mediaJobs, Media: d.media, Logger: d.logger}); err != nil {
 		return out, err
 	}
 	if d.kms != nil {
@@ -973,7 +989,7 @@ func buildAdminAPI(d adminDeps) (httpx.Routes, error) {
 	if err != nil {
 		return nil, err
 	}
-	mediaRoutes, err := adminhttp.NewMediaRoutes(adminhttp.MediaDeps{Media: svc.media, Authz: svc.authz, Enc: d.codec})
+	mediaRoutes, err := adminhttp.NewMediaRoutes(adminhttp.MediaDeps{Media: svc.media, Authz: svc.authz, Playback: d.playback, ServerURL: d.s3URL, Enc: d.codec})
 	if err != nil {
 		return nil, err
 	}
@@ -1178,6 +1194,7 @@ func (a *App) Stop(ctx context.Context) error {
 		ctx, cancel = context.WithTimeout(ctx, a.stopWait)
 		defer cancel()
 	}
+	a.signalStopping()
 	if err := a.group.Stop(ctx); err != nil {
 		return fmt.Errorf("app: stop: %w", err)
 	}

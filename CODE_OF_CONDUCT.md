@@ -7,5 +7,5 @@ personal attacks and discriminatory language are not tolerated in issues, pull r
 project space.
 
 Report unacceptable behaviour privately to the maintainer through
-[GitHub private vulnerability reporting](https://github.com/R3n3r0/Nexo/security/advisories/new) or by contacting the
-maintainer on GitHub. Reports are handled confidentially.
+[GitHub private vulnerability reporting](https://github.com/R3n3r0/Nexo/security/advisories/new) or by e-mail to
+<paolorusso1991@gmail.com>. Reports are handled confidentially.

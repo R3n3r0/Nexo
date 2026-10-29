@@ -7,6 +7,12 @@ import {
   parseSubtitles,
 } from '@/lib/subtitles';
 import {
+  defaultMediaProtection,
+  mediaProtectionIssueMessage,
+  normalizeMediaProtection,
+  validateMediaProtection,
+} from '@/lib/mediaProtection';
+import {
   defaultImageWidths,
   matchMediaRule,
   maxMediaRules,
@@ -97,9 +103,9 @@ function imageVariants(
 const statusKey = (key: string, versionId: string) => `${key}\u0000${versionId}`;
 
 /**
- * Media rules of the mock buckets. The demo has no media worker: a
- * reprocessed video or image is done at once, with the outputs its rule
- * asks for.
+ * Media rules and video protection of the mock buckets. The demo has no
+ * media worker: a reprocessed video or image is done at once, with the
+ * outputs its rule asks for.
  */
 export function createMockMediaService(storage: MockStorage): MediaService {
   const { ctx } = storage;
@@ -273,6 +279,20 @@ export function createMockMediaService(storage: MockStorage): MediaService {
             ? formatSRT(found.cues)
             : formatWebVTT(found.cues);
       return `data:text/${format === 'srt' ? 'plain' : 'vtt'};charset=utf-8,${encodeURIComponent(doc)}`;
+    },
+    async getProtection(bucket) {
+      await ctx.delay();
+      return clone(storage.bucket(bucket).mediaProtection ?? defaultMediaProtection());
+    },
+    async setProtection(bucket, protection) {
+      await ctx.delay();
+      const state = storage.bucket(bucket);
+      const issue = validateMediaProtection(protection)[0];
+      if (issue !== undefined) {
+        throw problem(400, 'invalid_argument', mediaProtectionIssueMessage(protection, issue));
+      }
+      state.mediaProtection = normalizeMediaProtection(protection);
+      return clone(state.mediaProtection);
     },
   };
 

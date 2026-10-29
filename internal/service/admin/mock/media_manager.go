@@ -5,7 +5,10 @@ package mock
 import (
 	context "context"
 
+	admin "github.com/r3n3r0/nexo/internal/service/admin"
+
 	domain "github.com/r3n3r0/nexo/internal/domain"
+
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -128,6 +131,65 @@ func (_c *MediaManager_Get_Call) RunAndReturn(run func(context.Context, string) 
 	return _c
 }
 
+// GetProtection provides a mock function with given fields: ctx, bucket
+func (_m *MediaManager) GetProtection(ctx context.Context, bucket string) (*domain.MediaProtection, error) {
+	ret := _m.Called(ctx, bucket)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetProtection")
+	}
+
+	var r0 *domain.MediaProtection
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*domain.MediaProtection, error)); ok {
+		return rf(ctx, bucket)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *domain.MediaProtection); ok {
+		r0 = rf(ctx, bucket)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*domain.MediaProtection)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, bucket)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MediaManager_GetProtection_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetProtection'
+type MediaManager_GetProtection_Call struct {
+	*mock.Call
+}
+
+// GetProtection is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+func (_e *MediaManager_Expecter) GetProtection(ctx interface{}, bucket interface{}) *MediaManager_GetProtection_Call {
+	return &MediaManager_GetProtection_Call{Call: _e.mock.On("GetProtection", ctx, bucket)}
+}
+
+func (_c *MediaManager_GetProtection_Call) Run(run func(ctx context.Context, bucket string)) *MediaManager_GetProtection_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MediaManager_GetProtection_Call) Return(_a0 *domain.MediaProtection, _a1 error) *MediaManager_GetProtection_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MediaManager_GetProtection_Call) RunAndReturn(run func(context.Context, string) (*domain.MediaProtection, error)) *MediaManager_GetProtection_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Reprocess provides a mock function with given fields: ctx, bucket, key, versionID
 func (_m *MediaManager) Reprocess(ctx context.Context, bucket string, key string, versionID string) error {
 	ret := _m.Called(ctx, bucket, key, versionID)
@@ -233,6 +295,125 @@ func (_c *MediaManager_Set_Call) Return(_a0 *domain.MediaConfig, _a1 error) *Med
 }
 
 func (_c *MediaManager_Set_Call) RunAndReturn(run func(context.Context, string, domain.MediaConfig) (*domain.MediaConfig, error)) *MediaManager_Set_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetProtection provides a mock function with given fields: ctx, bucket, p
+func (_m *MediaManager) SetProtection(ctx context.Context, bucket string, p domain.MediaProtection) (*domain.MediaProtection, error) {
+	ret := _m.Called(ctx, bucket, p)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetProtection")
+	}
+
+	var r0 *domain.MediaProtection
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, domain.MediaProtection) (*domain.MediaProtection, error)); ok {
+		return rf(ctx, bucket, p)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, domain.MediaProtection) *domain.MediaProtection); ok {
+		r0 = rf(ctx, bucket, p)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*domain.MediaProtection)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, domain.MediaProtection) error); ok {
+		r1 = rf(ctx, bucket, p)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MediaManager_SetProtection_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetProtection'
+type MediaManager_SetProtection_Call struct {
+	*mock.Call
+}
+
+// SetProtection is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - p domain.MediaProtection
+func (_e *MediaManager_Expecter) SetProtection(ctx interface{}, bucket interface{}, p interface{}) *MediaManager_SetProtection_Call {
+	return &MediaManager_SetProtection_Call{Call: _e.mock.On("SetProtection", ctx, bucket, p)}
+}
+
+func (_c *MediaManager_SetProtection_Call) Run(run func(ctx context.Context, bucket string, p domain.MediaProtection)) *MediaManager_SetProtection_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(domain.MediaProtection))
+	})
+	return _c
+}
+
+func (_c *MediaManager_SetProtection_Call) Return(_a0 *domain.MediaProtection, _a1 error) *MediaManager_SetProtection_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MediaManager_SetProtection_Call) RunAndReturn(run func(context.Context, string, domain.MediaProtection) (*domain.MediaProtection, error)) *MediaManager_SetProtection_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Trace provides a mock function with given fields: ctx, in
+func (_m *MediaManager) Trace(ctx context.Context, in admin.TraceInput) (*admin.TraceResult, error) {
+	ret := _m.Called(ctx, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Trace")
+	}
+
+	var r0 *admin.TraceResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, admin.TraceInput) (*admin.TraceResult, error)); ok {
+		return rf(ctx, in)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, admin.TraceInput) *admin.TraceResult); ok {
+		r0 = rf(ctx, in)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*admin.TraceResult)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, admin.TraceInput) error); ok {
+		r1 = rf(ctx, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MediaManager_Trace_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Trace'
+type MediaManager_Trace_Call struct {
+	*mock.Call
+}
+
+// Trace is a helper method to define mock.On call
+//   - ctx context.Context
+//   - in admin.TraceInput
+func (_e *MediaManager_Expecter) Trace(ctx interface{}, in interface{}) *MediaManager_Trace_Call {
+	return &MediaManager_Trace_Call{Call: _e.mock.On("Trace", ctx, in)}
+}
+
+func (_c *MediaManager_Trace_Call) Run(run func(ctx context.Context, in admin.TraceInput)) *MediaManager_Trace_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(admin.TraceInput))
+	})
+	return _c
+}
+
+func (_c *MediaManager_Trace_Call) Return(_a0 *admin.TraceResult, _a1 error) *MediaManager_Trace_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MediaManager_Trace_Call) RunAndReturn(run func(context.Context, admin.TraceInput) (*admin.TraceResult, error)) *MediaManager_Trace_Call {
 	_c.Call.Return(run)
 	return _c
 }

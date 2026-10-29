@@ -720,6 +720,9 @@ type OpenInput struct {
 	Conditions domain.Conditions
 	// Preview asks for inline rendering when the content type is safe.
 	Preview bool
+	// Requester is the identity reading the object: the original of a
+	// protected video needs nexo:DownloadProtectedMedia.
+	Requester Requester
 }
 
 // Disposition values of a Download.
@@ -1015,6 +1018,32 @@ type MediaManager interface {
 	// Reprocess queues a job deriving the outputs of a version of a video
 	// again ("" is the latest version).
 	Reprocess(ctx context.Context, bucket, key, versionID string) error
+	// GetProtection returns the download protection of the videos of a
+	// bucket (disabled when never set), with its defaults.
+	GetProtection(ctx context.Context, bucket string) (*domain.MediaProtection, error)
+	// SetProtection validates (domain.ErrInvalidArgument), stores and
+	// returns the protection of a bucket, normalized.
+	SetProtection(ctx context.Context, bucket string, p domain.MediaProtection) (*domain.MediaProtection, error)
+	// Trace finds the playback tokens a leaked copy of a video marked by
+	// the forensic watermark may come from: the bits of its code, given
+	// or read from the votes of nexo-media-worker trace (grouped by
+	// segment of the video).
+	Trace(ctx context.Context, in TraceInput) (*TraceResult, error)
+}
+
+// TraceInput are the parameters of MediaManager.Trace: Bits, or Votes.
+type TraceInput struct {
+	Bucket, Key, VersionID string
+	Bits                   string
+	Votes                  []domain.MediaTraceVote
+	Limit                  int
+}
+
+// TraceResult are the bits read and the trace records agreeing with them,
+// the best first.
+type TraceResult struct {
+	Bits    string
+	Matches []domain.MediaTraceMatch
 }
 
 // --- proxied uploads -----------------------------------------------------

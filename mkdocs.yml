@@ -160,6 +160,7 @@ nav:
       - "Tutorial: static site": distributions/tutorial-static-site.md
       - Events and lifecycle: events-lifecycle.md
       - Video streaming: video-streaming.md
+      - Video protection: video-protection.md
       - Media worker: media-worker.md
       - Bucket replication: replication.md
       - Site replication: site-replication.md

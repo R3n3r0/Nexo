@@ -134,6 +134,42 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   results (`test/bench/machine.sh`); a C call
   of the OpenH264 binding that could write to a moved goroutine stack was fixed.
 
+### Video protection (S-OBJ-17)
+- A bucket protects its videos against download, from the console (bucket → Media → Video protection), the Admin
+  API (`/buckets/{bucket}/media/protection`) and `nexoctl media protection`: everything inside Nexo, no DRM vendor.
+- The HLS segments of a protected video are encrypted with AES-128 (`METHOD=AES-128`, a key every 10 segments,
+  derived from a deployment key, the object and its ETag: nothing stored); the keys go only to a playback token, a
+  console session or a signed request allowed to stream the video, at most `paceFactor` times faster than playback,
+  to at most `maxSessions` simultaneous streams of a viewer (the newest replaces the oldest), from the
+  `allowedOrigins`.
+- Playback tokens (`POST /buckets/{bucket}/objects/playback-tokens`, `nexoctl media token`, policy action
+  `nexo:IssuePlaybackToken`) stream one video without credentials (`pt=` on every media URI); revocation of a
+  token or of every token of a viewer (`admin:RevokePlaybackTokens`, `nexoctl media revoke`), shared by the nodes.
+- The original of a protected video needs `nexo:DownloadProtectedMedia`: GetObject, copy sources, UploadPartCopy,
+  SelectObjectContent, console download/preview/ZIP/rename/restore, distributions.
+- The Nexo player draws the viewer's watermark, moving, also in full screen; the JavaScript SDK (`sdk/js`,
+  `<nexo-player>`, `createPlayer()` for React/Angular/Vue, `createNexoClient()` for Node.js backends) is served by
+  Nexo at `/nexo/media/sdk/`. Metric `nexo_media_keys_total{result}`.
+
+### Advanced video protection and forensic watermark (S-OBJ-18, S-OBJ-19)
+- Playback mode per bucket (`mode`: `standard`, `advanced`): in the advanced mode only the Nexo player (its page,
+  `<nexo-player>`, `createPlayer()`) plays the protected videos. It opens a session on
+  `/nexo/media/v1/{bucket}/session` (WebSocket, or `POST` behind a proxy without WebSockets) with an ECDH P-256 key
+  exchange and HKDF-SHA256; the segments are encrypted per session with AES-128-GCM, the playlists name no key, and
+  the keys travel wrapped on the channel and are kept non-extractable in WebCrypto. A stateless ticket lets any node
+  serve the session; revocation, a newer stream of the viewer, the expiry of the token and the stop of a node close
+  the channel. `legacyDevices: standard` lets the browsers without MSE play the standard way.
+- Forensic watermark (`forensic`): the media worker encodes every rendition twice (A and B variants with an
+  invisible pattern of ±2 luma levels); every segment of a stream comes from the variant a bit of the 64-bit code of
+  its playback token selects. The token's trace record is stored encrypted in the bucket at issue; a marked video
+  never streams before its marked renditions exist.
+- Leak tracing: `nexo-media-worker trace` reads the mark of a leaked copy and writes votes; the Admin API
+  (`POST /buckets/{bucket}/objects/playback-trace`, policy action `admin:TracePlaybackLeaks`), `nexoctl media trace`
+  and `nexoadmin.TracePlaybackLeak` read the code and list the tokens agreeing with it.
+- Console switches (Video protection → Playback, Older devices, Forensic watermark), `nexoctl media protection set
+  --mode --legacy-devices --forensic`, the SDK's `openSession()`/`sessionLoader()`, proxy configurations carrying the
+  WebSocket of the sessions.
+
 ### Observability (M8)
 - Prometheus metrics on `/nexo/metrics/v1/{cluster,node,bucket}`: API with latency histograms, drives, network,
   locks, KMS, events, healing, scanner, ILM, cache and distributions; Grafana dashboards, alerts and Prometheus

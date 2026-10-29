@@ -1117,6 +1117,125 @@ paths:
       responses:
         "202": { description: Queued. }
         default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/media/protection:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+    get:
+      tags: [buckets]
+      operationId: getMediaProtection
+      summary: The download protection of the videos
+      description: Disabled, with its defaults, when never set.
+      x-nexo-actions: ["admin:GetBucketMedia"]
+      responses:
+        "200":
+          description: The protection.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MediaProtection" }
+        default: { $ref: "#/components/responses/Problem" }
+    put:
+      tags: [buckets]
+      operationId: setMediaProtection
+      summary: Set the download protection of the videos
+      description: >-
+        A protected video streams encrypted (HLS AES-128); its keys are served only to a playback token of the video
+        (or to someone allowed to read it), at the pace of playback and to a bounded number of simultaneous streams
+        per viewer, and the original cannot be downloaded without nexo:DownloadProtectedMedia.
+      x-nexo-actions: ["admin:SetBucketMedia"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MediaProtection" }
+      responses:
+        "200":
+          description: The protection, normalized.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MediaProtection" }
+        "400": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/playback-tokens:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+      - { $ref: "#/components/parameters/versionId" }
+    post:
+      tags: [objects]
+      operationId: issuePlaybackToken
+      summary: Issue a playback token of a video
+      description: >-
+        A playback token streams one video without credentials: its playlists, segments and, for a protected
+        video, its keys (at the pace of playback, to at most maxSessions simultaneous streams of the subject).
+        The answer holds the master playlist with the token, for any HLS player, and the Nexo player page.
+      x-nexo-actions: ["nexo:IssuePlaybackToken"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlaybackTokenRequest" }
+      responses:
+        "201":
+          description: The token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlaybackToken" }
+        "400": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/playback-trace:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+      - { $ref: "#/components/parameters/versionId" }
+    post:
+      tags: [objects]
+      operationId: tracePlaybackLeak
+      summary: Find the playback token a leaked copy of a video came from
+      description: >-
+        For a video marked by the forensic watermark: the bits of the code a leaked copy carries (bit n is the
+        variant of segment n mod 64: 0 for A, 1 for B, ? unknown), or the votes nexo-media-worker trace read from
+        it, which the server groups by segment of the video. The answer lists the playback tokens whose code
+        agrees, the best first, with whom they were issued to.
+      x-nexo-actions: ["admin:TracePlaybackLeaks"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlaybackTraceRequest" }
+      responses:
+        "200":
+          description: The bits read and the candidates.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlaybackTrace" }
+        "400": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/media/playback-sessions/{session}:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { name: session, in: path, required: true, description: The sessionId of the token., schema: { type: string } }
+    delete:
+      tags: [buckets]
+      operationId: revokePlaybackSession
+      summary: Revoke a playback token
+      description: The token stops playing on every node within seconds.
+      x-nexo-actions: ["admin:RevokePlaybackTokens"]
+      responses:
+        "204": { description: Revoked. }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/media/playback-subjects/{subject}:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { name: subject, in: path, required: true, description: The subject of the tokens., schema: { type: string } }
+    delete:
+      tags: [buckets]
+      operationId: revokePlaybackSubject
+      summary: Revoke every playback token of a viewer
+      description: Every token of the videos of the bucket issued to the subject so far stops playing.
+      x-nexo-actions: ["admin:RevokePlaybackTokens"]
+      responses:
+        "204": { description: Revoked. }
+        default: { $ref: "#/components/responses/Problem" }
   /buckets/{bucket}/replication:
     parameters:
       - { $ref: "#/components/parameters/bucket" }
@@ -1586,6 +1705,30 @@ paths:
           description: HLS media segment of a video.
           content:
             "video/iso.segment":
+              schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/hls/key:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+      - { $ref: "#/components/parameters/versionId" }
+    get:
+      tags: [objects]
+      operationId: hlsKey
+      summary: AES-128 key of a protected video
+      description: |
+        The 16-byte AES-128 key of a key period (10 segments) of a video the media protection of its bucket
+        covers; 404 for a video that is not protected. Never cached.
+      x-nexo-actions: ["nexo:GetMediaStream", "s3:GetObject", "s3:GetObjectVersion"]
+      parameters:
+        - { name: rev, in: query, required: true, description: The ETag the presentation is pinned to (412 once the object changed)., schema: { type: string } }
+        - { name: r, in: query, required: false, description: "A rendition of the media worker (720p, 480p...): the presentation of that rendition, rev being its ETag.", schema: { type: string } }
+        - { name: i, in: query, required: true, description: The key period., schema: { type: integer, minimum: 0 } }
+      responses:
+        "200":
+          description: AES-128 key of a protected video.
+          content:
+            "application/octet-stream":
               schema: { type: string, format: binary }
         default: { $ref: "#/components/responses/Problem" }
   /buckets/{bucket}/objects/hls/poster.jpg:
@@ -6996,6 +7139,86 @@ components:
         interval:
           type: string
           description: Interval between two thumbnails, a Go duration from 1s to 10m (default 10s).
+    PlaybackTokenRequest:
+      type: object
+      required: [subject]
+      properties:
+        subject: { type: string, maxLength: 256, description: "The viewer for the application (an account id): the simultaneous streams are counted by subject." }
+        watermark: { type: string, maxLength: 200, description: "The text the Nexo player draws over the video (default: the subject)." }
+        ttlSeconds: { type: integer, minimum: 60, description: "Validity of the token (default 7200, at most the token TTL of the protection; 86400 for an unprotected video)." }
+    PlaybackTraceRequest:
+      type: object
+      properties:
+        bits: { type: string, maxLength: 64, description: "The bits of the code read from the copy: 0, 1 or ? (unknown), bit i the i-th." }
+        votes:
+          type: array
+          description: The votes of nexo-media-worker trace (instead of bits).
+          items:
+            type: object
+            required: [t, s]
+            properties:
+              t: { type: number, description: "Time of the video, in seconds." }
+              s: { type: number, description: "About +1 for the A variant, -1 for the B variant." }
+              r: { type: string, description: The rendition the picture matched. }
+        limit: { type: integer, minimum: 1, maximum: 100, description: Most candidates (default 10). }
+    PlaybackTrace:
+      type: object
+      required: [bits, matches]
+      properties:
+        bits: { type: string, description: The bits read. }
+        matches:
+          type: array
+          items:
+            type: object
+            required: [sessionId, subject, key, issuedAt, expiresAt, code, agree, compared]
+            properties:
+              sessionId: { type: string }
+              subject: { type: string }
+              watermark: { type: string }
+              key: { type: string }
+              versionId: { type: string }
+              issuedAt: { type: string, format: date-time }
+              expiresAt: { type: string, format: date-time }
+              code: { type: string, description: The code of the token (16 hex digits). }
+              agree: { type: integer, description: Bits of the copy equal to those of the code. }
+              compared: { type: integer, description: Bits known in the copy. }
+    PlaybackToken:
+      type: object
+      required: [token, sessionId, expiresAt, playlist, player]
+      properties:
+        token: { type: string, description: The value of the pt query parameter of the media routes. }
+        sessionId: { type: string, description: Identifies the token for its revocation. }
+        expiresAt: { type: string, format: date-time }
+        playlist: { type: string, description: "The master playlist with the token (absolute when the server knows its public URL)." }
+        player: { type: string, description: The Nexo player page of the video. }
+    MediaProtection:
+      type: object
+      required: [enabled, watermark, allowedOrigins, shareLinks, forensic]
+      properties:
+        enabled: { type: boolean }
+        prefix: { type: string, description: Only the keys under the prefix (empty is the whole bucket). }
+        suffixes:
+          type: array
+          description: "Suffixes of the protected videos (default .mp4 .mov .m4v)."
+          items: { type: string }
+        tokenTtlSeconds: { type: integer, minimum: 60, maximum: 86400, description: Longest validity of a playback token (default 7200). }
+        maxSessions: { type: integer, minimum: -1, maximum: 100, description: "Simultaneous streams of a viewer (default 2; -1 for no limit)." }
+        paceFactor: { type: integer, minimum: 1, maximum: 20, description: Keys served at most this many times faster than playback (default 2). }
+        watermark: { type: boolean, description: The player draws the viewer's watermark. }
+        allowedOrigins:
+          type: array
+          description: Web origins allowed to embed the player and fetch the keys (empty allows any).
+          items: { type: string }
+        shareLinks: { type: boolean, description: Stream share links play the protected videos (without watermark nor limits). }
+        mode:
+          type: string
+          enum: [standard, advanced]
+          description: "standard: any HLS player (HLS AES-128). advanced: only the Nexo player, with session keys negotiated with ECDH over a WebSocket and segments encrypted for each session."
+        legacyDevices:
+          type: string
+          enum: [refuse, standard]
+          description: "Advanced mode: what to do with the browsers without Media Source Extensions (iPhones before iOS 17.1): refuse them (default) or let them play the standard way."
+        forensic: { type: boolean, description: "Every stream carries an invisible watermark naming its playback token: the media worker derives two variants of every rendition." }
     MediaReprocessRequest:
       type: object
       required: [key]

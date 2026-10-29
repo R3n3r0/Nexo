@@ -925,6 +925,63 @@ func (_c *Service_GetMedia_Call) RunAndReturn(run func(context.Context, string) 
 	return _c
 }
 
+// GetMediaProtection provides a mock function with given fields: ctx, name
+func (_m *Service) GetMediaProtection(ctx context.Context, name string) (domain.MediaProtection, error) {
+	ret := _m.Called(ctx, name)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetMediaProtection")
+	}
+
+	var r0 domain.MediaProtection
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (domain.MediaProtection, error)); ok {
+		return rf(ctx, name)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) domain.MediaProtection); ok {
+		r0 = rf(ctx, name)
+	} else {
+		r0 = ret.Get(0).(domain.MediaProtection)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, name)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_GetMediaProtection_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetMediaProtection'
+type Service_GetMediaProtection_Call struct {
+	*mock.Call
+}
+
+// GetMediaProtection is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+func (_e *Service_Expecter) GetMediaProtection(ctx interface{}, name interface{}) *Service_GetMediaProtection_Call {
+	return &Service_GetMediaProtection_Call{Call: _e.mock.On("GetMediaProtection", ctx, name)}
+}
+
+func (_c *Service_GetMediaProtection_Call) Run(run func(ctx context.Context, name string)) *Service_GetMediaProtection_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *Service_GetMediaProtection_Call) Return(_a0 domain.MediaProtection, _a1 error) *Service_GetMediaProtection_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_GetMediaProtection_Call) RunAndReturn(run func(context.Context, string) (domain.MediaProtection, error)) *Service_GetMediaProtection_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetNotification provides a mock function with given fields: ctx, name
 func (_m *Service) GetNotification(ctx context.Context, name string) ([]byte, error) {
 	ret := _m.Called(ctx, name)
@@ -1833,6 +1890,54 @@ func (_c *Service_SetMedia_Call) Return(_a0 error) *Service_SetMedia_Call {
 }
 
 func (_c *Service_SetMedia_Call) RunAndReturn(run func(context.Context, string, domain.MediaConfig) error) *Service_SetMedia_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetMediaProtection provides a mock function with given fields: ctx, name, p
+func (_m *Service) SetMediaProtection(ctx context.Context, name string, p domain.MediaProtection) error {
+	ret := _m.Called(ctx, name, p)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetMediaProtection")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, domain.MediaProtection) error); ok {
+		r0 = rf(ctx, name, p)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Service_SetMediaProtection_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetMediaProtection'
+type Service_SetMediaProtection_Call struct {
+	*mock.Call
+}
+
+// SetMediaProtection is a helper method to define mock.On call
+//   - ctx context.Context
+//   - name string
+//   - p domain.MediaProtection
+func (_e *Service_Expecter) SetMediaProtection(ctx interface{}, name interface{}, p interface{}) *Service_SetMediaProtection_Call {
+	return &Service_SetMediaProtection_Call{Call: _e.mock.On("SetMediaProtection", ctx, name, p)}
+}
+
+func (_c *Service_SetMediaProtection_Call) Run(run func(ctx context.Context, name string, p domain.MediaProtection)) *Service_SetMediaProtection_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(domain.MediaProtection))
+	})
+	return _c
+}
+
+func (_c *Service_SetMediaProtection_Call) Return(_a0 error) *Service_SetMediaProtection_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Service_SetMediaProtection_Call) RunAndReturn(run func(context.Context, string, domain.MediaProtection) error) *Service_SetMediaProtection_Call {
 	_c.Call.Return(run)
 	return _c
 }

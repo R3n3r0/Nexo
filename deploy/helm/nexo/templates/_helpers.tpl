@@ -352,7 +352,7 @@ the objects and writes only under .nexo-media/ of mediaWorker.setup.buckets
 {{- $arns = append $arns (printf "arn:aws:s3:::%s" .) }}
 {{- end }}
 {{- $statements := list
-  (dict "Effect" "Allow" "Action" (list "s3:GetObject" "s3:GetObjectVersion") "Resource" $objects)
+  (dict "Effect" "Allow" "Action" (list "s3:GetObject" "s3:GetObjectVersion" "nexo:DownloadProtectedMedia") "Resource" $objects)
   (dict "Effect" "Allow" "Action" (list "s3:PutObject" "s3:DeleteObject" "s3:DeleteObjectVersion") "Resource" $media)
   (dict "Effect" "Allow" "Action" (list "s3:ListBucket" "s3:ListBucketVersions") "Resource" $arns
     "Condition" (dict "StringLike" (dict "s3:prefix" (list ".nexo-media/*"))))

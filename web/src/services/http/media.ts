@@ -1,6 +1,7 @@
 import type { MediaService } from '../interfaces';
 import type {
   MediaConfiguration,
+  MediaProtection,
   MediaStatus,
   SubtitleCues,
   SubtitleTrack,
@@ -9,7 +10,8 @@ import type {
 import type { HttpClient } from './client';
 
 /**
- * MediaService over /buckets/{bucket}/media, /buckets/{bucket}/objects/media/status
+ * MediaService over /buckets/{bucket}/media (and /media/protection),
+ * /buckets/{bucket}/objects/media/status
  * and /buckets/{bucket}/objects/subtitles.
  */
 export function createHttpMediaService(client: HttpClient): MediaService {
@@ -68,6 +70,15 @@ export function createHttpMediaService(client: HttpClient): MediaService {
     },
     subtitleDownloadUrl(bucket, key, lang, format, versionId) {
       return client.url(subtitles(bucket, lang), { key, versionId, format });
+    },
+    getProtection(bucket) {
+      return client.request<MediaProtection>(path(bucket, 'protection'));
+    },
+    setProtection(bucket, protection) {
+      return client.request<MediaProtection>(path(bucket, 'protection'), {
+        method: 'PUT',
+        body: protection,
+      });
     },
   };
 }

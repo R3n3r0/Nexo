@@ -839,6 +839,140 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/buckets/{bucket}/media/protection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The download protection of the videos
+         * @description Disabled, with its defaults, when never set.
+         */
+        get: operations["getMediaProtection"];
+        /**
+         * Set the download protection of the videos
+         * @description A protected video streams encrypted (HLS AES-128); its keys are served only to a playback token of the video (or to someone allowed to read it), at the pace of playback and to a bounded number of simultaneous streams per viewer, and the original cannot be downloaded without nexo:DownloadProtectedMedia.
+         */
+        put: operations["setMediaProtection"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/playback-tokens": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue a playback token of a video
+         * @description A playback token streams one video without credentials: its playlists, segments and, for a protected video, its keys (at the pace of playback, to at most maxSessions simultaneous streams of the subject). The answer holds the master playlist with the token, for any HLS player, and the Nexo player page.
+         */
+        post: operations["issuePlaybackToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/playback-trace": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Find the playback token a leaked copy of a video came from
+         * @description For a video marked by the forensic watermark: the bits of the code a leaked copy carries (bit n is the variant of segment n mod 64: 0 for A, 1 for B, ? unknown), or the votes nexo-media-worker trace read from it, which the server groups by segment of the video. The answer lists the playback tokens whose code agrees, the best first, with whom they were issued to.
+         */
+        post: operations["tracePlaybackLeak"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/media/playback-sessions/{session}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+                /** @description The sessionId of the token. */
+                session: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke a playback token
+         * @description The token stops playing on every node within seconds.
+         */
+        delete: operations["revokePlaybackSession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/media/playback-subjects/{subject}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+                /** @description The subject of the tokens. */
+                subject: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke every playback token of a viewer
+         * @description Every token of the videos of the bucket issued to the subject so far stops playing.
+         */
+        delete: operations["revokePlaybackSubject"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/buckets/{bucket}/replication": {
         parameters: {
             query?: never;
@@ -1294,6 +1428,37 @@ export interface paths {
          * @description One fMP4 media segment, numbered from 0.
          */
         get: operations["hlsMediaSegment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/objects/hls/key": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * AES-128 key of a protected video
+         * @description The 16-byte AES-128 key of a key period (10 segments) of a video the media protection of its bucket
+         *     covers; 404 for a video that is not protected. Never cached.
+         */
+        get: operations["hlsKey"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5655,6 +5820,93 @@ export interface components {
             /** @description Interval between two thumbnails, a Go duration from 1s to 10m (default 10s). */
             interval?: string;
         };
+        PlaybackTokenRequest: {
+            /** @description The viewer for the application (an account id): the simultaneous streams are counted by subject. */
+            subject: string;
+            /** @description The text the Nexo player draws over the video (default: the subject). */
+            watermark?: string;
+            /** @description Validity of the token (default 7200, at most the token TTL of the protection; 86400 for an unprotected video). */
+            ttlSeconds?: number;
+        };
+        PlaybackTraceRequest: {
+            /** @description The bits of the code read from the copy: 0, 1 or ? (unknown), bit i the i-th. */
+            bits?: string;
+            /** @description The votes of nexo-media-worker trace (instead of bits). */
+            votes?: {
+                /** @description Time of the video, in seconds. */
+                t: number;
+                /** @description About +1 for the A variant, -1 for the B variant. */
+                s: number;
+                /** @description The rendition the picture matched. */
+                r?: string;
+            }[];
+            /** @description Most candidates (default 10). */
+            limit?: number;
+        };
+        PlaybackTrace: {
+            /** @description The bits read. */
+            bits: string;
+            matches: {
+                sessionId: string;
+                subject: string;
+                watermark?: string;
+                key: string;
+                versionId?: string;
+                /** Format: date-time */
+                issuedAt: string;
+                /** Format: date-time */
+                expiresAt: string;
+                /** @description The code of the token (16 hex digits). */
+                code: string;
+                /** @description Bits of the copy equal to those of the code. */
+                agree: number;
+                /** @description Bits known in the copy. */
+                compared: number;
+            }[];
+        };
+        PlaybackToken: {
+            /** @description The value of the pt query parameter of the media routes. */
+            token: string;
+            /** @description Identifies the token for its revocation. */
+            sessionId: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** @description The master playlist with the token (absolute when the server knows its public URL). */
+            playlist: string;
+            /** @description The Nexo player page of the video. */
+            player: string;
+        };
+        MediaProtection: {
+            enabled: boolean;
+            /** @description Only the keys under the prefix (empty is the whole bucket). */
+            prefix?: string;
+            /** @description Suffixes of the protected videos (default .mp4 .mov .m4v). */
+            suffixes?: string[];
+            /** @description Longest validity of a playback token (default 7200). */
+            tokenTtlSeconds?: number;
+            /** @description Simultaneous streams of a viewer (default 2; -1 for no limit). */
+            maxSessions?: number;
+            /** @description Keys served at most this many times faster than playback (default 2). */
+            paceFactor?: number;
+            /** @description The player draws the viewer's watermark. */
+            watermark: boolean;
+            /** @description Web origins allowed to embed the player and fetch the keys (empty allows any). */
+            allowedOrigins: string[];
+            /** @description Stream share links play the protected videos (without watermark nor limits). */
+            shareLinks: boolean;
+            /**
+             * @description standard: any HLS player (HLS AES-128). advanced: only the Nexo player, with session keys negotiated with ECDH over a WebSocket and segments encrypted for each session.
+             * @enum {string}
+             */
+            mode?: "standard" | "advanced";
+            /**
+             * @description Advanced mode: what to do with the browsers without Media Source Extensions (iPhones before iOS 17.1): refuse them (default) or let them play the standard way.
+             * @enum {string}
+             */
+            legacyDevices?: "refuse" | "standard";
+            /** @description Every stream carries an invisible watermark naming its playback token: the media worker derives two variants of every rendition. */
+            forensic: boolean;
+        };
         MediaReprocessRequest: {
             key: string;
             /** @description The version to process (default the latest). */
@@ -8356,6 +8608,175 @@ export interface operations {
             default: components["responses"]["Problem"];
         };
     };
+    getMediaProtection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The protection. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaProtection"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    setMediaProtection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MediaProtection"];
+            };
+        };
+        responses: {
+            /** @description The protection, normalized. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaProtection"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    issuePlaybackToken: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlaybackTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description The token. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaybackToken"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    tracePlaybackLeak: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlaybackTraceRequest"];
+            };
+        };
+        responses: {
+            /** @description The bits read and the candidates. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaybackTrace"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    revokePlaybackSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+                /** @description The sessionId of the token. */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    revokePlaybackSubject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+                /** @description The subject of the tokens. */
+                subject: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
     getBucketReplication: {
         parameters: {
             query?: never;
@@ -9035,6 +9456,43 @@ export interface operations {
                 };
                 content: {
                     "video/iso.segment": string;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    hlsKey: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+                /** @description The ETag the presentation is pinned to (412 once the object changed). */
+                rev: string;
+                /** @description A rendition of the media worker (720p, 480p...): the presentation of that rendition, rev being its ETag. */
+                r?: string;
+                /** @description The key period. */
+                i: number;
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description AES-128 key of a protected video. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
                 };
             };
             default: components["responses"]["Problem"];

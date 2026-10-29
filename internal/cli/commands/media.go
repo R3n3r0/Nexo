@@ -49,7 +49,7 @@ The configuration is the JSON document of the Admin API and of the console
 	rule := groupCmd("rule", "Add or remove one media rule of a bucket")
 	rule.AddCommand(newMediaRuleAddCmd(e), newMediaRuleRemoveCmd(e))
 	cmd.AddCommand(newMediaSetCmd(e), newMediaGetCmd(e), newMediaRemoveCmd(e), rule, newMediaReprocessCmd(e), newMediaStatusCmd(e),
-		newMediaSubtitlesCmd(e))
+		newMediaSubtitlesCmd(e), newMediaProtectionCmd(e), newMediaTokenCmd(e), newMediaRevokeCmd(e), newMediaTraceCmd(e))
 	return cmd
 }
 

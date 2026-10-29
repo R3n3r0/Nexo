@@ -42,8 +42,11 @@ func s3Actions() []string {
 }
 
 // nexoActions lists the object actions of Nexo a policy may name
-// (ActionGetMediaStream).
-func nexoActions() []string { return []string{"GetMediaStream"} }
+// (ActionGetMediaStream, ActionIssuePlaybackToken,
+// ActionDownloadProtectedMedia).
+func nexoActions() []string {
+	return []string{"GetMediaStream", "IssuePlaybackToken", "DownloadProtectedMedia"}
+}
 
 // validAction checks one Action/NotAction entry: "*" or
 // "<service>:<name>" with service s3, nexo, admin, sts or kms. S3 and nexo

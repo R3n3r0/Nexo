@@ -104,8 +104,14 @@ export const s3ActionNames = [
 export const s3Actions: readonly string[] = s3ActionNames.map((name) => `s3:${name}`);
 
 /** Object actions of Nexo (policy.nexoActions): nexo:GetMediaStream streams
- * a video (HLS) without allowing the download of the original. */
-export const nexoActionNames = ['GetMediaStream'] as const;
+ * a video (HLS) without allowing the download of the original;
+ * nexo:IssuePlaybackToken issues the playback tokens of a video;
+ * nexo:DownloadProtectedMedia downloads the original of a protected video. */
+export const nexoActionNames = [
+  'GetMediaStream',
+  'IssuePlaybackToken',
+  'DownloadProtectedMedia',
+] as const;
 
 export const nexoActions: readonly string[] = nexoActionNames.map((name) => `nexo:${name}`);
 
@@ -155,6 +161,8 @@ export const adminActions: readonly string[] = [
   'admin:SetBucketQuota',
   'admin:GetBucketMedia',
   'admin:SetBucketMedia',
+  'admin:RevokePlaybackTokens',
+  'admin:TracePlaybackLeaks',
   'admin:GetBucketTarget',
   'admin:SetBucketTarget',
   'admin:ApplyLifecycle',
@@ -322,6 +330,8 @@ export const consoleActionScopes: ReadonlyArray<readonly [string, ActionScope]> 
     'admin:SetBucketQuota',
     'admin:GetBucketMedia',
     'admin:SetBucketMedia',
+    'admin:RevokePlaybackTokens',
+    'admin:TracePlaybackLeaks',
     'admin:GetBucketTarget',
     'admin:SetBucketTarget',
     's3:DeleteBucket',

@@ -383,6 +383,11 @@ export type SubtitleFormat = 'vtt' | 'srt';
  */
 export type MediaStatus = Schemas['MediaStatus'];
 export type MediaState = MediaStatus['state'];
+/**
+ * The download protection of the videos of a bucket: encrypted segments,
+ * keys served at playback pace to a bounded number of streams per viewer.
+ */
+export type MediaProtection = Schemas['MediaProtection'];
 
 /** Object Lock retention mode. */
 export type RetentionMode = NonNullable<Schemas['ObjectRetention']['mode']>;

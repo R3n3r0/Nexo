@@ -331,9 +331,16 @@ const (
 	ActionAdminSetBucketQuota          Action = "admin:SetBucketQuota"
 	ActionAdminGetBucketMedia          Action = "admin:GetBucketMedia"
 	ActionAdminSetBucketMedia          Action = "admin:SetBucketMedia"
-	ActionAdminServerTrace             Action = "admin:ServerTrace"
-	ActionAdminConsoleLog              Action = "admin:ConsoleLog"
-	ActionAdminManageShares            Action = "admin:ManageShares"
+	// ActionAdminRevokePlaybackTokens revokes the playback tokens of the
+	// videos of a bucket (a token, or every token of a viewer).
+	ActionAdminRevokePlaybackTokens Action = "admin:RevokePlaybackTokens"
+	// ActionAdminTracePlaybackLeaks finds the playback token a leaked copy
+	// of a video of a bucket came from (the forensic watermark): it reads
+	// whom the tokens were issued to.
+	ActionAdminTracePlaybackLeaks Action = "admin:TracePlaybackLeaks"
+	ActionAdminServerTrace        Action = "admin:ServerTrace"
+	ActionAdminConsoleLog         Action = "admin:ConsoleLog"
+	ActionAdminManageShares       Action = "admin:ManageShares"
 	// ActionAdminExportCluster and ActionAdminImportCluster authorize the
 	// export and the import of the state of the deployment (IAM, policies,
 	// configuration, bucket settings: admin cluster export/import).
@@ -408,6 +415,14 @@ const (
 	// behaviors of the distributions serve a viewer allowed either
 	// s3:GetObject or this action.
 	ActionGetMediaStream Action = "nexo:GetMediaStream"
+	// ActionIssuePlaybackToken allows the playback tokens of a video
+	// (docs/proposals/video-protection.md): a capability to stream it,
+	// handed to a viewer without credentials.
+	ActionIssuePlaybackToken Action = "nexo:IssuePlaybackToken"
+	// ActionDownloadProtectedMedia allows the download of the original of
+	// a video the media protection of its bucket covers, on top of
+	// s3:GetObject: without it a protected video only streams.
+	ActionDownloadProtectedMedia Action = "nexo:DownloadProtectedMedia"
 	// ActionAdminApplyLifecycle authorizes the immediate application of
 	// the lifecycle of a bucket from the Admin API (the scanner applies it
 	// over its cycle), on top of s3:PutLifecycleConfiguration.

@@ -73,6 +73,8 @@ s3.example.com, *.s3.example.com {
 	# nodes: never expose it.
 	respond /nexo/rpc/* 404
 
+	# reverse_proxy carries the WebSocket of the Nexo player's sessions
+	# (/nexo/media/v1/{bucket}/session, video protection in advanced mode).
 	reverse_proxy {
 		import nexo_upstream 9000
 	}
@@ -107,6 +109,8 @@ www.example.com, example.com {
 	# The internode RPC is never exposed, on any domain.
 	respond /nexo/rpc/* 404
 
+	# reverse_proxy carries the WebSocket of the Nexo player's sessions
+	# (/nexo/media/v1/{bucket}/session, video protection in advanced mode).
 	reverse_proxy {
 		import nexo_upstream 9000
 		# Replaces any value a client sends.

@@ -144,6 +144,20 @@ type AdminClient interface {
 	DeleteBucketMedia(ctx context.Context, bucket string) error
 	ReprocessMedia(ctx context.Context, bucket, key, versionID string) error
 	GetMediaStatus(ctx context.Context, bucket, key, versionID string) (*nexoadmin.MediaStatus, error)
+	// Download protection of the videos and their playback tokens (nexoctl
+	// media protection, token, revoke): GetMediaProtection returns a
+	// disabled protection when none is set, SetMediaProtection stores it
+	// normalized; IssuePlaybackToken signs a token of a video for a
+	// viewer, the Revoke methods revoke one token or every token of a
+	// viewer of the bucket.
+	GetMediaProtection(ctx context.Context, bucket string) (*nexoadmin.MediaProtection, error)
+	SetMediaProtection(ctx context.Context, bucket string, p nexoadmin.MediaProtection) (*nexoadmin.MediaProtection, error)
+	IssuePlaybackToken(ctx context.Context, bucket, key, versionID string, req nexoadmin.PlaybackTokenRequest) (*nexoadmin.PlaybackToken, error)
+	RevokePlaybackSession(ctx context.Context, bucket, sessionID string) error
+	RevokePlaybackSubject(ctx context.Context, bucket, subject string) error
+	// TracePlaybackLeak finds the playback tokens a leaked copy of a video
+	// marked by the forensic watermark may come from (nexoctl media trace).
+	TracePlaybackLeak(ctx context.Context, bucket, key, versionID string, req nexoadmin.PlaybackTraceRequest) (*nexoadmin.PlaybackTrace, error)
 	// Subtitle tracks of a video (nexoctl media subtitles): ListSubtitles
 	// returns those that apply to its content, ExportSubtitles the
 	// document of a track (format vtt or srt), ImportSubtitles stores a

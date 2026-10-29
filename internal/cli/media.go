@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/r3n3r0/nexo/internal/domain"
@@ -76,4 +77,26 @@ func MediaFromDomain(cfg domain.MediaConfig) nexoadmin.MediaConfiguration {
 		out.Rules = append(out.Rules, ar)
 	}
 	return out
+}
+
+// MediaProtectionDomain converts a protection of the Admin API to the
+// domain form (Watermark is the inverse of NoWatermark).
+func MediaProtectionDomain(p nexoadmin.MediaProtection) domain.MediaProtection {
+	return domain.MediaProtection{Enabled: p.Enabled, Prefix: p.Prefix, Suffixes: slices.Clone(p.Suffixes),
+		TokenTTLSeconds: p.TokenTTLSeconds, MaxSessions: p.MaxSessions, PaceFactor: p.PaceFactor, NoWatermark: !p.Watermark,
+		AllowedOrigins: slices.Clone(p.AllowedOrigins), ShareLinks: p.ShareLinks,
+		Mode: p.Mode, LegacyDevices: p.LegacyDevices, Forensic: p.Forensic}
+}
+
+// MediaProtectionFromDomain converts a domain protection to the form of
+// the Admin API.
+func MediaProtectionFromDomain(p domain.MediaProtection) nexoadmin.MediaProtection {
+	origins := slices.Clone(p.AllowedOrigins)
+	if origins == nil {
+		origins = []string{}
+	}
+	return nexoadmin.MediaProtection{Enabled: p.Enabled, Prefix: p.Prefix, Suffixes: slices.Clone(p.Suffixes),
+		TokenTTLSeconds: p.TokenTTLSeconds, MaxSessions: p.MaxSessions, PaceFactor: p.PaceFactor, Watermark: !p.NoWatermark,
+		AllowedOrigins: origins, ShareLinks: p.ShareLinks,
+		Mode: p.Mode, LegacyDevices: p.LegacyDevices, Forensic: p.Forensic}
 }

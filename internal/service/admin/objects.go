@@ -42,9 +42,12 @@ type ObjectBrowserDeps struct {
 	// Objects is the object layer (required).
 	Objects object.Service
 	// Authz authorizes every object of the bulk operations (required).
-	Authz  Authorizer
-	Clock  clock.Clock
-	Logger *slog.Logger
+	Authz Authorizer
+	// Protections returns the download protection of the videos of the
+	// buckets (optional: without it no video is protected).
+	Protections MediaProtections
+	Clock       clock.Clock
+	Logger      *slog.Logger
 }
 
 // ObjectBrowserOption configures the object browser.
@@ -192,6 +195,35 @@ func (b *objectBrowser) allowed(ctx context.Context, req Requester, bucket, key 
 		return false
 	}
 	return d.Allowed
+}
+
+// MediaProtections returns the download protection of the videos of a
+// bucket (implemented by the bucket service).
+type MediaProtections interface {
+	GetMediaProtection(ctx context.Context, bucket string) (domain.MediaProtection, error)
+}
+
+// authorizeProtected requires nexo:DownloadProtectedMedia to read the
+// original of a protected video (download, preview, archive, copy).
+func (b *objectBrowser) authorizeProtected(ctx context.Context, req Requester, bucket, key, versionID string) error {
+	protected, err := b.protected(ctx, bucket, key)
+	if err != nil || !protected {
+		return err
+	}
+	return authorizeObject(ctx, b.deps.Authz, req, bucket, key, ObjectRequest{VersionID: versionID}, policy.ActionDownloadProtectedMedia)
+}
+
+// protected reports whether key is a video the protection of its bucket
+// covers.
+func (b *objectBrowser) protected(ctx context.Context, bucket, key string) (bool, error) {
+	if b.deps.Protections == nil {
+		return false, nil
+	}
+	p, err := b.deps.Protections.GetMediaProtection(ctx, bucket)
+	if err != nil {
+		return false, err
+	}
+	return p.Protects(key), nil
 }
 
 // versionCursor is the decoded cursor of a version listing.
@@ -589,6 +621,11 @@ func (b *objectBrowser) renameOne(ctx context.Context, in RenameInput, src, dst 
 			return
 		}
 	}
+	// A protected video copied out of the protection could be downloaded.
+	if err := b.authorizeProtected(ctx, in.Requester, in.Bucket, src, ""); err != nil {
+		fail(err)
+		return
+	}
 	if !in.Overwrite {
 		_, err := b.deps.Objects.GetObjectInfo(ctx, in.Bucket, dst, object.GetObjectOptions{})
 		switch {
@@ -719,6 +756,9 @@ func (b *objectBrowser) RestoreVersion(ctx context.Context, in RestoreVersionInp
 	if err := authorizeObject(ctx, b.deps.Authz, in.Requester, in.Bucket, in.Key, ObjectRequest{VersionID: in.VersionID}, policy.ActionGetObjectVersion); err != nil {
 		return domain.ObjectInfo{}, err
 	}
+	if err := b.authorizeProtected(ctx, in.Requester, in.Bucket, in.Key, in.VersionID); err != nil {
+		return domain.ObjectInfo{}, err
+	}
 	copySource := ObjectRequest{Headers: map[string]string{"x-amz-copy-source": copySourceOf(in.Bucket, in.Key, in.VersionID)}}
 	if err := authorizeObject(ctx, b.deps.Authz, in.Requester, in.Bucket, in.Key, copySource, policy.ActionPutObject); err != nil {
 		return domain.ObjectInfo{}, err
@@ -759,6 +799,9 @@ func (b *objectBrowser) SetTags(ctx context.Context, in SetTagsInput) (map[strin
 // Open implements ObjectBrowser.
 func (b *objectBrowser) Open(ctx context.Context, in OpenInput) (*Download, error) {
 	if err := domain.ValidateObjectKey(in.Key); err != nil {
+		return nil, err
+	}
+	if err := b.authorizeProtected(ctx, in.Requester, in.Bucket, in.Key, in.VersionID); err != nil {
 		return nil, err
 	}
 	rd, err := b.deps.Objects.GetObject(ctx, in.Bucket, in.Key, object.GetObjectOptions{VersionID: in.VersionID, Range: in.Range, Conditions: in.Conditions})

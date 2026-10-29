@@ -1,0 +1,29 @@
+Show or change the download protection of the videos of a bucket.
+
+A protected video streams encrypted (HLS AES-128, a key every 10 segments): its
+keys go only to a playback token of the video ("nexoctl media token") or to a
+console session or a signed request allowed to stream it, at most PACE times
+faster than the video plays and to MAX-SESSIONS simultaneous streams of a
+viewer (a newer stream replaces the oldest). Its original cannot be downloaded
+without nexo:DownloadProtectedMedia. The Nexo player draws the viewer's
+watermark over the picture.
+
+Usage:
+  nexoctl media protection [flags]
+  nexoctl media protection [command]
+
+Available Commands:
+  get         Show the download protection of the videos of a bucket
+  set         Change the download protection of the videos of a bucket
+
+Flags:
+  -h, --help   help for protection
+
+Global Flags:
+      --config-dir string   configuration directory (default $NEXOCTL_CONFIG_DIR or ~/.nexoctl)
+      --debug               dump the HTTP requests and responses on stderr, with the secrets redacted
+      --json                print JSON Lines (one object per line with a "status" member)
+      --no-color            disable colors (also with the NO_COLOR environment variable)
+  -q, --quiet               hide confirmations and progress (results and errors are still printed)
+
+Use "nexoctl media protection [command] --help" for more information about a command.

@@ -114,15 +114,22 @@ func (s *service) resolve(ctx context.Context, src Source) (Source, error) {
 	if err != nil {
 		return Source{}, err
 	}
-	if !slices.ContainsFunc(st.Renditions, func(r domain.MediaRenditionOutput) bool { return r.Name == src.Rendition }) {
+	i := slices.IndexFunc(st.Renditions, func(r domain.MediaRenditionOutput) bool { return r.Name == src.Rendition })
+	if i < 0 {
 		return Source{}, fmt.Errorf("%w: no rendition %s for %s/%s", domain.ErrNotFound, src.Rendition, src.Bucket, src.Key)
 	}
-	return Source{Bucket: src.Bucket, Key: renditionKey(src.Key, st.VersionID, src.Rendition), Revision: src.Revision}, nil
+	out := Source{Bucket: src.Bucket, Key: renditionKey(src.Key, st.VersionID, src.Rendition, false), Revision: src.Revision,
+		Session: src.Session, Viewer: src.Viewer}
+	if st.Renditions[i].Forensic {
+		out.variantB = renditionKey(src.Key, st.VersionID, src.Rendition, true)
+	}
+	return out, nil
 }
 
-// renditionKey is the key of the file of a rendition.
-func renditionKey(key, versionID, name string) string {
-	return domain.MediaSidecarDir(key, versionID) + domain.MediaRenditionsDir + name + ".mp4"
+// renditionKey is the key of the file of a rendition (variantB: of its B
+// variant).
+func renditionKey(key, versionID, name string, variantB bool) string {
+	return domain.MediaSidecarDir(key, versionID) + domain.MediaRenditionsDir + domain.MediaRenditionFile(name, variantB)
 }
 
 // RewriteSprite returns a WebVTT map of thumbnails with its references to

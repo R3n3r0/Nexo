@@ -39,8 +39,22 @@ type Service interface {
 	// fragmented presentation).
 	Init(ctx context.Context, src Source) ([]byte, error)
 	// Segment returns the media segment n (0-based); a number past the
-	// last segment fails with domain.ErrNotFound.
+	// last segment fails with domain.ErrNotFound. The segments of a
+	// protected video are encrypted (AES-128-CBC, the key of period
+	// n/KeyPeriod, the IV n); in a session (src.Session), with AES-128-GCM
+	// and the key of the period for that session: a 12-byte nonce, then
+	// the ciphertext and its tag.
 	Segment(ctx context.Context, src Source, n int) ([]byte, error)
+	// Protection returns the download protection of the video src names,
+	// nil when it is not protected.
+	Protection(ctx context.Context, src Source) (*domain.MediaProtection, error)
+	// Key returns the AES-128 key of a key period (KeyPeriod segments) of
+	// a protected video: domain.ErrNotFound for a video that is not
+	// protected or a period past the last one. With src.Session, the key
+	// of that session (the AES-128-GCM key of its segments).
+	Key(ctx context.Context, src Source, period int) ([]byte, error)
+	// Periods returns the number of key periods of the presentation.
+	Periods(ctx context.Context, src Source) (int, error)
 	// Status returns the job status of the media worker for the version
 	// of src: nil when the worker never processed it.
 	Status(ctx context.Context, src Source) (*OutputStatus, error)
@@ -75,6 +89,14 @@ type Service interface {
 	// DeleteSubtitles removes the track of a language: domain.ErrNotFound
 	// when there is none.
 	DeleteSubtitles(ctx context.Context, src Source, lang string) error
+	// RecordTrace stores the trace record of a playback token of a video
+	// marked by the forensic watermark, encrypted, under
+	// domain.MediaTracePrefix of its bucket.
+	RecordTrace(ctx context.Context, t domain.MediaTrace) error
+	// Trace returns the trace records of a bucket agreeing with the bits a
+	// leaked copy carries (domain.ParseMediaTraceBits), the best first, at
+	// most limit.
+	Trace(ctx context.Context, bucket, bits string, limit int) ([]domain.MediaTraceMatch, error)
 }
 
 // ImageFormatAuto is the format of an ImageRequest that negotiates the
@@ -150,6 +172,19 @@ type Source struct {
 	// domain.MediaRenditionPreset name): the presentation is that of the
 	// rendition, whose ETag Revision then is. Empty is the source.
 	Rendition string
+	// Session is the id of a session of the player of Nexo (the advanced
+	// playback): the segments of a protected video are encrypted for that
+	// session alone (AES-128-GCM, SessionKey), and its media playlists
+	// name no key. Empty is the standard HLS AES-128.
+	Session string
+	// Viewer is the session id of the playback token of the request: with
+	// a forensic watermark, it selects the variant of every segment, and
+	// only the renditions with both variants play.
+	Viewer string
+
+	// variantB is the key of the B variant of a resolved rendition ("" for
+	// none).
+	variantB string
 }
 
 // Links builds the URIs a playlist refers to, relative to the playlist
@@ -161,6 +196,10 @@ type Links interface {
 	Init(rev string) string
 	// Segment is the URI of the media segment n of revision rev.
 	Segment(rev string, n int) string
+	// Key is the URI of the key of a period of revision rev of a protected
+	// video; "" when the route cannot serve keys (the playlist of a
+	// protected video is then refused).
+	Key(rev string, period int) string
 	// Rendition is the URI of the media playlist of a rendition of the
 	// media worker, rev being the ETag of the rendition.
 	Rendition(name, rev string) string

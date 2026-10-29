@@ -68,8 +68,11 @@ type Metadata struct {
 	// Media is the video configuration of the bucket: the rules of the
 	// media worker (docs/proposals/video-streaming.md); nil when never
 	// set.
-	Media     *domain.MediaConfig `json:"media,omitempty"`
-	UpdatedAt time.Time           `json:"updatedAt"`
+	Media *domain.MediaConfig `json:"media,omitempty"`
+	// MediaProtection is the download protection of the videos of the
+	// bucket (docs/proposals/video-protection.md); nil when never set.
+	MediaProtection *domain.MediaProtection `json:"mediaProtection,omitempty"`
+	UpdatedAt       time.Time               `json:"updatedAt"`
 }
 
 // AccessRules is the stored access rules document of a bucket.
@@ -250,6 +253,12 @@ type Service interface {
 	// video configuration of a bucket; no rule removes it.
 	SetMedia(ctx context.Context, name string, cfg domain.MediaConfig) error
 	DeleteMedia(ctx context.Context, name string) error
+	// GetMediaProtection returns the download protection of the videos
+	// of a bucket: disabled when never set.
+	GetMediaProtection(ctx context.Context, name string) (domain.MediaProtection, error)
+	// SetMediaProtection validates (domain.MediaProtection.Validate) and
+	// stores the protection of a bucket.
+	SetMediaProtection(ctx context.Context, name string, p domain.MediaProtection) error
 
 	// GetAccessRules returns the access rules document of a bucket; a
 	// bucket without rules returns the document "[]" with its ETag.

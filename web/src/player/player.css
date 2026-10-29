@@ -14,9 +14,36 @@ main {
   height: 100%;
 }
 
+#stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: #000;
+}
+
 video {
   width: 100%;
   max-height: 100%;
+}
+
+.watermark {
+  position: absolute;
+  z-index: 1;
+  max-width: 60%;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: clamp(0.75rem, 2.2vw, 1.25rem);
+  text-overflow: ellipsis;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+  transition:
+    left 1.5s ease,
+    top 1.5s ease;
 }
 
 p {

@@ -33,12 +33,16 @@ Usage:
 
 Available Commands:
   get         Print the media rules of a bucket (JSON)
+  protection  Show or change the download protection of the videos of a bucket
   remove      Remove the media rules of a bucket
   reprocess   Queue the processing of a video or an image again
+  revoke      Revoke a playback token, or every token of a viewer
   rule        Add or remove one media rule of a bucket
   set         Replace the media rules of a bucket (JSON)
   status      Show the processing state of a video or an image by the media worker
   subtitles   List, download, upload or remove the subtitle tracks of a video
+  token       Issue a playback token of a video for a viewer
+  trace       Find the playback token a leaked copy of a video came from
 
 Flags:
   -h, --help   help for media

@@ -285,6 +285,9 @@ packages:
       Links:
       Service:
       Jobs:
+  github.com/r3n3r0/nexo/internal/service/playback:
+    interfaces:
+      Service:
   github.com/r3n3r0/nexo/internal/service/settings:
     interfaces:
       Service:

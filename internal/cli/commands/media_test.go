@@ -189,3 +189,55 @@ func TestScenarioMediaSidecarsHidden(t *testing.T) {
 	s.run("tree", "--media", "mem/videos")
 	golden(t, "scenario/media_sidecars", s.b.String())
 }
+
+// TestScenarioMediaProtection: the download protection of the videos
+// (media protection get/set), the playback tokens (media token) and their
+// revocation (media revoke).
+//
+// covers: S-OBJ-17, S-OBJ-18, S-OBJ-19
+func TestScenarioMediaProtection(t *testing.T) {
+	h := newHarness(t)
+	h.mem.MakeBucket("courses")
+	s := h.session()
+	s.run("media", "protection", "get", "mem/courses")
+	s.run("media", "protection", "set", "mem/courses", "--enable", "--prefix", "lessons/", "--max-sessions", "1",
+		"--origin", "https://Learn.Example.com", "--token-ttl", "4h")
+	s.run("media", "protection", "get", "mem/courses")
+	s.run("media", "protection", "set", "mem/courses", "--max-sessions", "unlimited", "--watermark=false", "--share-links")
+	s.run("media", "protection", "get", "--json", "mem/courses")
+	s.run("media", "protection", "set", "mem/courses", "--mode", "advanced", "--forensic")
+	s.run("media", "protection", "get", "mem/courses")
+	s.run("media", "protection", "set", "mem/courses", "--legacy-devices", "standard")
+	s.run("media", "protection", "get", "mem/courses")
+	s.run("media", "token", "mem/courses/lessons/intro.mp4", "--subject", "student-1842", "--watermark", "mario.rossi@example.com")
+	s.run("media", "token", "--json", "--ttl", "30m", "mem/courses/lessons/intro.mp4", "--subject", "student-7")
+	s.run("media", "revoke", "mem/courses", "--session", "00000000000000000000000000000001")
+	s.run("media", "revoke", "mem/courses", "--subject", "student-7")
+	// The forensic watermark: the code read from a leaked copy.
+	s.run("media", "trace", "mem/courses/lessons/intro.mp4", "--bits", "10")
+	s.run("media", "trace", "--json", "mem/courses/lessons/intro.mp4", "--bits", "01")
+	h.write("votes.json", `{"votes":[{"t":0.5,"s":0.8},{"t":6.2,"s":-0.7}]}`)
+	s.run("media", "trace", "mem/courses/lessons/intro.mp4", "--votes", "votes.json")
+	s.run("media", "trace", "mem/courses/lessons/intro.mp4", "--bits", "111")
+	// Usage errors.
+	s.run("media", "protection", "set", "mem/courses", "--enable", "--disable")
+	s.run("media", "protection", "set", "mem/courses", "--max-sessions", "0")
+	s.run("media", "protection", "set", "mem/courses", "--origin", "https://a.example/path")
+	s.run("media", "protection", "set", "mem/courses", "--pace", "50")
+	s.run("media", "protection", "set", "mem/courses", "--mode", "drm")
+	s.run("media", "token", "mem/courses/lessons/intro.mp4")
+	s.run("media", "token", "mem/courses", "--subject", "s")
+	s.run("media", "revoke", "mem/courses")
+	s.run("media", "trace", "mem/courses/lessons/intro.mp4")
+	s.run("media", "trace", "mem/courses/lessons/intro.mp4", "--bits", "01x2")
+	s.run("media", "protection", "set", "mem/courses", "--disable")
+	s.run("media", "protection", "get", "mem/courses")
+	golden(t, "scenario/media_protection", s.b.String())
+
+	tokens := h.admin.PlaybackTokens()
+	require.Len(t, tokens, 2)
+	assert.Equal(t, nexoadmin.PlaybackTokenRequest{Subject: "student-7", TTLSeconds: 1800}, tokens[1].Request)
+	assert.Equal(t, []clitest.PlaybackRevocation{
+		{Bucket: "courses", Session: "00000000000000000000000000000001"}, {Bucket: "courses", Subject: "student-7"},
+	}, h.admin.PlaybackRevocations())
+}

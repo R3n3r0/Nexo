@@ -9,7 +9,15 @@
   </head>
   <body>
     <main>
-      <video id="video" controls playsinline></video>
+      <div id="stage">
+        <video
+          id="video"
+          controls
+          playsinline
+          controlslist="nodownload"
+          disablepictureinpicture
+        ></video>
+      </div>
       <p id="status" role="status" hidden></p>
     </main>
     <script type="module" src="/src/player/main.ts"></script>

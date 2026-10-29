@@ -57,10 +57,14 @@ nexoctl media [flags]
 
 * [nexoctl](nexoctl.md)	 - Nexo command-line client
 * [nexoctl media get](nexoctl_media_get.md)	 - Print the media rules of a bucket (JSON)
+* [nexoctl media protection](nexoctl_media_protection.md)	 - Show or change the download protection of the videos of a bucket
 * [nexoctl media remove](nexoctl_media_remove.md)	 - Remove the media rules of a bucket
 * [nexoctl media reprocess](nexoctl_media_reprocess.md)	 - Queue the processing of a video or an image again
+* [nexoctl media revoke](nexoctl_media_revoke.md)	 - Revoke a playback token, or every token of a viewer
 * [nexoctl media rule](nexoctl_media_rule.md)	 - Add or remove one media rule of a bucket
 * [nexoctl media set](nexoctl_media_set.md)	 - Replace the media rules of a bucket (JSON)
 * [nexoctl media status](nexoctl_media_status.md)	 - Show the processing state of a video or an image by the media worker
 * [nexoctl media subtitles](nexoctl_media_subtitles.md)	 - List, download, upload or remove the subtitle tracks of a video
+* [nexoctl media token](nexoctl_media_token.md)	 - Issue a playback token of a video for a viewer
+* [nexoctl media trace](nexoctl_media_trace.md)	 - Find the playback token a leaked copy of a video came from
 

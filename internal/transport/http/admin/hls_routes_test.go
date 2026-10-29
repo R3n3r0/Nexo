@@ -221,3 +221,32 @@ func TestImageRoutes(t *testing.T) {
 	rec = c.do(http.MethodGet, "/buckets/b/objects/image?key=a.jpg", nil)
 	assert.Equal(t, http.StatusForbidden, rec.Code)
 }
+
+// TestHLSKeyRoute: the key of a period of a protected video goes to a
+// console session allowed to stream it, never cached; the media playlist
+// links it.
+//
+// covers: S-OBJ-17
+func TestHLSKeyRoute(t *testing.T) {
+	f := newFixture(t)
+	c := f.root(t)
+	src := media.Source{Bucket: "b", Key: "v.mp4", Revision: "e1"}
+	f.media.EXPECT().Key(mock.Anything, src, 2).Return([]byte("0123456789abcdef"), nil)
+	f.resetChecks()
+	rec := c.do(http.MethodGet, "/buckets/b/objects/hls/key?key=v.mp4&rev=e1&i=2", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+	assert.Equal(t, "0123456789abcdef", rec.Body.String())
+	assert.Equal(t, []policy.Action{policy.ActionGetMediaStream}, f.lastCheck().Actions)
+	for _, bad := range []string{"key=v.mp4&i=2", "key=v.mp4&rev=e1", "key=v.mp4&rev=e1&i=-1"} {
+		assert.Equal(t, http.StatusBadRequest, c.do(http.MethodGet, "/buckets/b/objects/hls/key?"+bad, nil).Code, bad)
+	}
+
+	f.media.EXPECT().MediaPlaylist(mock.Anything, src, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ media.Source, l media.Links) ([]byte, error) {
+			return []byte(l.Key("e1", 1)), nil
+		})
+	rec = c.do(http.MethodGet, "/buckets/b/objects/hls/media.m3u8?key=v.mp4&rev=e1", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, "key?i=1&key=v.mp4&rev=e1", rec.Body.String())
+}

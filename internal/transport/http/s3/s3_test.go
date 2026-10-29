@@ -107,12 +107,14 @@ func newFixture(t *testing.T, opts ...fixtureOption) *fixture {
 	if !cfg.denyByDefault {
 		f.policy.EXPECT().Evaluate(mock.Anything, mock.Anything).Return(policy.Decision{Allowed: true}, nil).Maybe()
 	}
+	// No video is protected (protectVideos changes it).
+	f.media.EXPECT().Protection(mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 	// The probe of the policies using s3:ExistingObjectTag finds none.
 	f.policy.EXPECT().Simulate(mock.Anything, mock.Anything).Return(policy.Decision{}, nil).Maybe()
 	api := s3.NewAPI(s3.APIDeps{Enc: f.enc, Domains: cfg.domains},
 		s3.NewBucketRoutes(s3.BucketDeps{Buckets: f.buckets, Objects: f.objects, Policy: f.policy, Enc: f.enc, Clock: f.clock}, cfg.opts...),
 		s3.NewObjectRoutes(s3.ObjectDeps{Objects: f.objects, Policy: f.policy, Media: f.media, Enc: f.enc, Clock: f.clock}),
-		s3.NewMultipartRoutes(s3.MultipartDeps{Objects: f.objects, Policy: f.policy, Enc: f.enc, Clock: f.clock}),
+		s3.NewMultipartRoutes(s3.MultipartDeps{Objects: f.objects, Policy: f.policy, Media: f.media, Enc: f.enc, Clock: f.clock}),
 		s3.NewPresignedRoutes(s3.PresignedDeps{Verifier: f.verifier, Objects: f.objects, Buckets: f.buckets, Policy: f.policy, Media: f.media,
 			Enc: f.enc, Clock: f.clock}),
 		s3.NewPostPolicyRoutes(s3.PostPolicyDeps{Verifier: f.verifier, Objects: f.objects, Policy: f.policy, Enc: f.enc, Clock: f.clock}),
