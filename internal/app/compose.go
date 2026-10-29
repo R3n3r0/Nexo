@@ -107,6 +107,9 @@ type composeDeps struct {
 	// process with it (updates, S-OPS-09).
 	exe  string
 	exec func() error
+	// stopping is closed when the node stops (the sessions of the player
+	// end).
+	stopping <-chan struct{}
 }
 
 // sharedStores are the stores of the documents shared by the services:
@@ -435,7 +438,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	// The playback tokens of the videos, signed with the same key; their
 	// revocations and the streams of the viewers live in the system
 	// documents shared by the nodes.
-	playbackSvc, err := newPlayback(d, stores.docs, buckets, protectionKey, registry, logger)
+	playbackSvc, err := newPlayback(d, stores.docs, buckets, mediaSvc, protectionKey, registry, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -521,7 +524,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		return nil, err
 	}
 	mediaRoutes, err := s3.NewMediaRoutes(s3.MediaDeps{Media: mediaSvc, Policy: s3Policy, Objects: objects, Signer: signer, Creds: identities,
-		Playback: playbackSvc, Player: d.assets, SDK: jsSDK(), Enc: codec, Clock: d.clock, Logger: logger}, s3.WithRegion(cfg.Region))
+		Playback: playbackSvc, Player: d.assets, SDK: jsSDK(), Stopping: d.stopping, Enc: codec, Clock: d.clock, Logger: logger}, s3.WithRegion(cfg.Region))
 	if err != nil {
 		return nil, err
 	}

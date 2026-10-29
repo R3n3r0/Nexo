@@ -84,7 +84,8 @@ func MediaFromDomain(cfg domain.MediaConfig) nexoadmin.MediaConfiguration {
 func MediaProtectionDomain(p nexoadmin.MediaProtection) domain.MediaProtection {
 	return domain.MediaProtection{Enabled: p.Enabled, Prefix: p.Prefix, Suffixes: slices.Clone(p.Suffixes),
 		TokenTTLSeconds: p.TokenTTLSeconds, MaxSessions: p.MaxSessions, PaceFactor: p.PaceFactor, NoWatermark: !p.Watermark,
-		AllowedOrigins: slices.Clone(p.AllowedOrigins), ShareLinks: p.ShareLinks}
+		AllowedOrigins: slices.Clone(p.AllowedOrigins), ShareLinks: p.ShareLinks,
+		Mode: p.Mode, LegacyDevices: p.LegacyDevices, Forensic: p.Forensic}
 }
 
 // MediaProtectionFromDomain converts a domain protection to the form of
@@ -96,5 +97,6 @@ func MediaProtectionFromDomain(p domain.MediaProtection) nexoadmin.MediaProtecti
 	}
 	return nexoadmin.MediaProtection{Enabled: p.Enabled, Prefix: p.Prefix, Suffixes: slices.Clone(p.Suffixes),
 		TokenTTLSeconds: p.TokenTTLSeconds, MaxSessions: p.MaxSessions, PaceFactor: p.PaceFactor, Watermark: !p.NoWatermark,
-		AllowedOrigins: origins, ShareLinks: p.ShareLinks}
+		AllowedOrigins: origins, ShareLinks: p.ShareLinks,
+		Mode: p.Mode, LegacyDevices: p.LegacyDevices, Forensic: p.Forensic}
 }

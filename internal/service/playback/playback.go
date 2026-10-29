@@ -50,6 +50,12 @@ type Protections interface {
 	GetMediaProtection(ctx context.Context, bucket string) (domain.MediaProtection, error)
 }
 
+// Traces stores the trace records of the forensic watermark (the media
+// service).
+type Traces interface {
+	RecordTrace(ctx context.Context, t domain.MediaTrace) error
+}
+
 // Deps are the dependencies of the service.
 type Deps struct {
 	// Protections bounds the TTL of the tokens of protected videos
@@ -58,6 +64,10 @@ type Deps struct {
 	// Store keeps the revocations and the streams of the viewers, shared
 	// by the nodes (nil: in memory, forgotten on restart).
 	Store sysstore.Store
+	// Traces stores the trace record of every token of a video marked by
+	// the forensic watermark (required for such videos: a token is not
+	// issued without its record).
+	Traces Traces
 	// Metrics counts the keys served and refused (optional).
 	Metrics metrics.Registry
 	Clock   clock.Clock
@@ -162,8 +172,12 @@ func (s *service) Issue(ctx context.Context, req IssueRequest) (*Token, error) {
 		return nil, err
 	}
 	limit := domain.MaxPlaybackTokenTTL
+	mode := ""
 	if p.Protects(req.Key) {
 		limit = p.TokenTTL()
+		if p.Advanced() {
+			mode = ModeSession
+		}
 	}
 	ttl := req.TTL
 	switch {
@@ -179,7 +193,18 @@ func (s *service) Issue(ctx context.Context, req IssueRequest) (*Token, error) {
 	now := s.deps.Clock.Now()
 	c := Claims{Version: tokenVersion, Bucket: req.Bucket, Key: req.Key, VersionID: req.VersionID,
 		Subject: req.Subject, Watermark: req.Watermark, SessionID: hex.EncodeToString(sid),
-		IssuedAt: now.Unix(), ExpiresAt: now.Add(ttl).Unix()}
+		IssuedAt: now.Unix(), ExpiresAt: now.Add(ttl).Unix(), Mode: mode}
+	if p.Forensic && p.Protects(req.Key) {
+		// Whom the code of the streams of this token names, before the
+		// token exists: a leaked copy always leads somewhere.
+		if s.deps.Traces == nil {
+			return nil, fmt.Errorf("%w: playback token: the forensic watermark is not available", domain.ErrServiceUnavailable)
+		}
+		if err := s.deps.Traces.RecordTrace(ctx, domain.MediaTrace{Bucket: c.Bucket, Key: c.Key, VersionID: c.VersionID,
+			SessionID: c.SessionID, Subject: c.Subject, Watermark: c.Watermark, IssuedAt: c.IssuedAt, ExpiresAt: c.ExpiresAt}); err != nil {
+			return nil, err
+		}
+	}
 	payload, err := json.Marshal(c)
 	if err != nil {
 		return nil, fmt.Errorf("playback: encode token: %w", err)
@@ -213,6 +238,12 @@ func (s *service) Verify(ctx context.Context, token, bucket, key, versionID stri
 	if err != nil {
 		return nil, err
 	}
+	return s.check(ctx, c, bucket, key, versionID)
+}
+
+// check checks the claims of a signed token or ticket for a video: expiry,
+// the object it names, revocation.
+func (s *service) check(ctx context.Context, c *Claims, bucket, key, versionID string) (*Claims, error) {
 	now := s.deps.Clock.Now()
 	switch {
 	case now.Unix() >= c.ExpiresAt:
@@ -246,7 +277,7 @@ func (s *service) parse(token string) (*Claims, error) {
 		return nil, invalid
 	}
 	var c Claims
-	if err := json.Unmarshal(payload, &c); err != nil || c.Version != tokenVersion || c.SessionID == "" {
+	if err := json.Unmarshal(payload, &c); err != nil || c.Version != tokenVersion || c.SessionID == "" || c.Session != "" {
 		return nil, invalid
 	}
 	return &c, nil
@@ -550,5 +581,31 @@ func (s *service) authorizePace(c *Claims, p *domain.MediaProtection, period int
 		return fmt.Errorf("%w: the keys of this video are asked faster than it plays", domain.ErrTooManyRequests)
 	}
 	st.periods[period] = struct{}{}
+	return nil
+}
+
+// Alive implements Service.
+func (s *service) Alive(ctx context.Context, c *Claims, p *domain.MediaProtection) error {
+	now := s.deps.Clock.Now()
+	if now.Unix() >= c.ExpiresAt {
+		return fmt.Errorf("%w: the playback token has expired", domain.ErrAccessDenied)
+	}
+	revoked, err := s.isRevoked(ctx, c, now)
+	if err != nil {
+		return err
+	}
+	if revoked {
+		return fmt.Errorf("%w: the playback token was revoked", domain.ErrAccessDenied)
+	}
+	if p == nil || p.MaxSessions < 0 {
+		return nil
+	}
+	doc, err := s.viewer(ctx, subjectID(c.Bucket, c.Subject))
+	if err != nil {
+		return err
+	}
+	if doc.evicted(c.SessionID) {
+		return fmt.Errorf("%w: a newer stream of this viewer replaced this one", domain.ErrAccessDenied)
+	}
 	return nil
 }

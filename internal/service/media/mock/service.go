@@ -606,6 +606,53 @@ func (_c *Service_PutSubtitles_Call) RunAndReturn(run func(context.Context, medi
 	return _c
 }
 
+// RecordTrace provides a mock function with given fields: ctx, t
+func (_m *Service) RecordTrace(ctx context.Context, t domain.MediaTrace) error {
+	ret := _m.Called(ctx, t)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RecordTrace")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, domain.MediaTrace) error); ok {
+		r0 = rf(ctx, t)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Service_RecordTrace_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordTrace'
+type Service_RecordTrace_Call struct {
+	*mock.Call
+}
+
+// RecordTrace is a helper method to define mock.On call
+//   - ctx context.Context
+//   - t domain.MediaTrace
+func (_e *Service_Expecter) RecordTrace(ctx interface{}, t interface{}) *Service_RecordTrace_Call {
+	return &Service_RecordTrace_Call{Call: _e.mock.On("RecordTrace", ctx, t)}
+}
+
+func (_c *Service_RecordTrace_Call) Run(run func(ctx context.Context, t domain.MediaTrace)) *Service_RecordTrace_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(domain.MediaTrace))
+	})
+	return _c
+}
+
+func (_c *Service_RecordTrace_Call) Return(_a0 error) *Service_RecordTrace_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Service_RecordTrace_Call) RunAndReturn(run func(context.Context, domain.MediaTrace) error) *Service_RecordTrace_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Segment provides a mock function with given fields: ctx, src, n
 func (_m *Service) Segment(ctx context.Context, src media.Source, n int) ([]byte, error) {
 	ret := _m.Called(ctx, src, n)
@@ -1028,6 +1075,67 @@ func (_c *Service_Subtitles_Call) Return(_a0 []domain.MediaSubtitleTrack, _a1 er
 }
 
 func (_c *Service_Subtitles_Call) RunAndReturn(run func(context.Context, media.Source) ([]domain.MediaSubtitleTrack, error)) *Service_Subtitles_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Trace provides a mock function with given fields: ctx, bucket, bits, limit
+func (_m *Service) Trace(ctx context.Context, bucket string, bits string, limit int) ([]domain.MediaTraceMatch, error) {
+	ret := _m.Called(ctx, bucket, bits, limit)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Trace")
+	}
+
+	var r0 []domain.MediaTraceMatch
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, int) ([]domain.MediaTraceMatch, error)); ok {
+		return rf(ctx, bucket, bits, limit)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, int) []domain.MediaTraceMatch); ok {
+		r0 = rf(ctx, bucket, bits, limit)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]domain.MediaTraceMatch)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, int) error); ok {
+		r1 = rf(ctx, bucket, bits, limit)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_Trace_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Trace'
+type Service_Trace_Call struct {
+	*mock.Call
+}
+
+// Trace is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - bits string
+//   - limit int
+func (_e *Service_Expecter) Trace(ctx interface{}, bucket interface{}, bits interface{}, limit interface{}) *Service_Trace_Call {
+	return &Service_Trace_Call{Call: _e.mock.On("Trace", ctx, bucket, bits, limit)}
+}
+
+func (_c *Service_Trace_Call) Run(run func(ctx context.Context, bucket string, bits string, limit int)) *Service_Trace_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(int))
+	})
+	return _c
+}
+
+func (_c *Service_Trace_Call) Return(_a0 []domain.MediaTraceMatch, _a1 error) *Service_Trace_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_Trace_Call) RunAndReturn(run func(context.Context, string, string, int) ([]domain.MediaTraceMatch, error)) *Service_Trace_Call {
 	_c.Call.Return(run)
 	return _c
 }

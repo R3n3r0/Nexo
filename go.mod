@@ -13,6 +13,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.97.3
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.17
 	github.com/aws/smithy-go v1.24.2
+	github.com/coder/websocket v1.8.14
 	github.com/dchest/siphash v1.2.3
 	github.com/ebitengine/purego v0.10.1
 	github.com/fsnotify/fsnotify v1.9.0

@@ -71,6 +71,7 @@ stato `failed` e il motivo, e non viene ritentato; va comunque in streaming come
 | Output | Contenuto |
 | --- | --- |
 | `renditions/<nome>.mp4` | H.264 Constrained Baseline + la traccia AAC della sorgente, MP4 progressivo, un keyframe ogni 2 secondi |
+| `renditions/<nome>.b.mp4` | la variante B di una rendition, per i video con la [filigrana forense](video-protection.it.md#6-filigrana-forense) |
 | `poster.jpg` | il keyframe a un decimo del video (al massimo a 10 secondi), largo al massimo 1280 pixel |
 | `thumbnails/sprite.jpg` | riquadri larghi 160 pixel, 10 per riga, uno per intervallo (al massimo 500) |
 | `thumbnails/thumbnails.vtt` | mappa WebVTT dello sprite (`sprite.jpg#xywh=x,y,w,h`) |
@@ -93,6 +94,28 @@ Gli output di una versione stanno sotto `.nexo-media/<key>/<versionId>/` (`null`
 versionato). La console e `nexoctl ls`, `find` e `tree` nascondono questo prefisso per default (`--media` lo mostra); l'API S3 lo elenca come
 qualsiasi altro, quindi backup, mirror e replica conservano gli output insieme ai video. Contano nella quota
 del bucket.
+
+### Filigrana forense
+
+Quando la [protezione video](video-protection.it.md#6-filigrana-forense) di un bucket marca i suoi video
+(`--forensic`), il worker codifica ogni rendition due volte dalle stesse immagini: `renditions/<nome>.mp4` porta un
+motivo invisibile (±2 livelli di luminanza, una griglia morbida di segni casuali scelta per video) aggiunto
+all'immagine, `<nome>.b.mp4` lo stesso motivo sottratto. Entrambe hanno gli stessi keyframe e segmenti; il server ne
+sceglie una per ogni segmento di un flusso secondo il codice del token di riproduzione dello spettatore. Raddoppia il
+tempo di codifica e lo spazio delle rendition. I video elaborati prima di attivare la filigrana forense vanno in
+streaming solo dopo essere stati rielaborati (`nexoctl media reprocess`): un video marcato non va mai in streaming
+senza marca.
+
+`nexo-media-worker trace` rilegge la marca da una copia diffusa (un MP4 con video H.264) con le credenziali del
+worker, e scrive i voti che `nexoctl media trace` trasforma nello spettatore a cui la copia era stata trasmessa:
+
+```sh
+nexo-media-worker trace --leak copia.mp4 --bucket lms --key corsi/intro.mp4 --out voti.json
+nexoctl media trace local/lms/corsi/intro.mp4 --votes voti.json
+```
+
+`--offset` indica il momento del video mostrato dalla prima immagine di una clip; `--every` il tempo minimo tra due
+voti (200 ms).
 
 ## Immagini: ogni formato e larghezza
 

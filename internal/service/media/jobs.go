@@ -75,7 +75,7 @@ func (j *jobs) jobOf(ctx context.Context, e event.Event) *domain.MediaJob {
 	if bkt == "" || o.Key == "" || domain.IsMediaSidecar(o.Key) {
 		return nil
 	}
-	rule, ok := j.rule(ctx, bkt, o.Key)
+	rule, forensic, ok := j.rule(ctx, bkt, o.Key)
 	if !ok {
 		return nil
 	}
@@ -83,23 +83,28 @@ func (j *jobs) jobOf(ctx context.Context, e event.Event) *domain.MediaJob {
 		Sidecar: domain.MediaSidecarDir(o.Key, o.VersionID), Time: j.deps.Clock.Now().UTC()}
 	if action == domain.MediaJobProcess {
 		job.ETag, job.Size, job.Rule = o.ETag, o.Size, &rule
+		job.Forensic = forensic
 	}
 	return job
 }
 
-// rule returns the media rule of the bucket selecting key.
-func (j *jobs) rule(ctx context.Context, bkt, key string) (domain.MediaRule, bool) {
+// rule returns the media rule of the bucket selecting key, and whether
+// the protection of the bucket marks the streams of that video with the
+// forensic watermark.
+func (j *jobs) rule(ctx context.Context, bkt, key string) (rule domain.MediaRule, forensic bool, ok bool) {
 	m, err := j.deps.Buckets.Load(ctx, bkt)
 	if err != nil {
 		if !errors.Is(err, domain.ErrBucketNotFound) {
 			j.deps.Logger.WarnContext(ctx, "media: rules unavailable", "bucket", bkt, "err", err)
 		}
-		return domain.MediaRule{}, false
+		return domain.MediaRule{}, false, false
 	}
 	if m.Media == nil {
-		return domain.MediaRule{}, false
+		return domain.MediaRule{}, false, false
 	}
-	return m.Media.Match(key)
+	rule, ok = m.Media.Match(key)
+	p := m.MediaProtection
+	return rule, ok && p != nil && p.Forensic && p.Protects(key), ok
 }
 
 // publishJob publishes the event carrying a job.
@@ -113,13 +118,13 @@ func (j *jobs) publishJob(ctx context.Context, job *domain.MediaJob) error {
 
 // Reprocess implements Jobs.
 func (j *jobs) Reprocess(ctx context.Context, bkt, key, versionID string) error {
-	rule, ok := j.rule(ctx, bkt, key)
+	rule, forensic, ok := j.rule(ctx, bkt, key)
 	if !ok {
 		return fmt.Errorf("%w: no media rule of bucket %s selects %s", domain.ErrInvalidArgument, bkt, key)
 	}
 	// Without a version the worker processes the current one and names
 	// its sidecar directory after it (domain.MediaJob).
-	job := &domain.MediaJob{Action: domain.MediaJobProcess, Bucket: bkt, Key: key, VersionID: versionID, Rule: &rule, Time: j.deps.Clock.Now().UTC()}
+	job := &domain.MediaJob{Action: domain.MediaJobProcess, Bucket: bkt, Key: key, VersionID: versionID, Rule: &rule, Forensic: forensic, Time: j.deps.Clock.Now().UTC()}
 	if versionID != "" {
 		job.Sidecar = domain.MediaSidecarDir(key, versionID)
 	}

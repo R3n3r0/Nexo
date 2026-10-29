@@ -5,6 +5,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
@@ -19,8 +20,12 @@ import (
 const KeyPeriod = 10
 
 // keyLabel separates the keys of the segments from the other uses of the
-// media protection key.
-const keyLabel = "nexo/media/aes128\x00"
+// media protection key; sessionKeyLabel the keys of the segments of a
+// session of the player.
+const (
+	keyLabel        = "nexo/media/aes128\x00"
+	sessionKeyLabel = "nexo/media/session-segment-v1\x00"
+)
 
 // Protections returns the download protection of the videos of a bucket
 // (implemented by the bucket service): a disabled protection when the
@@ -67,6 +72,36 @@ func (s *service) segmentKey(bucket, key string, info presentationID, period int
 	mac := hmac.New(sha256.New, s.opts.protectionKey)
 	mac.Write([]byte(keyLabel + bucket + "\x00" + key + "\x00" + info.versionID + "\x00" + info.etag + "\x00" + strconv.Itoa(period)))
 	return mac.Sum(nil)[:16]
+}
+
+// periodKey is the key of a period of a presentation for a request: that
+// of its session (src.Session), else the key every standard player gets.
+func (s *service) periodKey(src Source, info presentationID, period int) []byte {
+	if src.Session == "" {
+		return s.segmentKey(src.Bucket, src.Key, info, period)
+	}
+	mac := hmac.New(sha256.New, s.opts.protectionKey)
+	mac.Write([]byte(sessionKeyLabel + src.Session + "\x00" + src.Bucket + "\x00" + src.Key + "\x00" + info.versionID + "\x00" + info.etag + "\x00" + strconv.Itoa(period)))
+	return mac.Sum(nil)[:16]
+}
+
+// sealSegment encrypts a media segment of a session with AES-128-GCM: a
+// random nonce, the ciphertext and its tag; the number of the segment is
+// the additional data (a segment cannot be served for another).
+func sealSegment(key []byte, n int, data []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("media: segment key: %w", err)
+	}
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("media: segment cipher: %w", err)
+	}
+	out := make([]byte, aead.NonceSize(), aead.NonceSize()+len(data)+aead.Overhead())
+	if _, err := rand.Read(out); err != nil {
+		return nil, fmt.Errorf("media: segment nonce: %w", err)
+	}
+	return aead.Seal(out, out, data, []byte(strconv.Itoa(n))), nil
 }
 
 // presentationID names the content of a presentation.
@@ -121,7 +156,7 @@ func (s *service) Key(ctx context.Context, src Source, period int) ([]byte, erro
 	if period < 0 || period >= periods(len(c.p.segments)) {
 		return nil, fmt.Errorf("%w: key %d of %s/%s (%d keys)", domain.ErrNotFound, period, src.Bucket, src.Key, periods(len(c.p.segments)))
 	}
-	return s.segmentKey(src.Bucket, src.Key, c.p.id(), period), nil
+	return s.periodKey(src, c.p.id(), period), nil
 }
 
 // Periods implements Service.

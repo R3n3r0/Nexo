@@ -538,6 +538,17 @@ type MediaProtection struct {
 	AllowedOrigins []string `json:"allowedOrigins"`
 	// ShareLinks lets the stream share links play the protected videos.
 	ShareLinks bool `json:"shareLinks"`
+	// Mode is standard (any HLS player) or advanced (only the player of
+	// Nexo: session keys negotiated with ECDH, segments encrypted for
+	// each session).
+	Mode string `json:"mode,omitempty"`
+	// LegacyDevices is what the advanced mode does with the browsers
+	// without Media Source Extensions: refuse (the default) or standard.
+	LegacyDevices string `json:"legacyDevices,omitempty"`
+	// Forensic marks every stream with an invisible watermark naming its
+	// playback token (two variants of every rendition, from the media
+	// worker).
+	Forensic bool `json:"forensic"`
 }
 
 // GetMediaProtection implements AdminClient.
@@ -598,4 +609,52 @@ func (c *client) RevokePlaybackSession(ctx context.Context, bucket, sessionID st
 // RevokePlaybackSubject implements AdminClient.
 func (c *client) RevokePlaybackSubject(ctx context.Context, bucket, subject string) error {
 	return c.do(ctx, request{method: http.MethodDelete, path: pathOf("buckets", bucket, "media", "playback-subjects", subject)}, nil)
+}
+
+// PlaybackTraceVote is what a picture of a leaked copy tells (the votes
+// of nexo-media-worker trace): at T seconds of the video, S about +1 for
+// the A variant, -1 for the B variant.
+type PlaybackTraceVote struct {
+	T float64 `json:"t"`
+	S float64 `json:"s"`
+	R string  `json:"r,omitempty"`
+}
+
+// PlaybackTraceRequest asks for the tokens a leaked copy may come from:
+// Bits ("0", "1", "?" for each segment, mod 64) or Votes.
+type PlaybackTraceRequest struct {
+	Bits  string              `json:"bits,omitempty"`
+	Votes []PlaybackTraceVote `json:"votes,omitempty"`
+	Limit int                 `json:"limit,omitempty"`
+}
+
+// PlaybackTrace are the bits read and the tokens agreeing with them.
+type PlaybackTrace struct {
+	Bits    string               `json:"bits"`
+	Matches []PlaybackTraceMatch `json:"matches"`
+}
+
+// PlaybackTraceMatch is a playback token a leaked copy may come from:
+// Agree of the Compared bits known in the copy are those of its Code.
+type PlaybackTraceMatch struct {
+	SessionID string    `json:"sessionId"`
+	Subject   string    `json:"subject"`
+	Watermark string    `json:"watermark,omitempty"`
+	Key       string    `json:"key"`
+	VersionID string    `json:"versionId,omitempty"`
+	IssuedAt  time.Time `json:"issuedAt"`
+	ExpiresAt time.Time `json:"expiresAt"`
+	Code      string    `json:"code"`
+	Agree     int       `json:"agree"`
+	Compared  int       `json:"compared"`
+}
+
+// TracePlaybackLeak implements AdminClient.
+func (c *client) TracePlaybackLeak(ctx context.Context, bucket, key, versionID string, req PlaybackTraceRequest) (*PlaybackTrace, error) {
+	q := url.Values{"key": {key}}
+	if versionID != "" {
+		q.Set("versionId", versionID)
+	}
+	var out PlaybackTrace
+	return &out, c.do(ctx, request{method: http.MethodPost, path: pathOf("buckets", bucket, "objects", "playback-trace"), query: q, body: req}, &out)
 }

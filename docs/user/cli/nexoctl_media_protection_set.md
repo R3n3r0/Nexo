@@ -17,23 +17,27 @@ nexoctl media protection set ALIAS/BUCKET [flags]
   nexoctl media protection set local/courses --enable --prefix lessons/
   nexoctl media protection set local/courses --max-sessions 1 --origin https://learn.example.com
   nexoctl media protection set local/courses --max-sessions unlimited --token-ttl 4h
+  nexoctl media protection set local/courses --mode advanced --forensic
   nexoctl media protection set local/courses --disable
 ```
 
 ## Options
 
 ```
-      --disable               stop protecting the videos
-      --enable                protect the videos
-  -h, --help                  help for set
-      --max-sessions string   simultaneous streams of a viewer (1 to 100, or unlimited)
-      --origin strings        web origin allowed to embed the player and fetch the keys (repeatable; "" clears)
-      --pace int              keys served at most this many times faster than the video plays (1 to 20)
-      --prefix string         protect only the keys under this prefix ("" for the whole bucket)
-      --share-links           let share links play the protected videos (without watermark nor limits)
-      --suffix strings        suffixes of the protected videos (repeatable; default .mp4, .mov, .m4v)
-      --token-ttl duration    longest validity of a playback token (1m to 24h)
-      --watermark             draw the viewer's watermark in the Nexo player (default true)
+      --disable                 stop protecting the videos
+      --enable                  protect the videos
+      --forensic                mark every stream with an invisible watermark naming its playback token
+  -h, --help                    help for set
+      --legacy-devices string   advanced mode, browsers without Media Source Extensions: refuse or standard
+      --max-sessions string     simultaneous streams of a viewer (1 to 100, or unlimited)
+      --mode string             standard (any HLS player) or advanced (only the Nexo player, session keys and segments per session)
+      --origin strings          web origin allowed to embed the player and fetch the keys (repeatable; "" clears)
+      --pace int                keys served at most this many times faster than the video plays (1 to 20)
+      --prefix string           protect only the keys under this prefix ("" for the whole bucket)
+      --share-links             let share links play the protected videos (without watermark nor limits)
+      --suffix strings          suffixes of the protected videos (repeatable; default .mp4, .mov, .m4v)
+      --token-ttl duration      longest validity of a playback token (1m to 24h)
+      --watermark               draw the viewer's watermark in the Nexo player (default true)
 ```
 
 ## Options inherited from parent commands

@@ -134,6 +134,11 @@ type AdminClient interface {
 	IssuePlaybackToken(ctx context.Context, bucket, key, versionID string, req PlaybackTokenRequest) (*PlaybackToken, error)
 	RevokePlaybackSession(ctx context.Context, bucket, sessionID string) error
 	RevokePlaybackSubject(ctx context.Context, bucket, subject string) error
+	// TracePlaybackLeak finds the playback tokens a leaked copy of a video
+	// marked by the forensic watermark may come from
+	// (admin:TracePlaybackLeaks on the bucket): the bits of its code, or
+	// the votes of nexo-media-worker trace.
+	TracePlaybackLeak(ctx context.Context, bucket, key, versionID string, req PlaybackTraceRequest) (*PlaybackTrace, error)
 	// ListSubtitles returns the subtitle tracks of a video that apply to
 	// its content; GetSubtitles a track and its cues, ExportSubtitles the
 	// document of a track (format vtt or srt); PutSubtitles stores a

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/stretchr/testify/mock"
@@ -68,6 +69,58 @@ func (s *memSession) expectPlayback(c *climock.AdminClient) {
 	c.EXPECT().IssuePlaybackToken(x, x, x, x, x).RunAndReturn(s.issuePlaybackToken).Maybe()
 	c.EXPECT().RevokePlaybackSession(x, x, x).RunAndReturn(s.revokePlaybackSession).Maybe()
 	c.EXPECT().RevokePlaybackSubject(x, x, x).RunAndReturn(s.revokePlaybackSubject).Maybe()
+	c.EXPECT().TracePlaybackLeak(x, x, x, x, x).RunAndReturn(s.tracePlaybackLeak).Maybe()
+}
+
+// tracePlaybackLeak answers with the tokens issued so far for the video
+// whose fake code (the session number in binary, bit 0 first) agrees with
+// the bits: given, or read from the votes (one per second: segment n is
+// the second n, positive for 0).
+func (s *memSession) tracePlaybackLeak(_ context.Context, bucket, key, _ string, req nexoadmin.PlaybackTraceRequest) (*nexoadmin.PlaybackTrace, error) {
+	if err := s.begin("TracePlaybackLeak"); err != nil {
+		return nil, err
+	}
+	if err := s.requireAdminLocked("admin:TracePlaybackLeaks"); err != nil {
+		return nil, err
+	}
+	defer s.m.mu.Unlock()
+	bits := req.Bits
+	if bits == "" {
+		var b strings.Builder
+		for _, v := range req.Votes {
+			if v.S >= 0 {
+				b.WriteByte('0')
+			} else {
+				b.WriteByte('1')
+			}
+		}
+		bits = b.String()
+	}
+	if _, _, err := domain.ParseMediaTraceBits(bits); err != nil {
+		return nil, err
+	}
+	out := &nexoadmin.PlaybackTrace{Bits: bits, Matches: []nexoadmin.PlaybackTraceMatch{}}
+	for i, tok := range s.m.playbackLocked().tokens {
+		if tok.Bucket != bucket || tok.Key != key {
+			continue
+		}
+		code := uint64(i + 1)
+		m := nexoadmin.PlaybackTraceMatch{SessionID: fmt.Sprintf("%032x", i+1), Subject: tok.Request.Subject, Watermark: tok.Request.Watermark, Key: tok.Key,
+			IssuedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), ExpiresAt: time.Date(2026, 1, 1, 2, 0, 0, 0, time.UTC), Code: fmt.Sprintf("%016x", code)}
+		for j, c := range bits {
+			if c == '?' {
+				continue
+			}
+			m.Compared++
+			if (c == '1') == (code>>uint(j)&1 == 1) {
+				m.Agree++
+			}
+		}
+		if m.Compared > 0 && m.Agree == m.Compared {
+			out.Matches = append(out.Matches, m)
+		}
+	}
+	return out, nil
 }
 
 func (s *memSession) getMediaProtection(_ context.Context, bucket string) (*nexoadmin.MediaProtection, error) {

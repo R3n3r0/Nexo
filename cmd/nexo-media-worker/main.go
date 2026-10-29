@@ -150,7 +150,7 @@ with --translate-model). The keys can be read from files as well
 	f.StringVar(&o.translateEngine, "translate-engine", "libretranslate", "translation service: libretranslate or chat (OpenAI-compatible chat completions)")
 	f.StringVar(&o.translateKey, "translate-key", "", "API key of the translation service (prefer NEXO_WORKER_TRANSLATE_KEY)")
 	f.StringVar(&o.translateModel, "translate-model", "", "chat model of the translations (--translate-engine chat)")
-	root.AddCommand(newVersionCmd(deps), newHealthcheckCmd(deps), newFetchCmd(deps))
+	root.AddCommand(newVersionCmd(deps), newHealthcheckCmd(deps), newFetchCmd(deps), newTraceCmd(deps))
 	return root
 }
 

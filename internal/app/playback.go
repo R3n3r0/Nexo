@@ -16,7 +16,7 @@ import (
 // newPlayback builds the playback token service on the system documents
 // (in SNSD, a system store on the single drive), its tokens signed with
 // a key derived from the media protection key.
-func newPlayback(d composeDeps, docs sysstore.Store, buckets bucket.Service, key []byte, registry metrics.Registry, logger *slog.Logger) (playback.Service, error) {
+func newPlayback(d composeDeps, docs sysstore.Store, buckets bucket.Service, traces playback.Traces, key []byte, registry metrics.Registry, logger *slog.Logger) (playback.Service, error) {
 	logger = logger.With("component", "playback")
 	if docs == nil {
 		if len(d.f.local) == 0 {
@@ -27,7 +27,7 @@ func newPlayback(d composeDeps, docs sysstore.Store, buckets bucket.Service, key
 			return nil, err
 		}
 	}
-	return playback.New(playback.Deps{Protections: buckets, Store: docs, Metrics: registry, Clock: d.clock, Logger: logger},
+	return playback.New(playback.Deps{Protections: buckets, Store: docs, Traces: traces, Metrics: registry, Clock: d.clock, Logger: logger},
 		playback.WithKey(key))
 }
 

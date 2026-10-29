@@ -45,7 +45,8 @@
   can add every quality from 240p to 4K, a poster and seek-bar thumbnails, with no ffmpeg anywhere.
 - **Videos that cannot be downloaded, with no DRM vendor.** For courses and members' areas: encrypted streams,
   playback tokens per viewer, a limit on simultaneous streams, a moving watermark with the viewer's name, and the
-  original locked. One switch in the console ([protected videos](#-protected-videos)).
+  original locked; for more, a Nexo-player-only mode with keys exchanged per session and an invisible forensic
+  watermark that names the source of a leaked copy. One switch in the console ([protected videos](#-protected-videos)).
 - **Every photo in the format and size each screen needs.** The same worker turns every uploaded image into
   AVIF, WebP, JPEG and PNG at every width, and one URL serves the most compact one the browser accepts, on the
   S3 endpoint or on your own domain.
@@ -229,9 +230,11 @@ console (bucket → **Media** → *Video protection*) or with `nexoctl media pro
 |---|---|
 | Downloading the file | The original is refused to everyone without `nexo:DownloadProtectedMedia`: S3 GET, copy, select, console, zip archives and distributions |
 | Saving the stream with a downloader | The segments are encrypted (HLS AES-128, a new key every 10 segments); keys are released only at playback pace, so a downloader gets `429` and saves noise |
+| Reading the keys in the browser | **Advanced mode** (Nexo player only): an ECDH key exchange over a WebSocket, segments encrypted per session (AES-GCM), keys wrapped and kept non-extractable in WebCrypto; standard players and HLS downloaders get nothing |
 | Sharing the link | The link holds a short-lived playback token your application issues per viewer; it expires, it can be revoked per session or per viewer, and keys can be restricted to your site's origin |
 | Sharing the account | At most N simultaneous streams per viewer: a newer stream replaces the oldest one, on every node of a cluster |
 | Recording the screen | Cannot be prevented without commercial DRM: the player draws a **moving watermark** with the viewer's name or email, so a leaked copy names its source |
+| Cropping the watermark, re-encoding | **Forensic watermark**: every stream carries an invisible code of its token in the picture (A/B variants per segment); `nexoctl media trace` reads it from a leaked copy and names the viewer |
 
 ```js
 // your backend (Node.js, Deno, Bun): one token per logged-in viewer
@@ -251,9 +254,11 @@ const { playlist } = await nexo.issuePlaybackToken({
 <nexo-player src="PLAYLIST_URL"></nexo-player>
 ```
 
-**No special player is needed**: a protected video is standard HLS, playable by Safari, hls.js, Video.js, Shaka,
-ExoPlayer or VLC with the playlist URL alone. The small [JavaScript SDK](sdk/js) (`<nexo-player>`, React, Angular,
-Vue, Node.js backends) only makes it shorter. Guide: [video protection](docs/user/video-protection.md).
+**Two levels.** In the standard mode no special player is needed: a protected video is standard HLS, playable by
+Safari, hls.js, Video.js, Shaka, ExoPlayer or VLC with the playlist URL alone. In the advanced mode only the Nexo
+player plays it (its page, `<nexo-player>`, `createPlayer()`), with the same code on your side. The small
+[JavaScript SDK](sdk/js) (`<nexo-player>`, React, Angular, Vue, Node.js backends) covers both. Guide:
+[video protection](docs/user/video-protection.md).
 
 ## 🖼️ Images in every format
 
@@ -416,7 +421,7 @@ from a release archive):
 | 🔐 [Security](docs/user/security/users-policies.md) | policies, sharing, access rules, TLS, KMS |
 | 🌍 [Distributions and cache](docs/user/distributions/README.md) | custom domains, with a complete [tutorial](docs/user/distributions/tutorial-static-site.md) |
 | 🎬 [Video and images](docs/user/video-streaming.md) | HLS streaming, stream links and the [media worker](docs/user/media-worker.md): renditions, posters, thumbnails and [images in every format](docs/user/media-worker.md#images-every-format-and-width) |
-| 🔒 [Video protection](docs/user/video-protection.md) | encrypted streams, playback tokens, watermark, the [JavaScript SDK](sdk/js) for web pages and backends |
+| 🔒 [Video protection](docs/user/video-protection.md) | encrypted streams, playback tokens, Nexo-player-only mode, visible and forensic watermarks, the [JavaScript SDK](sdk/js) for web pages and backends |
 | 📘 [Reference](docs/user/reference/cli.md) | CLI, [Admin API](docs/user/reference/admin-api.md), [S3 compatibility](docs/user/reference/s3-compatibility.md) |
 
 `make docs-site` publishes it as a static site with MkDocs (in `bin/site`, in English and in Italian under `/it/`).

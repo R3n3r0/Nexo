@@ -20,6 +20,9 @@ func TestMediaProtectionValidate(t *testing.T) {
 	assert.Equal(t, DefaultMediaSessions, p.MaxSessions)
 	assert.Equal(t, DefaultMediaPaceFactor, p.PaceFactor)
 	assert.Equal(t, []string{"https://learn.example.com"}, p.AllowedOrigins)
+	assert.Equal(t, MediaPlaybackStandard, p.Mode)
+	assert.Equal(t, MediaLegacyRefuse, p.LegacyDevices)
+	assert.True(t, p.AllowsStandardPlayback())
 
 	for name, bad := range map[string]MediaProtection{
 		"short TTL":       {TokenTTLSeconds: 30},
@@ -30,12 +33,29 @@ func TestMediaProtectionValidate(t *testing.T) {
 		"origin scheme":   {AllowedOrigins: []string{"ftp://a.example"}},
 		"reserved prefix": {Prefix: MediaSidecarPrefix},
 		"empty suffix":    {Suffixes: []string{" "}},
+		"mode":            {Mode: "drm"},
+		"legacy devices":  {LegacyDevices: "maybe"},
 	} {
 		require.ErrorIs(t, bad.Validate(), ErrInvalidArgument, name)
 	}
 	unlimited := MediaProtection{MaxSessions: -1}
 	require.NoError(t, unlimited.Validate())
 	assert.Equal(t, -1, unlimited.MaxSessions)
+}
+
+// TestMediaProtectionAdvanced: the advanced mode refuses the standard
+// playback unless the legacy devices may take it.
+//
+// covers: S-OBJ-18
+func TestMediaProtectionAdvanced(t *testing.T) {
+	p := MediaProtection{Enabled: true, Mode: MediaPlaybackAdvanced}
+	require.NoError(t, p.Validate())
+	assert.True(t, p.Advanced())
+	assert.False(t, p.AllowsStandardPlayback())
+	p.LegacyDevices = MediaLegacyStandard
+	assert.True(t, p.AllowsStandardPlayback())
+	var none *MediaProtection
+	assert.False(t, none.Advanced())
 }
 
 // TestMediaProtectionProtects: the videos under the prefix and their

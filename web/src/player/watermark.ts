@@ -3,6 +3,8 @@ export interface PlaybackClaims {
   sub?: string;
   wm?: string;
   exp?: number;
+  /** "session": the video plays only in a session of the Nexo player. */
+  m?: string;
 }
 
 /**

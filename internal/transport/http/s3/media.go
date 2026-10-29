@@ -87,10 +87,17 @@ type MediaDeps struct {
 	Player fs.FS
 	// SDK holds the ES modules of the JavaScript SDK (index.js,
 	// player.js...), served under SDKPath; nil serves none.
-	SDK    fs.FS
-	Enc    httpx.Codec
-	Clock  clock.Clock
-	Logger *slog.Logger
+	SDK fs.FS
+	// Stopping is closed when the node stops: the session channels of the
+	// player close (nil: never).
+	Stopping <-chan struct{}
+	// SessionAlive is how often an open channel checks that its stream
+	// may still play (revocations, newer streams of the viewer; default
+	// playback.DefaultRefresh).
+	SessionAlive time.Duration
+	Enc          httpx.Codec
+	Clock        clock.Clock
+	Logger       *slog.Logger
 }
 
 type mediaRoutes struct {
@@ -152,6 +159,10 @@ func (h *mediaRoutes) Register(r chi.Router) {
 		return b, contentTypeSegment, err
 	}))
 	r.Get(MediaPrefix+"{bucket}/key", h.key)
+	// The session channel of the player of Nexo (the advanced playback).
+	r.Get(MediaPrefix+"{bucket}/session", h.session)
+	r.Post(MediaPrefix+"{bucket}/session", h.sessionPost)
+	r.Post(MediaPrefix+"{bucket}/session/key", h.sessionKeyPost)
 	// What the media worker derived from the video.
 	for name, file := range map[string]string{"poster.jpg": domain.MediaPosterFile, "sprite.jpg": domain.MediaSpriteFile} {
 		r.Get(MediaPrefix+"{bucket}/"+name, h.serve(false, func(r *http.Request, src media.Source, _ media.Links) ([]byte, string, error) {
@@ -318,22 +329,47 @@ func (h *mediaRoutes) authorizeStream(w http.ResponseWriter, r *http.Request, sr
 // tokenParam is the query parameter of the playback tokens.
 const tokenParam = "pt"
 
-// authorizeViewer authorizes a request for a video: a playback token (pt)
-// of the video when the request carries one, else the identity of the
-// request (authorizeStream). It returns the claims of the token, nil
-// without one.
+// playbackHeader tells a player that the video plays only in a session
+// of the player of Nexo (the value "session" on a refusal).
+const playbackHeader = "X-Nexo-Playback"
+
+// authorizeViewer authorizes a request for a video: a session ticket (st)
+// or a playback token (pt) of the video when the request carries one,
+// else the identity of the request (authorizeStream). A token is refused
+// for a video that plays only in a session (the advanced playback),
+// unless its protection lets the older devices play the standard way. It
+// returns the claims of the ticket or the token, nil without one.
 func (h *mediaRoutes) authorizeViewer(w http.ResponseWriter, r *http.Request, src media.Source) (*playback.Claims, bool) {
-	token := r.URL.Query().Get(tokenParam)
-	if token == "" {
+	q := r.URL.Query()
+	ticket, token := q.Get(ticketParam), q.Get(tokenParam)
+	if ticket == "" && token == "" {
 		return nil, h.authorizeStream(w, r, src)
 	}
 	if h.deps.Playback == nil {
 		h.deps.Enc.WriteS3Error(w, r, fmt.Errorf("%w: playback tokens are not enabled", domain.ErrAccessDenied))
 		return nil, false
 	}
+	if ticket != "" {
+		claims, err := h.deps.Playback.VerifyTicket(r.Context(), ticket, src.Bucket, src.Key, src.VersionID)
+		if err != nil {
+			h.deps.Enc.WriteS3Error(w, r, err)
+			return nil, false
+		}
+		return claims, true
+	}
 	claims, err := h.deps.Playback.Verify(r.Context(), token, src.Bucket, src.Key, src.VersionID)
 	if err != nil {
 		h.deps.Enc.WriteS3Error(w, r, err)
+		return nil, false
+	}
+	prot, err := h.deps.Media.Protection(r.Context(), src)
+	if err != nil {
+		h.deps.Enc.WriteS3Error(w, r, err)
+		return nil, false
+	}
+	if prot != nil && !prot.AllowsStandardPlayback() {
+		w.Header().Set(playbackHeader, "session")
+		h.deps.Enc.WriteS3Error(w, r, fmt.Errorf("%w: this video plays only in the Nexo player", domain.ErrAccessDenied))
 		return nil, false
 	}
 	return claims, true
@@ -356,6 +392,9 @@ func (h *mediaRoutes) serve(pinned bool, build func(r *http.Request, src media.S
 		claims, ok := h.authorizeViewer(w, r, src)
 		if !ok {
 			return
+		}
+		if claims != nil {
+			src.Session, src.Viewer = claims.Session, claims.SessionID
 		}
 		links, err := h.links(r, src, claims)
 		if err != nil {
@@ -416,7 +455,12 @@ func (h *mediaRoutes) key(w http.ResponseWriter, r *http.Request) {
 		h.deps.Enc.WriteS3Error(w, r, fmt.Errorf("%w: origin not allowed", domain.ErrAccessDenied))
 		return
 	}
+	if claims != nil && claims.Session != "" {
+		h.deps.Enc.WriteS3Error(w, r, fmt.Errorf("%w: the keys of a session go through its channel", domain.ErrAccessDenied))
+		return
+	}
 	if claims != nil {
+		src.Viewer = claims.SessionID
 		if err := h.authorizeKey(r, src, claims, prot, period); err != nil {
 			h.deps.Enc.WriteS3Error(w, r, err)
 			return
@@ -541,8 +585,12 @@ func (h *mediaRoutes) links(r *http.Request, src media.Source, claims *playback.
 	l := mediaLinks{key: src.Key, versionID: src.VersionID, rendition: src.Rendition}
 	q := r.URL.Query()
 	if claims != nil {
-		// The URIs carry the token, which authorizes them alone.
-		l.token = q.Get(tokenParam)
+		// The URIs carry the ticket or the token, which authorizes them
+		// alone.
+		l.tokenParam, l.token = tokenParam, q.Get(tokenParam)
+		if claims.Session != "" {
+			l.tokenParam, l.token = ticketParam, q.Get(ticketParam)
+		}
 		return l, nil
 	}
 	id, ok := middleware.IdentityFromContext(r.Context())
@@ -584,8 +632,9 @@ func (h *mediaRoutes) links(r *http.Request, src media.Source, claims *playback.
 // playlist, optionally presigned.
 type mediaLinks struct {
 	key, versionID, rendition string
-	// token is the playback token the URIs carry ("" for none).
-	token string
+	// token is the playback token or session ticket the URIs carry (""
+	// for none), in the query parameter tokenParam.
+	token, tokenParam string
 	// sign returns the presigned query of the URI name (a decoded path
 	// relative to the request) with query.
 	sign func(name string, query url.Values) string
@@ -596,7 +645,7 @@ type mediaLinks struct {
 func (l mediaLinks) link(name string, q url.Values) string {
 	escaped := (&url.URL{Path: name}).EscapedPath()
 	if l.token != "" {
-		q.Set(tokenParam, l.token)
+		q.Set(l.tokenParam, l.token)
 	}
 	if l.sign != nil {
 		return escaped + "?" + l.sign(name, q)

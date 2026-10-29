@@ -12,6 +12,10 @@ natively, hls.js, Video.js, Shaka, ExoPlayer, AVPlayer, VLC) as long as it recei
 playback token. The token travels in every URL of the playlist, so the player needs no credentials and no custom
 code.
 
+That is the **standard** mode. In the **advanced** mode (`--mode advanced`, [below](#advanced-protection-the-nexo-player-only))
+only this SDK — and the Nexo player page — plays the videos: the keys are exchanged on a session channel and never
+appear in the network tab.
+
 This SDK only makes the common case short:
 
 | Part | What it does | Where it runs |
@@ -191,6 +195,38 @@ hls.attachMedia(video);
 
 Draw your own watermark if you like: `watermarkText(playlistClaims(playlist))` gives the text of the token.
 
+## Advanced protection: the Nexo player only
+
+```sh
+nexoctl media protection set local/lms --mode advanced
+```
+
+Your code does not change: `<nexo-player>` and `createPlayer()` (with hls.js) see from the token that the video plays
+in a session and open one by themselves. They:
+
+1. open a WebSocket on `…/nexo/media/v1/{bucket}/session` (plain `POST` requests when a proxy drops WebSockets) and
+   run an ECDH P-256 key exchange whose private key WebCrypto keeps non-extractable;
+2. play the presentation of the session, whose segments are encrypted for it alone (AES-128-GCM);
+3. ask the keys on the channel, receive them wrapped with the session key and import them into WebCrypto as
+   non-extractable: they never appear in clear in the network tab nor in a JavaScript variable;
+4. stop with `denied` when the token is revoked, expires or is replaced by a newer stream of the viewer, and
+   reconnect when a node stops.
+
+Any other HLS player gets 403. The pieces are exported for a custom integration with hls.js:
+
+```js
+import { openSession, sessionLoader } from '@nexo-storage/player';
+
+const session = await openSession(playlist, { onClosed: (err) => console.warn(err.message) });
+const hls = new Hls({ fLoader: sessionLoader(Hls, session) });
+hls.loadSource(session.master);
+hls.attachMedia(video);
+// later: session.close(); hls.destroy();
+```
+
+Browsers without Media Source Extensions (iPhone before iOS 17.1) cannot run it: they get the `unsupported` error,
+or play the standard way when the bucket allows it (`--legacy-devices standard`).
+
 ## Errors
 
 | `code` | HTTP | Meaning | What to do |
@@ -198,6 +234,7 @@ Draw your own watermark if you like: `watermarkText(playlistClaims(playlist))` g
 | `denied` | 403 | Token expired or revoked, or a newer stream of the same viewer replaced this one (`maxSessions`), or the page's origin is not allowed | Ask your backend for a new token; tell the user that the video plays elsewhere |
 | `too-fast` | 429 | Keys asked faster than the video plays (a downloader) | Wait |
 | `not-found` | 404 | No such video | |
+| `unsupported` | 403 / 0 | The video plays only in the Nexo player and this browser cannot run it, or the browser cannot play HLS | Update the browser or use another one |
 
 To renew a token without reloading the page: `player.load(newPlaylist)`.
 
@@ -206,8 +243,11 @@ To renew a token without reloading the page: `player.load(newPlaylist)`.
 The segments are encrypted (AES-128, a key every 10 segments); the keys go only to a valid token, at the pace of
 playback, to at most `maxSessions` simultaneous streams of a viewer; the original file cannot be downloaded without
 `nexo:DownloadProtectedMedia`. A downloader saves noise; a shared link expires, stops when revoked, and shows the
-name of whoever shared it. As with every non-commercial-DRM scheme, a determined user can still record the screen:
-the moving watermark identifies the account it came from.
+name of whoever shared it. In the advanced mode the keys travel only on the session channel, wrapped, and every
+viewer gets segments encrypted for them. With the forensic watermark, a leaked copy names the token it was streamed
+with ([guide](https://github.com/R3n3r0/Nexo/blob/main/docs/user/video-protection.md#6-forensic-watermark)). As with
+every non-commercial-DRM scheme, a determined user can still record the screen or hook the decoder of the page: the
+watermarks identify the account it came from.
 
 ## Development
 

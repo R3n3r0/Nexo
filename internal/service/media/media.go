@@ -178,23 +178,40 @@ func (s *service) MasterPlaylist(ctx context.Context, src Source, links Links) (
 	}
 	subtitleMedia(&b, tracks, links)
 	subs := len(tracks) > 0
-	variant(&b, d, subs, links.Media(d.Revision))
+	prot, err := s.Protection(ctx, src)
+	if err != nil {
+		return nil, err
+	}
+	// A stream marked by the forensic watermark plays only the renditions
+	// with both variants: the source is not marked.
+	forensic := forensicViewer(src, prot)
+	if !forensic {
+		variant(&b, d, subs, links.Media(d.Revision))
+	}
 	// The renditions of the media worker, when they derive from this
 	// content: one variant each.
 	st, err := s.outputs(ctx, src.Bucket, src.Key, d.VersionID, d.Revision)
 	if err != nil {
 		s.deps.Logger.WarnContext(ctx, "media: status of the outputs unreadable", "bucket", src.Bucket, "key", src.Key, "err", err)
 	}
+	marked := 0
 	if st != nil && st.Current {
 		for _, r := range st.Renditions {
-			rc, err := s.load(ctx, Source{Bucket: src.Bucket, Key: renditionKey(src.Key, d.VersionID, r.Name)})
+			if forensic && !r.Forensic {
+				continue
+			}
+			rc, err := s.load(ctx, Source{Bucket: src.Bucket, Key: renditionKey(src.Key, d.VersionID, r.Name, false)})
 			if err != nil {
 				s.deps.Logger.WarnContext(ctx, "media: rendition unreadable", "bucket", src.Bucket, "key", src.Key, "rendition", r.Name, "err", err)
 				continue
 			}
 			rd := rc.p.describe(src)
 			variant(&b, rd, subs, links.Rendition(r.Name, rd.Revision))
+			marked++
 		}
+	}
+	if forensic && marked == 0 {
+		return nil, errForensicNotReady(src)
 	}
 	return b.Bytes(), nil
 }
@@ -233,6 +250,9 @@ func (s *service) MediaPlaylist(ctx context.Context, src Source, links Links) ([
 	if err != nil {
 		return nil, err
 	}
+	if forensicViewer(src, prot) && src.variantB == "" {
+		return nil, errForensicNotReady(src)
+	}
 	b.WriteString("#EXTM3U\n#EXT-X-VERSION:7\n")
 	fmt.Fprintf(&b, "#EXT-X-TARGETDURATION:%d\n", max(int64(math.Ceil(longest.Seconds())), 1))
 	b.WriteString("#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-INDEPENDENT-SEGMENTS\n")
@@ -240,7 +260,8 @@ func (s *service) MediaPlaylist(ctx context.Context, src Source, links Links) ([
 	// first key.
 	fmt.Fprintf(&b, "#EXT-X-MAP:URI=%q\n", links.Init(d.Revision))
 	for i, seg := range d.Segments {
-		if prot != nil && i%KeyPeriod == 0 {
+		// A session gets its keys over its channel: no key tag.
+		if prot != nil && src.Session == "" && i%KeyPeriod == 0 {
 			uri := links.Key(d.Revision, i/KeyPeriod)
 			if uri == "" {
 				return nil, fmt.Errorf("%w: %s/%s is a protected video: it plays with a playback token", domain.ErrAccessDenied, src.Bucket, src.Key)
@@ -282,21 +303,42 @@ func (s *service) Segment(ctx context.Context, src Source, n int) ([]byte, error
 	if n < 0 || n >= len(p.segments) {
 		return nil, fmt.Errorf("%w: segment %d of %s/%s (%d segments)", domain.ErrNotFound, n, src.Bucket, src.Key, len(p.segments))
 	}
-	seg := p.segments[n]
+	prot, err := s.Protection(ctx, src)
+	if err != nil {
+		return nil, err
+	}
+	// The forensic watermark: the variant the code of the viewer selects
+	// for this segment (the keys stay those of the A variant).
+	from, fromKey := p, src.Key
+	if forensicViewer(src, prot) {
+		if src.variantB == "" {
+			return nil, errForensicNotReady(src)
+		}
+		if traceBit(s.traceCode(src.Viewer), n) == 1 {
+			b := s.variantB(ctx, src, c)
+			if b == nil {
+				return nil, errForensicNotReady(src)
+			}
+			from, fromKey = b.p, src.variantB
+		}
+	}
+	seg := from.segments[n]
 	if seg.hi-seg.lo > s.opts.maxSegment {
 		return nil, fmt.Errorf("%w: segment %d spans %d bytes, over %d", ErrUnsupported, n, seg.hi-seg.lo, s.opts.maxSegment)
 	}
-	data, err := s.readRange(ctx, p.info, src.Bucket, src.Key, seg.lo, seg.hi-seg.lo)
+	data, err := s.readRange(ctx, from.info, src.Bucket, fromKey, seg.lo, seg.hi-seg.lo)
 	if err != nil {
 		return nil, err
 	}
-	out, err := p.mediaSegment(n, data)
+	out, err := from.mediaSegment(n, data)
 	if err != nil {
 		return nil, err
 	}
-	prot, err := s.Protection(ctx, src)
-	if err != nil || prot == nil {
-		return out, err
+	if prot == nil {
+		return out, nil
+	}
+	if src.Session != "" {
+		return sealSegment(s.periodKey(src, p.id(), n/KeyPeriod), n, out)
 	}
 	return encryptSegment(s.segmentKey(src.Bucket, src.Key, p.id(), n/KeyPeriod), segmentIV(n), out)
 }

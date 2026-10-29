@@ -12,6 +12,10 @@ iOS nativamente, hls.js, Video.js, Shaka, ExoPlayer, AVPlayer, VLC), purché ric
 token di riproduzione. Il token viaggia in ogni URL della playlist: il player non ha bisogno di credenziali né di
 codice particolare.
 
+Questa è la modalità **standard**. Nella modalità **avanzata** (`--mode advanced`,
+[sotto](#protezione-avanzata-solo-il-player-di-nexo)) solo questo SDK, e la pagina del player di Nexo, riproduce i
+video: le chiavi si scambiano su un canale di sessione e non compaiono mai nella scheda di rete.
+
 Questo SDK rende solo breve il caso comune:
 
 | Parte | Cosa fa | Dove gira |
@@ -113,6 +117,29 @@ Oppure, senza script, un iframe con la pagina del player di Nexo (`player` nella
 `createPlayer(contenitore, { src: playlist, hls: Hls })` in un effetto / `ngOnChanges` / `onMounted`, e
 `player.destroy()` allo smontaggio: gli esempi completi sono nel [README inglese](README.md#react).
 
+## Protezione avanzata: solo il player di Nexo
+
+```sh
+nexoctl media protection set local/lms --mode advanced
+```
+
+Il tuo codice non cambia: `<nexo-player>` e `createPlayer()` (con hls.js) capiscono dal token che il video si
+riproduce in una sessione e la aprono da soli. In pratica:
+
+1. aprono una WebSocket su `…/nexo/media/v1/{bucket}/session` (semplici richieste `POST` se un proxy blocca le
+   WebSocket) ed eseguono uno scambio di chiavi ECDH P-256 la cui chiave privata WebCrypto tiene non estraibile;
+2. riproducono la presentazione della sessione, i cui segmenti sono cifrati solo per lei (AES-128-GCM);
+3. chiedono le chiavi sul canale, le ricevono avvolte con la chiave di sessione e le importano in WebCrypto come non
+   estraibili: non compaiono mai in chiaro nella scheda di rete né in una variabile JavaScript;
+4. si fermano con `denied` quando il token viene revocato, scade o è sostituito da un flusso più recente dello
+   spettatore, e si ricollegano quando un nodo si ferma.
+
+Ogni altro player HLS riceve 403. I pezzi sono esportati per un'integrazione su misura con hls.js
+(`openSession`, `sessionLoader`): l'esempio è nel [README inglese](README.md#advanced-protection-the-nexo-player-only).
+
+I browser senza Media Source Extensions (iPhone prima di iOS 17.1) non possono eseguirlo: ricevono l'errore
+`unsupported`, oppure riproducono in modo standard se il bucket lo consente (`--legacy-devices standard`).
+
 ## Errori
 
 | `code` | HTTP | Significato |
@@ -120,6 +147,7 @@ Oppure, senza script, un iframe con la pagina del player di Nexo (`player` nella
 | `denied` | 403 | Token scaduto o revocato, oppure un flusso più recente dello stesso utente ha preso il posto di questo (`maxSessions`), oppure l'origine della pagina non è ammessa |
 | `too-fast` | 429 | Chiavi chieste più velocemente della riproduzione (un downloader) |
 | `not-found` | 404 | Il video non esiste |
+| `unsupported` | 403 / 0 | Il video si riproduce solo nel player di Nexo e questo browser non può eseguirlo, oppure il browser non riproduce HLS |
 
 Per rinnovare il token senza ricaricare la pagina: `player.load(nuovaPlaylist)`.
 
@@ -128,7 +156,10 @@ Per rinnovare il token senza ricaricare la pagina: `player.load(nuovaPlaylist)`.
 I segmenti sono cifrati (AES-128, una chiave ogni 10 segmenti); le chiavi vanno solo a un token valido, al ritmo
 della riproduzione, a non più di `maxSessions` flussi simultanei per utente; l'originale non si scarica senza
 `nexo:DownloadProtectedMedia`. Un downloader salva rumore; un link condiviso scade, si ferma alla revoca e mostra il
-nome di chi l'ha condiviso. Come per ogni schema senza DRM commerciale, chi è determinato può registrare lo schermo:
-la filigrana mobile identifica l'account da cui proviene.
+nome di chi l'ha condiviso. Nella modalità avanzata le chiavi viaggiano solo sul canale di sessione, avvolte, e ogni
+spettatore riceve segmenti cifrati per lui. Con la filigrana forense, una copia diffusa indica il token con cui è
+stata trasmessa ([guida](https://github.com/R3n3r0/Nexo/blob/main/docs/user/video-protection.it.md#6-filigrana-forense)).
+Come per ogni schema senza DRM commerciale, chi è determinato può registrare lo schermo o intercettare il decoder
+della pagina: le filigrane identificano l'account da cui proviene.
 
 Licenza: AGPL-3.0-only, come Nexo. Contatti: <paolorusso1991@gmail.com>.

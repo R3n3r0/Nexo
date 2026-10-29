@@ -1,7 +1,9 @@
 package commands
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -88,6 +90,9 @@ type mediaProtectionFlags struct {
 	watermark       bool
 	origins         []string
 	shareLinks      bool
+	mode            string
+	legacyDevices   string
+	forensic        bool
 }
 
 func newMediaProtectionSetCmd(e *env) *cobra.Command {
@@ -100,6 +105,7 @@ replace those settings, the others keep their value.`,
 		Example: `  nexoctl media protection set local/courses --enable --prefix lessons/
   nexoctl media protection set local/courses --max-sessions 1 --origin https://learn.example.com
   nexoctl media protection set local/courses --max-sessions unlimited --token-ttl 4h
+  nexoctl media protection set local/courses --mode advanced --forensic
   nexoctl media protection set local/courses --disable`,
 		Args:              exactArgs(1),
 		ValidArgsFunction: completeTargets(e),
@@ -145,6 +151,9 @@ replace those settings, the others keep their value.`,
 	fl.BoolVar(&f.watermark, "watermark", true, "draw the viewer's watermark in the Nexo player")
 	fl.StringSliceVar(&f.origins, "origin", nil, "web origin allowed to embed the player and fetch the keys (repeatable; \"\" clears)")
 	fl.BoolVar(&f.shareLinks, "share-links", false, "let share links play the protected videos (without watermark nor limits)")
+	fl.StringVar(&f.mode, "mode", "", "standard (any HLS player) or advanced (only the Nexo player, session keys and segments per session)")
+	fl.StringVar(&f.legacyDevices, "legacy-devices", "", "advanced mode, browsers without Media Source Extensions: refuse or standard")
+	fl.BoolVar(&f.forensic, "forensic", false, "mark every stream with an invisible watermark naming its playback token")
 	return cmd
 }
 
@@ -192,6 +201,15 @@ func (f *mediaProtectionFlags) apply(cmd *cobra.Command, p *nexoadmin.MediaProte
 	}
 	if changed("share-links") {
 		p.ShareLinks = f.shareLinks
+	}
+	if changed("mode") {
+		p.Mode = strings.ToLower(strings.TrimSpace(f.mode))
+	}
+	if changed("legacy-devices") {
+		p.LegacyDevices = strings.ToLower(strings.TrimSpace(f.legacyDevices))
+	}
+	if changed("forensic") {
+		p.Forensic = f.forensic
 	}
 	return nil
 }
@@ -243,7 +261,16 @@ func mediaProtectionText(t cli.Target, p *nexoadmin.MediaProtection) string {
 		origins = strings.Join(p.AllowedOrigins, ", ")
 	}
 	fmt.Fprintf(&b, "  Origins:       %s\n", origins)
-	fmt.Fprintf(&b, "  Share links:   %s", yesNo(&p.ShareLinks))
+	fmt.Fprintf(&b, "  Share links:   %s\n", yesNo(&p.ShareLinks))
+	mode := "standard (any HLS player)"
+	if p.Mode == domain.MediaPlaybackAdvanced {
+		mode = "advanced (Nexo player only)"
+		if p.LegacyDevices == domain.MediaLegacyStandard {
+			mode += ", standard for the browsers without MSE"
+		}
+	}
+	fmt.Fprintf(&b, "  Playback:      %s\n", mode)
+	fmt.Fprintf(&b, "  Forensic mark: %s", yesNo(&p.Forensic))
 	return b.String()
 }
 
@@ -333,4 +360,105 @@ seconds. A token issued to the viewer afterwards plays.`,
 	cmd.Flags().StringVar(&session, "session", "", "the session id of the token")
 	cmd.Flags().StringVar(&subject, "subject", "", "the viewer whose tokens are revoked")
 	return cmd
+}
+
+// playbackTraceRecord is the result of media trace.
+type playbackTraceRecord struct {
+	Target string `json:"target"`
+	Bucket string `json:"bucket"`
+	Key    string `json:"key"`
+	nexoadmin.PlaybackTrace
+}
+
+// traceVotesFile is the output of nexo-media-worker trace (its votes).
+type traceVotesFile struct {
+	Votes []nexoadmin.PlaybackTraceVote `json:"votes"`
+}
+
+func newMediaTraceCmd(e *env) *cobra.Command {
+	var (
+		versionID, bits, votes string
+		limit                  int
+	)
+	cmd := &cobra.Command{
+		Use:   "trace ALIAS/BUCKET/KEY (--votes FILE | --bits BITS)",
+		Short: "Find the playback token a leaked copy of a video came from",
+		Long: `Find the playback token a leaked copy of a video came from, for a video
+protected with the forensic watermark: every stream of a playback token
+carries an invisible code, segment by segment. nexo-media-worker trace reads
+the copy and writes its votes; this command sends them to Nexo, which reads
+the code and lists the tokens whose code agrees, with the viewer they were
+issued to (admin:TracePlaybackLeaks). --bits gives the code directly: one
+character per segment (0, 1 or ? when unknown), segment n being bit n mod 64.
+
+A full copy names its token with certainty (64 bits); a short clip of a few
+segments agrees with many tokens: the more segments, the fewer candidates.`,
+		Example: `  nexo-media-worker trace --leak copy.mp4 --bucket courses --key lessons/intro.mp4 --out votes.json
+  nexoctl media trace local/courses/lessons/intro.mp4 --votes votes.json
+  nexoctl media trace local/courses/lessons/intro.mp4 --bits 0110?1`,
+		Args:              exactArgs(1),
+		ValidArgsFunction: completeTargets(e),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if (bits == "") == (votes == "") {
+				return cli.UsageError("give exactly one of --votes and --bits")
+			}
+			req := nexoadmin.PlaybackTraceRequest{Bits: bits, Limit: limit}
+			if votes != "" {
+				data, err := os.ReadFile(votes) // #nosec G304 -- a file the user names
+				if err != nil {
+					return err
+				}
+				var f traceVotesFile
+				if err := json.Unmarshal(data, &f); err != nil {
+					return cli.UsageError("--votes: %s is not the output of nexo-media-worker trace: %v", votes, err)
+				}
+				if len(f.Votes) == 0 {
+					return cli.UsageError("--votes: %s holds no vote", votes)
+				}
+				req.Votes = f.Votes
+			}
+			ctx := cmd.Context()
+			t, client, err := e.mediaObject(ctx, args[0])
+			if err != nil {
+				return err
+			}
+			res, err := client.TracePlaybackLeak(ctx, t.Bucket, t.Key, versionID, req)
+			if err != nil {
+				return fmt.Errorf("%s: %w", t, err)
+			}
+			return e.out.Result(playbackTraceRecord{Target: t.String(), Bucket: t.Bucket, Key: t.Key, PlaybackTrace: *res}, traceText(t, res))
+		},
+	}
+	fl := cmd.Flags()
+	fl.StringVar(&votes, "votes", "", "the votes of nexo-media-worker trace (a JSON file)")
+	fl.StringVar(&bits, "bits", "", "the code read from the copy: 0, 1 or ? per segment")
+	fl.IntVar(&limit, "limit", 10, "most candidates listed (1 to 100)")
+	fl.StringVar(&versionID, "version-id", "", "version of the video (default: the current one)")
+	return cmd
+}
+
+// traceText renders the result of media trace.
+func traceText(t cli.Target, res *nexoadmin.PlaybackTrace) string {
+	known := len(res.Bits) - strings.Count(res.Bits, "?")
+	var b strings.Builder
+	fmt.Fprintf(&b, "Code read from the copy of `%s`: %s (%d bits known)\n", t, res.Bits, known)
+	if len(res.Matches) == 0 {
+		b.WriteString("No playback token agrees with it.")
+		return b.String()
+	}
+	fmt.Fprintf(&b, "%-4s %-24s %-32s %-9s %s\n", "#", "SUBJECT", "SESSION", "AGREE", "ISSUED")
+	for i, m := range res.Matches {
+		fmt.Fprintf(&b, "%-4d %-24s %-32s %-9s %s", i+1, m.Subject, m.SessionID, fmt.Sprintf("%d/%d", m.Agree, m.Compared),
+			m.IssuedAt.UTC().Format(time.RFC3339))
+		if m.Watermark != "" {
+			fmt.Fprintf(&b, "  (%s)", m.Watermark)
+		}
+		if i < len(res.Matches)-1 {
+			b.WriteByte('\n')
+		}
+	}
+	if known < 20 {
+		b.WriteString("\nFew bits known: several tokens may agree by chance; a longer copy narrows them down.")
+	}
+	return b.String()
 }

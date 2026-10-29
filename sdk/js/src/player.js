@@ -2,7 +2,12 @@
 // (Safari, iOS) or hls.js (Media Source Extensions), the AES-128 keys of
 // the protected videos fetched with the playback token of the playlist,
 // and the viewer's watermark moving over the picture, also in full screen.
+// A video that plays only in the player of Nexo (the advanced playback)
+// plays in a session (session.js): keys negotiated over a WebSocket,
+// segments encrypted for the session and decrypted before hls.js sees
+// them.
 
+import { openSession, sessionLoader } from './session.js';
 import { playlistClaims, watermarkText } from './token.js';
 
 const styleId = 'nexo-player-style';
@@ -56,6 +61,9 @@ export function createPlayer(container, options) {
 
   /** @type {any} */
   let hls;
+  /** @type {import('./index.js').Session | undefined} */
+  let session;
+  let generation = 0;
   let stopMark = () => {};
   const fail = (/** @type {import('./index.js').PlayerError} */ err) => {
     if (options.onError) options.onError(err);
@@ -73,28 +81,90 @@ export function createPlayer(container, options) {
   };
   document.addEventListener('fullscreenchange', onFullscreen);
 
-  const load = (/** @type {string} */ src) => {
-    stopMark();
-    message.hidden = true;
+  const stop = () => {
+    generation++;
     if (hls) {
       hls.destroy();
       hls = undefined;
     }
-    const text = options.watermark === false ? undefined : (options.watermark ?? watermarkText(playlistClaims(src)));
+    if (session) {
+      session.close();
+      session = undefined;
+    }
+  };
+
+  // Plays a playlist with hls.js; extra is merged in its configuration.
+  const playHls = (/** @type {any} */ Hls, /** @type {string} */ src, /** @type {Record<string, unknown>} */ extra, /** @type {(status: number) => boolean} */ retry) => {
+    hls = new Hls({ ...(options.hlsConfig ?? {}), ...extra });
+    hls.on(Hls.Events.ERROR, (/** @type {any} */ _event, /** @type {any} */ data) => {
+      if (!data.fatal) return;
+      const status = data.response?.code ?? 0;
+      hls.destroy();
+      hls = undefined;
+      if (!retry(status)) fail(playerError(status, data.details));
+    });
+    hls.loadSource(src);
+    hls.attachMedia(video);
+  };
+
+  // Plays a video of the advanced playback: a session, then hls.js with
+  // the loader that decrypts its segments.
+  const playSession = (/** @type {any} */ Hls, /** @type {string} */ src) => {
+    const mine = ++generation;
+    openSession(src, {
+      onClosed: (err) => {
+        if (mine !== generation) return;
+        stop();
+        fail(err);
+      },
+    }).then(
+      (s) => {
+        if (mine !== generation) {
+          s.close();
+          return;
+        }
+        session = s;
+        playHls(Hls, s.master, { fLoader: sessionLoader(Hls, s) }, () => false);
+      },
+      (err) => {
+        if (mine === generation) fail(err);
+      },
+    );
+  };
+
+  const load = (/** @type {string} */ src) => {
+    stopMark();
+    message.hidden = true;
+    stop();
+    const claims = playlistClaims(src);
+    const text = options.watermark === false ? undefined : (options.watermark ?? watermarkText(claims));
     stopMark = text ? startWatermark(container, text, options.watermarkInterval) : () => {};
 
     const Hls = options.hls ?? globalThis.Hls;
-    if (Hls && Hls.isSupported()) {
-      hls = new Hls(options.hlsConfig ?? {});
-      hls.on(Hls.Events.ERROR, (/** @type {any} */ _event, /** @type {any} */ data) => {
-        if (!data.fatal) return;
-        const status = data.response?.code ?? 0;
-        fail(playerError(status, data.details));
-        hls.destroy();
-        hls = undefined;
+    const mse = Boolean(Hls && Hls.isSupported());
+    if (mse && claims?.m === 'session') {
+      playSession(Hls, src);
+    } else if (claims?.m === 'session' && video.canPlayType('application/vnd.apple.mpegurl') !== '') {
+      // No Media Source Extensions (an older iPhone): the standard way,
+      // when the protection lets these devices take it.
+      fetch(src).then(
+        (resp) => {
+          if (resp.ok) video.src = src;
+          else if (resp.status === 403) fail({ code: 'unsupported', status: 403, message: 'This video plays only in the Nexo player, which this browser cannot run: update it or use another browser.' });
+          else fail(playerError(resp.status, 'manifestLoadError'));
+        },
+        () => fail(playerError(0, 'manifestLoadError')),
+      );
+    } else if (mse) {
+      // A token issued before the video moved to the advanced playback:
+      // refused the standard way, it plays in a session.
+      let retried = false;
+      playHls(Hls, src, {}, (status) => {
+        if (status !== 403 || retried || !claims) return false;
+        retried = true;
+        playSession(Hls, src);
+        return true;
       });
-      hls.loadSource(src);
-      hls.attachMedia(video);
     } else if (video.canPlayType('application/vnd.apple.mpegurl') !== '') {
       video.src = src;
       video.addEventListener('error', () => fail(playerError(0, 'mediaError')), { once: true });
@@ -110,7 +180,7 @@ export function createPlayer(container, options) {
     destroy() {
       stopMark();
       document.removeEventListener('fullscreenchange', onFullscreen);
-      if (hls) hls.destroy();
+      stop();
       video.removeAttribute('src');
       video.load();
       video.remove();

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/r3n3r0/nexo/internal/domain"
+	adminsvc "github.com/r3n3r0/nexo/internal/service/admin"
 	"github.com/r3n3r0/nexo/internal/service/playback"
 )
 
@@ -111,4 +112,59 @@ func (h *mediaRoutes) revokeSubject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// PlaybackTraceRequest is the body of POST
+// /buckets/{bucket}/objects/playback-trace (the video in ?key= and
+// ?versionId=): the bits read from a leaked copy, or the votes of
+// nexo-media-worker trace.
+type PlaybackTraceRequest struct {
+	Bits  string                  `json:"bits,omitempty"`
+	Votes []domain.MediaTraceVote `json:"votes,omitempty"`
+	// Limit bounds the candidates (default 10, at most 100).
+	Limit int `json:"limit,omitempty"`
+}
+
+// PlaybackTraceResponse are the bits read and the playback tokens agreeing
+// with them, the best first.
+type PlaybackTraceResponse struct {
+	Bits    string               `json:"bits"`
+	Matches []PlaybackTraceMatch `json:"matches"`
+}
+
+// PlaybackTraceMatch is a playback token a leaked copy may come from.
+type PlaybackTraceMatch struct {
+	SessionID string    `json:"sessionId"`
+	Subject   string    `json:"subject"`
+	Watermark string    `json:"watermark,omitempty"`
+	Key       string    `json:"key"`
+	VersionID string    `json:"versionId,omitempty"`
+	IssuedAt  time.Time `json:"issuedAt"`
+	ExpiresAt time.Time `json:"expiresAt"`
+	Code      string    `json:"code"`
+	// Agree of the Compared bits known in the copy are those of its code.
+	Agree    int `json:"agree"`
+	Compared int `json:"compared"`
+}
+
+func (h *mediaRoutes) trace(w http.ResponseWriter, r *http.Request) {
+	var in PlaybackTraceRequest
+	if err := decodeJSON(h.deps.Enc, r, &in, false); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	q := r.URL.Query()
+	res, err := h.deps.Media.Trace(r.Context(), adminsvc.TraceInput{Bucket: bucketName(r), Key: q.Get("key"), VersionID: q.Get("versionId"),
+		Bits: in.Bits, Votes: in.Votes, Limit: in.Limit})
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	out := PlaybackTraceResponse{Bits: res.Bits, Matches: make([]PlaybackTraceMatch, 0, len(res.Matches))}
+	for _, m := range res.Matches {
+		out.Matches = append(out.Matches, PlaybackTraceMatch{SessionID: m.SessionID, Subject: m.Subject, Watermark: m.Watermark,
+			Key: m.Key, VersionID: m.VersionID, IssuedAt: time.Unix(m.IssuedAt, 0).UTC(), ExpiresAt: time.Unix(m.ExpiresAt, 0).UTC(),
+			Code: m.Code, Agree: m.Agree, Compared: m.Compared})
+	}
+	h.deps.Enc.WriteJSON(w, http.StatusOK, out)
 }

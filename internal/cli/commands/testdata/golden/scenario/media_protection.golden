@@ -13,12 +13,44 @@ Video protection of `mem/courses`: enabled
   Watermark:     yes
   Origins:       https://learn.example.com
   Share links:   no
+  Playback:      standard (any HLS player)
+  Forensic mark: no
 
 $ nexoctl media protection set mem/courses --max-sessions unlimited --watermark=false --share-links
 Video protection of `mem/courses` enabled.
 
 $ nexoctl media protection get --json mem/courses
-{"status":"success","target":"mem/courses","bucket":"courses","enabled":true,"prefix":"lessons/","suffixes":[".mp4",".mov",".m4v"],"tokenTtlSeconds":14400,"maxSessions":-1,"paceFactor":2,"watermark":false,"allowedOrigins":["https://learn.example.com"],"shareLinks":true}
+{"status":"success","target":"mem/courses","bucket":"courses","enabled":true,"prefix":"lessons/","suffixes":[".mp4",".mov",".m4v"],"tokenTtlSeconds":14400,"maxSessions":-1,"paceFactor":2,"watermark":false,"allowedOrigins":["https://learn.example.com"],"shareLinks":true,"mode":"standard","legacyDevices":"refuse","forensic":false}
+
+$ nexoctl media protection set mem/courses --mode advanced --forensic
+Video protection of `mem/courses` enabled.
+
+$ nexoctl media protection get mem/courses
+Video protection of `mem/courses`: enabled
+  Videos:        lessons/ (.mp4, .mov, .m4v)
+  Token TTL:     4h0m0s
+  Streams:       unlimited per viewer
+  Pace:          2x playback
+  Watermark:     no
+  Origins:       https://learn.example.com
+  Share links:   yes
+  Playback:      advanced (Nexo player only)
+  Forensic mark: yes
+
+$ nexoctl media protection set mem/courses --legacy-devices standard
+Video protection of `mem/courses` enabled.
+
+$ nexoctl media protection get mem/courses
+Video protection of `mem/courses`: enabled
+  Videos:        lessons/ (.mp4, .mov, .m4v)
+  Token TTL:     4h0m0s
+  Streams:       unlimited per viewer
+  Pace:          2x playback
+  Watermark:     no
+  Origins:       https://learn.example.com
+  Share links:   yes
+  Playback:      advanced (Nexo player only), standard for the browsers without MSE
+  Forensic mark: yes
 
 $ nexoctl media token mem/courses/lessons/intro.mp4 --subject student-1842 --watermark mario.rossi@example.com
 Playback token of `mem/courses/lessons/intro.mp4` for student-1842, valid until 2026-01-01T02:00:00Z (session 00000000000000000000000000000001).
@@ -33,6 +65,25 @@ Playback token 00000000000000000000000000000001 of `mem/courses` revoked.
 
 $ nexoctl media revoke mem/courses --subject student-7
 Playback tokens of student-7 for `mem/courses` revoked.
+
+$ nexoctl media trace mem/courses/lessons/intro.mp4 --bits 10
+Code read from the copy of `mem/courses/lessons/intro.mp4`: 10 (2 bits known)
+#    SUBJECT                  SESSION                          AGREE     ISSUED
+1    student-1842             00000000000000000000000000000001 2/2       2026-01-01T00:00:00Z  (mario.rossi@example.com)
+Few bits known: several tokens may agree by chance; a longer copy narrows them down.
+
+$ nexoctl media trace --json mem/courses/lessons/intro.mp4 --bits 01
+{"status":"success","target":"mem/courses/lessons/intro.mp4","bucket":"courses","key":"lessons/intro.mp4","bits":"01","matches":[{"sessionId":"00000000000000000000000000000002","subject":"student-7","key":"lessons/intro.mp4","issuedAt":"2026-01-01T00:00:00Z","expiresAt":"2026-01-01T02:00:00Z","code":"0000000000000002","agree":2,"compared":2}]}
+
+$ nexoctl media trace mem/courses/lessons/intro.mp4 --votes votes.json
+Code read from the copy of `mem/courses/lessons/intro.mp4`: 01 (2 bits known)
+#    SUBJECT                  SESSION                          AGREE     ISSUED
+1    student-7                00000000000000000000000000000002 2/2       2026-01-01T00:00:00Z
+Few bits known: several tokens may agree by chance; a longer copy narrows them down.
+
+$ nexoctl media trace mem/courses/lessons/intro.mp4 --bits 111
+Code read from the copy of `mem/courses/lessons/intro.mp4`: 111 (3 bits known)
+No playback token agrees with it.
 
 $ nexoctl media protection set mem/courses --enable --disable
 ! nexoctl: error: --enable and --disable are exclusive
@@ -54,6 +105,11 @@ $ nexoctl media protection set mem/courses --pace 50
 ! Run 'nexoctl media protection set --help' for usage.
 [exit 2]
 
+$ nexoctl media protection set mem/courses --mode drm
+! nexoctl: error: media protection: mode must be standard or advanced
+! Run 'nexoctl media protection set --help' for usage.
+[exit 2]
+
 $ nexoctl media token mem/courses/lessons/intro.mp4
 ! nexoctl: error: --subject is required: the viewer the token is for
 ! Run 'nexoctl media token --help' for usage.
@@ -68,6 +124,15 @@ $ nexoctl media revoke mem/courses
 ! nexoctl: error: give exactly one of --session and --subject
 ! Run 'nexoctl media revoke --help' for usage.
 [exit 2]
+
+$ nexoctl media trace mem/courses/lessons/intro.mp4
+! nexoctl: error: give exactly one of --votes and --bits
+! Run 'nexoctl media trace --help' for usage.
+[exit 2]
+
+$ nexoctl media trace mem/courses/lessons/intro.mp4 --bits 01x2
+! nexoctl: error: mem/courses/lessons/intro.mp4: invalid argument: the bits of a trace are 0, 1 and ? (got '2')
+[exit 1]
 
 $ nexoctl media protection set mem/courses --disable
 Video protection of `mem/courses` disabled.

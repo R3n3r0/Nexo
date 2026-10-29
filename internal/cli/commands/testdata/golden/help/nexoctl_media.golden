@@ -42,6 +42,7 @@ Available Commands:
   status      Show the processing state of a video or an image by the media worker
   subtitles   List, download, upload or remove the subtitle tracks of a video
   token       Issue a playback token of a video for a viewer
+  trace       Find the playback token a leaked copy of a video came from
 
 Flags:
   -h, --help   help for media

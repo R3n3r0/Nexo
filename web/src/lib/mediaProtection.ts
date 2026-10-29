@@ -33,6 +33,9 @@ export function defaultMediaProtection(): MediaProtection {
     watermark: true,
     allowedOrigins: [],
     shareLinks: false,
+    mode: 'standard',
+    legacyDevices: 'refuse',
+    forensic: false,
   };
 }
 
@@ -125,5 +128,8 @@ export function normalizeMediaProtection(p: MediaProtection): MediaProtection {
     watermark: p.watermark,
     allowedOrigins: p.allowedOrigins.map((o) => normalizeOrigin(o) ?? o),
     shareLinks: p.shareLinks,
+    mode: p.mode ?? 'standard',
+    legacyDevices: p.legacyDevices ?? 'refuse',
+    forensic: p.forensic,
   };
 }

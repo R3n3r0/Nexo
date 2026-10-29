@@ -5,7 +5,10 @@ package mock
 import (
 	context "context"
 
+	admin "github.com/r3n3r0/nexo/internal/service/admin"
+
 	domain "github.com/r3n3r0/nexo/internal/domain"
+
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -352,6 +355,65 @@ func (_c *MediaManager_SetProtection_Call) Return(_a0 *domain.MediaProtection, _
 }
 
 func (_c *MediaManager_SetProtection_Call) RunAndReturn(run func(context.Context, string, domain.MediaProtection) (*domain.MediaProtection, error)) *MediaManager_SetProtection_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Trace provides a mock function with given fields: ctx, in
+func (_m *MediaManager) Trace(ctx context.Context, in admin.TraceInput) (*admin.TraceResult, error) {
+	ret := _m.Called(ctx, in)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Trace")
+	}
+
+	var r0 *admin.TraceResult
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, admin.TraceInput) (*admin.TraceResult, error)); ok {
+		return rf(ctx, in)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, admin.TraceInput) *admin.TraceResult); ok {
+		r0 = rf(ctx, in)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*admin.TraceResult)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, admin.TraceInput) error); ok {
+		r1 = rf(ctx, in)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MediaManager_Trace_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Trace'
+type MediaManager_Trace_Call struct {
+	*mock.Call
+}
+
+// Trace is a helper method to define mock.On call
+//   - ctx context.Context
+//   - in admin.TraceInput
+func (_e *MediaManager_Expecter) Trace(ctx interface{}, in interface{}) *MediaManager_Trace_Call {
+	return &MediaManager_Trace_Call{Call: _e.mock.On("Trace", ctx, in)}
+}
+
+func (_c *MediaManager_Trace_Call) Run(run func(ctx context.Context, in admin.TraceInput)) *MediaManager_Trace_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(admin.TraceInput))
+	})
+	return _c
+}
+
+func (_c *MediaManager_Trace_Call) Return(_a0 *admin.TraceResult, _a1 error) *MediaManager_Trace_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MediaManager_Trace_Call) RunAndReturn(run func(context.Context, admin.TraceInput) (*admin.TraceResult, error)) *MediaManager_Trace_Call {
 	_c.Call.Return(run)
 	return _c
 }

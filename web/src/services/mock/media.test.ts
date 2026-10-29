@@ -83,6 +83,9 @@ describe('mock media service', () => {
       watermark: true,
       allowedOrigins: [],
       shareLinks: false,
+      mode: 'standard',
+      legacyDevices: 'refuse',
+      forensic: false,
     });
     const stored = await media.setProtection('media', {
       enabled: true,
@@ -92,6 +95,8 @@ describe('mock media service', () => {
       watermark: false,
       allowedOrigins: ['HTTPS://Learn.Example.com/'],
       shareLinks: true,
+      mode: 'advanced',
+      forensic: true,
     });
     expect(stored).toEqual({
       enabled: true,
@@ -103,6 +108,9 @@ describe('mock media service', () => {
       watermark: false,
       allowedOrigins: ['https://learn.example.com'],
       shareLinks: true,
+      mode: 'advanced',
+      legacyDevices: 'refuse',
+      forensic: true,
     });
     expect(await media.getProtection('media')).toEqual(stored);
 

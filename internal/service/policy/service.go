@@ -334,9 +334,13 @@ const (
 	// ActionAdminRevokePlaybackTokens revokes the playback tokens of the
 	// videos of a bucket (a token, or every token of a viewer).
 	ActionAdminRevokePlaybackTokens Action = "admin:RevokePlaybackTokens"
-	ActionAdminServerTrace          Action = "admin:ServerTrace"
-	ActionAdminConsoleLog           Action = "admin:ConsoleLog"
-	ActionAdminManageShares         Action = "admin:ManageShares"
+	// ActionAdminTracePlaybackLeaks finds the playback token a leaked copy
+	// of a video of a bucket came from (the forensic watermark): it reads
+	// whom the tokens were issued to.
+	ActionAdminTracePlaybackLeaks Action = "admin:TracePlaybackLeaks"
+	ActionAdminServerTrace        Action = "admin:ServerTrace"
+	ActionAdminConsoleLog         Action = "admin:ConsoleLog"
+	ActionAdminManageShares       Action = "admin:ManageShares"
 	// ActionAdminExportCluster and ActionAdminImportCluster authorize the
 	// export and the import of the state of the deployment (IAM, policies,
 	// configuration, bucket settings: admin cluster export/import).

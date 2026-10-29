@@ -74,6 +74,7 @@ func (h *mediaRoutes) routes() []route {
 		{http.MethodPost, "/buckets/{bucket}/objects/playback-tokens", onObject(policy.ActionIssuePlaybackToken), h.issueToken},
 		{http.MethodDelete, "/buckets/{bucket}/media/playback-sessions/{session}", onBucket(policy.ActionAdminRevokePlaybackTokens), h.revokeSession},
 		{http.MethodDelete, "/buckets/{bucket}/media/playback-subjects/{subject}", onBucket(policy.ActionAdminRevokePlaybackTokens), h.revokeSubject},
+		{http.MethodPost, "/buckets/{bucket}/objects/playback-trace", onBucket(policy.ActionAdminTracePlaybackLeaks), h.trace},
 	}
 }
 
@@ -234,12 +235,24 @@ type MediaProtectionBody struct {
 	AllowedOrigins []string `json:"allowedOrigins"`
 	// ShareLinks lets the stream share links play the protected videos.
 	ShareLinks bool `json:"shareLinks"`
+	// Mode is standard (any HLS player) or advanced (only the player of
+	// Nexo: session keys negotiated with ECDH, segments encrypted for
+	// each session).
+	Mode string `json:"mode,omitempty"`
+	// LegacyDevices is what the advanced mode does with the browsers
+	// without Media Source Extensions: refuse (the default) or standard.
+	LegacyDevices string `json:"legacyDevices,omitempty"`
+	// Forensic marks every stream with an invisible watermark naming its
+	// playback token (two variants of every rendition, from the media
+	// worker).
+	Forensic bool `json:"forensic"`
 }
 
 func newMediaProtectionBody(p *domain.MediaProtection) MediaProtectionBody {
 	return MediaProtectionBody{Enabled: p.Enabled, Prefix: p.Prefix, Suffixes: p.Suffixes, TokenTTLSeconds: p.TokenTTLSeconds,
 		MaxSessions: p.MaxSessions, PaceFactor: p.PaceFactor, Watermark: !p.NoWatermark,
-		AllowedOrigins: nonNil(p.AllowedOrigins), ShareLinks: p.ShareLinks}
+		AllowedOrigins: nonNil(p.AllowedOrigins), ShareLinks: p.ShareLinks,
+		Mode: p.Mode, LegacyDevices: p.LegacyDevices, Forensic: p.Forensic}
 }
 
 func (h *mediaRoutes) getProtection(w http.ResponseWriter, r *http.Request) {
@@ -261,6 +274,7 @@ func (h *mediaRoutes) putProtection(w http.ResponseWriter, r *http.Request) {
 		Enabled: in.Enabled, Prefix: in.Prefix, Suffixes: in.Suffixes, TokenTTLSeconds: in.TokenTTLSeconds,
 		MaxSessions: in.MaxSessions, PaceFactor: in.PaceFactor, NoWatermark: !in.Watermark,
 		AllowedOrigins: in.AllowedOrigins, ShareLinks: in.ShareLinks,
+		Mode: in.Mode, LegacyDevices: in.LegacyDevices, Forensic: in.Forensic,
 	})
 	if err != nil {
 		h.fail(w, r, err)

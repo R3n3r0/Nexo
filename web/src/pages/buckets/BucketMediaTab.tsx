@@ -410,6 +410,9 @@ function RuleOutputs({ rule }: { rule: MediaRule }) {
 /** A number field as a number: 0 (the default) when empty. */
 const numberOf = (value: string | number) => (value === '' ? 0 : Number(value));
 
+type PlaybackMode = NonNullable<MediaProtection['mode']>;
+type LegacyDevices = NonNullable<MediaProtection['legacyDevices']>;
+
 /**
  * The download protection of the videos of a bucket: encrypted segments
  * whose keys are served only to playback tokens and authorized users, at
@@ -421,6 +424,7 @@ function ProtectionSection({ bucket, canEdit }: { bucket: string; canEdit: boole
   const { media } = useServices();
   const queryClient = useQueryClient();
   const key = storageKeys.bucketSetting(bucket, 'mediaProtection');
+  const modeLabel = useId();
   const query = useQuery({ queryKey: key, queryFn: () => media.getProtection(bucket) });
   const [enabled, setEnabled] = useState(false);
   const [prefix, setPrefix] = useState('');
@@ -432,6 +436,9 @@ function ProtectionSection({ bucket, canEdit }: { bucket: string; canEdit: boole
   const [watermark, setWatermark] = useState(true);
   const [origins, setOrigins] = useState<string[]>([]);
   const [shareLinks, setShareLinks] = useState(false);
+  const [mode, setMode] = useState<PlaybackMode>('standard');
+  const [legacyDevices, setLegacyDevices] = useState<LegacyDevices>('refuse');
+  const [forensic, setForensic] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
@@ -451,6 +458,9 @@ function ProtectionSection({ bucket, canEdit }: { bucket: string; canEdit: boole
     setWatermark(p.watermark);
     setOrigins(p.allowedOrigins);
     setShareLinks(p.shareLinks);
+    setMode(p.mode ?? 'standard');
+    setLegacyDevices(p.legacyDevices ?? 'refuse');
+    setForensic(p.forensic);
     setSubmitted(false);
   }, [query.data]);
 
@@ -472,6 +482,9 @@ function ProtectionSection({ bucket, canEdit }: { bucket: string; canEdit: boole
     watermark,
     allowedOrigins: origins,
     shareLinks,
+    mode,
+    legacyDevices,
+    forensic,
   };
   const issues = validateMediaProtection(draft);
   const issue = (kind: readonly MediaProtectionIssue[]) => {
@@ -522,6 +535,48 @@ function ProtectionSection({ bucket, canEdit }: { bucket: string; canEdit: boole
               />
               {enabled ? (
                 <>
+                  <Stack gap={4}>
+                    <Text size="sm" fw={500} id={modeLabel}>
+                      {t('bucketMedia.protection.mode')}
+                    </Text>
+                    <SegmentedControl
+                      aria-labelledby={modeLabel}
+                      value={mode}
+                      disabled={disabled}
+                      data={[
+                        { value: 'standard', label: t('bucketMedia.protection.modeStandard') },
+                        { value: 'advanced', label: t('bucketMedia.protection.modeAdvanced') },
+                      ]}
+                      onChange={(value) => {
+                        setMode(value as PlaybackMode);
+                      }}
+                    />
+                    <Text size="xs" c="dimmed">
+                      {mode === 'advanced'
+                        ? t('bucketMedia.protection.modeAdvancedHint')
+                        : t('bucketMedia.protection.modeStandardHint')}
+                    </Text>
+                  </Stack>
+                  {mode === 'advanced' ? (
+                    <Switch
+                      label={t('bucketMedia.protection.legacyDevices')}
+                      description={t('bucketMedia.protection.legacyDevicesHint')}
+                      checked={legacyDevices === 'standard'}
+                      disabled={disabled}
+                      onChange={(event) => {
+                        setLegacyDevices(event.currentTarget.checked ? 'standard' : 'refuse');
+                      }}
+                    />
+                  ) : null}
+                  <Switch
+                    label={t('bucketMedia.protection.forensic')}
+                    description={t('bucketMedia.protection.forensicHint')}
+                    checked={forensic}
+                    disabled={disabled}
+                    onChange={(event) => {
+                      setForensic(event.currentTarget.checked);
+                    }}
+                  />
                   <TextInput
                     label={t('bucketMedia.prefix')}
                     description={t('bucketMedia.protection.prefixHint')}

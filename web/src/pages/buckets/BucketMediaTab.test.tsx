@@ -316,6 +316,9 @@ describe('BucketMediaTab', () => {
         watermark: false,
         allowedOrigins: ['https://learn.example.com'],
         shareLinks: false,
+        mode: 'standard',
+        legacyDevices: 'refuse',
+        forensic: false,
       });
     });
     expect(await services.media.getProtection('media')).toMatchObject({
@@ -332,6 +335,7 @@ describe('BucketMediaTab', () => {
       watermark: true,
       allowedOrigins: [],
       shareLinks: false,
+      forensic: false,
     });
     const setProtection = vi.spyOn(services.media, 'setProtection');
     const { user } = open(services);
@@ -349,6 +353,42 @@ describe('BucketMediaTab', () => {
         'media',
         expect.objectContaining({ enabled: true, maxSessions: -1 }),
       );
+    });
+  });
+
+  it('plays the protected videos in the Nexo player only, with a forensic watermark', async () => {
+    const services = createMockServices({ initialAccessKey: 'nexoadmin' });
+    await services.media.setProtection('media', {
+      enabled: true,
+      watermark: true,
+      allowedOrigins: [],
+      shareLinks: false,
+      forensic: false,
+    });
+    const setProtection = vi.spyOn(services.media, 'setProtection');
+    const { user } = open(services);
+    const section = await screen.findByRole('region', { name: 'Video protection' });
+    expect(
+      await within(section).findByRole('switch', { name: /^Protect the videos/ }),
+    ).toBeChecked();
+    expect(
+      within(section).queryByRole('switch', { name: /^Let older devices/ }),
+    ).not.toBeInTheDocument();
+    await user.click(within(section).getByRole('radio', { name: 'Nexo player only' }));
+    expect(within(section).getByText(/negotiates a key per session/)).toBeInTheDocument();
+    await user.click(within(section).getByRole('switch', { name: /^Let older devices/ }));
+    await user.click(within(section).getByRole('switch', { name: /^Forensic watermark/ }));
+    await user.click(within(section).getByRole('button', { name: 'Save protection' }));
+    await waitFor(() => {
+      expect(setProtection).toHaveBeenCalledWith(
+        'media',
+        expect.objectContaining({ mode: 'advanced', legacyDevices: 'standard', forensic: true }),
+      );
+    });
+    expect(await services.media.getProtection('media')).toMatchObject({
+      mode: 'advanced',
+      legacyDevices: 'standard',
+      forensic: true,
     });
   });
 

@@ -3,6 +3,7 @@ package transcode
 import (
 	"bytes"
 	"context"
+	crand "crypto/rand"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -29,6 +30,9 @@ type RenditionSpec struct {
 	Name    string
 	Height  int
 	Bitrate int // video, bits per second
+	// Forensic produces the two variants of the forensic watermark
+	// (forensic.go): Path is the A variant, PathB the B variant.
+	Forensic bool
 }
 
 // RenditionResult is a produced rendition.
@@ -39,8 +43,11 @@ type RenditionResult struct {
 	// Bandwidth is the peak bitrate over keyInterval windows (video and
 	// audio), as HLS expects.
 	Bandwidth int
-	// Path of the MP4 file.
+	// Path of the MP4 file (the A variant of a forensic rendition).
 	Path string
+	// PathB is the B variant of a forensic rendition: the same samples,
+	// sync samples and timing as Path, the opposite mark.
+	PathB string
 }
 
 // Progress reports the fraction of the work done.
@@ -57,6 +64,11 @@ type rendition struct {
 	samples []muxSample
 	sps     []byte
 	pps     []byte
+	// mark and sign are the forensic pattern of the variant (+1 A, -1
+	// B), nil for a plain rendition; variantB names the B variant.
+	mark     *forensicMark
+	sign     int
+	variantB bool
 }
 
 // Renditions decodes the video of src once and encodes every spec from
@@ -103,13 +115,33 @@ func renditions(ctx context.Context, lib *openh264.Library, src *Source, specs [
 			_ = os.Remove(r.data.Name())
 		}
 	}()
+	// One pattern per video, the same at every size; the variants never
+	// need it back (Trace compares a copy with the two variants).
+	var seedBytes [8]byte
+	if _, err := crand.Read(seedBytes[:]); err != nil {
+		return nil, err
+	}
+	seed := binary.LittleEndian.Uint64(seedBytes[:])
 	for _, spec := range specs {
 		w, h := FitHeight(src.Width, src.Height, spec.Height)
-		f, err := os.CreateTemp(dir, spec.Name+"-*.h264")
-		if err != nil {
-			return nil, err
+		var mark *forensicMark
+		if spec.Forensic {
+			mark = newForensicMark(seed, w, h, ForensicStrength)
 		}
-		rs = append(rs, &rendition{spec: spec, width: w, height: h, data: f})
+		for _, variantB := range []bool{false, true} {
+			if variantB && mark == nil {
+				break
+			}
+			f, err := os.CreateTemp(dir, spec.Name+"-*.h264")
+			if err != nil {
+				return nil, err
+			}
+			r := &rendition{spec: spec, width: w, height: h, data: f, mark: mark, sign: 1, variantB: variantB}
+			if variantB {
+				r.sign = -1
+			}
+			rs = append(rs, r)
+		}
 	}
 	j := &spanJob{lib: lib, src: src, rs: rs, fps: float64(len(samples)) / max(src.Seconds(), 0.001)}
 	var shown []int64 // the presentation times of the encoded pictures
@@ -134,14 +166,35 @@ func renditions(ctx context.Context, lib *openh264.Library, src *Source, specs [
 		return nil, fmt.Errorf("%w: no picture could be decoded", ErrUnsupported)
 	}
 	durations := frameDurations(shown, src.Video)
-	for _, r := range rs {
+	for i, r := range rs {
+		if r.variantB {
+			a := rs[i-1]
+			if len(a.samples) != len(r.samples) || !sameSync(a.samples, r.samples) {
+				return nil, errors.New("transcode: the forensic variants of a rendition do not line up")
+			}
+		}
 		res, err := r.finish(src, durations, dir)
 		if err != nil {
 			return nil, err
 		}
+		if r.variantB {
+			results[len(results)-1].PathB = res.Path
+			continue
+		}
 		results = append(results, res)
 	}
 	return results, nil
+}
+
+// sameSync reports whether two encodings of the same pictures have their
+// sync samples at the same places.
+func sameSync(a, b []muxSample) bool {
+	for i := range a {
+		if a[i].sync != b[i].sync {
+			return false
+		}
+	}
+	return true
 }
 
 // inOrder runs process over the items 0..n-1 on workers goroutines (each
@@ -247,6 +300,8 @@ type encoding struct {
 	width, height int
 	enc           *openh264.Encoder
 	scaler        *Scaler
+	mark          *forensicMark
+	sign          int
 	data          []byte
 	samples       []muxSample // src: offset in data
 	sps, pps      []byte
@@ -269,7 +324,7 @@ func (w *spanWorker) encode(ctx context.Context, c span) (out *spanOutput, err e
 		if err != nil {
 			return nil, err
 		}
-		out.encodings = append(out.encodings, &encoding{width: r.width, height: r.height, enc: enc, scaler: &w.scalers[i]})
+		out.encodings = append(out.encodings, &encoding{width: r.width, height: r.height, enc: enc, scaler: &w.scalers[i], mark: r.mark, sign: r.sign})
 	}
 	dec, err := w.lib.NewDecoder()
 	if err != nil {
@@ -383,6 +438,10 @@ func frameDurations(pts []int64, video *Track) []uint32 {
 // encode scales and encodes a picture, appending its sample.
 func (e *encoding) encode(pic *image.YCbCr, t float64, idr bool) error {
 	scaled := e.scaler.Scale(pic, e.width, e.height)
+	if e.mark != nil {
+		// The scaler's own copy: the other renditions keep theirs.
+		e.mark.apply(scaled, e.sign)
+	}
 	nalus, key, err := e.enc.Encode(scaled, int64(t*1000), idr)
 	if err != nil {
 		return err
@@ -410,7 +469,11 @@ func (e *encoding) encode(pic *image.YCbCr, t float64, idr bool) error {
 	if len(e.data) == start {
 		return errors.New("transcode: the encoder produced an empty picture")
 	}
-	e.samples = append(e.samples, muxSample{size: uint32(len(e.data) - start), sync: key, src: int64(start)}) // #nosec G115 -- sample sizes
+	// Only the forced IDR pictures are sync samples: every rendition (and
+	// both variants of a forensic one) has them at the same times, so
+	// their segments line up even where the encoder chose an IDR picture
+	// of its own.
+	e.samples = append(e.samples, muxSample{size: uint32(len(e.data) - start), sync: key && idr, src: int64(start)}) // #nosec G115 -- sample sizes
 	return nil
 }
 
@@ -455,7 +518,11 @@ func (r *rendition) finish(src *Source, durations []uint32, dir string) (Renditi
 	if a := audioTrack(src); a != nil {
 		tracks = append(tracks, a)
 	}
-	path := filepath.Join(dir, r.spec.Name+".mp4")
+	name := r.spec.Name + ".mp4"
+	if r.variantB {
+		name = r.spec.Name + ".b.mp4"
+	}
+	path := filepath.Join(dir, name)
 	out, err := os.Create(path) // #nosec G304 -- a file of the job directory
 	if err != nil {
 		return RenditionResult{}, err

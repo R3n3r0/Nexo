@@ -8569,6 +8569,68 @@ func (_c *AdminClient_Trace_Call) RunAndReturn(run func(context.Context, nexoadm
 	return _c
 }
 
+// TracePlaybackLeak provides a mock function with given fields: ctx, bucket, key, versionID, req
+func (_m *AdminClient) TracePlaybackLeak(ctx context.Context, bucket string, key string, versionID string, req nexoadmin.PlaybackTraceRequest) (*nexoadmin.PlaybackTrace, error) {
+	ret := _m.Called(ctx, bucket, key, versionID, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for TracePlaybackLeak")
+	}
+
+	var r0 *nexoadmin.PlaybackTrace
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, nexoadmin.PlaybackTraceRequest) (*nexoadmin.PlaybackTrace, error)); ok {
+		return rf(ctx, bucket, key, versionID, req)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, nexoadmin.PlaybackTraceRequest) *nexoadmin.PlaybackTrace); ok {
+		r0 = rf(ctx, bucket, key, versionID, req)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.PlaybackTrace)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, nexoadmin.PlaybackTraceRequest) error); ok {
+		r1 = rf(ctx, bucket, key, versionID, req)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_TracePlaybackLeak_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TracePlaybackLeak'
+type AdminClient_TracePlaybackLeak_Call struct {
+	*mock.Call
+}
+
+// TracePlaybackLeak is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - key string
+//   - versionID string
+//   - req nexoadmin.PlaybackTraceRequest
+func (_e *AdminClient_Expecter) TracePlaybackLeak(ctx interface{}, bucket interface{}, key interface{}, versionID interface{}, req interface{}) *AdminClient_TracePlaybackLeak_Call {
+	return &AdminClient_TracePlaybackLeak_Call{Call: _e.mock.On("TracePlaybackLeak", ctx, bucket, key, versionID, req)}
+}
+
+func (_c *AdminClient_TracePlaybackLeak_Call) Run(run func(ctx context.Context, bucket string, key string, versionID string, req nexoadmin.PlaybackTraceRequest)) *AdminClient_TracePlaybackLeak_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(nexoadmin.PlaybackTraceRequest))
+	})
+	return _c
+}
+
+func (_c *AdminClient_TracePlaybackLeak_Call) Return(_a0 *nexoadmin.PlaybackTrace, _a1 error) *AdminClient_TracePlaybackLeak_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_TracePlaybackLeak_Call) RunAndReturn(run func(context.Context, string, string, string, nexoadmin.PlaybackTraceRequest) (*nexoadmin.PlaybackTrace, error)) *AdminClient_TracePlaybackLeak_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // UpdateAccessKey provides a mock function with given fields: ctx, accessKey, in
 func (_m *AdminClient) UpdateAccessKey(ctx context.Context, accessKey string, in nexoadmin.UpdateAccessKeyRequest) (*nexoadmin.AccessKey, error) {
 	ret := _m.Called(ctx, accessKey, in)

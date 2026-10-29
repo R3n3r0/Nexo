@@ -1024,6 +1024,26 @@ type MediaManager interface {
 	// SetProtection validates (domain.ErrInvalidArgument), stores and
 	// returns the protection of a bucket, normalized.
 	SetProtection(ctx context.Context, bucket string, p domain.MediaProtection) (*domain.MediaProtection, error)
+	// Trace finds the playback tokens a leaked copy of a video marked by
+	// the forensic watermark may come from: the bits of its code, given
+	// or read from the votes of nexo-media-worker trace (grouped by
+	// segment of the video).
+	Trace(ctx context.Context, in TraceInput) (*TraceResult, error)
+}
+
+// TraceInput are the parameters of MediaManager.Trace: Bits, or Votes.
+type TraceInput struct {
+	Bucket, Key, VersionID string
+	Bits                   string
+	Votes                  []domain.MediaTraceVote
+	Limit                  int
+}
+
+// TraceResult are the bits read and the trace records agreeing with them,
+// the best first.
+type TraceResult struct {
+	Bits    string
+	Matches []domain.MediaTraceMatch
 }
 
 // --- proxied uploads -----------------------------------------------------

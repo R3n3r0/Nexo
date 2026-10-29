@@ -438,7 +438,10 @@ type MediaJob struct {
 	// Rule is the rule that selected the video or the image
 	// (MediaJobProcess).
 	Rule *MediaRule `json:"rule,omitempty"`
-	Time time.Time  `json:"time"`
+	// Forensic asks for the B variant of every rendition (the forensic
+	// watermark of the protection of the bucket, MediaProtection.Forensic).
+	Forensic bool      `json:"forensic,omitempty"`
+	Time     time.Time `json:"time"`
 }
 
 // MediaJobState is the state of the job of a video.
@@ -493,6 +496,21 @@ type MediaRenditionOutput struct {
 	Width     int    `json:"width"`
 	Height    int    `json:"height"`
 	Bandwidth int    `json:"bandwidth"`
+	// Forensic reports the B variant of the rendition
+	// (MediaRenditionFile(Name, true)): the same pictures with the
+	// opposite invisible mark, its samples and segments aligned with the
+	// A variant.
+	Forensic bool `json:"forensic,omitempty"`
+}
+
+// MediaRenditionFile is the file of a rendition in the renditions
+// directory: <name>.mp4, the B variant of the forensic watermark
+// <name>.b.mp4.
+func MediaRenditionFile(name string, variantB bool) string {
+	if variantB {
+		return name + ".b.mp4"
+	}
+	return name + ".mp4"
 }
 
 // MediaThumbnailsOutput describes the thumbnail sprite: a grid of Columns

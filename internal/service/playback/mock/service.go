@@ -26,6 +26,54 @@ func (_m *Service) EXPECT() *Service_Expecter {
 	return &Service_Expecter{mock: &_m.Mock}
 }
 
+// Alive provides a mock function with given fields: ctx, c, p
+func (_m *Service) Alive(ctx context.Context, c *playback.Claims, p *domain.MediaProtection) error {
+	ret := _m.Called(ctx, c, p)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Alive")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, *playback.Claims, *domain.MediaProtection) error); ok {
+		r0 = rf(ctx, c, p)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// Service_Alive_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Alive'
+type Service_Alive_Call struct {
+	*mock.Call
+}
+
+// Alive is a helper method to define mock.On call
+//   - ctx context.Context
+//   - c *playback.Claims
+//   - p *domain.MediaProtection
+func (_e *Service_Expecter) Alive(ctx interface{}, c interface{}, p interface{}) *Service_Alive_Call {
+	return &Service_Alive_Call{Call: _e.mock.On("Alive", ctx, c, p)}
+}
+
+func (_c *Service_Alive_Call) Run(run func(ctx context.Context, c *playback.Claims, p *domain.MediaProtection)) *Service_Alive_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*playback.Claims), args[2].(*domain.MediaProtection))
+	})
+	return _c
+}
+
+func (_c *Service_Alive_Call) Return(_a0 error) *Service_Alive_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *Service_Alive_Call) RunAndReturn(run func(context.Context, *playback.Claims, *domain.MediaProtection) error) *Service_Alive_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // AuthorizeKey provides a mock function with given fields: ctx, c, p, period, periodLength
 func (_m *Service) AuthorizeKey(ctx context.Context, c *playback.Claims, p *domain.MediaProtection, period int, periodLength time.Duration) error {
 	ret := _m.Called(ctx, c, p, period, periodLength)
@@ -131,6 +179,66 @@ func (_c *Service_Issue_Call) Return(_a0 *playback.Token, _a1 error) *Service_Is
 }
 
 func (_c *Service_Issue_Call) RunAndReturn(run func(context.Context, playback.IssueRequest) (*playback.Token, error)) *Service_Issue_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// OpenSession provides a mock function with given fields: ctx, c, clientKey
+func (_m *Service) OpenSession(ctx context.Context, c *playback.Claims, clientKey []byte) (*playback.Session, error) {
+	ret := _m.Called(ctx, c, clientKey)
+
+	if len(ret) == 0 {
+		panic("no return value specified for OpenSession")
+	}
+
+	var r0 *playback.Session
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, *playback.Claims, []byte) (*playback.Session, error)); ok {
+		return rf(ctx, c, clientKey)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, *playback.Claims, []byte) *playback.Session); ok {
+		r0 = rf(ctx, c, clientKey)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*playback.Session)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, *playback.Claims, []byte) error); ok {
+		r1 = rf(ctx, c, clientKey)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_OpenSession_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'OpenSession'
+type Service_OpenSession_Call struct {
+	*mock.Call
+}
+
+// OpenSession is a helper method to define mock.On call
+//   - ctx context.Context
+//   - c *playback.Claims
+//   - clientKey []byte
+func (_e *Service_Expecter) OpenSession(ctx interface{}, c interface{}, clientKey interface{}) *Service_OpenSession_Call {
+	return &Service_OpenSession_Call{Call: _e.mock.On("OpenSession", ctx, c, clientKey)}
+}
+
+func (_c *Service_OpenSession_Call) Run(run func(ctx context.Context, c *playback.Claims, clientKey []byte)) *Service_OpenSession_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*playback.Claims), args[2].([]byte))
+	})
+	return _c
+}
+
+func (_c *Service_OpenSession_Call) Return(_a0 *playback.Session, _a1 error) *Service_OpenSession_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_OpenSession_Call) RunAndReturn(run func(context.Context, *playback.Claims, []byte) (*playback.Session, error)) *Service_OpenSession_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -288,6 +396,128 @@ func (_c *Service_Verify_Call) Return(_a0 *playback.Claims, _a1 error) *Service_
 }
 
 func (_c *Service_Verify_Call) RunAndReturn(run func(context.Context, string, string, string, string) (*playback.Claims, error)) *Service_Verify_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// VerifyTicket provides a mock function with given fields: ctx, ticket, bucket, key, versionID
+func (_m *Service) VerifyTicket(ctx context.Context, ticket string, bucket string, key string, versionID string) (*playback.Claims, error) {
+	ret := _m.Called(ctx, ticket, bucket, key, versionID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for VerifyTicket")
+	}
+
+	var r0 *playback.Claims
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) (*playback.Claims, error)); ok {
+		return rf(ctx, ticket, bucket, key, versionID)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) *playback.Claims); ok {
+		r0 = rf(ctx, ticket, bucket, key, versionID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*playback.Claims)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, string) error); ok {
+		r1 = rf(ctx, ticket, bucket, key, versionID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_VerifyTicket_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'VerifyTicket'
+type Service_VerifyTicket_Call struct {
+	*mock.Call
+}
+
+// VerifyTicket is a helper method to define mock.On call
+//   - ctx context.Context
+//   - ticket string
+//   - bucket string
+//   - key string
+//   - versionID string
+func (_e *Service_Expecter) VerifyTicket(ctx interface{}, ticket interface{}, bucket interface{}, key interface{}, versionID interface{}) *Service_VerifyTicket_Call {
+	return &Service_VerifyTicket_Call{Call: _e.mock.On("VerifyTicket", ctx, ticket, bucket, key, versionID)}
+}
+
+func (_c *Service_VerifyTicket_Call) Run(run func(ctx context.Context, ticket string, bucket string, key string, versionID string)) *Service_VerifyTicket_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string))
+	})
+	return _c
+}
+
+func (_c *Service_VerifyTicket_Call) Return(_a0 *playback.Claims, _a1 error) *Service_VerifyTicket_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_VerifyTicket_Call) RunAndReturn(run func(context.Context, string, string, string, string) (*playback.Claims, error)) *Service_VerifyTicket_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// WrapKey provides a mock function with given fields: c, key, aad
+func (_m *Service) WrapKey(c *playback.Claims, key []byte, aad string) ([]byte, error) {
+	ret := _m.Called(c, key, aad)
+
+	if len(ret) == 0 {
+		panic("no return value specified for WrapKey")
+	}
+
+	var r0 []byte
+	var r1 error
+	if rf, ok := ret.Get(0).(func(*playback.Claims, []byte, string) ([]byte, error)); ok {
+		return rf(c, key, aad)
+	}
+	if rf, ok := ret.Get(0).(func(*playback.Claims, []byte, string) []byte); ok {
+		r0 = rf(c, key, aad)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]byte)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(*playback.Claims, []byte, string) error); ok {
+		r1 = rf(c, key, aad)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_WrapKey_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WrapKey'
+type Service_WrapKey_Call struct {
+	*mock.Call
+}
+
+// WrapKey is a helper method to define mock.On call
+//   - c *playback.Claims
+//   - key []byte
+//   - aad string
+func (_e *Service_Expecter) WrapKey(c interface{}, key interface{}, aad interface{}) *Service_WrapKey_Call {
+	return &Service_WrapKey_Call{Call: _e.mock.On("WrapKey", c, key, aad)}
+}
+
+func (_c *Service_WrapKey_Call) Run(run func(c *playback.Claims, key []byte, aad string)) *Service_WrapKey_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(*playback.Claims), args[1].([]byte), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *Service_WrapKey_Call) Return(_a0 []byte, _a1 error) *Service_WrapKey_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_WrapKey_Call) RunAndReturn(run func(*playback.Claims, []byte, string) ([]byte, error)) *Service_WrapKey_Call {
 	_c.Call.Return(run)
 	return _c
 }

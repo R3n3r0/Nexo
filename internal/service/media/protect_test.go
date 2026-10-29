@@ -144,6 +144,56 @@ func TestProtectedPlaylist(t *testing.T) {
 	assert.Nil(t, prot)
 }
 
+// TestSessionSegments: the segments of a session of the player are
+// encrypted with AES-128-GCM under the key of that session (bound to the
+// segment number), every session has its own keys, and its playlist names
+// no key.
+//
+// covers: S-OBJ-18
+func TestSessionSegments(t *testing.T) {
+	_, objects := newStore(t, "h264_aac.mp4")
+	protected, clear := newProtectedService(t, objects, "", []byte("0123456789abcdef0123456789abcdef"))
+	ctx := context.Background()
+	std := media.Source{Bucket: "videos", Key: "h264_aac.mp4"}
+	one, two := std, std
+	one.Session, two.Session = "aaaa", "bbbb"
+
+	k1, err := protected.Key(ctx, one, 0)
+	require.NoError(t, err)
+	k2, err := protected.Key(ctx, two, 0)
+	require.NoError(t, err)
+	kStd, err := protected.Key(ctx, std, 0)
+	require.NoError(t, err)
+	assert.NotEqual(t, k1, k2, "a key per session")
+	assert.NotEqual(t, k1, kStd)
+
+	open := func(key []byte, n int, sealed []byte) ([]byte, error) {
+		block, err := aes.NewCipher(key)
+		require.NoError(t, err)
+		aead, err := cipher.NewGCM(block)
+		require.NoError(t, err)
+		return aead.Open(nil, sealed[:aead.NonceSize()], sealed[aead.NonceSize():], []byte(fmt.Sprint(n)))
+	}
+	for n := range 3 {
+		want, err := clear.Segment(ctx, std, n)
+		require.NoError(t, err)
+		got, err := protected.Segment(ctx, one, n)
+		require.NoError(t, err)
+		plain, err := open(k1, n, got)
+		require.NoError(t, err)
+		assert.Equal(t, want, plain, "segment %d", n)
+		_, err = open(k2, n, got)
+		require.Error(t, err, "another session cannot open it")
+		_, err = open(k1, n+1, got)
+		require.Error(t, err, "nor as another segment")
+	}
+
+	playlist, err := protected.MediaPlaylist(ctx, one, noKeys{})
+	require.NoError(t, err)
+	assert.NotContains(t, string(playlist), "#EXT-X-KEY")
+	assert.Contains(t, string(playlist), "#EXTINF:")
+}
+
 // TestDeriveProtectionKey: the key depends on every input.
 //
 // covers: S-OBJ-17

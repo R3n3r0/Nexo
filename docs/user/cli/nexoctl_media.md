@@ -66,4 +66,5 @@ nexoctl media [flags]
 * [nexoctl media status](nexoctl_media_status.md)	 - Show the processing state of a video or an image by the media worker
 * [nexoctl media subtitles](nexoctl_media_subtitles.md)	 - List, download, upload or remove the subtitle tracks of a video
 * [nexoctl media token](nexoctl_media_token.md)	 - Issue a playback token of a video for a viewer
+* [nexoctl media trace](nexoctl_media_trace.md)	 - Find the playback token a leaked copy of a video came from
 

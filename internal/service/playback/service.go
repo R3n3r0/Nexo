@@ -37,7 +37,26 @@ type Service interface {
 	// RevokeSubject revokes every token of the videos of a bucket issued
 	// to a viewer so far.
 	RevokeSubject(ctx context.Context, bucket, subject string) error
+	// OpenSession opens a session of the player of Nexo (the advanced
+	// playback) for the claims of a verified token: clientKey is the
+	// ephemeral ECDH P-256 public key of the player, uncompressed.
+	OpenSession(ctx context.Context, c *Claims, clientKey []byte) (*Session, error)
+	// VerifyTicket checks a session ticket for a video as Verify checks a
+	// token; the claims it returns can wrap keys (WrapKey).
+	VerifyTicket(ctx context.Context, ticket, bucket, key, versionID string) (*Claims, error)
+	// WrapKey encrypts a key of a segment for the session of verified
+	// ticket claims (AES-128-GCM with the wrapping key of the session,
+	// aad bound): nonce || ciphertext || tag. domain.ErrAccessDenied for
+	// claims of a token.
+	WrapKey(c *Claims, key []byte, aad string) ([]byte, error)
+	// Alive checks that the stream of verified claims may still play:
+	// not revoked since, not replaced by a newer stream of its viewer.
+	Alive(ctx context.Context, c *Claims, p *domain.MediaProtection) error
 }
+
+// ModeSession is the Mode of the claims of a token issued for a video
+// that plays only in a session of the player of Nexo.
+const ModeSession = "session"
 
 // IssueRequest asks for a playback token.
 type IssueRequest struct {
@@ -78,4 +97,11 @@ type Claims struct {
 	// IssuedAt and ExpiresAt are Unix times, in seconds.
 	IssuedAt  int64 `json:"iat"`
 	ExpiresAt int64 `json:"exp"`
+	// Mode is ModeSession for a video that plays only in a session of the
+	// player of Nexo (when the token was issued), empty otherwise.
+	Mode string `json:"m,omitempty"`
+	// Session is the id of the session of a ticket (empty in a token).
+	Session string `json:"ss,omitempty"`
+	// wrap is the wrapping key of the session of a verified ticket.
+	wrap []byte
 }
