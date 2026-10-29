@@ -98,6 +98,7 @@ func (h *objectRoutes) routes() []route {
 		{http.MethodGet, "/buckets/{bucket}/objects/hls/media.m3u8", stream, h.hlsMedia()},
 		{http.MethodGet, "/buckets/{bucket}/objects/hls/init.mp4", stream, h.hlsInit()},
 		{http.MethodGet, "/buckets/{bucket}/objects/hls/segment.m4s", stream, h.hlsSegment()},
+		{http.MethodGet, "/buckets/{bucket}/objects/hls/key", stream, h.hlsKey},
 		// What the media worker derived from the video.
 		{http.MethodGet, "/buckets/{bucket}/objects/hls/poster.jpg", stream, h.hlsFile(domain.MediaPosterFile, contentTypeJPEG)},
 		{http.MethodGet, "/buckets/{bucket}/objects/hls/sprite.jpg", stream, h.hlsFile(domain.MediaSpriteFile, contentTypeJPEG)},

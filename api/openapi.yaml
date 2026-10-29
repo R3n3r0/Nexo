@@ -1626,6 +1626,30 @@ paths:
             "video/iso.segment":
               schema: { type: string, format: binary }
         default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/hls/key:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+      - { $ref: "#/components/parameters/versionId" }
+    get:
+      tags: [objects]
+      operationId: hlsKey
+      summary: AES-128 key of a protected video
+      description: |
+        The 16-byte AES-128 key of a key period (10 segments) of a video the media protection of its bucket
+        covers; 404 for a video that is not protected. Never cached.
+      x-nexo-actions: ["nexo:GetMediaStream", "s3:GetObject", "s3:GetObjectVersion"]
+      parameters:
+        - { name: rev, in: query, required: true, description: The ETag the presentation is pinned to (412 once the object changed)., schema: { type: string } }
+        - { name: r, in: query, required: false, description: "A rendition of the media worker (720p, 480p...): the presentation of that rendition, rev being its ETag.", schema: { type: string } }
+        - { name: i, in: query, required: true, description: The key period., schema: { type: integer, minimum: 0 } }
+      responses:
+        "200":
+          description: AES-128 key of a protected video.
+          content:
+            "application/octet-stream":
+              schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Problem" }
   /buckets/{bucket}/objects/hls/poster.jpg:
     parameters:
       - { $ref: "#/components/parameters/bucket" }

@@ -82,15 +82,17 @@ Revocation: `DELETE /api/v1/media/playback-sessions/{sid}` revokes one token, `D
   *n/10*, with the media sequence number as IV (RFC 8216 §5.2): one `EXT-X-KEY:METHOD=AES-128,URI="key?…&i=<period>"`
   per period.
 - Key of a period: the first 16 bytes of `HMAC-SHA256(media key, "nexo/media/aes128" ‖ bucket ‖ key ‖ version ‖
-  ETag ‖ rendition ‖ period)`. Nothing is stored per video; overwriting a video changes its keys; renditions have
+  ETag ‖ period)`, the key being that of the rendition file for a rendition. Nothing is stored per video; overwriting a video changes its keys; renditions have
   their own keys.
 - Plays natively in Safari/iOS, in hls.js (Chrome, Firefox, Edge, the Nexo player and console), ExoPlayer, VLC,
   Video.js.
 
 ## 6. Media protection key
 
-32 random bytes generated on first use, stored in the system store sealed by the deployment's KMS
-(`nexo/media/protection-key`), cached by every node. Rotating it invalidates every token and every key at once.
+Derived, like the console session key, from the root credentials and the deployment ID (`HMAC-SHA256(root
+password, "nexo-media-protection-v1" ‖ root user ‖ deployment ID)`): every node derives the same key, no other
+deployment does, nothing is stored nor replicated. Changing the root credentials rotates it, which invalidates every
+token and every segment key at once.
 
 ## 7. Key endpoint
 

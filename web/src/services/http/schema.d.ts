@@ -1328,6 +1328,37 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/buckets/{bucket}/objects/hls/key": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * AES-128 key of a protected video
+         * @description The 16-byte AES-128 key of a key period (10 segments) of a video the media protection of its bucket
+         *     covers; 404 for a video that is not protected. Never cached.
+         */
+        get: operations["hlsKey"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/buckets/{bucket}/objects/hls/poster.jpg": {
         parameters: {
             query: {
@@ -9131,6 +9162,43 @@ export interface operations {
                 };
                 content: {
                     "video/iso.segment": string;
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    hlsKey: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+                /** @description The ETag the presentation is pinned to (412 once the object changed). */
+                rev: string;
+                /** @description A rendition of the media worker (720p, 480p...): the presentation of that rendition, rev being its ETag. */
+                r?: string;
+                /** @description The key period. */
+                i: number;
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description AES-128 key of a protected video. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
                 };
             };
             default: components["responses"]["Problem"];

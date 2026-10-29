@@ -21,7 +21,10 @@ import (
 type Deps struct {
 	// Objects reads the objects (required).
 	Objects object.Service
-	Logger  *slog.Logger
+	// Protections returns the download protection of the buckets
+	// (optional: no video is protected without it).
+	Protections Protections
+	Logger      *slog.Logger
 }
 
 type service struct {
@@ -226,11 +229,25 @@ func (s *service) MediaPlaylist(ctx context.Context, src Source, links Links) ([
 		longest = max(longest, seg)
 	}
 	var b bytes.Buffer
+	prot, err := s.Protection(ctx, src)
+	if err != nil {
+		return nil, err
+	}
 	b.WriteString("#EXTM3U\n#EXT-X-VERSION:7\n")
 	fmt.Fprintf(&b, "#EXT-X-TARGETDURATION:%d\n", max(int64(math.Ceil(longest.Seconds())), 1))
 	b.WriteString("#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-INDEPENDENT-SEGMENTS\n")
+	// The init segment holds no picture: it stays clear, before the
+	// first key.
 	fmt.Fprintf(&b, "#EXT-X-MAP:URI=%q\n", links.Init(d.Revision))
 	for i, seg := range d.Segments {
+		if prot != nil && i%KeyPeriod == 0 {
+			uri := links.Key(d.Revision, i/KeyPeriod)
+			if uri == "" {
+				return nil, fmt.Errorf("%w: %s/%s is a protected video: it plays with a playback token", domain.ErrAccessDenied, src.Bucket, src.Key)
+			}
+			// No IV: the media sequence number of each segment is its IV.
+			fmt.Fprintf(&b, "#EXT-X-KEY:METHOD=AES-128,URI=%q\n", uri)
+		}
 		fmt.Fprintf(&b, "#EXTINF:%.3f,\n%s\n", seg.Seconds(), links.Segment(d.Revision, i))
 	}
 	b.WriteString("#EXT-X-ENDLIST\n")
@@ -273,5 +290,13 @@ func (s *service) Segment(ctx context.Context, src Source, n int) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
-	return p.mediaSegment(n, data)
+	out, err := p.mediaSegment(n, data)
+	if err != nil {
+		return nil, err
+	}
+	prot, err := s.Protection(ctx, src)
+	if err != nil || prot == nil {
+		return out, err
+	}
+	return encryptSegment(s.segmentKey(src.Bucket, src.Key, p.id(), n/KeyPeriod), segmentIV(n), out)
 }

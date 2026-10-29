@@ -139,6 +139,7 @@ func (h *mediaRoutes) Register(r chi.Router) {
 		b, err := h.deps.Media.Segment(r.Context(), src, n)
 		return b, contentTypeSegment, err
 	}))
+	r.Get(MediaPrefix+"{bucket}/key", h.key)
 	// What the media worker derived from the video.
 	for name, file := range map[string]string{"poster.jpg": domain.MediaPosterFile, "sprite.jpg": domain.MediaSpriteFile} {
 		r.Get(MediaPrefix+"{bucket}/"+name, h.serve(false, func(r *http.Request, src media.Source, _ media.Links) ([]byte, string, error) {
@@ -344,6 +345,61 @@ func (h *mediaRoutes) serve(pinned bool, build func(r *http.Request, src media.S
 	}
 }
 
+// key serves the AES-128 key of a period (?i=) of a protected video, never
+// cached. It answers a request signed in its headers by an identity
+// allowed to stream the video (owners previewing their videos), a
+// presigned one (a share link) when the protection lets share links play,
+// and no anonymous request; the Origin of a browser must be allowed.
+func (h *mediaRoutes) key(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	src := media.Source{Bucket: chi.URLParam(r, "bucket"), Key: q.Get("key"), VersionID: q.Get("versionId"), Revision: q.Get("rev"), Rendition: q.Get("r")}
+	if err := domain.ValidateObjectKey(src.Key); err != nil {
+		h.deps.Enc.WriteS3Error(w, r, err)
+		return
+	}
+	period, err := strconv.Atoi(q.Get("i"))
+	if err != nil || period < 0 || src.Revision == "" {
+		h.deps.Enc.WriteS3Error(w, r, fmt.Errorf("%w: rev and a non-negative i are required", domain.ErrInvalidArgument))
+		return
+	}
+	if !h.authorizeStream(w, r, src) {
+		return
+	}
+	prot, err := h.deps.Media.Protection(r.Context(), src)
+	if err != nil {
+		h.deps.Enc.WriteS3Error(w, r, err)
+		return
+	}
+	if prot == nil {
+		h.deps.Enc.WriteS3Error(w, r, fmt.Errorf("%w: %s is not a protected video", domain.ErrNotFound, src.Key))
+		return
+	}
+	id, ok := middleware.IdentityFromContext(r.Context())
+	switch {
+	case !ok || id.IsAnonymous:
+		h.deps.Enc.WriteS3Error(w, r, fmt.Errorf("%w: a protected video plays with a playback token", domain.ErrAccessDenied))
+		return
+	case auth.IsPresigned(q) && !prot.ShareLinks:
+		h.deps.Enc.WriteS3Error(w, r, fmt.Errorf("%w: the share links of this bucket do not play protected videos", domain.ErrAccessDenied))
+		return
+	case !prot.AllowsOrigin(r.Header.Get("Origin")):
+		h.deps.Enc.WriteS3Error(w, r, fmt.Errorf("%w: origin not allowed", domain.ErrAccessDenied))
+		return
+	}
+	key, err := h.deps.Media.Key(r.Context(), src, period)
+	if err != nil {
+		h.deps.Enc.WriteS3Error(w, r, err)
+		return
+	}
+	hdr := w.Header()
+	hdr.Set("Content-Type", "application/octet-stream")
+	hdr.Set("Content-Length", strconv.Itoa(len(key)))
+	hdr.Set("Cache-Control", "no-store")
+	hdr.Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(key)
+}
+
 // player serves the player page: static, it reads the playlist from its
 // fragment and holds no data.
 func (h *mediaRoutes) player(w http.ResponseWriter, r *http.Request) {
@@ -486,6 +542,10 @@ func (l mediaLinks) Init(rev string) string { return l.uri("init.mp4", rev, nil)
 
 func (l mediaLinks) Segment(rev string, n int) string {
 	return l.uri("segment.m4s", rev, url.Values{"n": {strconv.Itoa(n)}})
+}
+
+func (l mediaLinks) Key(rev string, period int) string {
+	return l.uri("key", rev, url.Values{"i": {strconv.Itoa(period)}})
 }
 
 // file is the URI of a file of the media worker of the object (no

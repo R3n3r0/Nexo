@@ -250,6 +250,66 @@ func (_c *Service_Init_Call) RunAndReturn(run func(context.Context, media.Source
 	return _c
 }
 
+// Key provides a mock function with given fields: ctx, src, period
+func (_m *Service) Key(ctx context.Context, src media.Source, period int) ([]byte, error) {
+	ret := _m.Called(ctx, src, period)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Key")
+	}
+
+	var r0 []byte
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source, int) ([]byte, error)); ok {
+		return rf(ctx, src, period)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source, int) []byte); ok {
+		r0 = rf(ctx, src, period)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]byte)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, media.Source, int) error); ok {
+		r1 = rf(ctx, src, period)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_Key_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Key'
+type Service_Key_Call struct {
+	*mock.Call
+}
+
+// Key is a helper method to define mock.On call
+//   - ctx context.Context
+//   - src media.Source
+//   - period int
+func (_e *Service_Expecter) Key(ctx interface{}, src interface{}, period interface{}) *Service_Key_Call {
+	return &Service_Key_Call{Call: _e.mock.On("Key", ctx, src, period)}
+}
+
+func (_c *Service_Key_Call) Run(run func(ctx context.Context, src media.Source, period int)) *Service_Key_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(media.Source), args[2].(int))
+	})
+	return _c
+}
+
+func (_c *Service_Key_Call) Return(_a0 []byte, _a1 error) *Service_Key_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_Key_Call) RunAndReturn(run func(context.Context, media.Source, int) ([]byte, error)) *Service_Key_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // MasterPlaylist provides a mock function with given fields: ctx, src, links
 func (_m *Service) MasterPlaylist(ctx context.Context, src media.Source, links media.Links) ([]byte, error) {
 	ret := _m.Called(ctx, src, links)
@@ -366,6 +426,122 @@ func (_c *Service_MediaPlaylist_Call) Return(_a0 []byte, _a1 error) *Service_Med
 }
 
 func (_c *Service_MediaPlaylist_Call) RunAndReturn(run func(context.Context, media.Source, media.Links) ([]byte, error)) *Service_MediaPlaylist_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Periods provides a mock function with given fields: ctx, src
+func (_m *Service) Periods(ctx context.Context, src media.Source) (int, error) {
+	ret := _m.Called(ctx, src)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Periods")
+	}
+
+	var r0 int
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source) (int, error)); ok {
+		return rf(ctx, src)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source) int); ok {
+		r0 = rf(ctx, src)
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, media.Source) error); ok {
+		r1 = rf(ctx, src)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_Periods_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Periods'
+type Service_Periods_Call struct {
+	*mock.Call
+}
+
+// Periods is a helper method to define mock.On call
+//   - ctx context.Context
+//   - src media.Source
+func (_e *Service_Expecter) Periods(ctx interface{}, src interface{}) *Service_Periods_Call {
+	return &Service_Periods_Call{Call: _e.mock.On("Periods", ctx, src)}
+}
+
+func (_c *Service_Periods_Call) Run(run func(ctx context.Context, src media.Source)) *Service_Periods_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(media.Source))
+	})
+	return _c
+}
+
+func (_c *Service_Periods_Call) Return(_a0 int, _a1 error) *Service_Periods_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_Periods_Call) RunAndReturn(run func(context.Context, media.Source) (int, error)) *Service_Periods_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// Protection provides a mock function with given fields: ctx, src
+func (_m *Service) Protection(ctx context.Context, src media.Source) (*domain.MediaProtection, error) {
+	ret := _m.Called(ctx, src)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Protection")
+	}
+
+	var r0 *domain.MediaProtection
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source) (*domain.MediaProtection, error)); ok {
+		return rf(ctx, src)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, media.Source) *domain.MediaProtection); ok {
+		r0 = rf(ctx, src)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*domain.MediaProtection)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, media.Source) error); ok {
+		r1 = rf(ctx, src)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// Service_Protection_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Protection'
+type Service_Protection_Call struct {
+	*mock.Call
+}
+
+// Protection is a helper method to define mock.On call
+//   - ctx context.Context
+//   - src media.Source
+func (_e *Service_Expecter) Protection(ctx interface{}, src interface{}) *Service_Protection_Call {
+	return &Service_Protection_Call{Call: _e.mock.On("Protection", ctx, src)}
+}
+
+func (_c *Service_Protection_Call) Run(run func(ctx context.Context, src media.Source)) *Service_Protection_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(media.Source))
+	})
+	return _c
+}
+
+func (_c *Service_Protection_Call) Return(_a0 *domain.MediaProtection, _a1 error) *Service_Protection_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *Service_Protection_Call) RunAndReturn(run func(context.Context, media.Source) (*domain.MediaProtection, error)) *Service_Protection_Call {
 	_c.Call.Return(run)
 	return _c
 }

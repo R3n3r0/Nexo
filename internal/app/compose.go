@@ -423,8 +423,11 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		return nil, err
 	}
 	// The HLS presentations of the videos, for the console and the S3
-	// listener (share links).
-	mediaSvc, err := media.New(media.Deps{Objects: objects, Logger: logger.With("component", "media")})
+	// listener (share links). The protected videos are encrypted with keys
+	// derived, like the session key, from the root credentials and the
+	// deployment ID: every node serves the same keys, nothing is stored.
+	mediaSvc, err := media.New(media.Deps{Objects: objects, Protections: buckets, Logger: logger.With("component", "media")},
+		media.WithProtectionKey(media.DeriveProtectionKey(cfg.RootUser, cfg.RootPassword, d.deploymentID)))
 	if err != nil {
 		return nil, err
 	}

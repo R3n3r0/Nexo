@@ -31,6 +31,9 @@ type options struct {
 	maxIndex      int64
 	maxSegment    int64
 	cacheSize     int64
+	// protectionKey derives the keys of the protected videos
+	// (WithProtectionKey); empty protects nothing.
+	protectionKey []byte
 }
 
 func defaultOptions() options {
@@ -77,6 +80,17 @@ func WithCacheSize(n int64) Option {
 	return func(o *options) {
 		if n > 0 {
 			o.cacheSize = n
+		}
+	}
+}
+
+// WithProtectionKey sets the media protection key of the deployment
+// (DeriveProtectionKey): the segments of the protected videos are
+// encrypted with keys derived from it. Without it no video is protected.
+func WithProtectionKey(key []byte) Option {
+	return func(o *options) {
+		if len(key) >= 16 {
+			o.protectionKey = append([]byte(nil), key...)
 		}
 	}
 }

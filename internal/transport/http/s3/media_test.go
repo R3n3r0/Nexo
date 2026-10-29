@@ -303,3 +303,42 @@ func TestMediaStatusImages(t *testing.T) {
 	assert.Equal(t, s3.MediaPrefix+"photos/image/2026/a b.jpg", signed[0].URL.Path, "the decoded path is signed")
 	assert.Equal(t, 50*time.Minute, signed[0].Expires)
 }
+
+// TestMediaRoutesKey: the key of a protected video goes, never cached, to
+// a signed request allowed to stream it from an allowed origin; not to an
+// anonymous one, nor a share link unless the protection lets them play.
+//
+// covers: S-OBJ-17
+func TestMediaRoutesKey(t *testing.T) {
+	f := newMediaFixture(t)
+	f.policy.EXPECT().Evaluate(mock.Anything, mock.Anything).Return(policy.Decision{Allowed: true}, nil)
+	src := media.Source{Bucket: "films", Key: "a.mp4", Revision: "e1"}
+	prot := &domain.MediaProtection{Enabled: true, AllowedOrigins: []string{"https://learn.example.com"}}
+	f.media.EXPECT().Protection(mock.Anything, src).Return(prot, nil)
+	f.media.EXPECT().Key(mock.Anything, src, 3).Return([]byte("0123456789abcdef"), nil)
+	alice := &domain.Identity{AccessKey: "alice", AuthType: domain.AuthTypeHeader}
+	target := s3.MediaPrefix + "films/key?key=a.mp4&rev=e1&i=3"
+
+	rec := f.serve(target, alice)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+	assert.Equal(t, "0123456789abcdef", rec.Body.String())
+
+	assert.Equal(t, http.StatusForbidden, f.serve(target, domain.Anonymous()).Code, "anonymous")
+	assert.Equal(t, http.StatusForbidden, f.serve(target+"&X-Amz-Signature=x&X-Amz-Credential=c", alice).Code, "share link")
+
+	req := httptest.NewRequest(http.MethodGet, target, nil)
+	req.Header.Set("Origin", "https://evil.example")
+	req = req.WithContext(middleware.WithIdentity(req.Context(), alice))
+	rec = httptest.NewRecorder()
+	f.router.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusForbidden, rec.Code, "origin")
+
+	for _, bad := range []string{"films/key?key=a.mp4&i=3", "films/key?key=a.mp4&rev=e1&i=-1", "films/key?key=a.mp4&rev=e1"} {
+		assert.Equal(t, http.StatusBadRequest, f.serve(s3.MediaPrefix+bad, alice).Code, bad)
+	}
+
+	clearSrc := media.Source{Bucket: "films", Key: "b.mp4", Revision: "e1"}
+	f.media.EXPECT().Protection(mock.Anything, clearSrc).Return(nil, nil)
+	assert.Equal(t, http.StatusNotFound, f.serve(s3.MediaPrefix+"films/key?key=b.mp4&rev=e1&i=0", alice).Code, "not protected")
+}

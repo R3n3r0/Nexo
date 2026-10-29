@@ -168,6 +168,10 @@ func (l videoLinks) Segment(rev string, n int) string {
 	return l.with(VideoSegment, q)
 }
 
+// Key implements media.Links: the distributions serve no keys yet, so the
+// playlists of a protected video are refused there.
+func (videoLinks) Key(string, int) string { return "" }
+
 func (l videoLinks) Rendition(name, rev string) string {
 	l.rendition = name
 	return l.with(VideoMedia, l.query(rev))

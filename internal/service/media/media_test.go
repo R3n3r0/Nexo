@@ -92,6 +92,7 @@ type links struct{}
 func (links) Media(rev string) string           { return "media.m3u8?rev=" + rev }
 func (links) Init(rev string) string            { return "init.mp4?rev=" + rev }
 func (links) Segment(rev string, n int) string  { return fmt.Sprintf("segment.m4s?rev=%s&n=%d", rev, n) }
+func (links) Key(rev string, period int) string { return fmt.Sprintf("key?rev=%s&i=%d", rev, period) }
 func (links) Rendition(name, rev string) string { return "media.m3u8?r=" + name + "&rev=" + rev }
 func (links) Subtitles(lang string) string      { return "subtitles.m3u8?lang=" + lang }
 func (links) SubtitleFile(lang string) string   { return "subtitles.vtt?lang=" + lang }
@@ -213,6 +214,7 @@ type fileLinks struct{}
 func (fileLinks) Media(string) string             { return "index.m3u8" }
 func (fileLinks) Init(string) string              { return "init.mp4" }
 func (fileLinks) Segment(_ string, n int) string  { return fmt.Sprintf("seg%d.m4s", n) }
+func (fileLinks) Key(_ string, i int) string      { return fmt.Sprintf("key%d.bin", i) }
 func (fileLinks) Rendition(name, _ string) string { return name + ".m3u8" }
 func (fileLinks) Subtitles(lang string) string    { return lang + ".m3u8" }
 func (fileLinks) SubtitleFile(lang string) string { return lang + ".vtt" }

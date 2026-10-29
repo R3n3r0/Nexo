@@ -39,8 +39,19 @@ type Service interface {
 	// fragmented presentation).
 	Init(ctx context.Context, src Source) ([]byte, error)
 	// Segment returns the media segment n (0-based); a number past the
-	// last segment fails with domain.ErrNotFound.
+	// last segment fails with domain.ErrNotFound. The segments of a
+	// protected video are encrypted (AES-128-CBC, the key of period
+	// n/KeyPeriod, the IV n).
 	Segment(ctx context.Context, src Source, n int) ([]byte, error)
+	// Protection returns the download protection of the video src names,
+	// nil when it is not protected.
+	Protection(ctx context.Context, src Source) (*domain.MediaProtection, error)
+	// Key returns the AES-128 key of a key period (KeyPeriod segments) of
+	// a protected video: domain.ErrNotFound for a video that is not
+	// protected or a period past the last one.
+	Key(ctx context.Context, src Source, period int) ([]byte, error)
+	// Periods returns the number of key periods of the presentation.
+	Periods(ctx context.Context, src Source) (int, error)
 	// Status returns the job status of the media worker for the version
 	// of src: nil when the worker never processed it.
 	Status(ctx context.Context, src Source) (*OutputStatus, error)
@@ -161,6 +172,10 @@ type Links interface {
 	Init(rev string) string
 	// Segment is the URI of the media segment n of revision rev.
 	Segment(rev string, n int) string
+	// Key is the URI of the key of a period of revision rev of a protected
+	// video; "" when the route cannot serve keys (the playlist of a
+	// protected video is then refused).
+	Key(rev string, period int) string
 	// Rendition is the URI of the media playlist of a rendition of the
 	// media worker, rev being the ETag of the rendition.
 	Rendition(name, rev string) string
