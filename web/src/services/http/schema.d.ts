@@ -839,6 +839,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/buckets/{bucket}/media/protection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The download protection of the videos
+         * @description Disabled, with its defaults, when never set.
+         */
+        get: operations["getMediaProtection"];
+        /**
+         * Set the download protection of the videos
+         * @description A protected video streams encrypted (HLS AES-128); its keys are served only to a playback token of the video (or to someone allowed to read it), at the pace of playback and to a bounded number of simultaneous streams per viewer, and the original cannot be downloaded without nexo:DownloadProtectedMedia.
+         */
+        put: operations["setMediaProtection"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/buckets/{bucket}/replication": {
         parameters: {
             query?: never;
@@ -5655,6 +5681,25 @@ export interface components {
             /** @description Interval between two thumbnails, a Go duration from 1s to 10m (default 10s). */
             interval?: string;
         };
+        MediaProtection: {
+            enabled: boolean;
+            /** @description Only the keys under the prefix (empty is the whole bucket). */
+            prefix?: string;
+            /** @description Suffixes of the protected videos (default .mp4 .mov .m4v). */
+            suffixes?: string[];
+            /** @description Longest validity of a playback token (default 7200). */
+            tokenTtlSeconds?: number;
+            /** @description Simultaneous streams of a viewer (default 2; -1 for no limit). */
+            maxSessions?: number;
+            /** @description Keys served at most this many times faster than playback (default 2). */
+            paceFactor?: number;
+            /** @description The player draws the viewer's watermark. */
+            watermark: boolean;
+            /** @description Web origins allowed to embed the player and fetch the keys (empty allows any). */
+            allowedOrigins: string[];
+            /** @description Stream share links play the protected videos (without watermark nor limits). */
+            shareLinks: boolean;
+        };
         MediaReprocessRequest: {
             key: string;
             /** @description The version to process (default the latest). */
@@ -8353,6 +8398,57 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
+        };
+    };
+    getMediaProtection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The protection. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaProtection"];
+                };
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    setMediaProtection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MediaProtection"];
+            };
+        };
+        responses: {
+            /** @description The protection, normalized. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaProtection"];
+                };
+            };
+            400: components["responses"]["Problem"];
             default: components["responses"]["Problem"];
         };
     };

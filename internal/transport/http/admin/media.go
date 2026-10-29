@@ -60,6 +60,8 @@ func (h *mediaRoutes) routes() []route {
 		{http.MethodPut, "/buckets/{bucket}/media", onBucket(policy.ActionAdminSetBucketMedia), h.put},
 		{http.MethodDelete, "/buckets/{bucket}/media", onBucket(policy.ActionAdminSetBucketMedia), h.remove},
 		{http.MethodPost, "/buckets/{bucket}/media/reprocess", onBucket(policy.ActionAdminSetBucketMedia), h.reprocess},
+		{http.MethodGet, "/buckets/{bucket}/media/protection", onBucket(policy.ActionAdminGetBucketMedia), h.getProtection},
+		{http.MethodPut, "/buckets/{bucket}/media/protection", onBucket(policy.ActionAdminSetBucketMedia), h.putProtection},
 	}
 }
 
@@ -195,4 +197,62 @@ func (h *mediaRoutes) reprocess(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// MediaProtectionBody is the download protection of the videos of a
+// bucket, the body of GET and PUT /buckets/{bucket}/media/protection
+// (docs/proposals/video-protection.md).
+type MediaProtectionBody struct {
+	Enabled bool `json:"enabled"`
+	// Prefix limits the protection to the keys under it.
+	Prefix string `json:"prefix,omitempty"`
+	// Suffixes of the protected videos (default .mp4, .mov, .m4v).
+	Suffixes []string `json:"suffixes,omitempty"`
+	// TokenTTLSeconds is the longest validity of a playback token.
+	TokenTTLSeconds int `json:"tokenTtlSeconds,omitempty"`
+	// MaxSessions is the number of simultaneous streams of a viewer (-1:
+	// no limit).
+	MaxSessions int `json:"maxSessions,omitempty"`
+	// PaceFactor bounds the keys of a stream to this many times the pace
+	// of playback.
+	PaceFactor int `json:"paceFactor,omitempty"`
+	// Watermark draws the viewer's watermark in the player.
+	Watermark bool `json:"watermark"`
+	// AllowedOrigins may embed the player and fetch the keys (empty: any).
+	AllowedOrigins []string `json:"allowedOrigins"`
+	// ShareLinks lets the stream share links play the protected videos.
+	ShareLinks bool `json:"shareLinks"`
+}
+
+func newMediaProtectionBody(p *domain.MediaProtection) MediaProtectionBody {
+	return MediaProtectionBody{Enabled: p.Enabled, Prefix: p.Prefix, Suffixes: p.Suffixes, TokenTTLSeconds: p.TokenTTLSeconds,
+		MaxSessions: p.MaxSessions, PaceFactor: p.PaceFactor, Watermark: !p.NoWatermark,
+		AllowedOrigins: nonNil(p.AllowedOrigins), ShareLinks: p.ShareLinks}
+}
+
+func (h *mediaRoutes) getProtection(w http.ResponseWriter, r *http.Request) {
+	p, err := h.deps.Media.GetProtection(r.Context(), bucketName(r))
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	h.deps.Enc.WriteJSON(w, http.StatusOK, newMediaProtectionBody(p))
+}
+
+func (h *mediaRoutes) putProtection(w http.ResponseWriter, r *http.Request) {
+	in := MediaProtectionBody{Watermark: true}
+	if err := decodeJSON(h.deps.Enc, r, &in, false); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	p, err := h.deps.Media.SetProtection(r.Context(), bucketName(r), domain.MediaProtection{
+		Enabled: in.Enabled, Prefix: in.Prefix, Suffixes: in.Suffixes, TokenTTLSeconds: in.TokenTTLSeconds,
+		MaxSessions: in.MaxSessions, PaceFactor: in.PaceFactor, NoWatermark: !in.Watermark,
+		AllowedOrigins: in.AllowedOrigins, ShareLinks: in.ShareLinks,
+	})
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	h.deps.Enc.WriteJSON(w, http.StatusOK, newMediaProtectionBody(p))
 }

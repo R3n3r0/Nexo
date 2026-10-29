@@ -1015,6 +1015,12 @@ type MediaManager interface {
 	// Reprocess queues a job deriving the outputs of a version of a video
 	// again ("" is the latest version).
 	Reprocess(ctx context.Context, bucket, key, versionID string) error
+	// GetProtection returns the download protection of the videos of a
+	// bucket (disabled when never set), with its defaults.
+	GetProtection(ctx context.Context, bucket string) (*domain.MediaProtection, error)
+	// SetProtection validates (domain.ErrInvalidArgument), stores and
+	// returns the protection of a bucket, normalized.
+	SetProtection(ctx context.Context, bucket string, p domain.MediaProtection) (*domain.MediaProtection, error)
 }
 
 // --- proxied uploads -----------------------------------------------------

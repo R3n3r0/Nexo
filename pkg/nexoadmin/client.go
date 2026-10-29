@@ -121,6 +121,11 @@ type AdminClient interface {
 	// (state "none" when the media worker never processed it; versionID ""
 	// is the latest version; s3:GetObject).
 	GetMediaStatus(ctx context.Context, bucket, key, versionID string) (*MediaStatus, error)
+	// GetMediaProtection returns the download protection of the videos of
+	// a bucket (disabled when never set); SetMediaProtection stores it
+	// normalized (admin:GetBucketMedia, admin:SetBucketMedia).
+	GetMediaProtection(ctx context.Context, bucket string) (*MediaProtection, error)
+	SetMediaProtection(ctx context.Context, bucket string, p MediaProtection) (*MediaProtection, error)
 	// ListSubtitles returns the subtitle tracks of a video that apply to
 	// its content; GetSubtitles a track and its cues, ExportSubtitles the
 	// document of a track (format vtt or srt); PutSubtitles stores a

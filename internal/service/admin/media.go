@@ -124,3 +124,25 @@ func (m *mediaManager) Reprocess(ctx context.Context, name, key, versionID strin
 	m.deps.Logger.InfoContext(ctx, "admin: media reprocessing queued", "bucket", name, "key", key, "version", versionID)
 	return nil
 }
+
+// GetProtection implements MediaManager.
+func (m *mediaManager) GetProtection(ctx context.Context, name string) (*domain.MediaProtection, error) {
+	p, err := m.deps.Buckets.GetMediaProtection(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	// The defaults of a protection never set.
+	if err := p.Validate(); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// SetProtection implements MediaManager.
+func (m *mediaManager) SetProtection(ctx context.Context, name string, p domain.MediaProtection) (*domain.MediaProtection, error) {
+	if err := m.deps.Buckets.SetMediaProtection(ctx, name, p); err != nil {
+		return nil, err
+	}
+	m.deps.Logger.InfoContext(ctx, "admin: media protection set", "bucket", name, "enabled", p.Enabled)
+	return m.GetProtection(ctx, name)
+}

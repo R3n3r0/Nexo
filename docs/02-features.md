@@ -46,6 +46,7 @@ feature has at least one test. P2 features delivered early in v1.0 are marked "P
 | S-OBJ-14 | Transparent compression (S2) for configured content types | P2 |
 | S-OBJ-15 | GetObjectAttributes (brought forward to M7) | P1 |
 | S-OBJ-16 | SelectObjectContent (CSV/JSON/Parquet) | P2 |
+| S-OBJ-17 | Protected video streaming: HLS AES-128 encryption, playback tokens, simultaneous streams and pace limits, viewer watermark, original download refused (see [proposal](proposals/video-protection.md)) | P2 |
 
 ### Access rules, domains and distributions
 

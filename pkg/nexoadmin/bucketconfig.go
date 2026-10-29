@@ -512,3 +512,45 @@ func (c *client) GetObjectAttributes(ctx context.Context, bucket, key string, op
 	var out ObjectAttributes
 	return &out, c.do(ctx, request{method: http.MethodGet, path: pathOf("buckets", bucket, "objects", "attributes"), query: q}, &out)
 }
+
+// MediaProtection is the download protection of the videos of a bucket:
+// a protected video streams encrypted, its keys go only to a playback
+// token of the video, and its original cannot be downloaded without
+// nexo:DownloadProtectedMedia.
+type MediaProtection struct {
+	Enabled bool `json:"enabled"`
+	// Prefix limits the protection to the keys under it.
+	Prefix string `json:"prefix,omitempty"`
+	// Suffixes of the protected videos (default .mp4, .mov, .m4v).
+	Suffixes []string `json:"suffixes,omitempty"`
+	// TokenTTLSeconds is the longest validity of a playback token
+	// (default 7200).
+	TokenTTLSeconds int `json:"tokenTtlSeconds,omitempty"`
+	// MaxSessions is the number of simultaneous streams of a viewer
+	// (default 2; -1 for no limit).
+	MaxSessions int `json:"maxSessions,omitempty"`
+	// PaceFactor bounds the keys of a stream to this many times the pace
+	// of playback (default 2).
+	PaceFactor int `json:"paceFactor,omitempty"`
+	// Watermark draws the viewer's watermark in the player.
+	Watermark bool `json:"watermark"`
+	// AllowedOrigins may embed the player and fetch the keys (empty: any).
+	AllowedOrigins []string `json:"allowedOrigins"`
+	// ShareLinks lets the stream share links play the protected videos.
+	ShareLinks bool `json:"shareLinks"`
+}
+
+// GetMediaProtection implements AdminClient.
+func (c *client) GetMediaProtection(ctx context.Context, bucket string) (*MediaProtection, error) {
+	var out MediaProtection
+	return &out, c.do(ctx, request{method: http.MethodGet, path: pathOf("buckets", bucket, "media", "protection")}, &out)
+}
+
+// SetMediaProtection implements AdminClient.
+func (c *client) SetMediaProtection(ctx context.Context, bucket string, p MediaProtection) (*MediaProtection, error) {
+	if p.AllowedOrigins == nil {
+		p.AllowedOrigins = []string{}
+	}
+	var out MediaProtection
+	return &out, c.do(ctx, request{method: http.MethodPut, path: pathOf("buckets", bucket, "media", "protection"), body: p}, &out)
+}

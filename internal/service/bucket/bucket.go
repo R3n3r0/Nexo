@@ -695,6 +695,30 @@ func (s *service) DeleteMedia(ctx context.Context, name string) error {
 	})
 }
 
+// GetMediaProtection implements Service.
+func (s *service) GetMediaProtection(ctx context.Context, name string) (domain.MediaProtection, error) {
+	m, err := s.load(ctx, name)
+	if err != nil {
+		return domain.MediaProtection{}, err
+	}
+	if m.MediaProtection == nil {
+		return domain.MediaProtection{}, nil
+	}
+	return m.MediaProtection.Clone(), nil
+}
+
+// SetMediaProtection implements Service.
+func (s *service) SetMediaProtection(ctx context.Context, name string, p domain.MediaProtection) error {
+	p = p.Clone()
+	if err := p.Validate(); err != nil {
+		return err
+	}
+	return s.update(ctx, name, func(m *Metadata) error {
+		m.MediaProtection = &p
+		return nil
+	})
+}
+
 // GetNotification implements Service. A bucket without configuration
 // yields an empty NotificationConfiguration document, as S3 does.
 func (s *service) GetNotification(ctx context.Context, name string) ([]byte, error) {
