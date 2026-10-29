@@ -43,6 +43,9 @@
   suites, on one drive, several drives and in a cluster: your SDKs, `aws`, `rclone` and backup tools just work.
 - **Your videos play the moment they land.** An uploaded MP4 streams as HLS straight away, and a media worker
   can add every quality from 240p to 4K, a poster and seek-bar thumbnails, with no ffmpeg anywhere.
+- **Videos that cannot be downloaded, with no DRM vendor.** For courses and members' areas: encrypted streams,
+  playback tokens per viewer, a limit on simultaneous streams, a moving watermark with the viewer's name, and the
+  original locked. One switch in the console ([protected videos](#-protected-videos)).
 - **Every photo in the format and size each screen needs.** The same worker turns every uploaded image into
   AVIF, WebP, JPEG and PNG at every width, and one URL serves the most compact one the browser accepts, on the
   S3 endpoint or on your own domain.
@@ -122,7 +125,8 @@ replacement, expansion with new pools.
 
 ### 🔐 Security
 IAM users, groups and policies, access keys with expiry, STS, access rules with glob and regex, revocable
-share links, TLS with hot reload, mTLS between nodes, built-in KMS or KES, audit log.
+share links, TLS with hot reload, mTLS between nodes, built-in KMS or KES, audit log,
+[protected videos](#-protected-videos). Report a vulnerability: [SECURITY.md](SECURITY.md).
 
 </td>
 <td width="50%" valign="top">
@@ -130,7 +134,8 @@ share links, TLS with hot reload, mTLS between nodes, built-in KMS or KES, audit
 ### 🎬 Video and images
 MP4 videos stream as HLS packaged on the fly, with revocable stream links and a public player page. The media
 worker adds renditions, posters and thumbnails ([video](#-video-built-in)), and every image in AVIF, WebP,
-JPEG and PNG at every width ([images](#%EF%B8%8F-images-in-every-format)).
+JPEG and PNG at every width ([images](#%EF%B8%8F-images-in-every-format)). Paid content plays encrypted and
+cannot be downloaded ([protected videos](#-protected-videos)).
 
 </td>
 </tr>
@@ -164,11 +169,7 @@ qualities for slow networks (240p to 2160p, offered by the same playlist), a pos
 seek bar. The worker is a separate Go program built on Cisco's OpenH264, **no ffmpeg**, that works through the S3
 API with a least-privilege policy and never loses a job.
 
-**Protected videos** for course platforms and members' areas, with no DRM vendor: the segments stream encrypted
-(AES-128), the keys go only to short-lived playback tokens your application issues per viewer — at playback pace,
-to a bounded number of simultaneous streams — the original cannot be downloaded, and the player draws the viewer's
-moving watermark. Any HLS player works; a small [JavaScript SDK](sdk/js) (`<nexo-player>`, React, Angular, Vue,
-Node.js backends) makes it one line. See [video protection](docs/user/video-protection.md).
+Videos that only your users may watch, and nobody may download: see [protected videos](#-protected-videos).
 
 <p align="center">
   <img src="docs/images/video-pipeline.svg" alt="The video pipeline: an MP4 uploaded to Nexo streams as HLS at once; a media rule sends a job to nexo-media-worker, which writes back renditions, a poster and thumbnails that the playlist then offers" width="960">
@@ -217,6 +218,42 @@ nexoctl media status local/videos/intro.mp4
 Every job uses all the cores: the video is split at its keyframes and each part is decoded and encoded on its
 own core, with the same result byte for byte. Details: [video streaming](docs/user/video-streaming.md),
 [media worker](docs/user/media-worker.md), [benchmarks](docs/bench/media.md).
+
+## 🔒 Protected videos
+
+For course platforms, members' areas and paid content: videos your users can watch but **not download**, with
+**no DRM vendor and no license server**. Everything runs inside Nexo, and you switch it on per bucket from the
+console (bucket → **Media** → *Video protection*) or with `nexoctl media protection set`.
+
+| Threat | What Nexo does |
+|---|---|
+| Downloading the file | The original is refused to everyone without `nexo:DownloadProtectedMedia`: S3 GET, copy, select, console, zip archives and distributions |
+| Saving the stream with a downloader | The segments are encrypted (HLS AES-128, a new key every 10 segments); keys are released only at playback pace, so a downloader gets `429` and saves noise |
+| Sharing the link | The link holds a short-lived playback token your application issues per viewer; it expires, it can be revoked per session or per viewer, and keys can be restricted to your site's origin |
+| Sharing the account | At most N simultaneous streams per viewer: a newer stream replaces the oldest one, on every node of a cluster |
+| Recording the screen | Cannot be prevented without commercial DRM: the player draws a **moving watermark** with the viewer's name or email, so a leaked copy names its source |
+
+```js
+// your backend (Node.js, Deno, Bun): one token per logged-in viewer
+import { createNexoClient } from '@nexo-storage/player/server';
+const nexo = createNexoClient({ endpoint: 'https://nexo.example.com:9001', accessKey, secretKey });
+const { playlist } = await nexo.issuePlaybackToken({
+  bucket: 'lms', key: 'courses/intro.mp4', subject: String(user.id), watermark: user.email,
+});
+```
+
+```html
+<!-- your page: any HLS player works; this one also draws the watermark -->
+<script type="module">
+  import { defineNexoPlayer } from 'https://nexo.example.com:9000/nexo/media/sdk/index.js';
+  defineNexoPlayer();
+</script>
+<nexo-player src="PLAYLIST_URL"></nexo-player>
+```
+
+**No special player is needed**: a protected video is standard HLS, playable by Safari, hls.js, Video.js, Shaka,
+ExoPlayer or VLC with the playlist URL alone. The small [JavaScript SDK](sdk/js) (`<nexo-player>`, React, Angular,
+Vue, Node.js backends) only makes it shorter. Guide: [video protection](docs/user/video-protection.md).
 
 ## 🖼️ Images in every format
 
@@ -379,6 +416,7 @@ from a release archive):
 | 🔐 [Security](docs/user/security/users-policies.md) | policies, sharing, access rules, TLS, KMS |
 | 🌍 [Distributions and cache](docs/user/distributions/README.md) | custom domains, with a complete [tutorial](docs/user/distributions/tutorial-static-site.md) |
 | 🎬 [Video and images](docs/user/video-streaming.md) | HLS streaming, stream links and the [media worker](docs/user/media-worker.md): renditions, posters, thumbnails and [images in every format](docs/user/media-worker.md#images-every-format-and-width) |
+| 🔒 [Video protection](docs/user/video-protection.md) | encrypted streams, playback tokens, watermark, the [JavaScript SDK](sdk/js) for web pages and backends |
 | 📘 [Reference](docs/user/reference/cli.md) | CLI, [Admin API](docs/user/reference/admin-api.md), [S3 compatibility](docs/user/reference/s3-compatibility.md) |
 
 `make docs-site` publishes it as a static site with MkDocs (in `bin/site`, in English and in Italian under `/it/`).
