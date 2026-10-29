@@ -270,7 +270,7 @@ per restringerla ancora): legge i video e scrive solo sotto `.nexo-media/`.
 {
   "Version": "2012-10-17",
   "Statement": [
-    {"Effect": "Allow", "Action": ["s3:GetObject", "s3:GetObjectVersion"], "Resource": ["arn:aws:s3:::*/*"]},
+    {"Effect": "Allow", "Action": ["s3:GetObject", "s3:GetObjectVersion", "nexo:DownloadProtectedMedia"], "Resource": ["arn:aws:s3:::*/*"]},
     {"Effect": "Allow", "Action": ["s3:PutObject", "s3:DeleteObject", "s3:DeleteObjectVersion"],
      "Resource": ["arn:aws:s3:::*/.nexo-media/*"]},
     {"Effect": "Allow", "Action": ["s3:ListBucket", "s3:ListBucketVersions"], "Resource": ["arn:aws:s3:::*"],

@@ -112,6 +112,7 @@ import type {
   LifecycleConfiguration,
   ListObjectsQuery,
   MediaConfiguration,
+  MediaProtection,
   MediaReprocessRequest,
   SubtitleCue,
   SubtitleCues,
@@ -446,6 +447,17 @@ export interface MediaService {
     format: SubtitleFormat,
     versionId?: string,
   ): string;
+  /**
+   * The download protection of the videos of the bucket, its defaults
+   * filled (off when never set).
+   */
+  getProtection(bucket: string): Promise<MediaProtection>;
+  /**
+   * Replaces the protection (0 or absent fields take the defaults);
+   * resolves to the protection as stored. A rejected one fails with
+   * invalid_argument.
+   */
+  setProtection(bucket: string, protection: MediaProtection): Promise<MediaProtection>;
 }
 
 /** KMS of the server-side encryption (/kms). */

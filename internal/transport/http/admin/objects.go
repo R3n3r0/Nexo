@@ -481,7 +481,7 @@ func (h *objectRoutes) preview(w http.ResponseWriter, r *http.Request) { h.serve
 // previews of safe types (adminsvc.ObjectBrowser.Open decides).
 func (h *objectRoutes) serve(w http.ResponseWriter, r *http.Request, preview bool) {
 	q := r.URL.Query()
-	in := adminsvc.OpenInput{Bucket: bucketName(r), Key: q.Get("key"), VersionID: q.Get("versionId"), Preview: preview}
+	in := adminsvc.OpenInput{Bucket: bucketName(r), Key: q.Get("key"), VersionID: q.Get("versionId"), Preview: preview, Requester: requesterOf(r)}
 	if spec := r.Header.Get("Range"); spec != "" {
 		rng, err := domain.ParseRange(spec)
 		if err != nil {

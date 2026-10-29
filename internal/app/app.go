@@ -48,6 +48,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/media"
 	"github.com/r3n3r0/nexo/internal/service/metrics"
 	"github.com/r3n3r0/nexo/internal/service/object"
+	"github.com/r3n3r0/nexo/internal/service/playback"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	poolsvc "github.com/r3n3r0/nexo/internal/service/pools"
 	"github.com/r3n3r0/nexo/internal/service/ratelimit"
@@ -750,6 +751,8 @@ type adminDeps struct {
 	buckets  bucket.Service
 	objects  object.Service
 	media    media.Service
+	// playback issues and revokes the playback tokens of the videos.
+	playback playback.Service
 	shares   share.Service
 	config   configsvc.Service
 	// locks exposes the namespace locks of the deployment (diagnostics).
@@ -850,7 +853,7 @@ func buildAdminServices(d adminDeps) (adminServices, error) {
 		AccessRules: d.accessRules, Logger: d.logger}); err != nil {
 		return out, err
 	}
-	if out.browser, err = adminsvc.NewObjectBrowser(adminsvc.ObjectBrowserDeps{Objects: d.objects, Authz: out.authz, Clock: d.clock, Logger: d.logger}); err != nil {
+	if out.browser, err = adminsvc.NewObjectBrowser(adminsvc.ObjectBrowserDeps{Objects: d.objects, Authz: out.authz, Protections: d.buckets, Clock: d.clock, Logger: d.logger}); err != nil {
 		return out, err
 	}
 	if out.uploads, err = adminsvc.NewUploadManager(adminsvc.UploadManagerDeps{Objects: d.objects, Logger: d.logger}); err != nil {
@@ -973,7 +976,7 @@ func buildAdminAPI(d adminDeps) (httpx.Routes, error) {
 	if err != nil {
 		return nil, err
 	}
-	mediaRoutes, err := adminhttp.NewMediaRoutes(adminhttp.MediaDeps{Media: svc.media, Authz: svc.authz, Enc: d.codec})
+	mediaRoutes, err := adminhttp.NewMediaRoutes(adminhttp.MediaDeps{Media: svc.media, Authz: svc.authz, Playback: d.playback, ServerURL: d.s3URL, Enc: d.codec})
 	if err != nil {
 		return nil, err
 	}

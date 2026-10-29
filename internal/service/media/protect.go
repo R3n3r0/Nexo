@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/r3n3r0/nexo/internal/domain"
 )
@@ -134,4 +135,14 @@ func (s *service) Periods(ctx context.Context, src Source) (int, error) {
 		return 0, err
 	}
 	return periods(len(c.p.segments)), nil
+}
+
+// PeriodLength returns the duration of a key period of a presentation:
+// that of its KeyPeriod segments (the last period may be shorter).
+func PeriodLength(p *Presentation, period int) time.Duration {
+	var d time.Duration
+	for i := period * KeyPeriod; i >= 0 && i < len(p.Segments) && i < (period+1)*KeyPeriod; i++ {
+		d += p.Segments[i]
+	}
+	return d
 }

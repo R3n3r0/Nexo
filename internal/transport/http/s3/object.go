@@ -64,7 +64,11 @@ func newObjectRoutes(deps ObjectDeps, opts ...Option) *objectRoutes {
 	if deps.Logger == nil {
 		deps.Logger = slog.Default()
 	}
-	return &objectRoutes{deps: deps, opts: newOptions(opts), authz: authorizer{policy: deps.Policy, enc: deps.Enc, clock: deps.Clock, objects: deps.Objects}}
+	authz := authorizer{policy: deps.Policy, enc: deps.Enc, clock: deps.Clock, objects: deps.Objects}
+	if deps.Media != nil {
+		authz.media = deps.Media
+	}
+	return &objectRoutes{deps: deps, opts: newOptions(opts), authz: authz}
 }
 
 // available reports whether the services the handlers need are wired.
@@ -212,6 +216,7 @@ func (h *objectRoutes) copyObject(w http.ResponseWriter, r *http.Request) {
 	}
 	readAction := ActionOf("GetObject", srcVersion != "")
 	if !h.authz.authorizeVersion(w, r, readAction, srcBucket, srcKey, srcVersion, nil) ||
+		!h.authz.authorizeDownload(w, r, srcBucket, srcKey, srcVersion) ||
 		!h.authz.authorizeAction(w, r, policy.ActionPutObject, dstBucket, dstKey) {
 		return
 	}
@@ -339,6 +344,9 @@ func (h *objectRoutes) getObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if imageQueried(r.URL.Query()) && h.objectImage(w, r, bucketName, key) {
+		return
+	}
+	if !h.authz.authorizeDownload(w, r, bucketName, key, r.URL.Query().Get("versionId")) {
 		return
 	}
 	opts, err := getOptions(r, h.opts.insecureSSEC)

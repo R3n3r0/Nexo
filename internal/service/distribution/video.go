@@ -287,6 +287,10 @@ func (w *website) videoError(ctx context.Context, c *compiledDistribution, req W
 		return w.plain(http.StatusPreconditionFailed, "the video changed: reload the master playlist", OutcomeError)
 	case errors.Is(err, domain.ErrSSECustomerKeyRequired):
 		return w.errorPage(ctx, c, req, http.StatusForbidden, "SSE-C videos cannot be streamed")
+	case errors.Is(err, domain.ErrAccessDenied):
+		// A protected video plays on the S3 listener, with a playback
+		// token.
+		return w.errorPage(ctx, c, req, http.StatusForbidden, "protected video: it plays with a playback token")
 	case errors.Is(err, media.ErrUnsupported):
 		return w.plain(http.StatusUnsupportedMediaType, "the video cannot be streamed: "+err.Error(), OutcomeError)
 	case errors.Is(err, domain.ErrInvalidArgument):

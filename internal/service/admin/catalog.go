@@ -64,7 +64,7 @@ func catalog() []catalogEntry {
 	out = append(out, scoped(scopeBucket,
 		policy.ActionAdminManageAccessRules,
 		policy.ActionAdminGetBucketQuota, policy.ActionAdminSetBucketQuota,
-		policy.ActionAdminGetBucketMedia, policy.ActionAdminSetBucketMedia,
+		policy.ActionAdminGetBucketMedia, policy.ActionAdminSetBucketMedia, policy.ActionAdminRevokePlaybackTokens,
 		policy.ActionDeleteBucket, policy.ActionForceDeleteBucket, policy.ActionListBucket,
 		policy.ActionListBucketVersions, policy.ActionListMultipart,
 		policy.ActionGetBucketPolicy, policy.ActionPutBucketPolicy, policy.ActionDeleteBucketPolicy,
@@ -88,7 +88,7 @@ func catalog() []catalogEntry {
 		policy.ActionGetObjectLegalHold, policy.ActionPutObjectLegalHold,
 		policy.ActionBypassGovernanceRetention,
 		policy.ActionGetObjectAttributes, policy.ActionGetObjectVersionAttributes,
-		policy.ActionGetMediaStream,
+		policy.ActionGetMediaStream, policy.ActionIssuePlaybackToken, policy.ActionDownloadProtectedMedia,
 	)...)
 	return out
 }

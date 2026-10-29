@@ -8,6 +8,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/domain"
 	adminsvc "github.com/r3n3r0/nexo/internal/service/admin"
+	"github.com/r3n3r0/nexo/internal/service/playback"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 )
@@ -23,7 +24,13 @@ type MediaDeps struct {
 	Media adminsvc.MediaManager
 	// Authz authorizes the routes (required).
 	Authz adminsvc.Authorizer
-	Enc   httpx.Codec
+	// Playback issues and revokes the playback tokens (optional: the token
+	// routes answer 404 without it).
+	Playback playback.Service
+	// ServerURL is the public URL of the S3 listener, which serves the
+	// playlists and the player of the tokens ("" answers paths only).
+	ServerURL string
+	Enc       httpx.Codec
 }
 
 // MediaOption configures the media routes.
@@ -62,6 +69,11 @@ func (h *mediaRoutes) routes() []route {
 		{http.MethodPost, "/buckets/{bucket}/media/reprocess", onBucket(policy.ActionAdminSetBucketMedia), h.reprocess},
 		{http.MethodGet, "/buckets/{bucket}/media/protection", onBucket(policy.ActionAdminGetBucketMedia), h.getProtection},
 		{http.MethodPut, "/buckets/{bucket}/media/protection", onBucket(policy.ActionAdminSetBucketMedia), h.putProtection},
+		// Playback tokens: issued for a video (?key=&versionId=), revoked
+		// one by one or by viewer.
+		{http.MethodPost, "/buckets/{bucket}/objects/playback-tokens", onObject(policy.ActionIssuePlaybackToken), h.issueToken},
+		{http.MethodDelete, "/buckets/{bucket}/media/playback-sessions/{session}", onBucket(policy.ActionAdminRevokePlaybackTokens), h.revokeSession},
+		{http.MethodDelete, "/buckets/{bucket}/media/playback-subjects/{subject}", onBucket(policy.ActionAdminRevokePlaybackTokens), h.revokeSubject},
 	}
 }
 

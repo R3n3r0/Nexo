@@ -164,6 +164,12 @@ qualities for slow networks (240p to 2160p, offered by the same playlist), a pos
 seek bar. The worker is a separate Go program built on Cisco's OpenH264, **no ffmpeg**, that works through the S3
 API with a least-privilege policy and never loses a job.
 
+**Protected videos** for course platforms and members' areas, with no DRM vendor: the segments stream encrypted
+(AES-128), the keys go only to short-lived playback tokens your application issues per viewer — at playback pace,
+to a bounded number of simultaneous streams — the original cannot be downloaded, and the player draws the viewer's
+moving watermark. Any HLS player works; a small [JavaScript SDK](sdk/js) (`<nexo-player>`, React, Angular, Vue,
+Node.js backends) makes it one line. See [video protection](docs/user/video-protection.md).
+
 <p align="center">
   <img src="docs/images/video-pipeline.svg" alt="The video pipeline: an MP4 uploaded to Nexo streams as HLS at once; a media rule sends a job to nexo-media-worker, which writes back renditions, a poster and thumbnails that the playlist then offers" width="960">
 </p>
@@ -431,6 +437,10 @@ You need Go (the version in `go.mod`) and, for the console, Node.js.
 The code follows the convention of [docs/12](docs/12-service-architecture.md): every service has
 an interface and an unexported implementation, and composition happens only in `internal/app`.
 Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## ✉️ Contact
+
+Questions, commercial licenses, partnerships: <paolorusso1991@gmail.com>. Security problems: see [SECURITY.md](SECURITY.md).
 
 ## 📄 License
 

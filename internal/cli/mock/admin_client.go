@@ -3648,6 +3648,65 @@ func (_c *AdminClient_GetKeyGroup_Call) RunAndReturn(run func(context.Context, s
 	return _c
 }
 
+// GetMediaProtection provides a mock function with given fields: ctx, bucket
+func (_m *AdminClient) GetMediaProtection(ctx context.Context, bucket string) (*nexoadmin.MediaProtection, error) {
+	ret := _m.Called(ctx, bucket)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetMediaProtection")
+	}
+
+	var r0 *nexoadmin.MediaProtection
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (*nexoadmin.MediaProtection, error)); ok {
+		return rf(ctx, bucket)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string) *nexoadmin.MediaProtection); ok {
+		r0 = rf(ctx, bucket)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.MediaProtection)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, bucket)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_GetMediaProtection_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetMediaProtection'
+type AdminClient_GetMediaProtection_Call struct {
+	*mock.Call
+}
+
+// GetMediaProtection is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+func (_e *AdminClient_Expecter) GetMediaProtection(ctx interface{}, bucket interface{}) *AdminClient_GetMediaProtection_Call {
+	return &AdminClient_GetMediaProtection_Call{Call: _e.mock.On("GetMediaProtection", ctx, bucket)}
+}
+
+func (_c *AdminClient_GetMediaProtection_Call) Run(run func(ctx context.Context, bucket string)) *AdminClient_GetMediaProtection_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_GetMediaProtection_Call) Return(_a0 *nexoadmin.MediaProtection, _a1 error) *AdminClient_GetMediaProtection_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_GetMediaProtection_Call) RunAndReturn(run func(context.Context, string) (*nexoadmin.MediaProtection, error)) *AdminClient_GetMediaProtection_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetMediaStatus provides a mock function with given fields: ctx, bucket, key, versionID
 func (_m *AdminClient) GetMediaStatus(ctx context.Context, bucket string, key string, versionID string) (*nexoadmin.MediaStatus, error) {
 	ret := _m.Called(ctx, bucket, key, versionID)
@@ -4406,6 +4465,68 @@ func (_c *AdminClient_InvalidateCache_Call) Return(_a0 *nexoadmin.CacheInvalidat
 }
 
 func (_c *AdminClient_InvalidateCache_Call) RunAndReturn(run func(context.Context, string, nexoadmin.CacheInvalidationRequest) (*nexoadmin.CacheInvalidation, error)) *AdminClient_InvalidateCache_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// IssuePlaybackToken provides a mock function with given fields: ctx, bucket, key, versionID, req
+func (_m *AdminClient) IssuePlaybackToken(ctx context.Context, bucket string, key string, versionID string, req nexoadmin.PlaybackTokenRequest) (*nexoadmin.PlaybackToken, error) {
+	ret := _m.Called(ctx, bucket, key, versionID, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for IssuePlaybackToken")
+	}
+
+	var r0 *nexoadmin.PlaybackToken
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, nexoadmin.PlaybackTokenRequest) (*nexoadmin.PlaybackToken, error)); ok {
+		return rf(ctx, bucket, key, versionID, req)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, nexoadmin.PlaybackTokenRequest) *nexoadmin.PlaybackToken); ok {
+		r0 = rf(ctx, bucket, key, versionID, req)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.PlaybackToken)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, nexoadmin.PlaybackTokenRequest) error); ok {
+		r1 = rf(ctx, bucket, key, versionID, req)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_IssuePlaybackToken_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IssuePlaybackToken'
+type AdminClient_IssuePlaybackToken_Call struct {
+	*mock.Call
+}
+
+// IssuePlaybackToken is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - key string
+//   - versionID string
+//   - req nexoadmin.PlaybackTokenRequest
+func (_e *AdminClient_Expecter) IssuePlaybackToken(ctx interface{}, bucket interface{}, key interface{}, versionID interface{}, req interface{}) *AdminClient_IssuePlaybackToken_Call {
+	return &AdminClient_IssuePlaybackToken_Call{Call: _e.mock.On("IssuePlaybackToken", ctx, bucket, key, versionID, req)}
+}
+
+func (_c *AdminClient_IssuePlaybackToken_Call) Run(run func(ctx context.Context, bucket string, key string, versionID string, req nexoadmin.PlaybackTokenRequest)) *AdminClient_IssuePlaybackToken_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(nexoadmin.PlaybackTokenRequest))
+	})
+	return _c
+}
+
+func (_c *AdminClient_IssuePlaybackToken_Call) Return(_a0 *nexoadmin.PlaybackToken, _a1 error) *AdminClient_IssuePlaybackToken_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_IssuePlaybackToken_Call) RunAndReturn(run func(context.Context, string, string, string, nexoadmin.PlaybackTokenRequest) (*nexoadmin.PlaybackToken, error)) *AdminClient_IssuePlaybackToken_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -6521,6 +6642,102 @@ func (_c *AdminClient_RevokeAllShares_Call) RunAndReturn(run func(context.Contex
 	return _c
 }
 
+// RevokePlaybackSession provides a mock function with given fields: ctx, bucket, sessionID
+func (_m *AdminClient) RevokePlaybackSession(ctx context.Context, bucket string, sessionID string) error {
+	ret := _m.Called(ctx, bucket, sessionID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RevokePlaybackSession")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, bucket, sessionID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_RevokePlaybackSession_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RevokePlaybackSession'
+type AdminClient_RevokePlaybackSession_Call struct {
+	*mock.Call
+}
+
+// RevokePlaybackSession is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - sessionID string
+func (_e *AdminClient_Expecter) RevokePlaybackSession(ctx interface{}, bucket interface{}, sessionID interface{}) *AdminClient_RevokePlaybackSession_Call {
+	return &AdminClient_RevokePlaybackSession_Call{Call: _e.mock.On("RevokePlaybackSession", ctx, bucket, sessionID)}
+}
+
+func (_c *AdminClient_RevokePlaybackSession_Call) Run(run func(ctx context.Context, bucket string, sessionID string)) *AdminClient_RevokePlaybackSession_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_RevokePlaybackSession_Call) Return(_a0 error) *AdminClient_RevokePlaybackSession_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_RevokePlaybackSession_Call) RunAndReturn(run func(context.Context, string, string) error) *AdminClient_RevokePlaybackSession_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RevokePlaybackSubject provides a mock function with given fields: ctx, bucket, subject
+func (_m *AdminClient) RevokePlaybackSubject(ctx context.Context, bucket string, subject string) error {
+	ret := _m.Called(ctx, bucket, subject)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RevokePlaybackSubject")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, bucket, subject)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// AdminClient_RevokePlaybackSubject_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RevokePlaybackSubject'
+type AdminClient_RevokePlaybackSubject_Call struct {
+	*mock.Call
+}
+
+// RevokePlaybackSubject is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - subject string
+func (_e *AdminClient_Expecter) RevokePlaybackSubject(ctx interface{}, bucket interface{}, subject interface{}) *AdminClient_RevokePlaybackSubject_Call {
+	return &AdminClient_RevokePlaybackSubject_Call{Call: _e.mock.On("RevokePlaybackSubject", ctx, bucket, subject)}
+}
+
+func (_c *AdminClient_RevokePlaybackSubject_Call) Run(run func(ctx context.Context, bucket string, subject string)) *AdminClient_RevokePlaybackSubject_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *AdminClient_RevokePlaybackSubject_Call) Return(_a0 error) *AdminClient_RevokePlaybackSubject_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *AdminClient_RevokePlaybackSubject_Call) RunAndReturn(run func(context.Context, string, string) error) *AdminClient_RevokePlaybackSubject_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // RevokeShare provides a mock function with given fields: ctx, id
 func (_m *AdminClient) RevokeShare(ctx context.Context, id string) error {
 	ret := _m.Called(ctx, id)
@@ -7342,6 +7559,66 @@ func (_c *AdminClient_SetDistributionCache_Call) Return(_a0 *nexoadmin.Distribut
 }
 
 func (_c *AdminClient_SetDistributionCache_Call) RunAndReturn(run func(context.Context, nexoadmin.DistributionCache, string) (*nexoadmin.DistributionCache, error)) *AdminClient_SetDistributionCache_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// SetMediaProtection provides a mock function with given fields: ctx, bucket, p
+func (_m *AdminClient) SetMediaProtection(ctx context.Context, bucket string, p nexoadmin.MediaProtection) (*nexoadmin.MediaProtection, error) {
+	ret := _m.Called(ctx, bucket, p)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetMediaProtection")
+	}
+
+	var r0 *nexoadmin.MediaProtection
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, nexoadmin.MediaProtection) (*nexoadmin.MediaProtection, error)); ok {
+		return rf(ctx, bucket, p)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, nexoadmin.MediaProtection) *nexoadmin.MediaProtection); ok {
+		r0 = rf(ctx, bucket, p)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*nexoadmin.MediaProtection)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, nexoadmin.MediaProtection) error); ok {
+		r1 = rf(ctx, bucket, p)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// AdminClient_SetMediaProtection_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetMediaProtection'
+type AdminClient_SetMediaProtection_Call struct {
+	*mock.Call
+}
+
+// SetMediaProtection is a helper method to define mock.On call
+//   - ctx context.Context
+//   - bucket string
+//   - p nexoadmin.MediaProtection
+func (_e *AdminClient_Expecter) SetMediaProtection(ctx interface{}, bucket interface{}, p interface{}) *AdminClient_SetMediaProtection_Call {
+	return &AdminClient_SetMediaProtection_Call{Call: _e.mock.On("SetMediaProtection", ctx, bucket, p)}
+}
+
+func (_c *AdminClient_SetMediaProtection_Call) Run(run func(ctx context.Context, bucket string, p nexoadmin.MediaProtection)) *AdminClient_SetMediaProtection_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(nexoadmin.MediaProtection))
+	})
+	return _c
+}
+
+func (_c *AdminClient_SetMediaProtection_Call) Return(_a0 *nexoadmin.MediaProtection, _a1 error) *AdminClient_SetMediaProtection_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *AdminClient_SetMediaProtection_Call) RunAndReturn(run func(context.Context, string, nexoadmin.MediaProtection) (*nexoadmin.MediaProtection, error)) *AdminClient_SetMediaProtection_Call {
 	_c.Call.Return(run)
 	return _c
 }

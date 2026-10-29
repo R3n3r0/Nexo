@@ -126,6 +126,14 @@ type AdminClient interface {
 	// normalized (admin:GetBucketMedia, admin:SetBucketMedia).
 	GetMediaProtection(ctx context.Context, bucket string) (*MediaProtection, error)
 	SetMediaProtection(ctx context.Context, bucket string, p MediaProtection) (*MediaProtection, error)
+	// IssuePlaybackToken issues a playback token of a video for a viewer
+	// (nexo:IssuePlaybackToken on the object; versionID "" follows the
+	// current version). RevokePlaybackSession revokes one token by its
+	// session id, RevokePlaybackSubject every token of a viewer of the
+	// bucket (admin:RevokePlaybackTokens).
+	IssuePlaybackToken(ctx context.Context, bucket, key, versionID string, req PlaybackTokenRequest) (*PlaybackToken, error)
+	RevokePlaybackSession(ctx context.Context, bucket, sessionID string) error
+	RevokePlaybackSubject(ctx context.Context, bucket, subject string) error
 	// ListSubtitles returns the subtitle tracks of a video that apply to
 	// its content; GetSubtitles a track and its cues, ExportSubtitles the
 	// document of a track (format vtt or srt); PutSubtitles stores a

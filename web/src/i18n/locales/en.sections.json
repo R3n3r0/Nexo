@@ -1769,7 +1769,41 @@
     "translations": "Translations",
     "translationsHint": "Languages to translate the transcription in (a translation service is needed), at most 20. Press Enter after each one.",
     "subtitlesBadge": "Subtitles {{languages}}",
-    "detected": "auto"
+    "detected": "auto",
+    "protection": {
+      "title": "Video protection",
+      "description": "Protects the videos against downloading: their streaming segments are encrypted (AES-128) and the keys are served only to playback tokens and authorized users, at playback pace, to a limited number of simultaneous streams per viewer. The original file cannot be downloaded without nexo:DownloadProtectedMedia, and the Nexo player draws a watermark of the viewer.",
+      "enabled": "Protect the videos",
+      "enabledHint": "Applies to the videos selected by the prefix and the suffixes below.",
+      "prefixHint": "Only the keys under this prefix; empty for the whole bucket.",
+      "sessions": "Simultaneous streams per viewer",
+      "sessionsHint": "From 1 to 100; a further stream is refused.",
+      "unlimited": "No limit",
+      "origins": "Allowed origins",
+      "originsHint": "Websites allowed to embed the player and fetch the keys, such as https://learn.example.com; any when empty. Press Enter after each one.",
+      "watermark": "Viewer watermark",
+      "watermarkHint": "The Nexo player draws the name of the viewer over the video.",
+      "shareLinks": "Share links play the protected videos",
+      "shareLinksHint": "Stream share links and presigned playlists play them, without watermark or stream limit.",
+      "advanced": "Advanced",
+      "ttl": "Playback token validity (minutes)",
+      "ttlHint": "Longest validity of a playback token, from 1 to 1440 minutes (24 hours); 120 by default.",
+      "pace": "Pace factor",
+      "paceHint": "Keys are served at most this many times faster than playback, from 1 to 20; 2 by default.",
+      "save": "Save protection",
+      "saved": "Video protection saved.",
+      "refused": "The server refused the protection",
+      "issues": {
+        "prefixTooLong": "At most 1024 bytes.",
+        "prefixReserved": "The prefix .nexo-media/ is reserved for the outputs.",
+        "suffix": "Each suffix must have 1-32 characters.",
+        "tokenTtl": "From 1 to 1440 minutes.",
+        "maxSessions": "From 1 to 100 streams.",
+        "paceFactor": "From 1 to 20.",
+        "origins": "At most 32 origins.",
+        "origin": "Each origin must be http(s)://host[:port], without a path."
+      }
+    }
   },
   "bucketReplication": {
     "unavailable": "You cannot read the replication of this bucket.",

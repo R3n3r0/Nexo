@@ -10,6 +10,7 @@ import (
 
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
+	"github.com/r3n3r0/nexo/internal/service/media"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
@@ -22,9 +23,12 @@ import (
 type MultipartDeps struct {
 	Objects object.Service
 	Policy  policy.Service
-	Enc     httpx.Codec
-	Clock   clock.Clock
-	Logger  *slog.Logger
+	// Media names the protected videos, whose original is no copy source
+	// without nexo:DownloadProtectedMedia (optional).
+	Media  media.Service
+	Enc    httpx.Codec
+	Clock  clock.Clock
+	Logger *slog.Logger
 }
 
 type multipartRoutes struct {
@@ -46,7 +50,11 @@ func NewMultipartRoutes(deps MultipartDeps, opts ...Option) MultipartRoutes {
 	if deps.Logger == nil {
 		deps.Logger = slog.Default()
 	}
-	return &multipartRoutes{deps: deps, opts: newOptions(opts), authz: authorizer{policy: deps.Policy, enc: deps.Enc, clock: deps.Clock, objects: deps.Objects}}
+	authz := authorizer{policy: deps.Policy, enc: deps.Enc, clock: deps.Clock, objects: deps.Objects}
+	if deps.Media != nil {
+		authz.media = deps.Media
+	}
+	return &multipartRoutes{deps: deps, opts: newOptions(opts), authz: authz}
 }
 
 func (h *multipartRoutes) operations() map[Operation]http.HandlerFunc {
@@ -222,6 +230,7 @@ func (h *multipartRoutes) copyPart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !h.authz.authorizeVersion(w, r, ActionOf("GetObject", srcVersion != ""), srcBucket, srcKey, srcVersion, nil) ||
+		!h.authz.authorizeDownload(w, r, srcBucket, srcKey, srcVersion) ||
 		!h.authz.authorizeAction(w, r, policy.ActionPutObject, bucketName, key) {
 		return
 	}

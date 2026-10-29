@@ -758,3 +758,46 @@ func TestBrowserRestoreVersion(t *testing.T) {
 		assert.ErrorIs(t, err, domain.ErrInvalidArgument)
 	})
 }
+
+// protections protects the videos under courses/.
+type protections struct{}
+
+func (protections) GetMediaProtection(context.Context, string) (domain.MediaProtection, error) {
+	return domain.MediaProtection{Enabled: true, Prefix: "courses/"}, nil
+}
+
+// TestBrowserProtectedVideos: the original of a protected video is not
+// opened, archived nor moved without nexo:DownloadProtectedMedia; with it,
+// or for the other objects, the browser works as usual.
+//
+// covers: S-OBJ-17
+func TestBrowserProtectedVideos(t *testing.T) {
+	ctx := context.Background()
+	noDownload := allowing(t, func(in admin.AuthorizeInput) bool { return in.Actions[0] != policy.ActionDownloadProtectedMedia })
+	objects := objectmock.NewService(t)
+	b, err := admin.NewObjectBrowser(admin.ObjectBrowserDeps{Objects: objects, Authz: noDownload, Protections: protections{}})
+	require.NoError(t, err)
+
+	_, err = b.Open(ctx, admin.OpenInput{Requester: req("bob"), Bucket: "bkt", Key: "courses/intro.mp4"})
+	require.ErrorIs(t, err, domain.ErrAccessDenied)
+	_, err = b.Zip(ctx, admin.ZipInput{Requester: req("bob"), Bucket: "bkt", Keys: []string{"courses/intro.mp4"}}, func(string) (io.Writer, error) { return io.Discard, nil })
+	require.ErrorIs(t, err, domain.ErrAccessDenied)
+
+	zipObjects(objects, map[string]string{"courses/notes.txt": "N", "courses/intro.mp4": "V"})
+	objects.EXPECT().ListObjects(mock.Anything, domain.ListObjectsInput{Bucket: "bkt", Prefix: "courses/", MaxKeys: 1}).Return(domain.ListObjectsResult{}, nil)
+	objects.EXPECT().ListObjects(mock.Anything, domain.ListObjectsInput{Bucket: "bkt", Prefix: "courses/", MaxKeys: 1000}).
+		Return(domain.ListObjectsResult{Objects: []domain.ObjectInfo{{Key: "courses/intro.mp4"}, {Key: "courses/notes.txt"}}}, nil)
+	var buf bytes.Buffer
+	res, err := b.Zip(ctx, admin.ZipInput{Requester: req("bob"), Bucket: "bkt", Prefixes: []string{"courses/"}}, func(string) (io.Writer, error) { return &buf, nil })
+	require.NoError(t, err)
+	files := readZip(t, buf.Bytes())
+	assert.Equal(t, "N", files["courses/notes.txt"])
+	assert.NotContains(t, files, "courses/intro.mp4", "the protected video is skipped")
+	assert.Len(t, res.Skipped, 1)
+
+	allowed, err := admin.NewObjectBrowser(admin.ObjectBrowserDeps{Objects: objects, Authz: allowAll(t), Protections: protections{}})
+	require.NoError(t, err)
+	d, err := allowed.Open(ctx, admin.OpenInput{Requester: req("bob"), Bucket: "bkt", Key: "courses/intro.mp4"})
+	require.NoError(t, err)
+	_ = d.Reader.Close()
+}

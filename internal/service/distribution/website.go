@@ -21,6 +21,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/match"
+	"github.com/r3n3r0/nexo/internal/service/media"
 	"github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 )
@@ -803,6 +804,16 @@ func authTypeOf(id *domain.Identity) domain.AuthType {
 // object (no answer then).
 func (w *website) readObject(ctx context.Context, c *compiledDistribution, req WebRequest, b Behavior, key, outcome string) (*WebResponse, bool) {
 	bucket := c.d.Origin.Bucket
+	// The original of a protected video never leaves through a
+	// distribution: it only streams. When the origin cannot tell (it is
+	// down), the read goes on: it fails too, or answers from the cache,
+	// which never holds an original refused here.
+	if w.deps.Media != nil {
+		prot, err := w.deps.Media.Protection(ctx, media.Source{Bucket: bucket, Key: key})
+		if err == nil && prot != nil {
+			return w.readError(ctx, c, req, b, key, fmt.Errorf("%w: protected video", domain.ErrAccessDenied))
+		}
+	}
 	conds := conditionsOf(req.Header)
 	rng := rangeOf(req.Header)
 	// If-Range (RFC 9110 §13.1.5): the range applies only to the version

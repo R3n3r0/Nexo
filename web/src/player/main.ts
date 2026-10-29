@@ -3,6 +3,7 @@ import './player.css';
 import Hls from 'hls.js';
 
 import { masterUrl } from './source';
+import { playbackClaims, startWatermark, watermarkText } from './watermark';
 
 /**
  * The public player of the stream shares, served by the S3 listener with
@@ -20,6 +21,18 @@ function fail(message: string) {
 }
 
 const src = masterUrl(window.location);
+const stage = document.querySelector<HTMLElement>('#stage');
+const mark = src ? watermarkText(playbackClaims(src)) : undefined;
+if (stage && video && mark) {
+  // A playback token names its viewer: drawn over the picture, also in
+  // full screen (the stage goes full screen instead of the bare video).
+  startWatermark(stage, mark);
+  document.addEventListener('fullscreenchange', () => {
+    if (document.fullscreenElement === video) {
+      void document.exitFullscreen().then(() => stage.requestFullscreen());
+    }
+  });
+}
 if (!video || !src) {
   fail('This link is not a video link.');
 } else if (video.canPlayType('application/vnd.apple.mpegurl') !== '') {

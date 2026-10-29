@@ -71,4 +71,60 @@ describe('mock media service', () => {
     // The 2160p rendition is taller than the 1080p source: skipped.
     expect(status.renditions?.map((r) => r.name)).toEqual(['720p']);
   });
+
+  it('stores the video protection with its defaults, validated like the server', async () => {
+    const { media } = admin();
+    expect(await media.getProtection('media')).toEqual({
+      enabled: false,
+      suffixes: ['.mp4', '.mov', '.m4v'],
+      tokenTtlSeconds: 7200,
+      maxSessions: 2,
+      paceFactor: 2,
+      watermark: true,
+      allowedOrigins: [],
+      shareLinks: false,
+    });
+    const stored = await media.setProtection('media', {
+      enabled: true,
+      prefix: 'courses/',
+      suffixes: ['.MP4'],
+      maxSessions: -1,
+      watermark: false,
+      allowedOrigins: ['HTTPS://Learn.Example.com/'],
+      shareLinks: true,
+    });
+    expect(stored).toEqual({
+      enabled: true,
+      prefix: 'courses/',
+      suffixes: ['.mp4'],
+      tokenTtlSeconds: 7200,
+      maxSessions: -1,
+      paceFactor: 2,
+      watermark: false,
+      allowedOrigins: ['https://learn.example.com'],
+      shareLinks: true,
+    });
+    expect(await media.getProtection('media')).toEqual(stored);
+
+    const refused = async (patch: object) =>
+      (await media
+        .setProtection('media', { ...stored, ...patch })
+        .catch((e: unknown) => e)) as ApiError;
+    expect((await refused({ tokenTtlSeconds: 30 })).detail).toBe(
+      'media protection: the token TTL must be 60 to 86400 seconds',
+    );
+    expect((await refused({ maxSessions: 101 })).detail).toBe(
+      'media protection: maxSessions must be 1 to 100, or -1 for no limit',
+    );
+    expect((await refused({ paceFactor: 21 })).detail).toBe(
+      'media protection: paceFactor must be 1 to 20',
+    );
+    const origin = await refused({ allowedOrigins: ['https://example.com/videos'] });
+    expect(origin.code).toBe('invalid_argument');
+    expect(origin.detail).toBe(
+      'media protection: "https://example.com/videos" is not an origin (https://host[:port])',
+    );
+    expect((await refused({ allowedOrigins: ['ftp://example.com'] })).status).toBe(400);
+    expect(await media.getProtection('media')).toEqual(stored);
+  });
 });

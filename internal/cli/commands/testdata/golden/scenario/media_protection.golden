@@ -1,0 +1,77 @@
+$ nexoctl media protection get mem/courses
+Video protection of `mem/courses`: disabled.
+
+$ nexoctl media protection set mem/courses --enable --prefix lessons/ --max-sessions 1 --origin https://Learn.Example.com --token-ttl 4h
+Video protection of `mem/courses` enabled.
+
+$ nexoctl media protection get mem/courses
+Video protection of `mem/courses`: enabled
+  Videos:        lessons/ (.mp4, .mov, .m4v)
+  Token TTL:     4h0m0s
+  Streams:       1 per viewer
+  Pace:          2x playback
+  Watermark:     yes
+  Origins:       https://learn.example.com
+  Share links:   no
+
+$ nexoctl media protection set mem/courses --max-sessions unlimited --watermark=false --share-links
+Video protection of `mem/courses` enabled.
+
+$ nexoctl media protection get --json mem/courses
+{"status":"success","target":"mem/courses","bucket":"courses","enabled":true,"prefix":"lessons/","suffixes":[".mp4",".mov",".m4v"],"tokenTtlSeconds":14400,"maxSessions":-1,"paceFactor":2,"watermark":false,"allowedOrigins":["https://learn.example.com"],"shareLinks":true}
+
+$ nexoctl media token mem/courses/lessons/intro.mp4 --subject student-1842 --watermark mario.rossi@example.com
+Playback token of `mem/courses/lessons/intro.mp4` for student-1842, valid until 2026-01-01T02:00:00Z (session 00000000000000000000000000000001).
+Playlist: http://admin.mem.test/nexo/media/v1/courses/master.m3u8?key=lessons%2Fintro.mp4&pt=tok1
+Player:   http://admin.mem.test/nexo/media/player/#/nexo/media/v1/courses/master.m3u8?key=lessons%2Fintro.mp4&pt=tok1
+
+$ nexoctl media token --json --ttl 30m mem/courses/lessons/intro.mp4 --subject student-7
+{"status":"success","target":"mem/courses/lessons/intro.mp4","bucket":"courses","key":"lessons/intro.mp4","subject":"student-7","token":"tok2","sessionId":"00000000000000000000000000000002","expiresAt":"2026-01-01T00:30:00Z","playlist":"http://admin.mem.test/nexo/media/v1/courses/master.m3u8?key=lessons%2Fintro.mp4&pt=tok2","player":"http://admin.mem.test/nexo/media/player/#/nexo/media/v1/courses/master.m3u8?key=lessons%2Fintro.mp4&pt=tok2"}
+
+$ nexoctl media revoke mem/courses --session 00000000000000000000000000000001
+Playback token 00000000000000000000000000000001 of `mem/courses` revoked.
+
+$ nexoctl media revoke mem/courses --subject student-7
+Playback tokens of student-7 for `mem/courses` revoked.
+
+$ nexoctl media protection set mem/courses --enable --disable
+! nexoctl: error: --enable and --disable are exclusive
+! Run 'nexoctl media protection set --help' for usage.
+[exit 2]
+
+$ nexoctl media protection set mem/courses --max-sessions 0
+! nexoctl: error: --max-sessions: expected 1 to 100 or unlimited, got "0"
+! Run 'nexoctl media protection set --help' for usage.
+[exit 2]
+
+$ nexoctl media protection set mem/courses --origin https://a.example/path
+! nexoctl: error: media protection: "https://a.example/path" is not an origin (https://host[:port])
+! Run 'nexoctl media protection set --help' for usage.
+[exit 2]
+
+$ nexoctl media protection set mem/courses --pace 50
+! nexoctl: error: media protection: paceFactor must be 1 to 20
+! Run 'nexoctl media protection set --help' for usage.
+[exit 2]
+
+$ nexoctl media token mem/courses/lessons/intro.mp4
+! nexoctl: error: --subject is required: the viewer the token is for
+! Run 'nexoctl media token --help' for usage.
+[exit 2]
+
+$ nexoctl media token mem/courses --subject s
+! nexoctl: error: mem/courses: expected a video or an image (ALIAS/BUCKET/KEY)
+! Run 'nexoctl media token --help' for usage.
+[exit 2]
+
+$ nexoctl media revoke mem/courses
+! nexoctl: error: give exactly one of --session and --subject
+! Run 'nexoctl media revoke --help' for usage.
+[exit 2]
+
+$ nexoctl media protection set mem/courses --disable
+Video protection of `mem/courses` disabled.
+
+$ nexoctl media protection get mem/courses
+Video protection of `mem/courses`: disabled.
+

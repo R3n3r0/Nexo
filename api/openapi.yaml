@@ -1155,6 +1155,59 @@ paths:
               schema: { $ref: "#/components/schemas/MediaProtection" }
         "400": { $ref: "#/components/responses/Problem" }
         default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/objects/playback-tokens:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { $ref: "#/components/parameters/key" }
+      - { $ref: "#/components/parameters/versionId" }
+    post:
+      tags: [objects]
+      operationId: issuePlaybackToken
+      summary: Issue a playback token of a video
+      description: >-
+        A playback token streams one video without credentials: its playlists, segments and, for a protected
+        video, its keys (at the pace of playback, to at most maxSessions simultaneous streams of the subject).
+        The answer holds the master playlist with the token, for any HLS player, and the Nexo player page.
+      x-nexo-actions: ["nexo:IssuePlaybackToken"]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlaybackTokenRequest" }
+      responses:
+        "201":
+          description: The token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlaybackToken" }
+        "400": { $ref: "#/components/responses/Problem" }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/media/playback-sessions/{session}:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { name: session, in: path, required: true, description: The sessionId of the token., schema: { type: string } }
+    delete:
+      tags: [buckets]
+      operationId: revokePlaybackSession
+      summary: Revoke a playback token
+      description: The token stops playing on every node within seconds.
+      x-nexo-actions: ["admin:RevokePlaybackTokens"]
+      responses:
+        "204": { description: Revoked. }
+        default: { $ref: "#/components/responses/Problem" }
+  /buckets/{bucket}/media/playback-subjects/{subject}:
+    parameters:
+      - { $ref: "#/components/parameters/bucket" }
+      - { name: subject, in: path, required: true, description: The subject of the tokens., schema: { type: string } }
+    delete:
+      tags: [buckets]
+      operationId: revokePlaybackSubject
+      summary: Revoke every playback token of a viewer
+      description: Every token of the videos of the bucket issued to the subject so far stops playing.
+      x-nexo-actions: ["admin:RevokePlaybackTokens"]
+      responses:
+        "204": { description: Revoked. }
+        default: { $ref: "#/components/responses/Problem" }
   /buckets/{bucket}/replication:
     parameters:
       - { $ref: "#/components/parameters/bucket" }
@@ -7058,6 +7111,22 @@ components:
         interval:
           type: string
           description: Interval between two thumbnails, a Go duration from 1s to 10m (default 10s).
+    PlaybackTokenRequest:
+      type: object
+      required: [subject]
+      properties:
+        subject: { type: string, maxLength: 256, description: "The viewer for the application (an account id): the simultaneous streams are counted by subject." }
+        watermark: { type: string, maxLength: 200, description: "The text the Nexo player draws over the video (default: the subject)." }
+        ttlSeconds: { type: integer, minimum: 60, description: "Validity of the token (default 7200, at most the token TTL of the protection; 86400 for an unprotected video)." }
+    PlaybackToken:
+      type: object
+      required: [token, sessionId, expiresAt, playlist, player]
+      properties:
+        token: { type: string, description: The value of the pt query parameter of the media routes. }
+        sessionId: { type: string, description: Identifies the token for its revocation. }
+        expiresAt: { type: string, format: date-time }
+        playlist: { type: string, description: "The master playlist with the token (absolute when the server knows its public URL)." }
+        player: { type: string, description: The Nexo player page of the video. }
     MediaProtection:
       type: object
       required: [enabled, watermark, allowedOrigins, shareLinks]

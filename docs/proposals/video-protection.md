@@ -1,6 +1,6 @@
 # Proposal: protected video streaming (download protection)
 
-Status: **in progress** (phase 1).
+Status: **implemented** (user guide: [docs/user/video-protection.md](../user/video-protection.md)).
 
 ## 1. Summary
 
@@ -57,11 +57,11 @@ suffixes of the media rules).
 
 ## 4. Playback tokens
 
-`POST /api/v1/buckets/{bucket}/objects/playback-tokens` (policy action `nexo:IssuePlaybackToken` on the object),
-`nexoctl media token`:
+`POST /api/v1/buckets/{bucket}/objects/playback-tokens?key=courses/intro.mp4` (policy action
+`nexo:IssuePlaybackToken` on the object), `nexoctl media token`:
 
 ```json
-{ "key": "courses/intro.mp4", "subject": "student-1842", "watermark": "mario.rossi@example.com", "ttl": "2h" }
+{ "subject": "student-1842", "watermark": "mario.rossi@example.com", "ttlSeconds": 7200 }
 ```
 
 answers the token, its expiry and two URLs: the master playlist for any HLS player and the Nexo player page.
@@ -71,8 +71,9 @@ subject, the watermark text, a random session id, the issue and expiry times. It
 the deployment's **media protection key** (§6), so every node verifies it alone. It is a capability for one video:
 it grants nothing else, needs no credentials in the player, and is carried by every URI of the playlists (`pt=`).
 
-Revocation: `DELETE /api/v1/media/playback-sessions/{sid}` revokes one token, `DELETE
-/api/v1/media/playback-subjects/{subject}` every token of a viewer until the longest TTL has passed.
+Revocation (`admin:RevokePlaybackTokens` on the bucket): `DELETE /api/v1/buckets/{bucket}/media/playback-sessions/{sid}`
+revokes one token, `DELETE /api/v1/buckets/{bucket}/media/playback-subjects/{subject}` every token of a viewer of the
+bucket issued so far.
 
 ## 5. Packaging
 
@@ -103,13 +104,15 @@ token and every segment key at once.
    (not presigned) request of an identity allowed `s3:GetObject` (owners previewing their videos); or a stream
    share link when `shareLinks` is on;
 2. the `Origin` (when present) is one of `allowedOrigins`;
-3. the token's session is one of the subject's `maxSessions` live sessions (a session lives while it fetches keys;
-   the oldest idle one is replaced);
-4. the number of distinct periods the session fetched stays under `elapsed / period × paceFactor + burst`: a player
-   seeking around is fine, a downloader asking for every key at once stops after the burst.
+3. the token's session is one of the subject's `maxSessions` streams for the bucket: a new stream beyond the limit
+   replaces the oldest one, which gets no key afterwards (a reload of the page plays at once; an account used by two
+   people keeps interrupting one of them);
+4. the number of distinct periods the session fetched stays under `elapsed / period × paceFactor + burst` (burst 3):
+   a player seeking around is fine, a downloader asking for every key at once stops after the burst (429).
 
-The sessions and the revocations live in the system store (shared by the nodes); the checks are counted in
-`nexo_media_keys_total{result}` and the refusals in the audit log.
+The streams of the viewers and the revocations live in the system store (shared by the nodes, cached for 10 s); the
+pace is measured on each node. The checks are counted in `nexo_media_keys_total{result}`. The distributions refuse
+the protected videos (their original and their playlists).
 
 ## 8. Original download
 

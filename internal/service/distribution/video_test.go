@@ -70,6 +70,7 @@ func links(l media.Links) []byte {
 func TestVideoStreamed(t *testing.T) {
 	d := videoSite(t)
 	m := mediamock.NewService(t)
+	m.EXPECT().Protection(tmock.Anything, tmock.Anything).Return(nil, nil).Maybe()
 	fx := newVideoEngine(t, m, nil)
 	fx.put("videos/intro.mp4", "mp4", "video/mp4")
 	src := media.Source{Bucket: d.Origin.Bucket, Key: "videos/intro.mp4"}
@@ -136,6 +137,7 @@ func TestVideoStreamed(t *testing.T) {
 func TestVideoErrors(t *testing.T) {
 	d := videoSite(t)
 	m := mediamock.NewService(t)
+	m.EXPECT().Protection(tmock.Anything, tmock.Anything).Return(nil, nil).Maybe()
 	fx := newVideoEngine(t, m, nil)
 	fx.put("videos/intro.mp4", "mp4", "video/mp4")
 	fx.put("videos/notes.txt", "text", "text/plain")
@@ -181,6 +183,7 @@ func TestVideoErrors(t *testing.T) {
 func TestVideoStreamOnly(t *testing.T) {
 	d := videoSite(t)
 	m := mediamock.NewService(t)
+	m.EXPECT().Protection(tmock.Anything, tmock.Anything).Return(nil, nil).Maybe()
 	fx := newVideoEngine(t, m, map[string][]policy.Action{
 		"videos/film.mp4":   {policy.ActionGetObject},
 		"videos/secret.mp4": {policy.ActionGetObject, policy.ActionGetMediaStream},
@@ -208,6 +211,7 @@ func TestVideoStreamOnly(t *testing.T) {
 func TestVideoSigned(t *testing.T) {
 	d := videoSite(t)
 	m := mediamock.NewService(t)
+	m.EXPECT().Protection(tmock.Anything, tmock.Anything).Return(nil, nil).Maybe()
 	fx := newVideoEngine(t, m, nil)
 	fx.put("private/talk.mp4", "mp4", "video/mp4")
 	src := media.Source{Bucket: d.Origin.Bucket, Key: "private/talk.mp4"}
@@ -258,4 +262,36 @@ func TestVideoValidation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, stored.DefaultBehavior.Video)
 	assert.True(t, stored.DefaultBehavior.Video.HLS)
+}
+
+// TestProtectedVideoOriginal: the original of a protected video is never
+// served by a distribution, its playlist is refused there (no keys are
+// served to a distribution yet), the other objects are.
+//
+// covers: S-OBJ-17
+func TestProtectedVideoOriginal(t *testing.T) {
+	d := videoSite(t)
+	m := mediamock.NewService(t)
+	bucket := d.Origin.Bucket
+	prot := &domain.MediaProtection{Enabled: true}
+	m.EXPECT().Protection(tmock.Anything, media.Source{Bucket: bucket, Key: "videos/intro.mp4"}).Return(prot, nil).Maybe()
+	m.EXPECT().Protection(tmock.Anything, tmock.Anything).Return(nil, nil).Maybe()
+	fx := newVideoEngine(t, m, nil)
+	fx.put("videos/intro.mp4", "mp4", "video/mp4")
+	fx.put("videos/notes.txt", "text", "text/plain")
+
+	resp, body := fx.do(t, d, webRequest{url: "https://tv.example.com/videos/intro.mp4"})
+	assert.Equal(t, http.StatusForbidden, resp.Status, body)
+	resp, body = fx.do(t, d, webRequest{url: "https://tv.example.com/videos/notes.txt"})
+	assert.Equal(t, http.StatusOK, resp.Status, body)
+
+	m.EXPECT().MediaPlaylist(tmock.Anything, media.Source{Bucket: bucket, Key: "videos/intro.mp4", Revision: "e1"}, tmock.Anything).
+		RunAndReturn(func(_ context.Context, _ media.Source, l media.Links) ([]byte, error) {
+			if l.Key("e1", 0) == "" {
+				return nil, fmt.Errorf("%w: protected video", domain.ErrAccessDenied)
+			}
+			return []byte("#EXTM3U\n"), nil
+		})
+	resp, body = fx.do(t, d, webRequest{url: "https://tv.example.com/videos/intro.mp4/media.m3u8?rev=e1"})
+	assert.Equal(t, http.StatusForbidden, resp.Status, body)
 }

@@ -426,8 +426,16 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	// listener (share links). The protected videos are encrypted with keys
 	// derived, like the session key, from the root credentials and the
 	// deployment ID: every node serves the same keys, nothing is stored.
+	protectionKey := media.DeriveProtectionKey(cfg.RootUser, cfg.RootPassword, d.deploymentID)
 	mediaSvc, err := media.New(media.Deps{Objects: objects, Protections: buckets, Logger: logger.With("component", "media")},
-		media.WithProtectionKey(media.DeriveProtectionKey(cfg.RootUser, cfg.RootPassword, d.deploymentID)))
+		media.WithProtectionKey(protectionKey))
+	if err != nil {
+		return nil, err
+	}
+	// The playback tokens of the videos, signed with the same key; their
+	// revocations and the streams of the viewers live in the system
+	// documents shared by the nodes.
+	playbackSvc, err := newPlayback(d, stores.docs, buckets, protectionKey, registry, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -513,7 +521,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		return nil, err
 	}
 	mediaRoutes, err := s3.NewMediaRoutes(s3.MediaDeps{Media: mediaSvc, Policy: s3Policy, Objects: objects, Signer: signer, Creds: identities,
-		Player: d.assets, Enc: codec, Clock: d.clock, Logger: logger}, s3.WithRegion(cfg.Region))
+		Playback: playbackSvc, Player: d.assets, SDK: jsSDK(), Enc: codec, Clock: d.clock, Logger: logger}, s3.WithRegion(cfg.Region))
 	if err != nil {
 		return nil, err
 	}
@@ -554,7 +562,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 		s3.NewBucketRoutes(s3.BucketDeps{Buckets: buckets, Objects: objects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger},
 			s3.WithRegion(cfg.Region)),
 		s3.NewObjectRoutes(s3.ObjectDeps{Objects: cachedObjects, Policy: s3Policy, Media: mediaSvc, Select: s3select.New(s3select.Deps{Logger: logger}), Enc: codec, Clock: d.clock, Logger: logger}, ssecOpt, sendTimeoutOpt(cfg)),
-		s3.NewMultipartRoutes(s3.MultipartDeps{Objects: objects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger}, ssecOpt),
+		s3.NewMultipartRoutes(s3.MultipartDeps{Objects: objects, Policy: s3Policy, Media: mediaSvc, Enc: codec, Clock: d.clock, Logger: logger}, ssecOpt),
 		s3.NewPresignedRoutes(s3.PresignedDeps{Verifier: verifier, Objects: objects, Buckets: buckets, Policy: s3Policy, Media: mediaSvc, Enc: codec, Clock: d.clock, Logger: logger},
 			s3.WithRegion(cfg.Region), ssecOpt),
 		s3.NewPostPolicyRoutes(s3.PostPolicyDeps{Verifier: verifier, Objects: objects, Policy: s3Policy, Enc: codec, Clock: d.clock, Logger: logger}, ssecOpt),
@@ -590,7 +598,7 @@ func compose(ctx context.Context, d composeDeps) (*services, error) {
 	adminAPI, err := buildAdminAPI(adminDeps{
 		codec: codec, limiter: limiter, clock: d.clock, logger: logger, region: cfg.Region, s3URL: publicS3URL(cfg),
 		sessions: sessions, idp: providers, verifier: verifier, signer: signer, admin: adminSvc, iam: identities, policy: policies,
-		buckets: buckets, objects: objects, media: mediaSvc, shares: shares, config: dynConfig, locks: f.lockManager, pools: healing.pools, secureCookies: secureConsole(cfg),
+		buckets: buckets, objects: objects, media: mediaSvc, playback: playbackSvc, shares: shares, config: dynConfig, locks: f.lockManager, pools: healing.pools, secureCookies: secureConsole(cfg),
 		consoleURL: cfg.BrowserRedirectURL, lifecycle: lifecycle, events: events, kms: keys, mediaJobs: mediaJobs,
 		accessRules: accessRules, dist: distStack, acmeDirectory: cfg.ACMEDirectory, acmeChallenge: cfg.ACMEChallenge,
 		cache: cacheSvc, replication: replicationSvc, siteReplication: siteReplSvc, tiers: tierSvc, updates: updateSvc, diagnostics: newDiagnostics(f, objects, buckets, logger),

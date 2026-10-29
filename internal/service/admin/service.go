@@ -720,6 +720,9 @@ type OpenInput struct {
 	Conditions domain.Conditions
 	// Preview asks for inline rendering when the content type is safe.
 	Preview bool
+	// Requester is the identity reading the object: the original of a
+	// protected video needs nexo:DownloadProtectedMedia.
+	Requester Requester
 }
 
 // Disposition values of a Download.

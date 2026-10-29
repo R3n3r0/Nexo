@@ -554,3 +554,48 @@ func (c *client) SetMediaProtection(ctx context.Context, bucket string, p MediaP
 	var out MediaProtection
 	return &out, c.do(ctx, request{method: http.MethodPut, path: pathOf("buckets", bucket, "media", "protection"), body: p}, &out)
 }
+
+// PlaybackTokenRequest asks for a playback token of a video.
+type PlaybackTokenRequest struct {
+	// Subject identifies the viewer for the application (required): the
+	// simultaneous streams are counted by subject.
+	Subject string `json:"subject"`
+	// Watermark is the text the Nexo player draws over the video (default:
+	// the subject).
+	Watermark string `json:"watermark,omitempty"`
+	// TTLSeconds is the validity of the token (0: 2 hours; at most the
+	// token TTL of the protection).
+	TTLSeconds int `json:"ttlSeconds,omitempty"`
+}
+
+// PlaybackToken is a playback token and where it plays.
+type PlaybackToken struct {
+	// Token is the value of the pt query parameter of the media routes.
+	Token     string    `json:"token"`
+	SessionID string    `json:"sessionId"`
+	ExpiresAt time.Time `json:"expiresAt"`
+	// Playlist is the master playlist with the token, for any HLS player;
+	// Player the Nexo player page.
+	Playlist string `json:"playlist"`
+	Player   string `json:"player"`
+}
+
+// IssuePlaybackToken implements AdminClient.
+func (c *client) IssuePlaybackToken(ctx context.Context, bucket, key, versionID string, req PlaybackTokenRequest) (*PlaybackToken, error) {
+	q := url.Values{"key": {key}}
+	if versionID != "" {
+		q.Set("versionId", versionID)
+	}
+	var out PlaybackToken
+	return &out, c.do(ctx, request{method: http.MethodPost, path: pathOf("buckets", bucket, "objects", "playback-tokens"), query: q, body: req}, &out)
+}
+
+// RevokePlaybackSession implements AdminClient.
+func (c *client) RevokePlaybackSession(ctx context.Context, bucket, sessionID string) error {
+	return c.do(ctx, request{method: http.MethodDelete, path: pathOf("buckets", bucket, "media", "playback-sessions", sessionID)}, nil)
+}
+
+// RevokePlaybackSubject implements AdminClient.
+func (c *client) RevokePlaybackSubject(ctx context.Context, bucket, subject string) error {
+	return c.do(ctx, request{method: http.MethodDelete, path: pathOf("buckets", bucket, "media", "playback-subjects", subject)}, nil)
+}

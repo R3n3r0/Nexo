@@ -10,6 +10,7 @@ import type {
   KmsStatus,
   LegalHoldStatus,
   LifecycleRule,
+  MediaProtection,
   MediaRule,
   MediaStatus,
   NotifyTarget,
@@ -82,6 +83,8 @@ export interface MockBucketState {
   media?: MediaRule[];
   /** Processing state of the videos, by "<key>\u0000<versionId>". */
   mediaStatus?: Map<string, MediaStatus>;
+  /** Download protection of the videos (none: the defaults, off). */
+  mediaProtection?: MediaProtection;
   /** Subtitle tracks, by "<key>\u0000<versionId>" then language. */
   subtitles?: Map<string, Map<string, { track: SubtitleTrack; cues: SubtitleCue[] }>>;
   /** Access rules and bucket-level block public access (D-ACC-01..04). */

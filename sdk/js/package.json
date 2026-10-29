@@ -1,0 +1,21 @@
+{
+  "name": "@nexo-storage/player",
+  "version": "0.1.0",
+  "description": "Play the protected videos of Nexo (HLS AES-128, playback tokens, viewer watermark) in any web page, and issue their playback tokens from a backend.",
+  "license": "AGPL-3.0-only",
+  "author": "Paolo Russo <paolorusso1991@gmail.com>",
+  "homepage": "https://github.com/R3n3r0/Nexo/tree/main/sdk/js",
+  "repository": { "type": "git", "url": "https://github.com/R3n3r0/Nexo.git", "directory": "sdk/js" },
+  "type": "module",
+  "sideEffects": ["./src/element.js", "./src/index.js"],
+  "exports": {
+    ".": { "types": "./src/index.d.ts", "default": "./src/index.js" },
+    "./server": { "types": "./src/server.d.ts", "default": "./src/server.js" }
+  },
+  "files": ["src", "README.md", "README.it.md"],
+  "engines": { "node": ">=18" },
+  "peerDependencies": { "hls.js": ">=1.4.0" },
+  "peerDependenciesMeta": { "hls.js": { "optional": true } },
+  "scripts": { "test": "node --test test/*.test.js" },
+  "keywords": ["nexo", "hls", "video", "drm", "aes-128", "lms", "player", "web-component"]
+}

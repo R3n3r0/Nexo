@@ -865,6 +865,84 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/buckets/{bucket}/objects/playback-tokens": {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue a playback token of a video
+         * @description A playback token streams one video without credentials: its playlists, segments and, for a protected video, its keys (at the pace of playback, to at most maxSessions simultaneous streams of the subject). The answer holds the master playlist with the token, for any HLS player, and the Nexo player page.
+         */
+        post: operations["issuePlaybackToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/media/playback-sessions/{session}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+                /** @description The sessionId of the token. */
+                session: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke a playback token
+         * @description The token stops playing on every node within seconds.
+         */
+        delete: operations["revokePlaybackSession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/buckets/{bucket}/media/playback-subjects/{subject}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+                /** @description The subject of the tokens. */
+                subject: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke every playback token of a viewer
+         * @description Every token of the videos of the bucket issued to the subject so far stops playing.
+         */
+        delete: operations["revokePlaybackSubject"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/buckets/{bucket}/replication": {
         parameters: {
             query?: never;
@@ -5712,6 +5790,26 @@ export interface components {
             /** @description Interval between two thumbnails, a Go duration from 1s to 10m (default 10s). */
             interval?: string;
         };
+        PlaybackTokenRequest: {
+            /** @description The viewer for the application (an account id): the simultaneous streams are counted by subject. */
+            subject: string;
+            /** @description The text the Nexo player draws over the video (default: the subject). */
+            watermark?: string;
+            /** @description Validity of the token (default 7200, at most the token TTL of the protection; 86400 for an unprotected video). */
+            ttlSeconds?: number;
+        };
+        PlaybackToken: {
+            /** @description The value of the pt query parameter of the media routes. */
+            token: string;
+            /** @description Identifies the token for its revocation. */
+            sessionId: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** @description The master playlist with the token (absolute when the server knows its public URL). */
+            playlist: string;
+            /** @description The Nexo player page of the video. */
+            player: string;
+        };
         MediaProtection: {
             enabled: boolean;
             /** @description Only the keys under the prefix (empty is the whole bucket). */
@@ -8480,6 +8578,88 @@ export interface operations {
                 };
             };
             400: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    issuePlaybackToken: {
+        parameters: {
+            query: {
+                /** @description Object key. */
+                key: components["parameters"]["key"];
+                /**
+                 * @description Version of the object; the policies see it as s3:versionid, as for the
+                 *     S3 request with the same versionId.
+                 */
+                versionId?: components["parameters"]["versionId"];
+            };
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlaybackTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description The token. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaybackToken"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            default: components["responses"]["Problem"];
+        };
+    };
+    revokePlaybackSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+                /** @description The sessionId of the token. */
+                session: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            default: components["responses"]["Problem"];
+        };
+    };
+    revokePlaybackSubject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bucket: components["parameters"]["bucket"];
+                /** @description The subject of the tokens. */
+                subject: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             default: components["responses"]["Problem"];
         };
     };

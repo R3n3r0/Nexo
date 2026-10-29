@@ -164,6 +164,13 @@ qualità ridotte per le reti lente (da 240p a 2160p, offerte dalla stessa playli
 barra di avanzamento. Il worker è un programma Go separato basato su OpenH264 di Cisco, **niente ffmpeg**, che
 lavora tramite l'API S3 con una policy minima e non perde mai un job.
 
+**Video protetti** per piattaforme di corsi e aree riservate, senza fornitori di DRM: i segmenti viaggiano cifrati
+(AES-128), le chiavi vanno solo a token di riproduzione a breve scadenza che la tua applicazione emette per ogni
+spettatore (al ritmo della riproduzione, con un limite di flussi simultanei), l'originale non si scarica e il player
+disegna la filigrana mobile dello spettatore. Funziona con qualsiasi player HLS; un piccolo
+[SDK JavaScript](sdk/js/README.it.md) (`<nexo-player>`, React, Angular, Vue, backend Node.js) lo riduce a una riga.
+Vedi [protezione video](docs/user/video-protection.it.md).
+
 <p align="center">
   <img src="docs/images/video-pipeline.svg" alt="La pipeline video: un MP4 caricato su Nexo va subito in streaming HLS; una regola media manda un job a nexo-media-worker, che scrive rendition, poster e miniature poi offerti dalla playlist" width="960">
 </p>
@@ -431,6 +438,10 @@ Servono Go (versione in `go.mod`) e, per la console, Node.js.
 Il codice segue la convenzione di [docs/12](docs/12-service-architecture.md): ogni servizio ha
 un'interfaccia e un'implementazione non esportata, la composizione avviene solo in `internal/app`.
 I contributi sono benvenuti: vedi [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## ✉️ Contatti
+
+Domande, licenze commerciali, collaborazioni: <paolorusso1991@gmail.com>. Problemi di sicurezza: vedi [SECURITY.md](SECURITY.md).
 
 ## 📄 Licenza
 

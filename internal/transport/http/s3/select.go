@@ -99,7 +99,7 @@ func (x *SelectObjectContentRequest) selectRequest() s3select.Request {
 // as S3 does.
 func (h *objectRoutes) selectObjectContent(w http.ResponseWriter, r *http.Request) {
 	bucketName, key := BucketName(r), ObjectKey(r)
-	if !h.authz.authorize(w, r, bucketName, key) {
+	if !h.authz.authorize(w, r, bucketName, key) || !h.authz.authorizeDownload(w, r, bucketName, key, r.URL.Query().Get("versionId")) {
 		return
 	}
 	if h.deps.Select == nil {

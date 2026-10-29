@@ -134,6 +134,23 @@ published: the baseline of the upgrade tests is the M7 commit (`f70cc7a`, built 
   results (`test/bench/machine.sh`); a C call
   of the OpenH264 binding that could write to a moved goroutine stack was fixed.
 
+### Video protection (S-OBJ-17)
+- A bucket protects its videos against download, from the console (bucket → Media → Video protection), the Admin
+  API (`/buckets/{bucket}/media/protection`) and `nexoctl media protection`: everything inside Nexo, no DRM vendor.
+- The HLS segments of a protected video are encrypted with AES-128 (`METHOD=AES-128`, a key every 10 segments,
+  derived from a deployment key, the object and its ETag: nothing stored); the keys go only to a playback token, a
+  console session or a signed request allowed to stream the video, at most `paceFactor` times faster than playback,
+  to at most `maxSessions` simultaneous streams of a viewer (the newest replaces the oldest), from the
+  `allowedOrigins`.
+- Playback tokens (`POST /buckets/{bucket}/objects/playback-tokens`, `nexoctl media token`, policy action
+  `nexo:IssuePlaybackToken`) stream one video without credentials (`pt=` on every media URI); revocation of a
+  token or of every token of a viewer (`admin:RevokePlaybackTokens`, `nexoctl media revoke`), shared by the nodes.
+- The original of a protected video needs `nexo:DownloadProtectedMedia`: GetObject, copy sources, UploadPartCopy,
+  SelectObjectContent, console download/preview/ZIP/rename/restore, distributions.
+- The Nexo player draws the viewer's watermark, moving, also in full screen; the JavaScript SDK (`sdk/js`,
+  `<nexo-player>`, `createPlayer()` for React/Angular/Vue, `createNexoClient()` for Node.js backends) is served by
+  Nexo at `/nexo/media/sdk/`. Metric `nexo_media_keys_total{result}`.
+
 ### Observability (M8)
 - Prometheus metrics on `/nexo/metrics/v1/{cluster,node,bucket}`: API with latency histograms, drives, network,
   locks, KMS, events, healing, scanner, ILM, cache and distributions; Grafana dashboards, alerts and Prometheus

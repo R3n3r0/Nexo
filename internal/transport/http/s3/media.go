@@ -20,6 +20,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/service/auth"
 	"github.com/r3n3r0/nexo/internal/service/media"
 	"github.com/r3n3r0/nexo/internal/service/object"
+	"github.com/r3n3r0/nexo/internal/service/playback"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
 	"github.com/r3n3r0/nexo/internal/transport/http/middleware"
@@ -28,6 +29,10 @@ import (
 // MediaPrefix is the path of the HLS presentations of a bucket on the S3
 // listener (domain.MediaPathPrefix, version 1): /nexo/media/v1/{bucket}/.
 const MediaPrefix = domain.MediaPathPrefix + "v1/"
+
+// SDKPath serves the ES modules of the JavaScript SDK of the player
+// (<script type="module" src="/nexo/media/sdk/index.js">).
+const SDKPath = domain.MediaPathPrefix + "sdk/"
 
 // PlayerPath is the public player page of the stream shares; the master
 // playlist goes in its fragment (/nexo/media/player/#/nexo/media/v1/...).
@@ -74,9 +79,15 @@ type MediaDeps struct {
 	// request (a share link) with the credentials that signed it.
 	Signer auth.Signer
 	Creds  auth.CredentialLookup
+	// Playback verifies the playback tokens (pt=) that stream a video
+	// without credentials; nil accepts none.
+	Playback playback.Service
 	// Player holds the build of the web console (player.html and its
 	// assets); nil serves no player page.
 	Player fs.FS
+	// SDK holds the ES modules of the JavaScript SDK (index.js,
+	// player.js...), served under SDKPath; nil serves none.
+	SDK    fs.FS
 	Enc    httpx.Codec
 	Clock  clock.Clock
 	Logger *slog.Logger
@@ -119,6 +130,7 @@ func NewMediaRoutes(deps MediaDeps, opts ...Option) (MediaRoutes, error) {
 func (h *mediaRoutes) Register(r chi.Router) {
 	r.Get(PlayerPath, h.player)
 	r.Get(PlayerPath+"assets/{name}", h.playerAsset)
+	r.Get(SDKPath+"{name}", h.sdkModule)
 	r.Get(MediaPrefix+"{bucket}/master.m3u8", h.serve(false, func(r *http.Request, src media.Source, l media.Links) ([]byte, string, error) {
 		b, err := h.deps.Media.MasterPlaylist(r.Context(), src, l)
 		return b, contentTypePlaylist, err
@@ -303,6 +315,30 @@ func (h *mediaRoutes) authorizeStream(w http.ResponseWriter, r *http.Request, sr
 	return h.authz.authorizeVersion(w, r, action, src.Bucket, src.Key, src.VersionID, nil)
 }
 
+// tokenParam is the query parameter of the playback tokens.
+const tokenParam = "pt"
+
+// authorizeViewer authorizes a request for a video: a playback token (pt)
+// of the video when the request carries one, else the identity of the
+// request (authorizeStream). It returns the claims of the token, nil
+// without one.
+func (h *mediaRoutes) authorizeViewer(w http.ResponseWriter, r *http.Request, src media.Source) (*playback.Claims, bool) {
+	token := r.URL.Query().Get(tokenParam)
+	if token == "" {
+		return nil, h.authorizeStream(w, r, src)
+	}
+	if h.deps.Playback == nil {
+		h.deps.Enc.WriteS3Error(w, r, fmt.Errorf("%w: playback tokens are not enabled", domain.ErrAccessDenied))
+		return nil, false
+	}
+	claims, err := h.deps.Playback.Verify(r.Context(), token, src.Bucket, src.Key, src.VersionID)
+	if err != nil {
+		h.deps.Enc.WriteS3Error(w, r, err)
+		return nil, false
+	}
+	return claims, true
+}
+
 // serve authorizes and serves one resource of a presentation; pinned
 // requires the revision (every URI but the master playlist).
 func (h *mediaRoutes) serve(pinned bool, build func(r *http.Request, src media.Source, l media.Links) ([]byte, string, error)) http.HandlerFunc {
@@ -317,10 +353,11 @@ func (h *mediaRoutes) serve(pinned bool, build func(r *http.Request, src media.S
 			h.deps.Enc.WriteS3Error(w, r, fmt.Errorf("%w: rev is required", domain.ErrInvalidArgument))
 			return
 		}
-		if !h.authorizeStream(w, r, src) {
+		claims, ok := h.authorizeViewer(w, r, src)
+		if !ok {
 			return
 		}
-		links, err := h.links(r, src)
+		links, err := h.links(r, src, claims)
 		if err != nil {
 			h.deps.Enc.WriteS3Error(w, r, err)
 			return
@@ -362,7 +399,8 @@ func (h *mediaRoutes) key(w http.ResponseWriter, r *http.Request) {
 		h.deps.Enc.WriteS3Error(w, r, fmt.Errorf("%w: rev and a non-negative i are required", domain.ErrInvalidArgument))
 		return
 	}
-	if !h.authorizeStream(w, r, src) {
+	claims, ok := h.authorizeViewer(w, r, src)
+	if !ok {
 		return
 	}
 	prot, err := h.deps.Media.Protection(r.Context(), src)
@@ -374,6 +412,18 @@ func (h *mediaRoutes) key(w http.ResponseWriter, r *http.Request) {
 		h.deps.Enc.WriteS3Error(w, r, fmt.Errorf("%w: %s is not a protected video", domain.ErrNotFound, src.Key))
 		return
 	}
+	if !prot.AllowsOrigin(r.Header.Get("Origin")) {
+		h.deps.Enc.WriteS3Error(w, r, fmt.Errorf("%w: origin not allowed", domain.ErrAccessDenied))
+		return
+	}
+	if claims != nil {
+		if err := h.authorizeKey(r, src, claims, prot, period); err != nil {
+			h.deps.Enc.WriteS3Error(w, r, err)
+			return
+		}
+		h.writeKey(w, r, src, period)
+		return
+	}
 	id, ok := middleware.IdentityFromContext(r.Context())
 	switch {
 	case !ok || id.IsAnonymous:
@@ -382,10 +432,24 @@ func (h *mediaRoutes) key(w http.ResponseWriter, r *http.Request) {
 	case auth.IsPresigned(q) && !prot.ShareLinks:
 		h.deps.Enc.WriteS3Error(w, r, fmt.Errorf("%w: the share links of this bucket do not play protected videos", domain.ErrAccessDenied))
 		return
-	case !prot.AllowsOrigin(r.Header.Get("Origin")):
-		h.deps.Enc.WriteS3Error(w, r, fmt.Errorf("%w: origin not allowed", domain.ErrAccessDenied))
-		return
 	}
+	h.writeKey(w, r, src, period)
+}
+
+// authorizeKey applies the limits of the protection to the stream of a
+// token: its viewer's simultaneous streams and the pace of playback (the
+// length of a key period of the presentation).
+func (h *mediaRoutes) authorizeKey(r *http.Request, src media.Source, claims *playback.Claims, prot *domain.MediaProtection, period int) error {
+	p, err := h.deps.Media.Describe(r.Context(), src)
+	if err != nil {
+		return err
+	}
+	// The first period is a full one: the pace of playback.
+	return h.deps.Playback.AuthorizeKey(r.Context(), claims, prot, period, media.PeriodLength(p, 0))
+}
+
+// writeKey serves the key of a period, never cached.
+func (h *mediaRoutes) writeKey(w http.ResponseWriter, r *http.Request, src media.Source, period int) {
 	key, err := h.deps.Media.Key(r.Context(), src, period)
 	if err != nil {
 		h.deps.Enc.WriteS3Error(w, r, err)
@@ -423,6 +487,29 @@ func (h *mediaRoutes) player(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(page)
 }
 
+// sdkModule serves an ES module of the JavaScript SDK, to any origin (a
+// page of an application imports it): revalidated, the server upgrades it.
+func (h *mediaRoutes) sdkModule(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	if h.deps.SDK == nil || path.Ext(name) != ".js" || !playerAssetName(name) {
+		h.deps.Enc.WriteS3Error(w, r, fmt.Errorf("%w: %s", domain.ErrNotFound, name))
+		return
+	}
+	data, err := fs.ReadFile(h.deps.SDK, name)
+	if err != nil {
+		h.deps.Enc.WriteS3Error(w, r, fmt.Errorf("%w: %s", domain.ErrNotFound, name))
+		return
+	}
+	hdr := w.Header()
+	hdr.Set("Content-Type", "text/javascript; charset=utf-8")
+	hdr.Set("Content-Length", strconv.Itoa(len(data)))
+	hdr.Set("Cache-Control", "public, max-age=3600")
+	hdr.Set("Access-Control-Allow-Origin", "*")
+	hdr.Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
 // playerAsset serves a script or a stylesheet of the build: fingerprinted,
 // cached for good.
 func (h *mediaRoutes) playerAsset(w http.ResponseWriter, r *http.Request) {
@@ -450,9 +537,14 @@ func (h *mediaRoutes) playerAsset(w http.ResponseWriter, r *http.Request) {
 // request expires; the others carry no signature (an anonymous reader of a
 // public object needs none, a request signed in its headers signs each of
 // its requests).
-func (h *mediaRoutes) links(r *http.Request, src media.Source) (media.Links, error) {
+func (h *mediaRoutes) links(r *http.Request, src media.Source, claims *playback.Claims) (media.Links, error) {
 	l := mediaLinks{key: src.Key, versionID: src.VersionID, rendition: src.Rendition}
 	q := r.URL.Query()
+	if claims != nil {
+		// The URIs carry the token, which authorizes them alone.
+		l.token = q.Get(tokenParam)
+		return l, nil
+	}
 	id, ok := middleware.IdentityFromContext(r.Context())
 	if !auth.IsPresigned(q) || !ok || id.IsAnonymous || id.AccessKey == "" {
 		return l, nil
@@ -492,6 +584,8 @@ func (h *mediaRoutes) links(r *http.Request, src media.Source) (media.Links, err
 // playlist, optionally presigned.
 type mediaLinks struct {
 	key, versionID, rendition string
+	// token is the playback token the URIs carry ("" for none).
+	token string
 	// sign returns the presigned query of the URI name (a decoded path
 	// relative to the request) with query.
 	sign func(name string, query url.Values) string
@@ -501,6 +595,9 @@ type mediaLinks struct {
 // was: name is a decoded path, escaped in the URI.
 func (l mediaLinks) link(name string, q url.Values) string {
 	escaped := (&url.URL{Path: name}).EscapedPath()
+	if l.token != "" {
+		q.Set(tokenParam, l.token)
+	}
 	if l.sign != nil {
 		return escaped + "?" + l.sign(name, q)
 	}

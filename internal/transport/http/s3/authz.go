@@ -11,6 +11,7 @@ import (
 	"github.com/r3n3r0/nexo/internal/clock"
 	"github.com/r3n3r0/nexo/internal/domain"
 	"github.com/r3n3r0/nexo/internal/service/auth"
+	"github.com/r3n3r0/nexo/internal/service/media"
 	objectpkg "github.com/r3n3r0/nexo/internal/service/object"
 	"github.com/r3n3r0/nexo/internal/service/policy"
 	"github.com/r3n3r0/nexo/internal/transport/http/httpx"
@@ -201,6 +202,33 @@ type authorizer struct {
 	// objects, when set, provides the tags of the addressed objects for
 	// the s3:ExistingObjectTag/<key> condition keys.
 	objects objectpkg.Service
+	// media, when set, names the protected videos, whose original needs
+	// nexo:DownloadProtectedMedia (authorizeDownload).
+	media protectedMedia
+}
+
+// protectedMedia names the protected videos (media.Service).
+type protectedMedia interface {
+	Protection(ctx context.Context, src media.Source) (*domain.MediaProtection, error)
+}
+
+// authorizeDownload authorizes a read of the original of an object
+// (GetObject, a copy source, SelectObjectContent): that of a video the
+// media protection of its bucket covers also needs
+// nexo:DownloadProtectedMedia, without which it only streams.
+func (a *authorizer) authorizeDownload(w http.ResponseWriter, r *http.Request, bucketName, object, versionID string) bool {
+	if a.media == nil {
+		return true
+	}
+	p, err := a.media.Protection(r.Context(), media.Source{Bucket: bucketName, Key: object})
+	if err != nil {
+		a.enc.WriteS3Error(w, r, err)
+		return false
+	}
+	if p == nil {
+		return true
+	}
+	return a.authorizeVersion(w, r, policy.ActionDownloadProtectedMedia, bucketName, object, versionID, nil)
 }
 
 // authorize checks the action of the operation selected by the
