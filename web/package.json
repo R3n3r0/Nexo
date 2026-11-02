@@ -48,7 +48,7 @@
     "@axe-core/playwright": "4.11.0",
     "@eslint/js": "9.39.5",
     "@playwright/test": "1.56.1",
-    "@size-limit/file": "12.1.0",
+    "@size-limit/file": "14.3.0",
     "@testing-library/dom": "10.4.2",
     "@testing-library/jest-dom": "6.10.0",
     "@testing-library/react": "16.3.3",
